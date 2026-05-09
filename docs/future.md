@@ -142,6 +142,29 @@ Bring back a nightly workflow that runs the live-LLM tests (`aaiclick/ai/test_pr
 - Recreate `.github/workflows/project-ai-tests.yaml` (or fold into a broader nightly workflow) running `pytest -m live_llm` against `aaiclick/ai/`.
 - Re-add the `ai-tests` job to `run-all-projects.yaml` (or its successor).
 
+## SSE Fanout Upgrades
+
+The v0 SSE pipeline (`docs/frontend.md`) polls the database every 1–2 s on
+the server side, diffs against the last snapshot, and emits the deltas as
+SSE events. It works identically against the local (chdb + SQLite) and
+distributed (ClickHouse + Postgres) backends with no extra infrastructure,
+but it caps event latency at the polling interval and burns one query per
+tick per active connection.
+
+Two upgrade paths, both deferred until polling actually hurts:
+
+- **Postgres LISTEN/NOTIFY** — workers `NOTIFY` on job/task state changes;
+  the FastAPI server `LISTEN`s and forwards to SSE clients. Sub-second
+  latency, no new service, but only available in distributed mode (SQLite
+  has no equivalent, so the polling fallback has to stay for local mode).
+- **Redis Pub/Sub** — needed only once we run multiple FastAPI workers
+  across machines and need cross-process fanout that LISTEN/NOTIFY can't
+  cheaply provide. New service to operate.
+
+**When to revisit**: when polling latency is a visible UX problem, or
+when CPU/query load from the polling loop becomes measurable, or when we
+horizontally scale the API server beyond a single host.
+
 ## Comparison Page
 
 `docs/comparison.md` — feature matrix comparing aaiclick vs Pandas, Spark, and Dask. Defer until the project has enough real-world usage to make meaningful claims.

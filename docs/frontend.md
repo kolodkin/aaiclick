@@ -110,6 +110,28 @@ state.
     If reconnect drops events, the next REST refetch heals the cache.
     No event-replay protocol needed.
 
+# Server-side fanout
+
+SSE is just the wire format. Getting events from wherever they originate
+(workers updating job/task state) to whichever FastAPI process holds the
+client connection is a separate problem.
+
+| Mechanism              | Infra cost           | Notes                                                       |
+|------------------------|----------------------|-------------------------------------------------------------|
+| DB polling (1–2s)      | None                 | Works for both SQLite and Postgres; **v0 default**          |
+| Postgres LISTEN/NOTIFY | None (PG only)       | Sub-second latency; doesn't work in SQLite local mode       |
+| Redis Pub/Sub          | New service          | Reach for it only when scaling FastAPI horizontally         |
+
+**v0**: server polls the DB at a short interval, diffs against the last
+snapshot, and emits SSE events for the changes. Adds 1–2 s latency but
+runs identically against the local (chdb + SQLite) and distributed
+(ClickHouse + Postgres) backends — no new infrastructure.
+
+Upgrade paths are tracked in `docs/future.md`:
+
+- Postgres LISTEN/NOTIFY for the distributed backend (lower latency)
+- Redis Pub/Sub once we run multiple FastAPI workers across machines
+
 # Open questions
 
 Tracked in `docs/future.md`:
