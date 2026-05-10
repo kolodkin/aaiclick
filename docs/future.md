@@ -152,6 +152,48 @@ an `.html` / `HTML` entry to `FORMATS` in `aaiclick/data/formats.py` and the
 corresponding test once chdb's build includes it, or once aaiclick gains a
 way to fall back to clickhouse-connect for formats chdb doesn't ship.
 
+## SSE Cross-Host Fanout (Redis)
+
+The v0 SSE pipeline (`docs/frontend.md`) feeds deltas onto a single
+in-process bus inside one FastAPI process — Postgres `LISTEN/NOTIFY` for
+distributed mode, polling for SQLite local mode. That works for any
+deployment where there is exactly one API process per host that clients
+can connect to.
+
+Once we run multiple FastAPI workers across machines (e.g. behind a load
+balancer for horizontal scale), a notification arriving on host A's
+`LISTEN` connection won't reach an SSE client connected to host B.
+LISTEN/NOTIFY can't cheaply solve cross-host fanout — every host would
+need its own `LISTEN`, which doesn't scale and amplifies DB load.
+
+**Solution when it lands**: Redis Pub/Sub. Workers (or the LISTEN
+adapter) publish to a Redis channel; every FastAPI host subscribes and
+forwards onto its in-process bus. The in-process bus and SSE delivery
+layer don't change — only the *feeder* gets a third option.
+
+**When to revisit**: when we horizontally scale the API server beyond a
+single host, or when the single-process bus becomes a measurable
+bottleneck for connection count or fan-out throughput.
+
+## Frontend Unit Tests
+
+The SPA (`docs/frontend.md`) ships with no unit-test layer in v0 — only
+TypeScript's static type check (`tsc --noEmit`) and Playwright e2e
+coverage in `test_e2e/web/`. Add Vitest + React Testing Library when
+component logic grows enough that e2e feedback is too coarse to localize
+regressions: typically when a single component owns enough branching
+behavior (form validation, derived state, conditional rendering paths)
+that an e2e failure can't tell you which branch broke.
+
+**Work when revisited**:
+
+- Add `vitest`, `@testing-library/react`, `jsdom` to `package.json` dev deps.
+- `npm test` script + `vitest.config.ts` reusing the Vite config.
+- Co-locate tests next to the component (`Foo.tsx` → `Foo.test.tsx`),
+  matching the Python convention of test files alongside the modules
+  they test.
+- Add an `npm test` step to the CI workflow that runs the SPA gates.
+
 ## Comparison Page
 
 `docs/comparison.md` — feature matrix comparing aaiclick vs Pandas, Spark, and Dask. Defer until the project has enough real-world usage to make meaningful claims.

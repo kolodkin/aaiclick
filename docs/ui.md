@@ -1,7 +1,9 @@
 UI Specification
 ---
 
-Single-screen, prompt-driven dashboard for aaiclick operators. Built with **Preact + TailwindCSS** (SPA) and a **FastAPI** backend with WebSocket for real-time updates.
+Single-screen, prompt-driven dashboard for aaiclick operators. SPA served by
+the FastAPI backend with real-time updates over SSE. Tech stack and build
+details: `docs/frontend.md`.
 
 # Layout
 
@@ -108,18 +110,7 @@ Task statuses use the same color scheme as job statuses, plus:
 
 **Wireframe**: `docs/ui/task_detail.excalidraw.svg`
 
-# Tech Stack
+# Tech stack & real-time
 
-| Layer    | Technology         |
-|----------|--------------------|
-| Frontend | Preact + TailwindCSS (SPA) |
-| Backend  | FastAPI            |
-| Real-time | WebSocket         |
-| Bundler  | TBD (vite likely)  |
-
-# Real-time Updates
-
-- WebSocket connection from frontend to FastAPI backend
-- Backend pushes updates when job/task status changes
-- Frontend re-renders content area on update
-- Connection auto-reconnects on disconnect
+See `docs/frontend.md` for framework choices, project layout, build
+workflow, the data layer, and the SSE event protocol.
