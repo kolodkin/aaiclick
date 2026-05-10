@@ -176,16 +176,14 @@ def bootstrap_ollama(model: str, *, base_url: str = OLLAMA_BASE_URL) -> OllamaBo
         # 404 → fall through to pull. exc.close() releases the response stream
         # (Python 3.14's tempfile-backed body would raise ResourceWarning on gc,
         # which filterwarnings=["error"] escalates to a failure).
-        try:
-            if exc.code != 404:
-                return OllamaBootstrapResult(
-                    model=model,
-                    server_url=base_url,
-                    status=OLLAMA_FAILED,
-                    detail=f"model lookup failed: {exc}",
-                )
-        finally:
-            exc.close()
+        exc.close()
+        if exc.code != 404:
+            return OllamaBootstrapResult(
+                model=model,
+                server_url=base_url,
+                status=OLLAMA_FAILED,
+                detail=f"model lookup failed: {exc}",
+            )
 
     pull_req = urllib.request.Request(  # noqa: S310
         f"{base_url}/api/pull",

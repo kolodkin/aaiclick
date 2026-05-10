@@ -4,11 +4,6 @@ name: test-py-nightly
 # (test.yaml) only runs the 3.10 minimum; this workflow re-verifies 3.10
 # alongside 3.14 (the latest stable) so a fix tailored to one version
 # can't silently regress the other between PR merges.
-#
-# The file is still ``test-py313.yaml`` because ``workflow_dispatch`` only
-# resolves files registered on the default branch — renaming on a feature
-# branch breaks dispatch until merge. Rename to ``test-py-nightly.yaml``
-# in a follow-up once this lands on main.
 
 on:
   schedule:
