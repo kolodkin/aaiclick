@@ -141,6 +141,11 @@ async def with_url_retry(
         try:
             return await fn()
         except Exception as exc:
+            # Python 3.14 backs HTTPError's response body with a tempfile;
+            # close it explicitly so gc cleanup never fires ResourceWarning
+            # (which ``filterwarnings=["error"]`` would escalate).
+            if isinstance(exc, urllib.error.HTTPError):
+                exc.close()
             if attempt == retries or not _is_retryable_url_error(exc):
                 raise
             await asyncio.sleep(backoff_factor**attempt)
