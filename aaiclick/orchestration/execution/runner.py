@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import inspect
 import math
 import sys
 from collections.abc import Callable
@@ -292,7 +293,7 @@ async def execute_task(task: Task) -> tuple[Any, str]:
             run_id=run_id,
         ):
             kwargs = await deserialize_task_params(task.kwargs)
-            if asyncio.iscoroutinefunction(func):
+            if inspect.iscoroutinefunction(func):
                 result = await func(**kwargs)
             else:
                 result = func(**kwargs)

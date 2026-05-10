@@ -27,7 +27,7 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
+import inspect
 from collections.abc import Callable
 from math import ceil, log
 from typing import Any
@@ -157,7 +157,7 @@ async def _map_part(
         cbk_args = []
     if cbk_kwargs is None:
         cbk_kwargs = {}
-    is_async = asyncio.iscoroutinefunction(cbk)
+    is_async = inspect.iscoroutinefunction(cbk)
     rows = await part.data()
     for row in rows:
         if is_async:
@@ -339,7 +339,7 @@ async def _reduce_part(
     if cbk_kwargs is None:
         cbk_kwargs = {}
 
-    is_async = asyncio.iscoroutinefunction(cbk)
+    is_async = inspect.iscoroutinefunction(cbk)
     if is_async:
         await cbk(part, layer_obj, *cbk_args, **cbk_kwargs)
     else:
