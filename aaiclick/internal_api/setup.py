@@ -173,13 +173,19 @@ def bootstrap_ollama(model: str, *, base_url: str = OLLAMA_BASE_URL) -> OllamaBo
             detail=f"model '{model_name}' already downloaded",
         )
     except urllib.error.HTTPError as exc:
-        if exc.code != 404:
-            return OllamaBootstrapResult(
-                model=model,
-                server_url=base_url,
-                status=OLLAMA_FAILED,
-                detail=f"model lookup failed: {exc}",
-            )
+        # HTTPError carries an open response stream — close it explicitly so
+        # Python 3.14's tempfile-backed body doesn't trigger a ResourceWarning
+        # on garbage collection.
+        try:
+            if exc.code != 404:
+                return OllamaBootstrapResult(
+                    model=model,
+                    server_url=base_url,
+                    status=OLLAMA_FAILED,
+                    detail=f"model lookup failed: {exc}",
+                )
+        finally:
+            exc.close()
 
     pull_req = urllib.request.Request(  # noqa: S310
         f"{base_url}/api/pull",
