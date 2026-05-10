@@ -131,15 +131,17 @@ async def filter_movies(raw: Object) -> Object:
     a Computed column with ``splitByChar(',', genres)``; downstream tasks
     can then use first-class array operators (``has``, ``arrayJoin``, ...).
     """
-    movies = (
+    filtered = (
         raw.where("titleType = 'movie'")
         .where("isAdult = '0'")
         .where(r"genres != '\N'")
         .where(r"startYear != '\N'")
         .with_columns({"genres_arr": Computed("Array(String)", "splitByChar(',', genres)")})
     )
-    movies = movies.rename({"genres": "genres_raw", "genres_arr": "genres"})
-    movies = movies[
+    # Materialize first so genres_arr becomes a real schema column, then
+    # project (dropping the original String genres) and rename to "genres".
+    materialized = await filtered.copy()
+    movies = materialized[
         [
             "tconst",
             "titleType",
@@ -149,9 +151,10 @@ async def filter_movies(raw: Object) -> Object:
             "startYear",
             "endYear",
             "runtimeMinutes",
-            "genres",
+            "genres_arr",
         ]
     ]
+    movies = movies.rename({"genres_arr": "genres"})
     return await movies.copy()
 
 
