@@ -95,9 +95,9 @@ async def sample_for_airtable(plots: Object, genre_balance: Object) -> Object:
 async def publish_to_airtable(sample: Object) -> AirtablePublishResult:
     api_key = os.environ.get("AIRTABLE_API_KEY")
     base_id = os.environ.get("AIRTABLE_BASE_ID")
-    table   = os.environ.get("AIRTABLE_TABLE_NAME")
-    if not (api_key and base_id and table):
-        return AirtablePublishResult(status="skipped", reason="AIRTABLE_* env vars not set")
+    table   = os.environ.get("AIRTABLE_TABLE_NAME", "IMDB")
+    if not (api_key and base_id):
+        return AirtablePublishResult(status="skipped", reason="AIRTABLE_API_KEY/BASE_ID not set")
 
     rows = await sample.data(orient=ORIENT_DICT)
     records = [{"fields": {col: rows[col][i] for col in rows}} for i in range(len(rows["tconst"]))]
@@ -165,13 +165,13 @@ The Airtable `Multiple select` field accepts a JSON array directly via the API �
 
 ## Environment variables
 
-| Var                    | Purpose                                            |
-|------------------------|----------------------------------------------------|
-| `AIRTABLE_API_KEY`     | Personal access token (gates upload)               |
-| `AIRTABLE_BASE_ID`     | Base id (`appXXXXXXXX`)                            |
-| `AIRTABLE_TABLE_NAME`  | Table name within the base                         |
+| Var                    | Default     | Purpose                                            |
+|------------------------|-------------|----------------------------------------------------|
+| `AIRTABLE_API_KEY`     | (required)  | Personal access token (gates upload)               |
+| `AIRTABLE_BASE_ID`     | (required)  | Base id (`appXXXXXXXX`)                            |
+| `AIRTABLE_TABLE_NAME`  | `IMDB`      | Table name within the base                         |
 
-All three required; missing any → task returns `AirtablePublishResult(status="skipped", reason="...")` without raising. Mirrors the `HF_TOKEN` gating pattern already used by `publish_to_huggingface`. No default is provided for `AIRTABLE_BASE_ID` because Airtable's REST API rejects anything that isn't a real `app...` id; for consistency `AIRTABLE_TABLE_NAME` is also unset by default.
+`AIRTABLE_API_KEY` and `AIRTABLE_BASE_ID` are required; missing either → task returns `AirtablePublishResult(status="skipped", reason="...")` without raising. Mirrors the `HF_TOKEN` gating pattern already used by `publish_to_huggingface`. `AIRTABLE_TABLE_NAME` defaults to `IMDB` — Airtable accepts table names directly in the API URL, and `IMDB` is the recommended convention for this pipeline. No default is provided for `AIRTABLE_BASE_ID` because Airtable's REST API rejects anything that isn't a real `app...` id.
 
 ## Failure / rate-limit handling
 
