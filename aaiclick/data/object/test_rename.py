@@ -150,3 +150,102 @@ async def test_rename_duplicate_new_names_raises(ctx):
     obj = await create_object(schema)
     with pytest.raises(ValueError, match="Duplicate"):
         obj.rename({"col_a": "same", "col_b": "same"})
+
+
+async def test_rename_swap_names(ctx):
+    """Regression: a rename whose target reuses an existing column name
+    (here ``genres_array -> genres`` while ``genres`` is renamed away)
+    must not silently swap values. Naive ``SELECT genres AS genres_str,
+    genres_array AS genres FROM t`` is ambiguous — the alias ``genres``
+    shadows the original column, so both items resolve to the same
+    expression. The fix qualifies column refs with a table alias when
+    a rename target reuses an existing column name."""
+    schema = Schema(
+        fieldtype=FIELDTYPE_DICT,
+        columns={
+            "title": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
+            "genres": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
+            "genres_array": ColumnInfo("String", array=1, fieldtype=FIELDTYPE_ARRAY),
+        },
+    )
+    obj = await create_object(schema)
+    ch = obj.ch_client
+    await ch.command(
+        f"INSERT INTO {obj.table} (title, genres, genres_array) "
+        f"VALUES ('Movie', 'Action', ['Action', 'Drama'])"
+    )
+
+    view = obj.rename({"genres": "genres_str", "genres_array": "genres"})
+    data = await view.data()
+
+    assert set(data.keys()) == {"title", "genres_str", "genres"}
+    assert data["title"] == ["Movie"]
+    assert data["genres_str"] == ["Action"]
+    assert data["genres"] == [["Action", "Drama"]]
+
+
+async def test_copy_after_rename_uses_new_names(ctx):
+    """Regression: copy() on a renamed View must use post-rename names in
+    both the destination schema and the INSERT/SELECT.
+
+    Before the fix, ``_get_copy_info`` built ``columns`` from the original
+    schema while the inner SELECT already aliased ``old AS new`` — so
+    ``copy_db`` produced ``INSERT INTO new (orig) SELECT orig FROM (...
+    orig AS new ...)``, which fails with ClickHouse Code 47 because the
+    inner subquery no longer exposes ``orig``."""
+    schema = Schema(
+        fieldtype=FIELDTYPE_DICT,
+        columns={
+            "title": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
+            "genres": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
+            "genres_array": ColumnInfo("String", array=1, fieldtype=FIELDTYPE_ARRAY),
+        },
+    )
+    obj = await create_object(schema)
+    ch = obj.ch_client
+    await ch.command(
+        f"INSERT INTO {obj.table} (title, genres, genres_array) "
+        f"VALUES ('Movie', 'Action', ['Action', 'Drama'])"
+    )
+
+    renamed = obj.rename({"genres": "genres_str", "genres_array": "genres"})
+    copied = await renamed.copy()
+
+    assert set(copied._schema.columns.keys()) == {"title", "genres_str", "genres"}
+    data = await copied.data()
+    assert data["title"] == ["Movie"]
+    assert data["genres_str"] == ["Action"]
+    assert data["genres"] == [["Action", "Drama"]]
+
+
+async def test_select_columns_after_rename(ctx):
+    """Regression: ``View.__getitem__`` on a renamed View must accept the
+    post-rename names.
+
+    Before the fix, ``_effective_columns`` looked up selected_fields in
+    the original ``_schema.columns`` (KeyError on the new name) and
+    ``_build_select`` emitted the new name as a bare column ref against
+    the underlying table (ClickHouse Code 47). The fix inverts the rename
+    mapping at lookup/emission so post-rename names project from their
+    source columns via aliases."""
+    schema = Schema(
+        fieldtype=FIELDTYPE_DICT,
+        columns={
+            "title": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
+            "genres_array": ColumnInfo("String", array=1, fieldtype=FIELDTYPE_ARRAY),
+        },
+    )
+    obj = await create_object(schema)
+    ch = obj.ch_client
+    await ch.command(
+        f"INSERT INTO {obj.table} (title, genres_array) "
+        f"VALUES ('Movie', ['Action', 'Drama'])"
+    )
+
+    renamed = obj.rename({"genres_array": "genres"})
+    sub = renamed[["title", "genres"]]
+    data = await sub.data()
+
+    assert set(data.keys()) == {"title", "genres"}
+    assert data["title"] == ["Movie"]
+    assert data["genres"] == [["Action", "Drama"]]

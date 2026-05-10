@@ -2500,14 +2500,20 @@ class View(Object):
         orig = self._schema.columns
         renames = self._renamed_columns or {}
 
+        # selected_fields hold post-rename names (the user's view of the
+        # schema); map them back to source column names via the inverse
+        # rename when looking up types in ``orig``.
+        inv_renames = {new: old for old, new in renames.items()}
         if self._selected_fields and self.is_single_field:
             field = self._selected_fields[0]
-            col_def = orig.get(field, ColumnInfo("Float64"))
+            src_name = inv_renames.get(field, field)
+            col_def = orig.get(src_name, ColumnInfo("Float64"))
             columns = {"value": col_def}
         elif self._selected_fields:
             columns = {}
             for f in self._selected_fields:
-                columns[f] = orig[f]
+                src_name = inv_renames.get(f, f)
+                columns[f] = orig[src_name]
         else:
             columns = {renames.get(name, name): info for name, info in orig.items()}
 
@@ -2660,25 +2666,46 @@ class View(Object):
         Returns:
             str: SELECT query string with WHERE/LIMIT/OFFSET/ORDER BY applied
         """
+        # When a rename target reuses a column name that already exists in
+        # the source schema (e.g. ``{"a": "b", "b": "c"}`` or a swap like
+        # ``{"genres": "genres_str", "genres_array": "genres"}``), unqualified
+        # column refs in the SELECT list collide with the alias — ClickHouse
+        # resolves the alias before the column ref, so both items receive the
+        # aliased expression's value. Qualify column refs with a table alias
+        # to disambiguate.
+        renames_in = self._renamed_columns or {}
+        needs_table_alias = bool(set(renames_in.values()) & set(renames_in.keys()))
+        table_alias = "__aaiclick_src" if needs_table_alias else None
+        col_qual = f"{table_alias}." if table_alias else ""
         if self.selected_fields:
             # Carry aai_id through field-selected subqueries so binary
             # operators can propagate it onto the result table — without
             # this, ``(obj["x"] + array_b)`` would build a source subquery
             # that omits aai_id, and the operator's outer SELECT can't find it.
-            aai_id_proj = ", aai_id" if AAI_ID_COLUMN in self._schema.columns else ""
+            aai_id_proj = f", {col_qual}aai_id" if AAI_ID_COLUMN in self._schema.columns else ""
+            inv_renames = {new: old for old, new in renames_in.items()}
             if self.is_single_field:
-                # Single field: rename as 'value' for array compatibility
-                field = quote_identifier(self.selected_fields[0])
+                # Single field: rename as 'value' for array compatibility.
+                # selected_fields holds post-rename names — map back to source.
+                src = inv_renames.get(self.selected_fields[0], self.selected_fields[0])
+                field = f"{col_qual}{quote_identifier(src)}"
                 select_cols = f"{field} AS value{aai_id_proj}"
             else:
-                fields_str = ", ".join(quote_identifier(f) for f in self.selected_fields)
-                select_cols = f"{fields_str}{aai_id_proj}"
+                parts = []
+                for f in self.selected_fields:
+                    src = inv_renames.get(f, f)
+                    qsrc = f"{col_qual}{quote_identifier(src)}"
+                    if src != f:
+                        parts.append(f"{qsrc} AS {quote_identifier(f)}")
+                    else:
+                        parts.append(qsrc)
+                select_cols = ", ".join(parts) + aai_id_proj
         elif self._renamed_columns and columns == "*":
             # Expand * into explicit columns with renames applied
             renames = self._renamed_columns
             col_parts = []
             for col_name in self._schema.columns:
-                qname = quote_identifier(col_name)
+                qname = f"{col_qual}{quote_identifier(col_name)}"
                 if col_name in renames:
                     col_parts.append(f"{qname} AS {quote_identifier(renames[col_name])}")
                 else:
@@ -2712,7 +2739,8 @@ class View(Object):
             if computed_parts:
                 select_cols += ", " + ", ".join(computed_parts)
 
-        query = f"SELECT {select_cols} FROM {self.table}"
+        from_clause = f"{self.table} AS {table_alias}" if table_alias else self.table
+        query = f"SELECT {select_cols} FROM {from_clause}"
         if self._exploded_columns:
             join_type = "LEFT ARRAY JOIN" if self._left_explode else "ARRAY JOIN"
             join_parts = []
@@ -2761,7 +2789,14 @@ class View(Object):
             source_query = f"({self._build_select(skip_order_by=True)})"
         else:
             source_query = self.table
-        columns = dict(self._schema.columns)
+        # Apply renames so the destination schema and the INSERT/SELECT
+        # column list use the post-rename names — matching the aliases
+        # emitted by the inner ``_build_select``. Without this, ``copy_db``
+        # builds ``INSERT INTO new (orig_name) SELECT orig_name FROM
+        # (... orig AS new_name ...)`` which fails with ClickHouse Code 47
+        # because ``orig_name`` is no longer exposed by the inner SELECT.
+        renames = self._renamed_columns or {}
+        columns = {renames.get(name, name): info for name, info in self._schema.columns.items()}
 
         # Include computed columns in destination schema so copy() materializes them
         if self._computed_columns:
@@ -2770,9 +2805,12 @@ class View(Object):
 
         if self._exploded_columns:
             for col_name in self._exploded_columns:
-                if col_name in columns:
-                    old_info = columns[col_name]
-                    columns[col_name] = old_info.model_copy(update={"array": max(0, int(old_info.array) - 1)})
+                effective_name = renames.get(col_name, col_name)
+                if effective_name in columns:
+                    old_info = columns[effective_name]
+                    columns[effective_name] = old_info.model_copy(
+                        update={"array": max(0, int(old_info.array) - 1)}
+                    )
         return CopyInfo(
             source_query=source_query,
             fieldtype=self._schema.fieldtype,
