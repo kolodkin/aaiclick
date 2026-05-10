@@ -3,6 +3,11 @@ name: test-py314
 # Nightly Python 3.14 leg. PR CI (test.yaml) stays on 3.10 — the project's
 # minimum supported version per pyproject.toml. This workflow surfaces 3.14
 # deprecations within 24h without doubling per-PR CI minutes.
+#
+# The file is still ``test-py313.yaml`` because ``workflow_dispatch`` only
+# resolves files registered on the default branch — renaming on a feature
+# branch breaks dispatch until merge. Rename to ``test-py314.yaml`` in a
+# follow-up once this lands on main.
 
 on:
   schedule:

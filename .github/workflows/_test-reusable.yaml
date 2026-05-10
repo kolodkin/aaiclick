@@ -1,9 +1,9 @@
 name: tests (reusable)
 
 # Shared matrix body for the test workflows. Both ``test.yaml`` (PR /
-# push, pinned to 3.10 — the project's minimum) and ``test-py314.yaml``
-# (nightly, 3.14) call this. They differ only in the ``python-version``
-# input.
+# push, pinned to 3.10 — the project's minimum) and ``test-py313.yaml``
+# (nightly, currently exercising 3.14) call this. They differ only in
+# the ``python-version`` input.
 
 on:
   workflow_call:
