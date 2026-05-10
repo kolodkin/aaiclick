@@ -1,13 +1,14 @@
-name: test-py314
+name: test-py-nightly
 
-# Nightly Python 3.14 leg. PR CI (test.yaml) stays on 3.10 — the project's
-# minimum supported version per pyproject.toml. This workflow surfaces 3.14
-# deprecations within 24h without doubling per-PR CI minutes.
+# Nightly leg covering both ends of the supported-Python range. PR CI
+# (test.yaml) only runs the 3.10 minimum; this workflow re-verifies 3.10
+# alongside 3.14 (the latest stable) so a fix tailored to one version
+# can't silently regress the other between PR merges.
 #
 # The file is still ``test-py313.yaml`` because ``workflow_dispatch`` only
 # resolves files registered on the default branch — renaming on a feature
-# branch breaks dispatch until merge. Rename to ``test-py314.yaml`` in a
-# follow-up once this lands on main.
+# branch breaks dispatch until merge. Rename to ``test-py-nightly.yaml``
+# in a follow-up once this lands on main.
 
 on:
   schedule:
@@ -20,11 +21,15 @@ permissions:
   checks: write
 
 concurrency:
-  group: test-py314
+  group: test-py-nightly
   cancel-in-progress: false
 
 jobs:
   tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.14"]
     uses: ./.github/workflows/_test-reusable.yaml
     with:
-      python-version: "3.14"
+      python-version: ${{ matrix.python-version }}
