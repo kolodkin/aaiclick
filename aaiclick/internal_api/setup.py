@@ -173,11 +173,9 @@ def bootstrap_ollama(model: str, *, base_url: str = OLLAMA_BASE_URL) -> OllamaBo
             detail=f"model '{model_name}' already downloaded",
         )
     except urllib.error.HTTPError as exc:
-        # 404 falls through to the pull request below — "model not found" is
-        # exactly the signal we expect before pulling. Python 3.14 backs the
-        # response body with a tempfile, so close the exception explicitly to
-        # release it before falling through (otherwise gc cleanup raises
-        # ResourceWarning, which filterwarnings=["error"] escalates).
+        # 404 → fall through to pull. exc.close() releases the response stream
+        # (Python 3.14's tempfile-backed body would raise ResourceWarning on gc,
+        # which filterwarnings=["error"] escalates to a failure).
         try:
             if exc.code != 404:
                 return OllamaBootstrapResult(
