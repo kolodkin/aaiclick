@@ -173,6 +173,14 @@ The Airtable `Multiple select` field accepts a JSON array directly via the API �
 
 `AIRTABLE_API_KEY` and `AIRTABLE_BASE_ID` are required; missing either → task returns `AirtablePublishResult(status="skipped", reason="...")` without raising. Mirrors the `HF_TOKEN` gating pattern already used by `publish_to_huggingface`. `AIRTABLE_TABLE_NAME` defaults to `IMDB` — Airtable accepts table names directly in the API URL, and `IMDB` is the recommended convention for this pipeline. No default is provided for `AIRTABLE_BASE_ID` because Airtable's REST API rejects anything that isn't a real `app...` id.
 
+**Run environment:** the secrets are pre-configured in the **DEV** environment. Cloud / CI invocations must select DEV (e.g. via the worker's environment selector) so `AIRTABLE_API_KEY` and `AIRTABLE_BASE_ID` are exported into the task process. Local runs export them manually:
+
+```bash
+export AIRTABLE_API_KEY="patXXXXXXXXXXXXXX..."
+export AIRTABLE_BASE_ID="appXXXXXXXXXXXXXX"
+./imdb_dataset_builder.sh
+```
+
 ## Failure / rate-limit handling
 
 Airtable rate limit: 5 req/sec per base.
