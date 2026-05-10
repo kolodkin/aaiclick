@@ -162,28 +162,28 @@ Bring back a nightly workflow that runs the live-LLM tests (`aaiclick/ai/test_pr
 - Recreate `.github/workflows/project-ai-tests.yaml` (or fold into a broader nightly workflow) running `pytest -m live_llm` against `aaiclick/ai/`.
 - Re-add the `ai-tests` job to `run-all-projects.yaml` (or its successor).
 
-## SSE Fanout Upgrades
+## SSE Cross-Host Fanout (Redis)
 
-The v0 SSE pipeline (`docs/frontend.md`) polls the database every 1–2 s on
-the server side, diffs against the last snapshot, and emits the deltas as
-SSE events. It works identically against the local (chdb + SQLite) and
-distributed (ClickHouse + Postgres) backends with no extra infrastructure,
-but it caps event latency at the polling interval and burns one query per
-tick per active connection.
+The v0 SSE pipeline (`docs/frontend.md`) feeds deltas onto a single
+in-process bus inside one FastAPI process — Postgres `LISTEN/NOTIFY` for
+distributed mode, polling for SQLite local mode. That works for any
+deployment where there is exactly one API process per host that clients
+can connect to.
 
-Two upgrade paths, both deferred until polling actually hurts:
+Once we run multiple FastAPI workers across machines (e.g. behind a load
+balancer for horizontal scale), a notification arriving on host A's
+`LISTEN` connection won't reach an SSE client connected to host B.
+LISTEN/NOTIFY can't cheaply solve cross-host fanout — every host would
+need its own `LISTEN`, which doesn't scale and amplifies DB load.
 
-- **Postgres LISTEN/NOTIFY** — workers `NOTIFY` on job/task state changes;
-  the FastAPI server `LISTEN`s and forwards to SSE clients. Sub-second
-  latency, no new service, but only available in distributed mode (SQLite
-  has no equivalent, so the polling fallback has to stay for local mode).
-- **Redis Pub/Sub** — needed only once we run multiple FastAPI workers
-  across machines and need cross-process fanout that LISTEN/NOTIFY can't
-  cheaply provide. New service to operate.
+**Solution when it lands**: Redis Pub/Sub. Workers (or the LISTEN
+adapter) publish to a Redis channel; every FastAPI host subscribes and
+forwards onto its in-process bus. The in-process bus and SSE delivery
+layer don't change — only the *feeder* gets a third option.
 
-**When to revisit**: when polling latency is a visible UX problem, or
-when CPU/query load from the polling loop becomes measurable, or when we
-horizontally scale the API server beyond a single host.
+**When to revisit**: when we horizontally scale the API server beyond a
+single host, or when the single-process bus becomes a measurable
+bottleneck for connection count or fan-out throughput.
 
 ## Frontend Unit Tests
 

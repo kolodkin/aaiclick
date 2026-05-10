@@ -112,25 +112,45 @@ state.
 
 # Server-side fanout
 
-SSE is just the wire format. Getting events from wherever they originate
-(workers updating job/task state) to whichever FastAPI process holds the
-client connection is a separate problem.
+SSE is just the wire format. Workers update job/task state in **child
+processes** (`mp_worker`, `docker_worker`); the FastAPI process serving
+SSE clients does not see those updates directly. The bridge is the
+database. Two feeder mechanisms — selected at startup based on the SQL
+backend — push deltas onto a shared in-process bus, which the SSE
+endpoint subscribes to.
 
-| Mechanism              | Infra cost           | Notes                                                       |
-|------------------------|----------------------|-------------------------------------------------------------|
-| DB polling (1–2s)      | None                 | Works for both SQLite and Postgres; **v0 default**          |
-| Postgres LISTEN/NOTIFY | None (PG only)       | Sub-second latency; doesn't work in SQLite local mode       |
-| Redis Pub/Sub          | New service          | Reach for it only when scaling FastAPI horizontally         |
+```
+worker child ─▶ DB commit ─▶ feeder ─▶ in-process bus ─▶ SSE endpoint ─▶ client
+                              ▲
+                              ├── Postgres: LISTEN/NOTIFY
+                              └── SQLite:   poll every 2 s
+```
 
-**v0**: server polls the DB at a short interval, diffs against the last
-snapshot, and emits SSE events for the changes. Adds 1–2 s latency but
-runs identically against the local (chdb + SQLite) and distributed
-(ClickHouse + Postgres) backends — no new infrastructure.
+| Backend                | Feeder                     | Latency       |
+|------------------------|----------------------------|---------------|
+| Postgres (distributed) | `LISTEN job_events`        | sub-second    |
+| SQLite (local)         | poll, diff snapshot every 2 s | up to 2 s   |
 
-Upgrade paths are tracked in `docs/future.md`:
+**Postgres feeder**: orchestration code that updates `jobs` / `tasks`
+emits `NOTIFY job_events, '<json>'` in the same transaction as the
+status update. The FastAPI process holds one `LISTEN` connection per
+backend instance and forwards each notification onto the in-process bus.
+A single SQL channel carries all event types — the JSON payload's
+discriminator picks the SSE event name.
 
-- Postgres LISTEN/NOTIFY for the distributed backend (lower latency)
-- Redis Pub/Sub once we run multiple FastAPI workers across machines
+**SQLite feeder**: same shape, polled. A background task reads the
+recent rows from `jobs` / `tasks` (and the log table for `task.log`)
+every 2 s, diffs against the previous snapshot, pushes deltas onto the
+bus.
+
+!!! warning "NOTIFY must be wired into every status write"
+    Every code path that mutates job/task status owes a `NOTIFY` in the
+    same commit. Missing one means a stuck UI in distributed mode.
+    Centralize it in the orchestration write helpers, not at call sites.
+
+Redis Pub/Sub is the next upgrade — only needed once we run multiple
+FastAPI workers across machines and need cross-host fanout that
+LISTEN/NOTIFY can't cheaply provide. Tracked in `docs/future.md`.
 
 # Testing
 
