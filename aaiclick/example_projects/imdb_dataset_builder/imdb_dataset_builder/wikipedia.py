@@ -25,6 +25,8 @@ matching on film titles):
 import asyncio
 import json
 import os
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -96,31 +98,47 @@ def _sparql_query(tconst_batch: list[str]) -> str:
 }}"""
 
 
+SPARQL_BACKOFF_SECONDS = (5, 15, 45)
+
+
 def _sparql_post(query: str) -> list[tuple[str, str]]:
     """POST one SPARQL query, return list of (tconst, wp_title) tuples.
 
-    Uses ``urllib`` (sync) to match the pattern in ``cyber_threat_feeds/epss.py``;
-    called via ``asyncio.to_thread`` from the async task below.
+    Retries with exponential backoff on transient 5xx responses and network
+    errors — Wikidata's public endpoint regularly returns 502/503/504 under
+    load. Uses ``urllib`` (sync) to match the pattern in
+    ``cyber_threat_feeds/epss.py``; called via ``asyncio.to_thread`` from
+    the async task below.
     """
     data = urllib.parse.urlencode({"query": query}).encode("utf-8")
-    req = urllib.request.Request(
-        WIKIDATA_SPARQL_URL,
-        data=data,
-        method="POST",
-        headers={
-            "Accept": "application/sparql-results+json",
-            "Content-Type": "application/x-www-form-urlencoded",
-            "User-Agent": SPARQL_UA,
-        },
-    )
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        body = json.loads(resp.read().decode("utf-8"))
-    out: list[tuple[str, str]] = []
-    for b in body["results"]["bindings"]:
-        imdb = b["imdb"]["value"]
-        wp = urllib.parse.unquote(b["wp_title"]["value"])
-        out.append((imdb, wp))
-    return out
+    headers = {
+        "Accept": "application/sparql-results+json",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": SPARQL_UA,
+    }
+    last_exc: Exception | None = None
+    for backoff in (0,) + SPARQL_BACKOFF_SECONDS:
+        if backoff:
+            time.sleep(backoff)
+        req = urllib.request.Request(WIKIDATA_SPARQL_URL, data=data, method="POST", headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+            out: list[tuple[str, str]] = []
+            for b in body["results"]["bindings"]:
+                imdb = b["imdb"]["value"]
+                wp = urllib.parse.unquote(b["wp_title"]["value"])
+                out.append((imdb, wp))
+            return out
+        except urllib.error.HTTPError as e:
+            if 500 <= e.code < 600 or e.code == 429:
+                last_exc = e
+                continue
+            raise
+        except urllib.error.URLError as e:
+            last_exc = e
+            continue
+    raise RuntimeError(f"Wikidata SPARQL failed after retries: {last_exc}")
 
 
 @task
