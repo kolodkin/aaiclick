@@ -1,6 +1,6 @@
 """Tests for orchestration execution and Job.test() functionality."""
 
-import asyncio
+import inspect
 import os
 import sys
 import tempfile
@@ -134,7 +134,7 @@ async def test_import_callback_async(orch_ctx):
     func = import_callback("aaiclick.orchestration.fixtures.sample_tasks.async_task")
 
     assert callable(func)
-    assert asyncio.iscoroutinefunction(func)
+    assert inspect.iscoroutinefunction(func)
     await func()  # Should not raise
 
 
