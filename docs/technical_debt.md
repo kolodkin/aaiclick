@@ -15,6 +15,13 @@ Technical Debt
   - **Workaround**: `warnings.catch_warnings()` around `get_async_client()` calls in `clickhouse_client.py` and `background_worker.py`.
   - **Debt**: Remove the filter once `clickhouse-connect` 1.0 ships the native async client as default.
 
+# clickhouse-connect `'u'` Type Code DeprecationWarning on Python 3.13
+
+- **`filterwarnings` in `pyproject.toml`** (`[tool.pytest.ini_options]`)
+  - **Issue**: `clickhouse-connect` 0.15.1's compiled `driverc/buffer.pyx` calls `array.array('u', ...)`, which Python 3.13 deprecated and slated for removal in 3.16. Under `filterwarnings = ["error"]` every distributed test fails at the `import clickhouse_connect` step.
+  - **Workaround**: `"ignore:The 'u' type code is deprecated:DeprecationWarning"` in `pyproject.toml`.
+  - **Debt**: Upstream can't trivially swap to `'w'` — the new typecode was added in 3.13 and raises `ValueError: bad typecode` on 3.10–3.12. Drop the filter once `clickhouse-connect` ships a wheel that either drops sub-3.13 support or version-gates the typecode. Track at [ClickHouse/clickhouse-connect](https://github.com/ClickHouse/clickhouse-connect).
+
 # GitHub Actions
 
 - **`FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true`** (`.github/workflows/test.yaml`)

@@ -22,6 +22,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Database",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
@@ -144,6 +145,8 @@ asyncio_default_fixture_loop_scope = "module"
 asyncio_default_test_loop_scope = "module"
 filterwarnings = [
     "error",
+    # clickhouse-connect 'u' type code DeprecationWarning — see docs/technical_debt.md
+    "ignore:The 'u' type code is deprecated:DeprecationWarning",
 ]
 markers = [
     "live_llm: tests that call a real LLM — requires AAICLICK_AI_LIVE_TESTS=1 and a reachable model",

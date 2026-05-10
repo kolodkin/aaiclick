@@ -1,8 +1,9 @@
-name: test-py313
+name: test-py-nightly
 
-# Nightly Python 3.13 leg. PR CI (test.yaml) stays on 3.10 — the project's
-# minimum supported version per pyproject.toml. This workflow surfaces 3.13
-# deprecations within 24h without doubling per-PR CI minutes.
+# Nightly leg covering both ends of the supported-Python range. PR CI
+# (test.yaml) only runs the 3.10 minimum; this workflow re-verifies 3.10
+# alongside 3.14 (the latest stable) so a fix tailored to one version
+# can't silently regress the other between PR merges.
 
 on:
   schedule:
@@ -15,11 +16,15 @@ permissions:
   checks: write
 
 concurrency:
-  group: test-py313
+  group: test-py-nightly
   cancel-in-progress: false
 
 jobs:
   tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.14"]
     uses: ./.github/workflows/_test-reusable.yaml
     with:
-      python-version: "3.13"
+      python-version: ${{ matrix.python-version }}
