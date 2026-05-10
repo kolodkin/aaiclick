@@ -240,7 +240,7 @@ async def build_clean_dataset(movies: Object) -> Object:
     clean = clean.where("runtime_int >= 40")
     clean = clean.where("runtime_int <= 300")
     clean = clean.where("year_int >= 1980")
-    clean = clean.where("match(genres, 'Adult') = 0")
+    clean = clean.where("has(genres, 'Adult') = 0")
     clean = clean[["tconst", "primaryTitle", "startYear", "genres", "runtimeMinutes"]]
     return await clean.copy()
 
