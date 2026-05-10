@@ -144,6 +144,10 @@ asyncio_default_fixture_loop_scope = "module"
 asyncio_default_test_loop_scope = "module"
 filterwarnings = [
     "error",
+    # clickhouse-connect 0.15.1's compiled buffer.pyx still uses array.array('u', ...),
+    # deprecated in Python 3.13 and slated for removal in 3.16. Drop once upstream ships
+    # a wheel migrated to the 'w' type code.
+    "ignore:The 'u' type code is deprecated:DeprecationWarning:clickhouse_connect.driverc.buffer",
 ]
 markers = [
     "live_llm: tests that call a real LLM — requires AAICLICK_AI_LIVE_TESTS=1 and a reachable model",
