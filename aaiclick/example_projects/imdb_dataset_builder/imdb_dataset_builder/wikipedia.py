@@ -59,7 +59,7 @@ _STAGE_A_COLUMNS = {
     "tconst": ColumnInfo("String"),
     "primaryTitle": ColumnInfo("String", nullable=True),
     "startYear": ColumnInfo("String", nullable=True),
-    "genres": ColumnInfo("String", nullable=True),
+    "genres": ColumnInfo("Array(String)", nullable=True),
     "runtimeMinutes": ColumnInfo("String", nullable=True),
     "wp_title": ColumnInfo("String", nullable=True),
 }
@@ -69,7 +69,7 @@ _STAGE_B_COLUMNS = {
     "tconst": ColumnInfo("String", nullable=True),
     "primaryTitle": ColumnInfo("String", nullable=True),
     "startYear": ColumnInfo("String", nullable=True),
-    "genres": ColumnInfo("String", nullable=True),
+    "genres": ColumnInfo("Array(String)", nullable=True),
     "runtimeMinutes": ColumnInfo("String", nullable=True),
     "wiki_text": ColumnInfo("String", nullable=True),
 }
