@@ -171,8 +171,7 @@ async def test_rename_swap_names(ctx):
     obj = await create_object(schema)
     ch = obj.ch_client
     await ch.command(
-        f"INSERT INTO {obj.table} (title, genres, genres_array) "
-        f"VALUES ('Movie', 'Action', ['Action', 'Drama'])"
+        f"INSERT INTO {obj.table} (title, genres, genres_array) VALUES ('Movie', 'Action', ['Action', 'Drama'])"
     )
 
     view = obj.rename({"genres": "genres_str", "genres_array": "genres"})
@@ -204,8 +203,7 @@ async def test_copy_after_rename_uses_new_names(ctx):
     obj = await create_object(schema)
     ch = obj.ch_client
     await ch.command(
-        f"INSERT INTO {obj.table} (title, genres, genres_array) "
-        f"VALUES ('Movie', 'Action', ['Action', 'Drama'])"
+        f"INSERT INTO {obj.table} (title, genres, genres_array) VALUES ('Movie', 'Action', ['Action', 'Drama'])"
     )
 
     renamed = obj.rename({"genres": "genres_str", "genres_array": "genres"})
@@ -237,10 +235,7 @@ async def test_select_columns_after_rename(ctx):
     )
     obj = await create_object(schema)
     ch = obj.ch_client
-    await ch.command(
-        f"INSERT INTO {obj.table} (title, genres_array) "
-        f"VALUES ('Movie', ['Action', 'Drama'])"
-    )
+    await ch.command(f"INSERT INTO {obj.table} (title, genres_array) VALUES ('Movie', ['Action', 'Drama'])")
 
     renamed = obj.rename({"genres_array": "genres"})
     sub = renamed[["title", "genres"]]

@@ -66,6 +66,10 @@ from .refs import ObjectRef, ViewRef
 # which means "explicitly no value" (e.g. limit=None to disable the safety cap).
 _UNSET: Any = object()
 
+# Table alias used to disambiguate column refs from rename aliases in
+# ``View._build_select``. See the swap-rename comment there for context.
+_RENAME_SRC_ALIAS = "__aaiclick_src"
+
 
 @dataclass
 class DataResult:
@@ -2485,6 +2489,21 @@ class View(Object):
         return self._left_explode
 
     @functools.cached_property
+    def _inv_renames(self) -> dict[str, str]:
+        """Reverse map post-rename name -> original column name."""
+        return {new: old for old, new in (self._renamed_columns or {}).items()}
+
+    @functools.cached_property
+    def _rename_needs_table_alias(self) -> bool:
+        """True when a rename target reuses an existing source column name.
+
+        In that case ``_build_select`` must qualify column refs with a table
+        alias to keep ClickHouse from resolving them to the alias.
+        """
+        renames = self._renamed_columns or {}
+        return bool(set(renames.values()) & set(renames.keys()))
+
+    @functools.cached_property
     def _effective_columns(self) -> dict[str, ColumnInfo]:
         """Column schema with renames, field selection, and computed columns applied.
 
@@ -2499,11 +2518,11 @@ class View(Object):
         """
         orig = self._schema.columns
         renames = self._renamed_columns or {}
+        inv_renames = self._inv_renames
 
-        # selected_fields hold post-rename names (the user's view of the
-        # schema); map them back to source column names via the inverse
-        # rename when looking up types in ``orig``.
-        inv_renames = {new: old for old, new in renames.items()}
+        # selected_fields hold post-rename names; map them back to source
+        # column names via the inverse rename when looking up types in
+        # ``orig``.
         if self._selected_fields and self.is_single_field:
             field = self._selected_fields[0]
             src_name = inv_renames.get(field, field)
@@ -2670,42 +2689,39 @@ class View(Object):
         # the source schema (e.g. ``{"a": "b", "b": "c"}`` or a swap like
         # ``{"genres": "genres_str", "genres_array": "genres"}``), unqualified
         # column refs in the SELECT list collide with the alias — ClickHouse
-        # resolves the alias before the column ref, so both items receive the
-        # aliased expression's value. Qualify column refs with a table alias
-        # to disambiguate.
-        renames_in = self._renamed_columns or {}
-        needs_table_alias = bool(set(renames_in.values()) & set(renames_in.keys()))
-        table_alias = "__aaiclick_src" if needs_table_alias else None
+        # resolves the alias before the column ref, so both items receive
+        # the aliased expression's value. Qualify column refs with a table
+        # alias to disambiguate.
+        table_alias = _RENAME_SRC_ALIAS if self._rename_needs_table_alias else None
         col_qual = f"{table_alias}." if table_alias else ""
+
+        def qcol(name: str) -> str:
+            return f"{col_qual}{quote_identifier(name)}"
+
         if self.selected_fields:
             # Carry aai_id through field-selected subqueries so binary
             # operators can propagate it onto the result table — without
             # this, ``(obj["x"] + array_b)`` would build a source subquery
             # that omits aai_id, and the operator's outer SELECT can't find it.
             aai_id_proj = f", {col_qual}aai_id" if AAI_ID_COLUMN in self._schema.columns else ""
-            inv_renames = {new: old for old, new in renames_in.items()}
+            inv_renames = self._inv_renames
             if self.is_single_field:
-                # Single field: rename as 'value' for array compatibility.
-                # selected_fields holds post-rename names — map back to source.
                 src = inv_renames.get(self.selected_fields[0], self.selected_fields[0])
-                field = f"{col_qual}{quote_identifier(src)}"
-                select_cols = f"{field} AS value{aai_id_proj}"
+                select_cols = f"{qcol(src)} AS value{aai_id_proj}"
             else:
                 parts = []
                 for f in self.selected_fields:
                     src = inv_renames.get(f, f)
-                    qsrc = f"{col_qual}{quote_identifier(src)}"
                     if src != f:
-                        parts.append(f"{qsrc} AS {quote_identifier(f)}")
+                        parts.append(f"{qcol(src)} AS {quote_identifier(f)}")
                     else:
-                        parts.append(qsrc)
+                        parts.append(qcol(src))
                 select_cols = ", ".join(parts) + aai_id_proj
         elif self._renamed_columns and columns == "*":
-            # Expand * into explicit columns with renames applied
             renames = self._renamed_columns
             col_parts = []
             for col_name in self._schema.columns:
-                qname = f"{col_qual}{quote_identifier(col_name)}"
+                qname = qcol(col_name)
                 if col_name in renames:
                     col_parts.append(f"{qname} AS {quote_identifier(renames[col_name])}")
                 else:
@@ -2808,9 +2824,7 @@ class View(Object):
                 effective_name = renames.get(col_name, col_name)
                 if effective_name in columns:
                     old_info = columns[effective_name]
-                    columns[effective_name] = old_info.model_copy(
-                        update={"array": max(0, int(old_info.array) - 1)}
-                    )
+                    columns[effective_name] = old_info.model_copy(update={"array": max(0, int(old_info.array) - 1)})
         return CopyInfo(
             source_query=source_query,
             fieldtype=self._schema.fieldtype,
