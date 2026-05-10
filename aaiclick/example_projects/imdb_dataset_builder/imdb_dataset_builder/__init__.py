@@ -42,7 +42,7 @@ import os
 from pathlib import Path
 
 from aaiclick import ORIENT_DICT, cast, create_object_from_url
-from aaiclick.data.models import ColumnInfo
+from aaiclick.data.models import ColumnInfo, Computed
 from aaiclick.data.object import Object
 from aaiclick.orchestration import job, task
 
@@ -123,16 +123,35 @@ async def profile_raw(raw: Object) -> RawProfile:
 @task
 async def filter_movies(raw: Object) -> Object:
     """
-    Filter to non-adult movies with known genres and start year.
+    Filter to non-adult movies with known genres and start year, and convert
+    ``genres`` from a comma-separated ``String`` into a native ``Array(String)``.
 
-    All four conditions are pushed down as SQL WHERE clauses — ClickHouse
-    executes them as a single filtered SELECT. The result is materialized
-    via .copy() into a new table for downstream parallel tasks.
+    All filter conditions push down as SQL WHERE clauses — ClickHouse
+    executes them as a single filtered SELECT. The genres conversion uses
+    a Computed column with ``splitByChar(',', genres)``; downstream tasks
+    can then use first-class array operators (``has``, ``arrayJoin``, ...).
     """
-    movies = raw.where("titleType = 'movie'")
-    movies = movies.where("isAdult = '0'")
-    movies = movies.where(r"genres != '\N'")
-    movies = movies.where(r"startYear != '\N'")
+    movies = (
+        raw.where("titleType = 'movie'")
+        .where("isAdult = '0'")
+        .where(r"genres != '\N'")
+        .where(r"startYear != '\N'")
+        .with_columns({"genres_arr": Computed("Array(String)", "splitByChar(',', genres)")})
+    )
+    movies = movies.rename({"genres": "genres_raw", "genres_arr": "genres"})
+    movies = movies[
+        [
+            "tconst",
+            "titleType",
+            "primaryTitle",
+            "originalTitle",
+            "isAdult",
+            "startYear",
+            "endYear",
+            "runtimeMinutes",
+            "genres",
+        ]
+    ]
     return await movies.copy()
 
 
