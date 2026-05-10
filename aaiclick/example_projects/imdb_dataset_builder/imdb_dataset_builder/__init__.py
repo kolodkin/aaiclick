@@ -158,7 +158,7 @@ async def filter_movies(raw: Object) -> Object:
 
 
 @task
-async def detect_quality_issues(movies: Object) -> QualityIssues:
+async def detect_quality_issues(movies: Object, year_from: int = 1980) -> QualityIssues:
     """
     Detect data quality issues in the movie subset.
 
@@ -184,7 +184,7 @@ async def detect_quality_issues(movies: Object) -> QualityIssues:
         {
             "short_runtime": r"runtimeMinutes != '\N' AND toUInt32OrNull(runtimeMinutes) < 40",
             "long_runtime": r"runtimeMinutes != '\N' AND toUInt32OrNull(runtimeMinutes) > 300",
-            "pre_1980": "toUInt32OrNull(startYear) < 1980",
+            "pre_year": f"toUInt32OrNull(startYear) < {year_from}",
         }
     )
     range_data = await range_counts.data()
@@ -195,8 +195,9 @@ async def detect_quality_issues(movies: Object) -> QualityIssues:
         missing_runtime_pct=(missing_runtime / total * 100) if total > 0 else 0.0,
         short_runtime=range_data["short_runtime"],
         long_runtime=range_data["long_runtime"],
-        pre_1980=range_data["pre_1980"],
-        pre_1980_pct=(range_data["pre_1980"] / total * 100) if total > 0 else 0.0,
+        year_from=year_from,
+        pre_year=range_data["pre_year"],
+        pre_year_pct=(range_data["pre_year"] / total * 100) if total > 0 else 0.0,
     )
 
 
@@ -224,13 +225,14 @@ async def analyze_genre_balance(exploded: Object) -> Object:
 
 
 @task
-async def build_clean_dataset(movies: Object) -> Object:
+async def build_clean_dataset(movies: Object, year_from: int = 1980) -> Object:
     """
     Build the final curated dataset ready for publishing.
 
     Applies quality filters: removes missing runtime, clips to 40–300 min,
-    filters to post-1980 movies, excludes Adult-genre movies. Returns the
-    clean (tconst, primaryTitle, startYear, genres, runtimeMinutes) subset.
+    filters to movies released in ``year_from`` or later, excludes
+    Adult-genre movies. Returns the clean
+    ``(tconst, primaryTitle, startYear, genres, runtimeMinutes)`` subset.
     """
     typed = movies.with_columns(
         {
@@ -241,7 +243,7 @@ async def build_clean_dataset(movies: Object) -> Object:
     clean = typed.where(r"runtimeMinutes != '\N'")
     clean = clean.where("runtime_int >= 40")
     clean = clean.where("runtime_int <= 300")
-    clean = clean.where("year_int >= 1980")
+    clean = clean.where(f"year_int >= {year_from}")
     clean = clean.where("has(genres, 'Adult') = 0")
     clean = clean[["tconst", "primaryTitle", "startYear", "genres", "runtimeMinutes"]]
     return await clean.copy()
@@ -306,7 +308,7 @@ async def export_dataset(enriched: Object, formats: list[str], out_dir: str) -> 
 
 
 @job("imdb_dataset_builder")
-def imdb_dataset_pipeline(limit: int | None = 500_000):
+def imdb_dataset_pipeline(limit: int | None = 500_000, year_from: int = 1980):
     """
     IMDb Movie Dataset Builder Pipeline.
 
@@ -346,6 +348,8 @@ def imdb_dataset_pipeline(limit: int | None = 500_000):
 
     Args:
         limit: Row limit for demo runs. Set to None for the full ~10M-row dataset.
+        year_from: Earliest ``startYear`` to keep in the curated output. Defaults
+            to 1980 — older entries have spottier metadata.
 
     Environment variables:
         HF_TOKEN              — publish curated dataset to Hugging Face Hub
@@ -358,9 +362,9 @@ def imdb_dataset_pipeline(limit: int | None = 500_000):
     profile = profile_raw(raw=raw)
     movies = filter_movies(raw=raw)
 
-    quality_issues = detect_quality_issues(movies=movies)
+    quality_issues = detect_quality_issues(movies=movies, year_from=year_from)
     exploded = normalize_genres(movies=movies)
-    clean = build_clean_dataset(movies=movies)
+    clean = build_clean_dataset(movies=movies, year_from=year_from)
     genre_balance = analyze_genre_balance(exploded=exploded)
 
     title_map = resolve_wikipedia_titles(clean=clean)
@@ -393,10 +397,15 @@ def imdb_dataset_pipeline(limit: int | None = 500_000):
     )
 
 
-async def main():
-    """Register the IMDb dataset builder pipeline job."""
-    created_job = await imdb_dataset_pipeline()
+async def main(**kwargs):
+    """Register the IMDb dataset builder pipeline job.
+
+    ``**kwargs`` are forwarded to ``imdb_dataset_pipeline`` (e.g. ``limit``,
+    ``year_from``) so the shell runner can pass tuning via ``--params``.
+    """
+    created_job = await imdb_dataset_pipeline(**kwargs)
     print(f"Registered job: {created_job.name} (ID: {created_job.id})")
+    return created_job
 
 
 if __name__ == "__main__":

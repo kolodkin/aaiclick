@@ -90,7 +90,10 @@ def _print_report(content: ReportContent) -> None:
     )
     print(f"- Runtime < 40 min: {_fmt(quality_issues.short_runtime)}")
     print(f"- Runtime > 300 min: {_fmt(quality_issues.long_runtime)}")
-    print(f"- Pre-1980 movies: {_fmt(quality_issues.pre_1980)} ({_fmt(quality_issues.pre_1980_pct)}%)")
+    print(
+        f"- Pre-{quality_issues.year_from} movies: "
+        f"{_fmt(quality_issues.pre_year)} ({_fmt(quality_issues.pre_year_pct)}%)"
+    )
 
     if content.genre_distinct > 50:
         print(f"\n### Genre Distribution (top 50 of {_fmt(content.genre_distinct)})\n")

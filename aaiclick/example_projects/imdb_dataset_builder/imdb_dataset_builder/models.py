@@ -16,8 +16,9 @@ class QualityIssues(BaseModel):
     missing_runtime_pct: float
     short_runtime: int
     long_runtime: int
-    pre_1980: int
-    pre_1980_pct: float
+    year_from: int
+    pre_year: int
+    pre_year_pct: float
 
 
 class HFPublishResult(BaseModel):
