@@ -144,9 +144,7 @@ asyncio_default_fixture_loop_scope = "module"
 asyncio_default_test_loop_scope = "module"
 filterwarnings = [
     "error",
-    # clickhouse-connect 0.15.1's compiled buffer.pyx still uses array.array('u', ...),
-    # deprecated in Python 3.13 and slated for removal in 3.16. Drop once upstream ships
-    # a wheel migrated to the 'w' type code.
+    # clickhouse-connect 'u' type code DeprecationWarning — see docs/technical_debt.md
     "ignore:The 'u' type code is deprecated:DeprecationWarning",
 ]
 markers = [
