@@ -138,14 +138,9 @@ async def filter_movies(raw: Object) -> Object:
         .where(r"startYear != '\N'")
         .with_columns({"genres_array": Computed("Array(String)", "splitByChar(',', genres)")})
     )
-    # Materialize first so genres_array is a real schema column and the
-    # original String genres can be cleanly dropped via the projection
-    # below. Renaming the array column to "genres" is done via a second
-    # Computed alias (rename + copy interact poorly when the new name
-    # collides with an existing schema column).
-    materialized = await with_arr.copy()
-    aliased = materialized.with_columns({"genres": Computed("Array(String)", "genres_array")})
-    final = aliased[
+    # Project to drop the original String genres, materialize so the
+    # new schema has only genres_array, then rename to the public name.
+    projected = with_arr[
         [
             "tconst",
             "titleType",
@@ -155,10 +150,11 @@ async def filter_movies(raw: Object) -> Object:
             "startYear",
             "endYear",
             "runtimeMinutes",
-            "genres",
+            "genres_array",
         ]
     ]
-    return await final.copy()
+    materialized = await projected.copy()
+    return await materialized.rename({"genres_array": "genres"}).copy()
 
 
 @task
