@@ -152,14 +152,16 @@ async def test_rename_duplicate_new_names_raises(ctx):
         obj.rename({"col_a": "same", "col_b": "same"})
 
 
-async def test_rename_swap_names(ctx):
+async def test_rename_swap_raises(ctx):
     """Regression: a rename whose target reuses an existing column name
-    (here ``genres_array -> genres`` while ``genres`` is renamed away)
-    must not silently swap values. Naive ``SELECT genres AS genres_str,
-    genres_array AS genres FROM t`` is ambiguous — the alias ``genres``
-    shadows the original column, so both items resolve to the same
-    expression. The fix qualifies column refs with a table alias when
-    a rename target reuses an existing column name."""
+    being renamed away (e.g. ``{"genres": "genres_str", "genres_array":
+    "genres"}``) must raise rather than silently produce wrong values.
+
+    Without this check, ClickHouse's alias resolution makes ``SELECT
+    genres AS genres_str, genres_array AS genres FROM t`` ambiguous —
+    the alias ``genres`` shadows the original column, so both items
+    resolve to the same expression. Users who genuinely want to swap
+    names should rename in two steps via an intermediate name."""
     schema = Schema(
         fieldtype=FIELDTYPE_DICT,
         columns={
@@ -169,18 +171,8 @@ async def test_rename_swap_names(ctx):
         },
     )
     obj = await create_object(schema)
-    ch = obj.ch_client
-    await ch.command(
-        f"INSERT INTO {obj.table} (title, genres, genres_array) VALUES ('Movie', 'Action', ['Action', 'Drama'])"
-    )
-
-    view = obj.rename({"genres": "genres_str", "genres_array": "genres"})
-    data = await view.data()
-
-    assert set(data.keys()) == {"title", "genres_str", "genres"}
-    assert data["title"] == ["Movie"]
-    assert data["genres_str"] == ["Action"]
-    assert data["genres"] == [["Action", "Drama"]]
+    with pytest.raises(ValueError, match="reuses a name being renamed away"):
+        obj.rename({"genres": "genres_str", "genres_array": "genres"})
 
 
 async def test_copy_after_rename_uses_new_names(ctx):
@@ -196,23 +188,19 @@ async def test_copy_after_rename_uses_new_names(ctx):
         fieldtype=FIELDTYPE_DICT,
         columns={
             "title": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
-            "genres": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
             "genres_array": ColumnInfo("String", array=1, fieldtype=FIELDTYPE_ARRAY),
         },
     )
     obj = await create_object(schema)
     ch = obj.ch_client
-    await ch.command(
-        f"INSERT INTO {obj.table} (title, genres, genres_array) VALUES ('Movie', 'Action', ['Action', 'Drama'])"
-    )
+    await ch.command(f"INSERT INTO {obj.table} (title, genres_array) VALUES ('Movie', ['Action', 'Drama'])")
 
-    renamed = obj.rename({"genres": "genres_str", "genres_array": "genres"})
+    renamed = obj.rename({"genres_array": "genres"})
     copied = await renamed.copy()
 
-    assert set(copied._schema.columns.keys()) == {"title", "genres_str", "genres"}
+    assert set(copied._schema.columns.keys()) == {"title", "genres"}
     data = await copied.data()
     assert data["title"] == ["Movie"]
-    assert data["genres_str"] == ["Action"]
     assert data["genres"] == [["Action", "Drama"]]
 
 

@@ -66,10 +66,6 @@ from .refs import ObjectRef, ViewRef
 # which means "explicitly no value" (e.g. limit=None to disable the safety cap).
 _UNSET: Any = object()
 
-# Table alias used to disambiguate column refs from rename aliases in
-# ``View._build_select``. See the swap-rename comment there for context.
-_RENAME_SRC_ALIAS = "__aaiclick_src"
-
 
 @dataclass
 class DataResult:
@@ -1750,7 +1746,6 @@ class Object:
             raise ValueError("rename() cannot be used on scalar Objects")
         existing = set(self._schema.columns.keys())
         renamed_away = set(columns.keys())
-        (existing - renamed_away) | set(columns.values())
         for old_name in columns:
             if old_name not in existing:
                 raise ValueError(f"Column '{old_name}' does not exist in schema")
@@ -1763,6 +1758,17 @@ class Object:
         for new_name in new_names:
             if new_name in kept:
                 raise ValueError(f"Renamed column '{new_name}' collides with existing column")
+        # Reject swap-style renames (a new name reuses another column's old
+        # name). Allowing them would force the SELECT list to disambiguate
+        # column refs from aliases — ClickHouse otherwise resolves the alias
+        # before the column ref. Users who genuinely want to swap names
+        # should rename in two steps with an intermediate column.
+        for old_name, new_name in columns.items():
+            if new_name != old_name and new_name in renamed_away:
+                raise ValueError(
+                    f"Renamed column '{new_name}' reuses a name being renamed away "
+                    f"(from '{old_name}'). Rename in two steps via an intermediate name."
+                )
         return View(self, renamed_columns=columns)
 
     def explode(self, *columns: str, left: bool = False) -> View:
@@ -2494,16 +2500,6 @@ class View(Object):
         return {new: old for old, new in (self._renamed_columns or {}).items()}
 
     @functools.cached_property
-    def _rename_needs_table_alias(self) -> bool:
-        """True when a rename target reuses an existing source column name.
-
-        In that case ``_build_select`` must qualify column refs with a table
-        alias to keep ClickHouse from resolving them to the alias.
-        """
-        renames = self._renamed_columns or {}
-        return bool(set(renames.values()) & set(renames.keys()))
-
-    @functools.cached_property
     def _effective_columns(self) -> dict[str, ColumnInfo]:
         """Column schema with renames, field selection, and computed columns applied.
 
@@ -2685,43 +2681,30 @@ class View(Object):
         Returns:
             str: SELECT query string with WHERE/LIMIT/OFFSET/ORDER BY applied
         """
-        # When a rename target reuses a column name that already exists in
-        # the source schema (e.g. ``{"a": "b", "b": "c"}`` or a swap like
-        # ``{"genres": "genres_str", "genres_array": "genres"}``), unqualified
-        # column refs in the SELECT list collide with the alias — ClickHouse
-        # resolves the alias before the column ref, so both items receive
-        # the aliased expression's value. Qualify column refs with a table
-        # alias to disambiguate.
-        table_alias = _RENAME_SRC_ALIAS if self._rename_needs_table_alias else None
-        col_qual = f"{table_alias}." if table_alias else ""
-
-        def qcol(name: str) -> str:
-            return f"{col_qual}{quote_identifier(name)}"
-
         if self.selected_fields:
             # Carry aai_id through field-selected subqueries so binary
             # operators can propagate it onto the result table — without
             # this, ``(obj["x"] + array_b)`` would build a source subquery
             # that omits aai_id, and the operator's outer SELECT can't find it.
-            aai_id_proj = f", {col_qual}aai_id" if AAI_ID_COLUMN in self._schema.columns else ""
+            aai_id_proj = ", aai_id" if AAI_ID_COLUMN in self._schema.columns else ""
             inv_renames = self._inv_renames
             if self.is_single_field:
                 src = inv_renames.get(self.selected_fields[0], self.selected_fields[0])
-                select_cols = f"{qcol(src)} AS value{aai_id_proj}"
+                select_cols = f"{quote_identifier(src)} AS value{aai_id_proj}"
             else:
                 parts = []
                 for f in self.selected_fields:
                     src = inv_renames.get(f, f)
                     if src != f:
-                        parts.append(f"{qcol(src)} AS {quote_identifier(f)}")
+                        parts.append(f"{quote_identifier(src)} AS {quote_identifier(f)}")
                     else:
-                        parts.append(qcol(src))
+                        parts.append(quote_identifier(src))
                 select_cols = ", ".join(parts) + aai_id_proj
         elif self._renamed_columns and columns == "*":
             renames = self._renamed_columns
             col_parts = []
             for col_name in self._schema.columns:
-                qname = qcol(col_name)
+                qname = quote_identifier(col_name)
                 if col_name in renames:
                     col_parts.append(f"{qname} AS {quote_identifier(renames[col_name])}")
                 else:
@@ -2755,8 +2738,7 @@ class View(Object):
             if computed_parts:
                 select_cols += ", " + ", ".join(computed_parts)
 
-        from_clause = f"{self.table} AS {table_alias}" if table_alias else self.table
-        query = f"SELECT {select_cols} FROM {from_clause}"
+        query = f"SELECT {select_cols} FROM {self.table}"
         if self._exploded_columns:
             join_type = "LEFT ARRAY JOIN" if self._left_explode else "ARRAY JOIN"
             join_parts = []
