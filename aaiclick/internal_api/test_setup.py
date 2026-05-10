@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import urllib.error
 
@@ -123,7 +124,7 @@ def test_bootstrap_ollama_pulled(monkeypatch):
     def fake_urlopen(req, timeout=None):
         url = req.full_url if hasattr(req, "full_url") else str(req)
         if url.endswith("/api/show"):
-            raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+            raise urllib.error.HTTPError(url, 404, "Not Found", {}, io.BytesIO())
         return _StubResponse(b'{"status": "success"}')
 
     monkeypatch.setattr(setup.urllib.request, "urlopen", fake_urlopen)
@@ -137,7 +138,7 @@ def test_bootstrap_ollama_show_5xx_returns_failed(monkeypatch):
     def fake_urlopen(req, timeout=None):
         url = req.full_url if hasattr(req, "full_url") else str(req)
         if url.endswith("/api/show"):
-            raise urllib.error.HTTPError(url, 500, "Internal Server Error", {}, None)
+            raise urllib.error.HTTPError(url, 500, "Internal Server Error", {}, io.BytesIO())
         return _StubResponse(b"")
 
     monkeypatch.setattr(setup.urllib.request, "urlopen", fake_urlopen)
@@ -152,7 +153,7 @@ def test_bootstrap_ollama_pull_unexpected_response(monkeypatch):
     def fake_urlopen(req, timeout=None):
         url = req.full_url if hasattr(req, "full_url") else str(req)
         if url.endswith("/api/show"):
-            raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+            raise urllib.error.HTTPError(url, 404, "Not Found", {}, io.BytesIO())
         return _StubResponse(json.dumps({"status": "error"}).encode())
 
     monkeypatch.setattr(setup.urllib.request, "urlopen", fake_urlopen)
