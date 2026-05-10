@@ -201,15 +201,12 @@ async def detect_quality_issues(movies: Object) -> QualityIssues:
 @task
 async def normalize_genres(movies: Object) -> Object:
     """
-    Explode comma-separated genres into one row per genre.
+    Explode the ``genres`` array into one row per genre.
 
-    Uses splitByChar(',', genres) to create an Array column, then
-    explode() to produce one row per genre. Adult genre entries are
-    filtered out. Result is materialized for downstream analysis.
+    ``filter_movies`` already converts ``genres`` to ``Array(String)``,
+    so this task is a single ``explode`` on the existing array column.
     """
-    exploded = movies.with_split_by_char("genres", ",", element_type="LowCardinality(String)", alias="genre").explode(
-        "genre"
-    )
+    exploded = movies.explode("genres")
     return await exploded.copy()
 
 
@@ -218,10 +215,10 @@ async def analyze_genre_balance(exploded: Object) -> Object:
     """
     Compute genre distribution across all movies.
 
-    Groups by genre, counts titles per genre. Returns an Object with
-    (genre, tconst_count) rows for the report.
+    Groups by the exploded ``genres`` element, counts titles per genre.
+    Returns an Object with ``(genres, tconst_count)`` rows for the report.
     """
-    return await exploded.group_by("genre").agg({"tconst": "count"})
+    return await exploded.group_by("genres").agg({"tconst": "count"})
 
 
 @task

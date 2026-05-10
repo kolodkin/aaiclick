@@ -181,14 +181,14 @@ async def generate_report(
     wiki_total = await (await wiki["id"].count()).data()
     wiki_sample_md = await wiki[["id", "title", "text"]].view(limit=5).markdown(truncate={"title": 40, "text": 120})
 
-    genre_with_pct = genre_balance.rename({"genre": "Genre", "tconst": "Count"}).with_columns(
+    genre_with_pct = genre_balance.rename({"genres": "Genre", "tconst": "Count"}).with_columns(
         {
             "%": Computed("Float64", "round(Count * 100.0 / sum(Count) OVER(), 2)"),
         }
     )
     genre_md = await genre_with_pct.view(order_by="Count DESC", limit=50).markdown()
     genre_data_raw = await genre_balance.data()
-    genre_distinct = len(genre_data_raw["genre"])
+    genre_distinct = len(genre_data_raw["genres"])
     genre_total = sum(genre_data_raw["tconst"])
 
     plots_md = (
