@@ -138,9 +138,10 @@ async def filter_movies(raw: Object) -> Object:
         .where(r"startYear != '\N'")
         .with_columns({"genres_array": Computed("Array(String)", "splitByChar(',', genres)")})
     )
-    # Project, dropping the original String genres, then materialize so
-    # the new schema has only genres_array (no genres) — only then is it
-    # safe to rename genres_array → genres without a schema-collision error.
+    # Project (drops the original String genres) and materialize so the
+    # new schema has only genres_array. Renaming on the clean schema is
+    # safe; an explicit projection after the rename keeps the outer
+    # SELECT in sync with the new column name.
     projected = with_arr[
         [
             "tconst",
@@ -155,7 +156,21 @@ async def filter_movies(raw: Object) -> Object:
         ]
     ]
     materialized = await projected.copy()
-    return await materialized.rename({"genres_array": "genres"}).copy()
+    renamed = materialized.rename({"genres_array": "genres"})
+    final = renamed[
+        [
+            "tconst",
+            "titleType",
+            "primaryTitle",
+            "originalTitle",
+            "isAdult",
+            "startYear",
+            "endYear",
+            "runtimeMinutes",
+            "genres",
+        ]
+    ]
+    return await final.copy()
 
 
 @task
