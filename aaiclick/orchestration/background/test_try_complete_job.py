@@ -7,14 +7,13 @@ and worker: when all tasks are terminal, a job transitions to COMPLETED
 
 from __future__ import annotations
 
-from datetime import datetime
-
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aaiclick.orchestration.background.handler import JOB_FAILED_ERROR, try_complete_job
 
+from ...datetime_utils import utc_now
 from .conftest import insert_job
 
 
@@ -33,7 +32,7 @@ async def _insert_tasks(engine, job_id, statuses):
                     "id": job_id * 100 + idx,
                     "job_id": job_id,
                     "status": status,
-                    "now": datetime.utcnow(),
+                    "now": utc_now(),
                 },
             )
         await session.commit()

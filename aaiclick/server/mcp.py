@@ -8,6 +8,12 @@ returns the pydantic view model directly. FastMCP derives the tool input
 and output schemas from the pydantic types, so MCP, REST, and CLI share
 one contract.
 
+The FastMCP server itself opens one outer ``orch_context`` for its
+lifespan; per-tool ``orch_context`` calls nest into it and reuse the
+SQLAlchemy engine + connection pool instead of paying the build/dispose
+cost on every call. In FastAPI-mounted local mode this nests further
+inside ``local_runtime()``'s outer context — all consistent.
+
 ``setup`` / ``migrate`` / ``bootstrap_ollama`` are infrastructure
 commands and run without an orchestration context, matching the CLI.
 
@@ -17,6 +23,9 @@ in-process tests via ``fastmcp.Client(mcp)``.
 """
 
 from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastmcp import FastMCP
 
@@ -57,12 +66,26 @@ from aaiclick.view_models import (
     WorkerFilter,
 )
 
+
+@asynccontextmanager
+async def _mcp_lifespan(server: FastMCP) -> AsyncIterator[None]:
+    """Hold one ``orch_context`` open for the FastMCP server's lifetime.
+
+    Per-tool wrappers still call ``orch_context`` for explicit scoping; the
+    nested calls reuse this outer engine and ChClient instead of
+    constructing fresh ones per tool invocation.
+    """
+    async with orch_context(with_ch=True):
+        yield
+
+
 mcp: FastMCP = FastMCP(
     name="aaiclick",
     instructions=(
         "Tools mirror aaiclick's CLI verbs one-to-one. Every tool runs against "
         "the same backends as the REST surface under /api/v0 — see docs/api_server.md."
     ),
+    lifespan=_mcp_lifespan,
 )
 
 

@@ -8,6 +8,7 @@ import asyncio
 import logging
 from typing import Any
 
+from aaiclick.ai.agents.lineage_tools import describe_table
 from aaiclick.data.data_context import get_ch_client
 from aaiclick.data.sql_utils import escape_sql_string
 from aaiclick.oplog.lineage import OplogNode, backward_oplog
@@ -95,10 +96,8 @@ async def sample_table(table: str, limit: int = 10, where: str | None = None) ->
 
 async def get_schema(table: str) -> str:
     """Return column names and types for a table."""
-    ch_client = get_ch_client()
-    table_escaped = escape_sql_string(table)
-    result = await ch_client.query(f"DESCRIBE TABLE {table_escaped}")
-    lines = [f"{row[0]}: {row[1]}" for row in result.result_rows]
+    schema = await describe_table(table)
+    lines = [f"{c.name}: {c.type}" for c in schema.columns]
     return "\n".join(lines) if lines else f"(table {table} not found)"
 
 
@@ -108,14 +107,14 @@ async def get_column_stats(table: str) -> str:
     Discovers columns via DESCRIBE TABLE, then queries stats for all of them
     in a single round-trip — the LLM never needs to guess column names.
     """
-    ch_client = get_ch_client()
-    table_escaped = escape_sql_string(table)
-
-    desc_result = await ch_client.query(f"DESCRIBE TABLE {table_escaped}")
-    if not desc_result.result_rows:
+    schema = await describe_table(table)
+    if not schema.columns:
         return f"(table {table} not found or has no columns)"
 
-    columns = [row[0] for row in desc_result.result_rows]
+    columns = [c.name for c in schema.columns]
+
+    ch_client = get_ch_client()
+    table_escaped = escape_sql_string(table)
 
     select_parts = []
     for col in columns:

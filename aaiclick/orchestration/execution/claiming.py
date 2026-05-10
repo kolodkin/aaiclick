@@ -1,10 +1,9 @@
 """Atomic task claiming and cancellation for distributed workers."""
 
-from datetime import datetime
-
 from sqlalchemy import text
 from sqlmodel import select
 
+from ...datetime_utils import utc_now
 from ..models import (
     JOB_CANCELLED,
     JOB_COMPLETED,
@@ -58,7 +57,7 @@ async def claim_next_task(worker_id: int) -> Task | None:
     """
     handler = get_db_handler()
     async with get_sql_session() as session:
-        task = await handler.claim_next_task(session, worker_id, datetime.utcnow())
+        task = await handler.claim_next_task(session, worker_id, utc_now())
         await session.commit()
         return task
 
@@ -98,9 +97,9 @@ async def update_task_status(
 
         task.status = status
         if status == TASK_RUNNING:
-            task.started_at = datetime.utcnow()
+            task.started_at = utc_now()
         elif status in (TASK_COMPLETED, TASK_FAILED):
-            task.completed_at = datetime.utcnow()
+            task.completed_at = utc_now()
             if error:
                 task.error = error
             if result:
@@ -139,7 +138,7 @@ async def update_job_status(job_id: int, status: JobStatus, error: str | None = 
 
         job.status = status
         if status in (JOB_COMPLETED, JOB_FAILED, JOB_CANCELLED):
-            job.completed_at = datetime.utcnow()
+            job.completed_at = utc_now()
             if error:
                 job.error = error
 
@@ -180,7 +179,7 @@ async def cancel_job(job_id: int) -> Job:
         if job.status in _TERMINAL_JOB_STATUSES:
             raise JobAlreadyTerminal(f"Job {job_id} already in terminal state: {job.status}")
 
-        now = datetime.utcnow()
+        now = utc_now()
         job.status = JOB_CANCELLED
         job.completed_at = now
         session.add(job)

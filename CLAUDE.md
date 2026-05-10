@@ -4,50 +4,6 @@ After completing each task, use the `check-pr` skill to verify GitHub Actions wo
 
 If any workflows fail, analyze the error logs and fix issues automatically.
 
-## Commit Guidelines
-
-This project uses pre-commit hooks that may modify files during commit (formatting, linting, etc.).
-
-**Commit message format** (conventional commits):
-
-- `feature:` for new features
-- `bugfix:` for bug fixes
-- `refactor:` for code refactoring
-- `cleanup:` for code cleanup
-- Multiple types can be combined: `[feature, cleanup]: description`
-
-**Creating commits**:
-
-1. Check staged changes with `git status` and `git diff --staged --stat`
-2. Suggest commit message following the format above
-3. Get user approval before committing
-4. Use HEREDOC for commit messages:
-
-   ```bash
-   git commit -m "$(cat <<'EOF'
-   <type>: <short description>
-
-   <optional longer description>
-   EOF
-   )"
-   ```
-
-**Handling pre-commit hook failures**:
-
-- Hooks run BEFORE commit is created, so no commit exists yet
-- Only re-stage the originally staged files (NOT all modified files)
-- Do NOT use `git add -u` (stages unrelated changes)
-- Do NOT use `--amend` (no commit exists to amend)
-- Re-run commit with same message
-
-**Important**:
-
-- NEVER amend commits authored by others or already pushed
-- Always use HEREDOC for multi-line messages
-- Always get user approval before committing
-- Do NOT include "Generated with ..." in commit messages
-- Do NOT include `Co-Authored-By: Claude` trailers in commit messages
-
 # Test Execution Strategy
 
 **Local testing is supported with the default backend (chdb + SQLite).**
@@ -58,69 +14,9 @@ This project uses pre-commit hooks that may modify files during commit (formatti
 
 **Architecture**: `docs/testing.md` — fixture layout, chdb session constraint, module-split rules for mp-worker tests.
 
-# Testing Guidelines
+# Testing
 
-- **Test file location**: Place test files alongside the modules they test
-  - `aaiclick/data/test_context.py` tests `aaiclick/data/data_context.py`
-  - `aaiclick/orchestration/test_orchestration_factories.py` tests `aaiclick/orchestration/factories.py`
-  - Shared fixtures go in `aaiclick/conftest.py`
-  - **Exception**: end-to-end suites that exercise the deployed package
-    live in `./test_e2e/<suite>/` (e.g. `test_e2e/docker/` for the
-    Docker-runner suite). They are not picked up by the default `pytest`
-    invocation and only run via dedicated workflows.
-
-- **Flat test structure**: Do NOT use test classes - keep tests as flat module functions
-  - Tests should be simple `async def test_*():` or `def test_*():` functions
-  - Group related tests by file, not by class
-  - This keeps tests simple and reduces boilerplate
-
-- **Async tests**: Do NOT use `@pytest.mark.asyncio` decorator - it's not required
-  - pytest-asyncio is configured in `pyproject.toml` to automatically detect async test functions
-  - Simply define async test functions with `async def test_*():`
-
-- **Unrelated test failures**: When tests outside the scope of your changes break, fix the implementation — not the tests
-  - These failures indicate your changes have unintended side effects
-  - Do NOT modify, skip, or weaken unrelated tests to make them pass
-  - If unsure whether the test or the implementation is wrong, ask the user
-
-- **Object API test file alignment**: Each section in the `docs/object.md` API Quick Reference table must have a dedicated test file in `aaiclick/data/object/`. Name the file after the section (e.g. `test_comparison.py`, `test_bitwise.py`, `test_domain_helpers.py`). When adding a new API section, also create the corresponding test file. When a domain helper is tightly coupled to an operator (e.g., `with_isin` ↔ `isin`), tests go in the operator's test file (`test_isin.py`), not `test_domain_helpers.py`.
-
-- **No tests for Python defaults or plain assignment**: Do NOT write tests whose only purpose is to verify that Python's `__init__`, dataclass/NamedTuple/Pydantic defaults, or decorator argument passthrough works. Python is already tested — trust it.
-  - **Skip**: constructing an object and asserting constructor-assigned fields equal the inputs
-  - **Skip**: asserting default values of dataclass / Pydantic / NamedTuple fields (`assert obj.x is None`, `assert obj.retries == 0`)
-  - **Skip**: decorator tests that only check `@task(name="x")` stores `name == "x"` on the resulting object
-  - **Skip**: trivial factory passthrough tests (`factory(a, b)` → assert fields match `a`, `b`)
-  - **Write tests for real behavior**: branching logic, computations, validation errors, DB round-trips, schema inference, format output, ID uniqueness, env-var parsing, etc.
-  ```python
-  # BAD — only checks Python assignment works
-  def test_task_default_max_retries():
-      t = create_task("mod.fn")
-      assert t.max_retries == 0
-      assert t.attempt == 0
-
-  # BAD — only checks decorator stores its argument
-  def test_task_decorator_with_name():
-      @task(name="custom")
-      async def f(): pass
-      assert f().name == "custom"
-
-  # GOOD — tests real validation behavior
-  def test_strategy_mode_requires_strategy():
-      with pytest.raises(ValueError, match="requires a non-empty sampling_strategy"):
-          resolve_job_config(PreservationMode.STRATEGY, None, None)
-
-  # GOOD — tests branching logic
-  def test_data_list_single_vs_multiple():
-      assert data_list("only").data == "only"
-      assert data_list("a", "b").data == ["a", "b"]
-  ```
-
-
-# Code Quality
-
-- **No unhandled warnings**: `filterwarnings = ["error"]` in `pyproject.toml` turns any unhandled warning into a test failure. When a third-party library emits a known warning, suppress it with `warnings.catch_warnings()` around the call that triggers it. This keeps the suppression scoped and next to the code that causes it.
-- Use `--strict-markers` for pytest marker validation
-- Code coverage reporting is enabled via pytest-cov
+Use the `python-testing-style` skill for test layout, async test rules, Object API alignment, and what NOT to test.
 
 # Coding Guidelines
 
@@ -252,79 +148,9 @@ This project uses pre-commit hooks that may modify files during commit (formatti
       print(f"  {row}")
   ```
 
-## ClickHouse Client Guidelines
+## Alembic Migrations
 
-**Minimize data transfer between Python and ClickHouse - prefer database-internal operations.**
-
-- **Use `ch_client.insert()` for in-memory data** (not string-formatted INSERT):
-  ```python
-  # GOOD
-  data = [[id1, val1], [id2, val2]]
-  await ch_client.insert(table_name, data)
-
-  # BAD
-  values = ", ".join(f"({id_val}, {val})" for ...)
-  await ch_client.command(f"INSERT INTO {table} VALUES {values}")
-  ```
-
-- **Prefer database operations over fetching to Python**:
-  - **Good**: `INSERT...SELECT`, `JOIN`, subqueries, window functions
-  - **Bad**: Query → Python processing → Insert
-  ```python
-  # GOOD: Database-internal
-  await ch_client.command(f"INSERT INTO {dest} SELECT ... FROM {src} JOIN ...")
-
-  # BAD: Python round-trip
-  rows = await ch_client.query(f"SELECT * FROM {src}")
-  data = [[process(row) for row in rows]]
-  await ch_client.insert(dest, data)
-  ```
-
-## Alembic Migration Guidelines
-
-**Always use Alembic built-in commands for creating migrations:**
-
-- **Create new migration**: Use `alembic revision -m "description"` or `alembic revision --autogenerate -m "description"`
-  ```bash
-  # Create empty migration file (manual)
-  alembic revision -m "add user table"
-
-  # Auto-generate migration from model changes (requires database connection)
-  alembic revision --autogenerate -m "add user table"
-  ```
-
-- **Apply migrations**: Use `alembic upgrade head` or `alembic upgrade +1`
-  ```bash
-  # Apply all pending migrations
-  alembic upgrade head
-
-  # Apply next migration
-  alembic upgrade +1
-  ```
-
-- **Rollback migrations**: Use `alembic downgrade -1` or `alembic downgrade <revision>`
-  ```bash
-  # Rollback last migration
-  alembic downgrade -1
-
-  # Rollback to specific revision
-  alembic downgrade abc123
-  ```
-
-- **Check status**: Use `alembic current` and `alembic history`
-  ```bash
-  # Show current revision
-  alembic current
-
-  # Show migration history
-  alembic history --verbose
-  ```
-
-**Important**:
-- Never manually create migration files from scratch
-- Always use `alembic revision` to generate the migration file skeleton
-- Fill in `upgrade()` and `downgrade()` functions with actual migration code
-- Test both upgrade and downgrade paths
+Use the `generate-migration` skill. Never hand-write migration files.
 
 # Future Plans
 
@@ -363,78 +189,8 @@ This project uses pre-commit hooks that may modify files during commit (formatti
    - **Mark status**: Use ✅ IMPLEMENTED or ⚠️ NOT YET IMPLEMENTED
    - **Keep unimplemented specs**: Detailed descriptions serve as design docs for future work
 
-## Documentation Guidelines
+## Documentation
 
-**Quality reference**: [FastAPI docs](https://fastapi.tiangolo.com/) — progressive disclosure, concise admonitions, copy-paste-ready examples with output shown inline.
-
-**Avoid line numbers in implementation references** - they become stale as code changes. Instead, refer to classes, methods, or functions by name:
-
-```markdown
-# BAD - line numbers become stale
-**Implementation**: `aaiclick/orchestration/context.py:129-175`
-
-# GOOD - method names are stable
-**Implementation**: `aaiclick/orchestration/context.py` - see `OrchContext.apply()` method
-```
-
-**Markdown heading style** — use setext style for document titles, ATX (`#`) for sections:
-
-```markdown
-# GOOD - setext title + ATX sections (one level deep)
-Document Title
----
-
-# Section One
-
-## Subsection
-
-# BAD - ATX title with deep nesting
-# Document Title
-
-## Section One
-
-### Subsection
-```
-
-- Document title: setext underline with `---`
-- Top-level sections: `#`
-- Subsections: `##`
-- Avoid `###` and deeper where possible — restructure instead
-
-**Markdown table formatting** - align columns with padding for human readability:
-
-```markdown
-# GOOD - aligned columns, padded with spaces
-| Guard                                   | Scenario                                                  |
-|-----------------------------------------|-----------------------------------------------------------|
-| `sys.is_finalizing()`                   | Interpreter shutdown — skip to avoid thread safety issues |
-| `_data_ctx_ref is None`                 | Object was never registered                               |
-
-# BAD - minimal separators, hard to read
-| Guard | Scenario |
-|-------|----------|
-| `sys.is_finalizing()` | Interpreter shutdown — skip to avoid thread safety issues |
-| `_data_ctx_ref is None` | Object was never registered |
-```
-
-**Admonitions** — use `!!! tip`, `!!! warning`, `??? info` only at genuine pitfall points
-where a user would hit a confusing error without the callout. Never for emphasis, decoration,
-or restating what surrounding prose already says. Collapsible `???` for optional context.
-
-```markdown
-# GOOD — real pitfall, saves debugging time
-!!! warning "`or_where()` requires a prior `where()`"
-    Calling `or_where()` without a preceding `where()` raises `ValueError`.
-
-# GOOD — optional context, reader can skip
-??? info "Which deployment mode?"
-    Start with the default (chdb + SQLite) — it needs zero setup.
-
-# BAD — restating what the code already shows
-!!! tip
-    Use `await` to get the result of an operation.
-
-# BAD — decorating a reference table
-!!! info "ClickHouse uses RE2 regex syntax"
-    No lookaheads or lookbehinds.
-```
+- Use the `shortify` skill after writing or editing docs in subdirectories.
+- Use the `markdown-style` skill for heading style, table formatting, admonitions, and implementation references.
+- Skip root-level `.md` files (`CLAUDE.md`, `README.md`, `CHANGELOG.md`).

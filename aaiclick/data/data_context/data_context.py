@@ -323,7 +323,12 @@ async def create_object(
     else:
         effective_engine = engine or schema.engine or get_engine()
 
-    order_by = schema.order_by or "tuple()"
+    if schema.order_by is not None:
+        order_by = schema.order_by
+    elif AAI_ID_COLUMN in schema.columns:
+        order_by = f"({AAI_ID_COLUMN})"
+    else:
+        order_by = "tuple()"
 
     # Memory engine ignores ORDER BY — warn when both are combined.
     if effective_engine == "Memory" and schema.order_by:

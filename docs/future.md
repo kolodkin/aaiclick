@@ -21,17 +21,6 @@ Add "See Also" footers and cross-page links alongside the tutorial.
 
 # Medium Priority
 
-## Replace `datetime.utcnow()` and Add Python 3.13 to CI Matrix
-
-`datetime.utcnow()` is deprecated in Python 3.12+. The codebase has many call sites (mostly `aaiclick/orchestration/`: `models.py`, `factories.py`, `registered_jobs.py`, `background/`, plus a few tests). Local development on Python 3.13 with `filterwarnings = ["error"]` turns the deprecation into test failures; CI doesn't see this because every `uv sync` invocation in `.github/workflows/test.yaml` pins `--python 3.10`.
-
-A surgical fix landed for `aaiclick/orchestration/orch_context.py` (the only call site touched by `aaiclick/oplog/test_graph.py`). The rest of the sweep is deferred.
-
-**Work**:
-- Replace every `datetime.utcnow()` with `datetime.now(UTC)` (add `UTC` to existing `from datetime import …` imports).
-- For SQLModel/Pydantic `default_factory=datetime.utcnow` fields, switch to `default_factory=lambda: datetime.now(UTC)` and verify the column types still round-trip correctly — `datetime.now(UTC)` returns a timezone-aware datetime, whereas `utcnow()` returned naive. The DB columns + serializers may need to be made tz-aware (or strip tzinfo at the boundary if we want to preserve naive storage).
-- Add a Python 3.13 leg to the test matrix in `.github/workflows/test.yaml`: change the `--python 3.10` pins to a matrix `python-version: ["3.10", "3.13"]` so future deprecations are caught at the CI boundary instead of by individual developers.
-
 ## Lazy Operator Results (Operators Return Views, Not Tables)
 
 Every operator today materializes its result into a fresh ClickHouse table via `create_object(schema)` + `INSERT INTO ... SELECT ...`. For scalar and small-result aggregations (`sum`, `nunique`, `count`, `min`, `max`, `mean`, single-key `group_by.sum`), the extra `CREATE TABLE ... ENGINE = Memory` round-trip dominates wall clock on cheap queries.
@@ -84,7 +73,7 @@ Add `.materialize()` as the explicit escape hatch so callers can opt in.
 - Benchmark: `chdb_benchmark` should show `Count distinct` / `Group-by sum` dropping from ~10 ms → ~5 ms at 1M rows.
 - Tests: every operator test that currently asserts against a materialized table still passes (via implicit materialize-on-data or an explicit `.materialize()` in tests that introspect `.table`).
 
-Pairs with the "scalar Object unwrapping" idea — once `.data()` is cheap, the ergonomic case of "just give me the number" becomes the fast default.
+Pairs with the "scalar Object unwrapping" idea — once `.data()` is cheap, the ergonomic case of "just give me the number" becomes the fast default. Also a hard precondition for the `.as_()` postfix naming entry below: naming only lands cleanly when it can ride on the first CREATE.
 
 ## Clear Task + Downstream
 
@@ -113,80 +102,40 @@ Also relevant: ClickHouse's own `ALTER TABLE` is limited — `MODIFY ORDER BY` c
 
 No action today — fresh installs keep working, existing installs degrade gracefully at worst. Revisit once there is a third structural CH-side change (which makes the per-change CLI approach untenable) or once a change actually breaks (not just slows down) an existing install.
 
-## Outer `orch_context` Lifespan for the FastMCP Sub-app
+## Postfix Naming for Operator Results (`.as_()`)
 
-Each `@mcp.tool` opens its own `orch_context(with_ch=True)`, re-creating a SQLAlchemy `AsyncEngine` per call (the chdb `ChClient` is already shared via the process singleton). For multi-step MCP debug loops — `oplog_subgraph` followed by N `query_table` / `get_table_schema` calls — the per-tool engine creation cost is `N + 1`× the steady-state cost.
+**Depends on Lazy Operator Results above.** Without lazy, `.as_()` degrades to a post-hoc `RENAME TABLE` or a Python-only alias — both unsatisfactory (see below).
 
-**Work**: open one outer `orch_context` at the FastMCP sub-app lifespan so per-tool calls nest into it. Regression test: mock `create_async_engine`, call two tools back-to-back, assert call count = 1.
+Today every arithmetic / comparison / boolean operator on `Object` materializes its result into an auto-generated `t_<snowflake>` table. There is no way to attach a stable name to the output of `prices * quantities` or `revenue + bonus` — only `create_object*` accepts a `name`. Pipelines that mix named source objects with anonymous intermediate results read inconsistently in lineage graphs and are harder to debug since the agent has to deduce intermediate identity from operations rather than names.
 
-## Consolidate `ai/agents/tools.py:get_schema` onto `lineage_tools.describe_table`
-
-`aaiclick/ai/agents/tools.py:get_schema` and the new `aaiclick/ai/agents/lineage_tools.py:describe_table` both wrap `DESCRIBE TABLE` for the agent context. The latter is typed (returns `TableSchema`) and uses `quote_identifier`; the former predates it. Migrate `tools.py:get_schema` (and any other call sites that hand-roll `DESCRIBE TABLE`) to `describe_table` so there is one wrapper.
-
-## Name Parameter on Operator Results
-
-Today every arithmetic / comparison / boolean operator on `Object` materializes its result into an auto-generated `t_<snowflake>` table. There is no way to attach a stable `name=` to the output of `prices * quantities` or `revenue + bonus` — only `create_object*` accepts a `name`. Pipelines that mix named source objects with anonymous intermediate results read inconsistently in lineage graphs and are harder to debug since the agent has to deduce intermediate identity from operations rather than names.
-
-**Proposal**: thread a `name: str | None = None` (and matching `scope`) through the operator surface — `__add__`, `__mul__`, the rest of `_apply_operator`, plus `_apply_aggregation` and the group-by path — down to `_apply_operator_db` so the result table is built via `create_object(schema, name=name, scope=scope)` instead of the unnamed default. Operator chaining stays anonymous when no name is passed (today's behavior).
-
-**Open questions**:
-
-- The `*` / `+` overload signatures don't take kwargs. A separate fluent form (`prices.mul(quantities, name="revenue")`) is cleaner than overloading the operators themselves.
-- Pairs naturally with the "Lazy Operator Results" entry above — once operators return `LazyView`, the `name=` becomes the materialization hint, not a CREATE-time argument.
-
-## Drop `@job` / `@task` Decorators in Favor of Factory Methods
-
-The `@job` and `@task` decorators wrap user functions in `JobFactory` / `TaskFactory` objects. At runtime, `runner.import_callback` immediately unwraps them back to the underlying `func` and calls it directly — the wrapper class adds no execution-time semantics. The Factory classes exist to provide:
-
-1. **Programmatic submission**: `await my_pipeline(x=1)` shorthand for `await run_job("my_pipeline", kwargs={"x": 1})`.
-2. **Typed call sites**: `wraps(func)` preserves the signature so IDEs autocomplete the kwargs.
-3. **`Task`-arg auto-dependency**: `TaskFactory.__call__` walks kwargs and creates `Dependency` rows for any `Task` it finds.
-
-Items 1 and 2 can be replaced by a small explicit helper — `submit_job(my_function, x=1)` — that does the dotted-path resolution + `run_job` call without needing a decorator. Item 3 is the only behavior that *requires* the wrapper today; it can move to either an explicit helper (`with_deps(func, *upstream)`) or a metaclass on `Task` itself.
-
-**Why this is worth doing**: the decorator indirection costs us:
-
-- A confusing import surface — users see `from aaiclick.orchestration import job` and assume the decorator is required for execution. It isn't (the docker-runner e2e and our example fixtures demonstrate this).
-- A circular-import shape between `decorators.py`, `factories.py`, and `runner.py` — any change to the entry-point execution path touches all three.
-- Test friction — testing a decorated function means either calling `factory.func(...)` (leaks the wrapper) or `await factory(...)` (commits a Job, hits the DB).
-- Two ways to do the same thing, where the second (`await JobFactory(...)`) silently writes to the database — surprising for a "just call the function" mental model.
-
-**Proposal sketch**:
+**Proposal**: a single postfix method, `.as_(name, *, scope="task")`, that names the result of any expression — arithmetic, aggregation, group-by, comparison. One method on the lazy result type covers the whole operator surface; no kwarg sweep through `__add__` / `__mul__` / `_apply_aggregation` / `group_by_agg`.
 
 ```python
-# Today
-@job("my_pipeline")
-def my_pipeline(x: int): ...
-await my_pipeline(x=1)  # creates Job + entry task
+# With lazy operators in place
+lazy = prices * quantities                  # no DDL — Schema + SQL only
+revenue = await lazy.as_("revenue")         # CREATE TABLE t_revenue ... INSERT SELECT ...
 
-# After
-def my_pipeline(x: int): ...
-await submit_job(my_pipeline, x=1)  # explicit, no decorator, same result
+by_region = await (
+    sales.group_by("region").sum("amount")
+).as_("revenue_by_region", scope="persistent")
 
-# Today
-@task
-def fetch(url: str) -> Object: ...
-@task
-def transform(data: Object) -> Object: ...
-result = transform(data=fetch(url="..."))  # auto-deps via TaskFactory.__call__
-
-# After
-fetch_task = task_for(fetch, url="...")
-transform_task = task_for(transform, data=fetch_task)  # explicit upstream
-# (or a chaining helper: fetch_task >> transform_task)
+# Chains stay anonymous when no name is needed
+margin = (revenue - costs) / revenue
 ```
 
-**Migration cost** (the reason this isn't done yet):
+**Why lazy is required**: if `prices * quantities` has already materialized, `.as_()` can only:
 
-- Every `aaiclick/orchestration/examples/*.py` uses `@job` / `@task`.
-- The `decorators` module is part of the public API; a deprecation cycle is needed.
-- Several internal-API call sites (`internal_api.run_job`, `internal_api.register_job`) accept either a string entrypoint or a callable — the callable path goes through `_callable_to_string` which is tied to the decorator pattern.
+- Issue `RENAME TABLE t_<snowflake> TO t_revenue` — another DDL round-trip on top of the one being avoided, and it breaks any concurrent reader still holding the old name.
+- Stay a Python-side alias — lineage graphs use the friendly name, but `system.tables` and any pasted SQL still show `t_<snowflake>`. The Python view and the CH reality diverge.
 
-**Sequence**:
+With lazy operators, `.as_()` *is* the first materialization, so the name lands on the initial CREATE. No rename, no alias-vs-real-name split.
 
-1. Add `submit_job`, `task_for` (or equivalents) to the public API.
-2. Migrate examples + tests to the new helpers; deprecate `@job` / `@task` with a warning.
-3. After one minor version, delete the decorators.
+**Why not per-operator `name=` kwargs**: `*` and `+` overloads don't accept kwargs in Python. Fluent variants (`mul(name=)`, `add(name=)`, `sum(name=)`, …) duplicate the operator surface and still miss chained expressions like `(a * b - c).as_("net")`. One postfix method composes over any expression.
+
+**Work** (after Lazy Operator Results):
+- `aaiclick/data/object/object.py` — `Object.as_(name, *, scope)` on the lazy result type, materializing under the requested name and scope.
+- Decide spelling: `.as_()` (avoids the `as` keyword, terse) vs. `.named()` (longer, no trailing-underscore wart). Pick one and commit.
+- Tests: every operator's result accepts `.as_()`; chained expressions name correctly; `scope="persistent"` produces a `p_<name>` table; double-naming (`.as_("a").as_("b")`) is either rejected or re-materializes under `b`.
 
 ---
 
@@ -202,16 +151,6 @@ it with `UNKNOWN_FORMAT` (chdb appears to omit the HTML output handler). Add
 an `.html` / `HTML` entry to `FORMATS` in `aaiclick/data/formats.py` and the
 corresponding test once chdb's build includes it, or once aaiclick gains a
 way to fall back to clickhouse-connect for formats chdb doesn't ship.
-
-## Nightly AI Live Tests
-
-Bring back a nightly workflow that runs the live-LLM tests (`aaiclick/ai/test_provider_live.py`, `aaiclick/ai/agents/test_lineage_agent_live.py`) against a real model. The previous `project-ai-tests.yaml` spun up an `ollama/ollama` service and pulled `llama3.2:1b` on every run, which was slow and flaky. The non-live AI tests now run on every PR inside `test.yaml` (`AI local` group); the live tests auto-skip without `AAICLICK_AI_LIVE_TESTS=1`, so they cost nothing there.
-
-**When to revisit**: once we either (a) have a stable, cached Ollama model image to avoid the per-run pull, or (b) move to a hosted provider with a CI-friendly budget. Gate the workflow to `schedule:` only — never on PRs.
-
-**Work**:
-- Recreate `.github/workflows/project-ai-tests.yaml` (or fold into a broader nightly workflow) running `pytest -m live_llm` against `aaiclick/ai/`.
-- Re-add the `ai-tests` job to `run-all-projects.yaml` (or its successor).
 
 ## Comparison Page
 

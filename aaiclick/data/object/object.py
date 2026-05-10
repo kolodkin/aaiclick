@@ -1746,7 +1746,6 @@ class Object:
             raise ValueError("rename() cannot be used on scalar Objects")
         existing = set(self._schema.columns.keys())
         renamed_away = set(columns.keys())
-        (existing - renamed_away) | set(columns.values())
         for old_name in columns:
             if old_name not in existing:
                 raise ValueError(f"Column '{old_name}' does not exist in schema")
@@ -1759,6 +1758,17 @@ class Object:
         for new_name in new_names:
             if new_name in kept:
                 raise ValueError(f"Renamed column '{new_name}' collides with existing column")
+        # Reject swap-style renames (a new name reuses another column's old
+        # name). Allowing them would force the SELECT list to disambiguate
+        # column refs from aliases — ClickHouse otherwise resolves the alias
+        # before the column ref. Users who genuinely want to swap names
+        # should rename in two steps with an intermediate column.
+        for old_name, new_name in columns.items():
+            if new_name != old_name and new_name in renamed_away:
+                raise ValueError(
+                    f"Renamed column '{new_name}' reuses a name being renamed away "
+                    f"(from '{old_name}'). Rename in two steps via an intermediate name."
+                )
         return View(self, renamed_columns=columns)
 
     def explode(self, *columns: str, left: bool = False) -> View:
@@ -2485,6 +2495,11 @@ class View(Object):
         return self._left_explode
 
     @functools.cached_property
+    def _inv_renames(self) -> dict[str, str]:
+        """Reverse map post-rename name -> original column name."""
+        return {new: old for old, new in (self._renamed_columns or {}).items()}
+
+    @functools.cached_property
     def _effective_columns(self) -> dict[str, ColumnInfo]:
         """Column schema with renames, field selection, and computed columns applied.
 
@@ -2499,15 +2514,21 @@ class View(Object):
         """
         orig = self._schema.columns
         renames = self._renamed_columns or {}
+        inv_renames = self._inv_renames
 
+        # selected_fields hold post-rename names; map them back to source
+        # column names via the inverse rename when looking up types in
+        # ``orig``.
         if self._selected_fields and self.is_single_field:
             field = self._selected_fields[0]
-            col_def = orig.get(field, ColumnInfo("Float64"))
+            src_name = inv_renames.get(field, field)
+            col_def = orig.get(src_name, ColumnInfo("Float64"))
             columns = {"value": col_def}
         elif self._selected_fields:
             columns = {}
             for f in self._selected_fields:
-                columns[f] = orig[f]
+                src_name = inv_renames.get(f, f)
+                columns[f] = orig[src_name]
         else:
             columns = {renames.get(name, name): info for name, info in orig.items()}
 
@@ -2666,15 +2687,20 @@ class View(Object):
             # this, ``(obj["x"] + array_b)`` would build a source subquery
             # that omits aai_id, and the operator's outer SELECT can't find it.
             aai_id_proj = ", aai_id" if AAI_ID_COLUMN in self._schema.columns else ""
+            inv_renames = self._inv_renames
             if self.is_single_field:
-                # Single field: rename as 'value' for array compatibility
-                field = quote_identifier(self.selected_fields[0])
-                select_cols = f"{field} AS value{aai_id_proj}"
+                src = inv_renames.get(self.selected_fields[0], self.selected_fields[0])
+                select_cols = f"{quote_identifier(src)} AS value{aai_id_proj}"
             else:
-                fields_str = ", ".join(quote_identifier(f) for f in self.selected_fields)
-                select_cols = f"{fields_str}{aai_id_proj}"
+                parts = []
+                for f in self.selected_fields:
+                    src = inv_renames.get(f, f)
+                    if src != f:
+                        parts.append(f"{quote_identifier(src)} AS {quote_identifier(f)}")
+                    else:
+                        parts.append(quote_identifier(src))
+                select_cols = ", ".join(parts) + aai_id_proj
         elif self._renamed_columns and columns == "*":
-            # Expand * into explicit columns with renames applied
             renames = self._renamed_columns
             col_parts = []
             for col_name in self._schema.columns:
@@ -2761,7 +2787,14 @@ class View(Object):
             source_query = f"({self._build_select(skip_order_by=True)})"
         else:
             source_query = self.table
-        columns = dict(self._schema.columns)
+        # Apply renames so the destination schema and the INSERT/SELECT
+        # column list use the post-rename names — matching the aliases
+        # emitted by the inner ``_build_select``. Without this, ``copy_db``
+        # builds ``INSERT INTO new (orig_name) SELECT orig_name FROM
+        # (... orig AS new_name ...)`` which fails with ClickHouse Code 47
+        # because ``orig_name`` is no longer exposed by the inner SELECT.
+        renames = self._renamed_columns or {}
+        columns = {renames.get(name, name): info for name, info in self._schema.columns.items()}
 
         # Include computed columns in destination schema so copy() materializes them
         if self._computed_columns:
@@ -2770,9 +2803,10 @@ class View(Object):
 
         if self._exploded_columns:
             for col_name in self._exploded_columns:
-                if col_name in columns:
-                    old_info = columns[col_name]
-                    columns[col_name] = old_info.model_copy(update={"array": max(0, int(old_info.array) - 1)})
+                effective_name = renames.get(col_name, col_name)
+                if effective_name in columns:
+                    old_info = columns[effective_name]
+                    columns[effective_name] = old_info.model_copy(update={"array": max(0, int(old_info.array) - 1)})
         return CopyInfo(
             source_query=source_query,
             fieldtype=self._schema.fieldtype,
