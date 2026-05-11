@@ -18,14 +18,88 @@ from ...datetime_utils import utc_now
 from ..models import (
     JOB_COMPLETED,
     JOB_FAILED,
+    TASK_CANCELLED,
     TASK_CLAIMED,
     TASK_FAILED,
     TASK_PENDING,
     TASK_PENDING_CLEANUP,
     TASK_RUNNING,
+    TASK_UPSTREAM_FAILED,
 )
 
 JOB_FAILED_ERROR = "One or more tasks failed"
+UPSTREAM_FAILED_ERROR = "Upstream task failed"
+
+# Cascade UPDATE: mark PENDING tasks UPSTREAM_FAILED when any upstream is in a
+# non-success terminal state. Covers all four dependency-type combinations
+# (task→task, group→task, task→group, group→group). Run in a loop until no
+# rows change so transitive chains converge in a single try_complete_job call.
+_CASCADE_UPSTREAM_FAILED_SQL = """
+    UPDATE tasks SET status = :upstream_failed, completed_at = :now, error = :error_msg
+    WHERE job_id = :job_id
+      AND status = :pending
+      AND (
+        EXISTS (
+            SELECT 1 FROM dependencies d
+            JOIN tasks prev ON d.previous_id = prev.id
+            WHERE d.next_id = tasks.id
+              AND d.next_type = 'task'
+              AND d.previous_type = 'task'
+              AND prev.status IN (:failed, :cancelled, :upstream_failed)
+        )
+        OR EXISTS (
+            SELECT 1 FROM dependencies d
+            JOIN tasks prev ON prev.group_id = d.previous_id
+            WHERE d.next_id = tasks.id
+              AND d.next_type = 'task'
+              AND d.previous_type = 'group'
+              AND prev.status IN (:failed, :cancelled, :upstream_failed)
+        )
+        OR (tasks.group_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM dependencies d
+            JOIN tasks prev ON d.previous_id = prev.id
+            WHERE d.next_id = tasks.group_id
+              AND d.next_type = 'group'
+              AND d.previous_type = 'task'
+              AND prev.status IN (:failed, :cancelled, :upstream_failed)
+        ))
+        OR (tasks.group_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM dependencies d
+            JOIN tasks prev ON prev.group_id = d.previous_id
+            WHERE d.next_id = tasks.group_id
+              AND d.next_type = 'group'
+              AND d.previous_type = 'group'
+              AND prev.status IN (:failed, :cancelled, :upstream_failed)
+        ))
+      )
+"""
+
+
+async def cascade_upstream_failed(session: AsyncSession, job_id: int) -> int:
+    """Mark transitively-downstream PENDING tasks as UPSTREAM_FAILED.
+
+    Loops the cascade UPDATE until it converges (no rows changed) so a chain
+    A→B→C→D collapses in one call. Returns the total number of tasks marked.
+    Caller is responsible for committing.
+    """
+    now = utc_now()
+    params = {
+        "job_id": job_id,
+        "now": now,
+        "error_msg": UPSTREAM_FAILED_ERROR,
+        "pending": TASK_PENDING,
+        "failed": TASK_FAILED,
+        "cancelled": TASK_CANCELLED,
+        "upstream_failed": TASK_UPSTREAM_FAILED,
+    }
+    total = 0
+    while True:
+        result = await session.execute(text(_CASCADE_UPSTREAM_FAILED_SQL), params)
+        changed = result.rowcount or 0
+        if changed <= 0:
+            break
+        total += changed
+    return total
 
 
 def in_clause(ids: list, prefix: str) -> tuple[str, dict]:
@@ -46,7 +120,12 @@ async def try_complete_job(session: AsyncSession, job_id: int) -> None:
     of task count) so this stays O(1) on the worker hot path even for large
     jobs. Uses raw SQL on the passed session so it works both inside and
     outside an active ``orch_context``. The caller is responsible for committing.
+
+    Before the rollup, sweeps PENDING tasks whose transitive upstream is in a
+    non-success terminal state and marks them UPSTREAM_FAILED — otherwise they
+    would block job completion forever.
     """
+    await cascade_upstream_failed(session, job_id)
     result = await session.execute(
         text(
             "SELECT "
@@ -54,7 +133,7 @@ async def try_complete_job(session: AsyncSession, job_id: int) -> None:
             "  SUM(CASE WHEN status IN "
             "    (:pending, :claimed, :running, :pending_cleanup) "
             "    THEN 1 ELSE 0 END) AS non_terminal, "
-            "  SUM(CASE WHEN status = :failed THEN 1 ELSE 0 END) AS failed "
+            "  SUM(CASE WHEN status IN (:failed, :upstream_failed) THEN 1 ELSE 0 END) AS failed "
             "FROM tasks WHERE job_id = :job_id"
         ),
         {
@@ -64,6 +143,7 @@ async def try_complete_job(session: AsyncSession, job_id: int) -> None:
             "running": TASK_RUNNING,
             "pending_cleanup": TASK_PENDING_CLEANUP,
             "failed": TASK_FAILED,
+            "upstream_failed": TASK_UPSTREAM_FAILED,
         },
     )
     total, non_terminal, failed = result.one()

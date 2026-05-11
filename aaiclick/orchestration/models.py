@@ -47,8 +47,15 @@ TASK_COMPLETED = "COMPLETED"
 TASK_FAILED = "FAILED"
 TASK_CANCELLED = "CANCELLED"
 TASK_PENDING_CLEANUP = "PENDING_CLEANUP"
-TaskStatus = Literal["PENDING", "CLAIMED", "RUNNING", "COMPLETED", "FAILED", "CANCELLED", "PENDING_CLEANUP"]
-"""Task execution status."""
+TASK_UPSTREAM_FAILED = "UPSTREAM_FAILED"
+TaskStatus = Literal[
+    "PENDING", "CLAIMED", "RUNNING", "COMPLETED", "FAILED", "CANCELLED", "PENDING_CLEANUP", "UPSTREAM_FAILED"
+]
+"""Task execution status.
+
+``UPSTREAM_FAILED`` is a terminal state assigned by the cascade sweep when a
+task's transitive upstream is ``FAILED``, ``CANCELLED``, or ``UPSTREAM_FAILED``.
+Job rollup treats it as a failure."""
 
 
 WORKER_ACTIVE = "ACTIVE"
