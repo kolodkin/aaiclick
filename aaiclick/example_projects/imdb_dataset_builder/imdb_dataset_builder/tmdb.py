@@ -100,8 +100,11 @@ async def enrich_with_tmdb(clean: Object, tmdb: Object) -> Object:
         )
     )
     await stage.insert(clean)  # overview auto-NULL
-    # insert silently skips source columns not in the target (drops `title`).
-    await stage.insert(tmdb)
+    # Project tmdb to only tconst + overview before insert: the upstream
+    # Parquet has its own `genres` (String) column, and the tolerant
+    # insert would try to cast it into the stage's `genres: Array(String)`
+    # slot. Subscripting drops it; the stage's genres comes from `clean`.
+    await stage.insert(tmdb[["tconst", "overview"]])
 
     enriched = await stage.group_by("tconst").agg(
         {
