@@ -11,4 +11,4 @@ Large-scale data curation pipeline that loads IMDb title.basics (~10M rows) from
 ./imdb_dataset_builder.sh --full
 ```
 
-Set `HF_TOKEN` to publish the curated dataset to Hugging Face Hub. Set `AIRTABLE_API_KEY` + `AIRTABLE_BASE_ID` (table defaults to `IMDB`) to publish a ~200-row stratified-by-genre showcase sample to Airtable. See `SPEC.md` for design notes.
+Set `HF_TOKEN` to publish the curated dataset to Hugging Face Hub. Set `AIRTABLE_API_KEY` + `AIRTABLE_BASE_ID` (table defaults to `IMDB`) to publish a ~200-row stratified-by-genre showcase sample to Airtable.
