@@ -40,6 +40,21 @@ _SAMPLE_COLUMNS = [
     "plot",
 ]
 
+# Field schema for the Airtable table. Order matters — the first field
+# becomes the primary field (the row identifier shown in card views).
+# The Airtable Web API can create fields and tables, but CANNOT delete
+# them, so any pre-existing extra fields will stay (they just sit empty
+# next to our data). Requires the PAT to carry the `schema.bases:write`
+# scope in addition to `data.records:read/write`.
+_FIELD_SCHEMA: list[dict] = [
+    {"name": "tconst", "type": "singleLineText"},
+    {"name": "primaryTitle", "type": "singleLineText"},
+    {"name": "startYear", "type": "singleLineText"},
+    {"name": "genres", "type": "multipleSelects", "options": {"choices": []}},
+    {"name": "runtimeMinutes", "type": "singleLineText"},
+    {"name": "plot", "type": "multilineText"},
+]
+
 
 def _ch_quote(value: str) -> str:
     """Escape a string for safe interpolation inside a ClickHouse SQL literal."""
@@ -108,6 +123,9 @@ async def publish_to_airtable(sample: Object) -> AirtablePublishResult:
         for i in range(n)
     ]
     print(f"[publish_to_airtable] sample size: {n} records to upload to {base_id}/{table}", flush=True)
+
+    print("[publish_to_airtable] ensuring table schema...", flush=True)
+    await _ensure_table_schema(api_key, base_id, table)
 
     print("[publish_to_airtable] listing existing records...", flush=True)
     existing_ids = await _list_all_record_ids(api_key, base_id, table)
@@ -198,3 +216,40 @@ async def _delete_records(api_key: str, base_id: str, table: str, ids: Iterable[
 async def _create_records(api_key: str, base_id: str, table: str, records: list[dict]) -> None:
     body = {"records": records, "typecast": True}
     await _arequest("POST", _table_url(base_id, table), api_key, body=body)
+
+
+async def _ensure_table_schema(api_key: str, base_id: str, table: str) -> None:
+    """Ensure the configured Airtable table exists with our 6 required fields.
+
+    Creates the table from scratch (with the right field order so ``tconst``
+    becomes primary) when it's missing. Otherwise adds any missing fields
+    in place. Extra pre-existing fields are left alone — the Airtable Web
+    API does not support deleting fields or tables, so a one-time manual
+    cleanup of stray fields in the UI is the only way to remove them.
+    """
+    meta_url = f"https://api.airtable.com/v0/meta/bases/{base_id}/tables"
+    payload = await _arequest("GET", meta_url, api_key)
+    tables = {t["name"]: t for t in payload.get("tables", [])}
+
+    if table not in tables:
+        print(f"[publish_to_airtable] table {table!r} not found; creating with full schema", flush=True)
+        await _arequest(
+            "POST",
+            meta_url,
+            api_key,
+            body={"name": table, "fields": _FIELD_SCHEMA},
+        )
+        return
+
+    existing_field_names = {f["name"] for f in tables[table].get("fields", [])}
+    missing = [f for f in _FIELD_SCHEMA if f["name"] not in existing_field_names]
+    if not missing:
+        print("[publish_to_airtable] table schema already complete", flush=True)
+        return
+
+    table_id = tables[table]["id"]
+    fields_url = f"https://api.airtable.com/v0/meta/bases/{base_id}/tables/{table_id}/fields"
+    for field in missing:
+        await _arequest("POST", fields_url, api_key, body=field)
+        print(f"[publish_to_airtable] added missing field: {field['name']} ({field['type']})", flush=True)
+        await asyncio.sleep(AIRTABLE_THROTTLE_SECONDS)
