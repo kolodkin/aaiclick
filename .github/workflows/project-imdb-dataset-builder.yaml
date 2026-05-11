@@ -17,6 +17,7 @@ env:
 jobs:
   imdb-dataset-builder:
     runs-on: ubuntu-latest
+    environment: DEV
 
     services:
       clickhouse:
@@ -84,6 +85,8 @@ jobs:
           POSTGRES_PASSWORD: secret
           POSTGRES_DB: aaiclick
           AAICLICK_LOG_DIR: /tmp/aaiclick/logs
+          AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
+          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
         run: |
           mkdir -p tmp
           aaiclick/example_projects/imdb_dataset_builder/imdb_dataset_builder.sh 2>&1 | tee tmp/imdb-dataset-builder_output.txt
