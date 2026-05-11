@@ -10,11 +10,11 @@ loaded directly from the official IMDb datasets URL:
 - Array Explode (one genre per row from comma-separated strings)
 - Group By Aggregations (genre distribution analysis)
 - Data Quality Profiling (countIf for missing runtime and out-of-range detection)
-- Wikipedia Plot Enrichment (always on)
-  - Wikidata SPARQL resolution of IMDb tconst → Wikipedia article title (P345)
-  - Bulk Parquet load of the HF wikimedia/wikipedia dump (brace-expansion URL)
-  - Two-stage AggregatingMergeTree merge to avoid string-matching on titles
-  - ClickHouse-side plot section extraction via extract()/replace() regex
+- TMDB Plot Enrichment (always on)
+  - Static Hugging Face Parquet (HenryWaltson/TMDB-IMDB-Movies-Dataset)
+    cross-references IMDb's tconst directly — no SPARQL needed
+  - Single-stage AggregatingMergeTree merge on tconst (clean ⊕ tmdb)
+  - Computed alias renames TMDB's `overview` → `plot` for the public schema
 - Hugging Face Publishing (optional, requires HF_TOKEN env var)
 
 Data source: IMDb Non-Commercial Datasets (title.basics)
@@ -30,11 +30,9 @@ Usage:
     python -m aaiclick worker start
 
 Environment variables:
-    HF_TOKEN           — Hugging Face token for dataset publishing (optional)
-    IMDB_URL           — Override IMDb data URL (useful for local testing)
-    IMDB_WIKI_SNAPSHOT — Wikipedia snapshot date (default 20231101)
-    IMDB_WIKI_SHARDS   — number of Parquet shards to load (default 41)
-    IMDB_SPARQL_BATCH  — IDs per SPARQL batch (default 400)
+    HF_TOKEN       — Hugging Face token for dataset publishing (optional)
+    IMDB_URL       — Override IMDb data URL (useful for local testing)
+    IMDB_TMDB_URL  — Override TMDB enrichment Parquet URL
 """
 
 import asyncio
@@ -49,13 +47,7 @@ from aaiclick.orchestration import job, task
 from .constants import CLEAN_COLUMNS, HF_REPO_ID, IMDB_COLUMNS, IMDB_RAW_COLUMNS, IMDB_URL
 from .models import HFPublishResult, QualityIssues, RawProfile
 from .report import generate_report
-from .wikipedia import (
-    enrich_with_wikipedia,
-    extract_plot_text,
-    load_wikipedia_dump,
-    measure_enrichment,
-    resolve_wikipedia_titles,
-)
+from .tmdb import enrich_with_tmdb, load_tmdb_dump, measure_enrichment
 
 # =============================================================================
 # Tasks
@@ -320,31 +312,17 @@ def imdb_dataset_pipeline(limit: int | None = 500_000, year_from: int = 1980):
     All heavy computation stays inside ClickHouse — Python only orchestrates
     the SQL operations and receives small summary dicts.
 
-    DAG Structure:
-        load_raw_data ---+---> profile_raw           ---+
-                         |                              |
-                         +---> filter_movies ---+---> detect_quality_issues --+
-                                                |                             |
-                                                +---> normalize_genres        |
-                                                |          |                  |
-                                                |          v                  |
-                                                |    analyze_genre_balance    |
-                                                |                             |
-                                                +---> build_clean_dataset     |
-                                                           |                  |
-                                                           +--> publish_to_hf |
-                                                           |                  |
-                                                           +--> resolve_wp_titles
-                                                           |           \\
-                                                           |  load_wikipedia_dump
-                                                           |           \\
-                                                           |  enrich_with_wikipedia
-                                                           |           |
-                                                           |   extract_plot_text
-                                                           |           |
-                                                           |   measure_enrichment
-                                                           |           |
-                                                           +--> generate_report <--+
+    DAG Structure::
+
+        load_raw_data ─┬─► profile_raw
+                       └─► filter_movies ─┬─► detect_quality_issues
+                                          ├─► normalize_genres ─► analyze_genre_balance
+                                          └─► build_clean_dataset ─┬─► load_tmdb_dump ─┐
+                                                                   │                   ▼
+                                                                   ├─► enrich_with_tmdb ─► measure_enrichment
+                                                                   └─► publish_to_huggingface
+
+        All terminal tasks fan in to generate_report.
 
     Args:
         limit: Row limit for demo runs. Set to None for the full ~10M-row dataset.
@@ -353,9 +331,7 @@ def imdb_dataset_pipeline(limit: int | None = 500_000, year_from: int = 1980):
 
     Environment variables:
         HF_TOKEN              — publish curated dataset to Hugging Face Hub
-        IMDB_WIKI_SNAPSHOT    — Wikipedia snapshot date (default 20231101)
-        IMDB_WIKI_SHARDS      — number of Parquet shards to load (default 41)
-        IMDB_SPARQL_BATCH     — IDs per SPARQL batch (default 400)
+        IMDB_TMDB_URL         — override TMDB enrichment Parquet URL
         IMDB_DATASET_EXPORTS  — comma-separated export formats (parquet,csv,...)
     """
     raw = load_raw_data(limit=limit)
@@ -367,11 +343,9 @@ def imdb_dataset_pipeline(limit: int | None = 500_000, year_from: int = 1980):
     clean = build_clean_dataset(movies=movies, year_from=year_from)
     genre_balance = analyze_genre_balance(exploded=exploded)
 
-    title_map = resolve_wikipedia_titles(clean=clean)
-    wiki = load_wikipedia_dump(title_map=title_map)
-    enriched = enrich_with_wikipedia(clean=clean, title_map=title_map, wiki=wiki)
-    plots = extract_plot_text(enriched=enriched)
-    enrichment_stats = measure_enrichment(clean=clean, title_map=title_map, plots=plots)
+    tmdb = load_tmdb_dump(clean=clean)
+    plots = enrich_with_tmdb(clean=clean, tmdb=tmdb)
+    enrichment_stats = measure_enrichment(clean=clean, plots=plots)
 
     hf_result = publish_to_huggingface(enriched=plots) if os.environ.get("HF_TOKEN") else None
 
@@ -388,7 +362,7 @@ def imdb_dataset_pipeline(limit: int | None = 500_000, year_from: int = 1980):
         clean=clean,
         genre_balance=genre_balance,
         plots=plots,
-        wiki=wiki,
+        tmdb=tmdb,
         profile=profile,
         quality_issues=quality_issues,
         hf_result=hf_result,

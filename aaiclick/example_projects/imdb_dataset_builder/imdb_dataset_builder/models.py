@@ -30,10 +30,8 @@ class HFPublishResult(BaseModel):
 
 class EnrichmentStats(BaseModel):
     total_clean: int
-    titles_resolved: int
-    titles_resolved_pct: float
-    articles_matched: int
-    articles_matched_pct: float
+    matched: int
+    matched_pct: float
     plots_usable: int
     plots_usable_pct: float
     avg_plot_chars: float
