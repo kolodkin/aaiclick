@@ -9,11 +9,11 @@ the project used originally. Two tasks:
    ``clean`` (so we materialize only ~10s of MB locally regardless of
    how big the upstream file gets).
 
-2. ``enrich_with_tmdb`` — single-stage ``AggregatingMergeTree`` merge on
-   ``tconst``: insert ``clean`` (TMDB columns auto-NULL) + insert ``tmdb``
-   (IMDb columns auto-NULL), then ``group_by(tconst).agg(any)``. Emits the
-   ``plot`` field (renamed from TMDB's ``overview``) so downstream consumers
-   keep the same column name they used with the Wikipedia plot text.
+2. ``enrich_with_tmdb`` — inner-join ``clean`` and ``tmdb`` on ``tconst``
+   via ``Object.join``. Single 2-way hash join is the natural fit since
+   TMDB cross-references IMDb's tconst directly. Renames ``overview`` →
+   ``plot`` via a Computed alias so downstream consumers keep the same
+   column name they used with the Wikipedia plot text.
 
 Coverage: ~90% of clean IMDb rows pick up a non-null overview from TMDB,
 typical length 200-400 chars (clean editorial single-paragraph synopses,
@@ -23,15 +23,7 @@ no Wikipedia-style templates or refs).
 import os
 
 from aaiclick import create_object_from_url
-from aaiclick.data.data_context import create_object
-from aaiclick.data.models import (
-    ENGINE_AGGREGATING_MERGE_TREE,
-    FIELDTYPE_ARRAY,
-    GB_ANY,
-    ColumnInfo,
-    Computed,
-    Schema,
-)
+from aaiclick.data.models import GB_ANY, ColumnInfo, Computed
 from aaiclick.data.object import Object
 from aaiclick.orchestration import task
 
@@ -41,16 +33,6 @@ TMDB_URL = os.environ.get(
     "IMDB_TMDB_URL",
     "https://huggingface.co/api/datasets/HenryWaltson/TMDB-IMDB-Movies-Dataset/parquet/default/train/0.parquet",
 )
-
-# AggregatingMergeTree stage table — both sources merge here keyed on tconst.
-_STAGE_COLUMNS = {
-    "tconst": ColumnInfo("String"),
-    "primaryTitle": ColumnInfo("String", nullable=True),
-    "startYear": ColumnInfo("String", nullable=True),
-    "genres": ColumnInfo("Array(String)"),
-    "runtimeMinutes": ColumnInfo("String", nullable=True),
-    "overview": ColumnInfo("String", nullable=True),
-}
 
 
 @task
@@ -79,51 +61,23 @@ async def load_tmdb_dump(clean: Object) -> Object:
 
 @task
 async def enrich_with_tmdb(clean: Object, tmdb: Object) -> Object:
-    """Merge clean IMDb subset with TMDB overviews via AggregatingMergeTree.
+    """Inner-join clean IMDb subset with TMDB overviews on ``tconst``.
 
-    Single-stage merge (vs. the old 2-stage Wikipedia chain): both sources
-    share the ``tconst`` key, so one insert pair + one ``group_by/agg(any)``
-    produces the enriched output. Adding a third source (TMDB ratings,
-    cast, …) is a one-line extra ``insert()`` — the showcased property
-    of ``AggregatingMergeTree`` over chained joins.
+    Simple 2-way hash join — TMDB cross-references IMDb's tconst directly
+    so no AggregatingMergeTree-based merge is needed. The inner join
+    naturally drops IMDb titles that TMDB doesn't have an overview for.
+
+    TMDB has ~1.7% duplicate tconst rows (multiple TMDB entries for the
+    same IMDb id); ``group_by(tconst).agg(any)`` collapses those before
+    the join so we don't multiply IMDb rows.
 
     Returns ``(tconst, primaryTitle, startYear, genres, runtimeMinutes, plot)``
-    where ``plot`` is renamed from TMDB's ``overview`` via a Computed
-    alias. Rows without a TMDB overview (no plot to show) are filtered out.
+    where ``plot`` is renamed from TMDB's ``overview`` via a Computed alias.
     """
-    stage = await create_object(
-        Schema(
-            fieldtype=FIELDTYPE_ARRAY,
-            columns=_STAGE_COLUMNS,
-            engine=ENGINE_AGGREGATING_MERGE_TREE,
-            order_by="tconst",
-        )
-    )
-    await stage.insert(clean)  # overview auto-NULL
-    # Materialize a tmdb projection to (tconst, overview): the upstream
-    # Parquet has its own String `genres` column that would collide
-    # with the stage's Array(String) `genres` slot during tolerant
-    # column-name matching. A subscript view alone isn't enough — the
-    # underlying schema still carries genres; .copy() rewrites the
-    # schema to just the projected pair.
-    tmdb_projected = await tmdb[["tconst", "overview"]].copy()
-    await stage.insert(tmdb_projected)
+    deduped_tmdb = await tmdb.group_by("tconst").agg({"overview": GB_ANY})
+    joined = await clean.join(deduped_tmdb, on="tconst", how="inner")
 
-    enriched = await stage.group_by("tconst").agg(
-        {
-            "primaryTitle": GB_ANY,
-            "startYear": GB_ANY,
-            "genres": GB_ANY,
-            "runtimeMinutes": GB_ANY,
-            "overview": GB_ANY,
-        }
-    )
-    matched = enriched.where("primaryTitle IS NOT NULL AND overview IS NOT NULL")
-
-    # Rename overview → plot via Computed alias + projection so the public
-    # column stays "plot" (Airtable spec, HF parquet, and report all use it).
-    materialized = await matched.copy()
-    aliased = materialized.with_columns({"plot": Computed("String", "overview")})
+    aliased = joined.with_columns({"plot": Computed("String", "overview")})
     final = aliased[
         [
             "tconst",
