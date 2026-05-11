@@ -107,14 +107,19 @@ async def publish_to_airtable(sample: Object) -> AirtablePublishResult:
         {"fields": {col: rows[col][i] for col in _SAMPLE_COLUMNS if col in rows}}
         for i in range(n)
     ]
+    print(f"[publish_to_airtable] sample size: {n} records to upload to {base_id}/{table}", flush=True)
 
+    print("[publish_to_airtable] listing existing records...", flush=True)
     existing_ids = await _list_all_record_ids(api_key, base_id, table)
-    for batch in _chunks(existing_ids, AIRTABLE_BATCH):
+    print(f"[publish_to_airtable] {len(existing_ids)} existing records to delete", flush=True)
+    for i, batch in enumerate(_chunks(existing_ids, AIRTABLE_BATCH)):
         await _delete_records(api_key, base_id, table, batch)
+        print(f"[publish_to_airtable] deleted batch {i + 1} ({len(batch)} records)", flush=True)
         await asyncio.sleep(AIRTABLE_THROTTLE_SECONDS)
 
-    for batch in _chunks(records, AIRTABLE_BATCH):
+    for i, batch in enumerate(_chunks(records, AIRTABLE_BATCH)):
         await _create_records(api_key, base_id, table, batch)
+        print(f"[publish_to_airtable] created batch {i + 1} ({len(batch)} records)", flush=True)
         await asyncio.sleep(AIRTABLE_THROTTLE_SECONDS)
 
     return AirtablePublishResult(
