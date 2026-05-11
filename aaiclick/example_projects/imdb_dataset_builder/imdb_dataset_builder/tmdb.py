@@ -100,11 +100,14 @@ async def enrich_with_tmdb(clean: Object, tmdb: Object) -> Object:
         )
     )
     await stage.insert(clean)  # overview auto-NULL
-    # Project tmdb to only tconst + overview before insert: the upstream
-    # Parquet has its own `genres` (String) column, and the tolerant
-    # insert would try to cast it into the stage's `genres: Array(String)`
-    # slot. Subscripting drops it; the stage's genres comes from `clean`.
-    await stage.insert(tmdb[["tconst", "overview"]])
+    # Materialize a tmdb projection to (tconst, overview): the upstream
+    # Parquet has its own String `genres` column that would collide
+    # with the stage's Array(String) `genres` slot during tolerant
+    # column-name matching. A subscript view alone isn't enough — the
+    # underlying schema still carries genres; .copy() rewrites the
+    # schema to just the projected pair.
+    tmdb_projected = await tmdb[["tconst", "overview"]].copy()
+    await stage.insert(tmdb_projected)
 
     enriched = await stage.group_by("tconst").agg(
         {
