@@ -25,6 +25,8 @@ matching on film titles):
 import asyncio
 import json
 import os
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -113,8 +115,15 @@ def _sparql_post(query: str) -> list[tuple[str, str]]:
             "User-Agent": SPARQL_UA,
         },
     )
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        body = json.loads(resp.read().decode("utf-8"))
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code < 500 or attempt == 3:
+                raise
+            time.sleep(2**attempt)
     out: list[tuple[str, str]] = []
     for b in body["results"]["bindings"]:
         imdb = b["imdb"]["value"]
