@@ -35,3 +35,11 @@ class EnrichmentStats(BaseModel):
     plots_usable: int
     plots_usable_pct: float
     avg_plot_chars: float
+
+
+class AirtablePublishResult(BaseModel):
+    status: str
+    base: str | None = None
+    table: str | None = None
+    rows: int | None = None
+    reason: str | None = None

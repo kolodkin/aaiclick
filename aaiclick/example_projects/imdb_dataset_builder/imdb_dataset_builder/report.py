@@ -12,7 +12,7 @@ from aaiclick.data.object import Object
 from aaiclick.orchestration import task
 
 from .constants import CLEAN_COLUMNS, HF_REPO_ID, IMDB_RAW_COLUMNS, IMDB_URL, TMDB_COLUMNS
-from .models import EnrichmentStats, HFPublishResult, QualityIssues, RawProfile
+from .models import AirtablePublishResult, EnrichmentStats, HFPublishResult, QualityIssues, RawProfile
 from .tmdb import TMDB_URL
 
 
@@ -44,6 +44,7 @@ class ReportContent:
     profile: RawProfile
     quality_issues: QualityIssues
     hf_result: HFPublishResult | None
+    airtable_result: AirtablePublishResult | None
     raw_md: str
     clean_md: str
     genre_md: str
@@ -151,6 +152,20 @@ def _print_report(content: ReportContent) -> None:
     else:
         print(f"- Status: {hf_result.status}")
 
+    airtable = content.airtable_result
+    print("\n### Airtable Showcase\n")
+    if airtable is None or airtable.status == "skipped":
+        reason = airtable.reason if airtable else "task did not run"
+        print(f"- Skipped: {reason}")
+        print("- Set `AIRTABLE_API_KEY` and `AIRTABLE_BASE_ID` to publish a sample to Airtable")
+    elif airtable.status == "published":
+        print(f"- Base: `{airtable.base}`  Table: `{airtable.table}`")
+        print(f"- Rows published: {_fmt(airtable.rows)}")
+    else:
+        print(f"- Status: {airtable.status}")
+        if airtable.reason:
+            print(f"- Reason: {airtable.reason}")
+
 
 @task
 async def generate_report(
@@ -165,6 +180,7 @@ async def generate_report(
     enrichment_stats: EnrichmentStats,
     hf_result: HFPublishResult | None = None,
     exports: dict[str, str] | None = None,
+    airtable_result: AirtablePublishResult | None = None,
 ) -> dict:
     """Combine all pipeline outputs into a unified IMDb dataset builder report."""
     raw_md = (
@@ -205,6 +221,7 @@ async def generate_report(
                 profile=profile,
                 quality_issues=quality_issues,
                 hf_result=hf_result,
+                airtable_result=airtable_result,
                 raw_md=raw_md,
                 clean_md=clean_md,
                 genre_md=genre_md,
@@ -231,5 +248,6 @@ async def generate_report(
         "total_titles": profile.total_titles,
         "total_movies": quality_issues.total_movies,
         "hf_status": hf_result.status if hf_result is not None else "skipped",
+        "airtable_status": airtable_result.status if airtable_result is not None else "skipped",
         "enrichment_plots_usable": enrichment_stats.plots_usable,
     }

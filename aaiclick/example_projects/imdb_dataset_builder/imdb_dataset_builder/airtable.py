@@ -1,0 +1,195 @@
+"""Airtable showcase publishing for the IMDb dataset builder.
+
+Stratified-by-genre sample: top ``PER_GENRE_LIMIT`` rows per genre by
+plot length (longest plots first), deduped by ``tconst``. The deduped
+sample (~150-200 rows) is uploaded in *replace* mode: existing records
+are listed and deleted in batches of 10, then the new sample is inserted
+in batches of 10. Airtable's 5 req/sec per-base rate limit is honored
+via ``asyncio.sleep(AIRTABLE_THROTTLE_SECONDS)`` between calls.
+``urllib.request`` is used directly so no extra dependency is needed.
+"""
+
+import asyncio
+import json
+import os
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from typing import Iterable, Iterator, Sequence
+
+from aaiclick import ORIENT_DICT
+from aaiclick.data.models import GB_ANY
+from aaiclick.data.object import Object
+from aaiclick.orchestration import task
+
+from .models import AirtablePublishResult
+
+AIRTABLE_API_BASE = "https://api.airtable.com/v0"
+AIRTABLE_BATCH = 10  # Airtable max records per create / delete request
+AIRTABLE_THROTTLE_SECONDS = 0.2  # 5 req/sec per base
+AIRTABLE_BACKOFF_SECONDS = (2, 4, 8)
+PER_GENRE_LIMIT = 10
+
+_SAMPLE_COLUMNS = [
+    "tconst",
+    "primaryTitle",
+    "startYear",
+    "genres",
+    "runtimeMinutes",
+    "plot",
+]
+
+
+def _ch_quote(value: str) -> str:
+    """Escape a string for safe interpolation inside a ClickHouse SQL literal."""
+    return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def _chunks(items: Sequence, size: int) -> Iterator[list]:
+    for i in range(0, len(items), size):
+        yield list(items[i : i + size])
+
+
+@task
+async def sample_for_airtable(plots: Object, genre_balance: Object) -> Object:
+    """Build a stratified-by-genre showcase sample from ``plots``.
+
+    For each distinct genre in ``genre_balance``, take the top
+    ``PER_GENRE_LIMIT`` rows from ``plots`` with the longest ``plot``
+    text. A film tagged ``Drama,Romance,War`` lands in 3 buckets, so
+    the union is deduped on ``tconst``. Final size: ~150-200 rows.
+    """
+    genres: list[str] = await genre_balance["genres"].data()
+    if not genres:
+        # Fall back to the empty plots view so downstream code still has an Object.
+        return await plots.where("0 = 1").copy()
+
+    per_genre_views = [
+        plots.where(f"has(genres, {_ch_quote(g)})")
+             .view(order_by="length(plot) DESC", limit=PER_GENRE_LIMIT)
+        for g in genres
+    ]
+
+    # Concatenate per-genre views via SQL UNION ALL, then dedup by tconst
+    # (a film tagged in multiple genres lands in multiple buckets).
+    combined = per_genre_views[0]
+    for v in per_genre_views[1:]:
+        combined = await combined.concat(v)
+    materialized = await combined.copy()
+    deduped = await materialized.group_by("tconst").agg(
+        {col: GB_ANY for col in _SAMPLE_COLUMNS if col != "tconst"}
+    )
+    return await deduped.copy()
+
+
+@task
+async def publish_to_airtable(sample: Object) -> AirtablePublishResult:
+    """Replace the configured Airtable table's contents with the showcase sample.
+
+    Gating mirrors ``publish_to_huggingface``: ``AIRTABLE_API_KEY`` and
+    ``AIRTABLE_BASE_ID`` are required; missing either returns a skipped
+    result. ``AIRTABLE_TABLE_NAME`` defaults to ``"IMDB"``.
+    """
+    api_key = os.environ.get("AIRTABLE_API_KEY")
+    base_id = os.environ.get("AIRTABLE_BASE_ID")
+    table = os.environ.get("AIRTABLE_TABLE_NAME", "IMDB")
+    if not (api_key and base_id):
+        return AirtablePublishResult(
+            status="skipped",
+            reason="AIRTABLE_API_KEY/BASE_ID not set",
+            table=table,
+        )
+
+    rows = await sample.data(orient=ORIENT_DICT)
+    n = len(rows.get("tconst", []))
+    records = [
+        {"fields": {col: rows[col][i] for col in _SAMPLE_COLUMNS if col in rows}}
+        for i in range(n)
+    ]
+
+    existing_ids = await _list_all_record_ids(api_key, base_id, table)
+    for batch in _chunks(existing_ids, AIRTABLE_BATCH):
+        await _delete_records(api_key, base_id, table, batch)
+        await asyncio.sleep(AIRTABLE_THROTTLE_SECONDS)
+
+    for batch in _chunks(records, AIRTABLE_BATCH):
+        await _create_records(api_key, base_id, table, batch)
+        await asyncio.sleep(AIRTABLE_THROTTLE_SECONDS)
+
+    return AirtablePublishResult(
+        status="published",
+        base=base_id,
+        table=table,
+        rows=n,
+    )
+
+
+def _airtable_request(
+    method: str,
+    url: str,
+    api_key: str,
+    *,
+    body: dict | None = None,
+) -> dict:
+    """One Airtable REST call with exponential backoff on 429 / 5xx / network error."""
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    last_exc: Exception | None = None
+    for backoff in (0,) + AIRTABLE_BACKOFF_SECONDS:
+        if backoff:
+            time.sleep(backoff)
+        req = urllib.request.Request(url, data=data, method=method, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                payload = resp.read().decode("utf-8")
+                return json.loads(payload) if payload else {}
+        except urllib.error.HTTPError as e:
+            body_text = e.read().decode("utf-8", errors="replace")
+            if e.code == 429 or 500 <= e.code < 600:
+                last_exc = RuntimeError(f"Airtable {e.code}: {body_text}")
+                continue
+            raise RuntimeError(f"Airtable {e.code}: {body_text}") from e
+        except urllib.error.URLError as e:
+            last_exc = e
+            continue
+    raise RuntimeError(f"Airtable request failed after retries: {last_exc}")
+
+
+async def _arequest(method: str, url: str, api_key: str, *, body: dict | None = None) -> dict:
+    return await asyncio.to_thread(_airtable_request, method, url, api_key, body=body)
+
+
+def _table_url(base_id: str, table: str) -> str:
+    return f"{AIRTABLE_API_BASE}/{base_id}/{urllib.parse.quote(table, safe='')}"
+
+
+async def _list_all_record_ids(api_key: str, base_id: str, table: str) -> list[str]:
+    """Page through every record id in the table (Airtable returns up to 100/page)."""
+    ids: list[str] = []
+    offset: str | None = None
+    while True:
+        url = _table_url(base_id, table) + "?pageSize=100"
+        if offset:
+            url += "&offset=" + urllib.parse.quote(offset, safe="")
+        payload = await _arequest("GET", url, api_key)
+        ids.extend(rec["id"] for rec in payload.get("records", []))
+        offset = payload.get("offset")
+        if not offset:
+            return ids
+        await asyncio.sleep(AIRTABLE_THROTTLE_SECONDS)
+
+
+async def _delete_records(api_key: str, base_id: str, table: str, ids: Iterable[str]) -> None:
+    qs = "&".join(f"records[]={urllib.parse.quote(rid, safe='')}" for rid in ids)
+    url = _table_url(base_id, table) + "?" + qs
+    await _arequest("DELETE", url, api_key)
+
+
+async def _create_records(api_key: str, base_id: str, table: str, records: list[dict]) -> None:
+    body = {"records": records, "typecast": True}
+    await _arequest("POST", _table_url(base_id, table), api_key, body=body)

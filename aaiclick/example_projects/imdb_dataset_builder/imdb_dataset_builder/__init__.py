@@ -13,9 +13,11 @@ loaded directly from the official IMDb datasets URL:
 - TMDB Plot Enrichment (always on)
   - Static Hugging Face Parquet (HenryWaltson/TMDB-IMDB-Movies-Dataset)
     cross-references IMDb's tconst directly — no SPARQL needed
-  - Single-stage AggregatingMergeTree merge on tconst (clean ⊕ tmdb)
+  - Inner join on tconst via Object.join (clean ⋈ tmdb)
   - Computed alias renames TMDB's `overview` → `plot` for the public schema
 - Hugging Face Publishing (optional, requires HF_TOKEN env var)
+- Airtable Showcase Publishing (optional, requires AIRTABLE_API_KEY +
+  AIRTABLE_BASE_ID; ~200-row sample stratified by genre)
 
 Data source: IMDb Non-Commercial Datasets (title.basics)
 https://datasets.imdbws.com/title.basics.tsv.gz
@@ -30,9 +32,12 @@ Usage:
     python -m aaiclick worker start
 
 Environment variables:
-    HF_TOKEN       — Hugging Face token for dataset publishing (optional)
-    IMDB_URL       — Override IMDb data URL (useful for local testing)
-    IMDB_TMDB_URL  — Override TMDB enrichment Parquet URL
+    HF_TOKEN             — Hugging Face token for dataset publishing (optional)
+    AIRTABLE_API_KEY     — Airtable personal access token (optional, gates upload)
+    AIRTABLE_BASE_ID     — Airtable base id, e.g. appXXXXXXXX (optional, gates upload)
+    AIRTABLE_TABLE_NAME  — Airtable table name (default "IMDB")
+    IMDB_URL             — Override IMDb data URL (useful for local testing)
+    IMDB_TMDB_URL        — Override TMDB enrichment Parquet URL
 """
 
 import asyncio
@@ -47,6 +52,7 @@ from aaiclick.orchestration import job, task
 from .constants import CLEAN_COLUMNS, HF_REPO_ID, IMDB_COLUMNS, IMDB_RAW_COLUMNS, IMDB_URL
 from .models import HFPublishResult, QualityIssues, RawProfile
 from .report import generate_report
+from .airtable import publish_to_airtable, sample_for_airtable
 from .tmdb import enrich_with_tmdb, load_tmdb_dump, measure_enrichment
 
 # =============================================================================
@@ -331,6 +337,9 @@ def imdb_dataset_pipeline(limit: int | None = 500_000, year_from: int = 1980):
 
     Environment variables:
         HF_TOKEN              — publish curated dataset to Hugging Face Hub
+        AIRTABLE_API_KEY      — publish a 200-row showcase to Airtable
+        AIRTABLE_BASE_ID      — Airtable base id (required when AIRTABLE_API_KEY is set)
+        AIRTABLE_TABLE_NAME   — Airtable table name (default "IMDB")
         IMDB_TMDB_URL         — override TMDB enrichment Parquet URL
         IMDB_DATASET_EXPORTS  — comma-separated export formats (parquet,csv,...)
     """
@@ -348,6 +357,9 @@ def imdb_dataset_pipeline(limit: int | None = 500_000, year_from: int = 1980):
     enrichment_stats = measure_enrichment(clean=clean, plots=plots)
 
     hf_result = publish_to_huggingface(enriched=plots) if os.environ.get("HF_TOKEN") else None
+
+    airtable_sample = sample_for_airtable(plots=plots, genre_balance=genre_balance)
+    airtable_result = publish_to_airtable(sample=airtable_sample)
 
     export_formats = [f.strip().lower() for f in os.environ.get("IMDB_DATASET_EXPORTS", "").split(",") if f.strip()]
     exports = (
@@ -368,6 +380,7 @@ def imdb_dataset_pipeline(limit: int | None = 500_000, year_from: int = 1980):
         hf_result=hf_result,
         exports=exports,
         enrichment_stats=enrichment_stats,
+        airtable_result=airtable_result,
     )
 
 
