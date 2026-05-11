@@ -43,3 +43,10 @@ class AirtablePublishResult(BaseModel):
     table: str | None = None
     rows: int | None = None
     reason: str | None = None
+
+
+class AirtableValidationResult(BaseModel):
+    status: str  # "ok" | "skipped"
+    scopes: list[str] | None = None
+    base: str | None = None
+    reason: str | None = None

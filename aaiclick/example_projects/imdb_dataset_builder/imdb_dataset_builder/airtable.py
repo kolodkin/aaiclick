@@ -23,7 +23,9 @@ from aaiclick.data.models import GB_ANY
 from aaiclick.data.object import Object
 from aaiclick.orchestration import task
 
-from .models import AirtablePublishResult
+from .models import AirtablePublishResult, AirtableValidationResult
+
+REQUIRED_SCOPES = ("data.records:read", "data.records:write", "schema.bases:write")
 
 AIRTABLE_API_BASE = "https://api.airtable.com/v0"
 AIRTABLE_BATCH = 10  # Airtable max records per create / delete request
@@ -67,13 +69,63 @@ def _chunks(items: Sequence, size: int) -> Iterator[list]:
 
 
 @task
-async def sample_for_airtable(plots: Object, genre_balance: Object) -> Object:
+async def validate_airtable_credentials() -> AirtableValidationResult:
+    """Verify the configured Airtable PAT and base before any other Airtable task runs.
+
+    Skipped when ``AIRTABLE_API_KEY`` / ``AIRTABLE_BASE_ID`` are unset (gates
+    the whole Airtable branch in the same way ``publish_to_huggingface`` is
+    gated on ``HF_TOKEN``). Otherwise:
+
+    * Calls ``GET /v0/meta/whoami`` to read the PAT's actual scope set;
+      raises with a clear "missing scopes: …" message if any required scope
+      is absent. This is the cheap fail-fast check — far better than letting
+      the upload bleed through 175 records before a schema endpoint 401s.
+    * Calls ``GET /v0/meta/bases/{baseId}/tables`` to confirm the base
+      exists and the PAT can reach it. A 404 here means the base id is
+      wrong or the PAT's base-access list doesn't include this base.
+    """
+    api_key = os.environ.get("AIRTABLE_API_KEY")
+    base_id = os.environ.get("AIRTABLE_BASE_ID")
+    if not (api_key and base_id):
+        return AirtableValidationResult(
+            status="skipped",
+            reason="AIRTABLE_API_KEY/BASE_ID not set",
+        )
+
+    print(f"[validate_airtable_credentials] checking PAT scopes via /meta/whoami", flush=True)
+    whoami = await _arequest("GET", "https://api.airtable.com/v0/meta/whoami", api_key)
+    scopes = list(whoami.get("scopes", []))
+    missing = [s for s in REQUIRED_SCOPES if s not in scopes]
+    if missing:
+        raise RuntimeError(
+            f"Airtable PAT is missing required scopes: {missing}. "
+            f"Current scopes: {scopes}. "
+            f"Add the missing scopes at https://airtable.com/create/tokens"
+        )
+
+    print(f"[validate_airtable_credentials] verifying base {base_id} access via /meta/bases", flush=True)
+    await _arequest("GET", f"https://api.airtable.com/v0/meta/bases/{base_id}/tables", api_key)
+
+    print(f"[validate_airtable_credentials] ok: scopes={scopes}, base={base_id}", flush=True)
+    return AirtableValidationResult(status="ok", scopes=scopes, base=base_id)
+
+
+@task
+async def sample_for_airtable(
+    plots: Object,
+    genre_balance: Object,
+    validation: AirtableValidationResult,
+) -> Object:
     """Build a stratified-by-genre showcase sample from ``plots``.
 
     For each distinct genre in ``genre_balance``, take the top
     ``PER_GENRE_LIMIT`` rows from ``plots`` with the longest ``plot``
     text. A film tagged ``Drama,Romance,War`` lands in 3 buckets, so
     the union is deduped on ``tconst``. Final size: ~150-200 rows.
+
+    ``validation`` is taken as a dependency (not used at runtime) so the
+    framework blocks this expensive sample build until the cheap Airtable
+    credentials check has passed.
     """
     genres: list[str] = await genre_balance["genres"].data()
     if not genres:
@@ -99,20 +151,25 @@ async def sample_for_airtable(plots: Object, genre_balance: Object) -> Object:
 
 
 @task
-async def publish_to_airtable(sample: Object) -> AirtablePublishResult:
+async def publish_to_airtable(
+    sample: Object,
+    validation: AirtableValidationResult,
+) -> AirtablePublishResult:
     """Replace the configured Airtable table's contents with the showcase sample.
 
-    Gating mirrors ``publish_to_huggingface``: ``AIRTABLE_API_KEY`` and
-    ``AIRTABLE_BASE_ID`` are required; missing either returns a skipped
-    result. ``AIRTABLE_TABLE_NAME`` defaults to ``"IMDB"``.
+    Upstream ``validate_airtable_credentials`` has already verified the PAT
+    scopes and base accessibility, so by the time we get here the env vars
+    are guaranteed to be set and the credentials are known good. The only
+    remaining read of the environment is ``AIRTABLE_TABLE_NAME`` (default
+    ``"IMDB"``), which the validator doesn't touch.
     """
-    api_key = os.environ.get("AIRTABLE_API_KEY")
-    base_id = os.environ.get("AIRTABLE_BASE_ID")
+    api_key = os.environ["AIRTABLE_API_KEY"]
+    base_id = os.environ["AIRTABLE_BASE_ID"]
     table = os.environ.get("AIRTABLE_TABLE_NAME", "IMDB")
-    if not (api_key and base_id):
+    if validation.status == "skipped":
         return AirtablePublishResult(
             status="skipped",
-            reason="AIRTABLE_API_KEY/BASE_ID not set",
+            reason=validation.reason,
             table=table,
         )
 

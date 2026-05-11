@@ -52,7 +52,7 @@ from aaiclick.orchestration import job, task
 from .constants import CLEAN_COLUMNS, HF_REPO_ID, IMDB_COLUMNS, IMDB_RAW_COLUMNS, IMDB_URL
 from .models import HFPublishResult, QualityIssues, RawProfile
 from .report import generate_report
-from .airtable import publish_to_airtable, sample_for_airtable
+from .airtable import publish_to_airtable, sample_for_airtable, validate_airtable_credentials
 from .tmdb import enrich_with_tmdb, load_tmdb_dump, measure_enrichment
 
 # =============================================================================
@@ -328,6 +328,9 @@ def imdb_dataset_pipeline(limit: int | None = 500_000, year_from: int = 1980):
                                                                    ├─► enrich_with_tmdb ─► measure_enrichment
                                                                    └─► publish_to_huggingface
 
+        validate_airtable_credentials ─┬─► sample_for_airtable ─► publish_to_airtable
+                                       └────────────────────────►
+
         All terminal tasks fan in to generate_report.
 
     Args:
@@ -358,8 +361,11 @@ def imdb_dataset_pipeline(limit: int | None = 500_000, year_from: int = 1980):
 
     hf_result = publish_to_huggingface(enriched=plots) if os.environ.get("HF_TOKEN") else None
 
-    airtable_sample = sample_for_airtable(plots=plots, genre_balance=genre_balance)
-    airtable_result = publish_to_airtable(sample=airtable_sample)
+    airtable_validation = validate_airtable_credentials()
+    airtable_sample = sample_for_airtable(
+        plots=plots, genre_balance=genre_balance, validation=airtable_validation
+    )
+    airtable_result = publish_to_airtable(sample=airtable_sample, validation=airtable_validation)
 
     export_formats = [f.strip().lower() for f in os.environ.get("IMDB_DATASET_EXPORTS", "").split(",") if f.strip()]
     exports = (
