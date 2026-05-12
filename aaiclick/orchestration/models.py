@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, ClassVar, Literal, Union, get_args
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, ForeignKey, String, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
@@ -371,6 +371,10 @@ class Task(SQLModel, table=True):
     """
 
     __tablename__: ClassVar[str] = "tasks"
+    # Composite index: the rollup aggregate and the cascade UPDATE in
+    # background.handler both filter on (job_id, status) — hot path on every
+    # task transition.
+    __table_args__ = (Index("ix_tasks_job_id_status", "job_id", "status"),)
 
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
     job_id: int = Field(default=0, sa_column=Column(BigInteger, ForeignKey("jobs.id"), index=True))
