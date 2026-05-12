@@ -30,10 +30,6 @@ from ..models import (
 JOB_FAILED_ERROR = "One or more tasks failed"
 UPSTREAM_FAILED_ERROR = "Upstream task failed"
 
-# Cascade UPDATE: mark PENDING tasks UPSTREAM_FAILED when any upstream is in a
-# non-success terminal state. Covers all four dependency-type combinations
-# (task→task, group→task, task→group, group→group). Run in a loop until no
-# rows change so transitive chains converge in a single try_complete_job call.
 _CASCADE_UPSTREAM_FAILED_SQL = """
     UPDATE tasks SET status = :upstream_failed, completed_at = :now, error = :error_msg
     WHERE job_id = :job_id
@@ -121,11 +117,11 @@ async def try_complete_job(session: AsyncSession, job_id: int) -> None:
     jobs. Uses raw SQL on the passed session so it works both inside and
     outside an active ``orch_context``. The caller is responsible for committing.
 
-    Before the rollup, sweeps PENDING tasks whose transitive upstream is in a
-    non-success terminal state and marks them UPSTREAM_FAILED — otherwise they
-    would block job completion forever.
+    When any task is in a non-success terminal state, sweeps PENDING tasks
+    whose transitive upstream failed and marks them UPSTREAM_FAILED — otherwise
+    they would block job completion forever. The sweep is gated on the rollup
+    aggregate so the happy path stays a single SELECT.
     """
-    await cascade_upstream_failed(session, job_id)
     result = await session.execute(
         text(
             "SELECT "
@@ -133,7 +129,9 @@ async def try_complete_job(session: AsyncSession, job_id: int) -> None:
             "  SUM(CASE WHEN status IN "
             "    (:pending, :claimed, :running, :pending_cleanup) "
             "    THEN 1 ELSE 0 END) AS non_terminal, "
-            "  SUM(CASE WHEN status IN (:failed, :upstream_failed) THEN 1 ELSE 0 END) AS failed "
+            "  SUM(CASE WHEN status IN (:failed, :upstream_failed) THEN 1 ELSE 0 END) AS failed, "
+            "  SUM(CASE WHEN status IN (:failed, :cancelled, :upstream_failed) "
+            "    THEN 1 ELSE 0 END) AS cascade_trigger "
             "FROM tasks WHERE job_id = :job_id"
         ),
         {
@@ -143,10 +141,15 @@ async def try_complete_job(session: AsyncSession, job_id: int) -> None:
             "running": TASK_RUNNING,
             "pending_cleanup": TASK_PENDING_CLEANUP,
             "failed": TASK_FAILED,
+            "cancelled": TASK_CANCELLED,
             "upstream_failed": TASK_UPSTREAM_FAILED,
         },
     )
-    total, non_terminal, failed = result.one()
+    total, non_terminal, failed, cascade_trigger = result.one()
+    if cascade_trigger and non_terminal:
+        marked = await cascade_upstream_failed(session, job_id)
+        non_terminal -= marked
+        failed += marked
     if not total or non_terminal:
         return
 
