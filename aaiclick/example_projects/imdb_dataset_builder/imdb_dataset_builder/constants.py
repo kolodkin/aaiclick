@@ -34,15 +34,14 @@ CLEAN_COLUMNS: dict[str, ColumnInfo] = {
     "tconst": ColumnInfo("String", description="IMDb title identifier (e.g. tt0000001)"),
     "primaryTitle": ColumnInfo("String", description="Popular title used for promotion"),
     "startYear": ColumnInfo("String", description="Release year (>= 1980)"),
-    "genres": ColumnInfo("String", description="Comma-separated genres (no Adult)"),
+    "genres": ColumnInfo("Array(String)", description="Genre tags (no Adult)"),
     "runtimeMinutes": ColumnInfo("String", description="Runtime in minutes (40-300)"),
 }
 
 HF_REPO_ID = os.environ.get("HF_REPO_ID", "aaiclick/imdb-wikipedia-enriched")
 
-WIKIPEDIA_COLUMNS: dict[str, ColumnInfo] = {
-    "id": ColumnInfo("String", description="Wikipedia page ID"),
-    "url": ColumnInfo("String", description="Canonical Wikipedia article URL"),
-    "title": ColumnInfo("String", description="Article title (aligns with Wikidata P345 sitelink)"),
-    "text": ColumnInfo("String", description="Cleaned plaintext article body"),
+TMDB_COLUMNS: dict[str, ColumnInfo] = {
+    "tconst": ColumnInfo("String", description="IMDb title identifier (direct join key)"),
+    "title": ColumnInfo("String", description="TMDB display title"),
+    "overview": ColumnInfo("String", description="Editorial plot summary (TMDB-curated)"),
 }

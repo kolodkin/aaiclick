@@ -2,10 +2,11 @@
 # IMDb Dataset Builder: load, curate, and profile IMDb title.basics data,
 # then optionally publish the clean dataset to Hugging Face.
 #
-# Usage: ./imdb_dataset_builder.sh [--full]
+# Usage: ./imdb_dataset_builder.sh [--full] [--year-from YEAR]
 #
 # Options:
-#   --full  Run on the full ~10M row dataset (default: 500k row demo limit)
+#   --full              Run on the full ~10M row dataset (default: 500k row demo limit)
+#   --year-from YEAR    Earliest startYear to keep in the curated output (default: 1980)
 #
 # Environment:
 #   HF_TOKEN  — Hugging Face token for dataset publishing (optional)
@@ -22,12 +23,33 @@ export AAICLICK_REPORT_FILE="tmp/imdb_report.md"
 mkdir -p tmp
 
 # Parse flags
-LIMIT_ARG=""
-if [ "$1" = "--full" ]; then
-    echo "Running on full IMDb dataset (~10M rows)..."
-    LIMIT_ARG='{"limit": null}'
-else
+PARAMS_PARTS=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --full)
+            echo "Running on full IMDb dataset (~10M rows)..."
+            PARAMS_PARTS+=('"limit": null')
+            shift
+            ;;
+        --year-from)
+            PARAMS_PARTS+=("\"year_from\": $2")
+            shift 2
+            ;;
+        *)
+            echo "Unknown flag: $1" >&2
+            echo "Usage: $0 [--full] [--year-from YEAR]" >&2
+            exit 1
+            ;;
+    esac
+done
+
+if [ ${#PARAMS_PARTS[@]} -eq 0 ]; then
     echo "Running on 500k row demo (pass --full for complete dataset)..."
+fi
+
+PARAMS_ARG=""
+if [ ${#PARAMS_PARTS[@]} -gt 0 ]; then
+    PARAMS_ARG="{$(IFS=, ; echo "${PARAMS_PARTS[*]}")}"
 fi
 
 echo "## IMDb Dataset Builder Pipeline"
@@ -35,8 +57,8 @@ echo
 
 # Step 1: Register the job and capture its ID
 echo "Registering job..."
-if [ -n "$LIMIT_ARG" ]; then
-    REGISTER_OUTPUT=$($PYTHON -m imdb_dataset_builder --params "$LIMIT_ARG")
+if [ -n "$PARAMS_ARG" ]; then
+    REGISTER_OUTPUT=$($PYTHON -m imdb_dataset_builder --params "$PARAMS_ARG")
 else
     REGISTER_OUTPUT=$($PYTHON -m imdb_dataset_builder)
 fi
@@ -59,10 +81,8 @@ echo "Worker started (PID: $WORKER_PID)"
 echo
 
 # Step 4: Poll job status until completed or failed
-# Wikipedia enrichment (SPARQL batching + HF Parquet dump download) adds
-# several minutes even in demo mode, so the window is set conservatively.
 echo "Waiting for pipeline execution..."
-MAX_WAIT=2400
+MAX_WAIT=600
 ELAPSED=0
 while [ $ELAPSED -lt $MAX_WAIT ]; do
     sleep 5

@@ -11,9 +11,9 @@ from aaiclick.data.models import ColumnInfo, Computed
 from aaiclick.data.object import Object
 from aaiclick.orchestration import task
 
-from .constants import CLEAN_COLUMNS, HF_REPO_ID, IMDB_RAW_COLUMNS, IMDB_URL, WIKIPEDIA_COLUMNS
-from .models import EnrichmentStats, HFPublishResult, QualityIssues, RawProfile
-from .wikipedia import HF_WIKIPEDIA_SHARDS, HF_WIKIPEDIA_SNAPSHOT, HF_WIKIPEDIA_URL_TEMPLATE
+from .constants import CLEAN_COLUMNS, HF_REPO_ID, IMDB_RAW_COLUMNS, IMDB_URL, TMDB_COLUMNS
+from .models import AirtablePublishResult, EnrichmentStats, HFPublishResult, QualityIssues, RawProfile
+from .tmdb import TMDB_URL
 
 
 def _fmt(value: object) -> str:
@@ -44,6 +44,7 @@ class ReportContent:
     profile: RawProfile
     quality_issues: QualityIssues
     hf_result: HFPublishResult | None
+    airtable_result: AirtablePublishResult | None
     raw_md: str
     clean_md: str
     genre_md: str
@@ -52,8 +53,8 @@ class ReportContent:
     exports: dict[str, str] | None
     enrichment_stats: EnrichmentStats
     plots_md: str
-    wiki_total: int
-    wiki_sample_md: str
+    tmdb_total: int
+    tmdb_sample_md: str
 
 
 def _print_report(content: ReportContent) -> None:
@@ -90,7 +91,10 @@ def _print_report(content: ReportContent) -> None:
     )
     print(f"- Runtime < 40 min: {_fmt(quality_issues.short_runtime)}")
     print(f"- Runtime > 300 min: {_fmt(quality_issues.long_runtime)}")
-    print(f"- Pre-1980 movies: {_fmt(quality_issues.pre_1980)} ({_fmt(quality_issues.pre_1980_pct)}%)")
+    print(
+        f"- Pre-{quality_issues.year_from} movies: "
+        f"{_fmt(quality_issues.pre_year)} ({_fmt(quality_issues.pre_year_pct)}%)"
+    )
 
     if content.genre_distinct > 50:
         print(f"\n### Genre Distribution (top 50 of {_fmt(content.genre_distinct)})\n")
@@ -109,30 +113,24 @@ def _print_report(content: ReportContent) -> None:
     print(content.clean_md)
 
     stats = content.enrichment_stats
-    print("\n### Wikipedia Raw Data Profile\n")
-    wiki_url = HF_WIKIPEDIA_URL_TEMPLATE.format(
-        snapshot=HF_WIKIPEDIA_SNAPSHOT,
-        last=HF_WIKIPEDIA_SHARDS - 1,
-        total=HF_WIKIPEDIA_SHARDS,
-    )
-    print(f"URL: {wiki_url}")
-    print(f"Snapshot: {HF_WIKIPEDIA_SNAPSHOT} (English), {HF_WIKIPEDIA_SHARDS} shards")
-    print(f"Articles loaded (pre-filtered to IMDb matches): {_fmt(content.wiki_total)}")
+    print("\n### TMDB Raw Data Profile\n")
+    print(f"URL: {TMDB_URL}")
+    print(f"Source: HenryWaltson/TMDB-IMDB-Movies-Dataset (Hugging Face Parquet)")
+    print(f"Rows loaded (pre-filtered to clean tconsts): {_fmt(content.tmdb_total)}")
 
     print("\n#### Field Schema\n")
-    _print_field_table(WIKIPEDIA_COLUMNS)
+    _print_field_table(TMDB_COLUMNS)
 
     print("\n#### Sample (first 5 rows)\n")
-    print(content.wiki_sample_md)
+    print(content.tmdb_sample_md)
 
-    print("\n### Wikipedia Enrichment\n")
-    print("- Source: `wikimedia/wikipedia` (Hugging Face Parquet dump)")
-    print("- ID resolver: Wikidata SPARQL (property `P345`, IMDb ID)")
+    print("\n### TMDB Enrichment\n")
+    print("- Source: `HenryWaltson/TMDB-IMDB-Movies-Dataset` (Hugging Face Parquet)")
+    print("- Join key: `tconst` (direct, no SPARQL resolution needed)")
     print(
-        f"- Titles resolved via Wikidata: {_fmt(stats.titles_resolved)} "
-        f"({_fmt(stats.titles_resolved_pct)}% of {_fmt(stats.total_clean)})"
+        f"- Rows matched: {_fmt(stats.matched)} "
+        f"({_fmt(stats.matched_pct)}% of {_fmt(stats.total_clean)})"
     )
-    print(f"- Articles matched in Wikipedia dump: {_fmt(stats.articles_matched)} ({_fmt(stats.articles_matched_pct)}%)")
     print(f"- Usable plot text (>= 120 chars): {_fmt(stats.plots_usable)} ({_fmt(stats.plots_usable_pct)}%)")
     print(f"- Average plot length: {_fmt(stats.avg_plot_chars)} characters")
 
@@ -154,6 +152,20 @@ def _print_report(content: ReportContent) -> None:
     else:
         print(f"- Status: {hf_result.status}")
 
+    airtable = content.airtable_result
+    print("\n### Airtable Showcase\n")
+    if airtable is None or airtable.status == "skipped":
+        reason = airtable.reason if airtable else "task did not run"
+        print(f"- Skipped: {reason}")
+        print("- Set `AIRTABLE_API_KEY` and `AIRTABLE_BASE_ID` to publish a sample to Airtable")
+    elif airtable.status == "published":
+        print(f"- Base: `{airtable.base}`  Table: `{airtable.table}`")
+        print(f"- Rows published: {_fmt(airtable.rows)}")
+    else:
+        print(f"- Status: {airtable.status}")
+        if airtable.reason:
+            print(f"- Reason: {airtable.reason}")
+
 
 @task
 async def generate_report(
@@ -162,12 +174,13 @@ async def generate_report(
     clean: Object,
     genre_balance: Object,
     plots: Object,
-    wiki: Object,
+    tmdb: Object,
     profile: RawProfile,
     quality_issues: QualityIssues,
     enrichment_stats: EnrichmentStats,
     hf_result: HFPublishResult | None = None,
     exports: dict[str, str] | None = None,
+    airtable_result: AirtablePublishResult | None = None,
 ) -> dict:
     """Combine all pipeline outputs into a unified IMDb dataset builder report."""
     raw_md = (
@@ -178,23 +191,27 @@ async def generate_report(
 
     clean_md = await clean.view(limit=5).markdown(truncate={"primaryTitle": 40})
 
-    wiki_total = await (await wiki["id"].count()).data()
-    wiki_sample_md = await wiki[["id", "title", "text"]].view(limit=5).markdown(truncate={"title": 40, "text": 120})
+    tmdb_total = await (await tmdb["tconst"].count()).data()
+    tmdb_sample_md = (
+        await tmdb[["tconst", "title", "overview"]]
+        .view(limit=5)
+        .markdown(truncate={"title": 40, "overview": 120})
+    )
 
-    genre_with_pct = genre_balance.rename({"genre": "Genre", "tconst": "Count"}).with_columns(
+    genre_with_pct = genre_balance.rename({"genres": "Genre", "tconst": "Count"}).with_columns(
         {
             "%": Computed("Float64", "round(Count * 100.0 / sum(Count) OVER(), 2)"),
         }
     )
     genre_md = await genre_with_pct.view(order_by="Count DESC", limit=50).markdown()
     genre_data_raw = await genre_balance.data()
-    genre_distinct = len(genre_data_raw["genre"])
+    genre_distinct = len(genre_data_raw["genres"])
     genre_total = sum(genre_data_raw["tconst"])
 
     plots_md = (
-        await plots.where("length(plot) >= 120")[["tconst", "primaryTitle", "wp_title", "plot"]]
+        await plots.where("length(plot) >= 120")[["tconst", "primaryTitle", "plot"]]
         .view(limit=3)
-        .markdown(truncate={"primaryTitle": 30, "wp_title": 30, "plot": 160})
+        .markdown(truncate={"primaryTitle": 30, "plot": 200})
     )
 
     buf = StringIO()
@@ -204,6 +221,7 @@ async def generate_report(
                 profile=profile,
                 quality_issues=quality_issues,
                 hf_result=hf_result,
+                airtable_result=airtable_result,
                 raw_md=raw_md,
                 clean_md=clean_md,
                 genre_md=genre_md,
@@ -212,8 +230,8 @@ async def generate_report(
                 exports=exports,
                 enrichment_stats=enrichment_stats,
                 plots_md=plots_md,
-                wiki_total=wiki_total,
-                wiki_sample_md=wiki_sample_md,
+                tmdb_total=tmdb_total,
+                tmdb_sample_md=tmdb_sample_md,
             )
         )
     rendered = buf.getvalue()
@@ -230,5 +248,6 @@ async def generate_report(
         "total_titles": profile.total_titles,
         "total_movies": quality_issues.total_movies,
         "hf_status": hf_result.status if hf_result is not None else "skipped",
+        "airtable_status": airtable_result.status if airtable_result is not None else "skipped",
         "enrichment_plots_usable": enrichment_stats.plots_usable,
     }

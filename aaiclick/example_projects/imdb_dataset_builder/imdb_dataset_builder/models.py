@@ -16,8 +16,9 @@ class QualityIssues(BaseModel):
     missing_runtime_pct: float
     short_runtime: int
     long_runtime: int
-    pre_1980: int
-    pre_1980_pct: float
+    year_from: int
+    pre_year: int
+    pre_year_pct: float
 
 
 class HFPublishResult(BaseModel):
@@ -29,10 +30,23 @@ class HFPublishResult(BaseModel):
 
 class EnrichmentStats(BaseModel):
     total_clean: int
-    titles_resolved: int
-    titles_resolved_pct: float
-    articles_matched: int
-    articles_matched_pct: float
+    matched: int
+    matched_pct: float
     plots_usable: int
     plots_usable_pct: float
     avg_plot_chars: float
+
+
+class AirtablePublishResult(BaseModel):
+    status: str
+    base: str | None = None
+    table: str | None = None
+    rows: int | None = None
+    reason: str | None = None
+
+
+class AirtableValidationResult(BaseModel):
+    status: str  # "ok" | "skipped"
+    scopes: list[str] | None = None
+    base: str | None = None
+    reason: str | None = None

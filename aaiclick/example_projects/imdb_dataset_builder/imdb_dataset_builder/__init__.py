@@ -10,12 +10,14 @@ loaded directly from the official IMDb datasets URL:
 - Array Explode (one genre per row from comma-separated strings)
 - Group By Aggregations (genre distribution analysis)
 - Data Quality Profiling (countIf for missing runtime and out-of-range detection)
-- Wikipedia Plot Enrichment (always on)
-  - Wikidata SPARQL resolution of IMDb tconst → Wikipedia article title (P345)
-  - Bulk Parquet load of the HF wikimedia/wikipedia dump (brace-expansion URL)
-  - Two-stage AggregatingMergeTree merge to avoid string-matching on titles
-  - ClickHouse-side plot section extraction via extract()/replace() regex
+- TMDB Plot Enrichment (always on)
+  - Static Hugging Face Parquet (HenryWaltson/TMDB-IMDB-Movies-Dataset)
+    cross-references IMDb's tconst directly — no SPARQL needed
+  - Inner join on tconst via Object.join (clean ⋈ tmdb)
+  - Computed alias renames TMDB's `overview` → `plot` for the public schema
 - Hugging Face Publishing (optional, requires HF_TOKEN env var)
+- Airtable Showcase Publishing (optional, requires AIRTABLE_API_KEY +
+  AIRTABLE_BASE_ID; ~200-row sample stratified by genre)
 
 Data source: IMDb Non-Commercial Datasets (title.basics)
 https://datasets.imdbws.com/title.basics.tsv.gz
@@ -30,11 +32,12 @@ Usage:
     python -m aaiclick worker start
 
 Environment variables:
-    HF_TOKEN           — Hugging Face token for dataset publishing (optional)
-    IMDB_URL           — Override IMDb data URL (useful for local testing)
-    IMDB_WIKI_SNAPSHOT — Wikipedia snapshot date (default 20231101)
-    IMDB_WIKI_SHARDS   — number of Parquet shards to load (default 41)
-    IMDB_SPARQL_BATCH  — IDs per SPARQL batch (default 400)
+    HF_TOKEN             — Hugging Face token for dataset publishing (optional)
+    AIRTABLE_API_KEY     — Airtable personal access token (optional, gates upload)
+    AIRTABLE_BASE_ID     — Airtable base id, e.g. appXXXXXXXX (optional, gates upload)
+    AIRTABLE_TABLE_NAME  — Airtable table name (default "IMDB")
+    IMDB_URL             — Override IMDb data URL (useful for local testing)
+    IMDB_TMDB_URL        — Override TMDB enrichment Parquet URL
 """
 
 import asyncio
@@ -42,20 +45,15 @@ import os
 from pathlib import Path
 
 from aaiclick import ORIENT_DICT, cast, create_object_from_url
-from aaiclick.data.models import ColumnInfo
+from aaiclick.data.models import ColumnInfo, Computed
 from aaiclick.data.object import Object
 from aaiclick.orchestration import job, task
 
 from .constants import CLEAN_COLUMNS, HF_REPO_ID, IMDB_COLUMNS, IMDB_RAW_COLUMNS, IMDB_URL
 from .models import HFPublishResult, QualityIssues, RawProfile
 from .report import generate_report
-from .wikipedia import (
-    enrich_with_wikipedia,
-    extract_plot_text,
-    load_wikipedia_dump,
-    measure_enrichment,
-    resolve_wikipedia_titles,
-)
+from .airtable import publish_to_airtable, sample_for_airtable, validate_airtable_credentials
+from .tmdb import enrich_with_tmdb, load_tmdb_dump, measure_enrichment
 
 # =============================================================================
 # Tasks
@@ -123,21 +121,42 @@ async def profile_raw(raw: Object) -> RawProfile:
 @task
 async def filter_movies(raw: Object) -> Object:
     """
-    Filter to non-adult movies with known genres and start year.
+    Filter to non-adult movies with known genres and start year, and convert
+    ``genres`` from a comma-separated ``String`` into a native ``Array(String)``.
 
-    All four conditions are pushed down as SQL WHERE clauses — ClickHouse
-    executes them as a single filtered SELECT. The result is materialized
-    via .copy() into a new table for downstream parallel tasks.
+    All filter conditions push down as SQL WHERE clauses — ClickHouse
+    executes them as a single filtered SELECT. The genres conversion uses
+    a Computed column with ``splitByChar(',', genres)``; downstream tasks
+    can then use first-class array operators (``has``, ``arrayJoin``, ...).
     """
-    movies = raw.where("titleType = 'movie'")
-    movies = movies.where("isAdult = '0'")
-    movies = movies.where(r"genres != '\N'")
-    movies = movies.where(r"startYear != '\N'")
-    return await movies.copy()
+    with_arr = (
+        raw.where("titleType = 'movie'")
+        .where("isAdult = '0'")
+        .where(r"genres != '\N'")
+        .where(r"startYear != '\N'")
+        .with_columns({"genres_array": Computed("Array(String)", "splitByChar(',', genres)")})
+    )
+    # Project to drop the original String genres, materialize so the
+    # new schema has only genres_array, then rename to the public name.
+    projected = with_arr[
+        [
+            "tconst",
+            "titleType",
+            "primaryTitle",
+            "originalTitle",
+            "isAdult",
+            "startYear",
+            "endYear",
+            "runtimeMinutes",
+            "genres_array",
+        ]
+    ]
+    materialized = await projected.copy()
+    return await materialized.rename({"genres_array": "genres"}).copy()
 
 
 @task
-async def detect_quality_issues(movies: Object) -> QualityIssues:
+async def detect_quality_issues(movies: Object, year_from: int = 1980) -> QualityIssues:
     """
     Detect data quality issues in the movie subset.
 
@@ -163,7 +182,7 @@ async def detect_quality_issues(movies: Object) -> QualityIssues:
         {
             "short_runtime": r"runtimeMinutes != '\N' AND toUInt32OrNull(runtimeMinutes) < 40",
             "long_runtime": r"runtimeMinutes != '\N' AND toUInt32OrNull(runtimeMinutes) > 300",
-            "pre_1980": "toUInt32OrNull(startYear) < 1980",
+            "pre_year": f"toUInt32OrNull(startYear) < {year_from}",
         }
     )
     range_data = await range_counts.data()
@@ -174,23 +193,21 @@ async def detect_quality_issues(movies: Object) -> QualityIssues:
         missing_runtime_pct=(missing_runtime / total * 100) if total > 0 else 0.0,
         short_runtime=range_data["short_runtime"],
         long_runtime=range_data["long_runtime"],
-        pre_1980=range_data["pre_1980"],
-        pre_1980_pct=(range_data["pre_1980"] / total * 100) if total > 0 else 0.0,
+        year_from=year_from,
+        pre_year=range_data["pre_year"],
+        pre_year_pct=(range_data["pre_year"] / total * 100) if total > 0 else 0.0,
     )
 
 
 @task
 async def normalize_genres(movies: Object) -> Object:
     """
-    Explode comma-separated genres into one row per genre.
+    Explode the ``genres`` array into one row per genre.
 
-    Uses splitByChar(',', genres) to create an Array column, then
-    explode() to produce one row per genre. Adult genre entries are
-    filtered out. Result is materialized for downstream analysis.
+    ``filter_movies`` already converts ``genres`` to ``Array(String)``,
+    so this task is a single ``explode`` on the existing array column.
     """
-    exploded = movies.with_split_by_char("genres", ",", element_type="LowCardinality(String)", alias="genre").explode(
-        "genre"
-    )
+    exploded = movies.explode("genres")
     return await exploded.copy()
 
 
@@ -199,20 +216,21 @@ async def analyze_genre_balance(exploded: Object) -> Object:
     """
     Compute genre distribution across all movies.
 
-    Groups by genre, counts titles per genre. Returns an Object with
-    (genre, tconst_count) rows for the report.
+    Groups by the exploded ``genres`` element, counts titles per genre.
+    Returns an Object with ``(genres, tconst_count)`` rows for the report.
     """
-    return await exploded.group_by("genre").agg({"tconst": "count"})
+    return await exploded.group_by("genres").agg({"tconst": "count"})
 
 
 @task
-async def build_clean_dataset(movies: Object) -> Object:
+async def build_clean_dataset(movies: Object, year_from: int = 1980) -> Object:
     """
     Build the final curated dataset ready for publishing.
 
     Applies quality filters: removes missing runtime, clips to 40–300 min,
-    filters to post-1980 movies, excludes Adult-genre movies. Returns the
-    clean (tconst, primaryTitle, startYear, genres, runtimeMinutes) subset.
+    filters to movies released in ``year_from`` or later, excludes
+    Adult-genre movies. Returns the clean
+    ``(tconst, primaryTitle, startYear, genres, runtimeMinutes)`` subset.
     """
     typed = movies.with_columns(
         {
@@ -223,8 +241,8 @@ async def build_clean_dataset(movies: Object) -> Object:
     clean = typed.where(r"runtimeMinutes != '\N'")
     clean = clean.where("runtime_int >= 40")
     clean = clean.where("runtime_int <= 300")
-    clean = clean.where("year_int >= 1980")
-    clean = clean.where("match(genres, 'Adult') = 0")
+    clean = clean.where(f"year_int >= {year_from}")
+    clean = clean.where("has(genres, 'Adult') = 0")
     clean = clean[["tconst", "primaryTitle", "startYear", "genres", "runtimeMinutes"]]
     return await clean.copy()
 
@@ -288,7 +306,7 @@ async def export_dataset(enriched: Object, formats: list[str], out_dir: str) -> 
 
 
 @job("imdb_dataset_builder")
-def imdb_dataset_pipeline(limit: int | None = 500_000):
+def imdb_dataset_pipeline(limit: int | None = 500_000, year_from: int = 1980):
     """
     IMDb Movie Dataset Builder Pipeline.
 
@@ -300,58 +318,54 @@ def imdb_dataset_pipeline(limit: int | None = 500_000):
     All heavy computation stays inside ClickHouse — Python only orchestrates
     the SQL operations and receives small summary dicts.
 
-    DAG Structure:
-        load_raw_data ---+---> profile_raw           ---+
-                         |                              |
-                         +---> filter_movies ---+---> detect_quality_issues --+
-                                                |                             |
-                                                +---> normalize_genres        |
-                                                |          |                  |
-                                                |          v                  |
-                                                |    analyze_genre_balance    |
-                                                |                             |
-                                                +---> build_clean_dataset     |
-                                                           |                  |
-                                                           +--> publish_to_hf |
-                                                           |                  |
-                                                           +--> resolve_wp_titles
-                                                           |           \\
-                                                           |  load_wikipedia_dump
-                                                           |           \\
-                                                           |  enrich_with_wikipedia
-                                                           |           |
-                                                           |   extract_plot_text
-                                                           |           |
-                                                           |   measure_enrichment
-                                                           |           |
-                                                           +--> generate_report <--+
+    DAG Structure::
+
+        load_raw_data ─┬─► profile_raw
+                       └─► filter_movies ─┬─► detect_quality_issues
+                                          ├─► normalize_genres ─► analyze_genre_balance
+                                          └─► build_clean_dataset ─┬─► load_tmdb_dump ─┐
+                                                                   │                   ▼
+                                                                   ├─► enrich_with_tmdb ─► measure_enrichment
+                                                                   └─► publish_to_huggingface
+
+        validate_airtable_credentials ─┬─► sample_for_airtable ─► publish_to_airtable
+                                       └────────────────────────►
+
+        All terminal tasks fan in to generate_report.
 
     Args:
         limit: Row limit for demo runs. Set to None for the full ~10M-row dataset.
+        year_from: Earliest ``startYear`` to keep in the curated output. Defaults
+            to 1980 — older entries have spottier metadata.
 
     Environment variables:
         HF_TOKEN              — publish curated dataset to Hugging Face Hub
-        IMDB_WIKI_SNAPSHOT    — Wikipedia snapshot date (default 20231101)
-        IMDB_WIKI_SHARDS      — number of Parquet shards to load (default 41)
-        IMDB_SPARQL_BATCH     — IDs per SPARQL batch (default 400)
+        AIRTABLE_API_KEY      — publish a 200-row showcase to Airtable
+        AIRTABLE_BASE_ID      — Airtable base id (required when AIRTABLE_API_KEY is set)
+        AIRTABLE_TABLE_NAME   — Airtable table name (default "IMDB")
+        IMDB_TMDB_URL         — override TMDB enrichment Parquet URL
         IMDB_DATASET_EXPORTS  — comma-separated export formats (parquet,csv,...)
     """
     raw = load_raw_data(limit=limit)
     profile = profile_raw(raw=raw)
     movies = filter_movies(raw=raw)
 
-    quality_issues = detect_quality_issues(movies=movies)
+    quality_issues = detect_quality_issues(movies=movies, year_from=year_from)
     exploded = normalize_genres(movies=movies)
-    clean = build_clean_dataset(movies=movies)
+    clean = build_clean_dataset(movies=movies, year_from=year_from)
     genre_balance = analyze_genre_balance(exploded=exploded)
 
-    title_map = resolve_wikipedia_titles(clean=clean)
-    wiki = load_wikipedia_dump(title_map=title_map)
-    enriched = enrich_with_wikipedia(clean=clean, title_map=title_map, wiki=wiki)
-    plots = extract_plot_text(enriched=enriched)
-    enrichment_stats = measure_enrichment(clean=clean, title_map=title_map, plots=plots)
+    tmdb = load_tmdb_dump(clean=clean)
+    plots = enrich_with_tmdb(clean=clean, tmdb=tmdb)
+    enrichment_stats = measure_enrichment(clean=clean, plots=plots)
 
     hf_result = publish_to_huggingface(enriched=plots) if os.environ.get("HF_TOKEN") else None
+
+    airtable_validation = validate_airtable_credentials()
+    airtable_sample = sample_for_airtable(
+        plots=plots, genre_balance=genre_balance, validation=airtable_validation
+    )
+    airtable_result = publish_to_airtable(sample=airtable_sample, validation=airtable_validation)
 
     export_formats = [f.strip().lower() for f in os.environ.get("IMDB_DATASET_EXPORTS", "").split(",") if f.strip()]
     exports = (
@@ -366,19 +380,25 @@ def imdb_dataset_pipeline(limit: int | None = 500_000):
         clean=clean,
         genre_balance=genre_balance,
         plots=plots,
-        wiki=wiki,
+        tmdb=tmdb,
         profile=profile,
         quality_issues=quality_issues,
         hf_result=hf_result,
         exports=exports,
         enrichment_stats=enrichment_stats,
+        airtable_result=airtable_result,
     )
 
 
-async def main():
-    """Register the IMDb dataset builder pipeline job."""
-    created_job = await imdb_dataset_pipeline()
+async def main(**kwargs):
+    """Register the IMDb dataset builder pipeline job.
+
+    ``**kwargs`` are forwarded to ``imdb_dataset_pipeline`` (e.g. ``limit``,
+    ``year_from``) so the shell runner can pass tuning via ``--params``.
+    """
+    created_job = await imdb_dataset_pipeline(**kwargs)
     print(f"Registered job: {created_job.name} (ID: {created_job.id})")
+    return created_job
 
 
 if __name__ == "__main__":
