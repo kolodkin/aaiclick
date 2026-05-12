@@ -25,8 +25,6 @@ from aaiclick.orchestration import task
 
 from .models import AirtablePublishResult, AirtableValidationResult
 
-REQUIRED_SCOPES = ("data.records:read", "data.records:write", "schema.bases:write")
-
 AIRTABLE_API_BASE = "https://api.airtable.com/v0"
 AIRTABLE_BATCH = 10  # Airtable max records per create / delete request
 AIRTABLE_THROTTLE_SECONDS = 0.2  # 5 req/sec per base
@@ -68,45 +66,49 @@ def _chunks(items: Sequence, size: int) -> Iterator[list]:
         yield list(items[i : i + size])
 
 
+def _parse_base_id(value: str) -> str:
+    """Strip a stray ``/tblXXX[/...]`` suffix copied from an Airtable UI URL.
+
+    The base id is always the leading ``app...`` segment; everything after
+    a slash is a table/view/record id that doesn't belong in this env var.
+    """
+    return value.split("/", 1)[0]
+
+
 @task
 async def validate_airtable_credentials() -> AirtableValidationResult:
     """Verify the configured Airtable PAT and base before any other Airtable task runs.
 
     Skipped when ``AIRTABLE_API_KEY`` / ``AIRTABLE_BASE_ID`` are unset (gates
     the whole Airtable branch in the same way ``publish_to_huggingface`` is
-    gated on ``HF_TOKEN``). Otherwise:
+    gated on ``HF_TOKEN``). Otherwise probes the endpoints the publish path
+    actually uses — capability is the source of truth, since
+    ``/meta/whoami`` only reports ``scopes`` for tokens issued through the
+    scoped-PAT flow (service-account / legacy PATs authenticate fine but
+    omit the field):
 
-    * Calls ``GET /v0/meta/whoami`` to read the PAT's actual scope set;
-      raises with a clear "missing scopes: …" message if any required scope
-      is absent. This is the cheap fail-fast check — far better than letting
-      the upload bleed through 175 records before a schema endpoint 401s.
-    * Calls ``GET /v0/meta/bases/{baseId}/tables`` to confirm the base
-      exists and the PAT can reach it. A 404 here means the base id is
-      wrong or the PAT's base-access list doesn't include this base.
+    * ``GET /v0/meta/whoami`` — confirms the token authenticates at all.
+    * ``GET /v0/meta/bases/{baseId}/tables`` — confirms base accessibility.
+      A 404 here means the base id is wrong or the PAT's base-access list
+      doesn't include this base.
     """
     api_key = os.environ.get("AIRTABLE_API_KEY")
-    base_id = os.environ.get("AIRTABLE_BASE_ID")
-    if not (api_key and base_id):
+    raw_base_id = os.environ.get("AIRTABLE_BASE_ID")
+    if not (api_key and raw_base_id):
         return AirtableValidationResult(
             status="skipped",
             reason="AIRTABLE_API_KEY/BASE_ID not set",
         )
+    base_id = _parse_base_id(raw_base_id)
 
-    print(f"[validate_airtable_credentials] checking PAT scopes via /meta/whoami", flush=True)
+    print(f"[validate_airtable_credentials] verifying token via /meta/whoami", flush=True)
     whoami = await _arequest("GET", "https://api.airtable.com/v0/meta/whoami", api_key)
     scopes = list(whoami.get("scopes", []))
-    missing = [s for s in REQUIRED_SCOPES if s not in scopes]
-    if missing:
-        raise RuntimeError(
-            f"Airtable PAT is missing required scopes: {missing}. "
-            f"Current scopes: {scopes}. "
-            f"Add the missing scopes at https://airtable.com/create/tokens"
-        )
 
     print(f"[validate_airtable_credentials] verifying base {base_id} access via /meta/bases", flush=True)
     await _arequest("GET", f"https://api.airtable.com/v0/meta/bases/{base_id}/tables", api_key)
 
-    print(f"[validate_airtable_credentials] ok: scopes={scopes}, base={base_id}", flush=True)
+    print(f"[validate_airtable_credentials] ok: scopes={scopes or 'not reported by /whoami'}, base={base_id}", flush=True)
     return AirtableValidationResult(status="ok", scopes=scopes, base=base_id)
 
 
@@ -164,7 +166,7 @@ async def publish_to_airtable(
     ``"IMDB"``), which the validator doesn't touch.
     """
     api_key = os.environ["AIRTABLE_API_KEY"]
-    base_id = os.environ["AIRTABLE_BASE_ID"]
+    base_id = _parse_base_id(os.environ["AIRTABLE_BASE_ID"])
     table = os.environ.get("AIRTABLE_TABLE_NAME", "IMDB")
     if validation.status == "skipped":
         return AirtablePublishResult(
