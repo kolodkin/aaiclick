@@ -7,9 +7,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import NamedTuple
+from typing import NamedTuple, cast
 
 from sqlalchemy import text
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aaiclick.backend import is_sqlite
@@ -91,7 +92,7 @@ async def cascade_upstream_failed(session: AsyncSession, job_id: int) -> int:
     total = 0
     while True:
         result = await session.execute(text(_CASCADE_UPSTREAM_FAILED_SQL), params)
-        changed = result.rowcount or 0
+        changed = cast(CursorResult, result).rowcount or 0
         if changed <= 0:
             break
         total += changed

@@ -89,7 +89,9 @@ async def _get_task(engine, task_id):
             text("SELECT status, error FROM tasks WHERE id = :id"),
             {"id": task_id},
         )
-        return result.fetchone()
+        row = result.fetchone()
+        assert row is not None
+        return row
 
 
 async def _get_job(engine, job_id):
