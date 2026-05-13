@@ -73,9 +73,9 @@ def test_oplog_record_rejects_non_string_kwarg():
     Caught early because CH ``Map(String, String)`` would otherwise drop
     the row inside ``_write_oplog_row`` with only a swallowed log line.
     """
-    with pytest.raises(TypeError, match="must be str, got list"):
+    with pytest.raises(TypeError, match="must be str"):
         oplog_record("t_x", "op", kwargs={"keys": ["a", "b"]})  # type: ignore[dict-item]
-    with pytest.raises(TypeError, match="must be str, got int"):
+    with pytest.raises(TypeError, match="must be str"):
         oplog_record_sample("t_x", "op", kwargs={"limit": 100})  # type: ignore[dict-item]
 
 

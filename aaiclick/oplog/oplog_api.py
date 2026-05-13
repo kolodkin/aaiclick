@@ -38,10 +38,7 @@ def oplog_record(
     kwargs: dict[str, str] | None = None,
     sql: str | None = None,
 ) -> None:
-    """Record an operation via the active lifecycle handler.
-
-    ``kwargs`` values must be strings. See ``_check_kwargs``.
-    """
+    """Record an operation via the active lifecycle handler."""
     _check_kwargs(kwargs)
     lc = _get_lifecycle()
     if lc is not None:
@@ -54,10 +51,7 @@ def oplog_record_sample(
     kwargs: dict[str, str] | None = None,
     sql: str | None = None,
 ) -> None:
-    """Record an operation with lineage sampling via the active lifecycle handler.
-
-    ``kwargs`` values must be strings. See ``_check_kwargs``.
-    """
+    """Record an operation with lineage sampling via the active lifecycle handler."""
     _check_kwargs(kwargs)
     lc = _get_lifecycle()
     if lc is not None:
