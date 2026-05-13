@@ -16,7 +16,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 
 from aaiclick import ORIENT_DICT
 from aaiclick.data.models import GB_ANY
@@ -101,14 +101,16 @@ async def validate_airtable_credentials() -> AirtableValidationResult:
         )
     base_id = _parse_base_id(raw_base_id)
 
-    print(f"[validate_airtable_credentials] verifying token via /meta/whoami", flush=True)
+    print("[validate_airtable_credentials] verifying token via /meta/whoami", flush=True)
     whoami = await _arequest("GET", "https://api.airtable.com/v0/meta/whoami", api_key)
     scopes = list(whoami.get("scopes", []))
 
     print(f"[validate_airtable_credentials] verifying base {base_id} access via /meta/bases", flush=True)
     await _arequest("GET", f"https://api.airtable.com/v0/meta/bases/{base_id}/tables", api_key)
 
-    print(f"[validate_airtable_credentials] ok: scopes={scopes or 'not reported by /whoami'}, base={base_id}", flush=True)
+    print(
+        f"[validate_airtable_credentials] ok: scopes={scopes or 'not reported by /whoami'}, base={base_id}", flush=True
+    )
     return AirtableValidationResult(status="ok", scopes=scopes, base=base_id)
 
 
@@ -135,8 +137,7 @@ async def sample_for_airtable(
         return await plots.where("0 = 1").copy()
 
     per_genre_views = [
-        plots.where(f"has(genres, {_ch_quote(g)})")
-             .view(order_by="length(plot) DESC", limit=PER_GENRE_LIMIT)
+        plots.where(f"has(genres, {_ch_quote(g)})").view(order_by="length(plot) DESC", limit=PER_GENRE_LIMIT)
         for g in genres
     ]
 
@@ -146,9 +147,7 @@ async def sample_for_airtable(
     for v in per_genre_views[1:]:
         combined = await combined.concat(v)
     materialized = await combined.copy()
-    deduped = await materialized.group_by("tconst").agg(
-        {col: GB_ANY for col in _SAMPLE_COLUMNS if col != "tconst"}
-    )
+    deduped = await materialized.group_by("tconst").agg({col: GB_ANY for col in _SAMPLE_COLUMNS if col != "tconst"})
     return await deduped.copy()
 
 
@@ -177,10 +176,7 @@ async def publish_to_airtable(
 
     rows = await sample.data(orient=ORIENT_DICT)
     n = len(rows.get("tconst", []))
-    records = [
-        {"fields": {col: rows[col][i] for col in _SAMPLE_COLUMNS if col in rows}}
-        for i in range(n)
-    ]
+    records = [{"fields": {col: rows[col][i] for col in _SAMPLE_COLUMNS if col in rows}} for i in range(n)]
     print(f"[publish_to_airtable] sample size: {n} records to upload to {base_id}/{table}", flush=True)
 
     print("[publish_to_airtable] ensuring table schema...", flush=True)

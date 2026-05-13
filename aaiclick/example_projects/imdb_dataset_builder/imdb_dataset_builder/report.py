@@ -115,7 +115,7 @@ def _print_report(content: ReportContent) -> None:
     stats = content.enrichment_stats
     print("\n### TMDB Raw Data Profile\n")
     print(f"URL: {TMDB_URL}")
-    print(f"Source: HenryWaltson/TMDB-IMDB-Movies-Dataset (Hugging Face Parquet)")
+    print("Source: HenryWaltson/TMDB-IMDB-Movies-Dataset (Hugging Face Parquet)")
     print(f"Rows loaded (pre-filtered to clean tconsts): {_fmt(content.tmdb_total)}")
 
     print("\n#### Field Schema\n")
@@ -127,10 +127,7 @@ def _print_report(content: ReportContent) -> None:
     print("\n### TMDB Enrichment\n")
     print("- Source: `HenryWaltson/TMDB-IMDB-Movies-Dataset` (Hugging Face Parquet)")
     print("- Join key: `tconst` (direct, no SPARQL resolution needed)")
-    print(
-        f"- Rows matched: {_fmt(stats.matched)} "
-        f"({_fmt(stats.matched_pct)}% of {_fmt(stats.total_clean)})"
-    )
+    print(f"- Rows matched: {_fmt(stats.matched)} ({_fmt(stats.matched_pct)}% of {_fmt(stats.total_clean)})")
     print(f"- Usable plot text (>= 120 chars): {_fmt(stats.plots_usable)} ({_fmt(stats.plots_usable_pct)}%)")
     print(f"- Average plot length: {_fmt(stats.avg_plot_chars)} characters")
 
@@ -193,9 +190,7 @@ async def generate_report(
 
     tmdb_total = await (await tmdb["tconst"].count()).data()
     tmdb_sample_md = (
-        await tmdb[["tconst", "title", "overview"]]
-        .view(limit=5)
-        .markdown(truncate={"title": 40, "overview": 120})
+        await tmdb[["tconst", "title", "overview"]].view(limit=5).markdown(truncate={"title": 40, "overview": 120})
     )
 
     genre_with_pct = genre_balance.rename({"genres": "Genre", "tconst": "Count"}).with_columns(
