@@ -375,8 +375,8 @@ async def join_objects_db(
         kwargs={
             "left": left.base_table,
             "right": right.base_table,
-            "left_on": list(keys.left),
-            "right_on": list(keys.right),
+            "left_on": ",".join(keys.left),
+            "right_on": ",".join(keys.right),
             "how": how,
         },
     )

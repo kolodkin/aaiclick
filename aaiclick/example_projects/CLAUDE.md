@@ -27,8 +27,17 @@ One-paragraph description of what the project does and which aaiclick features i
 - **Description**: one paragraph, concise — what it does, what data it uses
 - **Run command**: bash code block with shell script invocation, plus any flags or env vars if applicable
 - No additional sections or headings — keep it minimal
+- Design notes, architectural rationale, or trade-off discussion belong in an optional `SPEC.md` next to `README.md` — not inline in the README. The README may end with a one-line pointer (e.g. `See SPEC.md for design notes.`).
 
 READMEs are included in the docs site via `docs/example_projects.md` using `pymdownx.snippets`.
+
+## SPEC.md (optional)
+
+Projects with non-obvious design choices MAY include a `SPEC.md` alongside `README.md` to document them:
+
+- Setext title (`---` underline), then `#`-level sections per topic
+- Cover decisions a reader would otherwise question: why algorithm X over Y, why this engine, why this data layout
+- Skip if the README's one-paragraph description fully explains the project
 
 ## Project Structure
 
@@ -43,7 +52,8 @@ example_projects/<name>/
 ├── pyproject.toml       # Project metadata and dependencies
 ├── uv.lock              # Locked dependency versions
 ├── <name>.sh            # Shell runner: sets env vars, calls python -m, manages workers
-└── README.md            # Title, description, how to run (see README Convention above)
+├── README.md            # Title, description, how to run (see README Convention above)
+└── SPEC.md              # Optional: design notes / architectural rationale
 ```
 
 - The nested `<name>/` folder is the Python package — the outer folder is the project directory
