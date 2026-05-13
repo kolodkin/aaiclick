@@ -4,10 +4,12 @@ Tests for oplog recording via the lifecycle handler queue.
 
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import text
 
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.data.data_context.ch_client import create_ch_client
+from aaiclick.oplog.oplog_api import oplog_record, oplog_record_sample
 from aaiclick.orchestration.orch_context import task_scope
 from aaiclick.orchestration.sql_context import get_sql_session
 
@@ -63,6 +65,18 @@ async def test_global_scope_overrides_job_default(orch_ctx):
         finally:
             ch = await create_ch_client()
             await ch.command("DROP TABLE IF EXISTS p_cross_job_catalog")
+
+
+def test_oplog_record_rejects_non_string_kwarg():
+    """Non-string kwarg values raise TypeError at the API boundary.
+
+    Caught early because CH ``Map(String, String)`` would otherwise drop
+    the row inside ``_write_oplog_row`` with only a swallowed log line.
+    """
+    with pytest.raises(TypeError, match="must be str, got list"):
+        oplog_record("t_x", "op", kwargs={"keys": ["a", "b"]})  # type: ignore[dict-item]
+    with pytest.raises(TypeError, match="must be str, got int"):
+        oplog_record_sample("t_x", "op", kwargs={"limit": 100})  # type: ignore[dict-item]
 
 
 async def test_concat_records_kwargs(orch_ctx):
