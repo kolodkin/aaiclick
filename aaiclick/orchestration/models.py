@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, ClassVar, Literal, Union, get_args
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, ForeignKey, String, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
@@ -47,8 +47,15 @@ TASK_COMPLETED = "COMPLETED"
 TASK_FAILED = "FAILED"
 TASK_CANCELLED = "CANCELLED"
 TASK_PENDING_CLEANUP = "PENDING_CLEANUP"
-TaskStatus = Literal["PENDING", "CLAIMED", "RUNNING", "COMPLETED", "FAILED", "CANCELLED", "PENDING_CLEANUP"]
-"""Task execution status."""
+TASK_UPSTREAM_FAILED = "UPSTREAM_FAILED"
+TaskStatus = Literal[
+    "PENDING", "CLAIMED", "RUNNING", "COMPLETED", "FAILED", "CANCELLED", "PENDING_CLEANUP", "UPSTREAM_FAILED"
+]
+"""Task execution status.
+
+``UPSTREAM_FAILED`` is a terminal state assigned by the cascade sweep when a
+task's transitive upstream is ``FAILED``, ``CANCELLED``, or ``UPSTREAM_FAILED``.
+Job rollup treats it as a failure."""
 
 
 WORKER_ACTIVE = "ACTIVE"
@@ -364,6 +371,10 @@ class Task(SQLModel, table=True):
     """
 
     __tablename__: ClassVar[str] = "tasks"
+    # Composite index: the rollup aggregate and the cascade UPDATE in
+    # background.handler both filter on (job_id, status) — hot path on every
+    # task transition.
+    __table_args__ = (Index("ix_tasks_job_id_status", "job_id", "status"),)
 
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
     job_id: int = Field(default=0, sa_column=Column(BigInteger, ForeignKey("jobs.id"), index=True))
