@@ -66,17 +66,12 @@ class LazyOperator(Object):
         rhs: Object | ValueScalarType | None,
         operator: str,
         schema_preview: Schema,
-        build_select: Callable[[QueryInfo, QueryInfo | None], str],
     ): ...
 
     def as_(self, name: str, scope: NamedScope = "temp_named") -> LazyOperator:
         """Return a new LazyOperator that materializes with the given name and scope."""
 
-    def _get_query_info(self) -> QueryInfo:
-        """Returns a QueryInfo whose ``source`` is the fused SELECT subquery
-        for this op, so chained operators fuse into one SQL at the root."""
-
-    def __await__(self): ...  # triggers materialization at the root, caches result
+    def __await__(self): ...  # walks tree, materializes each node, caches result
 
     @property
     def table(self) -> str:
@@ -146,36 +141,21 @@ def _plan_operator(self, other, operator) -> LazyOperator:
     return LazyOperator(
         lhs=self, rhs=other, operator=operator,
         schema_preview=schema_preview,
-        build_select=operators._build_operator_select,
     )
 ```
 
-`_apply_operator_db` is split into a sync builder + an async wrapper:
+`_apply_operator_db` gains two kwargs forwarded to its single
+`create_object()` call:
 
 ```python
-def _build_operator_select(
-    info_a: QueryInfo, info_b: QueryInfo, operator: str
-) -> tuple[str, Schema]:
-    """Pure-SQL string for the operator's SELECT, plus result Schema.
-    No DB calls. Mirrors today's same-table / cross-table / scalar
-    branching, minus the INSERT wrap and result-table creation."""
-
 async def _apply_operator_db(
     info_a, info_b, operator, ch_client,
     *, name: str | None = None, scope: NamedScope | None = None,
 ) -> Object:
-    select_sql, schema = _build_operator_select(info_a, info_b, operator)
-    await _validate_if_needed(info_a, info_b, ch_client)
+    ...
     result = await create_object(schema, name=name, scope=scope)
-    await ch_client.command(f"INSERT INTO {result.table} {select_sql}")
-    return result
+    ...
 ```
-
-At await-time, the root LazyOperator runs this wrapper with its captured
-`name` / `scope`. Chained inner LazyOperators are visited via
-`_get_query_info()`, which returns a `QueryInfo` whose `source` is
-`(SELECT …)` from `_build_operator_select` — so fusion happens
-naturally inside the existing `info_a.source` plumbing.
 
 The reverse dunders (`__radd__` etc.) follow the same pattern via
 `_plan_operator_reverse`, which swaps `lhs` / `rhs` before building.
@@ -194,7 +174,7 @@ LazyOperator (just `.schema`) or a Python scalar (a one-row scalar schema
 with the scalar's inferred type), reused by both `_plan_operator` and
 `_peek` callers.
 
-### Chaining and fused materialization
+### Chaining and materialization order
 
 `(a + b) + c` builds a tree:
 
@@ -202,46 +182,34 @@ with the scalar's inferred type), reused by both `_plan_operator` and
 LazyOperator(op="+", lhs=LazyOperator(op="+", lhs=a, rhs=b), rhs=c)
 ```
 
-`await` on the outer node fuses the chain into **one** SQL — no
-intermediate temp tables. Mechanism:
+`await` on the outer node walks the tree once and materializes each
+`LazyOperator` node into its own ClickHouse table — **no fusion**.
+Sequence for `await ((a + b) + c).data()`:
 
-1. `_apply_operator_db` is factored into a sync `_build_operator_select`
-   (returns the inner SELECT as a string + a result `Schema`) and an
-   async `_apply_operator_db` that wraps it as `INSERT INTO {named_table}
-   SELECT ...` against the named/scoped result.
-2. `LazyOperator._get_query_info()` calls `_build_operator_select` to
-   produce a `QueryInfo` whose `source` is `(SELECT … FROM lhs JOIN rhs
-   …)` — exactly the shape `_apply_operator_db` already handles for view
-   sources today (via the `either_is_view` branch).
-3. When `(a + b)` is the lhs of `+ c`, the outer's `info_a` is the
-   subquery from the inner. `_apply_operator_db` runs once at the root,
-   producing one table with the outer's name/scope.
+1. Outer's `_materialize()` recursively materializes its `lhs` first.
+   Inner is a `LazyOperator` → runs the inner's materializer, producing
+   an unnamed temp (`t_<id>`) holding `a + b`. The inner caches this
+   `Object` on its `_materialized` slot.
+2. Outer then runs its own materializer with the inner's materialized
+   table as the left operand and `c` as the right. Result is a second
+   table — named via `.as_(...)` if set, otherwise another unnamed
+   temp.
+3. `.data()` reads rows from the outer's table.
 
-Each chain node is visited once; the inner `+` never writes its own
-table. Validation calls (`_validate_array_lengths`) move to materialize
-time and run for each node before the final INSERT.
+Two tables created total. The inner stays unnamed (its `.as_()` was
+never called); the outer is named only if `.as_()` was applied to the
+outermost LazyOperator. Eager `Object` operands in `lhs` / `rhs` are
+no-ops in the walk.
 
-**Known fusion limitations:**
-
-- **`_materialize_array_join` still uses an internal temp.** When both
-  operands are array×array cross-table *and* at least one operand is a
-  view-source subquery, the existing path materializes an ARRAY JOIN
-  staging table because unwrapping nested arrays twice is too expensive
-  to inline. Chains that hit this path will still create one staging
-  temp per node that hits it; everything else fuses cleanly.
-- **Same-table optimization is lost when one operand is a fused chain.**
-  The `info_a.base_table == info_b.base_table` short-circuit in
-  `_apply_operator_db` (operators.py:314-319) only fires when both sides
-  resolve to a real table. A fused subquery has no `base_table`, so the
-  cross-table JOIN path runs instead. Correct, just less optimal — only
-  matters when the user chains ops on columns from the same source.
-
-The user retains full control: an explicit `await` of an intermediate
-forces materialization, breaking fusion at that point.
+Materialization is also idempotent: a `LazyOperator` already in
+`_materialized` is reused — so if the same inner appears in multiple
+expressions it materializes once.
 
 ```python
-inner = await (a + b)                   # forces materialization here
-result = await (inner + c).as_("foo")   # no fusion across `inner`
+inner = (a + b)                          # LazyOperator, no DB call
+result = await (inner + c).as_("foo")    # 2 tables: t_<id> (inner), t_foo_<id> (outer)
+also   = await (inner * 3)               # 1 more table for the *3 result;
+                                          # inner already materialized, reused
 ```
 
 ## Backward compatibility
@@ -273,7 +241,8 @@ New file: `aaiclick/data/object/test_lazy_operator.py`.
 6. **`.table` raises before await** — `pytest.raises(RuntimeError, lambda: (a + b).table)`.
 7. **`.data()` auto-materializes** — `await (a + b).data()` returns rows; only one table created.
 8. **No DB writes when never awaited** — assert `table_registry` count unchanged after constructing and dropping a lazy.
-9. **Chain `(a + b) + c` fuses** — `await ((a + b) + c).as_("outer")` creates **one** table (the outer); inspect `table_registry` to confirm no intermediate temp was written. Output rows match the eager equivalent. Plus a counterpart test that breaking fusion via an explicit inner `await` does create two tables.
+9. **Chain `(a + b) + c`** — `await ((a + b) + c).as_("outer")` creates **two** tables: an unnamed temp for the inner `a + b`, and a `t_outer_<id>` for the outer. Output rows match the eager equivalent.
+9b. **Shared inner materializes once** — `inner = a + b; await (inner + c); await (inner * 3)` — assert exactly three tables created total (one for inner, one each for the two outers), not four.
 10. **Re-await idempotent** — `await lazy; await lazy` returns same `Object`, one table.
 11. **Reverse op with naming** — `await (2 + a).as_("rfoo")`.
 12. **`.as_()` is non-mutating** — `lazy.as_("x")` does not change `lazy`; `await lazy` still produces an unnamed temp.
