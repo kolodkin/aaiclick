@@ -18,19 +18,30 @@ scope="temp_named")` method lets the caller name the result and choose its
 lifetime before materialization.
 
 ```python
-# Before — unnamed temp, no control
-result = await (a + b)                          # table = t_<id>
+# 1. Build a plan — pure Python, no DB call
+plan = a + b                                    # LazyOperator (no table yet)
 
-# After — same call still works
-result = await (a + b)                          # table = t_<id>
+# 2. Read rows — async methods auto-materialize
+rows = await (a + b).data()                     # creates t_<id>, reads rows
 
-# New — control the table name
-result = await (a + b).as_("daily_total")       # table = t_daily_total_<id>
+# 3. Get the materialized Object (for .table, legacy APIs, etc.)
+obj = await (a + b)                             # table = t_<id>
 
-# New — persist beyond the context
-result = await (a + b).as_("daily_total", scope="job")    # table = j_<job_id>_daily_total
-result = await (a + b).as_("yearly_avg", scope="global")  # table = p_yearly_avg
+# 4. Control the table name
+obj = await (a + b).as_("daily_total")          # table = t_daily_total_<id>
+
+# 5. Persist beyond the context
+obj = await (a + b).as_("daily_total", scope="job")    # table = j_<job_id>_daily_total
+obj = await (a + b).as_("yearly_avg", scope="global")  # table = p_yearly_avg
 ```
+
+`await` on a LazyOperator triggers `__await__`, which materializes the
+plan into a ClickHouse table and returns an `Object`. It's only needed
+when the caller wants the materialized `Object` itself — e.g. to read
+`.table`, store it for later use, or hand it to an eager API. Reading
+rows (`.data()`) or chaining further operators (`(a + b) + c`) does not
+require an explicit `await` of the intermediate; the lazy passes through
+to the next step.
 
 ### Scope
 
