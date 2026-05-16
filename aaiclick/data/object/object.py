@@ -2908,3 +2908,61 @@ class View(Object):
             constraints.append(f"order_by='{self.order_by}'")
         constraint_str = ", ".join(constraints) if constraints else "no constraints"
         return f"View(table='{self.table}', {constraint_str})"
+
+
+class LazyOperator(Object):
+    """A planned binary operator that materializes into an Object on ``await``.
+
+    Created synchronously by ``Object`` binary dunders (``__add__`` etc.); no
+    ClickHouse round-trip happens until the LazyOperator is awaited. The result
+    table name and lifetime can be controlled via ``.as_(name, scope=...)``.
+
+    Spec: docs/lazy_operator.md
+
+    Fields:
+        lhs: Left operand — Object, LazyOperator, or Python scalar.
+        rhs: Right operand — Object, LazyOperator, Python scalar, or None.
+             ``None`` is reserved for future unary/aggregation operators.
+        operator: Operator symbol (e.g. "+", "==", "&").
+    """
+
+    def __init__(
+        self,
+        lhs,
+        rhs,
+        operator: str,
+        schema_preview: Schema,
+    ):
+        # NB: do NOT call Object.__init__ — we have no table yet. Set up the
+        # Object-subclass invariants manually so inherited methods that touch
+        # _stale / _registered / _owns_lifecycle_ref behave correctly.
+        self.lhs = lhs
+        self.rhs = rhs
+        self.operator = operator
+        self._schema = schema_preview
+        self._name: str | None = None
+        self._scope = None  # NamedScope when set via .as_()
+        self._materialized: Object | None = None
+        self._stale = False
+        self._registered = False
+        self._owns_lifecycle_ref = False
+
+    @property
+    def table(self) -> str:
+        """Table name of the materialized result.
+
+        Raises:
+            RuntimeError: When the LazyOperator has not been awaited yet.
+        """
+        if self._materialized is None:
+            raise RuntimeError(
+                "LazyOperator has no table yet — `await` it before reading .table. "
+                "Async methods like .data() auto-materialize; only sync table-access "
+                "requires an explicit await."
+            )
+        return self._materialized.table
+
+    def __repr__(self) -> str:
+        if self._materialized is not None:
+            return f"LazyOperator(materialized={self._materialized.table!r})"
+        return f"LazyOperator(op={self.operator!r}, materialized=False)"

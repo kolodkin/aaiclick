@@ -13,7 +13,7 @@ from aaiclick.data.models import (
     ColumnInfo,
     Schema,
 )
-from aaiclick.data.object import operators
+from aaiclick.data.object import LazyOperator, operators
 from aaiclick.data.object.operators import (
     _peek_schema,
     _preview_operator_schema,
@@ -116,3 +116,30 @@ async def test_peek_schema_existing_object_returns_its_schema(ctx):
     """For an Object, _peek_schema just returns .schema unchanged."""
     obj = await create_object_from_value([1, 2, 3], aai_id=True)
     assert _peek_schema(obj) is obj.schema
+
+
+# -----------------------------------------------------------------------------
+# LazyOperator class
+# -----------------------------------------------------------------------------
+
+
+async def test_lazy_operator_holds_lhs_rhs_operator(ctx):
+    obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
+    obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
+    schema_preview = _preview_operator_schema(obj_a.schema, obj_b.schema, "+")
+    lazy = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+", schema_preview=schema_preview)
+
+    assert lazy.lhs is obj_a
+    assert lazy.rhs is obj_b
+    assert lazy.operator == "+"
+    assert lazy.schema.fieldtype == FIELDTYPE_ARRAY
+
+
+async def test_lazy_operator_table_raises_before_materialize(ctx):
+    obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
+    obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
+    preview = _preview_operator_schema(obj_a.schema, obj_b.schema, "+")
+    lazy = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+", schema_preview=preview)
+
+    with pytest.raises(RuntimeError, match="no table yet"):
+        lazy.table
