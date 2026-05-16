@@ -30,6 +30,7 @@ from .data import (
     ColumnType,
     DataResult,
     FieldSpec,
+    LazyOperator,
     Object,
     Schema,
     ValueListType,

@@ -364,3 +364,11 @@ async def test_bitwise_returns_lazy(ctx):
     lazy = obj_a & obj_b
     assert isinstance(lazy, LazyOperator)
     assert await lazy.data() == [1, 2, 3]
+
+
+async def test_lazy_operator_is_public_api():
+    """LazyOperator is importable from the top-level package."""
+    import aaiclick
+    from aaiclick.data.object import LazyOperator as InternalLazy
+    assert hasattr(aaiclick, "LazyOperator")
+    assert aaiclick.LazyOperator is InternalLazy
