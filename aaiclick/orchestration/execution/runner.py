@@ -20,7 +20,7 @@ from aaiclick.data.data_context import (
     register_object,
 )
 from aaiclick.data.models import Schema
-from aaiclick.data.object import Object, View
+from aaiclick.data.object import LazyOperator, Object, View
 from aaiclick.data.object.ingest import _get_table_schema
 from aaiclick.data.object.refs import (
     CALLABLE,
@@ -297,6 +297,11 @@ async def execute_task(task: Task) -> tuple[Any, str]:
             else:
                 result = func(**kwargs)
 
+            # A task may return a LazyOperator (e.g. ``return a + b`` without an
+            # explicit await). Materialize before serialization — orch's
+            # ``_serialize_ref`` is sync and needs a real ``.table``.
+            result = await _materialize_lazies(result)
+
             # Pin result table for all downstream consumer tasks.
             # At this point we know the table_name (from the Object) but
             # not which tasks will consume it — that's only known via the
@@ -323,6 +328,35 @@ def _sanitize_for_json(value: Any) -> Any:
         return {k: _sanitize_for_json(v) for k, v in value.items()}
     if isinstance(value, list):
         return [_sanitize_for_json(v) for v in value]
+    return value
+
+
+async def _materialize_lazies(value: Any) -> Any:
+    """Recursively materialize any ``LazyOperator`` in a task return value.
+
+    A ``@task`` body may return ``a + b`` (a LazyOperator) without an
+    explicit ``await``. Orch's downstream ``_serialize_ref`` reads ``.table``
+    sync — which raises on an unmaterialized LazyOperator. Walking the
+    return value once at the orch boundary makes the unawaited shorthand
+    a first-class pattern: tasks compose with operator results just as
+    naturally as with materialized Objects.
+
+    Walks ``TaskResult.data``, lists, tuples, and dicts. ``Task`` / ``Group``
+    items are left untouched (they're DAG nodes, not data).
+    """
+    if isinstance(value, LazyOperator):
+        return await value._materialize()
+    if isinstance(value, TaskResult):
+        data = await _materialize_lazies(value.data)
+        if data is value.data:
+            return value
+        return TaskResult(data=data, tasks=value.tasks)
+    if isinstance(value, list):
+        return [await _materialize_lazies(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple([await _materialize_lazies(v) for v in value])
+    if isinstance(value, dict):
+        return {k: await _materialize_lazies(v) for k, v in value.items()}
     return value
 
 

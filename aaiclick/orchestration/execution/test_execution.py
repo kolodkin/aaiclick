@@ -20,6 +20,7 @@ from aaiclick.orchestration.examples.orchestration_dynamic import (
 )
 from aaiclick.orchestration.execution.debug import ajob_test
 from aaiclick.orchestration.execution.runner import (
+    _materialize_lazies,
     deserialize_task_params,
     execute_task,
     import_callback,
@@ -218,6 +219,41 @@ async def test_serialize_task_result_object(orch_ctx):
         "table": "t789",
         "job_id": 200,
     }
+
+
+async def test_materialize_lazies_bare_lazy(orch_ctx):
+    """A LazyOperator returned from a task body materializes to Object."""
+    a = await create_object_from_value([1, 2, 3], aai_id=True)
+    b = await create_object_from_value([10, 20, 30], aai_id=True)
+
+    lazy = a + b  # LazyOperator — no DB call
+    materialized = await _materialize_lazies(lazy)
+
+    assert isinstance(materialized, Object)
+    assert materialized.table.startswith("t_")
+    assert await materialized.data() == [11, 22, 33]
+
+
+async def test_materialize_lazies_in_task_result_data(orch_ctx):
+    """TaskResult.data may be a LazyOperator — get unwrapped, .tasks untouched."""
+    a = await create_object_from_value([1, 2, 3], aai_id=True)
+    b = await create_object_from_value([10, 20, 30], aai_id=True)
+
+    tr = TaskResult(data=a + b, tasks=[])
+    out = await _materialize_lazies(tr)
+
+    assert isinstance(out, TaskResult)
+    assert isinstance(out.data, Object)
+    assert await out.data.data() == [11, 22, 33]
+
+
+async def test_materialize_lazies_passthrough_for_non_lazy(orch_ctx):
+    """Non-lazy values flow through unchanged (identity-preserving)."""
+    obj = Object(table="t789")
+    assert await _materialize_lazies(obj) is obj
+    assert await _materialize_lazies(None) is None
+    assert await _materialize_lazies(42) == 42
+    assert await _materialize_lazies("hello") == "hello"
 
 
 async def test_serialize_task_result_non_object(orch_ctx):
