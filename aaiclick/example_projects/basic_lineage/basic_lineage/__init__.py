@@ -60,12 +60,12 @@ async def create_bonus() -> Object:
 
 @task
 async def compute_revenue(prices: Object, quantities: Object) -> Object:
-    return await (prices * quantities)
+    return (prices * quantities).as_("revenue")
 
 
 @task
 async def add_bonus(revenue: Object, bonus: Object) -> Object:
-    return await (revenue + bonus)
+    return (revenue + bonus).as_("total")
 
 
 @job("revenue_pipeline")
