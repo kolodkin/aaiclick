@@ -45,7 +45,7 @@ async def test_view_operator_addition(ctx):
     obj_a = await create_object_from_value([10, 20, 30, 40, 50], aai_id=True)
     obj_b = await create_object_from_value([1, 2, 3], aai_id=True)
     view = obj_a.view(where="value > 20")  # [30, 40, 50] — 3 elements
-    result = await (view + obj_b)
+    result = view + obj_b
     data = await result.data()
     assert data == [31, 42, 53]
 
@@ -55,7 +55,7 @@ async def test_view_operator_with_limit(ctx):
     obj_a = await create_object_from_value([100, 200, 300, 400], aai_id=True)
     obj_b = await create_object_from_value([1, 2], aai_id=True)
     view = obj_a.view(limit=2)  # [100, 200] — 2 elements
-    result = await (view * obj_b)
+    result = view * obj_b
     data = await result.data()
     assert data == [100, 400]
 
@@ -66,7 +66,7 @@ async def test_view_both_sides(ctx):
     obj_b = await create_object_from_value([1, 2, 3, 4, 5], aai_id=True)
     view_a = obj_a.view(where="value >= 10")  # [10, 15, 20, 25] — 4 elements
     view_b = obj_b.view(limit=4)  # [1, 2, 3, 4] — 4 elements
-    result = await (view_a + view_b)
+    result = view_a + view_b
     data = await result.data()
     assert data == [11, 17, 23, 29]
 

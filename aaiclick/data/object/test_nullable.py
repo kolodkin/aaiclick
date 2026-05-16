@@ -180,7 +180,7 @@ async def test_nullable_add_propagates_null(ctx):
     ch = get_ch_client()
     await ch.command(f"INSERT INTO {obj.table} (value) VALUES (1), (NULL), (3)")
 
-    result = await (obj + 10)
+    result = obj + 10
     data = await result.data()
     assert data[0] == 11
     assert data[1] is None
@@ -199,7 +199,7 @@ async def test_nullable_comparison_returns_nullable(ctx):
     ch = get_ch_client()
     await ch.command(f"INSERT INTO {obj.table} (value) VALUES (1), (NULL), (3)")
 
-    result = await (obj > 2)
+    result = obj > 2
     data = await result.data()
     assert data[0] == 0  # 1 > 2 is false
     assert data[1] is None  # NULL > 2 is NULL

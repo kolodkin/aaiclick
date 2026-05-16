@@ -219,9 +219,9 @@ async def test_statistics_after_operation(ctx, array_a, array_b, operator):
     obj_b = await create_object_from_value(array_b, aai_id=True)
 
     if operator == "+":
-        result = await (obj_a + obj_b)
+        result = obj_a + obj_b
     elif operator == "-":
-        result = await (obj_a - obj_b)
+        result = obj_a - obj_b
     else:
         raise ValueError(f"Unsupported operator: {operator}")
 

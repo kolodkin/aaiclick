@@ -94,7 +94,7 @@ async def test_comparison_then_sum(ctx):
     """Comparison result (UInt8) can be summed to count matches."""
     obj_a = await create_object_from_value([1, 2, 3, 4, 5], aai_id=True)
     obj_b = await create_object_from_value([1, 0, 3, 0, 5], aai_id=True)
-    matches = await (obj_a == obj_b)
+    matches = obj_a == obj_b
     count = await (await matches.sum()).data()
     assert count == 3
 
@@ -103,7 +103,7 @@ async def test_comparison_then_unique(ctx):
     """Comparison result values are 0 and 1 only."""
     obj_a = await create_object_from_value([1, 2, 3, 4], aai_id=True)
     obj_b = await create_object_from_value([1, 1, 1, 1], aai_id=True)
-    result = await (obj_a == obj_b)
+    result = obj_a == obj_b
     unique_vals = sorted(await (await result.unique()).data())
     assert unique_vals == [0, 1]
 

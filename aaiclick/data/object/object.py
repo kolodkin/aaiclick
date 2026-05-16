@@ -62,7 +62,7 @@ from . import data_extraction, ingest, operators
 from . import join as join_module
 from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
 from .refs import ObjectRef, ViewRef
-from .schema_compute import _preview_operator_schema, _scalar_to_schema
+from .schema_compute import _compute_operator_schema, _scalar_to_schema
 
 # Sentinel for "caller did not pass this kwarg" — distinguishes from None
 # which means "explicitly no value" (e.g. limit=None to disable the safety cap).
@@ -666,29 +666,58 @@ class Object:
             return await create_object_from_value(value)
         return value
 
+    def _peek_op_metadata(self) -> tuple[str, str, bool, ColumnInfo | None]:
+        """Return (fieldtype, value_type, nullable, aai_id_info) the operator will see.
+
+        Uses ``_get_query_info`` so View field-selection and other effective-fieldtype
+        cases agree with what ``_apply_operator_db`` consumes at materialize time.
+        Overridden in ``LazyOperator`` to read the precomputed result schema instead
+        (LazyOperator has no table pre-materialize).
+        """
+        info = self._get_query_info()
+        return info.fieldtype, info.value_type, info.nullable, info.aai_id_info
+
     def _plan_operator(self, other: Object | ValueScalarType, operator: str) -> LazyOperator:
         """Synchronously plan ``self op other`` — returns a LazyOperator that
         materializes on await. Schema is precomputed; no DB call.
         """
         self.checkstale()
-        other_schema = other.schema if isinstance(other, Object) else _scalar_to_schema(other)
-        return LazyOperator(
-            lhs=self,
-            rhs=other,
+        if isinstance(other, Object) and not _is_unmaterialized_lazy(self) and not _is_unmaterialized_lazy(other):
+            _require_explicit_order_for_cross_table(self, other)
+        a_ft, a_t, a_n, a_aai = self._peek_op_metadata()
+        b_ft, b_t, b_n, b_aai = _peek_other_metadata(other)
+        schema_preview, _ = _compute_operator_schema(
+            fieldtype_a=a_ft,
+            fieldtype_b=b_ft,
+            type_a=a_t,
+            type_b=b_t,
+            nullable_a=a_n,
+            nullable_b=b_n,
+            aai_id_a=a_aai,
+            aai_id_b=b_aai,
             operator=operator,
-            schema_preview=_preview_operator_schema(self._schema, other_schema, operator),
         )
+        return LazyOperator(lhs=self, rhs=other, operator=operator, schema_preview=schema_preview)
 
     def _plan_operator_reverse(self, other: Object | ValueScalarType, operator: str) -> LazyOperator:
         """Synchronously plan ``other op self`` — used by __radd__ etc."""
         self.checkstale()
-        other_schema = other.schema if isinstance(other, Object) else _scalar_to_schema(other)
-        return LazyOperator(
-            lhs=other,
-            rhs=self,
+        if isinstance(other, Object) and not _is_unmaterialized_lazy(self) and not _is_unmaterialized_lazy(other):
+            _require_explicit_order_for_cross_table(other, self)
+        b_ft, b_t, b_n, b_aai = self._peek_op_metadata()
+        a_ft, a_t, a_n, a_aai = _peek_other_metadata(other)
+        schema_preview, _ = _compute_operator_schema(
+            fieldtype_a=a_ft,
+            fieldtype_b=b_ft,
+            type_a=a_t,
+            type_b=b_t,
+            nullable_a=a_n,
+            nullable_b=b_n,
+            aai_id_a=a_aai,
+            aai_id_b=b_aai,
             operator=operator,
-            schema_preview=_preview_operator_schema(other_schema, self._schema, operator),
         )
+        return LazyOperator(lhs=other, rhs=self, operator=operator, schema_preview=schema_preview)
 
     # __eq__ override on a class zeroes the default __hash__. Restore it
     # explicitly so Objects remain hashable (set/dict keys, etc.).
@@ -2873,6 +2902,25 @@ class View(Object):
         return f"View(table='{self.table}', {constraint_str})"
 
 
+def _is_unmaterialized_lazy(value) -> bool:
+    """True when ``value`` is a LazyOperator that hasn't materialized yet —
+    sync checks that read ``.table`` must skip these (the table doesn't exist)."""
+    return isinstance(value, LazyOperator) and value._materialized is None
+
+
+def _peek_other_metadata(value) -> tuple[str, str, bool, ColumnInfo | None]:
+    """Same shape as ``Object._peek_op_metadata`` but for an arbitrary RHS
+    operand (Object / LazyOperator / Python scalar). Used by the planners to
+    derive the operator's result schema without materializing.
+    """
+    if isinstance(value, Object):
+        return value._peek_op_metadata()
+    # Python scalar: fall back to scalar-schema inference.
+    schema = _scalar_to_schema(value)
+    col = schema.columns["value"]
+    return schema.fieldtype, col.type, col.nullable, None
+
+
 async def _resolve_operand(value: LazyOperator | Object | ValueScalarType | None) -> Object:
     """Resolve an operand to a materialized Object.
 
@@ -2963,6 +3011,19 @@ class LazyOperator(Object):
             )
         return self._materialized.table
 
+    def _peek_op_metadata(self) -> tuple[str, str, bool, ColumnInfo | None]:
+        """Read the precomputed result schema — no _get_query_info() call,
+        since LazyOperator has no table pre-materialize.
+        """
+        s = self._schema
+        col = s.columns.get("value")
+        return (
+            s.fieldtype,
+            col.type if col is not None else "Float64",
+            col.nullable if col is not None else False,
+            s.columns.get(AAI_ID_COLUMN),
+        )
+
     async def _materialize(self) -> Object:
         """Walk lhs/rhs and produce the materialized Object. Cached on _materialized."""
         if self._materialized is not None:
@@ -2999,20 +3060,99 @@ class LazyOperator(Object):
     # methods auto-materialize, because only they can `await`.
 
     async def data(self, *args, **kwargs):
-        obj = await self._materialize()
-        return await obj.data(*args, **kwargs)
+        return await (await self._materialize()).data(*args, **kwargs)
 
     async def result(self, *args, **kwargs):
-        obj = await self._materialize()
-        return await obj.result(*args, **kwargs)
+        return await (await self._materialize()).result(*args, **kwargs)
 
     async def markdown(self, *args, **kwargs):
-        obj = await self._materialize()
-        return await obj.markdown(*args, **kwargs)
+        return await (await self._materialize()).markdown(*args, **kwargs)
 
     async def export(self, *args, **kwargs):
-        obj = await self._materialize()
-        return await obj.export(*args, **kwargs)
+        return await (await self._materialize()).export(*args, **kwargs)
+
+    # Aggregations — phase 1 keeps these eager (still ``async def → Object`` on
+    # Object); LazyOperator materializes first so the fluent ``(a + b).sum()``
+    # pattern works.
+
+    async def min(self):
+        return await (await self._materialize()).min()
+
+    async def max(self):
+        return await (await self._materialize()).max()
+
+    async def sum(self):
+        return await (await self._materialize()).sum()
+
+    async def mean(self):
+        return await (await self._materialize()).mean()
+
+    async def std(self):
+        return await (await self._materialize()).std()
+
+    async def var(self):
+        return await (await self._materialize()).var()
+
+    async def count(self):
+        return await (await self._materialize()).count()
+
+    async def count_if(self, condition):
+        return await (await self._materialize()).count_if(condition)
+
+    async def quantile(self, q):
+        return await (await self._materialize()).quantile(q)
+
+    async def unique(self):
+        return await (await self._materialize()).unique()
+
+    async def nunique(self):
+        return await (await self._materialize()).nunique()
+
+    # Unary transforms — same pattern.
+
+    async def year(self):
+        return await (await self._materialize()).year()
+
+    async def month(self):
+        return await (await self._materialize()).month()
+
+    async def day_of_week(self):
+        return await (await self._materialize()).day_of_week()
+
+    async def lower(self):
+        return await (await self._materialize()).lower()
+
+    async def upper(self):
+        return await (await self._materialize()).upper()
+
+    async def length(self):
+        return await (await self._materialize()).length()
+
+    async def trim(self):
+        return await (await self._materialize()).trim()
+
+    async def abs(self):
+        return await (await self._materialize()).abs()
+
+    async def log2(self):
+        return await (await self._materialize()).log2()
+
+    async def sqrt(self):
+        return await (await self._materialize()).sqrt()
+
+    # Copy / concat / join / insert — return new Objects or mutate, materialize first.
+
+    async def copy(self):
+        return await (await self._materialize()).copy()
+
+    async def concat(self, *args):
+        return await (await self._materialize()).concat(*args)
+
+    async def join(self, other, on, how="INNER"):
+        return await (await self._materialize()).join(other, on, how=how)
+
+    async def insert(self, *args):
+        return await (await self._materialize()).insert(*args)
 
     def __repr__(self) -> str:
         if self._materialized is not None:

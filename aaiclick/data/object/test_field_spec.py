@@ -181,6 +181,6 @@ async def test_field_spec_nullable_arithmetic(ctx):
     ch = get_ch_client()
     await ch.command(f"INSERT INTO {obj.table} (value) VALUES (NULL)")
 
-    result = await (obj + 5)
+    result = obj + 5
     data = await result.data()
     assert data == [15, 25, 35, None]

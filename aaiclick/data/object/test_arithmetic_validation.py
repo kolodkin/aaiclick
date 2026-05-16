@@ -16,12 +16,13 @@ async def test_array_array_same_length(ctx):
     """Same-length arrays produce correct results when ordered by value."""
     a = await create_object_from_value([1, 2, 3])
     b = await create_object_from_value([10, 20, 30])
-    result = await (a.view(order_by="value") + b.view(order_by="value"))
+    result = a.view(order_by="value") + b.view(order_by="value")
     assert sorted(await result.data(order_by="value")) == [11, 22, 33]
 
 
 async def test_array_array_length_mismatch_raises(ctx):
-    """Different-length arrays raise ValueError."""
+    """Different-length arrays raise ValueError when the lazy plan is awaited
+    (validation runs at materialize time, not at the ``+``)."""
     a = await create_object_from_value([1, 2, 3])
     b = await create_object_from_value([10, 20, 30, 40])
     with pytest.raises(ValueError, match="Operand length mismatch"):
@@ -29,7 +30,7 @@ async def test_array_array_length_mismatch_raises(ctx):
 
 
 async def test_array_array_length_mismatch_left_longer(ctx):
-    """Left operand longer than right raises ValueError."""
+    """Left operand longer than right raises ValueError on await."""
     a = await create_object_from_value([1, 2, 3, 4, 5])
     b = await create_object_from_value([10, 20])
     with pytest.raises(ValueError, match="left has 5 .* right has 2"):
@@ -37,7 +38,7 @@ async def test_array_array_length_mismatch_left_longer(ctx):
 
 
 async def test_view_length_mismatch_raises(ctx):
-    """Views with different filtered lengths raise ValueError."""
+    """Views with different filtered lengths raise ValueError on await."""
     a = await create_object_from_value([1, 2, 3, 4, 5])
     b = await create_object_from_value([10, 20, 30, 40, 50])
     view_a = a.view(where="value <= 3", order_by="value")  # 3 elements
@@ -52,7 +53,7 @@ async def test_view_same_length_works(ctx):
     b = await create_object_from_value([10, 20, 30, 40, 50])
     view_a = a.view(where="value >= 3", order_by="value")  # [3, 4, 5]
     view_b = b.view(limit=3, order_by="value")  # [10, 20, 30]
-    result = await (view_a + view_b)
+    result = view_a + view_b
     assert sorted(await result.data(order_by="value")) == [13, 24, 35]
 
 
@@ -65,7 +66,7 @@ async def test_coalesce_length_mismatch_raises(ctx):
 
 
 async def test_object_view_length_mismatch_raises(ctx):
-    """View + View with different lengths raises ValueError."""
+    """View + View with different lengths raises ValueError on await."""
     a = await create_object_from_value([1, 2, 3, 4, 5])
     b = await create_object_from_value([10, 20, 30, 40, 50])
     view_a = a.view(order_by="value")
@@ -75,7 +76,7 @@ async def test_object_view_length_mismatch_raises(ctx):
 
 
 async def test_view_object_length_mismatch_raises(ctx):
-    """Two Views with different filtered lengths raise ValueError."""
+    """Two Views with different filtered lengths raise ValueError on await."""
     a = await create_object_from_value([1, 2, 3, 4, 5])
     b = await create_object_from_value([10, 20])
     view_a = a.view(where="value >= 3", order_by="value")  # [3, 4, 5]
@@ -94,5 +95,5 @@ async def test_object_view_same_length_works(ctx):
     a = await create_object_from_value([1, 2, 3], aai_id=True)
     b = await create_object_from_value([10, 20, 30, 40, 50])
     view_b = b.view(limit=3, order_by="value")  # [10, 20, 30]
-    result = await (a + view_b)
+    result = a + view_b
     assert sorted(await result.data(order_by="value")) == [11, 22, 33]

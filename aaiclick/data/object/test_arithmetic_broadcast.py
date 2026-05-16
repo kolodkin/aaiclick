@@ -36,19 +36,19 @@ async def test_scalar_obj_op_scalar(ctx, obj_val, scalar, operator, expected):
 
     match operator:
         case "+":
-            result = await (obj + scalar)
+            result = obj + scalar
         case "-":
-            result = await (obj - scalar)
+            result = obj - scalar
         case "*":
-            result = await (obj * scalar)
+            result = obj * scalar
         case "/":
-            result = await (obj / scalar)
+            result = obj / scalar
         case "//":
-            result = await (obj // scalar)
+            result = obj // scalar
         case "%":
-            result = await (obj % scalar)
+            result = obj % scalar
         case "**":
-            result = await (obj**scalar)
+            result = obj**scalar
 
     data = await result.data()
     assert abs(data - expected) < THRESHOLD
@@ -77,19 +77,19 @@ async def test_scalar_reverse_op(ctx, scalar, obj_val, operator, expected):
 
     match operator:
         case "+":
-            result = await (scalar + obj)
+            result = scalar + obj
         case "-":
-            result = await (scalar - obj)
+            result = scalar - obj
         case "*":
-            result = await (scalar * obj)
+            result = scalar * obj
         case "/":
-            result = await (scalar / obj)
+            result = scalar / obj
         case "//":
-            result = await (scalar // obj)
+            result = scalar // obj
         case "%":
-            result = await (scalar % obj)
+            result = scalar % obj
         case "**":
-            result = await (scalar**obj)
+            result = scalar**obj
 
     data = await result.data()
     assert abs(data - expected) < THRESHOLD
@@ -118,19 +118,19 @@ async def test_array_obj_op_scalar(ctx, arr, scalar, operator, expected):
 
     match operator:
         case "+":
-            result = await (obj + scalar)
+            result = obj + scalar
         case "-":
-            result = await (obj - scalar)
+            result = obj - scalar
         case "*":
-            result = await (obj * scalar)
+            result = obj * scalar
         case "/":
-            result = await (obj / scalar)
+            result = obj / scalar
         case "//":
-            result = await (obj // scalar)
+            result = obj // scalar
         case "%":
-            result = await (obj % scalar)
+            result = obj % scalar
         case "**":
-            result = await (obj**scalar)
+            result = obj**scalar
 
     data = await result.data()
     for i, val in enumerate(data):
@@ -160,19 +160,19 @@ async def test_scalar_op_array_obj(ctx, scalar, arr, operator, expected):
 
     match operator:
         case "+":
-            result = await (scalar + obj)
+            result = scalar + obj
         case "-":
-            result = await (scalar - obj)
+            result = scalar - obj
         case "*":
-            result = await (scalar * obj)
+            result = scalar * obj
         case "/":
-            result = await (scalar / obj)
+            result = scalar / obj
         case "//":
-            result = await (scalar // obj)
+            result = scalar // obj
         case "%":
-            result = await (scalar % obj)
+            result = scalar % obj
         case "**":
-            result = await (scalar**obj)
+            result = scalar**obj
 
     data = await result.data()
     for i, val in enumerate(data):
@@ -201,17 +201,17 @@ async def test_comparison_with_scalar(ctx, arr, scalar, operator, expected):
 
     match operator:
         case "==":
-            result = await (obj == scalar)
+            result = obj == scalar
         case "!=":
-            result = await (obj != scalar)
+            result = obj != scalar
         case "<":
-            result = await (obj < scalar)
+            result = obj < scalar
         case "<=":
-            result = await (obj <= scalar)
+            result = obj <= scalar
         case ">":
-            result = await (obj > scalar)
+            result = obj > scalar
         case ">=":
-            result = await (obj >= scalar)
+            result = obj >= scalar
 
     data = await result.data()
     assert data == expected
@@ -225,7 +225,7 @@ async def test_comparison_with_scalar(ctx, arr, scalar, operator, expected):
 async def test_chained_scalar_broadcast(ctx):
     """Test chained operations with scalar broadcast: (arr * 2) + 10."""
     obj = await create_object_from_value([1, 2, 3], aai_id=True)
-    result = await (await (obj * 2) + 10)
+    result = (obj * 2) + 10
     data = await result.data()
     assert data == [12, 14, 16]
 
@@ -234,7 +234,7 @@ async def test_normalize_with_scalar_broadcast(ctx):
     """Test normalization pattern: arr / sum."""
     obj = await create_object_from_value([2.0, 4.0, 6.0, 8.0], aai_id=True)
     total = await obj.sum()
-    normalized = await (obj / total)
+    normalized = obj / total
     data = await normalized.data()
     expected = [0.1, 0.2, 0.3, 0.4]
     for i, val in enumerate(data):
@@ -245,8 +245,8 @@ async def test_scalar_sub_is_noncommutative(ctx):
     """Test that scalar - obj != obj - scalar (order matters)."""
     obj = await create_object_from_value([10, 20, 30], aai_id=True)
 
-    forward = await (obj - 5)
-    reverse = await (5 - obj)
+    forward = obj - 5
+    reverse = 5 - obj
 
     forward_data = await forward.data()
     reverse_data = await reverse.data()
@@ -259,8 +259,8 @@ async def test_scalar_div_is_noncommutative(ctx):
     """Test that scalar / obj != obj / scalar (order matters)."""
     obj = await create_object_from_value([2.0, 4.0, 5.0], aai_id=True)
 
-    forward = await (obj / 10.0)
-    reverse = await (10.0 / obj)
+    forward = obj / 10.0
+    reverse = 10.0 / obj
 
     forward_data = await forward.data()
     reverse_data = await reverse.data()
@@ -281,7 +281,7 @@ async def test_cross_table_add_without_views_raises(ctx):
     a = await create_object_from_value([1, 2, 3])
     b = await create_object_from_value([10, 20, 30])
     with pytest.raises(TypeError, match="explicit row order"):
-        await (a + b)
+        a + b
 
 
 async def test_cross_table_add_with_one_view_raises(ctx):
@@ -290,21 +290,21 @@ async def test_cross_table_add_with_one_view_raises(ctx):
     b = await create_object_from_value([10, 20, 30])
     a_view = a.view(order_by="value")
     with pytest.raises(TypeError, match="explicit row order"):
-        await (a_view + b)
+        a_view + b
 
 
 async def test_cross_table_add_with_two_views_succeeds(ctx):
     """Both sides as View(order_by=...) satisfies the contract."""
     a = await create_object_from_value([1, 2, 3], aai_id=True)
     b = await create_object_from_value([10, 20, 30], aai_id=True)
-    result = await (a.view(order_by="value") + b.view(order_by="value"))
+    result = a.view(order_by="value") + b.view(order_by="value")
     assert sorted(await result.data(order_by="value")) == [11, 22, 33]
 
 
 async def test_same_table_add_no_views_still_works(ctx):
     """Same-table fast path skips the contract check."""
     a = await create_object_from_value([1, 2, 3], aai_id=True)
-    result = await (a + a)
+    result = a + a
     assert sorted(await result.data(order_by="value")) == [2, 4, 6]
 
 
@@ -312,5 +312,5 @@ async def test_scalar_broadcast_no_views_still_works(ctx):
     """Scalar broadcast skips the contract check."""
     a = await create_object_from_value([1, 2, 3], aai_id=True)
     s = await create_object_from_value(10, aai_id=True)
-    result = await (a + s)
+    result = a + s
     assert sorted(await result.data(order_by="value")) == [11, 12, 13]

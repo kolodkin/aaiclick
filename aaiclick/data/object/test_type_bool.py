@@ -33,7 +33,7 @@ async def test_bool_scalar_add(ctx):
     a = await create_object_from_value(True, aai_id=True)  # 1
     b = await create_object_from_value(True, aai_id=True)  # 1
 
-    result = await (a + b)
+    result = a + b
     data = await result.data()
 
     assert data == 2  # 1 + 1
@@ -44,7 +44,7 @@ async def test_bool_scalar_sub(ctx):
     a = await create_object_from_value(True, aai_id=True)  # 1
     b = await create_object_from_value(False, aai_id=True)  # 0
 
-    result = await (a - b)
+    result = a - b
     data = await result.data()
 
     assert data == 1  # 1 - 0
@@ -67,7 +67,7 @@ async def test_bool_array_add(ctx):
     a = await create_object_from_value([True, True, False], aai_id=True)  # [1, 1, 0]
     b = await create_object_from_value([True, False, False], aai_id=True)  # [1, 0, 0]
 
-    result = await (a + b)
+    result = a + b
     data = await result.data()
 
     assert data == [2, 1, 0]
@@ -78,7 +78,7 @@ async def test_bool_array_sub(ctx):
     a = await create_object_from_value([True, True, True], aai_id=True)  # [1, 1, 1]
     b = await create_object_from_value([False, True, False], aai_id=True)  # [0, 1, 0]
 
-    result = await (a - b)
+    result = a - b
     data = await result.data()
 
     assert data == [1, 0, 1]

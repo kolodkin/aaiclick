@@ -118,7 +118,7 @@ async def test_dict_selector_add(ctx):
     view_a = obj_a["x"]
     view_b = obj_b["x"]
 
-    result = await (view_a + view_b)
+    result = view_a + view_b
     data = await result.data()
 
     assert data == [101, 202, 303]
@@ -131,7 +131,7 @@ async def test_dict_selector_multiply(ctx):
     prices = obj["prices"]
     qty = obj["qty"]
 
-    result = await (prices * qty)
+    result = prices * qty
     data = await result.data()
 
     assert data == [20, 60, 120]
@@ -143,7 +143,7 @@ async def test_dict_selector_with_array_object(ctx):
     array_obj = await create_object_from_value([1, 2, 3], aai_id=True)
 
     view = dict_obj["values"]
-    result = await (view + array_obj)
+    result = view + array_obj
     data = await result.data()
 
     assert data == [11, 22, 33]

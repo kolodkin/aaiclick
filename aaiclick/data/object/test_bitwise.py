@@ -87,11 +87,11 @@ async def test_reverse_bitwise(ctx, scalar, val, operator, expected):
     obj = await create_object_from_value(val, aai_id=True)
     match operator:
         case "&":
-            result = await (scalar & obj)
+            result = scalar & obj
         case "|":
-            result = await (scalar | obj)
+            result = scalar | obj
         case "^":
-            result = await (scalar ^ obj)
+            result = scalar ^ obj
     assert await result.data() == expected
 
 
@@ -104,6 +104,6 @@ async def test_bitwise_and_then_sum(ctx):
     """AND mask result can be summed (counts set bits per element)."""
     obj_a = await create_object_from_value([0b1111, 0b1010, 0b0000, 0b1100], aai_id=True)
     obj_b = await create_object_from_value([0b1010, 0b1010, 0b1111, 0b0101], aai_id=True)
-    masked = await (obj_a & obj_b)
+    masked = obj_a & obj_b
     total = await (await masked.sum()).data()
     assert total == 0b1010 + 0b1010 + 0b0000 + 0b0100
