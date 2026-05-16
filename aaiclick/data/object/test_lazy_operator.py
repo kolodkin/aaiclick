@@ -143,3 +143,30 @@ async def test_lazy_operator_table_raises_before_materialize(ctx):
 
     with pytest.raises(RuntimeError, match="no table yet"):
         lazy.table
+
+
+async def test_as_returns_new_lazy_with_name(ctx):
+    obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
+    obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
+    preview = _preview_operator_schema(obj_a.schema, obj_b.schema, "+")
+    lazy = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+", schema_preview=preview)
+
+    named = lazy.as_("daily_total")
+
+    assert named is not lazy
+    assert named._name == "daily_total"
+    assert named._scope == "temp_named"
+    # Receiver unchanged.
+    assert lazy._name is None
+    assert lazy._scope is None
+
+
+async def test_as_with_explicit_scope(ctx):
+    obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
+    obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
+    preview = _preview_operator_schema(obj_a.schema, obj_b.schema, "+")
+    lazy = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+", schema_preview=preview)
+
+    job_scoped = lazy.as_("yearly", scope="job")
+    assert job_scoped._name == "yearly"
+    assert job_scoped._scope == "job"

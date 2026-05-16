@@ -2947,6 +2947,27 @@ class LazyOperator(Object):
         self._registered = False
         self._owns_lifecycle_ref = False
 
+    def as_(self, name: str, scope: str = "temp_named") -> "LazyOperator":
+        """Return a new LazyOperator that materializes with the given name and scope.
+
+        Args:
+            name: Result table name (forwarded to ``create_object``).
+            scope: ``"temp_named"`` (default), ``"job"``, or ``"global"`` — see
+                ``create_object`` for the lifetime semantics of each.
+
+        Returns:
+            New LazyOperator instance. The receiver is unchanged.
+        """
+        new = LazyOperator(
+            lhs=self.lhs,
+            rhs=self.rhs,
+            operator=self.operator,
+            schema_preview=self._schema,
+        )
+        new._name = name
+        new._scope = scope
+        return new
+
     @property
     def table(self) -> str:
         """Table name of the materialized result.
