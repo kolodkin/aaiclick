@@ -69,7 +69,6 @@ from ..models import (
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
     FIELDTYPE_SCALAR,
-    FLOAT_TYPES,
     INT_TYPES,
     Agg,
     ColumnInfo,

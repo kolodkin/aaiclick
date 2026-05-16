@@ -19,7 +19,6 @@ from ..models import (
     ValueScalarType,
 )
 
-
 # Division and power always return Float64 in ClickHouse.
 _FLOAT_RESULT_OPS = frozenset({"/", "**"})
 

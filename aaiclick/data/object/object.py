@@ -673,7 +673,9 @@ class Object:
         self.checkstale()
         other_schema = other.schema if isinstance(other, Object) else _scalar_to_schema(other)
         return LazyOperator(
-            lhs=self, rhs=other, operator=operator,
+            lhs=self,
+            rhs=other,
+            operator=operator,
             schema_preview=_preview_operator_schema(self._schema, other_schema, operator),
         )
 
@@ -682,7 +684,9 @@ class Object:
         self.checkstale()
         other_schema = other.schema if isinstance(other, Object) else _scalar_to_schema(other)
         return LazyOperator(
-            lhs=other, rhs=self, operator=operator,
+            lhs=other,
+            rhs=self,
+            operator=operator,
             schema_preview=_preview_operator_schema(other_schema, self._schema, operator),
         )
 
@@ -2977,7 +2981,9 @@ class LazyOperator(Object):
         info_a = lhs_obj._get_query_info()
         info_b = rhs_obj._get_query_info()
         result = await operators._apply_operator_db(
-            info_a, info_b, self.operator,
+            info_a,
+            info_b,
+            self.operator,
             get_ch_client(),
             name=self._name,
             scope=self._scope,

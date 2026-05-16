@@ -7,11 +7,8 @@ import pytest
 
 from aaiclick import create_object_from_value
 from aaiclick.data.models import (
-    AAI_ID_COLUMN,
     FIELDTYPE_ARRAY,
     FIELDTYPE_SCALAR,
-    ColumnInfo,
-    Schema,
 )
 from aaiclick.data.object import LazyOperator, operators
 from aaiclick.data.object.schema_compute import (
@@ -19,10 +16,7 @@ from aaiclick.data.object.schema_compute import (
     _scalar_to_schema,
 )
 
-
-BINARY_OPERATORS = ["+", "-", "*", "/", "//", "%", "**",
-                    "==", "!=", "<", "<=", ">", ">=",
-                    "&", "|", "^"]
+BINARY_OPERATORS = ["+", "-", "*", "/", "//", "%", "**", "==", "!=", "<", "<=", ">", ">=", "&", "|", "^"]
 
 
 async def test_apply_operator_db_with_name_uses_temp_named_scope(ctx):
@@ -136,7 +130,7 @@ async def test_lazy_operator_table_raises_before_materialize(ctx):
     lazy = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+", schema_preview=preview)
 
     with pytest.raises(RuntimeError, match="no table yet"):
-        lazy.table
+        _ = lazy.table
 
 
 async def test_as_returns_new_lazy_with_name(ctx):
@@ -182,8 +176,7 @@ async def test_await_with_as_temp_named(ctx):
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
     obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
     preview = _preview_operator_schema(obj_a.schema, obj_b.schema, "+")
-    lazy = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+",
-                       schema_preview=preview).as_("daily_total")
+    lazy = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+", schema_preview=preview).as_("daily_total")
 
     result = await lazy
     assert result.table.startswith("t_daily_total_")
@@ -195,8 +188,7 @@ async def test_await_with_scope_job(ctx):
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
     obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
     preview = _preview_operator_schema(obj_a.schema, obj_b.schema, "+")
-    lazy = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+",
-                       schema_preview=preview).as_("yearly", scope="job")
+    lazy = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+", schema_preview=preview).as_("yearly", scope="job")
 
     result = await lazy
     assert result.table.startswith("j_")
@@ -227,8 +219,7 @@ async def test_chain_two_lazies_writes_two_tables(ctx):
     inner = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+", schema_preview=inner_preview)
 
     outer_preview = _preview_operator_schema(inner.schema, obj_c.schema, "+")
-    outer = LazyOperator(lhs=inner, rhs=obj_c, operator="+",
-                        schema_preview=outer_preview).as_("grand_total")
+    outer = LazyOperator(lhs=inner, rhs=obj_c, operator="+", schema_preview=outer_preview).as_("grand_total")
 
     result = await outer
     assert result.table.startswith("t_grand_total_")
@@ -244,13 +235,9 @@ async def test_lazy_never_awaited_creates_no_table(ctx):
     obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
     preview = _preview_operator_schema(obj_a.schema, obj_b.schema, "+")
 
-    before = await obj_a.ch_client.query(
-        "SELECT count() FROM system.tables WHERE name LIKE 't_%'"
-    )
+    before = await obj_a.ch_client.query("SELECT count() FROM system.tables WHERE name LIKE 't_%'")
     _ = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+", schema_preview=preview)
-    after = await obj_a.ch_client.query(
-        "SELECT count() FROM system.tables WHERE name LIKE 't_%'"
-    )
+    after = await obj_a.ch_client.query("SELECT count() FROM system.tables WHERE name LIKE 't_%'")
 
     assert before.result_rows[0][0] == after.result_rows[0][0]
 
@@ -364,5 +351,6 @@ async def test_lazy_operator_is_public_api():
     """LazyOperator is importable from the top-level package."""
     import aaiclick
     from aaiclick.data.object import LazyOperator as InternalLazy
+
     assert hasattr(aaiclick, "LazyOperator")
     assert aaiclick.LazyOperator is InternalLazy
