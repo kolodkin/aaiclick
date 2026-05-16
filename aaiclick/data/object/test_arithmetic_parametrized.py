@@ -17,23 +17,23 @@ THRESHOLD = 1e-5
 # =============================================================================
 
 
-async def apply_operator(a, b, operator: str):
-    """Apply a binary operator to two objects using match/case."""
+def apply_operator(a, b, operator: str):
+    """Apply a binary operator to two objects, returning a LazyOperator."""
     match operator:
         case "+":
-            return await (a + b)
+            return a + b
         case "-":
-            return await (a - b)
+            return a - b
         case "*":
-            return await (a * b)
+            return a * b
         case "/":
-            return await (a / b)
+            return a / b
         case "//":
-            return await (a // b)
+            return a // b
         case "%":
-            return await (a % b)
+            return a % b
         case "**":
-            return await (a**b)
+            return a**b
         case _:
             raise ValueError(f"Unsupported operator: {operator}")
 
@@ -63,7 +63,7 @@ async def test_int_scalar_operators(ctx, data_a, data_b, operator, expected_resu
     obj_a = await create_object_from_value(data_a, aai_id=True)
     obj_b = await create_object_from_value(data_b, aai_id=True)
 
-    result = await apply_operator(obj_a, obj_b, operator)
+    result = apply_operator(obj_a, obj_b, operator)
     result_data = await result.data()
 
     assert result_data == expected_result
@@ -94,7 +94,7 @@ async def test_int_array_operators(ctx, data_a, data_b, operator, expected_resul
     obj_a = await create_object_from_value(data_a, aai_id=True)
     obj_b = await create_object_from_value(data_b, aai_id=True)
 
-    result = await apply_operator(obj_a, obj_b, operator)
+    result = apply_operator(obj_a, obj_b, operator)
     result_data = await result.data()
 
     assert result_data == expected_result
@@ -125,7 +125,7 @@ async def test_float_scalar_operators(ctx, data_a, data_b, operator, expected_re
     obj_a = await create_object_from_value(data_a, aai_id=True)
     obj_b = await create_object_from_value(data_b, aai_id=True)
 
-    result = await apply_operator(obj_a, obj_b, operator)
+    result = apply_operator(obj_a, obj_b, operator)
     result_data = await result.data()
 
     assert abs(result_data - expected_result) < THRESHOLD
@@ -156,7 +156,7 @@ async def test_float_array_operators(ctx, data_a, data_b, operator, expected_res
     obj_a = await create_object_from_value(data_a, aai_id=True)
     obj_b = await create_object_from_value(data_b, aai_id=True)
 
-    result = await apply_operator(obj_a, obj_b, operator)
+    result = apply_operator(obj_a, obj_b, operator)
     result_data = await result.data()
 
     for i, val in enumerate(result_data):
@@ -189,7 +189,7 @@ async def test_edge_case_operators(ctx, data_a, data_b, operator, expected_resul
     obj_a = await create_object_from_value(data_a, aai_id=True)
     obj_b = await create_object_from_value(data_b, aai_id=True)
 
-    result = await apply_operator(obj_a, obj_b, operator)
+    result = apply_operator(obj_a, obj_b, operator)
     result_data = await result.data()
 
     # Handle both scalar and array results
@@ -224,8 +224,8 @@ async def test_chained_operators(ctx, data_a, data_b, data_c, op1, op2, expected
     obj_b = await create_object_from_value(data_b, aai_id=True)
     obj_c = await create_object_from_value(data_c, aai_id=True)
 
-    temp = await apply_operator(obj_a, obj_b, op1)
-    result = await apply_operator(temp, obj_c, op2)
+    temp = apply_operator(obj_a, obj_b, op1)
+    result = apply_operator(temp, obj_c, op2)
     result_data = await result.data()
 
     for i, val in enumerate(result_data):
@@ -252,7 +252,7 @@ async def test_mul_div_scalar(ctx, data_a, data_b, operator, expected_result):
     """Test multiplication, division, floordiv, mod, pow on scalars."""
     obj_a = await create_object_from_value(data_a, aai_id=True)
     obj_b = await create_object_from_value(data_b, aai_id=True)
-    result = await apply_operator(obj_a, obj_b, operator)
+    result = apply_operator(obj_a, obj_b, operator)
     result_data = await result.data()
     assert abs(result_data - expected_result) < THRESHOLD
 
@@ -271,7 +271,7 @@ async def test_mul_div_array(ctx, data_a, data_b, operator, expected_result):
     """Test multiplication, division, floordiv, mod, pow on arrays."""
     obj_a = await create_object_from_value(data_a, aai_id=True)
     obj_b = await create_object_from_value(data_b, aai_id=True)
-    result = await apply_operator(obj_a, obj_b, operator)
+    result = apply_operator(obj_a, obj_b, operator)
     result_data = await result.data()
     for i, val in enumerate(result_data):
         assert abs(val - expected_result[i]) < THRESHOLD

@@ -11,15 +11,15 @@ import pytest
 from aaiclick import create_object_from_value
 
 
-async def apply_bitwise(a, b, operator: str):
-    """Apply a bitwise operator to two Objects."""
+def apply_bitwise(a, b, operator: str):
+    """Apply a bitwise operator to two Objects, returning a LazyOperator."""
     match operator:
         case "&":
-            return await (a & b)
+            return a & b
         case "|":
-            return await (a | b)
+            return a | b
         case "^":
-            return await (a ^ b)
+            return a ^ b
         case _:
             raise ValueError(f"Unsupported operator: {operator}")
 
@@ -44,7 +44,7 @@ async def test_scalar_bitwise(ctx, val_a, val_b, operator, expected):
     """Test bitwise operators on scalar Objects."""
     obj_a = await create_object_from_value(val_a, aai_id=True)
     obj_b = await create_object_from_value(val_b, aai_id=True)
-    result = await apply_bitwise(obj_a, obj_b, operator)
+    result = apply_bitwise(obj_a, obj_b, operator)
     assert await result.data() == expected
 
 
@@ -65,7 +65,7 @@ async def test_array_bitwise(ctx, vals_a, vals_b, operator, expected):
     """Test bitwise operators on array Objects."""
     obj_a = await create_object_from_value(vals_a, aai_id=True)
     obj_b = await create_object_from_value(vals_b, aai_id=True)
-    result = await apply_bitwise(obj_a, obj_b, operator)
+    result = apply_bitwise(obj_a, obj_b, operator)
     assert await result.data() == expected
 
 
