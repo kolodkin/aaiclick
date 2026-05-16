@@ -79,4 +79,3 @@ python -m aaiclick setup
 - [Object API](object.md) — operators, aggregations, views, group by
 - [Orchestration](orchestration.md) — `@task` and `@job` decorators, workers
 - [Examples](examples/basic_operators.md) — runnable scripts for every feature
-- [API Reference](api/data.md) — auto-generated from docstrings
