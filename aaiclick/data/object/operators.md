@@ -13,7 +13,7 @@ All operators follow a consistent two-stage pattern:
 
 Shared schema-computation helpers (`_compute_operator_schema`, `_preview_operator_schema`, `_promote_arithmetic_type`, `_scalar_to_schema`) live in the neutral `schema_compute.py` module so both `_plan_operator` (preview) and `_apply_operator_db` (materialize) hit the same code — no drift between preview and result schemas.
 
-See `docs/lazy_operator.md` for the LazyOperator design, `.as_(name, scope=...)` naming API, and the materialize-on-await contract.
+See `docs/object.md` ("Lazy Operator Results") for the LazyOperator design, `.as_(name, scope=...)` naming API, and the materialize-on-await contract.
 
 ## Operator Reference
 
@@ -65,7 +65,7 @@ result = await (a ** b)  # [100, 160000, 24300000]
 result = await (a * 2)   # [20, 40, 60]
 result = await (10 - a)  # [0, -10, -20] (reverse operator)
 
-# Name the result table — see docs/lazy_operator.md
+# Name the result table — see docs/object.md (Lazy Operator Results)
 revenue = await (prices * quantities).as_("revenue")
 ```
 

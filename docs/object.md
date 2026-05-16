@@ -61,12 +61,63 @@ All operators work element-wise on scalar and array data, creating new Object ta
 !!! tip "Scalar broadcast"
     Python scalars work on either side: `obj * 2` and `2 * obj` both work.
 
-!!! tip "Named results — `.as_(name, scope=...)`"
-    Binary operators return a `LazyOperator` (subclass of `Object`) that materializes on `await`. Use `.as_(name)` to give the result table a meaningful name, or `.as_(name, scope="job"|"global")` to make it persist beyond the current context. Spec: [Lazy Operator](lazy_operator.md).
-    ```python
-    revenue = await (prices * quantities).as_("revenue")              # t_revenue_<id>
-    daily = await (sales + bonuses).as_("daily_total", scope="job")   # j_<job_id>_daily_total
-    ```
+## Lazy Operator Results (`a + b` is a Plan, not a Table)
+
+Every binary operator on an `Object` (`+`, `-`, `*`, `/`, `//`, `%`, `**`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `&`, `|`, `^`) returns a `LazyOperator` — a subclass of `Object` that captures the operation plan (`lhs`, `rhs`, `operator`, precomputed result schema) without touching ClickHouse. The `CREATE TABLE` + `INSERT INTO ... SELECT` happens when the lazy is awaited.
+
+```python
+# 1. Build a plan — pure Python, no DB call
+plan = a + b                                       # LazyOperator (no table yet)
+
+# 2. Read rows — async methods auto-materialize
+rows = await (a + b).data()                        # creates t_<id>, reads rows
+
+# 3. Get the materialized Object (for .table, legacy APIs, etc.)
+obj = await (a + b)                                # table = t_<id>
+
+# 4. Control the table name — use .as_()
+revenue = await (prices * quantities).as_("revenue")            # t_revenue_<id>
+
+# 5. Persist beyond the current context
+daily = await (sales + bonuses).as_("daily", scope="job")       # j_<job_id>_daily
+yearly = await (revenue + bonuses).as_("yearly", scope="global") # p_yearly
+```
+
+`await` is only needed when the caller wants the materialized `Object` back — to read `.table`, hand it to an eager API, etc. Reading rows (`.data()`, `.markdown()`, `.export()`, `.result()`), aggregating (`.sum()`, `.mean()`, etc.), unary transforms (`.abs()`, `.lower()`, etc.), or chaining further operators (`(a + b) + c`) don't require an explicit `await` of the intermediate — the lazy passes through.
+
+### `.as_(name, scope=...)`
+
+Names the result table and chooses its lifetime. Returns a new `LazyOperator` (the receiver is unchanged):
+
+| `scope` | Table name | Lifetime |
+|---|---|---|
+| `"temp_named"` (default) | `t_<name>_<snowflake>` | Drops with the context |
+| `"job"` | `j_<job_id>_<name>` | Lives until the active orch job expires |
+| `"global"` | `p_<name>` | Persists; remove with `delete_persistent_object(name, scope="global")` |
+
+### Invariants
+
+- **No DB writes until awaited.** Creating a `LazyOperator` is pure-Python. A lazy that's never awaited never creates a table.
+- **Sync `.table` raises pre-materialize.** Reading `.table` (or any property derived from it — `.scope`, `.persistent`, `.order_by`) on an unawaited LazyOperator raises `RuntimeError`. `.schema` works (it's precomputed).
+- **Async methods auto-materialize.** `.data()`, `.sum()`, etc. first `await self` (materializes once, cached) then delegate.
+- **`.as_()` is immutable.** Calling it returns a new LazyOperator; the receiver keeps its (None, None) name/scope.
+- **Re-await is idempotent (single-task).** `_materialized` cache ensures sequential awaits of the same lazy produce one table.
+
+### Chained operators
+
+`(a + b) + c` builds a tree:
+
+```
+LazyOperator(op="+", lhs=LazyOperator(op="+", lhs=a, rhs=b), rhs=c)
+```
+
+When awaited, each `LazyOperator` node materializes into its own table — no fusion. `await ((a + b) + c).as_("outer")` writes **two** tables: an unnamed temp for the inner `a + b` and a `t_outer_<id>` for the outer. A LazyOperator that's been materialized once is reused if it appears in multiple expressions.
+
+### Avoid: concurrent await of the same instance
+
+`asyncio.gather(lazy.data(), lazy.data())` races: both tasks see `_materialized is None` and both materialize. The result is two tables (the second wins the cache slot; the first is orphaned and dropped via refcount cleanup). To share a result across tasks, `await` once and share the returned `Object`.
+
+**Implementation:** `LazyOperator` and `_plan_operator` in `aaiclick/data/object/object.py`; shared schema-computation helpers in `aaiclick/data/object/schema_compute.py`; materialization in `aaiclick/data/object/operators.py` (`_apply_operator_db`).
 
 ??? note "Arithmetic Operators"
 

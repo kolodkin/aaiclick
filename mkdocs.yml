@@ -65,7 +65,6 @@ nav:
   - Getting Started: getting_started.md
   - User Guide:
     - Object API: object.md
-    - Lazy Operator: lazy_operator.md
     - DataContext: data_context.md
     - Orchestration: orchestration.md
     - AI Layer: ai.md

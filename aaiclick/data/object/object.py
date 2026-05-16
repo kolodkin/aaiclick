@@ -2945,7 +2945,7 @@ class LazyOperator(Object):
     ClickHouse round-trip happens until the LazyOperator is awaited. The result
     table name and lifetime can be controlled via ``.as_(name, scope=...)``.
 
-    Spec: docs/lazy_operator.md
+    See ``docs/object.md`` — "Lazy Operator Results".
 
     Fields:
         lhs: Left operand — Object, LazyOperator, or Python scalar.

@@ -23,7 +23,7 @@ Add "See Also" footers and cross-page links alongside the tutorial.
 
 ## Elide Materialization for Small / Scalar Results
 
-> **Related shipped work:** Phase 1 of `docs/lazy_operator.md` shipped a `LazyOperator` that defers materialization until `await` and adds `.as_(name, scope=...)` for naming control on the 16 binary operators. The proposal below is a deeper change — *eliding the result table entirely* for small / scalar paths — and remains future work.
+> **Related shipped work:** `docs/object.md` documents the shipped `LazyOperator` that defers materialization until `await` and adds `.as_(name, scope=...)` for naming control on the 16 binary operators. The proposal below is a deeper change — *eliding the result table entirely* for small / scalar paths — and remains future work.
 
 ## Lazy Operator Results (Operators Return Views, Not Tables)
 
@@ -121,7 +121,7 @@ No action today — fresh installs keep working, existing installs degrade grace
 
 ## `.as_()` Naming for Aggregations, Unary, Joins, Concat, Copy, Group-By
 
-Phase 1 of `docs/lazy_operator.md` shipped `.as_(name, scope=...)` for the 16 binary operators (arithmetic, comparison, bitwise). Follow-up phases extend the same `LazyOperator` pattern to the remaining operations that materialize a new table:
+Phase 1 (documented in `docs/object.md`) shipped `.as_(name, scope=...)` for the 16 binary operators (arithmetic, comparison, bitwise). Follow-up phases extend the same `LazyOperator` pattern to the remaining operations that materialize a new table:
 
 - Aggregations (`.sum()`, `.mean()`, `.min()`, `.max()`, `.std()`, `.var()`, `.count()`, `.count_if()`, `.quantile()`, `.unique()`, `.nunique()`)
 - Unary transforms (`.year()`, `.month()`, `.day_of_week()`, `.lower()`, `.upper()`, `.length()`, `.trim()`, `.abs()`, `.log2()`, `.sqrt()`)
