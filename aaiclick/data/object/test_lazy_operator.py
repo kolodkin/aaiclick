@@ -230,16 +230,26 @@ async def test_chain_two_lazies_writes_two_tables(ctx):
 
 
 async def test_lazy_never_awaited_creates_no_table(ctx):
-    """Building a LazyOperator without awaiting writes no rows."""
+    """Building a LazyOperator without awaiting writes nothing to ClickHouse.
+
+    Asserts the LazyOperator's internal contract directly rather than counting
+    ``system.tables`` — under parallel-xdist execution on a shared distributed
+    backend, that count is racy against other workers.
+    """
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
     obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
     preview = _preview_operator_schema(obj_a.schema, obj_b.schema, "+")
 
-    before = await obj_a.ch_client.query("SELECT count() FROM system.tables WHERE name LIKE 't_%'")
-    _ = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+", schema_preview=preview)
-    after = await obj_a.ch_client.query("SELECT count() FROM system.tables WHERE name LIKE 't_%'")
+    lazy = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+", schema_preview=preview)
 
-    assert before.result_rows[0][0] == after.result_rows[0][0]
+    # No materialized table, no lifecycle registration, no incref — all marks of
+    # zero DB activity.
+    assert lazy._materialized is None
+    assert lazy._registered is False
+    assert lazy._owns_lifecycle_ref is False
+    # Reading .table raises (rather than silently returning a name that doesn't exist).
+    with pytest.raises(RuntimeError, match="no table yet"):
+        _ = lazy.table
 
 
 async def test_data_auto_materializes(ctx):
