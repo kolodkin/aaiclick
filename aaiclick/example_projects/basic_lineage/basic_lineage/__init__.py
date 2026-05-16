@@ -9,7 +9,6 @@ tables and trace the computation graph.
 """
 
 import asyncio
-import os
 
 from aaiclick.ai.agents.debug_agent import debug_result
 from aaiclick.ai.agents.lineage_agent import explain_lineage
@@ -96,28 +95,19 @@ async def main():
                 oplog_subgraph(target_table, direction="backward"),
                 oplog_subgraph(source_table, direction="forward"),
             )
-            api_key = os.environ.get("AAICLICK_AI_API_KEY")
-            model = os.environ.get("AAICLICK_AI_MODEL", "ollama/llama3.1:8b")
-            ai_available = bool(api_key) or model.startswith("ollama/")
-            if ai_available:
-                explanation = await explain_lineage(
-                    target_table,
-                    question="How was this table produced? What arithmetic was applied?",
-                    graph=backward_graph,
-                )
-                debug_answer = await debug_result(
-                    target_table,
-                    question=(
-                        "Which output row has the highest value, and which input "
-                        "rows drove it? Use the tools to inspect the tables."
-                    ),
-                    graph=backward_graph,
-                )
-            else:
-                print("- Skipped: AAICLICK_AI_API_KEY not set")
-                print(f"- Set AAICLICK_AI_API_KEY to enable AI explanation with {model}")
-                explanation = f"Skipped: AAICLICK_AI_API_KEY not set (model: {model})"
-                debug_answer = f"Skipped: AAICLICK_AI_API_KEY not set (model: {model})"
+            explanation = await explain_lineage(
+                target_table,
+                question="How was this table produced? What arithmetic was applied?",
+                graph=backward_graph,
+            )
+            debug_answer = await debug_result(
+                target_table,
+                question=(
+                    "Which output row has the highest value, and which input "
+                    "rows drove it? Use the tools to inspect the tables."
+                ),
+                graph=backward_graph,
+            )
 
         print_report(
             tasks=tasks,
