@@ -287,3 +287,80 @@ async def test_result_auto_materializes(ctx):
     result = await lazy.result()
     assert result is not None
     assert lazy._materialized is not None
+
+
+# -----------------------------------------------------------------------------
+# Public-syntax tests (dunders → LazyOperator)
+# -----------------------------------------------------------------------------
+
+
+async def test_add_returns_lazy_operator(ctx):
+    obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
+    obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
+    lazy = obj_a + obj_b
+    assert isinstance(lazy, LazyOperator)
+    assert await lazy.data() == [5, 7, 9]
+
+
+async def test_public_as_named_temp(ctx):
+    obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
+    obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
+    result = await (obj_a + obj_b).as_("daily_total")
+    assert result.table.startswith("t_daily_total_")
+    assert await result.data() == [5, 7, 9]
+
+
+async def test_public_as_scope_global(ctx):
+    from aaiclick import delete_persistent_object
+
+    # Pre-clean: a previous failed run could have left p_yearly_avg behind.
+    await delete_persistent_object("yearly_avg", scope="global")
+    try:
+        obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
+        obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
+        result = await (obj_a + obj_b).as_("yearly_avg", scope="global")
+        assert result.table == "p_yearly_avg"
+        assert result.persistent is True
+        assert await result.data() == [5, 7, 9]
+    finally:
+        await delete_persistent_object("yearly_avg", scope="global")
+
+
+async def test_reverse_op_with_naming(ctx):
+    """`(2 + a).as_('foo')` goes through __radd__; result is named."""
+    obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
+    result = await (2 + obj_a).as_("rfoo")
+    assert result.table.startswith("t_rfoo_")
+    assert await result.data() == [3, 4, 5]
+
+
+async def test_chain_via_public_operator(ctx):
+    """(a + b) + c via public syntax → 2 tables, outer named."""
+    obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
+    obj_b = await create_object_from_value([10, 20, 30], aai_id=True)
+    obj_c = await create_object_from_value([100, 200, 300], aai_id=True)
+
+    chain = (obj_a + obj_b) + obj_c
+    assert isinstance(chain, LazyOperator)
+    assert isinstance(chain.lhs, LazyOperator)
+    assert chain.rhs is obj_c
+
+    result = await chain.as_("total")
+    assert result.table.startswith("t_total_")
+    assert await result.data() == [111, 222, 333]
+
+
+async def test_comparison_returns_lazy(ctx):
+    obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
+    obj_b = await create_object_from_value([2, 2, 2], aai_id=True)
+    lazy = obj_a < obj_b
+    assert isinstance(lazy, LazyOperator)
+    assert await lazy.data() == [True, False, False]
+
+
+async def test_bitwise_returns_lazy(ctx):
+    obj_a = await create_object_from_value([5, 6, 7], aai_id=True)
+    obj_b = await create_object_from_value([3, 3, 3], aai_id=True)
+    lazy = obj_a & obj_b
+    assert isinstance(lazy, LazyOperator)
+    assert await lazy.data() == [1, 2, 3]

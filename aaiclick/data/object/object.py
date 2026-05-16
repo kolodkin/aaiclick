@@ -664,152 +664,120 @@ class Object:
             return await create_object_from_value(value)
         return value
 
-    async def _apply_operator(self, other: Object | ValueScalarType, operator: str) -> Object:
-        """
-        Apply an operator on two objects using SQL templates.
-
-        Supports scalar broadcast: if other is a Python scalar (int, float, bool, str),
-        it is converted to a scalar Object via create_object_from_value.
-
-        Args:
-            other: Another Object or Python scalar to operate with
-            operator: Operator symbol (e.g., '+', '-', '**', '==', '&')
-
-        Returns:
-            Object: New Object instance pointing to result table
+    def _plan_operator(self, other: Object | ValueScalarType, operator: str) -> "LazyOperator":
+        """Synchronously plan ``self op other`` — returns a LazyOperator that
+        materializes on await. Schema is precomputed; no DB call.
         """
         self.checkstale()
-        other = await self._ensure_object(other)
-        other.checkstale()
-        _require_explicit_order_for_cross_table(self, other)
-        info_a = self._get_query_info()
-        info_b = other._get_query_info()
-        return await operators._apply_operator_db(info_a, info_b, operator, self.ch_client)
+        # Circular dep: operators ↔ object; restructuring would require extracting
+        # Object's base interface to a neutral module.
+        from .operators import _peek_schema, _preview_operator_schema
+        schema_preview = _preview_operator_schema(
+            self._schema, _peek_schema(other), operator,
+        )
+        return LazyOperator(
+            lhs=self, rhs=other, operator=operator,
+            schema_preview=schema_preview,
+        )
 
-    async def _apply_operator_reverse(self, other: Object | ValueScalarType, operator: str) -> Object:
-        """
-        Apply an operator with reversed operands (other op self).
-
-        Used for __radd__, __rsub__, etc. when the left operand is a scalar.
-
-        Args:
-            other: A Python scalar or Object (left operand)
-            operator: Operator symbol
-
-        Returns:
-            Object: New Object instance pointing to result table
-        """
+    def _plan_operator_reverse(self, other: Object | ValueScalarType, operator: str) -> "LazyOperator":
+        """Synchronously plan ``other op self`` — used by __radd__ etc."""
         self.checkstale()
-        other = await self._ensure_object(other)
-        other.checkstale()
-        _require_explicit_order_for_cross_table(other, self)
-        info_a = other._get_query_info()
-        info_b = self._get_query_info()
-        return await operators._apply_operator_db(info_a, info_b, operator, self.ch_client)
+        # Circular dep: operators ↔ object; restructuring would require extracting
+        # Object's base interface to a neutral module.
+        from .operators import _peek_schema, _preview_operator_schema
+        other_schema = _peek_schema(other)
+        schema_preview = _preview_operator_schema(
+            other_schema, self._schema, operator,
+        )
+        return LazyOperator(
+            lhs=other, rhs=self, operator=operator,
+            schema_preview=schema_preview,
+        )
 
-    async def __add__(self, other: Object | ValueScalarType) -> Object:
-        """Add: self + other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "+")
+    # __eq__ override on a class zeroes the default __hash__. Restore it
+    # explicitly so Objects remain hashable (set/dict keys, etc.).
+    __hash__ = object.__hash__
 
-    async def __radd__(self, other: Object | ValueScalarType) -> Object:
-        """Reverse add: other + self. Supports scalar broadcast."""
-        return await self._apply_operator_reverse(other, "+")
+    def __add__(self, other: Object | ValueScalarType) -> "LazyOperator":
+        """Add: self + other. Returns a LazyOperator that materializes on ``await``.
+        Supports scalar broadcast."""
+        return self._plan_operator(other, "+")
 
-    async def __sub__(self, other: Object | ValueScalarType) -> Object:
-        """Subtract: self - other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "-")
+    def __radd__(self, other: Object | ValueScalarType) -> "LazyOperator":
+        return self._plan_operator_reverse(other, "+")
 
-    async def __rsub__(self, other: Object | ValueScalarType) -> Object:
-        """Reverse subtract: other - self. Supports scalar broadcast."""
-        return await self._apply_operator_reverse(other, "-")
+    def __sub__(self, other: Object | ValueScalarType) -> "LazyOperator":
+        return self._plan_operator(other, "-")
 
-    async def __mul__(self, other: Object | ValueScalarType) -> Object:
-        """Multiply: self * other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "*")
+    def __rsub__(self, other: Object | ValueScalarType) -> "LazyOperator":
+        return self._plan_operator_reverse(other, "-")
 
-    async def __rmul__(self, other: Object | ValueScalarType) -> Object:
-        """Reverse multiply: other * self. Supports scalar broadcast."""
-        return await self._apply_operator_reverse(other, "*")
+    def __mul__(self, other: Object | ValueScalarType) -> "LazyOperator":
+        return self._plan_operator(other, "*")
 
-    async def __truediv__(self, other: Object | ValueScalarType) -> Object:
-        """Divide: self / other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "/")
+    def __rmul__(self, other: Object | ValueScalarType) -> "LazyOperator":
+        return self._plan_operator_reverse(other, "*")
 
-    async def __rtruediv__(self, other: Object | ValueScalarType) -> Object:
-        """Reverse divide: other / self. Supports scalar broadcast."""
-        return await self._apply_operator_reverse(other, "/")
+    def __truediv__(self, other: Object | ValueScalarType) -> "LazyOperator":
+        return self._plan_operator(other, "/")
 
-    async def __floordiv__(self, other: Object | ValueScalarType) -> Object:
-        """Floor divide: self // other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "//")
+    def __rtruediv__(self, other: Object | ValueScalarType) -> "LazyOperator":
+        return self._plan_operator_reverse(other, "/")
 
-    async def __rfloordiv__(self, other: Object | ValueScalarType) -> Object:
-        """Reverse floor divide: other // self. Supports scalar broadcast."""
-        return await self._apply_operator_reverse(other, "//")
+    def __floordiv__(self, other: Object | ValueScalarType) -> "LazyOperator":
+        return self._plan_operator(other, "//")
 
-    async def __mod__(self, other: Object | ValueScalarType) -> Object:
-        """Modulo: self % other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "%")
+    def __rfloordiv__(self, other: Object | ValueScalarType) -> "LazyOperator":
+        return self._plan_operator_reverse(other, "//")
 
-    async def __rmod__(self, other: Object | ValueScalarType) -> Object:
-        """Reverse modulo: other % self. Supports scalar broadcast."""
-        return await self._apply_operator_reverse(other, "%")
+    def __mod__(self, other: Object | ValueScalarType) -> "LazyOperator":
+        return self._plan_operator(other, "%")
 
-    async def __pow__(self, other: Object | ValueScalarType) -> Object:
-        """Power: self ** other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "**")
+    def __rmod__(self, other: Object | ValueScalarType) -> "LazyOperator":
+        return self._plan_operator_reverse(other, "%")
 
-    async def __rpow__(self, other: Object | ValueScalarType) -> Object:
-        """Reverse power: other ** self. Supports scalar broadcast."""
-        return await self._apply_operator_reverse(other, "**")
+    def __pow__(self, other: Object | ValueScalarType) -> "LazyOperator":
+        return self._plan_operator(other, "**")
 
-    async def __eq__(self, other: Object | ValueScalarType) -> Object:
-        """Equality: self == other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "==")
+    def __rpow__(self, other: Object | ValueScalarType) -> "LazyOperator":
+        return self._plan_operator_reverse(other, "**")
 
-    async def __ne__(self, other: Object | ValueScalarType) -> Object:
-        """Inequality: self != other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "!=")
+    def __eq__(self, other: Object | ValueScalarType) -> "LazyOperator":
+        return self._plan_operator(other, "==")
 
-    async def __lt__(self, other: Object | ValueScalarType) -> Object:
-        """Less than: self < other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "<")
+    def __ne__(self, other: Object | ValueScalarType) -> "LazyOperator":
+        return self._plan_operator(other, "!=")
 
-    async def __le__(self, other: Object | ValueScalarType) -> Object:
-        """Less or equal: self <= other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "<=")
+    def __lt__(self, other: Object | ValueScalarType) -> "LazyOperator":
+        return self._plan_operator(other, "<")
 
-    async def __gt__(self, other: Object | ValueScalarType) -> Object:
-        """Greater than: self > other. Supports scalar broadcast."""
-        return await self._apply_operator(other, ">")
+    def __le__(self, other: Object | ValueScalarType) -> "LazyOperator":
+        return self._plan_operator(other, "<=")
 
-    async def __ge__(self, other: Object | ValueScalarType) -> Object:
-        """Greater or equal: self >= other. Supports scalar broadcast."""
-        return await self._apply_operator(other, ">=")
+    def __gt__(self, other: Object | ValueScalarType) -> "LazyOperator":
+        return self._plan_operator(other, ">")
 
-    async def __and__(self, other: Object | ValueScalarType) -> Object:
-        """Bitwise AND: self & other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "&")
+    def __ge__(self, other: Object | ValueScalarType) -> "LazyOperator":
+        return self._plan_operator(other, ">=")
 
-    async def __rand__(self, other: Object | ValueScalarType) -> Object:
-        """Reverse bitwise AND: other & self. Supports scalar broadcast."""
-        return await self._apply_operator_reverse(other, "&")
+    def __and__(self, other: Object | ValueScalarType) -> "LazyOperator":
+        return self._plan_operator(other, "&")
 
-    async def __or__(self, other: Object | ValueScalarType) -> Object:
-        """Bitwise OR: self | other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "|")
+    def __rand__(self, other: Object | ValueScalarType) -> "LazyOperator":
+        return self._plan_operator_reverse(other, "&")
 
-    async def __ror__(self, other: Object | ValueScalarType) -> Object:
-        """Reverse bitwise OR: other | self. Supports scalar broadcast."""
-        return await self._apply_operator_reverse(other, "|")
+    def __or__(self, other: Object | ValueScalarType) -> "LazyOperator":
+        return self._plan_operator(other, "|")
 
-    async def __xor__(self, other: Object | ValueScalarType) -> Object:
-        """Bitwise XOR: self ^ other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "^")
+    def __ror__(self, other: Object | ValueScalarType) -> "LazyOperator":
+        return self._plan_operator_reverse(other, "|")
 
-    async def __rxor__(self, other: Object | ValueScalarType) -> Object:
-        """Reverse bitwise XOR: other ^ self. Supports scalar broadcast."""
-        return await self._apply_operator_reverse(other, "^")
+    def __xor__(self, other: Object | ValueScalarType) -> "LazyOperator":
+        return self._plan_operator(other, "^")
+
+    def __rxor__(self, other: Object | ValueScalarType) -> "LazyOperator":
+        return self._plan_operator_reverse(other, "^")
 
     async def copy(self) -> Object:
         """
