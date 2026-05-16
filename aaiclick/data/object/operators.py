@@ -4,6 +4,32 @@ aaiclick.data.operators - Operator implementations for Object class.
 This module contains database-level functions that implement all operators.
 Each operator function takes table names and ch_client instead of Object instances.
 
+Design — two-stage planner / materializer
+=========================================
+
+Every binary operator follows the same two-stage pattern:
+
+- **Plan (sync, in ``object.py``):** Each binary dunder (``__add__``,
+  ``__sub__``, etc.) calls ``Object._plan_operator(other, op_symbol)`` and
+  returns a ``LazyOperator``. No DB call. Reverse operators (``__radd__``,
+  ``__rsub__``, etc.) use ``_plan_operator_reverse`` which swaps operand
+  order for ``scalar op object`` syntax.
+- **Materialize (async, here):** Awaiting the ``LazyOperator`` triggers
+  ``_apply_operator_db()``, which builds ``QueryInfo`` for both operands
+  and emits the ``CREATE TABLE`` + ``INSERT INTO ... SELECT``. Python
+  scalars are inlined as ``(SELECT literal AS value)`` — no extra
+  ClickHouse table.
+
+Shared schema-computation helpers (``_compute_operator_schema``,
+``_preview_operator_schema``, ``_promote_arithmetic_type``,
+``_scalar_to_schema``) live in the neutral ``schema_compute.py`` module so
+both ``_plan_operator`` (preview) and ``_apply_operator_db`` (materialize)
+hit the same code — no drift between preview and result schemas.
+
+See ``docs/object.md`` ("Lazy Operator Results") for the user-facing
+LazyOperator design, ``.as_(name, scope=...)`` naming API, and the
+materialize-on-await contract.
+
 ClickHouse Reference Documentation
 ==================================
 
