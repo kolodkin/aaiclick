@@ -2904,8 +2904,8 @@ class LazyOperator(Object):
 
     def __init__(
         self,
-        lhs,
-        rhs,
+        lhs: Object | ValueScalarType,
+        rhs: Object | ValueScalarType | None,
         operator: str,
         schema_preview: Schema,
     ):
