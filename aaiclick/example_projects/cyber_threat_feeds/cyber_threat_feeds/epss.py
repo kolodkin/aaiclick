@@ -59,14 +59,14 @@ async def analyze_epss(epss: Object) -> dict:
     """Analyze EPSS score distribution across all scored CVEs."""
     epss_col = epss["epss"]
 
-    total_count = await epss_col.count().data()
-    avg_epss = await epss_col.mean().data()
-    median_epss = await epss_col.quantile(0.5).data()
-    p90_epss = await epss_col.quantile(0.9).data()
-    p99_epss = await epss_col.quantile(0.99).data()
+    total_count = await (await epss_col.count()).data()
+    avg_epss = await (await epss_col.mean()).data()
+    median_epss = await (await epss_col.quantile(0.5)).data()
+    p90_epss = await (await epss_col.quantile(0.9)).data()
+    p99_epss = await (await epss_col.quantile(0.99)).data()
 
     high_prob = epss_col > 0.5
-    high_prob_count = await high_prob.sum().data()
+    high_prob_count = await (await high_prob.sum()).data()
 
     return {
         "total_scored_cves": total_count,
