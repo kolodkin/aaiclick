@@ -114,7 +114,7 @@ async def main():
                     graph=backward_graph,
                 )
             else:
-                print(f"- Skipped: AAICLICK_AI_API_KEY not set")
+                print("- Skipped: AAICLICK_AI_API_KEY not set")
                 print(f"- Set AAICLICK_AI_API_KEY to enable AI explanation with {model}")
                 explanation = f"Skipped: AAICLICK_AI_API_KEY not set (model: {model})"
                 debug_answer = f"Skipped: AAICLICK_AI_API_KEY not set (model: {model})"
