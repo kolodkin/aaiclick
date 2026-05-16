@@ -259,3 +259,31 @@ async def test_lazy_never_awaited_creates_no_table(ctx):
     )
 
     assert before.result_rows[0][0] == after.result_rows[0][0]
+
+
+async def test_data_auto_materializes(ctx):
+    """Calling .data() on an unawaited lazy materializes and returns rows."""
+    obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
+    obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
+    preview = _preview_operator_schema(obj_a.schema, obj_b.schema, "+")
+    lazy = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+", schema_preview=preview)
+
+    rows = await lazy.data()
+    assert rows == [5, 7, 9]
+    assert lazy._materialized is not None
+    # Second call reuses the materialized Object.
+    cached_table = lazy._materialized.table
+    rows_again = await lazy.data()
+    assert rows_again == [5, 7, 9]
+    assert lazy._materialized.table == cached_table
+
+
+async def test_result_auto_materializes(ctx):
+    obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
+    obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
+    preview = _preview_operator_schema(obj_a.schema, obj_b.schema, "+")
+    lazy = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+", schema_preview=preview)
+
+    result = await lazy.result()
+    assert result is not None
+    assert lazy._materialized is not None

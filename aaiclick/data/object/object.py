@@ -3025,6 +3025,26 @@ class LazyOperator(Object):
     def __await__(self):
         return self._materialize().__await__()
 
+    # Async-method overrides: each first materializes (cached), then delegates.
+    # Sync properties (.table, .scope) still raise pre-materialize — only async
+    # methods auto-materialize, because only they can `await`.
+
+    async def data(self, *args, **kwargs):
+        obj = await self._materialize()
+        return await obj.data(*args, **kwargs)
+
+    async def result(self, *args, **kwargs):
+        obj = await self._materialize()
+        return await obj.result(*args, **kwargs)
+
+    async def markdown(self, *args, **kwargs):
+        obj = await self._materialize()
+        return await obj.markdown(*args, **kwargs)
+
+    async def export(self, *args, **kwargs):
+        obj = await self._materialize()
+        return await obj.export(*args, **kwargs)
+
     def __repr__(self) -> str:
         if self._materialized is not None:
             return f"LazyOperator(materialized={self._materialized.table!r})"
