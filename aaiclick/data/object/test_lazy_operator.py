@@ -14,9 +14,9 @@ from aaiclick.data.models import (
     Schema,
 )
 from aaiclick.data.object import LazyOperator, operators
-from aaiclick.data.object.operators import (
-    _peek_schema,
+from aaiclick.data.object.schema_compute import (
     _preview_operator_schema,
+    _scalar_to_schema,
 )
 
 
@@ -100,22 +100,16 @@ async def test_preview_matches_materialized_schema_array_scalar(ctx, operator):
         assert preview.columns[col_name].type == materialized.schema.columns[col_name].type
 
 
-def test_peek_schema_python_int():
-    schema = _peek_schema(7)
+def test_scalar_to_schema_python_int():
+    schema = _scalar_to_schema(7)
     assert schema.fieldtype == FIELDTYPE_SCALAR
     assert schema.columns["value"].type == "Int64"
 
 
-def test_peek_schema_python_float():
-    schema = _peek_schema(3.14)
+def test_scalar_to_schema_python_float():
+    schema = _scalar_to_schema(3.14)
     assert schema.fieldtype == FIELDTYPE_SCALAR
     assert schema.columns["value"].type == "Float64"
-
-
-async def test_peek_schema_existing_object_returns_its_schema(ctx):
-    """For an Object, _peek_schema just returns .schema unchanged."""
-    obj = await create_object_from_value([1, 2, 3], aai_id=True)
-    assert _peek_schema(obj) is obj.schema
 
 
 # -----------------------------------------------------------------------------

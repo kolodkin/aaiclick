@@ -7,6 +7,7 @@ and supports operations through operator overloading.
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import sys
 from dataclasses import dataclass
@@ -55,12 +56,13 @@ from ..models import (
     build_order_by_clause,
     parse_ch_type,
 )
-from ..scope import ObjectScope, is_persistent_table, scope_of
+from ..scope import NamedScope, ObjectScope, is_persistent_table, scope_of
 from ..sql_utils import escape_sql_string, quote_identifier
 from . import data_extraction, ingest, operators
 from . import join as join_module
 from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
 from .refs import ObjectRef, ViewRef
+from .schema_compute import _preview_operator_schema, _scalar_to_schema
 
 # Sentinel for "caller did not pass this kwarg" — distinguishes from None
 # which means "explicitly no value" (e.g. limit=None to disable the safety cap).
@@ -664,119 +666,108 @@ class Object:
             return await create_object_from_value(value)
         return value
 
-    def _plan_operator(self, other: Object | ValueScalarType, operator: str) -> "LazyOperator":
+    def _plan_operator(self, other: Object | ValueScalarType, operator: str) -> LazyOperator:
         """Synchronously plan ``self op other`` — returns a LazyOperator that
         materializes on await. Schema is precomputed; no DB call.
         """
         self.checkstale()
-        # Circular dep: operators ↔ object; restructuring would require extracting
-        # Object's base interface to a neutral module.
-        from .operators import _peek_schema, _preview_operator_schema
-        schema_preview = _preview_operator_schema(
-            self._schema, _peek_schema(other), operator,
-        )
+        other_schema = other.schema if isinstance(other, Object) else _scalar_to_schema(other)
         return LazyOperator(
             lhs=self, rhs=other, operator=operator,
-            schema_preview=schema_preview,
+            schema_preview=_preview_operator_schema(self._schema, other_schema, operator),
         )
 
-    def _plan_operator_reverse(self, other: Object | ValueScalarType, operator: str) -> "LazyOperator":
+    def _plan_operator_reverse(self, other: Object | ValueScalarType, operator: str) -> LazyOperator:
         """Synchronously plan ``other op self`` — used by __radd__ etc."""
         self.checkstale()
-        # Circular dep: operators ↔ object; restructuring would require extracting
-        # Object's base interface to a neutral module.
-        from .operators import _peek_schema, _preview_operator_schema
-        other_schema = _peek_schema(other)
-        schema_preview = _preview_operator_schema(
-            other_schema, self._schema, operator,
-        )
+        other_schema = other.schema if isinstance(other, Object) else _scalar_to_schema(other)
         return LazyOperator(
             lhs=other, rhs=self, operator=operator,
-            schema_preview=schema_preview,
+            schema_preview=_preview_operator_schema(other_schema, self._schema, operator),
         )
 
     # __eq__ override on a class zeroes the default __hash__. Restore it
     # explicitly so Objects remain hashable (set/dict keys, etc.).
     __hash__ = object.__hash__
 
-    def __add__(self, other: Object | ValueScalarType) -> "LazyOperator":
+    def __add__(self, other: Object | ValueScalarType) -> LazyOperator:
         """Add: self + other. Returns a LazyOperator that materializes on ``await``.
         Supports scalar broadcast."""
         return self._plan_operator(other, "+")
 
-    def __radd__(self, other: Object | ValueScalarType) -> "LazyOperator":
+    def __radd__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator_reverse(other, "+")
 
-    def __sub__(self, other: Object | ValueScalarType) -> "LazyOperator":
+    def __sub__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator(other, "-")
 
-    def __rsub__(self, other: Object | ValueScalarType) -> "LazyOperator":
+    def __rsub__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator_reverse(other, "-")
 
-    def __mul__(self, other: Object | ValueScalarType) -> "LazyOperator":
+    def __mul__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator(other, "*")
 
-    def __rmul__(self, other: Object | ValueScalarType) -> "LazyOperator":
+    def __rmul__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator_reverse(other, "*")
 
-    def __truediv__(self, other: Object | ValueScalarType) -> "LazyOperator":
+    def __truediv__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator(other, "/")
 
-    def __rtruediv__(self, other: Object | ValueScalarType) -> "LazyOperator":
+    def __rtruediv__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator_reverse(other, "/")
 
-    def __floordiv__(self, other: Object | ValueScalarType) -> "LazyOperator":
+    def __floordiv__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator(other, "//")
 
-    def __rfloordiv__(self, other: Object | ValueScalarType) -> "LazyOperator":
+    def __rfloordiv__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator_reverse(other, "//")
 
-    def __mod__(self, other: Object | ValueScalarType) -> "LazyOperator":
+    def __mod__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator(other, "%")
 
-    def __rmod__(self, other: Object | ValueScalarType) -> "LazyOperator":
+    def __rmod__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator_reverse(other, "%")
 
-    def __pow__(self, other: Object | ValueScalarType) -> "LazyOperator":
+    def __pow__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator(other, "**")
 
-    def __rpow__(self, other: Object | ValueScalarType) -> "LazyOperator":
+    def __rpow__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator_reverse(other, "**")
 
-    def __eq__(self, other: Object | ValueScalarType) -> "LazyOperator":
+    def __eq__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator(other, "==")
 
-    def __ne__(self, other: Object | ValueScalarType) -> "LazyOperator":
+    def __ne__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator(other, "!=")
 
-    def __lt__(self, other: Object | ValueScalarType) -> "LazyOperator":
+    def __lt__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator(other, "<")
 
-    def __le__(self, other: Object | ValueScalarType) -> "LazyOperator":
+    def __le__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator(other, "<=")
 
-    def __gt__(self, other: Object | ValueScalarType) -> "LazyOperator":
+    def __gt__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator(other, ">")
 
-    def __ge__(self, other: Object | ValueScalarType) -> "LazyOperator":
+    def __ge__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator(other, ">=")
 
-    def __and__(self, other: Object | ValueScalarType) -> "LazyOperator":
+    def __and__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator(other, "&")
 
-    def __rand__(self, other: Object | ValueScalarType) -> "LazyOperator":
+    def __rand__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator_reverse(other, "&")
 
-    def __or__(self, other: Object | ValueScalarType) -> "LazyOperator":
+    def __or__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator(other, "|")
 
-    def __ror__(self, other: Object | ValueScalarType) -> "LazyOperator":
+    def __ror__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator_reverse(other, "|")
 
-    def __xor__(self, other: Object | ValueScalarType) -> "LazyOperator":
+    def __xor__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator(other, "^")
 
-    def __rxor__(self, other: Object | ValueScalarType) -> "LazyOperator":
+    def __rxor__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator_reverse(other, "^")
 
     async def copy(self) -> Object:
@@ -2878,7 +2869,7 @@ class View(Object):
         return f"View(table='{self.table}', {constraint_str})"
 
 
-async def _resolve_operand(value):
+async def _resolve_operand(value: LazyOperator | Object | ValueScalarType | None) -> Object:
     """Resolve an operand to a materialized Object.
 
     - LazyOperator → materialize and unwrap.
@@ -2926,13 +2917,13 @@ class LazyOperator(Object):
         self.operator = operator
         self._schema = schema_preview
         self._name: str | None = None
-        self._scope = None  # NamedScope when set via .as_()
+        self._scope: NamedScope | None = None
         self._materialized: Object | None = None
         self._stale = False
         self._registered = False
         self._owns_lifecycle_ref = False
 
-    def as_(self, name: str, scope: str = "temp_named") -> "LazyOperator":
+    def as_(self, name: str, scope: NamedScope = "temp_named") -> LazyOperator:
         """Return a new LazyOperator that materializes with the given name and scope.
 
         Args:
@@ -2973,8 +2964,12 @@ class LazyOperator(Object):
         if self._materialized is not None:
             return self._materialized
 
-        lhs_obj = await _resolve_operand(self.lhs)
-        rhs_obj = await _resolve_operand(self.rhs)
+        # Resolve both operands concurrently — when both are LazyOperators with
+        # independent upstream chains, they can materialize in parallel.
+        lhs_obj, rhs_obj = await asyncio.gather(
+            _resolve_operand(self.lhs),
+            _resolve_operand(self.rhs),
+        )
         lhs_obj.checkstale()
         rhs_obj.checkstale()
         _require_explicit_order_for_cross_table(lhs_obj, rhs_obj)
