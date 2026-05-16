@@ -2910,6 +2910,23 @@ class View(Object):
         return f"View(table='{self.table}', {constraint_str})"
 
 
+async def _resolve_operand(value):
+    """Resolve an operand to a materialized Object.
+
+    - LazyOperator → materialize and unwrap.
+    - Object → return as-is.
+    - Python scalar → ``Object._ensure_object``.
+    - None → raise (reserved for future unary ops; phase 1 always has both).
+    """
+    if value is None:
+        raise RuntimeError("LazyOperator phase 1 requires both lhs and rhs to be non-None")
+    if isinstance(value, LazyOperator):
+        return await value._materialize()
+    if isinstance(value, Object):
+        return value
+    return await Object._ensure_object(value)
+
+
 class LazyOperator(Object):
     """A planned binary operator that materializes into an Object on ``await``.
 
@@ -2982,6 +2999,31 @@ class LazyOperator(Object):
                 "requires an explicit await."
             )
         return self._materialized.table
+
+    async def _materialize(self) -> Object:
+        """Walk lhs/rhs and produce the materialized Object. Cached on _materialized."""
+        if self._materialized is not None:
+            return self._materialized
+
+        lhs_obj = await _resolve_operand(self.lhs)
+        rhs_obj = await _resolve_operand(self.rhs)
+        lhs_obj.checkstale()
+        rhs_obj.checkstale()
+        _require_explicit_order_for_cross_table(lhs_obj, rhs_obj)
+
+        info_a = lhs_obj._get_query_info()
+        info_b = rhs_obj._get_query_info()
+        result = await operators._apply_operator_db(
+            info_a, info_b, self.operator,
+            get_ch_client(),
+            name=self._name,
+            scope=self._scope,
+        )
+        self._materialized = result
+        return result
+
+    def __await__(self):
+        return self._materialize().__await__()
 
     def __repr__(self) -> str:
         if self._materialized is not None:
