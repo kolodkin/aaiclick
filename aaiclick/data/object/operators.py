@@ -79,6 +79,7 @@ from ..models import (
     Schema,
     parse_ch_type,
 )
+from ..scope import NamedScope
 from ..sql_utils import escape_sql_string, quote_identifier
 
 # Operator to arrayMap lambda expression mapping (uses x, y variables)
@@ -258,7 +259,15 @@ def _aai_id_proj(propagate: bool, alias: str = "a") -> _AaiIdProj:
     )
 
 
-async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_client):
+async def _apply_operator_db(
+    info_a: QueryInfo,
+    info_b: QueryInfo,
+    operator: str,
+    ch_client,
+    *,
+    name: str | None = None,
+    scope: NamedScope | None = None,
+):
     """
     Apply an operator on two tables at the database level.
 
@@ -267,6 +276,9 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
         info_b: QueryInfo for second operand (contains source, fieldtype, value_type)
         operator: Operator symbol (e.g., '+', '-', '**', '==', '&')
         ch_client: ClickHouse client instance
+        name: Optional result table name (forwarded to ``create_object``).
+        scope: Optional result table scope (forwarded to ``create_object``).
+              Defaults to ``"temp_named"`` when ``name`` is set.
 
     Returns:
         New Object instance pointing to result table
@@ -304,7 +316,7 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
         # via INSERT, not generated per-row by ClickHouse.
         result_columns[AAI_ID_COLUMN] = aai_id_source.model_copy(update={"default": None})
     schema = Schema(fieldtype=fieldtype, columns=result_columns)
-    result = await create_object(schema)
+    result = await create_object(schema, name=name, scope=scope)
 
     # Insert data based on fieldtype combinations
     if a_is_array and b_is_array:
