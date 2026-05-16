@@ -61,6 +61,13 @@ All operators work element-wise on scalar and array data, creating new Object ta
 !!! tip "Scalar broadcast"
     Python scalars work on either side: `obj * 2` and `2 * obj` both work.
 
+!!! tip "Named results — `.as_(name, scope=...)`"
+    Binary operators return a `LazyOperator` (subclass of `Object`) that materializes on `await`. Use `.as_(name)` to give the result table a meaningful name, or `.as_(name, scope="job"|"global")` to make it persist beyond the current context. Spec: [Lazy Operator](lazy_operator.md).
+    ```python
+    revenue = await (prices * quantities).as_("revenue")              # t_revenue_<id>
+    daily = await (sales + bonuses).as_("daily_total", scope="job")   # j_<job_id>_daily_total
+    ```
+
 ??? note "Arithmetic Operators"
 
     | Python Operator | Description    | ClickHouse Equivalent | Forward Method  | Reverse Method    |
@@ -75,7 +82,7 @@ All operators work element-wise on scalar and array data, creating new Object ta
 
 ## Arithmetic Type Promotion
 
-Arithmetic result types match ClickHouse's native promotion rules. See `_promote_arithmetic_type()` in `aaiclick/data/object/operators.py`, validated by `aaiclick/data/object/test_type_promotion.py` against `SELECT toTypeName()`.
+Arithmetic result types match ClickHouse's native promotion rules. See `_promote_arithmetic_type()` in `aaiclick/data/object/schema_compute.py`, validated by `aaiclick/data/object/test_type_promotion.py` against `SELECT toTypeName()`.
 
 ??? note "Comparison Operators"
 

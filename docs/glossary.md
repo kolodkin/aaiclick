@@ -37,6 +37,12 @@ Metadata tag (`'s'`, `'a'`, `'d'`) stored as a YAML comment on each column. Indi
 
 Returned by `obj.group_by("key")`. Supports aggregation (`.sum()`, `.mean()`, etc.) and `.having()` filters. Returns a dict Object.
 
+# L
+
+## `LazyOperator`
+
+Subclass of `Object` returned by every binary dunder on an `Object` (`a + b`, `a == b`, `a & b`, etc.). Captures the operation plan (`lhs`, `rhs`, `operator`, precomputed result schema) and defers the ClickHouse `CREATE TABLE` + `INSERT INTO ... SELECT` until the LazyOperator is awaited. `.as_(name, scope=...)` controls the result table name and lifetime. Spec: [Lazy Operator](lazy_operator.md).
+
 # M
 
 ## MergeTree

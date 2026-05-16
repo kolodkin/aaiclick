@@ -6,11 +6,14 @@ The `operators` module contains the database-level implementation for all binary
 
 ## Design
 
-All operators follow a consistent pattern:
-- Object class methods (`__add__`, `__sub__`, etc.) call `_apply_operator(other, op_symbol)`
-- `_apply_operator` builds `QueryInfo` for both operands and delegates to `_apply_operator_db()`
-- Reverse operators (`__radd__`, `__rsub__`, etc.) swap operand order for `scalar op object` syntax
-- Python scalars are inlined as `(SELECT literal AS value)` — no ClickHouse table created
+All operators follow a consistent two-stage pattern:
+
+- **Plan (sync, in `object.py`):** Each binary dunder (`__add__`, `__sub__`, etc.) calls `Object._plan_operator(other, op_symbol)` and returns a `LazyOperator`. No DB call. Reverse operators (`__radd__`, `__rsub__`, etc.) use `_plan_operator_reverse` which swaps operand order for `scalar op object` syntax.
+- **Materialize (async, in this module):** Awaiting the `LazyOperator` triggers `_apply_operator_db()`, which builds `QueryInfo` for both operands and emits the `CREATE TABLE` + `INSERT INTO ... SELECT ...`. Python scalars are inlined as `(SELECT literal AS value)` — no extra ClickHouse table.
+
+Shared schema-computation helpers (`_compute_operator_schema`, `_preview_operator_schema`, `_promote_arithmetic_type`, `_scalar_to_schema`) live in the neutral `schema_compute.py` module so both `_plan_operator` (preview) and `_apply_operator_db` (materialize) hit the same code — no drift between preview and result schemas.
+
+See `docs/lazy_operator.md` for the LazyOperator design, `.as_(name, scope=...)` naming API, and the materialize-on-await contract.
 
 ## Operator Reference
 
@@ -53,7 +56,7 @@ import aaiclick
 a = await aaiclick.create_object_from_value([10, 20, 30])
 b = await aaiclick.create_object_from_value([2, 4, 5])
 
-# Use Python operators — all dispatch through _apply_operator_db
+# `a + b` returns a LazyOperator; `await` materializes the result table.
 result = await (a + b)   # [12, 24, 35]
 result = await (a * b)   # [20, 80, 150]
 result = await (a ** b)  # [100, 160000, 24300000]
@@ -61,6 +64,9 @@ result = await (a ** b)  # [100, 160000, 24300000]
 # Scalar broadcast
 result = await (a * 2)   # [20, 40, 60]
 result = await (10 - a)  # [0, -10, -20] (reverse operator)
+
+# Name the result table — see docs/lazy_operator.md
+revenue = await (prices * quantities).as_("revenue")
 ```
 
 ## Scalar Broadcasting

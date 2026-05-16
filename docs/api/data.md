@@ -22,6 +22,10 @@
 
 ::: aaiclick.data.object.Object
 
+# LazyOperator
+
+::: aaiclick.data.object.LazyOperator
+
 # View
 
 ::: aaiclick.data.object.View

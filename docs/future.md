@@ -21,6 +21,10 @@ Add "See Also" footers and cross-page links alongside the tutorial.
 
 # Medium Priority
 
+## Elide Materialization for Small / Scalar Results
+
+> **Related shipped work:** Phase 1 of `docs/lazy_operator.md` shipped a `LazyOperator` that defers materialization until `await` and adds `.as_(name, scope=...)` for naming control on the 16 binary operators. The proposal below is a deeper change — *eliding the result table entirely* for small / scalar paths — and remains future work.
+
 ## Lazy Operator Results (Operators Return Views, Not Tables)
 
 Every operator today materializes its result into a fresh ClickHouse table via `create_object(schema)` + `INSERT INTO ... SELECT ...`. For scalar and small-result aggregations (`sum`, `nunique`, `count`, `min`, `max`, `mean`, single-key `group_by.sum`), the extra `CREATE TABLE ... ENGINE = Memory` round-trip dominates wall clock on cheap queries.
@@ -115,40 +119,15 @@ Also relevant: ClickHouse's own `ALTER TABLE` is limited — `MODIFY ORDER BY` c
 
 No action today — fresh installs keep working, existing installs degrade gracefully at worst. Revisit once there is a third structural CH-side change (which makes the per-change CLI approach untenable) or once a change actually breaks (not just slows down) an existing install.
 
-## Postfix Naming for Operator Results (`.as_()`)
+## `.as_()` Naming for Aggregations, Unary, Joins, Concat, Copy, Group-By
 
-**Depends on Lazy Operator Results above.** Without lazy, `.as_()` degrades to a post-hoc `RENAME TABLE` or a Python-only alias — both unsatisfactory (see below).
+Phase 1 of `docs/lazy_operator.md` shipped `.as_(name, scope=...)` for the 16 binary operators (arithmetic, comparison, bitwise). Follow-up phases extend the same `LazyOperator` pattern to the remaining operations that materialize a new table:
 
-Today every arithmetic / comparison / boolean operator on `Object` materializes its result into an auto-generated `t_<snowflake>` table. There is no way to attach a stable name to the output of `prices * quantities` or `revenue + bonus` — only `create_object*` accepts a `name`. Pipelines that mix named source objects with anonymous intermediate results read inconsistently in lineage graphs and are harder to debug since the agent has to deduce intermediate identity from operations rather than names.
+- Aggregations (`.sum()`, `.mean()`, `.min()`, `.max()`, `.std()`, `.var()`, `.count()`, `.count_if()`, `.quantile()`, `.unique()`, `.nunique()`)
+- Unary transforms (`.year()`, `.month()`, `.day_of_week()`, `.lower()`, `.upper()`, `.length()`, `.trim()`, `.abs()`, `.log2()`, `.sqrt()`)
+- `.copy()`, `.concat()`, `.join()`, `.group_by(...).sum()` etc.
 
-**Proposal**: a single postfix method, `.as_(name, *, scope="task")`, that names the result of any expression — arithmetic, aggregation, group-by, comparison. One method on the lazy result type covers the whole operator surface; no kwarg sweep through `__add__` / `__mul__` / `_apply_aggregation` / `group_by_agg`.
-
-```python
-# With lazy operators in place
-lazy = prices * quantities                  # no DDL — Schema + SQL only
-revenue = await lazy.as_("revenue")         # CREATE TABLE t_revenue ... INSERT SELECT ...
-
-by_region = await (
-    sales.group_by("region").sum("amount")
-).as_("revenue_by_region", scope="persistent")
-
-# Chains stay anonymous when no name is needed
-margin = (revenue - costs) / revenue
-```
-
-**Why lazy is required**: if `prices * quantities` has already materialized, `.as_()` can only:
-
-- Issue `RENAME TABLE t_<snowflake> TO t_revenue` — another DDL round-trip on top of the one being avoided, and it breaks any concurrent reader still holding the old name.
-- Stay a Python-side alias — lineage graphs use the friendly name, but `system.tables` and any pasted SQL still show `t_<snowflake>`. The Python view and the CH reality diverge.
-
-With lazy operators, `.as_()` *is* the first materialization, so the name lands on the initial CREATE. No rename, no alias-vs-real-name split.
-
-**Why not per-operator `name=` kwargs**: `*` and `+` overloads don't accept kwargs in Python. Fluent variants (`mul(name=)`, `add(name=)`, `sum(name=)`, …) duplicate the operator surface and still miss chained expressions like `(a * b - c).as_("net")`. One postfix method composes over any expression.
-
-**Work** (after Lazy Operator Results):
-- `aaiclick/data/object/object.py` — `Object.as_(name, *, scope)` on the lazy result type, materializing under the requested name and scope.
-- Decide spelling: `.as_()` (avoids the `as` keyword, terse) vs. `.named()` (longer, no trailing-underscore wart). Pick one and commit.
-- Tests: every operator's result accepts `.as_()`; chained expressions name correctly; `scope="persistent"` produces a `p_<name>` table; double-naming (`.as_("a").as_("b")`) is either rejected or re-materializes under `b`.
+Each follow-up phase is mechanical: convert the entry method from `async def → Object` to a sync planner returning `LazyOperator(lhs=self, rhs=None, operator=<name>)` and pass `name`/`scope` through to the underlying `create_object` call. The data shape (`rhs: Object | ValueScalarType | None`) was designed phase 1 to accommodate `rhs=None` for unary / aggregation ops without a migration.
 
 ---
 

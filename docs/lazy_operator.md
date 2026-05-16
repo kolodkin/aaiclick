@@ -108,9 +108,9 @@ Key invariants:
   cached) and then delegate to the resulting `Object`.
 - **`.as_()` returns a new LazyOperator.** Immutable — calling `.as_()`
   does not mutate the receiver.
-- **Re-await is idempotent.** Internal `_materialized` cache ensures one
-  awaitable produces exactly one table. **Not concurrent-safe** — see
-  *Known limitations* below.
+- **Re-await is idempotent** (single-task). The `_materialized` cache
+  ensures sequential re-awaits produce exactly one table. See *Known
+  limitations* for the concurrent-await caveat.
 - **Schema is precomputed sync.** `.schema` works before materialization
   (the result columns, fieldtype, and value type are derivable from
   operand schemas + operator without a DB call). Other table-derived
@@ -243,44 +243,11 @@ would break, but there are no such callers in the codebase.
 
 ## Known limitations
 
-### Concurrent `await` on the same LazyOperator races
-
-`_materialize()` checks `self._materialized is not None`, then suspends on
-`await` (operand resolution, then `_apply_operator_db`), then assigns
-`self._materialized = result`. Two coroutines that enter `_materialize()`
-on the *same instance* before the assignment lands both see
-`_materialized is None` and both proceed to materialize.
-
-Trigger:
-
-```python
-lazy = a + b
-rows1, rows2 = await asyncio.gather(lazy.data(), lazy.data())
-```
-
-Result: two ClickHouse tables get created, the second assignment wins
-`self._materialized`, the first table is orphaned. Refcount cleanup drops
-the orphan (via `Object.__del__` → `decref(table)`) so this is not a
-permanent leak — but it wastes a DB round-trip and the two callers may
-observe different `.table` values.
-
-**Not fixed because** the cheap fix (`asyncio.Lock` per instance) imposes
-overhead on every operator allocation, and `LazyOperator` is designed
-for cheap, frequent creation. The race only fires when a single
-`LazyOperator` instance is deliberately shared across `asyncio.gather`
-tasks — a pattern that doesn't appear in the codebase. Callers that need
-to share a materialized result should `await` once and share the
+**Avoid awaiting the same `LazyOperator` instance from concurrent tasks** —
+e.g. `asyncio.gather(lazy.data(), lazy.data())`. The `_materialized` cache
+is not concurrent-safe and both tasks may end up materializing the same
+plan twice. To share a result across tasks, `await` once and share the
 returned `Object`.
-
-If the pattern becomes common, the fix is double-checked locking inside
-`_materialize`:
-
-```python
-async with self._materialize_lock:
-    if self._materialized is not None:
-        return self._materialized
-    # ... materialize ...
-```
 
 ## Testing
 
