@@ -259,6 +259,70 @@ def _aai_id_proj(propagate: bool, alias: str = "a") -> _AaiIdProj:
     )
 
 
+def _peek_schema(value):
+    """Return a Schema for an Object, LazyOperator, or Python scalar.
+
+    Used by LazyOperator planners to compute the result schema synchronously
+    without materializing the operand. For Python scalars, defers to
+    ``_infer_clickhouse_type`` — the same routine ``create_object_from_value``
+    uses — so previews can't drift from materialized scalars.
+    """
+    from ..data_context.data_context import _infer_clickhouse_type
+
+    # Circular dep: operators ↔ object; restructuring would require extracting
+    # Object's base interface to a neutral module.
+    from .object import Object
+
+    if isinstance(value, Object):
+        return value.schema
+
+    col_info = _infer_clickhouse_type(value)
+    return Schema(
+        fieldtype=FIELDTYPE_SCALAR,
+        columns={"value": col_info},
+    )
+
+
+def _preview_operator_schema(schema_a: Schema, schema_b: Schema, operator: str) -> Schema:
+    """Sync preview of the Schema that ``_apply_operator_db`` will produce.
+
+    Mirrors the schema-computation block in ``_apply_operator_db``:
+    fieldtype promotion (array if either operand is array), type promotion via
+    ``_promote_arithmetic_type``, nullable propagation, and aai_id propagation
+    from whichever operand is array. No DB call.
+    """
+    a_is_array = schema_a.fieldtype == FIELDTYPE_ARRAY
+    b_is_array = schema_b.fieldtype == FIELDTYPE_ARRAY
+    fieldtype = FIELDTYPE_ARRAY if (a_is_array or b_is_array) else FIELDTYPE_SCALAR
+
+    col_a = schema_a.columns.get("value")
+    col_b = schema_b.columns.get("value")
+    type_a = col_a.type if col_a is not None else "Float64"
+    type_b = col_b.type if col_b is not None else "Float64"
+    value_type = _promote_arithmetic_type(operator, type_a, type_b)
+
+    nullable_a = col_a.nullable if col_a is not None else False
+    nullable_b = col_b.nullable if col_b is not None else False
+    result_nullable = nullable_a or nullable_b
+
+    result_columns: dict[str, ColumnInfo] = {
+        "value": ColumnInfo(type=value_type, nullable=result_nullable),
+    }
+
+    # aai_id propagation: LHS-preferred when both arrays, else from whichever side is array.
+    aai_id_source = None
+    if a_is_array and schema_a.columns.get(AAI_ID_COLUMN) is not None:
+        aai_id_source = schema_a.columns[AAI_ID_COLUMN]
+    elif b_is_array and schema_b.columns.get(AAI_ID_COLUMN) is not None:
+        aai_id_source = schema_b.columns[AAI_ID_COLUMN]
+
+    if aai_id_source is not None:
+        # Mirror the materialize-time `model_copy(update={"default": None})`.
+        result_columns[AAI_ID_COLUMN] = aai_id_source.model_copy(update={"default": None})
+
+    return Schema(fieldtype=fieldtype, columns=result_columns)
+
+
 async def _apply_operator_db(
     info_a: QueryInfo,
     info_b: QueryInfo,
