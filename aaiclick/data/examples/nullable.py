@@ -96,7 +96,7 @@ async def example():
     obj_with_nulls = await create_object(schema)
     await ch.command(f"INSERT INTO {obj_with_nulls.table} (value) VALUES (5), (NULL), (15)")
 
-    added = await (obj_with_nulls + 10)
+    added = obj_with_nulls + 10
     print(f"Original:    {await obj_with_nulls.data()}")  # → [5, None, 15]
     print(f"Added + 10:  {await added.data()}")  # → [15, None, 25]
     print("Note: NULL + 10 = NULL (NULL propagates through arithmetic)")

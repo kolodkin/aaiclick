@@ -96,7 +96,7 @@ async def example():
     quantities = data["quantities"]
 
     # Multiply selected columns
-    totals = await (prices * quantities)
+    totals = prices * quantities
     print(f"prices: {await prices.data()}")  # → [10, 20, 30, 40, 50]
     print(f"quantities: {await quantities.data()}")  # → [2, 3, 1, 4, 2]
     print(f"prices * quantities = {await totals.data()}")  # → [20, 60, 30, 160, 100]

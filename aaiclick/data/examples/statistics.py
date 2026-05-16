@@ -65,14 +65,14 @@ async def example():
     print(f"Data B: {data_b}\n")
 
     # Add the objects
-    obj_sum = await (obj_a + obj_b)
+    obj_sum = obj_a + obj_b
     sum_data = await obj_sum.data()
     print(f"After addition: {sum_data}")  # → [150.0, 300.0, 450.0]
     print(f"Mean of sum:      {await (await obj_sum.mean()).data()}")  # → 300.0
     print(f"Std of sum:       {await (await obj_sum.std()).data()}\n")  # → 122.47...
 
     # Subtract the objects
-    obj_diff = await (obj_a - obj_b)
+    obj_diff = obj_a - obj_b
     diff_data = await obj_diff.data()
     print(f"After subtraction: {diff_data}")  # → [50.0, 100.0, 150.0]
     print(f"Mean of diff:     {await (await obj_diff.mean()).data()}")  # → 100.0

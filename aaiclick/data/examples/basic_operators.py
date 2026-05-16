@@ -92,31 +92,31 @@ async def example():
     print("\n" + "-" * 50)
 
     # Addition
-    result_add = await (obj_a + obj_b)
+    result_add = obj_a + obj_b
     print(f"Addition (a + b): {await result_add.data()}")  # → [12.0, 24.0, 35.0]
 
     # Subtraction
-    result_sub = await (obj_a - obj_b)
+    result_sub = obj_a - obj_b
     print(f"Subtraction (a - b): {await result_sub.data()}")  # → [8.0, 16.0, 25.0]
 
     # Multiplication
-    result_mul = await (obj_a * obj_b)
+    result_mul = obj_a * obj_b
     print(f"Multiplication (a * b): {await result_mul.data()}")  # → [20.0, 80.0, 150.0]
 
     # Division
-    result_div = await (obj_a / obj_b)
+    result_div = obj_a / obj_b
     print(f"Division (a / b): {await result_div.data()}")  # → [5.0, 5.0, 6.0]
 
     # Floor Division
-    result_floordiv = await (obj_a // obj_b)
+    result_floordiv = obj_a // obj_b
     print(f"Floor Division (a // b): {await result_floordiv.data()}")  # → [5.0, 5.0, 6.0]
 
     # Modulo
-    result_mod = await (obj_a % obj_b)
+    result_mod = obj_a % obj_b
     print(f"Modulo (a % b): {await result_mod.data()}")  # → [0.0, 0.0, 0.0]
 
     # Power
-    result_pow = await (obj_a**obj_b)
+    result_pow = obj_a**obj_b
     print(f"Power (a ** b): {await result_pow.data()}")  # → [100.0, 160000.0, 24300000.0]
 
     # Example 5: Comparison operators
@@ -131,27 +131,27 @@ async def example():
     print(f"Values in y: {await obj_y.data()}\n")  # → [5, 5, 8, 20]
 
     # Equal
-    result_eq = await (obj_x == obj_y)
+    result_eq = obj_x == obj_y
     print(f"Equal (x == y): {await result_eq.data()}")  # → [0, 1, 0, 0]
 
     # Not Equal
-    result_ne = await (obj_x != obj_y)
+    result_ne = obj_x != obj_y
     print(f"Not Equal (x != y): {await result_ne.data()}")  # → [1, 0, 1, 1]
 
     # Less Than
-    result_lt = await (obj_x < obj_y)
+    result_lt = obj_x < obj_y
     print(f"Less Than (x < y): {await result_lt.data()}")  # → [1, 0, 0, 1]
 
     # Less or Equal
-    result_le = await (obj_x <= obj_y)
+    result_le = obj_x <= obj_y
     print(f"Less or Equal (x <= y): {await result_le.data()}")  # → [1, 1, 0, 1]
 
     # Greater Than
-    result_gt = await (obj_x > obj_y)
+    result_gt = obj_x > obj_y
     print(f"Greater Than (x > y): {await result_gt.data()}")  # → [0, 0, 1, 0]
 
     # Greater or Equal
-    result_ge = await (obj_x >= obj_y)
+    result_ge = obj_x >= obj_y
     print(f"Greater or Equal (x >= y): {await result_ge.data()}")  # → [0, 1, 1, 0]
 
     # Example 6: Bitwise operators
@@ -166,15 +166,15 @@ async def example():
     print(f"Values in n: {await obj_n.data()}\n")  # → [10, 12, 4]
 
     # Bitwise AND
-    result_and = await (obj_m & obj_n)
+    result_and = obj_m & obj_n
     print(f"Bitwise AND (m & n): {await result_and.data()}")  # → [8, 8, 0]
 
     # Bitwise OR
-    result_or = await (obj_m | obj_n)
+    result_or = obj_m | obj_n
     print(f"Bitwise OR (m | n): {await result_or.data()}")  # → [14, 14, 12]
 
     # Bitwise XOR
-    result_xor = await (obj_m ^ obj_n)
+    result_xor = obj_m ^ obj_n
     print(f"Bitwise XOR (m ^ n): {await result_xor.data()}")  # → [6, 6, 12]
 
     # Example 7: UTC datetime support
