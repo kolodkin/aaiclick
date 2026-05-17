@@ -21,59 +21,9 @@ Add "See Also" footers and cross-page links alongside the tutorial.
 
 # Medium Priority
 
-## Lazy Operator Results (Operators Return Views, Not Tables)
+## LazyOperator — Elide Materialization for Small / Scalar Results
 
-Every operator today materializes its result into a fresh ClickHouse table via `create_object(schema)` + `INSERT INTO ... SELECT ...`. For scalar and small-result aggregations (`sum`, `nunique`, `count`, `min`, `max`, `mean`, single-key `group_by.sum`), the extra `CREATE TABLE ... ENGINE = Memory` round-trip dominates wall clock on cheap queries.
-
-**Evidence** (1M rows, chdb 26, `aaiclick/example_projects/chdb_benchmark`):
-
-| Operation | Native `SELECT` | aaiclick `CREATE + INSERT SELECT` | Empty `CREATE TABLE` alone |
-|---------------|----------------:|----------------------------------:|---------------------------:|
-| Count distinct | 3.89 ms | 9.01 ms | 4.18 ms |
-| Group-by sum | 6.62 ms | 8.44 ms | — |
-
-~60–70% of the aaiclick overhead on scalar aggregations is the DDL round-trip — a fixed ~4 ms cost paid to register a throwaway sink table in the catalog. The remaining ~30–40% is Python orchestration (Schema build, Object register, async plumbing).
-
-**Root cause**: `operators.nunique_agg` / `operators.group_by_agg` / `_apply_aggregation` build a `Schema` in Python, then call `create_object(schema)` which emits `CREATE TABLE <result> (...) ENGINE = Memory` with column comments — just to hold a 1-row or 10-row result that the caller almost always unwraps via `.data()`. The schema is fully known in Python before the DDL is sent; the CREATE just *serializes* metadata the runtime already has.
-
-**Proposal**: Scalar and small-result operators return a `LazyScalar` / `LazyView` wrapper carrying the same `Schema` (types, fieldtype, nullability, LowCardinality, descriptions) plus the query SQL. Materialization into a real table happens only when genuinely needed — e.g. `.materialize()`, cross-process handoff, or downstream ops that require a table source.
-
-```python
-# Today
-async def nunique_agg(info, ch_client):
-    schema = Schema(...)
-    result = await create_object(schema)          # CREATE TABLE + comments
-    await ch_client.command(f"INSERT INTO {result.table} ... SELECT count() ...")
-    return result
-
-# Lazy
-async def nunique_agg(info, ch_client):
-    schema = Schema(...)                          # same Schema
-    sql = f"SELECT count() FROM (SELECT value FROM {info.source} GROUP BY value)"
-    return LazyScalar(schema=schema, sql=sql, ch_client=ch_client)
-    # .data() → one SELECT (saves the ~4 ms CREATE round-trip)
-    # .materialize() → falls back to today's behavior when a table is needed
-```
-
-**What doesn't change**: `Schema`, `ColumnInfo` (including `low_cardinality`, `nullable`, `array`, `description`), column comments on **persistent** / **job-scoped** tables, cross-process handoff via table name, `open_object()` reconstruction. Metadata remains Python-side first; the CREATE TABLE stays as the serialization path for tables that need to cross a process or session boundary.
-
-**Where a table is still required**:
-
-- Persistent (`p_<name>`) / job-scoped (`j_<job_id>_<name>`) objects.
-- Orch task outputs handed off to downstream workers.
-- Repeated reads where the result should be cached.
-- Joining a result as a table source (rare for scalars; broadcasting as a literal is usually better).
-
-Add `.materialize()` as the explicit escape hatch so callers can opt in.
-
-**Work**:
-- `aaiclick/data/object/operators.py` — new `LazyScalar` / `LazyView` classes or extend existing `View`; route `nunique_agg`, `_apply_aggregation` (sum/mean/min/max/count/std/var), `group_by_agg` for small results through them.
-- `aaiclick/data/object/object.py` — `.data()` on a lazy result executes the SQL directly; chain operators inline the lazy SQL as a subquery instead of reading from a table name.
-- Decide group-by threshold: always lazy vs. materialize above N result rows — likely always lazy, let downstream `.copy()` or `.materialize()` decide.
-- Benchmark: `chdb_benchmark` should show `Count distinct` / `Group-by sum` dropping from ~10 ms → ~5 ms at 1M rows.
-- Tests: every operator test that currently asserts against a materialized table still passes (via implicit materialize-on-data or an explicit `.materialize()` in tests that introspect `.table`).
-
-Pairs with the "scalar Object unwrapping" idea — once `.data()` is cheap, the ergonomic case of "just give me the number" becomes the fast default. Also a hard precondition for the `.as_()` postfix naming entry below: naming only lands cleanly when it can ride on the first CREATE.
+See [future_lazy_operator.md → Phase 3](future_lazy_operator.md#phase-3-elide-materialization-entirely-for-small--scalar-results). Real wall-clock wins on scalar aggregations (~10 ms → ~5 ms) by returning `LazyScalar` / `LazyView` wrappers that execute the SQL directly on `.data()` instead of creating a throwaway sink table first.
 
 ## Clear Task + Downstream
 
@@ -115,40 +65,9 @@ Also relevant: ClickHouse's own `ALTER TABLE` is limited — `MODIFY ORDER BY` c
 
 No action today — fresh installs keep working, existing installs degrade gracefully at worst. Revisit once there is a third structural CH-side change (which makes the per-change CLI approach untenable) or once a change actually breaks (not just slows down) an existing install.
 
-## Postfix Naming for Operator Results (`.as_()`)
+## LazyOperator — `.as_()` for Aggregations, Unary, Joins, Concat, Copy, Group-By
 
-**Depends on Lazy Operator Results above.** Without lazy, `.as_()` degrades to a post-hoc `RENAME TABLE` or a Python-only alias — both unsatisfactory (see below).
-
-Today every arithmetic / comparison / boolean operator on `Object` materializes its result into an auto-generated `t_<snowflake>` table. There is no way to attach a stable name to the output of `prices * quantities` or `revenue + bonus` — only `create_object*` accepts a `name`. Pipelines that mix named source objects with anonymous intermediate results read inconsistently in lineage graphs and are harder to debug since the agent has to deduce intermediate identity from operations rather than names.
-
-**Proposal**: a single postfix method, `.as_(name, *, scope="task")`, that names the result of any expression — arithmetic, aggregation, group-by, comparison. One method on the lazy result type covers the whole operator surface; no kwarg sweep through `__add__` / `__mul__` / `_apply_aggregation` / `group_by_agg`.
-
-```python
-# With lazy operators in place
-lazy = prices * quantities                  # no DDL — Schema + SQL only
-revenue = await lazy.as_("revenue")         # CREATE TABLE t_revenue ... INSERT SELECT ...
-
-by_region = await (
-    sales.group_by("region").sum("amount")
-).as_("revenue_by_region", scope="persistent")
-
-# Chains stay anonymous when no name is needed
-margin = (revenue - costs) / revenue
-```
-
-**Why lazy is required**: if `prices * quantities` has already materialized, `.as_()` can only:
-
-- Issue `RENAME TABLE t_<snowflake> TO t_revenue` — another DDL round-trip on top of the one being avoided, and it breaks any concurrent reader still holding the old name.
-- Stay a Python-side alias — lineage graphs use the friendly name, but `system.tables` and any pasted SQL still show `t_<snowflake>`. The Python view and the CH reality diverge.
-
-With lazy operators, `.as_()` *is* the first materialization, so the name lands on the initial CREATE. No rename, no alias-vs-real-name split.
-
-**Why not per-operator `name=` kwargs**: `*` and `+` overloads don't accept kwargs in Python. Fluent variants (`mul(name=)`, `add(name=)`, `sum(name=)`, …) duplicate the operator surface and still miss chained expressions like `(a * b - c).as_("net")`. One postfix method composes over any expression.
-
-**Work** (after Lazy Operator Results):
-- `aaiclick/data/object/object.py` — `Object.as_(name, *, scope)` on the lazy result type, materializing under the requested name and scope.
-- Decide spelling: `.as_()` (avoids the `as` keyword, terse) vs. `.named()` (longer, no trailing-underscore wart). Pick one and commit.
-- Tests: every operator's result accepts `.as_()`; chained expressions name correctly; `scope="persistent"` produces a `p_<name>` table; double-naming (`.as_("a").as_("b")`) is either rejected or re-materializes under `b`.
+See [future_lazy_operator.md → Phase 2](future_lazy_operator.md#phase-2-as_-for-aggregations-unary-joins-concat-copy-group-by). Mechanical extension of the shipped phase 1 LazyOperator to the remaining operations that materialize a new table — same sync-planner pattern, same `.as_(name, scope=...)` API. The `rhs: Object | ValueScalarType | None` data shape was chosen specifically to accommodate `rhs=None` for unary / aggregation ops without a migration.
 
 ---
 

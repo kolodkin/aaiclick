@@ -4,6 +4,32 @@ aaiclick.data.operators - Operator implementations for Object class.
 This module contains database-level functions that implement all operators.
 Each operator function takes table names and ch_client instead of Object instances.
 
+Design — two-stage planner / materializer
+=========================================
+
+Every binary operator follows the same two-stage pattern:
+
+- **Plan (sync, in ``object.py``):** Each binary dunder (``__add__``,
+  ``__sub__``, etc.) calls ``Object._plan_operator(other, op_symbol)`` and
+  returns a ``LazyOperator``. No DB call. Reverse operators (``__radd__``,
+  ``__rsub__``, etc.) use ``_plan_operator_reverse`` which swaps operand
+  order for ``scalar op object`` syntax.
+- **Materialize (async, here):** Awaiting the ``LazyOperator`` triggers
+  ``_apply_operator_db()``, which builds ``QueryInfo`` for both operands
+  and emits the ``CREATE TABLE`` + ``INSERT INTO ... SELECT``. Python
+  scalars are inlined as ``(SELECT literal AS value)`` — no extra
+  ClickHouse table.
+
+Shared schema-computation helpers (``_compute_operator_schema``,
+``_preview_operator_schema``, ``_promote_arithmetic_type``,
+``_scalar_to_schema``) live in the neutral ``schema_compute.py`` module so
+both ``_plan_operator`` (preview) and ``_apply_operator_db`` (materialize)
+hit the same code — no drift between preview and result schemas.
+
+See ``docs/object.md`` ("Lazy Operator Results") for the user-facing
+LazyOperator design, ``.as_(name, scope=...)`` naming API, and the
+materialize-on-await contract.
+
 ClickHouse Reference Documentation
 ==================================
 
@@ -69,7 +95,6 @@ from ..models import (
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
     FIELDTYPE_SCALAR,
-    FLOAT_TYPES,
     INT_TYPES,
     Agg,
     ColumnInfo,
@@ -79,7 +104,9 @@ from ..models import (
     Schema,
     parse_ch_type,
 )
+from ..scope import NamedScope
 from ..sql_utils import escape_sql_string, quote_identifier
+from .schema_compute import _compute_operator_schema, _promote_arithmetic_type
 
 # Operator to arrayMap lambda expression mapping (uses x, y variables)
 ARRAYMAP_EXPRESSIONS = {
@@ -258,7 +285,15 @@ def _aai_id_proj(propagate: bool, alias: str = "a") -> _AaiIdProj:
     )
 
 
-async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_client):
+async def _apply_operator_db(
+    info_a: QueryInfo,
+    info_b: QueryInfo,
+    operator: str,
+    ch_client,
+    *,
+    name: str | None = None,
+    scope: NamedScope | None = None,
+):
     """
     Apply an operator on two tables at the database level.
 
@@ -267,6 +302,9 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
         info_b: QueryInfo for second operand (contains source, fieldtype, value_type)
         operator: Operator symbol (e.g., '+', '-', '**', '==', '&')
         ch_client: ClickHouse client instance
+        name: Optional result table name (forwarded to ``create_object``).
+        scope: Optional result table scope (forwarded to ``create_object``).
+              Defaults to ``"temp_named"`` when ``name`` is set.
 
     Returns:
         New Object instance pointing to result table
@@ -274,37 +312,22 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
     # Get SQL expression from operator mapping
     expression = OPERATOR_EXPRESSIONS[operator]
 
-    # Determine result fieldtype: array if either operand is array
+    schema, aai_id_side = _compute_operator_schema(
+        fieldtype_a=info_a.fieldtype,
+        fieldtype_b=info_b.fieldtype,
+        type_a=info_a.value_type,
+        type_b=info_b.value_type,
+        nullable_a=info_a.nullable,
+        nullable_b=info_b.nullable,
+        aai_id_a=info_a.aai_id_info,
+        aai_id_b=info_b.aai_id_info,
+        operator=operator,
+    )
     a_is_array = info_a.fieldtype == FIELDTYPE_ARRAY
     b_is_array = info_b.fieldtype == FIELDTYPE_ARRAY
-    fieldtype = FIELDTYPE_ARRAY if (a_is_array or b_is_array) else FIELDTYPE_SCALAR
-
-    # Determine result type from QueryInfo value_types
-    type_a = info_a.value_type
-    type_b = info_b.value_type
-    value_type = _promote_arithmetic_type(operator, type_a, type_b)
-
-    # Propagate ``aai_id`` from whichever operand is the array (preferring LHS
-    # when both arrays carry it). For scalar broadcast, the row-aligned aai_id
-    # comes from the array side regardless of LHS/RHS position.
-    result_nullable = info_a.nullable or info_b.nullable
-    result_columns = {"value": ColumnInfo(value_type, nullable=result_nullable)}
-    if a_is_array and info_a.aai_id_info is not None:
-        aai_id_source = info_a.aai_id_info
-        aai_id_alias = "a"
-    elif b_is_array and info_b.aai_id_info is not None:
-        aai_id_source = info_b.aai_id_info
-        aai_id_alias = "b"
-    else:
-        aai_id_source = None
-        aai_id_alias = "a"  # unused when aai_id_source is None
-    proj = _aai_id_proj(aai_id_source is not None, alias=aai_id_alias)
-    if aai_id_source is not None:
-        # Mirror the source column shape, but drop DEFAULT — values are copied
-        # via INSERT, not generated per-row by ClickHouse.
-        result_columns[AAI_ID_COLUMN] = aai_id_source.model_copy(update={"default": None})
-    schema = Schema(fieldtype=fieldtype, columns=result_columns)
-    result = await create_object(schema)
+    aai_id_alias = aai_id_side or "a"  # "a" default is ignored when propagate=False
+    proj = _aai_id_proj(aai_id_side is not None, alias=aai_id_alias)
+    result = await create_object(schema, name=name, scope=scope)
 
     # Insert data based on fieldtype combinations
     if a_is_array and b_is_array:
@@ -348,7 +371,7 @@ async def _apply_operator_db(info_a: QueryInfo, info_b: QueryInfo, operator: str
                     ch_client,
                     order_a=info_a.order_by,
                     order_b=info_b.order_by,
-                    propagate_aai_id_from=aai_id_alias if aai_id_source is not None else None,
+                    propagate_aai_id_from=aai_id_side,
                 )
                 temp_expr = expression.replace("a.value", "a_value").replace("b.value", "b_value")
                 try:
@@ -399,41 +422,6 @@ AGGREGATION_FUNCTIONS = {
     "any": "any",
     "group_array_distinct": "groupArrayDistinct",
 }
-
-
-# Division and power always return Float64 in ClickHouse.
-_FLOAT_RESULT_OPS = frozenset({"/", "**"})
-
-# Small unsigned types (Bool, UInt8) promote to wider types in ClickHouse.
-# Subtraction always produces signed result.
-_SMALL_UNSIGNED = frozenset({"Bool", "UInt8"})
-
-
-def _promote_arithmetic_type(operator: str, type_a: str, type_b: str) -> str:
-    """Determine the ClickHouse result type for an arithmetic operation.
-
-    Matches ClickHouse type promotion rules:
-    - ``/`` and ``**`` always return Float64
-    - int + float → Float64
-    - Bool/UInt8 same-type ``+``/``*`` → UInt16, ``-`` → Int16
-    - Subtraction always promotes to signed (Int64)
-    - Mixed int widths promote to the wider type
-
-    Validated by ``test_type_promotion.py::test_arithmetic_type_promotion``
-    which compares against ``SELECT toTypeName(CAST(0, 'T1') op CAST(0, 'T2'))``.
-    """
-    if operator in _FLOAT_RESULT_OPS:
-        return "Float64"
-    if type_a in FLOAT_TYPES or type_b in FLOAT_TYPES:
-        return "Float64"
-    if type_a in _SMALL_UNSIGNED and type_b in _SMALL_UNSIGNED:
-        return "Int16" if operator == "-" else "UInt16"
-    if type_a in _SMALL_UNSIGNED or type_b in _SMALL_UNSIGNED:
-        wider = type_b if type_a in _SMALL_UNSIGNED else type_a
-        return wider
-    if operator == "-":
-        return "Int64"
-    return type_a
 
 
 def _determine_agg_result_type(agg_func: str, source_type: str | ColumnInfo) -> str:

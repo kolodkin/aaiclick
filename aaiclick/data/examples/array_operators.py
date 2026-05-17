@@ -33,25 +33,25 @@ async def example():
     print(f"a: {await a.data()}")  # → [10, 20, 30, 40, 50]
     print(f"b: {await b.data()}\n")  # → [2, 4, 5, 8, 10]
 
-    result = await (a + b)
+    result = a + b
     print(f"a + b  = {await result.data()}")  # → [12, 24, 35, 48, 60]
 
-    result = await (a - b)
+    result = a - b
     print(f"a - b  = {await result.data()}")  # → [8, 16, 25, 32, 40]
 
-    result = await (a * b)
+    result = a * b
     print(f"a * b  = {await result.data()}")  # → [20, 80, 150, 320, 500]
 
-    result = await (a / b)
+    result = a / b
     print(f"a / b  = {await result.data()}")  # → [5, 5, 6, 5, 5]
 
-    result = await (a // b)
+    result = a // b
     print(f"a // b = {await result.data()}")  # → [5, 5, 6, 5, 5]
 
-    result = await (a % b)
+    result = a % b
     print(f"a %% b = {await result.data()}")  # → [0, 0, 0, 0, 0]
 
-    result = await (a**b)
+    result = a**b
     print(f"a ** b = {await result.data()}")  # → [100, 160000, 24300000, 6553600000000, 97656250000000000]
 
     # Scalar broadcast
@@ -61,16 +61,16 @@ async def example():
     a = await create_object_from_value([1, 2, 3, 4, 5])
     print(f"a: {await a.data()}\n")  # → [1, 2, 3, 4, 5]
 
-    result = await (a * 10)
+    result = a * 10
     print(f"a * 10  = {await result.data()}")  # → [10, 20, 30, 40, 50]
 
-    result = await (a + 100)
+    result = a + 100
     print(f"a + 100 = {await result.data()}")  # → [101, 102, 103, 104, 105]
 
-    result = await (100 - a)
+    result = 100 - a
     print(f"100 - a = {await result.data()}")  # → [99, 98, 97, 96, 95]
 
-    result = await (2**a)
+    result = 2**a
     print(f"2 ** a  = {await result.data()}")  # → [2, 4, 8, 16, 32]
 
     # Comparison
@@ -83,13 +83,13 @@ async def example():
     print(f"x: {await x.data()}")  # → [1, 5, 10, 15, 20]
     print(f"y: {await y.data()}\n")  # → [5, 5, 8, 20, 20]
 
-    result = await (x == y)
+    result = x == y
     print(f"x == y = {await result.data()}")  # → [0, 1, 0, 0, 1]
 
-    result = await (x < y)
+    result = x < y
     print(f"x < y  = {await result.data()}")  # → [1, 0, 0, 1, 0]
 
-    result = await (x >= y)
+    result = x >= y
     print(f"x >= y = {await result.data()}")  # → [0, 1, 1, 0, 1]
 
     # Bitwise
@@ -102,13 +102,13 @@ async def example():
     print(f"m: {await m.data()}")  # → [12, 10, 8]
     print(f"n: {await n.data()}\n")  # → [10, 12, 4]
 
-    result = await (m & n)
+    result = m & n
     print(f"m & n = {await result.data()}")  # → [8, 8, 0]
 
-    result = await (m | n)
+    result = m | n
     print(f"m | n = {await result.data()}")  # → [14, 14, 12]
 
-    result = await (m ^ n)
+    result = m ^ n
     print(f"m ^ n = {await result.data()}")  # → [6, 6, 12]
 
     # Aggregations
@@ -141,11 +141,11 @@ async def example():
     print(f"a: {await a.data()}\n")
 
     total = await a.sum()
-    normalized = await (a / total)
+    normalized = a / total
     print(f"normalized (a / sum(a)): {await normalized.data()}")  # → [0, 0, 0, 0, 0]
 
     b = await create_object_from_value([10, 20, 30, 40, 50], aai_id=True)
-    diff = await (b - a)
+    diff = b - a
     mean_diff = await diff.mean()
     print(f"mean(b - a): {await mean_diff.data()}")  # → 27.0
 
@@ -157,7 +157,7 @@ async def example():
     c = await create_object_from_value([10, 20], aai_id=True)
 
     try:
-        await (a + c)
+        a + c
         print("ERROR: Should have raised!")
     except ValueError as e:
         print(f"a + c: {e}")  # Operand length mismatch: left has 3 elements, right has 2 elements

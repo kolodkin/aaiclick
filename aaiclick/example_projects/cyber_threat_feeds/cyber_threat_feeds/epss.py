@@ -65,7 +65,7 @@ async def analyze_epss(epss: Object) -> dict:
     p90_epss = await (await epss_col.quantile(0.9)).data()
     p99_epss = await (await epss_col.quantile(0.99)).data()
 
-    high_prob = await (epss_col > 0.5)
+    high_prob = epss_col > 0.5
     high_prob_count = await (await high_prob.sum()).data()
 
     return {

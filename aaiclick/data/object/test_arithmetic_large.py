@@ -24,7 +24,7 @@ async def test_add_int_float(ctx):
     obj_float = await create_object_from_value(float_array, aai_id=True)
 
     # Perform addition
-    result = await (obj_int.view(order_by="value") + obj_float.view(order_by="value"))
+    result = obj_int.view(order_by="value") + obj_float.view(order_by="value")
     result_data = await result.data(limit=None)
 
     # Verify results
@@ -48,7 +48,7 @@ async def test_sub_float_float(ctx):
     obj2 = await create_object_from_value(float_array2, aai_id=True)
 
     # Perform subtraction
-    result = await (obj1.view(order_by="value") - obj2.view(order_by="value"))
+    result = obj1.view(order_by="value") - obj2.view(order_by="value")
     result_data = await result.data(limit=None)
 
     # Verify results
@@ -166,7 +166,7 @@ async def test_add_int_int(ctx):
     obj2 = await create_object_from_value(int_array2, aai_id=True)
 
     # Perform addition
-    result = await (obj1.view(order_by="value") + obj2.view(order_by="value"))
+    result = obj1.view(order_by="value") + obj2.view(order_by="value")
     result_data = await result.data(limit=None)
 
     # Verify results
@@ -190,7 +190,7 @@ async def test_sub_int_int(ctx):
     obj2 = await create_object_from_value(int_array2, aai_id=True)
 
     # Perform subtraction
-    result = await (obj1.view(order_by="value") - obj2.view(order_by="value"))
+    result = obj1.view(order_by="value") - obj2.view(order_by="value")
     result_data = await result.data(limit=None)
 
     # Verify results

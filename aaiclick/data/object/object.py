@@ -7,6 +7,7 @@ and supports operations through operator overloading.
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import sys
 from dataclasses import dataclass
@@ -55,12 +56,13 @@ from ..models import (
     build_order_by_clause,
     parse_ch_type,
 )
-from ..scope import ObjectScope, is_persistent_table, scope_of
+from ..scope import NamedScope, ObjectScope, is_persistent_table, scope_of
 from ..sql_utils import escape_sql_string, quote_identifier
 from . import data_extraction, ingest, operators
 from . import join as join_module
 from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
 from .refs import ObjectRef, ViewRef
+from .schema_compute import _compute_operator_schema, _scalar_to_schema
 
 # Sentinel for "caller did not pass this kwarg" — distinguishes from None
 # which means "explicitly no value" (e.g. limit=None to disable the safety cap).
@@ -664,152 +666,142 @@ class Object:
             return await create_object_from_value(value)
         return value
 
-    async def _apply_operator(self, other: Object | ValueScalarType, operator: str) -> Object:
+    def _peek_op_metadata(self) -> tuple[str, str, bool, ColumnInfo | None]:
+        """Return (fieldtype, value_type, nullable, aai_id_info) the operator will see.
+
+        Uses ``_get_query_info`` so View field-selection and other effective-fieldtype
+        cases agree with what ``_apply_operator_db`` consumes at materialize time.
+        Overridden in ``LazyOperator`` to read the precomputed result schema instead
+        (LazyOperator has no table pre-materialize).
         """
-        Apply an operator on two objects using SQL templates.
+        info = self._get_query_info()
+        return info.fieldtype, info.value_type, info.nullable, info.aai_id_info
 
-        Supports scalar broadcast: if other is a Python scalar (int, float, bool, str),
-        it is converted to a scalar Object via create_object_from_value.
-
-        Args:
-            other: Another Object or Python scalar to operate with
-            operator: Operator symbol (e.g., '+', '-', '**', '==', '&')
-
-        Returns:
-            Object: New Object instance pointing to result table
-        """
-        self.checkstale()
-        other = await self._ensure_object(other)
-        other.checkstale()
-        _require_explicit_order_for_cross_table(self, other)
-        info_a = self._get_query_info()
-        info_b = other._get_query_info()
-        return await operators._apply_operator_db(info_a, info_b, operator, self.ch_client)
-
-    async def _apply_operator_reverse(self, other: Object | ValueScalarType, operator: str) -> Object:
-        """
-        Apply an operator with reversed operands (other op self).
-
-        Used for __radd__, __rsub__, etc. when the left operand is a scalar.
-
-        Args:
-            other: A Python scalar or Object (left operand)
-            operator: Operator symbol
-
-        Returns:
-            Object: New Object instance pointing to result table
+    def _plan_operator(self, other: Object | ValueScalarType, operator: str) -> LazyOperator:
+        """Synchronously plan ``self op other`` — returns a LazyOperator that
+        materializes on await. Schema is precomputed; no DB call.
         """
         self.checkstale()
-        other = await self._ensure_object(other)
-        other.checkstale()
-        _require_explicit_order_for_cross_table(other, self)
-        info_a = other._get_query_info()
-        info_b = self._get_query_info()
-        return await operators._apply_operator_db(info_a, info_b, operator, self.ch_client)
+        if isinstance(other, Object) and not _is_unmaterialized_lazy(self) and not _is_unmaterialized_lazy(other):
+            _require_explicit_order_for_cross_table(self, other)
+        a_ft, a_t, a_n, a_aai = self._peek_op_metadata()
+        b_ft, b_t, b_n, b_aai = _peek_other_metadata(other)
+        schema_preview, _ = _compute_operator_schema(
+            fieldtype_a=a_ft,
+            fieldtype_b=b_ft,
+            type_a=a_t,
+            type_b=b_t,
+            nullable_a=a_n,
+            nullable_b=b_n,
+            aai_id_a=a_aai,
+            aai_id_b=b_aai,
+            operator=operator,
+        )
+        return LazyOperator(lhs=self, rhs=other, operator=operator, schema_preview=schema_preview)
 
-    async def __add__(self, other: Object | ValueScalarType) -> Object:
-        """Add: self + other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "+")
+    def _plan_operator_reverse(self, other: Object | ValueScalarType, operator: str) -> LazyOperator:
+        """Synchronously plan ``other op self`` — used by __radd__ etc."""
+        self.checkstale()
+        if isinstance(other, Object) and not _is_unmaterialized_lazy(self) and not _is_unmaterialized_lazy(other):
+            _require_explicit_order_for_cross_table(other, self)
+        b_ft, b_t, b_n, b_aai = self._peek_op_metadata()
+        a_ft, a_t, a_n, a_aai = _peek_other_metadata(other)
+        schema_preview, _ = _compute_operator_schema(
+            fieldtype_a=a_ft,
+            fieldtype_b=b_ft,
+            type_a=a_t,
+            type_b=b_t,
+            nullable_a=a_n,
+            nullable_b=b_n,
+            aai_id_a=a_aai,
+            aai_id_b=b_aai,
+            operator=operator,
+        )
+        return LazyOperator(lhs=other, rhs=self, operator=operator, schema_preview=schema_preview)
 
-    async def __radd__(self, other: Object | ValueScalarType) -> Object:
-        """Reverse add: other + self. Supports scalar broadcast."""
-        return await self._apply_operator_reverse(other, "+")
+    # __eq__ override on a class zeroes the default __hash__. Restore it
+    # explicitly so Objects remain hashable (set/dict keys, etc.).
+    __hash__ = object.__hash__
 
-    async def __sub__(self, other: Object | ValueScalarType) -> Object:
-        """Subtract: self - other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "-")
+    def __add__(self, other: Object | ValueScalarType) -> LazyOperator:
+        """Add: self + other. Returns a LazyOperator that materializes on ``await``.
+        Supports scalar broadcast."""
+        return self._plan_operator(other, "+")
 
-    async def __rsub__(self, other: Object | ValueScalarType) -> Object:
-        """Reverse subtract: other - self. Supports scalar broadcast."""
-        return await self._apply_operator_reverse(other, "-")
+    def __radd__(self, other: Object | ValueScalarType) -> LazyOperator:
+        return self._plan_operator_reverse(other, "+")
 
-    async def __mul__(self, other: Object | ValueScalarType) -> Object:
-        """Multiply: self * other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "*")
+    def __sub__(self, other: Object | ValueScalarType) -> LazyOperator:
+        return self._plan_operator(other, "-")
 
-    async def __rmul__(self, other: Object | ValueScalarType) -> Object:
-        """Reverse multiply: other * self. Supports scalar broadcast."""
-        return await self._apply_operator_reverse(other, "*")
+    def __rsub__(self, other: Object | ValueScalarType) -> LazyOperator:
+        return self._plan_operator_reverse(other, "-")
 
-    async def __truediv__(self, other: Object | ValueScalarType) -> Object:
-        """Divide: self / other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "/")
+    def __mul__(self, other: Object | ValueScalarType) -> LazyOperator:
+        return self._plan_operator(other, "*")
 
-    async def __rtruediv__(self, other: Object | ValueScalarType) -> Object:
-        """Reverse divide: other / self. Supports scalar broadcast."""
-        return await self._apply_operator_reverse(other, "/")
+    def __rmul__(self, other: Object | ValueScalarType) -> LazyOperator:
+        return self._plan_operator_reverse(other, "*")
 
-    async def __floordiv__(self, other: Object | ValueScalarType) -> Object:
-        """Floor divide: self // other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "//")
+    def __truediv__(self, other: Object | ValueScalarType) -> LazyOperator:
+        return self._plan_operator(other, "/")
 
-    async def __rfloordiv__(self, other: Object | ValueScalarType) -> Object:
-        """Reverse floor divide: other // self. Supports scalar broadcast."""
-        return await self._apply_operator_reverse(other, "//")
+    def __rtruediv__(self, other: Object | ValueScalarType) -> LazyOperator:
+        return self._plan_operator_reverse(other, "/")
 
-    async def __mod__(self, other: Object | ValueScalarType) -> Object:
-        """Modulo: self % other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "%")
+    def __floordiv__(self, other: Object | ValueScalarType) -> LazyOperator:
+        return self._plan_operator(other, "//")
 
-    async def __rmod__(self, other: Object | ValueScalarType) -> Object:
-        """Reverse modulo: other % self. Supports scalar broadcast."""
-        return await self._apply_operator_reverse(other, "%")
+    def __rfloordiv__(self, other: Object | ValueScalarType) -> LazyOperator:
+        return self._plan_operator_reverse(other, "//")
 
-    async def __pow__(self, other: Object | ValueScalarType) -> Object:
-        """Power: self ** other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "**")
+    def __mod__(self, other: Object | ValueScalarType) -> LazyOperator:
+        return self._plan_operator(other, "%")
 
-    async def __rpow__(self, other: Object | ValueScalarType) -> Object:
-        """Reverse power: other ** self. Supports scalar broadcast."""
-        return await self._apply_operator_reverse(other, "**")
+    def __rmod__(self, other: Object | ValueScalarType) -> LazyOperator:
+        return self._plan_operator_reverse(other, "%")
 
-    async def __eq__(self, other: Object | ValueScalarType) -> Object:
-        """Equality: self == other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "==")
+    def __pow__(self, other: Object | ValueScalarType) -> LazyOperator:
+        return self._plan_operator(other, "**")
 
-    async def __ne__(self, other: Object | ValueScalarType) -> Object:
-        """Inequality: self != other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "!=")
+    def __rpow__(self, other: Object | ValueScalarType) -> LazyOperator:
+        return self._plan_operator_reverse(other, "**")
 
-    async def __lt__(self, other: Object | ValueScalarType) -> Object:
-        """Less than: self < other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "<")
+    def __eq__(self, other: Object | ValueScalarType) -> LazyOperator:
+        return self._plan_operator(other, "==")
 
-    async def __le__(self, other: Object | ValueScalarType) -> Object:
-        """Less or equal: self <= other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "<=")
+    def __ne__(self, other: Object | ValueScalarType) -> LazyOperator:
+        return self._plan_operator(other, "!=")
 
-    async def __gt__(self, other: Object | ValueScalarType) -> Object:
-        """Greater than: self > other. Supports scalar broadcast."""
-        return await self._apply_operator(other, ">")
+    def __lt__(self, other: Object | ValueScalarType) -> LazyOperator:
+        return self._plan_operator(other, "<")
 
-    async def __ge__(self, other: Object | ValueScalarType) -> Object:
-        """Greater or equal: self >= other. Supports scalar broadcast."""
-        return await self._apply_operator(other, ">=")
+    def __le__(self, other: Object | ValueScalarType) -> LazyOperator:
+        return self._plan_operator(other, "<=")
 
-    async def __and__(self, other: Object | ValueScalarType) -> Object:
-        """Bitwise AND: self & other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "&")
+    def __gt__(self, other: Object | ValueScalarType) -> LazyOperator:
+        return self._plan_operator(other, ">")
 
-    async def __rand__(self, other: Object | ValueScalarType) -> Object:
-        """Reverse bitwise AND: other & self. Supports scalar broadcast."""
-        return await self._apply_operator_reverse(other, "&")
+    def __ge__(self, other: Object | ValueScalarType) -> LazyOperator:
+        return self._plan_operator(other, ">=")
 
-    async def __or__(self, other: Object | ValueScalarType) -> Object:
-        """Bitwise OR: self | other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "|")
+    def __and__(self, other: Object | ValueScalarType) -> LazyOperator:
+        return self._plan_operator(other, "&")
 
-    async def __ror__(self, other: Object | ValueScalarType) -> Object:
-        """Reverse bitwise OR: other | self. Supports scalar broadcast."""
-        return await self._apply_operator_reverse(other, "|")
+    def __rand__(self, other: Object | ValueScalarType) -> LazyOperator:
+        return self._plan_operator_reverse(other, "&")
 
-    async def __xor__(self, other: Object | ValueScalarType) -> Object:
-        """Bitwise XOR: self ^ other. Supports scalar broadcast."""
-        return await self._apply_operator(other, "^")
+    def __or__(self, other: Object | ValueScalarType) -> LazyOperator:
+        return self._plan_operator(other, "|")
 
-    async def __rxor__(self, other: Object | ValueScalarType) -> Object:
-        """Reverse bitwise XOR: other ^ self. Supports scalar broadcast."""
-        return await self._apply_operator_reverse(other, "^")
+    def __ror__(self, other: Object | ValueScalarType) -> LazyOperator:
+        return self._plan_operator_reverse(other, "|")
+
+    def __xor__(self, other: Object | ValueScalarType) -> LazyOperator:
+        return self._plan_operator(other, "^")
+
+    def __rxor__(self, other: Object | ValueScalarType) -> LazyOperator:
+        return self._plan_operator_reverse(other, "^")
 
     async def copy(self) -> Object:
         """
@@ -2908,3 +2900,261 @@ class View(Object):
             constraints.append(f"order_by='{self.order_by}'")
         constraint_str = ", ".join(constraints) if constraints else "no constraints"
         return f"View(table='{self.table}', {constraint_str})"
+
+
+def _is_unmaterialized_lazy(value) -> bool:
+    """True when ``value`` is a LazyOperator that hasn't materialized yet —
+    sync checks that read ``.table`` must skip these (the table doesn't exist)."""
+    return isinstance(value, LazyOperator) and value._materialized is None
+
+
+def _peek_other_metadata(value) -> tuple[str, str, bool, ColumnInfo | None]:
+    """Same shape as ``Object._peek_op_metadata`` but for an arbitrary RHS
+    operand (Object / LazyOperator / Python scalar). Used by the planners to
+    derive the operator's result schema without materializing.
+    """
+    if isinstance(value, Object):
+        return value._peek_op_metadata()
+    # Python scalar: fall back to scalar-schema inference.
+    schema = _scalar_to_schema(value)
+    col = schema.columns["value"]
+    return schema.fieldtype, col.type, col.nullable, None
+
+
+async def _resolve_operand(value: LazyOperator | Object | ValueScalarType | None) -> Object:
+    """Resolve an operand to a materialized Object.
+
+    - LazyOperator → materialize and unwrap.
+    - Object → return as-is.
+    - Python scalar → ``Object._ensure_object``.
+    - None → raise (reserved for future unary ops; phase 1 always has both).
+    """
+    if value is None:
+        raise RuntimeError("LazyOperator phase 1 requires both lhs and rhs to be non-None")
+    if isinstance(value, LazyOperator):
+        return await value._materialize()
+    if isinstance(value, Object):
+        return value
+    return await Object._ensure_object(value)
+
+
+class LazyOperator(Object):
+    """A planned binary operator that materializes into an Object on ``await``.
+
+    Created synchronously by ``Object`` binary dunders (``__add__`` etc.); no
+    ClickHouse round-trip happens until the LazyOperator is awaited. The result
+    table name and lifetime can be controlled via ``.as_(name, scope=...)``.
+
+    See ``docs/object.md`` — "Lazy Operator Results".
+
+    Fields:
+        lhs: Left operand — Object, LazyOperator, or Python scalar.
+        rhs: Right operand — Object, LazyOperator, Python scalar, or None.
+             ``None`` is reserved for future unary/aggregation operators.
+        operator: Operator symbol (e.g. "+", "==", "&").
+    """
+
+    def __init__(
+        self,
+        lhs: Object | ValueScalarType,
+        rhs: Object | ValueScalarType | None,
+        operator: str,
+        schema_preview: Schema,
+    ):
+        # NB: do NOT call Object.__init__ — we have no table yet. Set up the
+        # Object-subclass invariants manually so inherited methods that touch
+        # _stale / _registered / _owns_lifecycle_ref behave correctly.
+        self.lhs = lhs
+        self.rhs = rhs
+        self.operator = operator
+        self._schema = schema_preview
+        self._name: str | None = None
+        self._scope: NamedScope | None = None
+        self._materialized: Object | None = None
+        self._stale = False
+        self._registered = False
+        self._owns_lifecycle_ref = False
+
+    def as_(self, name: str, scope: NamedScope = "temp_named") -> LazyOperator:
+        """Return a new LazyOperator that materializes with the given name and scope.
+
+        Args:
+            name: Result table name (forwarded to ``create_object``).
+            scope: ``"temp_named"`` (default), ``"job"``, or ``"global"`` — see
+                ``create_object`` for the lifetime semantics of each.
+
+        Returns:
+            New LazyOperator instance. The receiver is unchanged.
+        """
+        new = LazyOperator(
+            lhs=self.lhs,
+            rhs=self.rhs,
+            operator=self.operator,
+            schema_preview=self._schema,
+        )
+        new._name = name
+        new._scope = scope
+        return new
+
+    @property
+    def table(self) -> str:
+        """Table name of the materialized result.
+
+        Raises:
+            RuntimeError: When the LazyOperator has not been awaited yet.
+        """
+        if self._materialized is None:
+            raise RuntimeError(
+                "LazyOperator has no table yet — `await` it before reading .table. "
+                "Async methods like .data() auto-materialize; only sync table-access "
+                "requires an explicit await."
+            )
+        return self._materialized.table
+
+    def _peek_op_metadata(self) -> tuple[str, str, bool, ColumnInfo | None]:
+        """Read the precomputed result schema — no _get_query_info() call,
+        since LazyOperator has no table pre-materialize.
+        """
+        s = self._schema
+        col = s.columns.get("value")
+        return (
+            s.fieldtype,
+            col.type if col is not None else "Float64",
+            col.nullable if col is not None else False,
+            s.columns.get(AAI_ID_COLUMN),
+        )
+
+    async def _materialize(self) -> Object:
+        """Walk lhs/rhs and produce the materialized Object. Cached on _materialized."""
+        if self._materialized is not None:
+            return self._materialized
+
+        # Resolve both operands concurrently — when both are LazyOperators with
+        # independent upstream chains, they can materialize in parallel.
+        lhs_obj, rhs_obj = await asyncio.gather(
+            _resolve_operand(self.lhs),
+            _resolve_operand(self.rhs),
+        )
+        lhs_obj.checkstale()
+        rhs_obj.checkstale()
+        _require_explicit_order_for_cross_table(lhs_obj, rhs_obj)
+
+        info_a = lhs_obj._get_query_info()
+        info_b = rhs_obj._get_query_info()
+        result = await operators._apply_operator_db(
+            info_a,
+            info_b,
+            self.operator,
+            get_ch_client(),
+            name=self._name,
+            scope=self._scope,
+        )
+        self._materialized = result
+        return result
+
+    def __await__(self):
+        return self._materialize().__await__()
+
+    # Async-method overrides: each first materializes (cached), then delegates.
+    # Sync properties (.table, .scope) still raise pre-materialize — only async
+    # methods auto-materialize, because only they can `await`.
+
+    async def data(self, *args, **kwargs):
+        return await (await self._materialize()).data(*args, **kwargs)
+
+    async def result(self, *args, **kwargs):
+        return await (await self._materialize()).result(*args, **kwargs)
+
+    async def markdown(self, *args, **kwargs):
+        return await (await self._materialize()).markdown(*args, **kwargs)
+
+    async def export(self, *args, **kwargs):
+        return await (await self._materialize()).export(*args, **kwargs)
+
+    # Aggregations — phase 1 keeps these eager (still ``async def → Object`` on
+    # Object); LazyOperator materializes first so the fluent ``(a + b).sum()``
+    # pattern works.
+
+    async def min(self):
+        return await (await self._materialize()).min()
+
+    async def max(self):
+        return await (await self._materialize()).max()
+
+    async def sum(self):
+        return await (await self._materialize()).sum()
+
+    async def mean(self):
+        return await (await self._materialize()).mean()
+
+    async def std(self):
+        return await (await self._materialize()).std()
+
+    async def var(self):
+        return await (await self._materialize()).var()
+
+    async def count(self):
+        return await (await self._materialize()).count()
+
+    async def count_if(self, condition):
+        return await (await self._materialize()).count_if(condition)
+
+    async def quantile(self, q):
+        return await (await self._materialize()).quantile(q)
+
+    async def unique(self):
+        return await (await self._materialize()).unique()
+
+    async def nunique(self):
+        return await (await self._materialize()).nunique()
+
+    # Unary transforms — same pattern.
+
+    async def year(self):
+        return await (await self._materialize()).year()
+
+    async def month(self):
+        return await (await self._materialize()).month()
+
+    async def day_of_week(self):
+        return await (await self._materialize()).day_of_week()
+
+    async def lower(self):
+        return await (await self._materialize()).lower()
+
+    async def upper(self):
+        return await (await self._materialize()).upper()
+
+    async def length(self):
+        return await (await self._materialize()).length()
+
+    async def trim(self):
+        return await (await self._materialize()).trim()
+
+    async def abs(self):
+        return await (await self._materialize()).abs()
+
+    async def log2(self):
+        return await (await self._materialize()).log2()
+
+    async def sqrt(self):
+        return await (await self._materialize()).sqrt()
+
+    # Copy / concat / join / insert — return new Objects or mutate, materialize first.
+
+    async def copy(self):
+        return await (await self._materialize()).copy()
+
+    async def concat(self, *args):
+        return await (await self._materialize()).concat(*args)
+
+    async def join(self, other, on, how="INNER"):
+        return await (await self._materialize()).join(other, on, how=how)
+
+    async def insert(self, *args):
+        return await (await self._materialize()).insert(*args)
+
+    def __repr__(self) -> str:
+        if self._materialized is not None:
+            return f"LazyOperator(materialized={self._materialized.table!r})"
+        return f"LazyOperator(op={self.operator!r}, materialized=False)"

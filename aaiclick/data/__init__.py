@@ -62,5 +62,15 @@ from .models import (
     ViewSchema,
     parse_ch_type,
 )
-from .object import DataResult, GroupByQuery, Object, View, cast, create_object_from_url, literal, split_by_char
+from .object import (
+    DataResult,
+    GroupByQuery,
+    LazyOperator,
+    Object,
+    View,
+    cast,
+    create_object_from_url,
+    literal,
+    split_by_char,
+)
 from .scope import NamedScope, ObjectScope

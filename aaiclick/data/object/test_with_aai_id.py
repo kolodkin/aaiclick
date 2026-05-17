@@ -13,7 +13,7 @@ Operator propagation
 Binary operators propagate ``aai_id`` from whichever array operand carries
 it (LHS wins when both do). Scalar broadcast still propagates from the
 array side regardless of LHS/RHS position. The result table's ``aai_id``
-auto-orders subsequent reads, so ``await (a + b).data()`` returns rows in
+auto-orders subsequent reads, so ``a + b.data()`` returns rows in
 the propagated side's original order.
 """
 
@@ -77,7 +77,7 @@ async def test_cross_table_op_works_without_explicit_order_when_aai_id_present(c
     """With aai_id on both sides, the cross-table contract is satisfied implicitly."""
     a = await create_object_from_value([10, 20, 30], aai_id=True)
     b = await create_object_from_value([-5, 5, 0], aai_id=True)
-    result = await (a + b)  # no .view(order_by=...) wrappers needed
+    result = a + b  # no .view(order_by=...) wrappers needed
     assert "aai_id" in result.schema.columns
     assert await result.data() == [5, 25, 30]
 
@@ -126,7 +126,7 @@ async def test_operator_result_recovers_pair_order_via_aai_id(ctx):
     a = await create_object_from_value([10, 20, 30], aai_id=True)
     b = await create_object_from_value([-5, 5, 0], aai_id=True)
 
-    result = await (a + b)
+    result = a + b
     # Positional pairing: (10-5, 20+5, 30+0) = [5, 25, 30] in LHS order
     assert await result.data() == [5, 25, 30]
 
@@ -151,7 +151,7 @@ async def test_operator_propagates_rhs_aai_id_when_lhs_lacks_it(ctx):
 async def test_scalar_broadcast_propagates_aai_id(ctx):
     """array-with-aai_id * scalar propagates aai_id to result."""
     a = await create_object_from_value([10, 20, 30], aai_id=True)
-    result = await (a * 2)
+    result = a * 2
     assert "aai_id" in result.schema.columns
     assert await result.data() == [20, 40, 60]
 
@@ -159,7 +159,7 @@ async def test_scalar_broadcast_propagates_aai_id(ctx):
 async def test_reverse_scalar_broadcast_propagates_aai_id(ctx):
     """scalar * array-with-aai_id (Python scalar LHS) propagates from RHS."""
     a = await create_object_from_value([10, 20, 30], aai_id=True)
-    result = await (2 * a)
+    result = 2 * a
     assert "aai_id" in result.schema.columns
     # Result preserves a's row order via the propagated aai_id.
     assert await result.data() == [20, 40, 60]
@@ -169,7 +169,7 @@ async def test_reverse_scalar_object_broadcast_propagates_aai_id(ctx):
     """scalar_object * array-with-aai_id propagates from the array (RHS) side."""
     s = await create_object_from_value(2)
     a = await create_object_from_value([10, 20, 30], aai_id=True)
-    result = await (s * a)
+    result = s * a
     assert "aai_id" in result.schema.columns
     assert await result.data() == [20, 40, 60]
 
@@ -180,7 +180,7 @@ async def test_chained_operators_preserve_aai_id(ctx):
     b = await create_object_from_value([-5, 5, 0], aai_id=True)
     c = await create_object_from_value([1, 2, 3], aai_id=True)
 
-    result = await (await (a + b) + c)
+    result = (a + b) + c
     assert "aai_id" in result.schema.columns
     assert await result.data() == [6, 27, 33]
 
@@ -191,7 +191,7 @@ async def test_same_table_field_op_propagates_aai_id(ctx):
         {"x": [1, 2, 3], "y": [10, 20, 30]},
         aai_id=True,
     )
-    result = await (obj["x"] + obj["y"])
+    result = obj["x"] + obj["y"]
     assert "aai_id" in result.schema.columns
     assert await result.data() == [11, 22, 33]
 

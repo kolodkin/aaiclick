@@ -61,9 +61,9 @@ async def main():
     async with data_context():
         prices = await create_object_from_value([10.0, 20.0, 30.0])
 
-        total = await (prices + prices * 0.1)  # scalars broadcast automatically
-        print(await total.data())  # → [11.0, 22.0, 33.0]
-        print(await (await total.mean()).data())  # → 22.0
+        total = prices + prices * 0.1                # LazyOperator — no DB call yet
+        print(await total.data())                    # → [11.0, 22.0, 33.0]
+        print(await (await total.mean()).data())     # → 22.0
 
 asyncio.run(main())
 ```
@@ -79,4 +79,3 @@ python -m aaiclick setup
 - [Object API](object.md) — operators, aggregations, views, group by
 - [Orchestration](orchestration.md) — `@task` and `@job` decorators, workers
 - [Examples](examples/basic_operators.md) — runnable scripts for every feature
-- [API Reference](api/data.md) — auto-generated from docstrings

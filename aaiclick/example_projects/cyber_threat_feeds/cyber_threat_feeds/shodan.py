@@ -92,10 +92,10 @@ async def _cvss_distribution(cves: Object) -> dict:
 
     # Comparison operators on Nullable(Float64) produce Float64-typed results,
     # so we use arithmetic: mean of (cvss >= threshold) gives the fraction.
-    gte9 = await (cvss >= 9.0)
+    gte9 = cvss >= 9.0
     critical_pct = (await (await gte9.mean()).data()) * 100
 
-    gte7 = await (cvss >= 7.0)
+    gte7 = cvss >= 7.0
     gte7_pct = (await (await gte7.mean()).data()) * 100
     high_pct = gte7_pct - critical_pct
 
@@ -121,7 +121,7 @@ async def _epss_distribution(cves: Object) -> dict:
     p90_epss = await (await epss.quantile(0.9)).data()
     p99_epss = await (await epss.quantile(0.99)).data()
 
-    high_prob = await (epss > 0.5)
+    high_prob = epss > 0.5
     high_prob_pct = (await (await high_prob.mean()).data()) * 100
 
     return {

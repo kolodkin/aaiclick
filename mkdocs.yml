@@ -31,18 +31,6 @@ theme:
 
 plugins:
   - search
-  - mkdocstrings:
-      handlers:
-        python:
-          options:
-            show_source: false
-            show_root_heading: true
-            show_root_full_path: false
-            show_symbol_type_heading: true
-            show_symbol_type_toc: true
-            docstring_style: google
-            merge_init_into_class: true
-            members_order: source
 
 markdown_extensions:
   - admonition
@@ -85,9 +73,5 @@ nav:
     - Nullable Columns: examples/nullable.md
     - Orchestration Basics: examples/orchestration_basic.md
     - Orchestration Dynamic: examples/orchestration_dynamic.md
-  - API Reference:
-    - Data: api/data.md
-    - Orchestration: api/orchestration.md
-    - AI: api/ai.md
   - Glossary: glossary.md
   - License: LICENSE.md

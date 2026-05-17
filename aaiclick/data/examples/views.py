@@ -309,11 +309,11 @@ async def example():
     print(f"View B (value <= 50, limit 3): {await view_b.data()}\n")  # → [10, 20, 30]
 
     # Add views
-    result_add = await (view_a + view_b)
+    result_add = view_a + view_b
     print(f"View A + View B: {await result_add.data()}")  # → [16, 27, 38]
 
     # Multiply views
-    result_mul = await (view_a * view_b)
+    result_mul = view_a * view_b
     print(f"View A * View B: {await result_mul.data()}")  # → [60, 140, 240]
 
     # Note: All objects created via context are automatically cleaned up when context exits
