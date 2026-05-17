@@ -10,15 +10,16 @@ from aaiclick.ai.config import get_ai_provider
 
 
 def test_get_ai_provider_strips_whitespace_from_env(monkeypatch: pytest.MonkeyPatch):
-    """Trailing/leading whitespace in env vars is stripped.
+    """All whitespace (including interior) is removed from the API key.
 
     aiohttp rejects any header containing ``\\n`` or ``\\r`` as a header-injection
-    guard, so a stray newline in ``AAICLICK_AI_API_KEY`` (common with secrets
-    pasted into env files or returned from CI secret stores) would crash every
-    request. Strip at the boundary.
+    guard, so a stray newline in ``AAICLICK_AI_API_KEY`` would crash every
+    request. Edges aren't enough — pasting a long secret into the GH Actions
+    UI sometimes wraps it with an interior newline. Stripping all whitespace
+    is safe for API keys, which never legitimately contain whitespace.
     """
     monkeypatch.setenv("AAICLICK_AI_MODEL", "  nvidia_nim/meta/llama-3.3-70b-instruct\n")
-    monkeypatch.setenv("AAICLICK_AI_API_KEY", "nvapi-xxxxx\n")
+    monkeypatch.setenv("AAICLICK_AI_API_KEY", " nvapi-xx\nxx\r\nx ")
 
     provider = get_ai_provider()
 

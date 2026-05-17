@@ -16,4 +16,11 @@ PYTHON="${PYTHON:-uv run python}"
 
 export AAICLICK_AI_MODEL="${AAICLICK_AI_MODEL:-nvidia_nim/meta/llama-3.1-8b-instruct}"
 
+# litellm 1.83 defaults to an aiohttp transport whose cythonized header
+# validator rejects any header containing \n or \r. Secrets pasted into GH
+# Actions sometimes carry stray whitespace; the resulting Authorization header
+# crashes every request. Falling back to plain httpx (which is more lenient)
+# sidesteps the entire class of issues without changing semantics.
+export DISABLE_AIOHTTP_TRANSPORT="${DISABLE_AIOHTTP_TRANSPORT:-True}"
+
 $PYTHON -m basic_lineage
