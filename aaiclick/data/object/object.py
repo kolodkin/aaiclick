@@ -63,7 +63,6 @@ from . import join as join_module
 from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
 from .refs import ObjectRef, ViewRef
 from .schema_compute import (
-    AGGREGATION_FUNCTIONS,
     UNARY_TRANSFORMS,
     _compute_operator_schema,
     _preview_agg_schema,
@@ -2877,11 +2876,14 @@ class LazyOperator(Object):
             return self._materialized
 
         # Resolve both operands concurrently — when both are LazyOperators with
-        # independent upstream chains, they can materialize in parallel.
+        # independent upstream chains, they can materialize in parallel. ``lhs``
+        # is always non-None on a LazyOperator (the planners guarantee it);
+        # ``rhs`` is None for unary / aggregation operators.
         lhs_obj, rhs_obj = await asyncio.gather(
             _resolve_operand(self.lhs),
             _resolve_operand(self.rhs),
         )
+        assert lhs_obj is not None, "LazyOperator.lhs must always resolve to an Object"
         lhs_obj.checkstale()
 
         ch_client = get_ch_client()
@@ -2910,13 +2912,13 @@ class LazyOperator(Object):
         if op in _SIMPLE_AGGREGATIONS:
             return await operators._apply_aggregation(info, op, ch_client, name=self._name, scope=self._scope)
         if op == "count_if":
+            assert self.params is not None
             return await operators.count_if_agg(
                 info, self.params["condition"], ch_client, name=self._name, scope=self._scope
             )
         if op == "quantile":
-            return await operators.quantile_agg(
-                info, self.params["q"], ch_client, name=self._name, scope=self._scope
-            )
+            assert self.params is not None
+            return await operators.quantile_agg(info, self.params["q"], ch_client, name=self._name, scope=self._scope)
         if op == "unique":
             return await operators.unique_group(info, ch_client, name=self._name, scope=self._scope)
         if op == "nunique":
