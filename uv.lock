@@ -33,6 +33,7 @@ ai = [
     { name = "ollama" },
 ]
 all = [
+    { name = "aiohttp" },
     { name = "asyncpg" },
     { name = "clickhouse-connect" },
     { name = "fastapi" },
@@ -44,6 +45,7 @@ all = [
     { name = "uvicorn", extra = ["standard"] },
 ]
 dev = [
+    { name = "aiohttp" },
     { name = "asyncpg" },
     { name = "clickhouse-connect" },
     { name = "fastapi" },
@@ -60,6 +62,7 @@ dev = [
     { name = "uvicorn", extra = ["standard"] },
 ]
 distributed = [
+    { name = "aiohttp" },
     { name = "asyncpg" },
     { name = "clickhouse-connect" },
     { name = "psycopg2-binary" },
@@ -85,6 +88,7 @@ test = [
 requires-dist = [
     { name = "aaiclick", extras = ["ai", "distributed", "server"], marker = "extra == 'all'" },
     { name = "aaiclick", extras = ["all", "test"], marker = "extra == 'dev'" },
+    { name = "aiohttp", marker = "extra == 'distributed'", specifier = ">=3.9.0" },
     { name = "aiosqlite", specifier = ">=0.22.0" },
     { name = "alembic", specifier = ">=1.18.0" },
     { name = "asyncpg", marker = "extra == 'distributed'", specifier = ">=0.31.0" },
