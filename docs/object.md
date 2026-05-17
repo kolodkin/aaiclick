@@ -61,29 +61,33 @@ All operators work element-wise on scalar and array data, creating new Object ta
 !!! tip "Scalar broadcast"
     Python scalars work on either side: `obj * 2` and `2 * obj` both work.
 
-## Lazy Operator Results (`a + b` is a Plan, not a Table)
+## Lazy Operator Results (`a + b` and `a.sum()` are Plans, not Tables)
 
-Every binary operator on an `Object` (`+`, `-`, `*`, `/`, `//`, `%`, `**`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `&`, `|`, `^`) returns a `LazyOperator` — a subclass of `Object` that captures the operation plan (`lhs`, `rhs`, `operator`, precomputed result schema) without touching ClickHouse. The `CREATE TABLE` + `INSERT INTO ... SELECT` happens when the lazy is awaited.
+Every binary operator (`+`, `-`, `*`, `/`, `//`, `%`, `**`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `&`, `|`, `^`), aggregation (`.min()` / `.max()` / `.sum()` / `.mean()` / `.std()` / `.var()` / `.count()` / `.count_if()` / `.quantile()` / `.unique()` / `.nunique()`), and unary transform (`.year()` / `.month()` / `.day_of_week()` / `.lower()` / `.upper()` / `.length()` / `.trim()` / `.abs()` / `.log2()` / `.sqrt()`) returns a `LazyOperator` — a subclass of `Object` that captures the operation plan (`lhs`, `rhs`, `operator`, precomputed result schema) without touching ClickHouse. The `CREATE TABLE` + `INSERT INTO ... SELECT` happens when the lazy is awaited.
 
 ```python
 # 1. Build a plan — pure Python, no DB call
 plan = a + b                                       # LazyOperator (no table yet)
+total = a.sum()                                    # also a LazyOperator
 
-# 2. Read rows — async methods auto-materialize
+# 2. Read rows / scalars — async methods auto-materialize
 rows = await (a + b).data()                        # creates t_<id>, reads rows
+value = await a.sum().data()                       # one await — materialize + read
 
 # 3. Get the materialized Object (for .table, legacy APIs, etc.)
 obj = await (a + b)                                # table = t_<id>
+scalar_obj = await a.sum()                         # table = t_<id> with one row
 
 # 4. Control the table name — use .as_()
 revenue = await (prices * quantities).as_("revenue")            # t_revenue_<id>
+daily_total = await orders.sum().as_("daily_total")             # t_daily_total_<id>
 
 # 5. Persist beyond the current context
 daily = await (sales + bonuses).as_("daily", scope="job")       # j_<job_id>_daily
-yearly = await (revenue + bonuses).as_("yearly", scope="global") # p_yearly
+yearly = await orders.sum().as_("yearly", scope="global")       # p_yearly
 ```
 
-`await` is only needed when the caller wants the materialized `Object` back — to read `.table`, hand it to an eager API, etc. Reading rows (`.data()`, `.markdown()`, `.export()`, `.result()`), aggregating (`.sum()`, `.mean()`, etc.), unary transforms (`.abs()`, `.lower()`, etc.), or chaining further operators (`(a + b) + c`) don't require an explicit `await` of the intermediate — the lazy passes through.
+`await` is only needed when the caller wants the materialized `Object` back — to read `.table`, hand it to an eager API, etc. Reading rows (`.data()`, `.markdown()`, `.export()`, `.result()`) or chaining further operators (`(a + b) + c`, `obj.abs().sum()`) doesn't require an explicit `await` of the intermediate — the lazy passes through.
 
 ### `.as_(name, scope=...)`
 
@@ -113,11 +117,19 @@ LazyOperator(op="+", lhs=LazyOperator(op="+", lhs=a, rhs=b), rhs=c)
 
 When awaited, each `LazyOperator` node materializes into its own table — no fusion. `await ((a + b) + c).as_("outer")` writes **two** tables: an unnamed temp for the inner `a + b` and a `t_outer_<id>` for the outer. A LazyOperator that's been materialized once is reused if it appears in multiple expressions.
 
+Aggregations and unary transforms stack the same way. `obj.abs().sum()` builds:
+
+```
+LazyOperator(op="sum", lhs=LazyOperator(op="abs", lhs=obj, rhs=None), rhs=None)
+```
+
+`await (a + b).sum().as_("total", scope="job")` writes one unnamed temp for the inner `+` and `j_<job_id>_total` for the outer `sum`. Aggregations always materialize their input first — there is no SQL-level fusion across the chain.
+
 ### Avoid: concurrent await of the same instance
 
 `asyncio.gather(lazy.data(), lazy.data())` races: both tasks see `_materialized is None` and both materialize. The result is two tables (the second wins the cache slot; the first is orphaned and dropped via refcount cleanup). To share a result across tasks, `await` once and share the returned `Object`.
 
-**Implementation:** `LazyOperator` and `_plan_operator` in `aaiclick/data/object/object.py`; shared schema-computation helpers in `aaiclick/data/object/schema_compute.py`; materialization in `aaiclick/data/object/operators.py` (`_apply_operator_db`).
+**Implementation:** `LazyOperator`, `_plan_operator`, `_plan_aggregation`, `_plan_unary_transform` in `aaiclick/data/object/object.py`; shared schema-computation helpers in `aaiclick/data/object/schema_compute.py` (`_preview_operator_schema`, `_preview_agg_schema`, `_preview_unary_schema`, …); materialization in `aaiclick/data/object/operators.py` (`_apply_operator_db`, `_apply_aggregation`, `unary_transform`, …).
 
 ??? note "Arithmetic Operators"
 

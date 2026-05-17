@@ -1,35 +1,59 @@
 # Future Work — LazyOperator
 
 Planned extensions to the `LazyOperator` design shipped in `docs/object.md`
-("Lazy Operator Results"). Two distinct directions, ordered by readiness.
+("Lazy Operator Results").
 
 ---
 
-## Phase 2: `.as_()` for Aggregations, Unary, Joins, Concat, Copy, Group-By
+## Phase 2a: Aggregations + Unary Transforms — ✅ SHIPPED
+
+`.as_(name, scope=...)` now works on:
+
+- **Aggregations**: `.min()`, `.max()`, `.sum()`, `.mean()`, `.std()`,
+  `.var()`, `.count()`, `.count_if()`, `.quantile()`, `.unique()`,
+  `.nunique()`.
+- **Unary transforms**: `.year()`, `.month()`, `.day_of_week()`, `.lower()`,
+  `.upper()`, `.length()`, `.trim()`, `.abs()`, `.log2()`, `.sqrt()`.
+
+Each method is now a sync planner returning `LazyOperator(lhs=self,
+rhs=None, operator=<name>)`. Parametrized operators (`count_if`,
+`quantile`) carry their extra args on `LazyOperator.params`. The
+materialize path lives in `LazyOperator._materialize_unary`, which
+dispatches by operator name to the matching function in
+`aaiclick/data/object/operators.py` and forwards `name`/`scope` to
+`create_object`. Preview helpers (`_preview_agg_schema`,
+`_preview_unary_schema`, `_preview_count_if_schema`,
+`_preview_quantile_schema`, `_preview_unique_schema`,
+`_preview_nunique_schema`) live in `aaiclick/data/object/schema_compute.py`
+so the preview and materialize paths share one source of truth.
+
+The fluent `(a + b).sum()` pattern now stacks two `LazyOperator` nodes
+instead of materializing eagerly between them. `await (a + b).sum().as_("total", scope="job")`
+writes one unnamed temp for the inner `+` and `j_<job_id>_total` for the
+outer `sum` — both nodes pick up their `name`/`scope` from the call chain.
+
+---
+
+## Phase 2b: `.as_()` for Joins, Concat, Copy, Group-By
 
 **Status:** Mechanical; the data shape is already designed for it.
 
-Phase 1 shipped `.as_(name, scope=...)` for the 16 binary operators (arithmetic,
-comparison, bitwise). Follow-up phases extend the same `LazyOperator` pattern
-to the remaining operations that materialize a new table:
+Follow-up to Phase 2a — extend the same `LazyOperator` pattern to the
+remaining operations that materialize a new table:
 
-- Aggregations — `.sum()`, `.mean()`, `.min()`, `.max()`, `.std()`, `.var()`,
-  `.count()`, `.count_if()`, `.quantile()`, `.unique()`, `.nunique()`
-- Unary transforms — `.year()`, `.month()`, `.day_of_week()`, `.lower()`,
-  `.upper()`, `.length()`, `.trim()`, `.abs()`, `.log2()`, `.sqrt()`
 - `.copy()`, `.concat()`, `.join()`, `.group_by(...).sum()` etc.
 
-Each follow-up phase is mechanical: convert the entry method from
-`async def → Object` to a sync planner returning
-`LazyOperator(lhs=self, rhs=None, operator=<name>)` and pass `name`/`scope`
-through to the underlying `create_object` call. The data shape
-(`rhs: Object | ValueScalarType | None`) was chosen in phase 1 specifically
-to accommodate `rhs=None` for unary and aggregation ops without a migration.
+LazyOperator already overrides these methods to auto-materialize (so
+today's `(a + b).copy()` works fluently), but each call still materializes
+both the operator result table and the copy/join result table. Phase 2b
+collapses that into a single `LazyOperator` chain that names the final
+result.
 
-LazyOperator already overrides these methods to auto-materialize (so today's
-`(a + b).sum()` works fluently), but each call still materializes both the
-operator result table and the aggregation result table. Phase 2 collapses
-that into a single `LazyOperator` chain that names the final result.
+Each follow-up is mechanical: convert the entry method from
+`async def → Object` to a sync planner returning a `LazyOperator` and pass
+`name`/`scope` through to the underlying materialize call. The data shape
+(`rhs: Object | ValueScalarType | None` + `params: dict | None`) covers
+binary, unary, and parametrized operators alike.
 
 ---
 

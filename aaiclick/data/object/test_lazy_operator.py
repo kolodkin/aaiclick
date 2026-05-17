@@ -364,3 +364,222 @@ async def test_lazy_operator_is_public_api():
 
     assert hasattr(aaiclick, "LazyOperator")
     assert aaiclick.LazyOperator is InternalLazy
+
+
+# -----------------------------------------------------------------------------
+# Phase 2: aggregations and unary transforms return LazyOperator
+# -----------------------------------------------------------------------------
+
+SIMPLE_AGG_METHODS = ["min", "max", "sum", "mean", "std", "var", "count"]
+UNARY_NUMERIC_METHODS = ["abs", "log2", "sqrt"]
+UNARY_STRING_METHODS = ["lower", "upper", "length", "trim"]
+
+
+@pytest.mark.parametrize("method", SIMPLE_AGG_METHODS)
+async def test_aggregation_returns_lazy_operator(ctx, method):
+    """Calling an aggregation method on an Object returns a LazyOperator
+    (no DB hit until await)."""
+    obj = await create_object_from_value([1, 2, 3, 4, 5])
+    lazy = getattr(obj, method)()
+    assert isinstance(lazy, LazyOperator)
+    assert lazy._materialized is None
+    assert lazy.operator == method
+    assert lazy.rhs is None
+
+
+async def test_aggregation_as_named_temp(ctx):
+    """obj.sum().as_('foo') materializes into t_foo_<snowflake>."""
+    obj = await create_object_from_value([10, 20, 30, 40])
+    result = await obj.sum().as_("daily_total")
+    assert result.table.startswith("t_daily_total_")
+    assert result.scope == "temp_named"
+    assert await result.data() == 100
+
+
+async def test_aggregation_as_scope_job(ctx):
+    """obj.mean().as_('avg', scope='job') uses j_<job_id>_avg."""
+    obj = await create_object_from_value([10, 20, 30, 40])
+    result = await obj.mean().as_("avg", scope="job")
+    assert result.table.startswith("j_")
+    assert result.table.endswith("_avg")
+    assert result.persistent is True
+    assert await result.data() == 25.0
+
+
+async def test_aggregation_data_auto_materializes(ctx):
+    """The user's request: ``await obj.sum().data()`` works directly — no
+    double-await needed (LazyOperator.data() materializes then reads)."""
+    obj = await create_object_from_value([1, 2, 3, 4, 5])
+    assert await obj.sum().data() == 15
+
+
+async def test_double_await_pattern_still_works(ctx):
+    """Legacy ``await (await obj.sum()).data()`` still works because
+    LazyOperator is awaitable and resolves to a materialized Object."""
+    obj = await create_object_from_value([1, 2, 3, 4, 5])
+    materialized = await obj.sum()
+    assert materialized.table.startswith("t_")
+    assert await materialized.data() == 15
+
+
+async def test_aggregation_on_lazy_chain(ctx):
+    """(a + b).sum() — the fluent pattern. LazyOperator+LazyOperator =
+    chained plan; awaiting materializes both."""
+    obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
+    obj_b = await create_object_from_value([10, 20, 30], aai_id=True)
+    chain = (obj_a + obj_b).sum()
+    assert isinstance(chain, LazyOperator)
+    assert chain.operator == "sum"
+    assert isinstance(chain.lhs, LazyOperator)
+    assert chain.lhs.operator == "+"
+    assert await chain.data() == 66
+
+
+async def test_aggregation_on_lazy_chain_named(ctx):
+    """(a + b).sum().as_('total', scope='job') materializes both — the inner
+    + into an unnamed temp, the outer sum into j_<job_id>_total."""
+    obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
+    obj_b = await create_object_from_value([10, 20, 30], aai_id=True)
+    result = await (obj_a + obj_b).sum().as_("total", scope="job")
+    assert result.table.startswith("j_")
+    assert result.table.endswith("_total")
+    assert await result.data() == 66
+
+
+@pytest.mark.parametrize("method", UNARY_NUMERIC_METHODS)
+async def test_unary_numeric_returns_lazy_operator(ctx, method):
+    obj = await create_object_from_value([1.0, 4.0, 9.0])
+    lazy = getattr(obj, method)()
+    assert isinstance(lazy, LazyOperator)
+    assert lazy.operator == method
+    assert lazy.rhs is None
+
+
+@pytest.mark.parametrize("method", UNARY_STRING_METHODS)
+async def test_unary_string_returns_lazy_operator(ctx, method):
+    obj = await create_object_from_value(["  hello  ", "World", "foo"])
+    lazy = getattr(obj, method)()
+    assert isinstance(lazy, LazyOperator)
+    assert lazy.operator == method
+    assert lazy.rhs is None
+
+
+async def test_unary_transform_as_named(ctx):
+    """obj.lower().as_('lowered') names the result table."""
+    obj = await create_object_from_value(["HELLO", "WORLD"])
+    result = await obj.lower().as_("lowered")
+    assert result.table.startswith("t_lowered_")
+    assert await result.data() == ["hello", "world"]
+
+
+async def test_unary_transform_data_auto_materializes(ctx):
+    obj = await create_object_from_value(["HELLO", "WORLD"])
+    assert await obj.upper().data() == ["HELLO", "WORLD"]
+
+
+async def test_count_if_str_returns_lazy(ctx):
+    obj = await create_object_from_value([1, 2, 3, 4, 5])
+    lazy = obj.count_if("value > 3")
+    assert isinstance(lazy, LazyOperator)
+    assert lazy.operator == "count_if"
+    assert lazy.params == {"condition": "value > 3"}
+    assert await lazy.data() == 2
+
+
+async def test_count_if_dict_returns_lazy_dict(ctx):
+    obj = await create_object_from_value([1, 2, 3, 4, 5])
+    lazy = obj.count_if({"small": "value <= 2", "large": "value >= 4"})
+    assert isinstance(lazy, LazyOperator)
+    # Schema preview should already reflect the dict columns.
+    assert set(lazy.schema.columns) == {"small", "large"}
+    rows = await lazy.data()
+    assert rows == {"small": 2, "large": 2}
+
+
+async def test_count_if_as_named(ctx):
+    obj = await create_object_from_value([1, 2, 3, 4, 5])
+    result = await obj.count_if("value > 3").as_("big_count")
+    assert result.table.startswith("t_big_count_")
+    assert await result.data() == 2
+
+
+async def test_quantile_returns_lazy(ctx):
+    obj = await create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    lazy = obj.quantile(0.5)
+    assert isinstance(lazy, LazyOperator)
+    assert lazy.operator == "quantile"
+    assert lazy.params == {"q": 0.5}
+    assert await lazy.data() == 5.5
+
+
+async def test_quantile_as_named(ctx):
+    obj = await create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    result = await obj.quantile(0.25).as_("q1")
+    assert result.table.startswith("t_q1_")
+
+
+async def test_unique_returns_lazy(ctx):
+    obj = await create_object_from_value([1, 2, 2, 3, 3, 3, 4])
+    lazy = obj.unique()
+    assert isinstance(lazy, LazyOperator)
+    assert lazy.operator == "unique"
+    assert lazy.schema.fieldtype == FIELDTYPE_ARRAY
+    assert sorted(await lazy.data()) == [1, 2, 3, 4]
+
+
+async def test_unique_as_named(ctx):
+    obj = await create_object_from_value([1, 2, 2, 3, 3, 3, 4])
+    result = await obj.unique().as_("distinct_vals")
+    assert result.table.startswith("t_distinct_vals_")
+    assert sorted(await result.data()) == [1, 2, 3, 4]
+
+
+async def test_nunique_returns_lazy(ctx):
+    obj = await create_object_from_value([1, 2, 2, 3, 3, 3, 4])
+    lazy = obj.nunique()
+    assert isinstance(lazy, LazyOperator)
+    assert lazy.operator == "nunique"
+    assert lazy.schema.fieldtype == FIELDTYPE_SCALAR
+    assert await lazy.data() == 4
+
+
+async def test_nunique_as_named(ctx):
+    obj = await create_object_from_value([1, 2, 2, 3, 3, 3, 4])
+    result = await obj.nunique().as_("n_distinct")
+    assert result.table.startswith("t_n_distinct_")
+    assert await result.data() == 4
+
+
+async def test_chained_unary_then_aggregation(ctx):
+    """obj.abs().sum() builds two stacked LazyOperators."""
+    obj = await create_object_from_value([-1.0, -2.0, 3.0, -4.0])
+    chain = obj.abs().sum()
+    assert isinstance(chain, LazyOperator)
+    assert chain.operator == "sum"
+    assert isinstance(chain.lhs, LazyOperator)
+    assert chain.lhs.operator == "abs"
+    assert await chain.data() == 10.0
+
+
+async def test_aggregation_preview_matches_materialized(ctx):
+    """Pre-materialize schema preview must match the schema of the materialized result."""
+    obj = await create_object_from_value([1, 2, 3, 4, 5])
+    for method in SIMPLE_AGG_METHODS:
+        lazy = getattr(obj, method)()
+        preview = lazy.schema
+        materialized = await lazy
+        assert preview.fieldtype == materialized.schema.fieldtype
+        assert set(preview.columns) == set(materialized.schema.columns)
+        for col in preview.columns:
+            assert preview.columns[col].type == materialized.schema.columns[col].type, method
+
+
+async def test_unary_preview_matches_materialized(ctx):
+    obj = await create_object_from_value([1.0, 4.0, 9.0])
+    for method in UNARY_NUMERIC_METHODS:
+        lazy = getattr(obj, method)()
+        preview = lazy.schema
+        materialized = await lazy
+        assert preview.fieldtype == materialized.schema.fieldtype
+        for col in preview.columns:
+            assert preview.columns[col].type == materialized.schema.columns[col].type, method

@@ -12,11 +12,14 @@ from ..data_context.data_context import _infer_clickhouse_type
 from ..models import (
     AAI_ID_COLUMN,
     FIELDTYPE_ARRAY,
+    FIELDTYPE_DICT,
     FIELDTYPE_SCALAR,
     FLOAT_TYPES,
+    INT_TYPES,
     ColumnInfo,
     Schema,
     ValueScalarType,
+    parse_ch_type,
 )
 
 # Division and power always return Float64 in ClickHouse.
@@ -112,6 +115,118 @@ def _compute_operator_schema(
         result_columns[AAI_ID_COLUMN] = aai_id_source.model_copy(update={"default": None})
 
     return Schema(fieldtype=fieldtype, columns=result_columns), aai_id_side
+
+
+# Unary transform key → (ClickHouse function, result type) — single source of
+# truth shared between ``_preview_unary_schema`` (preview) and
+# ``operators.unary_transform`` (materialize). Mirrored to ``operators.UNARY_TRANSFORMS``
+# via re-export so existing imports keep working.
+UNARY_TRANSFORMS: dict[str, tuple[str, str]] = {
+    # Date/time extractions
+    "year": ("toYear", "UInt16"),
+    "month": ("toMonth", "UInt8"),
+    "day_of_week": ("toDayOfWeek", "UInt8"),
+    # String transforms
+    "lower": ("lower", "String"),
+    "upper": ("upper", "String"),
+    "length": ("length", "UInt64"),
+    "trim": ("trimBoth", "String"),
+    # Math transforms
+    "abs": ("abs", "Float64"),
+    "log2": ("log2", "Float64"),
+    "sqrt": ("sqrt", "Float64"),
+}
+
+
+# Aggregation key → ClickHouse function name. Mirrored to
+# ``operators.AGGREGATION_FUNCTIONS``.
+AGGREGATION_FUNCTIONS: dict[str, str] = {
+    "min": "min",
+    "max": "max",
+    "sum": "sum",
+    "mean": "avg",
+    "std": "stddevPop",
+    "var": "varPop",
+    "count": "count",
+    "any": "any",
+    "group_array_distinct": "groupArrayDistinct",
+}
+
+
+def _determine_agg_result_type(agg_func: str, source_type: str | ColumnInfo) -> str:
+    """Determine the ClickHouse result type for an aggregation function.
+
+    Aggregation results are always non-nullable (ClickHouse aggregations
+    skip NULLs and always produce a value).
+
+    Rules:
+        - min/max/any preserve the source base type
+        - sum preserves integer types, promotes to Float64 for float types
+        - count always returns UInt64
+        - mean/std/var always return Float64
+    """
+    base_type = source_type.type if isinstance(source_type, ColumnInfo) else parse_ch_type(source_type).type
+    if agg_func in ("min", "max", "any"):
+        return base_type
+    if agg_func == "sum":
+        if base_type == "Bool":
+            return "UInt64"
+        return base_type if base_type in INT_TYPES else "Float64"
+    if agg_func == "count":
+        return "UInt64"
+    return "Float64"
+
+
+def _preview_unary_schema(input_fieldtype: str, transform: str) -> Schema:
+    """Sync preview of the Schema ``operators.unary_transform`` will produce.
+
+    The unary transform preserves the input fieldtype (scalar→scalar,
+    array→array) and replaces the value type with the transform's fixed
+    result type from ``UNARY_TRANSFORMS``.
+    """
+    _, result_type = UNARY_TRANSFORMS[transform]
+    return Schema(fieldtype=input_fieldtype, columns={"value": ColumnInfo(result_type)})
+
+
+def _preview_agg_schema(input_value_type: str, agg_func: str) -> Schema:
+    """Sync preview of the scalar Schema ``operators._apply_aggregation`` will produce.
+
+    All seven simple aggregations (min/max/sum/mean/std/var/count) produce a
+    scalar, non-nullable result. The value type follows ClickHouse promotion
+    rules encoded in ``_determine_agg_result_type``.
+    """
+    value_type = _determine_agg_result_type(agg_func, input_value_type)
+    return Schema(fieldtype=FIELDTYPE_SCALAR, columns={"value": ColumnInfo(value_type)})
+
+
+def _preview_count_if_schema(condition: str | dict[str, str]) -> Schema:
+    """Sync preview of ``operators.count_if_agg``'s result Schema.
+
+    A ``str`` condition produces a scalar UInt64. A ``dict`` produces a dict
+    Object with one UInt64 column per entry, names taken from the dict keys.
+    """
+    if isinstance(condition, str):
+        return Schema(fieldtype=FIELDTYPE_SCALAR, columns={"value": ColumnInfo("UInt64")})
+    columns = {name: ColumnInfo("UInt64") for name in condition}
+    return Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
+
+
+def _preview_quantile_schema() -> Schema:
+    """Sync preview of ``operators.quantile_agg`` — always scalar Float64."""
+    return Schema(fieldtype=FIELDTYPE_SCALAR, columns={"value": ColumnInfo("Float64")})
+
+
+def _preview_unique_schema(input_value_type: str, input_nullable: bool) -> Schema:
+    """Sync preview of ``operators.unique_group`` — array of source value type."""
+    return Schema(
+        fieldtype=FIELDTYPE_ARRAY,
+        columns={"value": ColumnInfo(input_value_type, nullable=input_nullable)},
+    )
+
+
+def _preview_nunique_schema() -> Schema:
+    """Sync preview of ``operators.nunique_agg`` — scalar UInt64 count."""
+    return Schema(fieldtype=FIELDTYPE_SCALAR, columns={"value": ColumnInfo("UInt64")})
 
 
 def _preview_operator_schema(schema_a: Schema, schema_b: Schema, operator: str) -> Schema:
