@@ -4,6 +4,10 @@ name: test-py-nightly
 # (test.yaml) only runs the 3.10 minimum; this workflow re-verifies 3.10
 # alongside 3.14 (the latest stable) so a fix tailored to one version
 # can't silently regress the other between PR merges.
+#
+# 3.15 is intentionally not in the matrix yet — pyo3 0.26.0 caps at 3.14,
+# so transitive deps like tiktoken (via litellm) and pydantic-core can't
+# build against it. Re-add once those publish 3.15-compatible wheels.
 
 on:
   schedule:
