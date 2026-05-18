@@ -301,9 +301,9 @@ async def compute_distance_analysis(trips: Object) -> dict:
     avg_distance = await distances.mean().data()
     median_distance = await distances.quantile(0.5).data()
     short_trips = distances < 1
-    short_trips_pct = (await short_trips.mean().data()) * 100
+    short_trips_pct = await short_trips.mean().data() * 100
     long_trips = distances > 10
-    long_trips_pct = (await long_trips.mean().data()) * 100
+    long_trips_pct = await long_trips.mean().data() * 100
     avg_fare_per_mile = await fare_per_mile.mean().data()
     median_fare_per_mile = await fare_per_mile.quantile(0.5).data()
 
