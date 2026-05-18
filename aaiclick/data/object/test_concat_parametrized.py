@@ -6,7 +6,7 @@ Tests array concatenation with objects, scalar values, and list values.
 
 import pytest
 
-from aaiclick import create_object_from_value
+from aaiclick import create_object_from_value, delete_persistent_object
 from aaiclick.data.models import Computed
 
 THRESHOLD = 1e-5
@@ -323,3 +323,27 @@ async def test_concat_preserves_dict_fieldtype(ctx):
     assert isinstance(data, dict)
     assert sorted(data["id"]) == ["A1", "B1", "B2"]
     assert sorted(data["score"]) == [10.0, 20.0, 30.0]
+
+
+async def test_concat_with_name_global_scope(ctx):
+    """concat(name=..., scope='global') routes through the named-table path."""
+    a = await create_object_from_value([1, 2])
+    b = await create_object_from_value([3, 4])
+
+    result = await a.concat(b, name="concat_named_global", scope="global")
+    try:
+        assert result.table == "p_concat_named_global"
+        assert await result.data() == [1, 2, 3, 4]
+    finally:
+        await delete_persistent_object("concat_named_global", scope="global")
+
+
+async def test_concat_with_name_temp_scope(ctx):
+    """concat(name=...) defaults to temp_named scope (t_<name>_<id>)."""
+    a = await create_object_from_value([1, 2])
+    b = await create_object_from_value([3, 4])
+
+    result = await a.concat(b, name="concat_named_temp")
+
+    assert result.table.startswith("t_concat_named_temp_")
+    assert await result.data() == [1, 2, 3, 4]

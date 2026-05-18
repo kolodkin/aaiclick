@@ -62,7 +62,17 @@ from . import data_extraction, ingest, operators
 from . import join as join_module
 from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
 from .refs import ObjectRef, ViewRef
-from .schema_compute import _compute_operator_schema, _scalar_to_schema
+from .schema_compute import (
+    UNARY_TRANSFORMS,
+    _compute_operator_schema,
+    _preview_agg_schema,
+    _preview_count_if_schema,
+    _preview_nunique_schema,
+    _preview_quantile_schema,
+    _preview_unary_schema,
+    _preview_unique_schema,
+    _scalar_to_schema,
+)
 
 # Sentinel for "caller did not pass this kwarg" — distinguishes from None
 # which means "explicitly no value" (e.g. limit=None to disable the safety cap).
@@ -803,13 +813,26 @@ class Object:
     def __rxor__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator_reverse(other, "^")
 
-    async def copy(self) -> Object:
+    async def copy(
+        self,
+        *,
+        name: str | None = None,
+        scope: NamedScope | None = None,
+    ) -> Object:
         """
         Copy this object to a new object and table.
 
         Creates a new Object with a copy of all data from this object.
         Preserves all column metadata including fieldtype.
         Also works for Views, handling field selection and constraints.
+
+        Args:
+            name: Optional result table name. When set, the copy is registered
+                  in the table registry under this name. See ``create_object``
+                  for the naming/scoping rules.
+            scope: Lifetime tier for the named result —
+                  ``"temp_named"`` (default when ``name`` is set), ``"job"``,
+                  or ``"global"``. Must be ``None`` when ``name`` is ``None``.
 
         Returns:
             Object: New Object instance with copied data
@@ -818,6 +841,9 @@ class Object:
             >>> obj_a = await ctx.create_object_from_value([1, 2, 3])
             >>> obj_copy = await obj_a.copy()
             >>> await obj_copy.data()  # Returns [1, 2, 3]
+            >>>
+            >>> # Snapshot under a stable global name
+            >>> await obj_a.copy(name="snapshot_2024", scope="global")
             >>>
             >>> # Also works for views with field selection
             >>> obj = await create_object_from_value({'x': [1, 2], 'y': [3, 4]})
@@ -828,13 +854,18 @@ class Object:
         source_table = self.table
         copy_info = self._get_copy_info()
         if copy_info.selected_fields:
-            result = await ingest.copy_db_selected_fields(copy_info, self.ch_client)
+            result = await ingest.copy_db_selected_fields(copy_info, self.ch_client, name=name, scope=scope)
         else:
-            result = await ingest.copy_db(copy_info, self.ch_client)
+            result = await ingest.copy_db(copy_info, self.ch_client, name=name, scope=scope)
         oplog_record_sample(result.table, "copy", kwargs={"source": source_table})
         return result
 
-    async def concat(self, *args: Object | ValueType) -> Object:
+    async def concat(
+        self,
+        *args: Object | ValueType,
+        name: str | None = None,
+        scope: NamedScope | None = None,
+    ) -> Object:
         """
         Concatenate multiple objects or values to this object.
 
@@ -845,6 +876,12 @@ class Object:
 
         Args:
             *args: Variable number of Objects or ValueTypes to concatenate
+            name: Optional result table name. When set, the result is registered
+                  in the table registry under this name. See ``create_object``
+                  for the naming/scoping rules.
+            scope: Lifetime tier for the named result —
+                  ``"temp_named"`` (default when ``name`` is set), ``"job"``,
+                  or ``"global"``. Must be ``None`` when ``name`` is ``None``.
 
         Returns:
             Object: New Object instance with concatenated data
@@ -867,6 +904,9 @@ class Object:
             >>> # Concatenate with mixed types
             >>> result = await obj_a.concat(42, [7, 8], obj_b)
             >>> await result.data()  # Returns [1, 2, 3, 42, 7, 8, ...]
+            >>>
+            >>> # Persist the merged result under a stable job-scoped name
+            >>> await obj_a.concat(obj_b, name="merged", scope="job")
             >>>
             >>> # Nullable promotion: if any source has nullable columns,
             >>> # result is promoted to nullable
@@ -902,10 +942,10 @@ class Object:
 
         # If all args were empty lists, just copy self
         if len(query_infos) == 1:
-            result = await self.copy()
+            result = await self.copy(name=name, scope=scope)
         else:
             # Single database operation for all sources
-            result = await ingest.concat_objects_db(query_infos, self.ch_client)
+            result = await ingest.concat_objects_db(query_infos, self.ch_client, name=name, scope=scope)
 
         # Cleanup temporary objects
         for temp in temp_objects:
@@ -922,6 +962,8 @@ class Object:
         right_on: str | list[str] | None = None,
         how: join_module.JoinHow = "inner",
         suffixes: join_module.SuffixesArg = None,
+        name: str | None = None,
+        scope: NamedScope | None = None,
     ) -> Object:
         """Join two Objects on one or more key columns.
 
@@ -940,6 +982,12 @@ class Object:
                 and right. ``True`` uses the default ``("_l", "_r")`` pair;
                 a tuple lets you pick custom suffixes; ``None`` (the
                 default) / ``False`` make a collision raise ``ValueError``.
+            name: Optional result table name. When set, the join result is
+                  registered in the table registry under this name. See
+                  ``create_object`` for the naming/scoping rules.
+            scope: Lifetime tier for the named result —
+                  ``"temp_named"`` (default when ``name`` is set), ``"job"``,
+                  or ``"global"``. Must be ``None`` when ``name`` is ``None``.
 
         Returns:
             Object: new dict Object with the joined rows.
@@ -960,6 +1008,8 @@ class Object:
             how=how,
             suffixes=suffixes,
             ch_client=self.ch_client,
+            name=name,
+            scope=scope,
         )
 
     async def insert(self, *args: Self | ValueType) -> None:
@@ -1114,343 +1164,158 @@ class Object:
             backoff_factor=backoff_factor,
         )
 
-    async def min(self) -> Object:
+    def _plan_aggregation(self, agg_func: str) -> LazyOperator:
+        """Synchronously plan a simple aggregation (min/max/sum/mean/std/var/count).
+
+        Returns a LazyOperator with the precomputed scalar result schema; the
+        underlying ``operators._apply_aggregation`` call runs on await.
         """
-        Calculate the minimum value from the object's table.
+        self.checkstale()
+        _, value_type, _, _ = self._peek_op_metadata()
+        schema_preview = _preview_agg_schema(value_type, agg_func)
+        return LazyOperator(lhs=self, rhs=None, operator=agg_func, schema_preview=schema_preview)
 
-        Creates a new Object with a scalar result containing the minimum value.
-        All computation happens within ClickHouse - no data round-trips to Python.
+    def min(self) -> LazyOperator:
+        """Calculate the minimum value from the object's table.
 
-        Returns:
-            Self: New scalar Object containing the minimum value
+        Returns a ``LazyOperator`` that materializes on ``await`` into a scalar
+        Object. Use ``.as_(name, scope=...)`` to control the result table name.
 
         Examples:
             >>> obj = await create_object_from_value([5, 2, 8, 1, 9])
-            >>> result = await obj.min()
-            >>> await result.data()  # Returns 1
+            >>> await obj.min().data()  # Returns 1
+            >>> await obj.min().as_("daily_min", scope="job")  # named, job-scoped
         """
-        self.checkstale()
-        info = self._get_query_info()
-        return await operators.min_agg(info, self.ch_client)
+        return self._plan_aggregation("min")
 
-    async def max(self) -> Object:
-        """
-        Calculate the maximum value from the object's table.
+    def max(self) -> LazyOperator:
+        """Calculate the maximum value. Returns a LazyOperator (scalar)."""
+        return self._plan_aggregation("max")
 
-        Creates a new Object with a scalar result containing the maximum value.
-        All computation happens within ClickHouse - no data round-trips to Python.
+    def sum(self) -> LazyOperator:
+        """Calculate the sum. Returns a LazyOperator (scalar)."""
+        return self._plan_aggregation("sum")
 
-        Returns:
-            Self: New scalar Object containing the maximum value
+    def mean(self) -> LazyOperator:
+        """Calculate the mean (average). Returns a LazyOperator (scalar)."""
+        return self._plan_aggregation("mean")
 
-        Examples:
-            >>> obj = await create_object_from_value([5, 2, 8, 1, 9])
-            >>> result = await obj.max()
-            >>> await result.data()  # Returns 9
-        """
-        self.checkstale()
-        info = self._get_query_info()
-        return await operators.max_agg(info, self.ch_client)
+    def std(self) -> LazyOperator:
+        """Calculate the standard deviation (population). Returns a LazyOperator (scalar)."""
+        return self._plan_aggregation("std")
 
-    async def sum(self) -> Object:
-        """
-        Calculate the sum of values from the object's table.
+    def var(self) -> LazyOperator:
+        """Calculate the variance (population). Returns a LazyOperator (scalar)."""
+        return self._plan_aggregation("var")
 
-        Creates a new Object with a scalar result containing the sum.
-        All computation happens within ClickHouse - no data round-trips to Python.
+    def count(self) -> LazyOperator:
+        """Count the number of values. Returns a LazyOperator (scalar UInt64)."""
+        return self._plan_aggregation("count")
 
-        Returns:
-            Self: New scalar Object containing the sum value
+    def count_if(self, condition: str | dict[str, str]) -> LazyOperator:
+        """Count rows matching condition(s) using countIf().
 
-        Examples:
-            >>> obj = await create_object_from_value([1, 2, 3, 4, 5])
-            >>> result = await obj.sum()
-            >>> await result.data()  # Returns 15
-        """
-        self.checkstale()
-        info = self._get_query_info()
-        return await operators.sum_agg(info, self.ch_client)
-
-    async def mean(self) -> Object:
-        """
-        Calculate the mean (average) value from the object's table.
-
-        Creates a new Object with a scalar result containing the mean.
-        All computation happens within ClickHouse - no data round-trips to Python.
-
-        Returns:
-            Self: New scalar Object containing the mean value
-
-        Examples:
-            >>> obj = await create_object_from_value([10, 20, 30, 40])
-            >>> result = await obj.mean()
-            >>> await result.data()  # Returns 25.0
-        """
-        self.checkstale()
-        info = self._get_query_info()
-        return await operators.mean_agg(info, self.ch_client)
-
-    async def std(self) -> Object:
-        """
-        Calculate the standard deviation of values from the object's table.
-
-        Creates a new Object with a scalar result containing the standard deviation (population).
-        All computation happens within ClickHouse - no data round-trips to Python.
-
-        Returns:
-            Self: New scalar Object containing the standard deviation value
-
-        Examples:
-            >>> obj = await create_object_from_value([2, 4, 6, 8])
-            >>> result = await obj.std()
-            >>> await result.data()  # Returns 2.2360679774997898
-        """
-        self.checkstale()
-        info = self._get_query_info()
-        return await operators.std_agg(info, self.ch_client)
-
-    async def var(self) -> Object:
-        """
-        Calculate the variance of values from the object's table.
-
-        Creates a new Object with a scalar result containing the variance (population).
-        All computation happens within ClickHouse - no data round-trips to Python.
-
-        Reference: https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/varpop
-
-        Returns:
-            Self: New scalar Object containing the variance value
-
-        Examples:
-            >>> obj = await create_object_from_value([2, 4, 6, 8])
-            >>> result = await obj.var()
-            >>> await result.data()  # Returns 5.0 (std^2 = 2.236^2)
-        """
-        self.checkstale()
-        info = self._get_query_info()
-        return await operators.var_agg(info, self.ch_client)
-
-    async def count(self) -> Object:
-        """
-        Count the number of values in the object's table.
-
-        Creates a new Object with a scalar result containing the count.
-        All computation happens within ClickHouse - no data round-trips to Python.
-
-        Reference: https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/count
-
-        Returns:
-            Self: New scalar Object containing the count value (UInt64)
-
-        Examples:
-            >>> obj = await create_object_from_value([1, 2, 3, 4, 5])
-            >>> result = await obj.count()
-            >>> await result.data()  # Returns 5
-        """
-        self.checkstale()
-        info = self._get_query_info()
-        return await operators.count_agg(info, self.ch_client)
-
-    async def count_if(self, condition: str | dict[str, str]) -> Object:
-        """
-        Count rows matching condition(s) using countIf().
-
-        When condition is a str, returns a scalar Object (single countIf).
-        When condition is a dict {name: condition_str}, returns a dict Object
-        with one UInt64 column per entry, computed in a single table scan.
+        When condition is a str, materializes to a scalar Object.
+        When condition is a dict ``{name: condition_str}``, materializes to a
+        dict Object with one UInt64 column per entry, computed in one scan.
 
         Reference: https://clickhouse.com/docs/sql-reference/aggregate-functions/combinators#-if
+        """
+        self.checkstale()
+        schema_preview = _preview_count_if_schema(condition)
+        return LazyOperator(
+            lhs=self,
+            rhs=None,
+            operator="count_if",
+            schema_preview=schema_preview,
+            params={"condition": condition},
+        )
+
+    def quantile(self, q: float) -> LazyOperator:
+        """Calculate the quantile. Returns a LazyOperator (scalar Float64).
 
         Args:
-            condition: SQL condition string, or dict mapping result names to conditions
-
-        Returns:
-            Self: Scalar Object (str) or dict Object (dict)
-
-        Examples:
-            >>> obj = await create_object_from_value([1, 2, 3, 4, 5])
-            >>> result = await obj.count_if("value > 3")
-            >>> await result.data()  # Returns 2
-
-            >>> stats = await obj.count_if({
-            ...     "small": "value <= 2",
-            ...     "large": "value >= 4",
-            ... })
-            >>> await stats.data()  # {"small": 2, "large": 2}
+            q: Quantile level between 0 and 1 (e.g., 0.5 for median).
         """
         self.checkstale()
-        info = self._get_query_info()
-        return await operators.count_if_agg(info, condition, self.ch_client)
+        schema_preview = _preview_quantile_schema()
+        return LazyOperator(
+            lhs=self,
+            rhs=None,
+            operator="quantile",
+            schema_preview=schema_preview,
+            params={"q": q},
+        )
 
-    async def quantile(self, q: float) -> Object:
-        """
-        Calculate the quantile of values from the object's table.
+    def unique(self) -> LazyOperator:
+        """Get unique values. Returns a LazyOperator (array of source value type).
 
-        Creates a new Object with a scalar result containing the quantile value.
-        All computation happens within ClickHouse - no data round-trips to Python.
-
-        Reference: https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/quantile
-
-        Args:
-            q: Quantile level between 0 and 1 (e.g., 0.5 for median, 0.25 for Q1)
-
-        Returns:
-            Self: New scalar Object containing the quantile value
-
-        Raises:
-            ValueError: If q is not between 0 and 1
-
-        Examples:
-            >>> obj = await create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-            >>> median = await obj.quantile(0.5)
-            >>> await median.data()  # Returns 5.5 (median)
-            >>> q1 = await obj.quantile(0.25)
-            >>> await q1.data()  # Returns first quartile
+        Uses ``GROUP BY`` internally (faster than ``DISTINCT`` on large data).
+        Order is not guaranteed.
         """
         self.checkstale()
-        info = self._get_query_info()
-        return await operators.quantile_agg(info, q, self.ch_client)
+        _, value_type, nullable, _ = self._peek_op_metadata()
+        schema_preview = _preview_unique_schema(value_type, nullable)
+        return LazyOperator(lhs=self, rhs=None, operator="unique", schema_preview=schema_preview)
 
-    async def unique(self) -> Object:
-        """
-        Get unique values from the object's table.
+    def nunique(self) -> LazyOperator:
+        """Count distinct values. Returns a LazyOperator (scalar UInt64).
 
-        Creates a new Object with an array containing only unique values.
-        Uses GROUP BY instead of DISTINCT for better performance on large datasets.
-        All computation happens within ClickHouse - no data round-trips to Python.
-
-        Note: The order of unique values is not guaranteed. Use GROUP BY internally
-        as it's more efficient than DISTINCT in ClickHouse for large datasets.
-        Reference: https://clickhouse.com/docs/sql-reference/statements/select/group-by
-
-        Returns:
-            Self: New array Object containing unique values
-
-        Examples:
-            >>> obj = await create_object_from_value([1, 2, 2, 3, 3, 3, 4])
-            >>> result = await obj.unique()
-            >>> sorted(await result.data())  # Returns [1, 2, 3, 4]
+        Fused equivalent of ``obj.unique().count()`` — single query:
+        ``SELECT count() FROM (... GROUP BY value)``.
         """
         self.checkstale()
-        info = self._get_query_info()
-        return await operators.unique_group(info, self.ch_client)
-
-    async def nunique(self) -> Object:
-        """
-        Count the number of distinct values.
-
-        Fused operation equivalent to ``(await obj.unique()).count()`` but
-        executes a single query: ``SELECT count() FROM (... GROUP BY value)``.
-
-        Uses GROUP BY (not ``uniq()``) for exact results and compatibility
-        with MergeTree sorted data (``optimize_aggregation_in_order``).
-
-        Returns:
-            Self: New scalar Object containing the count of distinct values
-
-        Examples:
-            >>> obj = await create_object_from_value([1, 2, 2, 3, 3, 3, 4])
-            >>> result = await obj.nunique()
-            >>> await result.data()  # Returns 4
-        """
-        self.checkstale()
-        info = self._get_query_info()
-        return await operators.nunique_agg(info, self.ch_client)
+        schema_preview = _preview_nunique_schema()
+        return LazyOperator(lhs=self, rhs=None, operator="nunique", schema_preview=schema_preview)
 
     # Unary Transform Operators
 
-    async def _apply_unary_transform(self, transform: str) -> Object:
-        """Apply a unary ClickHouse function to the value column.
-
-        Args:
-            transform: Transform key from operators.UNARY_TRANSFORMS
-
-        Returns:
-            Self: New Object with transformed values
-        """
+    def _plan_unary_transform(self, transform: str) -> LazyOperator:
+        """Synchronously plan a unary transform from ``UNARY_TRANSFORMS``."""
         self.checkstale()
-        info = self._get_query_info()
-        return await operators.unary_transform(info, transform, self.ch_client)
+        fieldtype, _, _, _ = self._peek_op_metadata()
+        schema_preview = _preview_unary_schema(fieldtype, transform)
+        return LazyOperator(lhs=self, rhs=None, operator=transform, schema_preview=schema_preview)
 
-    async def year(self) -> Object:
-        """Extract year from Date/DateTime values.
+    def year(self) -> LazyOperator:
+        """Extract year from Date/DateTime values (UInt16)."""
+        return self._plan_unary_transform("year")
 
-        Returns:
-            Self: New Object with UInt16 year values
-        """
-        return await self._apply_unary_transform("year")
+    def month(self) -> LazyOperator:
+        """Extract month (1-12) from Date/DateTime values (UInt8)."""
+        return self._plan_unary_transform("month")
 
-    async def month(self) -> Object:
-        """Extract month (1-12) from Date/DateTime values.
+    def day_of_week(self) -> LazyOperator:
+        """Extract day of week (1=Mon, 7=Sun) from Date/DateTime values (UInt8)."""
+        return self._plan_unary_transform("day_of_week")
 
-        Returns:
-            Self: New Object with UInt8 month values
-        """
-        return await self._apply_unary_transform("month")
+    def lower(self) -> LazyOperator:
+        """Lowercase string values."""
+        return self._plan_unary_transform("lower")
 
-    async def day_of_week(self) -> Object:
-        """Extract day of week (1=Mon, 7=Sun) from Date/DateTime values.
+    def upper(self) -> LazyOperator:
+        """Uppercase string values."""
+        return self._plan_unary_transform("upper")
 
-        Returns:
-            Self: New Object with UInt8 day-of-week values
-        """
-        return await self._apply_unary_transform("day_of_week")
+    def length(self) -> LazyOperator:
+        """String length of values (UInt64)."""
+        return self._plan_unary_transform("length")
 
-    async def lower(self) -> Object:
-        """Lowercase string values.
+    def trim(self) -> LazyOperator:
+        """Trim whitespace from string values."""
+        return self._plan_unary_transform("trim")
 
-        Returns:
-            Self: New Object with lowercased String values
-        """
-        return await self._apply_unary_transform("lower")
+    def abs(self) -> LazyOperator:
+        """Absolute value of numeric values (Float64)."""
+        return self._plan_unary_transform("abs")
 
-    async def upper(self) -> Object:
-        """Uppercase string values.
+    def log2(self) -> LazyOperator:
+        """Log base 2 of numeric values (Float64)."""
+        return self._plan_unary_transform("log2")
 
-        Returns:
-            Self: New Object with uppercased String values
-        """
-        return await self._apply_unary_transform("upper")
-
-    async def length(self) -> Object:
-        """String length of values.
-
-        Returns:
-            Self: New Object with UInt64 length values
-        """
-        return await self._apply_unary_transform("length")
-
-    async def trim(self) -> Object:
-        """Trim whitespace from string values.
-
-        Returns:
-            Self: New Object with trimmed String values
-        """
-        return await self._apply_unary_transform("trim")
-
-    async def abs(self) -> Object:
-        """Absolute value of numeric values.
-
-        Returns:
-            Self: New Object with Float64 absolute values
-        """
-        return await self._apply_unary_transform("abs")
-
-    async def log2(self) -> Object:
-        """Log base 2 of numeric values.
-
-        Returns:
-            Self: New Object with Float64 log2 values
-        """
-        return await self._apply_unary_transform("log2")
-
-    async def sqrt(self) -> Object:
-        """Square root of numeric values.
-
-        Returns:
-            Self: New Object with Float64 sqrt values
-        """
-        return await self._apply_unary_transform("sqrt")
+    def sqrt(self) -> LazyOperator:
+        """Square root of numeric values (Float64)."""
+        return self._plan_unary_transform("sqrt")
 
     # String/Regex Operators
 
@@ -2290,7 +2155,13 @@ class GroupByQuery:
             having=self._build_having(),
         )
 
-    async def agg(self, aggregations: dict[str, AggSpec]) -> Object:
+    async def agg(
+        self,
+        aggregations: dict[str, AggSpec],
+        *,
+        name: str | None = None,
+        scope: NamedScope | None = None,
+    ) -> Object:
         """
         Apply aggregations per group. Core method — all convenience methods delegate here.
 
@@ -2304,6 +2175,12 @@ class GroupByQuery:
 
         Args:
             aggregations: Dict mapping source_column -> AggSpec
+            name: Optional result table name. When set, the result is
+                  registered in the table registry under this name. See
+                  ``create_object`` for the naming/scoping rules.
+            scope: Lifetime tier for the named result —
+                  ``"temp_named"`` (default when ``name`` is set), ``"job"``,
+                  or ``"global"``. Must be ``None`` when ``name`` is ``None``.
 
         Returns:
             Dict Object with group keys + all aggregated columns
@@ -2316,45 +2193,51 @@ class GroupByQuery:
             >>> result = await obj.group_by('category').agg({
             ...     'amount': [Agg("sum", 'amount_sum'), Agg("mean", 'amount_avg')],
             ... })
+            >>> # Persist the grouped result under a stable job-scoped name
+            >>> await obj.group_by('category').agg(
+            ...     {'amount': "sum"}, name="daily_totals", scope="job"
+            ... )
         """
         info = self._get_group_by_info()
-        return await operators.group_by_agg(info, aggregations, self.ch_client)
+        return await operators.group_by_agg(info, aggregations, self.ch_client, name=name, scope=scope)
 
-    async def sum(self, column: str) -> Object:
+    async def sum(self, column: str, *, name: str | None = None, scope: NamedScope | None = None) -> Object:
         """Convenience: sum per group. Delegates to agg()."""
-        return await self.agg({column: GB_SUM})
+        return await self.agg({column: GB_SUM}, name=name, scope=scope)
 
-    async def mean(self, column: str) -> Object:
+    async def mean(self, column: str, *, name: str | None = None, scope: NamedScope | None = None) -> Object:
         """Convenience: mean per group. Delegates to agg()."""
-        return await self.agg({column: GB_MEAN})
+        return await self.agg({column: GB_MEAN}, name=name, scope=scope)
 
-    async def min(self, column: str) -> Object:
+    async def min(self, column: str, *, name: str | None = None, scope: NamedScope | None = None) -> Object:
         """Convenience: min per group. Delegates to agg()."""
-        return await self.agg({column: GB_MIN})
+        return await self.agg({column: GB_MIN}, name=name, scope=scope)
 
-    async def max(self, column: str) -> Object:
+    async def max(self, column: str, *, name: str | None = None, scope: NamedScope | None = None) -> Object:
         """Convenience: max per group. Delegates to agg()."""
-        return await self.agg({column: GB_MAX})
+        return await self.agg({column: GB_MAX}, name=name, scope=scope)
 
-    async def count(self) -> Object:
+    async def count(self, *, name: str | None = None, scope: NamedScope | None = None) -> Object:
         """Convenience: count per group. Delegates to agg()."""
-        return await self.agg({"_count": GB_COUNT})
+        return await self.agg({"_count": GB_COUNT}, name=name, scope=scope)
 
-    async def std(self, column: str) -> Object:
+    async def std(self, column: str, *, name: str | None = None, scope: NamedScope | None = None) -> Object:
         """Convenience: std per group. Delegates to agg()."""
-        return await self.agg({column: GB_STD})
+        return await self.agg({column: GB_STD}, name=name, scope=scope)
 
-    async def var(self, column: str) -> Object:
+    async def var(self, column: str, *, name: str | None = None, scope: NamedScope | None = None) -> Object:
         """Convenience: var per group. Delegates to agg()."""
-        return await self.agg({column: GB_VAR})
+        return await self.agg({column: GB_VAR}, name=name, scope=scope)
 
-    async def any(self, column: str) -> Object:
+    async def any(self, column: str, *, name: str | None = None, scope: NamedScope | None = None) -> Object:
         """Convenience: any (pick arbitrary non-NULL) per group. Delegates to agg()."""
-        return await self.agg({column: GB_ANY})
+        return await self.agg({column: GB_ANY}, name=name, scope=scope)
 
-    async def group_array_distinct(self, column: str) -> Object:
+    async def group_array_distinct(
+        self, column: str, *, name: str | None = None, scope: NamedScope | None = None
+    ) -> Object:
         """Convenience: collect distinct values into an array per group. Delegates to agg()."""
-        return await self.agg({column: GB_GROUP_ARRAY_DISTINCT})
+        return await self.agg({column: GB_GROUP_ARRAY_DISTINCT}, name=name, scope=scope)
 
     def __repr__(self) -> str:
         """String representation of the GroupByQuery."""
@@ -2921,16 +2804,16 @@ def _peek_other_metadata(value) -> tuple[str, str, bool, ColumnInfo | None]:
     return schema.fieldtype, col.type, col.nullable, None
 
 
-async def _resolve_operand(value: LazyOperator | Object | ValueScalarType | None) -> Object:
+async def _resolve_operand(value: LazyOperator | Object | ValueScalarType | None) -> Object | None:
     """Resolve an operand to a materialized Object.
 
     - LazyOperator → materialize and unwrap.
     - Object → return as-is.
     - Python scalar → ``Object._ensure_object``.
-    - None → raise (reserved for future unary ops; phase 1 always has both).
+    - None → return ``None`` (unary / aggregation operators have no RHS).
     """
     if value is None:
-        raise RuntimeError("LazyOperator phase 1 requires both lhs and rhs to be non-None")
+        return None
     if isinstance(value, LazyOperator):
         return await value._materialize()
     if isinstance(value, Object):
@@ -2938,20 +2821,38 @@ async def _resolve_operand(value: LazyOperator | Object | ValueScalarType | None
     return await Object._ensure_object(value)
 
 
-class LazyOperator(Object):
-    """A planned binary operator that materializes into an Object on ``await``.
+# Operator dispatch tables for unary / aggregation LazyOperators (rhs=None).
+# Each entry maps an operator name to a coroutine factory that produces the
+# materialized result given the resolved lhs Object, the LazyOperator instance
+# (for ``params``), and forwarded ``name``/``scope``.
+_SIMPLE_AGGREGATIONS = frozenset({"min", "max", "sum", "mean", "std", "var", "count"})
 
-    Created synchronously by ``Object`` binary dunders (``__add__`` etc.); no
-    ClickHouse round-trip happens until the LazyOperator is awaited. The result
-    table name and lifetime can be controlled via ``.as_(name, scope=...)``.
+
+class LazyOperator(Object):
+    """A planned operator that materializes into an Object on ``await``.
+
+    Created synchronously by ``Object`` operator methods (binary dunders
+    ``__add__`` / ``__eq__`` / etc., aggregations ``.sum()`` / ``.nunique()``,
+    unary transforms ``.year()`` / ``.lower()``, …). No ClickHouse round-trip
+    happens until the LazyOperator is awaited. The result table name and
+    lifetime can be controlled via ``.as_(name, scope=...)``.
 
     See ``docs/object.md`` — "Lazy Operator Results".
 
     Fields:
         lhs: Left operand — Object, LazyOperator, or Python scalar.
-        rhs: Right operand — Object, LazyOperator, Python scalar, or None.
-             ``None`` is reserved for future unary/aggregation operators.
-        operator: Operator symbol (e.g. "+", "==", "&").
+        rhs: Right operand — Object, LazyOperator, Python scalar, or
+            ``None`` (unary / aggregation operators have no RHS).
+        operator: Operator symbol or name:
+            - Binary: ``"+", "-", "*", "/", "//", "%", "**", "==", "!=",
+              "<", "<=", ">", ">=", "&", "|", "^"``.
+            - Unary transforms (rhs=None): keys of
+              ``schema_compute.UNARY_TRANSFORMS`` (``"year"``, ``"lower"``, …).
+            - Aggregations (rhs=None): ``"min" / "max" / "sum" / "mean" /
+              "std" / "var" / "count"``, plus ``"count_if"``,
+              ``"quantile"``, ``"unique"``, ``"nunique"``.
+        params: Operator-specific extra arguments — e.g. ``{"q": 0.5}`` for
+            ``quantile``, ``{"condition": ...}`` for ``count_if``.
     """
 
     def __init__(
@@ -2960,6 +2861,7 @@ class LazyOperator(Object):
         rhs: Object | ValueScalarType | None,
         operator: str,
         schema_preview: Schema,
+        params: dict | None = None,
     ):
         # NB: do NOT call Object.__init__ — we have no table yet. Set up the
         # Object-subclass invariants manually so inherited methods that touch
@@ -2967,6 +2869,7 @@ class LazyOperator(Object):
         self.lhs = lhs
         self.rhs = rhs
         self.operator = operator
+        self.params = params
         self._schema = schema_preview
         self._name: str | None = None
         self._scope: NamedScope | None = None
@@ -2991,6 +2894,7 @@ class LazyOperator(Object):
             rhs=self.rhs,
             operator=self.operator,
             schema_preview=self._schema,
+            params=self.params,
         )
         new._name = name
         new._scope = scope
@@ -3030,27 +2934,54 @@ class LazyOperator(Object):
             return self._materialized
 
         # Resolve both operands concurrently — when both are LazyOperators with
-        # independent upstream chains, they can materialize in parallel.
+        # independent upstream chains, they can materialize in parallel. ``lhs``
+        # is always non-None on a LazyOperator (the planners guarantee it);
+        # ``rhs`` is None for unary / aggregation operators.
         lhs_obj, rhs_obj = await asyncio.gather(
             _resolve_operand(self.lhs),
             _resolve_operand(self.rhs),
         )
+        assert lhs_obj is not None, "LazyOperator.lhs must always resolve to an Object"
         lhs_obj.checkstale()
-        rhs_obj.checkstale()
-        _require_explicit_order_for_cross_table(lhs_obj, rhs_obj)
 
-        info_a = lhs_obj._get_query_info()
-        info_b = rhs_obj._get_query_info()
-        result = await operators._apply_operator_db(
-            info_a,
-            info_b,
-            self.operator,
-            get_ch_client(),
-            name=self._name,
-            scope=self._scope,
-        )
+        ch_client = get_ch_client()
+        if rhs_obj is None:
+            result = await self._materialize_unary(lhs_obj, ch_client)
+        else:
+            rhs_obj.checkstale()
+            _require_explicit_order_for_cross_table(lhs_obj, rhs_obj)
+            result = await operators._apply_operator_db(
+                lhs_obj._get_query_info(),
+                rhs_obj._get_query_info(),
+                self.operator,
+                ch_client,
+                name=self._name,
+                scope=self._scope,
+            )
         self._materialized = result
         return result
+
+    async def _materialize_unary(self, lhs_obj: Object, ch_client) -> Object:
+        """Dispatch a unary / aggregation operator (rhs=None) to its operator fn."""
+        info = lhs_obj._get_query_info()
+        op = self.operator
+        if op in UNARY_TRANSFORMS:
+            return await operators.unary_transform(info, op, ch_client, name=self._name, scope=self._scope)
+        if op in _SIMPLE_AGGREGATIONS:
+            return await operators._apply_aggregation(info, op, ch_client, name=self._name, scope=self._scope)
+        if op == "count_if":
+            assert self.params is not None
+            return await operators.count_if_agg(
+                info, self.params["condition"], ch_client, name=self._name, scope=self._scope
+            )
+        if op == "quantile":
+            assert self.params is not None
+            return await operators.quantile_agg(info, self.params["q"], ch_client, name=self._name, scope=self._scope)
+        if op == "unique":
+            return await operators.unique_group(info, ch_client, name=self._name, scope=self._scope)
+        if op == "nunique":
+            return await operators.nunique_agg(info, ch_client, name=self._name, scope=self._scope)
+        raise RuntimeError(f"LazyOperator: unknown unary operator {op!r}")
 
     def __await__(self):
         return self._materialize().__await__()
@@ -3071,85 +3002,38 @@ class LazyOperator(Object):
     async def export(self, *args, **kwargs):
         return await (await self._materialize()).export(*args, **kwargs)
 
-    # Aggregations — phase 1 keeps these eager (still ``async def → Object`` on
-    # Object); LazyOperator materializes first so the fluent ``(a + b).sum()``
-    # pattern works.
-
-    async def min(self):
-        return await (await self._materialize()).min()
-
-    async def max(self):
-        return await (await self._materialize()).max()
-
-    async def sum(self):
-        return await (await self._materialize()).sum()
-
-    async def mean(self):
-        return await (await self._materialize()).mean()
-
-    async def std(self):
-        return await (await self._materialize()).std()
-
-    async def var(self):
-        return await (await self._materialize()).var()
-
-    async def count(self):
-        return await (await self._materialize()).count()
-
-    async def count_if(self, condition):
-        return await (await self._materialize()).count_if(condition)
-
-    async def quantile(self, q):
-        return await (await self._materialize()).quantile(q)
-
-    async def unique(self):
-        return await (await self._materialize()).unique()
-
-    async def nunique(self):
-        return await (await self._materialize()).nunique()
-
-    # Unary transforms — same pattern.
-
-    async def year(self):
-        return await (await self._materialize()).year()
-
-    async def month(self):
-        return await (await self._materialize()).month()
-
-    async def day_of_week(self):
-        return await (await self._materialize()).day_of_week()
-
-    async def lower(self):
-        return await (await self._materialize()).lower()
-
-    async def upper(self):
-        return await (await self._materialize()).upper()
-
-    async def length(self):
-        return await (await self._materialize()).length()
-
-    async def trim(self):
-        return await (await self._materialize()).trim()
-
-    async def abs(self):
-        return await (await self._materialize()).abs()
-
-    async def log2(self):
-        return await (await self._materialize()).log2()
-
-    async def sqrt(self):
-        return await (await self._materialize()).sqrt()
-
     # Copy / concat / join / insert — return new Objects or mutate, materialize first.
+    # (Phase 2 covers aggregations + unary transforms; the table-shape ops below
+    # are scheduled for a follow-up phase; until then, materialize-and-delegate.)
 
-    async def copy(self):
-        return await (await self._materialize()).copy()
+    async def copy(self, *, name=None, scope=None):
+        return await (await self._materialize()).copy(name=name, scope=scope)
 
-    async def concat(self, *args):
-        return await (await self._materialize()).concat(*args)
+    async def concat(self, *args, name=None, scope=None):
+        return await (await self._materialize()).concat(*args, name=name, scope=scope)
 
-    async def join(self, other, on, how="INNER"):
-        return await (await self._materialize()).join(other, on, how=how)
+    async def join(
+        self,
+        other: Object,
+        *,
+        on: str | list[str] | None = None,
+        left_on: str | list[str] | None = None,
+        right_on: str | list[str] | None = None,
+        how: join_module.JoinHow = "inner",
+        suffixes: join_module.SuffixesArg = None,
+        name: str | None = None,
+        scope: NamedScope | None = None,
+    ):
+        return await (await self._materialize()).join(
+            other,
+            on=on,
+            left_on=left_on,
+            right_on=right_on,
+            how=how,
+            suffixes=suffixes,
+            name=name,
+            scope=scope,
+        )
 
     async def insert(self, *args):
         return await (await self._materialize()).insert(*args)

@@ -6,7 +6,7 @@ Tests scalar and array copying with verification that new tables are created.
 
 import pytest
 
-from aaiclick import create_object_from_value
+from aaiclick import create_object_from_value, delete_persistent_object
 
 THRESHOLD = 1e-5
 
@@ -166,3 +166,30 @@ async def test_multiple_copies_create_different_tables(ctx, input_value):
     assert copy1.table != copy2.table
     assert copy2.table != copy3.table
     assert copy1.table != copy3.table
+
+
+# =============================================================================
+# Named Copy Tests
+# =============================================================================
+
+
+async def test_copy_with_name_global_scope(ctx):
+    """copy(name=..., scope='global') routes through the named-table path."""
+    obj = await create_object_from_value([1, 2, 3])
+
+    copy = await obj.copy(name="copy_named_global", scope="global")
+    try:
+        assert copy.table == "p_copy_named_global"
+        assert await copy.data() == [1, 2, 3]
+    finally:
+        await delete_persistent_object("copy_named_global", scope="global")
+
+
+async def test_copy_with_name_temp_scope(ctx):
+    """copy(name=...) defaults to temp_named scope (t_<name>_<id>)."""
+    obj = await create_object_from_value([10, 20])
+
+    copy = await obj.copy(name="copy_named_temp")
+
+    assert copy.table.startswith("t_copy_named_temp_")
+    assert await copy.data() == [10, 20]

@@ -23,6 +23,7 @@ from ..models import (
     Schema,
     parse_ch_type,
 )
+from ..scope import NamedScope
 from ..sql_utils import quote_identifier
 
 
@@ -142,7 +143,13 @@ async def _get_fieldtype(table: str, ch_client) -> str:
     return value_col.fieldtype if value_col is not None else fieldtype
 
 
-async def copy_db(copy_info: CopyInfo, ch_client):
+async def copy_db(
+    copy_info: CopyInfo,
+    ch_client,
+    *,
+    name: str | None = None,
+    scope: NamedScope | None = None,
+):
     """Copy data into a new Object using a database-internal INSERT...SELECT.
 
     Creates a new Object with the schema from `copy_info`, then inserts all
@@ -151,12 +158,14 @@ async def copy_db(copy_info: CopyInfo, ch_client):
     Args:
         copy_info: CopyInfo with source query, column definitions, and fieldtype.
         ch_client: Active ClickHouse client instance.
+        name: Optional result table name (forwarded to ``create_object``).
+        scope: Optional result table scope (forwarded to ``create_object``).
 
     Returns:
         Object: New Object containing the copied data.
     """
     schema = Schema(fieldtype=copy_info.fieldtype, columns=copy_info.columns)
-    result = await create_object(schema)
+    result = await create_object(schema, name=name, scope=scope)
 
     alias = " AS s" if copy_info.source_query.startswith("(") else ""
     cols_str = ", ".join(copy_info.columns)
@@ -169,7 +178,13 @@ async def copy_db(copy_info: CopyInfo, ch_client):
     return result
 
 
-async def copy_db_selected_fields(copy_info: CopyInfo, ch_client):
+async def copy_db_selected_fields(
+    copy_info: CopyInfo,
+    ch_client,
+    *,
+    name: str | None = None,
+    scope: NamedScope | None = None,
+):
     """
     Copy selected fields from a dict Object to a new Object at database level.
 
@@ -179,6 +194,8 @@ async def copy_db_selected_fields(copy_info: CopyInfo, ch_client):
     Args:
         copy_info: CopyInfo with source query, columns, and selected fields info
         ch_client: ClickHouse client instance
+        name: Optional result table name (forwarded to ``create_object``).
+        scope: Optional result table scope (forwarded to ``create_object``).
 
     Returns:
         Object: New Object instance with copied data
@@ -190,7 +207,7 @@ async def copy_db_selected_fields(copy_info: CopyInfo, ch_client):
     if copy_info.is_single_field:
         field = copy_info.selected_fields[0]
         new_schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns={"value": copy_info.columns[field]})
-        result = await create_object(new_schema)
+        result = await create_object(new_schema, name=name, scope=scope)
         # The source_query already aliases the selected field as ``value``
         # (see Object._build_select's single-field branch).
         insert_query = f"""
@@ -200,7 +217,7 @@ async def copy_db_selected_fields(copy_info: CopyInfo, ch_client):
     else:
         columns = {field: copy_info.columns[field] for field in copy_info.selected_fields}
         new_schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
-        result = await create_object(new_schema)
+        result = await create_object(new_schema, name=name, scope=scope)
         fields_str = ", ".join(quote_identifier(f) for f in copy_info.selected_fields)
         insert_query = f"""
         INSERT INTO {result.table} ({fields_str})
@@ -243,6 +260,9 @@ async def _insert_source(
 async def concat_objects_db(
     query_infos: list[IngestQueryInfo],
     ch_client,
+    *,
+    name: str | None = None,
+    scope: NamedScope | None = None,
 ):
     """
     Concatenate multiple sources into a new Object, one INSERT per source.
@@ -251,6 +271,8 @@ async def concat_objects_db(
     Args:
         query_infos: List of QueryInfo (source and base_table pairs, minimum 2)
         ch_client: ClickHouse client instance
+        name: Optional result table name (forwarded to ``create_object``).
+        scope: Optional result table scope (forwarded to ``create_object``).
 
     Returns:
         Object: New Object instance with concatenated data
@@ -290,7 +312,7 @@ async def concat_objects_db(
                 result_columns[col_name] = promote_nullable(target_def)
 
     schema = Schema(fieldtype=first_info.fieldtype, columns=result_columns)
-    result = await create_object(schema)
+    result = await create_object(schema, name=name, scope=scope)
 
     col_names = sorted(result_columns)
     insert_cols = ", ".join(col_names)

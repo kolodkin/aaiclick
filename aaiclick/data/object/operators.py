@@ -95,7 +95,6 @@ from ..models import (
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
     FIELDTYPE_SCALAR,
-    INT_TYPES,
     Agg,
     ColumnInfo,
     GroupByInfo,
@@ -106,7 +105,13 @@ from ..models import (
 )
 from ..scope import NamedScope
 from ..sql_utils import escape_sql_string, quote_identifier
-from .schema_compute import _compute_operator_schema, _promote_arithmetic_type
+from .schema_compute import (
+    AGGREGATION_FUNCTIONS,
+    UNARY_TRANSFORMS,
+    _compute_operator_schema,
+    _determine_agg_result_type,
+    _promote_arithmetic_type,
+)
 
 # Operator to arrayMap lambda expression mapping (uses x, y variables)
 ARRAYMAP_EXPRESSIONS = {
@@ -409,55 +414,19 @@ async def _apply_operator_db(
     return result
 
 
-# Aggregation functions mapping
-# Docs: https://clickhouse.com/docs/sql-reference/aggregate-functions/reference
-AGGREGATION_FUNCTIONS = {
-    "min": "min",
-    "max": "max",
-    "sum": "sum",
-    "mean": "avg",
-    "std": "stddevPop",
-    "var": "varPop",
-    "count": "count",
-    "any": "any",
-    "group_array_distinct": "groupArrayDistinct",
-}
+# ``AGGREGATION_FUNCTIONS``, ``UNARY_TRANSFORMS``, and
+# ``_determine_agg_result_type`` now live in ``schema_compute`` so the
+# LazyOperator preview path and the materialize path share one source of truth.
 
 
-def _determine_agg_result_type(agg_func: str, source_type: str | ColumnInfo) -> str:
-    """
-    Determine the ClickHouse result type for an aggregation function.
-
-    Aggregation results are always non-nullable (ClickHouse aggregations
-    skip NULLs and always produce a value).
-
-    Rules:
-    - min/max preserve the source base type
-    - sum preserves integer types, promotes to Float64 for float types
-    - count always returns UInt64
-    - mean/std/var always return Float64
-
-    Args:
-        agg_func: Aggregation function key (e.g., 'min', 'sum', 'mean')
-        source_type: ClickHouse type string or ColumnInfo
-
-    Returns:
-        ClickHouse base type string for the result (never Nullable)
-    """
-    base_type = source_type.type if isinstance(source_type, ColumnInfo) else parse_ch_type(source_type).type
-    if agg_func in ("min", "max", "any"):
-        return base_type
-    elif agg_func == "sum":
-        if base_type == "Bool":
-            return "UInt64"
-        return base_type if base_type in INT_TYPES else "Float64"
-    elif agg_func == "count":
-        return "UInt64"
-    else:
-        return "Float64"
-
-
-async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
+async def _apply_aggregation(
+    info: QueryInfo,
+    agg_func: str,
+    ch_client,
+    *,
+    name: str | None = None,
+    scope: NamedScope | None = None,
+):
     """
     Apply an aggregation function on a table at the database level.
 
@@ -494,7 +463,7 @@ async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
     )
 
     # Create result object with schema
-    result = await create_object(schema)
+    result = await create_object(schema, name=name, scope=scope)
 
     # count() uses count() without column, others use func(value)
     if agg_func == "count":
@@ -515,109 +484,49 @@ async def _apply_aggregation(info: QueryInfo, agg_func: str, ch_client):
 # Aggregation Operators
 
 
-async def min_agg(info: QueryInfo, ch_client):
-    """
-    Calculate minimum value at database level.
-
-    Args:
-        info: QueryInfo for source
-        ch_client: ClickHouse client instance
-
-    Returns:
-        New Object with scalar minimum value
-    """
-    return await _apply_aggregation(info, "min", ch_client)
+async def min_agg(info: QueryInfo, ch_client, *, name=None, scope=None):
+    """Calculate minimum value at database level."""
+    return await _apply_aggregation(info, "min", ch_client, name=name, scope=scope)
 
 
-async def max_agg(info: QueryInfo, ch_client):
-    """
-    Calculate maximum value at database level.
-
-    Args:
-        info: QueryInfo for source
-        ch_client: ClickHouse client instance
-
-    Returns:
-        New Object with scalar maximum value
-    """
-    return await _apply_aggregation(info, "max", ch_client)
+async def max_agg(info: QueryInfo, ch_client, *, name=None, scope=None):
+    """Calculate maximum value at database level."""
+    return await _apply_aggregation(info, "max", ch_client, name=name, scope=scope)
 
 
-async def sum_agg(info: QueryInfo, ch_client):
-    """
-    Calculate sum at database level.
-
-    Args:
-        info: QueryInfo for source
-        ch_client: ClickHouse client instance
-
-    Returns:
-        New Object with scalar sum value
-    """
-    return await _apply_aggregation(info, "sum", ch_client)
+async def sum_agg(info: QueryInfo, ch_client, *, name=None, scope=None):
+    """Calculate sum at database level."""
+    return await _apply_aggregation(info, "sum", ch_client, name=name, scope=scope)
 
 
-async def mean_agg(info: QueryInfo, ch_client):
-    """
-    Calculate mean (average) at database level.
-
-    Args:
-        info: QueryInfo for source
-        ch_client: ClickHouse client instance
-
-    Returns:
-        New Object with scalar mean value
-    """
-    return await _apply_aggregation(info, "mean", ch_client)
+async def mean_agg(info: QueryInfo, ch_client, *, name=None, scope=None):
+    """Calculate mean (average) at database level."""
+    return await _apply_aggregation(info, "mean", ch_client, name=name, scope=scope)
 
 
-async def std_agg(info: QueryInfo, ch_client):
-    """
-    Calculate standard deviation (population) at database level.
-
-    Args:
-        info: QueryInfo for source
-        ch_client: ClickHouse client instance
-
-    Returns:
-        New Object with scalar standard deviation value
-    """
-    return await _apply_aggregation(info, "std", ch_client)
+async def std_agg(info: QueryInfo, ch_client, *, name=None, scope=None):
+    """Calculate standard deviation (population) at database level."""
+    return await _apply_aggregation(info, "std", ch_client, name=name, scope=scope)
 
 
-async def var_agg(info: QueryInfo, ch_client):
-    """
-    Calculate variance (population) at database level.
-
-    Reference: https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/varpop
-
-    Args:
-        info: QueryInfo for source
-        ch_client: ClickHouse client instance
-
-    Returns:
-        New Object with scalar variance value
-    """
-    return await _apply_aggregation(info, "var", ch_client)
+async def var_agg(info: QueryInfo, ch_client, *, name=None, scope=None):
+    """Calculate variance (population) at database level."""
+    return await _apply_aggregation(info, "var", ch_client, name=name, scope=scope)
 
 
-async def count_agg(info: QueryInfo, ch_client):
-    """
-    Count the number of rows at database level.
-
-    Reference: https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/count
-
-    Args:
-        info: QueryInfo for source
-        ch_client: ClickHouse client instance
-
-    Returns:
-        New Object with scalar count value (UInt64)
-    """
-    return await _apply_aggregation(info, "count", ch_client)
+async def count_agg(info: QueryInfo, ch_client, *, name=None, scope=None):
+    """Count the number of rows at database level."""
+    return await _apply_aggregation(info, "count", ch_client, name=name, scope=scope)
 
 
-async def count_if_agg(info: QueryInfo, condition: str | dict[str, str], ch_client):
+async def count_if_agg(
+    info: QueryInfo,
+    condition: str | dict[str, str],
+    ch_client,
+    *,
+    name: str | None = None,
+    scope: NamedScope | None = None,
+):
     """
     Count rows matching condition(s) at database level using countIf().
 
@@ -641,22 +550,22 @@ async def count_if_agg(info: QueryInfo, condition: str | dict[str, str], ch_clie
             fieldtype=FIELDTYPE_SCALAR,
             columns={"value": ColumnInfo("UInt64")},
         )
-        result = await create_object(schema)
+        result = await create_object(schema, name=name, scope=scope)
         query = f"INSERT INTO {result.table} (value) SELECT countIf({condition}) AS value FROM {info.source}"
         await ch_client.command(query)
         return result
 
     columns = {}
     select_exprs = []
-    for name, cond in condition.items():
-        columns[name] = ColumnInfo("UInt64")
-        select_exprs.append(f"countIf({cond}) AS {name}")
+    for col_name, cond in condition.items():
+        columns[col_name] = ColumnInfo("UInt64")
+        select_exprs.append(f"countIf({cond}) AS {col_name}")
 
     schema = Schema(
         fieldtype=FIELDTYPE_DICT,
         columns=columns,
     )
-    result = await create_object(schema)
+    result = await create_object(schema, name=name, scope=scope)
     insert_cols = ", ".join(condition.keys())
     select_str = ", ".join(select_exprs)
     query = f"INSERT INTO {result.table} ({insert_cols}) SELECT {select_str} FROM {info.source}"
@@ -664,7 +573,14 @@ async def count_if_agg(info: QueryInfo, condition: str | dict[str, str], ch_clie
     return result
 
 
-async def quantile_agg(info: QueryInfo, q: float, ch_client):
+async def quantile_agg(
+    info: QueryInfo,
+    q: float,
+    ch_client,
+    *,
+    name: str | None = None,
+    scope: NamedScope | None = None,
+):
     """
     Calculate quantile at database level.
 
@@ -691,7 +607,7 @@ async def quantile_agg(info: QueryInfo, q: float, ch_client):
     )
 
     # Create result object with schema
-    result = await create_object(schema)
+    result = await create_object(schema, name=name, scope=scope)
 
     insert_query = f"""
     INSERT INTO {result.table} (value)
@@ -703,7 +619,13 @@ async def quantile_agg(info: QueryInfo, q: float, ch_client):
     return result
 
 
-async def unique_group(info: QueryInfo, ch_client):
+async def unique_group(
+    info: QueryInfo,
+    ch_client,
+    *,
+    name: str | None = None,
+    scope: NamedScope | None = None,
+):
     """
     Get unique values at database level using GROUP BY.
 
@@ -729,7 +651,7 @@ async def unique_group(info: QueryInfo, ch_client):
     schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns={"value": source_col_def})
 
     # Create result object with schema
-    result = await create_object(schema)
+    result = await create_object(schema, name=name, scope=scope)
 
     # Insert unique values using GROUP BY (not DISTINCT) entirely in ClickHouse
     insert_query = f"""
@@ -741,7 +663,13 @@ async def unique_group(info: QueryInfo, ch_client):
     return result
 
 
-async def nunique_agg(info: QueryInfo, ch_client):
+async def nunique_agg(
+    info: QueryInfo,
+    ch_client,
+    *,
+    name: str | None = None,
+    scope: NamedScope | None = None,
+):
     """
     Count distinct values at database level using GROUP BY subquery.
 
@@ -764,7 +692,7 @@ async def nunique_agg(info: QueryInfo, ch_client):
         fieldtype=FIELDTYPE_SCALAR,
         columns={"value": ColumnInfo("UInt64")},
     )
-    result = await create_object(schema)
+    result = await create_object(schema, name=name, scope=scope)
     await ch_client.command(f"""
         INSERT INTO {result.table} (value)
         SELECT count() AS value FROM (SELECT value FROM {info.source} GROUP BY value)
@@ -879,7 +807,14 @@ def _normalize_aggregations(aggregations: dict) -> list[tuple[str, Agg]]:
     return result
 
 
-async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
+async def group_by_agg(
+    info: GroupByInfo,
+    aggregations: dict,
+    ch_client,
+    *,
+    name: str | None = None,
+    scope: NamedScope | None = None,
+):
     """
     Apply aggregations with GROUP BY at database level.
 
@@ -895,6 +830,8 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
         info: GroupByInfo with source, group keys, and column metadata
         aggregations: Dict mapping source_column -> AggSpec
         ch_client: ClickHouse client instance
+        name: Optional result table name (forwarded to ``create_object``).
+        scope: Optional result table scope (forwarded to ``create_object``).
 
     Returns:
         New dict Object with group keys + all aggregated columns
@@ -953,7 +890,7 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
         query = f"SELECT {keys_str}, {agg_str} FROM {info.source} GROUP BY {keys_str}"
 
     schema = Schema(fieldtype=FIELDTYPE_DICT, columns=result_columns)
-    result = await create_object(schema)
+    result = await create_object(schema, name=name, scope=scope)
 
     insert_query = f"INSERT INTO {result.table} ({insert_cols_str}) {query}"
     await ch_client.command(insert_query)
@@ -1089,26 +1026,19 @@ async def isin_op(info: QueryInfo, other_info: QueryInfo, ch_client):
 # - Date/time: https://clickhouse.com/docs/sql-reference/functions/date-time-functions
 # - String:    https://clickhouse.com/docs/sql-reference/functions/string-functions
 # - Math:      https://clickhouse.com/docs/sql-reference/functions/math-functions
-
-# Mapping: Python method name -> (ClickHouse function, result type)
-UNARY_TRANSFORMS = {
-    # Date/time extractions
-    "year": ("toYear", "UInt16"),
-    "month": ("toMonth", "UInt8"),
-    "day_of_week": ("toDayOfWeek", "UInt8"),
-    # String transforms
-    "lower": ("lower", "String"),
-    "upper": ("upper", "String"),
-    "length": ("length", "UInt64"),
-    "trim": ("trimBoth", "String"),
-    # Math transforms
-    "abs": ("abs", "Float64"),
-    "log2": ("log2", "Float64"),
-    "sqrt": ("sqrt", "Float64"),
-}
+#
+# ``UNARY_TRANSFORMS`` lives in ``schema_compute`` so the preview path and the
+# materialize path share one source of truth.
 
 
-async def unary_transform(info: QueryInfo, transform: str, ch_client):
+async def unary_transform(
+    info: QueryInfo,
+    transform: str,
+    ch_client,
+    *,
+    name: str | None = None,
+    scope: NamedScope | None = None,
+):
     """Apply a unary ClickHouse function to the value column.
 
     Args:
@@ -1125,7 +1055,7 @@ async def unary_transform(info: QueryInfo, transform: str, ch_client):
         fieldtype=info.fieldtype,
         columns={"value": ColumnInfo(result_type)},
     )
-    result = await create_object(schema)
+    result = await create_object(schema, name=name, scope=scope)
 
     await ch_client.command(f"""
         INSERT INTO {result.table}

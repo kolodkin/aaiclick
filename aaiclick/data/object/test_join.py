@@ -2,7 +2,7 @@
 
 import pytest
 
-from aaiclick import create_object_from_value
+from aaiclick import create_object_from_value, delete_persistent_object
 from aaiclick.data.models import FIELDTYPE_DICT, ColumnInfo, Schema
 from aaiclick.data.object.join import (
     JoinKeys,
@@ -360,3 +360,35 @@ async def test_join_self_join_aliases(ctx):
     by_id = {r["id"]: (r["val_l"], r["val_r"]) for r in rows}
 
     assert by_id == {1: (10, 10), 2: (20, 20), 3: (30, 30)}
+
+
+# =============================================================================
+# Named join results
+# =============================================================================
+
+
+async def test_join_with_name_global_scope(ctx):
+    """join(name=..., scope='global') routes through the named-table path."""
+    left = await create_object_from_value({"id": [1, 2], "v": [10, 20]})
+    right = await create_object_from_value({"id": [1, 2], "w": [100, 200]})
+
+    joined = await left.join(right, on="id", name="join_named_global", scope="global")
+    try:
+        assert joined.table == "p_join_named_global"
+        rows = await joined.data(orient="records")
+        by_id = {r["id"]: (r["v"], r["w"]) for r in rows}
+        assert by_id == {1: (10, 100), 2: (20, 200)}
+    finally:
+        await delete_persistent_object("join_named_global", scope="global")
+
+
+async def test_join_with_name_temp_scope(ctx):
+    """join(name=...) defaults to temp_named scope (t_<name>_<id>)."""
+    left = await create_object_from_value({"id": [1], "v": [10]})
+    right = await create_object_from_value({"id": [1], "w": [100]})
+
+    joined = await left.join(right, on="id", name="join_named_temp")
+
+    assert joined.table.startswith("t_join_named_temp_")
+    rows = await joined.data(orient="records")
+    assert rows == [{"id": 1, "v": 10, "w": 100}]
