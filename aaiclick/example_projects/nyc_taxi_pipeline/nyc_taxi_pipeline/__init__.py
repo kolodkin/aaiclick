@@ -101,18 +101,18 @@ async def compute_basic_stats(trips: Object) -> dict:
     distances = trips["trip_distance"]
     passengers = trips["passenger_count"]
 
-    total_trips = await (await fares.count()).data()
-    total_fares = await (await fares.sum()).data()
-    total_tips = await (await tips.sum()).data()
-    total_revenue = await (await totals.sum()).data()
-    avg_fare = await (await fares.mean()).data()
-    avg_tip = await (await tips.mean()).data()
-    avg_distance = await (await distances.mean()).data()
-    avg_passengers = await (await passengers.mean()).data()
-    min_fare = await (await fares.min()).data()
-    max_fare = await (await fares.max()).data()
-    min_distance = await (await distances.min()).data()
-    max_distance = await (await distances.max()).data()
+    total_trips = await fares.count().data()
+    total_fares = await fares.sum().data()
+    total_tips = await tips.sum().data()
+    total_revenue = await totals.sum().data()
+    avg_fare = await fares.mean().data()
+    avg_tip = await tips.mean().data()
+    avg_distance = await distances.mean().data()
+    avg_passengers = await passengers.mean().data()
+    min_fare = await fares.min().data()
+    max_fare = await fares.max().data()
+    min_distance = await distances.min().data()
+    max_distance = await distances.max().data()
 
     return {
         "total_trips": total_trips,
@@ -145,23 +145,23 @@ async def compute_statistical_metrics(trips: Object) -> dict:
     distances = trips["trip_distance"]
 
     # Fare statistics
-    fare_std = await (await fares.std()).data()
-    fare_var = await (await fares.var()).data()
-    fare_p25 = await (await fares.quantile(0.25)).data()
-    fare_median = await (await fares.quantile(0.5)).data()
-    fare_p75 = await (await fares.quantile(0.75)).data()
-    fare_p90 = await (await fares.quantile(0.9)).data()
-    fare_p99 = await (await fares.quantile(0.99)).data()
+    fare_std = await fares.std().data()
+    fare_var = await fares.var().data()
+    fare_p25 = await fares.quantile(0.25).data()
+    fare_median = await fares.quantile(0.5).data()
+    fare_p75 = await fares.quantile(0.75).data()
+    fare_p90 = await fares.quantile(0.9).data()
+    fare_p99 = await fares.quantile(0.99).data()
 
     # Tip statistics
-    tip_std = await (await tips.std()).data()
-    tip_median = await (await tips.quantile(0.5)).data()
-    tip_p90 = await (await tips.quantile(0.9)).data()
+    tip_std = await tips.std().data()
+    tip_median = await tips.quantile(0.5).data()
+    tip_p90 = await tips.quantile(0.9).data()
 
     # Distance statistics
-    distance_std = await (await distances.std()).data()
-    distance_median = await (await distances.quantile(0.5)).data()
-    distance_p90 = await (await distances.quantile(0.9)).data()
+    distance_std = await distances.std().data()
+    distance_median = await distances.quantile(0.5).data()
+    distance_p90 = await distances.quantile(0.9).data()
 
     return {
         "fare_std": fare_std,
@@ -269,12 +269,12 @@ async def compute_tip_analysis(trips: Object) -> dict:
     tip_share_ratio = tips / totals
     tip_share = tip_share_ratio * 100
 
-    avg_tip = await (await tips.mean()).data()
-    median_tip = await (await tips.quantile(0.5)).data()
-    avg_tip_pct = await (await tip_pct.mean()).data()
-    median_tip_pct = await (await tip_pct.quantile(0.5)).data()
-    max_tip = await (await tips.max()).data()
-    tip_share_of_total = await (await tip_share.mean()).data()
+    avg_tip = await tips.mean().data()
+    median_tip = await tips.quantile(0.5).data()
+    avg_tip_pct = await tip_pct.mean().data()
+    median_tip_pct = await tip_pct.quantile(0.5).data()
+    max_tip = await tips.max().data()
+    tip_share_of_total = await tip_share.mean().data()
 
     return {
         "avg_tip": avg_tip,
@@ -298,14 +298,14 @@ async def compute_distance_analysis(trips: Object) -> dict:
     fare_per_mile = fares / distances
 
     # Compute metrics
-    avg_distance = await (await distances.mean()).data()
-    median_distance = await (await distances.quantile(0.5)).data()
+    avg_distance = await distances.mean().data()
+    median_distance = await distances.quantile(0.5).data()
     short_trips = distances < 1
-    short_trips_pct = (await (await short_trips.mean()).data()) * 100
+    short_trips_pct = await short_trips.mean().data() * 100
     long_trips = distances > 10
-    long_trips_pct = (await (await long_trips.mean()).data()) * 100
-    avg_fare_per_mile = await (await fare_per_mile.mean()).data()
-    median_fare_per_mile = await (await fare_per_mile.quantile(0.5)).data()
+    long_trips_pct = await long_trips.mean().data() * 100
+    avg_fare_per_mile = await fare_per_mile.mean().data()
+    median_fare_per_mile = await fare_per_mile.quantile(0.5).data()
 
     return {
         "avg_distance": avg_distance,

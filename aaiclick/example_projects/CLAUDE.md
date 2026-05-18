@@ -78,6 +78,14 @@ Projects can be copied out of the monorepo and run independently:
 - For low-scale data prefer a Pydantic model return value over `dict`
 - For high-scale data prefer an `Object` return value
 
+## Naming Results
+
+Prefer the single-await idiom — `await obj.sum().data()`, not `await (await obj.sum()).data()`. Aggregations / unary / binary operators return a `LazyOperator` whose `.data()` auto-materializes.
+
+Name materialized results only when they cross task boundaries or you'd want to open them during lineage / oplog inspection — otherwise the default `t_<snowflake>` is fine. Use `scope="job"` so the table outlives the producing task but is cleaned up with the job; `scope="global"` is for results that should survive past the job (rare in example projects).
+
+API summary in `docs/object.md` "Lazy Operator Results" (`.as_()` for operators/aggregations; `name=` / `scope=` kwargs on `copy` / `concat` / `join` / `group_by(...).agg`). Canonical examples: `aaiclick/example_projects/basic_lineage/basic_lineage/__init__.py` (`.as_()`) and `cyber_threat_feeds/consolidated.py` (`group_by(...).agg(..., name=..., scope="job")`).
+
 ## Report Output Format
 
 **All example projects MUST output reports as markdown to stdout.**

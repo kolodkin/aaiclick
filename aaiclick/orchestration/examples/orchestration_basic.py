@@ -43,7 +43,7 @@ async def create_sales() -> Object:
             "price": [9.99, 24.99, 14.99],
         }
     )
-    count = await (await sales.count()).data()
+    count = await sales.count().data()
     print(f"Sales: {count} rows")  # → 3
     return sales
 
