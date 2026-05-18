@@ -88,7 +88,7 @@ async def enrich_with_tmdb(clean: Object, tmdb: Object) -> Object:
             "plot",
         ]
     ]
-    return await final.copy()
+    return await final.copy(name="enriched", scope="job")
 
 
 @task

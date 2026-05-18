@@ -126,7 +126,9 @@ async def build_consolidated_table(
             "epss": GB_ANY,
             "ranking_epss": GB_ANY,
             "summary": GB_ANY,
-        }
+        },
+        name="consolidated",
+        scope="job",
     )
     return merged.rename({"source": "sources"})
 
