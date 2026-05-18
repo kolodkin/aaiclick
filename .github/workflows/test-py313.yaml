@@ -1,10 +1,13 @@
 name: test-py-nightly
 
-# Nightly leg covering the supported-Python range plus the in-development
-# release. PR CI (test.yaml) only runs the 3.10 minimum; this workflow
-# re-verifies 3.10 alongside 3.14 (latest stable) and 3.15 (next dev) so
-# a fix tailored to one version can't silently regress the others between
-# PR merges, and so we catch upcoming-Python breakage early.
+# Nightly leg covering both ends of the supported-Python range. PR CI
+# (test.yaml) only runs the 3.10 minimum; this workflow re-verifies 3.10
+# alongside 3.14 (the latest stable) so a fix tailored to one version
+# can't silently regress the other between PR merges.
+#
+# 3.15 is intentionally not in the matrix yet — pyo3 0.26.0 caps at 3.14,
+# so transitive deps like tiktoken (via litellm) and pydantic-core can't
+# build against it. Re-add once those publish 3.15-compatible wheels.
 
 on:
   schedule:
@@ -25,7 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.14", "3.15"]
+        python-version: ["3.10", "3.14"]
     uses: ./.github/workflows/_test-reusable.yaml
     with:
       python-version: ${{ matrix.python-version }}
