@@ -2201,51 +2201,35 @@ class GroupByQuery:
         info = self._get_group_by_info()
         return await operators.group_by_agg(info, aggregations, self.ch_client, name=name, scope=scope)
 
-    async def sum(
-        self, column: str, *, name: str | None = None, scope: NamedScope | None = None
-    ) -> Object:
+    async def sum(self, column: str, *, name: str | None = None, scope: NamedScope | None = None) -> Object:
         """Convenience: sum per group. Delegates to agg()."""
         return await self.agg({column: GB_SUM}, name=name, scope=scope)
 
-    async def mean(
-        self, column: str, *, name: str | None = None, scope: NamedScope | None = None
-    ) -> Object:
+    async def mean(self, column: str, *, name: str | None = None, scope: NamedScope | None = None) -> Object:
         """Convenience: mean per group. Delegates to agg()."""
         return await self.agg({column: GB_MEAN}, name=name, scope=scope)
 
-    async def min(
-        self, column: str, *, name: str | None = None, scope: NamedScope | None = None
-    ) -> Object:
+    async def min(self, column: str, *, name: str | None = None, scope: NamedScope | None = None) -> Object:
         """Convenience: min per group. Delegates to agg()."""
         return await self.agg({column: GB_MIN}, name=name, scope=scope)
 
-    async def max(
-        self, column: str, *, name: str | None = None, scope: NamedScope | None = None
-    ) -> Object:
+    async def max(self, column: str, *, name: str | None = None, scope: NamedScope | None = None) -> Object:
         """Convenience: max per group. Delegates to agg()."""
         return await self.agg({column: GB_MAX}, name=name, scope=scope)
 
-    async def count(
-        self, *, name: str | None = None, scope: NamedScope | None = None
-    ) -> Object:
+    async def count(self, *, name: str | None = None, scope: NamedScope | None = None) -> Object:
         """Convenience: count per group. Delegates to agg()."""
         return await self.agg({"_count": GB_COUNT}, name=name, scope=scope)
 
-    async def std(
-        self, column: str, *, name: str | None = None, scope: NamedScope | None = None
-    ) -> Object:
+    async def std(self, column: str, *, name: str | None = None, scope: NamedScope | None = None) -> Object:
         """Convenience: std per group. Delegates to agg()."""
         return await self.agg({column: GB_STD}, name=name, scope=scope)
 
-    async def var(
-        self, column: str, *, name: str | None = None, scope: NamedScope | None = None
-    ) -> Object:
+    async def var(self, column: str, *, name: str | None = None, scope: NamedScope | None = None) -> Object:
         """Convenience: var per group. Delegates to agg()."""
         return await self.agg({column: GB_VAR}, name=name, scope=scope)
 
-    async def any(
-        self, column: str, *, name: str | None = None, scope: NamedScope | None = None
-    ) -> Object:
+    async def any(self, column: str, *, name: str | None = None, scope: NamedScope | None = None) -> Object:
         """Convenience: any (pick arbitrary non-NULL) per group. Delegates to agg()."""
         return await self.agg({column: GB_ANY}, name=name, scope=scope)
 

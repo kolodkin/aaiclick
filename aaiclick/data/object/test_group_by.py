@@ -810,13 +810,9 @@ async def test_agg_multi_same_column_with_having(ctx):
 
 async def test_group_by_sum_with_name_global_scope(ctx):
     """sum(name=..., scope='global') routes through the named-table path."""
-    obj = await create_object_from_value(
-        {"category": ["A", "A", "B"], "amount": [10, 20, 30]}
-    )
+    obj = await create_object_from_value({"category": ["A", "A", "B"], "amount": [10, 20, 30]})
 
-    result = await obj.group_by("category").sum(
-        "amount", name="gb_sum_named_global", scope="global"
-    )
+    result = await obj.group_by("category").sum("amount", name="gb_sum_named_global", scope="global")
     try:
         assert result.table == "p_gb_sum_named_global"
         data = await result.data()
@@ -828,13 +824,9 @@ async def test_group_by_sum_with_name_global_scope(ctx):
 
 async def test_group_by_agg_with_name_temp_scope(ctx):
     """agg(name=...) defaults to temp_named scope (t_<name>_<id>)."""
-    obj = await create_object_from_value(
-        {"category": ["A", "B"], "amount": [10, 20]}
-    )
+    obj = await create_object_from_value({"category": ["A", "B"], "amount": [10, 20]})
 
-    result = await obj.group_by("category").agg(
-        {"amount": "sum"}, name="gb_agg_named_temp"
-    )
+    result = await obj.group_by("category").agg({"amount": "sum"}, name="gb_agg_named_temp")
 
     assert result.table.startswith("t_gb_agg_named_temp_")
     data = await result.data()
