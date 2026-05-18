@@ -807,7 +807,14 @@ def _normalize_aggregations(aggregations: dict) -> list[tuple[str, Agg]]:
     return result
 
 
-async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
+async def group_by_agg(
+    info: GroupByInfo,
+    aggregations: dict,
+    ch_client,
+    *,
+    name: str | None = None,
+    scope: NamedScope | None = None,
+):
     """
     Apply aggregations with GROUP BY at database level.
 
@@ -823,6 +830,8 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
         info: GroupByInfo with source, group keys, and column metadata
         aggregations: Dict mapping source_column -> AggSpec
         ch_client: ClickHouse client instance
+        name: Optional result table name (forwarded to ``create_object``).
+        scope: Optional result table scope (forwarded to ``create_object``).
 
     Returns:
         New dict Object with group keys + all aggregated columns
@@ -881,7 +890,7 @@ async def group_by_agg(info: GroupByInfo, aggregations: dict, ch_client):
         query = f"SELECT {keys_str}, {agg_str} FROM {info.source} GROUP BY {keys_str}"
 
     schema = Schema(fieldtype=FIELDTYPE_DICT, columns=result_columns)
-    result = await create_object(schema)
+    result = await create_object(schema, name=name, scope=scope)
 
     insert_query = f"INSERT INTO {result.table} ({insert_cols_str}) {query}"
     await ch_client.command(insert_query)

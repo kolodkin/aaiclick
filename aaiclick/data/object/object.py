@@ -962,6 +962,8 @@ class Object:
         right_on: str | list[str] | None = None,
         how: join_module.JoinHow = "inner",
         suffixes: join_module.SuffixesArg = None,
+        name: str | None = None,
+        scope: NamedScope | None = None,
     ) -> Object:
         """Join two Objects on one or more key columns.
 
@@ -980,6 +982,12 @@ class Object:
                 and right. ``True`` uses the default ``("_l", "_r")`` pair;
                 a tuple lets you pick custom suffixes; ``None`` (the
                 default) / ``False`` make a collision raise ``ValueError``.
+            name: Optional result table name. When set, the join result is
+                  registered in the table registry under this name. See
+                  ``create_object`` for the naming/scoping rules.
+            scope: Lifetime tier for the named result —
+                  ``"temp_named"`` (default when ``name`` is set), ``"job"``,
+                  or ``"global"``. Must be ``None`` when ``name`` is ``None``.
 
         Returns:
             Object: new dict Object with the joined rows.
@@ -1000,6 +1008,8 @@ class Object:
             how=how,
             suffixes=suffixes,
             ch_client=self.ch_client,
+            name=name,
+            scope=scope,
         )
 
     async def insert(self, *args: Self | ValueType) -> None:
@@ -2145,7 +2155,13 @@ class GroupByQuery:
             having=self._build_having(),
         )
 
-    async def agg(self, aggregations: dict[str, AggSpec]) -> Object:
+    async def agg(
+        self,
+        aggregations: dict[str, AggSpec],
+        *,
+        name: str | None = None,
+        scope: NamedScope | None = None,
+    ) -> Object:
         """
         Apply aggregations per group. Core method — all convenience methods delegate here.
 
@@ -2159,6 +2175,12 @@ class GroupByQuery:
 
         Args:
             aggregations: Dict mapping source_column -> AggSpec
+            name: Optional result table name. When set, the result is
+                  registered in the table registry under this name. See
+                  ``create_object`` for the naming/scoping rules.
+            scope: Lifetime tier for the named result —
+                  ``"temp_named"`` (default when ``name`` is set), ``"job"``,
+                  or ``"global"``. Must be ``None`` when ``name`` is ``None``.
 
         Returns:
             Dict Object with group keys + all aggregated columns
@@ -2171,45 +2193,67 @@ class GroupByQuery:
             >>> result = await obj.group_by('category').agg({
             ...     'amount': [Agg("sum", 'amount_sum'), Agg("mean", 'amount_avg')],
             ... })
+            >>> # Persist the grouped result under a stable job-scoped name
+            >>> await obj.group_by('category').agg(
+            ...     {'amount': "sum"}, name="daily_totals", scope="job"
+            ... )
         """
         info = self._get_group_by_info()
-        return await operators.group_by_agg(info, aggregations, self.ch_client)
+        return await operators.group_by_agg(info, aggregations, self.ch_client, name=name, scope=scope)
 
-    async def sum(self, column: str) -> Object:
+    async def sum(
+        self, column: str, *, name: str | None = None, scope: NamedScope | None = None
+    ) -> Object:
         """Convenience: sum per group. Delegates to agg()."""
-        return await self.agg({column: GB_SUM})
+        return await self.agg({column: GB_SUM}, name=name, scope=scope)
 
-    async def mean(self, column: str) -> Object:
+    async def mean(
+        self, column: str, *, name: str | None = None, scope: NamedScope | None = None
+    ) -> Object:
         """Convenience: mean per group. Delegates to agg()."""
-        return await self.agg({column: GB_MEAN})
+        return await self.agg({column: GB_MEAN}, name=name, scope=scope)
 
-    async def min(self, column: str) -> Object:
+    async def min(
+        self, column: str, *, name: str | None = None, scope: NamedScope | None = None
+    ) -> Object:
         """Convenience: min per group. Delegates to agg()."""
-        return await self.agg({column: GB_MIN})
+        return await self.agg({column: GB_MIN}, name=name, scope=scope)
 
-    async def max(self, column: str) -> Object:
+    async def max(
+        self, column: str, *, name: str | None = None, scope: NamedScope | None = None
+    ) -> Object:
         """Convenience: max per group. Delegates to agg()."""
-        return await self.agg({column: GB_MAX})
+        return await self.agg({column: GB_MAX}, name=name, scope=scope)
 
-    async def count(self) -> Object:
+    async def count(
+        self, *, name: str | None = None, scope: NamedScope | None = None
+    ) -> Object:
         """Convenience: count per group. Delegates to agg()."""
-        return await self.agg({"_count": GB_COUNT})
+        return await self.agg({"_count": GB_COUNT}, name=name, scope=scope)
 
-    async def std(self, column: str) -> Object:
+    async def std(
+        self, column: str, *, name: str | None = None, scope: NamedScope | None = None
+    ) -> Object:
         """Convenience: std per group. Delegates to agg()."""
-        return await self.agg({column: GB_STD})
+        return await self.agg({column: GB_STD}, name=name, scope=scope)
 
-    async def var(self, column: str) -> Object:
+    async def var(
+        self, column: str, *, name: str | None = None, scope: NamedScope | None = None
+    ) -> Object:
         """Convenience: var per group. Delegates to agg()."""
-        return await self.agg({column: GB_VAR})
+        return await self.agg({column: GB_VAR}, name=name, scope=scope)
 
-    async def any(self, column: str) -> Object:
+    async def any(
+        self, column: str, *, name: str | None = None, scope: NamedScope | None = None
+    ) -> Object:
         """Convenience: any (pick arbitrary non-NULL) per group. Delegates to agg()."""
-        return await self.agg({column: GB_ANY})
+        return await self.agg({column: GB_ANY}, name=name, scope=scope)
 
-    async def group_array_distinct(self, column: str) -> Object:
+    async def group_array_distinct(
+        self, column: str, *, name: str | None = None, scope: NamedScope | None = None
+    ) -> Object:
         """Convenience: collect distinct values into an array per group. Delegates to agg()."""
-        return await self.agg({column: GB_GROUP_ARRAY_DISTINCT})
+        return await self.agg({column: GB_GROUP_ARRAY_DISTINCT}, name=name, scope=scope)
 
     def __repr__(self) -> str:
         """String representation of the GroupByQuery."""
@@ -2984,8 +3028,8 @@ class LazyOperator(Object):
     async def concat(self, *args, name=None, scope=None):
         return await (await self._materialize()).concat(*args, name=name, scope=scope)
 
-    async def join(self, other, on, how="INNER"):
-        return await (await self._materialize()).join(other, on, how=how)
+    async def join(self, other, **kwargs):
+        return await (await self._materialize()).join(other, **kwargs)
 
     async def insert(self, *args):
         return await (await self._materialize()).insert(*args)

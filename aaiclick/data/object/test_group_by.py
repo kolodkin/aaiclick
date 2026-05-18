@@ -7,7 +7,7 @@ methods (sum, mean, min, max, count, std, var, agg).
 
 import pytest
 
-from aaiclick import create_object_from_value
+from aaiclick import create_object_from_value, delete_persistent_object
 from aaiclick.data.models import GB_GROUP_ARRAY_DISTINCT, Agg
 
 THRESHOLD = 1e-5
@@ -801,3 +801,56 @@ async def test_agg_multi_same_column_with_having(ctx):
     assert data["category"][0] == "A"
     assert data["amount_sum"][0] == 60
     assert data["amount_max"][0] == 30
+
+
+# =============================================================================
+# Named group-by results
+# =============================================================================
+
+
+async def test_group_by_sum_with_name_global_scope(ctx):
+    """sum(name=..., scope='global') routes through the named-table path."""
+    obj = await create_object_from_value(
+        {"category": ["A", "A", "B"], "amount": [10, 20, 30]}
+    )
+
+    result = await obj.group_by("category").sum(
+        "amount", name="gb_sum_named_global", scope="global"
+    )
+    try:
+        assert result.table == "p_gb_sum_named_global"
+        data = await result.data()
+        by_cat = dict(zip(data["category"], data["amount"], strict=True))
+        assert by_cat == {"A": 30, "B": 30}
+    finally:
+        await delete_persistent_object("gb_sum_named_global", scope="global")
+
+
+async def test_group_by_agg_with_name_temp_scope(ctx):
+    """agg(name=...) defaults to temp_named scope (t_<name>_<id>)."""
+    obj = await create_object_from_value(
+        {"category": ["A", "B"], "amount": [10, 20]}
+    )
+
+    result = await obj.group_by("category").agg(
+        {"amount": "sum"}, name="gb_agg_named_temp"
+    )
+
+    assert result.table.startswith("t_gb_agg_named_temp_")
+    data = await result.data()
+    assert sorted(zip(data["category"], data["amount"], strict=True)) == [
+        ("A", 10),
+        ("B", 20),
+    ]
+
+
+async def test_group_by_count_with_name(ctx):
+    """count() also accepts name/scope (different code path — no column arg)."""
+    obj = await create_object_from_value({"category": ["A", "A", "B"]})
+
+    result = await obj.group_by("category").count(name="gb_count_named_temp")
+
+    assert result.table.startswith("t_gb_count_named_temp_")
+    data = await result.data()
+    by_cat = dict(zip(data["category"], data["_count"], strict=True))
+    assert by_cat == {"A": 2, "B": 1}

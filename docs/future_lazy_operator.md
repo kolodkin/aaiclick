@@ -34,26 +34,24 @@ outer `sum` — both nodes pick up their `name`/`scope` from the call chain.
 
 ---
 
-## Phase 2b: `.as_()` for Joins, Concat, Copy, Group-By
+## Phase 2b: `name`/`scope` for Joins, Concat, Copy, Group-By — ✅ SHIPPED
 
-**Status:** Mechanical; the data shape is already designed for it.
+`.copy()`, `.concat()`, `.join()`, and every `GroupByQuery` method
+(`agg`, `sum`, `mean`, `min`, `max`, `count`, `std`, `var`, `any`,
+`group_array_distinct`) now accept `name`/`scope` kwargs that forward to
+`create_object()` — same rules as Phase 2a's `.as_()`.
 
-Follow-up to Phase 2a — extend the same `LazyOperator` pattern to the
-remaining operations that materialize a new table:
+These ops always materialize a new table, so there's no fluency or perf
+win from routing them through `LazyOperator` (that path is reserved for
+chains where materialization can be elided). The kwargs land directly on
+the existing async methods, and LazyOperator's overrides forward them to
+the materialized delegate so `(a + b).copy(name=..., scope=...)` and
+`(a + b).join(b, name=..., scope=...)` work.
 
-- `.copy()`, `.concat()`, `.join()`, `.group_by(...).sum()` etc.
-
-LazyOperator already overrides these methods to auto-materialize (so
-today's `(a + b).copy()` works fluently), but each call still materializes
-both the operator result table and the copy/join result table. Phase 2b
-collapses that into a single `LazyOperator` chain that names the final
-result.
-
-Each follow-up is mechanical: convert the entry method from
-`async def → Object` to a sync planner returning a `LazyOperator` and pass
-`name`/`scope` through to the underlying materialize call. The data shape
-(`rhs: Object | ValueScalarType | None` + `params: dict | None`) covers
-binary, unary, and parametrized operators alike.
+**Implementation**: `Object.copy/concat/join` and `GroupByQuery.*` in
+`aaiclick/data/object/object.py`; underlying materializers in
+`ingest.py` (`copy_db`, `copy_db_selected_fields`, `concat_objects_db`),
+`join.py` (`join_objects_db`), `operators.py` (`group_by_agg`).
 
 ---
 

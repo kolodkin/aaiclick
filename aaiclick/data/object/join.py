@@ -23,6 +23,7 @@ from ..models import (
     IngestQueryInfo,
     Schema,
 )
+from ..scope import NamedScope
 from .ingest import _are_types_compatible, promote_nullable
 
 JoinHow = Literal["inner", "left", "right", "full", "cross"]
@@ -301,6 +302,8 @@ async def join_objects_db(
     how: JoinHow,
     suffixes: SuffixesArg,
     ch_client,
+    name: str | None = None,
+    scope: NamedScope | None = None,
 ):
     """Materialize a join into a new Object via CREATE + INSERT...SELECT...JOIN.
 
@@ -316,6 +319,10 @@ async def join_objects_db(
     drives, conflicting with the non-nullable key we model for LEFT/RIGHT.
     Under ON form we can pick the key from the driving side (or coalesce
     for FULL) explicitly — see ``_USING_KEY_TEMPLATE``.
+
+    Args:
+        name: Optional result table name (forwarded to ``create_object``).
+        scope: Optional result table scope (forwarded to ``create_object``).
     """
     jschema = build_join_schema(
         left_cols=left.columns,
@@ -327,7 +334,7 @@ async def join_objects_db(
     schema, left_proj, right_proj, using_form = jschema
     using_keys = set(keys.left) if using_form else set()
 
-    result = await create_object(schema)
+    result = await create_object(schema, name=name, scope=scope)
 
     insert_cols = [out for _, out in left_proj] + [out for _, out in right_proj]
     insert_cols_sql = ", ".join(insert_cols)
