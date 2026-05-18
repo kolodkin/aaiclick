@@ -78,6 +78,31 @@ Projects can be copied out of the monorepo and run independently:
 - For low-scale data prefer a Pydantic model return value over `dict`
 - For high-scale data prefer an `Object` return value
 
+## Naming Results (`.as_()`, `name=`, `scope=`)
+
+Aggregations, unary transforms, and binary operators return a `LazyOperator` — `.data()` auto-materializes, so prefer the single-await idiom and skip the legacy double-await:
+
+```python
+# GOOD — sync planner, one await
+total = await fares.sum().data()
+
+# BAD — legacy double-await pattern
+total = await (await fares.sum()).data()
+```
+
+Name materialized results when they cross task boundaries or you want them visible in the lineage / oplog UI. Defaults produce `t_<snowflake>`; named results give stable table names:
+
+| Op | Anonymous | Named |
+|---|---|---|
+| `(a * b).as_("revenue")` | `t_<id>` | `t_revenue_<id>` |
+| `obj.sum().as_("daily_total", scope="job")` | `t_<id>` | `j_<job_id>_daily_total` |
+| `obj.copy(name="snapshot", scope="global")` | `t_<id>` | `p_snapshot` |
+| `a.concat(b, name="merged", scope="job")` | `t_<id>` | `j_<job_id>_merged` |
+| `left.join(right, on="id", name="joined")` | `t_<id>` | `t_joined_<id>` |
+| `obj.group_by("k").sum("v", name="totals", scope="job")` | `t_<id>` | `j_<job_id>_totals` |
+
+Use `scope="job"` for intermediates that downstream tasks need to introspect; use `scope="global"` for results you want to outlive the job (persistent). See `docs/object.md` "Lazy Operator Results" and `basic_lineage/__init__.py` for the canonical examples.
+
 ## Report Output Format
 
 **All example projects MUST output reports as markdown to stdout.**

@@ -22,11 +22,11 @@ async def example():
     print(f"Created object: {obj}")
     print(f"Data: {data}\n")
 
-    min_val = await (await obj.min()).data()
-    max_val = await (await obj.max()).data()
-    sum_val = await (await obj.sum()).data()
-    mean_val = await (await obj.mean()).data()
-    std_val = await (await obj.std()).data()
+    min_val = await obj.min().data()
+    max_val = await obj.max().data()
+    sum_val = await obj.sum().data()
+    mean_val = await obj.mean().data()
+    std_val = await obj.std().data()
 
     print(f"Minimum:          {min_val}")  # → 10.0
     print(f"Maximum:          {max_val}")  # → 50.0
@@ -44,11 +44,11 @@ async def example():
     print(f"Created object: {obj_int}")
     print(f"Data: {int_data}\n")
 
-    print(f"Minimum:          {await (await obj_int.min()).data()}")  # → 1
-    print(f"Maximum:          {await (await obj_int.max()).data()}")  # → 10
-    print(f"Sum:              {await (await obj_int.sum()).data()}")  # → 55
-    print(f"Mean:             {await (await obj_int.mean()).data()}")  # → 5.5
-    print(f"Std Deviation:    {await (await obj_int.std()).data()}")  # → 2.8722813232690143
+    print(f"Minimum:          {await obj_int.min().data()}")  # → 1
+    print(f"Maximum:          {await obj_int.max().data()}")  # → 10
+    print(f"Sum:              {await obj_int.sum().data()}")  # → 55
+    print(f"Mean:             {await obj_int.mean().data()}")  # → 5.5
+    print(f"Std Deviation:    {await obj_int.std().data()}")  # → 2.8722813232690143
 
     # Example 3: Statistics on operation results
     print("\n" + "=" * 50)
@@ -68,15 +68,15 @@ async def example():
     obj_sum = obj_a + obj_b
     sum_data = await obj_sum.data()
     print(f"After addition: {sum_data}")  # → [150.0, 300.0, 450.0]
-    print(f"Mean of sum:      {await (await obj_sum.mean()).data()}")  # → 300.0
-    print(f"Std of sum:       {await (await obj_sum.std()).data()}\n")  # → 122.47...
+    print(f"Mean of sum:      {await obj_sum.mean().data()}")  # → 300.0
+    print(f"Std of sum:       {await obj_sum.std().data()}\n")  # → 122.47...
 
     # Subtract the objects
     obj_diff = obj_a - obj_b
     diff_data = await obj_diff.data()
     print(f"After subtraction: {diff_data}")  # → [50.0, 100.0, 150.0]
-    print(f"Mean of diff:     {await (await obj_diff.mean()).data()}")  # → 100.0
-    print(f"Std of diff:      {await (await obj_diff.std()).data()}")  # → 40.82...
+    print(f"Mean of diff:     {await obj_diff.mean().data()}")  # → 100.0
+    print(f"Std of diff:      {await obj_diff.std().data()}")  # → 40.82...
 
     # Clean up operation results (obj_a and obj_b cleaned by context)
 
@@ -90,10 +90,10 @@ async def example():
 
     print(f"Daily temperatures (°F): {temperatures}\n")
 
-    min_temp = await (await obj_temp.min()).data()
-    max_temp = await (await obj_temp.max()).data()
-    avg_temp = await (await obj_temp.mean()).data()
-    std_temp = await (await obj_temp.std()).data()
+    min_temp = await obj_temp.min().data()
+    max_temp = await obj_temp.max().data()
+    avg_temp = await obj_temp.mean().data()
+    std_temp = await obj_temp.std().data()
 
     print("Temperature Analysis:")
     print(f"  Minimum:          {min_temp:.1f}°F")  # → 68.3°F
@@ -111,11 +111,11 @@ async def example():
     obj_single = await create_object_from_value(single_value)
     print(f"Single value data: {single_value}\n")
 
-    print(f"Minimum:          {await (await obj_single.min()).data()}")  # → 42.0
-    print(f"Maximum:          {await (await obj_single.max()).data()}")  # → 42.0
-    print(f"Sum:              {await (await obj_single.sum()).data()}")  # → 42.0
-    print(f"Mean:             {await (await obj_single.mean()).data()}")  # → 42.0
-    print(f"Std Deviation:    {await (await obj_single.std()).data()} (no variation)")  # → 0.0
+    print(f"Minimum:          {await obj_single.min().data()}")  # → 42.0
+    print(f"Maximum:          {await obj_single.max().data()}")  # → 42.0
+    print(f"Sum:              {await obj_single.sum().data()}")  # → 42.0
+    print(f"Mean:             {await obj_single.mean().data()}")  # → 42.0
+    print(f"Std Deviation:    {await obj_single.std().data()} (no variation)")  # → 0.0
 
     # Note: All objects created via context are automatically cleaned up when context exits
     print("\n" + "=" * 50)

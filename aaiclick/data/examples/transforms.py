@@ -45,10 +45,10 @@ async def example():
     obj = await create_object_from_value(strings)
     print(f"Strings: {strings}")
 
-    print(f"lower():  {await (await obj.lower()).data()}")  # → ['  hello world  ', ' foo ', '  bar  ']
-    print(f"upper():  {await (await obj.upper()).data()}")  # → ['  HELLO WORLD  ', ' FOO ', '  BAR  ']
-    print(f"trim():   {await (await obj.trim()).data()}")  # → ['Hello World', 'FOO', 'bar']
-    print(f"length(): {await (await obj.length()).data()}")  # → [15, 5, 7]
+    print(f"lower():  {await obj.lower().data()}")  # → ['  hello world  ', ' foo ', '  bar  ']
+    print(f"upper():  {await obj.upper().data()}")  # → ['  HELLO WORLD  ', ' FOO ', '  BAR  ']
+    print(f"trim():   {await obj.trim().data()}")  # → ['Hello World', 'FOO', 'bar']
+    print(f"length(): {await obj.length().data()}")  # → [15, 5, 7]
 
     # Example 3: Math transforms
     print("\n" + "=" * 50)
@@ -59,12 +59,12 @@ async def example():
     obj = await create_object_from_value(numbers)
     print(f"Numbers: {numbers}")
 
-    print(f"abs():  {await (await obj.abs()).data()}")  # → [9.0, 4.0, 0.0, 4.0, 16.0]
+    print(f"abs():  {await obj.abs().data()}")  # → [9.0, 4.0, 0.0, 4.0, 16.0]
 
     positives = await create_object_from_value([1, 2, 4, 8, 16])
     print(f"\nPositives: {await positives.data()}")
-    print(f"log2(): {await (await positives.log2()).data()}")  # → [0.0, 1.0, 2.0, 3.0, 4.0]
-    print(f"sqrt(): {await (await positives.sqrt()).data()}")  # → [1.0, 1.414..., 2.0, 2.828..., 4.0]
+    print(f"log2(): {await positives.log2().data()}")  # → [0.0, 1.0, 2.0, 3.0, 4.0]
+    print(f"sqrt(): {await positives.sqrt().data()}")  # → [1.0, 1.414..., 2.0, 2.828..., 4.0]
 
     # Example 4: Chaining transforms with other operators
     print("\n" + "=" * 50)

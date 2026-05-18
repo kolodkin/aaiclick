@@ -178,10 +178,10 @@ async def example():
     # Calculate statistics on final dataset (returns Objects, use .data() to extract values)
     print("\nFinal dataset statistics:")
     print(f"  Count: {len(await dataset.data())}")  # → 9
-    print(f"  Min: {await (await dataset.min()).data():.2f}")  # → 10.50
-    print(f"  Max: {await (await dataset.max()).data():.2f}")  # → 35.90
-    print(f"  Mean: {await (await dataset.mean()).data():.2f}")  # → 22.83
-    print(f"  Std: {await (await dataset.std()).data():.2f}")  # → 8.62
+    print(f"  Min: {await dataset.min().data():.2f}")  # → 10.50
+    print(f"  Max: {await dataset.max().data():.2f}")  # → 35.90
+    print(f"  Mean: {await dataset.mean().data():.2f}")  # → 22.83
+    print(f"  Std: {await dataset.std().data():.2f}")  # → 8.62
 
     # Note: All objects created via context are automatically cleaned up when context exits
     print("\n" + "=" * 50)

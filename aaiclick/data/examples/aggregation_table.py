@@ -43,7 +43,7 @@ async def example():
             "severity": ["Critical", "High", "Medium"],
         }
     )
-    print(f"  Catalog: {await (await catalog.count()).data()} CVEs with vendor/severity")
+    print(f"  Catalog: {await catalog.count().data()} CVEs with vendor/severity")
 
     # Source B: scoring database (has CVSS and EPSS scores)
     scores = await create_object_from_value(
@@ -53,7 +53,7 @@ async def example():
             "epss": [0.95, 0.12, 0.67],
         }
     )
-    print(f"  Scores:  {await (await scores.count()).data()} CVEs with CVSS/EPSS")
+    print(f"  Scores:  {await scores.count().data()} CVEs with CVSS/EPSS")
     print()
 
     # ---------------------------------------------------------------
@@ -103,7 +103,7 @@ async def example():
     )
     await agg.insert(view_scores)
     print("  Inserted scores data (3 rows) — vendor/severity auto-filled with NULL")
-    print(f"  Raw table has {await (await agg.count()).data()} rows (before collapse)")  # → 6
+    print(f"  Raw table has {await agg.count().data()} rows (before collapse)")  # → 6
     print()
 
     # ---------------------------------------------------------------
