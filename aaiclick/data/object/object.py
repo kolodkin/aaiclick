@@ -3012,8 +3012,28 @@ class LazyOperator(Object):
     async def concat(self, *args, name=None, scope=None):
         return await (await self._materialize()).concat(*args, name=name, scope=scope)
 
-    async def join(self, other, **kwargs):
-        return await (await self._materialize()).join(other, **kwargs)
+    async def join(
+        self,
+        other: Object,
+        *,
+        on: str | list[str] | None = None,
+        left_on: str | list[str] | None = None,
+        right_on: str | list[str] | None = None,
+        how: join_module.JoinHow = "inner",
+        suffixes: join_module.SuffixesArg = None,
+        name: str | None = None,
+        scope: NamedScope | None = None,
+    ):
+        return await (await self._materialize()).join(
+            other,
+            on=on,
+            left_on=left_on,
+            right_on=right_on,
+            how=how,
+            suffixes=suffixes,
+            name=name,
+            scope=scope,
+        )
 
     async def insert(self, *args):
         return await (await self._materialize()).insert(*args)
