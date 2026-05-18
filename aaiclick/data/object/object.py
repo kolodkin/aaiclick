@@ -813,13 +813,26 @@ class Object:
     def __rxor__(self, other: Object | ValueScalarType) -> LazyOperator:
         return self._plan_operator_reverse(other, "^")
 
-    async def copy(self) -> Object:
+    async def copy(
+        self,
+        *,
+        name: str | None = None,
+        scope: NamedScope | None = None,
+    ) -> Object:
         """
         Copy this object to a new object and table.
 
         Creates a new Object with a copy of all data from this object.
         Preserves all column metadata including fieldtype.
         Also works for Views, handling field selection and constraints.
+
+        Args:
+            name: Optional result table name. When set, the copy is registered
+                  in the table registry under this name. See ``create_object``
+                  for the naming/scoping rules.
+            scope: Lifetime tier for the named result —
+                  ``"temp_named"`` (default when ``name`` is set), ``"job"``,
+                  or ``"global"``. Must be ``None`` when ``name`` is ``None``.
 
         Returns:
             Object: New Object instance with copied data
@@ -828,6 +841,9 @@ class Object:
             >>> obj_a = await ctx.create_object_from_value([1, 2, 3])
             >>> obj_copy = await obj_a.copy()
             >>> await obj_copy.data()  # Returns [1, 2, 3]
+            >>>
+            >>> # Snapshot under a stable global name
+            >>> await obj_a.copy(name="snapshot_2024", scope="global")
             >>>
             >>> # Also works for views with field selection
             >>> obj = await create_object_from_value({'x': [1, 2], 'y': [3, 4]})
@@ -838,13 +854,18 @@ class Object:
         source_table = self.table
         copy_info = self._get_copy_info()
         if copy_info.selected_fields:
-            result = await ingest.copy_db_selected_fields(copy_info, self.ch_client)
+            result = await ingest.copy_db_selected_fields(copy_info, self.ch_client, name=name, scope=scope)
         else:
-            result = await ingest.copy_db(copy_info, self.ch_client)
+            result = await ingest.copy_db(copy_info, self.ch_client, name=name, scope=scope)
         oplog_record_sample(result.table, "copy", kwargs={"source": source_table})
         return result
 
-    async def concat(self, *args: Object | ValueType) -> Object:
+    async def concat(
+        self,
+        *args: Object | ValueType,
+        name: str | None = None,
+        scope: NamedScope | None = None,
+    ) -> Object:
         """
         Concatenate multiple objects or values to this object.
 
@@ -855,6 +876,12 @@ class Object:
 
         Args:
             *args: Variable number of Objects or ValueTypes to concatenate
+            name: Optional result table name. When set, the result is registered
+                  in the table registry under this name. See ``create_object``
+                  for the naming/scoping rules.
+            scope: Lifetime tier for the named result —
+                  ``"temp_named"`` (default when ``name`` is set), ``"job"``,
+                  or ``"global"``. Must be ``None`` when ``name`` is ``None``.
 
         Returns:
             Object: New Object instance with concatenated data
@@ -877,6 +904,9 @@ class Object:
             >>> # Concatenate with mixed types
             >>> result = await obj_a.concat(42, [7, 8], obj_b)
             >>> await result.data()  # Returns [1, 2, 3, 42, 7, 8, ...]
+            >>>
+            >>> # Persist the merged result under a stable job-scoped name
+            >>> await obj_a.concat(obj_b, name="merged", scope="job")
             >>>
             >>> # Nullable promotion: if any source has nullable columns,
             >>> # result is promoted to nullable
@@ -912,10 +942,10 @@ class Object:
 
         # If all args were empty lists, just copy self
         if len(query_infos) == 1:
-            result = await self.copy()
+            result = await self.copy(name=name, scope=scope)
         else:
             # Single database operation for all sources
-            result = await ingest.concat_objects_db(query_infos, self.ch_client)
+            result = await ingest.concat_objects_db(query_infos, self.ch_client, name=name, scope=scope)
 
         # Cleanup temporary objects
         for temp in temp_objects:
@@ -2948,11 +2978,11 @@ class LazyOperator(Object):
     # (Phase 2 covers aggregations + unary transforms; the table-shape ops below
     # are scheduled for a follow-up phase; until then, materialize-and-delegate.)
 
-    async def copy(self):
-        return await (await self._materialize()).copy()
+    async def copy(self, *, name=None, scope=None):
+        return await (await self._materialize()).copy(name=name, scope=scope)
 
-    async def concat(self, *args):
-        return await (await self._materialize()).concat(*args)
+    async def concat(self, *args, name=None, scope=None):
+        return await (await self._materialize()).concat(*args, name=name, scope=scope)
 
     async def join(self, other, on, how="INNER"):
         return await (await self._materialize()).join(other, on, how=how)
