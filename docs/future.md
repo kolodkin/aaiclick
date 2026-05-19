@@ -23,7 +23,7 @@ Add "See Also" footers and cross-page links alongside the tutorial.
 
 ## LazyOperator — Elide Materialization for Small / Scalar Results
 
-See [future_lazy_operator.md → Phase 3](future_lazy_operator.md#phase-3-elide-materialization-entirely-for-small--scalar-results). Real wall-clock wins on scalar aggregations (~10 ms → ~5 ms) by returning `LazyScalar` / `LazyView` wrappers that execute the SQL directly on `.data()` instead of creating a throwaway sink table first.
+See [future_lazy_operator.md → Phase 3](future_lazy_operator.md#phase-3-defer-the-create-table--materialize-only-on-demand). Real wall-clock wins on scalar aggregations (~10 ms → ~5 ms) by deferring the throwaway `CREATE TABLE` inside the existing `LazyOperator` — no new class. `.data()` runs the inner SELECT directly; the table only materializes when explicitly needed (`.as_()`, `.table`, downstream table-source).
 
 ## Clear Task + Downstream
 

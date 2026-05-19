@@ -55,16 +55,20 @@ the materialized delegate so `(a + b).copy(name=..., scope=...)` and
 
 ---
 
-## Phase 3: Elide Materialization Entirely for Small / Scalar Results
+## Phase 3: Defer the CREATE TABLE — Materialize Only on Demand
 
 **Status:** Deeper change. Real wall-clock wins on cheap queries.
 
-Every operator today — including phase 1's `LazyOperator` — materializes its
-result into a fresh ClickHouse table via `create_object(schema)` +
-`INSERT INTO ... SELECT`. For scalar and small-result aggregations
-(`sum`, `nunique`, `count`, `min`, `max`, `mean`, single-key
-`group_by.sum`), the extra `CREATE TABLE ... ENGINE = Memory` round-trip
-dominates wall clock on cheap queries.
+Every scalar aggregation today goes through `operators._apply_aggregation`
+/ `nunique_agg` / `count_if_agg` / `quantile_agg`, which always do:
+
+```sql
+CREATE TABLE t_xxx (value Float64) ENGINE = Memory;  -- ~4 ms DDL
+INSERT INTO t_xxx SELECT sum(value) AS value FROM source;
+```
+
+…then `.data()` reads `SELECT value FROM t_xxx`. Two round-trips, where
+the first is a throwaway DDL whose result is rarely read as a table.
 
 **Evidence** (1M rows, chdb 26, `aaiclick/example_projects/chdb_benchmark`):
 
@@ -78,44 +82,32 @@ round-trip — a fixed ~4 ms cost paid to register a throwaway sink table in
 the catalog. The remaining ~30–40% is Python orchestration (Schema build,
 Object register, async plumbing).
 
-**Root cause:** `operators.nunique_agg` / `operators.group_by_agg` /
-`_apply_aggregation` build a `Schema` in Python, then call
-`create_object(schema)` which emits
-`CREATE TABLE <result> (...) ENGINE = Memory` with column comments — just
-to hold a 1-row or 10-row result that the caller almost always unwraps via
-`.data()`. The schema is fully known in Python before the DDL is sent; the
-CREATE just *serializes* metadata the runtime already has.
+**Proposal — no new class, no new public API.** `LazyOperator` already
+exists (`aaiclick/data/object/object.py:2831`) and already represents
+every scalar aggregation with `rhs=None`. `.sum()`, `.mean()`, `.count()`,
+`.nunique()`, `.count_if()`, `.quantile()` all return one today. The
+change is **when** the CREATE fires, not the shape of the type system:
 
-**Proposal:** Scalar and small-result operators return a `LazyScalar` /
-`LazyView` wrapper carrying the same `Schema` (types, fieldtype,
-nullability, LowCardinality, descriptions) plus the query SQL.
-Materialization into a real table happens only when genuinely needed —
-e.g. `.materialize()`, cross-process handoff, or downstream ops that
-require a table source.
+- **Today.** `.data()` triggers `_materialize()` → CREATE TABLE + INSERT
+  → SELECT.
+- **Tomorrow.** `.data()` runs the inner SELECT directly. `_materialize()`
+  only runs when something genuinely needs a table — `.as_(name, scope=...)`,
+  `.table` property access, downstream ops that use the scalar as a table
+  source, orch cross-process handoff.
 
-```python
-# Today
-async def nunique_agg(info, ch_client):
-    schema = Schema(...)
-    result = await create_object(schema)          # CREATE TABLE + comments
-    await ch_client.command(f"INSERT INTO {result.table} ... SELECT count() ...")
-    return result
-
-# Lazy
-async def nunique_agg(info, ch_client):
-    schema = Schema(...)                          # same Schema
-    sql = f"SELECT count() FROM (SELECT value FROM {info.source} GROUP BY value)"
-    return LazyScalar(schema=schema, sql=sql, ch_client=ch_client)
-    # .data() → one SELECT (saves the ~4 ms CREATE round-trip)
-    # .materialize() → falls back to today's behavior when a table is needed
-```
+The SELECT that `.data()` runs is the *same* SQL today's code INSERTs
+from — same `Schema`, same `operators` module SQL builders — just
+executed bare instead of wrapped in `INSERT INTO … SELECT`. Downstream
+`LazyOperator`s consuming an unmaterialized scalar paste the SELECT into
+the subquery slot of `_get_query_info()`, which consumer sites already
+accept.
 
 **What doesn't change:** `Schema`, `ColumnInfo` (including
 `low_cardinality`, `nullable`, `array`, `description`), column comments on
 **persistent** / **job-scoped** tables, cross-process handoff via table
-name, `open_object()` reconstruction. Metadata remains Python-side first;
-the CREATE TABLE stays as the serialization path for tables that need to
-cross a process or session boundary.
+name, `open_object()` reconstruction. The CREATE TABLE stays as the
+serialization path for tables that need to cross a process or session
+boundary — it just stops being eager.
 
 **Where a table is still required:**
 
@@ -125,28 +117,30 @@ cross a process or session boundary.
 - Joining a result as a table source (rare for scalars; broadcasting as a
   literal is usually better).
 
-Add `.materialize()` as the explicit escape hatch so callers can opt in.
+These trigger `_materialize()` via `.as_(name, scope=...)`, `.table`, or
+the existing table-source code path. No new escape hatch needed —
+`.as_(name, scope=...)` already exists from Phase 2a.
 
 **Work:**
 
-- `aaiclick/data/object/operators.py` — new `LazyScalar` / `LazyView`
-  classes or extend existing `View`; route `nunique_agg`,
-  `_apply_aggregation` (sum/mean/min/max/count/std/var), `group_by_agg`
-  for small results through them.
-- `aaiclick/data/object/object.py` — `.data()` on a lazy result executes
-  the SQL directly; chain operators inline the lazy SQL as a subquery
-  instead of reading from a table name.
-- Decide group-by threshold: always lazy vs. materialize above N result
-  rows — likely always lazy, let downstream `.copy()` or `.materialize()`
-  decide.
+- `aaiclick/data/object/operators.py` — split `_apply_aggregation`,
+  `nunique_agg`, `count_if_agg`, `quantile_agg`, `unique_group` into a
+  SQL-builder half and an optional materializer half. The SQL-builder is
+  what `.data()` calls; the materializer is what `_materialize()` calls.
+  Mechanical extraction — same SQL on both sides.
+- `aaiclick/data/object/object.py` — `LazyOperator.data()` /
+  `.markdown()` / `.export()` take the SQL-builder path when no
+  `name`/`scope` was set. `_get_query_info()` on an unmaterialized
+  `LazyOperator` returns the SQL wrapped as a subquery, so downstream
+  binary ops paste it inline.
 - Benchmark: `chdb_benchmark` should show `Count distinct` /
   `Group-by sum` dropping from ~10 ms → ~5 ms at 1M rows.
 - Tests: every operator test that currently asserts against a
-  materialized table still passes (via implicit materialize-on-data or
-  an explicit `.materialize()` in tests that introspect `.table`).
+  materialized table still passes — `.as_()` and `.table` access still
+  produce a table; only the implicit `.data()`-only case becomes faster.
 
 Pairs with the "scalar Object unwrapping" idea — once `.data()` is cheap,
 the ergonomic case of "just give me the number" becomes the fast default.
-The phase 2 work above is the precondition: it gives every operator a
-single sync planner whose materializer can be swapped for a SQL-string
-recorder without touching call sites.
+The Phase 2a work above is the precondition: every operator already has a
+single sync planner whose materializer can be swapped without touching
+call sites.
