@@ -268,7 +268,7 @@ async def publish_to_huggingface(enriched: Object) -> HFPublishResult:
 
     parquet_path = "/tmp/imdb_curated.parquet"
     await enriched.export(parquet_path)
-    rows = await (await enriched["tconst"].count()).data()
+    rows = await enriched["tconst"].count().data()
 
     api = HfApi()
     api.create_repo(repo_id=HF_REPO_ID, repo_type="dataset", exist_ok=True)
