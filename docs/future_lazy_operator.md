@@ -117,9 +117,21 @@ boundary — it just stops being eager.
 - Joining a result as a table source (rare for scalars; broadcasting as a
   literal is usually better).
 
-These trigger `_materialize()` via `.as_(name, scope=...)`, `.table`, or
-the existing table-source code path. No new escape hatch needed —
-`.as_(name, scope=...)` already exists from Phase 2a.
+What actually triggers `_materialize()`:
+
+- `await lazy_op` — bare-await contract returns a materialized `Object`,
+  so the caller can read `.table`.
+- `.table` property access — sync; raises today if unmaterialized
+  (`object.py:2904-2916`), and continues to.
+- A downstream op that demands a real table source (join side, orch
+  cross-process handoff).
+
+`.as_(name, scope=...)` is **pure metadata** — it clones the LazyOperator
+and stamps `_name`/`_scope`, no DB call (`object.py:2881-2901`). The
+stamped name/scope is consumed *if and when* one of the triggers above
+fires. So `await sum_lazy.as_("foo", scope="job")` materializes to
+`j_<job>_foo`; `sum_lazy.as_("foo").data()` runs the SQL-direct path and
+never creates `foo` — the user asked for data, not a table.
 
 **Interaction with `View` — no `LazyView` needed.** `View`
 (`aaiclick/data/object/object.py:2248`) is already the projection-side
