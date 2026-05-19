@@ -7,7 +7,6 @@ and lazy-imports the appropriate concrete client based on AAICLICK_CH_URL.
 
 from __future__ import annotations
 
-import asyncio
 import os
 from collections.abc import Sequence
 from contextvars import ContextVar
@@ -95,12 +94,12 @@ async def export_query_to_file(query: str, path: str, fmt: str) -> str:
     - **chdb (embedded):** ``INSERT INTO FUNCTION file('path', fmt) <query>``
       — the embedded engine writes directly to disk. Compression is inferred
       from the path suffix by ClickHouse's ``file()``.
-    - **clickhouse-connect (remote HTTP):** ``raw_stream`` returns uncompressed
-      formatted bytes; they are copied to the local file in 64 KB chunks via
-      :func:`aaiclick.data.formats.open_export_writer`, which re-applies
-      ``.gz`` / ``.xz`` compression client-side so output is byte-equivalent
-      across backends. The blocking copy runs in a worker thread to keep the
-      event loop responsive during multi-GB exports.
+    - **clickhouse-connect (remote HTTP):** ``raw_stream`` yields uncompressed
+      formatted byte chunks via an async ``StreamContext``; they are written
+      to the local file via :func:`aaiclick.data.formats.open_export_writer`,
+      which re-applies ``.gz`` / ``.xz`` compression client-side so output is
+      byte-equivalent across backends. Awaiting each chunk keeps the event
+      loop responsive between network reads.
 
     ``INSERT INTO FUNCTION file()`` is unusable against a remote server
     because it would write to the server's ``user_files_path`` rather than
@@ -113,19 +112,11 @@ async def export_query_to_file(query: str, path: str, fmt: str) -> str:
         await client.command(f"INSERT INTO FUNCTION file('{safe_path}', '{fmt}') {query}")
         return abs_path
 
-    stream = await client.raw_stream(query=query, fmt=fmt)  # type: ignore[attr-defined]
-    await asyncio.to_thread(_drain_stream_to_file, stream, abs_path)
-    return abs_path
-
-
-def _drain_stream_to_file(stream, abs_path: str) -> None:
-    """Copy a blocking ``io.IOBase`` stream into *abs_path*, compressing if the suffix matches."""
-    try:
+    async with await client.raw_stream(query=query, fmt=fmt) as stream:  # type: ignore[attr-defined]
         with open_export_writer(abs_path) as f:
-            while chunk := stream.read(1 << 16):
+            async for chunk in stream:
                 f.write(chunk)
-    finally:
-        stream.close()
+    return abs_path
 
 
 async def create_ch_client() -> ChClient:
