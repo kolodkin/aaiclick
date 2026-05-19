@@ -21,10 +21,6 @@ Add "See Also" footers and cross-page links alongside the tutorial.
 
 # Medium Priority
 
-## LazyOperator — Elide Materialization for Small / Scalar Results
-
-See [future_lazy_operator.md → Phase 3](future_lazy_operator.md#phase-3-elide-materialization-entirely-for-small--scalar-results). Real wall-clock wins on scalar aggregations (~10 ms → ~5 ms) by returning `LazyScalar` / `LazyView` wrappers that execute the SQL directly on `.data()` instead of creating a throwaway sink table first.
-
 ## Clear Task + Downstream
 
 Reset a specific task and all its downstream tasks to PENDING — same concept as Airflow's "clear task". Upstream tasks are untouched; their output tables remain as-is. Useful for re-running part of a pipeline without re-executing the entire job. Independent of lineage — general orchestration capability.
@@ -64,10 +60,6 @@ Also relevant: ClickHouse's own `ALTER TABLE` is limited — `MODIFY ORDER BY` c
 - **Per-change maintenance CLIs** — `aaiclick maintenance rebuild-oplog`, etc. Works but doesn't scale past a handful of changes.
 
 No action today — fresh installs keep working, existing installs degrade gracefully at worst. Revisit once there is a third structural CH-side change (which makes the per-change CLI approach untenable) or once a change actually breaks (not just slows down) an existing install.
-
-## LazyOperator — `.as_()` for Joins, Concat, Copy, Group-By
-
-See [future_lazy_operator.md → Phase 2b](future_lazy_operator.md#phase-2b-as_-for-joins-concat-copy-group-by). Mechanical extension of the now-shipped Phase 2a (aggregations + unary transforms) to the remaining operations that materialize a new table — same sync-planner pattern, same `.as_(name, scope=...)` API. The `rhs: Object | ValueScalarType | None` + `params: dict | None` data shape covers binary, unary, and parametrized operators alike.
 
 ---
 
