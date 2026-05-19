@@ -99,6 +99,28 @@ Names the result table and chooses its lifetime. Returns a new `LazyOperator` (t
 | `"job"` | `j_<job_id>_<name>` | Lives until the active orch job expires |
 | `"global"` | `p_<name>` | Persists; remove with `delete_persistent_object(name, scope="global")` |
 
+### `name` / `scope` on always-materializing ops
+
+`.copy()`, `.concat()`, `.join()`, and every `GroupByQuery` aggregation
+(`.sum()`, `.mean()`, `.min()`, `.max()`, `.count()`, `.std()`, `.var()`,
+`.any()`, `.group_array_distinct()`, `.agg()`) accept the same `name` /
+`scope` kwargs with identical semantics to `.as_()` above. These ops
+always create a new table — no lazy chain to elide — so the kwargs land
+directly on the existing async methods instead of going through
+`LazyOperator`:
+
+```python
+enriched = await a.join(b, on="user_id", name="enriched", scope="job")
+# → j_<job_id>_enriched
+
+totals = await orders.group_by("category").sum("amount", name="totals", scope="global")
+# → p_totals
+```
+
+`LazyOperator`'s overrides forward `name` / `scope` to the materialized
+delegate, so `(a + b).copy(name=..., scope=...)` and
+`(a + b).join(b, name=..., scope=...)` work as expected.
+
 ### Invariants
 
 - **No DB writes until awaited.** Creating a `LazyOperator` is pure-Python. A lazy that's never awaited never creates a table.

@@ -61,10 +61,6 @@ Also relevant: ClickHouse's own `ALTER TABLE` is limited — `MODIFY ORDER BY` c
 
 No action today — fresh installs keep working, existing installs degrade gracefully at worst. Revisit once there is a third structural CH-side change (which makes the per-change CLI approach untenable) or once a change actually breaks (not just slows down) an existing install.
 
-## LazyOperator — `.as_()` for Joins, Concat, Copy, Group-By
-
-See [future_lazy_operator.md → Phase 2b](future_lazy_operator.md#phase-2b-as_-for-joins-concat-copy-group-by). Mechanical extension of the now-shipped Phase 2a (aggregations + unary transforms) to the remaining operations that materialize a new table — same sync-planner pattern, same `.as_(name, scope=...)` API. The `rhs: Object | ValueScalarType | None` + `params: dict | None` data shape covers binary, unary, and parametrized operators alike.
-
 ---
 
 # Deferred
