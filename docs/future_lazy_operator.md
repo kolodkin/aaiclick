@@ -137,12 +137,15 @@ operators; `View` covers projections. Both feed each other:
   one SELECT against the constrained view, no intermediate table.
 - **`lazy_op.view(...)` materializes first.** `View.__init__` reads
   `source.table` and `source._schema`, so calling `.view(...)` on an
-  unmaterialized `LazyOperator` must trigger `_materialize()`. Override
-  `view()` on `LazyOperator` to materialize and delegate — same
-  `materialize-and-delegate` pattern as the existing `.copy()` /
-  `.concat()` / `.join()` overrides (`object.py:3009-3036`). Likely an
-  async override (parallel to `.copy()`) since materialization is async;
-  the sync `Object.view()` remains unchanged.
+  unmaterialized `LazyOperator` must trigger `_materialize()`.
+  **Decision: make `Object.view()` async.** The materialize-and-delegate
+  pattern needs `await`, and rather than diverge with a sync `Object.view()`
+  + async `LazyOperator.view()`, we promote `view()` on the base class.
+  Small API break (call sites change from `obj.view(...)` to
+  `await obj.view(...)`); aligns `view` with `.copy()`, `.concat()`,
+  `.join()`, which are already async. `LazyOperator.view()` then auto-
+  materializes via the same `materialize-and-delegate` pattern as
+  `.copy()` (`object.py:3009-3036`).
 
 The result: no `LazyView` class, no duplication. Filter/project chains
 stay in `View`, operator chains stay in `LazyOperator`, and they compose
