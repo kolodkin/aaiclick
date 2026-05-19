@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from .. import docker_config
 from ..docker_config import resolve_docker_config
 from ..models import Job, RegisteredJob
 from . import docker_build
@@ -113,6 +114,7 @@ async def test_resolve_docker_config_kwargs_override_registered_defaults(
 ):
     """The three-layer resolve picks the right value at each level."""
     monkeypatch.delenv("AAICLICK_DOCKER_REGISTRY", raising=False)
+    monkeypatch.setattr(docker_config, "auto_detect_git_branch", AsyncMock(return_value="auto-branch"))
 
     registered = RegisteredJob(
         id=1,
