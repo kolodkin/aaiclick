@@ -88,7 +88,7 @@ jobs:
           AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          HF_REPO_ID: ${{ secrets.HF_REPO_ID }}
+          HF_REPO_ID: ${{ vars.HF_REPO_ID }}
         run: |
           mkdir -p tmp
           aaiclick/example_projects/imdb_dataset_builder/imdb_dataset_builder.sh 2>&1 | tee tmp/imdb-dataset-builder_output.txt
