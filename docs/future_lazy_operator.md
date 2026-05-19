@@ -164,6 +164,11 @@ the other's internals.
   `name`/`scope` was set. `_get_query_info()` on an unmaterialized
   `LazyOperator` returns the SQL wrapped as a subquery, so downstream
   binary ops paste it inline.
+- `aaiclick/data/object/object.py` — promote `Object.view()` to `async`
+  and update all call sites. Add a brief comment on `Object.view()`
+  explaining why it is async (`LazyOperator.view()` needs to
+  materialize; keeping `view` sync on `Object` but async on
+  `LazyOperator` would be a confusing split).
 - Benchmark: `chdb_benchmark` should show `Count distinct` /
   `Group-by sum` dropping from ~10 ms → ~5 ms at 1M rows.
 - Tests: every operator test that currently asserts against a
