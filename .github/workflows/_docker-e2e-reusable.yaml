@@ -127,6 +127,18 @@ jobs:
         with:
           name: requirements
 
+      # --- Common: pypi upload --------------------------------------------
+      # Upload must happen before install — the install step resolves
+      # aaiclick==<version_pin> from the local pypiserver, so the wheel
+      # has to be present on the index by then. The same upload is also
+      # what the docker build inside the e2e tests pulls from later.
+
+      - name: Upload wheel to test pypi
+        run: |
+          for f in dist/*.whl dist/*.tar.gz; do
+            curl -fsSL -F "content=@${f}" -F ":action=file_upload" http://localhost:8080/
+          done
+
       - name: Install aaiclick from test pypi (artifact mode)
         if: inputs.wheel_source == 'artifact'
         env:
@@ -138,13 +150,7 @@ jobs:
           VERSION="${{ inputs.version_pin }}"
           uv pip install "aaiclick[distributed]==${VERSION#v}"
 
-      # --- Common: pypi upload, migrations, test --------------------------
-
-      - name: Upload wheel to test pypi
-        run: |
-          for f in dist/*.whl dist/*.tar.gz; do
-            curl -fsSL -F "content=@${f}" -F ":action=file_upload" http://localhost:8080/
-          done
+      # --- Common: migrations, test ---------------------------------------
 
       - name: Run database migrations
         env:
