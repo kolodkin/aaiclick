@@ -104,6 +104,8 @@ class BackgroundWorker:
         if self._task:
             await self._task
         await self._engine.dispose()
+        if self._ch_client is not None:
+            await self._ch_client.close()
         self._ch_client = None
 
     async def _cleanup_loop(self) -> None:

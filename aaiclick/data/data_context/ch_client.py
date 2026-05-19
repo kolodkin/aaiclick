@@ -59,6 +59,7 @@ class ChClient(Protocol):
         column_oriented: bool = False,
         column_type_names: Sequence[str] | None = None,
     ) -> None: ...
+    async def close(self) -> None: ...
 
 
 _ch_client_var: ContextVar[ChClient | None] = ContextVar("ch_client", default=None)
