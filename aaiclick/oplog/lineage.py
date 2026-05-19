@@ -179,6 +179,7 @@ async def lineage_context() -> AsyncIterator[None]:
         yield
     finally:
         _ch_client_var.reset(token)
+        await ch_client.close()
 
 
 async def backward_oplog(
