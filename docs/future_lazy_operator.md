@@ -121,6 +121,34 @@ These trigger `_materialize()` via `.as_(name, scope=...)`, `.table`, or
 the existing table-source code path. No new escape hatch needed —
 `.as_(name, scope=...)` already exists from Phase 2a.
 
+**Interaction with `View` — no `LazyView` needed.** `View`
+(`aaiclick/data/object/object.py:2248`) is already the projection-side
+lazy operation: WHERE / LIMIT / OFFSET / ORDER BY / `selected_fields` /
+`computed_columns` / `renamed_columns` / `exploded_columns` compose into
+SQL without materializing, by overriding `_get_query_info()` to render a
+constrained subquery against the source `.table`. `LazyOperator` covers
+operators; `View` covers projections. Both feed each other:
+
+- **`view.sum()` works without materializing the view.** `View` is an
+  `Object` subclass, so `LazyOperator.lhs` / `.rhs` (typed as
+  `Object | ValueScalarType[ | None]`) already accept it. The materialize
+  path calls `lhs._get_query_info()`, which `View` overrides to inject
+  the WHERE/LIMIT/etc. as a subquery. End result: `view.sum().data()` →
+  one SELECT against the constrained view, no intermediate table.
+- **`lazy_op.view(...)` materializes first.** `View.__init__` reads
+  `source.table` and `source._schema`, so calling `.view(...)` on an
+  unmaterialized `LazyOperator` must trigger `_materialize()`. Override
+  `view()` on `LazyOperator` to materialize and delegate — same
+  `materialize-and-delegate` pattern as the existing `.copy()` /
+  `.concat()` / `.join()` overrides (`object.py:3009-3036`). Likely an
+  async override (parallel to `.copy()`) since materialization is async;
+  the sync `Object.view()` remains unchanged.
+
+The result: no `LazyView` class, no duplication. Filter/project chains
+stay in `View`, operator chains stay in `LazyOperator`, and they compose
+through `_get_query_info()` without either side needing to know about
+the other's internals.
+
 **Work:**
 
 - `aaiclick/data/object/operators.py` — split `_apply_aggregation`,
