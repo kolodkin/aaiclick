@@ -144,6 +144,11 @@ jobs:
         env:
           UV_INDEX_URL: http://localhost:8080/simple/
           UV_EXTRA_INDEX_URL: https://pypi.org/simple/
+          # The release wheel only lives on the local pypiserver (it has
+          # not been published to pypi.org yet). uv's default first-index
+          # strategy would see aaiclick on pypi.org and refuse to look at
+          # the local index, so allow it to consider both.
+          UV_INDEX_STRATEGY: unsafe-best-match
         run: |
           uv venv --python 3.10
           uv pip install -r requirements-dist.txt
