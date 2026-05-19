@@ -87,7 +87,7 @@ jobs:
           AAICLICK_LOG_DIR: /tmp/aaiclick/logs
           AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
           AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_TOKEN: ${{ github.event_name == 'workflow_dispatch' && secrets.HF_TOKEN || '' }}
           HF_REPO_ID: ${{ vars.HF_REPO_ID }}
         run: |
           mkdir -p tmp
