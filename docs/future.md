@@ -21,10 +21,6 @@ Add "See Also" footers and cross-page links alongside the tutorial.
 
 # Medium Priority
 
-## LazyOperator — Elide Materialization for Small / Scalar Results
-
-See [future_lazy_operator.md → Phase 3](future_lazy_operator.md#phase-3-defer-the-create-table--materialize-only-on-demand). Real wall-clock wins on scalar aggregations (~10 ms → ~5 ms) by deferring the throwaway `CREATE TABLE` inside the existing `LazyOperator` — no new class. `.data()` runs the inner SELECT directly; the table only materializes when explicitly needed (`.as_()`, `.table`, downstream table-source).
-
 ## Clear Task + Downstream
 
 Reset a specific task and all its downstream tasks to PENDING — same concept as Airflow's "clear task". Upstream tasks are untouched; their output tables remain as-is. Useful for re-running part of a pipeline without re-executing the entire job. Independent of lineage — general orchestration capability.
