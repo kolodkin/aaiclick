@@ -20,7 +20,6 @@ import asyncio
 import json
 import logging
 import os
-import warnings
 from datetime import datetime, timedelta
 from typing import Any, cast
 
@@ -97,10 +96,7 @@ class BackgroundWorker:
         else:
             from clickhouse_connect import get_async_client
 
-            # clickhouse-connect >=0.15 FutureWarning about thread-pool async wrapper
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", message="The current async client", category=FutureWarning)
-                self._ch_client = await get_async_client(**parse_ch_url())
+            self._ch_client = await get_async_client(**parse_ch_url())
         self._task = asyncio.create_task(self._cleanup_loop())
 
     async def stop(self) -> None:
