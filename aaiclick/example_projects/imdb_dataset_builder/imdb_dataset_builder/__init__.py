@@ -44,6 +44,8 @@ import asyncio
 import os
 from pathlib import Path
 
+from huggingface_hub import HfApi
+
 from aaiclick import ORIENT_DICT, cast, create_object_from_url
 from aaiclick.data.models import ColumnInfo, Computed
 from aaiclick.data.object import Object
@@ -264,14 +266,9 @@ async def publish_to_huggingface(enriched: Object) -> HFPublishResult:
     if not token:
         return HFPublishResult(status="skipped", reason="HF_TOKEN not set", repo=HF_REPO_ID)
 
-    import pandas as pd
-    from huggingface_hub import HfApi
-
-    data = await enriched.data(orient=ORIENT_DICT)
-    df = pd.DataFrame(data)
-
     parquet_path = "/tmp/imdb_curated.parquet"
-    df.to_parquet(parquet_path, index=False)
+    await enriched.export(parquet_path)
+    rows = await enriched["tconst"].count().data()
 
     api = HfApi()
     api.create_repo(repo_id=HF_REPO_ID, repo_type="dataset", exist_ok=True)
@@ -283,7 +280,7 @@ async def publish_to_huggingface(enriched: Object) -> HFPublishResult:
         token=token,
     )
 
-    return HFPublishResult(status="published", rows=len(df), repo=HF_REPO_ID)
+    return HFPublishResult(status="published", rows=rows, repo=HF_REPO_ID)
 
 
 @task
