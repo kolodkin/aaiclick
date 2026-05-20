@@ -8,6 +8,20 @@ Technical Debt
   - **Workaround**: `ChdbClient.command()` and `.query()` intercept any `url('https://...', 'fmt')` in SQL via regex, download the file to a `NamedTemporaryFile` via `asyncio.to_thread(urllib.request.urlretrieve)`, and rewrite the expression to `file('/tmp/x', 'fmt')` before execution. All URLs (including localhost) are rewritten consistently. `NamedTemporaryFile` is used (not `TemporaryFile`) because chdb needs a filesystem path string.
   - **Debt**: Confirmed broken in chdb 4.1.2 and 26.1.0; no upstream fix. Remove this workaround once chdb's `url()` works reliably. Track at [chdb-io/chdb](https://github.com/chdb-io/chdb).
 
+# clickhouse-connect Async FutureWarning
+
+- **`filterwarnings` in `pyproject.toml`** (`[tool.pytest.ini_options]`)
+  - **Issue**: `clickhouse-connect>=0.15,<1.0` emits a `FutureWarning` about the async client being a thread-pool wrapper, recommending the `[async]` prerelease.
+  - **Workaround**: `warnings.catch_warnings()` around `get_async_client()` calls in `clickhouse_client.py` and `background_worker.py`.
+  - **Debt**: 1.0.0 ships the native async client as default and would drop this, but we pin `<1.0` (see next entry), so the workaround stays for now.
+
+# clickhouse-connect 1.0.0 Connection Leak (version cap)
+
+- **`clickhouse-connect>=0.15.0,<1.0`** in `pyproject.toml` (`[project.optional-dependencies] distributed`)
+  - **Issue**: 1.0.0's native aiohttp async client never calls `response.release()` in `command`, `insert`, `raw_query`, or the DESCRIBE-only branch of `_query_with_context`, and `StreamingResponseSource` forms a refcycle with its producer task. Under cyclic GC, aiohttp's `Connection.__del__` runs before `ClientResponse.__del__` non-deterministically and emits `ResourceWarning: Unclosed connection`. Under `filterwarnings = ["error"]` this surfaces as an intermittent `PytestUnraisableExceptionWarning` failure in the distributed test job (passes on most runs, flakes on GC timing).
+  - **Workaround**: Cap at `<1.0` and stay on the 0.15.x thread-pool async client, which doesn't leak this way. The 1.0.0 migration (commit e3bc45a) was reverted on this branch.
+  - **Debt**: Fixed upstream by [PR #745](https://github.com/ClickHouse/clickhouse-connect/pull/745) ("drain in-flight requests before closing async session" — wires release through every consumption path), merged but unreleased as of 1.0.0. Lift the cap to the fixed release once tagged, then re-apply the 1.0.0 migration. Track at [ClickHouse/clickhouse-connect#744](https://github.com/ClickHouse/clickhouse-connect/issues/744).
+
 # clickhouse-connect `'u'` Type Code DeprecationWarning on Python 3.13
 
 - **`filterwarnings` in `pyproject.toml`** (`[tool.pytest.ini_options]`)
