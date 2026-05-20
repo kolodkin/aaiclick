@@ -92,7 +92,7 @@ requires-dist = [
     { name = "aiosqlite", specifier = ">=0.22.0" },
     { name = "alembic", specifier = ">=1.18.0" },
     { name = "asyncpg", marker = "extra == 'distributed'", specifier = ">=0.31.0" },
-    { name = "chdb", specifier = ">=4.1.6" },
+    { name = "chdb", specifier = ">=4.1.7" },
     { name = "clickhouse-connect", marker = "extra == 'distributed'", specifier = ">=1.0.0" },
     { name = "croniter", specifier = ">=6.0.0" },
     { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115.0" },
@@ -713,7 +713,7 @@ wheels = [
 
 [[package]]
 name = "chdb"
-version = "4.1.6"
+version = "4.1.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "chdb-core" },
@@ -722,12 +722,12 @@ dependencies = [
     { name = "pyarrow" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/61/8b/b7ec9eff8795a87f462c4b304e82391ecd6e4b238607f130557294a9ae6f/chdb-4.1.6-py3-none-any.whl", hash = "sha256:9acf64920697a9a88608c2c740d5ad5c650d1f75a47af089bd78ae5b6fe40f30", size = 1444649, upload-time = "2026-03-19T15:27:04.271Z" },
+    { url = "https://files.pythonhosted.org/packages/68/39/7f105543e37f5656f20900f8013715e2164b863c6da30ccfe7c8004ab9e7/chdb-4.1.7-py3-none-any.whl", hash = "sha256:c3e68073e15e1f650295833c1405ee95c91a9cd1c7b5f0b151041506f4aca243", size = 1456739, upload-time = "2026-05-13T14:34:00.614Z" },
 ]
 
 [[package]]
 name = "chdb-core"
-version = "26.1.0"
+version = "26.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -735,10 +735,10 @@ dependencies = [
     { name = "pyarrow" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e3/43/31e699cb602b8348531b2e36a57c70b7ad9238f6aaeed01dc38242524b34/chdb_core-26.1.0-cp39-abi3-macosx_10_15_x86_64.whl", hash = "sha256:7dd4fc1d008e60e1fb54440bc9a7c41996413f5f164c324acc790d47043264a5", size = 105204496, upload-time = "2026-03-02T13:20:46.813Z" },
-    { url = "https://files.pythonhosted.org/packages/b1/6a/872464cbffb7f345643751c4f670d0844aef16b2e82ae3f5ceb95790399e/chdb_core-26.1.0-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:73be929393fd33136e550e99a5101e3068fc7812dfbb93eacbba9603b9a8e77a", size = 87764655, upload-time = "2026-03-02T12:45:07.585Z" },
-    { url = "https://files.pythonhosted.org/packages/11/a9/649b956846bac60b91052583f84077a97bd9cc7dfb164178a4222f92b997/chdb_core-26.1.0-cp39-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:a62b85061ec81ca64b74f418edf4eaee6ff82aa915b0d537c7ccb3a3e2ed0e9d", size = 118355514, upload-time = "2026-03-02T13:23:53.088Z" },
-    { url = "https://files.pythonhosted.org/packages/aa/b1/266c91ca0cd9c5259dfb8f18efd507ba53611bab10bffc10083b97ff66bf/chdb_core-26.1.0-cp39-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:ff3559d024c10a31c5041ab4387e0b7d6a3b5d5bbf6dda884c5a36d4dc50ce47", size = 158111115, upload-time = "2026-03-02T13:16:14.098Z" },
+    { url = "https://files.pythonhosted.org/packages/d5/77/7cd81c89c2bf3d6ad592474fbd01926206cd5be1dfbb80c8423eeea21103/chdb_core-26.3.0-cp39-abi3-macosx_10_15_x86_64.whl", hash = "sha256:83b76bd4bb026a74b5a3134582fc552fde10451969f3a20722f664b3b712d913", size = 108507808, upload-time = "2026-05-11T08:51:33.692Z" },
+    { url = "https://files.pythonhosted.org/packages/49/69/dc1b788581b7544c21db42fe02bc27ade24477c2baef004c4e95024af665/chdb_core-26.3.0-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:bc2d889ed2f9273c44a89cba7383f2b4d8f0bdfeed38af09f49160484a625d42", size = 91972510, upload-time = "2026-05-11T07:46:00.153Z" },
+    { url = "https://files.pythonhosted.org/packages/03/b1/ef4add0ffcf903d094a7974f8d41f7af92f1937e4b852e61fe908c4cd97c/chdb_core-26.3.0-cp39-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:dcbec93852abaa94937242da65644c563bde389ae5d0d67caae6d46067af95c5", size = 120790107, upload-time = "2026-05-11T08:22:29.125Z" },
+    { url = "https://files.pythonhosted.org/packages/8a/ef/de277cc1b1e452eda2669581c2be1899daf523af3125141183548817e00c/chdb_core-26.3.0-cp39-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:2b91a47a69db1185908f51aebdb32d1258cf7c0646e7dc6be3d2922cb694e3ad", size = 158980348, upload-time = "2026-05-11T07:52:27.176Z" },
 ]
 
 [[package]]
