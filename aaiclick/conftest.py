@@ -14,6 +14,7 @@ may additionally import the per-test/per-module fixtures they need
 
 from aaiclick.testing import (  # noqa: F401 - re-exported as pytest fixtures
     ch_worker_setup,
+    gc_leak_check,
     orch_ctx,
     orch_ctx_no_ch,
     orch_module_ctx,

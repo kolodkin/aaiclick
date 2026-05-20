@@ -32,3 +32,7 @@ jobs:
     uses: ./.github/workflows/_test-reusable.yaml
     with:
       python-version: ${{ matrix.python-version }}
+      # Surface aiohttp connection leaks (e.g. clickhouse-connect's async
+      # client) as deterministic, attributable failures. Nightly-only — too
+      # slow for the per-PR suite. See aaiclick/testing.py:gc_leak_check.
+      gc-leak-check: true

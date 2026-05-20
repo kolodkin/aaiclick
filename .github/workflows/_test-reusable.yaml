@@ -12,6 +12,14 @@ on:
         description: "Python version passed to ``uv sync --python``."
         required: true
         type: string
+      gc-leak-check:
+        description: >-
+          Force gc.collect() at each test boundary (+ PYTHONASYNCIODEBUG) in
+          the dist jobs to surface aiohttp connection leaks as deterministic
+          failures. Slow — nightly only; off for the per-PR suite.
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -189,6 +197,10 @@ jobs:
           POSTGRES_PASSWORD: secret
           POSTGRES_DB: aaiclick
           AAICLICK_TEST_FILESERVER_HOST: host.docker.internal
+          # Leak-detection harness (nightly only). Empty string = off, so the
+          # per-PR suite is unaffected. See aaiclick/testing.py:gc_leak_check.
+          AAICLICK_GC_LEAK_CHECK: ${{ inputs.gc-leak-check && '1' || '' }}
+          PYTHONASYNCIODEBUG: ${{ inputs.gc-leak-check && '1' || '' }}
         run: |
           mkdir -p tmp
           uv run pytest ${{ matrix.test-paths }} -n auto -v --junitxml=tmp/pytest-report.xml

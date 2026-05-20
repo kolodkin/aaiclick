@@ -12,6 +12,7 @@ implementations here avoids copy-paste across
 
 from __future__ import annotations
 
+import gc
 import os
 import shutil
 import tempfile
@@ -34,6 +35,34 @@ from aaiclick.snowflake import get_snowflake_id
 from .datetime_utils import utc_now
 
 _BASE_SQL_DB = os.environ.get("POSTGRES_DB", "aaiclick")
+
+# Detection harness: when set, force a full GC at every test boundary so
+# aiohttp connection leaks surface as deterministic failures (see
+# gc_leak_check below and docs/technical_debt.md). The nightly dist job sets
+# it; the per-PR suite leaves it off because the per-test collect is slow.
+_GC_LEAK_CHECK = bool(os.environ.get("AAICLICK_GC_LEAK_CHECK"))
+
+
+@pytest.fixture(autouse=_GC_LEAK_CHECK)
+def gc_leak_check():
+    """Force ``gc.collect()`` in teardown to attribute connection leaks to a test.
+
+    clickhouse-connect's async client can leave aiohttp ``Connection``
+    objects in a refcycle whose ``__del__`` emits ``ResourceWarning:
+    Unclosed connection`` only under cyclic GC, in non-deterministic
+    ``__del__`` order. Natural GC fires that warning at an arbitrary later
+    point, so under ``filterwarnings = ["error"]`` it lands on a random test
+    or escapes the run entirely. Collecting in teardown pulls the collection
+    into the current test's reporting scope: across a full suite that is
+    hundreds of forced collections, driving the odds of never hitting the
+    leak to near zero and pinning the failure to a specific test.
+
+    Autouse is gated on ``AAICLICK_GC_LEAK_CHECK`` so the per-PR suite pays
+    nothing; the nightly dist run enables it alongside ``PYTHONASYNCIODEBUG=1``
+    (which adds the leaking response's source traceback).
+    """
+    yield
+    gc.collect()
 
 
 # ---------------------------------------------------------------------------

@@ -399,7 +399,6 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
     registry_token = _task_registry_var.set({})
 
     ch_token = None
-    ch_client_owned = None
     if with_ch:
         # chdb's Session is a true per-process singleton (see
         # ``docs/technical_debt.md``): we open it once and reuse it for the
@@ -407,11 +406,7 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
         # nested keeps that invariant for callers that enter ``orch_context``
         # multiple times (e.g. ``ajob_test``).
         existing = _ch_client_var.get()
-        if existing is not None:
-            ch_client = existing
-        else:
-            ch_client = await create_ch_client()
-            ch_client_owned = ch_client
+        ch_client = existing if existing is not None else await create_ch_client()
         ch_token = _ch_client_var.set(ch_client)
 
     try:
@@ -425,8 +420,6 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
         _task_registry_var.reset(registry_token)
         if outer_engine is None:
             await engine.dispose()
-        if ch_client_owned is not None:
-            await ch_client_owned.close()
 
 
 @asynccontextmanager
