@@ -9,6 +9,7 @@ tables and trace the computation graph.
 """
 
 import asyncio
+import os
 
 from aaiclick.ai.agents.debug_agent import debug_result
 from aaiclick.ai.agents.lineage_agent import explain_lineage
@@ -95,19 +96,25 @@ async def main():
                 oplog_subgraph(target_table, direction="backward"),
                 oplog_subgraph(source_table, direction="forward"),
             )
-            explanation = await explain_lineage(
-                target_table,
-                question="How was this table produced? What arithmetic was applied?",
-                graph=backward_graph,
-            )
-            debug_answer = await debug_result(
-                target_table,
-                question=(
-                    "Which output row has the highest value, and which input "
-                    "rows drove it? Use the tools to inspect the tables."
-                ),
-                graph=backward_graph,
-            )
+
+            if os.environ.get("AAICLICK_AI_API_KEY"):
+                explanation = await explain_lineage(
+                    target_table,
+                    question="How was this table produced? What arithmetic was applied?",
+                    graph=backward_graph,
+                )
+                debug_answer = await debug_result(
+                    target_table,
+                    question=(
+                        "Which output row has the highest value, and which input "
+                        "rows drove it? Use the tools to inspect the tables."
+                    ),
+                    graph=backward_graph,
+                )
+            else:
+                print("(AI explanation skipped: AAICLICK_AI_API_KEY not set)")
+                explanation = "(skipped: AAICLICK_AI_API_KEY not set)"
+                debug_answer = "(skipped: AAICLICK_AI_API_KEY not set)"
 
         print_report(
             tasks=tasks,
