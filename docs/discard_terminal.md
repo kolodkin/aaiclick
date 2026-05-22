@@ -204,6 +204,8 @@ the `python-testing-style` skill.
    `copy_db` / `copy_db_selected_fields`, tests.
 3. **`.stats` on operators**: thread stats through the operator functions in
    `operators.py`, tests.
+4. **Documentation**: fold the user-facing API into `docs/object.md` and
+   delete this spec.
 
 # Out of scope
 
