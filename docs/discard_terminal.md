@@ -7,8 +7,10 @@ value also surfaces on `Object.stats` for objects that were *born from a
 server-side query* — `.copy()` results and materialized `LazyOperator`
 results.
 
-**Status:** ⚠️ NOT YET IMPLEMENTED — design spec. Implementation references
-are filled in as phases land.
+**Status:** ⚠️ NOT YET IMPLEMENTED — design spec. Once all phases land, fold
+the user-facing API (`execute()`, `.stats`, `QueryStats`) into
+`docs/object.md` and **delete this file** — it exists only to drive the
+implementation.
 
 # Motivation
 
