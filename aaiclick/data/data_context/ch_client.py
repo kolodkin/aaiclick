@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 from aaiclick.backend import is_chdb
 
 from ..formats import open_export_writer
+from ..models import QueryStats
 
 
 class QueryResult(Protocol):
@@ -86,6 +87,32 @@ def get_ch_client() -> ChClient:
             "No active data or orch context — use 'async with data_context()' or 'async with orch_context()'"
         )
     return client
+
+
+async def execute_for_stats(
+    query: str,
+    settings: dict | None = None,
+    parameters: dict | None = None,
+    client: ChClient | None = None,
+) -> QueryStats:
+    """Run *query* purely to capture its ClickHouse run statistics.
+
+    Backs the discard terminal (:meth:`Object.execute` runs ``… FORMAT Null``)
+    and materializing writes (``copy`` / operator ``INSERT … SELECT``) that want
+    the row/byte counts ClickHouse reports. Mirrors the
+    :func:`export_query_to_file` backend-dispatch pattern rather than widening
+    the :class:`ChClient` protocol — the HTTP client is an unwrapped
+    third-party ``clickhouse-connect`` ``AsyncClient``, so a free function
+    avoids re-wrapping it.
+
+    ``client`` defaults to the active context's client; ingest / operator
+    callers pass their explicit client.
+    """
+    client = client or get_ch_client()
+    if is_chdb():
+        return await client.command_with_stats(query, settings, parameters)  # type: ignore[attr-defined]
+    summary = await client.command(query, settings=settings, parameters=parameters)
+    return QueryStats.from_clickhouse_summary(summary)
 
 
 async def export_query_to_file(query: str, path: str, fmt: str) -> str:

@@ -25,7 +25,7 @@ from ..data_context import (
     incref,
     register_object,
 )
-from ..data_context.ch_client import export_query_to_file
+from ..data_context.ch_client import execute_for_stats, export_query_to_file
 from ..formats import format_for_extension
 from ..models import (
     AAI_ID_COLUMN,
@@ -49,6 +49,7 @@ from ..models import (
     GroupByInfo,
     IngestQueryInfo,
     QueryInfo,
+    QueryStats,
     Schema,
     ValueScalarType,
     ValueType,
@@ -162,6 +163,17 @@ class Object:
         self._schema = schema.model_copy(update=replace_kw)
         self._registered = False
         self._owns_lifecycle_ref = False
+        self._stats: QueryStats | None = None
+
+    @property
+    def stats(self) -> QueryStats | None:
+        """:class:`QueryStats` of the server-side query that produced this Object.
+
+        Populated only on objects born from a server-side query — ``.copy()``
+        results and materialized ``LazyOperator`` results. ``None`` on plain
+        table-backed Objects and on unexecuted Views.
+        """
+        return self._stats
 
     @property
     def scope(self) -> ObjectScope:
@@ -651,6 +663,33 @@ class Object:
         fmt = format_for_extension(path)
         select_sql = self._build_select(columns="*")
         return await export_query_to_file(select_sql, path, fmt)
+
+    async def execute(
+        self,
+        *,
+        order_by: Any = _UNSET,
+        limit: Any = _UNSET,
+        offset: Any = _UNSET,
+    ) -> QueryStats:
+        """Run the query this Object/View describes, discard every row, return its stats.
+
+        Rebuilds the exact SELECT that :meth:`data` would issue (honoring
+        ``where``, ``order_by``, ``limit``, ``offset``, computed columns,
+        renames, and field selection), appends ``FORMAT Null``, and runs it
+        server-side. ClickHouse runs the full pipeline and emits zero rows —
+        nothing is materialized or transported back. Returns the run's
+        :class:`QueryStats`.
+
+        Because ``View`` overrides ``_build_select``, a View's ``execute()``
+        measures the View's projection automatically. The per-call
+        ``order_by`` / ``limit`` / ``offset`` overrides mirror :meth:`data`.
+
+        Unlike :meth:`data`, no safety row cap is applied — the whole pipeline
+        runs unless ``limit`` is passed explicitly.
+        """
+        self.checkstale()
+        select_sql = self._build_select(order_by=order_by, limit=limit, offset=offset)
+        return await execute_for_stats(f"{select_sql} FORMAT Null")
 
     async def _get_fieldtype(self) -> str | None:
         """Get the fieldtype of the value column from the cached schema."""
@@ -2877,6 +2916,7 @@ class LazyOperator(Object):
         self._stale = False
         self._registered = False
         self._owns_lifecycle_ref = False
+        self._stats: QueryStats | None = None
 
     def as_(self, name: str, scope: NamedScope = "temp_named") -> LazyOperator:
         """Return a new LazyOperator that materializes with the given name and scope.
@@ -3001,6 +3041,9 @@ class LazyOperator(Object):
 
     async def export(self, *args, **kwargs):
         return await (await self._materialize()).export(*args, **kwargs)
+
+    async def execute(self, *args, **kwargs):
+        return await (await self._materialize()).execute(*args, **kwargs)
 
     # Copy / concat / join / insert — return new Objects or mutate, materialize first.
     # (Phase 2 covers aggregations + unary transforms; the table-shape ops below

@@ -90,6 +90,7 @@ from aaiclick.oplog.oplog_api import oplog_record_sample
 from aaiclick.snowflake import get_snowflake_id
 
 from ..data_context import create_object
+from ..data_context.ch_client import execute_for_stats
 from ..models import (
     AAI_ID_COLUMN,
     FIELDTYPE_ARRAY,
@@ -355,10 +356,13 @@ async def _apply_operator_db(
                 source_sql = f"(SELECT {col_a}, {col_b}{proj.inner} FROM {info_a.base_table} {suffix})"
             else:
                 source_sql = info_a.base_table
-            await ch_client.command(f"""
+            result._stats = await execute_for_stats(
+                f"""
                 INSERT INTO {result.table} {proj.insert_cols}
                 SELECT {expr} AS value{proj.inner} FROM {source_sql}
-            """)
+            """,
+                client=ch_client,
+            )
         else:
             # Cross-table contract (Object._apply_operator) guarantees order_by on both sides.
             assert info_a.order_by and info_b.order_by, (
@@ -380,23 +384,29 @@ async def _apply_operator_db(
                 )
                 temp_expr = expression.replace("a.value", "a_value").replace("b.value", "b_value")
                 try:
-                    await ch_client.command(f"""
+                    result._stats = await execute_for_stats(
+                        f"""
                         INSERT INTO {result.table} {proj.insert_cols}
                         SELECT {temp_expr} AS value{proj.inner} FROM {temp_table}
-                    """)
+                    """,
+                        client=ch_client,
+                    )
                 finally:
                     await ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
             else:
                 await _validate_array_lengths(info_a.source, info_b.source, ch_client)
                 inner_a = proj.inner if aai_id_alias == "a" else ""
                 inner_b = proj.inner if aai_id_alias == "b" else ""
-                await ch_client.command(f"""
+                result._stats = await execute_for_stats(
+                    f"""
                     INSERT INTO {result.table} {proj.insert_cols}
                     SELECT {expression} AS value{proj.aliased}
                     FROM (SELECT row_number() OVER (ORDER BY {info_a.order_by}) AS rn, value{inner_a} FROM {info_a.source}) AS a
                     INNER JOIN (SELECT row_number() OVER (ORDER BY {info_b.order_by}) AS rn, value{inner_b} FROM {info_b.source}) AS b
                     ON a.rn = b.rn
-                """)
+                """,
+                    client=ch_client,
+                )
 
         oplog_record_sample(result.table, operator, kwargs={"left": info_a.base_table, "right": info_b.base_table})
         return result
@@ -404,11 +414,14 @@ async def _apply_operator_db(
     # Scalar broadcasting (array⊗scalar, scalar⊗array, scalar⊗scalar):
     # Cross-join works for all cases. Row order follows ClickHouse's natural
     # source order; callers wanting determinism apply .view(order_by=...).
-    await ch_client.command(f"""
+    result._stats = await execute_for_stats(
+        f"""
         INSERT INTO {result.table} {proj.insert_cols}
         SELECT {expression} AS value{proj.aliased}
         FROM {info_a.source} AS a, {info_b.source} AS b
-    """)
+    """,
+        client=ch_client,
+    )
 
     oplog_record_sample(result.table, operator, kwargs={"left": info_a.base_table, "right": info_b.base_table})
     return result
@@ -475,7 +488,7 @@ async def _apply_aggregation(
     SELECT {agg_expr} AS value
     FROM {info.source}
     """
-    await ch_client.command(insert_query)
+    result._stats = await execute_for_stats(insert_query, client=ch_client)
 
     oplog_record_sample(result.table, agg_func, kwargs={"source": info.base_table})
     return result
@@ -552,7 +565,7 @@ async def count_if_agg(
         )
         result = await create_object(schema, name=name, scope=scope)
         query = f"INSERT INTO {result.table} (value) SELECT countIf({condition}) AS value FROM {info.source}"
-        await ch_client.command(query)
+        result._stats = await execute_for_stats(query, client=ch_client)
         return result
 
     columns = {}
@@ -569,7 +582,7 @@ async def count_if_agg(
     insert_cols = ", ".join(condition.keys())
     select_str = ", ".join(select_exprs)
     query = f"INSERT INTO {result.table} ({insert_cols}) SELECT {select_str} FROM {info.source}"
-    await ch_client.command(query)
+    result._stats = await execute_for_stats(query, client=ch_client)
     return result
 
 
@@ -614,7 +627,7 @@ async def quantile_agg(
     SELECT quantile({q})(value) AS value
     FROM {info.source}
     """
-    await ch_client.command(insert_query)
+    result._stats = await execute_for_stats(insert_query, client=ch_client)
 
     return result
 
@@ -658,7 +671,7 @@ async def unique_group(
     INSERT INTO {result.table} (value)
     SELECT value FROM {info.source} GROUP BY value
     """
-    await ch_client.command(insert_query)
+    result._stats = await execute_for_stats(insert_query, client=ch_client)
 
     return result
 
@@ -693,10 +706,13 @@ async def nunique_agg(
         columns={"value": ColumnInfo("UInt64")},
     )
     result = await create_object(schema, name=name, scope=scope)
-    await ch_client.command(f"""
+    result._stats = await execute_for_stats(
+        f"""
         INSERT INTO {result.table} (value)
         SELECT count() AS value FROM (SELECT value FROM {info.source} GROUP BY value)
-    """)
+    """,
+        client=ch_client,
+    )
 
     oplog_record_sample(result.table, "nunique", kwargs={"source": info.base_table})
     return result
@@ -1057,10 +1073,13 @@ async def unary_transform(
     )
     result = await create_object(schema, name=name, scope=scope)
 
-    await ch_client.command(f"""
+    result._stats = await execute_for_stats(
+        f"""
         INSERT INTO {result.table}
         SELECT {ch_func}(value) AS value FROM {info.source}
-    """)
+    """,
+        client=ch_client,
+    )
     return result
 
 

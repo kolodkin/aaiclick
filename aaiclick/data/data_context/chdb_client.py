@@ -26,6 +26,7 @@ from urllib.parse import urlparse
 import pyarrow as pa
 from chdb.session import Session
 
+from aaiclick.data.models import QueryStats
 from aaiclick.data.sql_utils import escape_sql_string
 
 # Matches url('https://...', 'Format') in SQL — used to detect and rewrite
@@ -247,6 +248,40 @@ class ChdbClient:
             n_rows = table.num_rows
             rows = [tuple(columns[name][i] for name in col_names) for i in range(n_rows)]
             return ChdbQueryResult(result_rows=rows, column_names=col_names)
+
+    async def command_with_stats(
+        self,
+        query: str,
+        settings: dict | None = None,
+        parameters: dict | None = None,
+    ) -> QueryStats:
+        """Run a statement and return its :class:`QueryStats` from chdb's counters.
+
+        chdb surfaces only scan-side counters and elapsed time. The
+        ``storage_rows_read`` / ``storage_bytes_read`` accessors report the
+        rows/bytes read from storage — the analogue of ClickHouse's summary
+        ``read_rows`` / ``read_bytes``. (The plain ``rows_read`` / ``bytes_read``
+        accessors report the *result* stream, which is empty under
+        ``FORMAT Null``, so they are not used here.) Written and result counts
+        are not exposed by chdb and stay ``None``.
+
+        Runs with the ``Null`` output format so an appended ``FORMAT Null`` in
+        the SQL never conflicts with a real output format.
+        """
+        async with _rewrite_external_urls(query) as rewritten:
+            result = self._session.query(
+                _with_settings(rewritten, settings),
+                "Null",
+                params=_serialize_parameters(parameters),
+            )
+        return QueryStats(
+            read_rows=result.storage_rows_read(),
+            read_bytes=result.storage_bytes_read(),
+            elapsed_s=result.elapsed(),
+            result_rows=None,
+            written_rows=None,
+            written_bytes=None,
+        )
 
     async def insert(
         self,

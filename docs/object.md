@@ -52,6 +52,8 @@ See [DataContext](data_context.md) for lifecycle, schemas, and deployment modes.
 | `.join(other, on, how)`                          | Join             | Join two Objects on key columns → dict Object | [join()](#join)                                                      |
 | `.data(orient=…)`                                | Data Retrieval   | Fetch results to Python (scalar / list / dict)| [data()](#data)                                                      |
 | `.markdown(truncate=…)`                          | Data Retrieval   | Render data as markdown table                 | [markdown()](#markdown)                                              |
+| `.execute(order_by, limit, offset)`              | Data Retrieval   | Run full query, discard rows → `QueryStats`   | [execute()](#execute)                                                |
+| `.stats`                                         | Data Retrieval   | `QueryStats` of the query that made this Object| [stats](#stats)                                                      |
 | `.export(path)`                                  | Export           | Stream data to a file (extension → format)    | [export()](#export)                                                  |
 
 # Operator Support
@@ -554,6 +556,50 @@ Returns: scalar → value, array → list, dict → dict or list of dicts.
 
 Returns data as a plain-text markdown table with auto-sized columns. Optional `truncate: dict[str, int]` caps column widths. Floats → 2dp, None → `N/A`.
 
+## execute()
+
+Runs the query this Object/View describes, discards every row server-side (`FORMAT Null`), and returns a `QueryStats`. Forces full compute without paying for transport — benchmark a View, warm caches, or assert a query *runs* without checking its output.
+
+Rebuilds the same SELECT `.data()` would issue (honoring `where`, `order_by`, `limit`, `offset`, computed columns, renames, field selection), so a View's `execute()` measures its projection. Per-call `order_by` / `limit` / `offset` mirror `.data()`. No safety row cap applies — the whole pipeline runs unless you pass `limit`.
+
+```python
+view = obj.view(where="score > 10").rename({"score": "s"})
+stats = await view.execute()
+print(stats.read_rows)   # rows scanned by the full pipeline
+print(stats.elapsed_s)   # server-side wall time
+# view's table is unchanged; no result rows came back
+```
+
+`QueryStats` is a frozen value type (exported from `aaiclick`). Every field is best-effort — a backend fills what it can surface and leaves the rest `None`:
+
+| Field           | Meaning                                  | clickhouse-connect (HTTP) | chdb                |
+|-----------------|------------------------------------------|---------------------------|---------------------|
+| `read_rows`     | rows ClickHouse scanned                  | summary                   | `storage_rows_read` |
+| `read_bytes`    | uncompressed bytes scanned               | summary                   | `storage_bytes_read`|
+| `elapsed_s`     | server-side wall time, seconds           | `elapsed_ns / 1e9`        | `elapsed`           |
+| `result_rows`   | rows the SELECT produced (0 for discard) | summary                   | `None`              |
+| `written_rows`  | rows written by an INSERT                | summary                   | `None`              |
+| `written_bytes` | bytes written by an INSERT               | summary                   | `None`              |
+
+**Tests**: `aaiclick/data/object/test_execute_stats.py`
+
+## stats
+
+Read-only `QueryStats | None`. Populated only on objects **born from a server-side query**; `None` everywhere else.
+
+| Object origin                                      | `.stats`                       |
+|----------------------------------------------------|--------------------------------|
+| `await obj.copy()`                                 | stats of the `INSERT … SELECT` |
+| materialized `LazyOperator` (e.g. `await (a + b)`) | stats of the materialization   |
+| plain table-backed `Object`                        | `None`                         |
+| unexecuted `View`                                  | `None` (it never ran a query)  |
+
+```python
+result = await big_view.copy()
+print(result.stats.written_rows)   # how many rows the copy wrote (HTTP)
+print(result.stats.read_rows)      # how many it scanned to produce them
+```
+
 ## export()
 
 Export data to a local file. The format is picked from the file extension
@@ -747,6 +793,8 @@ subset = await obj.where("x > 5").copy()  # filtered copy
 sorted_copy = await obj.view(order_by="amount DESC").copy()
 await sorted_copy.data()  # returns rows sorted by amount DESC
 ```
+
+The result carries the `INSERT … SELECT` stats on [`.stats`](#stats) — `await obj.copy()` then `result.stats.read_rows` tells you how much it scanned.
 
 !!! warning "`copy()` is not serialized across workers"
     Unlike `insert()` and `concat()`, `copy()` does not take a per-table
