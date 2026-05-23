@@ -71,28 +71,30 @@ async def test_execute_on_view_measures_projection(ctx):
 async def test_copy_stats_populated(ctx):
     obj = await create_object_from_value(list(range(40)))
     copied = await obj.copy()
-    assert copied.stats is not None
-    _assert_scanned(copied.stats, 40)
+    cs = await copied.stats()
+    assert cs is not None
+    _assert_scanned(cs, 40)
     # written_rows is HTTP-only; chdb leaves it None.
-    assert copied.stats.written_rows is None or copied.stats.written_rows == 40
+    assert cs.written_rows is None or cs.written_rows == 40
 
 
 async def test_copy_selected_fields_stats_populated(ctx):
     obj = await create_object_from_value({"x": [1, 2, 3], "y": [4, 5, 6]})
     copied = await obj["x"].copy()
-    assert copied.stats is not None
-    _assert_scanned(copied.stats, 3)
+    cs = await copied.stats()
+    assert cs is not None
+    _assert_scanned(cs, 3)
 
 
 async def test_stats_none_on_plain_object(ctx):
     obj = await create_object_from_value([1, 2, 3])
-    assert obj.stats is None
+    assert await obj.stats() is None
 
 
 async def test_stats_none_on_unexecuted_view(ctx):
     obj = await create_object_from_value([1, 2, 3, 4, 5])
     view = obj.view(where="value > 2")
-    assert view.stats is None
+    assert await view.stats() is None
 
 
 async def test_lazy_binary_operator_stats(ctx):
@@ -100,21 +102,34 @@ async def test_lazy_binary_operator_stats(ctx):
     b = await create_object_from_value([4, 5, 6], aai_id=True)
     result = await (a + b)
     assert await result.data() == [5, 7, 9]
-    assert result.stats is not None
-    assert result.stats.read_rows is not None and result.stats.read_rows > 0
+    rs = await result.stats()
+    assert rs is not None
+    assert rs.read_rows is not None and rs.read_rows > 0
+
+
+async def test_lazy_stats_triggers_materialization(ctx):
+    """await lazy.stats() materializes the un-awaited LazyOperator, mirroring .data()."""
+    a = await create_object_from_value([1, 2, 3], aai_id=True)
+    b = await create_object_from_value([4, 5, 6], aai_id=True)
+    lazy = a + b
+    rs = await lazy.stats()
+    assert rs is not None
+    assert rs.read_rows is not None and rs.read_rows > 0
 
 
 async def test_lazy_aggregation_stats(ctx):
     obj = await create_object_from_value(list(range(10)))
     result = await obj.sum()
     assert await result.data() == 45
-    assert result.stats is not None
-    _assert_scanned(result.stats, 10)
+    rs = await result.stats()
+    assert rs is not None
+    _assert_scanned(rs, 10)
 
 
 async def test_lazy_unary_transform_stats(ctx):
     obj = await create_object_from_value(["Hello", "World"])
     result = await obj.lower()
     assert await result.data() == ["hello", "world"]
-    assert result.stats is not None
-    assert result.stats.read_rows is not None and result.stats.read_rows > 0
+    rs = await result.stats()
+    assert rs is not None
+    assert rs.read_rows is not None and rs.read_rows > 0

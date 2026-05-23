@@ -165,13 +165,14 @@ class Object:
         self._owns_lifecycle_ref = False
         self._stats: QueryStats | None = None
 
-    @property
-    def stats(self) -> QueryStats | None:
+    async def stats(self) -> QueryStats | None:
         """:class:`QueryStats` of the server-side query that produced this Object.
 
-        Populated only on objects born from a server-side query — ``.copy()``
-        results and materialized ``LazyOperator`` results. ``None`` on plain
-        table-backed Objects and on unexecuted Views.
+        Populated on objects born from a server-side query — ``.copy()`` results
+        and materialized ``LazyOperator`` results; ``None`` on plain table-backed
+        Objects and unexecuted Views. ``async`` because awaiting it on an
+        unmaterialized ``LazyOperator`` first triggers the materialization
+        (mirroring ``.data()``).
         """
         return self._stats
 
@@ -3044,6 +3045,9 @@ class LazyOperator(Object):
 
     async def execute(self, *args, **kwargs):
         return await (await self._materialize()).execute(*args, **kwargs)
+
+    async def stats(self) -> QueryStats | None:
+        return await (await self._materialize()).stats()
 
     # Copy / concat / join / insert — return new Objects or mutate, materialize first.
     # (Phase 2 covers aggregations + unary transforms; the table-shape ops below

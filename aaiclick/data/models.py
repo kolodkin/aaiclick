@@ -291,8 +291,8 @@ class QueryStats:
 
     Every field is best-effort: a backend fills what it can surface and leaves
     the rest ``None`` (see the per-backend availability matrix in
-    ``docs/object.md``). Produced by :meth:`Object.execute` and stamped on
-    :attr:`Object.stats` for objects born from a server-side query.
+    ``docs/object.md``). Produced by :meth:`Object.execute` and surfaced by
+    :meth:`Object.stats` for objects born from a server-side query.
     """
 
     read_rows: int | None  # rows ClickHouse scanned

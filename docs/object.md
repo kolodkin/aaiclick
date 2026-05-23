@@ -53,7 +53,7 @@ See [DataContext](data_context.md) for lifecycle, schemas, and deployment modes.
 | `.data(orient=…)`                                | Data Retrieval   | Fetch results to Python (scalar / list / dict)| [data()](#data)                                                      |
 | `.markdown(truncate=…)`                          | Data Retrieval   | Render data as markdown table                 | [markdown()](#markdown)                                              |
 | `.execute(order_by, limit, offset)`              | Data Retrieval   | Run full query, discard rows → `QueryStats`   | [execute()](#execute)                                                |
-| `.stats`                                         | Data Retrieval   | `QueryStats` of the query that made this Object| [stats](#stats)                                                      |
+| `await .stats()`                                 | Data Retrieval   | `QueryStats` of the query that made this Object| [stats()](#stats)                                                    |
 | `.export(path)`                                  | Export           | Stream data to a file (extension → format)    | [export()](#export)                                                  |
 
 # Operator Support
@@ -583,11 +583,11 @@ print(stats.elapsed_s)   # server-side wall time
 
 **Tests**: `aaiclick/data/object/test_execute_stats.py`
 
-## stats
+## stats()
 
-Read-only `QueryStats | None`. Populated only on objects **born from a server-side query**; `None` everywhere else.
+`async`, returns `QueryStats | None`. Populated on objects **born from a server-side query**; `None` everywhere else. Async (not a property) because awaiting it on an un-awaited `LazyOperator` first materializes it — same terminal semantics as `.data()`.
 
-| Object origin                                      | `.stats`                       |
+| Object origin                                      | `await .stats()`               |
 |----------------------------------------------------|--------------------------------|
 | `await obj.copy()`                                 | stats of the `INSERT … SELECT` |
 | materialized `LazyOperator` (e.g. `await (a + b)`) | stats of the materialization   |
@@ -596,8 +596,9 @@ Read-only `QueryStats | None`. Populated only on objects **born from a server-si
 
 ```python
 result = await big_view.copy()
-print(result.stats.written_rows)   # how many rows the copy wrote (HTTP)
-print(result.stats.read_rows)      # how many it scanned to produce them
+stats = await result.stats()
+print(stats.written_rows)   # how many rows the copy wrote (HTTP)
+print(stats.read_rows)      # how many it scanned to produce them
 ```
 
 ## export()
@@ -794,7 +795,7 @@ sorted_copy = await obj.view(order_by="amount DESC").copy()
 await sorted_copy.data()  # returns rows sorted by amount DESC
 ```
 
-The result carries the `INSERT … SELECT` stats on [`.stats`](#stats) — `await obj.copy()` then `result.stats.read_rows` tells you how much it scanned.
+The result carries the `INSERT … SELECT` stats — `result = await obj.copy()` then `(await result.stats()).read_rows` tells you how much it scanned. See [stats()](#stats).
 
 !!! warning "`copy()` is not serialized across workers"
     Unlike `insert()` and `concat()`, `copy()` does not take a per-table
