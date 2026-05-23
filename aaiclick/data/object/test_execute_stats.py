@@ -133,3 +133,54 @@ async def test_lazy_unary_transform_stats(ctx):
     rs = await result.stats()
     assert rs is not None
     assert rs.read_rows is not None and rs.read_rows > 0
+
+
+async def test_group_by_stats(ctx):
+    obj = await create_object_from_value({"k": ["a", "a", "b"], "v": [1, 2, 3]})
+    result = await obj.group_by("k").sum("v")
+    rs = await result.stats()
+    assert rs is not None
+    _assert_scanned(rs, 3)
+
+
+async def test_string_op_stats(ctx):
+    obj = await create_object_from_value(["apple", "banana", "avocado"])
+    result = await obj.like("a%")
+    rs = await result.stats()
+    assert rs is not None
+    _assert_scanned(rs, 3)
+
+
+async def test_isin_stats(ctx):
+    obj = await create_object_from_value(["a", "b", "c", "d"])
+    allowed = await create_object_from_value(["a", "c"])
+    result = await obj.isin(allowed)
+    rs = await result.stats()
+    assert rs is not None
+    assert rs.read_rows is not None and rs.read_rows > 0
+
+
+async def test_coalesce_stats(ctx):
+    obj = await create_object_from_value([1, 2, 3])
+    result = await obj.coalesce(0)
+    rs = await result.stats()
+    assert rs is not None
+    assert rs.read_rows is not None and rs.read_rows > 0
+
+
+async def test_join_stats(ctx):
+    users = await create_object_from_value({"id": [1, 2, 3], "name": ["Alice", "Bob", "Carol"]})
+    orders = await create_object_from_value({"id": [1, 1, 4], "total": [9.5, 14.0, 2.0]})
+    joined = await users.join(orders, on="id")
+    rs = await joined.stats()
+    assert rs is not None
+    assert rs.read_rows is not None and rs.read_rows > 0
+
+
+async def test_concat_stats(ctx):
+    a = await create_object_from_value([1, 2, 3])
+    b = await create_object_from_value([4, 5, 6])
+    result = await a.concat(b)
+    rs = await result.stats()
+    assert rs is not None
+    assert rs.read_rows is not None and rs.read_rows > 0

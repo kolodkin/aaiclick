@@ -330,8 +330,9 @@ async def concat_objects_db(
     union_query = " UNION ALL ".join(selects)
     advisory_id = await load_advisory_id(result.table)
     async with table_insert_lock(advisory_id):
-        await ch_client.command(
-            f"INSERT INTO {result.table} ({insert_cols}) SELECT {insert_cols} FROM ({union_query}) ORDER BY _src_ord"
+        result._stats = await execute_for_stats(
+            f"INSERT INTO {result.table} ({insert_cols}) SELECT {insert_cols} FROM ({union_query}) ORDER BY _src_ord",
+            client=ch_client,
         )
 
     oplog_record_sample(

@@ -794,7 +794,7 @@ async def array_map_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_c
         ) AS value
         """
 
-    await ch_client.command(insert_query)
+    result._stats = await execute_for_stats(insert_query, client=ch_client)
     return result
 
 
@@ -909,7 +909,7 @@ async def group_by_agg(
     result = await create_object(schema, name=name, scope=scope)
 
     insert_query = f"INSERT INTO {result.table} ({insert_cols_str}) {query}"
-    await ch_client.command(insert_query)
+    result._stats = await execute_for_stats(insert_query, client=ch_client)
 
     return result
 
@@ -978,11 +978,14 @@ async def _apply_string_op_db(
 
     result = await create_object(schema)
 
-    await ch_client.command(f"""
+    result._stats = await execute_for_stats(
+        f"""
         INSERT INTO {result.table}
         SELECT {expression} AS value
         FROM {info.source} AS a
-    """)
+    """,
+        client=ch_client,
+    )
     return result
 
 
@@ -1027,11 +1030,14 @@ async def isin_op(info: QueryInfo, other_info: QueryInfo, ch_client):
     )
     result = await create_object(schema)
     subquery = f"SELECT value FROM {other_info.source}"
-    await ch_client.command(f"""
+    result._stats = await execute_for_stats(
+        f"""
         INSERT INTO {result.table}
         SELECT toUInt8(a.value IN ({subquery})) AS value
         FROM {info.source} AS a
-    """)
+    """,
+        client=ch_client,
+    )
     oplog_record_sample(result.table, "isin", kwargs={"source": info.base_table, "other": other_info.base_table})
     return result
 
@@ -1098,7 +1104,7 @@ async def is_null_op(info: QueryInfo, ch_client):
     INSERT INTO {result.table}
     SELECT isNull(value) AS value FROM {info.source}
     """
-    await ch_client.command(insert_query)
+    result._stats = await execute_for_stats(insert_query, client=ch_client)
     return result
 
 
@@ -1113,7 +1119,7 @@ async def is_not_null_op(info: QueryInfo, ch_client):
     INSERT INTO {result.table}
     SELECT isNotNull(value) AS value FROM {info.source}
     """
-    await ch_client.command(insert_query)
+    result._stats = await execute_for_stats(insert_query, client=ch_client)
     return result
 
 
@@ -1159,23 +1165,29 @@ async def coalesce_op(info_a: QueryInfo, info_b: QueryInfo, ch_client):
                 order_b=info_b.order_by or "tuple()",
             )
             try:
-                await ch_client.command(f"""
+                result._stats = await execute_for_stats(
+                    f"""
                     INSERT INTO {result.table} (value)
                     SELECT coalesce(a_value, b_value) AS value FROM {temp_table}
-                """)
+                """,
+                    client=ch_client,
+                )
             finally:
                 await ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
         else:
             await _validate_array_lengths(info_a.source, info_b.source, ch_client)
             order_a = info_a.order_by or "tuple()"
             order_b = info_b.order_by or "tuple()"
-            await ch_client.command(f"""
+            result._stats = await execute_for_stats(
+                f"""
                 INSERT INTO {result.table} (value)
                 SELECT coalesce(a.value, b.value) AS value
                 FROM (SELECT row_number() OVER (ORDER BY {order_a}) AS rn, value FROM {info_a.source}) AS a
                 INNER JOIN (SELECT row_number() OVER (ORDER BY {order_b}) AS rn, value FROM {info_b.source}) AS b
                 ON a.rn = b.rn
-            """)
+            """,
+                client=ch_client,
+            )
 
         return result
 
@@ -1190,9 +1202,12 @@ async def coalesce_op(info_a: QueryInfo, info_b: QueryInfo, ch_client):
         insert_target = f"{result.table} (value)"
         select_cols = "coalesce(a.value, b.value) AS value"
 
-    await ch_client.command(f"""
+    result._stats = await execute_for_stats(
+        f"""
         INSERT INTO {insert_target}
         SELECT {select_cols}
         FROM {info_a.source} AS a, {info_b.source} AS b
-    """)
+    """,
+        client=ch_client,
+    )
     return result

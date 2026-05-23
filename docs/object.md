@@ -587,12 +587,12 @@ print(stats.elapsed_s)   # server-side wall time
 
 `async`, returns `QueryStats | None`. Populated on objects **born from a server-side query**; `None` everywhere else. Async (not a property) because awaiting it on an un-awaited `LazyOperator` first materializes it — same terminal semantics as `.data()`.
 
-| Object origin                                      | `await .stats()`               |
-|----------------------------------------------------|--------------------------------|
-| `await obj.copy()`                                 | stats of the `INSERT … SELECT` |
-| materialized `LazyOperator` (e.g. `await (a + b)`) | stats of the materialization   |
-| plain table-backed `Object`                        | `None`                         |
-| unexecuted `View`                                  | `None` (it never ran a query)  |
+| Object origin                                                  | `await .stats()`               |
+|----------------------------------------------------------------|--------------------------------|
+| `.copy()` / `.concat()` / `.join()`                            | stats of the `INSERT … SELECT` |
+| operator / aggregation / `group_by` result (incl. `await a + b`) | stats of the materialization   |
+| plain table-backed `Object`                                    | `None`                         |
+| unexecuted `View`                                              | `None` (it never ran a query)  |
 
 ```python
 result = await big_view.copy()
