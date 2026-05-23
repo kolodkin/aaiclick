@@ -577,7 +577,7 @@ print(stats.elapsed_s)   # server-side wall time
 | `read_rows`     | rows ClickHouse scanned                  | summary                   | `storage_rows_read` |
 | `read_bytes`    | uncompressed bytes scanned               | summary                   | `storage_bytes_read`|
 | `elapsed_s`     | server-side wall time, seconds           | `elapsed_ns / 1e9`        | `elapsed`           |
-| `result_rows`   | rows the SELECT produced (0 for discard) | summary                   | `None`              |
+| `result_rows`   | rows the SELECT produced                 | summary                   | `None`              |
 | `written_rows`  | rows written by an INSERT                | summary                   | `None`              |
 | `written_bytes` | bytes written by an INSERT               | summary                   | `None`              |
 

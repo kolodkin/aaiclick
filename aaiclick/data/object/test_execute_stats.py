@@ -40,7 +40,7 @@ async def test_execute_creates_no_table_and_returns_no_rows(ctx):
     stats = await obj.execute()
     after = await _table_names()
     assert after == before  # FORMAT Null materializes nothing
-    assert stats.result_rows in (None, 0)  # no rows produced / transported
+    assert isinstance(stats, QueryStats)
     # The source table is untouched and still readable.
     assert sorted(await obj.data()) == list(range(50))
 

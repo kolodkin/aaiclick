@@ -298,7 +298,7 @@ class QueryStats:
     read_rows: int | None  # rows ClickHouse scanned
     read_bytes: int | None  # uncompressed bytes scanned
     elapsed_s: float | None  # server-side wall time, seconds
-    result_rows: int | None  # rows the SELECT produced (0 for FORMAT Null)
+    result_rows: int | None  # rows the SELECT produced (FORMAT Null discards transport, not this count)
     written_rows: int | None  # rows written by an INSERT (None for read-only)
     written_bytes: int | None  # bytes written by an INSERT
 
