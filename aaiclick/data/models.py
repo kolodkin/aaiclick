@@ -285,6 +285,51 @@ class CopyInfo:
     order_by: str | None = None
 
 
+@dataclass(frozen=True)
+class QueryStats:
+    """Statistics for a single ClickHouse statement run.
+
+    Every field is best-effort: a backend fills what it can surface and leaves
+    the rest ``None`` (see the per-backend availability matrix in
+    ``docs/object.md``). Produced by :meth:`Object.execute` and surfaced by
+    :meth:`Object.stats` for objects born from a server-side query.
+    """
+
+    read_rows: int | None  # rows ClickHouse scanned
+    read_bytes: int | None  # uncompressed bytes scanned
+    elapsed_s: float | None  # server-side wall time, seconds
+    result_rows: int | None  # rows the SELECT produced (FORMAT Null discards transport, not this count)
+    written_rows: int | None  # rows written by an INSERT (None for read-only)
+    written_bytes: int | None  # bytes written by an INSERT
+
+    @classmethod
+    def from_clickhouse_summary(cls, summary: object) -> "QueryStats":
+        """Build from a clickhouse-connect ``QuerySummary`` (or its summary dict).
+
+        The summary maps ClickHouse's ``X-ClickHouse-Summary`` header keys to
+        string values; missing keys become ``None``. ``elapsed_ns`` is converted
+        to ``elapsed_s`` (seconds).
+        """
+        raw = getattr(summary, "summary", summary)
+        d: dict = raw if isinstance(raw, dict) else {}
+
+        def _int(key: str) -> int | None:
+            v = d.get(key)
+            if v is None or v == "":
+                return None
+            return int(v)
+
+        elapsed_ns = _int("elapsed_ns")
+        return cls(
+            read_rows=_int("read_rows"),
+            read_bytes=_int("read_bytes"),
+            elapsed_s=elapsed_ns / 1e9 if elapsed_ns is not None else None,
+            result_rows=_int("result_rows"),
+            written_rows=_int("written_rows"),
+            written_bytes=_int("written_bytes"),
+        )
+
+
 class Schema(BaseModel):
     """
     Schema definition for Object tables. Also serves as Object metadata

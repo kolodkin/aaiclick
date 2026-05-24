@@ -32,6 +32,7 @@ from .data import (
     FieldSpec,
     LazyOperator,
     Object,
+    QueryStats,
     Schema,
     ValueListType,
     ValueScalarType,

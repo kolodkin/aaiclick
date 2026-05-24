@@ -163,6 +163,26 @@ class ChdbQueryResult:
         return self.result_rows[0]
 
 
+class ChdbCommandSummary:
+    """clickhouse-connect ``QuerySummary`` stand-in for a body-less chdb statement.
+
+    Exposes a ``.summary`` dict keyed like ClickHouse's ``X-ClickHouse-Summary``
+    header so :meth:`QueryStats.from_clickhouse_summary` maps both backends
+    through one path. chdb surfaces only scan-side counters and elapsed time —
+    ``storage_rows_read`` / ``storage_bytes_read`` are the rows/bytes read from
+    storage (the analogue of the summary's ``read_rows`` / ``read_bytes``; the
+    plain ``rows_read`` / ``bytes_read`` report the result stream, which is empty
+    here). Written/result counts are absent, so ``QueryStats`` leaves them ``None``.
+    """
+
+    def __init__(self, result):
+        self.summary = {
+            "read_rows": str(result.storage_rows_read()),
+            "read_bytes": str(result.storage_bytes_read()),
+            "elapsed_ns": str(int(result.elapsed() * 1e9)),
+        }
+
+
 class ChdbClient:
     """Duck-type adapter for clickhouse-connect AsyncClient backed by chdb.
 
@@ -188,9 +208,15 @@ class ChdbClient:
         settings: dict | None = None,
         parameters: dict | None = None,
     ) -> object:
-        """Execute DDL or INSERT query, return scalar result if any.
+        """Execute DDL/INSERT/command query, mirroring AsyncClient.command().
 
-        Matches AsyncClient.command() — used for CREATE TABLE, INSERT, DROP, EXISTS.
+        Like clickhouse-connect's ``command()``: returns the decoded scalar when
+        the statement produces a result body (e.g. ``EXISTS``, ``SELECT count()``),
+        and a :class:`ChdbCommandSummary` carrying the run's stats when it does
+        not (``CREATE`` / ``DROP`` / ``INSERT … SELECT`` / ``SELECT … FORMAT Null``).
+        That uniform return lets :func:`execute_for_stats` map both backends
+        through :meth:`QueryStats.from_clickhouse_summary` without a backend check.
+
         Settings are embedded as a SQL SETTINGS clause since chdb does not accept
         them as keyword arguments. ``parameters`` are forwarded to chdb's
         native ``{name:Type}`` placeholder binding.
@@ -206,14 +232,14 @@ class ChdbClient:
                 params=_serialize_parameters(parameters),
             )
             raw = result.bytes()
-            if raw:
-                text = raw.decode("utf-8").strip()
-                if text:
-                    try:
-                        return int(text)
-                    except ValueError:
-                        return text
-            return None
+        if raw:
+            text = raw.decode("utf-8").strip()
+            if text:
+                try:
+                    return int(text)
+                except ValueError:
+                    return text
+        return ChdbCommandSummary(result)
 
     async def query(
         self,

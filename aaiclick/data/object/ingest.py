@@ -11,6 +11,7 @@ from aaiclick.locks import load_advisory_id, table_insert_lock
 from aaiclick.oplog.oplog_api import oplog_record_sample
 
 from ..data_context import create_object
+from ..data_context.ch_client import execute_for_stats
 from ..models import (
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
@@ -174,7 +175,7 @@ async def copy_db(
         f"INSERT INTO {result.table} ({cols_str}) SELECT {cols_str} FROM {copy_info.source_query}{alias}{order_clause}"
     )
 
-    await ch_client.command(insert_query)
+    result._stats = await execute_for_stats(insert_query, client=ch_client)
     return result
 
 
@@ -224,7 +225,7 @@ async def copy_db_selected_fields(
         SELECT {fields_str} FROM {copy_info.source_query}{alias}
         """
 
-    await ch_client.command(insert_query)
+    result._stats = await execute_for_stats(insert_query, client=ch_client)
     return result
 
 
@@ -329,8 +330,9 @@ async def concat_objects_db(
     union_query = " UNION ALL ".join(selects)
     advisory_id = await load_advisory_id(result.table)
     async with table_insert_lock(advisory_id):
-        await ch_client.command(
-            f"INSERT INTO {result.table} ({insert_cols}) SELECT {insert_cols} FROM ({union_query}) ORDER BY _src_ord"
+        result._stats = await execute_for_stats(
+            f"INSERT INTO {result.table} ({insert_cols}) SELECT {insert_cols} FROM ({union_query}) ORDER BY _src_ord",
+            client=ch_client,
         )
 
     oplog_record_sample(

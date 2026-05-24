@@ -17,6 +17,7 @@ from typing import Literal, NamedTuple
 from aaiclick.oplog.oplog_api import oplog_record_sample
 
 from ..data_context import create_object
+from ..data_context.ch_client import execute_for_stats
 from ..models import (
     FIELDTYPE_DICT,
     ColumnInfo,
@@ -370,10 +371,11 @@ async def join_objects_db(
     # default.
     settings_clause = " SETTINGS join_use_nulls = 1" if how in ("left", "right", "full") else ""
 
-    await ch_client.command(
+    result._stats = await execute_for_stats(
         f"INSERT INTO {result.table} ({insert_cols_sql}) "
         f"SELECT {select_sql} FROM {left.source} AS l "
-        f"{HOW_TO_SQL[how]} {right.source} AS r{on_clause}{settings_clause}"
+        f"{HOW_TO_SQL[how]} {right.source} AS r{on_clause}{settings_clause}",
+        client=ch_client,
     )
 
     oplog_record_sample(

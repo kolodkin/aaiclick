@@ -55,6 +55,7 @@ from .models import (
     GroupByInfo,
     GroupByOpType,
     QueryInfo,
+    QueryStats,
     Schema,
     ValueListType,
     ValueScalarType,
