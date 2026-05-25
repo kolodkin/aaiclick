@@ -33,11 +33,17 @@
         "source": "github",
         "repo": "kolodkin/devpowers"
       }
+    },
+    "superpowers-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "obra/superpowers-marketplace"
+      }
     }
   },
   "enabledPlugins": {
     "skill-creator@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true,
+    "superpowers@superpowers-marketplace": true,
     "devpowers@devpowers": true
   }
 }
