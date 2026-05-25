@@ -4,9 +4,6 @@
       "Glob",
       "Grep",
       "Read",
-      "Bash(.claude/skills/check-pr/run-workflow-check.sh)",
-      "Bash(.claude/skills/action-check/check.sh:*)",
-      "Bash(.claude/skills/action-run/run.sh:*)",
       "Bash(gh api:*)",
       "Bash(gh auth status:*)",
       "Bash(gh issue list:*)",
@@ -30,8 +27,17 @@
       "Bash(uv run:*)"
     ]
   },
+  "extraKnownMarketplaces": {
+    "devpowers": {
+      "source": {
+        "source": "github",
+        "repo": "kolodkin/devpowers"
+      }
+    }
+  },
   "enabledPlugins": {
     "skill-creator@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true
+    "superpowers@claude-plugins-official": true,
+    "devpowers@devpowers": true
   }
 }
