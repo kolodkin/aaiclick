@@ -22,6 +22,7 @@ async def example():
     print("Example 1: WHERE clause with int scalar array")
     print("-" * 50)
 
+    # --8<-- [start:view_where]
     obj_int = await create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
     print(f"Original data: {await obj_int.data()}\n")  # → [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
@@ -36,12 +37,14 @@ async def example():
     # Filter even values
     view_where_even = obj_int.view(where="value % 2 = 0")
     print(f"WHERE value % 2 = 0 (even): {await view_where_even.data()}")  # → [2, 4, 6, 8, 10]
+    # --8<-- [end:view_where]
 
     # Example 2: LIMIT and OFFSET with int scalar array
     print("\n" + "=" * 50)
     print("Example 2: LIMIT and OFFSET with int scalar array")
     print("-" * 50)
 
+    # --8<-- [start:view_limit]
     obj_nums = await create_object_from_value([10, 20, 30, 40, 50, 60, 70, 80])
     print(f"Original data: {await obj_nums.data()}\n")  # → [10, 20, 30, 40, 50, 60, 70, 80]
 
@@ -56,12 +59,14 @@ async def example():
     # Skip first 5
     view_offset = obj_nums.view(offset=5)
     print(f"OFFSET 5: {await view_offset.data()}")  # → [60, 70, 80]
+    # --8<-- [end:view_limit]
 
     # Example 3: ORDER BY with int scalar array
     print("\n" + "=" * 50)
     print("Example 3: ORDER BY with int scalar array")
     print("-" * 50)
 
+    # --8<-- [start:view_orderby]
     obj_unsorted = await create_object_from_value([50, 20, 80, 10, 40, 60, 30, 70])
     print(f"Original data: {await obj_unsorted.data()}\n")  # → [50, 20, 80, 10, 40, 60, 30, 70]
 
@@ -72,6 +77,7 @@ async def example():
     # Sort descending
     view_desc = obj_unsorted.view(order_by="value DESC")
     print(f"ORDER BY value DESC: {await view_desc.data()}")  # → [80, 70, 60, 50, 40, 30, 20, 10]
+    # --8<-- [end:view_orderby]
 
     # Example 4: Mixed constraints with int scalar array
     print("\n" + "=" * 50)

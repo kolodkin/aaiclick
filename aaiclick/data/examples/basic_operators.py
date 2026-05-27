@@ -18,6 +18,7 @@ async def example():
     print("Example 1: Creating objects from scalar values")
     print("-" * 50)
 
+    # --8<-- [start:create_scalar]
     obj_scalar_int = await create_object_from_value(42)
     print(f"Created from int: {obj_scalar_int}")
     print(f"Value: {await obj_scalar_int.data()}\n")  # → 42
@@ -29,12 +30,14 @@ async def example():
     obj_scalar_str = await create_object_from_value("Hello, ClickHouse!")
     print(f"Created from string: {obj_scalar_str}")
     print(f"Value: {await obj_scalar_str.data()}")  # → Hello, ClickHouse!
+    # --8<-- [end:create_scalar]
 
     # Example 2: Create objects from lists (numpy dtype inference)
     print("\n" + "=" * 50)
     print("Example 2: Creating objects from lists (numpy infers dtype)")
     print("-" * 50)
 
+    # --8<-- [start:create_list]
     obj_list_int = await create_object_from_value([1, 2, 3, 4, 5])
     print(f"Created from int list: {obj_list_int}")
     print(f"Values: {await obj_list_int.data()}\n")  # → [1, 2, 3, 4, 5]
@@ -46,12 +49,14 @@ async def example():
     obj_list_str = await create_object_from_value(["apple", "banana", "cherry"])
     print(f"Created from string list: {obj_list_str}")
     print(f"Values: {await obj_list_str.data()}")  # → ['apple', 'banana', 'cherry']
+    # --8<-- [end:create_list]
 
     # Example 3: Create objects from dictionaries
     print("\n" + "=" * 50)
     print("Example 3: Creating objects from dictionaries")
     print("-" * 50)
 
+    # --8<-- [start:create_dict]
     # Dict of scalars (single row)
     obj_dict = await create_object_from_value({"id": 1, "name": "Alice", "age": 30, "score": 95.5})
     print(f"Created from dict of scalars: {obj_dict}")
@@ -72,6 +77,7 @@ async def example():
     # With orient='records': returns all rows as list of dicts
     all_rows = await obj_dict_arrays.data(orient=ORIENT_RECORDS)
     print(f"All rows (orient='records'): {all_rows}")
+    # --8<-- [end:create_dict]
 
     # Example 4: Arithmetic operations
     print("\n" + "=" * 50)
@@ -79,6 +85,7 @@ async def example():
     print("-" * 50)
 
     # Create two numeric objects for operations
+    # --8<-- [start:arithmetic]
     obj_a = await create_object_from_value([10.0, 20.0, 30.0], aai_id=True)
     obj_b = await create_object_from_value([2.0, 4.0, 5.0], aai_id=True)
 
@@ -118,12 +125,14 @@ async def example():
     # Power
     result_pow = obj_a**obj_b
     print(f"Power (a ** b): {await result_pow.data()}")  # → [100.0, 160000.0, 24300000.0]
+    # --8<-- [end:arithmetic]
 
     # Example 5: Comparison operators
     print("\n" + "=" * 50)
     print("Example 5: Comparison operators")
     print("-" * 50)
 
+    # --8<-- [start:comparison]
     obj_x = await create_object_from_value([1, 5, 10, 15], aai_id=True)
     obj_y = await create_object_from_value([5, 5, 8, 20], aai_id=True)
 
@@ -153,12 +162,14 @@ async def example():
     # Greater or Equal
     result_ge = obj_x >= obj_y
     print(f"Greater or Equal (x >= y): {await result_ge.data()}")  # → [0, 1, 1, 0]
+    # --8<-- [end:comparison]
 
     # Example 6: Bitwise operators
     print("\n" + "=" * 50)
     print("Example 6: Bitwise operators")
     print("-" * 50)
 
+    # --8<-- [start:bitwise]
     obj_m = await create_object_from_value([12, 10, 8], aai_id=True)  # Binary: 1100, 1010, 1000
     obj_n = await create_object_from_value([10, 12, 4], aai_id=True)  # Binary: 1010, 1100, 0100
 
@@ -176,6 +187,7 @@ async def example():
     # Bitwise XOR
     result_xor = obj_m ^ obj_n
     print(f"Bitwise XOR (m ^ n): {await result_xor.data()}")  # → [6, 6, 12]
+    # --8<-- [end:bitwise]
 
     # Example 7: UTC datetime support
     print("\n" + "=" * 50)

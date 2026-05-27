@@ -20,6 +20,7 @@ async def example():
     print("Example 1: Basic dict selector")
     print("-" * 50)
 
+    # --8<-- [start:select_basic]
     obj = await create_object_from_value({"param1": [123, 234, 345], "param2": [456, 567, 678]})
     print("Created dict Object with columns: param1, param2")
     print(f"Full data: {await obj.data()}\n")  # → {'param1': [123, 234, 345], 'param2': [456, 567, 678]}
@@ -32,6 +33,7 @@ async def example():
     # Select param2
     view_param2 = obj["param2"]
     print(f"obj['param2'] data: {await view_param2.data()}")  # → [456, 567, 678]
+    # --8<-- [end:select_basic]
 
     # Example 2: Object metadata
     print("\n" + "=" * 50)
@@ -89,6 +91,7 @@ async def example():
     print("Example 5: Operations with selected fields")
     print("-" * 50)
 
+    # --8<-- [start:select_operate]
     data = await create_object_from_value({"prices": [10, 20, 30, 40, 50], "quantities": [2, 3, 1, 4, 2]})
     print(f"Data: {await data.data()}\n")
 
@@ -104,6 +107,7 @@ async def example():
     # Sum of totals
     total_sum = await totals.sum()
     print(f"Sum of totals: {await total_sum.data()}")  # → 370
+    # --8<-- [end:select_operate]
 
     # Example 6: Aggregations on selected fields
     print("\n" + "=" * 50)

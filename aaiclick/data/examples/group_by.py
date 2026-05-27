@@ -19,6 +19,7 @@ async def example():
     print("Example 1: Basic group_by with sum")
     print("-" * 50)
 
+    # --8<-- [start:groupby_basic]
     sales = await create_object_from_value(
         {
             "category": ["Electronics", "Electronics", "Clothing", "Clothing", "Food"],
@@ -30,6 +31,7 @@ async def example():
     print("Sales by category (sum):")
     for cat, amt in sorted(zip(data["category"], data["amount"], strict=False)):
         print(f"  {cat}: ${amt}")
+        # --8<-- [end:groupby_basic]
 
     # Example 2: Count per group
     print("\n" + "=" * 50)
@@ -47,6 +49,7 @@ async def example():
     print("Example 3: Multiple group keys")
     print("-" * 50)
 
+    # --8<-- [start:groupby_multikey]
     orders = await create_object_from_value(
         {
             "region": ["East", "East", "West", "West", "East", "West"],
@@ -60,12 +63,14 @@ async def example():
     triples = sorted(zip(data["region"], data["category"], data["revenue"], strict=False))
     for region, cat, rev in triples:
         print(f"  {region} / {cat}: ${rev}")
+        # --8<-- [end:groupby_multikey]
 
     # Example 4: Multi-aggregation with agg()
     print("\n" + "=" * 50)
     print("Example 4: Multi-aggregation with agg()")
     print("-" * 50)
 
+    # --8<-- [start:groupby_agg]
     products = await create_object_from_value(
         {
             "category": ["Electronics", "Electronics", "Clothing", "Clothing"],
@@ -83,6 +88,7 @@ async def example():
     print("Product stats by category:")
     for i, cat in enumerate(data["category"]):
         print(f"  {cat}: avg price=${data['price'][i]:.2f}, total qty={data['quantity'][i]}")
+        # --8<-- [end:groupby_agg]
 
     # Example 5: Multiple aggregations on the same column
     print("\n" + "=" * 50)

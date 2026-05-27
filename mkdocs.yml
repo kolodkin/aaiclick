@@ -40,6 +40,7 @@ markdown_extensions:
       anchor_linenums: true
   - pymdownx.snippets:
       base_path: .
+      dedent_subsections: true
   - pymdownx.tabbed:
       alternate_style: true
   - attr_list
@@ -51,6 +52,14 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Getting Started: getting_started.md
+  - Tutorial:
+    - Your First Object: tutorial/first_object.md
+    - Operations: tutorial/operations.md
+    - Aggregations: tutorial/aggregations.md
+    - Multi-Column Data: tutorial/multi_column.md
+    - Views & Filters: tutorial/views_filters.md
+    - Building & Combining Data: tutorial/building_data.md
+    - Orchestration: tutorial/orchestration.md
   - User Guide:
     - Object API: object.md
     - DataContext: data_context.md

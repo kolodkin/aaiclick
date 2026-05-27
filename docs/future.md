@@ -5,20 +5,6 @@ Planned work across aaiclick, ordered by priority.
 
 ---
 
-# High Priority
-
-## Progressive Tutorial
-
-7-page tutorial using named snippets (`pymdownx.snippets` section markers) from existing
-example files — 6 of 7 pages need zero new code. Pages: Your First Object, Operations,
-Aggregations, Multi-Column Data, Views & Filters, Persistence, Orchestration. Add
-`# --8<-- [start:name]` / `# --8<-- [end:name]` markers to example `.py` files, then
-include specific sections in tutorial `.md` pages via snippet syntax.
-
-Add "See Also" footers and cross-page links alongside the tutorial.
-
----
-
 # Medium Priority
 
 ## Clear Task + Downstream

@@ -15,6 +15,7 @@ from aaiclick import Object, create_object_from_value
 from aaiclick.orchestration import JOB_COMPLETED, ajob_test, job, task, tasks_list
 
 
+# --8<-- [start:tasks]
 @task
 async def simple_arithmetic() -> int:
     """A simple task that does basic arithmetic."""
@@ -46,8 +47,10 @@ async def create_sales() -> Object:
     count = await sales.count().data()
     print(f"Sales: {count} rows")  # → 3
     return sales
+    # --8<-- [end:tasks]
 
 
+# --8<-- [start:job]
 @job("basic_orchestration")
 def basic_pipeline(x: int = 5, y: int = 6):
     """Pipeline with arithmetic tasks and Object data."""
@@ -55,16 +58,19 @@ def basic_pipeline(x: int = 5, y: int = 6):
     product = multiply(x=x, y=y)
     sales = create_sales()
     return tasks_list(arith, product, sales)
+    # --8<-- [end:job]
 
 
 async def amain():
     """Run the basic orchestration example."""
+    # --8<-- [start:run]
     pipeline = await basic_pipeline()
     print(f"Created job: {pipeline.name} (ID: {pipeline.id})")
 
     await ajob_test(pipeline)
     assert pipeline.status == JOB_COMPLETED, f"Expected COMPLETED, got {pipeline.status}"
     print(f"Job status: {pipeline.status}")
+    # --8<-- [end:run]
 
 
 if __name__ == "__main__":
