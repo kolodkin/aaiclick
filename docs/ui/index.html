@@ -74,7 +74,7 @@
   .sub { color: var(--muted); margin: 0 0 18px; }
 
   /* command chips */
-  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; align-items: center; }
   .chip {
     font: 12px var(--mono);
     padding: 4px 10px;
@@ -85,12 +85,15 @@
     color: var(--accent);
   }
   .chip:hover { background: var(--accent-soft); }
+  .spacer { flex: 1; }
 
   /* help / home cards */
-  .cmd-list { display: grid; gap: 10px; }
+  .group-label { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+    font-weight: 700; margin: 18px 0 8px; }
+  .cmd-list { display: grid; gap: 8px; }
   .cmd {
-    display: grid; grid-template-columns: 180px 1fr; gap: 16px;
-    padding: 14px 16px; background: var(--panel);
+    display: grid; grid-template-columns: 210px 1fr; gap: 16px;
+    padding: 12px 16px; background: var(--panel);
     border: 1px solid var(--border); border-radius: 10px;
     cursor: pointer;
   }
@@ -105,7 +108,7 @@
     text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
     color: var(--muted); padding: 10px 14px; border-bottom: 1px solid var(--border); font-weight: 600;
   }
-  tbody td { padding: 11px 14px; border-bottom: 1px solid var(--border); }
+  tbody td { padding: 11px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
   tbody tr:last-child td { border-bottom: none; }
   tbody tr.clickable { cursor: pointer; }
   tbody tr.clickable:hover { background: var(--accent-soft); }
@@ -124,17 +127,40 @@
   .b-FAILED    { color: var(--red);    background: var(--red-bg); }
   .b-CANCELLED { color: var(--yellow); background: var(--yellow-bg); }
 
+  /* enabled toggle */
+  .toggle { display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+    font-size: 12px; font-weight: 600; border: 0; background: none; padding: 0; color: inherit; }
+  .switch { width: 34px; height: 18px; border-radius: 999px; background: var(--gray-bg); position: relative; transition: background .15s; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+    border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: left .15s; }
+  .toggle.on .switch { background: var(--green); }
+  .toggle.on .switch::after { left: 18px; }
+  .toggle.on { color: var(--green); }
+  .toggle.off { color: var(--muted); }
+
   /* progress */
   .progress { display: flex; align-items: center; gap: 8px; }
   .bar { flex: 1; max-width: 120px; height: 6px; border-radius: 999px; background: var(--gray-bg); overflow: hidden; }
   .bar > span { display: block; height: 100%; background: var(--green); }
+
+  /* buttons */
+  .btn { font: 13px/1 inherit; font-weight: 600; padding: 8px 14px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--panel); color: var(--text); cursor: pointer; }
+  .btn:hover { border-color: var(--accent); }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn-primary:hover { filter: brightness(1.05); }
+  .btn-danger { background: var(--red); border-color: var(--red); color: #fff; }
+  .btn-danger:hover { filter: brightness(1.05); }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+  .row-actions { display: flex; gap: 6px; }
 
   /* detail header */
   .detail-head {
     background: var(--panel); border: 1px solid var(--border);
     border-radius: 10px; padding: 16px; margin-bottom: 16px;
   }
-  .detail-head h2 { display: flex; align-items: center; gap: 10px; }
+  .detail-head .title-row { display: flex; align-items: center; gap: 10px; }
+  .detail-head h2 { display: flex; align-items: center; gap: 10px; margin: 0; }
   .meta { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
     gap: 10px 24px; margin-top: 12px; }
   .meta div { font-size: 13px; }
@@ -152,6 +178,32 @@
   .logs .lvl-WARN { color: #e3b341; }
   .logs .lvl-ERROR { color: #ff7b72; }
 
+  /* forms / panels */
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 18px 20px; max-width: 620px; }
+  .panel.confirm { border-color: var(--red); }
+  .panel.confirm.info { border-color: var(--accent); }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px; }
+  .field .help { color: var(--muted); font-weight: 400; font-size: 12px; }
+  .field input[type=text], .field textarea, .field select {
+    width: 100%; font: 13px var(--mono); padding: 8px 10px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--bg); color: var(--text); }
+  .field input:focus, .field textarea:focus, .field select:focus {
+    outline: none; border-color: var(--accent); background: #fff; box-shadow: 0 0 0 3px var(--accent-soft); }
+  .field textarea { resize: vertical; min-height: 64px; }
+  .field.inline { display: flex; align-items: center; gap: 8px; }
+  .field.inline input { width: auto; }
+  .field.inline label { margin: 0; }
+  .form-actions { display: flex; gap: 10px; margin-top: 18px; }
+  .panel p { margin: 0 0 6px; }
+
+  /* toast */
+  #toast-wrap { position: fixed; bottom: 18px; right: 18px; display: flex; flex-direction: column; gap: 8px; z-index: 50; }
+  .toast { background: #0d1117; color: #e6edf3; font-size: 13px; padding: 10px 14px; border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(0,0,0,.25); border-left: 3px solid var(--green); animation: slidein .18s ease; }
+  @keyframes slidein { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
   .note { margin-top: 26px; padding: 12px 14px; border-left: 3px solid var(--accent);
     background: var(--accent-soft); color: #2a3f63; border-radius: 0 8px 8px 0; font-size: 13px; }
 </style>
@@ -160,13 +212,14 @@
   <header>
     <div class="logo">aai<span>click</span></div>
     <div class="prompt-wrap">
-      <input id="prompt" placeholder="Type a command…  try @jobs" autocomplete="off" spellcheck="false" />
+      <input id="prompt" placeholder="Type a command…  try @jobs, @registered, or run nyc_taxi_pipeline" autocomplete="off" spellcheck="false" />
     </div>
     <div class="hint">prompt drives the view ↑</div>
   </header>
   <main>
     <div class="content" id="content"></div>
   </main>
+  <div id="toast-wrap"></div>
 
 <script>
 /* ---------- sample data ---------- */
@@ -206,6 +259,14 @@ const JOBS = {
 const JOB_ORDER = ["nyc_taxi_pipeline", "imdb_dataset_builder", "cyber_threat_feeds"];
 const JOB_CREATED = { nyc_taxi_pipeline: "4m ago", imdb_dataset_builder: "1h ago", cyber_threat_feeds: "2h ago" };
 
+/* registered jobs (management mode) — mutable so the enable/disable toggle is live */
+const REGISTERED = {
+  "nyc_taxi_pipeline":    { name: "nyc_taxi_pipeline",    entrypoint: "nyc_taxi.pipeline.run", enabled: true,  schedule: "0 2 * * *",   next: "tomorrow 02:00", kwargs: { year: 2024, month: 1 } },
+  "imdb_dataset_builder": { name: "imdb_dataset_builder", entrypoint: "imdb.build.run",        enabled: true,  schedule: null,          next: "—",              kwargs: { limit: 50000 } },
+  "cyber_threat_feeds":   { name: "cyber_threat_feeds",   entrypoint: "cyber.feeds.run",       enabled: false, schedule: "*/30 * * * *", next: "—",             kwargs: {} },
+};
+const REG_ORDER = ["nyc_taxi_pipeline", "imdb_dataset_builder", "cyber_threat_feeds"];
+
 const TASK_INDEX = {};
 for (const j of Object.values(JOBS)) for (const t of j.tasks) TASK_INDEX[t.id] = { ...t, job: j.name };
 
@@ -229,20 +290,38 @@ const LOGS = {
 /* ---------- helpers ---------- */
 const $ = (sel) => document.querySelector(sel);
 const badge = (s) => `<span class="badge b-${s}">${s}</span>`;
-const el = (html) => { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstChild; };
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 function setPrompt(v) { $("#prompt").value = v; render(); }
+function toast(msg) {
+  const t = document.createElement("div");
+  t.className = "toast"; t.textContent = msg;
+  $("#toast-wrap").appendChild(t);
+  setTimeout(() => t.remove(), 2600);
+}
 
-/* ---------- views ---------- */
+/* ---------- read-only views ---------- */
 function viewHome() {
   return `
     <h2>aaiclick</h2>
     <p class="sub">Prompt-driven operator dashboard. Type a command above, or click one below.</p>
+
+    <div class="group-label">Navigate</div>
     <div class="cmd-list">
-      <div class="cmd" data-cmd="@jobs"><code>@jobs</code><span class="desc">List all jobs, newest first. Click a row to drill in.</span></div>
+      <div class="cmd" data-cmd="@jobs"><code>@jobs</code><span class="desc">List all jobs, newest first.</span></div>
+      <div class="cmd" data-cmd="@registered"><code>@registered</code><span class="desc">Registered jobs — run, register, enable/disable.</span></div>
       <div class="cmd" data-cmd="@job nyc_taxi_pipeline"><code>@job &lt;name&gt;</code><span class="desc">Job detail — header + tasks table.</span></div>
-      <div class="cmd" data-cmd="@task 4103"><code>@task &lt;id&gt;</code><span class="desc">Task detail — status bar + live log viewer.</span></div>
+      <div class="cmd" data-cmd="@task 4103"><code>@task &lt;id&gt;</code><span class="desc">Task detail — status bar + live logs.</span></div>
     </div>
-    <div class="note">Mockup. Everything is sample data; clicking rows/chips just rewrites the prompt to show how navigation feels.</div>`;
+
+    <div class="group-label">Actions</div>
+    <div class="cmd-list">
+      <div class="cmd" data-cmd="run nyc_taxi_pipeline"><code>run &lt;name&gt;</code><span class="desc">Run a registered job with defaults (confirm). Add <code>?</code> to edit params.</span></div>
+      <div class="cmd" data-cmd="cancel nyc_taxi_pipeline"><code>cancel &lt;name|id&gt;</code><span class="desc">Cancel a pending/running job.</span></div>
+      <div class="cmd" data-cmd="register"><code>register</code><span class="desc">Register a new job (entrypoint, schedule, kwargs).</span></div>
+      <div class="cmd" data-cmd="enable cyber_threat_feeds"><code>enable / disable &lt;name&gt;</code><span class="desc">Toggle a registered job on/off.</span></div>
+    </div>
+
+    <div class="note">Mockup — all sample data. Actions show their UI (confirms, forms, toasts) but don't hit a backend; clicking just rewrites the prompt to show how the flow feels.</div>`;
 }
 
 function viewJobs() {
@@ -260,7 +339,7 @@ function viewJobs() {
   return `
     <h2>Jobs</h2>
     <p class="sub">Sorted by created_at, newest first · auto-refreshes via SSE</p>
-    <div class="chips"><span class="chip" data-cmd="">← home</span></div>
+    <div class="chips"><span class="chip" data-cmd="">← home</span><span class="chip" data-cmd="@registered">@registered</span></div>
     <table>
       <thead><tr><th>Name</th><th>Status</th><th>Progress</th><th>Created</th><th>Duration</th></tr></thead>
       <tbody>${rows}</tbody>
@@ -269,7 +348,8 @@ function viewJobs() {
 
 function viewJob(name) {
   const j = JOBS[name];
-  if (!j) return `<h2>Job not found</h2><p class="sub mono">${name}</p><div class="chips"><span class="chip" data-cmd="@jobs">@jobs</span></div>`;
+  if (!j) return `<h2>Job not found</h2><p class="sub mono">${esc(name)}</p><div class="chips"><span class="chip" data-cmd="@jobs">@jobs</span></div>`;
+  const cancellable = j.status === "RUNNING" || j.status === "PENDING";
   const rows = j.tasks.map((t) => `
     <tr class="clickable" data-cmd="@task ${t.id}">
       <td><span class="name-link mono">${t.name}</span></td>
@@ -282,7 +362,11 @@ function viewJob(name) {
   return `
     <div class="chips"><span class="chip" data-cmd="@jobs">← @jobs</span></div>
     <div class="detail-head">
-      <h2><span class="mono">${j.name}</span> ${badge(j.status)}</h2>
+      <div class="title-row">
+        <h2><span class="mono">${j.name}</span> ${badge(j.status)}</h2>
+        <div class="spacer"></div>
+        ${cancellable ? `<button class="btn btn-danger btn-sm" data-cmd="cancel ${j.name}">Cancel job</button>` : ""}
+      </div>
       <div class="meta">
         <div><span class="k">Created</span>${j.created}</div>
         <div><span class="k">Started</span>${j.started}</div>
@@ -290,7 +374,7 @@ function viewJob(name) {
         <div><span class="k">Duration</span>${j.duration}</div>
         <div><span class="k">Progress</span>${j.done}/${j.total} tasks</div>
       </div>
-      ${j.error ? `<div class="err">${j.error}</div>` : ""}
+      ${j.error ? `<div class="err">${esc(j.error)}</div>` : ""}
     </div>
     <table>
       <thead><tr><th>Name</th><th>Status</th><th>Entrypoint</th><th>Attempt</th><th>Started</th><th>Duration</th></tr></thead>
@@ -300,9 +384,9 @@ function viewJob(name) {
 
 function viewTask(id) {
   const t = TASK_INDEX[id];
-  if (!t) return `<h2>Task not found</h2><p class="sub mono">#${id}</p><div class="chips"><span class="chip" data-cmd="@jobs">@jobs</span></div>`;
+  if (!t) return `<h2>Task not found</h2><p class="sub mono">#${esc(id)}</p><div class="chips"><span class="chip" data-cmd="@jobs">@jobs</span></div>`;
   const logs = (LOGS[id] || [["—","INFO","(no logs captured for this sample task)"]])
-    .map(([ts, lvl, msg]) => `<div><span class="ts">${ts}</span> <span class="lvl-${lvl}">${lvl.padEnd(5)}</span> ${msg}</div>`).join("");
+    .map(([ts, lvl, msg]) => `<div><span class="ts">${ts}</span> <span class="lvl-${lvl}">${lvl.padEnd(5)}</span> ${esc(msg)}</div>`).join("");
   return `
     <div class="chips">
       <span class="chip" data-cmd="@jobs">@jobs</span>
@@ -323,20 +407,154 @@ function viewTask(id) {
     <div class="logs">${logs}</div>`;
 }
 
+/* ---------- @registered management mode ---------- */
+function viewRegistered() {
+  const rows = REG_ORDER.map((name) => {
+    const r = REGISTERED[name];
+    return `<tr>
+      <td><span class="name-link mono">${r.name}</span></td>
+      <td class="mono">${r.entrypoint}</td>
+      <td>
+        <button class="toggle ${r.enabled ? "on" : "off"}" data-toggle="${r.name}">
+          <span class="switch"></span>${r.enabled ? "enabled" : "disabled"}
+        </button>
+      </td>
+      <td class="mono">${r.schedule ?? "<span style='color:var(--muted)'>manual</span>"}</td>
+      <td>${r.next}</td>
+      <td><div class="row-actions">
+        <button class="btn btn-primary btn-sm" data-cmd="run ${r.name}">Run</button>
+        <button class="btn btn-sm" data-cmd="run ${r.name} ?">Run…</button>
+      </div></td>
+    </tr>`;
+  }).join("");
+  return `
+    <div class="chips">
+      <span class="chip" data-cmd="@jobs">← @jobs</span>
+      <div class="spacer"></div>
+      <button class="btn btn-primary btn-sm" data-cmd="register">+ Register new job</button>
+    </div>
+    <h2>Registered jobs</h2>
+    <p class="sub">Run on demand, or on a cron schedule via the background scheduler.</p>
+    <table>
+      <thead><tr><th>Name</th><th>Entrypoint</th><th>Enabled</th><th>Schedule</th><th>Next run</th><th>Actions</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+/* ---------- action UIs (confirms / forms) ---------- */
+function viewRunConfirm(name) {
+  const r = REGISTERED[name];
+  const kw = r ? JSON.stringify(r.kwargs) : "{}";
+  return `
+    <div class="chips"><span class="chip" data-cmd="@registered">← @registered</span></div>
+    <div class="panel confirm info">
+      <h2>Run <span class="mono">${esc(name)}</span>?</h2>
+      <p class="sub">Starts a new job with the registered default parameters.</p>
+      <div class="field"><label>Parameters (default_kwargs)</label>
+        <div class="mono" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 10px;">${esc(kw)}</div></div>
+      <div class="form-actions">
+        <button class="btn btn-primary" data-action="run-go" data-name="${esc(name)}">Run job</button>
+        <button class="btn" data-cmd="run ${esc(name)} ?">Edit parameters…</button>
+        <button class="btn" data-cmd="@registered">Cancel</button>
+      </div>
+    </div>`;
+}
+
+function viewRunForm(name) {
+  const r = REGISTERED[name];
+  const kw = r ? JSON.stringify(r.kwargs, null, 2) : "{}";
+  return `
+    <div class="chips"><span class="chip" data-cmd="@registered">← @registered</span></div>
+    <div class="panel">
+      <h2>Run <span class="mono">${esc(name)}</span></h2>
+      <p class="sub">POST /api/v0/jobs:run — edit parameters before launching.</p>
+      <div class="field"><label>kwargs <span class="help">— JSON passed to the job entrypoint</span></label>
+        <textarea rows="5">${esc(kw)}</textarea></div>
+      <div class="field"><label>Preservation mode</label>
+        <select><option>(registered default)</option><option>NONE</option><option>TEMP_NAMED</option></select></div>
+      <div class="form-actions">
+        <button class="btn btn-primary" data-action="run-go" data-name="${esc(name)}">Run job</button>
+        <button class="btn" data-cmd="@registered">Cancel</button>
+      </div>
+    </div>`;
+}
+
+function viewRegisterForm(name) {
+  return `
+    <div class="chips"><span class="chip" data-cmd="@registered">← @registered</span></div>
+    <div class="panel">
+      <h2>Register a job</h2>
+      <p class="sub">POST /api/v0/registered-jobs — the entrypoint must exist in the deployed code.</p>
+      <div class="field"><label>Entrypoint <span class="help">— dotted path, e.g. tasks.report.build</span></label>
+        <input type="text" id="reg-entry" placeholder="package.module.callable" /></div>
+      <div class="field"><label>Name <span class="help">— defaults to the last segment of the entrypoint</span></label>
+        <input type="text" id="reg-name" value="${esc(name || "")}" placeholder="(optional)" /></div>
+      <div class="field"><label>Schedule <span class="help">— cron, e.g. 0 2 * * * · leave blank for manual</span></label>
+        <input type="text" id="reg-sched" placeholder="(optional cron expression)" /></div>
+      <div class="field"><label>default_kwargs <span class="help">— JSON</span></label>
+        <textarea id="reg-kwargs" rows="3" placeholder="{}"></textarea></div>
+      <div class="field inline"><input type="checkbox" id="reg-enabled" checked /><label for="reg-enabled">Enabled</label></div>
+      <div class="form-actions">
+        <button class="btn btn-primary" data-action="register-go">Register</button>
+        <button class="btn" data-cmd="@registered">Cancel</button>
+      </div>
+    </div>`;
+}
+
+function viewCancelConfirm(ref) {
+  return `
+    <div class="chips"><span class="chip" data-cmd="@job ${esc(ref)}">← @job ${esc(ref)}</span></div>
+    <div class="panel confirm">
+      <h2>Cancel <span class="mono">${esc(ref)}</span>?</h2>
+      <p class="sub">POST /api/v0/jobs/${esc(ref)}/cancel — pending tasks are cancelled and any running task is signalled to abort. This can't be undone.</p>
+      <div class="form-actions">
+        <button class="btn btn-danger" data-action="cancel-go" data-name="${esc(ref)}">Cancel job</button>
+        <button class="btn" data-cmd="@job ${esc(ref)}">Keep running</button>
+      </div>
+    </div>`;
+}
+
 /* ---------- router (prompt -> view) ---------- */
 function render() {
   const raw = $("#prompt").value.trim();
   let html;
   if (raw === "") html = viewHome();
   else if (raw === "@jobs") html = viewJobs();
+  else if (raw === "@registered") html = viewRegistered();
+  else if (raw === "register") html = viewRegisterForm("");
+  else if (raw.startsWith("register ")) html = viewRegisterForm(raw.slice(9).trim());
   else if (raw.startsWith("@job ")) html = viewJob(raw.slice(5).trim());
   else if (raw.startsWith("@task ")) html = viewTask(parseInt(raw.slice(6).trim(), 10));
-  else html = `<h2>Unknown command</h2><p class="sub mono">${raw}</p><div class="chips"><span class="chip" data-cmd="">help</span><span class="chip" data-cmd="@jobs">@jobs</span></div>`;
+  else if (raw.startsWith("run ")) {
+    let rest = raw.slice(4).trim();
+    if (rest.endsWith("?")) html = viewRunForm(rest.slice(0, -1).trim());
+    else html = viewRunConfirm(rest);
+  }
+  else if (raw.startsWith("cancel ")) html = viewCancelConfirm(raw.slice(7).trim());
+  else if (raw.startsWith("enable ") || raw.startsWith("disable ")) {
+    html = viewRegistered(); /* toggle applied on click; typed form just shows the list */
+  }
+  else html = `<h2>Unknown command</h2><p class="sub mono">${esc(raw)}</p><div class="chips"><span class="chip" data-cmd="">help</span><span class="chip" data-cmd="@jobs">@jobs</span><span class="chip" data-cmd="@registered">@registered</span></div>`;
+
   const c = $("#content");
   c.innerHTML = html;
-  c.querySelectorAll("[data-cmd]").forEach((node) =>
-    node.addEventListener("click", () => setPrompt(node.getAttribute("data-cmd")))
-  );
+  c.querySelectorAll("[data-cmd]").forEach((n) => n.addEventListener("click", () => setPrompt(n.getAttribute("data-cmd"))));
+  c.querySelectorAll("[data-toggle]").forEach((n) => n.addEventListener("click", () => {
+    const name = n.getAttribute("data-toggle");
+    REGISTERED[name].enabled = !REGISTERED[name].enabled;
+    toast(`${REGISTERED[name].enabled ? "Enabled" : "Disabled"} ${name}`);
+    setPrompt("@registered");
+  }));
+  c.querySelectorAll("[data-action]").forEach((n) => n.addEventListener("click", () => {
+    const action = n.getAttribute("data-action");
+    const name = n.getAttribute("data-name");
+    if (action === "run-go") { toast(`Started ${name} — new job created`); setPrompt(`@job ${name}`); }
+    else if (action === "cancel-go") { toast(`Cancelling ${name} …`); setPrompt(`@job ${name}`); }
+    else if (action === "register-go") {
+      const nm = ($("#reg-name").value || $("#reg-entry").value.split(".").pop() || "new_job").trim();
+      toast(`Registered ${nm}`); setPrompt("@registered");
+    }
+  }));
 }
 
 $("#prompt").addEventListener("input", render);
