@@ -206,6 +206,22 @@
 
   .note { margin-top: 26px; padding: 12px 14px; border-left: 3px solid var(--accent);
     background: var(--accent-soft); color: #2a3f63; border-radius: 0 8px 8px 0; font-size: 13px; }
+
+  /* ---- @all gallery ---- */
+  .screen { margin: 0 0 30px; }
+  .screen-label { font: 12px var(--mono); color: #4a5260; font-weight: 700; margin: 0 0 8px 2px;
+    text-transform: uppercase; letter-spacing: .04em; }
+  .screen-label .sl-cmd { color: var(--accent); }
+  .frame { border: 1px solid #d4d8dd; border-radius: 12px; overflow: hidden;
+    box-shadow: 0 4px 16px rgba(0,0,0,.06); background: var(--bg); }
+  .frame-header { display: flex; align-items: center; gap: 14px; padding: 10px 16px;
+    background: var(--panel); border-bottom: 1px solid var(--border); }
+  .frame-header .logo { font-size: 15px; }
+  .fake-prompt { flex: 1; font: 14px var(--mono); padding: 9px 12px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--bg); color: var(--text); }
+  .fake-prompt.empty { color: var(--muted); }
+  .frame-body { padding: 22px; }
+  .frame-body .logs { max-height: 320px; }
 </style>
 </head>
 <body>
@@ -311,6 +327,7 @@ function viewHome() {
       <div class="cmd" data-cmd="@registered"><code>@registered</code><span class="desc">Registered jobs — run, register, enable/disable.</span></div>
       <div class="cmd" data-cmd="@job nyc_taxi_pipeline"><code>@job &lt;name&gt;</code><span class="desc">Job detail — header + tasks table.</span></div>
       <div class="cmd" data-cmd="@task 4103"><code>@task &lt;id&gt;</code><span class="desc">Task detail — status bar + live logs.</span></div>
+      <div class="cmd" data-cmd="@all"><code>@all</code><span class="desc">Every screen on one page — overview / print / PDF.</span></div>
     </div>
 
     <div class="group-label">Actions</div>
@@ -514,11 +531,44 @@ function viewCancelConfirm(ref) {
     </div>`;
 }
 
+/* ---------- @all gallery (every screen on one page) ---------- */
+function viewAll() {
+  const screens = [
+    ["1 · Home", "", "(empty prompt)", viewHome()],
+    ["2 · Jobs list", "@jobs", null, viewJobs()],
+    ["3 · Registered jobs", "@registered", null, viewRegistered()],
+    ["4 · Job detail — running", "@job nyc_taxi_pipeline", null, viewJob("nyc_taxi_pipeline")],
+    ["5 · Job detail — failed", "@job imdb_dataset_builder", null, viewJob("imdb_dataset_builder")],
+    ["6 · Task detail — running logs", "@task 4103", null, viewTask(4103)],
+    ["7 · Task detail — failed logs", "@task 3992", null, viewTask(3992)],
+    ["8 · Run — confirm", "run nyc_taxi_pipeline", null, viewRunConfirm("nyc_taxi_pipeline")],
+    ["9 · Run — params form", "run nyc_taxi_pipeline ?", null, viewRunForm("nyc_taxi_pipeline")],
+    ["10 · Register a job", "register", null, viewRegisterForm("")],
+    ["11 · Cancel — confirm", "cancel nyc_taxi_pipeline", null, viewCancelConfirm("nyc_taxi_pipeline")],
+  ];
+  const intro = `<div class="chips"><span class="chip" data-cmd="">← home</span>
+    <span class="hint" style="align-self:center">every screen on one page — click any control to open it live</span></div>`;
+  const body = screens.map(([label, cmd, ph, html]) => {
+    const promptCell = cmd
+      ? `<div class="fake-prompt">${esc(cmd)}</div>`
+      : `<div class="fake-prompt empty">${esc(ph || "Type a command…")}</div>`;
+    return `<section class="screen">
+      <div class="screen-label">${label}${cmd ? ` &nbsp;·&nbsp; prompt: <span class="sl-cmd">${esc(cmd)}</span>` : ""}</div>
+      <div class="frame">
+        <div class="frame-header"><div class="logo">aai<span>click</span></div>${promptCell}<div class="hint">prompt drives the view ↑</div></div>
+        <div class="frame-body">${html}</div>
+      </div>
+    </section>`;
+  }).join("");
+  return intro + body;
+}
+
 /* ---------- router (prompt -> view) ---------- */
 function render() {
   const raw = $("#prompt").value.trim();
   let html;
   if (raw === "") html = viewHome();
+  else if (raw === "@all") html = viewAll();
   else if (raw === "@jobs") html = viewJobs();
   else if (raw === "@registered") html = viewRegistered();
   else if (raw === "register") html = viewRegisterForm("");
