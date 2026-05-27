@@ -17,6 +17,7 @@ async def example():
     print("Example 1: Basic statistics on a simple dataset")
     print("-" * 50)
 
+    # --8<-- [start:basic_stats]
     data = [10.0, 20.0, 30.0, 40.0, 50.0]
     obj = await create_object_from_value(data)
     print(f"Created object: {obj}")
@@ -33,6 +34,7 @@ async def example():
     print(f"Sum:              {sum_val}")  # → 150.0
     print(f"Mean:             {mean_val}")  # → 30.0
     print(f"Std Deviation:    {std_val}")  # → 14.142135623730951
+    # --8<-- [end:basic_stats]
 
     # Example 2: Statistics on integer data
     print("\n" + "=" * 50)
@@ -85,6 +87,7 @@ async def example():
     print("Example 4: Real-world scenario - Temperature analysis")
     print("-" * 50)
 
+    # --8<-- [start:temperature]
     temperatures = [72.5, 75.0, 68.3, 71.2, 74.8, 69.5, 73.1, 76.2]
     obj_temp = await create_object_from_value(temperatures)
 
@@ -101,6 +104,7 @@ async def example():
     print(f"  Average:          {avg_temp:.1f}°F")  # → 72.6°F
     print(f"  Std Deviation:    {std_temp:.2f}°F")  # → 2.60°F
     print(f"  Temperature Range: {max_temp - min_temp:.1f}°F")
+    # --8<-- [end:temperature]
 
     # Example 5: Single value edge case
     print("\n" + "=" * 50)

@@ -19,6 +19,7 @@ async def example():
     print("Example 1: Copying objects")
     print("-" * 50)
 
+    # --8<-- [start:copy]
     original = await create_object_from_value([1, 2, 3])
     print(f"Original object: {original}")
     print(f"Original data: {await original.data()}")  # → [1, 2, 3]
@@ -30,12 +31,14 @@ async def example():
     print(f"Copied data: {await copied.data()}")  # → [1, 2, 3]
     print(f"Copied table: {copied.table}")
     print(f"Tables are different: {original.table != copied.table}")
+    # --8<-- [end:copy]
 
     # Example 2: Concatenate - Creates new object (non-mutating)
     print("\n" + "=" * 50)
     print("Example 2: Concatenate (non-mutating)")
     print("-" * 50)
 
+    # --8<-- [start:concat]
     obj_a = await create_object_from_value([1, 2, 3])
     obj_b = await create_object_from_value([4, 5, 6])
 
@@ -48,6 +51,7 @@ async def example():
     print(f"Original A unchanged: {await obj_a.data()}")  # → [1, 2, 3]
     print(f"Original B unchanged: {await obj_b.data()}")  # → [4, 5, 6]
     print(f"Result is new object: {result.table != obj_a.table}")
+    # --8<-- [end:concat]
 
     # Example 3: Concatenate with scalar value
     print("\n" + "=" * 50)
@@ -80,6 +84,7 @@ async def example():
     print("Example 5: Insert (mutating - modifies in place)")
     print("-" * 50)
 
+    # --8<-- [start:insert]
     obj_x = await create_object_from_value([100, 200, 300])
     obj_y = await create_object_from_value([400, 500, 600])
 
@@ -92,6 +97,7 @@ async def example():
     print(f"Object X after insert: {await obj_x.data()}")  # → [100, 200, 300, 400, 500, 600]
     print(f"Table X after (same): {obj_x.table}")
     print(f"Object Y unchanged: {await obj_y.data()}")  # → [400, 500, 600]
+    # --8<-- [end:insert]
 
     # Example 6: Insert with scalar value
     print("\n" + "=" * 50)
