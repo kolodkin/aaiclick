@@ -10,12 +10,13 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from sqlalchemy import Integer, func as sa_func
+from sqlalchemy import Integer
+from sqlalchemy import func as sa_func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
 from aaiclick.orchestration.execution import claiming
-from aaiclick.orchestration.models import Job, Task, TASK_COMPLETED
+from aaiclick.orchestration.models import TASK_COMPLETED, Job, Task
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import get_registered_job
 from aaiclick.orchestration.registered_jobs import run_job as _run_job_impl
