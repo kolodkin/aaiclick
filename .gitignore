@@ -230,3 +230,6 @@ gh_*/
 # Node / frontend
 node_modules/
 aaiclick/server/static/
+
+# Un-ignore src/lib/ (the `lib/` rule above would otherwise exclude it)
+!src/lib/
