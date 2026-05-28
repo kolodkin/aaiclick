@@ -226,3 +226,7 @@ gh_*/
 !.claude/skills/
 
 .vscode
+
+# Node / frontend
+node_modules/
+aaiclick/server/static/
