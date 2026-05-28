@@ -1,10 +1,7 @@
 export { Home } from "./Home";
 export { Jobs } from "./Jobs";
 export { JobDetail } from "./JobDetail";
-export function TaskDetail({ id, onPrompt }: { id: number; onPrompt: (v: string) => void }) {
-  void onPrompt;
-  return <h2>Task {id}</h2>;
-}
+export { TaskDetail } from "./TaskDetail";
 export function Registered({ onPrompt }: { onPrompt: (v: string) => void }) {
   void onPrompt;
   return <h2>Registered</h2>;
