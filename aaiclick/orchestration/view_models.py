@@ -40,6 +40,8 @@ class JobView(BaseModel):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     error: str | None = None
+    total_tasks: int = 0
+    completed_tasks: int = 0
 
 
 class TaskView(BaseModel):
@@ -144,7 +146,7 @@ def _ms_between(start: datetime | None, end: datetime | None) -> int | None:
     return int((end - start).total_seconds() * 1000)
 
 
-def job_to_view(job: Job) -> JobView:
+def job_to_view(job: Job, *, total_tasks: int = 0, completed_tasks: int = 0) -> JobView:
     return JobView(
         id=job.id,
         name=job.name,
@@ -156,6 +158,8 @@ def job_to_view(job: Job) -> JobView:
         started_at=job.started_at,
         completed_at=job.completed_at,
         error=job.error,
+        total_tasks=total_tasks,
+        completed_tasks=completed_tasks,
     )
 
 
@@ -194,6 +198,7 @@ def task_to_detail(task: Task) -> TaskDetail:
 
 
 def job_to_detail(job: Job, tasks: list[Task]) -> JobDetail:
+    completed = sum(1 for t in tasks if t.status == "COMPLETED")
     return JobDetail(
         id=job.id,
         name=job.name,
@@ -207,6 +212,8 @@ def job_to_detail(job: Job, tasks: list[Task]) -> JobDetail:
         error=job.error,
         tasks=[task_to_view(t) for t in tasks],
         duration_ms=_ms_between(job.started_at, job.completed_at),
+        total_tasks=len(tasks),
+        completed_tasks=completed,
     )
 
 

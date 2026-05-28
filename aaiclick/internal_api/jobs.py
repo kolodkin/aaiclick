@@ -10,11 +10,12 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+from sqlalchemy import Integer, func as sa_func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
 from aaiclick.orchestration.execution import claiming
-from aaiclick.orchestration.models import Job, Task
+from aaiclick.orchestration.models import Job, Task, TASK_COMPLETED
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import get_registered_job
 from aaiclick.orchestration.registered_jobs import run_job as _run_job_impl
@@ -83,7 +84,34 @@ async def list_jobs(filter: JobListFilter | None = None) -> Page[JobView]:
         limit=filter.limit,
         offset=filter.offset,
     )
-    return Page[JobView](items=[job_to_view(j) for j in page.rows], total=page.total)
+
+    job_ids = [j.id for j in page.rows]
+    totals: dict[int, int] = {}
+    completed: dict[int, int] = {}
+    if job_ids:
+        async with get_sql_session() as session:
+            rows = (
+                await session.execute(
+                    select(
+                        Task.job_id,
+                        sa_func.count().label("total"),
+                        sa_func.sum(sa_func.cast(Task.status == TASK_COMPLETED, Integer)).label("done"),
+                    )
+                    .where(col(Task.job_id).in_(job_ids))
+                    .group_by(Task.job_id)
+                )
+            ).all()
+        for job_id, total, done in rows:
+            totals[job_id] = int(total)
+            completed[job_id] = int(done or 0)
+
+    return Page[JobView](
+        items=[
+            job_to_view(j, total_tasks=totals.get(j.id, 0), completed_tasks=completed.get(j.id, 0))
+            for j in page.rows
+        ],
+        total=page.total,
+    )
 
 
 async def get_job(ref: RefId) -> JobDetail:
