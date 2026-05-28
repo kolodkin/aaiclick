@@ -108,8 +108,7 @@ async def list_jobs(filter: JobListFilter | None = None) -> Page[JobView]:
 
     return Page[JobView](
         items=[
-            job_to_view(j, total_tasks=totals.get(j.id, 0), completed_tasks=completed.get(j.id, 0))
-            for j in page.rows
+            job_to_view(j, total_tasks=totals.get(j.id, 0), completed_tasks=completed.get(j.id, 0)) for j in page.rows
         ],
         total=page.total,
     )

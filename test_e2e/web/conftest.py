@@ -16,6 +16,8 @@ import socket
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
+from typing import Any
 
 import pytest
 
@@ -34,7 +36,7 @@ def _free_port() -> int:
 
 
 @pytest.fixture(scope="session")
-def base_url() -> str:  # type: ignore[return]
+def base_url() -> Iterator[str]:
     """Start the FastAPI server and yield its base URL.
 
     Uses the default chdb + SQLite backend (AAICLICK_LOCAL_ROOT unchanged).
@@ -83,7 +85,7 @@ def base_url() -> str:  # type: ignore[return]
 
 
 @pytest.fixture(scope="session")
-def playwright_sync():  # type: ignore[return]
+def playwright_sync() -> Iterator[Any]:
     """Yield a synchronous Playwright instance (session-scoped)."""
     playwright_mod = pytest.importorskip("playwright.sync_api")
     with playwright_mod.sync_playwright() as pw:
@@ -91,7 +93,7 @@ def playwright_sync():  # type: ignore[return]
 
 
 @pytest.fixture(scope="session")
-def browser(playwright_sync):  # type: ignore[return]
+def browser(playwright_sync: Any) -> Iterator[Any]:
     """Yield a Chromium browser (session-scoped, headless)."""
     br = playwright_sync.chromium.launch(headless=True)
     yield br
@@ -99,7 +101,7 @@ def browser(playwright_sync):  # type: ignore[return]
 
 
 @pytest.fixture()
-def page(browser):  # type: ignore[return]
+def page(browser: Any) -> Iterator[Any]:
     """Yield a fresh Playwright page for each test."""
     pg = browser.new_page()
     yield pg
