@@ -141,7 +141,9 @@ with `test_e2e/docker/` rather than running a parallel Node runner.
 !!! warning "E2E suites don't run in default `pytest`"
     `test_e2e/<suite>/` is excluded from the default `pytest` testpaths
     and only runs when the path is passed explicitly or in a dedicated
-    CI workflow.
+    CI workflow. The `test-ui-e2e-dist` job in
+    `.github/workflows/_test-reusable.yaml` runs `test_smoke.py` on every
+    PR against the distributed (Postgres + ClickHouse) backend.
 
-Deferred work (SSE endpoint, cross-host logs, Vitest, OpenAPI codegen, auth,
-wheel packaging) is tracked in `docs/future.md`.
+Deferred work (SSE endpoint, cross-host logs, Vitest, OpenAPI codegen, auth)
+is tracked in `docs/future.md`.

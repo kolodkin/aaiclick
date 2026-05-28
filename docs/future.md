@@ -162,16 +162,6 @@ exposed beyond localhost, add an auth layer:
 **When to revisit**: when the server is intentionally exposed on a network
 interface accessible to untrusted clients.
 
-## Wheel Packaging of `aaiclick/server/static/`
-
-The Vite build output (`aaiclick/server/static/`) is gitignored and not
-included in the source tree. Release wheels must include it so the server
-works out of the box after `pip install aaiclick`.
-
-**Work when revisited**: add a `npm run build` step to the release CI workflow
-before `python -m build`; configure `pyproject.toml` `[tool.hatch.build]`
-(or equivalent) to include `aaiclick/server/static/**` in the sdist and wheel.
-
 ## Comparison Page
 
 `docs/comparison.md` — feature matrix comparing aaiclick vs Pandas, Spark, and Dask. Defer until the project has enough real-world usage to make meaningful claims.

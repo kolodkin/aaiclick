@@ -94,6 +94,10 @@ include = ["aaiclick*"]
 aaiclick = ["py.typed"]
 "aaiclick.orchestration" = ["alembic.ini"]
 "aaiclick.orchestration.migrations" = ["script.py.mako"]
+# Vite SPA build output. The directory is gitignored and produced by
+# `npm run build` — release CI builds it before `uv build` so the wheel
+# ships a working /api/v0 + SPA out of the box.
+"aaiclick.server" = ["static/**/*"]
 
 [tool.setuptools_scm]
 fallback_version = "0.0.0"
