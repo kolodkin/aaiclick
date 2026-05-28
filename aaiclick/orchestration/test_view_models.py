@@ -19,6 +19,7 @@ from .models import (
 from .view_models import (
     JobDetail,
     JobStatsView,
+    TaskLogsView,
     TaskStatsView,
     TaskView,
     _ms_between,
@@ -194,3 +195,15 @@ def test_ms_between_handles_nones():
     assert _ms_between(datetime(2025, 1, 1), None) is None
     assert _ms_between(None, datetime(2025, 1, 1)) is None
     assert _ms_between(datetime(2025, 1, 1, 12, 0, 0), datetime(2025, 1, 1, 12, 0, 1, 500_000)) == 1500
+
+
+def test_task_logs_view_defaults():
+    view = TaskLogsView(available=False, log_path=None)
+    assert view.lines == []
+    assert view.available is False
+    assert view.log_path is None
+
+
+def test_task_logs_view_with_lines():
+    view = TaskLogsView(available=True, log_path="/tmp/x.log", lines=["a", "b"])
+    assert view.lines == ["a", "b"]

@@ -67,6 +67,14 @@ class TaskDetail(TaskView):
     max_retries: int = 0
 
 
+class TaskLogsView(BaseModel):
+    """Captured log lines for a task, served by ``GET /tasks/{id}/logs``."""
+
+    available: bool
+    log_path: str | None = None
+    lines: list[str] = Field(default_factory=list)
+
+
 class JobDetail(JobView):
     """Full job representation used by ``GET /jobs/{ref}``."""
 
