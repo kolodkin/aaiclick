@@ -1,7 +1,4 @@
-export function Home({ onPrompt }: { onPrompt: (v: string) => void }) {
-  void onPrompt;
-  return <h2>Home</h2>;
-}
+export { Home } from "./Home";
 export function Jobs({ onPrompt }: { onPrompt: (v: string) => void }) {
   void onPrompt;
   return <h2>Jobs</h2>;
