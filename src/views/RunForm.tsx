@@ -49,7 +49,7 @@ export function RunForm({ name, onPrompt }: { name: string; onPrompt: (v: string
           <select value={preservation} onChange={(e) => setPreservation(e.target.value)}>
             <option value="">(registered default)</option>
             <option value="NONE">NONE</option>
-            <option value="TEMP_NAMED">TEMP_NAMED</option>
+            <option value="FULL">FULL</option>
           </select>
         </div>
         <div className="form-actions">

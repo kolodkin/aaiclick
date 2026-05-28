@@ -1,15 +1,12 @@
-import { useCancelJob, useJob } from "../api/hooks";
+import { useJob } from "../api/hooks";
 import { Chips } from "../components/Chips";
 import { MetaGrid } from "../components/MetaGrid";
 import { StatusBadge } from "../components/StatusBadge";
 import { TasksTable } from "../components/TasksTable";
-import { useToast } from "../components/Toast";
 import { durationMs, relativeTime } from "../lib/format";
 
 export function JobDetail({ name, onPrompt }: { name: string; onPrompt: (v: string) => void }) {
   const { data: job, isLoading, isError } = useJob(name);
-  const cancel = useCancelJob();
-  const toast = useToast();
 
   if (isLoading) return <p className="sub">loading…</p>;
   if (isError || !job)
@@ -23,8 +20,6 @@ export function JobDetail({ name, onPrompt }: { name: string; onPrompt: (v: stri
 
   const cancellable = job.status === "RUNNING" || job.status === "PENDING";
   const onCancel = () => onPrompt(`cancel ${job.name}`);
-  void cancel;
-  void toast;
 
   return (
     <>
