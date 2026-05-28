@@ -230,6 +230,9 @@ gh_*/
 # Node / frontend
 node_modules/
 aaiclick/server/static/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
 
 # Un-ignore src/lib/ (the `lib/` rule above would otherwise exclude it)
 !src/lib/
