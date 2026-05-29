@@ -55,14 +55,18 @@ def base_url() -> Iterator[str]:
             "warning",
         ],
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
     )
 
     url = f"http://127.0.0.1:{port}"
 
-    # Poll until the server accepts connections (up to 10 s).
-    deadline = time.monotonic() + 10
+    # Poll until the server accepts connections (up to 30 s — chdb's
+    # cold start can take a few seconds on slow CI containers).
+    deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            stderr = proc.stderr.read().decode("utf-8", "replace") if proc.stderr else ""
+            pytest.fail(f"Server exited early (code={proc.returncode}):\n{stderr}")
         try:
             s = socket.create_connection(("127.0.0.1", port), timeout=0.5)
             s.close()
@@ -72,7 +76,7 @@ def base_url() -> Iterator[str]:
     else:
         proc.kill()
         proc.wait()
-        pytest.fail("Server did not come up within 10 s")
+        pytest.fail("Server did not come up within 30 s")
 
     yield url
 
@@ -82,6 +86,8 @@ def base_url() -> Iterator[str]:
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.wait()
+    if proc.stderr is not None:
+        proc.stderr.close()
 
 
 @pytest.fixture(scope="session")
