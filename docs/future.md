@@ -5,6 +5,18 @@ Planned work across aaiclick, ordered by priority.
 
 ---
 
+# High Priority
+
+## Validate Entrypoint at Registration Time
+
+`aaiclick/internal_api/registered_jobs.py:65` (`register_job`) currently stores the dotted `entrypoint` string verbatim and only resolves it at first run, when the worker tries to import the module and `getattr` the attribute. A typo — or the common confusion between the function's actual name and the `@job(name)` label — surfaces as a FAILED task after the user has already left the register form.
+
+**Work**: in `register_job`, do `importlib.import_module(...)` + `getattr(module, attr)` and raise `Invalid("entrypoint ... does not resolve to a callable")` (or `NotFound` for module-level misses) before persisting. Also reject non-callable attributes. ~5–10 lines plus 2–3 tests covering: typo'd attribute, unimportable module, attribute that resolves but isn't callable. Matching error surfaces in REST + MCP fall out of the existing `Problem` mapping.
+
+Caught while seeding demo data through the new operator UI's register form, where late failure feedback is most disorienting.
+
+---
+
 # Medium Priority
 
 ## Clear Task + Downstream
@@ -62,6 +74,40 @@ an `.html` / `HTML` entry to `FORMATS` in `aaiclick/data/formats.py` and the
 corresponding test once chdb's build includes it, or once aaiclick gains a
 way to fall back to clickhouse-connect for formats chdb doesn't ship.
 
+## SSE `/events` Endpoint + LISTEN/NOTIFY Fanout
+
+v0 uses 2 s `refetchInterval` polling. The designed real-time path is:
+
+1. `GET /api/v0/events` → `text/event-stream` (one connection per UI session).
+2. Workers emit `NOTIFY job_events` in the same commit as every status write.
+3. FastAPI holds one `LISTEN` connection per backend and forwards
+   notifications onto an in-process pub/sub bus.
+4. The SSE endpoint subscribes and streams typed events (`job.updated`,
+   `task.updated`, `task.log`) to the browser.
+5. The browser calls `queryClient.invalidateQueries(...)` and lets REST
+   fetch authoritative state — events are signals, not payloads.
+
+**SQLite local mode**: poll + snapshot diff every 2 s (same latency as current
+polling, but avoids N×M HTTP requests from N browser tabs).
+
+**When to revisit**: when polling overhead is measurable (many tabs or many
+concurrent jobs), or when sub-2 s latency matters for operators.
+
+## Cross-Host Log Access
+
+`task.log_path` stores the filesystem path written by the worker process.
+In local mode (single process) `aaiclick/internal_api/tasks.py` — `get_task_logs`
+reads the file directly. In distributed / Docker mode the log file lives on the
+worker host's filesystem and is not accessible to the API server.
+
+**Solution when it lands**: either (a) workers stream log lines into a DB column
+or a dedicated log table as they write, or (b) a sidecar log-shipping agent
+uploads completed log files to object storage (S3 / GCS) and `get_task_logs`
+redirects to a presigned URL.
+
+**When to revisit**: when Docker or multi-host distributed runs become the
+primary deployment mode and operators need task logs in the UI.
+
 ## SSE Cross-Host Fanout (Redis)
 
 The v0 SSE pipeline (`docs/frontend.md`) feeds deltas onto a single
@@ -103,6 +149,30 @@ that an e2e failure can't tell you which branch broke.
   matching the Python convention of test files alongside the modules
   they test.
 - Add an `npm test` step to the CI workflow that runs the SPA gates.
+
+## OpenAPI Codegen
+
+`src/api/types.ts` is hand-written to mirror the pydantic view models.
+When the API surface grows, generate it from `GET /api/v0/openapi.json`
+using `openapi-typescript` or similar — run as a pre-build step so the
+TypeScript types always match the server schema.
+
+**Work when revisited**: add `openapi-typescript` dev dep, `npm run gen-types`
+script, CI check that the generated file is up to date (commit the output;
+fail if dirty after re-gen).
+
+## Operator UI Auth
+
+The v0 server is unauthenticated (`localhost-only` intent). When the UI is
+exposed beyond localhost, add an auth layer:
+
+- Simple option: HTTP Basic via a reverse proxy (nginx / Caddy).
+- Integrated option: cookie session with a configurable password via a FastAPI
+  middleware; the SPA sends the cookie on every request.
+- Enterprise option: OAuth2 / OIDC via an identity provider.
+
+**When to revisit**: when the server is intentionally exposed on a network
+interface accessible to untrusted clients.
 
 ## Comparison Page
 

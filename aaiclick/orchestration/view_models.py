@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from .jobs.stats import _short_entrypoint
 from .models import (
+    TASK_COMPLETED,
     Job,
     JobStatus,
     PreservationMode,
@@ -40,6 +41,8 @@ class JobView(BaseModel):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     error: str | None = None
+    total_tasks: int = 0
+    completed_tasks: int = 0
 
 
 class TaskView(BaseModel):
@@ -65,6 +68,14 @@ class TaskDetail(TaskView):
     worker_id: int | None = None
     error: str | None = None
     max_retries: int = 0
+
+
+class TaskLogsView(BaseModel):
+    """Captured log lines for a task, served by ``GET /tasks/{id}/logs``."""
+
+    available: bool
+    log_path: str | None = None
+    lines: list[str] = Field(default_factory=list)
 
 
 class JobDetail(JobView):
@@ -136,7 +147,7 @@ def _ms_between(start: datetime | None, end: datetime | None) -> int | None:
     return int((end - start).total_seconds() * 1000)
 
 
-def job_to_view(job: Job) -> JobView:
+def job_to_view(job: Job, *, total_tasks: int = 0, completed_tasks: int = 0) -> JobView:
     return JobView(
         id=job.id,
         name=job.name,
@@ -148,6 +159,8 @@ def job_to_view(job: Job) -> JobView:
         started_at=job.started_at,
         completed_at=job.completed_at,
         error=job.error,
+        total_tasks=total_tasks,
+        completed_tasks=completed_tasks,
     )
 
 
@@ -186,6 +199,7 @@ def task_to_detail(task: Task) -> TaskDetail:
 
 
 def job_to_detail(job: Job, tasks: list[Task]) -> JobDetail:
+    completed = sum(1 for t in tasks if t.status == TASK_COMPLETED)
     return JobDetail(
         id=job.id,
         name=job.name,
@@ -199,6 +213,8 @@ def job_to_detail(job: Job, tasks: list[Task]) -> JobDetail:
         error=job.error,
         tasks=[task_to_view(t) for t in tasks],
         duration_ms=_ms_between(job.started_at, job.completed_at),
+        total_tasks=len(tasks),
+        completed_tasks=completed,
     )
 
 

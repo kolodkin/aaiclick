@@ -41,10 +41,29 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Build SPA bundle
+        run: |
+          npm ci
+          npm run build
+          test -f aaiclick/server/static/index.html \
+            || { echo "Vite build did not produce aaiclick/server/static/index.html"; exit 1; }
+
       - name: Build package
         run: |
           VERSION="${{ inputs.tag }}"
           SETUPTOOLS_SCM_PRETEND_VERSION="${VERSION#v}" uv build
+
+      - name: Verify wheel contains SPA bundle
+        run: |
+          wheel=$(ls dist/aaiclick-*.whl | head -n 1)
+          unzip -l "$wheel" | grep -q "aaiclick/server/static/index.html" \
+            || { echo "Built wheel $wheel does not contain aaiclick/server/static/index.html"; exit 1; }
 
       - name: Upload dist artifacts
         uses: actions/upload-artifact@v6

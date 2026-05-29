@@ -9,10 +9,10 @@ real-time updates. UX (layout, modes, wireframes) lives in `docs/ui.md`.
 | Layer        | Choice                       | Why                                              |
 |--------------|------------------------------|--------------------------------------------------|
 | UI framework | React 19 + TypeScript        | Largest ecosystem, first-class TanStack Query    |
-| Styling      | TailwindCSS                  | Utility-first, no design-system overhead         |
-| Build        | Vite                         | Fast HMR, native ESM, zero-config TS             |
-| Data fetch   | TanStack Query (React Query) | Caching, retries, stale-while-revalidate         |
-| Real-time    | Server-Sent Events (SSE)     | One-way, native reconnect, simpler than WS       |
+| Styling      | TailwindCSS 4                | Utility-first, no design-system overhead         |
+| Build        | Vite 6                       | Fast HMR, native ESM, zero-config TS             |
+| Data fetch   | TanStack Query 5             | Caching, retries, `refetchInterval` polling      |
+| Real-time    | REST polling (v0)            | 2 s `refetchInterval`; SSE deferred (see below)  |
 | Client state | None (URL is the state)      | The prompt drives navigation; no Redux/Zustand   |
 
 # Project layout
@@ -23,11 +23,15 @@ TypeScript source lives at `src/` (Vite default).
 ```
 package.json, vite.config.ts, tsconfig.json, index.html   ← repo root
 src/                            ← SPA TypeScript source
-  main.tsx, App.tsx
+  main.tsx, App.tsx             ← providers + prompt router
+  prompt.ts                     ← URL ↔ route parser
   api/                          ← typed REST client + React Query hooks
-  views/                        ← one component per UI mode (home, jobs, ...)
-  components/                   ← shared UI (badges, tables, prompt input)
-  styles/                       ← Tailwind entry, globals
+    types.ts                    ← TypeScript mirrors of pydantic view models
+    client.ts                   ← fetchJSON / postJSON + ApiError
+    hooks.ts                    ← useJobs, useJob, useTask, useTaskLogs, …
+  views/                        ← one file per UI mode
+  components/                   ← StatusBadge, ProgressBar, LogViewer, …
+  styles/globals.css            ← Tailwind import + ported mockup theme
 
 aaiclick/
   server/
@@ -57,67 +61,53 @@ no CORS.
 
 # Data layer
 
-REST is the source of truth. SSE events are signals to invalidate caches —
-not the data itself.
+REST is the sole source of truth in v0. Every hook polls every 2 seconds
+via TanStack Query's `refetchInterval`.
 
-- **Typed REST client** in `src/api/` — one function per endpoint, return
-  types derived from the OpenAPI schema (or hand-written for v0).
-- **React Query hooks** wrap each endpoint: `useJobs()`, `useJob(id)`,
-  `useTask(id)`. Hooks own staleness and refetch policy.
-- **No global store**. The URL (driven by the prompt) selects which view
-  mounts; React Query owns server state; component state owns UI ephemera
-  (input focus, scroll position).
+- **Typed REST client**: `src/api/client.ts` — `fetchJSON` / `postJSON` + `ApiError`.
+- **TypeScript types**: `src/api/types.ts` — hand-written mirrors of the pydantic view models
+  (`JobView`, `JobDetail`, `TaskDetail`, `TaskLogs`, etc.).
+- **React Query hooks**: `src/api/hooks.ts` — `useJobs()`, `useJob(ref)`, `useTask(id)`,
+  `useTaskLogs(id)`, `useRegisteredJobs()`, plus mutation hooks for run / cancel / register.
+- **No global store**: the URL query param `?p=` drives which view mounts;
+  React Query owns server state; component state holds only UI ephemera.
 
-```ts
-// src/api/jobs.ts
-export function useJobs() {
-  return useQuery({
-    queryKey: ['jobs'],
-    queryFn: () => fetchJSON<Job[]>('/api/v0/jobs'),
-    staleTime: 5_000,
-  });
-}
-```
+**Backend endpoints consumed**:
 
-# Real-time events
+| Hook              | Endpoint                         | Router                                   |
+|-------------------|----------------------------------|------------------------------------------|
+| `useJobs`         | `GET /api/v0/jobs`               | `aaiclick/server/routers/jobs.py`        |
+| `useJob`          | `GET /api/v0/jobs/{ref}`         | `aaiclick/server/routers/jobs.py`        |
+| `useTask`         | `GET /api/v0/tasks/{id}`         | `aaiclick/server/routers/tasks.py`       |
+| `useTaskLogs`     | `GET /api/v0/tasks/{id}/logs`    | `aaiclick/server/routers/tasks.py`       |
+| `useRegisteredJobs` | `GET /api/v0/registered-jobs`  | `aaiclick/server/routers/registered_jobs.py` |
+| `useRunJob`       | `POST /api/v0/jobs:run`          | `aaiclick/server/routers/jobs.py`        |
+| `useCancelJob`    | `POST /api/v0/jobs/{ref}/cancel` | `aaiclick/server/routers/jobs.py`        |
+| `useRegisterJob`  | `POST /api/v0/registered-jobs`   | `aaiclick/server/routers/registered_jobs.py` |
+
+**Implementation**: `aaiclick/server/routers/tasks.py` — see `get_task_logs`;
+`aaiclick/internal_api/tasks.py` — see `get_task_logs` (reads `task.log_path`,
+returns `available=False` when the file is missing or cross-host);
+`aaiclick/orchestration/view_models.py` — see `TaskLogsView`, `JobView`
+(`total_tasks` / `completed_tasks` populated by `list_jobs`).
+
+# Real-time (v0 — REST polling)
+
+v0 uses `refetchInterval: 2000` on every query. No SSE endpoint exists yet;
+design and fanout spec are tracked in `docs/future.md`.
+
+## SSE design (future)
 
 One SSE connection per UI session. The server emits typed events; the
-client invalidates React Query caches and lets REST refetch authoritative
-state.
+client invalidates React Query caches and lets REST refetch authoritative state.
 
 - **Endpoint**: `GET /api/v0/events` → `text/event-stream`
-- **Event format**: native SSE `event:` field for typing
-  ```
-  event: job.updated
-  data: {"id": "abc123"}
+- **Client dispatch**: a single `useServerEvents()` hook owns the `EventSource`.
+  `job.updated` / `task.updated` → `queryClient.invalidateQueries(...)`;
+  `task.log` → forwarded to the active `TaskDetail` log buffer.
+- **Reconnect**: `EventSource` reconnects natively.
 
-  event: task.updated
-  data: {"id": 42, "job_id": "abc123"}
-
-  event: task.log
-  data: {"task_id": 42, "line": "...", "ts": "..."}
-  ```
-- **Client dispatch**: a single `useServerEvents()` hook owns the
-  `EventSource`. Per event name:
-  - `job.updated` / `task.updated` → `queryClient.invalidateQueries(...)`
-  - `task.log` → forwarded to the active `TaskDetail` log buffer
-- **Reconnect**: `EventSource` reconnects natively. Server uses
-  `Last-Event-ID` for resume; for v0, send a fresh snapshot on connect.
-- **Backpressure**: server coalesces high-frequency events (logs) into
-  bounded batches per flush.
-
-!!! tip "Events are signals, not state"
-    If reconnect drops events, the next REST refetch heals the cache.
-    No event-replay protocol needed.
-
-# Server-side fanout
-
-SSE is just the wire format. Workers update job/task state in **child
-processes** (`mp_worker`, `docker_worker`); the FastAPI process serving
-SSE clients does not see those updates directly. The bridge is the
-database. Two feeder mechanisms — selected at startup based on the SQL
-backend — push deltas onto a shared in-process bus, which the SSE
-endpoint subscribes to.
+## Server-side fanout (future)
 
 ```
 worker child ─▶ DB commit ─▶ feeder ─▶ in-process bus ─▶ SSE endpoint ─▶ client
@@ -126,61 +116,34 @@ worker child ─▶ DB commit ─▶ feeder ─▶ in-process bus ─▶ SSE end
                               └── SQLite:   poll every 2 s
 ```
 
-| Backend                | Feeder                     | Latency       |
-|------------------------|----------------------------|---------------|
-| Postgres (distributed) | `LISTEN job_events`        | sub-second    |
-| SQLite (local)         | poll, diff snapshot every 2 s | up to 2 s   |
-
-**Postgres feeder**: orchestration code that updates `jobs` / `tasks`
-emits `NOTIFY job_events, '<json>'` in the same transaction as the
-status update. The FastAPI process holds one `LISTEN` connection per
-backend instance and forwards each notification onto the in-process bus.
-A single SQL channel carries all event types — the JSON payload's
-discriminator picks the SSE event name.
-
-**SQLite feeder**: same shape, polled. A background task reads the
-recent rows from `jobs` / `tasks` (and the log table for `task.log`)
-every 2 s, diffs against the previous snapshot, pushes deltas onto the
-bus.
-
-!!! warning "NOTIFY must be wired into every status write"
-    Every code path that mutates job/task status owes a `NOTIFY` in the
-    same commit. Missing one means a stuck UI in distributed mode.
-    Centralize it in the orchestration write helpers, not at call sites.
-
-Redis Pub/Sub is the next upgrade — only needed once we run multiple
-FastAPI workers across machines and need cross-host fanout that
-LISTEN/NOTIFY can't cheaply provide. Tracked in `docs/future.md`.
+| Backend                | Feeder                        | Latency    |
+|------------------------|-------------------------------|------------|
+| Postgres (distributed) | `LISTEN job_events`           | sub-second |
+| SQLite (local)         | poll, diff snapshot every 2 s | up to 2 s  |
 
 # Testing
 
-The SPA is exercised end-to-end through the deployed stack — the same
-strategy the rest of aaiclick uses for system-level tests.
+| Layer                | Tool                | Where                                          |
+|----------------------|---------------------|------------------------------------------------|
+| Static type check    | `tsc --noEmit`      | `npm run check` — CI gate for every frontend task |
+| End-to-end (browser) | Playwright (Python) | `test_e2e/web/test_smoke.py`, pytest           |
 
-| Layer                | Tool                  | Where                              |
-|----------------------|-----------------------|------------------------------------|
-| Static type check    | `tsc --noEmit`        | `npm run check`, CI gate           |
-| End-to-end (browser) | Playwright (Python)   | `test_e2e/web/`, pytest            |
+**Implementation**: `test_e2e/web/test_smoke.py` — golden-path smoke
+(home load, `@jobs` view, URL sync); `test_e2e/web/conftest.py` — server
+fixture (uvicorn on a free port) + Playwright fixtures (`base_url`,
+`browser`, `page`). Playwright is an optional dep — tests skip cleanly
+when the package is absent.
 
-**Why Playwright Python**: an e2e test isn't a frontend test — it drives
-the browser, the FastAPI server, the orchestrator, and the DB together.
-Living in `test_e2e/web/` lets it share pytest fixtures with the existing
-Docker e2e suite (`test_e2e/docker/`) and run on the same dedicated
-workflow rather than spinning up a parallel Node runner.
-
-**Frontend unit tests** (Vitest + React Testing Library) are deferred —
-see `docs/future.md`. For v0, the static type check plus e2e coverage is
-the only gate. Add unit tests when the component layer grows enough that
-e2e feedback gets too coarse.
+**Why Playwright Python**: an e2e test exercises the browser, FastAPI,
+orchestrator, and DB together. `test_e2e/web/` shares the pytest harness
+with `test_e2e/docker/` rather than running a parallel Node runner.
 
 !!! warning "E2E suites don't run in default `pytest`"
-    Per `CLAUDE.md`, `test_e2e/<suite>/` is excluded from the default
-    `pytest` invocation and only runs in dedicated workflows.
+    `test_e2e/<suite>/` is excluded from the default `pytest` testpaths
+    and only runs when the path is passed explicitly or in a dedicated
+    CI workflow. The `test-ui-e2e-dist` job in
+    `.github/workflows/_test-reusable.yaml` runs `test_smoke.py` on every
+    PR against the distributed (Postgres + ClickHouse) backend.
 
-# Open questions
-
-Tracked in `docs/future.md`:
-
-- Auth model for the SSE endpoint (cookie vs. token)
-- OpenAPI codegen vs. hand-written types
-- Per-resource SSE topics if the single-stream model gets noisy
+Deferred work (SSE endpoint, cross-host logs, Vitest, OpenAPI codegen, auth)
+is tracked in `docs/future.md`.

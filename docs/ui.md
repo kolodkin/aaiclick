@@ -2,8 +2,12 @@ UI Specification
 ---
 
 Single-screen, prompt-driven dashboard for aaiclick operators. SPA served by
-the FastAPI backend with real-time updates over SSE. Tech stack and build
-details: `docs/frontend.md`.
+the FastAPI backend with 2 s REST polling (v0). Tech stack and build details:
+`docs/frontend.md`.
+
+**Implementation**: `aaiclick/server/app.py` — see `STATIC_DIR` and the
+`StaticFiles` mount (SPA served when `aaiclick/server/static/` exists);
+`src/App.tsx` — prompt router; `src/prompt.ts` — `parsePrompt` + URL sync.
 
 # Layout
 
@@ -45,13 +49,17 @@ Clicking interactive elements updates the prompt, which drives what is displayed
 
 Displays a help/command reference showing available commands and their descriptions.
 
+**Implementation**: `src/views/Home.tsx` — see `Home` component.
+
 **Wireframe**: `docs/ui/home.excalidraw.svg`
 
 ## Jobs List (`@jobs`)
 
 **Prompt**: `@jobs`
 
-Table of jobs sorted by `created_at` descending. Auto-refreshes via WebSocket.
+Table of jobs sorted by `created_at` descending. Auto-refreshes via REST polling (2 s).
+
+**Implementation**: `src/views/Jobs.tsx` — see `Jobs` component; `aaiclick/server/routers/jobs.py` — see `list_jobs`; `aaiclick/orchestration/view_models.py` — see `JobView` (`total_tasks`, `completed_tasks`).
 
 | Column     | Source field    | Notes                           |
 |------------|----------------|---------------------------------|
@@ -77,7 +85,9 @@ Table of jobs sorted by `created_at` descending. Auto-refreshes via WebSocket.
 
 **Prompt**: `@job <name>`
 
-Header with job info, followed by a table of tasks. Auto-refreshes via WebSocket.
+Header with job info, followed by a table of tasks. Auto-refreshes via REST polling (2 s).
+
+**Implementation**: `src/views/JobDetail.tsx` — see `JobDetail` component; `aaiclick/server/routers/jobs.py` — see `get_job`.
 
 **Job header**: name, status badge, created/started/completed times, error (if any).
 
@@ -106,11 +116,15 @@ Task statuses use the same color scheme as job statuses, plus:
 
 **Top section**: status bar with task metadata — name, status badge, entrypoint, job name, worker ID, attempt info, timestamps, error (if any).
 
-**Main section**: log viewer filling the remaining screen with vertical scroll. Logs stream in real-time via WebSocket when task is running. Log source is `log_path` field on the task.
+**Main section**: log viewer filling the remaining screen with vertical scroll. Logs poll every 2 s in v0; real-time SSE is deferred. Log source is `log_path` on the task record. Returns `available=false` when the file is missing or cross-host.
+
+**Implementation**: `src/views/TaskDetail.tsx` — see `TaskDetail` component; `src/components/LogViewer.tsx` — see `LogViewer`; `aaiclick/server/routers/tasks.py` — see `get_task_logs`; `aaiclick/internal_api/tasks.py` — see `get_task_logs`.
 
 **Wireframe**: `docs/ui/task_detail.excalidraw.svg`
 
 # Tech stack & real-time
 
-See `docs/frontend.md` for framework choices, project layout, build
-workflow, the data layer, and the SSE event protocol.
+v0 uses 2 s REST polling (`refetchInterval`). SSE and LISTEN/NOTIFY fanout
+are deferred — see `docs/future.md`.
+
+For framework choices, project layout, and build workflow, see `docs/frontend.md`.

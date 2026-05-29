@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from aaiclick.backend import is_local
 from aaiclick.orchestration.local_runtime import local_runtime
@@ -14,6 +16,7 @@ from .routers import jobs, objects, registered_jobs, tasks, workers
 
 API_PREFIX = "/api/v0"
 MCP_PATH = "/mcp"
+STATIC_DIR = Path(__file__).parent / "static"
 
 # FastMCP's streamable-HTTP sub-app needs its lifespan to run; we chain it
 # with local_runtime() (when local) so workers come up with the server.
@@ -57,3 +60,10 @@ app.mount(MCP_PATH, _mcp_app)
 @app.get("/health", include_in_schema=False)
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+# SPA: serve the Vite build (gitignored, produced by `npm run build`). Mounted
+# last so the API routers, /mcp, and /health keep priority. `html=True` serves
+# index.html at "/" and resolves hashed asset paths under /assets/*.
+if STATIC_DIR.is_dir():
+    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="spa")

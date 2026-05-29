@@ -213,6 +213,114 @@ jobs:
           path: tmp/pytest-report.xml
           reporter: java-junit
 
+  test-ui-e2e-dist:
+    # Single browser smoke pass against the distributed backend: builds the
+    # Vite bundle, launches uvicorn pointed at PG + ClickHouse, and drives
+    # the SPA shell with Playwright. Catches packaging/wiring regressions
+    # that the local-backend pytest suites can't see.
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    name: UI e2e dist
+
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:26.3
+        env:
+          CLICKHOUSE_USER: default
+          CLICKHOUSE_PASSWORD: click123
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 0
+        ports:
+          - 8123:8123
+          - 9000:9000
+        options: >-
+          --health-cmd "wget --spider -q localhost:8123/ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      postgres:
+        image: postgres:18.3
+        env:
+          POSTGRES_USER: aaiclick
+          POSTGRES_PASSWORD: secret
+          POSTGRES_DB: aaiclick
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aaiclick"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install Python dependencies
+        run: |
+          uv sync --frozen --extra distributed --extra server --extra test --python ${{ inputs.python-version }}
+          uv pip install playwright
+
+      - name: Resolve Playwright version
+        id: pw-version
+        run: echo "version=$(uv run playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-chromium-${{ runner.os }}-${{ steps.pw-version.outputs.version }}
+
+      - name: Install Chromium for Playwright
+        # On a cache hit only install the OS deps; on a miss download Chromium too.
+        run: |
+          if [ "${{ steps.pw-cache.outputs.cache-hit }}" = "true" ]; then
+            uv run playwright install-deps chromium
+          else
+            uv run playwright install --with-deps chromium
+          fi
+
+      - name: Build SPA bundle
+        run: |
+          npm ci
+          npm run build
+          test -f aaiclick/server/static/index.html
+
+      - name: Run database migrations
+        env:
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
+        run: uv run python -m aaiclick migrate upgrade head
+
+      - name: Run UI smoke against distributed backend
+        env:
+          AAICLICK_CH_URL: "clickhouse://default:click123@localhost:8123/default"
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
+        run: |
+          mkdir -p tmp
+          uv run pytest test_e2e/web/test_smoke.py -v --junitxml=tmp/pytest-report.xml
+
+      - name: Publish test results
+        uses: dorny/test-reporter@v2
+        if: always()
+        with:
+          name: "Pytest Results (UI e2e dist)"
+          path: tmp/pytest-report.xml
+          reporter: java-junit
+
   examples:
     runs-on: ubuntu-latest
     timeout-minutes: 60
