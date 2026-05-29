@@ -51,8 +51,6 @@ Displays a help/command reference showing available commands and their descripti
 
 **Implementation**: `src/views/Home.tsx` — see `Home` component.
 
-**Wireframe**: `docs/ui/home.excalidraw.svg`
-
 ## Jobs List (`@jobs`)
 
 **Prompt**: `@jobs`
@@ -68,8 +66,6 @@ Table of jobs sorted by `created_at` descending. Auto-refreshes via REST polling
 | Progress   | computed       | `completed_tasks / total_tasks` |
 | Created    | `created_at`   | Relative time (e.g., "2m ago")  |
 | Duration   | computed       | `started_at` to `completed_at` or now |
-
-**Wireframe**: `docs/ui/jobs.excalidraw.svg`
 
 ### Status badges
 
@@ -108,8 +104,6 @@ Task statuses use the same color scheme as job statuses, plus:
 |-----------|--------|
 | `CLAIMED` | purple |
 
-**Wireframe**: `docs/ui/job_detail.excalidraw.svg`
-
 ## Task Detail (`@task <id>`)
 
 **Prompt**: `@task <id>`
@@ -119,8 +113,6 @@ Task statuses use the same color scheme as job statuses, plus:
 **Main section**: log viewer filling the remaining screen with vertical scroll. Logs poll every 2 s in v0; real-time SSE is deferred. Log source is `log_path` on the task record. Returns `available=false` when the file is missing or cross-host.
 
 **Implementation**: `src/views/TaskDetail.tsx` — see `TaskDetail` component; `src/components/LogViewer.tsx` — see `LogViewer`; `aaiclick/server/routers/tasks.py` — see `get_task_logs`; `aaiclick/internal_api/tasks.py` — see `get_task_logs`.
-
-**Wireframe**: `docs/ui/task_detail.excalidraw.svg`
 
 # Tech stack & real-time
 
