@@ -3,7 +3,7 @@ interface Chip {
   cmd: string;
 }
 
-export function Chips({ chips, onPrompt, children }: { chips: Chip[]; onPrompt: (v: string) => void; children?: React.ReactNode }) {
+export function Chips({ chips, onPrompt }: { chips: Chip[]; onPrompt: (v: string) => void }) {
   return (
     <div className="chips">
       {chips.map((c) => (
@@ -11,7 +11,6 @@ export function Chips({ chips, onPrompt, children }: { chips: Chip[]; onPrompt: 
           {c.label}
         </span>
       ))}
-      {children}
     </div>
   );
 }

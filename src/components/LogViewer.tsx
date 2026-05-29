@@ -1,4 +1,18 @@
+import { memo } from "react";
 import { useTaskLogs } from "../api/hooks";
+
+// `lines` typically grows by appending; memoising on the array identity skips
+// the per-line VDOM rebuild when a poll returns the same payload, and lets
+// React diff incrementally when only the tail changed.
+const LogLines = memo(function LogLines({ lines }: { lines: readonly string[] }) {
+  return (
+    <>
+      {lines.map((line, i) => (
+        <div key={i}>{line}</div>
+      ))}
+    </>
+  );
+});
 
 export function LogViewer({ taskId }: { taskId: number }) {
   const { data, isLoading, isError } = useTaskLogs(taskId);
@@ -10,9 +24,7 @@ export function LogViewer({ taskId }: { taskId: number }) {
   }
   return (
     <div className="logs">
-      {data.lines.map((line, i) => (
-        <div key={i}>{line}</div>
-      ))}
+      <LogLines lines={data.lines} />
     </div>
   );
 }

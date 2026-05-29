@@ -10,7 +10,6 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from sqlalchemy import Integer
 from sqlalchemy import func as sa_func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
@@ -96,7 +95,7 @@ async def list_jobs(filter: JobListFilter | None = None) -> Page[JobView]:
                     select(
                         Task.job_id,
                         sa_func.count().label("total"),
-                        sa_func.sum(sa_func.cast(Task.status == TASK_COMPLETED, Integer)).label("done"),
+                        sa_func.count().filter(Task.status == TASK_COMPLETED).label("done"),
                     )
                     .where(col(Task.job_id).in_(job_ids))
                     .group_by(Task.job_id)

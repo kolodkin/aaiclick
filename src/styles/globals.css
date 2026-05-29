@@ -150,6 +150,7 @@ tbody tr.clickable:hover { background: rgba(91,157,255,.12); }
 .b-CANCELLED { color: var(--yellow); background: var(--yellow-bg); }
 .b-PENDING_CLEANUP { color: var(--gray); background: var(--gray-bg); }
 .b-UPSTREAM_FAILED { color: var(--red);  background: var(--red-bg); }
+.b-unknown   { color: var(--muted);  background: var(--gray-bg); }
 
 /* enabled toggle */
 .toggle { display: inline-flex; align-items: center; gap: 7px; cursor: pointer;

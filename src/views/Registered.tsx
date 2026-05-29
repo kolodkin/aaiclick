@@ -1,17 +1,19 @@
 import { useRegisteredJobs } from "../api/hooks";
-import { Chips } from "../components/Chips";
 import { EnabledToggle } from "../components/EnabledToggle";
 
 export function Registered({ onPrompt }: { onPrompt: (v: string) => void }) {
   const { data, isLoading, isError } = useRegisteredJobs();
   return (
     <>
-      <Chips chips={[{ label: "← @jobs", cmd: "@jobs" }]} onPrompt={onPrompt}>
+      <div className="chips">
+        <span className="chip" onClick={() => onPrompt("@jobs")}>
+          ← @jobs
+        </span>
         <div className="spacer" />
         <button className="btn btn-primary btn-sm" onClick={() => onPrompt("register")}>
           + Register new job
         </button>
-      </Chips>
+      </div>
       <h2>Registered jobs</h2>
       <p className="sub">Run on demand, or on a cron schedule via the background scheduler.</p>
       {isLoading && <p className="sub">loading…</p>}

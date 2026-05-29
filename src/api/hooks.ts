@@ -11,13 +11,10 @@ import type {
   TaskLogs,
 } from "./types";
 
-const POLL = 2000;
-
 export function useJobs() {
   return useQuery({
     queryKey: ["jobs"],
     queryFn: () => fetchJSON<Page<JobView>>("/jobs"),
-    refetchInterval: POLL,
   });
 }
 
@@ -25,7 +22,6 @@ export function useJob(ref: string) {
   return useQuery({
     queryKey: ["job", ref],
     queryFn: () => fetchJSON<JobDetail>(`/jobs/${encodeURIComponent(ref)}`),
-    refetchInterval: POLL,
     enabled: ref.length > 0,
   });
 }
@@ -34,7 +30,6 @@ export function useTask(id: number) {
   return useQuery({
     queryKey: ["task", id],
     queryFn: () => fetchJSON<TaskDetail>(`/tasks/${id}`),
-    refetchInterval: POLL,
     enabled: Number.isFinite(id),
   });
 }
@@ -43,16 +38,17 @@ export function useTaskLogs(id: number) {
   return useQuery({
     queryKey: ["task-logs", id],
     queryFn: () => fetchJSON<TaskLogs>(`/tasks/${id}/logs`),
-    refetchInterval: POLL,
     enabled: Number.isFinite(id),
   });
 }
 
+// Registered jobs change only via register/enable/disable mutations, all of
+// which invalidate this key — no background polling needed.
 export function useRegisteredJobs() {
   return useQuery({
     queryKey: ["registered-jobs"],
     queryFn: () => fetchJSON<Page<RegisteredJobView>>("/registered-jobs"),
-    refetchInterval: POLL,
+    refetchInterval: false,
   });
 }
 

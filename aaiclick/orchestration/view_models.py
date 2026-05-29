@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from .jobs.stats import _short_entrypoint
 from .models import (
+    TASK_COMPLETED,
     Job,
     JobStatus,
     PreservationMode,
@@ -198,7 +199,7 @@ def task_to_detail(task: Task) -> TaskDetail:
 
 
 def job_to_detail(job: Job, tasks: list[Task]) -> JobDetail:
-    completed = sum(1 for t in tasks if t.status == "COMPLETED")
+    completed = sum(1 for t in tasks if t.status == TASK_COMPLETED)
     return JobDetail(
         id=job.id,
         name=job.name,

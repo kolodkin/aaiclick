@@ -1,6 +1,7 @@
 import { useJob } from "../api/hooks";
 import { Chips } from "../components/Chips";
 import { MetaGrid } from "../components/MetaGrid";
+import { ProgressBar } from "../components/ProgressBar";
 import { StatusBadge } from "../components/StatusBadge";
 import { TasksTable } from "../components/TasksTable";
 import { durationMs, relativeTime } from "../lib/format";
@@ -42,7 +43,7 @@ export function JobDetail({ name, onPrompt }: { name: string; onPrompt: (v: stri
             { k: "Started", v: relativeTime(job.started_at) },
             { k: "Completed", v: relativeTime(job.completed_at) },
             { k: "Duration", v: durationMs(job.duration_ms) },
-            { k: "Progress", v: `${job.completed_tasks}/${job.total_tasks} tasks` },
+            { k: "Progress", v: <ProgressBar done={job.completed_tasks} total={job.total_tasks} /> },
           ]}
         />
         {job.error && <div className="err">{job.error}</div>}

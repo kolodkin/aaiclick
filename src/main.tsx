@@ -5,7 +5,9 @@ import { App } from "./App";
 import { ToastProvider } from "./components/Toast";
 import "./styles/globals.css";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { refetchInterval: 2000 } },
+});
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

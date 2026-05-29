@@ -274,8 +274,25 @@ jobs:
           uv sync --frozen --extra distributed --extra server --extra test --python ${{ inputs.python-version }}
           uv pip install playwright
 
+      - name: Resolve Playwright version
+        id: pw-version
+        run: echo "version=$(uv run playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-chromium-${{ runner.os }}-${{ steps.pw-version.outputs.version }}
+
       - name: Install Chromium for Playwright
-        run: uv run playwright install --with-deps chromium
+        # On a cache hit only install the OS deps; on a miss download Chromium too.
+        run: |
+          if [ "${{ steps.pw-cache.outputs.cache-hit }}" = "true" ]; then
+            uv run playwright install-deps chromium
+          else
+            uv run playwright install --with-deps chromium
+          fi
 
       - name: Build SPA bundle
         run: |
