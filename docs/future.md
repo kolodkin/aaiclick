@@ -5,6 +5,18 @@ Planned work across aaiclick, ordered by priority.
 
 ---
 
+# High Priority
+
+## Validate Entrypoint at Registration Time
+
+`aaiclick/internal_api/registered_jobs.py:65` (`register_job`) currently stores the dotted `entrypoint` string verbatim and only resolves it at first run, when the worker tries to import the module and `getattr` the attribute. A typo — or the common confusion between the function's actual name and the `@job(name)` label — surfaces as a FAILED task after the user has already left the register form.
+
+**Work**: in `register_job`, do `importlib.import_module(...)` + `getattr(module, attr)` and raise `Invalid("entrypoint ... does not resolve to a callable")` (or `NotFound` for module-level misses) before persisting. Also reject non-callable attributes. ~5–10 lines plus 2–3 tests covering: typo'd attribute, unimportable module, attribute that resolves but isn't callable. Matching error surfaces in REST + MCP fall out of the existing `Problem` mapping.
+
+Caught while seeding demo data through the new operator UI's register form, where late failure feedback is most disorienting.
+
+---
+
 # Medium Priority
 
 ## Clear Task + Downstream
