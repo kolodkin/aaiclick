@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from sqlmodel import col
 
+from aaiclick.orchestration.execution.runner import import_callback
 from aaiclick.orchestration.models import RegisteredJob
 from aaiclick.orchestration.registered_jobs import (
     RegisteredJobAlreadyExists,
@@ -28,8 +29,28 @@ from aaiclick.orchestration.view_models import (
 )
 from aaiclick.view_models import Page, RegisteredJobFilter, RegisterJobRequest
 
-from .errors import Conflict, NotFound
+from .errors import Conflict, Invalid, NotFound
 from .pagination import paginate
+
+
+def _validate_entrypoint(entrypoint: str) -> None:
+    """Resolve ``entrypoint`` to a callable, raising on failure.
+
+    Mirrors the worker's runtime resolution (``import_callback``) so a typo
+    or a function/label mix-up surfaces at registration time rather than as
+    a FAILED task on first run.
+
+    Raises:
+        NotFound: The module portion cannot be imported.
+        Invalid: The entrypoint is malformed, names a missing attribute, or
+            resolves to something that is not callable.
+    """
+    try:
+        import_callback(entrypoint)
+    except ModuleNotFoundError as exc:
+        raise NotFound(f"entrypoint '{entrypoint}' module not found: {exc}") from exc
+    except (ImportError, AttributeError, ValueError, TypeError) as exc:
+        raise Invalid(f"entrypoint '{entrypoint}' does not resolve to a callable: {exc}") from exc
 
 
 async def list_registered_jobs(filter: RegisteredJobFilter | None = None) -> Page[RegisteredJobView]:
@@ -65,8 +86,11 @@ async def list_registered_jobs(filter: RegisteredJobFilter | None = None) -> Pag
 async def register_job(request: RegisterJobRequest) -> RegisteredJobView:
     """Register a new job in the catalog.
 
-    Raises ``Conflict`` if a registration with the same name already exists.
+    Raises ``Conflict`` if a registration with the same name already exists,
+    or ``NotFound`` / ``Invalid`` if ``entrypoint`` does not resolve to a
+    callable (validated before persisting).
     """
+    _validate_entrypoint(request.entrypoint)
     try:
         registered = await _register_job_impl(
             name=request.name,
