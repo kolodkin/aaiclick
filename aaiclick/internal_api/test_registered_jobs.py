@@ -15,7 +15,7 @@ from . import errors, registered_jobs
 # entrypoint-resolution check that ``register_job`` runs before persisting.
 _VALID_ENTRYPOINT = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
 # A real module attribute that resolves but is not callable (a str constant).
-_NON_CALLABLE_ENTRYPOINT = "aaiclick.orchestration.models.PRESERVATION_FULL"
+_NON_CALLABLE_ENTRYPOINT = "aaiclick.orchestration.fixtures.sample_tasks.not_callable"
 
 
 async def test_list_registered_jobs_returns_page_with_total(orch_ctx):
