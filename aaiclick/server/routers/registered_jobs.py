@@ -19,7 +19,7 @@ async def list_registered_jobs(
     return await rj_api.list_registered_jobs(filter)
 
 
-@router.post("", response_model=RegisteredJobView, status_code=201, responses=problem_responses(409))
+@router.post("", response_model=RegisteredJobView, status_code=201, responses=problem_responses(404, 409, 422))
 async def register_job(request: RegisterJobRequest) -> RegisteredJobView:
     return await rj_api.register_job(request)
 

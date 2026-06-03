@@ -6,6 +6,9 @@ from aaiclick.view_models import Page, Problem, ProblemCode
 
 from ..app import API_PREFIX
 
+# A real importable callable — the POST path validates the entrypoint resolves.
+_VALID_ENTRYPOINT = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
+
 
 async def test_list_registered_jobs(orch_ctx, app_client):
     await _register_job_impl(name="http_rj_a", entrypoint="myapp.http_rj_a")
@@ -21,7 +24,7 @@ async def test_list_registered_jobs(orch_ctx, app_client):
 async def test_register_job(orch_ctx, app_client):
     response = await app_client.post(
         f"{API_PREFIX}/registered-jobs",
-        json={"name": "http_new_rj", "entrypoint": "myapp.http_new_rj"},
+        json={"name": "http_new_rj", "entrypoint": _VALID_ENTRYPOINT},
     )
 
     assert response.status_code == 201
@@ -29,12 +32,23 @@ async def test_register_job(orch_ctx, app_client):
     assert view.name == "http_new_rj"
 
 
+async def test_register_job_unresolvable_entrypoint_returns_422(orch_ctx, app_client):
+    response = await app_client.post(
+        f"{API_PREFIX}/registered-jobs",
+        json={"name": "http_bad_entry", "entrypoint": _VALID_ENTRYPOINT + "_missing"},
+    )
+
+    assert response.status_code == 422
+    problem = Problem.model_validate(response.json())
+    assert problem.code is ProblemCode.INVALID
+
+
 async def test_register_job_duplicate_returns_409(orch_ctx, app_client):
     await _register_job_impl(name="http_dup_rj", entrypoint="myapp.http_dup_rj")
 
     response = await app_client.post(
         f"{API_PREFIX}/registered-jobs",
-        json={"name": "http_dup_rj", "entrypoint": "myapp.http_dup_rj"},
+        json={"name": "http_dup_rj", "entrypoint": _VALID_ENTRYPOINT},
     )
 
     assert response.status_code == 409

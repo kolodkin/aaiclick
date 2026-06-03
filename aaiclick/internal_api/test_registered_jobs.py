@@ -11,6 +11,12 @@ from aaiclick.view_models import Page, RegisteredJobFilter, RegisterJobRequest
 
 from . import errors, registered_jobs
 
+# A real importable callable, used wherever a registration must pass the
+# entrypoint-resolution check that ``register_job`` runs before persisting.
+_VALID_ENTRYPOINT = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
+# A real module attribute that resolves but is not callable (a str constant).
+_NON_CALLABLE_ENTRYPOINT = "aaiclick.orchestration.models.PRESERVATION_FULL"
+
 
 async def test_list_registered_jobs_returns_page_with_total(orch_ctx):
     await _register_job_impl(name="rj_a", entrypoint="myapp.rj_a")
@@ -57,7 +63,7 @@ async def test_list_registered_jobs_name_like_and_pagination(orch_ctx):
 async def test_register_job_returns_view_and_persists(orch_ctx):
     request = RegisterJobRequest(
         name="new_reg",
-        entrypoint="myapp.new_reg",
+        entrypoint=_VALID_ENTRYPOINT,
         schedule="0 8 * * *",
         preservation_mode=PRESERVATION_FULL,
     )
@@ -75,12 +81,46 @@ async def test_register_job_returns_view_and_persists(orch_ctx):
 
 
 async def test_register_job_duplicate_raises_conflict(orch_ctx):
-    request = RegisterJobRequest(name="dup_reg", entrypoint="myapp.dup_reg")
+    request = RegisterJobRequest(name="dup_reg", entrypoint=_VALID_ENTRYPOINT)
 
     await registered_jobs.register_job(request)
 
     with pytest.raises(errors.Conflict):
         await registered_jobs.register_job(request)
+
+
+async def test_register_job_unresolvable_attribute_raises_invalid(orch_ctx):
+    request = RegisterJobRequest(
+        name="bad_attr",
+        entrypoint="aaiclick.orchestration.fixtures.sample_tasks.no_such_task",
+    )
+
+    with pytest.raises(errors.Invalid):
+        await registered_jobs.register_job(request)
+
+
+async def test_register_job_unimportable_module_raises_not_found(orch_ctx):
+    request = RegisterJobRequest(name="bad_module", entrypoint="myapp.missing.etl_job")
+
+    with pytest.raises(errors.NotFound):
+        await registered_jobs.register_job(request)
+
+
+async def test_register_job_non_callable_attribute_raises_invalid(orch_ctx):
+    request = RegisterJobRequest(name="not_callable", entrypoint=_NON_CALLABLE_ENTRYPOINT)
+
+    with pytest.raises(errors.Invalid):
+        await registered_jobs.register_job(request)
+
+
+async def test_register_job_invalid_entrypoint_not_persisted(orch_ctx):
+    request = RegisterJobRequest(name="ghost_reg", entrypoint="myapp.missing.etl_job")
+
+    with pytest.raises(errors.NotFound):
+        await registered_jobs.register_job(request)
+
+    page = await registered_jobs.list_registered_jobs(RegisteredJobFilter(name="ghost_reg"))
+    assert page.items == []
 
 
 async def test_enable_job_returns_view_and_recomputes_next_run(orch_ctx):
