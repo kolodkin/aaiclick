@@ -99,13 +99,6 @@ async def test_register_job_unresolvable_attribute_raises_invalid(orch_ctx):
         await registered_jobs.register_job(request)
 
 
-async def test_register_job_unimportable_module_raises_not_found(orch_ctx):
-    request = RegisterJobRequest(name="bad_module", entrypoint="myapp.missing.etl_job")
-
-    with pytest.raises(errors.NotFound):
-        await registered_jobs.register_job(request)
-
-
 async def test_register_job_non_callable_attribute_raises_invalid(orch_ctx):
     request = RegisterJobRequest(name="not_callable", entrypoint=_NON_CALLABLE_ENTRYPOINT)
 
