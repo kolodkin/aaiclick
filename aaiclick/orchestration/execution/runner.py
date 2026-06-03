@@ -79,6 +79,7 @@ def import_callback(entrypoint: str) -> Callable:
     Raises:
         ImportError: If module cannot be imported
         AttributeError: If function not found in module
+        TypeError: If the resolved attribute is not callable
     """
     parts = entrypoint.rsplit(".", 1)
     if len(parts) != 2:
@@ -93,6 +94,9 @@ def import_callback(entrypoint: str) -> Callable:
 
     if isinstance(attr, JobFactory):
         return attr.func
+
+    if not callable(attr):
+        raise TypeError(f"entrypoint '{entrypoint}' does not resolve to a callable")
 
     return attr
 

@@ -46,13 +46,11 @@ def _validate_entrypoint(entrypoint: str) -> None:
             resolves to something that is not callable.
     """
     try:
-        resolved = import_callback(entrypoint)
+        import_callback(entrypoint)
     except ModuleNotFoundError as exc:
         raise NotFound(f"entrypoint '{entrypoint}' module not found: {exc}") from exc
-    except (ImportError, AttributeError, ValueError) as exc:
+    except (ImportError, AttributeError, ValueError, TypeError) as exc:
         raise Invalid(f"entrypoint '{entrypoint}' does not resolve to a callable: {exc}") from exc
-    if not callable(resolved):
-        raise Invalid(f"entrypoint '{entrypoint}' does not resolve to a callable")
 
 
 async def list_registered_jobs(filter: RegisteredJobFilter | None = None) -> Page[RegisteredJobView]:
