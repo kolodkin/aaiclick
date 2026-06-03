@@ -3,7 +3,6 @@
 import sys
 from pathlib import Path
 
-
 # A module attribute that resolves but is intentionally not callable. Used by
 # entrypoint-validation tests; keep it a plain constant so the "not callable"
 # guarantee never drifts.
