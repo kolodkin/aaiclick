@@ -30,7 +30,7 @@ from .claiming import (
     clear_task,
     update_task_status,
 )
-from .worker import _set_pending_cleanup
+from .worker import _set_pending_cleanup, register_worker
 
 EP = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
 
@@ -189,8 +189,9 @@ async def test_clear_revives_terminal_job(orch_ctx):
 async def test_clear_clears_task_fields(orch_ctx):
     """A cleared task has its run-state fields nulled."""
     job = await create_job("clear_fields", EP)
+    worker = await register_worker()
     t = _task(job.id, status=TASK_COMPLETED)
-    t.worker_id = 12345
+    t.worker_id = worker.id
     t.claimed_at = utc_now()
     t.started_at = utc_now()
     t.completed_at = utc_now()
