@@ -145,9 +145,29 @@ Changes in `aaiclick/orchestration/execution/worker.py` and `claiming.py`:
   omit it and behave exactly as before.
 - The cancellation monitor aborts the asyncio run when status is `CANCELLED`
   **or** `run_epoch != expected_epoch`. The worker passes the captured epoch.
-- Defensive guard: `transition_pending_cleanup`
-  (`background/handler.py`) gains `AND status='PENDING_CLEANUP'` so a clear
-  landing between the background sweep's read and its write cannot be clobbered.
+
+## Clearing vs. crash cleanup
+
+A separate background actor — the dead-worker sweep — also touches in-flight
+tasks, and a clear can race it. The sweep runs in two steps:
+
+1. **`mark_dead_workers`** flips a crashed worker's `RUNNING` / `CLAIMED` tasks
+   to `PENDING_CLEANUP`.
+2. **`transition_pending_cleanup`** later reads those `PENDING_CLEANUP` tasks,
+   releases their refs, and moves each to `PENDING` (retries left) or `FAILED`.
+
+Step 1 can never touch a cleared task: it searches by
+`worker_id = <dead> AND status IN ('RUNNING','CLAIMED')`, and `clear_task`
+atomically nulls `worker_id` and sets `status = 'PENDING'` — so a cleared task
+no longer matches the search. No epoch needed there.
+
+Step 2 is the real race — the sweep might decide "this task → FAILED" from a
+read taken *before* a clear, then write it *after*. The guard:
+
+> **Only time-out a task that's *still* awaiting cleanup** —
+> `transition_pending_cleanup` re-checks `AND status = 'PENDING_CLEANUP'` in its
+> UPDATE, so if a clear reset the task to `PENDING` first, the write matches
+> zero rows and is silently dropped. Clear wins.
 
 ---
 

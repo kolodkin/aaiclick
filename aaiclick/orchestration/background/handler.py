@@ -243,8 +243,10 @@ class BackgroundHandler(ABC):
     ) -> None:
         """Transition a PENDING_CLEANUP task to PENDING or FAILED.
 
-        Guarded on ``status = PENDING_CLEANUP`` so a ``clear_task`` that lands
-        between the background sweep's read and this write cannot be clobbered.
+        Only time-out a task that's *still* awaiting cleanup: the
+        ``AND status = PENDING_CLEANUP`` guard means a ``clear_task`` that reset
+        the task to PENDING between the sweep's read and this write makes the
+        UPDATE a no-op, so the stale time-out decision is dropped and clear wins.
         """
         if has_retries:
             await session.execute(
