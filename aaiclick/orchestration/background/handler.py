@@ -243,10 +243,13 @@ class BackgroundHandler(ABC):
     ) -> None:
         """Transition a PENDING_CLEANUP task to PENDING or FAILED.
 
-        Only time-out a task that's *still* awaiting cleanup: the
-        ``AND status = PENDING_CLEANUP`` guard means a ``clear_task`` that reset
-        the task to PENDING between the sweep's read and this write makes the
-        UPDATE a no-op, so the stale time-out decision is dropped and clear wins.
+        The ``AND status = 'PENDING_CLEANUP'`` in each WHERE clause guards a race
+        with ``clear_task``. The background sweep reads the task, then writes its
+        new status a moment later. If a ``clear_task`` runs in that gap and resets
+        the task to PENDING, this write would otherwise overwrite the clear. The
+        extra condition means the UPDATE only fires while the task is *still*
+        PENDING_CLEANUP — once it's been cleared, the UPDATE matches no rows and
+        does nothing, so the clear stands.
         """
         if has_retries:
             await session.execute(

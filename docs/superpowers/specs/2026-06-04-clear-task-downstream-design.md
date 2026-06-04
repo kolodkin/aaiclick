@@ -164,10 +164,11 @@ no longer matches the search. No epoch needed there.
 Step 2 is the real race — the sweep might decide "this task → FAILED" from a
 read taken *before* a clear, then write it *after*. The guard:
 
-> **Only time-out a task that's *still* awaiting cleanup** —
-> `transition_pending_cleanup` re-checks `AND status = 'PENDING_CLEANUP'` in its
-> UPDATE, so if a clear reset the task to `PENDING` first, the write matches
-> zero rows and is silently dropped. Clear wins.
+> **The UPDATE only fires while the task is *still* `PENDING_CLEANUP`.**
+> `transition_pending_cleanup` adds `AND status = 'PENDING_CLEANUP'` to its
+> WHERE clause, so if a clear reset the task to `PENDING` in the gap between the
+> sweep's read and this write, the UPDATE matches zero rows and does nothing —
+> the clear is not overwritten.
 
 ---
 
