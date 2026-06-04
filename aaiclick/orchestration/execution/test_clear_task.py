@@ -21,6 +21,7 @@ from ..models import (
     Group,
     Job,
     Task,
+    TaskStatus,
 )
 from ..orch_context import get_sql_session
 from .claiming import (
@@ -34,7 +35,7 @@ from .worker import _set_pending_cleanup
 EP = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
 
 
-def _task(job_id: int, *, status: str = TASK_COMPLETED, group_id: int | None = None) -> Task:
+def _task(job_id: int, *, status: TaskStatus = TASK_COMPLETED, group_id: int | None = None) -> Task:
     """Build (uncommitted) a Task with a given status and optional group."""
     t = create_task(EP)
     t.job_id = job_id
