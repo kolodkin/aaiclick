@@ -1,13 +1,16 @@
 """Atomic task claiming and cancellation for distributed workers."""
 
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from ...datetime_utils import utc_now
+from ..background.handler import in_clause
 from ..models import (
     JOB_CANCELLED,
     JOB_COMPLETED,
     JOB_FAILED,
+    JOB_RUNNING,
     TASK_CANCELLED,
     TASK_CLAIMED,
     TASK_COMPLETED,
@@ -31,6 +34,10 @@ class JobNotFound(ValueError):
 
 class JobAlreadyTerminal(ValueError):
     """Raised when attempting to cancel a job that is already in a terminal state."""
+
+
+class TaskNotFound(ValueError):
+    """Raised when no task with the given id exists."""
 
 
 async def claim_next_task(worker_id: int) -> Task | None:
@@ -68,6 +75,7 @@ async def update_task_status(
     error: str | None = None,
     result: dict | None = None,
     log_path: str | None = None,
+    expected_epoch: int | None = None,
 ) -> bool:
     """
     Update a task's status and optional error/result.
@@ -80,6 +88,9 @@ async def update_task_status(
         error: Error message (for FAILED status)
         result: Result reference (for COMPLETED status)
         log_path: Path to the log file for this run
+        expected_epoch: If given, the write is rejected when the task's
+            ``run_epoch`` no longer matches — the fencing guard that lets a
+            ``clear_task`` invalidate an in-flight run's late writes.
 
     Returns:
         bool: True if task was found and updated
@@ -93,6 +104,9 @@ async def update_task_status(
             return False
 
         if task.status == TASK_CANCELLED:
+            return False
+
+        if expected_epoch is not None and task.run_epoch != expected_epoch:
             return False
 
         task.status = status
@@ -223,3 +237,145 @@ async def check_task_cancelled(task_id: int) -> bool:
         result = await session.execute(select(Task.status).where(Task.id == task_id))
         status = result.scalar_one_or_none()
         return status == TASK_CANCELLED
+
+
+async def check_run_aborted(task_id: int, expected_epoch: int) -> bool:
+    """Return True when a worker's current run should abort.
+
+    A run is aborted when its task was cancelled (``cancel_job``) or cleared
+    (``clear_task`` bumps ``run_epoch``). Used by the worker's cancellation
+    monitor to interrupt an in-flight task whose ownership has moved on.
+
+    A missing task returns False — the monitor simply stops on the next poll.
+    """
+    async with get_sql_session() as session:
+        row = (await session.execute(select(Task.status, Task.run_epoch).where(Task.id == task_id))).one_or_none()
+    if row is None:
+        return False
+    status, run_epoch = row
+    return status == TASK_CANCELLED or run_epoch != expected_epoch
+
+
+async def _downstream_task_ids(session: AsyncSession, task_id: int) -> set[int]:
+    """Return every task id transitively downstream of ``task_id`` (excluding it).
+
+    Walks the four dependency edge shapes the scheduler already understands
+    (task→task, task→group, group→task, group→group). A grouped task pulls in
+    the group's *consumers* — the group is no longer fully complete — but never
+    its parallel siblings, which are not downstream.
+    """
+    downstream: set[int] = set()
+    frontier = {task_id}
+    while frontier:
+        task_ids = list(frontier)
+        tph, tparams = in_clause(task_ids, "t")
+        group_ids = [
+            r[0]
+            for r in (
+                await session.execute(
+                    text(f"SELECT DISTINCT group_id FROM tasks WHERE id IN ({tph}) AND group_id IS NOT NULL"),
+                    tparams,
+                )
+            ).all()
+        ]
+
+        succ_task_ids: set[int] = set()
+        succ_group_ids: set[int] = set()
+
+        # Edges originating from the frontier tasks themselves.
+        pph, pparams = in_clause(task_ids, "p")
+        for next_id, next_type in (
+            await session.execute(
+                text(
+                    f"SELECT next_id, next_type FROM dependencies WHERE previous_type = 'task' AND previous_id IN ({pph})"
+                ),
+                pparams,
+            )
+        ).all():
+            (succ_task_ids if next_type == "task" else succ_group_ids).add(next_id)
+
+        # Edges originating from the groups those frontier tasks belong to.
+        if group_ids:
+            gph, gparams = in_clause(group_ids, "g")
+            for next_id, next_type in (
+                await session.execute(
+                    text(
+                        f"SELECT next_id, next_type FROM dependencies "
+                        f"WHERE previous_type = 'group' AND previous_id IN ({gph})"
+                    ),
+                    gparams,
+                )
+            ).all():
+                (succ_task_ids if next_type == "task" else succ_group_ids).add(next_id)
+
+        # Resolve any successor groups to their member tasks.
+        if succ_group_ids:
+            sgph, sgparams = in_clause(sorted(succ_group_ids), "sg")
+            succ_task_ids.update(
+                r[0]
+                for r in (
+                    await session.execute(
+                        text(f"SELECT id FROM tasks WHERE group_id IN ({sgph})"),
+                        sgparams,
+                    )
+                ).all()
+            )
+
+        new = succ_task_ids - downstream - {task_id}
+        downstream |= new
+        frontier = new
+    return downstream
+
+
+async def clear_task(task_id: int) -> tuple[list[int], Job]:
+    """Reset a task and all its transitive downstream tasks to PENDING.
+
+    Mirrors Airflow's "clear task": the target task and every task that
+    depends on it (directly or through groups) are reset to ``PENDING`` for
+    re-run. Upstream tasks and their output tables are left untouched.
+
+    Each affected task's ``run_epoch`` is bumped so any worker currently
+    executing one of them has its late writes fenced off (see
+    ``check_run_aborted`` / ``update_task_status``). A terminal job
+    (COMPLETED / FAILED / CANCELLED) is reactivated to ``RUNNING`` so the
+    cleared tasks are claimable again.
+
+    Args:
+        task_id: Task to clear, along with its downstream.
+
+    Returns:
+        ``(cleared_task_ids, job)`` — the sorted affected ids and the job
+        row (reactivated if it had been terminal), refreshed from the session.
+
+    Raises:
+        TaskNotFound: If no task with ``task_id`` exists.
+    """
+    handler = get_db_handler()
+    async with get_sql_session() as session:
+        task = (await session.execute(handler.lock_query(select(Task).where(Task.id == task_id)))).scalar_one_or_none()
+        if task is None:
+            raise TaskNotFound(f"Task {task_id} not found")
+
+        affected = sorted({task_id} | await _downstream_task_ids(session, task_id))
+
+        ph, params = in_clause(affected, "id")
+        await session.execute(
+            text(
+                f"UPDATE tasks SET status = :pending, run_epoch = run_epoch + 1, "
+                f"worker_id = NULL, claimed_at = NULL, started_at = NULL, "
+                f"completed_at = NULL, error = NULL, result = NULL, log_path = NULL, "
+                f"retry_after = NULL WHERE id IN ({ph})"
+            ),
+            {**params, "pending": TASK_PENDING},
+        )
+
+        job = (await session.execute(handler.lock_query(select(Job).where(Job.id == task.job_id)))).scalar_one()
+        if job.status in _TERMINAL_JOB_STATUSES:
+            job.status = JOB_RUNNING
+            job.completed_at = None
+            job.error = None
+            session.add(job)
+
+        await session.commit()
+        await session.refresh(job)
+        return affected, job

@@ -27,7 +27,7 @@ from ..models import (
     WorkerStatus,
 )
 from ..orch_context import get_sql_session
-from .claiming import check_task_cancelled, claim_next_task, update_task_status
+from .claiming import check_run_aborted, claim_next_task, update_task_status
 from .runner import execute_task, register_returned_tasks, serialize_task_result
 
 # Task execution strategy used by _worker_loop.
@@ -41,11 +41,20 @@ HEARTBEAT_INTERVAL = 30
 POLL_INTERVAL = 1
 
 
-async def _set_pending_cleanup(task_id: int, error: str) -> None:
-    """Transition a failed task to PENDING_CLEANUP for background ref cleanup."""
+async def _set_pending_cleanup(task_id: int, error: str, expected_epoch: int | None = None) -> None:
+    """Transition a failed task to PENDING_CLEANUP for background ref cleanup.
+
+    When ``expected_epoch`` is given and no longer matches the task's
+    ``run_epoch``, the write is skipped — the run was cleared out from under
+    this worker and its failure must not clobber the reset state.
+    """
     async with get_sql_session() as session:
         result = await session.execute(select(Task).where(Task.id == task_id).with_for_update())
-        task = result.scalar_one()
+        task = result.scalar_one_or_none()
+        if task is None:
+            return
+        if expected_epoch is not None and task.run_epoch != expected_epoch:
+            return
         task.status = TASK_PENDING_CLEANUP
         task.error = error
         if task.run_statuses:
@@ -224,20 +233,21 @@ async def _increment_worker_stat(worker_id: int, field: str) -> None:
             await session.commit()
 
 
-async def _cancellation_monitor(task_id: int, exec_task: asyncio.Task) -> None:
-    """Poll task status in DB and cancel the asyncio.Task if cancelled.
+async def _cancellation_monitor(task_id: int, exec_task: asyncio.Task, expected_epoch: int) -> None:
+    """Poll task state in DB and cancel the asyncio.Task if the run is aborted.
 
     Runs concurrently with task execution. Checks the database every
-    POLL_INTERVAL seconds. When cancel_job() marks the task as CANCELLED,
-    this monitor cancels the asyncio.Task, raising CancelledError at the
-    next await point in the running coroutine.
+    POLL_INTERVAL seconds. When cancel_job() marks the task CANCELLED or
+    clear_task() bumps its run_epoch past ``expected_epoch``, this monitor
+    cancels the asyncio.Task, raising CancelledError at the next await point
+    in the running coroutine.
 
     Note: asyncio cancellation is cooperative — CPU-bound code without
     await points won't be interrupted until it yields.
     """
     while not exec_task.done():
         await asyncio.sleep(POLL_INTERVAL)
-        if await check_task_cancelled(task_id):
+        if await check_run_aborted(task_id, expected_epoch):
             exec_task.cancel()
             return
 
@@ -252,12 +262,16 @@ async def _handle_task_result(
 ) -> bool:
     """Process the result of a task execution. Returns True if task succeeded."""
     if success:
-        await update_task_status(
+        updated = await update_task_status(
             task.id,
             TASK_COMPLETED,
             result=result_ref,
             log_path=log_path,
+            expected_epoch=task.run_epoch,
         )
+        if not updated:
+            print(f"Worker {worker_id} task {task.id} completion discarded (cleared or cancelled)")
+            return False
         print(f"Worker {worker_id} completed task {task.id}")
         await _increment_worker_stat(worker_id, "tasks_completed")
         async with get_sql_session() as session:
@@ -267,7 +281,7 @@ async def _handle_task_result(
 
     error = error or "Unknown error"
     print(f"Worker {worker_id} task {task.id} failed: {error}")
-    await _set_pending_cleanup(task.id, error)
+    await _set_pending_cleanup(task.id, error, expected_epoch=task.run_epoch)
     await _increment_worker_stat(worker_id, "tasks_failed")
     print(f"Worker {worker_id} task {task.id} set to PENDING_CLEANUP")
     return False
@@ -344,7 +358,7 @@ async def _worker_loop(
 
             empty_polls = 0
             print(f"Worker {worker_id} executing task {task.id}: {task.entrypoint}")
-            await update_task_status(task.id, TASK_RUNNING)
+            await update_task_status(task.id, TASK_RUNNING, expected_epoch=task.run_epoch)
 
             success, result_ref, log_path, error = await execute_fn(task, worker_id)
             if await _handle_task_result(task, worker_id, success, result_ref, log_path, error):
@@ -360,7 +374,7 @@ async def _worker_loop(
 async def _execute_in_process(task: Task, worker_id: int) -> tuple[bool, dict | None, str | None, str | None]:
     """Execute a task in the current async process with cancellation monitoring."""
     exec_task = asyncio.create_task(execute_task(task))
-    monitor = asyncio.create_task(_cancellation_monitor(task.id, exec_task))
+    monitor = asyncio.create_task(_cancellation_monitor(task.id, exec_task, task.run_epoch))
 
     try:
         data_result, log_path = await exec_task

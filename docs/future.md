@@ -7,10 +7,6 @@ Planned work across aaiclick, ordered by priority.
 
 # Medium Priority
 
-## Clear Task + Downstream
-
-Reset a specific task and all its downstream tasks to PENDING — same concept as Airflow's "clear task". Upstream tasks are untouched; their output tables remain as-is. Useful for re-running part of a pipeline without re-executing the entire job. Independent of lineage — general orchestration capability.
-
 ## Fail-Fast for Doomed Group Siblings
 
 `cascade_upstream_failed` in `background/handler.py` marks downstream PENDING tasks `UPSTREAM_FAILED` on any upstream failure, but **siblings in the failing group keep running** — matches Airflow's default `all_success`. Wasted compute when the group's only consumer is already doomed.

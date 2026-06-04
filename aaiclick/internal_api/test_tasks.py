@@ -6,7 +6,7 @@ import pytest
 
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
-from aaiclick.orchestration.view_models import TaskDetail
+from aaiclick.orchestration.view_models import ClearTaskView, TaskDetail
 
 from . import errors, tasks
 
@@ -28,3 +28,19 @@ async def test_get_task_returns_detail(orch_ctx):
 async def test_get_task_not_found_raises(orch_ctx):
     with pytest.raises(errors.NotFound):
         await tasks.get_task(999_999_999)
+
+
+async def test_clear_task_returns_view(orch_ctx):
+    job = await create_job("clear_task_job", _SAMPLE_TASK)
+    task = (await get_tasks_for_job(job.id))[0]
+
+    view = await tasks.clear_task(task.id)
+
+    assert isinstance(view, ClearTaskView)
+    assert view.cleared_task_ids == [task.id]
+    assert view.job.id == job.id
+
+
+async def test_clear_task_not_found_raises(orch_ctx):
+    with pytest.raises(errors.NotFound):
+        await tasks.clear_task(999_999_999)

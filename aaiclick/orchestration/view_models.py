@@ -85,6 +85,14 @@ class JobDetail(JobView):
     duration_ms: int | None = None
 
 
+class ClearTaskView(BaseModel):
+    """Result of ``POST /tasks/{id}/clear`` — the reactivated job plus the
+    full set of tasks that were reset to ``PENDING`` (target + downstream)."""
+
+    job: JobView
+    cleared_task_ids: list[int] = Field(default_factory=list)
+
+
 class TaskStatsView(BaseModel):
     """Per-task execution stats exposed inside ``JobStatsView``."""
 
@@ -216,6 +224,10 @@ def job_to_detail(job: Job, tasks: list[Task]) -> JobDetail:
         total_tasks=len(tasks),
         completed_tasks=completed,
     )
+
+
+def clear_to_view(job: Job, cleared_task_ids: list[int]) -> ClearTaskView:
+    return ClearTaskView(job=job_to_view(job), cleared_task_ids=cleared_task_ids)
 
 
 def worker_to_view(worker: Worker) -> WorkerView:

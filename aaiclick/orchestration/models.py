@@ -408,6 +408,10 @@ class Task(SQLModel, table=True):
     retry_after: datetime | None = Field(default=None)
     run_ids: list[int] = Field(default_factory=list, sa_column=Column(JSON, nullable=False, server_default="[]"))
     run_statuses: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False, server_default="[]"))
+    # Fencing token bumped by clear_task. A worker captures this at claim time
+    # and gates every status write on it, so a cleared run's late writes are
+    # rejected (see docs/superpowers/specs/2026-06-04-clear-task-downstream-design.md).
+    run_epoch: int = Field(default=0, sa_column=Column(BigInteger, nullable=False, server_default="0"))
 
     def model_post_init(self, __context: Any) -> None:
         register_task(self.id, self)

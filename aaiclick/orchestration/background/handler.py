@@ -241,7 +241,11 @@ class BackgroundHandler(ABC):
         attempt: int,
         retry_after: datetime,
     ) -> None:
-        """Transition a PENDING_CLEANUP task to PENDING or FAILED."""
+        """Transition a PENDING_CLEANUP task to PENDING or FAILED.
+
+        Guarded on ``status = PENDING_CLEANUP`` so a ``clear_task`` that lands
+        between the background sweep's read and this write cannot be clobbered.
+        """
         if has_retries:
             await session.execute(
                 text(
@@ -249,22 +253,27 @@ class BackgroundHandler(ABC):
                     "attempt = :attempt, retry_after = :retry_after, "
                     "worker_id = NULL, claimed_at = NULL, "
                     "started_at = NULL, completed_at = NULL "
-                    "WHERE id = :task_id"
+                    "WHERE id = :task_id AND status = :pending_cleanup"
                 ),
                 {
                     "task_id": task_id,
                     "attempt": attempt,
                     "retry_after": retry_after,
                     "status": TASK_PENDING,
+                    "pending_cleanup": TASK_PENDING_CLEANUP,
                 },
             )
         else:
             await session.execute(
-                text("UPDATE tasks SET status = :status, completed_at = :now WHERE id = :task_id"),
+                text(
+                    "UPDATE tasks SET status = :status, completed_at = :now "
+                    "WHERE id = :task_id AND status = :pending_cleanup"
+                ),
                 {
                     "task_id": task_id,
                     "now": utc_now(),
                     "status": TASK_FAILED,
+                    "pending_cleanup": TASK_PENDING_CLEANUP,
                 },
             )
 
