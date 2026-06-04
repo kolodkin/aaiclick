@@ -67,11 +67,16 @@ All entities use **Snowflake IDs** via ClickHouse [`generateSnowflakeID()`](http
 ## Status Enums
 
 | Enum           | Values                                          |
-|----------------|------------------------------------------------|
+|----------------|-------------------------------------------------|
 | `JobStatus`    | PENDING, RUNNING, COMPLETED, FAILED, CANCELLED  |
-| `TaskStatus`   | PENDING, CLAIMED, RUNNING, COMPLETED, FAILED, CANCELLED |
-| `WorkerStatus` | ACTIVE, IDLE, STOPPED                            |
-| `RunType`      | SCHEDULED, MANUAL                                |
+| `TaskStatus`   | PENDING, CLAIMED, RUNNING, COMPLETED, FAILED, CANCELLED, PENDING_CLEANUP, UPSTREAM_FAILED |
+| `WorkerStatus` | ACTIVE, IDLE, STOPPING, STOPPED                 |
+| `RunType`      | SCHEDULED, MANUAL                               |
+
+Two `TaskStatus` values are set by the background sweep, not the worker:
+`PENDING_CLEANUP` (transient — a failed or dead-worker run awaiting ref cleanup
+before it retries to PENDING or settles to FAILED) and `UPSTREAM_FAILED`
+(terminal — a pending task whose transitive upstream failed or was cancelled).
 
 ## Entities
 
