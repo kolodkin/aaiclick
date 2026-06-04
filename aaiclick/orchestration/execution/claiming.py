@@ -264,62 +264,61 @@ async def _downstream_task_ids(session: AsyncSession, task_id: int) -> set[int]:
     the group's *consumers* — the group is no longer fully complete — but never
     its parallel siblings, which are not downstream.
     """
+
+    def classify(edges, task_dest: set[int], group_dest: set[int]) -> None:
+        """Sort dependency ``(next_id, next_type)`` rows into task vs group sets."""
+        for next_id, next_type in edges:
+            (task_dest if next_type == "task" else group_dest).add(next_id)
+
     downstream: set[int] = set()
     frontier = {task_id}
     while frontier:
         task_ids = list(frontier)
         tph, tparams = in_clause(task_ids, "t")
-        group_ids = [
-            r[0]
-            for r in (
-                await session.execute(
-                    text(f"SELECT DISTINCT group_id FROM tasks WHERE id IN ({tph}) AND group_id IS NOT NULL"),
-                    tparams,
-                )
-            ).all()
-        ]
+        rows = await session.execute(
+            text(f"SELECT DISTINCT group_id FROM tasks WHERE id IN ({tph}) AND group_id IS NOT NULL"),
+            tparams,
+        )
+        group_ids = [r[0] for r in rows]
 
         succ_task_ids: set[int] = set()
         succ_group_ids: set[int] = set()
 
         # Edges originating from the frontier tasks themselves.
-        pph, pparams = in_clause(task_ids, "p")
-        for next_id, next_type in (
+        classify(
             await session.execute(
                 text(
-                    f"SELECT next_id, next_type FROM dependencies WHERE previous_type = 'task' AND previous_id IN ({pph})"
+                    f"SELECT next_id, next_type FROM dependencies WHERE previous_type = 'task' AND previous_id IN ({tph})"
                 ),
-                pparams,
-            )
-        ).all():
-            (succ_task_ids if next_type == "task" else succ_group_ids).add(next_id)
+                tparams,
+            ),
+            succ_task_ids,
+            succ_group_ids,
+        )
 
         # Edges originating from the groups those frontier tasks belong to.
         if group_ids:
             gph, gparams = in_clause(group_ids, "g")
-            for next_id, next_type in (
+            classify(
                 await session.execute(
                     text(
                         f"SELECT next_id, next_type FROM dependencies "
                         f"WHERE previous_type = 'group' AND previous_id IN ({gph})"
                     ),
                     gparams,
-                )
-            ).all():
-                (succ_task_ids if next_type == "task" else succ_group_ids).add(next_id)
+                ),
+                succ_task_ids,
+                succ_group_ids,
+            )
 
         # Resolve any successor groups to their member tasks.
         if succ_group_ids:
             sgph, sgparams = in_clause(sorted(succ_group_ids), "sg")
-            succ_task_ids.update(
-                r[0]
-                for r in (
-                    await session.execute(
-                        text(f"SELECT id FROM tasks WHERE group_id IN ({sgph})"),
-                        sgparams,
-                    )
-                ).all()
+            member_rows = await session.execute(
+                text(f"SELECT id FROM tasks WHERE group_id IN ({sgph})"),
+                sgparams,
             )
+            succ_task_ids.update(r[0] for r in member_rows)
 
         new = succ_task_ids - downstream - {task_id}
         downstream |= new
@@ -345,7 +344,7 @@ async def clear_task(task_id: int) -> tuple[list[int], Job]:
 
     Returns:
         ``(cleared_task_ids, job)`` — the sorted affected ids and the job
-        row (reactivated if it had been terminal), refreshed from the session.
+        row (reactivated to ``RUNNING`` if it had been terminal).
 
     Raises:
         TaskNotFound: If no task with ``task_id`` exists.
@@ -377,5 +376,4 @@ async def clear_task(task_id: int) -> tuple[list[int], Job]:
             session.add(job)
 
         await session.commit()
-        await session.refresh(job)
         return affected, job
