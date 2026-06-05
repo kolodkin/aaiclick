@@ -9,6 +9,7 @@ tables and trace the computation graph.
 """
 
 import asyncio
+import logging
 import os
 
 from aaiclick.ai.agents.debug_agent import debug_result
@@ -30,6 +31,8 @@ from aaiclick.orchestration import (
 from aaiclick.orchestration.orch_context import orch_context
 
 from .report import print_report
+
+logger = logging.getLogger(__name__)
 
 
 @task
@@ -111,6 +114,10 @@ async def main():
                         "rows drove it? Use the tools to inspect the tables."
                     ),
                     graph=backward_graph,
+                )
+            else:
+                logger.warning(
+                    "AAICLICK_AI_API_KEY is not set; skipping AI lineage explanation and debug agent."
                 )
 
         print_report(
