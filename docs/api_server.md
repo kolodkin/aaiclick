@@ -13,7 +13,8 @@ with pydantic view models. The CLI keeps its current human output and gains
 `--json` for free. The REST and MCP surfaces derive from the same types, so
 their schemas, docs, and client SDKs cannot drift from the CLI.
 
-Companion: `docs/api_server_implementation_plan.md` covers the phased rollout.
+Phases 1–4 (view models, `internal_api`, REST, MCP) are implemented. The
+remaining auth + `start_worker` work is tracked in `docs/future.md`.
 
 # Motivation
 
@@ -112,7 +113,8 @@ stabilises.
 
 # View Model Catalogue
 
-Phase 5 adds `StartWorkerRequest` and expands `ProblemCode` — see
+The planned auth + worker-spawn work (tracked in `docs/future.md`) adds
+`StartWorkerRequest` and expands `ProblemCode` — see
 [Spawning workers](#spawning-workers--post-apiv0workers) and
 [Authentication](#authentication) for the additions.
 
@@ -281,7 +283,7 @@ on request start and exits on response — the contextvar getters inside
 `internal_api` see the session/client for the duration of the call.
 
 **Why `/api/v0`?** The shape of the view models, error envelope, and URL layout
-are still evolving alongside Phase 3. The `v0` segment signals "experimental,
+are still evolving. The `v0` segment signals "experimental,
 subject to breaking change" to downstream UIs / SDK generators; we graduate to
 `/api/v1` once the schema has settled and external callers exist.
 
