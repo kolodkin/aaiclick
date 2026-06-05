@@ -8,6 +8,7 @@ import signal
 import socket
 from collections.abc import Awaitable, Callable
 
+from sqlalchemy import update
 from sqlmodel import col, select
 
 from aaiclick.snowflake import get_snowflake_id
@@ -46,20 +47,23 @@ async def _set_pending_cleanup(task_id: int, error: str, expected_epoch: int | N
 
     When ``expected_epoch`` is given and no longer matches the task's
     ``run_epoch``, the write is skipped — the run was cleared out from under
-    this worker and its failure must not clobber the reset state.
+    this worker and its failure must not clobber the reset state. The epoch
+    guard lives in the UPDATE's WHERE clause so it is enforced atomically with
+    the write on every backend, not only where ``FOR UPDATE`` holds a row lock.
     """
     async with get_sql_session() as session:
-        result = await session.execute(select(Task).where(Task.id == task_id).with_for_update())
-        task = result.scalar_one_or_none()
+        task = (await session.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
         if task is None:
             return
         if expected_epoch is not None and task.run_epoch != expected_epoch:
             return
-        task.status = TASK_PENDING_CLEANUP
-        task.error = error
+        values: dict[str, str | list[str]] = {"status": TASK_PENDING_CLEANUP, "error": error}
         if task.run_statuses:
-            task.run_statuses = [*task.run_statuses[:-1], TASK_FAILED]
-        session.add(task)
+            values["run_statuses"] = [*task.run_statuses[:-1], TASK_FAILED]
+        stmt = update(Task).where(col(Task.id) == task_id)
+        if expected_epoch is not None:
+            stmt = stmt.where(col(Task.run_epoch) == expected_epoch)
+        await session.execute(stmt.values(**values))
         await session.commit()
 
 
