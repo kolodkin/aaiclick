@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import logging
 import math
-import sys
 from collections.abc import Callable
 from typing import Any
 
@@ -60,6 +60,8 @@ from ..models import (
 from ..orch_context import commit_tasks, get_sql_session, task_scope
 from ..result import TaskResult
 from .worker_context import set_current_task_info
+
+logger = logging.getLogger(__name__)
 
 
 def import_callback(entrypoint: str) -> Callable:
@@ -591,7 +593,7 @@ async def run_job_tasks(job: Job) -> None:
         except Exception as e:
             job_failed = True
             error_msg = str(e)
-            print(f"Task {task.name!r} failed: {e}", file=sys.stderr)
+            logger.exception("Task %r failed: %s", task.name, e)
 
             async with get_sql_session() as session:
                 db_result = await session.execute(select(Task).where(Task.id == task_id))

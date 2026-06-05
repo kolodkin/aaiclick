@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import signal
 import socket
@@ -30,6 +31,8 @@ from ..models import (
 from ..orch_context import get_sql_session
 from .claiming import check_run_aborted, claim_next_task, update_task_status
 from .runner import execute_task, register_returned_tasks, serialize_task_result
+
+logger = logging.getLogger(__name__)
 
 # Task execution strategy used by _worker_loop.
 # Args: (task, worker_id). Returns: (success, result_ref, log_path, error).
@@ -274,9 +277,11 @@ async def _handle_task_result(
             expected_epoch=task.run_epoch,
         )
         if not updated:
-            print(f"Worker {worker_id} task {task.id} completion discarded (cleared or cancelled)")
+            logger.info(
+                "Worker %s task %s completion discarded (cleared or cancelled)", worker_id, task.id
+            )
             return False
-        print(f"Worker {worker_id} completed task {task.id}")
+        logger.info("Worker %s completed task %s", worker_id, task.id)
         await _increment_worker_stat(worker_id, "tasks_completed")
         async with get_sql_session() as session:
             await try_complete_job(session, task.job_id)
@@ -284,10 +289,10 @@ async def _handle_task_result(
         return True
 
     error = error or "Unknown error"
-    print(f"Worker {worker_id} task {task.id} failed: {error}")
+    logger.warning("Worker %s task %s failed: %s", worker_id, task.id, error)
     await _set_pending_cleanup(task.id, error, expected_epoch=task.run_epoch)
     await _increment_worker_stat(worker_id, "tasks_failed")
-    print(f"Worker {worker_id} task {task.id} set to PENDING_CLEANUP")
+    logger.info("Worker %s task %s set to PENDING_CLEANUP", worker_id, task.id)
     return False
 
 
@@ -328,9 +333,15 @@ async def _worker_loop(
     if worker_id is None:
         worker = await register_worker()
         worker_id = worker.id
-        print(f"Worker {worker_id} registered (host={worker.hostname}, pid={worker.pid}, mode={mode_label})")
+        logger.info(
+            "Worker %s registered (host=%s, pid=%s, mode=%s)",
+            worker_id,
+            worker.hostname,
+            worker.pid,
+            mode_label,
+        )
     else:
-        print(f"Worker {worker_id} starting (mode={mode_label})")
+        logger.info("Worker %s starting (mode=%s)", worker_id, mode_label)
 
     tasks_executed = 0
     last_heartbeat = utc_now()
@@ -349,7 +360,7 @@ async def _worker_loop(
                 status = await worker_heartbeat(worker_id)
                 last_heartbeat = now
                 if status == WORKER_STOPPING:
-                    print(f"Worker {worker_id} received stop request")
+                    logger.info("Worker %s received stop request", worker_id)
                     shutdown_requested = True
                     continue
 
@@ -361,7 +372,7 @@ async def _worker_loop(
                 continue
 
             empty_polls = 0
-            print(f"Worker {worker_id} executing task {task.id}: {task.entrypoint}")
+            logger.info("Worker %s executing task %s: %s", worker_id, task.id, task.entrypoint)
             await update_task_status(task.id, TASK_RUNNING, expected_epoch=task.run_epoch)
 
             success, result_ref, log_path, error = await execute_fn(task, worker_id)
@@ -370,7 +381,7 @@ async def _worker_loop(
 
     finally:
         await deregister_worker(worker_id)
-        print(f"Worker {worker_id} stopped (executed {tasks_executed} tasks)")
+        logger.info("Worker %s stopped (executed %s tasks)", worker_id, tasks_executed)
 
     return tasks_executed
 
@@ -386,7 +397,7 @@ async def _execute_in_process(task: Task, worker_id: int) -> tuple[bool, dict | 
         result_ref = serialize_task_result(data_result, task.job_id)
         return True, result_ref, log_path, None
     except asyncio.CancelledError:
-        print(f"Task {task.id} cancelled")
+        logger.info("Task %s cancelled", task.id)
         return False, None, None, None
     except Exception as e:
         return False, None, None, str(e)
