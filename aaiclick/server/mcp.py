@@ -41,6 +41,7 @@ from aaiclick.internal_api import workers as workers_api
 from aaiclick.oplog.lineage import LineageDirection, OplogGraph
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.orchestration.view_models import (
+    ClearTaskView,
     JobDetail,
     JobStatsView,
     JobView,
@@ -168,6 +169,13 @@ async def get_task(task_id: int) -> TaskDetail:
     """Return full task detail by numeric ID."""
     async with orch_context(with_ch=False):
         return await tasks_api.get_task(task_id)
+
+
+@mcp.tool
+async def clear_task(task_id: int) -> ClearTaskView:
+    """Reset a task and all its downstream tasks to PENDING for re-run."""
+    async with orch_context(with_ch=False):
+        return await tasks_api.clear_task(task_id)
 
 
 # --- workers ----------------------------------------------------------

@@ -67,17 +67,22 @@ All entities use **Snowflake IDs** via ClickHouse [`generateSnowflakeID()`](http
 ## Status Enums
 
 | Enum           | Values                                          |
-|----------------|------------------------------------------------|
+|----------------|-------------------------------------------------|
 | `JobStatus`    | PENDING, RUNNING, COMPLETED, FAILED, CANCELLED  |
-| `TaskStatus`   | PENDING, CLAIMED, RUNNING, COMPLETED, FAILED, CANCELLED |
-| `WorkerStatus` | ACTIVE, IDLE, STOPPED                            |
-| `RunType`      | SCHEDULED, MANUAL                                |
+| `TaskStatus`   | PENDING, CLAIMED, RUNNING, COMPLETED, FAILED, CANCELLED, PENDING_CLEANUP, UPSTREAM_FAILED |
+| `WorkerStatus` | ACTIVE, IDLE, STOPPING, STOPPED                 |
+| `RunType`      | SCHEDULED, MANUAL                               |
+
+Two `TaskStatus` values are set by the background sweep, not the worker:
+`PENDING_CLEANUP` (transient — a failed or dead-worker run awaiting ref cleanup
+before it retries to PENDING or settles to FAILED) and `UPSTREAM_FAILED`
+(terminal — a pending task whose transitive upstream failed or was cancelled).
 
 ## Entities
 
 - **RegisteredJob** — job catalog entry; fields: `id`, `name` (unique), `entrypoint`, `enabled`, `schedule` (cron), `default_kwargs` (JSON), `preservation_mode`, `next_run_at`, `created_at`, `updated_at`
 - **Job** — a named workflow run; fields: `id`, `name`, `status`, `run_type`, `registered_job_id` (FK), `preservation_mode`, `created_at`, `started_at`, `completed_at`, `error`
-- **Task** — single executable unit; fields: `id`, `job_id`, `group_id`, `entrypoint`, `kwargs` (JSONB), `status`, `result` (JSONB), `log_path`, `error`, `worker_id`, timestamps
+- **Task** — single executable unit; fields: `id`, `job_id`, `group_id`, `entrypoint`, `kwargs` (JSONB), `status`, `result` (JSONB), `log_path`, `error`, `worker_id`, `run_epoch` (fencing token bumped by `clear_task`), timestamps
 - **Group** — logical task grouping with optional nesting via `parent_group_id`; fields: `id`, `job_id`, `parent_group_id`, `name`, `created_at`
 - **Dependency** — composite PK `(previous_id, previous_type, next_id, next_type)`; types are `'task'` or `'group'`; supports all four combinations
 - **Worker** — active worker process; fields: `id`, `hostname`, `pid`, `status`, `last_heartbeat`, `tasks_completed`, `tasks_failed`, `started_at`
@@ -117,6 +122,7 @@ Finds the oldest pending task with all dependencies satisfied and atomically cla
 - `queries.py` — `get_job()`, `list_jobs(status, name_like, limit, offset)`, `count_jobs()`, `get_tasks_for_job()`
 - `stats.py` — `compute_job_stats()`, `print_job_stats()`
 - `cancel_job(job_id)` — atomically cancels a job and all non-terminal tasks; returns `True` if cancelled, `False` if not found or already terminal. See `execution/claiming.py`.
+- `clear_task(task_id)` — resets a task and all its transitive downstream tasks to PENDING for re-run (Airflow-style "clear task"); leaves upstream tasks and their output tables untouched, and reactivates a terminal job to RUNNING. Each reset bumps the task's `run_epoch` fence so an in-flight worker's late writes are rejected. See `execution/claiming.py`.
 
 Workers detect cancellation by polling task status. **Known limitation**: CPU-bound tasks won't interrupt until they yield.
 

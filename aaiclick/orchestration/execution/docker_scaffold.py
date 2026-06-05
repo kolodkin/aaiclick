@@ -1,11 +1,10 @@
 """Scaffold a starter Dockerfile for docker-runner jobs.
 
-The framework deliberately does not bundle a runtime-default Dockerfile
-(see ``docs/docker_runner_plan.md`` — image reproducibility requires that
-the Dockerfile be checked in to the user's repo and versioned by the
-git SHA the build task clones from). This module provides a CLI scaffold
-that drops a sensible starter into the user's working directory; from
-there the user owns it.
+The framework deliberately does not bundle a runtime-default Dockerfile —
+image reproducibility requires that the Dockerfile be checked in to the
+user's repo and versioned by the git SHA the build task clones from. This
+module provides a CLI scaffold that drops a sensible starter into the
+user's working directory; from there the user owns it.
 
 Invoked via ``python -m aaiclick docker init``."""
 

@@ -24,7 +24,7 @@ from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import WORKER_STOPPING
-from aaiclick.orchestration.view_models import JobDetail, JobView, TaskDetail, WorkerView
+from aaiclick.orchestration.view_models import ClearTaskView, JobDetail, JobView, TaskDetail, WorkerView
 from aaiclick.testing import make_oplog_node
 from aaiclick.view_models import Page
 
@@ -41,6 +41,7 @@ EXPECTED_TOOLS = {
     "enable_job",
     "disable_job",
     "get_task",
+    "clear_task",
     "list_workers",
     "stop_worker",
     "list_objects",
@@ -101,6 +102,17 @@ async def test_get_task_returns_detail(orch_ctx, mcp_client):
 
     detail = TaskDetail.model_validate(result.structured_content)
     assert detail.id == task.id
+
+
+async def test_clear_task_returns_view(orch_ctx, mcp_client):
+    job = await create_job("mcp_clear_job", simple_task)
+    task = (await get_tasks_for_job(job.id))[0]
+
+    result = await mcp_client.call_tool("clear_task", {"task_id": task.id})
+
+    view = ClearTaskView.model_validate(result.structured_content)
+    assert view.cleared_task_ids == [task.id]
+    assert view.job.id == job.id
 
 
 async def test_list_workers_returns_page(orch_ctx, mcp_client):
