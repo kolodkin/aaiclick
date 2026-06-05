@@ -43,6 +43,24 @@ Also relevant: ClickHouse's own `ALTER TABLE` is limited — `MODIFY ORDER BY` c
 
 No action today — fresh installs keep working, existing installs degrade gracefully at worst. Revisit once there is a third structural CH-side change (which makes the per-change CLI approach untenable) or once a change actually breaks (not just slows down) an existing install.
 
+## API Server Authentication + `start_worker`
+
+The shared I/O layer (`docs/api_server.md`) shipped Phases 1–4 — view models, `internal_api`, REST routers, and the MCP surface. Two independent tracks remain; the full contract lives in `docs/api_server.md` under **Authentication** and **Spawning workers — `POST /api/v0/workers`**.
+
+**Track A — bearer-token auth.** Gate `/api/v0/*` and `/mcp/*` behind a shared `AAICLICK_API_TOKEN`:
+
+- `Unauthorized` / `Forbidden` in `aaiclick/internal_api/errors.py`; add `UNAUTHORIZED`, `FORBIDDEN`, `WORKER_SPAWN_FAILED` to `ProblemCode`.
+- `aaiclick/server/auth.py` — a `require_bearer` dependency using `hmac.compare_digest`, setting `WWW-Authenticate: Bearer` on 401.
+- Wire `Depends(require_bearer)` per `include_router` call, plus an ASGI middleware on the `/mcp` mount (`Depends` does not cross mount boundaries). Token unset → open-server mode with a single startup `WARNING`. `/health` and the OpenAPI/docs routes stay open.
+
+**Track B — `POST /api/v0/workers`.** The one CLI verb that did not graduate to HTTP in Phase 3:
+
+- `StartWorkerRequest(max_tasks: int | None = None)` in `aaiclick/view_models.py`.
+- `internal_api.workers.start_worker(request)` — raise `Invalid` if `is_local()`; spawn `python -m aaiclick worker start [--max-tasks N]` via `create_subprocess_exec(start_new_session=True)`; map exec failure to `Conflict(WORKER_SPAWN_FAILED)`.
+- Router returns `202` with a relative `Location: /api/v0/workers` header; matching `start_worker` MCP tool.
+
+**Out of scope** (separate future work): DB-backed tokens with scopes, process supervision for HTTP-spawned workers, OAuth / OIDC.
+
 ---
 
 # Deferred
