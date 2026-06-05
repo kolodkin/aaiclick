@@ -38,10 +38,6 @@ pip-delete-this-directory.txt
 
 # Unit test / coverage reports
 htmlcov/
-
-# e2e screenshot report artifacts
-test-results/
-/e2e-report.html
 .tox/
 .nox/
 .coverage
