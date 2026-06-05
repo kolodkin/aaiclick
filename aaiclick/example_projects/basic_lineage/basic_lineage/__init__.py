@@ -116,9 +116,7 @@ async def main():
                     graph=backward_graph,
                 )
             else:
-                logger.warning(
-                    "AAICLICK_AI_API_KEY is not set; skipping AI lineage explanation and debug agent."
-                )
+                logger.warning("AAICLICK_AI_API_KEY is not set; skipping AI lineage explanation and debug agent.")
 
         print_report(
             tasks=tasks,
