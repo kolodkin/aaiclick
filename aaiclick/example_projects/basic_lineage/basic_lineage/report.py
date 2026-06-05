@@ -29,8 +29,8 @@ def print_report(
     backward_graph: OplogGraph,
     forward_graph: OplogGraph,
     source_table: str,
-    explanation: str,
-    debug_answer: str,
+    explanation: str | None,
+    debug_answer: str | None,
 ) -> None:
     """Print the full example report as markdown."""
     backward_labels = backward_graph.build_labels()
@@ -48,6 +48,11 @@ def print_report(
 
     _print_graph(backward_graph, "Backward Lineage Graph", target_table, backward_labels)
     _print_graph(forward_graph, "Forward Lineage Graph", source_table, forward_labels)
+
+    if explanation is None and debug_answer is None:
+        print("\n## AI Explanation\n")
+        print("_Skipped: `AAICLICK_AI_API_KEY` is not set._")
+        return
 
     print("\n## AI Explanation (backward lineage)\n")
     print("**Question**: How was this table produced? What arithmetic was applied?\n")

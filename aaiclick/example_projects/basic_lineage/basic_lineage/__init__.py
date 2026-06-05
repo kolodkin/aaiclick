@@ -9,6 +9,8 @@ tables and trace the computation graph.
 """
 
 import asyncio
+import logging
+import os
 
 from aaiclick.ai.agents.debug_agent import debug_result
 from aaiclick.ai.agents.lineage_agent import explain_lineage
@@ -29,6 +31,8 @@ from aaiclick.orchestration import (
 from aaiclick.orchestration.orch_context import orch_context
 
 from .report import print_report
+
+logger = logging.getLogger(__name__)
 
 
 @task
@@ -90,24 +94,29 @@ async def main():
         target_table = next(t for t in tasks if t.name == "add_bonus").result["table"]
         source_table = next(t for t in tasks if t.name == "create_prices").result["table"]
 
+        explanation: str | None = None
+        debug_answer: str | None = None
         async with lineage_context():
             backward_graph, forward_graph = await asyncio.gather(
                 oplog_subgraph(target_table, direction="backward"),
                 oplog_subgraph(source_table, direction="forward"),
             )
-            explanation = await explain_lineage(
-                target_table,
-                question="How was this table produced? What arithmetic was applied?",
-                graph=backward_graph,
-            )
-            debug_answer = await debug_result(
-                target_table,
-                question=(
-                    "Which output row has the highest value, and which input "
-                    "rows drove it? Use the tools to inspect the tables."
-                ),
-                graph=backward_graph,
-            )
+            if os.environ.get("AAICLICK_AI_API_KEY"):
+                explanation = await explain_lineage(
+                    target_table,
+                    question="How was this table produced? What arithmetic was applied?",
+                    graph=backward_graph,
+                )
+                debug_answer = await debug_result(
+                    target_table,
+                    question=(
+                        "Which output row has the highest value, and which input "
+                        "rows drove it? Use the tools to inspect the tables."
+                    ),
+                    graph=backward_graph,
+                )
+            else:
+                logger.warning("AAICLICK_AI_API_KEY is not set; skipping AI lineage explanation and debug agent.")
 
         print_report(
             tasks=tasks,
