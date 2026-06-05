@@ -277,9 +277,7 @@ async def _handle_task_result(
             expected_epoch=task.run_epoch,
         )
         if not updated:
-            logger.info(
-                "Worker %s task %s completion discarded (cleared or cancelled)", worker_id, task.id
-            )
+            logger.info("Worker %s task %s completion discarded (cleared or cancelled)", worker_id, task.id)
             return False
         logger.info("Worker %s completed task %s", worker_id, task.id)
         await _increment_worker_stat(worker_id, "tasks_completed")
