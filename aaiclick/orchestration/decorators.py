@@ -38,7 +38,7 @@ from aaiclick.data.object.refs import callable_ref, group_results_ref, upstream_
 
 from ..datetime_utils import utc_now
 from ..snowflake import get_snowflake_id
-from .factories import _callable_to_string, resolve_fail_fast, resolve_job_config
+from .factories import _callable_to_string, resolve_job_config
 from .models import (
     JOB_PENDING,
     RUN_MANUAL,
@@ -224,7 +224,6 @@ class JobFactory:
         self,
         *,
         preservation_mode: PreservationMode | None = None,
-        fail_fast: bool | None = None,
         **kwargs,
     ) -> Job:
         """Create a Job with an entry point task.
@@ -236,8 +235,6 @@ class JobFactory:
             preservation_mode: Override the job's preservation mode. Falls
                 through to ``AAICLICK_DEFAULT_PRESERVATION_MODE`` then
                 ``"NONE"`` when unset.
-            fail_fast: When ``True``, a failed/cancelled task aborts its
-                still-active group siblings. Defaults to ``False``.
             **kwargs: Arguments passed to the entry point task.
 
         Returns:
@@ -247,7 +244,6 @@ class JobFactory:
         async def _run() -> Job:
             return await self._create_job(
                 preservation_mode=preservation_mode,
-                fail_fast=fail_fast,
                 **kwargs,
             )
 
@@ -261,7 +257,6 @@ class JobFactory:
         run_type: RunType = RUN_MANUAL,
         registered_job_id: int | None = None,
         preservation_mode: PreservationMode | None = None,
-        fail_fast: bool | None = None,
         **kwargs,
     ) -> Job:
         """Internal method to create job within an OrchContext."""
@@ -281,7 +276,6 @@ class JobFactory:
             run_type=run_type,
             registered_job_id=registered_job_id,
             preservation_mode=mode,
-            fail_fast=resolve_fail_fast(fail_fast, registered=None),
             created_at=utc_now(),
         )
 

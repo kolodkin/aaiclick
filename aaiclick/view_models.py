@@ -61,7 +61,6 @@ class RunJobRequest(BaseModel):
     name: str
     kwargs: dict[str, Any] = Field(default_factory=dict)
     preservation_mode: PreservationMode | None = None
-    fail_fast: bool | None = None
     # Per-run docker overrides; ignored unless the registered job is
     # in docker mode. Each field falls through to the RegisteredJob
     # default, then to git auto-detect (where applicable).
@@ -86,7 +85,6 @@ class RegisterJobRequest(BaseModel):
     default_kwargs: dict[str, Any] | None = None
     enabled: bool = True
     preservation_mode: PreservationMode | None = None
-    fail_fast: bool = False
     # Docker-runner defaults; per-run kwargs on RunJobRequest override them.
     runner_mode: RunnerMode = "subprocess"
     dockerfile: str | None = None

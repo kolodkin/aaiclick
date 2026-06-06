@@ -30,7 +30,7 @@ from ..models import (
 
 JOB_FAILED_ERROR = "One or more tasks failed"
 UPSTREAM_FAILED_ERROR = "Upstream task failed"
-FAIL_FAST_ABORTED_ERROR = "Aborted: a sibling task in the group failed (fail_fast)"
+GROUP_SIBLING_ABORTED_ERROR = "Aborted: a sibling task in the group failed"
 
 _CASCADE_UPSTREAM_FAILED_SQL = """
     UPDATE tasks SET status = :upstream_failed, completed_at = :now, error = :error_msg
@@ -115,8 +115,9 @@ async def cascade_abort_group_siblings(session: AsyncSession, job_id: int) -> in
       reusing the same abort path as ``cancel_job`` (incl. the COMPLETED race —
       a sibling that already reached ``COMPLETED`` is terminal and untouched).
 
-    Only called when the owning job has ``fail_fast`` set. Returns the number of
-    siblings cancelled. The caller is responsible for committing.
+    Runs unconditionally on every ``try_complete_job`` pass that sees a failure.
+    Returns the number of siblings cancelled. The caller is responsible for
+    committing.
     """
     result = await session.execute(
         text(
@@ -134,7 +135,7 @@ async def cascade_abort_group_siblings(session: AsyncSession, job_id: int) -> in
         {
             "job_id": job_id,
             "now": utc_now(),
-            "error_msg": FAIL_FAST_ABORTED_ERROR,
+            "error_msg": GROUP_SIBLING_ABORTED_ERROR,
             "cancelled": TASK_CANCELLED,
             "pending": TASK_PENDING,
             "claimed": TASK_CLAIMED,
@@ -145,15 +146,6 @@ async def cascade_abort_group_siblings(session: AsyncSession, job_id: int) -> in
         },
     )
     return cast(CursorResult, result).rowcount or 0
-
-
-async def _job_fail_fast(session: AsyncSession, job_id: int) -> bool:
-    """Return whether the job opted into fail-fast group-sibling aborts."""
-    result = await session.execute(
-        text("SELECT fail_fast FROM jobs WHERE id = :job_id"),
-        {"job_id": job_id},
-    )
-    return bool(result.scalar_one_or_none())
 
 
 def in_clause(ids: list, prefix: str) -> tuple[str, dict]:
@@ -205,10 +197,10 @@ async def try_complete_job(session: AsyncSession, job_id: int) -> None:
     )
     total, non_terminal, failed, cascade_trigger = result.one()
     if cascade_trigger and non_terminal:
-        # Fail-fast first: cancelling doomed siblings turns them into CANCELLED
-        # upstreams, which the downstream UPSTREAM_FAILED sweep then propagates.
-        if await _job_fail_fast(session, job_id):
-            non_terminal -= await cascade_abort_group_siblings(session, job_id)
+        # Fail-fast first: cancelling a doomed group's still-active siblings
+        # turns them into CANCELLED upstreams, which the downstream
+        # UPSTREAM_FAILED sweep then propagates in the same pass.
+        non_terminal -= await cascade_abort_group_siblings(session, job_id)
         marked = await cascade_upstream_failed(session, job_id)
         non_terminal -= marked
         failed += marked

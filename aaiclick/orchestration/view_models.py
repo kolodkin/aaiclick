@@ -144,7 +144,6 @@ class RegisteredJobView(BaseModel):
     schedule: str | None = None
     default_kwargs: dict[str, Any] | None = None
     preservation_mode: PreservationMode | None = None
-    fail_fast: bool = False
     next_run_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
@@ -253,7 +252,6 @@ def registered_job_to_view(rj: RegisteredJob) -> RegisteredJobView:
         schedule=rj.schedule,
         default_kwargs=rj.default_kwargs,
         preservation_mode=rj.preservation_mode,
-        fail_fast=rj.fail_fast,
         next_run_at=rj.next_run_at,
         created_at=rj.created_at,
         updated_at=rj.updated_at,

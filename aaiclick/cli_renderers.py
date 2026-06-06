@@ -140,8 +140,6 @@ def render_registered_job(view: RegisteredJobView) -> None:
         print(f"  Schedule:         {view.schedule}")
     if view.preservation_mode:
         print(f"  Preservation:     {view.preservation_mode}")
-    if view.fail_fast:
-        print("  Fail-fast:        on")
     if view.next_run_at:
         print(f"  Next run at:      {view.next_run_at}")
 

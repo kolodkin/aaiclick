@@ -136,7 +136,6 @@ async def _run_run_job(args: argparse.Namespace) -> None:
         name=args.name,
         kwargs=kwargs,
         preservation_mode=_parse_preservation_mode(args.preservation_mode),
-        fail_fast=True if args.fail_fast else None,
         git_remote=args.git_remote,
         git_sha=args.git_sha,
         git_branch=args.git_branch,
@@ -155,7 +154,6 @@ async def _run_register_job(args: argparse.Namespace) -> None:
         schedule=args.schedule,
         default_kwargs=default_kwargs,
         preservation_mode=_parse_preservation_mode(args.preservation_mode),
-        fail_fast=args.fail_fast,
         runner_mode=args.runner,
         dockerfile=args.dockerfile,
         git_remote=args.git_remote,
@@ -551,11 +549,6 @@ def main():
         help="Default preservation mode for every run of this job (runs can override)",
     )
     register_job_parser.add_argument(
-        "--fail-fast",
-        action="store_true",
-        help="Abort still-active group siblings when a task fails/cancels (default: off)",
-    )
-    register_job_parser.add_argument(
         "--runner",
         choices=list(get_args(RunnerMode)),
         default="subprocess",
@@ -590,11 +583,6 @@ def main():
         choices=list(get_args(PreservationMode)),
         default=None,
         help="Table preservation mode (default: AAICLICK_DEFAULT_PRESERVATION_MODE or NONE)",
-    )
-    run_job_parser.add_argument(
-        "--fail-fast",
-        action="store_true",
-        help="Abort still-active group siblings when a task fails/cancels (overrides the registration default)",
     )
     run_job_parser.add_argument(
         "--git-remote",

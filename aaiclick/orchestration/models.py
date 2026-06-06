@@ -116,7 +116,6 @@ class RegisteredJob(SQLModel, table=True):
     enabled: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="1"), default=True)
     schedule: str | None = Field(default=None)
     default_kwargs: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
-    fail_fast: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="0"), default=False)
     preservation_mode: PreservationMode | None = Field(
         default=None,
         sa_column=Column(
@@ -182,9 +181,6 @@ class Job(SQLModel, table=True):
             server_default=PRESERVATION_NONE,
         ),
     )
-    # When true, a task failing/cancelling also aborts its still-pending group
-    # siblings (fail-fast). See background.handler.cascade_abort_group_siblings.
-    fail_fast: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="0"), default=False)
     runner_mode: RunnerMode = Field(
         default=RUNNER_SUBPROCESS,
         sa_column=Column(

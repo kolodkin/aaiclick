@@ -49,22 +49,6 @@ def resolve_job_config(
     return mode
 
 
-def resolve_fail_fast(
-    explicit: bool | None,
-    registered: RegisteredJob | None = None,
-) -> bool:
-    """Resolve a job run's ``fail_fast`` flag.
-
-    Precedence (highest first): explicit argument, registered-job default,
-    ``False``. ``None`` means "inherit from the next level".
-    """
-    if explicit is not None:
-        return explicit
-    if registered is not None:
-        return registered.fail_fast
-    return False
-
-
 def _resolve_main_module(func: Callable) -> str:
     """Resolve the actual module path for a function defined in __main__.
 
@@ -194,7 +178,6 @@ async def create_job(
     run_type: RunType = RUN_MANUAL,
     registered_job_id: int | None = None,
     preservation_mode: PreservationMode | None = None,
-    fail_fast: bool | None = None,
     registered: RegisteredJob | None = None,
 ) -> Job:
     """Create a Job and commit it to the database.
@@ -208,9 +191,6 @@ async def create_job(
             Overrides the registered job's default; falls through to the
             ``AAICLICK_DEFAULT_PRESERVATION_MODE`` env var, then
             ``"NONE"``.
-        fail_fast: When ``True``, a failed/cancelled task aborts its
-            still-active group siblings. Overrides the registered job's
-            default; ``None`` inherits, falling back to ``False``.
         registered: Optional ``RegisteredJob`` to source level-2 defaults
             from. When supplied, ``registered.preservation_mode`` becomes
             the fallback value.
@@ -239,7 +219,6 @@ async def create_job(
         run_type=run_type,
         registered_job_id=registered_job_id,
         preservation_mode=mode,
-        fail_fast=resolve_fail_fast(fail_fast, registered),
         created_at=utc_now(),
     )
 
@@ -278,7 +257,6 @@ async def create_docker_job(
     run_type: RunType = RUN_MANUAL,
     registered_job_id: int | None = None,
     preservation_mode: PreservationMode | None = None,
-    fail_fast: bool | None = None,
     registered: RegisteredJob | None = None,
     docker_config: DockerJobConfig,
 ) -> Job:
@@ -297,7 +275,6 @@ async def create_docker_job(
         run_type=run_type,
         registered_job_id=registered_job_id,
         preservation_mode=mode,
-        fail_fast=resolve_fail_fast(fail_fast, registered),
         runner_mode=RUNNER_DOCKER,
         git_remote=docker_config.git_remote,
         git_sha=docker_config.git_sha,
