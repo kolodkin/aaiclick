@@ -30,14 +30,14 @@ async def bg_db():
     shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-async def insert_job(engine, job_id, *, status="RUNNING"):
+async def insert_job(engine, job_id, *, status="RUNNING", fail_fast=False):
     async with AsyncSession(engine) as session:
         await session.execute(
             text(
-                "INSERT INTO jobs (id, name, status, run_type, created_at) "
-                "VALUES (:id, 'test_job', :status, 'MANUAL', :now)"
+                "INSERT INTO jobs (id, name, status, run_type, fail_fast, created_at) "
+                "VALUES (:id, 'test_job', :status, 'MANUAL', :fail_fast, :now)"
             ),
-            {"id": job_id, "status": status, "now": utc_now()},
+            {"id": job_id, "status": status, "fail_fast": fail_fast, "now": utc_now()},
         )
         await session.commit()
 

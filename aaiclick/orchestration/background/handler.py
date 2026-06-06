@@ -30,6 +30,7 @@ from ..models import (
 
 JOB_FAILED_ERROR = "One or more tasks failed"
 UPSTREAM_FAILED_ERROR = "Upstream task failed"
+FAIL_FAST_ABORTED_ERROR = "Aborted: a sibling task in the group failed (fail_fast)"
 
 _CASCADE_UPSTREAM_FAILED_SQL = """
     UPDATE tasks SET status = :upstream_failed, completed_at = :now, error = :error_msg
@@ -99,6 +100,62 @@ async def cascade_upstream_failed(session: AsyncSession, job_id: int) -> int:
     return total
 
 
+async def cascade_abort_group_siblings(session: AsyncSession, job_id: int) -> int:
+    """Cancel still-active siblings of any failed/cancelled group member (fail-fast).
+
+    For each group with a member in a non-success terminal state (``FAILED``,
+    ``CANCELLED``, or ``UPSTREAM_FAILED``), the group's all-success contract is
+    already broken — every downstream consumer is doomed — so the remaining
+    siblings are wasted compute. This marks those siblings ``CANCELLED``:
+
+    - ``PENDING`` / ``CLAIMED`` / ``PENDING_CLEANUP`` siblings flip to
+      ``CANCELLED`` outright.
+    - ``RUNNING`` siblings flip to ``CANCELLED`` too; the worker's cancellation
+      monitor (``execution/claiming.py``) notices and aborts the in-flight run,
+      reusing the same abort path as ``cancel_job`` (incl. the COMPLETED race —
+      a sibling that already reached ``COMPLETED`` is terminal and untouched).
+
+    Only called when the owning job has ``fail_fast`` set. Returns the number of
+    siblings cancelled. The caller is responsible for committing.
+    """
+    result = await session.execute(
+        text(
+            "UPDATE tasks SET status = :cancelled, completed_at = :now, error = :error_msg "
+            "WHERE job_id = :job_id "
+            "  AND status IN (:pending, :claimed, :running, :pending_cleanup) "
+            "  AND group_id IS NOT NULL "
+            "  AND group_id IN ("
+            "    SELECT group_id FROM tasks sib "
+            "    WHERE sib.job_id = :job_id "
+            "      AND sib.group_id IS NOT NULL "
+            "      AND sib.status IN (:failed, :cancelled, :upstream_failed)"
+            "  )"
+        ),
+        {
+            "job_id": job_id,
+            "now": utc_now(),
+            "error_msg": FAIL_FAST_ABORTED_ERROR,
+            "cancelled": TASK_CANCELLED,
+            "pending": TASK_PENDING,
+            "claimed": TASK_CLAIMED,
+            "running": TASK_RUNNING,
+            "pending_cleanup": TASK_PENDING_CLEANUP,
+            "failed": TASK_FAILED,
+            "upstream_failed": TASK_UPSTREAM_FAILED,
+        },
+    )
+    return cast(CursorResult, result).rowcount or 0
+
+
+async def _job_fail_fast(session: AsyncSession, job_id: int) -> bool:
+    """Return whether the job opted into fail-fast group-sibling aborts."""
+    result = await session.execute(
+        text("SELECT fail_fast FROM jobs WHERE id = :job_id"),
+        {"job_id": job_id},
+    )
+    return bool(result.scalar_one_or_none())
+
+
 def in_clause(ids: list, prefix: str) -> tuple[str, dict]:
     """Build a parameterized IN clause compatible with both SQLite and PostgreSQL.
 
@@ -148,6 +205,10 @@ async def try_complete_job(session: AsyncSession, job_id: int) -> None:
     )
     total, non_terminal, failed, cascade_trigger = result.one()
     if cascade_trigger and non_terminal:
+        # Fail-fast first: cancelling doomed siblings turns them into CANCELLED
+        # upstreams, which the downstream UPSTREAM_FAILED sweep then propagates.
+        if await _job_fail_fast(session, job_id):
+            non_terminal -= await cascade_abort_group_siblings(session, job_id)
         marked = await cascade_upstream_failed(session, job_id)
         non_terminal -= marked
         failed += marked

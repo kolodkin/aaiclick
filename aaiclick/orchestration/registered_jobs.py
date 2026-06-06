@@ -61,6 +61,7 @@ async def register_job(
     default_kwargs: dict[str, Any] | None = None,
     enabled: bool = True,
     preservation_mode: PreservationMode | None = None,
+    fail_fast: bool = False,
     runner_mode: RunnerMode = RUNNER_SUBPROCESS,
     dockerfile: str | None = None,
     git_remote: str | None = None,
@@ -76,6 +77,9 @@ async def register_job(
         enabled: Whether the job is enabled (default: True)
         preservation_mode: Default preservation mode for every run of
             this job. Individual runs can override via ``run_job()``.
+        fail_fast: Default fail-fast flag for every run of this job — when
+            ``True``, a failed/cancelled task aborts its still-active group
+            siblings. Individual runs can override via ``run_job()``.
         runner_mode: ``"subprocess"`` (default) or ``"docker"``.
         dockerfile: Default Dockerfile path (relative to ``build_context``).
             ``None`` falls back to ``"Dockerfile"`` at submission time.
@@ -100,6 +104,7 @@ async def register_job(
         schedule=schedule,
         default_kwargs=default_kwargs,
         preservation_mode=preservation_mode,
+        fail_fast=fail_fast,
         runner_mode=runner_mode,
         dockerfile=dockerfile,
         git_remote=git_remote,
@@ -143,6 +148,7 @@ async def upsert_registered_job(
     default_kwargs: dict[str, Any] | None = None,
     enabled: bool = True,
     preservation_mode: PreservationMode | None = None,
+    fail_fast: bool = False,
     runner_mode: RunnerMode = RUNNER_SUBPROCESS,
     dockerfile: str | None = None,
     git_remote: str | None = None,
@@ -161,6 +167,7 @@ async def upsert_registered_job(
         default_kwargs: Default parameters (optional)
         enabled: Whether the job is enabled
         preservation_mode: Default preservation mode for every run
+        fail_fast: Default fail-fast flag for every run
         runner_mode: ``"subprocess"`` (default) or ``"docker"``.
         dockerfile: Default Dockerfile path (relative to ``build_context``).
         git_remote: Default git remote URL.
@@ -180,6 +187,7 @@ async def upsert_registered_job(
             existing.schedule = schedule
             existing.default_kwargs = default_kwargs
             existing.preservation_mode = preservation_mode
+            existing.fail_fast = fail_fast
             existing.enabled = enabled
             existing.runner_mode = runner_mode
             existing.dockerfile = dockerfile
@@ -200,6 +208,7 @@ async def upsert_registered_job(
             schedule=schedule,
             default_kwargs=default_kwargs,
             preservation_mode=preservation_mode,
+            fail_fast=fail_fast,
             runner_mode=runner_mode,
             dockerfile=dockerfile,
             git_remote=git_remote,
@@ -297,6 +306,7 @@ async def run_job(
     kwargs: dict[str, Any] | None = None,
     run_type: RunType = RUN_MANUAL,
     preservation_mode: PreservationMode | None = None,
+    fail_fast: bool | None = None,
     git_remote: str | None = None,
     git_sha: str | None = None,
     git_branch: str | None = None,
@@ -328,6 +338,8 @@ async def run_job(
         run_type: How the job was triggered (default: MANUAL)
         preservation_mode: Level-1 override for the registered job's
             baseline. Pass ``None`` to inherit.
+        fail_fast: Override the registered job's fail-fast default. Pass
+            ``None`` to inherit (falling back to ``False``).
         git_remote: Override the registered job's default git remote.
         git_sha: Pin the build to a specific commit SHA. ``None`` means
             auto-detect from the working tree (must be clean and pushed).
@@ -368,6 +380,7 @@ async def run_job(
             run_type=run_type,
             registered_job_id=registered.id if registered is not None else None,
             preservation_mode=preservation_mode,
+            fail_fast=fail_fast,
             registered=registered,
             docker_config=docker_config,
         )
@@ -379,5 +392,6 @@ async def run_job(
         run_type=run_type,
         registered_job_id=registered.id if registered is not None else None,
         preservation_mode=preservation_mode,
+        fail_fast=fail_fast,
         registered=registered,
     )

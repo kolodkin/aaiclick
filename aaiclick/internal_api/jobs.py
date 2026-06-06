@@ -189,6 +189,7 @@ async def run_job(request: RunJobRequest) -> JobView:
         entrypoint=entrypoint,
         kwargs=request.kwargs or None,
         preservation_mode=request.preservation_mode,
+        fail_fast=request.fail_fast,
         git_remote=request.git_remote,
         git_sha=request.git_sha,
         git_branch=request.git_branch,

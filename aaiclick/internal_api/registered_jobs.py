@@ -99,6 +99,7 @@ async def register_job(request: RegisterJobRequest) -> RegisteredJobView:
             default_kwargs=request.default_kwargs,
             enabled=request.enabled,
             preservation_mode=request.preservation_mode,
+            fail_fast=request.fail_fast,
             runner_mode=request.runner_mode,
             dockerfile=request.dockerfile,
             git_remote=request.git_remote,
