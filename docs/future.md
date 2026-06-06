@@ -7,19 +7,6 @@ Planned work across aaiclick, ordered by priority.
 
 # Medium Priority
 
-## Fail-Fast for Doomed Group Siblings
-
-`cascade_upstream_failed` in `background/handler.py` marks downstream PENDING tasks `UPSTREAM_FAILED` on any upstream failure, but **siblings in the failing group keep running** — matches Airflow's default `all_success`. Wasted compute when the group's only consumer is already doomed.
-
-Add an Airflow-analog opt-in `fail_fast: bool` flag on `RegisteredJob`/`Job`. When true, a task failing/cancelling also kills its group siblings:
-
-- **PENDING / CLAIMED / PENDING_CLEANUP**: UPDATE → `CANCELLED` in the same `try_complete_job` pass.
-- **RUNNING**: ride the existing cancellation monitor (`execution/claiming.py:209`) — reusing `CANCELLED` makes the worker abort path inherit for free, including the COMPLETED-race handling.
-
-Opt-in (not default) so the bug-fix cascade stays backwards-compatible.
-
-**Work**: `fail_fast` column on `RegisteredJob`/`Job` + migration; `cascade_abort_group_siblings()` in `background/handler.py` gated on the flag; tests for PENDING/CLAIMED/RUNNING siblings and the completed-race. ~150 lines, 5–8 tests.
-
 ## ClickHouse Migration Framework
 
 aaiclick has no migration system for the ClickHouse side. Alembic manages the SQL schema (`jobs`, `tasks`, `dependencies`, `registered_jobs`, `table_registry`, …), but ClickHouse tables created via the `ChClient` — `operation_log`, all `p_*` / `t_*` / `j_*` data tables produced at runtime — are created with `CREATE TABLE IF NOT EXISTS` in `aaiclick/oplog/models.py` plus a column-existence validator. No versions, no history, no upgrade path.
