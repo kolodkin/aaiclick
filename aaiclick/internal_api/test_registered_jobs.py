@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from aaiclick.orchestration.models import PRESERVATION_FULL
+from aaiclick.orchestration.models import PRESERVATION_FULL, RUNNER_DOCKER
 from aaiclick.orchestration.registered_jobs import register_job as _register_job_impl
 from aaiclick.orchestration.view_models import RegisteredJobView
 from aaiclick.view_models import Page, RegisteredJobFilter, RegisterJobRequest
@@ -114,6 +114,20 @@ async def test_register_job_invalid_entrypoint_not_persisted(orch_ctx):
 
     page = await registered_jobs.list_registered_jobs(RegisteredJobFilter(name="ghost_reg"))
     assert page.items == []
+
+
+async def test_register_job_docker_mode_skips_local_import_check(orch_ctx):
+    request = RegisterJobRequest(
+        name="docker_job",
+        entrypoint="no_such_module_anywhere.task",
+        runner_mode=RUNNER_DOCKER,
+    )
+
+    view = await registered_jobs.register_job(request)
+
+    assert view.name == "docker_job"
+    page = await registered_jobs.list_registered_jobs(RegisteredJobFilter(name="docker_job"))
+    assert len(page.items) == 1
 
 
 async def test_enable_job_returns_view_and_recomputes_next_run(orch_ctx):
