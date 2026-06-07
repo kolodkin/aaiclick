@@ -100,6 +100,20 @@ async def cascade_upstream_failed(session: AsyncSession, job_id: int) -> int:
     return total
 
 
+_CASCADE_ABORT_GROUP_SIBLINGS_SQL = """
+    UPDATE tasks SET status = :cancelled, completed_at = :now, error = :error_msg
+    WHERE job_id = :job_id
+      AND status IN (:pending, :claimed, :running, :pending_cleanup)
+      AND group_id IS NOT NULL
+      AND group_id IN (
+        SELECT group_id FROM tasks sib
+        WHERE sib.job_id = :job_id
+          AND sib.group_id IS NOT NULL
+          AND sib.status IN (:failed, :cancelled, :upstream_failed)
+      )
+"""
+
+
 async def cascade_abort_group_siblings(session: AsyncSession, job_id: int) -> int:
     """Cancel still-active siblings of any failed/cancelled group member (fail-fast).
 
@@ -120,18 +134,7 @@ async def cascade_abort_group_siblings(session: AsyncSession, job_id: int) -> in
     committing.
     """
     result = await session.execute(
-        text(
-            "UPDATE tasks SET status = :cancelled, completed_at = :now, error = :error_msg "
-            "WHERE job_id = :job_id "
-            "  AND status IN (:pending, :claimed, :running, :pending_cleanup) "
-            "  AND group_id IS NOT NULL "
-            "  AND group_id IN ("
-            "    SELECT group_id FROM tasks sib "
-            "    WHERE sib.job_id = :job_id "
-            "      AND sib.group_id IS NOT NULL "
-            "      AND sib.status IN (:failed, :cancelled, :upstream_failed)"
-            "  )"
-        ),
+        text(_CASCADE_ABORT_GROUP_SIBLINGS_SQL),
         {
             "job_id": job_id,
             "now": utc_now(),
