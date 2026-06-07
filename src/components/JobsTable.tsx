@@ -22,7 +22,7 @@ export function JobsTable({ jobs, onPrompt }: { jobs: JobView[]; onPrompt: (v: s
               <span className="name-link mono">{j.name}</span>
             </td>
             <td>
-              <StatusBadge status={j.status} />
+              <StatusBadge status={j.status} reason={j.error} />
             </td>
             <td>
               <ProgressBar done={j.completed_tasks} total={j.total_tasks} />
