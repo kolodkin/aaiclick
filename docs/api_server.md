@@ -13,8 +13,8 @@ with pydantic view models. The CLI keeps its current human output and gains
 `--json` for free. The REST and MCP surfaces derive from the same types, so
 their schemas, docs, and client SDKs cannot drift from the CLI.
 
-Phases 1–4 (view models, `internal_api`, REST, MCP) are implemented. The
-remaining auth + `start_worker` work is tracked in `docs/future.md`.
+All of view models, `internal_api`, REST, MCP, bearer-token auth, and
+`start_worker` are implemented.
 
 # Motivation
 
@@ -113,10 +113,9 @@ stabilises.
 
 # View Model Catalogue
 
-The planned auth + worker-spawn work (tracked in `docs/future.md`) adds
-`StartWorkerRequest` and expands `ProblemCode` — see
+Auth + worker-spawn add `StartWorkerRequest` and expand `ProblemCode` — see
 [Spawning workers](#spawning-workers--post-apiv0workers) and
-[Authentication](#authentication) for the additions.
+[Authentication](#authentication).
 
 ## Shared (`aaiclick/view_models.py`)
 
@@ -297,6 +296,9 @@ subject to breaking change" to downstream UIs / SDK generators; we graduate to
 
 ## Spawning workers — `POST /api/v0/workers`
 
+**Implementation**: `internal_api.workers.start_worker`,
+`aaiclick/server/routers/workers.py`.
+
 The CLI's `worker start` is a blocking process loop that runs until
 SIGTERM — it does not fit the request/response pattern. The REST
 endpoint spawns a **detached subprocess** and returns `202 Accepted`
@@ -320,8 +322,8 @@ handler flow:
    child survives the HTTP request. POSIX-only, matching the project's
    Linux / macOS scope; Windows is not a supported deployment target.
 3. If exec raises (`FileNotFoundError`, `PermissionError`), translate
-   to `Conflict(code=WORKER_SPAWN_FAILED)` → `503`. Otherwise return
-   `None`.
+   to `WorkerSpawnFailed` (a `Conflict` subclass) → `503`. Otherwise
+   return `None`.
 4. Router returns `202 Accepted` with header
    `Location: /api/v0/workers` and an empty body.
 
@@ -359,6 +361,7 @@ workers.
 | `StartWorkerRequest`  | `aaiclick/view_models.py`      | `max_tasks: int \| None`                                      |
 | `Unauthorized`        | `aaiclick/internal_api/errors` | Missing / invalid bearer token                                |
 | `Forbidden`           | `aaiclick/internal_api/errors` | Reserved for scope rollout; unused in v0                      |
+| `WorkerSpawnFailed`   | `aaiclick/internal_api/errors` | Detached worker exec failed; `Conflict` subclass → `503`      |
 | `Problem.code`        | `aaiclick/view_models.py`      | Extend `ProblemCode` with `UNAUTHORIZED`, `FORBIDDEN`, `WORKER_SPAWN_FAILED` |
 
 `Forbidden` ships in v0 so the error-mapping table is stable; no route
@@ -454,6 +457,8 @@ The server reuses the CLI's existing env vars and adds a single auth knob:
 
 # Authentication
 
+**Implementation**: `aaiclick/server/auth.py`, wired in `aaiclick/server/app.py`.
+
 The `/api/v0/*` REST surface and the `/mcp` mount share one bearer-token
 check in v0. The CLI, in-process MCP client, and router-level tests all
 bypass the check — authentication is an HTTP-transport concern, not an
@@ -538,16 +543,10 @@ both are deferred to the DB-backed-tokens phase alongside scopes.
 handler sets the `WWW-Authenticate: Bearer` response header; the CLI and
 MCP paths never raise it because they bypass the bearer check.
 
-## Future (tracked in `docs/future.md`)
+## Future
 
-- **DB-backed tokens with scopes** — `api_tokens` table, per-token
-  `read` / `write` / `admin` scope, CRUD CLI (`aaiclick token issue`,
-  `aaiclick token revoke`), rotation, expiry. Scopes gate mutating verbs
-  (`cancel_job`, `delete_object`, `start_worker`, `setup`).
-- **OAuth 2.0 / OIDC** — for the orchestration UI once a browser client
-  exists. Delegated identity, not a concern of the v0 static token.
-- **Per-request audit log** — who called what, when. Out of scope until
-  token identity exists.
+DB-backed token scopes, OAuth 2.0 / OIDC, and a per-request audit log are
+tracked in `docs/future.md` — **API Auth — DB-Backed Token Scopes**.
 
 # Non-Goals
 

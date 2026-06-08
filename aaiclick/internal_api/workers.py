@@ -6,8 +6,12 @@ session via the contextvar getter. Returns pydantic view models.
 
 from __future__ import annotations
 
+import asyncio
+import sys
+
 from sqlmodel import col
 
+from aaiclick.backend import is_local
 from aaiclick.orchestration.execution.worker import (
     get_worker,
 )
@@ -16,9 +20,9 @@ from aaiclick.orchestration.execution.worker import (
 )
 from aaiclick.orchestration.models import Worker
 from aaiclick.orchestration.view_models import WorkerView, worker_to_view
-from aaiclick.view_models import Page, WorkerFilter
+from aaiclick.view_models import Page, StartWorkerRequest, WorkerFilter
 
-from .errors import Conflict, NotFound
+from .errors import Conflict, Invalid, NotFound, WorkerSpawnFailed
 from .pagination import paginate
 
 
@@ -43,6 +47,34 @@ async def list_workers(filter: WorkerFilter | None = None) -> Page[WorkerView]:
         offset=filter.offset,
     )
     return Page[WorkerView](items=[worker_to_view(w) for w in page.rows], total=page.total)
+
+
+async def start_worker(request: StartWorkerRequest | None = None) -> None:
+    """Spawn a detached worker process and return once the fork/exec succeeds.
+
+    Distributed-mode only: raises ``Invalid`` in local mode (chdb + SQLite),
+    where every process shares one chdb data path and a spawned child would
+    deadlock on the file lock — use the CLI's ``local start`` there instead.
+
+    The child runs ``python -m aaiclick worker start [--max-tasks N]`` in its
+    own session (``start_new_session=True``) so it outlives the caller. The
+    server does not track its PID; shutdown goes through the cooperative
+    ``stop_worker`` path. Exec failures (missing binary, no permission) raise
+    ``WorkerSpawnFailed``.
+    """
+    request = request or StartWorkerRequest()
+
+    if is_local():
+        raise Invalid("start_worker requires distributed backends; use `local start` in local mode")
+
+    cmd = [sys.executable, "-m", "aaiclick", "worker", "start"]
+    if request.max_tasks is not None:
+        cmd += ["--max-tasks", str(request.max_tasks)]
+
+    try:
+        await asyncio.create_subprocess_exec(*cmd, start_new_session=True)
+    except (OSError, ValueError) as exc:
+        raise WorkerSpawnFailed(f"failed to spawn worker process: {exc}") from exc
 
 
 async def stop_worker(worker_id: int) -> WorkerView:

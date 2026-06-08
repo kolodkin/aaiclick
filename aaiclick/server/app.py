@@ -4,12 +4,13 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from aaiclick.backend import is_local
 from aaiclick.orchestration.local_runtime import local_runtime
 
+from .auth import BearerAuthMiddleware, require_bearer, warn_if_open
 from .errors import register_exception_handlers
 from .mcp import mcp
 from .routers import jobs, objects, registered_jobs, tasks, workers
@@ -25,6 +26,7 @@ _mcp_app = mcp.http_app(path="/")
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    warn_if_open()
     async with _mcp_app.lifespan(app):
         if is_local():
             async with local_runtime():
@@ -35,7 +37,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(
     title="aaiclick",
-    description="REST surface over aaiclick's internal_api. Localhost-only, unauthenticated (v0).",
+    description="REST surface over aaiclick's internal_api. Optional bearer auth via AAICLICK_API_TOKEN (v0).",
     version="0.0.0",
     docs_url=f"{API_PREFIX}/docs",
     redoc_url=f"{API_PREFIX}/redoc",
@@ -52,9 +54,11 @@ for router in (
     workers.router,
     objects.router,
 ):
-    app.include_router(router, prefix=API_PREFIX)
+    app.include_router(router, prefix=API_PREFIX, dependencies=[Depends(require_bearer)])
 
-app.mount(MCP_PATH, _mcp_app)
+# `Depends` doesn't cross the mount boundary into the FastMCP sub-app, so the
+# same bearer check runs as ASGI middleware wrapping the mount.
+app.mount(MCP_PATH, BearerAuthMiddleware(_mcp_app))
 
 
 @app.get("/health", include_in_schema=False)

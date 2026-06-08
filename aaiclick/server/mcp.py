@@ -64,6 +64,7 @@ from aaiclick.view_models import (
     RegisterJobRequest,
     RunJobRequest,
     SetupResult,
+    StartWorkerRequest,
     WorkerFilter,
 )
 
@@ -186,6 +187,13 @@ async def list_workers(filter: WorkerFilter | None = None) -> Page[WorkerView]:
     """Return a page of workers ordered by ``started_at`` descending."""
     async with orch_context(with_ch=False):
         return await workers_api.list_workers(filter)
+
+
+@mcp.tool
+async def start_worker(request: StartWorkerRequest | None = None) -> None:
+    """Spawn a detached worker process (distributed mode only; errors in local mode)."""
+    async with orch_context(with_ch=False):
+        await workers_api.start_worker(request)
 
 
 @mcp.tool

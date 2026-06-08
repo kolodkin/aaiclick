@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from aaiclick.internal_api import workers as workers_api
+from aaiclick.internal_api.errors import Invalid, WorkerSpawnFailed
 from aaiclick.orchestration.execution.worker import register_worker
 from aaiclick.orchestration.models import WORKER_STOPPING
 from aaiclick.orchestration.view_models import WorkerView
@@ -46,3 +48,40 @@ async def test_stop_already_stopping_returns_409(orch_ctx, app_client):
     assert response.status_code == 409
     problem = Problem.model_validate(response.json())
     assert problem.code is ProblemCode.CONFLICT
+
+
+async def test_start_worker_returns_202_with_location(orch_ctx, app_client, monkeypatch):
+    async def ok(request):
+        return None
+
+    monkeypatch.setattr(workers_api, "start_worker", ok)
+
+    response = await app_client.post(f"{API_PREFIX}/workers", json={"max_tasks": 5})
+
+    assert response.status_code == 202
+    assert response.headers["location"] == f"{API_PREFIX}/workers"
+    assert response.content == b""
+
+
+async def test_start_worker_local_mode_returns_422(orch_ctx, app_client, monkeypatch):
+    async def raise_invalid(request):
+        raise Invalid("requires distributed backends")
+
+    monkeypatch.setattr(workers_api, "start_worker", raise_invalid)
+
+    response = await app_client.post(f"{API_PREFIX}/workers", json={})
+
+    assert response.status_code == 422
+    assert Problem.model_validate(response.json()).code is ProblemCode.INVALID
+
+
+async def test_start_worker_spawn_failure_returns_503(orch_ctx, app_client, monkeypatch):
+    async def raise_spawn(request):
+        raise WorkerSpawnFailed("missing binary")
+
+    monkeypatch.setattr(workers_api, "start_worker", raise_spawn)
+
+    response = await app_client.post(f"{API_PREFIX}/workers", json={})
+
+    assert response.status_code == 503
+    assert Problem.model_validate(response.json()).code is ProblemCode.WORKER_SPAWN_FAILED

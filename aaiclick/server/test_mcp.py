@@ -43,6 +43,7 @@ EXPECTED_TOOLS = {
     "get_task",
     "clear_task",
     "list_workers",
+    "start_worker",
     "stop_worker",
     "list_objects",
     "get_object",
