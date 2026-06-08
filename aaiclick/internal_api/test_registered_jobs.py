@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from aaiclick.orchestration.models import PRESERVATION_FULL
+from aaiclick.orchestration.models import PRESERVATION_FULL, RUNNER_DOCKER
 from aaiclick.orchestration.registered_jobs import register_job as _register_job_impl
 from aaiclick.orchestration.view_models import RegisteredJobView
 from aaiclick.view_models import Page, RegisteredJobFilter, RegisterJobRequest
@@ -114,6 +114,20 @@ async def test_register_job_invalid_entrypoint_not_persisted(orch_ctx):
 
     page = await registered_jobs.list_registered_jobs(RegisteredJobFilter(name="ghost_reg"))
     assert page.items == []
+
+
+async def test_register_job_docker_runner_skips_entrypoint_validation(orch_ctx):
+    """Docker runner jobs must register even when the entrypoint is not importable
+    on the host — it only needs to be importable inside the container."""
+    request = RegisterJobRequest(
+        name="docker_reg",
+        entrypoint="sample_jobs.entry_task",
+        runner_mode=RUNNER_DOCKER,
+    )
+
+    view = await registered_jobs.register_job(request)
+
+    assert view.name == "docker_reg"
 
 
 async def test_enable_job_returns_view_and_recomputes_next_run(orch_ctx):

@@ -9,7 +9,7 @@ from __future__ import annotations
 from sqlmodel import col
 
 from aaiclick.orchestration.execution.runner import import_callback
-from aaiclick.orchestration.models import RegisteredJob
+from aaiclick.orchestration.models import RUNNER_DOCKER, RegisteredJob
 from aaiclick.orchestration.registered_jobs import (
     RegisteredJobAlreadyExists,
     RegisteredJobNotFound,
@@ -88,9 +88,11 @@ async def register_job(request: RegisterJobRequest) -> RegisteredJobView:
 
     Raises ``Conflict`` if a registration with the same name already exists,
     or ``NotFound`` / ``Invalid`` if ``entrypoint`` does not resolve to a
-    callable (validated before persisting).
+    callable (validated before persisting, skipped for Docker-runner jobs where
+    the entrypoint only needs to be importable inside the container).
     """
-    _validate_entrypoint(request.entrypoint)
+    if request.runner_mode != RUNNER_DOCKER:
+        _validate_entrypoint(request.entrypoint)
     try:
         registered = await _register_job_impl(
             name=request.name,
