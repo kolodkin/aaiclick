@@ -40,6 +40,7 @@ export interface TaskView {
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
+  error: string | null;
 }
 
 export interface JobDetail extends JobView {
@@ -52,7 +53,6 @@ export interface TaskDetail extends TaskView {
   result: Record<string, unknown> | null;
   log_path: string | null;
   worker_id: number | null;
-  error: string | null;
   max_retries: number;
 }
 

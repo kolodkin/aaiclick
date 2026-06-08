@@ -115,6 +115,14 @@ def test_task_to_view_omits_detail_fields():
     assert "worker_id" not in dumped
 
 
+def test_task_to_view_carries_error_reason():
+    """List views surface ``error`` so a terminal status reads with its reason
+    (e.g. a fail-fast group-sibling abort vs. an operator cancellation)."""
+    task = _make_task(status="CANCELLED", error="Aborted: a sibling task in the group failed")
+    view = task_to_view(task)
+    assert view.error == "Aborted: a sibling task in the group failed"
+
+
 def test_job_to_detail_embeds_task_views_and_duration():
     job = _make_job(
         started_at=datetime(2025, 1, 1, 12, 0, 1),

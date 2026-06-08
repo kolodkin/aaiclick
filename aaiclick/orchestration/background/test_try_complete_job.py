@@ -12,6 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aaiclick.orchestration.background.handler import (
+    GROUP_SIBLING_ABORTED_ERROR,
     JOB_FAILED_ERROR,
     UPSTREAM_FAILED_ERROR,
     try_complete_job,
@@ -245,8 +246,10 @@ async def test_cascade_completed_upstream_does_not_propagate(bg_db):
 
 
 async def test_cascade_group_to_task_propagates_on_first_failure(bg_db):
-    """group→task: a failure in the upstream group cascades to downstream-of-group
-    even while sibling group members are still running (Airflow all_success semantics)."""
+    """group→task: a failure in the upstream group cascades to downstream-of-group.
+
+    The failing group's still-running sibling (102) is aborted by the
+    fail-fast sweep, so the whole job reaches a terminal FAILED state."""
     await insert_job(bg_db, 1)
     await _insert_group(bg_db, group_id=500, job_id=1)
     await _insert_task(bg_db, task_id=101, job_id=1, status="FAILED", group_id=500)
@@ -258,9 +261,11 @@ async def test_cascade_group_to_task_propagates_on_first_failure(bg_db):
 
     status, _ = await _get_task(bg_db, 103)
     assert status == "UPSTREAM_FAILED"
-    # Job stays RUNNING because sibling task 102 in the upstream group is still RUNNING.
+    # Sibling 102 is aborted (fail-fast), so the job reaches terminal FAILED.
+    status_102, _ = await _get_task(bg_db, 102)
+    assert status_102 == "CANCELLED"
     job_status, _, _ = await _get_job(bg_db, 1)
-    assert job_status == "RUNNING"
+    assert job_status == "FAILED"
 
 
 async def test_cascade_task_to_group(bg_db):
@@ -316,3 +321,84 @@ async def test_cascade_does_not_touch_claimed_or_running(bg_db):
     # Job stays RUNNING because tasks 102/103 are still non-terminal.
     job_status, _, _ = await _get_job(bg_db, 1)
     assert job_status == "RUNNING"
+
+
+# --- Fail-fast group-sibling abort tests (default behavior) ---
+
+
+@pytest.mark.parametrize("sibling_status", ["PENDING", "CLAIMED", "RUNNING", "PENDING_CLEANUP"])
+async def test_group_sibling_abort_cancels_active_sibling(bg_db, sibling_status):
+    """A FAILED group member cancels its still-active sibling regardless of how
+    far the sibling had progressed."""
+    await insert_job(bg_db, 1)
+    await _insert_group(bg_db, group_id=500, job_id=1)
+    await _insert_task(bg_db, task_id=101, job_id=1, status="FAILED", group_id=500)
+    await _insert_task(bg_db, task_id=102, job_id=1, status=sibling_status, group_id=500)
+
+    await _run_try_complete(bg_db, 1)
+
+    status, error = await _get_task(bg_db, 102)
+    assert status == "CANCELLED"
+    assert error == GROUP_SIBLING_ABORTED_ERROR
+    # 101 FAILED + 102 CANCELLED → all terminal → job FAILED.
+    job_status, _, _ = await _get_job(bg_db, 1)
+    assert job_status == "FAILED"
+
+
+async def test_group_sibling_abort_does_not_touch_completed_sibling(bg_db):
+    """The completed-race: a sibling that already reached COMPLETED is terminal
+    and must not be clobbered to CANCELLED by the abort sweep."""
+    await insert_job(bg_db, 1)
+    await _insert_group(bg_db, group_id=500, job_id=1)
+    await _insert_task(bg_db, task_id=101, job_id=1, status="FAILED", group_id=500)
+    await _insert_task(bg_db, task_id=102, job_id=1, status="COMPLETED", group_id=500)
+
+    await _run_try_complete(bg_db, 1)
+
+    status, _ = await _get_task(bg_db, 102)
+    assert status == "COMPLETED"
+    job_status, _, _ = await _get_job(bg_db, 1)
+    assert job_status == "FAILED"
+
+
+async def test_group_sibling_abort_only_aborts_the_failing_group(bg_db):
+    """Abort is scoped to the group with the failure — a healthy parallel group
+    keeps running."""
+    await insert_job(bg_db, 1)
+    await _insert_group(bg_db, group_id=500, job_id=1, name="doomed")
+    await _insert_group(bg_db, group_id=600, job_id=1, name="healthy")
+    await _insert_task(bg_db, task_id=101, job_id=1, status="FAILED", group_id=500)
+    await _insert_task(bg_db, task_id=102, job_id=1, status="PENDING", group_id=500)
+    await _insert_task(bg_db, task_id=201, job_id=1, status="RUNNING", group_id=600)
+    await _insert_task(bg_db, task_id=202, job_id=1, status="RUNNING", group_id=600)
+
+    await _run_try_complete(bg_db, 1)
+
+    status_102, _ = await _get_task(bg_db, 102)
+    assert status_102 == "CANCELLED"
+    for tid in (201, 202):
+        status, _ = await _get_task(bg_db, tid)
+        assert status == "RUNNING", f"task {tid}"
+    # Healthy group still running → job stays RUNNING.
+    job_status, _, _ = await _get_job(bg_db, 1)
+    assert job_status == "RUNNING"
+
+
+async def test_group_sibling_abort_cascades_downstream(bg_db):
+    """A sibling cancelled by the abort sweep propagates onward: a task depending
+    on the now-CANCELLED sibling is marked UPSTREAM_FAILED in the same pass."""
+    await insert_job(bg_db, 1)
+    await _insert_group(bg_db, group_id=500, job_id=1)
+    await _insert_task(bg_db, task_id=101, job_id=1, status="FAILED", group_id=500)
+    await _insert_task(bg_db, task_id=102, job_id=1, status="PENDING", group_id=500)
+    await _insert_task(bg_db, task_id=103, job_id=1, status="PENDING")
+    await _insert_dependency(bg_db, previous_id=102, previous_type="task", next_id=103, next_type="task")
+
+    await _run_try_complete(bg_db, 1)
+
+    status_102, _ = await _get_task(bg_db, 102)
+    status_103, _ = await _get_task(bg_db, 103)
+    assert status_102 == "CANCELLED"
+    assert status_103 == "UPSTREAM_FAILED"
+    job_status, _, _ = await _get_job(bg_db, 1)
+    assert job_status == "FAILED"

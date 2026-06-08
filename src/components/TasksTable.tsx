@@ -22,7 +22,7 @@ export function TasksTable({ tasks, onPrompt }: { tasks: TaskView[]; onPrompt: (
               <span className="name-link mono">{t.name}</span>
             </td>
             <td>
-              <StatusBadge status={t.status} />
+              <StatusBadge status={t.status} reason={t.error} />
             </td>
             <td className="mono">{t.entrypoint}</td>
             <td className="mono">{t.attempt}</td>

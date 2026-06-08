@@ -57,6 +57,11 @@ class TaskView(BaseModel):
     created_at: datetime
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    # Surfaced in list views so a terminal status carries its reason at a
+    # glance — e.g. a fail-fast group-sibling abort (status ``CANCELLED`` with
+    # a sibling-aborted error) reads differently from an operator cancellation
+    # (``CANCELLED`` with no error).
+    error: str | None = None
 
 
 class TaskDetail(TaskView):
@@ -66,7 +71,6 @@ class TaskDetail(TaskView):
     result: dict[str, Any] | None = None
     log_path: str | None = None
     worker_id: int | None = None
-    error: str | None = None
     max_retries: int = 0
 
 
@@ -183,6 +187,7 @@ def task_to_view(task: Task) -> TaskView:
         created_at=task.created_at,
         started_at=task.started_at,
         completed_at=task.completed_at,
+        error=task.error,
     )
 
 
