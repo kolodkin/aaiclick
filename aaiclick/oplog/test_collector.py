@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import text
 
 from aaiclick.data.data_context import create_object_from_value
-from aaiclick.data.data_context.ch_client import create_ch_client
+from aaiclick.data.data_context.ch_client import get_ch_client
 from aaiclick.oplog.oplog_api import oplog_record, oplog_record_sample
 from aaiclick.orchestration.orch_context import task_scope
 from aaiclick.orchestration.sql_context import get_sql_session
@@ -20,7 +20,7 @@ async def test_oplog_writes_on_operation(orch_ctx):
         obj = await create_object_from_value([5])
         table_name = obj.table
 
-    ch = await create_ch_client()
+    ch = get_ch_client()
 
     row = (
         await ch.query(
@@ -63,7 +63,7 @@ async def test_global_scope_overrides_job_default(orch_ctx):
             assert obj.table == "p_cross_job_catalog"
             assert obj.scope == "global"
         finally:
-            ch = await create_ch_client()
+            ch = get_ch_client()
             await ch.command("DROP TABLE IF EXISTS p_cross_job_catalog")
 
 
@@ -87,7 +87,7 @@ async def test_concat_records_kwargs(orch_ctx):
         result = await a.concat(b)
         a_table, b_table, result_table = a.table, b.table, result.table
 
-    ch = await create_ch_client()
+    ch = get_ch_client()
     row = (
         await ch.query(f"SELECT operation, kwargs FROM operation_log WHERE result_table = '{result_table}' LIMIT 1")
     ).result_rows

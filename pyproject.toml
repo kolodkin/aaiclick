@@ -42,15 +42,7 @@ dependencies = [
 
 [project.optional-dependencies]
 distributed = [
-    # 1.0.0's native aiohttp async client leaks connections: command/insert/
-    # raw_query/_query_with_context never call response.release(), and
-    # StreamingResponseSource forms a refcycle, so aiohttp's
-    # Connection.__del__ fires "Unclosed connection" ResourceWarning under
-    # cyclic GC — a non-deterministic test flake under filterwarnings=error.
-    # Fixed upstream in PR #745 (ClickHouse/clickhouse-connect, merged but
-    # unreleased as of 1.0.0). Cap at <1.0 until a fixed release ships;
-    # see docs/technical_debt.md.
-    "clickhouse-connect>=0.15.0,<1.0",
+    "clickhouse-connect>=1.0.1",
     "aiohttp>=3.9.0",
     "asyncpg>=0.31.0",
     "psycopg2-binary>=2.9.11",

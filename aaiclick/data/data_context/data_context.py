@@ -205,6 +205,8 @@ async def data_context(
         _lifecycle_var.reset(lc_token)
         _ch_client_var.reset(ch_token)
 
+        await ch_client.close()
+
 
 def get_engine_clause(engine: EngineType, order_by: str = "tuple()") -> str:
     """Get the ENGINE clause for table creation."""
