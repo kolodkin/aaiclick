@@ -311,6 +311,11 @@ class ChdbClient:
         cols = f" ({', '.join(f'`{c}`' for c in names)})"
         self._session.query(f"INSERT INTO {table}{cols} SELECT * FROM Python(arrow_table)")
 
+    async def close(self) -> None:
+        # chdb's Session is a per-process singleton (see docs/technical_debt.md)
+        # owned outside ChdbClient — closing here would break sibling contexts.
+        pass
+
 
 class ChdbSyncClient:
     """Sync chdb client for TableWorker background thread.
