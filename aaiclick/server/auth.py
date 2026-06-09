@@ -14,14 +14,16 @@ import logging
 import os
 
 from fastapi import Header
-from fastapi.responses import JSONResponse
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from aaiclick.internal_api.errors import Unauthorized
-from aaiclick.view_models import Problem, ProblemCode
+from aaiclick.view_models import ProblemCode
+
+from .errors import problem_response
 
 ENV_TOKEN = "AAICLICK_API_TOKEN"
+BEARER_CHALLENGE = {"WWW-Authenticate": "Bearer"}
 
 logger = logging.getLogger(__name__)
 
@@ -83,16 +85,7 @@ class BearerAuthMiddleware:
         authorization = Headers(scope=scope).get("authorization")
         detail = _rejection_detail(authorization)
         if detail is not None:
-            response = JSONResponse(
-                status_code=401,
-                content=Problem(
-                    title="Unauthorized",
-                    status=401,
-                    detail=detail,
-                    code=ProblemCode.UNAUTHORIZED,
-                ).model_dump(mode="json"),
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+            response = problem_response("Unauthorized", 401, detail, ProblemCode.UNAUTHORIZED, BEARER_CHALLENGE)
             await response(scope, receive, send)
             return
 

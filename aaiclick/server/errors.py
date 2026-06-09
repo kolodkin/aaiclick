@@ -40,6 +40,26 @@ def register_exception_handlers(app: FastAPI) -> None:
         _register(app, exc_type, title, status, code, _HEADERS.get(exc_type))
 
 
+def problem_response(
+    title: str,
+    status: int,
+    detail: str | None,
+    code: ProblemCode,
+    headers: dict[str, str] | None = None,
+) -> JSONResponse:
+    """Build an RFC 7807 ``Problem`` JSON response.
+
+    Shared by the registered exception handlers and the ``/mcp`` auth
+    middleware — the middleware can't reach the app's handlers across the
+    mount boundary, so it calls this directly to emit an identical envelope.
+    """
+    return JSONResponse(
+        status_code=status,
+        content=Problem(title=title, status=status, detail=detail, code=code).model_dump(mode="json"),
+        headers=headers,
+    )
+
+
 def problem_responses(*codes: int) -> dict[int | str, dict[str, Any]]:
     """OpenAPI ``responses=`` mapping for the ``Problem`` codes a route can emit.
 
@@ -60,8 +80,4 @@ def _register(
 ) -> None:
     @app.exception_handler(exc_type)
     async def _handler(request: Request, exc: InternalApiError) -> JSONResponse:
-        return JSONResponse(
-            status_code=status,
-            content=Problem(title=title, status=status, detail=str(exc), code=code).model_dump(mode="json"),
-            headers=headers,
-        )
+        return problem_response(title, status, str(exc), code, headers)
