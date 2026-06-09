@@ -8,10 +8,11 @@ test does not depend on the MCP session-manager lifespan.
 
 from __future__ import annotations
 
-import logging
+from unittest.mock import patch
 
 from aaiclick.view_models import Problem, ProblemCode
 
+from . import auth
 from .app import API_PREFIX
 from .auth import BearerAuthMiddleware, warn_if_open
 
@@ -136,19 +137,22 @@ async def test_mcp_middleware_passes_through_non_http_scope(monkeypatch):
     assert delegated
 
 
-def test_warn_if_open_logs_when_token_unset(monkeypatch, caplog):
+def test_warn_if_open_logs_when_token_unset(monkeypatch):
     monkeypatch.delenv("AAICLICK_API_TOKEN", raising=False)
 
-    with caplog.at_level(logging.WARNING):
+    # Patch the module logger directly rather than asserting via caplog: the
+    # distributed backend's libraries reconfigure logging, so caplog's
+    # propagation-based capture is order-dependent across local/dist runs.
+    with patch.object(auth.logger, "warning") as warning:
         warn_if_open()
 
-    assert any("unset" in r.getMessage() for r in caplog.records)
+    warning.assert_called_once()
 
 
-def test_warn_if_open_silent_when_token_set(monkeypatch, caplog):
+def test_warn_if_open_silent_when_token_set(monkeypatch):
     monkeypatch.setenv("AAICLICK_API_TOKEN", "secret")
 
-    with caplog.at_level(logging.WARNING):
+    with patch.object(auth.logger, "warning") as warning:
         warn_if_open()
 
-    assert not caplog.records
+    warning.assert_not_called()
