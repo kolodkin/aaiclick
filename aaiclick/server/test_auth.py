@@ -51,6 +51,15 @@ async def test_valid_token_allows_request(orch_ctx, app_client, monkeypatch):
     assert response.status_code == 200
 
 
+async def test_scheme_match_is_case_insensitive(orch_ctx, app_client, monkeypatch):
+    """RFC 7235: the auth-scheme name matches case-insensitively."""
+    monkeypatch.setenv("AAICLICK_API_TOKEN", "secret")
+
+    response = await app_client.get(f"{API_PREFIX}/workers", headers={"Authorization": "bearer secret"})
+
+    assert response.status_code == 200
+
+
 async def test_health_stays_open_with_token_set(app_client, monkeypatch):
     monkeypatch.setenv("AAICLICK_API_TOKEN", "secret")
 

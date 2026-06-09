@@ -14,6 +14,7 @@ import logging
 import os
 
 from fastapi import Header
+from fastapi.security.utils import get_authorization_scheme_param
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -42,9 +43,12 @@ def _rejection_detail(authorization: str | None) -> str | None:
     token = _configured_token()
     if token is None:
         return None
-    if authorization is None or not authorization.startswith("Bearer "):
+    # FastAPI's own parser (the one HTTPBearer uses): splits "Bearer <token>"
+    # and matches the scheme case-insensitively per RFC 7235.
+    scheme, credentials = get_authorization_scheme_param(authorization)
+    if scheme.lower() != "bearer" or not credentials:
         return "missing bearer token"
-    if not hmac.compare_digest(authorization.removeprefix("Bearer "), token):
+    if not hmac.compare_digest(credentials, token):
         return "invalid bearer token"
     return None
 
