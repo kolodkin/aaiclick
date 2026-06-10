@@ -151,16 +151,28 @@ callers need distinct privileges:
 
 ## Operator UI Auth
 
-The v0 server is unauthenticated (`localhost-only` intent). When the UI is
-exposed beyond localhost, add an auth layer:
+The v0 server's `AAICLICK_API_TOKEN` is a single static bearer aimed at
+programmatic clients (curl / SDK / MCP). The browser SPA can't use it — its
+API client (`src/api/client.ts`) sends no `Authorization` header, so setting
+the token currently `401`s every UI data fetch (the SPA still loads from `/`
+but shows no data). A browser needs a real login flow, not a shared secret.
 
-- Simple option: HTTP Basic via a reverse proxy (nginx / Caddy).
-- Integrated option: cookie session with a configurable password via a FastAPI
-  middleware; the SPA sends the cookie on every request.
-- Enterprise option: OAuth2 / OIDC via an identity provider.
+**Preferred — JWT + username/password + login page:**
 
-**When to revisit**: when the server is intentionally exposed on a network
-interface accessible to untrusted clients.
+- `POST /api/v0/auth/login` takes username/password, verifies against a
+  configured credential store, returns a short-lived signed JWT (+ refresh).
+- Generalize `require_bearer` (`server/auth.py`) to accept **either** the
+  static `AAICLICK_API_TOKEN` **or** a valid JWT, so REST, MCP, and the UI
+  share one `Authorization: Bearer` header.
+- SPA: a login route + auth store; `client.ts` attaches the JWT on every
+  request (single chokepoint) and redirects to login on `401`.
+
+**Alternatives:** HTTP Basic via a reverse proxy (nginx / Caddy); a
+cookie-session middleware with a configurable password; OAuth2 / OIDC via an
+identity provider for enterprise SSO.
+
+**When to revisit**: when the server (and its UI) is intentionally exposed on
+a network interface reachable by untrusted clients.
 
 ## Comparison Page
 
