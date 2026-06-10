@@ -116,6 +116,22 @@ async def test_register_job_invalid_entrypoint_not_persisted(orch_ctx):
     assert page.items == []
 
 
+async def test_register_job_docker_runner_skips_entrypoint_validation(orch_ctx):
+    """Docker runner entrypoints live inside the container image, not in
+    the registration environment; import-validation must be skipped."""
+    request = RegisterJobRequest(
+        name="docker_smoke",
+        entrypoint="sample_jobs.entry_task",
+        runner_mode="docker",
+        git_remote="file:///some/repo/.git",
+        build_context="test_e2e/docker/fixtures/sample_job",
+    )
+
+    view = await registered_jobs.register_job(request)
+
+    assert view.name == "docker_smoke"
+
+
 async def test_enable_job_returns_view_and_recomputes_next_run(orch_ctx):
     await _register_job_impl(
         name="to_enable",
