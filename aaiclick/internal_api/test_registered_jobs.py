@@ -116,6 +116,24 @@ async def test_register_job_invalid_entrypoint_not_persisted(orch_ctx):
     assert page.items == []
 
 
+async def test_register_job_docker_runner_skips_entrypoint_validation(orch_ctx):
+    """Docker-runner jobs reference modules that only exist in the container image,
+    so host-side entrypoint validation must be skipped for runner_mode='docker'."""
+    request = RegisterJobRequest(
+        name="docker_smoke",
+        entrypoint="sample_jobs.entry_task",
+        runner_mode="docker",
+        git_remote="file:///workspace/.git",
+        build_context="test_e2e/docker/fixtures/sample_job",
+    )
+
+    view = await registered_jobs.register_job(request)
+
+    assert isinstance(view, RegisteredJobView)
+    assert view.name == "docker_smoke"
+    assert view.entrypoint == "sample_jobs.entry_task"
+
+
 async def test_enable_job_returns_view_and_recomputes_next_run(orch_ctx):
     await _register_job_impl(
         name="to_enable",
