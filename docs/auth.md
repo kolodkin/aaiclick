@@ -172,8 +172,13 @@ JWTs are stateless and simply expire (≤ 30 min).
 # Principal Resolution & RBAC
 
 A single dependency `require_principal` replaces the old `require_bearer`. It
-reads the `Authorization: Bearer <cred>` header and resolves a
-`Principal {user_id, email, role}`:
+**does not parse the header by hand** — header extraction and the `/docs`
+**Authorize** dialog come from FastAPI's built-in
+`OAuth2PasswordBearer(tokenUrl="/api/v0/auth/login", auto_error=False)`
+(the framework's standard "password login → bearer" helper; `auto_error=False`
+so a missing credential yields our `Problem` envelope, not FastAPI's bare
+`HTTPException`). `require_principal` then decodes/validates the extracted
+credential and resolves a `Principal {user_id, email, role}`:
 
 - **Auth disabled** → returns a synthetic admin principal; all routes open.
 - **JWT** (`type="access"`, valid signature + `exp`) → trust claims for the
@@ -204,7 +209,10 @@ reads the `Authorization: Bearer <cred>` header and resolves a
 Enforcement: `require_principal` at every `/api/v0` router (via
 `include_router(dependencies=...)`); `Depends(require_admin)` added to each
 mutating route. Reads need only a valid principal. Per-router scope deps
-(`orch_scope`) are unchanged and run alongside.
+(`orch_scope`) are unchanged and run alongside. FastAPI's dependency injection
+covers all of this for the app's own routes — the **only** hand-rolled
+transport guard is the `/mcp` ASGI middleware below, because `Depends` does not
+propagate into mounted sub-apps.
 
 # API Tokens (PATs)
 
@@ -221,11 +229,14 @@ admins):
 
 # MCP Surface
 
-The `/mcp` mount is **admin-only**. Its ASGI middleware (which already exists
-for the static check) authenticates the credential and additionally requires
-`role == "admin"`; non-admin or unauthenticated → `401`/`403` `Problem`. No
-per-tool RBAC this iteration — an MCP credential is all-or-nothing. (Per-tool
-read/write RBAC is tracked in `docs/future.md`.)
+The `/mcp` mount is **admin-only**. Because FastAPI's `Depends` does not reach
+mounted sub-apps, the mount keeps its own raw ASGI middleware (the existing
+`BearerAuthMiddleware`, evolved): it extracts the credential, runs the **same**
+`require_principal` decode logic, and additionally requires `role == "admin"`;
+non-admin or unauthenticated → `401`/`403` `Problem`. This middleware is the
+one intentional exception to "let FastAPI's security handle it." No per-tool
+RBAC this iteration — an MCP credential is all-or-nothing. (Per-tool read/write
+RBAC is tracked in `docs/future.md`.)
 
 # CLI & Admin Bootstrap
 
