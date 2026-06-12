@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from aaiclick.orchestration.models import PRESERVATION_FULL
+from aaiclick.orchestration.models import PRESERVATION_FULL, RUNNER_DOCKER
 from aaiclick.orchestration.registered_jobs import register_job as _register_job_impl
 from aaiclick.orchestration.view_models import RegisteredJobView
 from aaiclick.view_models import Page, RegisteredJobFilter, RegisterJobRequest
@@ -152,3 +152,21 @@ async def test_disable_job_clears_next_run(orch_ctx):
 async def test_disable_job_missing_raises_not_found(orch_ctx):
     with pytest.raises(errors.NotFound):
         await registered_jobs.disable_job("ghost_job")
+
+
+async def test_register_job_docker_runner_skips_entrypoint_validation(orch_ctx):
+    # Docker runner jobs have their entrypoint module inside the container image,
+    # not on the registration host — validation must be skipped.
+    request = RegisterJobRequest(
+        name="docker_job",
+        entrypoint="container_only_pkg.main_task",
+        runner_mode=RUNNER_DOCKER,
+        git_remote="file:///repo/.git",
+        build_context="path/to/context",
+    )
+
+    view = await registered_jobs.register_job(request)
+
+    assert view.name == "docker_job"
+    page = await registered_jobs.list_registered_jobs(RegisteredJobFilter(name="docker_job"))
+    assert len(page.items) == 1
