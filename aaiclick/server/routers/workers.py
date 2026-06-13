@@ -6,6 +6,7 @@ from aaiclick.internal_api import workers as workers_api
 from aaiclick.orchestration.view_models import WorkerView
 from aaiclick.view_models import Page, StartWorkerRequest, WorkerFilter
 
+from ..auth import require_admin
 from ..deps import orch_scope
 from ..errors import problem_responses
 
@@ -17,7 +18,12 @@ async def list_workers(filter: WorkerFilter = Depends()) -> Page[WorkerView]:
     return await workers_api.list_workers(filter)
 
 
-@router.post("", status_code=202, responses=problem_responses(422, 503))
+@router.post(
+    "",
+    status_code=202,
+    dependencies=[Depends(require_admin)],
+    responses=problem_responses(403, 422, 503),
+)
 async def start_worker(request: StartWorkerRequest, http_request: Request) -> Response:
     """Spawn a detached worker subprocess (distributed mode only).
 
@@ -28,6 +34,11 @@ async def start_worker(request: StartWorkerRequest, http_request: Request) -> Re
     return Response(status_code=202, headers={"Location": http_request.url_for("start_worker").path})
 
 
-@router.post("/{worker_id}/stop", response_model=WorkerView, responses=problem_responses(404, 409))
+@router.post(
+    "/{worker_id}/stop",
+    response_model=WorkerView,
+    dependencies=[Depends(require_admin)],
+    responses=problem_responses(403, 404, 409),
+)
 async def stop_worker(worker_id: int) -> WorkerView:
     return await workers_api.stop_worker(worker_id)

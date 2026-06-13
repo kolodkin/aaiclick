@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from aaiclick.auth import security
+from aaiclick.auth.models import ROLE_VIEWER
 from aaiclick.internal_api import workers as workers_api
 from aaiclick.internal_api.errors import Invalid, WorkerSpawnFailed
 from aaiclick.orchestration.execution.worker import register_worker
@@ -8,6 +10,18 @@ from aaiclick.orchestration.view_models import WorkerView
 from aaiclick.view_models import Page, Problem, ProblemCode
 
 from ..app import API_PREFIX
+
+RBAC_SECRET = "rbac-workers-test-secret-key-32-plus-bytes"
+
+
+async def test_viewer_cannot_start_worker(orch_ctx, app_client, monkeypatch):
+    monkeypatch.setenv("AAICLICK_AUTH_ENABLED", "true")
+    monkeypatch.setenv("AAICLICK_JWT_SECRET", RBAC_SECRET)
+    token = security.encode_access_token(user_id=2, role=ROLE_VIEWER, secret=RBAC_SECRET, ttl=60)
+    res = await app_client.post(
+        f"{API_PREFIX}/workers", json={}, headers={"Authorization": f"Bearer {token}"}
+    )
+    assert res.status_code == 403
 
 
 async def test_list_workers(orch_ctx, app_client):

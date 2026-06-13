@@ -12,6 +12,7 @@ from aaiclick.view_models import (
     PurgeObjectsResult,
 )
 
+from ..auth import require_admin
 from ..deps import orch_scope_with_ch
 from ..errors import problem_responses
 
@@ -23,7 +24,12 @@ async def list_objects(filter: ObjectFilter = Depends()) -> Page[ObjectView]:
     return await objects_api.list_objects(filter)
 
 
-@router.post(":purge", response_model=PurgeObjectsResult, responses=problem_responses(422))
+@router.post(
+    ":purge",
+    response_model=PurgeObjectsResult,
+    dependencies=[Depends(require_admin)],
+    responses=problem_responses(403, 422),
+)
 async def purge_objects(request: PurgeObjectsRequest) -> PurgeObjectsResult:
     return await objects_api.purge_objects(request)
 
@@ -33,6 +39,11 @@ async def get_object(name: str) -> ObjectDetail:
     return await objects_api.get_object(name)
 
 
-@router.delete("/{name}", response_model=ObjectDeleted)
+@router.delete(
+    "/{name}",
+    response_model=ObjectDeleted,
+    dependencies=[Depends(require_admin)],
+    responses=problem_responses(403),
+)
 async def delete_object(name: str) -> ObjectDeleted:
     return await objects_api.delete_object(name)
