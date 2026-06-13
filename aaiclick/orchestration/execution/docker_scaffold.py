@@ -22,7 +22,7 @@ DOCKERFILE_TEMPLATE = """\
 #   - the build-args below (if you use them) come through as ARG declarations
 #
 # Build-args the framework forwards (optional — declare only what you use):
-#   GIT_REMOTE, GIT_SHA, GIT_BRANCH, BUILD_CONTEXT
+#   GIT_REMOTE, GIT_SHA, GIT_BRANCH
 #   PIP_INDEX_URL, PIP_EXTRA_INDEX_URL  (e.g. corporate / test pypi)
 #   PIP_TRUSTED_HOST                    (allow plain HTTP for the index host)
 #   AAICLICK_VERSION                    (matches the host's installed version)
@@ -32,7 +32,6 @@ FROM python:3.10-slim
 ARG GIT_REMOTE
 ARG GIT_SHA
 ARG GIT_BRANCH
-ARG BUILD_CONTEXT
 ARG PIP_INDEX_URL
 ARG PIP_TRUSTED_HOST
 ARG AAICLICK_VERSION
@@ -45,8 +44,7 @@ LABEL org.opencontainers.image.ref.name="${GIT_BRANCH}"
 # Runtime env (visible to task code via os.environ).
 ENV GIT_REMOTE=${GIT_REMOTE} \\
     GIT_SHA=${GIT_SHA} \\
-    GIT_BRANCH=${GIT_BRANCH} \\
-    BUILD_CONTEXT=${BUILD_CONTEXT}
+    GIT_BRANCH=${GIT_BRANCH}
 
 # Install aaiclick. Pinned to the host's version so the host worker and the
 # container speak the same IPC protocol.

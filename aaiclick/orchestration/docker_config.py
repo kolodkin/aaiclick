@@ -32,7 +32,6 @@ class DockerJobConfig(NamedTuple):
     git_remote: str
     git_sha: str
     git_branch: str | None
-    build_context: str | None
     dockerfile: str | None
     image_tag: str
 
@@ -123,7 +122,6 @@ async def resolve_docker_config(
     git_remote: str | None = None,
     git_sha: str | None = None,
     git_branch: str | None = None,
-    build_context: str | None = None,
     dockerfile: str | None = None,
 ) -> DockerJobConfig:
     """Resolve docker config for a single ``run_job`` call.
@@ -147,10 +145,6 @@ async def resolve_docker_config(
     if branch is None:
         branch = await auto_detect_git_branch()
 
-    ctx = build_context
-    if ctx is None and registered is not None:
-        ctx = registered.build_context
-
     dfile = dockerfile
     if dfile is None and registered is not None:
         dfile = registered.dockerfile
@@ -159,7 +153,6 @@ async def resolve_docker_config(
         git_remote=remote,
         git_sha=sha,
         git_branch=branch,
-        build_context=ctx,
         dockerfile=dfile,
         image_tag=compute_image_tag(sha),
     )
