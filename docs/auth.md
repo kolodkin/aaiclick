@@ -173,12 +173,11 @@ JWTs are stateless and simply expire (≤ 30 min).
 
 A single dependency `require_principal` replaces the old `require_bearer`. It
 **does not parse the header by hand** — header extraction and the `/docs`
-**Authorize** dialog come from FastAPI's built-in
-`OAuth2PasswordBearer(tokenUrl="/api/v0/auth/login", auto_error=False)`
-(the framework's standard "password login → bearer" helper; `auto_error=False`
-so a missing credential yields our `Problem` envelope, not FastAPI's bare
-`HTTPException`). `require_principal` then decodes/validates the extracted
-credential and resolves a `Principal {user_id, email, role}`:
+**Authorize** box come from FastAPI's built-in
+`HTTPBearer(auto_error=False)` (`auto_error=False` so a missing credential
+yields our `Problem` envelope, not FastAPI's bare `HTTPException`).
+`require_principal` then decodes/validates the extracted credential and resolves
+a `Principal {user_id, email, role}`:
 
 - **Auth disabled** → returns a synthetic admin principal; all routes open.
 - **JWT** (`type="access"`, valid signature + `exp`) → trust claims for the
@@ -193,6 +192,30 @@ credential and resolves a `Principal {user_id, email, role}`:
 
 `require_admin` depends on `require_principal` and raises `Forbidden` (`403`,
 `code="forbidden"`) when `role != "admin"`.
+
+## FastAPI security helpers — used vs skipped
+
+Verified against the pinned `fastapi==0.136.0` `fastapi.security` module.
+
+- **Use `HTTPBearer(auto_error=False)`** — extracts the `Authorization: Bearer`
+  credential (JWT *or* PAT) and registers the OpenAPI scheme so `/docs` gets an
+  **Authorize** paste-a-token box.
+- **Skip `OAuth2PasswordBearer` / `OAuth2PasswordRequestForm`** — they pair to
+  make Swagger's one-click login work, but only with a **form-encoded**
+  `username`/`password` endpoint. Login is JSON `{email, password}` (consistent
+  with the rest of the API, correct `email` naming), and `/auth/refresh` /
+  `/auth/logout` are JSON regardless — so the OAuth2 password grant buys no
+  uniform surface here. `/docs` login is therefore two-click (run `POST
+  /auth/login`, paste the `access_token` into Authorize).
+- **Skip `SecurityScopes` / `Security(..., scopes=[...])`** — FastAPI's granular
+  scope system is overkill for a two-role (admin/viewer) model; a plain
+  `require_admin` dependency is clearer.
+- **Skip `APIKeyHeader` / `APIKeyQuery` / `APIKeyCookie`** — PATs ride in the
+  same `Authorization: Bearer` header, already covered by `HTTPBearer`.
+- **Skip `HTTPBasic` / `HTTPDigest`, `OpenIdConnect`,
+  `OAuth2AuthorizationCodeBearer`** — no basic-auth, no SSO/OIDC (non-goals).
+- **No built-in exists** for password hashing (→ `bcrypt`) or JWT encode/decode
+  (→ `pyjwt`); FastAPI's own security tutorial does both by hand.
 
 ## Role matrix
 
