@@ -1,27 +1,30 @@
 """End-to-end smoke test for the Docker runner.
 
 Drives the full ``register-job`` → ``run-job`` → build → run → result
-path against a real docker daemon, a real local registry, and a real
-test pypi serving the wheel under test. Both the registration and the
-job submission go through the ``python -m aaiclick`` CLI as a real
-user would, so this exercises the CLI plumbing alongside the runtime.
+path against a real docker daemon, a real local registry, a real test
+pypi serving the wheel under test, and a real git remote (a local
+``git daemon`` serving the fixture as a standalone repo — see the
+``docker_e2e_user_repo`` fixture). Both the registration and the job
+submission go through the ``python -m aaiclick`` CLI as a real user
+would, run from the user-repo working tree so the entrypoint resolves
+from it — exactly as an external user standing in their project.
 
 Marked ``docker_e2e`` so it opts out of the default test run; both the
 nightly workflow and the publish-time release gate pass
 ``test_e2e/docker/`` to pytest with ``-m docker_e2e`` to pick it up.
 
-The test reuses the aaiclick checkout itself as its "user repo" via a
-``file://`` remote — the build runs on the CI host which already has
-the checkout, so going through GitHub would be a pointless network
-round-trip with extra flake surface."""
+The "user repo" is a self-contained fixture repo, decoupled from the
+aaiclick checkout: aaiclick-under-test arrives via the test pypi wheel,
+so the cloned repo only carries the user's project. This keeps the
+suite locally runnable (just a docker daemon) with no network."""
 
 from __future__ import annotations
 
 import asyncio
-import os
 import subprocess
 import sys
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 from sqlmodel import col, select
@@ -33,21 +36,16 @@ from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, TASK_COMPLE
 from aaiclick.orchestration.orch_context import get_sql_session
 
 
-def _required_env(name: str) -> str:
-    value = os.environ.get(name)
-    if not value:
-        pytest.skip(f"{name} not set; e2e suite is workflow-driven")
-    return value
-
-
-def _aaiclick(*args: str) -> subprocess.CompletedProcess:
-    """Run a `python -m aaiclick` CLI invocation in the same env as the
-    test process. Captures output so failures surface in the pytest log."""
+def _aaiclick(*args: str, cwd: Path) -> subprocess.CompletedProcess:
+    """Run a `python -m aaiclick` CLI invocation from ``cwd`` (the user
+    repo, so the entrypoint module is on ``sys.path``). Captures output
+    so failures surface in the pytest log."""
     return subprocess.run(
         [sys.executable, "-m", "aaiclick", *args],
         check=True,
         capture_output=True,
         text=True,
+        cwd=cwd,
     )
 
 
@@ -68,11 +66,10 @@ async def _wait_for_job(job_name: str, timeout: float = 600.0) -> Job:
 
 
 @pytest.mark.docker_e2e
-async def test_docker_runner_smoke(orch_ctx):
-    """Build the fixture image from the current checkout, run the entry
-    task in a container, assert it completes."""
-    workspace = _required_env("GITHUB_WORKSPACE")
-    sha = _required_env("GITHUB_SHA")
+async def test_docker_runner_smoke(orch_ctx, docker_e2e_user_repo):
+    """Build the fixture image from the standalone user repo, run the
+    entry task in a container, assert it completes."""
+    remote, sha, worktree = docker_e2e_user_repo
     job_name = "docker_e2e_smoke"
 
     _aaiclick(
@@ -83,15 +80,11 @@ async def test_docker_runner_smoke(orch_ctx):
         "--runner",
         "docker",
         "--git-remote",
-        f"file://{workspace}/.git",
-        "--build-context",
-        "test_e2e/docker/fixtures/sample_job",
+        remote,
+        cwd=worktree,
     )
 
-    run_args = ["run-job", job_name, "--git-sha", sha]
-    if branch := os.environ.get("GITHUB_REF_NAME"):
-        run_args.extend(["--git-branch", branch])
-    _aaiclick(*run_args)
+    _aaiclick("run-job", job_name, "--git-sha", sha, cwd=worktree)
 
     # Drive the worker loop in the background while we poll for completion.
     worker_task = asyncio.create_task(

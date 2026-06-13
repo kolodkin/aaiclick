@@ -58,8 +58,11 @@ RUN pip install --no-cache-dir \\
 
 # Install the user's repo as a package so `importlib` can resolve task
 # entrypoints. Replace this with the install method that suits your project
-# (uv pip, poetry install --only main, etc.).
+# (uv pip, poetry install --only main, etc.). WORKDIR is the project root so
+# the container resolves entrypoints from the workdir — the same way the host
+# CLI does when run from the repo.
 COPY . /src
+WORKDIR /src
 RUN pip install --no-cache-dir /src
 """
 

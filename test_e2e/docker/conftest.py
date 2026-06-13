@@ -9,7 +9,11 @@ unless a docker daemon is reachable. Workflows opt in by passing the
 from __future__ import annotations
 
 import shutil
+import socket
 import subprocess
+import time
+from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 
@@ -26,6 +30,100 @@ from aaiclick.testing import (  # noqa: F401 - re-exported as pytest fixtures
     orch_module_ctx_no_ch,
     sql_worker_setup,
 )
+
+
+def _free_port() -> int:
+    """Pick an unused loopback port for the throwaway git daemon."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def _wait_for_port(host: str, port: int, timeout: float = 10.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=1.0):
+                return
+        except OSError:
+            time.sleep(0.1)
+    raise RuntimeError(f"git daemon did not start on {host}:{port} within {timeout}s")
+
+
+@pytest.fixture(scope="session")
+def docker_e2e_user_repo(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[str, str, Path]]:
+    """Serve the ``sample_job`` fixture as a standalone git repo over a
+    local ``git daemon`` — a real remote, no monorepo reuse, no network.
+
+    The docker-runner build clones ``--git-remote`` host-side (the build
+    task runs on the runner, not in a container), so the remote only needs
+    runner-local reachability: ``git daemon`` bundled with stock git is
+    enough — no service container, no auth, no ``host.docker.internal``.
+
+    Yields ``(remote_url, commit_sha, worktree)``. ``worktree`` is the
+    user-repo checkout the host CLI runs from (its root is on ``sys.path``
+    so ``register-job`` resolves the entrypoint exactly as an external user
+    standing in their project would); ``remote_url`` is what the build
+    clones at ``commit_sha``."""
+    fixture = Path(__file__).parent / "fixtures" / "sample_job"
+    base = tmp_path_factory.mktemp("gitsrv")
+    worktree = tmp_path_factory.mktemp("user_repo")
+    shutil.copytree(fixture, worktree, dirs_exist_ok=True)
+
+    def git(cwd: Path, *args: str) -> None:
+        subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True)
+
+    git(worktree, "init", "-q", "-b", "main")
+    git(worktree, "add", "-A")
+    # ``-c …`` overrides keep the commit independent of the runner's global
+    # git config (identity, and any ambient ``commit.gpgsign`` that would
+    # otherwise demand a signing key the CI runner doesn't have).
+    git(
+        worktree,
+        "-c",
+        "user.email=e2e@example.com",
+        "-c",
+        "user.name=e2e",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-qm",
+        "fixture",
+    )
+    sha = subprocess.run(
+        ["git", "-C", str(worktree), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    bare = base / "sample_job.git"
+    git(worktree, "clone", "-q", "--bare", str(worktree), str(bare))
+    # The build fetches a raw SHA over the smart transport; upload-pack
+    # rejects that unless the serving repo opts in.
+    git(bare, "config", "uploadpack.allowAnySHA1InWant", "true")
+
+    port = _free_port()
+    daemon = subprocess.Popen(
+        [
+            "git",
+            "daemon",
+            "--reuseaddr",
+            f"--base-path={base}",
+            "--export-all",
+            "--listen=127.0.0.1",
+            f"--port={port}",
+        ]
+    )
+    try:
+        _wait_for_port("127.0.0.1", port)
+        yield f"git://127.0.0.1:{port}/sample_job.git", sha, worktree
+    finally:
+        daemon.terminate()
+        try:
+            daemon.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            daemon.kill()
 
 
 def pytest_configure(config: pytest.Config) -> None:
