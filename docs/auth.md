@@ -6,10 +6,20 @@ username/password users, role-based access control (admin / viewer), and login
 sessions (short-lived access JWT + rotating refresh token) for both the browser
 SPA and programmatic HTTP clients.
 
-**Status**: ⚠️ NOT YET IMPLEMENTED — this document is the design of record.
-Supersedes the static `AAICLICK_API_TOKEN` described in earlier revisions of
-`docs/api_server.md`, and the deferred *Operator UI Auth* item in
+**Status**: ✅ IMPLEMENTED. Replaced the static `AAICLICK_API_TOKEN`.
+**Implementation**: `aaiclick/auth/` (`models.py`, `security.py`, `config.py`,
+`store.py`, `view_models.py`), `aaiclick/internal_api/auth.py` +
+`internal_api/users.py`, `aaiclick/server/auth.py` + `server/routers/auth.py` +
+`server/routers/users.py`, CLI in `aaiclick/__main__.py`, SPA in
+`src/lib/auth.ts` + `src/components/Auth.tsx` + `src/views/Login.tsx`. Remaining
+follow-ups (PATs, per-tool MCP RBAC, user-management UI, SSO) live in
 `docs/future.md`.
+
+!!! note "Migration"
+    The `users` / `refresh_tokens` Alembic revision is generated via the
+    `generate-migration` GitHub Actions workflow. Local/dev (`aaiclick setup`)
+    creates the tables from `SQLModel.metadata`, so the revision is only
+    required for Postgres-backed deployments.
 
 # Goals
 

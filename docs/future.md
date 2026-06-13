@@ -132,47 +132,22 @@ TypeScript types always match the server schema.
 script, CI check that the generated file is up to date (commit the output;
 fail if dirty after re-gen).
 
-## API Auth — DB-Backed Token Scopes
+## API Auth — Beyond Username/Password + RBAC
 
-v0 ships a single static bearer token (`AAICLICK_API_TOKEN`, see
-`docs/api_server.md` — Authentication). The follow-ups, once multiple
-callers need distinct privileges:
+Username/password users, admin/viewer RBAC, and JWT login (access + refresh)
+ship today (`docs/auth.md`). Follow-ups, once more callers / finer control are
+needed:
 
-- **DB-backed tokens with scopes** — `api_tokens` table, per-token
-  `read` / `write` / `admin` scope, CRUD CLI (`aaiclick token issue`,
-  `aaiclick token revoke`), rotation, expiry. Scopes gate mutating verbs
-  (`cancel_job`, `delete_object`, `start_worker`, `setup`). The
-  `Forbidden` (403) error and `ProblemCode.FORBIDDEN` already ship for
-  this rollout — no route raises them in v0.
-- **OAuth 2.0 / OIDC** — delegated identity for the orchestration UI once
-  a browser client exists.
-- **Per-request audit log** — who called what, when. Out of scope until
-  token identity exists.
-
-## Operator UI Auth
-
-The v0 server's `AAICLICK_API_TOKEN` is a single static bearer aimed at
-programmatic clients (curl / SDK / MCP). The browser SPA can't use it — its
-API client (`src/api/client.ts`) sends no `Authorization` header, so setting
-the token currently `401`s every UI data fetch (the SPA still loads from `/`
-but shows no data). A browser needs a real login flow, not a shared secret.
-
-**Preferred — JWT + username/password + login page:**
-
-- `POST /api/v0/auth/login` takes username/password, verifies against a
-  configured credential store, returns a short-lived signed JWT (+ refresh).
-- Generalize `require_bearer` (`server/auth.py`) to accept **either** the
-  static `AAICLICK_API_TOKEN` **or** a valid JWT, so REST, MCP, and the UI
-  share one `Authorization: Bearer` header.
-- SPA: a login route + auth store; `client.ts` attaches the JWT on every
-  request (single chokepoint) and redirects to login on `401`.
-
-**Alternatives:** HTTP Basic via a reverse proxy (nginx / Caddy); a
-cookie-session middleware with a configurable password; OAuth2 / OIDC via an
-identity provider for enterprise SSO.
-
-**When to revisit**: when the server (and its UI) is intentionally exposed on
-a network interface reachable by untrusted clients.
+- **Long-lived API tokens / PATs with scopes** — user-minted, named, expiring
+  tokens with per-token `read` / `write` scopes for unattended CLI / SDK / MCP
+  clients (currently they log in with username/password and ride the refresh
+  flow). Includes a token-management UI + CLI.
+- **Per-tool MCP RBAC** — the `/mcp` mount is admin-only today; expose
+  read-only tools to `viewer` once per-tool gating is worth the complexity.
+- **Admin user-management UI** — admins manage users via REST + CLI today.
+- **OAuth 2.0 / OIDC / SSO**, **MFA**, **password-reset flow** — delegated /
+  hardened identity for enterprise deployments.
+- **Per-request audit log** — who called what, when.
 
 ## Comparison Page
 
