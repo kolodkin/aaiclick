@@ -116,6 +116,19 @@ async def test_register_job_invalid_entrypoint_not_persisted(orch_ctx):
     assert page.items == []
 
 
+async def test_register_job_docker_runner_skips_local_entrypoint_validation(orch_ctx):
+    """Docker runner entrypoints live inside the image, not on the host."""
+    request = RegisterJobRequest(
+        name="docker_job",
+        entrypoint="sample_jobs.entry_task",
+        runner_mode="docker",
+    )
+
+    view = await registered_jobs.register_job(request)
+
+    assert view.name == "docker_job"
+
+
 async def test_enable_job_returns_view_and_recomputes_next_run(orch_ctx):
     await _register_job_impl(
         name="to_enable",
