@@ -6,6 +6,7 @@ from sqlalchemy import engine_from_config, pool
 from sqlmodel import SQLModel
 
 # Import models module to ensure all models are registered with SQLModel metadata
+import aaiclick.auth.models  # noqa: F401  # register users/refresh_tokens with SQLModel.metadata
 import aaiclick.orchestration.models  # noqa: F401
 
 # this is the Alembic Config object, which provides
