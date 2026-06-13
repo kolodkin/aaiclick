@@ -8,6 +8,7 @@ from SQLModel rows — so the JSON schema and text columns cannot drift.
 
 from __future__ import annotations
 
+from aaiclick.auth.view_models import UserView
 from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.orchestration.view_models import (
     JobDetail,
@@ -192,6 +193,24 @@ def render_workers_page(page: Page[WorkerView], offset: int) -> None:
 def render_worker_stopped(view: WorkerView) -> None:
     """Single-line confirmation that ``internal_api.stop_worker`` succeeded."""
     print(f"Stop requested for worker {view.id}")
+
+
+def render_user(view: UserView) -> None:
+    """Single-line summary of one user."""
+    print(f"{view.id}  {view.username}  role={view.role}  disabled={view.disabled}")
+
+
+def render_users_page(page: Page[UserView], offset: int) -> None:
+    """Print a paged list of users as an aligned text table."""
+    if not page.items:
+        print("No users found")
+        return
+
+    print(f"{'ID':<20} {'Username':<20} {'Role':<8} {'Disabled':<8}")
+    print("-" * 60)
+    for u in page.items:
+        print(f"{u.id:<20} {u.username:<20} {u.role:<8} {str(u.disabled):<8}")
+    _print_page_footer(page, offset)
 
 
 def render_objects_page(page: Page[ObjectView]) -> None:

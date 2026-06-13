@@ -35,8 +35,11 @@ from datetime import datetime
 from typing import cast, get_args
 
 from aaiclick import cli_renderers, internal_api
+from aaiclick.auth.models import ROLE_VIEWER, ROLES
+from aaiclick.auth.view_models import CreateUserRequest, UserListFilter
 from aaiclick.data.data_context import data_context
 from aaiclick.internal_api import setup as setup_api
+from aaiclick.internal_api import users as users_api
 from aaiclick.internal_api.errors import InternalApiError
 from aaiclick.orchestration.models import JobStatus, PreservationMode, RunnerMode, WorkerStatus
 from aaiclick.orchestration.orch_context import orch_context
@@ -238,6 +241,37 @@ async def _run_worker_list(args: argparse.Namespace) -> None:
 async def _run_worker_stop(args: argparse.Namespace) -> None:
     view = await _run_internal_api(internal_api.stop_worker(args.worker_id))
     _render(args, view, cli_renderers.render_worker_stopped)
+
+
+async def _run_user_create(args: argparse.Namespace) -> None:
+    view = await _run_internal_api(
+        users_api.create_user(
+            CreateUserRequest(username=args.username, password=args.password, role=args.role)
+        )
+    )
+    _render(args, view, cli_renderers.render_user)
+
+
+async def _run_user_list(args: argparse.Namespace) -> None:
+    page = await _run_internal_api(
+        users_api.list_users(UserListFilter(limit=args.limit, offset=args.offset))
+    )
+    _render(args, page, lambda p: cli_renderers.render_users_page(p, offset=args.offset))
+
+
+async def _run_user_set_role(args: argparse.Namespace) -> None:
+    view = await _run_internal_api(users_api.set_role(args.user_id, args.role))
+    _render(args, view, cli_renderers.render_user)
+
+
+async def _run_user_disable(args: argparse.Namespace) -> None:
+    view = await _run_internal_api(users_api.disable_user(args.user_id, True))
+    _render(args, view, cli_renderers.render_user)
+
+
+async def _run_user_passwd(args: argparse.Namespace) -> None:
+    view = await _run_internal_api(users_api.set_password(args.user_id, args.password))
+    _render(args, view, cli_renderers.render_user)
 
 
 _MIGRATE_HELP = """\
@@ -769,6 +803,41 @@ def main():
         help="Overwrite an existing file",
     )
 
+    # Add user subcommand (administration)
+    user_parser = subparsers.add_parser(
+        "user",
+        help="User administration",
+    )
+    user_subparsers = user_parser.add_subparsers(
+        dest="user_command",
+        help="User commands",
+    )
+
+    user_create_parser = user_subparsers.add_parser("create", help="Create a user")
+    user_create_parser.add_argument("username")
+    user_create_parser.add_argument("--password", required=True)
+    user_create_parser.add_argument("--role", choices=list(ROLES), default=ROLE_VIEWER)
+    _add_json_flag(user_create_parser)
+
+    user_list_parser = user_subparsers.add_parser("list", help="List users")
+    user_list_parser.add_argument("--limit", type=int, default=50)
+    user_list_parser.add_argument("--offset", type=int, default=0)
+    _add_json_flag(user_list_parser)
+
+    user_set_role_parser = user_subparsers.add_parser("set-role", help="Change a user's role")
+    user_set_role_parser.add_argument("user_id", type=int)
+    user_set_role_parser.add_argument("role", choices=list(ROLES))
+    _add_json_flag(user_set_role_parser)
+
+    user_disable_parser = user_subparsers.add_parser("disable", help="Disable a user")
+    user_disable_parser.add_argument("user_id", type=int)
+    _add_json_flag(user_disable_parser)
+
+    user_passwd_parser = user_subparsers.add_parser("passwd", help="Set a user's password")
+    user_passwd_parser.add_argument("user_id", type=int)
+    user_passwd_parser.add_argument("--password", required=True)
+    _add_json_flag(user_passwd_parser)
+
     args = parser.parse_args()
 
     if args.command == "setup":
@@ -873,6 +942,25 @@ def main():
             _run_docker_init(args)
         else:
             docker_parser.print_help()
+
+    elif args.command == "user":
+        if args.user_command == "create":
+            asyncio.run(_run_user_create(args))
+
+        elif args.user_command == "list":
+            asyncio.run(_run_user_list(args))
+
+        elif args.user_command == "set-role":
+            asyncio.run(_run_user_set_role(args))
+
+        elif args.user_command == "disable":
+            asyncio.run(_run_user_disable(args))
+
+        elif args.user_command == "passwd":
+            asyncio.run(_run_user_passwd(args))
+
+        else:
+            user_parser.print_help()
 
     else:
         parser.print_help()
