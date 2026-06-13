@@ -2,34 +2,36 @@ Authentication, Users & RBAC
 ---
 
 Design spec for replacing the v0 static bearer token with a real auth system:
-email/password users, role-based access control (admin / viewer), browser
-login sessions (JWT), and user-managed API tokens with expiry.
+username/password users, role-based access control (admin / viewer), and login
+sessions (short-lived access JWT + rotating refresh token) for both the browser
+SPA and programmatic HTTP clients.
 
 **Status**: ⚠️ NOT YET IMPLEMENTED — this document is the design of record.
 Supersedes the static `AAICLICK_API_TOKEN` described in earlier revisions of
-`docs/api_server.md`, and the deferred *Operator UI Auth* / *API Auth — DB-Backed
-Token Scopes* items in `docs/future.md`.
+`docs/api_server.md`, and the deferred *Operator UI Auth* item in
+`docs/future.md`.
 
 # Goals
 
-- **Users**: email + password, stored in the orchestration SQL database.
+- **Users**: username + password, stored in the orchestration SQL database.
 - **RBAC**: exactly two roles — `admin` (full access) and `viewer`
   (read-only). No teams, no per-resource ACLs, no custom roles.
-- **Browser sessions**: password login → short-lived access JWT + rotating
-  refresh token (the industry-standard SPA pattern).
-- **API tokens (PATs)**: users mint long-lived, named, **expiring** tokens for
-  CLI / SDK / MCP access, managed on a token page. Shown once at creation.
-- **One unified credential header**: every surface authenticates via
-  `Authorization: Bearer <jwt-or-api-token>`.
+- **Sessions**: password login → short-lived access JWT + rotating refresh
+  token (the industry-standard pattern). The SPA and any programmatic HTTP /
+  MCP client use the same flow.
+- **One credential header**: every HTTP surface authenticates via
+  `Authorization: Bearer <access-jwt>`.
 - **Preserve zero-config local dev**: auth is **off by default**; the
-  `local start` onboarding path keeps working with no setup.
+  `local start` onboarding path keeps working with no setup, and the in-process
+  CLI never crosses the HTTP-transport auth layer.
 
 # Non-Goals
 
 - Teams / organizations / groups.
-- Per-token scope selection or downscoping (a token always carries its
-  owner's *current* role).
-- OAuth 2.0 / OIDC / SSO, MFA, email verification, password-reset emails.
+- **Long-lived API tokens / PATs** — programmatic clients log in with
+  username/password and ride the access + refresh flow; there are no separately
+  minted, named secrets this iteration.
+- OAuth 2.0 / OIDC / SSO, MFA, password-reset flows.
 - A user-management **UI** (admins manage users via REST + CLI this iteration).
 - Per-tool RBAC on the MCP surface (MCP is admin-only — see
   [MCP surface](#mcp-surface)).
@@ -42,7 +44,7 @@ Token Scopes* items in `docs/future.md`.
 | `AAICLICK_JWT_SECRET`      | HS256 signing secret. **Required** when auth is enabled.       | unset          |
 | `AAICLICK_JWT_ACCESS_TTL`  | Access-JWT lifetime, seconds.                                  | `1800` (30 min)|
 | `AAICLICK_JWT_REFRESH_TTL` | Refresh-token lifetime, seconds.                               | `1209600` (14 d)|
-| `AAICLICK_ADMIN_EMAIL`     | Seed-admin email (upserted on startup when no users exist).    | unset          |
+| `AAICLICK_ADMIN_USERNAME`  | Seed-admin username (inserted on startup when no users exist). | unset          |
 | `AAICLICK_ADMIN_PASSWORD`  | Seed-admin password.                                           | unset          |
 
 !!! warning "Enabled without a secret is a hard error"
@@ -53,7 +55,7 @@ Token Scopes* items in `docs/future.md`.
 
 # Data Model
 
-Three new SQLModel tables in a new module `aaiclick/auth/models.py`, registered
+Two new SQLModel tables in a new module `aaiclick/auth/models.py`, registered
 with `SQLModel.metadata` (add one import line to
 `aaiclick/orchestration/migrations/env.py`). All IDs are snowflake
 `BigInteger` PKs; `role` uses the project's `_enum_check` String + CHECK
@@ -64,28 +66,11 @@ pattern. Created via the `generate-migration` skill — never hand-written.
 | Column          | Type                            | Notes                                |
 |-----------------|---------------------------------|--------------------------------------|
 | `id`            | `BigInteger` PK (snowflake)     |                                      |
-| `email`         | `String`, unique, indexed       | Login identifier, lower-cased        |
+| `username`      | `String`, unique, indexed       | Login identifier                     |
 | `password_hash` | `String`                        | bcrypt                               |
 | `role`          | `String` + CHECK `IN ('admin','viewer')` | `Role` literal              |
-| `disabled`      | `Boolean`, default `false`      | Disabled → cannot log in; tokens dead|
+| `disabled`      | `Boolean`, default `false`      | Disabled → cannot log in             |
 | `created_at`    | `datetime` (`utc_now`)          |                                      |
-
-## `api_tokens`
-
-| Column        | Type                        | Notes                                          |
-|---------------|-----------------------------|------------------------------------------------|
-| `id`          | `BigInteger` PK (snowflake) |                                                |
-| `user_id`     | `BigInteger` FK → `users.id`, indexed | Owner                                |
-| `name`        | `String`                    | Human label                                    |
-| `token_hash`  | `String`, unique, indexed   | `sha256(secret)`; plaintext shown once         |
-| `expires_at`  | `datetime`                  | Required; expired → `401`                      |
-| `last_used_at`| `datetime \| None`          | Updated on use (best-effort)                   |
-| `created_at`  | `datetime` (`utc_now`)      |                                                |
-| `revoked_at`  | `datetime \| None`          | Set on revoke; non-null → `401`                |
-
-No `role` column: a token's effective role is **the owner's current role**, read
-at request time. Demoting or disabling a user instantly de-privileges every
-token they own — no stale admin tokens.
 
 ## `refresh_tokens`
 
@@ -106,23 +91,20 @@ module constants `ROLE_ADMIN` / `ROLE_VIEWER`.
 ```
 aaiclick/
   auth/
-    models.py        users / api_tokens / refresh_tokens; Role literal
+    models.py        users / refresh_tokens; Role literal + constants
     security.py      bcrypt hash/verify; secret gen + sha256; JWT encode/decode
                      (pure functions, no DB, no contextvars)
-    view_models.py   LoginRequest, TokenPair, RefreshRequest, MeView,
-                     UserView, CreateUserRequest, ApiTokenView,
-                     CreateTokenRequest, CreatedToken (one-time plaintext)
+    view_models.py   LoginRequest, TokenPair, RefreshRequest, LogoutRequest,
+                     MeView, UserView, CreateUserRequest
   internal_api/
     auth.py          login(), refresh(), logout(), me()  → view models
     users.py         create_user, list_users, set_role, disable_user, set_password
-    tokens.py        create_token, list_tokens, revoke_token  (caller's own)
   server/
     auth.py          REWRITE: principal resolution + RBAC dependencies +
                      /mcp admin-only middleware + gating (replaces static bearer)
     routers/
       auth.py        /auth/login, /auth/refresh, /auth/logout, /auth/me
       users.py       /users   (admin-only)
-      tokens.py      /tokens  (own tokens)
   __main__.py        `aaiclick user create|list|set-role|disable|passwd`
 ```
 
@@ -139,7 +121,7 @@ identical to every other `internal_api` module. `server/` owns JWT/transport.
 
 ## Login → token pair
 
-`POST /api/v0/auth/login` `{email, password}` → `200 TokenPair`:
+`POST /api/v0/auth/login` `{username, password}` → `200 TokenPair`:
 
 ```json
 { "access_token": "<jwt>", "refresh_token": "<opaque>", "token_type": "bearer",
@@ -167,7 +149,7 @@ JWTs are stateless and simply expire (≤ 30 min).
 
 ## Me
 
-`GET /api/v0/auth/me` → `MeView {id, email, role}` for the current principal.
+`GET /api/v0/auth/me` → `MeView {id, username, role}` for the current principal.
 
 # Principal Resolution & RBAC
 
@@ -176,18 +158,15 @@ A single dependency `require_principal` replaces the old `require_bearer`. It
 **Authorize** box come from FastAPI's built-in
 `HTTPBearer(auto_error=False)` (`auto_error=False` so a missing credential
 yields our `Problem` envelope, not FastAPI's bare `HTTPException`).
-`require_principal` then decodes/validates the extracted credential and resolves
-a `Principal {user_id, email, role}`:
+`require_principal` then decodes/validates the extracted access JWT and resolves
+a `Principal {user_id, username, role}`:
 
 - **Auth disabled** → returns a synthetic admin principal; all routes open.
-- **JWT** (`type="access"`, valid signature + `exp`) → trust claims for the
-  token's ≤30-min lifetime (`sub`, `role`). Disabling or demoting a user thus
-  takes full effect within one access-TTL — the next `/auth/refresh` re-reads
-  the DB and fails / downgrades.
-- **API token** (`aaic_…`) → look up `sha256` in `api_tokens`; reject if
-  missing / expired / revoked; load owner; reject if `disabled`; role =
-  **owner's current role**; best-effort `last_used_at` bump.
-- Otherwise → `401` with `WWW-Authenticate: Bearer` (shared
+- **Valid access JWT** (`type="access"`, valid signature + `exp`) → trust claims
+  for the token's ≤30-min lifetime (`sub`, `role`). Disabling or demoting a user
+  thus takes full effect within one access-TTL — the next `/auth/refresh`
+  re-reads the DB and fails / downgrades.
+- **Otherwise** → `401` with `WWW-Authenticate: Bearer` (shared
   `problem_response`, as today).
 
 `require_admin` depends on `require_principal` and raises `Forbidden` (`403`,
@@ -198,22 +177,22 @@ a `Principal {user_id, email, role}`:
 Verified against the pinned `fastapi==0.136.0` `fastapi.security` module.
 
 - **Use `HTTPBearer(auto_error=False)`** — extracts the `Authorization: Bearer`
-  credential (JWT *or* PAT) and registers the OpenAPI scheme so `/docs` gets an
-  **Authorize** paste-a-token box.
+  access JWT and registers the OpenAPI scheme so `/docs` gets an **Authorize**
+  paste-a-token box.
 - **Skip `OAuth2PasswordBearer` / `OAuth2PasswordRequestForm`** — they pair to
   make Swagger's one-click login work, but only with a **form-encoded**
-  `username`/`password` endpoint. Login is JSON `{email, password}` (consistent
-  with the rest of the API, correct `email` naming), and `/auth/refresh` /
-  `/auth/logout` are JSON regardless — so the OAuth2 password grant buys no
-  uniform surface here. `/docs` login is therefore two-click (run `POST
-  /auth/login`, paste the `access_token` into Authorize).
+  `username`/`password` endpoint. Login is JSON `{username, password}`
+  (consistent with the rest of the API), and `/auth/refresh` / `/auth/logout`
+  are JSON regardless — so the OAuth2 password grant buys no uniform surface
+  here. `/docs` login is therefore two-click (run `POST /auth/login`, paste the
+  `access_token` into Authorize).
 - **Skip `SecurityScopes` / `Security(..., scopes=[...])`** — FastAPI's granular
   scope system is overkill for a two-role (admin/viewer) model; a plain
   `require_admin` dependency is clearer.
-- **Skip `APIKeyHeader` / `APIKeyQuery` / `APIKeyCookie`** — PATs ride in the
-  same `Authorization: Bearer` header, already covered by `HTTPBearer`.
-- **Skip `HTTPBasic` / `HTTPDigest`, `OpenIdConnect`,
-  `OAuth2AuthorizationCodeBearer`** — no basic-auth, no SSO/OIDC (non-goals).
+- **Skip `APIKeyHeader` / `APIKeyQuery` / `APIKeyCookie`, `HTTPBasic` /
+  `HTTPDigest`, `OpenIdConnect`, `OAuth2AuthorizationCodeBearer`** — the sole
+  credential is a bearer access JWT (covered by `HTTPBearer`); no API keys, no
+  basic-auth, no SSO/OIDC (non-goals).
 - **No built-in exists** for password hashing (→ `bcrypt`) or JWT encode/decode
   (→ `pyjwt`); FastAPI's own security tutorial does both by hand.
 
@@ -222,7 +201,7 @@ Verified against the pinned `fastapi==0.136.0` `fastapi.security` module.
 | Capability                                              | viewer | admin |
 |---------------------------------------------------------|:------:|:-----:|
 | `GET` reads (jobs, tasks, workers, objects, lineage)    | ✅     | ✅    |
-| Own tokens (`/tokens` GET/POST/DELETE), `/auth/*`       | ✅     | ✅    |
+| `/auth/*` (login, refresh, logout, me)                  | ✅     | ✅    |
 | Run / cancel jobs, register / enable / disable jobs     | ❌     | ✅    |
 | Delete / purge objects                                  | ❌     | ✅    |
 | Start / stop workers                                    | ❌     | ✅    |
@@ -237,36 +216,27 @@ covers all of this for the app's own routes — the **only** hand-rolled
 transport guard is the `/mcp` ASGI middleware below, because `Depends` does not
 propagate into mounted sub-apps.
 
-# API Tokens (PATs)
-
-`/api/v0/tokens`, **own tokens only** (no cross-user visibility, including for
-admins):
-
-- `POST /tokens` `{name, expires_in_days}` → `201 CreatedToken {id, name,
-  token, expires_at}`. `token` (`aaic_<urlsafe>`) is the **only** time the
-  plaintext is returned. `expires_in_days` ∈ presets `{7, 30, 90, 365}`
-  (validated; expiry is mandatory).
-- `GET /tokens` → `Page[ApiTokenView]` (metadata only: `id, name, expires_at,
-  last_used_at, created_at, revoked`). Never the secret.
-- `DELETE /tokens/{id}` → revoke (`404` if not the caller's).
-
 # MCP Surface
 
-The `/mcp` mount is **admin-only**. Because FastAPI's `Depends` does not reach
-mounted sub-apps, the mount keeps its own raw ASGI middleware (the existing
-`BearerAuthMiddleware`, evolved): it extracts the credential, runs the **same**
-`require_principal` decode logic, and additionally requires `role == "admin"`;
-non-admin or unauthenticated → `401`/`403` `Problem`. This middleware is the
-one intentional exception to "let FastAPI's security handle it." No per-tool
-RBAC this iteration — an MCP credential is all-or-nothing. (Per-tool read/write
-RBAC is tracked in `docs/future.md`.)
+The `/mcp` mount is **admin-only**. A programmatic MCP client authenticates the
+same way as everything else: log in (username/password) → obtain an access JWT →
+send it as `Authorization: Bearer`, refreshing as the ≤30-min token expires.
+Because FastAPI's `Depends` does not reach mounted sub-apps, the mount keeps its
+own raw ASGI middleware (the existing `BearerAuthMiddleware`, evolved): it
+extracts the JWT, runs the **same** `require_principal` decode logic, and
+additionally requires `role == "admin"`; non-admin or unauthenticated →
+`401`/`403` `Problem`. This middleware is the one intentional exception to "let
+FastAPI's security handle it." No per-tool RBAC this iteration — an MCP
+credential is all-or-nothing. (Per-tool read/write RBAC is tracked in
+`docs/future.md`.)
 
 # CLI & Admin Bootstrap
 
 - **CLI** (`aaiclick user …`, thin renderers over `internal_api.users`):
-  `create --email --password --role {admin,viewer}`, `list`, `set-role`,
-  `disable`, `passwd`.
-- **Startup seed**: when auth is enabled and `AAICLICK_ADMIN_EMAIL` /
+  `create --username --password --role {admin,viewer}`, `list`, `set-role`,
+  `disable`, `passwd`. The CLI runs `internal_api` in-process and does **not**
+  cross the HTTP auth layer (as today).
+- **Startup seed**: when auth is enabled and `AAICLICK_ADMIN_USERNAME` /
   `AAICLICK_ADMIN_PASSWORD` are set, insert that admin during server lifespan
   startup **only if the `users` table is empty** (idempotent, container-friendly).
   Both the seed and the CLI solve the chicken-and-egg of the first admin.
@@ -278,9 +248,7 @@ RBAC is tracked in `docs/future.md`.)
   the session and redirect to **Login**. Single chokepoint — no per-call edits.
 - `src/lib/auth.ts` (new): in-memory access token + `localStorage` refresh
   token; `login` / `logout` / `refresh` helpers; current-user (`/auth/me`).
-- **Login view** (`src/views/Login.tsx`): email + password form.
-- **Tokens view** (`src/views/Tokens.tsx`): list own tokens; create (name +
-  expiry preset) with a one-time copy-the-secret dialog; revoke.
+- **Login view** (`src/views/Login.tsx`): username + password form.
 - **Route guard** in `App.tsx`: unauthenticated → Login. When auth is disabled
   the server's `/auth/me` returns the synthetic admin, so the UI behaves as
   today with no login wall.
@@ -292,24 +260,23 @@ RBAC is tracked in `docs/future.md`.)
 - Delete `AAICLICK_API_TOKEN` handling and the static-bearer path from
   `server/auth.py`.
 - Update `docs/api_server.md` (Authentication, Configuration) to point here;
-  remove the *Operator UI Auth* and *API Auth — DB-Backed Token Scopes* items
-  from `docs/future.md`; refresh `aaiclick/server/CLAUDE.md`.
+  remove the *Operator UI Auth* item from `docs/future.md`; refresh
+  `aaiclick/server/CLAUDE.md`.
 
 # Migration
 
-One Alembic revision creating `users`, `api_tokens`, `refresh_tokens`,
-generated via the `generate-migration` skill (GitHub Actions). The new
-`aaiclick/auth/models.py` must be imported in `migrations/env.py` so
-autogenerate sees the tables.
+One Alembic revision creating `users` and `refresh_tokens`, generated via the
+`generate-migration` skill (GitHub Actions). The new `aaiclick/auth/models.py`
+must be imported in `migrations/env.py` so autogenerate sees the tables.
 
 # Testing
 
 - **`aaiclick/auth/`**: `security.py` — bcrypt hash/verify, JWT encode/decode
-  (valid, expired, bad-signature, wrong `type`), secret hashing.
+  (valid, expired, bad-signature, wrong `type`), refresh-secret hashing.
 - **`internal_api/test_auth.py`**: login success/failure, disabled user,
   refresh rotation + reuse rejection, logout revocation.
-- **`internal_api/test_users.py`** / **`test_tokens.py`**: user CRUD + role
-  changes; token create / expiry / revoke; own-only scoping.
+- **`internal_api/test_users.py`**: user CRUD + role changes; duplicate-username
+  conflict; username uniqueness.
 - **`server/`**: 401/403 plumbing & `Problem` shape; login → access → refresh
   flow; gating on/off (synthetic admin when off); `/mcp` admin-only;
   viewer-blocked-on-write. Deterministic — no `caplog` (patch loggers; see the
@@ -319,5 +286,5 @@ autogenerate sees the tables.
 
 - Per-tool RBAC on the MCP surface (viewer-readable tools).
 - Admin **user-management UI**.
-- Token downscoping / custom scopes; OAuth 2.0 / OIDC / SSO; MFA;
-  password-reset email flow; per-request audit log.
+- Long-lived API tokens / PATs with scopes; OAuth 2.0 / OIDC / SSO; MFA;
+  password-reset flow; per-request audit log.
