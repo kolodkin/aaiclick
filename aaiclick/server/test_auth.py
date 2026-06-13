@@ -1,88 +1,75 @@
-"""Tests for the bearer-token auth layer.
+"""Tests for the JWT principal-resolution layer and the admin-only /mcp guard.
 
-The REST dependency and the ``/mcp`` ASGI middleware share one check
-(``_rejection_detail``). HTTP-level tests cover the REST dependency end to
-end; the FastMCP mount is exercised through the middleware directly so the
-test does not depend on the MCP session-manager lifespan.
+``resolve_principal`` is shared by the REST dependency and the ``/mcp`` ASGI
+middleware. HTTP end-to-end coverage (login -> access -> protected route, RBAC
+403s) lives in the router tests; here we exercise the core resolver and the
+middleware directly so they do not depend on the MCP session-manager lifespan.
 """
 
 from __future__ import annotations
 
 from unittest.mock import patch
 
-from aaiclick.view_models import Problem, ProblemCode
+import jwt
+import pytest
+
+from aaiclick.auth import security
+from aaiclick.auth.models import ROLE_ADMIN, ROLE_VIEWER
+from aaiclick.internal_api.errors import Unauthorized
 
 from . import auth
-from .app import API_PREFIX
-from .auth import BearerAuthMiddleware, warn_if_open
+from .auth import AdminAuthMiddleware, warn_if_open
+
+SECRET = "server-auth-test-secret-key-32-plus-bytes"
+OTHER_SECRET = "a-different-secret-also-32-plus-bytes-long"
 
 
-async def test_open_mode_allows_requests(orch_ctx, app_client, monkeypatch):
-    monkeypatch.delenv("AAICLICK_API_TOKEN", raising=False)
-
-    response = await app_client.get(f"{API_PREFIX}/workers")
-
-    assert response.status_code == 200
+@pytest.fixture
+def enabled(monkeypatch):
+    monkeypatch.setenv("AAICLICK_AUTH_ENABLED", "true")
+    monkeypatch.setenv("AAICLICK_JWT_SECRET", SECRET)
 
 
-async def test_missing_token_returns_401_with_challenge(orch_ctx, app_client, monkeypatch):
-    monkeypatch.setenv("AAICLICK_API_TOKEN", "secret")
-
-    response = await app_client.get(f"{API_PREFIX}/workers")
-
-    assert response.status_code == 401
-    assert response.headers["www-authenticate"] == "Bearer"
-    assert Problem.model_validate(response.json()).code is ProblemCode.UNAUTHORIZED
+def _bearer(token: str) -> str:
+    return f"Bearer {token}"
 
 
-async def test_invalid_token_returns_401(orch_ctx, app_client, monkeypatch):
-    monkeypatch.setenv("AAICLICK_API_TOKEN", "secret")
-
-    response = await app_client.get(f"{API_PREFIX}/workers", headers={"Authorization": "Bearer wrong"})
-
-    assert response.status_code == 401
-    assert Problem.model_validate(response.json()).code is ProblemCode.UNAUTHORIZED
+def _admin_token() -> str:
+    return security.encode_access_token(user_id=1, role=ROLE_ADMIN, secret=SECRET, ttl=60)
 
 
-async def test_valid_token_allows_request(orch_ctx, app_client, monkeypatch):
-    monkeypatch.setenv("AAICLICK_API_TOKEN", "secret")
-
-    response = await app_client.get(f"{API_PREFIX}/workers", headers={"Authorization": "Bearer secret"})
-
-    assert response.status_code == 200
+# --- resolve_principal ---------------------------------------------------
 
 
-async def test_scheme_match_is_case_insensitive(orch_ctx, app_client, monkeypatch):
-    """RFC 7235: the auth-scheme name matches case-insensitively."""
-    monkeypatch.setenv("AAICLICK_API_TOKEN", "secret")
-
-    response = await app_client.get(f"{API_PREFIX}/workers", headers={"Authorization": "bearer secret"})
-
-    assert response.status_code == 200
+def test_disabled_returns_synthetic_admin(monkeypatch):
+    monkeypatch.delenv("AAICLICK_AUTH_ENABLED", raising=False)
+    principal = auth.resolve_principal(authorization=None)
+    assert principal.role == ROLE_ADMIN
 
 
-async def test_health_stays_open_with_token_set(app_client, monkeypatch):
-    monkeypatch.setenv("AAICLICK_API_TOKEN", "secret")
-
-    response = await app_client.get("/health")
-
-    assert response.status_code == 200
+def test_enabled_missing_token_unauthorized(enabled):
+    with pytest.raises(Unauthorized):
+        auth.resolve_principal(authorization=None)
 
 
-async def test_openapi_stays_open_with_token_set(app_client, monkeypatch):
-    monkeypatch.setenv("AAICLICK_API_TOKEN", "secret")
-
-    response = await app_client.get(f"{API_PREFIX}/openapi.json")
-
-    assert response.status_code == 200
+def test_enabled_valid_jwt(enabled):
+    token = security.encode_access_token(user_id=7, role=ROLE_VIEWER, secret=SECRET, ttl=60)
+    principal = auth.resolve_principal(authorization=_bearer(token))
+    assert principal.user_id == 7 and principal.role == ROLE_VIEWER
 
 
-async def test_mcp_middleware_rejects_missing_token(monkeypatch):
-    monkeypatch.setenv("AAICLICK_API_TOKEN", "secret")
+def test_enabled_bad_signature_unauthorized(enabled):
+    token = jwt.encode(
+        {"sub": "1", "role": "admin", "type": "access"}, OTHER_SECRET, algorithm="HS256"
+    )
+    with pytest.raises(Unauthorized):
+        auth.resolve_principal(authorization=_bearer(token))
 
-    async def inner(scope, receive, send):
-        raise AssertionError("middleware must not delegate on a missing token")
 
+# --- AdminAuthMiddleware -------------------------------------------------
+
+
+async def _drive(scope, middleware_inner_flag):
     sent: list[dict] = []
 
     async def send(message):
@@ -91,68 +78,62 @@ async def test_mcp_middleware_rejects_missing_token(monkeypatch):
     async def receive():
         return {"type": "http.request"}
 
-    await BearerAuthMiddleware(inner)({"type": "http", "headers": []}, receive, send)
-
-    start = sent[0]
-    assert start["status"] == 401
-    assert (b"www-authenticate", b"Bearer") in start["headers"]
-
-
-async def test_mcp_middleware_delegates_on_valid_token(monkeypatch):
-    monkeypatch.setenv("AAICLICK_API_TOKEN", "secret")
-    delegated = False
-
     async def inner(scope, receive, send):
-        nonlocal delegated
-        delegated = True
+        middleware_inner_flag.append(True)
 
-    async def send(message):
-        pass
-
-    async def receive():
-        return {"type": "http.request"}
-
-    scope = {"type": "http", "headers": [(b"authorization", b"Bearer secret")]}
-    await BearerAuthMiddleware(inner)(scope, receive, send)
-
-    assert delegated
+    await AdminAuthMiddleware(inner)(scope, receive, send)
+    return sent
 
 
-async def test_mcp_middleware_passes_through_non_http_scope(monkeypatch):
-    monkeypatch.setenv("AAICLICK_API_TOKEN", "secret")
-    delegated = False
-
-    async def inner(scope, receive, send):
-        nonlocal delegated
-        delegated = True
-
-    async def send(message):
-        pass
-
-    async def receive():
-        return {}
-
-    await BearerAuthMiddleware(inner)({"type": "lifespan"}, receive, send)
-
-    assert delegated
+async def test_mcp_middleware_rejects_missing_token(enabled):
+    called: list[bool] = []
+    sent = await _drive({"type": "http", "headers": []}, called)
+    assert not called
+    assert sent[0]["status"] == 401
+    assert (b"www-authenticate", b"Bearer") in sent[0]["headers"]
 
 
-def test_warn_if_open_logs_when_token_unset(monkeypatch):
-    monkeypatch.delenv("AAICLICK_API_TOKEN", raising=False)
+async def test_mcp_middleware_rejects_viewer(enabled):
+    called: list[bool] = []
+    token = security.encode_access_token(user_id=2, role=ROLE_VIEWER, secret=SECRET, ttl=60)
+    scope = {"type": "http", "headers": [(b"authorization", f"Bearer {token}".encode())]}
+    sent = await _drive(scope, called)
+    assert not called
+    assert sent[0]["status"] == 403
 
-    # Patch the module logger directly rather than asserting via caplog: the
-    # distributed backend's libraries reconfigure logging, so caplog's
-    # propagation-based capture is order-dependent across local/dist runs.
+
+async def test_mcp_middleware_delegates_on_admin(enabled):
+    called: list[bool] = []
+    scope = {"type": "http", "headers": [(b"authorization", f"Bearer {_admin_token()}".encode())]}
+    await _drive(scope, called)
+    assert called == [True]
+
+
+async def test_mcp_middleware_passes_through_non_http_scope(enabled):
+    called: list[bool] = []
+    await _drive({"type": "lifespan"}, called)
+    assert called == [True]
+
+
+async def test_mcp_middleware_open_when_disabled(monkeypatch):
+    monkeypatch.delenv("AAICLICK_AUTH_ENABLED", raising=False)
+    called: list[bool] = []
+    await _drive({"type": "http", "headers": []}, called)
+    assert called == [True]
+
+
+# --- warn_if_open --------------------------------------------------------
+
+
+def test_warn_if_open_logs_when_disabled(monkeypatch):
+    monkeypatch.delenv("AAICLICK_AUTH_ENABLED", raising=False)
     with patch.object(auth.logger, "warning") as warning:
         warn_if_open()
-
     warning.assert_called_once()
 
 
-def test_warn_if_open_silent_when_token_set(monkeypatch):
-    monkeypatch.setenv("AAICLICK_API_TOKEN", "secret")
-
+def test_warn_if_open_silent_when_enabled(monkeypatch):
+    monkeypatch.setenv("AAICLICK_AUTH_ENABLED", "true")
     with patch.object(auth.logger, "warning") as warning:
         warn_if_open()
-
     warning.assert_not_called()

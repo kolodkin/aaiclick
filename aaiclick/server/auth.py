@@ -1,82 +1,81 @@
-"""Shared bearer-token auth for the REST surface and the ``/mcp`` mount (v0).
+"""Auth for the REST surface and the ``/mcp`` mount.
 
-One static token, read from ``AAICLICK_API_TOKEN`` per request so tests can
-flip it with ``monkeypatch``. Unset → open-server mode (the check is a no-op
-and ``warn_if_open`` logs a startup ``WARNING``). The CLI and the in-process
-MCP client never go through this layer — authentication is an HTTP-transport
-concern, not an internal-API one. See ``docs/api_server.md`` — Authentication.
+When ``AAICLICK_AUTH_ENABLED`` is off, every request is allowed (a synthetic
+admin principal) and startup logs a ``WARNING``. When on, the
+``Authorization: Bearer`` access JWT is required; ``HTTPBearer`` (with
+``auto_error=False``) extracts it and registers the OpenAPI scheme. The
+``/mcp`` mount keeps an ASGI middleware (admin-only) because ``Depends`` does
+not propagate into mounted sub-apps. See ``docs/auth.md``.
 """
 
 from __future__ import annotations
 
-import hmac
 import logging
-import os
+from typing import NamedTuple
 
-from fastapi import Header
+from fastapi import Depends
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.security.utils import get_authorization_scheme_param
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from aaiclick.internal_api.errors import Unauthorized
+from aaiclick.auth import config, security
+from aaiclick.auth.models import ROLE_ADMIN, Role
+from aaiclick.internal_api.errors import Forbidden, Unauthorized
 from aaiclick.view_models import ProblemCode
 
 from .errors import problem_response
 
-ENV_TOKEN = "AAICLICK_API_TOKEN"
 BEARER_CHALLENGE = {"WWW-Authenticate": "Bearer"}
-
 logger = logging.getLogger(__name__)
 
-
-def _configured_token() -> str | None:
-    """The active bearer token, or ``None`` for open-server mode."""
-    return os.environ.get(ENV_TOKEN)
+_bearer_scheme = HTTPBearer(auto_error=False)
 
 
-def _rejection_detail(authorization: str | None) -> str | None:
-    """Return a 401 detail string if the request must be rejected, else ``None``.
+class Principal(NamedTuple):
+    user_id: int | None
+    username: str | None
+    role: Role
 
-    ``None`` covers both open-server mode (no token configured) and a valid
-    bearer token — in either case the request proceeds.
-    """
-    token = _configured_token()
-    if token is None:
-        return None
-    # FastAPI's own parser (the one HTTPBearer uses): splits "Bearer <token>"
-    # and matches the scheme case-insensitively per RFC 7235.
+
+_SYNTHETIC_ADMIN = Principal(user_id=None, username=None, role=ROLE_ADMIN)
+
+
+def resolve_principal(authorization: str | None) -> Principal:
+    """Core principal resolution, shared by the dependency and the middleware."""
+    if not config.auth_enabled():
+        return _SYNTHETIC_ADMIN
     scheme, credentials = get_authorization_scheme_param(authorization)
     if scheme.lower() != "bearer" or not credentials:
-        return "missing bearer token"
-    if not hmac.compare_digest(credentials, token):
-        return "invalid bearer token"
-    return None
+        raise Unauthorized("missing bearer token")
+    try:
+        claims = security.decode_access_token(credentials, config.require_jwt_secret())
+    except security.TokenError as exc:
+        raise Unauthorized(str(exc)) from exc
+    return Principal(user_id=claims.user_id, username=None, role=claims.role)
 
 
-async def require_bearer(authorization: str | None = Header(default=None)) -> None:
-    """FastAPI dependency: enforce the bearer token on ``/api/v0/*`` routes.
+async def require_principal(
+    creds: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+) -> Principal:
+    """FastAPI dependency → resolve the Principal or raise ``Unauthorized``."""
+    header = f"Bearer {creds.credentials}" if creds else None
+    return resolve_principal(header)
 
-    Raises ``Unauthorized`` (→ 401 ``Problem`` with ``WWW-Authenticate: Bearer``
-    via the registered exception handler) on a missing/invalid token.
-    """
-    detail = _rejection_detail(authorization)
-    if detail is not None:
-        raise Unauthorized(detail)
+
+async def require_admin(principal: Principal = Depends(require_principal)) -> Principal:
+    if principal.role != ROLE_ADMIN:
+        raise Forbidden("admin role required")
+    return principal
 
 
 def warn_if_open() -> None:
-    """Log a startup ``WARNING`` when no token is configured (open server)."""
-    if _configured_token() is None:
-        logger.warning("%s unset — server is open", ENV_TOKEN)
+    if not config.auth_enabled():
+        logger.warning("%s is off — server is open", config.ENV_ENABLED)
 
 
-class BearerAuthMiddleware:
-    """ASGI middleware applying the bearer check at the ``/mcp`` mount.
-
-    ``Depends`` does not propagate into mounted sub-apps, so the FastMCP mount
-    needs its own guard. Runs the same ``_rejection_detail`` check and emits the
-    identical ``Problem`` envelope as the REST dependency before delegating.
-    """
+class AdminAuthMiddleware:
+    """ASGI guard for the ``/mcp`` mount: admin-only when auth is enabled."""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -85,12 +84,19 @@ class BearerAuthMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-
         authorization = Headers(scope=scope).get("authorization")
-        detail = _rejection_detail(authorization)
-        if detail is not None:
-            response = problem_response("Unauthorized", 401, detail, ProblemCode.UNAUTHORIZED, BEARER_CHALLENGE)
+        try:
+            principal = resolve_principal(authorization)
+            if principal.role != ROLE_ADMIN:
+                raise Forbidden("admin role required")
+        except Unauthorized as exc:
+            response = problem_response(
+                "Unauthorized", 401, str(exc), ProblemCode.UNAUTHORIZED, BEARER_CHALLENGE
+            )
             await response(scope, receive, send)
             return
-
+        except Forbidden as exc:
+            response = problem_response("Forbidden", 403, str(exc), ProblemCode.FORBIDDEN)
+            await response(scope, receive, send)
+            return
         await self.app(scope, receive, send)
