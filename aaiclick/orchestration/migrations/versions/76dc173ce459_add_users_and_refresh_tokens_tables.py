@@ -29,6 +29,7 @@ def upgrade() -> None:
     sa.Column('role', sa.String(), nullable=False),
     sa.Column('disabled', sa.Boolean(), server_default='0', nullable=False),
     sa.Column('created_at', sa.DateTime(), nullable=False),
+    sa.CheckConstraint("role IN ('admin', 'viewer')", name="ck_users_role"),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_users_username'), 'users', ['username'], unique=True)
