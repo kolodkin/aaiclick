@@ -106,6 +106,31 @@ jobs:
           docker logs pypiserver >&2
           exit 1
 
+      # The docker-runner build clones the job's git remote host-side (on the
+      # runner, not in a container), so a plain loopback ``git daemon`` is
+      # enough — no service container, no auth, no host-gateway. It serves a
+      # base-path the e2e fixture publishes the user repo into (see
+      # ``docker_e2e_user_repo``); ``--detach`` keeps it alive across steps,
+      # the way ``docker run -d`` does for pypiserver.
+      - name: Start git daemon
+        run: |
+          GIT_DAEMON_BASE="$RUNNER_TEMP/gitsrv"
+          mkdir -p "$GIT_DAEMON_BASE"
+          echo "AAICLICK_E2E_GIT_DAEMON_BASE=$GIT_DAEMON_BASE" >> "$GITHUB_ENV"
+          echo "AAICLICK_E2E_GIT_DAEMON_PORT=9418" >> "$GITHUB_ENV"
+          git daemon --reuseaddr --listen=127.0.0.1 --port=9418 \
+            --base-path="$GIT_DAEMON_BASE" --export-all --detach
+          for i in $(seq 1 30); do
+            if (exec 3<>/dev/tcp/127.0.0.1/9418) 2>/dev/null; then
+              exec 3>&-
+              echo "git daemon is ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "git daemon failed to become ready" >&2
+          exit 1
+
       # --- Wheel acquisition (branches on wheel_source) -------------------
 
       - name: Build wheel from source

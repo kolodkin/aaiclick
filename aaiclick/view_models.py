@@ -70,7 +70,6 @@ class RunJobRequest(BaseModel):
     git_remote: str | None = None
     git_sha: str | None = None
     git_branch: str | None = None
-    build_context: str | None = None
     dockerfile: str | None = None
 
 
@@ -92,7 +91,6 @@ class RegisterJobRequest(BaseModel):
     runner_mode: RunnerMode = "subprocess"
     dockerfile: str | None = None
     git_remote: str | None = None
-    build_context: str | None = None
 
     @model_validator(mode="after")
     def _default_name_from_entrypoint(self) -> RegisterJobRequest:

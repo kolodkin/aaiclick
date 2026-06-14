@@ -64,7 +64,6 @@ async def register_job(
     runner_mode: RunnerMode = RUNNER_SUBPROCESS,
     dockerfile: str | None = None,
     git_remote: str | None = None,
-    build_context: str | None = None,
 ) -> RegisteredJob:
     """Register a new job in the catalog.
 
@@ -77,13 +76,10 @@ async def register_job(
         preservation_mode: Default preservation mode for every run of
             this job. Individual runs can override via ``run_job()``.
         runner_mode: ``"subprocess"`` (default) or ``"docker"``.
-        dockerfile: Default Dockerfile path (relative to ``build_context``).
+        dockerfile: Default Dockerfile path relative to the repo root.
             ``None`` falls back to ``"Dockerfile"`` at submission time.
         git_remote: Default git remote URL. ``None`` falls back to
             ``git config remote.origin.url`` at submission time.
-        build_context: Default subdirectory offset within the cloned
-            repo to use as the docker build context. ``None`` means
-            repo root.
 
     Returns:
         Created RegisteredJob
@@ -103,7 +99,6 @@ async def register_job(
         runner_mode=runner_mode,
         dockerfile=dockerfile,
         git_remote=git_remote,
-        build_context=build_context,
         next_run_at=_next_run_at(schedule, enabled, now),
         created_at=now,
         updated_at=now,
@@ -146,7 +141,6 @@ async def upsert_registered_job(
     runner_mode: RunnerMode = RUNNER_SUBPROCESS,
     dockerfile: str | None = None,
     git_remote: str | None = None,
-    build_context: str | None = None,
 ) -> RegisteredJob:
     """Insert or update a registered job.
 
@@ -162,9 +156,8 @@ async def upsert_registered_job(
         enabled: Whether the job is enabled
         preservation_mode: Default preservation mode for every run
         runner_mode: ``"subprocess"`` (default) or ``"docker"``.
-        dockerfile: Default Dockerfile path (relative to ``build_context``).
+        dockerfile: Default Dockerfile path relative to the repo root.
         git_remote: Default git remote URL.
-        build_context: Default build context subdirectory.
 
     Returns:
         The created or updated RegisteredJob
@@ -184,7 +177,6 @@ async def upsert_registered_job(
             existing.runner_mode = runner_mode
             existing.dockerfile = dockerfile
             existing.git_remote = git_remote
-            existing.build_context = build_context
             existing.updated_at = now
             existing.next_run_at = _next_run_at(schedule, enabled, now)
             session.add(existing)
@@ -203,7 +195,6 @@ async def upsert_registered_job(
             runner_mode=runner_mode,
             dockerfile=dockerfile,
             git_remote=git_remote,
-            build_context=build_context,
             next_run_at=_next_run_at(schedule, enabled, now),
             created_at=now,
             updated_at=now,
@@ -300,7 +291,6 @@ async def run_job(
     git_remote: str | None = None,
     git_sha: str | None = None,
     git_branch: str | None = None,
-    build_context: str | None = None,
     dockerfile: str | None = None,
 ) -> Job:
     """Run a job immediately, linking to a registration if one exists.
@@ -333,7 +323,6 @@ async def run_job(
             auto-detect from the working tree (must be clean and pushed).
         git_branch: Captured as build-arg metadata; ``None`` means
             auto-detect.
-        build_context: Override the registered job's build_context.
         dockerfile: Override the registered job's dockerfile path.
 
     Returns:
@@ -358,7 +347,6 @@ async def run_job(
             git_remote=git_remote,
             git_sha=git_sha,
             git_branch=git_branch,
-            build_context=build_context,
             dockerfile=dockerfile,
         )
         return await create_docker_job(

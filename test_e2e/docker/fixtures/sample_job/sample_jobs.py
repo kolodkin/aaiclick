@@ -52,7 +52,6 @@ async def entry_task():
     print(f"git_remote={os.environ.get('GIT_REMOTE')}")
     print(f"git_sha={os.environ.get('GIT_SHA')}")
     print(f"git_branch={os.environ.get('GIT_BRANCH')}")
-    print(f"build_context={os.environ.get('BUILD_CONTEXT')}")
 
     raw = produce()
     doubled = double(data=raw)
