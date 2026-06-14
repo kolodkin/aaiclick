@@ -24,13 +24,9 @@ from aaiclick.testing import (  # noqa: F401 - re-exported as pytest fixtures
     sql_worker_setup,
 )
 
-# ``server`` and ``ai`` are optional extras (``aaiclick[server]`` / ``[ai]``).
-# Their packages import fastapi / litellm at import time, so a full-suite run
-# without those extras would error at collection. Skip the whole subtree
-# instead — CI exercises them under dedicated ``--extra server`` / ``--extra
-# ai`` matrix jobs.
-collect_ignore = []
-if importlib.util.find_spec("fastapi") is None:
-    collect_ignore.append("server")
-if importlib.util.find_spec("litellm") is None:
-    collect_ignore.append("ai")
+# ``server`` and ``ai`` are optional extras: their packages import
+# fastapi / litellm at import time, so a full-suite run without those extras
+# would error at collection. Skip each subtree when its import-time dependency
+# is absent — CI exercises them under dedicated ``--extra`` matrix jobs.
+_OPTIONAL_SUITES = (("server", "fastapi"), ("ai", "litellm"))
+collect_ignore = [pkg for pkg, dep in _OPTIONAL_SUITES if importlib.util.find_spec(dep) is None]

@@ -70,8 +70,11 @@ def docker_e2e_user_repo(tmp_path_factory: pytest.TempPathFactory) -> Iterator[t
     worktree = tmp_path_factory.mktemp("user_repo")
     shutil.copytree(fixture, worktree, dirs_exist_ok=True)
 
-    def git(cwd: Path, *args: str) -> None:
-        subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True)
+    def git(cwd: Path, *args: str) -> str:
+        result = subprocess.run(
+            ["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True
+        )
+        return result.stdout.strip()
 
     git(worktree, "init", "-q", "-b", "main")
     git(worktree, "add", "-A")
@@ -90,12 +93,7 @@ def docker_e2e_user_repo(tmp_path_factory: pytest.TempPathFactory) -> Iterator[t
         "-qm",
         "fixture",
     )
-    sha = subprocess.run(
-        ["git", "-C", str(worktree), "rev-parse", "HEAD"],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
+    sha = git(worktree, "rev-parse", "HEAD")
 
     bare = base / "sample_job.git"
     git(worktree, "clone", "-q", "--bare", str(worktree), str(bare))
