@@ -139,7 +139,6 @@ async def _run_run_job(args: argparse.Namespace) -> None:
         git_remote=args.git_remote,
         git_sha=args.git_sha,
         git_branch=args.git_branch,
-        build_context=args.build_context,
         dockerfile=args.dockerfile,
     )
     view = await _run_internal_api(internal_api.run_job(request))
@@ -157,7 +156,6 @@ async def _run_register_job(args: argparse.Namespace) -> None:
         runner_mode=args.runner,
         dockerfile=args.dockerfile,
         git_remote=args.git_remote,
-        build_context=args.build_context,
     )
     view = await _run_internal_api(internal_api.register_job(request))
     _render(args, view, cli_renderers.render_registered_job)
@@ -557,17 +555,12 @@ def main():
     register_job_parser.add_argument(
         "--dockerfile",
         default=None,
-        help="Default Dockerfile path relative to --build-context (docker runner only)",
+        help="Default Dockerfile path relative to the repo root (docker runner only)",
     )
     register_job_parser.add_argument(
         "--git-remote",
         default=None,
         help="Default git remote URL (docker runner only); auto-detected if omitted",
-    )
-    register_job_parser.add_argument(
-        "--build-context",
-        default=None,
-        help="Default subdirectory within the cloned repo to use as docker build context",
     )
     _add_json_flag(register_job_parser)
 
@@ -598,11 +591,6 @@ def main():
         "--git-branch",
         default=None,
         help="Capture branch name as build-arg metadata (docker runner only)",
-    )
-    run_job_parser.add_argument(
-        "--build-context",
-        default=None,
-        help="Override the registered job's build_context (docker runner only)",
     )
     run_job_parser.add_argument(
         "--dockerfile",

@@ -21,7 +21,6 @@ def _job(**overrides) -> Job:
         "git_remote": "https://example.com/repo.git",
         "git_sha": "a" * 40,
         "git_branch": "main",
-        "build_context": None,
         "dockerfile": None,
         "image_tag": "aaiclick-job:" + "a" * 40,
     }
@@ -34,13 +33,12 @@ async def test_collect_build_args_omits_unset_values(monkeypatch):
     monkeypatch.delenv("AAICLICK_PIP_EXTRA_INDEX_URL", raising=False)
     monkeypatch.delenv("AAICLICK_PIP_TRUSTED_HOST", raising=False)
 
-    job = _job(git_branch=None, build_context=None)
+    job = _job(git_branch=None)
     args = docker_build._collect_build_args(job)
 
     assert "--build-arg" in args
     assert any(a.startswith("GIT_REMOTE=") for a in args)
     assert not any(a.startswith("GIT_BRANCH=") for a in args)
-    assert not any(a.startswith("BUILD_CONTEXT=") for a in args)
     assert not any(a.startswith("PIP_INDEX_URL=") for a in args)
     assert not any(a.startswith("PIP_TRUSTED_HOST=") for a in args)
 
@@ -93,7 +91,7 @@ async def test_build_image_pushes_after_local_cache_hit_when_registry_set(monkey
 
 async def test_build_image_missing_dockerfile_raises(monkeypatch):
     monkeypatch.delenv("AAICLICK_DOCKER_REGISTRY", raising=False)
-    job = _job(build_context="subdir", dockerfile="Dockerfile.missing")
+    job = _job(dockerfile="Dockerfile.missing")
 
     monkeypatch.setattr(docker_build, "_fetch_job", AsyncMock(return_value=job))
     monkeypatch.setattr(docker_build, "_docker_pull", AsyncMock(return_value=False))
@@ -122,7 +120,6 @@ async def test_resolve_docker_config_kwargs_override_registered_defaults(
         entrypoint="x.y",
         runner_mode="docker",
         git_remote="git@registered.example:repo.git",
-        build_context="default_subdir",
         dockerfile="Dockerfile.default",
     )
 
@@ -131,12 +128,10 @@ async def test_resolve_docker_config_kwargs_override_registered_defaults(
         git_remote="git@override.example:repo.git",
         git_sha="b" * 40,
         git_branch=None,
-        build_context="override_subdir",
         dockerfile=None,
     )
 
     assert config.git_remote == "git@override.example:repo.git"
     assert config.git_sha == "b" * 40
-    assert config.build_context == "override_subdir"
     # dockerfile inherits the registered default since kwarg is None
     assert config.dockerfile == "Dockerfile.default"

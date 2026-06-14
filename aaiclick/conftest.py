@@ -12,6 +12,8 @@ may additionally import the per-test/per-module fixtures they need
 (``orch_ctx``, ``orch_ctx_no_ch``, ``ctx``) from ``aaiclick.testing``.
 """
 
+import importlib.util
+
 from aaiclick.testing import (  # noqa: F401 - re-exported as pytest fixtures
     ch_worker_setup,
     gc_leak_check,
@@ -21,3 +23,10 @@ from aaiclick.testing import (  # noqa: F401 - re-exported as pytest fixtures
     orch_module_ctx_no_ch,
     sql_worker_setup,
 )
+
+# ``server`` and ``ai`` are optional extras: their packages import
+# fastapi / litellm at import time, so a full-suite run without those extras
+# would error at collection. Skip each subtree when its import-time dependency
+# is absent — CI exercises them under dedicated ``--extra`` matrix jobs.
+_OPTIONAL_SUITES = (("server", "fastapi"), ("ai", "litellm"))
+collect_ignore = [pkg for pkg, dep in _OPTIONAL_SUITES if importlib.util.find_spec(dep) is None]

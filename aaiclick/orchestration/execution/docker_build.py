@@ -137,7 +137,6 @@ def _collect_build_args(job: Job) -> list[str]:
     add("GIT_REMOTE", job.git_remote)
     add("GIT_SHA", job.git_sha)
     add("GIT_BRANCH", job.git_branch)
-    add("BUILD_CONTEXT", job.build_context)
     add("PIP_INDEX_URL", os.environ.get("AAICLICK_PIP_INDEX_URL"))
     add("PIP_EXTRA_INDEX_URL", os.environ.get("AAICLICK_PIP_EXTRA_INDEX_URL"))
     add("PIP_TRUSTED_HOST", os.environ.get("AAICLICK_PIP_TRUSTED_HOST"))
@@ -184,12 +183,12 @@ async def build_image(job_id: int) -> None:
         with tempfile.TemporaryDirectory(prefix="aaiclick-build-") as workdir:
             await _git_clone_at_sha(job.git_remote, job.git_sha, workdir)
 
-            context_dir = Path(workdir) / (job.build_context or "")
+            context_dir = Path(workdir)
             dockerfile = context_dir / (job.dockerfile or "Dockerfile")
             if not dockerfile.is_file():
                 raise FileNotFoundError(
                     f"Dockerfile not found at "
-                    f"{job.build_context or '.'}/{job.dockerfile or 'Dockerfile'} "
+                    f"{job.dockerfile or 'Dockerfile'} "
                     f"in repo {job.git_remote}@{job.git_sha}. "
                     f"Run `python -m aaiclick docker init` in the user's repo "
                     f"to scaffold a starter Dockerfile."

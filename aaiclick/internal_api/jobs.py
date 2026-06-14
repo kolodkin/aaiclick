@@ -192,7 +192,6 @@ async def run_job(request: RunJobRequest) -> JobView:
         git_remote=request.git_remote,
         git_sha=request.git_sha,
         git_branch=request.git_branch,
-        build_context=request.build_context,
         dockerfile=request.dockerfile,
     )
     return job_to_view(job)

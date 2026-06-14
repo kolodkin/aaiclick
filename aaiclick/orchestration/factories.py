@@ -279,7 +279,6 @@ async def create_docker_job(
         git_remote=docker_config.git_remote,
         git_sha=docker_config.git_sha,
         git_branch=docker_config.git_branch,
-        build_context=docker_config.build_context,
         dockerfile=docker_config.dockerfile,
         image_tag=docker_config.image_tag,
         created_at=utc_now(),
