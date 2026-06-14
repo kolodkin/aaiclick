@@ -8,11 +8,9 @@ unless a docker daemon is reachable. Workflows opt in by passing the
 
 from __future__ import annotations
 
+import os
 import shutil
-import socket
 import subprocess
-import time
-from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -32,48 +30,36 @@ from aaiclick.testing import (  # noqa: F401 - re-exported as pytest fixtures
 )
 
 
-def _free_port() -> int:
-    """Pick an unused loopback port for the throwaway git daemon."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
-def _wait_for_port(host: str, port: int, timeout: float = 10.0) -> None:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            with socket.create_connection((host, port), timeout=1.0):
-                return
-        except OSError:
-            time.sleep(0.1)
-    raise RuntimeError(f"git daemon did not start on {host}:{port} within {timeout}s")
-
-
 @pytest.fixture(scope="session")
-def docker_e2e_user_repo(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[str, str, Path]]:
-    """Serve the ``sample_job`` fixture as a standalone git repo over a
-    local ``git daemon`` — a real remote, no monorepo reuse, no network.
+def docker_e2e_user_repo(tmp_path_factory: pytest.TempPathFactory) -> tuple[str, str, Path]:
+    """Publish the ``sample_job`` fixture as a standalone git repo into the
+    CI ``git daemon`` and return ``(remote_url, commit_sha, worktree)``.
 
-    The docker-runner build clones ``--git-remote`` host-side (the build
-    task runs on the runner, not in a container), so the remote only needs
-    runner-local reachability: ``git daemon`` bundled with stock git is
-    enough — no service container, no auth, no ``host.docker.internal``.
+    The daemon is workflow infrastructure — a fixed-port loopback service
+    started by the ``Start git daemon`` step in ``_docker-e2e-reusable.yaml``,
+    alongside the pypiserver and registry. This fixture only *publishes* a bare
+    repo into the daemon's base-path (mirroring the wheel-upload step), exactly
+    as a user's repo would already live on a remote git host; the build clones
+    it host-side, so no container reachability / auth is needed.
 
-    Yields ``(remote_url, commit_sha, worktree)``. ``worktree`` is the
-    user-repo checkout the host CLI runs from (its root is on ``sys.path``
-    so ``register-job`` resolves the entrypoint exactly as an external user
-    standing in their project would); ``remote_url`` is what the build
-    clones at ``commit_sha``."""
+    ``worktree`` is the user-repo checkout the host CLI runs from (its root is
+    on ``sys.path`` so ``register-job`` resolves the entrypoint exactly as an
+    external user standing in their project would); ``remote_url`` is what the
+    build clones at ``commit_sha``."""
+    base = os.environ.get("AAICLICK_E2E_GIT_DAEMON_BASE")
+    port = os.environ.get("AAICLICK_E2E_GIT_DAEMON_PORT")
+    if not base or not port:
+        pytest.skip(
+            "git daemon not configured; the docker e2e is workflow-driven — see the "
+            "'Start git daemon' step in .github/workflows/_docker-e2e-reusable.yaml"
+        )
+
     fixture = Path(__file__).parent / "fixtures" / "sample_job"
-    base = tmp_path_factory.mktemp("gitsrv")
     worktree = tmp_path_factory.mktemp("user_repo")
     shutil.copytree(fixture, worktree, dirs_exist_ok=True)
 
     def git(cwd: Path, *args: str) -> str:
-        result = subprocess.run(
-            ["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True
-        )
+        result = subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True)
         return result.stdout.strip()
 
     git(worktree, "init", "-q", "-b", "main")
@@ -95,33 +81,15 @@ def docker_e2e_user_repo(tmp_path_factory: pytest.TempPathFactory) -> Iterator[t
     )
     sha = git(worktree, "rev-parse", "HEAD")
 
-    bare = base / "sample_job.git"
+    # Publish a bare repo into the running daemon's base-path; the daemon serves
+    # repos created after startup (upload-pack is spawned per connection).
+    bare = Path(base) / "sample_job.git"
     git(worktree, "clone", "-q", "--bare", str(worktree), str(bare))
-    # The build fetches a raw SHA over the smart transport; upload-pack
-    # rejects that unless the serving repo opts in.
+    # The build fetches a raw SHA over the smart transport; upload-pack rejects
+    # that unless the serving repo opts in.
     git(bare, "config", "uploadpack.allowAnySHA1InWant", "true")
 
-    port = _free_port()
-    daemon = subprocess.Popen(
-        [
-            "git",
-            "daemon",
-            "--reuseaddr",
-            f"--base-path={base}",
-            "--export-all",
-            "--listen=127.0.0.1",
-            f"--port={port}",
-        ]
-    )
-    try:
-        _wait_for_port("127.0.0.1", port)
-        yield f"git://127.0.0.1:{port}/sample_job.git", sha, worktree
-    finally:
-        daemon.terminate()
-        try:
-            daemon.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            daemon.kill()
+    return f"git://127.0.0.1:{port}/sample_job.git", sha, worktree
 
 
 def pytest_configure(config: pytest.Config) -> None:

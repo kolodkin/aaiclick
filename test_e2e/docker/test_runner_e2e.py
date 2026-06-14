@@ -2,21 +2,22 @@
 
 Drives the full ``register-job`` → ``run-job`` → build → run → result
 path against a real docker daemon, a real local registry, a real test
-pypi serving the wheel under test, and a real git remote (a local
-``git daemon`` serving the fixture as a standalone repo — see the
-``docker_e2e_user_repo`` fixture). Both the registration and the job
-submission go through the ``python -m aaiclick`` CLI as a real user
-would, run from the user-repo working tree so the entrypoint resolves
-from it — exactly as an external user standing in their project.
+pypi serving the wheel under test, and a real git remote (the CI
+``git daemon`` service the ``docker_e2e_user_repo`` fixture publishes the
+user repo into). Both the registration and the job submission go through
+the ``python -m aaiclick`` CLI as a real user would, run from the
+user-repo working tree so the entrypoint resolves from it — exactly as an
+external user standing in their project.
 
 Marked ``docker_e2e`` so it opts out of the default test run; both the
 nightly workflow and the publish-time release gate pass
 ``test_e2e/docker/`` to pytest with ``-m docker_e2e`` to pick it up.
 
-The "user repo" is a self-contained fixture repo, decoupled from the
-aaiclick checkout: aaiclick-under-test arrives via the test pypi wheel,
-so the cloned repo only carries the user's project. This keeps the
-suite locally runnable (just a docker daemon) with no network."""
+The "user repo" is decoupled from the aaiclick checkout: aaiclick-under-
+test arrives via the test pypi wheel, so the served repo only carries the
+user's project. Like the registry and pypiserver, the git daemon is a
+fixed-port loopback service stood up by the workflow, so nothing leaves
+the runner."""
 
 from __future__ import annotations
 
