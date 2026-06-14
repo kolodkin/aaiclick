@@ -59,9 +59,7 @@ def test_enabled_valid_jwt(enabled):
 
 
 def test_enabled_bad_signature_unauthorized(enabled):
-    token = jwt.encode(
-        {"sub": "1", "role": "admin", "type": "access"}, OTHER_SECRET, algorithm="HS256"
-    )
+    token = jwt.encode({"sub": "1", "role": "admin", "type": "access"}, OTHER_SECRET, algorithm="HS256")
     with pytest.raises(Unauthorized):
         auth.resolve_principal(authorization=_bearer(token))
 

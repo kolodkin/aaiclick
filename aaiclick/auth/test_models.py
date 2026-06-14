@@ -22,9 +22,7 @@ async def test_refresh_token_round_trips(orch_ctx):
     uid = get_snowflake_id()
     async with get_sql_session() as session:
         session.add(User(id=uid, username="bob", password_hash="x", role=ROLE_ADMIN))
-        session.add(
-            RefreshToken(id=get_snowflake_id(), user_id=uid, token_hash="h", expires_at=utc_now())
-        )
+        session.add(RefreshToken(id=get_snowflake_id(), user_id=uid, token_hash="h", expires_at=utc_now()))
         await session.commit()
     async with get_sql_session() as session:
         row = (await session.execute(select(RefreshToken).where(RefreshToken.user_id == uid))).scalar_one()

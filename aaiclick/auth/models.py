@@ -30,9 +30,7 @@ class User(SQLModel, table=True):
             nullable=False,
         ),
     )
-    disabled: bool = Field(
-        sa_column=Column(Boolean, nullable=False, server_default="0"), default=False
-    )
+    disabled: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="0"), default=False)
     created_at: datetime = Field(default_factory=utc_now)
 
 
@@ -40,9 +38,7 @@ class RefreshToken(SQLModel, table=True):
     __tablename__: ClassVar[str] = "refresh_tokens"
 
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
-    user_id: int = Field(
-        sa_column=Column(BigInteger, ForeignKey("users.id"), nullable=False, index=True)
-    )
+    user_id: int = Field(sa_column=Column(BigInteger, ForeignKey("users.id"), nullable=False, index=True))
     token_hash: str = Field(sa_column=Column(String, nullable=False, unique=True, index=True))
     expires_at: datetime
     rotated_at: datetime | None = Field(default=None)

@@ -245,17 +245,13 @@ async def _run_worker_stop(args: argparse.Namespace) -> None:
 
 async def _run_user_create(args: argparse.Namespace) -> None:
     view = await _run_internal_api(
-        users_api.create_user(
-            CreateUserRequest(username=args.username, password=args.password, role=args.role)
-        )
+        users_api.create_user(CreateUserRequest(username=args.username, password=args.password, role=args.role))
     )
     _render(args, view, cli_renderers.render_user)
 
 
 async def _run_user_list(args: argparse.Namespace) -> None:
-    page = await _run_internal_api(
-        users_api.list_users(UserListFilter(limit=args.limit, offset=args.offset))
-    )
+    page = await _run_internal_api(users_api.list_users(UserListFilter(limit=args.limit, offset=args.offset)))
     _render(args, page, lambda p: cli_renderers.render_users_page(p, offset=args.offset))
 
 

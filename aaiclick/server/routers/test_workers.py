@@ -18,9 +18,7 @@ async def test_viewer_cannot_start_worker(orch_ctx, app_client, monkeypatch):
     monkeypatch.setenv("AAICLICK_AUTH_ENABLED", "true")
     monkeypatch.setenv("AAICLICK_JWT_SECRET", RBAC_SECRET)
     token = security.encode_access_token(user_id=2, role=ROLE_VIEWER, secret=RBAC_SECRET, ttl=60)
-    res = await app_client.post(
-        f"{API_PREFIX}/workers", json={}, headers={"Authorization": f"Bearer {token}"}
-    )
+    res = await app_client.post(f"{API_PREFIX}/workers", json={}, headers={"Authorization": f"Bearer {token}"})
     assert res.status_code == 403
 
 

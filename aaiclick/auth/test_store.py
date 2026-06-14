@@ -21,6 +21,7 @@ async def test_set_role_and_disable(orch_ctx):
     await store.set_role(u.id, ROLE_ADMIN)
     await store.set_disabled(u.id, True)
     again = await store.get_user_by_id(u.id)
+    assert again is not None
     assert again.role == ROLE_ADMIN and again.disabled is True
 
 

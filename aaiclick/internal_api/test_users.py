@@ -7,9 +7,7 @@ from aaiclick.view_models import Page
 
 
 async def test_create_user_returns_view(orch_ctx):
-    view = await users.create_user(
-        CreateUserRequest(username="alice", password="pw", role="admin")
-    )
+    view = await users.create_user(CreateUserRequest(username="alice", password="pw", role="admin"))
     assert isinstance(view, UserView)
     assert view.username == "alice" and view.role == "admin"
 

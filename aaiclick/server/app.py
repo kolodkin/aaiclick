@@ -17,7 +17,8 @@ from .auth import AdminAuthMiddleware, require_principal, warn_if_open
 from .errors import register_exception_handlers
 from .mcp import mcp
 from .routers import auth as auth_router
-from .routers import jobs, objects, registered_jobs, tasks, users as users_router, workers
+from .routers import jobs, objects, registered_jobs, tasks, workers
+from .routers import users as users_router
 
 API_PREFIX = "/api/v0"
 MCP_PATH = "/mcp"

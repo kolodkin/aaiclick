@@ -90,9 +90,7 @@ class AdminAuthMiddleware:
             if principal.role != ROLE_ADMIN:
                 raise Forbidden("admin role required")
         except Unauthorized as exc:
-            response = problem_response(
-                "Unauthorized", 401, str(exc), ProblemCode.UNAUTHORIZED, BEARER_CHALLENGE
-            )
+            response = problem_response("Unauthorized", 401, str(exc), ProblemCode.UNAUTHORIZED, BEARER_CHALLENGE)
             await response(scope, receive, send)
             return
         except Forbidden as exc:

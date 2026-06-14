@@ -52,11 +52,7 @@ async def get_user_by_id(user_id: int) -> User | None:
 async def list_users(*, limit: int, offset: int) -> tuple[list[User], int]:
     async with get_sql_session() as session:
         rows = (
-            (
-                await session.execute(
-                    select(User).order_by(col(User.username).asc()).limit(limit).offset(offset)
-                )
-            )
+            (await session.execute(select(User).order_by(col(User.username).asc()).limit(limit).offset(offset)))
             .scalars()
             .all()
         )
@@ -78,9 +74,7 @@ async def set_password_hash(user_id: int, password_hash: str) -> User:
 
 async def _update_user(user_id: int, **fields) -> User:
     async with get_sql_session() as session:
-        user = (
-            await session.execute(select(User).where(User.id == user_id))
-        ).scalar_one_or_none()
+        user = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
         if user is None:
             raise UserNotFound(f"user {user_id} not found")
         for key, value in fields.items():
@@ -109,9 +103,7 @@ async def get_active_refresh(token_hash: str) -> RefreshToken | None:
     """Return the row only if it is unrotated, unrevoked, and unexpired."""
     async with get_sql_session() as session:
         row = (
-            await session.execute(
-                select(RefreshToken).where(RefreshToken.token_hash == token_hash)
-            )
+            await session.execute(select(RefreshToken).where(RefreshToken.token_hash == token_hash))
         ).scalar_one_or_none()
     if row is None or row.rotated_at is not None or row.revoked_at is not None:
         return None
@@ -130,9 +122,7 @@ async def revoke_refresh(token_id: int) -> None:
 
 async def _stamp_refresh(token_id: int, field: str) -> None:
     async with get_sql_session() as session:
-        row = (
-            await session.execute(select(RefreshToken).where(RefreshToken.id == token_id))
-        ).scalar_one_or_none()
+        row = (await session.execute(select(RefreshToken).where(RefreshToken.id == token_id))).scalar_one_or_none()
         if row is None:
             raise RefreshInvalid(f"refresh token {token_id} not found")
         setattr(row, field, utc_now())

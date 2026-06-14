@@ -13,13 +13,9 @@ def _issue(*, user_id: int, role: str, secret: str, access_ttl: int) -> str:
     return security.encode_access_token(user_id=user_id, role=role, secret=secret, ttl=access_ttl)
 
 
-async def _mint_pair(
-    *, user_id: int, role: str, secret: str, access_ttl: int, refresh_ttl: int
-) -> TokenPair:
+async def _mint_pair(*, user_id: int, role: str, secret: str, access_ttl: int, refresh_ttl: int) -> TokenPair:
     refresh_secret = security.generate_secret()
-    await store.create_refresh_token(
-        user_id=user_id, token_hash=security.sha256_hex(refresh_secret), ttl=refresh_ttl
-    )
+    await store.create_refresh_token(user_id=user_id, token_hash=security.sha256_hex(refresh_secret), ttl=refresh_ttl)
     return TokenPair(
         access_token=_issue(user_id=user_id, role=role, secret=secret, access_ttl=access_ttl),
         refresh_token=refresh_secret,
@@ -37,11 +33,7 @@ async def login(
     access_ttl = access_ttl if access_ttl is not None else config.access_ttl()
     refresh_ttl = refresh_ttl if refresh_ttl is not None else config.refresh_ttl()
     user = await store.get_user_by_username(request.username)
-    if (
-        user is None
-        or user.disabled
-        or not security.verify_password(request.password, user.password_hash)
-    ):
+    if user is None or user.disabled or not security.verify_password(request.password, user.password_hash):
         raise Unauthorized("invalid username or password")
     return await _mint_pair(
         user_id=user.id,
