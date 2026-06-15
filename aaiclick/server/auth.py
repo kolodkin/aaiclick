@@ -41,26 +41,39 @@ class Principal(NamedTuple):
 _SYNTHETIC_ADMIN = Principal(user_id=None, username=None, role=ROLE_ADMIN)
 
 
-def resolve_principal(authorization: str | None) -> Principal:
-    """Core principal resolution, shared by the dependency and the middleware."""
-    if not config.auth_enabled():
-        return _SYNTHETIC_ADMIN
-    scheme, credentials = get_authorization_scheme_param(authorization)
-    if scheme.lower() != "bearer" or not credentials:
-        raise Unauthorized("missing bearer token")
+def _principal_from_token(token: str) -> Principal:
+    """Decode a raw access JWT into a Principal, or raise ``Unauthorized``."""
     try:
-        claims = security.decode_access_token(credentials, config.require_jwt_secret())
+        claims = security.decode_access_token(token, config.require_jwt_secret())
     except security.TokenError as exc:
         raise Unauthorized(str(exc)) from exc
     return Principal(user_id=claims.user_id, username=None, role=claims.role)
 
 
+def resolve_principal(authorization: str | None) -> Principal:
+    """Resolve from a raw ``Authorization`` header value (used by the /mcp middleware,
+    which has no access to FastAPI's dependency injection)."""
+    if not config.auth_enabled():
+        return _SYNTHETIC_ADMIN
+    scheme, credentials = get_authorization_scheme_param(authorization)
+    if scheme.lower() != "bearer" or not credentials:
+        raise Unauthorized("missing bearer token")
+    return _principal_from_token(credentials)
+
+
 async def require_principal(
     creds: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
 ) -> Principal:
-    """FastAPI dependency → resolve the Principal or raise ``Unauthorized``."""
-    header = f"Bearer {creds.credentials}" if creds else None
-    return resolve_principal(header)
+    """FastAPI dependency → resolve the Principal or raise ``Unauthorized``.
+
+    ``HTTPBearer`` already extracted and scheme-checked the credential, so the
+    token is decoded directly — no header re-parsing.
+    """
+    if not config.auth_enabled():
+        return _SYNTHETIC_ADMIN
+    if creds is None or not creds.credentials:
+        raise Unauthorized("missing bearer token")
+    return _principal_from_token(creds.credentials)
 
 
 async def require_admin(principal: Principal = Depends(require_principal)) -> Principal:
