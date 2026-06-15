@@ -1,4 +1,4 @@
-name: run-all-projects
+name: run-all-projects-nightly
 
 on:
   schedule:
