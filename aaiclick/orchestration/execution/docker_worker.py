@@ -40,7 +40,7 @@ from ..models import RUNNER_DOCKER, RUNNER_SUBPROCESS, Job, RunnerMode, Task
 from ..orch_context import get_sql_session
 from .claiming import check_task_cancelled
 from .runner import execute_task, register_returned_tasks, serialize_task_result
-from .worker import HEARTBEAT_INTERVAL, POLL_INTERVAL, worker_heartbeat
+from .worker import POLL_INTERVAL, RunnerResult, drive_vehicle, worker_heartbeat
 
 CONTAINER_IPC_DIR = "/aaiclick-ipc"
 CONTAINER_RESULT_FILE = "result.json"
@@ -236,40 +236,6 @@ async def _wait_for_container(container_id: str, timeout: float | None) -> tuple
     return exit_code, None
 
 
-async def _heartbeat_while_waiting(worker_id: int, done: asyncio.Event) -> None:
-    while not done.is_set():
-        try:
-            await asyncio.wait_for(done.wait(), timeout=HEARTBEAT_INTERVAL)
-            return
-        except asyncio.TimeoutError:
-            await worker_heartbeat(worker_id)
-
-
-async def _watch_for_cancellation(
-    task_id: int,
-    container_id: str,
-    done: asyncio.Event,
-    cancelled: asyncio.Event,
-) -> None:
-    """Poll for task-cancellation; ``docker kill`` the container on hit.
-
-    Sets ``cancelled`` so the host parent can distinguish a true
-    cancellation from a generic non-zero exit after ``gather()``
-    finishes. Reading the awaitable's return value isn't reliable —
-    the watcher may still be sleeping in ``asyncio.wait_for`` when the
-    container finishes on its own and ``done`` gets set externally."""
-    while not done.is_set():
-        try:
-            await asyncio.wait_for(done.wait(), timeout=POLL_INTERVAL)
-            return
-        except asyncio.TimeoutError:
-            pass
-        if await check_task_cancelled(task_id):
-            cancelled.set()
-            await _docker_kill(container_id)
-            return
-
-
 def _read_result_or_synthesize_failure(
     ipc_dir: str, exit_code: int, error: str | None, was_cancelled: bool
 ) -> _ContainerResult:
@@ -326,14 +292,56 @@ async def _resolve_runner(task: Task) -> RunnerMode:
     return job.runner_mode if job is not None else RUNNER_SUBPROCESS
 
 
+class _DockerHandle(NamedTuple):
+    container_id: str
+    ipc_dir: str
+
+
+class _DockerVehicle:
+    """``TaskVehicle`` for the Docker runner.
+
+    The IPC tmpdir is created by ``_run_task_in_container`` (its lifetime
+    is the ``TemporaryDirectory`` context) and handed in; ``launch`` only
+    spawns the container into it."""
+
+    def __init__(self, image_tag: str, log_base: str, env: dict[str, str], ipc_dir: str) -> None:
+        self._image_tag = image_tag
+        self._log_base = log_base
+        self._env = env
+        self._ipc_dir = ipc_dir
+
+    async def launch(self, task: Task, worker_id: int) -> _DockerHandle:
+        cmd = _build_docker_run_cmd(self._image_tag, task.id, self._ipc_dir, self._log_base, self._env)
+        container_id = await _docker_run_detached(cmd)
+        return _DockerHandle(container_id, self._ipc_dir)
+
+    async def wait(self, handle: _DockerHandle, timeout: float | None) -> tuple[int, str | None]:
+        return await _wait_for_container(handle.container_id, timeout)
+
+    async def poll_cancelled(self, task: Task) -> bool:
+        return await check_task_cancelled(task.id)
+
+    async def terminate(self, handle: _DockerHandle) -> None:
+        await _docker_kill(handle.container_id)
+
+    def collect(self, handle: _DockerHandle, exit_code: int, error: str | None, was_cancelled: bool) -> RunnerResult:
+        result = _read_result_or_synthesize_failure(handle.ipc_dir, exit_code, error, was_cancelled=was_cancelled)
+        return RunnerResult(result.success, result.result_ref, result.log_path, result.error)
+
+    async def cleanup(self, handle: _DockerHandle) -> None:
+        # We dropped --rm so we own cleanup; do this last so a panic
+        # before docker_rm doesn't leak the container's IPC tmpdir.
+        await _docker_rm(handle.container_id)
+
+
 async def _run_task_in_container(task: Task, worker_id: int) -> tuple[bool, dict | None, str | None, str | None]:
     """ExecuteFn for the Docker runner.
 
     Pulls the image (when a registry is configured), bind-mounts an IPC
-    tmpdir + the host log base, runs the container detached, and waits
-    for it to exit. Heartbeats and cancellation poll concurrently.
-    Cancellation and timeout both terminate the container via
-    ``docker kill``."""
+    tmpdir + the host log base, then hands a ``_DockerVehicle`` to the
+    shared ``drive_vehicle`` driver, which heartbeats and polls for
+    cancellation while the container runs. Cancellation and timeout both
+    terminate the container via ``docker kill``."""
     image_tag = await _fetch_image_tag(task.job_id)
     await _docker_pull_if_registered(image_tag)
 
@@ -344,26 +352,16 @@ async def _run_task_in_container(task: Task, worker_id: int) -> tuple[bool, dict
     env = _build_container_env()
 
     with tempfile.TemporaryDirectory(prefix="aaiclick-ipc-") as ipc_dir:
-        cmd = _build_docker_run_cmd(image_tag, task.id, ipc_dir, log_base, env)
-        container_id = await _docker_run_detached(cmd)
-
-        done = asyncio.Event()
-        cancelled = asyncio.Event()
-        heartbeat = asyncio.create_task(_heartbeat_while_waiting(worker_id, done))
-        cancel_watcher = asyncio.create_task(_watch_for_cancellation(task.id, container_id, done, cancelled))
-
-        try:
-            exit_code, error = await _wait_for_container(container_id, timeout)
-            done.set()
-            await asyncio.gather(heartbeat, cancel_watcher, return_exceptions=True)
-            result = _read_result_or_synthesize_failure(ipc_dir, exit_code, error, was_cancelled=cancelled.is_set())
-            return result.success, result.result_ref, result.log_path, result.error
-        finally:
-            done.set()
-            await asyncio.gather(heartbeat, cancel_watcher, return_exceptions=True)
-            # We dropped --rm so we own cleanup; do this last so a panic
-            # before docker_rm doesn't leak the container's IPC tmpdir.
-            await _docker_rm(container_id)
+        vehicle = _DockerVehicle(image_tag, log_base, env, ipc_dir)
+        result = await drive_vehicle(
+            task,
+            worker_id,
+            vehicle,
+            timeout=timeout,
+            poll_interval=POLL_INTERVAL,
+            heartbeat_fn=worker_heartbeat,
+        )
+        return result.success, result.result_ref, result.log_path, result.error
 
 
 async def dispatch_execute(task: Task, worker_id: int) -> tuple[bool, dict | None, str | None, str | None]:
