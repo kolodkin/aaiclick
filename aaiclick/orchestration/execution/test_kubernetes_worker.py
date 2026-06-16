@@ -1,12 +1,11 @@
-"""Tests for the Kubernetes runner — manifest, dispatch, collect, pod entrypoint."""
+"""Tests for the Kubernetes runner — manifest builder and collect logic.
+
+The Pod-side ``_pod_main`` test lives in ``test_kubernetes_pod_main.py`` (its
+own module) because it boots a chdb ``orch_context()``; see the chdb
+single-session constraint in ``docs/testing.md``."""
 
 from __future__ import annotations
 
-import pytest
-from sqlmodel import select
-
-from ..models import Task, TaskRunResult
-from ..orch_context import get_sql_session
 from . import kubernetes_worker as kw
 
 
@@ -37,8 +36,15 @@ def test_build_pod_manifest_shape():
 
 def test_build_pod_manifest_omits_optional_fields():
     m = kw._build_pod_manifest(
-        name="n", namespace="default", image_tag="img", task_id=1, run_epoch=0,
-        env={}, service_account=None, image_pull_secret=None, resources=None,
+        name="n",
+        namespace="default",
+        image_tag="img",
+        task_id=1,
+        run_epoch=0,
+        env={},
+        service_account=None,
+        image_pull_secret=None,
+        resources=None,
     )
     spec = m["spec"]
     assert "serviceAccountName" not in spec
@@ -46,33 +52,13 @@ def test_build_pod_manifest_omits_optional_fields():
     assert "resources" not in spec["containers"][0]
 
 
-@pytest.mark.usefixtures("fast_poll")
-async def test_pod_main_writes_task_run_result(orch_ctx_no_ch):
-    from ..factories import create_job
-
-    job = await create_job("k8s_pod_main", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
-    async with get_sql_session() as s:
-        task = (await s.execute(select(Task).where(Task.job_id == job.id))).scalar_one()
-
-    rc = await kw._pod_main(task.id, run_epoch=task.run_epoch)
-    assert rc == 0
-
-    async with get_sql_session() as s:
-        row = (
-            await s.execute(
-                select(TaskRunResult).where(
-                    TaskRunResult.task_id == task.id, TaskRunResult.run_epoch == task.run_epoch
-                )
-            )
-        ).scalar_one()
-    assert row.success is True
-    assert row.error is None
-
-
 def _handle(task_id=7, run_epoch=1):
     return kw._PodHandle(
-        name="aaiclick-task-7-1", namespace="default",
-        log_path="/logs/k8s-1.log", task_id=task_id, run_epoch=run_epoch,
+        name="aaiclick-task-7-1",
+        namespace="default",
+        log_path="/logs/k8s-1.log",
+        task_id=task_id,
+        run_epoch=run_epoch,
     )
 
 
