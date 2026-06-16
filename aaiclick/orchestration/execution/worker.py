@@ -154,9 +154,7 @@ async def drive_vehicle(
     done = asyncio.Event()
     cancelled = asyncio.Event()
     heartbeat = asyncio.create_task(_heartbeat_while_waiting(worker_id, done, heartbeat_interval, heartbeat_fn))
-    cancel_watcher = asyncio.create_task(
-        _watch_for_cancellation(vehicle, task, handle, done, cancelled, poll_interval)
-    )
+    cancel_watcher = asyncio.create_task(_watch_for_cancellation(vehicle, task, handle, done, cancelled, poll_interval))
 
     try:
         exit_code, error = await vehicle.wait(handle, timeout)
