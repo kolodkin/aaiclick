@@ -80,7 +80,8 @@ PreservationMode = Literal["NONE", "FULL"]
 
 RUNNER_SUBPROCESS = "subprocess"
 RUNNER_DOCKER = "docker"
-RunnerMode = Literal["subprocess", "docker"]
+RUNNER_KUBERNETES = "kubernetes"
+RunnerMode = Literal["subprocess", "docker", "kubernetes"]
 """Which task-execution runner the orchestrator uses for a job.
 
 - ``subprocess`` (default): each task runs in a multiprocessing child
@@ -88,8 +89,12 @@ RunnerMode = Literal["subprocess", "docker"]
 - ``docker``: each task runs in a fresh container built from the user's
   repo at a specific git SHA. A build task is auto-injected into the
   job graph and runs on the host (subprocess) before any container task.
+- ``kubernetes``: each task runs in a fresh Pod built from the user's
+  repo at a specific git SHA, scheduled on a cluster. Like ``docker`` it
+  auto-injects a host-side build task; the result is handed back via the
+  ``task_run_results`` table rather than a bind-mounted file.
 """
-RUNNER_MODES: list[RunnerMode] = [RUNNER_SUBPROCESS, RUNNER_DOCKER]
+RUNNER_MODES: list[RunnerMode] = [RUNNER_SUBPROCESS, RUNNER_DOCKER, RUNNER_KUBERNETES]
 
 
 def _enum_check(col: str, values: tuple[str, ...], constraint_name: str) -> CheckConstraint:
@@ -135,6 +140,7 @@ class RegisteredJob(SQLModel, table=True):
     )
     dockerfile: str | None = Field(default=None)
     git_remote: str | None = Field(default=None)
+    kubernetes_config: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     next_run_at: datetime | None = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
@@ -194,6 +200,7 @@ class Job(SQLModel, table=True):
     git_branch: str | None = Field(default=None)
     dockerfile: str | None = Field(default=None)
     image_tag: str | None = Field(default=None)
+    kubernetes_config: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     created_at: datetime = Field(default_factory=utc_now, index=True)
     started_at: datetime | None = Field(default=None)
     completed_at: datetime | None = Field(default=None)
@@ -486,6 +493,31 @@ class Task(SQLModel, table=True):
         else:
             other.depends_on(self)
             return other
+
+
+class TaskRunResult(SQLModel, table=True):
+    """Per-attempt result handoff from a remote task vehicle (Kubernetes Pod)
+    back to the host worker.
+
+    The Pod writes one row keyed by ``(task_id, run_epoch)``; the host reads
+    it at the epoch it claimed and then writes the terminal ``Task`` status
+    itself. The Pod never writes ``Task.status``/``run_statuses`` — preserving
+    the reaper invariant (see ``docker_worker`` module docstring). ``run_epoch``
+    fences stale attempts: a cleared/re-run task bumps the live epoch, so an
+    old Pod's row lands under a stale key and is ignored.
+    """
+
+    __tablename__: ClassVar[str] = "task_run_results"
+
+    task_id: int = Field(
+        sa_column=Column(BigInteger, ForeignKey("tasks.id"), primary_key=True),
+    )
+    run_epoch: int = Field(sa_column=Column(BigInteger, primary_key=True))
+    success: bool = Field(sa_column=Column(Boolean, nullable=False))
+    result_ref: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    log_path: str | None = Field(default=None)
+    error: str | None = Field(default=None)
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 # Type alias for tasks/groups that can be applied
