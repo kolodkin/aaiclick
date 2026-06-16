@@ -31,18 +31,19 @@ Conclusion: Phase 5 uses host-side DBs (no in-cluster Postgres/ClickHouse), and
 its setup must `kubectl -n kube-system rollout status deploy/coredns` before
 submitting task Pods.
 
-# Phase 1 — Shared CLI primitive
+# Phase 1 — Shared CLI primitive ✅
 
 Prep refactor (same playbook as Phase 0): extract before adding k8s.
 
-- `execution/cli.py` with `run(...)` (capture) and `run(..., stream=True)` (live
-  tee, from `docker_build._stream_to_stdio`) and one error type.
-- `docker_worker`, `docker_build`, `docker_config` refactored onto it.
-- Rename the shared `AAICLICK_DOCKER_REGISTRY` → `AAICLICK_REGISTRY` (3 code
-  sites, the docker e2e workflow, 2 tests); no back-compat shim.
+- ✅ `execution/cli.py` — `cli.run(...)` (capture) and `cli.run(..., stream=True)`
+  (live tee) with `cli.CommandError`.
+- ✅ `docker_worker`, `docker_build`, `docker_config` refactored onto it; the
+  three duplicate subprocess helpers removed.
+- ✅ Renamed the shared `AAICLICK_DOCKER_REGISTRY` → `AAICLICK_REGISTRY` (code,
+  docker e2e workflow, tests); no back-compat shim.
+- ✅ Full execution suite green (120 passed, 1 skipped); ruff clean.
 
-**Deliverable**: one async-subprocess primitive, existing duplication removed,
-the registry var renamed, docker tests green.
+**Implementation**: `aaiclick/orchestration/execution/cli.py` — see `cli.run`.
 
 # Phase 2 — Schema and config
 
