@@ -42,7 +42,7 @@ def resolve_kubernetes_config(
         return value if value is not None else defaults.get(key)
 
     return KubernetesConfig(
-        namespace=namespace or defaults.get("namespace") or "default",
+        namespace=pick(namespace, "namespace") or "default",
         service_account=pick(service_account, "service_account"),
         image_pull_secret=pick(image_pull_secret, "image_pull_secret"),
         resources=pick(resources, "resources"),

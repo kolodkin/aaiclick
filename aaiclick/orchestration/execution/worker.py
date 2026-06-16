@@ -46,6 +46,15 @@ HEARTBEAT_INTERVAL = 30
 POLL_INTERVAL = 1
 
 
+def parse_task_timeout() -> float | None:
+    """Per-task wall-clock cap from ``AAICLICK_TASK_TIMEOUT`` (seconds), or None.
+
+    Shared by every runner so the three ExecuteFns parse it identically (an
+    empty value reads as no timeout)."""
+    raw = os.environ.get("AAICLICK_TASK_TIMEOUT")
+    return float(raw) if raw else None
+
+
 class RunnerResult(NamedTuple):
     """Outcome of running a single task on a vehicle.
 

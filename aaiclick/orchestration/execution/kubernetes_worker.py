@@ -30,7 +30,7 @@ from . import cli
 from .claiming import check_task_cancelled
 from .docker_worker import _build_container_env
 from .runner import execute_task, register_returned_tasks, serialize_task_result
-from .worker import POLL_INTERVAL, RunnerResult, drive_vehicle, worker_heartbeat
+from .worker import POLL_INTERVAL, RunnerResult, drive_vehicle, parse_task_timeout, worker_heartbeat
 
 POD_ENTRYPOINT = ["python", "-m", "aaiclick.orchestration.execution.kubernetes_worker"]
 # Pod-internal log dir; ephemeral. The host captures logs via `kubectl logs`.
@@ -130,7 +130,9 @@ async def _kubectl_delete(handle: _PodHandle) -> None:
     )
 
 
-async def _pod_phase(handle: _PodHandle) -> str:
+async def _pod_status(handle: _PodHandle) -> tuple[str, int]:
+    """One ``kubectl get`` returning ``(phase, container exit code)``. The exit
+    code is ``-1`` until the container has terminated."""
     _, out, _ = await cli.run(
         _kubectl_bin(),
         "get",
@@ -139,28 +141,16 @@ async def _pod_phase(handle: _PodHandle) -> str:
         "-n",
         handle.namespace,
         "-o",
-        "jsonpath={.status.phase}",
+        "jsonpath={.status.phase} {.status.containerStatuses[0].state.terminated.exitCode}",
         check=False,
     )
-    return out.strip()
-
-
-async def _pod_exit_code(handle: _PodHandle) -> int:
-    _, out, _ = await cli.run(
-        _kubectl_bin(),
-        "get",
-        "pod",
-        handle.name,
-        "-n",
-        handle.namespace,
-        "-o",
-        "jsonpath={.status.containerStatuses[0].state.terminated.exitCode}",
-        check=False,
-    )
+    parts = out.split()
+    phase = parts[0] if parts else ""
     try:
-        return int(out.strip())
+        exit_code = int(parts[1]) if len(parts) > 1 else -1
     except ValueError:
-        return -1
+        exit_code = -1
+    return phase, exit_code
 
 
 async def _capture_pod_logs(handle: _PodHandle) -> None:
@@ -219,18 +209,18 @@ class _KubernetesVehicle:
     async def wait(self, handle: _PodHandle, timeout: float | None) -> tuple[int, str | None]:
         elapsed = 0.0
         error: str | None = None
+        exit_code = -1
         while True:
-            phase = await _pod_phase(handle)
+            phase, exit_code = await _pod_status(handle)
             if phase in ("Succeeded", "Failed"):
                 break
             if timeout is not None and elapsed >= timeout:
-                error = f"Task timed out after {timeout}s"
+                error, exit_code = f"Task timed out after {timeout}s", -1
                 break
             await asyncio.sleep(POLL_INTERVAL)
             elapsed += POLL_INTERVAL
         await _capture_pod_logs(handle)
         handle.result_row = await _read_task_run_result_row(handle.task_id, handle.run_epoch)
-        exit_code = await _pod_exit_code(handle) if error is None else -1
         return exit_code, error
 
     async def poll_cancelled(self, task: Task) -> bool:
@@ -255,8 +245,7 @@ class _KubernetesVehicle:
 async def _run_task_in_pod(task: Task, worker_id: int) -> tuple[bool, dict | None, str | None, str | None]:
     """ExecuteFn for the Kubernetes runner."""
     spec = await _fetch_pod_spec(task.job_id)
-    raw_timeout = os.environ.get("AAICLICK_TASK_TIMEOUT")
-    timeout = float(raw_timeout) if raw_timeout else None
+    timeout = parse_task_timeout()
     vehicle = _KubernetesVehicle(spec, get_logs_dir())
     result = await drive_vehicle(
         task, worker_id, vehicle, timeout=timeout, poll_interval=POLL_INTERVAL, heartbeat_fn=worker_heartbeat
