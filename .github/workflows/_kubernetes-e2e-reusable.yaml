@@ -1,0 +1,232 @@
+name: Kubernetes Runner E2E (reusable)
+
+# Shared body for the kubernetes-runner end-to-end suite. Mirrors
+# ``_docker-e2e-reusable.yaml`` (same services, wheel acquisition, pypiserver,
+# git daemon, migrations) and adds a minikube cluster using the recipe the
+# Phase 0.5 networking spike validated:
+#   - map ``host.minikube.internal`` -> 127.0.0.1 on the runner (docker treats a
+#     loopback-resolving registry as insecure automatically, so the host-side
+#     ``docker push host.minikube.internal:5000/...`` works over HTTP; the same
+#     name also resolves for runner-side migrate / pytest / DB access).
+#   - ``minikube start --insecure-registry=host.minikube.internal:5000`` so the
+#     cluster pulls the job image over HTTP; pods reach host Postgres/ClickHouse
+#     via ``host.minikube.internal`` (minikube CoreDNS -> node gateway).
+#   - wait for the ``coredns`` rollout before the test submits Pods (a Pod
+#     launched before CoreDNS is ready has no DNS).
+
+on:
+  workflow_call:
+    inputs:
+      wheel_source:
+        description: "Where the wheel comes from: 'source' or 'artifact'"
+        required: true
+        type: string
+      version_pin:
+        description: "vX.Y.Z to install in artifact mode; empty in source mode means auto-detect"
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:26.3
+        env:
+          CLICKHOUSE_USER: default
+          CLICKHOUSE_PASSWORD: click123
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 0
+        ports:
+          - 8123:8123
+          - 9000:9000
+        options: >-
+          --health-cmd "wget --spider -q localhost:8123/ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      postgres:
+        image: postgres:18.3
+        env:
+          POSTGRES_USER: aaiclick
+          POSTGRES_PASSWORD: secret
+          POSTGRES_DB: aaiclick
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aaiclick"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      # host.minikube.internal resolves to the host from inside the cluster
+      # (minikube injects it). Map it to localhost on the runner too, so
+      # runner-side migrate / pytest / the host-side image push use the same
+      # name. Docker treats a loopback-resolving registry as insecure, so the
+      # push needs no daemon config.
+      - name: Map host.minikube.internal to localhost
+        run: echo "127.0.0.1 host.minikube.internal" | sudo tee -a /etc/hosts
+
+      - name: Install minikube + kubectl
+        run: |
+          curl -Lo minikube https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+          sudo install minikube /usr/local/bin/
+          curl -Lo kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          sudo install kubectl /usr/local/bin/
+
+      - name: Start minikube
+        run: |
+          minikube start --driver=docker \
+            --insecure-registry="host.minikube.internal:5000" \
+            --insecure-registry="10.0.0.0/8" \
+            --insecure-registry="172.16.0.0/12" \
+            --insecure-registry="192.168.0.0/16"
+          kubectl get nodes -o wide
+
+      - name: Wait for cluster DNS (CoreDNS) ready
+        run: kubectl -n kube-system rollout status deploy/coredns --timeout=180s
+
+      # The pypiserver image's default entrypoint requires auth; start it with
+      # auth disabled (-a . -P .) as a step, like the docker e2e.
+      - name: Start pypiserver
+        run: |
+          docker run -d --name pypiserver -p 8080:8080 \
+            pypiserver/pypiserver:v2.3.2 \
+            run -p 8080 -a . -P . --server gunicorn
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/ -o /dev/null; then echo ready; exit 0; fi
+            sleep 1
+          done
+          echo "pypiserver failed to become ready" >&2
+          docker logs pypiserver >&2
+          exit 1
+
+      - name: Start git daemon
+        run: |
+          GIT_DAEMON_BASE="$RUNNER_TEMP/gitsrv"
+          mkdir -p "$GIT_DAEMON_BASE"
+          echo "AAICLICK_E2E_GIT_DAEMON_BASE=$GIT_DAEMON_BASE" >> "$GITHUB_ENV"
+          echo "AAICLICK_E2E_GIT_DAEMON_PORT=9418" >> "$GITHUB_ENV"
+          git daemon --reuseaddr --listen=127.0.0.1 --port=9418 \
+            --base-path="$GIT_DAEMON_BASE" --export-all --detach
+          for i in $(seq 1 30); do
+            if (exec 3<>/dev/tcp/127.0.0.1/9418) 2>/dev/null; then exec 3>&-; echo ready; exit 0; fi
+            sleep 1
+          done
+          echo "git daemon failed to become ready" >&2
+          exit 1
+
+      # --- Wheel acquisition (branches on wheel_source) -------------------
+
+      - name: Build wheel from source
+        if: inputs.wheel_source == 'source'
+        run: |
+          uv sync --frozen --extra distributed --extra test --python 3.10
+          uv build
+
+      - name: Download dist artifact
+        if: inputs.wheel_source == 'artifact'
+        uses: actions/download-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+      - name: Download requirements artifact
+        if: inputs.wheel_source == 'artifact'
+        uses: actions/download-artifact@v7
+        with:
+          name: requirements
+
+      # --- Common: pypi upload --------------------------------------------
+
+      - name: Upload wheel to test pypi
+        run: |
+          for f in dist/*.whl dist/*.tar.gz; do
+            curl -fsSL -F "content=@${f}" -F ":action=file_upload" http://localhost:8080/
+          done
+
+      - name: Install aaiclick from test pypi (artifact mode)
+        if: inputs.wheel_source == 'artifact'
+        env:
+          UV_INDEX_URL: http://localhost:8080/simple/
+          UV_EXTRA_INDEX_URL: https://pypi.org/simple/
+          UV_INDEX_STRATEGY: unsafe-best-match
+        run: |
+          uv venv --python 3.10
+          uv pip install -r requirements-dist.txt
+          VERSION="${{ inputs.version_pin }}"
+          uv pip install "aaiclick[distributed]==${VERSION#v}"
+
+      # --- Common: migrations, test ---------------------------------------
+
+      - name: Run database migrations
+        env:
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
+        run: uv run --no-project python -m aaiclick migrate upgrade head
+
+      - name: Run kubernetes e2e tests
+        env:
+          VIRTUAL_ENV: ${{ github.workspace }}/.venv
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@host.minikube.internal:5432/aaiclick"
+          AAICLICK_CH_URL: "clickhouse://default:click123@host.minikube.internal:8123/default"
+          AAICLICK_REGISTRY: "host.minikube.internal:5000"
+          AAICLICK_PIP_INDEX_URL: "http://host.minikube.internal:8080/simple/"
+          AAICLICK_PIP_TRUSTED_HOST: "host.minikube.internal"
+          # The host-side build runs `docker build` in a build container that
+          # doesn't inherit the runner's /etc/hosts; add the host-gateway
+          # mapping so pip can reach the test pypi during the build.
+          AAICLICK_DOCKER_BUILD_ADD_HOST: "host.minikube.internal:host-gateway"
+          AAICLICK_LOG_DIR: "${{ github.workspace }}/tmp/aaiclick-logs"
+        run: |
+          mkdir -p tmp
+          uv run --no-project pytest test_e2e/kubernetes/ -m kubernetes_e2e -n 0 -v \
+            -o asyncio_mode=auto \
+            -o asyncio_default_fixture_loop_scope=module \
+            -o asyncio_default_test_loop_scope=module \
+            -o "filterwarnings=error" \
+            --strict-markers \
+            --junitxml=tmp/pytest-report.xml
+
+      - name: Publish test results
+        uses: dorny/test-reporter@v2
+        if: always()
+        with:
+          name: "Kubernetes Runner E2E (${{ inputs.wheel_source }})"
+          path: tmp/pytest-report.xml
+          reporter: java-junit
+
+      - name: Dump cluster diagnostics on failure
+        if: failure()
+        run: |
+          kubectl get pods -A -o wide || true
+          kubectl get events --sort-by=.lastTimestamp || true
+          for p in $(kubectl get pods -o name 2>/dev/null); do
+            echo "===== describe $p ====="; kubectl describe "$p" || true
+            echo "===== logs $p ====="; kubectl logs "$p" --tail=50 || true
+          done
+
+      - name: Cleanup
+        if: always()
+        run: |
+          minikube delete || true
+          docker system prune -af || true

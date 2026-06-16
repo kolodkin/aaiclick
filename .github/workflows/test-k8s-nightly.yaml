@@ -1,0 +1,22 @@
+name: Kubernetes Runner E2E (nightly)
+
+# NOTE: temporarily push-triggered to validate the reusable workflow on this
+# feature branch (a `schedule` cron only fires from the default branch). Once
+# green, this becomes `schedule` + `workflow_dispatch` like test-docker-nightly.
+
+on:
+  push:
+    branches: [claude/kubernetes-runner-support-rxv9hm]
+    paths:
+      - .github/workflows/_kubernetes-e2e-reusable.yaml
+      - .github/workflows/test-k8s-nightly.yaml
+      - test_e2e/kubernetes/**
+      - test_e2e/fixtures/**
+      - aaiclick/orchestration/execution/kubernetes_worker.py
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    uses: ./.github/workflows/_kubernetes-e2e-reusable.yaml
+    with:
+      wheel_source: source
