@@ -159,6 +159,15 @@ RUNNER_KUBERNETES = "kubernetes"
 RunnerMode = Literal["subprocess", "docker", "kubernetes"]
 ```
 
+!!! note "`runner_mode` has no DB CHECK constraint"
+    Adding `"kubernetes"` dropped the `runner_mode` CHECK constraints rather than
+    widening them (Alembic can't autogenerate CHECK changes, and widening recurs
+    on every new mode). `runner_mode` is validated by the `RunnerMode` Literal
+    (typing) + the CLI's `choices=` (runtime). This is a scoped deviation from
+    the project's String+CHECK enum convention; the other enum columns keep
+    their CHECKs. A codebase-wide review of which convention to standardize on is
+    tracked in `docs/future.md`.
+
 - `register-job --runner kubernetes` records the mode (plus `--namespace` and
   resource flags) on the `RegisteredJob`.
 - `run_job` branches on `runner_mode == RUNNER_KUBERNETES` to
