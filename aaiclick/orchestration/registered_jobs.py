@@ -342,12 +342,14 @@ async def run_job(
 
     runner_mode = registered.runner_mode if registered is not None else RUNNER_SUBPROCESS
 
-    if runner_mode == RUNNER_DOCKER:
+    if runner_mode in (RUNNER_DOCKER, RUNNER_KUBERNETES):
+        # Both image-built runners share git/image resolution and require
+        # distributed mode; they diverge only in the factory + cluster config.
         if is_local():
             raise ValueError(
-                "Docker runner requires distributed mode (Postgres + ClickHouse); "
+                f"{runner_mode} runner requires distributed mode (Postgres + ClickHouse); "
                 "got chdb + SQLite. Set AAICLICK_SQL_URL and AAICLICK_CH_URL to "
-                "remote services before submitting docker-runner jobs."
+                "remote services before submitting these jobs."
             )
         docker_config = await resolve_docker_config(
             registered,
@@ -356,43 +358,19 @@ async def run_job(
             git_branch=git_branch,
             dockerfile=dockerfile,
         )
-        return await create_docker_job(
-            name=name,
-            entrypoint=entrypoint,
-            kwargs=merged_kwargs,
-            run_type=run_type,
-            registered_job_id=registered.id if registered is not None else None,
-            preservation_mode=preservation_mode,
-            registered=registered,
-            docker_config=docker_config,
-        )
-
-    if runner_mode == RUNNER_KUBERNETES:
-        if is_local():
-            raise ValueError(
-                "Kubernetes runner requires distributed mode (Postgres + ClickHouse); "
-                "got chdb + SQLite. Set AAICLICK_SQL_URL and AAICLICK_CH_URL to "
-                "remote services before submitting kubernetes-runner jobs."
-            )
-        docker_config = await resolve_docker_config(
-            registered,
-            git_remote=git_remote,
-            git_sha=git_sha,
-            git_branch=git_branch,
-            dockerfile=dockerfile,
-        )
-        kube = resolve_kubernetes_config(registered)
-        return await create_kubernetes_job(
-            name=name,
-            entrypoint=entrypoint,
-            kwargs=merged_kwargs,
-            run_type=run_type,
-            registered_job_id=registered.id if registered is not None else None,
-            preservation_mode=preservation_mode,
-            registered=registered,
-            docker_config=docker_config,
-            kubernetes_config=kube._asdict(),
-        )
+        common = {
+            "name": name,
+            "entrypoint": entrypoint,
+            "kwargs": merged_kwargs,
+            "run_type": run_type,
+            "registered_job_id": registered.id if registered is not None else None,
+            "preservation_mode": preservation_mode,
+            "registered": registered,
+            "docker_config": docker_config,
+        }
+        if runner_mode == RUNNER_DOCKER:
+            return await create_docker_job(**common)
+        return await create_kubernetes_job(**common, kubernetes_config=resolve_kubernetes_config(registered)._asdict())
 
     task = create_task(entrypoint, merged_kwargs, name=name)
     return await create_job(

@@ -14,6 +14,23 @@ from typing import NamedTuple
 from .models import RegisteredJob
 
 
+def build_kubernetes_config(
+    *,
+    namespace: str | None = None,
+    service_account: str | None = None,
+    image_pull_secret: str | None = None,
+) -> dict | None:
+    """Build the ``kubernetes_config`` JSON dict from individual fields,
+    dropping unset ones. Returns ``None`` when nothing is set (so a non-k8s
+    registration stores no cluster config). Used by the CLI / API boundary."""
+    config = {
+        "namespace": namespace,
+        "service_account": service_account,
+        "image_pull_secret": image_pull_secret,
+    }
+    return {k: v for k, v in config.items() if v is not None} or None
+
+
 class KubernetesConfig(NamedTuple):
     """Snapshot of Kubernetes cluster config resolved at submission time."""
 

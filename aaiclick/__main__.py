@@ -41,6 +41,7 @@ from aaiclick.data.data_context import data_context
 from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import users as users_api
 from aaiclick.internal_api.errors import InternalApiError
+from aaiclick.orchestration.kubernetes_config import build_kubernetes_config
 from aaiclick.orchestration.models import JobStatus, PreservationMode, RunnerMode, WorkerStatus
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.view_models import (
@@ -150,15 +151,11 @@ async def _run_run_job(args: argparse.Namespace) -> None:
 
 async def _run_register_job(args: argparse.Namespace) -> None:
     default_kwargs: dict | None = json.loads(args.kwargs) if args.kwargs else None
-    kubernetes_config = {
-        k: v
-        for k, v in {
-            "namespace": args.namespace,
-            "service_account": args.k8s_service_account,
-            "image_pull_secret": args.k8s_image_pull_secret,
-        }.items()
-        if v is not None
-    } or None
+    kubernetes_config = build_kubernetes_config(
+        namespace=args.namespace,
+        service_account=args.k8s_service_account,
+        image_pull_secret=args.k8s_image_pull_secret,
+    )
     request = RegisterJobRequest(
         name=args.name or "",
         entrypoint=args.entrypoint,

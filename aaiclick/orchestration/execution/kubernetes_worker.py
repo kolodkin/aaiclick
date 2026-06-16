@@ -289,18 +289,20 @@ async def _pod_main(task_id: int, run_epoch: int) -> int:
 
     success, result_ref, log_path, error = False, None, None, None
     exit_code = 0
-    try:
-        async with orch_context():
+    # orch_context wraps both execution and the result write — the latter needs
+    # an active SQL session (unlike docker's result.json file write).
+    async with orch_context():
+        try:
             async with get_sql_session() as session:
                 task = (await session.execute(select(Task).where(Task.id == task_id))).scalar_one()
             data_result, log_path = await execute_task(task)
             data_result = await register_returned_tasks(data_result, task.id, task.job_id)
             result_ref = serialize_task_result(data_result, task.job_id)
             success = True
-    except BaseException as e:
-        success, error, exit_code = False, f"{type(e).__name__}: {e}", 1
+        except BaseException as e:
+            success, error, exit_code = False, f"{type(e).__name__}: {e}", 1
 
-    await _write_task_run_result(task_id, run_epoch, success, result_ref, log_path, error)
+        await _write_task_run_result(task_id, run_epoch, success, result_ref, log_path, error)
     return exit_code
 
 
