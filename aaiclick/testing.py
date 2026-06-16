@@ -15,9 +15,11 @@ from __future__ import annotations
 import gc
 import os
 import shutil
+import subprocess
 import tempfile
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from pathlib import Path
 
 import pytest
 from alembic import command
@@ -420,3 +422,51 @@ async def orch_ctx_no_ch(orch_module_ctx_no_ch):
     """
     await per_test_reset(reset_ch=False, reset_sql=True)
     yield
+
+
+def publish_user_repo(tmp_path_factory: pytest.TempPathFactory, fixture_dir: Path) -> tuple[str, str, Path]:
+    """Publish ``fixture_dir`` as a bare git repo into the CI git daemon.
+
+    Returns ``(remote_url, commit_sha, worktree)``. Skips when the daemon env
+    (``AAICLICK_E2E_GIT_DAEMON_BASE`` / ``_PORT``) is unset — these e2es are
+    workflow-driven. Shared by the docker and kubernetes runner suites.
+
+    ``worktree`` is the user-repo checkout the host CLI runs from; ``remote_url``
+    is what the build clones at ``commit_sha`` (a bare repo published into the
+    daemon's base-path, with raw-SHA fetch enabled)."""
+    base = os.environ.get("AAICLICK_E2E_GIT_DAEMON_BASE")
+    port = os.environ.get("AAICLICK_E2E_GIT_DAEMON_PORT")
+    if not base or not port:
+        pytest.skip("git daemon not configured; this runner e2e is workflow-driven")
+
+    worktree = tmp_path_factory.mktemp("user_repo")
+    shutil.copytree(fixture_dir, worktree, dirs_exist_ok=True)
+
+    def git(cwd: Path, *args: str) -> str:
+        result = subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True)
+        return result.stdout.strip()
+
+    git(worktree, "init", "-q", "-b", "main")
+    git(worktree, "add", "-A")
+    # ``-c …`` overrides keep the commit independent of the runner's global git
+    # config (identity + any ambient commit.gpgsign needing a key CI lacks).
+    git(
+        worktree,
+        "-c",
+        "user.email=e2e@example.com",
+        "-c",
+        "user.name=e2e",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-qm",
+        "fixture",
+    )
+    sha = git(worktree, "rev-parse", "HEAD")
+
+    bare = Path(base) / "sample_job.git"
+    git(worktree, "clone", "-q", "--bare", str(worktree), str(bare))
+    # The build fetches a raw SHA over the smart transport; upload-pack rejects
+    # that unless the serving repo opts in.
+    git(bare, "config", "uploadpack.allowAnySHA1InWant", "true")
+    return f"git://127.0.0.1:{port}/sample_job.git", sha, worktree
