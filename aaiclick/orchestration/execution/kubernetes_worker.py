@@ -132,16 +132,30 @@ async def _kubectl_delete(handle: _PodHandle) -> None:
 
 async def _pod_phase(handle: _PodHandle) -> str:
     _, out, _ = await cli.run(
-        _kubectl_bin(), "get", "pod", handle.name, "-n", handle.namespace,
-        "-o", "jsonpath={.status.phase}", check=False,
+        _kubectl_bin(),
+        "get",
+        "pod",
+        handle.name,
+        "-n",
+        handle.namespace,
+        "-o",
+        "jsonpath={.status.phase}",
+        check=False,
     )
     return out.strip()
 
 
 async def _pod_exit_code(handle: _PodHandle) -> int:
     _, out, _ = await cli.run(
-        _kubectl_bin(), "get", "pod", handle.name, "-n", handle.namespace,
-        "-o", "jsonpath={.status.containerStatuses[0].state.terminated.exitCode}", check=False,
+        _kubectl_bin(),
+        "get",
+        "pod",
+        handle.name,
+        "-n",
+        handle.namespace,
+        "-o",
+        "jsonpath={.status.containerStatuses[0].state.terminated.exitCode}",
+        check=False,
     )
     try:
         return int(out.strip())
@@ -161,9 +175,7 @@ async def _read_task_run_result_row(task_id: int, run_epoch: int) -> RunnerResul
     async with get_sql_session() as session:
         row = (
             await session.execute(
-                select(TaskRunResult).where(
-                    TaskRunResult.task_id == task_id, TaskRunResult.run_epoch == run_epoch
-                )
+                select(TaskRunResult).where(TaskRunResult.task_id == task_id, TaskRunResult.run_epoch == run_epoch)
             )
         ).scalar_one_or_none()
     if row is None:
@@ -183,9 +195,14 @@ class _KubernetesVehicle:
         env["AAICLICK_LOG_DIR"] = POD_LOG_DIR
         name = _pod_name(task.id, task.run_epoch)
         manifest = _build_pod_manifest(
-            name=name, namespace=self._spec.namespace, image_tag=self._spec.image_tag,
-            task_id=task.id, run_epoch=task.run_epoch, env=env,
-            service_account=self._spec.service_account, image_pull_secret=self._spec.image_pull_secret,
+            name=name,
+            namespace=self._spec.namespace,
+            image_tag=self._spec.image_tag,
+            task_id=task.id,
+            run_epoch=task.run_epoch,
+            env=env,
+            service_account=self._spec.service_account,
+            image_pull_secret=self._spec.image_pull_secret,
             resources=self._spec.resources,
         )
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
@@ -260,9 +277,7 @@ async def _write_task_run_result(
     async with get_sql_session() as session:
         existing = (
             await session.execute(
-                select(TaskRunResult).where(
-                    TaskRunResult.task_id == task_id, TaskRunResult.run_epoch == run_epoch
-                )
+                select(TaskRunResult).where(TaskRunResult.task_id == task_id, TaskRunResult.run_epoch == run_epoch)
             )
         ).scalar_one_or_none()
         if existing is None:
