@@ -87,11 +87,22 @@ execute one once its rows exist.
 
 **Implementation**: `aaiclick/orchestration/execution/kubernetes_worker.py`.
 
-# Phase 4 — Submission path, CLI, scaffolding
+# Phase 4 — Submission path, CLI, scaffolding ✅
 
-- `create_kubernetes_job` factory (mirrors `create_docker_job`; same build-task
-  injection); `run_job` branch resolving `resolve_docker_config` +
-  `resolve_kubernetes_config` for `RUNNER_KUBERNETES`.
+- ✅ `create_kubernetes_job` + `create_docker_job` share `factories._create_built_job`
+  (differ only in `runner_mode` + the `kubernetes_config` snapshot).
+- ✅ `run_job` `RUNNER_KUBERNETES` branch: `is_local` guard, `resolve_docker_config`
+  (git/image) + `resolve_kubernetes_config` → `Job.kubernetes_config`.
+- ✅ `register_job` / `upsert_registered_job` persist `kubernetes_config`; threaded
+  through `RegisterJobRequest` + `internal_api.register_job`.
+- ✅ `register-job` CLI flags: `--namespace`, `--k8s-service-account`,
+  `--k8s-image-pull-secret`.
+
+Deferred: per-run `run-job` namespace override and resource (cpu/mem) flags
+(`run-job --git-sha/--git-remote` already flow through `resolve_docker_config`).
+
+**Implementation**: `aaiclick/orchestration/factories.py` — `create_kubernetes_job`;
+`registered_jobs.run_job`.
 
 - `register-job --runner kubernetes`; `--namespace` / resource flags on
   `register-job` and `run-job`.

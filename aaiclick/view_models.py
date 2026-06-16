@@ -91,6 +91,8 @@ class RegisterJobRequest(BaseModel):
     runner_mode: RunnerMode = "subprocess"
     dockerfile: str | None = None
     git_remote: str | None = None
+    # Kubernetes-runner cluster defaults (namespace, service_account, ...).
+    kubernetes_config: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def _default_name_from_entrypoint(self) -> RegisterJobRequest:

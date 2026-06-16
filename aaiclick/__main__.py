@@ -150,6 +150,15 @@ async def _run_run_job(args: argparse.Namespace) -> None:
 
 async def _run_register_job(args: argparse.Namespace) -> None:
     default_kwargs: dict | None = json.loads(args.kwargs) if args.kwargs else None
+    kubernetes_config = {
+        k: v
+        for k, v in {
+            "namespace": args.namespace,
+            "service_account": args.k8s_service_account,
+            "image_pull_secret": args.k8s_image_pull_secret,
+        }.items()
+        if v is not None
+    } or None
     request = RegisterJobRequest(
         name=args.name or "",
         entrypoint=args.entrypoint,
@@ -159,6 +168,7 @@ async def _run_register_job(args: argparse.Namespace) -> None:
         runner_mode=args.runner,
         dockerfile=args.dockerfile,
         git_remote=args.git_remote,
+        kubernetes_config=kubernetes_config,
     )
     view = await _run_internal_api(internal_api.register_job(request))
     _render(args, view, cli_renderers.render_registered_job)
@@ -591,6 +601,21 @@ def main():
         "--git-remote",
         default=None,
         help="Default git remote URL (docker runner only); auto-detected if omitted",
+    )
+    register_job_parser.add_argument(
+        "--namespace",
+        default=None,
+        help="Kubernetes namespace (kubernetes runner only; default: 'default')",
+    )
+    register_job_parser.add_argument(
+        "--k8s-service-account",
+        default=None,
+        help="Kubernetes service account name (kubernetes runner only)",
+    )
+    register_job_parser.add_argument(
+        "--k8s-image-pull-secret",
+        default=None,
+        help="Kubernetes imagePullSecret name (kubernetes runner only)",
     )
     _add_json_flag(register_job_parser)
 
