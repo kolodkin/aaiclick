@@ -129,14 +129,12 @@ class RegisteredJob(SQLModel, table=True):
             nullable=True,
         ),
     )
+    # No DB CHECK constraint: runner_mode is validated by the RunnerMode
+    # Literal (type-check) and the CLI's choices= (runtime). Dropping the
+    # CHECK means adding a runner mode needs no migration.
     runner_mode: RunnerMode = Field(
         default=RUNNER_SUBPROCESS,
-        sa_column=Column(
-            String,
-            _enum_check("runner_mode", get_args(RunnerMode), "ck_registered_jobs_runner_mode"),
-            nullable=False,
-            server_default=RUNNER_SUBPROCESS,
-        ),
+        sa_column=Column(String, nullable=False, server_default=RUNNER_SUBPROCESS),
     )
     dockerfile: str | None = Field(default=None)
     git_remote: str | None = Field(default=None)
@@ -186,14 +184,10 @@ class Job(SQLModel, table=True):
             server_default=PRESERVATION_NONE,
         ),
     )
+    # No DB CHECK constraint — see RegisteredJob.runner_mode.
     runner_mode: RunnerMode = Field(
         default=RUNNER_SUBPROCESS,
-        sa_column=Column(
-            String,
-            _enum_check("runner_mode", get_args(RunnerMode), "ck_jobs_runner_mode"),
-            nullable=False,
-            server_default=RUNNER_SUBPROCESS,
-        ),
+        sa_column=Column(String, nullable=False, server_default=RUNNER_SUBPROCESS),
     )
     git_remote: str | None = Field(default=None)
     git_sha: str | None = Field(default=None, sa_column=Column(String(40), nullable=True))
