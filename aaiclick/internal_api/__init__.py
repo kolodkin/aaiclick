@@ -11,7 +11,15 @@ over this module.
 See ``docs/api_server.md`` for the full contract.
 """
 
-from .errors import Conflict, InternalApiError, Invalid, NotFound
+from .errors import (
+    Conflict,
+    Forbidden,
+    InternalApiError,
+    Invalid,
+    NotFound,
+    Unauthorized,
+    WorkerSpawnFailed,
+)
 from .jobs import cancel_job, get_job, job_stats, list_jobs, run_job
 from .lineage import (
     get_table_schema,
@@ -26,4 +34,4 @@ from .registered_jobs import (
     register_job,
 )
 from .tasks import get_task
-from .workers import list_workers, stop_worker
+from .workers import list_workers, start_worker, stop_worker

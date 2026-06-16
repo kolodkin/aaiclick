@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useAuth } from "./components/Auth";
 import { Header } from "./components/Header";
 import { parsePrompt, promptFromUrl, pushPromptToUrl } from "./prompt";
 import {
@@ -13,6 +14,7 @@ import {
   RunForm,
   TaskDetail,
 } from "./views";
+import { Login } from "./views/Login";
 
 function renderRoute(prompt: string, onPrompt: (v: string) => void) {
   const route = parsePrompt(prompt);
@@ -56,6 +58,7 @@ function renderRoute(prompt: string, onPrompt: (v: string) => void) {
 }
 
 export function App() {
+  const { me, ready } = useAuth();
   const [prompt, setPrompt] = useState(promptFromUrl);
 
   const onPrompt = (value: string) => {
@@ -68,6 +71,11 @@ export function App() {
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
+
+  // Wait for the initial /auth/me probe; when auth is disabled the server
+  // returns a synthetic admin so `me` is set and no login wall appears.
+  if (!ready) return null;
+  if (!me) return <Login />;
 
   return (
     <>
