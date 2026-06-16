@@ -36,7 +36,7 @@ from sqlmodel import select
 
 from ..docker_config import BUILD_TASK_ENTRYPOINT, add_host_flags
 from ..logging import get_logs_dir
-from ..models import RUNNER_DOCKER, RUNNER_SUBPROCESS, Job, RunnerMode, Task
+from ..models import RUNNER_DOCKER, RUNNER_KUBERNETES, RUNNER_SUBPROCESS, Job, RunnerMode, Task
 from ..orch_context import get_sql_session
 from . import cli
 from .claiming import check_task_cancelled
@@ -357,8 +357,15 @@ async def dispatch_execute(task: Task, worker_id: int) -> tuple[bool, dict | Non
     so a single worker process can serve a mixed Docker job (one
     host-side build task + N container tasks) without runner affinity
     rules."""
-    if await _resolve_runner(task) == RUNNER_DOCKER:
+    runner = await _resolve_runner(task)
+    if runner == RUNNER_DOCKER:
         return await _run_task_in_container(task, worker_id)
+    if runner == RUNNER_KUBERNETES:
+        # Imported here to avoid a circular import at module load time —
+        # kubernetes_worker imports helpers from docker_worker.
+        from .kubernetes_worker import _run_task_in_pod
+
+        return await _run_task_in_pod(task, worker_id)
     # Imported here to avoid a circular import at module load time —
     # mp_worker pulls in docker_worker via dispatch_execute.
     from .mp_worker import _run_task_in_child

@@ -195,6 +195,19 @@ async def test_dispatch_execute_routes_subprocess_to_mp_child(monkeypatch):
     in_child.assert_awaited_once_with(user_task, 2)
 
 
+async def test_dispatch_execute_routes_kubernetes_to_pod_runner(monkeypatch):
+    from ..models import RUNNER_KUBERNETES
+    from . import kubernetes_worker
+
+    user_task = _task()
+    monkeypatch.setattr(docker_worker, "_resolve_runner", AsyncMock(return_value=RUNNER_KUBERNETES))
+    in_pod = AsyncMock(return_value=(True, None, None, None))
+    monkeypatch.setattr(kubernetes_worker, "_run_task_in_pod", in_pod)
+
+    await docker_worker.dispatch_execute(user_task, worker_id=3)
+    in_pod.assert_awaited_once_with(user_task, 3)
+
+
 async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypatch, tmp_path):
     """When the cancel watcher fires while the container is running, the
     ``cancelled`` Event must reach the host parent and override whatever
