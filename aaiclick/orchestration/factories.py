@@ -13,10 +13,12 @@ from .models import (
     JOB_PENDING,
     RUN_MANUAL,
     RUNNER_DOCKER,
+    RUNNER_KUBERNETES,
     TASK_PENDING,
     Job,
     PreservationMode,
     RegisteredJob,
+    RunnerMode,
     RunType,
     Task,
 )
@@ -249,21 +251,22 @@ async def create_job(
     return job
 
 
-async def create_docker_job(
+async def _create_built_job(
     *,
     name: str,
     entrypoint: str,
+    runner_mode: RunnerMode,
+    docker_config: DockerJobConfig,
+    kubernetes_config: dict | None = None,
     kwargs: dict | None = None,
     run_type: RunType = RUN_MANUAL,
     registered_job_id: int | None = None,
     preservation_mode: PreservationMode | None = None,
     registered: RegisteredJob | None = None,
-    docker_config: DockerJobConfig,
 ) -> Job:
-    """Create a Docker-mode Job along with the auto-injected build task.
-
-    Writes Job, build task, entry task, and the ``build_task >>
-    entry_task`` dependency in a single transaction.
+    """Create an image-built Job (docker or kubernetes) + the auto-injected
+    build task, in one transaction. The build task is identical for both
+    runners; they differ only in ``runner_mode`` and the k8s config snapshot.
     """
     mode = resolve_job_config(preservation_mode, registered)
 
@@ -275,12 +278,13 @@ async def create_docker_job(
         run_type=run_type,
         registered_job_id=registered_job_id,
         preservation_mode=mode,
-        runner_mode=RUNNER_DOCKER,
+        runner_mode=runner_mode,
         git_remote=docker_config.git_remote,
         git_sha=docker_config.git_sha,
         git_branch=docker_config.git_branch,
         dockerfile=docker_config.dockerfile,
         image_tag=docker_config.image_tag,
+        kubernetes_config=kubernetes_config,
         created_at=utc_now(),
     )
 
@@ -308,3 +312,58 @@ async def create_docker_job(
         registry.pop(entry_task.id, None)
 
     return job
+
+
+async def create_docker_job(
+    *,
+    name: str,
+    entrypoint: str,
+    kwargs: dict | None = None,
+    run_type: RunType = RUN_MANUAL,
+    registered_job_id: int | None = None,
+    preservation_mode: PreservationMode | None = None,
+    registered: RegisteredJob | None = None,
+    docker_config: DockerJobConfig,
+) -> Job:
+    """Create a Docker-mode Job along with the auto-injected build task."""
+    return await _create_built_job(
+        name=name,
+        entrypoint=entrypoint,
+        runner_mode=RUNNER_DOCKER,
+        docker_config=docker_config,
+        kwargs=kwargs,
+        run_type=run_type,
+        registered_job_id=registered_job_id,
+        preservation_mode=preservation_mode,
+        registered=registered,
+    )
+
+
+async def create_kubernetes_job(
+    *,
+    name: str,
+    entrypoint: str,
+    kwargs: dict | None = None,
+    run_type: RunType = RUN_MANUAL,
+    registered_job_id: int | None = None,
+    preservation_mode: PreservationMode | None = None,
+    registered: RegisteredJob | None = None,
+    docker_config: DockerJobConfig,
+    kubernetes_config: dict | None = None,
+) -> Job:
+    """Create a Kubernetes-mode Job along with the auto-injected build task.
+
+    Reuses the Docker build pipeline (``docker_config``) for the image; the
+    cluster config snapshot is stored on ``Job.kubernetes_config``."""
+    return await _create_built_job(
+        name=name,
+        entrypoint=entrypoint,
+        runner_mode=RUNNER_KUBERNETES,
+        docker_config=docker_config,
+        kubernetes_config=kubernetes_config,
+        kwargs=kwargs,
+        run_type=run_type,
+        registered_job_id=registered_job_id,
+        preservation_mode=preservation_mode,
+        registered=registered,
+    )
