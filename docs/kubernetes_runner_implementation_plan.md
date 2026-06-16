@@ -2,13 +2,12 @@ Kubernetes Runner — Implementation Plan
 ---
 
 Phased plan for the Kubernetes runner specified in
-[kubernetes_runner.md](kubernetes_runner.md). Each phase lands working,
-tested code. Mark phases ✅ with file references as they complete.
+[kubernetes_runner.md](kubernetes_runner.md). Each phase lands working, tested
+code. Mark phases ✅ with file references as they complete.
 
 # Phase 0 — Runner abstraction ✅
 
-Extract the shared lifecycle so a third runner is ~6 methods, not a
-near-duplicate module.
+Extract the shared lifecycle so a third runner is ~6 methods, not a near-duplicate module.
 
 - ✅ `TaskVehicle` protocol, `RunnerResult`, `drive_vehicle` in
   `aaiclick/orchestration/execution/worker.py`.
@@ -16,44 +15,57 @@ near-duplicate module.
   (`docker_worker._DockerVehicle`, `mp_worker._MpVehicle`).
 - ✅ Full execution suite passes unchanged.
 
-# Phase 1 — Schema and config
+# Phase 1 — Shared CLI primitive
+
+Prep refactor (same playbook as Phase 0): extract before adding k8s.
+
+- `execution/cli.py` with `run(...)` (capture) and `run(..., stream=True)` (live
+  tee, from `docker_build._stream_to_stdio`) and one error type.
+- `docker_worker`, `docker_build`, `docker_config` refactored onto it.
+
+**Deliverable**: one async-subprocess primitive, existing duplication removed,
+docker tests green untouched.
+
+# Phase 2 — Schema and config
 
 - `RunnerMode` gains `"kubernetes"` + `RUNNER_KUBERNETES`; widen the
   `runner_mode` CHECK constraints on `jobs` and `registered_jobs`.
-- New `TaskRunResult` model (`task_run_results`, PK `(task_id, run_epoch)`).
-- New cluster columns on `Job` / `RegisteredJob` (namespace, service_account,
-  image_pull_secret, resources).
-- `KubernetesJobConfig` + `resolve_kubernetes_config` in a new
-  `kubernetes_config.py` (extends the shared Docker git/image resolution).
+- `TaskRunResult` model (`task_run_results`, PK `(task_id, run_epoch)`).
+- One nullable `kubernetes_config` JSON column on `Job` / `RegisteredJob`.
+- `KubernetesConfig` + `resolve_kubernetes_config` in `kubernetes_config.py`
+  (reuses the shared Docker git/image resolution).
 - Migration via the `generate-migration` skill — never hand-written.
 
-**Deliverable**: models + migration + config resolution, with unit tests for
-the three-layer precedence and the constraint widening.
+**Deliverable**: models + migration + config resolution, with unit tests for the
+three-layer precedence and the constraint widening.
 
-# Phase 2 — Vehicle and Pod entrypoint
+# Phase 3 — Vehicle, logs, and Pod entrypoint
 
-- `kubernetes_worker.py`: `KubernetesVehicle` (the six `TaskVehicle` methods)
-  and `_pod_main` (mirrors `docker_worker._container_main`, writing a
-  `TaskRunResult` row instead of `result.json`).
-- `create_kubernetes_job` factory (mirrors `create_docker_job`; same
-  build-task injection).
-- `run_job` and `dispatch_execute` branches for `RUNNER_KUBERNETES`.
+- `kubernetes_worker.py`: `KubernetesVehicle` (the six `TaskVehicle` methods,
+  bare Pod with `restartPolicy: Never`) and `_pod_main` (writes a `TaskRunResult`
+  row instead of `result.json`).
+- Log handling: Pod output to stdout (tee in `capture_task_output`, env-gated);
+  `wait()` streams `kubectl logs -f` into a temp file, does an authoritative
+  final `kubectl logs` before delete, relocates to the canonical `log_path`.
+- `create_kubernetes_job` factory (mirrors `create_docker_job`; same build-task
+  injection); `run_job` and `dispatch_execute` branches for `RUNNER_KUBERNETES`.
 
 **Deliverable**: a Kubernetes job runs end-to-end against a local cluster,
-including cancellation (`poll_cancelled` → Pod delete).
+including cancellation (`poll_cancelled` → Pod delete) and streamed logs.
 
-**Success criteria**: vehicle unit tests cover `collect` reading the result
-row, synthesized failure on a missing row, cancellation override, and timeout
-— the Docker vehicle's test matrix, re-pointed at the Pod transport.
+**Success criteria**: vehicle unit tests cover `collect` reading the result row,
+synthesized failure on a missing row, cancellation override, timeout, and the
+log reconcile/relocate — the Docker vehicle's test matrix, re-pointed at the Pod
+transport.
 
-# Phase 3 — CLI and scaffolding
+# Phase 4 — CLI and scaffolding
 
 - `register-job --runner kubernetes`; `--namespace` / resource flags on
   `register-job` and `run-job`.
-- A `kubernetes init` helper if Pod-spec scaffolding proves useful (the image
-  build reuses the existing `docker init` Dockerfile).
+- The image build reuses the existing `docker init` Dockerfile — no new scaffold
+  unless Pod-spec templating proves useful.
 
-# Phase 4 — E2E and CI
+# Phase 5 — E2E and CI
 
 - Extract the shared `sample_job` git-daemon fixture so `test_e2e/kubernetes/`
   and `test_e2e/docker/` both use it.
@@ -62,6 +74,6 @@ row, synthesized failure on a missing row, cancellation override, and timeout
 - `_kubernetes-e2e-reusable.yaml` (minikube via `setup-minikube`) and a nightly
   caller, mirroring the Docker workflows.
 
-!!! warning "Resolve minikube↔host-service networking early in Phase 4"
-    Pods must reach the registry, Postgres, and ClickHouse. Prototype this
-    before wiring the full test — it is the likeliest source of churn.
+!!! warning "Resolve minikube↔host-service networking early in Phase 5"
+    Pods must reach the registry, Postgres, and ClickHouse. Prototype this before
+    wiring the full test — it is the likeliest source of churn.
