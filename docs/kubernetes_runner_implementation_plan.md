@@ -22,9 +22,11 @@ Prep refactor (same playbook as Phase 0): extract before adding k8s.
 - `execution/cli.py` with `run(...)` (capture) and `run(..., stream=True)` (live
   tee, from `docker_build._stream_to_stdio`) and one error type.
 - `docker_worker`, `docker_build`, `docker_config` refactored onto it.
+- Rename the shared `AAICLICK_DOCKER_REGISTRY` → `AAICLICK_REGISTRY` (3 code
+  sites, the docker e2e workflow, 2 tests); no back-compat shim.
 
 **Deliverable**: one async-subprocess primitive, existing duplication removed,
-docker tests green untouched.
+the registry var renamed, docker tests green.
 
 # Phase 2 — Schema and config
 

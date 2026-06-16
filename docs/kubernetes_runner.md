@@ -120,10 +120,16 @@ write a `TaskRunResult` row instead of `result.json`.
 
 Kubernetes reuses the Docker build pipeline unchanged —
 `docker_build.build_image` clones the repo at the SHA, builds the image, and
-pushes it to a registry. A Kubernetes job therefore **requires**
-`AAICLICK_DOCKER_REGISTRY` (cluster nodes pull the image by tag). The
-auto-injected build task runs host-side on the subprocess runner, exactly as for
-Docker (`_resolve_runner` keeps `BUILD_TASK_ENTRYPOINT` on subprocess).
+pushes it to a registry. A Kubernetes job therefore **requires** `AAICLICK_REGISTRY`
+(cluster nodes pull the image by tag). The auto-injected build task runs
+host-side on the subprocess runner, exactly as for Docker (`_resolve_runner`
+keeps `BUILD_TASK_ENTRYPOINT` on subprocess).
+
+!!! note "`AAICLICK_DOCKER_REGISTRY` → `AAICLICK_REGISTRY`"
+    The registry is the one `AAICLICK_DOCKER_*` setting both runners share (k8s
+    reuses the docker build), so it is renamed to the neutral `AAICLICK_REGISTRY`.
+    The remaining `AAICLICK_DOCKER_*` vars stay docker-specific. Renamed with the
+    shared CLI primitive in Phase 1.
 
 # Configuration
 
