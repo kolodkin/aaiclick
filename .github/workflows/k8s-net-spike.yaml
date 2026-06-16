@@ -73,16 +73,19 @@ jobs:
       - name: Build probe image
         run: |
           mkdir -p probe
+          # No set -e: run every check and exit 0 so the Pod always reaches
+          # Succeeded and we can always read the logs. Reachability is judged
+          # by grepping the per-service rc lines, not the Pod phase.
           cat > probe/check.sh <<'EOF'
           #!/bin/sh
-          set -e
-          echo "== resolve host.minikube.internal =="
-          nslookup host.minikube.internal || echo "(nslookup failed)"
-          echo "== ClickHouse /ping =="
-          curl -fsS "http://host.minikube.internal:8123/ping" && echo " <- clickhouse OK"
-          echo "== Postgres pg_isready =="
-          pg_isready -h host.minikube.internal -p 5432 -U aaiclick
-          echo "ALL REACHABLE"
+          H=host.minikube.internal
+          echo "== /etc/resolv.conf =="; cat /etc/resolv.conf 2>/dev/null
+          echo "== nslookup $H =="; nslookup "$H" 2>&1 | sed 's/^/  /'
+          echo "== clickhouse $H:8123/ping =="
+          timeout 10 curl -fsS "http://$H:8123/ping"; echo "  clickhouse_rc=$?"
+          echo "== postgres $H:5432 =="
+          timeout 10 pg_isready -h "$H" -p 5432 -U aaiclick; echo "  postgres_rc=$?"
+          echo "DONE"
           EOF
           cat > probe/Dockerfile <<'EOF'
           FROM alpine:3.20
@@ -112,9 +115,11 @@ jobs:
                 imagePullPolicy: Never
           EOF
           kubectl apply -f pod-a.yaml
-          kubectl wait --for=jsonpath='{.status.phase}'=Succeeded pod/probe-a --timeout=120s
+          kubectl wait --for=jsonpath='{.status.phase}'=Succeeded pod/probe-a --timeout=90s || true
           echo "----- probe-a logs -----"
-          kubectl logs probe-a
+          kubectl logs probe-a | tee /tmp/a.log || true
+          echo "----- verdict -----"
+          grep -q 'clickhouse_rc=0' /tmp/a.log && grep -q 'postgres_rc=0' /tmp/a.log
 
       - name: "Probe B — cluster pulls image from local registry (insecure)"
         id: probe_b
