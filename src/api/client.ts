@@ -1,3 +1,4 @@
+import { clearSession, getAccessToken, tryRefresh } from "../lib/auth";
 import type { Problem } from "./types";
 
 export const API = "/api/v0";
@@ -23,14 +24,36 @@ async function parseError(res: Response): Promise<ApiError> {
   return new ApiError(res.status, problem, detail);
 }
 
+function authHeaders(extra?: HeadersInit): Record<string, string> {
+  const headers: Record<string, string> = { ...(extra as Record<string, string>) };
+  const token = getAccessToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+
+// Single chokepoint: attach the bearer token, and on a 401 try one silent
+// refresh + retry. If still unauthorized, clear the session and signal the
+// AuthProvider to drop back to the login screen.
+async function request(path: string, init: RequestInit = {}): Promise<Response> {
+  let res = await fetch(`${API}${path}`, { ...init, headers: authHeaders(init.headers) });
+  if (res.status === 401 && (await tryRefresh())) {
+    res = await fetch(`${API}${path}`, { ...init, headers: authHeaders(init.headers) });
+  }
+  if (res.status === 401) {
+    clearSession();
+    window.dispatchEvent(new Event("aaiclick:unauthorized"));
+  }
+  return res;
+}
+
 export async function fetchJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${API}${path}`);
+  const res = await request(path);
   if (!res.ok) throw await parseError(res);
   return (await res.json()) as T;
 }
 
 export async function postJSON<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
+  const res = await request(path, {
     method: "POST",
     headers: body === undefined ? {} : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),

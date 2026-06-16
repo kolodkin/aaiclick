@@ -44,6 +44,9 @@ class ProblemCode(str, Enum):
     NOT_FOUND = "not_found"
     CONFLICT = "conflict"
     INVALID = "invalid"
+    UNAUTHORIZED = "unauthorized"
+    FORBIDDEN = "forbidden"
+    WORKER_SPAWN_FAILED = "worker_spawn_failed"
 
 
 class Problem(BaseModel):
@@ -124,6 +127,16 @@ class WorkerFilter(BaseModel):
     limit: int = 50
     offset: int = 0
     cursor: str | None = None
+
+
+class StartWorkerRequest(BaseModel):
+    """Inputs for ``internal_api.start_worker``.
+
+    ``max_tasks`` caps how many tasks the spawned worker executes before it
+    exits; ``None`` means unlimited (run until stopped).
+    """
+
+    max_tasks: int | None = None
 
 
 class ObjectFilter(BaseModel):

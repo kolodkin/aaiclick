@@ -196,6 +196,9 @@ jobs:
           POSTGRES_USER: aaiclick
           POSTGRES_PASSWORD: secret
           POSTGRES_DB: aaiclick
+          # Distributed mode enforces auth; the server suite needs a signing
+          # secret (app_client mints an admin token from it).
+          AAICLICK_JWT_SECRET: ci-test-jwt-secret-key-at-least-32-bytes-long
           AAICLICK_TEST_FILESERVER_HOST: host.docker.internal
           # Leak-detection harness (nightly only). Empty string = off, so the
           # per-PR suite is unaffected. See aaiclick/testing.py:gc_leak_check.
@@ -309,6 +312,11 @@ jobs:
         env:
           AAICLICK_CH_URL: "clickhouse://default:click123@localhost:8123/default"
           AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
+          # Distributed mode enforces auth: the server seeds this admin on
+          # startup and the smoke logs in through the SPA before asserting.
+          AAICLICK_JWT_SECRET: ci-test-jwt-secret-key-at-least-32-bytes-long
+          AAICLICK_ADMIN_USERNAME: admin
+          AAICLICK_ADMIN_PASSWORD: ci-admin-password
         run: |
           mkdir -p tmp
           uv run pytest test_e2e/web/test_smoke.py -v --junitxml=tmp/pytest-report.xml

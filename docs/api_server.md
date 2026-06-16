@@ -13,8 +13,8 @@ with pydantic view models. The CLI keeps its current human output and gains
 `--json` for free. The REST and MCP surfaces derive from the same types, so
 their schemas, docs, and client SDKs cannot drift from the CLI.
 
-Phases 1–4 (view models, `internal_api`, REST, MCP) are implemented. The
-remaining auth + `start_worker` work is tracked in `docs/future.md`.
+All of view models, `internal_api`, REST, MCP, JWT auth + RBAC (see
+[Authentication](#authentication)), and `start_worker` are implemented.
 
 # Motivation
 
@@ -113,10 +113,9 @@ stabilises.
 
 # View Model Catalogue
 
-The planned auth + worker-spawn work (tracked in `docs/future.md`) adds
-`StartWorkerRequest` and expands `ProblemCode` — see
+Auth + worker-spawn add `StartWorkerRequest` and expand `ProblemCode` — see
 [Spawning workers](#spawning-workers--post-apiv0workers) and
-[Authentication](#authentication) for the additions.
+[Authentication](#authentication).
 
 ## Shared (`aaiclick/view_models.py`)
 
@@ -297,6 +296,9 @@ subject to breaking change" to downstream UIs / SDK generators; we graduate to
 
 ## Spawning workers — `POST /api/v0/workers`
 
+**Implementation**: `internal_api.workers.start_worker`,
+`aaiclick/server/routers/workers.py`.
+
 The CLI's `worker start` is a blocking process loop that runs until
 SIGTERM — it does not fit the request/response pattern. The REST
 endpoint spawns a **detached subprocess** and returns `202 Accepted`
@@ -320,8 +322,8 @@ handler flow:
    child survives the HTTP request. POSIX-only, matching the project's
    Linux / macOS scope; Windows is not a supported deployment target.
 3. If exec raises (`FileNotFoundError`, `PermissionError`), translate
-   to `Conflict(code=WORKER_SPAWN_FAILED)` → `503`. Otherwise return
-   `None`.
+   to `WorkerSpawnFailed` (a `Conflict` subclass) → `503`. Otherwise
+   return `None`.
 4. Router returns `202 Accepted` with header
    `Location: /api/v0/workers` and an empty body.
 
@@ -359,6 +361,7 @@ workers.
 | `StartWorkerRequest`  | `aaiclick/view_models.py`      | `max_tasks: int \| None`                                      |
 | `Unauthorized`        | `aaiclick/internal_api/errors` | Missing / invalid bearer token                                |
 | `Forbidden`           | `aaiclick/internal_api/errors` | Reserved for scope rollout; unused in v0                      |
+| `WorkerSpawnFailed`   | `aaiclick/internal_api/errors` | Detached worker exec failed; `Conflict` subclass → `503`      |
 | `Problem.code`        | `aaiclick/view_models.py`      | Extend `ProblemCode` with `UNAUTHORIZED`, `FORBIDDEN`, `WORKER_SPAWN_FAILED` |
 
 `Forbidden` ships in v0 so the error-mapping table is stable; no route
@@ -448,106 +451,44 @@ The server reuses the CLI's existing env vars and adds a single auth knob:
 |------------------------|------------------------------------------------------|------------------------|
 | `AAICLICK_CH_URL`      | ClickHouse connection URL                            | Existing (see `backend.py`) |
 | `AAICLICK_SQL_URL`     | Orchestration SQL backend URL                        | Existing (see `backend.py`) |
-| `AAICLICK_API_TOKEN`   | Shared bearer token for `/api/v0/*` and `/mcp` (v0)  | See `Authentication`   |
+| `AAICLICK_JWT_SECRET`  | HS256 signing secret (required in distributed mode)  | See `Authentication`   |
 | `UVICORN_HOST`         | Bind host (uvicorn native)                           | Standard uvicorn       |
 | `UVICORN_PORT`         | Bind port (uvicorn native)                           | Standard uvicorn       |
 
 # Authentication
 
-The `/api/v0/*` REST surface and the `/mcp` mount share one bearer-token
-check in v0. The CLI, in-process MCP client, and router-level tests all
-bypass the check — authentication is an HTTP-transport concern, not an
-internal-API concern.
+**Design**: `docs/auth.md`. **Implementation**: `aaiclick/server/auth.py`
+(principal resolution + RBAC), `aaiclick/auth/` (models, security, store),
+`aaiclick/internal_api/auth.py` (login/refresh/logout), wired in
+`aaiclick/server/app.py`.
 
-## Static token (v0)
+✅ IMPLEMENTED. Username/password users with two roles (`admin` / `viewer`),
+authenticated by a short-lived access JWT + rotating refresh token. The CLI
+runs `internal_api` in-process and never crosses this HTTP-transport layer.
 
-- **Token source**: the `AAICLICK_API_TOKEN` env var, read per-request
-  via a module-level helper so tests can flip it with `monkeypatch`.
-  No DB-backed token store, no rotation, no scopes.
-- **Enforcement**: if the env var is set, every request to `/api/v0/*`
-  and `/mcp/*` must carry `Authorization: Bearer <token>`. Mismatches
-  return `401 Problem` (`code="unauthorized"`). Missing headers return
-  `401` with a `WWW-Authenticate: Bearer` response header.
-- **Unset token → open server**: when `AAICLICK_API_TOKEN` is unset, the
-  check is a no-op and the server logs a `WARNING` at startup
-  (`"AAICLICK_API_TOKEN unset — server is open"`). This preserves the
-  "localhost-only, no config needed" onboarding path while making the
-  exposure visible in logs.
-- **Timing-safe compare**: the check uses `hmac.compare_digest`, not `==`.
+- **Gating**: mode-derived, not a flag — open in local mode (synthetic admin +
+  startup `WARNING`), enforced in distributed mode (requires
+  `AAICLICK_JWT_SECRET`, else the server refuses to start).
+- **Login**: `POST /api/v0/auth/login` `{username, password}` → access +
+  refresh tokens; `POST /auth/refresh` rotates; `POST /auth/logout` revokes;
+  `GET /auth/me` returns the current principal.
+- **Enforcement**: `HTTPBearer` extracts the access JWT; `require_principal`
+  guards every `/api/v0/*` router and `require_admin` guards every mutating
+  endpoint and all of `/users`. Reads need only a valid principal.
+- **MCP**: the `/mcp` mount is admin-only via an ASGI middleware (`Depends`
+  does not propagate into mounted sub-apps).
 
-!!! warning "Unset token ≠ safe in production"
-    An unset `AAICLICK_API_TOKEN` means *any* network-reachable client
-    can hit the API. Run behind a bind-to-localhost socket, a reverse
-    proxy, or a firewall rule — or set the token.
+Open paths (never 401): `GET /health`, `/api/v0/openapi.json`, `/docs`,
+`/redoc`, and `/api/v0/auth/login|refresh`.
 
-## Wiring
+The error envelope is the standard `Problem` (`code="unauthorized"` / 401 with
+`WWW-Authenticate: Bearer`, or `code="forbidden"` / 403).
 
-One FastAPI dependency, attached once at the mount site — not at every
-endpoint:
+## Future
 
-```python
-# aaiclick/server/auth.py
-async def require_bearer(authorization: str | None = Header(default=None)) -> None:
-    token = os.environ.get("AAICLICK_API_TOKEN")
-    if token is None:
-        return  # open-server mode
-    if authorization is None or not authorization.startswith("Bearer "):
-        raise Unauthorized("missing bearer token")
-    if not hmac.compare_digest(authorization.removeprefix("Bearer "), token):
-        raise Unauthorized("invalid bearer token")
-
-# aaiclick/server/app.py
-for router in (jobs.router, registered_jobs.router, tasks.router,
-               workers.router, objects.router):
-    app.include_router(router, prefix=API_PREFIX,
-                       dependencies=[Depends(require_bearer)])
-
-app.mount(MCP_PATH, _mcp_app, ...)  # protected by ASGI middleware — see below
-```
-
-The `/mcp` mount is protected by a lightweight ASGI middleware that runs
-the same check before delegating to the FastMCP sub-app. `Depends()` does
-not propagate into mounted sub-apps, so a middleware is required at the
-mount boundary.
-
-## What stays open
-
-| Path                       | Auth required? | Why                                                                  |
-|----------------------------|----------------|----------------------------------------------------------------------|
-| `GET /health`              | No             | Liveness / uptime probes must never 401                              |
-| `GET /api/v0/openapi.json` | No             | FastAPI serves it at the app level; router-dependency does not cover it, and an info-leak isn't a v0 concern |
-| `GET /api/v0/docs`         | No             | Same                                                                 |
-| `GET /api/v0/redoc`        | No             | Same                                                                 |
-
-Gating the schema / docs behind auth would need a middleware (like the
-`/mcp` one below) or `openapi_url=None` + a hand-written authed route —
-both are deferred to the DB-backed-tokens phase alongside scopes.
-
-## Error envelope
-
-```json
-{
-  "title": "Unauthorized",
-  "status": 401,
-  "detail": "missing bearer token",
-  "code": "unauthorized"
-}
-```
-
-`Unauthorized` is a new `internal_api.errors.*` subclass. The server-side
-handler sets the `WWW-Authenticate: Bearer` response header; the CLI and
-MCP paths never raise it because they bypass the bearer check.
-
-## Future (tracked in `docs/future.md`)
-
-- **DB-backed tokens with scopes** — `api_tokens` table, per-token
-  `read` / `write` / `admin` scope, CRUD CLI (`aaiclick token issue`,
-  `aaiclick token revoke`), rotation, expiry. Scopes gate mutating verbs
-  (`cancel_job`, `delete_object`, `start_worker`, `setup`).
-- **OAuth 2.0 / OIDC** — for the orchestration UI once a browser client
-  exists. Delegated identity, not a concern of the v0 static token.
-- **Per-request audit log** — who called what, when. Out of scope until
-  token identity exists.
+Per-tool MCP RBAC, a user-management UI, long-lived API tokens / PATs with
+scopes, OAuth 2.0 / OIDC, and a per-request audit log are tracked in
+`docs/future.md`.
 
 # Non-Goals
 
