@@ -7,7 +7,7 @@ docker daemon and produce the image the rest of the job needs.
 
 Cache hierarchy (first hit short-circuits):
 
-1. ``AAICLICK_DOCKER_REGISTRY`` set + ``docker pull`` succeeds — image is
+1. ``AAICLICK_REGISTRY`` set + ``docker pull`` succeeds — image is
    now in the local daemon.
 2. ``docker image inspect <tag>`` succeeds — local cache hit.
 3. Fall through: ``git clone`` at SHA, ``docker build``, then
@@ -128,7 +128,7 @@ async def build_image(job_id: int) -> None:
     return success — and host B would never be able to pull it."""
     job = await _fetch_job(job_id)
 
-    registry = os.environ.get("AAICLICK_DOCKER_REGISTRY")
+    registry = os.environ.get("AAICLICK_REGISTRY")
 
     if registry and await _docker_pull(job.image_tag):
         return

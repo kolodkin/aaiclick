@@ -85,7 +85,7 @@ async def auto_detect_git_branch() -> str | None:
 
 def compute_image_tag(git_sha: str) -> str:
     """``[<registry>/]aaiclick-job:<sha>``."""
-    registry = os.environ.get("AAICLICK_DOCKER_REGISTRY")
+    registry = os.environ.get("AAICLICK_REGISTRY")
     prefix = f"{registry}/" if registry else ""
     return f"{prefix}aaiclick-job:{git_sha}"
 

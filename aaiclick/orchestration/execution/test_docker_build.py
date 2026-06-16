@@ -65,7 +65,7 @@ async def test_build_image_pushes_after_local_cache_hit_when_registry_set(monkey
     retry; the retry must re-attempt the push instead, otherwise the
     image would never reach the registry and other hosts couldn't pull it.
     """
-    monkeypatch.setenv("AAICLICK_DOCKER_REGISTRY", "registry.example:5000")
+    monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
     job = _job()
 
     monkeypatch.setattr(docker_build, "_fetch_job", AsyncMock(return_value=job))
@@ -90,7 +90,7 @@ async def test_build_image_pushes_after_local_cache_hit_when_registry_set(monkey
 
 
 async def test_build_image_missing_dockerfile_raises(monkeypatch):
-    monkeypatch.delenv("AAICLICK_DOCKER_REGISTRY", raising=False)
+    monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
     job = _job(dockerfile="Dockerfile.missing")
 
     monkeypatch.setattr(docker_build, "_fetch_job", AsyncMock(return_value=job))
@@ -111,7 +111,7 @@ async def test_resolve_docker_config_kwargs_override_registered_defaults(
     monkeypatch,
 ):
     """The three-layer resolve picks the right value at each level."""
-    monkeypatch.delenv("AAICLICK_DOCKER_REGISTRY", raising=False)
+    monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
     monkeypatch.setattr(docker_config, "auto_detect_git_branch", AsyncMock(return_value="auto-branch"))
 
     registered = RegisteredJob(

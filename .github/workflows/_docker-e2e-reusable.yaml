@@ -196,7 +196,7 @@ jobs:
           VIRTUAL_ENV: ${{ github.workspace }}/.venv
           AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@host.docker.internal:5432/aaiclick"
           AAICLICK_CH_URL: "clickhouse://default:click123@host.docker.internal:8123/default"
-          AAICLICK_DOCKER_REGISTRY: "host.docker.internal:5000"
+          AAICLICK_REGISTRY: "host.docker.internal:5000"
           AAICLICK_PIP_INDEX_URL: "http://host.docker.internal:8080/simple/"
           # pip refuses to use a plain-HTTP index without --trusted-host;
           # forward the host so the build sees our test pypi.
