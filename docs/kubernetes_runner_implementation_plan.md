@@ -67,26 +67,31 @@ insert and downgrade round-trips.
 
 **Implementation**: `aaiclick/orchestration/kubernetes_config.py`, `models.TaskRunResult`.
 
-# Phase 3 — Vehicle, logs, and Pod entrypoint
+# Phase 3 — Vehicle, logs, and Pod entrypoint ✅ (execution path)
 
-- `kubernetes_worker.py`: `KubernetesVehicle` (the six `TaskVehicle` methods,
-  bare Pod with `restartPolicy: Never`) and `_pod_main` (writes a `TaskRunResult`
-  row instead of `result.json`).
-- Log handling: Pod output to stdout (tee in `capture_task_output`, env-gated);
-  `wait()` streams `kubectl logs -f` into a temp file, does an authoritative
-  final `kubectl logs` before delete, relocates to the canonical `log_path`.
+- ✅ `kubernetes_worker.py`: `_KubernetesVehicle` (the six `TaskVehicle` methods,
+  bare Pod with `restartPolicy: Never`, kubectl lifecycle) and `_pod_main`
+  (writes a `TaskRunResult` row instead of `result.json`).
+- ✅ Logs: `wait()` fetches `kubectl logs` into a host file at
+  `{log_base}/{job_id}/{task_id}/k8s-{run_epoch}.log`. **No pod-side tee
+  needed** — `capture_task_output` already tees task stdout to the real stdout,
+  so `kubectl logs` sees it.
+- ✅ `dispatch_execute` routes `RUNNER_KUBERNETES` → `_run_task_in_pod`.
+- Unit tests: manifest shape, `collect` (success / missing-row / cancelled),
+  `_pod_main` (success / failure / reaper invariant), dispatch routing. The
+  kubectl lifecycle calls are validated end-to-end by the Phase 5 minikube e2e.
+
+**Moved to Phase 4 (submission path):** `create_kubernetes_job` factory and the
+`run_job` branch — there's no way to *submit* a kubernetes job yet, only to
+execute one once its rows exist.
+
+**Implementation**: `aaiclick/orchestration/execution/kubernetes_worker.py`.
+
+# Phase 4 — Submission path, CLI, scaffolding
+
 - `create_kubernetes_job` factory (mirrors `create_docker_job`; same build-task
-  injection); `run_job` and `dispatch_execute` branches for `RUNNER_KUBERNETES`.
-
-**Deliverable**: a Kubernetes job runs end-to-end against a local cluster,
-including cancellation (`poll_cancelled` → Pod delete) and streamed logs.
-
-**Success criteria**: vehicle unit tests cover `collect` reading the result row,
-synthesized failure on a missing row, cancellation override, timeout, and the
-log reconcile/relocate — the Docker vehicle's test matrix, re-pointed at the Pod
-transport.
-
-# Phase 4 — CLI and scaffolding
+  injection); `run_job` branch resolving `resolve_docker_config` +
+  `resolve_kubernetes_config` for `RUNNER_KUBERNETES`.
 
 - `register-job --runner kubernetes`; `--namespace` / resource flags on
   `register-job` and `run-job`.

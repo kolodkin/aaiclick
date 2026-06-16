@@ -81,21 +81,20 @@ today.
 `capture_task_output` redirects task stdout/stderr into a file; Docker works
 only because that file lands on a bind mount. K8s breaks this twice: the file
 dies with the Pod, and `kubectl logs` reads the container's **stdout**, not a
-file inside it. So:
+file inside it.
 
-- **Pod side**: `_pod_main` lets task output reach stdout (a tee in
-  `capture_task_output`, gated by an env flag so subprocess and docker behaviour
-  are untouched).
-- **Host side**: while the Pod runs, the vehicle's `wait()` streams
-  `kubectl logs -f` into a temp file (live tail, via the `cli.py` stream mode).
-  On terminal phase it does one authoritative `kubectl logs` (no `-f`) to
-  guarantee completeness even if the live stream dropped lines, then relocates
-  the temp file to the canonical `{log_base}/{job_id}/{task_id}/{run_id}.log`
-  using the `run_id` from the result row, and reports that as `log_path`.
+- **Pod side**: no change needed. `capture_task_output` already tees task
+  output to the real stdout (`logging.py` — `_TeeWriter(original_stdout, log_file)`),
+  so the container's stdout — what `kubectl logs` reads — already carries the
+  task output.
+- **Host side**: the vehicle's `wait()` fetches `kubectl logs` into a host-side
+  file at `{log_base}/{job_id}/{task_id}/k8s-{run_epoch}.log` (named
+  deterministically from claim info — no `run_id` coordination) and reports that
+  as `log_path`.
 
 !!! warning "Capture logs before deleting the Pod"
-    The authoritative `kubectl logs` fetch runs inside `wait()`, before
-    `cleanup()` deletes the Pod — a deleted Pod's logs are gone.
+    The `kubectl logs` fetch runs inside `wait()`, before `cleanup()` deletes
+    the Pod — a deleted Pod's logs are gone.
 
 # The vehicle
 
@@ -105,11 +104,11 @@ cancelled-overrides-result are all generic).
 
 | Method           | Kubernetes behaviour                                                              |
 |------------------|-----------------------------------------------------------------------------------|
-| `launch`         | Create a Pod (image_tag, env, `--task-id` / `--run-epoch`); handle = pod name + epoch + temp-log path |
-| `wait`           | Watch Pod phase to terminal/timeout **and** stream + reconcile logs; return `(exit_code, error)` |
+| `launch`         | `kubectl apply` a bare-Pod manifest (image_tag, env, `--task-id` / `--run-epoch`); handle = pod name + namespace + host log path |
+| `wait`           | Poll Pod phase to terminal/timeout, fetch `kubectl logs` to the host file, read the `task_run_results` row and stash it on the handle; return `(exit_code, error)` |
 | `poll_cancelled` | `check_task_cancelled(task.id)` — reused unchanged from the Docker runner          |
-| `terminate`      | `kubectl delete pod --now` (cancellation / timeout path)                          |
-| `collect`        | Read the `task_run_results` row at `(task_id, run_epoch)`; synthesize failure if absent |
+| `terminate`      | `kubectl delete pod` (cancellation / timeout path)                                |
+| `collect`        | Return the stashed result row; synthesize failure if absent; cancellation overrides |
 | `cleanup`        | `kubectl delete pod` (idempotent); always runs, after logs are captured           |
 
 The Pod-side entrypoint mirrors `docker_worker._container_main`: boot
