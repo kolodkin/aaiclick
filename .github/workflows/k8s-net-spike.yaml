@@ -70,6 +70,11 @@ jobs:
           kubectl get nodes -o wide
           echo "minikube ip: $(minikube ip)"
 
+      - name: Wait for cluster DNS (CoreDNS) ready
+        run: |
+          kubectl -n kube-system rollout status deploy/coredns --timeout=180s
+          kubectl -n kube-system get pods -o wide
+
       - name: Build probe image
         run: |
           mkdir -p probe
@@ -78,13 +83,17 @@ jobs:
           # by grepping the per-service rc lines, not the Pod phase.
           cat > probe/check.sh <<'EOF'
           #!/bin/sh
-          H=host.minikube.internal
           echo "== /etc/resolv.conf =="; cat /etc/resolv.conf 2>/dev/null
-          echo "== nslookup $H =="; nslookup "$H" 2>&1 | sed 's/^/  /'
-          echo "== clickhouse $H:8123/ping =="
-          timeout 10 curl -fsS "http://$H:8123/ping"; echo "  clickhouse_rc=$?"
-          echo "== postgres $H:5432 =="
-          timeout 10 pg_isready -h "$H" -p 5432 -U aaiclick; echo "  postgres_rc=$?"
+          echo "== nslookup host.minikube.internal =="; nslookup host.minikube.internal 2>&1 | sed 's/^/  /'
+          # Test both the DNS name and the node-resolved host IP, so DNS
+          # failure is distinguishable from host routing failure.
+          for T in host.minikube.internal "$HOST_IP"; do
+            [ -n "$T" ] || continue
+            echo "== target=$T clickhouse:8123 =="
+            timeout 10 curl -fsS "http://$T:8123/ping"; echo "  ${T}__clickhouse_rc=$?"
+            echo "== target=$T postgres:5432 =="
+            timeout 10 pg_isready -h "$T" -p 5432 -U aaiclick; echo "  ${T}__postgres_rc=$?"
+          done
           echo "DONE"
           EOF
           cat > probe/Dockerfile <<'EOF'
@@ -102,7 +111,11 @@ jobs:
           # Deliver the image via image-load so this probe isolates DB
           # networking from the registry-pull path (Probe B).
           minikube image load probe:latest
-          cat > pod-a.yaml <<'EOF'
+          # Resolve host.minikube.internal from the node so the pod can also
+          # probe by raw IP (DNS-independent routing check).
+          HOST_IP=$(minikube ssh -- "getent hosts host.minikube.internal | awk '{print \$1}'" 2>/dev/null | tr -d '\r' | tail -1)
+          echo "host.minikube.internal resolves to $HOST_IP on the node"
+          cat > pod-a.yaml <<EOF
           apiVersion: v1
           kind: Pod
           metadata:
@@ -113,13 +126,19 @@ jobs:
               - name: probe
                 image: probe:latest
                 imagePullPolicy: Never
+                env:
+                  - name: HOST_IP
+                    value: "${HOST_IP}"
           EOF
           kubectl apply -f pod-a.yaml
           kubectl wait --for=jsonpath='{.status.phase}'=Succeeded pod/probe-a --timeout=90s || true
           echo "----- probe-a logs -----"
           kubectl logs probe-a | tee /tmp/a.log || true
-          echo "----- verdict -----"
-          grep -q 'clickhouse_rc=0' /tmp/a.log && grep -q 'postgres_rc=0' /tmp/a.log
+          echo "----- verdict (reachable by name OR ip for both services) -----"
+          ch=$(grep -E '__clickhouse_rc=0' /tmp/a.log | wc -l)
+          pg=$(grep -E '__postgres_rc=0' /tmp/a.log | wc -l)
+          echo "clickhouse oks=$ch postgres oks=$pg"
+          test "$ch" -ge 1 && test "$pg" -ge 1
 
       - name: "Probe B — cluster pulls image from local registry (insecure)"
         id: probe_b
