@@ -109,13 +109,20 @@ Deferred: per-run `run-job` namespace override and resource (cpu/mem) flags
 - The image build reuses the existing `docker init` Dockerfile — no new scaffold
   unless Pod-spec templating proves useful.
 
-# Phase 5 — E2E and CI
+# Phase 5 — E2E and CI ✅
 
-- Extract the shared `sample_job` git-daemon fixture so `test_e2e/kubernetes/`
-  and `test_e2e/docker/` both use it.
-- `test_e2e/kubernetes/test_runner_e2e.py` + `conftest.py` with a
-  `kubernetes_e2e` marker and a `kubectl cluster-info` skip guard.
-- `_kubernetes-e2e-reusable.yaml` (minikube via `setup-minikube`) and a nightly
-  caller, mirroring the Docker workflows. Apply the Phase 0.5 recipe:
-  `--insecure-registry=host.minikube.internal:5000`, wait for `coredns`
-  rollout before submitting Pods, and point task DSNs at `host.minikube.internal`.
+- ✅ Shared `publish_user_repo` helper + `test_e2e/fixtures/sample_job/` reused by
+  both the docker and kubernetes suites.
+- ✅ `test_e2e/kubernetes/` (`kubernetes_e2e` marker + `kubectl cluster-info`
+  skip guard) drives register → run → build → Pod → result and asserts the
+  Object chain (sum = 120) flowed through ClickHouse across Pods.
+- ✅ `_kubernetes-e2e-reusable.yaml` (minikube, `--insecure-registry`, CoreDNS
+  wait, `host.minikube.internal` DSNs — the Phase 0.5 recipe) + nightly caller.
+- ✅ Validated end-to-end on-branch (push-triggered) — **green** — then switched
+  the caller to `schedule` (cron fires once on `main`).
+
+A bug surfaced here and was fixed: `_pod_main` wrote its `TaskRunResult` row
+after `orch_context()` exited (no SQL session); moved inside the context.
+
+Deferred / optional: wire the k8s e2e into the `publish.yaml` release gate (as
+the docker e2e is); shared e2e test helpers between the two suites.
