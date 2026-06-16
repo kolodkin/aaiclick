@@ -94,9 +94,8 @@ class AdminAuthMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
-            await self.app(scope, receive, send)
-            return
+        # Mounted at /mcp, so Starlette only ever routes http scopes here; the
+        # app's lifespan runs at the root, not through the mount.
         authorization = Headers(scope=scope).get("authorization")
         try:
             principal = resolve_principal(authorization)

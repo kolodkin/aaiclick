@@ -108,12 +108,6 @@ async def test_mcp_middleware_delegates_on_admin(enabled):
     assert called == [True]
 
 
-async def test_mcp_middleware_passes_through_non_http_scope(enabled):
-    called: list[bool] = []
-    await _drive({"type": "lifespan"}, called)
-    assert called == [True]
-
-
 async def test_mcp_middleware_open_in_local_mode(monkeypatch):
     monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
     called: list[bool] = []
