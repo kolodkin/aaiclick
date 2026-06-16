@@ -179,8 +179,14 @@ follows `_docker-e2e-reusable.yaml` with a minikube cluster (the
 ClickHouse / registry services. A `kubernetes_e2e` marker gates the suite;
 collection skips it unless `kubectl cluster-info` succeeds.
 
-!!! warning "minikube networking is the main CI risk"
-    In-cluster Pods must reach the registry, Postgres, and ClickHouse. Unlike
-    Docker's `--add-host=host.docker.internal:host-gateway`, minikube needs the
-    registry addon or explicit in-cluster service DSNs. This is the part of the
-    e2e most likely to need iteration; prototype it before wiring the full test.
+!!! note "minikube networking — validated by the Phase 0.5 spike"
+    A throwaway CI spike confirmed the recipe. Start minikube with
+    `--driver=docker --insecure-registry=host.minikube.internal:5000`, then
+    **wait for the `coredns` deployment to roll out before submitting task
+    Pods** — the one real gotcha: a Pod launched before CoreDNS is ready has no
+    DNS and cannot reach anything. With that, Pods reach host-side Postgres and
+    ClickHouse via `host.minikube.internal` (resolves to the node gateway,
+    e.g. `192.168.49.1`), the cluster pulls the job image from
+    `host.minikube.internal:5000` over plain HTTP, and `kubectl logs -f` /
+    `kubectl delete` behave exactly as the vehicle needs. Host-side services
+    suffice; no in-cluster Postgres/ClickHouse required.

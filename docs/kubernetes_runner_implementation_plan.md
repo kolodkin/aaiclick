@@ -15,6 +15,22 @@ Extract the shared lifecycle so a third runner is ~6 methods, not a near-duplica
   (`docker_worker._DockerVehicle`, `mp_worker._MpVehicle`).
 - ✅ Full execution suite passes unchanged.
 
+# Phase 0.5 — Networking spike ✅
+
+Throwaway CI spike (`k8s-net-spike.yaml`, since removed) that de-risked the
+minikube↔host paths before any runner code. Findings:
+
+- Pods reach host-side Postgres + ClickHouse via `host.minikube.internal`
+  (→ node gateway) — **but only after the `coredns` deployment is ready**;
+  launching a Pod too early gives it no DNS.
+- The cluster pulls the job image from `host.minikube.internal:5000` over HTTP
+  with `--insecure-registry`.
+- `kubectl logs -f` streaming and `kubectl delete` work as the vehicle needs.
+
+Conclusion: Phase 5 uses host-side DBs (no in-cluster Postgres/ClickHouse), and
+its setup must `kubectl -n kube-system rollout status deploy/coredns` before
+submitting task Pods.
+
 # Phase 1 — Shared CLI primitive
 
 Prep refactor (same playbook as Phase 0): extract before adding k8s.
@@ -74,8 +90,6 @@ transport.
 - `test_e2e/kubernetes/test_runner_e2e.py` + `conftest.py` with a
   `kubernetes_e2e` marker and a `kubectl cluster-info` skip guard.
 - `_kubernetes-e2e-reusable.yaml` (minikube via `setup-minikube`) and a nightly
-  caller, mirroring the Docker workflows.
-
-!!! warning "Resolve minikube↔host-service networking early in Phase 5"
-    Pods must reach the registry, Postgres, and ClickHouse. Prototype this before
-    wiring the full test — it is the likeliest source of churn.
+  caller, mirroring the Docker workflows. Apply the Phase 0.5 recipe:
+  `--insecure-registry=host.minikube.internal:5000`, wait for `coredns`
+  rollout before submitting Pods, and point task DSNs at `host.minikube.internal`.
