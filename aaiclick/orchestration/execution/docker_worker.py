@@ -38,6 +38,7 @@ from ..docker_config import BUILD_TASK_ENTRYPOINT, add_host_flags
 from ..logging import get_logs_dir
 from ..models import RUNNER_DOCKER, RUNNER_SUBPROCESS, Job, RunnerMode, Task
 from ..orch_context import get_sql_session
+from . import cli
 from .claiming import check_task_cancelled
 from .runner import execute_task, register_returned_tasks, serialize_task_result
 from .worker import POLL_INTERVAL, RunnerResult, drive_vehicle, worker_heartbeat
@@ -149,30 +150,15 @@ def _build_docker_run_cmd(
     return cmd
 
 
-async def _run_subprocess_capture(*cmd: str, check: bool = True) -> tuple[int, str, str]:
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout_b, stderr_b = await proc.communicate()
-    stdout = stdout_b.decode(errors="replace")
-    stderr = stderr_b.decode(errors="replace")
-    rc = proc.returncode or 0
-    if check and rc != 0:
-        raise RuntimeError(f"command {' '.join(cmd)!r} failed with exit code {rc}: {stderr}")
-    return rc, stdout, stderr
-
-
 async def _docker_pull_if_registered(image_tag: str) -> None:
-    if not os.environ.get("AAICLICK_DOCKER_REGISTRY"):
+    if not os.environ.get("AAICLICK_REGISTRY"):
         return
-    await _run_subprocess_capture(_docker_bin(), "pull", image_tag, check=False)
+    await cli.run(_docker_bin(), "pull", image_tag, check=False)
 
 
 async def _docker_run_detached(cmd: list[str]) -> str:
     """Run ``docker run --detach``; returns the container id."""
-    rc, stdout, stderr = await _run_subprocess_capture(*cmd, check=False)
+    rc, stdout, stderr = await cli.run(*cmd, check=False)
     if rc != 0:
         raise RuntimeError(f"docker run failed (exit {rc}): {stderr.strip() or stdout.strip()}")
     container_id = stdout.strip().splitlines()[-1]
@@ -182,14 +168,14 @@ async def _docker_run_detached(cmd: list[str]) -> str:
 
 
 async def _docker_kill(container_id: str) -> None:
-    await _run_subprocess_capture(_docker_bin(), "kill", container_id, check=False)
+    await cli.run(_docker_bin(), "kill", container_id, check=False)
 
 
 async def _docker_rm(container_id: str) -> None:
     """Remove the (already-stopped) container. Replaces the ``--rm`` flag
     on ``docker run``; we do it explicitly so the container survives long
     enough for ``docker wait`` to read its exit code without a race."""
-    await _run_subprocess_capture(_docker_bin(), "rm", "--force", container_id, check=False)
+    await cli.run(_docker_bin(), "rm", "--force", container_id, check=False)
 
 
 async def _wait_for_container(container_id: str, timeout: float | None) -> tuple[int, str | None]:
