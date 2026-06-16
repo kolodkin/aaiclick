@@ -199,10 +199,12 @@ jobs:
           AAICLICK_LOG_DIR: "${{ github.workspace }}/tmp/aaiclick-logs"
         run: |
           mkdir -p tmp
-          uv run --no-project pytest test_e2e/kubernetes/ -m kubernetes_e2e -n 0 -v \
+          uv run --no-project pytest test_e2e/kubernetes/ -m kubernetes_e2e -n 0 -v -s \
             -o asyncio_mode=auto \
             -o asyncio_default_fixture_loop_scope=module \
             -o asyncio_default_test_loop_scope=module \
+            -o log_cli=true \
+            -o log_cli_level=INFO \
             -o "filterwarnings=error" \
             --strict-markers \
             --junitxml=tmp/pytest-report.xml
@@ -218,12 +220,31 @@ jobs:
       - name: Dump cluster diagnostics on failure
         if: failure()
         run: |
+          echo "===== pods / events ====="
           kubectl get pods -A -o wide || true
           kubectl get events --sort-by=.lastTimestamp || true
           for p in $(kubectl get pods -o name 2>/dev/null); do
             echo "===== describe $p ====="; kubectl describe "$p" || true
-            echo "===== logs $p ====="; kubectl logs "$p" --tail=50 || true
+            echo "===== logs $p ====="; kubectl logs "$p" --tail=80 || true
           done
+          echo "===== captured pod task logs (host side) ====="
+          find "${{ github.workspace }}/tmp/aaiclick-logs" -name '*.log' 2>/dev/null | while read -r f; do
+            echo "----- $f -----"; cat "$f" || true
+          done
+          echo "===== tasks / jobs table ====="
+          uv run --no-project python - <<'PY' || true
+          import asyncio, asyncpg
+          async def main():
+              c = await asyncpg.connect("postgresql://aaiclick:secret@localhost:5432/aaiclick")
+              for r in await c.fetch("select id,name,status,error from jobs order by id"):
+                  print("JOB", dict(r))
+              for r in await c.fetch("select id,entrypoint,status,error from tasks order by id"):
+                  print("TASK", dict(r))
+              for r in await c.fetch("select task_id,run_epoch,success,error from task_run_results order by task_id"):
+                  print("RESULT", dict(r))
+              await c.close()
+          asyncio.run(main())
+          PY
 
       - name: Cleanup
         if: always()
