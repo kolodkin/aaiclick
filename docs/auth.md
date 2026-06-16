@@ -1,11 +1,10 @@
 Authentication, Users & RBAC
 ---
 
-aaiclick authenticates the HTTP surfaces (REST + MCP) with username/password
-users, two-role RBAC (admin / viewer), and login sessions built from a
-short-lived access JWT plus a rotating refresh token. The browser SPA and any
-programmatic HTTP / MCP client use the same flow. The CLI runs `internal_api`
-in-process and does not cross the HTTP auth layer.
+aaiclick authenticates its HTTP surfaces (REST + MCP) with username/password
+users and two-role RBAC. The browser SPA and any programmatic HTTP / MCP client
+share one login flow; the CLI runs `internal_api` in-process and never crosses
+the HTTP auth layer.
 
 # Scope
 
@@ -171,13 +170,11 @@ run alongside.
 
 # MCP Surface
 
-The `/mcp` mount is **admin-only**. An MCP client logs in (username/password) to
-obtain an access JWT and sends it as `Authorization: Bearer`, refreshing as the
-token expires. Because FastAPI's `Depends` does not reach mounted sub-apps, the
-mount is wrapped in an ASGI middleware that runs the same principal-resolution
-logic and additionally requires `role == "admin"`; non-admin or unauthenticated
-requests get a `401`/`403` `Problem`. An MCP credential is all-or-nothing — no
-per-tool RBAC.
+The `/mcp` mount is **admin-only** and all-or-nothing — no per-tool RBAC.
+Because FastAPI's `Depends` does not reach mounted sub-apps, the mount is
+wrapped in an ASGI middleware that runs the same principal resolution and
+additionally requires `role == "admin"`; non-admin or unauthenticated requests
+get a `401`/`403` `Problem`.
 
 # CLI & Admin Bootstrap
 

@@ -466,11 +466,9 @@ The server reuses the CLI's existing env vars and adds a single auth knob:
 authenticated by a short-lived access JWT + rotating refresh token. The CLI
 runs `internal_api` in-process and never crosses this HTTP-transport layer.
 
-- **Gating**: mode-derived, not a flag. In **local mode** every request
-  resolves to a synthetic admin and the server logs a startup `WARNING` —
-  preserving the zero-config localhost onboarding path. In **distributed mode**
-  auth is enforced and `AAICLICK_JWT_SECRET` is required (the server refuses to
-  start without it).
+- **Gating**: mode-derived, not a flag — open in local mode (synthetic admin +
+  startup `WARNING`), enforced in distributed mode (requires
+  `AAICLICK_JWT_SECRET`, else the server refuses to start).
 - **Login**: `POST /api/v0/auth/login` `{username, password}` → access +
   refresh tokens; `POST /auth/refresh` rotates; `POST /auth/logout` revokes;
   `GET /auth/me` returns the current principal.
