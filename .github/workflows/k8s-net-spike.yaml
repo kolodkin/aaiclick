@@ -1,0 +1,196 @@
+name: K8s Network Spike
+
+# Throwaway de-risking spike (Phase 0.5 of the Kubernetes runner). Validates,
+# independently, the three networking paths the k8s e2e depends on, BEFORE any
+# runner code is written:
+#   A) an in-cluster Pod reaching host-side Postgres + ClickHouse via
+#      host.minikube.internal (the minikube analog of host.docker.internal)
+#   B) the cluster pulling an image from the local registry over plain HTTP
+#      (--insecure-registry)
+#   C) kubectl logs -f streaming + kubectl delete (the log + terminate seams)
+#
+# Each probe is isolated and continue-on-error so one run reports all three.
+# Delete this workflow once the findings are folded into the real e2e.
+
+on:
+  push:
+    branches: [claude/kubernetes-runner-support-rxv9hm]
+    paths: [.github/workflows/k8s-net-spike.yaml]
+  workflow_dispatch:
+
+jobs:
+  spike:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:26.3
+        env:
+          CLICKHOUSE_USER: default
+          CLICKHOUSE_PASSWORD: click123
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 0
+        ports:
+          - 8123:8123
+          - 9000:9000
+        options: >-
+          --health-cmd "wget --spider -q localhost:8123/ping"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      postgres:
+        image: postgres:18.3
+        env:
+          POSTGRES_USER: aaiclick
+          POSTGRES_PASSWORD: secret
+          POSTGRES_DB: aaiclick
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aaiclick"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
+
+    steps:
+      - name: Install minikube + kubectl
+        run: |
+          curl -Lo minikube https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+          sudo install minikube /usr/local/bin/
+          curl -Lo kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          sudo install kubectl /usr/local/bin/
+
+      - name: Start minikube (docker driver, insecure registry)
+        run: |
+          minikube start --driver=docker \
+            --insecure-registry="host.minikube.internal:5000" \
+            --insecure-registry="10.0.0.0/8" \
+            --insecure-registry="172.16.0.0/12" \
+            --insecure-registry="192.168.0.0/16"
+          kubectl get nodes -o wide
+          echo "minikube ip: $(minikube ip)"
+
+      - name: Build probe image
+        run: |
+          mkdir -p probe
+          cat > probe/check.sh <<'EOF'
+          #!/bin/sh
+          set -e
+          echo "== resolve host.minikube.internal =="
+          nslookup host.minikube.internal || echo "(nslookup failed)"
+          echo "== ClickHouse /ping =="
+          curl -fsS "http://host.minikube.internal:8123/ping" && echo " <- clickhouse OK"
+          echo "== Postgres pg_isready =="
+          pg_isready -h host.minikube.internal -p 5432 -U aaiclick
+          echo "ALL REACHABLE"
+          EOF
+          cat > probe/Dockerfile <<'EOF'
+          FROM alpine:3.20
+          RUN apk add --no-cache postgresql-client curl
+          COPY check.sh /check.sh
+          ENTRYPOINT ["/bin/sh", "/check.sh"]
+          EOF
+          docker build -t probe:latest probe/
+
+      - name: "Probe A — Pod reaches host-side Postgres + ClickHouse"
+        id: probe_a
+        continue-on-error: true
+        run: |
+          # Deliver the image via image-load so this probe isolates DB
+          # networking from the registry-pull path (Probe B).
+          minikube image load probe:latest
+          cat > pod-a.yaml <<'EOF'
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: probe-a
+          spec:
+            restartPolicy: Never
+            containers:
+              - name: probe
+                image: probe:latest
+                imagePullPolicy: Never
+          EOF
+          kubectl apply -f pod-a.yaml
+          kubectl wait --for=jsonpath='{.status.phase}'=Succeeded pod/probe-a --timeout=120s
+          echo "----- probe-a logs -----"
+          kubectl logs probe-a
+
+      - name: "Probe B — cluster pulls image from local registry (insecure)"
+        id: probe_b
+        continue-on-error: true
+        run: |
+          docker tag probe:latest localhost:5000/probe:latest
+          docker push localhost:5000/probe:latest
+          cat > pod-b.yaml <<'EOF'
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: probe-b
+          spec:
+            restartPolicy: Never
+            containers:
+              - name: probe
+                image: host.minikube.internal:5000/probe:latest
+                imagePullPolicy: Always
+                command: ["sh", "-c", "echo PULLED_OK"]
+          EOF
+          kubectl apply -f pod-b.yaml
+          kubectl wait --for=jsonpath='{.status.phase}'=Succeeded pod/probe-b --timeout=120s
+          kubectl logs probe-b
+
+      - name: "Probe C — kubectl logs -f streaming + delete"
+        id: probe_c
+        continue-on-error: true
+        run: |
+          cat > pod-c.yaml <<'EOF'
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: probe-c
+          spec:
+            restartPolicy: Never
+            containers:
+              - name: ticker
+                image: probe:latest
+                imagePullPolicy: Never
+                command: ["sh", "-c", "for i in 1 2 3 4 5; do echo line-$i; sleep 1; done"]
+          EOF
+          kubectl apply -f pod-c.yaml
+          kubectl wait --for=jsonpath='{.status.phase}'=Running pod/probe-c --timeout=60s || true
+          echo "----- streaming (timeout 20s) -----"
+          timeout 20 kubectl logs -f probe-c | tee stream.out || true
+          lines=$(grep -c '^line-' stream.out || true)
+          echo "streamed $lines lines"
+          test "$lines" -ge 3
+          kubectl delete pod probe-c --now
+          ! kubectl get pod probe-c 2>/dev/null
+
+      - name: Diagnostics
+        if: always()
+        run: |
+          echo "===== pods ====="
+          kubectl get pods -o wide || true
+          echo "===== events ====="
+          kubectl get events --sort-by=.lastTimestamp || true
+          echo "===== describe (any not-Succeeded) ====="
+          for p in probe-a probe-b probe-c; do
+            kubectl describe pod "$p" 2>/dev/null || true
+          done
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "Probe A (Pod -> host DBs):        ${{ steps.probe_a.outcome }}"
+          echo "Probe B (cluster pull, insecure): ${{ steps.probe_b.outcome }}"
+          echo "Probe C (logs -f + delete):       ${{ steps.probe_c.outcome }}"
+          {
+            echo "## K8s network spike"
+            echo "| Probe | Outcome |"
+            echo "|-------|---------|"
+            echo "| A — Pod → host Postgres + ClickHouse | ${{ steps.probe_a.outcome }} |"
+            echo "| B — cluster pull from insecure registry | ${{ steps.probe_b.outcome }} |"
+            echo "| C — kubectl logs -f + delete | ${{ steps.probe_c.outcome }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Core requirement: Pod must reach the host DBs.
+          test "${{ steps.probe_a.outcome }}" = "success"
