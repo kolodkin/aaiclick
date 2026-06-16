@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from sqlmodel import col
+
 from aaiclick.auth import security, store
 from aaiclick.auth.models import Role, User
 from aaiclick.auth.view_models import CreateUserRequest, UserListFilter, UserView
 from aaiclick.view_models import Page
 
 from .errors import Conflict, NotFound
+from .pagination import paginate
 
 
 def _to_view(user: User) -> UserView:
@@ -34,8 +37,8 @@ async def create_user(request: CreateUserRequest) -> UserView:
 
 async def list_users(filter: UserListFilter | None = None) -> Page[UserView]:
     filter = filter or UserListFilter()
-    rows, total = await store.list_users(limit=filter.limit, offset=filter.offset)
-    return Page[UserView](items=[_to_view(u) for u in rows], total=total)
+    page = await paginate(User, order_by=col(User.username).asc(), limit=filter.limit, offset=filter.offset)
+    return Page[UserView](items=[_to_view(u) for u in page.rows], total=page.total)
 
 
 async def get_user(user_id: int) -> UserView:

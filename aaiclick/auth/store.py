@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from sqlmodel import col, select
+from sqlmodel import select
 
 from ..datetime_utils import utc_now
 from ..orchestration.orch_context import get_sql_session
@@ -49,15 +49,11 @@ async def get_user_by_id(user_id: int) -> User | None:
         return result.scalar_one_or_none()
 
 
-async def list_users(*, limit: int, offset: int) -> tuple[list[User], int]:
+async def has_users() -> bool:
+    """True if any user exists — for the first-run admin seed (no full count)."""
     async with get_sql_session() as session:
-        rows = (
-            (await session.execute(select(User).order_by(col(User.username).asc()).limit(limit).offset(offset)))
-            .scalars()
-            .all()
-        )
-        total = len((await session.execute(select(User.id))).scalars().all())
-    return list(rows), total
+        result = await session.execute(select(User.id).limit(1))
+        return result.first() is not None
 
 
 async def set_role(user_id: int, role: Role) -> User:

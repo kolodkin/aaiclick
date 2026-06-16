@@ -46,5 +46,5 @@ class Unauthorized(InternalApiError):
 
 
 class Forbidden(InternalApiError):
-    """Authenticated but insufficient scope. Reserved for the scope rollout;
-    no v0 route raises it, but it ships so the error-mapping table is stable."""
+    """Authenticated but insufficient role — raised by ``require_admin`` when a
+    viewer hits a mutating route or the admin-only ``/users`` and ``/mcp`` surfaces."""

@@ -35,8 +35,7 @@ async def _seed_admin() -> None:
     if seed is None or not config.auth_enabled():
         return
     async with orch_context(with_ch=False):
-        _rows, total = await store.list_users(limit=1, offset=0)
-        if total == 0:
+        if not await store.has_users():
             await store.create_user(
                 username=seed.username,
                 password_hash=security.hash_password(seed.password),

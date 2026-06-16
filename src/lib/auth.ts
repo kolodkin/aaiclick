@@ -2,8 +2,20 @@
 // React, so the access token lives in a module singleton; the refresh token
 // persists in localStorage so a page reload can re-establish a session.
 
+// Local base + POST helper. We deliberately do NOT route through client.ts's
+// `request` (it would recurse: this module IS the 401-refresh path), and we
+// keep the prefix local to avoid an import cycle with client.ts.
+const API = "/api/v0";
 const REFRESH_KEY = "aaiclick.refresh";
 let accessToken: string | null = null;
+
+function postAuth(path: string, body: unknown): Promise<Response> {
+  return fetch(`${API}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
 
 export function getAccessToken(): string | null {
   return accessToken;
@@ -40,11 +52,7 @@ export interface MeView {
 }
 
 export async function login(username: string, password: string): Promise<void> {
-  const res = await fetch("/api/v0/auth/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
-  });
+  const res = await postAuth("/auth/login", { username, password });
   if (!res.ok) throw new Error("login failed");
   const pair = (await res.json()) as TokenPair;
   setAccessToken(pair.access_token);
@@ -54,11 +62,7 @@ export async function login(username: string, password: string): Promise<void> {
 export async function tryRefresh(): Promise<boolean> {
   const rt = getRefreshToken();
   if (!rt) return false;
-  const res = await fetch("/api/v0/auth/refresh", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refresh_token: rt }),
-  });
+  const res = await postAuth("/auth/refresh", { refresh_token: rt });
   if (!res.ok) {
     clearSession();
     return false;
@@ -72,11 +76,7 @@ export async function tryRefresh(): Promise<boolean> {
 export async function logout(): Promise<void> {
   const rt = getRefreshToken();
   if (rt) {
-    await fetch("/api/v0/auth/logout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: rt }),
-    }).catch(() => undefined);
+    await postAuth("/auth/logout", { refresh_token: rt }).catch(() => undefined);
   }
   clearSession();
 }
@@ -88,9 +88,9 @@ export async function fetchMe(): Promise<MeView | null> {
   const headers: Record<string, string> = {};
   const token = getAccessToken();
   if (token) headers.Authorization = `Bearer ${token}`;
-  let res = await fetch("/api/v0/auth/me", { headers });
+  let res = await fetch(`${API}/auth/me`, { headers });
   if (res.status === 401 && (await tryRefresh())) {
-    res = await fetch("/api/v0/auth/me", {
+    res = await fetch(`${API}/auth/me`, {
       headers: { Authorization: `Bearer ${getAccessToken()}` },
     });
   }
