@@ -34,6 +34,7 @@ export function Login() {
             <div className="field">
               <label>Username</label>
               <input
+                id="login-username"
                 type="text"
                 value={username}
                 autoFocus
@@ -43,6 +44,7 @@ export function Login() {
             <div className="field">
               <label>Password</label>
               <input
+                id="login-password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -50,7 +52,7 @@ export function Login() {
             </div>
             {error && <p className="err">{error}</p>}
             <div className="form-actions">
-              <button className="btn btn-primary" type="submit" disabled={busy}>
+              <button id="login-submit" className="btn btn-primary" type="submit" disabled={busy}>
                 {busy ? "Signing in…" : "Sign in"}
               </button>
             </div>

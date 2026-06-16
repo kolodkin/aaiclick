@@ -1,11 +1,17 @@
-"""Environment configuration for auth. Inline env reads, mirroring backend.py."""
+"""Environment configuration for auth. Inline env reads, mirroring backend.py.
+
+Auth enforcement is a *deployment-mode* convention, not a flag: it is always
+disabled in local mode (single-process chdb + SQLite dev) and always enforced
+in distributed mode. See ``docs/auth.md``.
+"""
 
 from __future__ import annotations
 
 import os
 from typing import NamedTuple
 
-ENV_ENABLED = "AAICLICK_AUTH_ENABLED"
+from ..backend import is_local
+
 ENV_SECRET = "AAICLICK_JWT_SECRET"
 ENV_ACCESS_TTL = "AAICLICK_JWT_ACCESS_TTL"
 ENV_REFRESH_TTL = "AAICLICK_JWT_REFRESH_TTL"
@@ -15,8 +21,6 @@ ENV_ADMIN_PASSWORD = "AAICLICK_ADMIN_PASSWORD"
 DEFAULT_ACCESS_TTL = 1800
 DEFAULT_REFRESH_TTL = 1209600
 
-_TRUTHY = {"1", "true", "yes", "on"}
-
 
 class AdminSeed(NamedTuple):
     username: str
@@ -24,7 +28,8 @@ class AdminSeed(NamedTuple):
 
 
 def auth_enabled() -> bool:
-    return os.getenv(ENV_ENABLED, "").strip().lower() in _TRUTHY
+    """Enforced in distributed mode, disabled in local mode (hardcoded convention)."""
+    return not is_local()
 
 
 def jwt_secret() -> str | None:
@@ -32,10 +37,10 @@ def jwt_secret() -> str | None:
 
 
 def require_jwt_secret() -> str:
-    """Return the signing secret, raising if auth is enabled but it is unset."""
+    """Return the signing secret, raising if distributed mode left it unset."""
     secret = jwt_secret()
     if secret is None:
-        raise RuntimeError(f"{ENV_ENABLED}=true requires {ENV_SECRET} to be set")
+        raise RuntimeError(f"distributed mode requires {ENV_SECRET} to be set")
     return secret
 
 

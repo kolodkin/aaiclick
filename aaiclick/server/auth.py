@@ -1,7 +1,7 @@
 """Auth for the REST surface and the ``/mcp`` mount.
 
-When ``AAICLICK_AUTH_ENABLED`` is off, every request is allowed (a synthetic
-admin principal) and startup logs a ``WARNING``. When on, the
+In local mode auth is disabled: every request is allowed (a synthetic admin
+principal) and startup logs a ``WARNING``. In distributed mode the
 ``Authorization: Bearer`` access JWT is required; ``HTTPBearer`` (with
 ``auto_error=False``) extracts it and registers the OpenAPI scheme. The
 ``/mcp`` mount keeps an ASGI middleware (admin-only) because ``Depends`` does
@@ -84,7 +84,7 @@ async def require_admin(principal: Principal = Depends(require_principal)) -> Pr
 
 def warn_if_open() -> None:
     if not config.auth_enabled():
-        logger.warning("%s is off — server is open", config.ENV_ENABLED)
+        logger.warning("local mode — auth is disabled, server is open")
 
 
 class AdminAuthMiddleware:

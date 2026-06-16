@@ -451,8 +451,7 @@ The server reuses the CLI's existing env vars and adds a single auth knob:
 |------------------------|------------------------------------------------------|------------------------|
 | `AAICLICK_CH_URL`      | ClickHouse connection URL                            | Existing (see `backend.py`) |
 | `AAICLICK_SQL_URL`     | Orchestration SQL backend URL                        | Existing (see `backend.py`) |
-| `AAICLICK_AUTH_ENABLED`| Enable JWT auth + RBAC (off → open server)           | See `Authentication`   |
-| `AAICLICK_JWT_SECRET`  | HS256 signing secret (required when auth is enabled) | See `Authentication`   |
+| `AAICLICK_JWT_SECRET`  | HS256 signing secret (required in distributed mode)  | See `Authentication`   |
 | `UVICORN_HOST`         | Bind host (uvicorn native)                           | Standard uvicorn       |
 | `UVICORN_PORT`         | Bind port (uvicorn native)                           | Standard uvicorn       |
 
@@ -467,10 +466,11 @@ The server reuses the CLI's existing env vars and adds a single auth knob:
 authenticated by a short-lived access JWT + rotating refresh token. The CLI
 runs `internal_api` in-process and never crosses this HTTP-transport layer.
 
-- **Gating**: off by default. With `AAICLICK_AUTH_ENABLED` unset, every request
+- **Gating**: mode-derived, not a flag. In **local mode** every request
   resolves to a synthetic admin and the server logs a startup `WARNING` —
-  preserving the zero-config localhost onboarding path. When enabled,
-  `AAICLICK_JWT_SECRET` is required (the server refuses to start without it).
+  preserving the zero-config localhost onboarding path. In **distributed mode**
+  auth is enforced and `AAICLICK_JWT_SECRET` is required (the server refuses to
+  start without it).
 - **Login**: `POST /api/v0/auth/login` `{username, password}` → access +
   refresh tokens; `POST /auth/refresh` rotates; `POST /auth/logout` revokes;
   `GET /auth/me` returns the current principal.

@@ -3,13 +3,13 @@ import pytest
 from aaiclick.auth import config
 
 
-def test_auth_disabled_by_default(monkeypatch):
-    monkeypatch.delenv("AAICLICK_AUTH_ENABLED", raising=False)
+def test_auth_disabled_in_local_mode(monkeypatch):
+    monkeypatch.setattr(config, "is_local", lambda: True)
     assert config.auth_enabled() is False
 
 
-def test_auth_enabled_truthy(monkeypatch):
-    monkeypatch.setenv("AAICLICK_AUTH_ENABLED", "true")
+def test_auth_enabled_in_distributed_mode(monkeypatch):
+    monkeypatch.setattr(config, "is_local", lambda: False)
     assert config.auth_enabled() is True
 
 
@@ -20,8 +20,7 @@ def test_ttls_have_defaults(monkeypatch):
     assert config.refresh_ttl() == 1209600
 
 
-def test_require_jwt_secret_raises_when_enabled_and_unset(monkeypatch):
-    monkeypatch.setenv("AAICLICK_AUTH_ENABLED", "true")
+def test_require_jwt_secret_raises_when_unset(monkeypatch):
     monkeypatch.delenv("AAICLICK_JWT_SECRET", raising=False)
     with pytest.raises(RuntimeError, match="AAICLICK_JWT_SECRET"):
         config.require_jwt_secret()

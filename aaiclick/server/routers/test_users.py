@@ -11,7 +11,7 @@ SECRET = "router-users-test-secret-key-32-plus-bytes"
 
 @pytest.fixture
 def enabled(monkeypatch):
-    monkeypatch.setenv("AAICLICK_AUTH_ENABLED", "true")
+    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: False)
     monkeypatch.setenv("AAICLICK_JWT_SECRET", SECRET)
 
 

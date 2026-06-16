@@ -9,7 +9,9 @@ SECRET = "router-auth-test-secret-key-32-plus-bytes"
 
 @pytest.fixture
 def enabled(monkeypatch):
-    monkeypatch.setenv("AAICLICK_AUTH_ENABLED", "true")
+    # Force distributed mode (auth on) + a signing secret, independent of the
+    # local/dist test matrix the suite happens to run under.
+    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: False)
     monkeypatch.setenv("AAICLICK_JWT_SECRET", SECRET)
 
 
@@ -38,7 +40,7 @@ async def test_refresh_flow(orch_ctx, app_client, enabled):
     assert res.status_code == 200 and res.json()["refresh_token"] != login["refresh_token"]
 
 
-async def test_protected_route_requires_token_when_enabled(orch_ctx, app_client, enabled):
-    res = await app_client.get(f"{API_PREFIX}/workers")
+async def test_protected_route_requires_token_when_enabled(orch_ctx, anon_client, enabled):
+    res = await anon_client.get(f"{API_PREFIX}/workers")
     assert res.status_code == 401
     assert res.headers["www-authenticate"] == "Bearer"

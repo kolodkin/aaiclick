@@ -26,7 +26,8 @@ OTHER_SECRET = "a-different-secret-also-32-plus-bytes-long"
 
 @pytest.fixture
 def enabled(monkeypatch):
-    monkeypatch.setenv("AAICLICK_AUTH_ENABLED", "true")
+    # Auth is mode-derived: force distributed mode (auth on) + a signing secret.
+    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: False)
     monkeypatch.setenv("AAICLICK_JWT_SECRET", SECRET)
 
 
@@ -41,8 +42,8 @@ def _admin_token() -> str:
 # --- resolve_principal ---------------------------------------------------
 
 
-def test_disabled_returns_synthetic_admin(monkeypatch):
-    monkeypatch.delenv("AAICLICK_AUTH_ENABLED", raising=False)
+def test_local_mode_returns_synthetic_admin(monkeypatch):
+    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
     principal = auth.resolve_principal(authorization=None)
     assert principal.role == ROLE_ADMIN
 
@@ -113,8 +114,8 @@ async def test_mcp_middleware_passes_through_non_http_scope(enabled):
     assert called == [True]
 
 
-async def test_mcp_middleware_open_when_disabled(monkeypatch):
-    monkeypatch.delenv("AAICLICK_AUTH_ENABLED", raising=False)
+async def test_mcp_middleware_open_in_local_mode(monkeypatch):
+    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
     called: list[bool] = []
     await _drive({"type": "http", "headers": []}, called)
     assert called == [True]
@@ -123,15 +124,15 @@ async def test_mcp_middleware_open_when_disabled(monkeypatch):
 # --- warn_if_open --------------------------------------------------------
 
 
-def test_warn_if_open_logs_when_disabled(monkeypatch):
-    monkeypatch.delenv("AAICLICK_AUTH_ENABLED", raising=False)
+def test_warn_if_open_logs_in_local_mode(monkeypatch):
+    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
     with patch.object(auth.logger, "warning") as warning:
         warn_if_open()
     warning.assert_called_once()
 
 
-def test_warn_if_open_silent_when_enabled(monkeypatch):
-    monkeypatch.setenv("AAICLICK_AUTH_ENABLED", "true")
+def test_warn_if_open_silent_in_distributed_mode(monkeypatch):
+    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: False)
     with patch.object(auth.logger, "warning") as warning:
         warn_if_open()
     warning.assert_not_called()

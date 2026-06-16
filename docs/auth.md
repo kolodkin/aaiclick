@@ -14,25 +14,29 @@ in-process and does not cross the HTTP auth layer.
   teams, per-resource ACLs, or custom roles.
 - **Sessions**: password login → short-lived access JWT + rotating refresh
   token. One credential header everywhere: `Authorization: Bearer <access-jwt>`.
-- **Off by default**: with auth disabled the server is open (zero-config local
-  dev). There are no long-lived API tokens / PATs, no SSO/OIDC/MFA, no
-  user-management UI, and the `/mcp` surface is all-or-nothing (admin only).
+- **Mode-derived enforcement**: auth is a hardcoded convention, not a flag —
+  **disabled in local mode** (single-process chdb + SQLite; the server is open,
+  zero-config) and **enforced in distributed mode**. There are no long-lived API
+  tokens / PATs, no SSO/OIDC/MFA, no user-management UI, and the `/mcp` surface
+  is all-or-nothing (admin only).
 
 # Configuration
 
+Whether auth is enforced follows the backend mode (`is_local()`), not an env
+var. These variables tune the enforced (distributed) case:
+
 | Variable                   | Purpose                                                        | Default        |
 |----------------------------|----------------------------------------------------------------|----------------|
-| `AAICLICK_AUTH_ENABLED`    | Master switch. Off → open server.                              | `false`        |
-| `AAICLICK_JWT_SECRET`      | HS256 signing secret. **Required** when auth is enabled.       | unset          |
+| `AAICLICK_JWT_SECRET`      | HS256 signing secret. **Required** in distributed mode.        | unset          |
 | `AAICLICK_JWT_ACCESS_TTL`  | Access-JWT lifetime, seconds.                                  | `1800` (30 min)|
 | `AAICLICK_JWT_REFRESH_TTL` | Refresh-token lifetime, seconds.                               | `1209600` (14 d)|
 | `AAICLICK_ADMIN_USERNAME`  | Seed-admin username (inserted on startup when no users exist). | unset          |
 | `AAICLICK_ADMIN_PASSWORD`  | Seed-admin password.                                           | unset          |
 
-!!! warning "Enabled without a secret is a hard error"
-    When `AAICLICK_AUTH_ENABLED=true` and `AAICLICK_JWT_SECRET` is unset, the
-    server refuses to start. When auth is **off**, every request is allowed and
-    the server logs a single startup `WARNING`.
+!!! warning "Distributed without a secret is a hard error"
+    In distributed mode with `AAICLICK_JWT_SECRET` unset, the server refuses to
+    start. In local mode auth is disabled, every request is allowed, and the
+    server logs a single startup `WARNING`.
 
 # Data Model
 
