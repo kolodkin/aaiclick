@@ -20,34 +20,6 @@ def _task(entrypoint="user.module.entry", task_id=42, job_id=1) -> Task:
     )
 
 
-def test_build_container_env_includes_always_passed(monkeypatch):
-    monkeypatch.setenv("AAICLICK_SQL_URL", "postgresql+asyncpg://pg/x")
-    monkeypatch.setenv("AAICLICK_CH_URL", "clickhouse://ch/x")
-    monkeypatch.setenv("AAICLICK_TASK_TIMEOUT", "60")
-    monkeypatch.delenv("AAICLICK_DEFAULT_PRESERVATION_MODE", raising=False)
-    monkeypatch.delenv("AAICLICK_DOCKER_PASSTHROUGH_ENV", raising=False)
-
-    env = docker_worker._build_container_env()
-    assert env["AAICLICK_SQL_URL"] == "postgresql+asyncpg://pg/x"
-    assert env["AAICLICK_CH_URL"] == "clickhouse://ch/x"
-    assert env["AAICLICK_TASK_TIMEOUT"] == "60"
-    assert "AAICLICK_DEFAULT_PRESERVATION_MODE" not in env
-
-
-def test_build_container_env_passthrough(monkeypatch):
-    monkeypatch.setenv("AAICLICK_SQL_URL", "u")
-    monkeypatch.setenv("AAICLICK_CH_URL", "u")
-    monkeypatch.setenv("AAICLICK_DOCKER_PASSTHROUGH_ENV", "FOO,BAR,UNSET")
-    monkeypatch.setenv("FOO", "1")
-    monkeypatch.setenv("BAR", "2")
-    monkeypatch.delenv("UNSET", raising=False)
-
-    env = docker_worker._build_container_env()
-    assert env["FOO"] == "1"
-    assert env["BAR"] == "2"
-    assert "UNSET" not in env
-
-
 def test_build_docker_run_cmd_shape():
     cmd = docker_worker._build_docker_run_cmd(
         image_tag="aaiclick-job:abc",

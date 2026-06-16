@@ -41,7 +41,7 @@ class GitDetectionError(RuntimeError):
 
 
 async def _git(*args: str) -> str:
-    rc, stdout, stderr = await cli.run("git", *args, check=False)
+    rc, stdout, stderr = await cli.run("git", *args, check=False, stream=False)
     if rc != 0:
         raise GitDetectionError(f"git {' '.join(args)} failed (exit {rc}): {stderr.strip()}")
     return stdout.strip()

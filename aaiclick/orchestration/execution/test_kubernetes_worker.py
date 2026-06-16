@@ -62,23 +62,25 @@ def _handle(task_id=7, run_epoch=1):
     )
 
 
+def _collect(handle, exit_code, error, was_cancelled, payload):
+    return kw._KubernetesVehicle.__new__(kw._KubernetesVehicle).collect(
+        handle, exit_code, error, was_cancelled, payload
+    )
+
+
 def test_collect_cancelled_overrides_row():
-    h = _handle()
-    h.result_row = kw.RunnerResult(True, {"x": 1}, None, None)
-    out = kw._KubernetesVehicle.__new__(kw._KubernetesVehicle).collect(h, 137, None, was_cancelled=True)
+    payload = kw.RunnerResult(True, {"x": 1}, None, None)
+    out = _collect(_handle(), 137, None, was_cancelled=True, payload=payload)
     assert out.success is False and out.error == "cancelled"
 
 
 def test_collect_synthesizes_failure_when_row_missing():
-    h = _handle()
-    h.result_row = None
-    out = kw._KubernetesVehicle.__new__(kw._KubernetesVehicle).collect(h, 1, None, was_cancelled=False)
+    out = _collect(_handle(), 1, None, was_cancelled=False, payload=None)
     assert out.success is False
     assert "no result" in (out.error or "")
 
 
 def test_collect_returns_row():
-    h = _handle()
-    h.result_row = kw.RunnerResult(True, {"native_value": 5}, "/logs/k8s-1.log", None)
-    out = kw._KubernetesVehicle.__new__(kw._KubernetesVehicle).collect(h, 0, None, was_cancelled=False)
+    payload = kw.RunnerResult(True, {"native_value": 5}, "/logs/k8s-1.log", None)
+    out = _collect(_handle(), 0, None, was_cancelled=False, payload=payload)
     assert out.success is True and out.result_ref == {"native_value": 5}

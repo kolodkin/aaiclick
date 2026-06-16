@@ -28,8 +28,8 @@ from ..models import Job, Task, TaskRunResult
 from ..orch_context import get_sql_session
 from . import cli
 from .claiming import check_task_cancelled
-from .docker_worker import _build_container_env
 from .runner import execute_task, register_returned_tasks, serialize_task_result
+from .runner_env import build_runner_env
 from .worker import POLL_INTERVAL, RunnerResult, drive_vehicle, parse_task_timeout, worker_heartbeat
 
 POD_ENTRYPOINT = ["python", "-m", "aaiclick.orchestration.execution.kubernetes_worker"]
@@ -111,9 +111,8 @@ async def _fetch_pod_spec(job_id: int) -> _PodSpec:
 
 
 class _PodHandle:
-    """Mutable handle: ``wait`` stashes the result row for ``collect`` (the
-    ``TaskVehicle.collect`` hook is synchronous, so the async DB read happens
-    in ``wait``)."""
+    """Pod identity + a ``deleted`` latch so ``cleanup`` doesn't re-delete a
+    Pod ``terminate`` already removed (the cancellation path)."""
 
     def __init__(self, name: str, namespace: str, log_path: str, task_id: int, run_epoch: int) -> None:
         self.name = name
@@ -121,7 +120,7 @@ class _PodHandle:
         self.log_path = log_path
         self.task_id = task_id
         self.run_epoch = run_epoch
-        self.result_row: RunnerResult | None = None
+        self.deleted = False
 
 
 async def _kubectl_delete(handle: _PodHandle) -> None:
@@ -157,7 +156,7 @@ async def _capture_pod_logs(handle: _PodHandle) -> None:
     """Authoritative log fetch into the host log file (run once the Pod is
     terminal). The container's task stdout reaches ``kubectl logs`` because
     ``capture_task_output`` tees to stdout."""
-    _, out, _ = await cli.run(_kubectl_bin(), "logs", handle.name, "-n", handle.namespace, check=False)
+    _, out, _ = await cli.run(_kubectl_bin(), "logs", handle.name, "-n", handle.namespace, check=False, stream=False)
     Path(handle.log_path).write_text(out)
 
 
@@ -181,7 +180,7 @@ class _KubernetesVehicle:
         self._log_base = log_base
 
     async def launch(self, task: Task, worker_id: int) -> _PodHandle:
-        env = _build_container_env()
+        env = build_runner_env()
         env["AAICLICK_LOG_DIR"] = POD_LOG_DIR
         name = _pod_name(task.id, task.run_epoch)
         manifest = _build_pod_manifest(
@@ -206,7 +205,7 @@ class _KubernetesVehicle:
         Path(log_path).parent.mkdir(parents=True, exist_ok=True)
         return _PodHandle(name, self._spec.namespace, log_path, task.id, task.run_epoch)
 
-    async def wait(self, handle: _PodHandle, timeout: float | None) -> tuple[int, str | None]:
+    async def wait(self, handle: _PodHandle, timeout: float | None) -> tuple[int, str | None, RunnerResult | None]:
         elapsed = 0.0
         error: str | None = None
         exit_code = -1
@@ -220,26 +219,30 @@ class _KubernetesVehicle:
             await asyncio.sleep(POLL_INTERVAL)
             elapsed += POLL_INTERVAL
         await _capture_pod_logs(handle)
-        handle.result_row = await _read_task_run_result_row(handle.task_id, handle.run_epoch)
-        return exit_code, error
+        result_row = await _read_task_run_result_row(handle.task_id, handle.run_epoch)
+        return exit_code, error, result_row
 
     async def poll_cancelled(self, task: Task) -> bool:
         return await check_task_cancelled(task.id)
 
     async def terminate(self, handle: _PodHandle) -> None:
         await _kubectl_delete(handle)
+        handle.deleted = True
 
-    def collect(self, handle: _PodHandle, exit_code: int, error: str | None, was_cancelled: bool) -> RunnerResult:
+    def collect(
+        self, handle: _PodHandle, exit_code: int, error: str | None, was_cancelled: bool, payload: RunnerResult | None
+    ) -> RunnerResult:
         if was_cancelled:
             return RunnerResult(False, None, None, "cancelled")
         if error is not None:
             return RunnerResult(False, None, None, error)
-        if handle.result_row is None:
+        if payload is None:
             return RunnerResult(False, None, None, f"pod exited with code {exit_code} but wrote no result row")
-        return handle.result_row
+        return payload
 
     async def cleanup(self, handle: _PodHandle) -> None:
-        await _kubectl_delete(handle)
+        if not handle.deleted:
+            await _kubectl_delete(handle)
 
 
 async def _run_task_in_pod(task: Task, worker_id: int) -> tuple[bool, dict | None, str | None, str | None]:

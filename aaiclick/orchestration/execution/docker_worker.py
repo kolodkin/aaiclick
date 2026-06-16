@@ -41,6 +41,7 @@ from ..orch_context import get_sql_session
 from . import cli
 from .claiming import check_task_cancelled
 from .runner import execute_task, register_returned_tasks, serialize_task_result
+from .runner_env import build_runner_env
 from .worker import POLL_INTERVAL, RunnerResult, drive_vehicle, parse_task_timeout, worker_heartbeat
 
 CONTAINER_IPC_DIR = "/aaiclick-ipc"
@@ -50,19 +51,6 @@ CONTAINER_RESULT_FILE = "result.json"
 # SIGKILL'd; this is a safety bound so a stuck daemon doesn't wedge the
 # worker.
 DOCKER_KILL_REAP_TIMEOUT = 10.0
-
-ALWAYS_PASSED_ENV_VARS = (
-    "AAICLICK_SQL_URL",
-    "AAICLICK_CH_URL",
-    "AAICLICK_TASK_TIMEOUT",
-    "AAICLICK_DEFAULT_PRESERVATION_MODE",
-)
-"""Env vars always copied into the container without opt-in.
-
-The container can't function without SQL and CH URLs; the timeout var
-must propagate so child container tasks honor the same wall-clock cap;
-the preservation-mode default must propagate so subjobs the user spawns
-inherit the same setting."""
 
 
 class _ContainerResult(NamedTuple):
@@ -79,25 +67,6 @@ def _docker_bin() -> str:
 # ---------------------------------------------------------------------------
 # Host-side
 # ---------------------------------------------------------------------------
-
-
-def _build_container_env() -> dict[str, str]:
-    """Collect env vars to forward into the container.
-
-    Always-passed vars + comma-separated extras from
-    ``AAICLICK_DOCKER_PASSTHROUGH_ENV``."""
-    env: dict[str, str] = {}
-    for key in ALWAYS_PASSED_ENV_VARS:
-        value = os.environ.get(key)
-        if value is not None:
-            env[key] = value
-
-    extras = os.environ.get("AAICLICK_DOCKER_PASSTHROUGH_ENV", "")
-    for raw in extras.split(","):
-        key = raw.strip()
-        if key and key in os.environ:
-            env[key] = os.environ[key]
-    return env
 
 
 def _build_docker_run_cmd(
@@ -153,12 +122,12 @@ def _build_docker_run_cmd(
 async def _docker_pull_if_registered(image_tag: str) -> None:
     if not os.environ.get("AAICLICK_REGISTRY"):
         return
-    await cli.run(_docker_bin(), "pull", image_tag, check=False)
+    await cli.run(_docker_bin(), "pull", image_tag, check=False, stream=False)
 
 
 async def _docker_run_detached(cmd: list[str]) -> str:
     """Run ``docker run --detach``; returns the container id."""
-    rc, stdout, stderr = await cli.run(*cmd, check=False)
+    rc, stdout, stderr = await cli.run(*cmd, check=False, stream=False)
     if rc != 0:
         raise RuntimeError(f"docker run failed (exit {rc}): {stderr.strip() or stdout.strip()}")
     container_id = stdout.strip().splitlines()[-1]
@@ -168,14 +137,14 @@ async def _docker_run_detached(cmd: list[str]) -> str:
 
 
 async def _docker_kill(container_id: str) -> None:
-    await cli.run(_docker_bin(), "kill", container_id, check=False)
+    await cli.run(_docker_bin(), "kill", container_id, check=False, stream=False)
 
 
 async def _docker_rm(container_id: str) -> None:
     """Remove the (already-stopped) container. Replaces the ``--rm`` flag
     on ``docker run``; we do it explicitly so the container survives long
     enough for ``docker wait`` to read its exit code without a race."""
-    await cli.run(_docker_bin(), "rm", "--force", container_id, check=False)
+    await cli.run(_docker_bin(), "rm", "--force", container_id, check=False, stream=False)
 
 
 async def _wait_for_container(container_id: str, timeout: float | None) -> tuple[int, str | None]:
@@ -286,8 +255,9 @@ class _DockerVehicle:
         container_id = await _docker_run_detached(cmd)
         return _DockerHandle(container_id, self._ipc_dir)
 
-    async def wait(self, handle: _DockerHandle, timeout: float | None) -> tuple[int, str | None]:
-        return await _wait_for_container(handle.container_id, timeout)
+    async def wait(self, handle: _DockerHandle, timeout: float | None) -> tuple[int, str | None, None]:
+        exit_code, error = await _wait_for_container(handle.container_id, timeout)
+        return exit_code, error, None
 
     async def poll_cancelled(self, task: Task) -> bool:
         return await check_task_cancelled(task.id)
@@ -295,7 +265,10 @@ class _DockerVehicle:
     async def terminate(self, handle: _DockerHandle) -> None:
         await _docker_kill(handle.container_id)
 
-    def collect(self, handle: _DockerHandle, exit_code: int, error: str | None, was_cancelled: bool) -> RunnerResult:
+    def collect(
+        self, handle: _DockerHandle, exit_code: int, error: str | None, was_cancelled: bool, payload: None
+    ) -> RunnerResult:
+        # Docker reads its result from the bind-mounted IPC file, not ``payload``.
         result = _read_result_or_synthesize_failure(handle.ipc_dir, exit_code, error, was_cancelled=was_cancelled)
         return RunnerResult(result.success, result.result_ref, result.log_path, result.error)
 
@@ -319,7 +292,7 @@ async def _run_task_in_container(task: Task, worker_id: int) -> tuple[bool, dict
     timeout = parse_task_timeout()
 
     log_base = get_logs_dir()
-    env = _build_container_env()
+    env = build_runner_env()
 
     with tempfile.TemporaryDirectory(prefix="aaiclick-ipc-") as ipc_dir:
         vehicle = _DockerVehicle(image_tag, log_base, env, ipc_dir)

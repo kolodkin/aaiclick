@@ -43,12 +43,15 @@ async def _stream(reader: asyncio.StreamReader, sink: TextIO) -> bytes:
 async def run(
     *cmd: str,
     check: bool = True,
-    stream: bool = False,
+    stream: bool = True,
     cwd: str | None = None,
 ) -> tuple[int, str, str]:
     """Run ``cmd``; return ``(returncode, stdout, stderr)``.
 
-    Raises :class:`CommandError` on a non-zero exit when ``check`` is True."""
+    Streams output live to this process's stdout/stderr by default (so build
+    progress / pod logs surface as they happen); pass ``stream=False`` for
+    capture-only calls (status probes, short commands). Raises
+    :class:`CommandError` on a non-zero exit when ``check`` is True."""
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         cwd=cwd,

@@ -97,17 +97,11 @@ async def _child_run_task(
 # ---------------------------------------------------------------------------
 
 
-class _ChildHandle:
-    """Mutable handle for the spawned child + its result queue.
+class _ChildHandle(NamedTuple):
+    """The spawned child + its result queue."""
 
-    ``wait`` stashes the ``_ProcessResult`` here so ``collect`` can return
-    it — the multiprocessing queue carries the full result, unlike Docker
-    where ``collect`` re-reads a side-channel file."""
-
-    def __init__(self, proc: Any, result_queue: multiprocessing.Queue) -> None:
-        self.proc = proc
-        self.result_queue = result_queue
-        self.result: _ProcessResult | None = None
+    proc: Any
+    result_queue: multiprocessing.Queue
 
 
 class _MpVehicle:
@@ -128,10 +122,9 @@ class _MpVehicle:
         proc.start()
         return _ChildHandle(proc, result_queue)
 
-    async def wait(self, handle: _ChildHandle, timeout: float | None) -> tuple[int, str | None]:
+    async def wait(self, handle: _ChildHandle, timeout: float | None) -> tuple[int, str | None, _ProcessResult]:
         result = await _poll_child(handle.proc, handle.result_queue, timeout)
-        handle.result = result
-        return (0, None) if result.success else (-1, result.error)
+        return (0 if result.success else -1), (None if result.success else result.error), result
 
     async def poll_cancelled(self, task: Task) -> bool:
         return False
@@ -139,10 +132,10 @@ class _MpVehicle:
     async def terminate(self, handle: _ChildHandle) -> None:
         handle.proc.kill()
 
-    def collect(self, handle: _ChildHandle, exit_code: int, error: str | None, was_cancelled: bool) -> RunnerResult:
-        result = handle.result
-        assert result is not None, "wait() must run before collect()"
-        return RunnerResult(result.success, result.result_ref, result.log_path, result.error)
+    def collect(
+        self, handle: _ChildHandle, exit_code: int, error: str | None, was_cancelled: bool, payload: _ProcessResult
+    ) -> RunnerResult:
+        return RunnerResult(payload.success, payload.result_ref, payload.log_path, payload.error)
 
     async def cleanup(self, handle: _ChildHandle) -> None:
         pass

@@ -44,28 +44,28 @@ async def _fetch_job(job_id: int) -> Job:
 
 
 async def _docker_image_exists_locally(image_tag: str) -> bool:
-    rc, _, _ = await cli.run(_docker_bin(), "image", "inspect", image_tag, check=False, stream=True)
+    rc, _, _ = await cli.run(_docker_bin(), "image", "inspect", image_tag, check=False)
     return rc == 0
 
 
 async def _docker_pull(image_tag: str) -> bool:
     """Returns True on cache hit, False if the registry doesn't have it."""
-    rc, _, _ = await cli.run(_docker_bin(), "pull", image_tag, check=False, stream=True)
+    rc, _, _ = await cli.run(_docker_bin(), "pull", image_tag, check=False)
     return rc == 0
 
 
 async def _docker_push(image_tag: str) -> None:
-    await cli.run(_docker_bin(), "push", image_tag, stream=True)
+    await cli.run(_docker_bin(), "push", image_tag)
 
 
 async def _git_clone_at_sha(remote: str, sha: str, workdir: str) -> None:
     """Clone the SHA into ``workdir``. Uses ``git init`` + ``fetch`` + ``checkout``
     so we avoid pulling the full default branch when only one commit is needed,
     and so the remote can be a non-default-branch SHA."""
-    await cli.run("git", "init", "--quiet", workdir, stream=True)
-    await cli.run("git", "-C", workdir, "remote", "add", "origin", remote, stream=True)
-    await cli.run("git", "-C", workdir, "fetch", "--depth=1", "--quiet", "origin", sha, stream=True)
-    await cli.run("git", "-C", workdir, "checkout", "--quiet", sha, stream=True)
+    await cli.run("git", "init", "--quiet", workdir)
+    await cli.run("git", "-C", workdir, "remote", "add", "origin", remote)
+    await cli.run("git", "-C", workdir, "fetch", "--depth=1", "--quiet", "origin", sha)
+    await cli.run("git", "-C", workdir, "checkout", "--quiet", sha)
 
 
 def _aaiclick_version() -> str:
@@ -110,7 +110,7 @@ async def _docker_build(context: str, dockerfile: str, image_tag: str, build_arg
         *add_host_flags("AAICLICK_DOCKER_BUILD_ADD_HOST"),
         context,
     ]
-    await cli.run(*cmd, stream=True)
+    await cli.run(*cmd)
 
 
 @task(name="docker_build", max_retries=2)

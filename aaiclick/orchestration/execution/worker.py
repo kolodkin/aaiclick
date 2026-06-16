@@ -79,11 +79,13 @@ class TaskVehicle(Protocol):
         """Start the vehicle; return an opaque handle the other ops use."""
         ...
 
-    async def wait(self, handle: Any, timeout: float | None) -> tuple[int, str | None]:
-        """Block until the vehicle exits; return ``(exit_code, error)``.
+    async def wait(self, handle: Any, timeout: float | None) -> tuple[int, str | None, Any]:
+        """Block until the vehicle exits; return ``(exit_code, error, payload)``.
 
         ``error`` is non-None when the vehicle itself failed to run to
-        completion (timeout, crash) rather than the task failing."""
+        completion (timeout, crash) rather than the task failing. ``payload`` is
+        a runner-specific result object passed straight to ``collect`` (so the
+        result read happens here, in async context, not in the sync ``collect``)."""
         ...
 
     async def poll_cancelled(self, task: Task) -> bool:
@@ -94,8 +96,10 @@ class TaskVehicle(Protocol):
         """Forcibly stop the vehicle (cancellation / timeout path)."""
         ...
 
-    def collect(self, handle: Any, exit_code: int, error: str | None, was_cancelled: bool) -> RunnerResult:
-        """Translate the exited vehicle into a ``RunnerResult``."""
+    def collect(
+        self, handle: Any, exit_code: int, error: str | None, was_cancelled: bool, payload: Any
+    ) -> RunnerResult:
+        """Translate the exited vehicle (and ``wait``'s ``payload``) into a ``RunnerResult``."""
         ...
 
     async def cleanup(self, handle: Any) -> None:
@@ -166,10 +170,10 @@ async def drive_vehicle(
     cancel_watcher = asyncio.create_task(_watch_for_cancellation(vehicle, task, handle, done, cancelled, poll_interval))
 
     try:
-        exit_code, error = await vehicle.wait(handle, timeout)
+        exit_code, error, payload = await vehicle.wait(handle, timeout)
         done.set()
         await asyncio.gather(heartbeat, cancel_watcher, return_exceptions=True)
-        return vehicle.collect(handle, exit_code, error, cancelled.is_set())
+        return vehicle.collect(handle, exit_code, error, cancelled.is_set(), payload)
     finally:
         done.set()
         await asyncio.gather(heartbeat, cancel_watcher, return_exceptions=True)
