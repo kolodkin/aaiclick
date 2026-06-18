@@ -182,19 +182,24 @@ identical to the Docker `docker kill` path.
 `test_e2e/kubernetes/` mirrors `test_e2e/docker/`: the same `sample_job` fixture
 and git-daemon publishing, driven through the `register-job` → `run-job` CLI,
 polling for completion. The reusable workflow `_kubernetes-e2e-reusable.yaml`
-follows `_docker-e2e-reusable.yaml` with a minikube cluster (the
-`setup-minikube` action) in place of the bare daemon, plus the same Postgres /
-ClickHouse / registry services. A `kubernetes_e2e` marker gates the suite;
-collection skips it unless `kubectl cluster-info` succeeds.
+follows `_docker-e2e-reusable.yaml` with a **kind** cluster (the CI-standard
+lightweight Kubernetes) plus the same Postgres / ClickHouse services. A
+`kubernetes_e2e` marker gates the suite; collection skips it unless
+`kubectl cluster-info` succeeds.
 
-!!! note "minikube networking — validated by the Phase 0.5 spike"
-    A throwaway CI spike confirmed the recipe. Start minikube with
-    `--driver=docker --insecure-registry=host.minikube.internal:5000`, then
-    **wait for the `coredns` deployment to roll out before submitting task
-    Pods** — the one real gotcha: a Pod launched before CoreDNS is ready has no
-    DNS and cannot reach anything. With that, Pods reach host-side Postgres and
-    ClickHouse via `host.minikube.internal` (resolves to the node gateway,
-    e.g. `192.168.49.1`), the cluster pulls the job image from
-    `host.minikube.internal:5000` over plain HTTP, and `kubectl logs -f` /
-    `kubectl delete` behave exactly as the vehicle needs. Host-side services
-    suffice; no in-cluster Postgres/ClickHouse required.
+!!! note "kind networking recipe (validated green in CI)"
+    - **Registry**: a local `registry:2` on `127.0.0.1:5000` + a kind
+      `containerdConfigPatches` mirror (`localhost:5000` → `http://kind-registry:5000`,
+      with the registry joined to the `kind` docker network). So the image tag
+      `localhost:5000/aaiclick-job:<sha>` is pushed by the host over loopback
+      (trusted — no insecure-registry config) and pulled in-cluster via the
+      mirror.
+    - **Pod → host DBs**: route via the kind network's gateway IP (read off the
+      node container; falls back to the subnet `.1`). The same IP resolves
+      runner-side, so one DSN serves pods and the runner.
+    - **Build → test pypi**: `host.docker.internal` + `--add-host=…:host-gateway`,
+      same as the docker e2e.
+
+    (An earlier Phase 0.5 spike validated an equivalent minikube recipe with
+    `host.minikube.internal` + `--insecure-registry`; the suite ultimately uses
+    kind for faster CI cold-start.)

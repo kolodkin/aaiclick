@@ -116,13 +116,20 @@ Deferred: per-run `run-job` namespace override and resource (cpu/mem) flags
 - ✅ `test_e2e/kubernetes/` (`kubernetes_e2e` marker + `kubectl cluster-info`
   skip guard) drives register → run → build → Pod → result and asserts the
   Object chain (sum = 120) flowed through ClickHouse across Pods.
-- ✅ `_kubernetes-e2e-reusable.yaml` (minikube, `--insecure-registry`, CoreDNS
-  wait, `host.minikube.internal` DSNs — the Phase 0.5 recipe) + nightly caller.
+- ✅ `_kubernetes-e2e-reusable.yaml` on a **kind** cluster (CI-standard; faster
+  cold-start than minikube): local registry via a `containerdConfigPatches`
+  mirror (`localhost:5000`, no insecure-registry config), pod→host DB routing
+  via the kind network gateway IP, build→pypi via `host.docker.internal`.
+  Nightly caller mirrors `test-docker-nightly`.
 - ✅ Validated end-to-end on-branch (push-triggered) — **green** — then switched
   the caller to `schedule` (cron fires once on `main`).
 
-A bug surfaced here and was fixed: `_pod_main` wrote its `TaskRunResult` row
-after `orch_context()` exited (no SQL session); moved inside the context.
+Bugs surfaced and fixed here: (1) `_pod_main` wrote its `TaskRunResult` row
+after `orch_context()` exited (no SQL session) — moved inside the context;
+(2) kind plumbing — gateway IP read off the node container, registry wired via
+the canonical containerd mirror.
+
+(The Phase 0.5 spike validated minikube; the suite ships on kind for faster CI.)
 
 Deferred / optional: wire the k8s e2e into the `publish.yaml` release gate (as
 the docker e2e is); shared e2e test helpers between the two suites.
