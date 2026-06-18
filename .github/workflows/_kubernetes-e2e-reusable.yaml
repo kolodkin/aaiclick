@@ -64,6 +64,14 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+      # pypiserver with auth disabled (-a . -P .). GitHub service containers
+      # DO honour a custom `command:` (verified in CI), so no separate step.
+      pypiserver:
+        image: pypiserver/pypiserver:v2.3.2
+        command: run -p 8080 -a . -P . --server gunicorn
+        ports:
+          - 8080:8080
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -121,21 +129,6 @@ jobs:
           if [ -z "$GW" ]; then echo "could not resolve kind gateway" >&2; exit 1; fi
           echo "AAICLICK_SQL_URL=postgresql+asyncpg://aaiclick:secret@${GW}:5432/aaiclick" >> "$GITHUB_ENV"
           echo "AAICLICK_CH_URL=clickhouse://default:click123@${GW}:8123/default" >> "$GITHUB_ENV"
-
-      # pypiserver runs with auth disabled (-a . -P .); started as a step because
-      # GitHub service containers can't override the image command.
-      - name: Start pypiserver
-        run: |
-          docker run -d --name pypiserver -p 8080:8080 \
-            pypiserver/pypiserver:v2.3.2 \
-            run -p 8080 -a . -P . --server gunicorn
-          for i in $(seq 1 30); do
-            if curl -fsS http://localhost:8080/ -o /dev/null; then echo ready; exit 0; fi
-            sleep 1
-          done
-          echo "pypiserver failed to become ready" >&2
-          docker logs pypiserver >&2
-          exit 1
 
       - name: Start git daemon
         run: |

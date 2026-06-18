@@ -5,6 +5,13 @@ name: Kubernetes Runner E2E (nightly)
 # test-docker-nightly.yaml. The cron starts firing once this lands on `main`.
 
 on:
+  # Temporary push trigger to validate the pypiserver-as-a-service change;
+  # revert to schedule-only once green.
+  push:
+    branches: [claude/kubernetes-runner-support-rxv9hm]
+    paths:
+      - .github/workflows/_kubernetes-e2e-reusable.yaml
+      - .github/workflows/test-k8s-nightly.yaml
   schedule:
     - cron: "0 7 * * *"
   workflow_dispatch:
