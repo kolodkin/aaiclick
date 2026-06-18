@@ -94,8 +94,14 @@ jobs:
       # runner-side, so one DSN works in both places. Export for later steps.
       - name: Resolve host gateway for DSNs
         run: |
-          GW=$(docker network inspect kind -f '{{ (index .IPAM.Config 0).Gateway }}')
-          echo "kind gateway = $GW"
+          NODE=$(docker ps --format '{{.Names}}' | grep -m1 control-plane)
+          GW=$(docker inspect "$NODE" -f '{{.NetworkSettings.Networks.kind.Gateway}}')
+          if [ -z "$GW" ]; then
+            NODE_IP=$(docker inspect "$NODE" -f '{{.NetworkSettings.Networks.kind.IPAddress}}')
+            GW="${NODE_IP%.*}.1"
+          fi
+          echo "kind node=$NODE gateway=$GW"
+          if [ -z "$GW" ]; then echo "could not resolve kind gateway" >&2; exit 1; fi
           echo "AAICLICK_SQL_URL=postgresql+asyncpg://aaiclick:secret@${GW}:5432/aaiclick" >> "$GITHUB_ENV"
           echo "AAICLICK_CH_URL=clickhouse://default:click123@${GW}:8123/default" >> "$GITHUB_ENV"
 
