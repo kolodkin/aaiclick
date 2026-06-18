@@ -43,6 +43,8 @@ jobs:
           echo "GHA registry service container = $REG"
           if [ -z "$REG" ]; then echo "no registry service container found" >&2; exit 1; fi
           docker network connect --alias kind-registry kind "$REG"
+          kubectl -n kube-system rollout status deploy/coredns --timeout=120s
+          for i in $(seq 1 30); do kubectl get sa default -n default >/dev/null 2>&1 && break; sleep 2; done
 
       - name: Push image and pull it from a pod
         run: |
