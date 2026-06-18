@@ -1,18 +1,20 @@
 name: Kubernetes Runner E2E (reusable)
 
 # Shared body for the kubernetes-runner end-to-end suite. Mirrors
-# ``_docker-e2e-reusable.yaml`` (same services, wheel acquisition, pypiserver,
-# git daemon, migrations) and adds a minikube cluster using the recipe the
-# Phase 0.5 networking spike validated:
-#   - map ``host.minikube.internal`` -> 127.0.0.1 on the runner (docker treats a
-#     loopback-resolving registry as insecure automatically, so the host-side
-#     ``docker push host.minikube.internal:5000/...`` works over HTTP; the same
-#     name also resolves for runner-side migrate / pytest / DB access).
-#   - ``minikube start --insecure-registry=host.minikube.internal:5000`` so the
-#     cluster pulls the job image over HTTP; pods reach host Postgres/ClickHouse
-#     via ``host.minikube.internal`` (minikube CoreDNS -> node gateway).
-#   - wait for the ``coredns`` rollout before the test submits Pods (a Pod
-#     launched before CoreDNS is ready has no DNS).
+# ``_docker-e2e-reusable.yaml`` (same DB/registry services, wheel acquisition,
+# pypiserver, git daemon, migrations) and adds a kind cluster — the CI-standard
+# lightweight Kubernetes (faster cold start than minikube).
+#
+# Networking:
+#   - kind's built-in local registry exposes ``localhost:5000`` both to the
+#     host (``docker push`` — loopback is trusted, no insecure config) and to
+#     the cluster (containerd mirror), so the job image_tag is
+#     ``localhost:5000/aaiclick-job:<sha>`` for both push and pod pull.
+#   - Pods reach the host-side Postgres/ClickHouse via the kind docker network's
+#     gateway IP (the host's address on that bridge); the same IP also works
+#     runner-side, so one DSN serves both.
+#   - The host-side image build reaches the test pypi via
+#     ``host.docker.internal`` (``--add-host=...:host-gateway``), like docker.
 
 on:
   workflow_call:
@@ -62,11 +64,6 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
-      registry:
-        image: registry:2
-        ports:
-          - 5000:5000
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -79,35 +76,31 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "pyproject.toml"
 
-      # host.minikube.internal resolves to the host from inside the cluster
-      # (minikube injects it). Map it to localhost on the runner too, so
-      # runner-side migrate / pytest / the host-side image push use the same
-      # name. Docker treats a loopback-resolving registry as insecure, so the
-      # push needs no daemon config.
-      - name: Map host.minikube.internal to localhost
-        run: echo "127.0.0.1 host.minikube.internal" | sudo tee -a /etc/hosts
-
-      - name: Install minikube + kubectl
-        run: |
-          curl -Lo minikube https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
-          sudo install minikube /usr/local/bin/
-          curl -Lo kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          sudo install kubectl /usr/local/bin/
-
-      - name: Start minikube
-        run: |
-          minikube start --driver=docker \
-            --insecure-registry="host.minikube.internal:5000" \
-            --insecure-registry="10.0.0.0/8" \
-            --insecure-registry="172.16.0.0/12" \
-            --insecure-registry="192.168.0.0/16"
-          kubectl get nodes -o wide
+      # kind (Kubernetes-in-Docker) + a local registry wired into the cluster.
+      # registry: true sets up localhost:5000 reachable by both host and pods.
+      - name: Create kind cluster + local registry
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: aaiclick-e2e
+          registry: true
+          registry_name: kind-registry
+          registry_port: 5000
 
       - name: Wait for cluster DNS (CoreDNS) ready
         run: kubectl -n kube-system rollout status deploy/coredns --timeout=180s
 
-      # The pypiserver image's default entrypoint requires auth; start it with
-      # auth disabled (-a . -P .) as a step, like the docker e2e.
+      # Pods reach the host-published Postgres/ClickHouse via the kind network's
+      # gateway IP (the host's address on that bridge); it also resolves
+      # runner-side, so one DSN works in both places. Export for later steps.
+      - name: Resolve host gateway for DSNs
+        run: |
+          GW=$(docker network inspect kind -f '{{ (index .IPAM.Config 0).Gateway }}')
+          echo "kind gateway = $GW"
+          echo "AAICLICK_SQL_URL=postgresql+asyncpg://aaiclick:secret@${GW}:5432/aaiclick" >> "$GITHUB_ENV"
+          echo "AAICLICK_CH_URL=clickhouse://default:click123@${GW}:8123/default" >> "$GITHUB_ENV"
+
+      # pypiserver runs with auth disabled (-a . -P .); started as a step because
+      # GitHub service containers can't override the image command.
       - name: Start pypiserver
         run: |
           docker run -d --name pypiserver -p 8080:8080 \
@@ -157,8 +150,6 @@ jobs:
         with:
           name: requirements
 
-      # --- Common: pypi upload --------------------------------------------
-
       - name: Upload wheel to test pypi
         run: |
           for f in dist/*.whl dist/*.tar.gz; do
@@ -187,15 +178,11 @@ jobs:
       - name: Run kubernetes e2e tests
         env:
           VIRTUAL_ENV: ${{ github.workspace }}/.venv
-          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@host.minikube.internal:5432/aaiclick"
-          AAICLICK_CH_URL: "clickhouse://default:click123@host.minikube.internal:8123/default"
-          AAICLICK_REGISTRY: "host.minikube.internal:5000"
-          AAICLICK_PIP_INDEX_URL: "http://host.minikube.internal:8080/simple/"
-          AAICLICK_PIP_TRUSTED_HOST: "host.minikube.internal"
-          # The host-side build runs `docker build` in a build container that
-          # doesn't inherit the runner's /etc/hosts; add the host-gateway
-          # mapping so pip can reach the test pypi during the build.
-          AAICLICK_DOCKER_BUILD_ADD_HOST: "host.minikube.internal:host-gateway"
+          # AAICLICK_SQL_URL / AAICLICK_CH_URL come from the gateway step (env).
+          AAICLICK_REGISTRY: "localhost:5000"
+          AAICLICK_PIP_INDEX_URL: "http://host.docker.internal:8080/simple/"
+          AAICLICK_PIP_TRUSTED_HOST: "host.docker.internal"
+          AAICLICK_DOCKER_BUILD_ADD_HOST: "host.docker.internal:host-gateway"
           AAICLICK_LOG_DIR: "${{ github.workspace }}/tmp/aaiclick-logs"
         run: |
           mkdir -p tmp
@@ -245,9 +232,3 @@ jobs:
               await c.close()
           asyncio.run(main())
           PY
-
-      - name: Cleanup
-        if: always()
-        run: |
-          minikube delete || true
-          docker system prune -af || true
