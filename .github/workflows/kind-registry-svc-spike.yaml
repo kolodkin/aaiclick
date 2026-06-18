@@ -1,0 +1,73 @@
+name: kind registry-as-service spike
+
+# Throwaway probe: can the kind local registry be a GitHub `services:` container
+# (instead of a `docker run` step) and still serve in-cluster pulls? The
+# registry must be reachable from the node as `kind-registry` on the kind
+# network, so we connect the service container to that network with an alias
+# after the cluster exists. Delete once answered.
+
+on:
+  push:
+    branches: [claude/kubernetes-runner-support-rxv9hm]
+    paths: [.github/workflows/kind-registry-svc-spike.yaml]
+  workflow_dispatch:
+
+jobs:
+  spike:
+    runs-on: ubuntu-latest
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
+    steps:
+      - name: Install kind + kubectl
+        run: |
+          curl -Lo kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
+          sudo install kind /usr/local/bin/
+          curl -Lo kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          sudo install kubectl /usr/local/bin/
+
+      - name: Create kind cluster + connect service registry to kind net
+        run: |
+          cat > /tmp/kind.yaml <<'EOF'
+          kind: Cluster
+          apiVersion: kind.x-k8s.io/v1alpha4
+          containerdConfigPatches:
+            - |-
+              [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:5000"]
+                endpoint = ["http://kind-registry:5000"]
+          EOF
+          kind create cluster --name spike --config /tmp/kind.yaml
+          REG=$(docker ps --filter ancestor=registry:2 --format '{{.Names}}' | head -1)
+          echo "GHA registry service container = $REG"
+          if [ -z "$REG" ]; then echo "no registry service container found" >&2; exit 1; fi
+          docker network connect --alias kind-registry kind "$REG"
+
+      - name: Push image and pull it from a pod
+        run: |
+          docker pull busybox:1.36
+          docker tag busybox:1.36 localhost:5000/spike:1
+          docker push localhost:5000/spike:1
+          cat > /tmp/pod.yaml <<'EOF'
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: pulltest
+          spec:
+            restartPolicy: Never
+            containers:
+              - name: c
+                image: localhost:5000/spike:1
+                imagePullPolicy: Always
+                command: ["sh", "-c", "echo PULLED_OK"]
+          EOF
+          kubectl apply -f /tmp/pod.yaml
+          if kubectl wait --for=jsonpath='{.status.phase}'=Succeeded pod/pulltest --timeout=120s; then
+            kubectl logs pulltest
+            echo "RESULT: registry-as-service + alias-connect WORKS for in-cluster pull"
+          else
+            echo "RESULT: registry-as-service did NOT serve in-cluster pull"
+            kubectl describe pod pulltest || true
+            exit 1
+          fi
