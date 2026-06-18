@@ -76,15 +76,32 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "pyproject.toml"
 
-      # kind (Kubernetes-in-Docker) + a local registry wired into the cluster.
-      # registry: true sets up localhost:5000 reachable by both host and pods.
+      # kind (Kubernetes-in-Docker) + a local registry, wired per the canonical
+      # kind local-registry recipe so `localhost:5000` works for BOTH the host
+      # `docker push` (loopback, trusted) and in-cluster pulls (containerd
+      # mirror -> the registry container on the kind network).
+      - name: Install kind + kubectl
+        run: |
+          curl -Lo kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
+          sudo install kind /usr/local/bin/
+          curl -Lo kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          sudo install kubectl /usr/local/bin/
+
       - name: Create kind cluster + local registry
-        uses: helm/kind-action@v1
-        with:
-          cluster_name: aaiclick-e2e
-          registry: true
-          registry_name: kind-registry
-          registry_port: 5000
+        run: |
+          docker run -d --restart=always -p 127.0.0.1:5000:5000 --name kind-registry registry:2
+          cat > /tmp/kind.yaml <<'EOF'
+          kind: Cluster
+          apiVersion: kind.x-k8s.io/v1alpha4
+          containerdConfigPatches:
+            - |-
+              [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:5000"]
+                endpoint = ["http://kind-registry:5000"]
+          EOF
+          kind create cluster --name aaiclick-e2e --config /tmp/kind.yaml
+          # Connect the registry to the kind network so the node resolves
+          # `kind-registry` (the containerd mirror endpoint).
+          docker network connect kind kind-registry
 
       - name: Wait for cluster DNS (CoreDNS) ready
         run: kubectl -n kube-system rollout status deploy/coredns --timeout=180s
