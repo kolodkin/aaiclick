@@ -826,6 +826,10 @@ export interface components {
             entrypoint: string;
             /** Git Remote */
             git_remote?: string | null;
+            /** Kubernetes Config */
+            kubernetes_config?: {
+                [key: string]: unknown;
+            } | null;
             /**
              * Name
              * @default
@@ -838,7 +842,7 @@ export interface components {
              * @default subprocess
              * @enum {string}
              */
-            runner_mode: "subprocess" | "docker";
+            runner_mode: "subprocess" | "docker" | "kubernetes";
             /** Schedule */
             schedule?: string | null;
         };
