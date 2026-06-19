@@ -602,20 +602,17 @@ def main():
     register_job_parser.add_argument(
         "--namespace",
         default=None,
-        help="Kubernetes namespace (kubernetes runner only); "
-        "falls back to $AAICLICK_K8S_NAMESPACE, then 'default'",
+        help="Kubernetes namespace (kubernetes runner only); falls back to $AAICLICK_K8S_NAMESPACE, then 'default'",
     )
     register_job_parser.add_argument(
         "--k8s-service-account",
         default=None,
-        help="Kubernetes service account name (kubernetes runner only); "
-        "falls back to $AAICLICK_K8S_SERVICE_ACCOUNT",
+        help="Kubernetes service account name (kubernetes runner only); falls back to $AAICLICK_K8S_SERVICE_ACCOUNT",
     )
     register_job_parser.add_argument(
         "--k8s-image-pull-secret",
         default=None,
-        help="Kubernetes imagePullSecret name (kubernetes runner only); "
-        "falls back to $AAICLICK_K8S_IMAGE_PULL_SECRET",
+        help="Kubernetes imagePullSecret name (kubernetes runner only); falls back to $AAICLICK_K8S_IMAGE_PULL_SECRET",
     )
     _add_json_flag(register_job_parser)
 
