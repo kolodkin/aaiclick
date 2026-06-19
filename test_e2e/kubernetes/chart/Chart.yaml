@@ -1,0 +1,9 @@
+apiVersion: v2
+name: aaiclick-e2e-deps
+description: >-
+  In-cluster dependency services (Postgres, ClickHouse, pypiserver, registry)
+  for the aaiclick Kubernetes e2e suite. CI test infrastructure only — ephemeral,
+  no persistence, not a production deployment artifact.
+type: application
+version: 0.1.0
+appVersion: "1.0"

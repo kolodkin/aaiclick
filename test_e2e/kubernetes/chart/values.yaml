@@ -1,0 +1,17 @@
+postgres:
+  image: postgres:18.3
+  user: aaiclick
+  password: secret
+  db: aaiclick
+  nodePort: 30432
+clickhouse:
+  image: clickhouse/clickhouse-server:26.3
+  user: default
+  password: click123
+  nodePort: 30123
+pypiserver:
+  image: pypiserver/pypiserver:v2.3.2
+  nodePort: 30080
+registry:
+  image: registry:2
+  nodePort: 30500
