@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aaiclick-postgres
+  labels:
+    app: aaiclick-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aaiclick-postgres
+  template:
+    metadata:
+      labels:
+        app: aaiclick-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: {{ .Values.postgres.image }}
+          env:
+            - name: POSTGRES_USER
+              value: {{ .Values.postgres.user | quote }}
+            - name: POSTGRES_PASSWORD
+              value: {{ .Values.postgres.password | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.postgres.db | quote }}
+            # Point PGDATA at a subdir so the emptyDir mount (not a PVC) backs it.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "{{ .Values.postgres.user }}"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 12
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aaiclick-postgres
+  labels:
+    app: aaiclick-postgres
+spec:
+  type: NodePort
+  selector:
+    app: aaiclick-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+      nodePort: {{ .Values.postgres.nodePort }}
