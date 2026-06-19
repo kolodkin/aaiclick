@@ -72,6 +72,14 @@ jobs:
         ports:
           - 8080:8080
 
+      # The kind local registry. Runs as a service; a step connects it to the
+      # kind network under the `kind-registry` alias (the containerd mirror
+      # endpoint) once the cluster exists.
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -84,10 +92,10 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "pyproject.toml"
 
-      # kind (Kubernetes-in-Docker) + a local registry, wired per the canonical
-      # kind local-registry recipe so `localhost:5000` works for BOTH the host
-      # `docker push` (loopback, trusted) and in-cluster pulls (containerd
-      # mirror -> the registry container on the kind network).
+      # kind (Kubernetes-in-Docker) + the local registry service, wired per the
+      # canonical kind local-registry recipe so `localhost:5000` works for BOTH
+      # the host `docker push` (loopback, trusted) and in-cluster pulls
+      # (containerd mirror -> the registry container on the kind network).
       - name: Install kind + kubectl
         run: |
           curl -Lo kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
@@ -95,9 +103,8 @@ jobs:
           curl -Lo kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
           sudo install kubectl /usr/local/bin/
 
-      - name: Create kind cluster + local registry
+      - name: Create kind cluster + wire the registry service
         run: |
-          docker run -d --restart=always -p 127.0.0.1:5000:5000 --name kind-registry registry:2
           cat > /tmp/kind.yaml <<'EOF'
           kind: Cluster
           apiVersion: kind.x-k8s.io/v1alpha4
@@ -107,9 +114,12 @@ jobs:
                 endpoint = ["http://kind-registry:5000"]
           EOF
           kind create cluster --name aaiclick-e2e --config /tmp/kind.yaml
-          # Connect the registry to the kind network so the node resolves
-          # `kind-registry` (the containerd mirror endpoint).
-          docker network connect kind kind-registry
+          # Connect the GHA registry service container to the kind network under
+          # the `kind-registry` alias so the node resolves the mirror endpoint.
+          REG=$(docker ps --filter ancestor=registry:2 --format '{{.Names}}' | head -1)
+          if [ -z "$REG" ]; then echo "registry service container not found" >&2; exit 1; fi
+          echo "registry service container = $REG"
+          docker network connect --alias kind-registry kind "$REG"
 
       - name: Wait for cluster DNS (CoreDNS) ready
         run: kubectl -n kube-system rollout status deploy/coredns --timeout=180s
