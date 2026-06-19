@@ -19,12 +19,13 @@ export function LogViewer({ taskId }: { taskId: number }) {
 
   if (isLoading) return <div className="logs">loading logs…</div>;
   if (isError) return <div className="logs">failed to load logs</div>;
-  if (!data || !data.available || data.lines.length === 0) {
+  const lines = data?.lines ?? [];
+  if (!data || !data.available || lines.length === 0) {
     return <div className="logs">(no logs captured for this task)</div>;
   }
   return (
     <div className="logs">
-      <LogLines lines={data.lines} />
+      <LogLines lines={lines} />
     </div>
   );
 }

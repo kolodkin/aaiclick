@@ -121,17 +121,6 @@ that an e2e failure can't tell you which branch broke.
   they test.
 - Add an `npm test` step to the CI workflow that runs the SPA gates.
 
-## OpenAPI Codegen
-
-`src/api/types.ts` is hand-written to mirror the pydantic view models.
-When the API surface grows, generate it from `GET /api/v0/openapi.json`
-using `openapi-typescript` or similar — run as a pre-build step so the
-TypeScript types always match the server schema.
-
-**Work when revisited**: add `openapi-typescript` dev dep, `npm run gen-types`
-script, CI check that the generated file is up to date (commit the output;
-fail if dirty after re-gen).
-
 ## API Auth — Beyond Username/Password + RBAC
 
 Username/password users, admin/viewer RBAC, and JWT login (access + refresh)

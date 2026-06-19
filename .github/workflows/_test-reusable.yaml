@@ -52,6 +52,44 @@ jobs:
       - name: Run pre-commit
         uses: pre-commit/action@v3.0.1
 
+  frontend:
+    # SPA gates: regenerate the OpenAPI-derived TypeScript types and fail if
+    # they drift from the server schema, then static-type-check the SPA.
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    name: Frontend types
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install Python (server) dependencies
+        run: uv sync --frozen --extra server --python ${{ inputs.python-version }}
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Regenerate API types from the OpenAPI schema
+        run: npm run gen-types
+
+      - name: Fail if generated types are stale
+        run: git diff --exit-code src/api/schema.ts
+
+      - name: Type-check the SPA
+        run: npm run check
+
   test-local:
     needs: lint
     runs-on: ubuntu-latest

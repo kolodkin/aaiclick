@@ -8,7 +8,7 @@ export function RunForm({ name, onPrompt }: { name: string; onPrompt: (v: string
   const run = useRunJob();
   const toast = useToast();
   const [kwargs, setKwargs] = useState("{}");
-  const [preservation, setPreservation] = useState("");
+  const [preservation, setPreservation] = useState<"" | "NONE" | "FULL">("");
 
   const onRun = () => {
     let parsed: Record<string, unknown>;
@@ -46,7 +46,7 @@ export function RunForm({ name, onPrompt }: { name: string; onPrompt: (v: string
         </div>
         <div className="field">
           <label>Preservation mode</label>
-          <select value={preservation} onChange={(e) => setPreservation(e.target.value)}>
+          <select value={preservation} onChange={(e) => setPreservation(e.target.value as "" | "NONE" | "FULL")}>
             <option value="">(registered default)</option>
             <option value="NONE">NONE</option>
             <option value="FULL">FULL</option>
