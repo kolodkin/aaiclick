@@ -145,9 +145,20 @@ class KubernetesConfig(NamedTuple):
     resources: dict | None = None  # {cpu/mem requests+limits}
 ```
 
-Resolved at submission time via the same three-layer precedence as Docker
-(`run_job` kwarg → `RegisteredJob` default → default), alongside the shared
-`resolve_docker_config` for git/image.
+Resolved at submission time alongside the shared `resolve_docker_config` for
+git/image. Precedence per field (highest first): `run_job` kwarg →
+`RegisteredJob` default → environment variable → hardcoded default. The env
+layer holds cluster-wide deployment defaults (the same across every job),
+mirroring `AAICLICK_REGISTRY` and matching Argo's `workflowDefaults` /
+Airflow's `AIRFLOW__KUBERNETES__*`:
+
+| Field | Environment variable |
+| --- | --- |
+| `namespace` | `AAICLICK_K8S_NAMESPACE` (else `"default"`) |
+| `service_account` | `AAICLICK_K8S_SERVICE_ACCOUNT` |
+| `image_pull_secret` | `AAICLICK_K8S_IMAGE_PULL_SECRET` |
+
+`resources` has no env layer (nested JSON, not a single deployment-wide value).
 
 # Selection and dispatch
 
