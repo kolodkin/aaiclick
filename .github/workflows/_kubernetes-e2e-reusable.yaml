@@ -12,7 +12,9 @@ name: Kubernetes Runner E2E (reusable)
 #     ``localhost:5000/aaiclick-job:<sha>`` for both push and pod pull.
 #   - Pods reach the host-side Postgres/ClickHouse via the kind docker network's
 #     gateway IP (the host's address on that bridge); the same IP also works
-#     runner-side, so one DSN serves both.
+#     runner-side, so one DSN serves both. We pre-create the kind network with a
+#     fixed subnet/gateway (172.30.0.1) so that IP is known up front — no runtime
+#     discovery step, just static DSNs.
 #   - The host-side image build reaches the test pypi via
 #     ``host.docker.internal`` (``--add-host=...:host-gateway``), like docker.
 
@@ -105,6 +107,11 @@ jobs:
 
       - name: Create kind cluster + wire the registry service
         run: |
+          # Pre-create the kind network with a fixed subnet/gateway so the host's
+          # gateway IP (172.30.0.1) is known up front. kind reuses an existing
+          # network named `kind`, so the pod->host DSNs can be static.
+          docker network create --driver bridge \
+            --subnet 172.30.0.0/16 --gateway 172.30.0.1 kind 2>/dev/null || true
           cat > /tmp/kind.yaml <<'EOF'
           kind: Cluster
           apiVersion: kind.x-k8s.io/v1alpha4
@@ -120,25 +127,13 @@ jobs:
           if [ -z "$REG" ]; then echo "registry service container not found" >&2; exit 1; fi
           echo "registry service container = $REG"
           docker network connect --alias kind-registry kind "$REG"
+          # Static DSNs: pods (and the runner) reach host-published DBs via the
+          # fixed kind gateway 172.30.0.1.
+          echo "AAICLICK_SQL_URL=postgresql+asyncpg://aaiclick:secret@172.30.0.1:5432/aaiclick" >> "$GITHUB_ENV"
+          echo "AAICLICK_CH_URL=clickhouse://default:click123@172.30.0.1:8123/default" >> "$GITHUB_ENV"
 
       - name: Wait for cluster DNS (CoreDNS) ready
         run: kubectl -n kube-system rollout status deploy/coredns --timeout=180s
-
-      # Pods reach the host-published Postgres/ClickHouse via the kind network's
-      # gateway IP (the host's address on that bridge); it also resolves
-      # runner-side, so one DSN works in both places. Export for later steps.
-      - name: Resolve host gateway for DSNs
-        run: |
-          NODE=$(docker ps --format '{{.Names}}' | grep -m1 control-plane)
-          GW=$(docker inspect "$NODE" -f '{{.NetworkSettings.Networks.kind.Gateway}}')
-          if [ -z "$GW" ]; then
-            NODE_IP=$(docker inspect "$NODE" -f '{{.NetworkSettings.Networks.kind.IPAddress}}')
-            GW="${NODE_IP%.*}.1"
-          fi
-          echo "kind node=$NODE gateway=$GW"
-          if [ -z "$GW" ]; then echo "could not resolve kind gateway" >&2; exit 1; fi
-          echo "AAICLICK_SQL_URL=postgresql+asyncpg://aaiclick:secret@${GW}:5432/aaiclick" >> "$GITHUB_ENV"
-          echo "AAICLICK_CH_URL=clickhouse://default:click123@${GW}:8123/default" >> "$GITHUB_ENV"
 
       - name: Start git daemon
         run: |
@@ -204,7 +199,7 @@ jobs:
       - name: Run kubernetes e2e tests
         env:
           VIRTUAL_ENV: ${{ github.workspace }}/.venv
-          # AAICLICK_SQL_URL / AAICLICK_CH_URL come from the gateway step (env).
+          # AAICLICK_SQL_URL / AAICLICK_CH_URL come from the cluster step (static, 172.30.0.1).
           AAICLICK_REGISTRY: "localhost:5000"
           AAICLICK_PIP_INDEX_URL: "http://host.docker.internal:8080/simple/"
           AAICLICK_PIP_TRUSTED_HOST: "host.docker.internal"
