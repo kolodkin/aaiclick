@@ -26,7 +26,8 @@ src/                            ← SPA TypeScript source
   main.tsx, App.tsx             ← providers + prompt router
   prompt.ts                     ← URL ↔ route parser
   api/                          ← typed REST client + React Query hooks
-    types.ts                    ← TypeScript mirrors of pydantic view models
+    schema.ts                   ← generated from the OpenAPI schema (do not edit)
+    types.ts                    ← ergonomic re-exports over schema.ts
     client.ts                   ← fetchJSON / postJSON + ApiError
     hooks.ts                    ← useJobs, useJob, useTask, useTaskLogs, …
   views/                        ← one file per UI mode
@@ -65,8 +66,10 @@ REST is the sole source of truth in v0. Every hook polls every 2 seconds
 via TanStack Query's `refetchInterval`.
 
 - **Typed REST client**: `src/api/client.ts` — `fetchJSON` / `postJSON` + `ApiError`.
-- **TypeScript types**: `src/api/types.ts` — hand-written mirrors of the pydantic view models
-  (`JobView`, `JobDetail`, `TaskDetail`, `TaskLogs`, etc.).
+- **TypeScript types**: `npm run gen-types` generates `src/api/schema.ts` from the server's OpenAPI
+  schema (`app.openapi()` → `openapi-typescript`); `src/api/types.ts` re-exports ergonomic names
+  (`JobView`, `TaskDetail`, `Page<T>`, …) over it. CI fails on drift, so types always match the
+  server — never hand-edit `schema.ts`.
 - **React Query hooks**: `src/api/hooks.ts` — `useJobs()`, `useJob(ref)`, `useTask(id)`,
   `useTaskLogs(id)`, `useRegisteredJobs()`, plus mutation hooks for run / cancel / register.
 - **No global store**: the URL query param `?p=` drives which view mounts;

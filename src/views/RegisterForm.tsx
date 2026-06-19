@@ -26,10 +26,12 @@ export function RegisterForm({ name, onPrompt }: { name: string; onPrompt: (v: s
     register.mutate(
       {
         entrypoint,
-        name: jobName || undefined,
+        // Server derives the name from the entrypoint when this is empty.
+        name: jobName,
         schedule: schedule || null,
         default_kwargs: parsed,
         enabled,
+        runner_mode: "subprocess",
       },
       {
         onSuccess: (rj) => {
