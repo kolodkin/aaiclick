@@ -70,8 +70,9 @@ def resolve_kubernetes_config(
     def pick(value: object | None, key: str, env_var: str | None = None) -> object | None:
         if value is not None:
             return value
-        if defaults.get(key) is not None:
-            return defaults.get(key)
+        default = defaults.get(key)
+        if default is not None:
+            return default
         return os.environ.get(env_var) if env_var is not None else None
 
     return KubernetesConfig(
