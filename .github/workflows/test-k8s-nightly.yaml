@@ -5,6 +5,9 @@ name: Kubernetes Runner E2E (nightly)
 # test-docker-nightly.yaml. The cron starts firing once this lands on `main`.
 
 on:
+  push:
+    branches:
+      - claude/kubernetes-runner-support-rxv9hm
   schedule:
     - cron: "0 7 * * *"
   workflow_dispatch:
