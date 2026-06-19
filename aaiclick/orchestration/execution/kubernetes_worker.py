@@ -24,13 +24,21 @@ from typing import NamedTuple
 from sqlmodel import select
 
 from ..logging import get_logs_dir
-from ..models import Job, Task, TaskRunResult
+from ..models import Task, TaskRunResult
 from ..orch_context import get_sql_session
 from . import cli
 from .claiming import check_task_cancelled
 from .runner import execute_task, register_returned_tasks, serialize_task_result
 from .runner_env import build_runner_env
-from .worker import POLL_INTERVAL, RunnerResult, TaskVehicle, drive_vehicle, parse_task_timeout, worker_heartbeat
+from .worker import (
+    POLL_INTERVAL,
+    JobDispatch,
+    RunnerResult,
+    TaskVehicle,
+    drive_vehicle,
+    parse_task_timeout,
+    worker_heartbeat,
+)
 
 POD_ENTRYPOINT = ["python", "-m", "aaiclick.orchestration.execution.kubernetes_worker"]
 # Pod-internal log dir; ephemeral. The host captures logs via `kubectl logs`.
@@ -95,14 +103,12 @@ class _PodSpec(NamedTuple):
     resources: dict | None
 
 
-async def _fetch_pod_spec(job_id: int) -> _PodSpec:
-    async with get_sql_session() as session:
-        job = (await session.execute(select(Job).where(Job.id == job_id))).scalar_one_or_none()
-    if job is None or not job.image_tag:
-        raise ValueError(f"Job {job_id} has no image_tag — was it submitted in kubernetes mode?")
-    kc = job.kubernetes_config or {}
+def _pod_spec_from(task: Task, dispatch: JobDispatch) -> _PodSpec:
+    if not dispatch.image_tag:
+        raise ValueError(f"Job {task.job_id} has no image_tag — was it submitted in kubernetes mode?")
+    kc = dispatch.kubernetes_config or {}
     return _PodSpec(
-        image_tag=job.image_tag,
+        image_tag=dispatch.image_tag,
         namespace=kc.get("namespace") or "default",
         service_account=kc.get("service_account"),
         image_pull_secret=kc.get("image_pull_secret"),
@@ -245,9 +251,11 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
             await _kubectl_delete(handle)
 
 
-async def _run_task_in_pod(task: Task, worker_id: int) -> tuple[bool, dict | None, str | None, str | None]:
+async def _run_task_in_pod(
+    task: Task, worker_id: int, dispatch: JobDispatch
+) -> tuple[bool, dict | None, str | None, str | None]:
     """ExecuteFn for the Kubernetes runner."""
-    spec = await _fetch_pod_spec(task.job_id)
+    spec = _pod_spec_from(task, dispatch)
     timeout = parse_task_timeout()
     vehicle = _KubernetesVehicle(spec, get_logs_dir())
     result = await drive_vehicle(

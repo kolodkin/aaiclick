@@ -36,13 +36,21 @@ from sqlmodel import select
 
 from ..docker_config import add_host_flags
 from ..logging import get_logs_dir
-from ..models import Job, Task
+from ..models import Task
 from ..orch_context import get_sql_session
 from . import cli
 from .claiming import check_task_cancelled
 from .runner import execute_task, register_returned_tasks, serialize_task_result
 from .runner_env import build_runner_env
-from .worker import POLL_INTERVAL, RunnerResult, TaskVehicle, drive_vehicle, parse_task_timeout, worker_heartbeat
+from .worker import (
+    POLL_INTERVAL,
+    JobDispatch,
+    RunnerResult,
+    TaskVehicle,
+    drive_vehicle,
+    parse_task_timeout,
+    worker_heartbeat,
+)
 
 CONTAINER_IPC_DIR = "/aaiclick-ipc"
 CONTAINER_RESULT_FILE = "result.json"
@@ -223,13 +231,10 @@ def _read_result_or_synthesize_failure(
     )
 
 
-async def _fetch_image_tag(job_id: int) -> str:
-    async with get_sql_session() as session:
-        result = await session.execute(select(Job).where(Job.id == job_id))
-        job = result.scalar_one_or_none()
-        if job is None or not job.image_tag:
-            raise ValueError(f"Job {job_id} has no image_tag — was it submitted in docker mode?")
-        return job.image_tag
+def _require_image_tag(task: Task, image_tag: str | None) -> str:
+    if not image_tag:
+        raise ValueError(f"Job {task.job_id} has no image_tag — was it submitted in docker mode?")
+    return image_tag
 
 
 class _DockerHandle(NamedTuple):
@@ -278,7 +283,9 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", None]):
         await _docker_rm(handle.container_id)
 
 
-async def _run_task_in_container(task: Task, worker_id: int) -> tuple[bool, dict | None, str | None, str | None]:
+async def _run_task_in_container(
+    task: Task, worker_id: int, dispatch: JobDispatch
+) -> tuple[bool, dict | None, str | None, str | None]:
     """ExecuteFn for the Docker runner.
 
     Pulls the image (when a registry is configured), bind-mounts an IPC
@@ -286,7 +293,7 @@ async def _run_task_in_container(task: Task, worker_id: int) -> tuple[bool, dict
     shared ``drive_vehicle`` driver, which heartbeats and polls for
     cancellation while the container runs. Cancellation and timeout both
     terminate the container via ``docker kill``."""
-    image_tag = await _fetch_image_tag(task.job_id)
+    image_tag = _require_image_tag(task, dispatch.image_tag)
     await _docker_pull_if_registered(image_tag)
 
     timeout = parse_task_timeout()

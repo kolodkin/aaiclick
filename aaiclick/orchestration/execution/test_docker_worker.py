@@ -7,8 +7,9 @@ import json
 from pathlib import Path
 from unittest.mock import AsyncMock
 
-from ..models import Task
+from ..models import RUNNER_DOCKER, Task
 from . import docker_worker
+from .worker import JobDispatch
 
 
 def _task(entrypoint="user.module.entry", task_id=42, job_id=1) -> Task:
@@ -110,7 +111,6 @@ async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypa
     ``cancel_watcher`` task state directly: the watcher could still be
     sleeping in ``asyncio.wait_for`` when ``done`` got set externally,
     causing the host to miss the cancellation."""
-    monkeypatch.setattr(docker_worker, "_fetch_image_tag", AsyncMock(return_value="aaiclick-job:abc"))
     monkeypatch.setattr(docker_worker, "_docker_pull_if_registered", AsyncMock(return_value=None))
 
     cancelled_seen = []
@@ -143,6 +143,7 @@ async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypa
     # Speed up the poll interval so the watcher actually fires within the test.
     monkeypatch.setattr(docker_worker, "POLL_INTERVAL", 0.05)
 
-    success, _, _, error = await docker_worker._run_task_in_container(_task(), worker_id=1)
+    dispatch = JobDispatch(RUNNER_DOCKER, "aaiclick-job:abc", None)
+    success, _, _, error = await docker_worker._run_task_in_container(_task(), worker_id=1, dispatch=dispatch)
     assert success is False
     assert error == "cancelled"

@@ -25,6 +25,7 @@ from ..models import (
     WORKER_ACTIVE,
     WORKER_STOPPED,
     WORKER_STOPPING,
+    RunnerMode,
     Task,
     Worker,
     WorkerStatus,
@@ -65,6 +66,18 @@ class RunnerResult(NamedTuple):
     result_ref: dict | None
     log_path: str | None
     error: str | None
+
+
+class JobDispatch(NamedTuple):
+    """A task's runner choice plus the launch spec its runner needs.
+
+    Loaded once per task (in ``dispatch._resolve_dispatch``) so the image-based
+    runners don't re-query the ``Job`` for ``image_tag`` / ``kubernetes_config``
+    after dispatch already read the row to pick the runner."""
+
+    runner_mode: RunnerMode
+    image_tag: str | None
+    kubernetes_config: dict | None
 
 
 # A vehicle's opaque handle (``H``) and ``wait`` payload (``P``) are
