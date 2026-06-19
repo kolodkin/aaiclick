@@ -65,6 +65,14 @@ jobs:
         ports:
           - 5000:5000
 
+      # pypiserver with auth disabled (-a . -P .). GitHub service containers
+      # DO honour a custom `command:` (verified in CI), so no separate step.
+      pypiserver:
+        image: pypiserver/pypiserver:v2.3.2
+        command: run -p 8080 -a . -P . --server gunicorn
+        ports:
+          - 8080:8080
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -87,25 +95,6 @@ jobs:
 
       # The pypiserver image's default entrypoint runs ``pypi-server`` with
       # no ``-a`` / ``-P`` flags, so uploads require auth against an empty
-      # password file and return 401. GitHub Actions service containers
-      # cannot override CMD, so we start pypiserver as a step with the auth
-      # disabled explicitly (``-a . -P .``).
-      - name: Start pypiserver
-        run: |
-          docker run -d --name pypiserver -p 8080:8080 \
-            pypiserver/pypiserver:v2.3.2 \
-            run -p 8080 -a . -P . --server gunicorn
-          for i in $(seq 1 30); do
-            if curl -fsS http://localhost:8080/ -o /dev/null; then
-              echo "pypiserver is ready"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "pypiserver failed to become ready" >&2
-          docker logs pypiserver >&2
-          exit 1
-
       # The docker-runner build clones the job's git remote host-side (on the
       # runner, not in a container), so a plain loopback ``git daemon`` is
       # enough — no service container, no auth, no host-gateway. It serves a
@@ -196,7 +185,7 @@ jobs:
           VIRTUAL_ENV: ${{ github.workspace }}/.venv
           AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@host.docker.internal:5432/aaiclick"
           AAICLICK_CH_URL: "clickhouse://default:click123@host.docker.internal:8123/default"
-          AAICLICK_DOCKER_REGISTRY: "host.docker.internal:5000"
+          AAICLICK_REGISTRY: "host.docker.internal:5000"
           AAICLICK_PIP_INDEX_URL: "http://host.docker.internal:8080/simple/"
           # pip refuses to use a plain-HTTP index without --trusted-host;
           # forward the host so the build sees our test pypi.

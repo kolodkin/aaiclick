@@ -7,7 +7,7 @@ docker daemon and produce the image the rest of the job needs.
 
 Cache hierarchy (first hit short-circuits):
 
-1. ``AAICLICK_DOCKER_REGISTRY`` set + ``docker pull`` succeeds — image is
+1. ``AAICLICK_REGISTRY`` set + ``docker pull`` succeeds — image is
    now in the local daemon.
 2. ``docker image inspect <tag>`` succeeds — local cache hit.
 3. Fall through: ``git clone`` at SHA, ``docker build``, then
@@ -16,13 +16,10 @@ Cache hierarchy (first hit short-circuits):
 
 from __future__ import annotations
 
-import asyncio
 import importlib.metadata
 import os
-import sys
 import tempfile
 from pathlib import Path
-from typing import TextIO
 
 from sqlmodel import select
 
@@ -30,54 +27,11 @@ from ..decorators import task
 from ..docker_config import add_host_flags
 from ..models import Job
 from ..orch_context import get_sql_session
+from . import cli
 
 
 def _docker_bin() -> str:
     return os.environ.get("AAICLICK_DOCKER_BIN", "docker")
-
-
-async def _stream_to_stdio(reader: asyncio.StreamReader, sink: TextIO) -> bytes:
-    """Forward each line from ``reader`` to ``sink`` as it arrives, while
-    accumulating the full contents to return at the end. Used so a
-    long-running ``docker build`` shows progress in the task log live
-    instead of being buffered until the build completes."""
-    chunks: list[bytes] = []
-    while True:
-        line = await reader.readline()
-        if not line:
-            break
-        chunks.append(line)
-        sink.write(line.decode(errors="replace"))
-        sink.flush()
-    return b"".join(chunks)
-
-
-async def _run_subprocess(
-    *cmd: str,
-    cwd: str | None = None,
-    check: bool = True,
-) -> tuple[int, str, str]:
-    """Run a subprocess, streaming stdout/stderr to the calling process's
-    stdio line-by-line (so the worker's ``capture_task_output`` picks
-    them up live). Also returns the full captured output so callers can
-    inspect it after the process exits."""
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        cwd=cwd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    assert proc.stdout is not None and proc.stderr is not None
-    stdout_b, stderr_b = await asyncio.gather(
-        _stream_to_stdio(proc.stdout, sys.stdout),
-        _stream_to_stdio(proc.stderr, sys.stderr),
-    )
-    await proc.wait()
-    stdout = stdout_b.decode(errors="replace")
-    stderr = stderr_b.decode(errors="replace")
-    if check and proc.returncode != 0:
-        raise RuntimeError(f"command {' '.join(cmd)!r} failed with exit code {proc.returncode}")
-    return proc.returncode or 0, stdout, stderr
 
 
 async def _fetch_job(job_id: int) -> Job:
@@ -90,28 +44,28 @@ async def _fetch_job(job_id: int) -> Job:
 
 
 async def _docker_image_exists_locally(image_tag: str) -> bool:
-    rc, _, _ = await _run_subprocess(_docker_bin(), "image", "inspect", image_tag, check=False)
+    rc, _, _ = await cli.run(_docker_bin(), "image", "inspect", image_tag, check=False)
     return rc == 0
 
 
 async def _docker_pull(image_tag: str) -> bool:
     """Returns True on cache hit, False if the registry doesn't have it."""
-    rc, _, _ = await _run_subprocess(_docker_bin(), "pull", image_tag, check=False)
+    rc, _, _ = await cli.run(_docker_bin(), "pull", image_tag, check=False)
     return rc == 0
 
 
 async def _docker_push(image_tag: str) -> None:
-    await _run_subprocess(_docker_bin(), "push", image_tag)
+    await cli.run(_docker_bin(), "push", image_tag)
 
 
 async def _git_clone_at_sha(remote: str, sha: str, workdir: str) -> None:
     """Clone the SHA into ``workdir``. Uses ``git init`` + ``fetch`` + ``checkout``
     so we avoid pulling the full default branch when only one commit is needed,
     and so the remote can be a non-default-branch SHA."""
-    await _run_subprocess("git", "init", "--quiet", workdir)
-    await _run_subprocess("git", "-C", workdir, "remote", "add", "origin", remote)
-    await _run_subprocess("git", "-C", workdir, "fetch", "--depth=1", "--quiet", "origin", sha)
-    await _run_subprocess("git", "-C", workdir, "checkout", "--quiet", sha)
+    await cli.run("git", "init", "--quiet", workdir)
+    await cli.run("git", "-C", workdir, "remote", "add", "origin", remote)
+    await cli.run("git", "-C", workdir, "fetch", "--depth=1", "--quiet", "origin", sha)
+    await cli.run("git", "-C", workdir, "checkout", "--quiet", sha)
 
 
 def _aaiclick_version() -> str:
@@ -156,7 +110,7 @@ async def _docker_build(context: str, dockerfile: str, image_tag: str, build_arg
         *add_host_flags("AAICLICK_DOCKER_BUILD_ADD_HOST"),
         context,
     ]
-    await _run_subprocess(*cmd)
+    await cli.run(*cmd)
 
 
 @task(name="docker_build", max_retries=2)
@@ -174,7 +128,7 @@ async def build_image(job_id: int) -> None:
     return success — and host B would never be able to pull it."""
     job = await _fetch_job(job_id)
 
-    registry = os.environ.get("AAICLICK_DOCKER_REGISTRY")
+    registry = os.environ.get("AAICLICK_REGISTRY")
 
     if registry and await _docker_pull(job.image_tag):
         return

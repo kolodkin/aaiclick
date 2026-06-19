@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import multiprocessing
-import os
 import queue
 from typing import Any, NamedTuple
 
@@ -22,7 +21,15 @@ from sqlmodel import select
 from ..models import Task
 from ..orch_context import get_sql_session
 from .runner import execute_task, register_returned_tasks, serialize_task_result
-from .worker import HEARTBEAT_INTERVAL, _worker_loop, worker_heartbeat
+from .worker import (
+    POLL_INTERVAL,
+    RunnerResult,
+    TaskVehicle,
+    _worker_loop,
+    drive_vehicle,
+    parse_task_timeout,
+    worker_heartbeat,
+)
 
 # How often the parent checks whether the child process has finished.
 # Smaller than POLL_INTERVAL because this polls a local queue, not a database.
@@ -98,44 +105,71 @@ async def _child_run_task(
 # ---------------------------------------------------------------------------
 
 
+class _ChildHandle(NamedTuple):
+    """The spawned child + its result queue."""
+
+    proc: Any
+    result_queue: multiprocessing.Queue
+
+
+class _MpVehicle(TaskVehicle["_ChildHandle", "_ProcessResult"]):
+    """``TaskVehicle`` for the multiprocessing runner.
+
+    ``poll_cancelled`` returns False today — the subprocess runner has
+    never had in-flight cancellation; timeout (inside ``wait``) is its only
+    kill path. Pointing this at ``check_run_aborted`` is the free win the
+    driver unlocks."""
+
+    async def launch(self, task: Task, worker_id: int) -> _ChildHandle:
+        result_queue = _mp_ctx.Queue()
+        proc = _mp_ctx.Process(
+            target=_child_process_target,
+            args=(task.id, task.job_id, result_queue),
+            daemon=True,
+        )
+        proc.start()
+        return _ChildHandle(proc, result_queue)
+
+    async def wait(self, handle: _ChildHandle, timeout: float | None) -> tuple[int, str | None, _ProcessResult]:
+        result = await _poll_child(handle.proc, handle.result_queue, timeout)
+        return (0 if result.success else -1), (None if result.success else result.error), result
+
+    async def poll_cancelled(self, task: Task) -> bool:
+        return False
+
+    async def terminate(self, handle: _ChildHandle) -> None:
+        handle.proc.kill()
+
+    def collect(
+        self, handle: _ChildHandle, exit_code: int, error: str | None, was_cancelled: bool, payload: _ProcessResult
+    ) -> RunnerResult:
+        return RunnerResult(payload.success, payload.result_ref, payload.log_path, payload.error)
+
+    async def cleanup(self, handle: _ChildHandle) -> None:
+        pass
+
+
 async def _run_task_in_child(
     task: Task,
     worker_id: int,
 ) -> tuple[bool, dict | None, str | None, str | None]:
     """ExecuteFn for the multiprocessing worker.
 
-    Spawns a child process, sends heartbeats from the parent while
-    waiting, and enforces AAICLICK_TASK_TIMEOUT if set.
+    Hands an ``_MpVehicle`` to the shared ``drive_vehicle`` driver, which
+    spawns the child, heartbeats while it runs, and enforces
+    AAICLICK_TASK_TIMEOUT (inside the vehicle's ``wait``).
     """
-    raw_timeout = os.environ.get("AAICLICK_TASK_TIMEOUT")
-    timeout = float(raw_timeout) if raw_timeout is not None else None
+    timeout = parse_task_timeout()
 
-    result_queue = _mp_ctx.Queue()
-    proc = _mp_ctx.Process(
-        target=_child_process_target,
-        args=(task.id, task.job_id, result_queue),
-        daemon=True,
+    result = await drive_vehicle(
+        task,
+        worker_id,
+        _MpVehicle(),
+        timeout=timeout,
+        poll_interval=POLL_INTERVAL,
+        heartbeat_fn=worker_heartbeat,
     )
-    proc.start()
-
-    done = asyncio.Event()
-    heartbeat = asyncio.create_task(_heartbeat_while_waiting(worker_id, done))
-
-    try:
-        return await _poll_child(proc, result_queue, timeout)
-    finally:
-        done.set()
-        await heartbeat
-
-
-async def _heartbeat_while_waiting(worker_id: int, done: asyncio.Event) -> None:
-    """Send heartbeats in the parent while the child process is running."""
-    while not done.is_set():
-        try:
-            await asyncio.wait_for(done.wait(), timeout=HEARTBEAT_INTERVAL)
-            return
-        except asyncio.TimeoutError:
-            await worker_heartbeat(worker_id)
+    return result.success, result.result_ref, result.log_path, result.error
 
 
 async def _poll_child(
@@ -201,10 +235,10 @@ async def mp_worker_main_loop(
     When a task exceeds the timeout the child process is killed and the
     task is marked as failed.
 
-    Per-task runner dispatch: tasks belonging to a docker-mode job route
-    through the Docker runner; subprocess-mode tasks (and the auto-
-    injected build task on every docker job) route through the
-    multiprocessing child runner. See ``docker_worker.dispatch_execute``.
+    Per-task runner dispatch: tasks belonging to a docker- or kubernetes-mode
+    job route through that runner; subprocess-mode tasks (and the auto-injected
+    build task on every docker/kubernetes job) route through the multiprocessing
+    child runner. See ``dispatch.dispatch_execute``.
 
     Args:
         worker_id: Worker ID (registers new worker if None).
@@ -215,7 +249,8 @@ async def mp_worker_main_loop(
     Returns:
         Number of tasks successfully executed.
     """
-    from .docker_worker import dispatch_execute
+    # Delayed import: dispatch imports this module at top level.
+    from .dispatch import dispatch_execute
 
     return await _worker_loop(
         execute_fn=dispatch_execute,

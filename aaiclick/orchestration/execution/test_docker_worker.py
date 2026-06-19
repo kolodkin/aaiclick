@@ -7,9 +7,9 @@ import json
 from pathlib import Path
 from unittest.mock import AsyncMock
 
-from ..docker_config import BUILD_TASK_ENTRYPOINT
-from ..models import RUNNER_DOCKER, RUNNER_SUBPROCESS, Task
+from ..models import RUNNER_DOCKER, Task
 from . import docker_worker
+from .worker import JobDispatch
 
 
 def _task(entrypoint="user.module.entry", task_id=42, job_id=1) -> Task:
@@ -19,34 +19,6 @@ def _task(entrypoint="user.module.entry", task_id=42, job_id=1) -> Task:
         entrypoint=entrypoint,
         name="test",
     )
-
-
-def test_build_container_env_includes_always_passed(monkeypatch):
-    monkeypatch.setenv("AAICLICK_SQL_URL", "postgresql+asyncpg://pg/x")
-    monkeypatch.setenv("AAICLICK_CH_URL", "clickhouse://ch/x")
-    monkeypatch.setenv("AAICLICK_TASK_TIMEOUT", "60")
-    monkeypatch.delenv("AAICLICK_DEFAULT_PRESERVATION_MODE", raising=False)
-    monkeypatch.delenv("AAICLICK_DOCKER_PASSTHROUGH_ENV", raising=False)
-
-    env = docker_worker._build_container_env()
-    assert env["AAICLICK_SQL_URL"] == "postgresql+asyncpg://pg/x"
-    assert env["AAICLICK_CH_URL"] == "clickhouse://ch/x"
-    assert env["AAICLICK_TASK_TIMEOUT"] == "60"
-    assert "AAICLICK_DEFAULT_PRESERVATION_MODE" not in env
-
-
-def test_build_container_env_passthrough(monkeypatch):
-    monkeypatch.setenv("AAICLICK_SQL_URL", "u")
-    monkeypatch.setenv("AAICLICK_CH_URL", "u")
-    monkeypatch.setenv("AAICLICK_DOCKER_PASSTHROUGH_ENV", "FOO,BAR,UNSET")
-    monkeypatch.setenv("FOO", "1")
-    monkeypatch.setenv("BAR", "2")
-    monkeypatch.delenv("UNSET", raising=False)
-
-    env = docker_worker._build_container_env()
-    assert env["FOO"] == "1"
-    assert env["BAR"] == "2"
-    assert "UNSET" not in env
 
 
 def test_build_docker_run_cmd_shape():
@@ -130,71 +102,6 @@ def test_read_result_propagates_timeout_error(tmp_path):
     assert "timed out" in (result.error or "")
 
 
-async def test_resolve_runner_build_task_always_subprocess():
-    """The auto-injected build task entrypoint is hardcoded to subprocess
-    even when its job is in docker mode."""
-    build_task = _task(entrypoint=BUILD_TASK_ENTRYPOINT, task_id=99)
-    assert await docker_worker._resolve_runner(build_task) == RUNNER_SUBPROCESS
-
-
-async def test_resolve_runner_reads_job_runner_mode(monkeypatch):
-    """User tasks inherit the job's runner_mode."""
-    user_task = _task(task_id=100, job_id=200)
-
-    class _FakeJob:
-        runner_mode = RUNNER_DOCKER
-
-    class _FakeResult:
-        def scalar_one_or_none(self):
-            return _FakeJob()
-
-    class _FakeSession:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *a):
-            return None
-
-        async def execute(self, *a, **k):
-            return _FakeResult()
-
-    monkeypatch.setattr(docker_worker, "get_sql_session", lambda: _FakeSession())
-    assert await docker_worker._resolve_runner(user_task) == RUNNER_DOCKER
-
-
-async def test_dispatch_execute_routes_docker_to_container_runner(monkeypatch):
-    user_task = _task()
-
-    monkeypatch.setattr(
-        docker_worker,
-        "_resolve_runner",
-        AsyncMock(return_value=RUNNER_DOCKER),
-    )
-    in_container = AsyncMock(return_value=(True, None, None, None))
-    monkeypatch.setattr(docker_worker, "_run_task_in_container", in_container)
-
-    await docker_worker.dispatch_execute(user_task, worker_id=1)
-    in_container.assert_awaited_once_with(user_task, 1)
-
-
-async def test_dispatch_execute_routes_subprocess_to_mp_child(monkeypatch):
-    user_task = _task()
-
-    monkeypatch.setattr(
-        docker_worker,
-        "_resolve_runner",
-        AsyncMock(return_value=RUNNER_SUBPROCESS),
-    )
-
-    in_child = AsyncMock(return_value=(True, None, None, None))
-    from . import mp_worker
-
-    monkeypatch.setattr(mp_worker, "_run_task_in_child", in_child)
-
-    await docker_worker.dispatch_execute(user_task, worker_id=2)
-    in_child.assert_awaited_once_with(user_task, 2)
-
-
 async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypatch, tmp_path):
     """When the cancel watcher fires while the container is running, the
     ``cancelled`` Event must reach the host parent and override whatever
@@ -204,7 +111,6 @@ async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypa
     ``cancel_watcher`` task state directly: the watcher could still be
     sleeping in ``asyncio.wait_for`` when ``done`` got set externally,
     causing the host to miss the cancellation."""
-    monkeypatch.setattr(docker_worker, "_fetch_image_tag", AsyncMock(return_value="aaiclick-job:abc"))
     monkeypatch.setattr(docker_worker, "_docker_pull_if_registered", AsyncMock(return_value=None))
 
     cancelled_seen = []
@@ -237,6 +143,7 @@ async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypa
     # Speed up the poll interval so the watcher actually fires within the test.
     monkeypatch.setattr(docker_worker, "POLL_INTERVAL", 0.05)
 
-    success, _, _, error = await docker_worker._run_task_in_container(_task(), worker_id=1)
+    dispatch = JobDispatch(RUNNER_DOCKER, "aaiclick-job:abc", None)
+    success, _, _, error = await docker_worker._run_task_in_container(_task(), worker_id=1, dispatch=dispatch)
     assert success is False
     assert error == "cancelled"

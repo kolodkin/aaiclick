@@ -34,13 +34,23 @@ from typing import NamedTuple
 
 from sqlmodel import select
 
-from ..docker_config import BUILD_TASK_ENTRYPOINT, add_host_flags
+from ..docker_config import add_host_flags
 from ..logging import get_logs_dir
-from ..models import RUNNER_DOCKER, RUNNER_SUBPROCESS, Job, RunnerMode, Task
+from ..models import Task
 from ..orch_context import get_sql_session
+from . import cli
 from .claiming import check_task_cancelled
 from .runner import execute_task, register_returned_tasks, serialize_task_result
-from .worker import HEARTBEAT_INTERVAL, POLL_INTERVAL, worker_heartbeat
+from .runner_env import build_runner_env
+from .worker import (
+    POLL_INTERVAL,
+    JobDispatch,
+    RunnerResult,
+    TaskVehicle,
+    drive_vehicle,
+    parse_task_timeout,
+    worker_heartbeat,
+)
 
 CONTAINER_IPC_DIR = "/aaiclick-ipc"
 CONTAINER_RESULT_FILE = "result.json"
@@ -49,19 +59,6 @@ CONTAINER_RESULT_FILE = "result.json"
 # SIGKILL'd; this is a safety bound so a stuck daemon doesn't wedge the
 # worker.
 DOCKER_KILL_REAP_TIMEOUT = 10.0
-
-ALWAYS_PASSED_ENV_VARS = (
-    "AAICLICK_SQL_URL",
-    "AAICLICK_CH_URL",
-    "AAICLICK_TASK_TIMEOUT",
-    "AAICLICK_DEFAULT_PRESERVATION_MODE",
-)
-"""Env vars always copied into the container without opt-in.
-
-The container can't function without SQL and CH URLs; the timeout var
-must propagate so child container tasks honor the same wall-clock cap;
-the preservation-mode default must propagate so subjobs the user spawns
-inherit the same setting."""
 
 
 class _ContainerResult(NamedTuple):
@@ -78,25 +75,6 @@ def _docker_bin() -> str:
 # ---------------------------------------------------------------------------
 # Host-side
 # ---------------------------------------------------------------------------
-
-
-def _build_container_env() -> dict[str, str]:
-    """Collect env vars to forward into the container.
-
-    Always-passed vars + comma-separated extras from
-    ``AAICLICK_DOCKER_PASSTHROUGH_ENV``."""
-    env: dict[str, str] = {}
-    for key in ALWAYS_PASSED_ENV_VARS:
-        value = os.environ.get(key)
-        if value is not None:
-            env[key] = value
-
-    extras = os.environ.get("AAICLICK_DOCKER_PASSTHROUGH_ENV", "")
-    for raw in extras.split(","):
-        key = raw.strip()
-        if key and key in os.environ:
-            env[key] = os.environ[key]
-    return env
 
 
 def _build_docker_run_cmd(
@@ -149,30 +127,15 @@ def _build_docker_run_cmd(
     return cmd
 
 
-async def _run_subprocess_capture(*cmd: str, check: bool = True) -> tuple[int, str, str]:
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout_b, stderr_b = await proc.communicate()
-    stdout = stdout_b.decode(errors="replace")
-    stderr = stderr_b.decode(errors="replace")
-    rc = proc.returncode or 0
-    if check and rc != 0:
-        raise RuntimeError(f"command {' '.join(cmd)!r} failed with exit code {rc}: {stderr}")
-    return rc, stdout, stderr
-
-
 async def _docker_pull_if_registered(image_tag: str) -> None:
-    if not os.environ.get("AAICLICK_DOCKER_REGISTRY"):
+    if not os.environ.get("AAICLICK_REGISTRY"):
         return
-    await _run_subprocess_capture(_docker_bin(), "pull", image_tag, check=False)
+    await cli.run(_docker_bin(), "pull", image_tag, check=False, stream=False)
 
 
 async def _docker_run_detached(cmd: list[str]) -> str:
     """Run ``docker run --detach``; returns the container id."""
-    rc, stdout, stderr = await _run_subprocess_capture(*cmd, check=False)
+    rc, stdout, stderr = await cli.run(*cmd, check=False, stream=False)
     if rc != 0:
         raise RuntimeError(f"docker run failed (exit {rc}): {stderr.strip() or stdout.strip()}")
     container_id = stdout.strip().splitlines()[-1]
@@ -182,14 +145,14 @@ async def _docker_run_detached(cmd: list[str]) -> str:
 
 
 async def _docker_kill(container_id: str) -> None:
-    await _run_subprocess_capture(_docker_bin(), "kill", container_id, check=False)
+    await cli.run(_docker_bin(), "kill", container_id, check=False, stream=False)
 
 
 async def _docker_rm(container_id: str) -> None:
     """Remove the (already-stopped) container. Replaces the ``--rm`` flag
     on ``docker run``; we do it explicitly so the container survives long
     enough for ``docker wait`` to read its exit code without a race."""
-    await _run_subprocess_capture(_docker_bin(), "rm", "--force", container_id, check=False)
+    await cli.run(_docker_bin(), "rm", "--force", container_id, check=False, stream=False)
 
 
 async def _wait_for_container(container_id: str, timeout: float | None) -> tuple[int, str | None]:
@@ -236,40 +199,6 @@ async def _wait_for_container(container_id: str, timeout: float | None) -> tuple
     return exit_code, None
 
 
-async def _heartbeat_while_waiting(worker_id: int, done: asyncio.Event) -> None:
-    while not done.is_set():
-        try:
-            await asyncio.wait_for(done.wait(), timeout=HEARTBEAT_INTERVAL)
-            return
-        except asyncio.TimeoutError:
-            await worker_heartbeat(worker_id)
-
-
-async def _watch_for_cancellation(
-    task_id: int,
-    container_id: str,
-    done: asyncio.Event,
-    cancelled: asyncio.Event,
-) -> None:
-    """Poll for task-cancellation; ``docker kill`` the container on hit.
-
-    Sets ``cancelled`` so the host parent can distinguish a true
-    cancellation from a generic non-zero exit after ``gather()``
-    finishes. Reading the awaitable's return value isn't reliable —
-    the watcher may still be sleeping in ``asyncio.wait_for`` when the
-    container finishes on its own and ``done`` gets set externally."""
-    while not done.is_set():
-        try:
-            await asyncio.wait_for(done.wait(), timeout=POLL_INTERVAL)
-            return
-        except asyncio.TimeoutError:
-            pass
-        if await check_task_cancelled(task_id):
-            cancelled.set()
-            await _docker_kill(container_id)
-            return
-
-
 def _read_result_or_synthesize_failure(
     ipc_dir: str, exit_code: int, error: str | None, was_cancelled: bool
 ) -> _ContainerResult:
@@ -302,84 +231,87 @@ def _read_result_or_synthesize_failure(
     )
 
 
-async def _fetch_image_tag(job_id: int) -> str:
-    async with get_sql_session() as session:
-        result = await session.execute(select(Job).where(Job.id == job_id))
-        job = result.scalar_one_or_none()
-        if job is None or not job.image_tag:
-            raise ValueError(f"Job {job_id} has no image_tag — was it submitted in docker mode?")
-        return job.image_tag
+def _require_image_tag(task: Task, image_tag: str | None) -> str:
+    if not image_tag:
+        raise ValueError(f"Job {task.job_id} has no image_tag — was it submitted in docker mode?")
+    return image_tag
 
 
-async def _resolve_runner(task: Task) -> RunnerMode:
-    """Pick the runner for a task.
-
-    The auto-injected build task always runs on the host (subprocess)
-    runner — it produces the image the rest of the job's container
-    tasks need. Every other task inherits the job's ``runner_mode``."""
-    if task.entrypoint == BUILD_TASK_ENTRYPOINT:
-        return RUNNER_SUBPROCESS
-
-    async with get_sql_session() as session:
-        result = await session.execute(select(Job).where(Job.id == task.job_id))
-        job = result.scalar_one_or_none()
-    return job.runner_mode if job is not None else RUNNER_SUBPROCESS
+class _DockerHandle(NamedTuple):
+    container_id: str
+    ipc_dir: str
 
 
-async def _run_task_in_container(task: Task, worker_id: int) -> tuple[bool, dict | None, str | None, str | None]:
+class _DockerVehicle(TaskVehicle["_DockerHandle", None]):
+    """``TaskVehicle`` for the Docker runner.
+
+    The IPC tmpdir is created by ``_run_task_in_container`` (its lifetime
+    is the ``TemporaryDirectory`` context) and handed in; ``launch`` only
+    spawns the container into it."""
+
+    def __init__(self, image_tag: str, log_base: str, env: dict[str, str], ipc_dir: str) -> None:
+        self._image_tag = image_tag
+        self._log_base = log_base
+        self._env = env
+        self._ipc_dir = ipc_dir
+
+    async def launch(self, task: Task, worker_id: int) -> _DockerHandle:
+        cmd = _build_docker_run_cmd(self._image_tag, task.id, self._ipc_dir, self._log_base, self._env)
+        container_id = await _docker_run_detached(cmd)
+        return _DockerHandle(container_id, self._ipc_dir)
+
+    async def wait(self, handle: _DockerHandle, timeout: float | None) -> tuple[int, str | None, None]:
+        exit_code, error = await _wait_for_container(handle.container_id, timeout)
+        return exit_code, error, None
+
+    async def poll_cancelled(self, task: Task) -> bool:
+        return await check_task_cancelled(task.id)
+
+    async def terminate(self, handle: _DockerHandle) -> None:
+        await _docker_kill(handle.container_id)
+
+    def collect(
+        self, handle: _DockerHandle, exit_code: int, error: str | None, was_cancelled: bool, payload: None
+    ) -> RunnerResult:
+        # Docker reads its result from the bind-mounted IPC file, not ``payload``.
+        result = _read_result_or_synthesize_failure(handle.ipc_dir, exit_code, error, was_cancelled=was_cancelled)
+        return RunnerResult(result.success, result.result_ref, result.log_path, result.error)
+
+    async def cleanup(self, handle: _DockerHandle) -> None:
+        # We dropped --rm so we own cleanup; do this last so a panic
+        # before docker_rm doesn't leak the container's IPC tmpdir.
+        await _docker_rm(handle.container_id)
+
+
+async def _run_task_in_container(
+    task: Task, worker_id: int, dispatch: JobDispatch
+) -> tuple[bool, dict | None, str | None, str | None]:
     """ExecuteFn for the Docker runner.
 
     Pulls the image (when a registry is configured), bind-mounts an IPC
-    tmpdir + the host log base, runs the container detached, and waits
-    for it to exit. Heartbeats and cancellation poll concurrently.
-    Cancellation and timeout both terminate the container via
-    ``docker kill``."""
-    image_tag = await _fetch_image_tag(task.job_id)
+    tmpdir + the host log base, then hands a ``_DockerVehicle`` to the
+    shared ``drive_vehicle`` driver, which heartbeats and polls for
+    cancellation while the container runs. Cancellation and timeout both
+    terminate the container via ``docker kill``."""
+    image_tag = _require_image_tag(task, dispatch.image_tag)
     await _docker_pull_if_registered(image_tag)
 
-    raw_timeout = os.environ.get("AAICLICK_TASK_TIMEOUT")
-    timeout = float(raw_timeout) if raw_timeout else None
+    timeout = parse_task_timeout()
 
     log_base = get_logs_dir()
-    env = _build_container_env()
+    env = build_runner_env()
 
     with tempfile.TemporaryDirectory(prefix="aaiclick-ipc-") as ipc_dir:
-        cmd = _build_docker_run_cmd(image_tag, task.id, ipc_dir, log_base, env)
-        container_id = await _docker_run_detached(cmd)
-
-        done = asyncio.Event()
-        cancelled = asyncio.Event()
-        heartbeat = asyncio.create_task(_heartbeat_while_waiting(worker_id, done))
-        cancel_watcher = asyncio.create_task(_watch_for_cancellation(task.id, container_id, done, cancelled))
-
-        try:
-            exit_code, error = await _wait_for_container(container_id, timeout)
-            done.set()
-            await asyncio.gather(heartbeat, cancel_watcher, return_exceptions=True)
-            result = _read_result_or_synthesize_failure(ipc_dir, exit_code, error, was_cancelled=cancelled.is_set())
-            return result.success, result.result_ref, result.log_path, result.error
-        finally:
-            done.set()
-            await asyncio.gather(heartbeat, cancel_watcher, return_exceptions=True)
-            # We dropped --rm so we own cleanup; do this last so a panic
-            # before docker_rm doesn't leak the container's IPC tmpdir.
-            await _docker_rm(container_id)
-
-
-async def dispatch_execute(task: Task, worker_id: int) -> tuple[bool, dict | None, str | None, str | None]:
-    """ExecuteFn that picks the runner per task.
-
-    Plugged into ``_worker_loop`` instead of either bare ``ExecuteFn``,
-    so a single worker process can serve a mixed Docker job (one
-    host-side build task + N container tasks) without runner affinity
-    rules."""
-    if await _resolve_runner(task) == RUNNER_DOCKER:
-        return await _run_task_in_container(task, worker_id)
-    # Imported here to avoid a circular import at module load time —
-    # mp_worker pulls in docker_worker via dispatch_execute.
-    from .mp_worker import _run_task_in_child
-
-    return await _run_task_in_child(task, worker_id)
+        vehicle = _DockerVehicle(image_tag, log_base, env, ipc_dir)
+        result = await drive_vehicle(
+            task,
+            worker_id,
+            vehicle,
+            timeout=timeout,
+            poll_interval=POLL_INTERVAL,
+            heartbeat_fn=worker_heartbeat,
+        )
+        return result.success, result.result_ref, result.log_path, result.error
 
 
 # ---------------------------------------------------------------------------

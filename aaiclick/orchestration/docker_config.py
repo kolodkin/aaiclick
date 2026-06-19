@@ -7,11 +7,11 @@ houses small primitives used by the build task and host runner.
 
 from __future__ import annotations
 
-import asyncio
 import os
 import re
 from typing import NamedTuple
 
+from .execution import cli
 from .models import RegisteredJob
 
 BUILD_TASK_ENTRYPOINT = "aaiclick.orchestration.execution.docker_build.build_image"
@@ -41,16 +41,10 @@ class GitDetectionError(RuntimeError):
 
 
 async def _git(*args: str) -> str:
-    proc = await asyncio.create_subprocess_exec(
-        "git",
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await proc.communicate()
-    if proc.returncode != 0:
-        raise GitDetectionError(f"git {' '.join(args)} failed (exit {proc.returncode}): {stderr.decode().strip()}")
-    return stdout.decode().strip()
+    rc, stdout, stderr = await cli.run("git", *args, check=False, stream=False)
+    if rc != 0:
+        raise GitDetectionError(f"git {' '.join(args)} failed (exit {rc}): {stderr.strip()}")
+    return stdout.strip()
 
 
 async def auto_detect_git_remote() -> str:
@@ -91,7 +85,7 @@ async def auto_detect_git_branch() -> str | None:
 
 def compute_image_tag(git_sha: str) -> str:
     """``[<registry>/]aaiclick-job:<sha>``."""
-    registry = os.environ.get("AAICLICK_DOCKER_REGISTRY")
+    registry = os.environ.get("AAICLICK_REGISTRY")
     prefix = f"{registry}/" if registry else ""
     return f"{prefix}aaiclick-job:{git_sha}"
 

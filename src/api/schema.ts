@@ -826,6 +826,10 @@ export interface components {
             entrypoint: string;
             /** Git Remote */
             git_remote?: string | null;
+            /** Kubernetes Config */
+            kubernetes_config?: {
+                [key: string]: unknown;
+            } | null;
             /**
              * Name
              * @default
@@ -838,7 +842,7 @@ export interface components {
              * @default subprocess
              * @enum {string}
              */
-            runner_mode: "subprocess" | "docker";
+            runner_mode: "subprocess" | "docker" | "kubernetes";
             /** Schedule */
             schedule?: string | null;
         };
@@ -889,14 +893,20 @@ export interface components {
             git_remote?: string | null;
             /** Git Sha */
             git_sha?: string | null;
+            /** Image Pull Secret */
+            image_pull_secret?: string | null;
             /** Kwargs */
             kwargs?: {
                 [key: string]: unknown;
             };
             /** Name */
             name: string;
+            /** Namespace */
+            namespace?: string | null;
             /** Preservation Mode */
             preservation_mode?: ("NONE" | "FULL") | null;
+            /** Service Account */
+            service_account?: string | null;
         };
         /**
          * Schema

@@ -41,6 +41,7 @@ from aaiclick.data.data_context import data_context
 from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import users as users_api
 from aaiclick.internal_api.errors import InternalApiError
+from aaiclick.orchestration.kubernetes_config import build_kubernetes_config
 from aaiclick.orchestration.models import JobStatus, PreservationMode, RunnerMode, WorkerStatus
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.view_models import (
@@ -143,6 +144,9 @@ async def _run_run_job(args: argparse.Namespace) -> None:
         git_sha=args.git_sha,
         git_branch=args.git_branch,
         dockerfile=args.dockerfile,
+        namespace=args.namespace,
+        service_account=args.k8s_service_account,
+        image_pull_secret=args.k8s_image_pull_secret,
     )
     view = await _run_internal_api(internal_api.run_job(request))
     _render(args, view, cli_renderers.render_job_created)
@@ -150,6 +154,11 @@ async def _run_run_job(args: argparse.Namespace) -> None:
 
 async def _run_register_job(args: argparse.Namespace) -> None:
     default_kwargs: dict | None = json.loads(args.kwargs) if args.kwargs else None
+    kubernetes_config = build_kubernetes_config(
+        namespace=args.namespace,
+        service_account=args.k8s_service_account,
+        image_pull_secret=args.k8s_image_pull_secret,
+    )
     request = RegisterJobRequest(
         name=args.name or "",
         entrypoint=args.entrypoint,
@@ -159,6 +168,7 @@ async def _run_register_job(args: argparse.Namespace) -> None:
         runner_mode=args.runner,
         dockerfile=args.dockerfile,
         git_remote=args.git_remote,
+        kubernetes_config=kubernetes_config,
     )
     view = await _run_internal_api(internal_api.register_job(request))
     _render(args, view, cli_renderers.render_registered_job)
@@ -592,6 +602,21 @@ def main():
         default=None,
         help="Default git remote URL (docker runner only); auto-detected if omitted",
     )
+    register_job_parser.add_argument(
+        "--namespace",
+        default=None,
+        help="Kubernetes namespace (kubernetes runner only); falls back to $AAICLICK_K8S_NAMESPACE, then 'default'",
+    )
+    register_job_parser.add_argument(
+        "--k8s-service-account",
+        default=None,
+        help="Kubernetes service account name (kubernetes runner only); falls back to $AAICLICK_K8S_SERVICE_ACCOUNT",
+    )
+    register_job_parser.add_argument(
+        "--k8s-image-pull-secret",
+        default=None,
+        help="Kubernetes imagePullSecret name (kubernetes runner only); falls back to $AAICLICK_K8S_IMAGE_PULL_SECRET",
+    )
     _add_json_flag(register_job_parser)
 
     # Add run-job subcommand
@@ -626,6 +651,21 @@ def main():
         "--dockerfile",
         default=None,
         help="Override the registered job's dockerfile path (docker runner only)",
+    )
+    run_job_parser.add_argument(
+        "--namespace",
+        default=None,
+        help="Override the kubernetes namespace for this run (kubernetes runner only)",
+    )
+    run_job_parser.add_argument(
+        "--k8s-service-account",
+        default=None,
+        help="Override the kubernetes service account for this run (kubernetes runner only)",
+    )
+    run_job_parser.add_argument(
+        "--k8s-image-pull-secret",
+        default=None,
+        help="Override the kubernetes imagePullSecret for this run (kubernetes runner only)",
     )
     _add_json_flag(run_job_parser)
 

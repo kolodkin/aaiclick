@@ -71,6 +71,12 @@ class RunJobRequest(BaseModel):
     git_sha: str | None = None
     git_branch: str | None = None
     dockerfile: str | None = None
+    # Per-run kubernetes overrides; ignored unless the registered job is in
+    # kubernetes mode. Each field falls through to the RegisteredJob default,
+    # then the AAICLICK_K8S_* env layer.
+    namespace: str | None = None
+    service_account: str | None = None
+    image_pull_secret: str | None = None
 
 
 class RegisterJobRequest(BaseModel):
@@ -91,6 +97,8 @@ class RegisterJobRequest(BaseModel):
     runner_mode: RunnerMode = "subprocess"
     dockerfile: str | None = None
     git_remote: str | None = None
+    # Kubernetes-runner cluster defaults (namespace, service_account, ...).
+    kubernetes_config: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def _default_name_from_entrypoint(self) -> RegisterJobRequest:

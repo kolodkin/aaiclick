@@ -12,10 +12,12 @@ from ..backend import is_local
 from ..datetime_utils import utc_now
 from ..snowflake import get_snowflake_id
 from .docker_config import resolve_docker_config
-from .factories import create_docker_job, create_job, create_task
+from .factories import create_docker_job, create_job, create_kubernetes_job, create_task
+from .kubernetes_config import resolve_kubernetes_config
 from .models import (
     RUN_MANUAL,
     RUNNER_DOCKER,
+    RUNNER_KUBERNETES,
     RUNNER_SUBPROCESS,
     Job,
     PreservationMode,
@@ -64,6 +66,7 @@ async def register_job(
     runner_mode: RunnerMode = RUNNER_SUBPROCESS,
     dockerfile: str | None = None,
     git_remote: str | None = None,
+    kubernetes_config: dict[str, Any] | None = None,
 ) -> RegisteredJob:
     """Register a new job in the catalog.
 
@@ -99,6 +102,7 @@ async def register_job(
         runner_mode=runner_mode,
         dockerfile=dockerfile,
         git_remote=git_remote,
+        kubernetes_config=kubernetes_config,
         next_run_at=_next_run_at(schedule, enabled, now),
         created_at=now,
         updated_at=now,
@@ -141,6 +145,7 @@ async def upsert_registered_job(
     runner_mode: RunnerMode = RUNNER_SUBPROCESS,
     dockerfile: str | None = None,
     git_remote: str | None = None,
+    kubernetes_config: dict[str, Any] | None = None,
 ) -> RegisteredJob:
     """Insert or update a registered job.
 
@@ -177,6 +182,7 @@ async def upsert_registered_job(
             existing.runner_mode = runner_mode
             existing.dockerfile = dockerfile
             existing.git_remote = git_remote
+            existing.kubernetes_config = kubernetes_config
             existing.updated_at = now
             existing.next_run_at = _next_run_at(schedule, enabled, now)
             session.add(existing)
@@ -195,6 +201,7 @@ async def upsert_registered_job(
             runner_mode=runner_mode,
             dockerfile=dockerfile,
             git_remote=git_remote,
+            kubernetes_config=kubernetes_config,
             next_run_at=_next_run_at(schedule, enabled, now),
             created_at=now,
             updated_at=now,
@@ -292,6 +299,9 @@ async def run_job(
     git_sha: str | None = None,
     git_branch: str | None = None,
     dockerfile: str | None = None,
+    namespace: str | None = None,
+    service_account: str | None = None,
+    image_pull_secret: str | None = None,
 ) -> Job:
     """Run a job immediately, linking to a registration if one exists.
 
@@ -324,6 +334,13 @@ async def run_job(
         git_branch: Captured as build-arg metadata; ``None`` means
             auto-detect.
         dockerfile: Override the registered job's dockerfile path.
+        namespace: Override the kubernetes namespace for this run.
+        service_account: Override the kubernetes service account for this run.
+        image_pull_secret: Override the kubernetes imagePullSecret for this run.
+            The three kubernetes overrides are ignored unless the registered
+            job is in kubernetes mode; each falls through to the RegisteredJob
+            default, then the ``AAICLICK_K8S_*`` env layer (see
+            ``kubernetes_config.resolve_kubernetes_config``).
 
     Returns:
         Created Job
@@ -335,12 +352,14 @@ async def run_job(
 
     runner_mode = registered.runner_mode if registered is not None else RUNNER_SUBPROCESS
 
-    if runner_mode == RUNNER_DOCKER:
+    if runner_mode in (RUNNER_DOCKER, RUNNER_KUBERNETES):
+        # Both image-built runners share git/image resolution and require
+        # distributed mode; they diverge only in the factory + cluster config.
         if is_local():
             raise ValueError(
-                "Docker runner requires distributed mode (Postgres + ClickHouse); "
+                f"{runner_mode} runner requires distributed mode (Postgres + ClickHouse); "
                 "got chdb + SQLite. Set AAICLICK_SQL_URL and AAICLICK_CH_URL to "
-                "remote services before submitting docker-runner jobs."
+                "remote services before submitting these jobs."
             )
         docker_config = await resolve_docker_config(
             registered,
@@ -349,16 +368,25 @@ async def run_job(
             git_branch=git_branch,
             dockerfile=dockerfile,
         )
-        return await create_docker_job(
-            name=name,
-            entrypoint=entrypoint,
-            kwargs=merged_kwargs,
-            run_type=run_type,
-            registered_job_id=registered.id if registered is not None else None,
-            preservation_mode=preservation_mode,
-            registered=registered,
-            docker_config=docker_config,
+        common = {
+            "name": name,
+            "entrypoint": entrypoint,
+            "kwargs": merged_kwargs,
+            "run_type": run_type,
+            "registered_job_id": registered.id if registered is not None else None,
+            "preservation_mode": preservation_mode,
+            "registered": registered,
+            "docker_config": docker_config,
+        }
+        if runner_mode == RUNNER_DOCKER:
+            return await create_docker_job(**common)
+        kubernetes_config = resolve_kubernetes_config(
+            registered,
+            namespace=namespace,
+            service_account=service_account,
+            image_pull_secret=image_pull_secret,
         )
+        return await create_kubernetes_job(**common, kubernetes_config=kubernetes_config._asdict())
 
     task = create_task(entrypoint, merged_kwargs, name=name)
     return await create_job(

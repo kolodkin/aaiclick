@@ -1,0 +1,16 @@
+name: Kubernetes Runner E2E (nightly)
+
+# Validated on-branch via a temporary push trigger (a `schedule` cron only
+# fires from the default branch), then switched to nightly — mirrors
+# test-docker-nightly.yaml. The cron starts firing once this lands on `main`.
+
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    uses: ./.github/workflows/_kubernetes-e2e-reusable.yaml
+    with:
+      wheel_source: source

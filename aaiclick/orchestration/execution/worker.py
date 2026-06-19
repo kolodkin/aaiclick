@@ -8,6 +8,7 @@ import os
 import signal
 import socket
 from collections.abc import Awaitable, Callable
+from typing import Any, NamedTuple, Protocol, TypeVar
 
 from sqlalchemy import update
 from sqlmodel import col, select
@@ -24,6 +25,7 @@ from ..models import (
     WORKER_ACTIVE,
     WORKER_STOPPED,
     WORKER_STOPPING,
+    RunnerMode,
     Task,
     Worker,
     WorkerStatus,
@@ -43,6 +45,157 @@ HEARTBEAT_INTERVAL = 30
 
 # Poll interval when no tasks available
 POLL_INTERVAL = 1
+
+
+def parse_task_timeout() -> float | None:
+    """Per-task wall-clock cap from ``AAICLICK_TASK_TIMEOUT`` (seconds), or None.
+
+    Shared by every runner so the three ExecuteFns parse it identically (an
+    empty value reads as no timeout)."""
+    raw = os.environ.get("AAICLICK_TASK_TIMEOUT")
+    return float(raw) if raw else None
+
+
+class RunnerResult(NamedTuple):
+    """Outcome of running a single task on a vehicle.
+
+    Shared by every runner so the driver and ``_handle_task_result`` speak
+    one shape instead of an anonymous 4-tuple per module."""
+
+    success: bool
+    result_ref: dict | None
+    log_path: str | None
+    error: str | None
+
+
+class JobDispatch(NamedTuple):
+    """A task's runner choice plus the launch spec its runner needs.
+
+    Loaded once per task (in ``dispatch._resolve_dispatch``) so the image-based
+    runners don't re-query the ``Job`` for ``image_tag`` / ``kubernetes_config``
+    after dispatch already read the row to pick the runner."""
+
+    runner_mode: RunnerMode
+    image_tag: str | None
+    kubernetes_config: dict | None
+
+
+# A vehicle's opaque handle (``H``) and ``wait`` payload (``P``) are
+# runner-specific: the driver only shuttles them between the vehicle's own
+# methods, so they stay generic rather than ``Any``.
+H = TypeVar("H")
+P = TypeVar("P")
+
+
+class TaskVehicle(Protocol[H, P]):
+    """The varying surface between runners (subprocess / docker / k8s).
+
+    Everything generic — heartbeating, cancellation polling, terminate-on-
+    cancel, result override — lives in ``drive_vehicle``. A runner only has
+    to spawn an execution vehicle, wait for it, kill it, and read its
+    result back."""
+
+    async def launch(self, task: Task, worker_id: int) -> H:
+        """Start the vehicle; return an opaque handle the other ops use."""
+        ...
+
+    async def wait(self, handle: H, timeout: float | None) -> tuple[int, str | None, P]:
+        """Block until the vehicle exits; return ``(exit_code, error, payload)``.
+
+        ``error`` is non-None when the vehicle itself failed to run to
+        completion (timeout, crash) rather than the task failing. ``payload`` is
+        a runner-specific result object passed straight to ``collect`` (so the
+        result read happens here, in async context, not in the sync ``collect``)."""
+        ...
+
+    async def poll_cancelled(self, task: Task) -> bool:
+        """Return True if the run was aborted and the vehicle should die."""
+        ...
+
+    async def terminate(self, handle: H) -> None:
+        """Forcibly stop the vehicle (cancellation / timeout path)."""
+        ...
+
+    def collect(self, handle: H, exit_code: int, error: str | None, was_cancelled: bool, payload: P) -> RunnerResult:
+        """Translate the exited vehicle (and ``wait``'s ``payload``) into a ``RunnerResult``."""
+        ...
+
+    async def cleanup(self, handle: H) -> None:
+        """Release vehicle resources (e.g. ``docker rm``). Always runs."""
+        ...
+
+
+async def _heartbeat_while_waiting(
+    worker_id: int,
+    done: asyncio.Event,
+    interval: float,
+    heartbeat_fn: Callable[[int], Awaitable[Any]],
+) -> None:
+    """Heartbeat every ``interval`` seconds until ``done`` is set."""
+    while not done.is_set():
+        try:
+            await asyncio.wait_for(done.wait(), timeout=interval)
+            return
+        except asyncio.TimeoutError:
+            await heartbeat_fn(worker_id)
+
+
+async def _watch_for_cancellation(
+    vehicle: TaskVehicle[H, P],
+    task: Task,
+    handle: H,
+    done: asyncio.Event,
+    cancelled: asyncio.Event,
+    poll_interval: float,
+) -> None:
+    """Poll for cancellation; terminate the vehicle and set ``cancelled``.
+
+    ``cancelled`` is the source of truth the driver reads after gather —
+    reading this task's return value is racy (it may still be sleeping in
+    ``wait_for`` when ``done`` is set externally)."""
+    while not done.is_set():
+        try:
+            await asyncio.wait_for(done.wait(), timeout=poll_interval)
+            return
+        except asyncio.TimeoutError:
+            pass
+        if await vehicle.poll_cancelled(task):
+            cancelled.set()
+            await vehicle.terminate(handle)
+            return
+
+
+async def drive_vehicle(
+    task: Task,
+    worker_id: int,
+    vehicle: TaskVehicle[H, P],
+    *,
+    timeout: float | None,
+    poll_interval: float,
+    heartbeat_fn: Callable[[int], Awaitable[Any]],
+    heartbeat_interval: float = HEARTBEAT_INTERVAL,
+) -> RunnerResult:
+    """Run ``task`` on ``vehicle``, owning the generic lifecycle.
+
+    Launches the vehicle, heartbeats and polls for cancellation
+    concurrently while it runs, then reads the result back. A fired
+    cancellation overrides whatever the vehicle wrote — the host's
+    explicit kill is the source of truth."""
+    handle = await vehicle.launch(task, worker_id)
+    done = asyncio.Event()
+    cancelled = asyncio.Event()
+    heartbeat = asyncio.create_task(_heartbeat_while_waiting(worker_id, done, heartbeat_interval, heartbeat_fn))
+    cancel_watcher = asyncio.create_task(_watch_for_cancellation(vehicle, task, handle, done, cancelled, poll_interval))
+
+    try:
+        exit_code, error, payload = await vehicle.wait(handle, timeout)
+        done.set()
+        await asyncio.gather(heartbeat, cancel_watcher, return_exceptions=True)
+        return vehicle.collect(handle, exit_code, error, cancelled.is_set(), payload)
+    finally:
+        done.set()
+        await asyncio.gather(heartbeat, cancel_watcher, return_exceptions=True)
+        await vehicle.cleanup(handle)
 
 
 async def _set_pending_cleanup(task_id: int, error: str, expected_epoch: int | None = None) -> None:

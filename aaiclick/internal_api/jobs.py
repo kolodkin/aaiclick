@@ -193,5 +193,8 @@ async def run_job(request: RunJobRequest) -> JobView:
         git_sha=request.git_sha,
         git_branch=request.git_branch,
         dockerfile=request.dockerfile,
+        namespace=request.namespace,
+        service_account=request.service_account,
+        image_pull_secret=request.image_pull_secret,
     )
     return job_to_view(job)
