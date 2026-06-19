@@ -299,6 +299,9 @@ async def run_job(
     git_sha: str | None = None,
     git_branch: str | None = None,
     dockerfile: str | None = None,
+    namespace: str | None = None,
+    service_account: str | None = None,
+    image_pull_secret: str | None = None,
 ) -> Job:
     """Run a job immediately, linking to a registration if one exists.
 
@@ -331,6 +334,13 @@ async def run_job(
         git_branch: Captured as build-arg metadata; ``None`` means
             auto-detect.
         dockerfile: Override the registered job's dockerfile path.
+        namespace: Override the kubernetes namespace for this run.
+        service_account: Override the kubernetes service account for this run.
+        image_pull_secret: Override the kubernetes imagePullSecret for this run.
+            The three kubernetes overrides are ignored unless the registered
+            job is in kubernetes mode; each falls through to the RegisteredJob
+            default, then the ``AAICLICK_K8S_*`` env layer (see
+            ``kubernetes_config.resolve_kubernetes_config``).
 
     Returns:
         Created Job
@@ -370,7 +380,13 @@ async def run_job(
         }
         if runner_mode == RUNNER_DOCKER:
             return await create_docker_job(**common)
-        return await create_kubernetes_job(**common, kubernetes_config=resolve_kubernetes_config(registered)._asdict())
+        kubernetes_config = resolve_kubernetes_config(
+            registered,
+            namespace=namespace,
+            service_account=service_account,
+            image_pull_secret=image_pull_secret,
+        )
+        return await create_kubernetes_job(**common, kubernetes_config=kubernetes_config._asdict())
 
     task = create_task(entrypoint, merged_kwargs, name=name)
     return await create_job(

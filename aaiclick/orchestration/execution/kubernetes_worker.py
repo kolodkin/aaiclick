@@ -24,7 +24,7 @@ from typing import NamedTuple
 from sqlmodel import select
 
 from ..logging import get_logs_dir
-from ..models import Task, RemoteTaskResult
+from ..models import RemoteTaskResult, Task
 from ..orch_context import get_sql_session
 from . import cli
 from .claiming import check_task_cancelled
@@ -170,7 +170,9 @@ async def _read_task_run_result_row(task_id: int, run_epoch: int) -> RunnerResul
     async with get_sql_session() as session:
         row = (
             await session.execute(
-                select(RemoteTaskResult).where(RemoteTaskResult.task_id == task_id, RemoteTaskResult.run_epoch == run_epoch)
+                select(RemoteTaskResult).where(
+                    RemoteTaskResult.task_id == task_id, RemoteTaskResult.run_epoch == run_epoch
+                )
             )
         ).scalar_one_or_none()
     if row is None:
@@ -277,7 +279,9 @@ async def _write_task_run_result(
     async with get_sql_session() as session:
         existing = (
             await session.execute(
-                select(RemoteTaskResult).where(RemoteTaskResult.task_id == task_id, RemoteTaskResult.run_epoch == run_epoch)
+                select(RemoteTaskResult).where(
+                    RemoteTaskResult.task_id == task_id, RemoteTaskResult.run_epoch == run_epoch
+                )
             )
         ).scalar_one_or_none()
         if existing is None:

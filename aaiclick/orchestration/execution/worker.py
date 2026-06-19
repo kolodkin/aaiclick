@@ -116,9 +116,7 @@ class TaskVehicle(Protocol[H, P]):
         """Forcibly stop the vehicle (cancellation / timeout path)."""
         ...
 
-    def collect(
-        self, handle: H, exit_code: int, error: str | None, was_cancelled: bool, payload: P
-    ) -> RunnerResult:
+    def collect(self, handle: H, exit_code: int, error: str | None, was_cancelled: bool, payload: P) -> RunnerResult:
         """Translate the exited vehicle (and ``wait``'s ``payload``) into a ``RunnerResult``."""
         ...
 

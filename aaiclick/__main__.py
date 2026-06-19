@@ -144,6 +144,9 @@ async def _run_run_job(args: argparse.Namespace) -> None:
         git_sha=args.git_sha,
         git_branch=args.git_branch,
         dockerfile=args.dockerfile,
+        namespace=args.namespace,
+        service_account=args.k8s_service_account,
+        image_pull_secret=args.k8s_image_pull_secret,
     )
     view = await _run_internal_api(internal_api.run_job(request))
     _render(args, view, cli_renderers.render_job_created)
@@ -648,6 +651,21 @@ def main():
         "--dockerfile",
         default=None,
         help="Override the registered job's dockerfile path (docker runner only)",
+    )
+    run_job_parser.add_argument(
+        "--namespace",
+        default=None,
+        help="Override the kubernetes namespace for this run (kubernetes runner only)",
+    )
+    run_job_parser.add_argument(
+        "--k8s-service-account",
+        default=None,
+        help="Override the kubernetes service account for this run (kubernetes runner only)",
+    )
+    run_job_parser.add_argument(
+        "--k8s-image-pull-secret",
+        default=None,
+        help="Override the kubernetes imagePullSecret for this run (kubernetes runner only)",
     )
     _add_json_flag(run_job_parser)
 

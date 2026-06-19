@@ -9,8 +9,8 @@ from aaiclick.orchestration.models import (
     RUNNER_MODES,
     Job,
     RegisteredJob,
-    RunnerMode,
     RemoteTaskResult,
+    RunnerMode,
 )
 
 
