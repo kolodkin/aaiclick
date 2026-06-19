@@ -94,6 +94,37 @@ returns `available=False` when the file is missing or cross-host);
 `aaiclick/orchestration/view_models.py` — see `TaskLogsView`, `JobView`
 (`total_tasks` / `completed_tasks` populated by `list_jobs`).
 
+## API types
+
+Two files, created two different ways:
+
+- **`src/api/schema.ts`** — generated, never hand-edited. `npm run gen-types`
+  pipes the server's schema (`python -m aaiclick.server.dump_openapi`, which
+  prints `app.openapi()`) through `openapi-typescript`. It mirrors the *entire*
+  API — every path, operation, and model. Treat it like a lockfile: machine-
+  owned, not meant to be read.
+- **`src/api/types.ts`** — hand-written, ~30 lines. It holds no field
+  definitions; it re-exports the handful of models the SPA uses under ergonomic
+  names, borrowing their shapes from `schema.ts`:
+
+```ts
+import type { components } from "./schema";
+type S = components["schemas"];
+export type JobView = S["JobView"];
+export type TaskLogs = S["TaskLogsView"];   // bridge a server name diff
+```
+
+The real shapes have to live somewhere; generating them keeps `types.ts` in
+lock-step with the server (it used to be hand-typed and drifted silently).
+Generated types are erased at build time, so `schema.ts`'s size costs nothing
+in the bundle. The shim also absorbs what codegen can't express: the `TaskLogs
+→ TaskLogsView` rename and the `Page<T>` generic (FastAPI emits a concrete
+`Page_JobView_`, … per instantiation).
+
+When the server adds a model, run `npm run gen-types` and add one re-export
+line. **CI runs `gen-types` and fails on any diff**, so the types can't fall
+behind the server.
+
 # Real-time (v0 — REST polling)
 
 v0 uses `refetchInterval: 2000` on every query. No SSE endpoint exists yet;
