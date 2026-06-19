@@ -77,19 +77,19 @@ jobs:
                 endpoint = ["http://localhost:30500"]
           nodes:
             - role: control-plane
+              # No listenAddress: ports bind 0.0.0.0 so the docker-build container
+              # can reach the in-cluster pypi via host.docker.internal (the docker
+              # bridge gateway, not loopback). 0.0.0.0 still covers the host-side
+              # loopback access (DB DSNs, registry push, wheel upload).
               extraPortMappings:
                 - containerPort: 30432
                   hostPort: 5432
-                  listenAddress: "127.0.0.1"
                 - containerPort: 30123
                   hostPort: 8123
-                  listenAddress: "127.0.0.1"
                 - containerPort: 30080
                   hostPort: 8080
-                  listenAddress: "127.0.0.1"
                 - containerPort: 30500
                   hostPort: 5000
-                  listenAddress: "127.0.0.1"
           EOF
           kind create cluster --name aaiclick-e2e --config /tmp/kind.yaml
 
