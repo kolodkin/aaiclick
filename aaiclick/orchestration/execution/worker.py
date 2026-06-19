@@ -8,7 +8,7 @@ import os
 import signal
 import socket
 from collections.abc import Awaitable, Callable
-from typing import Any, NamedTuple, Protocol
+from typing import Any, NamedTuple, Protocol, TypeVar
 
 from sqlalchemy import update
 from sqlmodel import col, select
@@ -67,7 +67,14 @@ class RunnerResult(NamedTuple):
     error: str | None
 
 
-class TaskVehicle(Protocol):
+# A vehicle's opaque handle (``H``) and ``wait`` payload (``P``) are
+# runner-specific: the driver only shuttles them between the vehicle's own
+# methods, so they stay generic rather than ``Any``.
+H = TypeVar("H")
+P = TypeVar("P")
+
+
+class TaskVehicle(Protocol[H, P]):
     """The varying surface between runners (subprocess / docker / k8s).
 
     Everything generic — heartbeating, cancellation polling, terminate-on-
@@ -75,11 +82,11 @@ class TaskVehicle(Protocol):
     to spawn an execution vehicle, wait for it, kill it, and read its
     result back."""
 
-    async def launch(self, task: Task, worker_id: int) -> Any:
+    async def launch(self, task: Task, worker_id: int) -> H:
         """Start the vehicle; return an opaque handle the other ops use."""
         ...
 
-    async def wait(self, handle: Any, timeout: float | None) -> tuple[int, str | None, Any]:
+    async def wait(self, handle: H, timeout: float | None) -> tuple[int, str | None, P]:
         """Block until the vehicle exits; return ``(exit_code, error, payload)``.
 
         ``error`` is non-None when the vehicle itself failed to run to
@@ -92,17 +99,17 @@ class TaskVehicle(Protocol):
         """Return True if the run was aborted and the vehicle should die."""
         ...
 
-    async def terminate(self, handle: Any) -> None:
+    async def terminate(self, handle: H) -> None:
         """Forcibly stop the vehicle (cancellation / timeout path)."""
         ...
 
     def collect(
-        self, handle: Any, exit_code: int, error: str | None, was_cancelled: bool, payload: Any
+        self, handle: H, exit_code: int, error: str | None, was_cancelled: bool, payload: P
     ) -> RunnerResult:
         """Translate the exited vehicle (and ``wait``'s ``payload``) into a ``RunnerResult``."""
         ...
 
-    async def cleanup(self, handle: Any) -> None:
+    async def cleanup(self, handle: H) -> None:
         """Release vehicle resources (e.g. ``docker rm``). Always runs."""
         ...
 
@@ -123,9 +130,9 @@ async def _heartbeat_while_waiting(
 
 
 async def _watch_for_cancellation(
-    vehicle: TaskVehicle,
+    vehicle: TaskVehicle[H, P],
     task: Task,
-    handle: Any,
+    handle: H,
     done: asyncio.Event,
     cancelled: asyncio.Event,
     poll_interval: float,
@@ -150,7 +157,7 @@ async def _watch_for_cancellation(
 async def drive_vehicle(
     task: Task,
     worker_id: int,
-    vehicle: TaskVehicle,
+    vehicle: TaskVehicle[H, P],
     *,
     timeout: float | None,
     poll_interval: float,

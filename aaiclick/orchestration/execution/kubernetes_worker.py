@@ -30,7 +30,7 @@ from . import cli
 from .claiming import check_task_cancelled
 from .runner import execute_task, register_returned_tasks, serialize_task_result
 from .runner_env import build_runner_env
-from .worker import POLL_INTERVAL, RunnerResult, drive_vehicle, parse_task_timeout, worker_heartbeat
+from .worker import POLL_INTERVAL, RunnerResult, TaskVehicle, drive_vehicle, parse_task_timeout, worker_heartbeat
 
 POD_ENTRYPOINT = ["python", "-m", "aaiclick.orchestration.execution.kubernetes_worker"]
 # Pod-internal log dir; ephemeral. The host captures logs via `kubectl logs`.
@@ -172,7 +172,7 @@ async def _read_task_run_result_row(task_id: int, run_epoch: int) -> RunnerResul
     return RunnerResult(row.success, row.result_ref, row.log_path, row.error)
 
 
-class _KubernetesVehicle:
+class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
     """``TaskVehicle`` for the Kubernetes runner."""
 
     def __init__(self, spec: _PodSpec, log_base: str) -> None:

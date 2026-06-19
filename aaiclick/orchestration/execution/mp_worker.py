@@ -21,7 +21,15 @@ from sqlmodel import select
 from ..models import Task
 from ..orch_context import get_sql_session
 from .runner import execute_task, register_returned_tasks, serialize_task_result
-from .worker import POLL_INTERVAL, RunnerResult, _worker_loop, drive_vehicle, parse_task_timeout, worker_heartbeat
+from .worker import (
+    POLL_INTERVAL,
+    RunnerResult,
+    TaskVehicle,
+    _worker_loop,
+    drive_vehicle,
+    parse_task_timeout,
+    worker_heartbeat,
+)
 
 # How often the parent checks whether the child process has finished.
 # Smaller than POLL_INTERVAL because this polls a local queue, not a database.
@@ -104,7 +112,7 @@ class _ChildHandle(NamedTuple):
     result_queue: multiprocessing.Queue
 
 
-class _MpVehicle:
+class _MpVehicle(TaskVehicle["_ChildHandle", "_ProcessResult"]):
     """``TaskVehicle`` for the multiprocessing runner.
 
     ``poll_cancelled`` returns False today — the subprocess runner has

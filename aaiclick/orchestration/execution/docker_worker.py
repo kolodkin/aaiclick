@@ -42,7 +42,7 @@ from . import cli
 from .claiming import check_task_cancelled
 from .runner import execute_task, register_returned_tasks, serialize_task_result
 from .runner_env import build_runner_env
-from .worker import POLL_INTERVAL, RunnerResult, drive_vehicle, parse_task_timeout, worker_heartbeat
+from .worker import POLL_INTERVAL, RunnerResult, TaskVehicle, drive_vehicle, parse_task_timeout, worker_heartbeat
 
 CONTAINER_IPC_DIR = "/aaiclick-ipc"
 CONTAINER_RESULT_FILE = "result.json"
@@ -237,7 +237,7 @@ class _DockerHandle(NamedTuple):
     ipc_dir: str
 
 
-class _DockerVehicle:
+class _DockerVehicle(TaskVehicle["_DockerHandle", None]):
     """``TaskVehicle`` for the Docker runner.
 
     The IPC tmpdir is created by ``_run_task_in_container`` (its lifetime
