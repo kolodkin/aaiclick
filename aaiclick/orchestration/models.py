@@ -92,7 +92,7 @@ RunnerMode = Literal["subprocess", "docker", "kubernetes"]
 - ``kubernetes``: each task runs in a fresh Pod built from the user's
   repo at a specific git SHA, scheduled on a cluster. Like ``docker`` it
   auto-injects a host-side build task; the result is handed back via the
-  ``task_run_results`` table rather than a bind-mounted file.
+  ``remote_task_results`` table rather than a bind-mounted file.
 """
 RUNNER_MODES: list[RunnerMode] = [RUNNER_SUBPROCESS, RUNNER_DOCKER, RUNNER_KUBERNETES]
 
@@ -489,7 +489,7 @@ class Task(SQLModel, table=True):
             return other
 
 
-class TaskRunResult(SQLModel, table=True):
+class RemoteTaskResult(SQLModel, table=True):
     """Per-attempt result handoff from a remote task vehicle (Kubernetes Pod)
     back to the host worker.
 
@@ -501,7 +501,7 @@ class TaskRunResult(SQLModel, table=True):
     old Pod's row lands under a stale key and is ignored.
     """
 
-    __tablename__: ClassVar[str] = "task_run_results"
+    __tablename__: ClassVar[str] = "remote_task_results"
 
     task_id: int = Field(
         sa_column=Column(BigInteger, ForeignKey("tasks.id"), primary_key=True),

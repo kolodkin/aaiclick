@@ -2,11 +2,11 @@
 
 Mirrors ``docker_worker``: ``_run_task_in_pod`` drives a ``KubernetesVehicle``
 via the shared ``drive_vehicle``; ``_pod_main`` runs inside the Pod and writes
-a ``TaskRunResult`` row — the cross-node equivalent of docker's bind-mounted
+a ``RemoteTaskResult`` row — the cross-node equivalent of docker's bind-mounted
 ``result.json``.
 
 Reaper invariant: the Pod never writes terminal task status. It writes only
-its own ``task_run_results`` row; the host worker writes the terminal ``Task``
+its own ``remote_task_results`` row; the host worker writes the terminal ``Task``
 status via ``_handle_task_result``.
 """
 
@@ -24,7 +24,7 @@ from typing import NamedTuple
 from sqlmodel import select
 
 from ..logging import get_logs_dir
-from ..models import Task, TaskRunResult
+from ..models import Task, RemoteTaskResult
 from ..orch_context import get_sql_session
 from . import cli
 from .claiming import check_task_cancelled
@@ -170,7 +170,7 @@ async def _read_task_run_result_row(task_id: int, run_epoch: int) -> RunnerResul
     async with get_sql_session() as session:
         row = (
             await session.execute(
-                select(TaskRunResult).where(TaskRunResult.task_id == task_id, TaskRunResult.run_epoch == run_epoch)
+                select(RemoteTaskResult).where(RemoteTaskResult.task_id == task_id, RemoteTaskResult.run_epoch == run_epoch)
             )
         ).scalar_one_or_none()
     if row is None:
@@ -277,11 +277,11 @@ async def _write_task_run_result(
     async with get_sql_session() as session:
         existing = (
             await session.execute(
-                select(TaskRunResult).where(TaskRunResult.task_id == task_id, TaskRunResult.run_epoch == run_epoch)
+                select(RemoteTaskResult).where(RemoteTaskResult.task_id == task_id, RemoteTaskResult.run_epoch == run_epoch)
             )
         ).scalar_one_or_none()
         if existing is None:
-            existing = TaskRunResult(task_id=task_id, run_epoch=run_epoch, success=success)
+            existing = RemoteTaskResult(task_id=task_id, run_epoch=run_epoch, success=success)
             session.add(existing)
         existing.success = success
         existing.result_ref = result_ref
@@ -292,7 +292,7 @@ async def _write_task_run_result(
 
 async def _pod_main(task_id: int, run_epoch: int) -> int:
     """Entry point invoked inside the Pod. Runs the task via the shared
-    ``execute_task`` path and writes a ``TaskRunResult`` row for the host."""
+    ``execute_task`` path and writes a ``RemoteTaskResult`` row for the host."""
     from ..orch_context import orch_context
 
     success, result_ref, log_path, error = False, None, None, None

@@ -12,13 +12,13 @@ from __future__ import annotations
 from sqlmodel import select
 
 from ..factories import create_job
-from ..models import TASK_RUNNING, Task, TaskRunResult
+from ..models import TASK_RUNNING, Task, RemoteTaskResult
 from ..orch_context import get_sql_session
 from . import kubernetes_worker as kw
 
 
 async def test_pod_main_writes_success_row(orch_ctx):
-    """The Pod entrypoint runs a real task and writes a success TaskRunResult
+    """The Pod entrypoint runs a real task and writes a success RemoteTaskResult
     row the host reads back."""
     job = await create_job(
         "test_pod_main_success",
@@ -33,7 +33,7 @@ async def test_pod_main_writes_success_row(orch_ctx):
     async with get_sql_session() as session:
         row = (
             await session.execute(
-                select(TaskRunResult).where(TaskRunResult.task_id == task.id, TaskRunResult.run_epoch == task.run_epoch)
+                select(RemoteTaskResult).where(RemoteTaskResult.task_id == task.id, RemoteTaskResult.run_epoch == task.run_epoch)
             )
         ).scalar_one()
     assert row.success is True
@@ -55,7 +55,7 @@ async def test_pod_main_writes_failure_row_on_exception(orch_ctx):
     async with get_sql_session() as session:
         row = (
             await session.execute(
-                select(TaskRunResult).where(TaskRunResult.task_id == task.id, TaskRunResult.run_epoch == task.run_epoch)
+                select(RemoteTaskResult).where(RemoteTaskResult.task_id == task.id, RemoteTaskResult.run_epoch == task.run_epoch)
             )
         ).scalar_one()
     assert row.success is False

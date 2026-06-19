@@ -42,7 +42,7 @@ and dead-worker reaping; a `Job` controller's own backoff and re-creation would
 duplicate and fight that. The vehicle is the sole authority on the Pod's
 lifecycle.
 
-# Result handoff via `task_run_results`
+# Result handoff via `remote_task_results`
 
 A Pod may be scheduled on a different node, so Docker's bind-mounted
 `result.json` has no equivalent. Result transport lives entirely inside a
@@ -50,8 +50,8 @@ vehicle's `wait()` / `collect()`, so the Kubernetes vehicle keeps the same
 `collect()` contract but reads the result from a database table.
 
 ```python
-class TaskRunResult(SQLModel, table=True):
-    __tablename__ = "task_run_results"
+class RemoteTaskResult(SQLModel, table=True):
+    __tablename__ = "remote_task_results"
 
     task_id: int    # PK part, FK -> tasks.id
     run_epoch: int  # PK part — fences stale attempts
@@ -73,7 +73,7 @@ today.
 !!! warning "The Pod must never write `Task.status` or `Task.run_statuses`"
     Terminal writes happen only in the host via `_handle_task_result`, or in the
     reaper via `mark_dead_workers`. The Pod writes only its own
-    `task_run_results` row. Violating this reintroduces the double-write race the
+    `remote_task_results` row. Violating this reintroduces the double-write race the
     reaper invariant exists to prevent.
 
 # Logs: Pod stdout, host streams and reconciles
@@ -105,7 +105,7 @@ cancelled-overrides-result are all generic).
 | Method           | Kubernetes behaviour                                                              |
 |------------------|-----------------------------------------------------------------------------------|
 | `launch`         | `kubectl apply` a bare-Pod manifest (image_tag, env, `--task-id` / `--run-epoch`); handle = pod name + namespace + host log path |
-| `wait`           | Poll Pod phase to terminal/timeout, fetch `kubectl logs` to the host file, read the `task_run_results` row and stash it on the handle; return `(exit_code, error)` |
+| `wait`           | Poll Pod phase to terminal/timeout, fetch `kubectl logs` to the host file, read the `remote_task_results` row and stash it on the handle; return `(exit_code, error)` |
 | `poll_cancelled` | `check_task_cancelled(task.id)` — reused unchanged from the Docker runner          |
 | `terminate`      | `kubectl delete pod` (cancellation / timeout path)                                |
 | `collect`        | Return the stashed result row; synthesize failure if absent; cancellation overrides |
@@ -113,7 +113,7 @@ cancelled-overrides-result are all generic).
 
 The Pod-side entrypoint mirrors `docker_worker._container_main`: boot
 `orch_context`, run the task through the shared `runner.execute_task` path, then
-write a `TaskRunResult` row instead of `result.json`.
+write a `RemoteTaskResult` row instead of `result.json`.
 
 # Image build is shared
 

@@ -10,7 +10,7 @@ from aaiclick.orchestration.models import (
     Job,
     RegisteredJob,
     RunnerMode,
-    TaskRunResult,
+    RemoteTaskResult,
 )
 
 
@@ -27,8 +27,8 @@ def test_jobs_have_kubernetes_config_column():
     assert reg.kubernetes_config is None  # defaults to None
 
 
-def test_task_run_result_fields():
-    row = TaskRunResult(
+def test_remote_task_result_fields():
+    row = RemoteTaskResult(
         task_id=42,
         run_epoch=3,
         success=True,
@@ -40,4 +40,4 @@ def test_task_run_result_fields():
     assert row.run_epoch == 3
     assert row.success is True
     assert row.result_ref == {"native_value": 1}
-    assert TaskRunResult.__tablename__ == "task_run_results"
+    assert RemoteTaskResult.__tablename__ == "remote_task_results"
