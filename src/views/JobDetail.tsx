@@ -48,7 +48,7 @@ export function JobDetail({ name, onPrompt }: { name: string; onPrompt: (v: stri
         />
         {job.error && <div className="err">{job.error}</div>}
       </div>
-      <TasksTable tasks={job.tasks} onPrompt={onPrompt} />
+      <TasksTable tasks={job.tasks ?? []} onPrompt={onPrompt} />
     </>
   );
 }

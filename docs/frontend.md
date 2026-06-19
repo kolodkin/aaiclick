@@ -26,7 +26,8 @@ src/                            ← SPA TypeScript source
   main.tsx, App.tsx             ← providers + prompt router
   prompt.ts                     ← URL ↔ route parser
   api/                          ← typed REST client + React Query hooks
-    types.ts                    ← TypeScript mirrors of pydantic view models
+    schema.ts                   ← generated from the OpenAPI schema (do not edit)
+    types.ts                    ← ergonomic re-exports over schema.ts
     client.ts                   ← fetchJSON / postJSON + ApiError
     hooks.ts                    ← useJobs, useJob, useTask, useTaskLogs, …
   views/                        ← one file per UI mode
@@ -65,8 +66,10 @@ REST is the sole source of truth in v0. Every hook polls every 2 seconds
 via TanStack Query's `refetchInterval`.
 
 - **Typed REST client**: `src/api/client.ts` — `fetchJSON` / `postJSON` + `ApiError`.
-- **TypeScript types**: `src/api/types.ts` — hand-written mirrors of the pydantic view models
-  (`JobView`, `JobDetail`, `TaskDetail`, `TaskLogs`, etc.).
+- **TypeScript types**: `npm run gen-types` generates `src/api/schema.ts` from the server's OpenAPI
+  schema (`app.openapi()` → `openapi-typescript`); `src/api/types.ts` re-exports ergonomic names
+  (`JobView`, `TaskDetail`, `Page<T>`, …) over it. CI fails on drift, so types always match the
+  server — never hand-edit `schema.ts`.
 - **React Query hooks**: `src/api/hooks.ts` — `useJobs()`, `useJob(ref)`, `useTask(id)`,
   `useTaskLogs(id)`, `useRegisteredJobs()`, plus mutation hooks for run / cancel / register.
 - **No global store**: the URL query param `?p=` drives which view mounts;
@@ -90,6 +93,37 @@ via TanStack Query's `refetchInterval`.
 returns `available=False` when the file is missing or cross-host);
 `aaiclick/orchestration/view_models.py` — see `TaskLogsView`, `JobView`
 (`total_tasks` / `completed_tasks` populated by `list_jobs`).
+
+## API types
+
+Two files, created two different ways:
+
+- **`src/api/schema.ts`** — generated, never hand-edited. `npm run gen-types`
+  pipes the server's schema (`python -m aaiclick.server.dump_openapi`, which
+  prints `app.openapi()`) through `openapi-typescript`. It mirrors the *entire*
+  API — every path, operation, and model. Treat it like a lockfile: machine-
+  owned, not meant to be read.
+- **`src/api/types.ts`** — hand-written, ~30 lines. It holds no field
+  definitions; it re-exports the handful of models the SPA uses under ergonomic
+  names, borrowing their shapes from `schema.ts`:
+
+```ts
+import type { components } from "./schema";
+type S = components["schemas"];
+export type JobView = S["JobView"];
+export type TaskLogs = S["TaskLogsView"];   // bridge a server name diff
+```
+
+The real shapes have to live somewhere; generating them keeps `types.ts` in
+lock-step with the server (it used to be hand-typed and drifted silently).
+Generated types are erased at build time, so `schema.ts`'s size costs nothing
+in the bundle. The shim also absorbs what codegen can't express: the `TaskLogs
+→ TaskLogsView` rename and the `Page<T>` generic (FastAPI emits a concrete
+`Page_JobView_`, … per instantiation).
+
+When the server adds a model, run `npm run gen-types` and add one re-export
+line. **CI runs `gen-types` and fails on any diff**, so the types can't fall
+behind the server.
 
 # Real-time (v0 — REST polling)
 

@@ -6,7 +6,7 @@ function formatSeconds(secs: number): string {
   return `${hours}h ${String(mins % 60).padStart(2, "0")}m`;
 }
 
-export function relativeTime(iso: string | null): string {
+export function relativeTime(iso: string | null | undefined): string {
   if (!iso) return "—";
   const then = new Date(iso).getTime();
   const secs = Math.max(0, Math.round((Date.now() - then) / 1000));
@@ -18,14 +18,14 @@ export function relativeTime(iso: string | null): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
-export function durationBetween(start: string | null, end: string | null): string {
+export function durationBetween(start: string | null | undefined, end: string | null | undefined): string {
   if (!start) return "—";
   const from = new Date(start).getTime();
   const to = end ? new Date(end).getTime() : Date.now();
   return formatSeconds(Math.max(0, Math.round((to - from) / 1000)));
 }
 
-export function durationMs(ms: number | null): string {
+export function durationMs(ms: number | null | undefined): string {
   if (ms == null) return "—";
   return formatSeconds(Math.max(0, Math.round(ms / 1000)));
 }
