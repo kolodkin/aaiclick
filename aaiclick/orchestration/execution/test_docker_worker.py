@@ -114,6 +114,8 @@ async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypa
     monkeypatch.setattr(docker_worker, "_docker_pull_if_registered", AsyncMock(return_value=None))
 
     cancelled_seen = []
+    # Signals that _docker_kill was called so fake_wait can return deterministically.
+    killed = asyncio.Event()
 
     async def fake_run_detached(cmd):
         # Container writes a stale success payload before the host kills it.
@@ -124,9 +126,9 @@ async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypa
         return "fake-cid"
 
     async def fake_wait(cid, timeout):
-        # Sleep long enough for the watcher to fire, then pretend the
-        # container exited 137 (SIGKILL'd by the watcher).
-        await asyncio.sleep(0.2)
+        # Block until the watcher actually kills the container — event-driven
+        # so the test is deterministic regardless of event-loop scheduling.
+        await killed.wait()
         return 137, None
 
     async def fake_check_cancelled(task_id):
@@ -134,13 +136,15 @@ async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypa
         cancelled_seen.append(task_id)
         return len(cancelled_seen) > 1
 
+    async def fake_kill(container_id):
+        killed.set()
+
     monkeypatch.setattr(docker_worker, "_docker_run_detached", fake_run_detached)
     monkeypatch.setattr(docker_worker, "_wait_for_container", fake_wait)
     monkeypatch.setattr(docker_worker, "_docker_rm", AsyncMock())
-    monkeypatch.setattr(docker_worker, "_docker_kill", AsyncMock())
+    monkeypatch.setattr(docker_worker, "_docker_kill", fake_kill)
     monkeypatch.setattr(docker_worker, "worker_heartbeat", AsyncMock())
     monkeypatch.setattr(docker_worker, "check_task_cancelled", fake_check_cancelled)
-    # Speed up the poll interval so the watcher actually fires within the test.
     monkeypatch.setattr(docker_worker, "POLL_INTERVAL", 0.05)
 
     dispatch = JobDispatch(RUNNER_DOCKER, "aaiclick-job:abc", None)
