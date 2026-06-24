@@ -14,18 +14,18 @@ import logging
 import os
 import sys
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import TextIO
 
 from aaiclick.backend import get_root, is_local
 from aaiclick.data.data_context import get_ch_client
+from aaiclick.datetime_utils import utc_now
 from aaiclick.oplog.models import TASK_LOGS_EXPECTED_COLUMNS
 
 logger = logging.getLogger(__name__)
 
 _TASK_LOG_COLS = list(TASK_LOGS_EXPECTED_COLUMNS)
-_TASK_LOG_TYPE_NAMES = [TASK_LOGS_EXPECTED_COLUMNS[c] for c in _TASK_LOG_COLS]
+_TASK_LOG_TYPE_NAMES = list(TASK_LOGS_EXPECTED_COLUMNS.values())
 
 
 def get_logs_dir() -> str:
@@ -58,31 +58,26 @@ def get_logs_dir() -> str:
 
 
 class _ChLogSink:
-    """Accumulate captured output as discrete lines for a ClickHouse batch write.
+    """Accumulate captured output for a ClickHouse batch write.
 
     ``write`` is sync — it's driven by ``print`` through ``_TeeWriter`` while the
-    task runs. The async flush happens once after the task body completes
-    (:func:`capture_task_output`), so the task's own ClickHouse work never races
-    the log write on a shared (chdb single-session) client.
+    task runs, appending raw chunks. The async flush happens once after the task
+    body completes (:func:`capture_task_output`), splitting into lines then —
+    matching how the on-host log file is read back — so the task's own
+    ClickHouse work never races the log write on a shared (chdb single-session)
+    client.
     """
 
     def __init__(self) -> None:
-        self._partial = ""
-        self._lines: list[str] = []
+        self._chunks: list[str] = []
 
     def write(self, data: str) -> None:
-        """Split incoming text on newlines, buffering the trailing partial line."""
-        parts = (self._partial + data).split("\n")
-        self._partial = parts.pop()
-        self._lines.extend(parts)
+        self._chunks.append(data)
 
     def finalize(self) -> list[str]:
-        """Return all buffered lines, including any unterminated trailing line."""
-        if self._partial:
-            self._lines.append(self._partial)
-            self._partial = ""
-        lines, self._lines = self._lines, []
-        return lines
+        """Return the captured output as discrete lines."""
+        text, self._chunks = "".join(self._chunks), []
+        return text.splitlines()
 
 
 class _TeeWriter:
@@ -113,7 +108,7 @@ async def flush_task_logs(task_id: int, job_id: int, run_id: int, lines: list[st
     """
     if not lines:
         return
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = utc_now()
     rows = [[task_id, job_id, run_id, seq, line, now] for seq, line in enumerate(lines)]
     try:
         await get_ch_client().insert(

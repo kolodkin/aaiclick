@@ -1,5 +1,7 @@
 """
-aaiclick.oplog.models - ClickHouse DDL and schema validation for oplog tables.
+aaiclick.oplog.models - ClickHouse DDL and schema validation for the
+orchestration-owned CH tables created on task-scope entry: the ``operation_log``
+provenance table and the ``task_logs`` captured-output stream.
 """
 
 from __future__ import annotations
@@ -75,11 +77,11 @@ async def _validate_schema(
     for col, expected_type in expected.items():
         if col not in actual:
             raise RuntimeError(
-                f"Oplog table '{table}' is missing column '{col}'. Drop the table and let aaiclick recreate it."
+                f"ClickHouse table '{table}' is missing column '{col}'. Drop the table and let aaiclick recreate it."
             )
         if actual[col] != expected_type:
             raise RuntimeError(
-                f"Oplog table '{table}' column '{col}' has type "
+                f"ClickHouse table '{table}' column '{col}' has type "
                 f"'{actual[col]}', expected '{expected_type}'. "
                 f"Drop the table and let aaiclick recreate it."
             )
