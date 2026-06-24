@@ -76,25 +76,26 @@ today.
     `remote_task_results` row. Violating this reintroduces the double-write race the
     reaper invariant exists to prevent.
 
-# Logs: Pod stdout, host streams and reconciles
+# Logs: Pod streams to ClickHouse
 
-`capture_task_output` redirects task stdout/stderr into a file; Docker works
-only because that file lands on a bind mount. K8s breaks this twice: the file
-dies with the Pod, and `kubectl logs` reads the container's **stdout**, not a
-file inside it.
+`capture_task_output` streams task stdout/stderr into the ClickHouse `task_logs`
+table from inside the Pod, so `get_task_logs` reads them on the host with no
+node coordination — the same cross-host path every runner uses
+(`docs/orchestration.md` — Cross-host logs).
 
-- **Pod side**: no change needed. `capture_task_output` already tees task
-  output to the real stdout (`logging.py` — `_TeeWriter(original_stdout, log_file)`),
-  so the container's stdout — what `kubectl logs` reads — already carries the
-  task output.
-- **Host side**: the vehicle's `wait()` fetches `kubectl logs` into a host-side
-  file at `{log_base}/{job_id}/{task_id}/k8s-{run_epoch}.log` (named
-  deterministically from claim info — no `run_id` coordination) and reports that
-  as `log_path`.
+- **Pod side**: no change needed. `capture_task_output` flushes captured output
+  to `task_logs` (keyed by `task_id` / `run_id`) before the Pod exits, reaching
+  the shared ClickHouse the host also queries.
+- **Host side**: the vehicle's `wait()` still fetches `kubectl logs` into a
+  host-side file at `{log_base}/{job_id}/{task_id}/k8s-{run_epoch}.log` and
+  reports it as `log_path`. The read path no longer consults that file (it reads
+  CH); both it and `RemoteTaskResult.log_path` are slated for removal in
+  `docs/future.md` — Retire File-Based Task Logs.
 
 !!! warning "Capture logs before deleting the Pod"
     The `kubectl logs` fetch runs inside `wait()`, before `cleanup()` deletes
-    the Pod — a deleted Pod's logs are gone.
+    the Pod — a deleted Pod's logs are gone. (CH streaming is independent: the
+    Pod has already flushed `task_logs` regardless of this fetch.)
 
 # The vehicle
 

@@ -64,20 +64,31 @@ polling, but avoids N×M HTTP requests from N browser tabs).
 **When to revisit**: when polling overhead is measurable (many tabs or many
 concurrent jobs), or when sub-2 s latency matters for operators.
 
-## Cross-Host Log Access
+## Retire File-Based Task Logs
 
-`task.log_path` stores the filesystem path written by the worker process.
-In local mode (single process) `aaiclick/internal_api/tasks.py` — `get_task_logs`
-reads the file directly. In distributed / Docker mode the log file lives on the
-worker host's filesystem and is not accessible to the API server.
+Cross-host log access shipped: every runner streams captured stdout/stderr into
+the ClickHouse `task_logs` table from inside the task process, and `get_task_logs`
+reads that single host-independent source (`aaiclick/orchestration/logging.py`,
+`aaiclick/oplog/models.py`). Two now-redundant legacy paths remain until a
+cleanup pass:
 
-**Solution when it lands**: either (a) workers stream log lines into a DB column
-or a dedicated log table as they write, or (b) a sidecar log-shipping agent
-uploads completed log files to object storage (S3 / GCS) and `get_task_logs`
-redirects to a presigned URL.
+- **`task.log_path` / file tee** — still written for on-host debugging and
+  surfaced in `TaskDetail`. Drop once nothing reads the local file.
+- **Kubernetes `kubectl logs` host fetch** — `_capture_pod_logs` writes a host
+  file the read path no longer consults (the Pod streams to CH directly). Remove
+  it and the `RemoteTaskResult.log_path` column once the file tee is gone.
 
-**When to revisit**: when Docker or multi-host distributed runs become the
-primary deployment mode and operators need task logs in the UI.
+**When to revisit**: opportunistically, once the file path has demonstrably no
+consumers; no functional gap blocks it.
+
+## Live Log Streaming
+
+`task_logs` is flushed once per run, after the task body completes — logs appear
+when the attempt finishes, not while it runs. For live tailing of a long-running
+task, the writer would flush incrementally (periodic drain of the
+`_ChLogSink` buffer). Deferred to keep the writer off the task's shared
+(chdb single-session) client during execution; revisit alongside the SSE
+`task.log` event path below.
 
 ## SSE Cross-Host Fanout (Redis)
 

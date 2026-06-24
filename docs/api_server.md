@@ -291,8 +291,9 @@ subject to breaking change" to downstream UIs / SDK generators; we graduate to
   `Unauthorized` into `401`.
 - **OpenAPI**: derived automatically from view models; served at
   `/api/v0/openapi.json` with Swagger UI at `/api/v0/docs`.
-- **Logs**: out of scope. Task log files are served statically or streamed
-  verbatim; no log envelope view model.
+- **Logs**: `GET /tasks/{id}/logs` returns a `TaskLogsView` of plain lines read
+  from the ClickHouse `task_logs` stream (host-independent); no per-line
+  envelope view model.
 
 ## Spawning workers — `POST /api/v0/workers`
 
@@ -492,8 +493,9 @@ scopes, OAuth 2.0 / OIDC, and a per-request audit log are tracked in
 
 # Non-Goals
 
-- **Streaming log envelopes** — task logs stream as files; no `TaskLogLine`
-  view model.
+- **Streaming log envelopes** — `GET /tasks/{id}/logs` returns the captured
+  lines in one `TaskLogsView`; live per-line streaming (`TaskLogLine`) is a
+  follow-up tracked in `docs/future.md`.
 - **WebSockets** — the UI's live update channel is a follow-up once the REST
   surface stabilises.
 - **Backwards-compatible shims for old CLI code paths** — during migration,

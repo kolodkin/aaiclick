@@ -291,7 +291,7 @@ async def execute_task(task: Task) -> tuple[Any, str]:
 
     set_current_task_info(task_id=task.id, job_id=task.job_id)
 
-    with capture_task_output(task.id, task.job_id, run_id) as log_path:
+    async with capture_task_output(task.id, task.job_id, run_id) as log_path:
         async with task_scope(
             task_id=task.id,
             job_id=task.job_id,

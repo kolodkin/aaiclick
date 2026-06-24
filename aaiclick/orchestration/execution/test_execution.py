@@ -14,6 +14,7 @@ from sqlmodel import col
 
 from aaiclick import create_object_from_value
 from aaiclick.data.object import Object, View
+from aaiclick.internal_api.tasks import get_task_logs
 from aaiclick.orchestration.examples.orchestration_dynamic import (
     chain_pipeline,
     dynamic_pipeline,
@@ -30,6 +31,7 @@ from aaiclick.orchestration.execution.runner import (
 )
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.jobs import get_task
+from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.logging import capture_task_output, get_logs_dir
 from aaiclick.orchestration.models import (
     JOB_COMPLETED,
@@ -92,7 +94,7 @@ async def test_capture_task_output_stdout(orch_ctx, monkeypatch):
         job_id = 99
         run_id = 555
 
-        with capture_task_output(task_id, job_id, run_id) as log_path:
+        async with capture_task_output(task_id, job_id, run_id) as log_path:
             print("Hello, world!")
 
         assert os.path.exists(log_path)
@@ -111,7 +113,7 @@ async def test_capture_task_output_stderr(orch_ctx, monkeypatch):
         job_id = 99
         run_id = 556
 
-        with capture_task_output(task_id, job_id, run_id) as log_path:
+        async with capture_task_output(task_id, job_id, run_id) as log_path:
             print("Error message", file=sys.stderr)
 
         with open(log_path) as f:
@@ -378,6 +380,20 @@ async def test_run_job_tasks_creates_log_file(orch_ctx, monkeypatch):
             content = f.read()
             assert "This is stdout" in content
             assert "Error message" in content
+
+
+async def test_run_job_tasks_streams_logs_to_clickhouse(orch_ctx):
+    """Task stdout/stderr is readable cross-host via the CH task_logs stream."""
+    job = await create_job("test_job_ch_log", "aaiclick.orchestration.fixtures.sample_tasks.task_with_output")
+
+    await run_job_tasks(job)
+
+    task = (await get_tasks_for_job(job.id))[0]
+    logs = await get_task_logs(task.id)
+
+    assert logs.available is True
+    assert "This is stdout" in logs.lines
+    assert "Error message" in logs.lines
 
 
 # job_test() tests

@@ -37,6 +37,32 @@ OPERATION_LOG_EXPECTED_COLUMNS: dict[str, str] = {
     "created_at": "DateTime64(3)",
 }
 
+TASK_LOGS_DDL = """
+CREATE TABLE IF NOT EXISTS task_logs (
+    task_id     UInt64,
+    job_id      UInt64,
+    run_id      UInt64,
+    seq         UInt64,
+    line        String,
+    created_at  DateTime64(3)
+) ENGINE = MergeTree()
+ORDER BY (task_id, run_id, seq)
+"""
+# Captured task stdout/stderr, one row per line. Every runner (subprocess,
+# docker, kubernetes) streams here from inside the task process, so logs are
+# reachable cross-host through a single read path. (task_id, run_id) leads the
+# sort key — the read path always scans one task attempt — and seq preserves
+# the emission order within that attempt.
+
+TASK_LOGS_EXPECTED_COLUMNS: dict[str, str] = {
+    "task_id": "UInt64",
+    "job_id": "UInt64",
+    "run_id": "UInt64",
+    "seq": "UInt64",
+    "line": "String",
+    "created_at": "DateTime64(3)",
+}
+
 
 async def _validate_schema(
     ch_client: ChClient,
@@ -63,3 +89,5 @@ async def init_oplog_tables(ch_client: ChClient) -> None:
     """Create oplog tables if they don't exist; validate schema if they do."""
     await ch_client.command(OPERATION_LOG_DDL)
     await _validate_schema(ch_client, "operation_log", OPERATION_LOG_EXPECTED_COLUMNS)
+    await ch_client.command(TASK_LOGS_DDL)
+    await _validate_schema(ch_client, "task_logs", TASK_LOGS_EXPECTED_COLUMNS)

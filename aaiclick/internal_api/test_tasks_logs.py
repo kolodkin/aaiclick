@@ -8,19 +8,20 @@ from aaiclick.internal_api.tasks import get_task_logs
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
+from aaiclick.orchestration.logging import flush_task_logs
 from aaiclick.orchestration.models import Task
 from aaiclick.orchestration.orch_context import get_sql_session
 
 
-async def _set_log_path(task_id: int, path: str | None) -> None:
+async def _set_run_ids(task_id: int, run_ids: list[int]) -> None:
     async with get_sql_session() as s:
         task = (await s.execute(select(Task).where(Task.id == task_id))).scalar_one()
-        task.log_path = path
+        task.run_ids = run_ids
         s.add(task)
         await s.commit()
 
 
-async def test_logs_unavailable_when_log_path_none(orch_ctx):
+async def test_logs_unavailable_when_task_never_ran(orch_ctx):
     job = await create_job("logs_none", simple_task)
     task = (await get_tasks_for_job(job.id))[0]
 
@@ -30,24 +31,36 @@ async def test_logs_unavailable_when_log_path_none(orch_ctx):
     assert result.lines == []
 
 
-async def test_logs_read_from_file(orch_ctx, tmp_path):
-    job = await create_job("logs_file", simple_task)
+async def test_logs_read_from_clickhouse(orch_ctx):
+    job = await create_job("logs_ch", simple_task)
     task = (await get_tasks_for_job(job.id))[0]
-    log_file = tmp_path / "task.log"
-    log_file.write_text("line one\nline two\n")
-    await _set_log_path(task.id, str(log_file))
+    run_id = 42
+    await flush_task_logs(task.id, job.id, run_id, ["line one", "line two"])
+    await _set_run_ids(task.id, [run_id])
 
     result = await get_task_logs(task.id)
 
     assert result.available is True
-    assert result.log_path == str(log_file)
     assert result.lines == ["line one", "line two"]
 
 
-async def test_logs_unavailable_when_file_missing(orch_ctx, tmp_path):
-    job = await create_job("logs_missing", simple_task)
+async def test_logs_read_latest_run_only(orch_ctx):
+    job = await create_job("logs_latest", simple_task)
     task = (await get_tasks_for_job(job.id))[0]
-    await _set_log_path(task.id, str(tmp_path / "does_not_exist.log"))
+    await flush_task_logs(task.id, job.id, 1, ["first attempt"])
+    await flush_task_logs(task.id, job.id, 2, ["second attempt"])
+    await _set_run_ids(task.id, [1, 2])
+
+    result = await get_task_logs(task.id)
+
+    assert result.available is True
+    assert result.lines == ["second attempt"]
+
+
+async def test_logs_unavailable_when_run_has_no_lines(orch_ctx):
+    job = await create_job("logs_empty", simple_task)
+    task = (await get_tasks_for_job(job.id))[0]
+    await _set_run_ids(task.id, [7])
 
     result = await get_task_logs(task.id)
 
