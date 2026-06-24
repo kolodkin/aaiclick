@@ -40,8 +40,8 @@ var. These variables tune the enforced (distributed) case:
 # Data Model
 
 Two SQLModel tables in `aaiclick/auth/models.py`. IDs are snowflake
-`BigInteger` PKs; `role` uses the project's `_enum_check` String + CHECK
-pattern.
+`BigInteger` PKs; `role` is a plain `String` column typed with the `Role`
+`Literal` and validated in code (no DB CHECK — see CLAUDE.md, "Prefer Literal").
 
 ## `users`
 
