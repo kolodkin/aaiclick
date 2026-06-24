@@ -27,13 +27,6 @@ jobs:
       actions: read
       checks: write
 
-  imdb-dataset-builder:
-    uses: ./.github/workflows/project-imdb-dataset-builder.yaml
-    permissions:
-      contents: read
-      actions: read
-      checks: write
-
   basic-lineage:
     uses: ./.github/workflows/project-basic-lineage.yaml
     permissions:
