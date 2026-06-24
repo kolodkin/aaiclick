@@ -138,35 +138,6 @@ needed:
   hardened identity for enterprise deployments.
 - **Per-request audit log** — who called what, when.
 
-## Enum Storage Convention — String+CHECK vs Literal-only
-
-The project's documented convention (CLAUDE.md) is to back each closed string
-set with `Column(String, CheckConstraint("col IN (...)"))`. The Kubernetes
-runner broke from this for `jobs.runner_mode` / `registered_jobs.runner_mode`:
-the migration **drops** those CHECKs and relies on the `RunnerMode` Literal
-(typing) + the CLI's `choices=` (runtime) instead — because Alembic
-autogenerate can't emit CHECK-constraint changes, so widening the constraint
-is hand-written migration friction on *every* new enum value.
-
-That leaves an inconsistency: `runner_mode` has no DB CHECK, while `status`,
-`run_type`, and `preservation_mode` still do.
-
-**Work when revisited**:
-
-- Audit every `_enum_check` / `CheckConstraint` enum column in
-  `aaiclick/orchestration/models.py` (and elsewhere) — list which enums are
-  widened over time (high migration cost) vs effectively fixed.
-- Decide one policy: keep String+CHECK everywhere (accept the per-widen
-  migration), drop CHECK for app-validated Literals everywhere (no DB
-  enforcement; rely on typing + boundary validation), or a documented split
-  (e.g. CHECK for fixed enums, Literal-only for ones that grow).
-- Update CLAUDE.md's "Prefer Literal" guidance to state the chosen policy, and
-  reconcile the existing columns to match (a migration that drops or keeps
-  CHECKs consistently).
-
-**When to revisit**: next time an enum column needs a new value (the friction
-recurs), or before v1.0 when the schema conventions should be settled.
-
 ## Comparison Page
 
 `docs/comparison.md` — feature matrix comparing aaiclick vs Pandas, Spark, and Dask. Defer until the project has enough real-world usage to make meaningful claims.

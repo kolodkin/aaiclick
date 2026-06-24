@@ -7,14 +7,21 @@ All IDs are snowflake IDs (64-bit integers) generated using aaiclick.snowflake.
 
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Any, ClassVar, Literal, Union, get_args
+from typing import Any, ClassVar, Literal, Union
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, ForeignKey, Index, String, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
 from ..datetime_utils import utc_now
 from .task_registry import register_task
+
+# Enum columns are stored as plain ``String`` and validated by their ``Literal``
+# type plus boundary validation (SQLModel/Pydantic on write, the CLI's
+# ``choices=``, API request models). No DB CHECK constraints — widening a closed
+# set is then a code change, not a hand-written constraint migration. Native
+# ENUM types stay avoided (``ALTER TYPE ADD VALUE`` is non-transactional in
+# Postgres). See CLAUDE.md, "Prefer Literal".
 
 # Dependency type constants
 DEPENDENCY_TASK = "task"
@@ -97,12 +104,6 @@ RunnerMode = Literal["subprocess", "docker", "kubernetes"]
 RUNNER_MODES: list[RunnerMode] = [RUNNER_SUBPROCESS, RUNNER_DOCKER, RUNNER_KUBERNETES]
 
 
-def _enum_check(col: str, values: tuple[str, ...], constraint_name: str) -> CheckConstraint:
-    """Build a ``CHECK (col IN (...))`` constraint for a string-enum column."""
-    quoted = ", ".join(f"'{v}'" for v in values)
-    return CheckConstraint(f"{col} IN ({quoted})", name=constraint_name)
-
-
 class RegisteredJob(SQLModel, table=True):
     """
     RegisteredJob model - catalog of known jobs.
@@ -123,15 +124,8 @@ class RegisteredJob(SQLModel, table=True):
     default_kwargs: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     preservation_mode: PreservationMode | None = Field(
         default=None,
-        sa_column=Column(
-            String,
-            _enum_check("preservation_mode", get_args(PreservationMode), "ck_registered_jobs_preservation_mode"),
-            nullable=True,
-        ),
+        sa_column=Column(String, nullable=True),
     )
-    # No DB CHECK constraint: runner_mode is validated by the RunnerMode
-    # Literal (type-check) and the CLI's choices= (runtime). Dropping the
-    # CHECK means adding a runner mode needs no migration.
     runner_mode: RunnerMode = Field(
         default=RUNNER_SUBPROCESS,
         sa_column=Column(String, nullable=False, server_default=RUNNER_SUBPROCESS),
@@ -157,19 +151,10 @@ class Job(SQLModel, table=True):
     name: str = Field(index=True)
     status: JobStatus = Field(
         default=JOB_PENDING,
-        sa_column=Column(
-            String,
-            _enum_check("status", get_args(JobStatus), "ck_jobs_status"),
-            nullable=False,
-            index=True,
-        ),
+        sa_column=Column(String, nullable=False, index=True),
     )
     run_type: RunType = Field(
-        sa_column=Column(
-            String,
-            _enum_check("run_type", get_args(RunType), "ck_jobs_run_type"),
-            nullable=False,
-        ),
+        sa_column=Column(String, nullable=False),
     )
     registered_job_id: int | None = Field(
         default=None,
@@ -177,14 +162,8 @@ class Job(SQLModel, table=True):
     )
     preservation_mode: PreservationMode = Field(
         default=PRESERVATION_NONE,
-        sa_column=Column(
-            String,
-            _enum_check("preservation_mode", get_args(PreservationMode), "ck_jobs_preservation_mode"),
-            nullable=False,
-            server_default=PRESERVATION_NONE,
-        ),
+        sa_column=Column(String, nullable=False, server_default=PRESERVATION_NONE),
     )
-    # No DB CHECK constraint — see RegisteredJob.runner_mode.
     runner_mode: RunnerMode = Field(
         default=RUNNER_SUBPROCESS,
         sa_column=Column(String, nullable=False, server_default=RUNNER_SUBPROCESS),
@@ -215,12 +194,7 @@ class Worker(SQLModel, table=True):
     pid: int = Field()
     status: WorkerStatus = Field(
         default=WORKER_ACTIVE,
-        sa_column=Column(
-            String,
-            _enum_check("status", get_args(WorkerStatus), "ck_workers_status"),
-            nullable=False,
-            index=True,
-        ),
+        sa_column=Column(String, nullable=False, index=True),
     )
     created_at: datetime = Field(default_factory=utc_now)
     started_at: datetime = Field(default_factory=utc_now)
@@ -244,11 +218,11 @@ class Dependency(SQLModel, table=True):
 
     # Entity that must complete first
     previous_id: int = Field(sa_column=Column(BigInteger, primary_key=True, index=True))
-    previous_type: str = Field(sa_column=Column(String, primary_key=True))
+    previous_type: DependencyType = Field(sa_column=Column(String, primary_key=True))
 
     # Entity that waits (executes after previous completes)
     next_id: int = Field(sa_column=Column(BigInteger, primary_key=True, index=True))
-    next_type: str = Field(sa_column=Column(String, primary_key=True))
+    next_type: DependencyType = Field(sa_column=Column(String, primary_key=True))
 
     created_at: datetime = Field(default_factory=utc_now)
 
@@ -385,12 +359,7 @@ class Task(SQLModel, table=True):
     kwargs: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     status: TaskStatus = Field(
         default=TASK_PENDING,
-        sa_column=Column(
-            String,
-            _enum_check("status", get_args(TaskStatus), "ck_tasks_status"),
-            nullable=False,
-            index=True,
-        ),
+        sa_column=Column(String, nullable=False, index=True),
     )
     created_at: datetime = Field(default_factory=utc_now, index=True)
     claimed_at: datetime | None = Field(default=None)
