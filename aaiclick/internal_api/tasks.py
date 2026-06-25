@@ -31,13 +31,14 @@ async def get_task(task_id: int) -> TaskDetail:
     return task_to_detail(task)
 
 
-async def get_task_logs(task_id: int) -> TaskLogsView:
+async def get_task_logs(task_id: int, tail: int | None = None) -> TaskLogsView:
     """Return captured log lines for a task's latest run.
 
     Reads the ClickHouse ``task_logs`` stream written by the task process, so
     logs are available regardless of which host ran the task (local, docker, or
-    kubernetes). Returns ``available=False`` when the task has not run yet or its
-    latest run produced no captured output.
+    kubernetes). When ``tail`` is given, returns only the last ``tail`` lines.
+    Returns ``available=False`` when the task has not run yet or its latest run
+    produced no captured output.
 
     Raises ``NotFound`` if no task matches ``task_id``.
     """
@@ -48,7 +49,7 @@ async def get_task_logs(task_id: int) -> TaskLogsView:
     if not task.run_ids:
         return TaskLogsView(available=False, log_path=task.log_path)
 
-    lines = await read_task_logs(task_id, task.run_ids[-1])
+    lines = await read_task_logs(task_id, task.run_ids[-1], tail=tail)
     return TaskLogsView(available=bool(lines), log_path=task.log_path, lines=lines)
 
 

@@ -40,6 +40,16 @@ async def test_get_task_logs(orch_ctx, app_client):
     assert logs.available is False
 
 
+async def test_get_task_logs_accepts_tail_param(orch_ctx, app_client):
+    job = await create_job("logs_tail_route_job", simple_task)
+    task = (await get_tasks_for_job(job.id))[0]
+
+    response = await app_client.get(f"{API_PREFIX}/tasks/{task.id}/logs", params={"tail": 5})
+
+    assert response.status_code == 200
+    TaskLogsView.model_validate(response.json())
+
+
 async def test_get_task_logs_not_found_returns_404(orch_ctx, app_client):
     response = await app_client.get(f"{API_PREFIX}/tasks/999999999/logs")
 

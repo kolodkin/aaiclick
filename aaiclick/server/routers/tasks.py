@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from aaiclick.internal_api import tasks as tasks_api
 from aaiclick.orchestration.view_models import ClearTaskView, TaskDetail, TaskLogsView
@@ -17,8 +17,11 @@ async def get_task(task_id: int) -> TaskDetail:
 
 
 @router.get("/{task_id}/logs", response_model=TaskLogsView, responses=problem_responses(404))
-async def get_task_logs(task_id: int) -> TaskLogsView:
-    return await tasks_api.get_task_logs(task_id)
+async def get_task_logs(
+    task_id: int,
+    tail: int | None = Query(default=None, ge=1, description="Return only the last N log lines."),
+) -> TaskLogsView:
+    return await tasks_api.get_task_logs(task_id, tail=tail)
 
 
 @router.post("/{task_id}/clear", response_model=ClearTaskView, responses=problem_responses(404))

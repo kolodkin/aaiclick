@@ -210,3 +210,20 @@ async def test_delete_job_data_exempts_persistent_tables(bg_db):
     assert "p_user_catalog" not in dropped, "User-managed p_* table was dropped on job TTL"
     assert "j_555_intermediate" in dropped
     assert "t_scratch" in dropped
+
+
+async def test_delete_job_data_purges_ch_log_tables(bg_db):
+    """``_delete_job_data`` deletes the job's operation_log and task_logs rows."""
+    job_id = 556
+    await _insert_job(bg_db, job_id, "NONE")
+
+    worker = BackgroundWorker()
+    worker._engine = bg_db
+    worker._handler = SqliteBackgroundHandler()
+    worker._ch_client = AsyncMock()
+
+    await worker._delete_job_data(job_id)
+
+    commands = [call.args[0] for call in worker._ch_client.command.call_args_list]
+    assert f"ALTER TABLE operation_log DELETE WHERE job_id = {job_id}" in commands
+    assert f"ALTER TABLE task_logs DELETE WHERE job_id = {job_id}" in commands

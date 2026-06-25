@@ -373,7 +373,10 @@ All Object operations within a task are automatically logged when `data_context(
 file *and* streams it into the ClickHouse `task_logs` table from inside the task
 process. Because every runner (subprocess, docker, kubernetes) shares that path,
 `get_task_logs` reads one host-independent source regardless of where the task
-ran — `aaiclick/orchestration/logging.py`, `aaiclick/oplog/models.py`.
+ran — `aaiclick/orchestration/logging.py`, `aaiclick/oplog/models.py`. The rows
+are job-scoped: the background worker's `_delete_job_data` drops a job's
+`task_logs` alongside its `operation_log` on TTL expiry, so logs share the job's
+retention lifecycle.
 
 - **Setup (local)**: `python -m aaiclick setup`
 - **Migrations (PostgreSQL)**: `python -m aaiclick migrate upgrade head` — see `aaiclick/orchestration/migrate.py`

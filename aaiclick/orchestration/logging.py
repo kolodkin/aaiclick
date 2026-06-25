@@ -121,11 +121,25 @@ async def flush_task_logs(task_id: int, job_id: int, run_id: int, lines: list[st
         logger.error("Failed to write task_logs for task %s run %s", task_id, run_id, exc_info=True)
 
 
-async def read_task_logs(task_id: int, run_id: int) -> list[str]:
-    """Return captured log lines for a single task attempt from CH ``task_logs``."""
+async def read_task_logs(task_id: int, run_id: int, tail: int | None = None) -> list[str]:
+    """Return captured log lines for a single task attempt from CH ``task_logs``.
+
+    When ``tail`` is given, returns only the last ``tail`` lines (still in
+    emission order) — fetched with a ``seq``-descending ``LIMIT`` so the read
+    stays bounded for large logs.
+    """
+    where = "WHERE task_id = {task_id:UInt64} AND run_id = {run_id:UInt64}"
+    parameters: dict[str, int] = {"task_id": task_id, "run_id": run_id}
+    if tail is not None:
+        parameters["tail"] = tail
+        result = await get_ch_client().query(
+            f"SELECT line FROM task_logs {where} ORDER BY seq DESC LIMIT {{tail:UInt64}}",
+            parameters=parameters,
+        )
+        return [row[0] for row in reversed(result.result_rows)]
     result = await get_ch_client().query(
-        "SELECT line FROM task_logs WHERE task_id = {task_id:UInt64} AND run_id = {run_id:UInt64} ORDER BY seq",
-        parameters={"task_id": task_id, "run_id": run_id},
+        f"SELECT line FROM task_logs {where} ORDER BY seq",
+        parameters=parameters,
     )
     return [row[0] for row in result.result_rows]
 

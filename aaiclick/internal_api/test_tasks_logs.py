@@ -57,6 +57,19 @@ async def test_logs_read_latest_run_only(orch_ctx):
     assert result.lines == ["second attempt"]
 
 
+async def test_logs_tail_returns_last_n_in_order(orch_ctx):
+    job = await create_job("logs_tail", simple_task)
+    task = (await get_tasks_for_job(job.id))[0]
+    run_id = 99
+    await flush_task_logs(task.id, job.id, run_id, ["a", "b", "c", "d"])
+    await _set_run_ids(task.id, [run_id])
+
+    result = await get_task_logs(task.id, tail=2)
+
+    assert result.available is True
+    assert result.lines == ["c", "d"]
+
+
 async def test_logs_unavailable_when_run_has_no_lines(orch_ctx):
     job = await create_job("logs_empty", simple_task)
     task = (await get_tasks_for_job(job.id))[0]

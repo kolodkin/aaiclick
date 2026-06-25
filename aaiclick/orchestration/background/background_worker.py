@@ -320,6 +320,12 @@ class BackgroundWorker:
             except Exception:
                 logger.debug("Failed to delete operation_log for job %s", job_id, exc_info=True)
 
+            # task_logs are CH-only too — drop this job's captured task output.
+            try:
+                await self._ch_client.command(f"ALTER TABLE task_logs DELETE WHERE job_id = {job_id}")
+            except Exception:
+                logger.debug("Failed to delete task_logs for job %s", job_id, exc_info=True)
+
             # 4. Delete SQL metadata
             await session.execute(
                 text("DELETE FROM table_registry WHERE job_id = :job_id"),
