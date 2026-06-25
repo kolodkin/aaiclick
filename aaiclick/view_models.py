@@ -47,6 +47,7 @@ class LogLine(BaseModel):
     stream: LogStream
     text: str
 
+
 T = TypeVar("T")
 
 RefId = int | str
