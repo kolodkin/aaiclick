@@ -206,4 +206,8 @@ Extend `aaiclick/internal_api/test_tasks_logs.py` (per `python-testing-style`):
 ## Known limitations
 
 - The sink is not thread-safe; concurrent logging from task-spawned threads can
-  interleave partial lines. Unchanged from today's behavior.
+  interleave partial lines. This is a plain in-memory race on the sink's buffers
+  (before any ClickHouse I/O), so it is **backend-independent** — not a chdb
+  artifact. Unchanged from today's behavior. (Distinct from the deliberate
+  buffer-and-flush-once design, which *is* chdb-driven: a single end-of-task
+  flush avoids contending with the task's own queries on chdb's single session.)
