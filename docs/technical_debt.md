@@ -8,6 +8,13 @@ Technical Debt
   - **Workaround**: `ChdbClient.command()` and `.query()` intercept any `url('https://...', 'fmt')` in SQL via regex, download the file to a `NamedTemporaryFile` via `asyncio.to_thread(urllib.request.urlretrieve)`, and rewrite the expression to `file('/tmp/x', 'fmt')` before execution. All URLs (including localhost) are rewritten consistently. `NamedTemporaryFile` is used (not `TemporaryFile`) because chdb needs a filesystem path string.
   - **Debt**: Confirmed broken in chdb 4.1.2 and 26.1.0; no upstream fix. Remove this workaround once chdb's `url()` works reliably. Track at [chdb-io/chdb](https://github.com/chdb-io/chdb).
 
+# chdb Missing `HTML` Output Format
+
+- **`FORMATS`** (`aaiclick/data/formats.py`)
+  - **Issue**: `Object.export()` maps an `.html` extension to ClickHouse's `HTML` output format, but the chdb build aaiclick ships against omits the HTML output handler and rejects it with `Unknown format HTML. Maybe you meant: ['XML']. (UNKNOWN_FORMAT)`. The format is supported by upstream server ClickHouse.
+  - **Workaround**: No `.html` / `HTML` entry in `FORMATS` — the extension is simply unsupported for export.
+  - **Debt**: Re-confirmed broken on chdb 4.1.9 (chdb-core 26.5.0 / ClickHouse 26.5.1). Add an `.html` → `HTML` `FormatSpec` (and its export test) once chdb's build includes the HTML output handler, or once aaiclick gains a fallback to clickhouse-connect for formats chdb doesn't ship. Track at [chdb-io/chdb](https://github.com/chdb-io/chdb).
+
 # clickhouse-connect `'u'` Type Code DeprecationWarning on Python 3.13
 
 - **`filterwarnings` in `pyproject.toml`** (`[tool.pytest.ini_options]`)
