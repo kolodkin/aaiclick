@@ -42,30 +42,50 @@ per-line metadata.
 
 ## Level vocabulary
 
-A closed `Literal` (project convention: prefer `Literal` over enums for closed
-string sets), declared in `aaiclick/view_models.py` alongside `LogStream`:
+Only the closed `Literal` **type** is declared in `aaiclick/view_models.py`
+(`logging` provides the level *values* but no typing alias for the closed set):
 
 ```python
-LEVEL_DEBUG = "DEBUG"
-LEVEL_INFO = "INFO"
-LEVEL_WARNING = "WARNING"
-LEVEL_ERROR = "ERROR"
-LEVEL_CRITICAL = "CRITICAL"
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 ```
 
-Custom / numeric logging levels are bucketed to the nearest standard name by
-`record.levelno` so the value set stays closed:
+We do **not** re-declare `LEVEL_DEBUG = "DEBUG"`-style string constants — the
+standard `logging` module already owns level names and numbers
+(`logging.DEBUG … logging.CRITICAL` as ints, `logging.getLevelName(...)` for the
+names). Custom / numeric levels are bucketed to the nearest standard name by
+comparing `record.levelno` against `logging`'s own constants, so the value set
+stays closed without a parallel constant table:
 
-| `record.levelno` range | `LogLevel` |
-|------------------------|------------|
-| `< 20` (incl. `NOTSET`, `DEBUG`) | `DEBUG` |
-| `20 – 29` | `INFO` |
-| `30 – 39` | `WARNING` |
-| `40 – 49` | `ERROR` |
-| `>= 50` | `CRITICAL` |
+```python
+import logging
 
-A `normalize_level(levelno: int) -> LogLevel` helper lives next to the constants.
+# highest-first so the first threshold a level clears wins; the string
+# appears once, mapped to its logging constant, and type-checks as LogLevel.
+_LEVEL_THRESHOLDS: tuple[tuple[int, LogLevel], ...] = (
+    (logging.CRITICAL, "CRITICAL"),
+    (logging.ERROR, "ERROR"),
+    (logging.WARNING, "WARNING"),
+    (logging.INFO, "INFO"),
+    (logging.DEBUG, "DEBUG"),
+)
+
+def normalize_level(levelno: int) -> LogLevel:
+    for threshold, name in _LEVEL_THRESHOLDS:
+        if levelno >= threshold:
+            return name
+    return "DEBUG"  # below DEBUG (incl. NOTSET)
+```
+
+| `record.levelno` | `LogLevel` |
+|------------------|------------|
+| `< logging.INFO` (incl. `NOTSET`, `DEBUG`) | `DEBUG` |
+| `>= logging.INFO`, `< logging.WARNING` | `INFO` |
+| `>= logging.WARNING`, `< logging.ERROR` | `WARNING` |
+| `>= logging.ERROR`, `< logging.CRITICAL` | `ERROR` |
+| `>= logging.CRITICAL` | `CRITICAL` |
+
+Raw stream defaults reuse the same names via the type: `stdout → "INFO"`,
+`stderr → "ERROR"` (e.g. a `{stream: LogLevel}` mapping), not new constants.
 
 `LogLine` gains the field (between `stream` and `text`):
 
