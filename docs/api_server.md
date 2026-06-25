@@ -300,9 +300,10 @@ subject to breaking change" to downstream UIs / SDK generators; we graduate to
   `Unauthorized` into `401`.
 - **OpenAPI**: derived automatically from view models; served at
   `/api/v0/openapi.json` with Swagger UI at `/api/v0/docs`.
-- **Logs**: `GET /tasks/{id}/logs` returns a `TaskLogsView` of plain lines read
-  from the ClickHouse `task_logs` stream (host-independent); optional `?tail=N`
-  bounds the response to the last N lines. No per-line envelope view model.
+- **Logs**: `GET /tasks/{id}/logs` returns a `TaskLogsView` whose `lines` are
+  `LogLine` objects (`stream` = `stdout`/`stderr`, `text`) read from the
+  ClickHouse `task_logs` stream (host-independent); optional `?tail=N` bounds the
+  response to the last N lines.
 
 ## Spawning workers — `POST /api/v0/workers`
 

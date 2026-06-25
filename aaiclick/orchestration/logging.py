@@ -21,6 +21,7 @@ from aaiclick.backend import get_root, is_local
 from aaiclick.data.data_context import get_ch_client
 from aaiclick.datetime_utils import utc_now
 from aaiclick.oplog.models import TASK_LOGS_EXPECTED_COLUMNS
+from aaiclick.view_models import STDERR_STREAM, STDOUT_STREAM, LogLine, LogStream
 
 logger = logging.getLogger(__name__)
 
@@ -58,41 +59,52 @@ def get_logs_dir() -> str:
 
 
 class _ChLogSink:
-    """Accumulate captured output for a ClickHouse batch write.
+    """Accumulate captured output as stream-tagged lines for a CH batch write.
 
     ``write`` is sync — it's driven by ``print`` through ``_TeeWriter`` while the
-    task runs, appending raw chunks. The async flush happens once after the task
-    body completes (:func:`capture_task_output`), splitting into lines then —
-    matching how the on-host log file is read back — so the task's own
-    ClickHouse work never races the log write on a shared (chdb single-session)
-    client.
+    task runs. Each stream (stdout / stderr) keeps its own partial-line buffer so
+    a line is tagged with the stream that emitted it; completed lines are
+    appended in emission order. The async flush happens once after the task body
+    completes (:func:`capture_task_output`), so the task's own ClickHouse work
+    never races the log write on a shared (chdb single-session) client.
     """
 
     def __init__(self) -> None:
-        self._chunks: list[str] = []
+        self._partial: dict[LogStream, str] = {STDOUT_STREAM: "", STDERR_STREAM: ""}
+        self._lines: list[LogLine] = []
 
-    def write(self, data: str) -> None:
-        self._chunks.append(data)
+    def write(self, stream: LogStream, data: str) -> None:
+        parts = (self._partial[stream] + data).split("\n")
+        self._partial[stream] = parts.pop()
+        self._lines.extend(LogLine(stream=stream, text=p) for p in parts)
 
-    def finalize(self) -> list[str]:
-        """Return the captured output as discrete lines."""
-        text, self._chunks = "".join(self._chunks), []
-        return text.splitlines()
+    def finalize(self) -> list[LogLine]:
+        """Return all captured lines, flushing any unterminated trailing line."""
+        for stream in (STDOUT_STREAM, STDERR_STREAM):
+            if self._partial[stream]:
+                self._lines.append(LogLine(stream=stream, text=self._partial[stream]))
+                self._partial[stream] = ""
+        lines, self._lines = self._lines, []
+        return lines
 
 
 class _TeeWriter:
-    """Writer that outputs to multiple streams and an optional CH sink."""
+    """Writer that outputs to multiple streams and an optional CH sink.
 
-    def __init__(self, *streams: TextIO, sink: _ChLogSink | None = None):
+    ``source`` tags the sink rows with the stream this writer fronts (stdout /
+    stderr) so the captured lines carry their origin."""
+
+    def __init__(self, *streams: TextIO, sink: _ChLogSink | None = None, source: LogStream | None = None):
         self.streams = streams
         self._sink = sink
+        self._source = source
 
     def write(self, data: str) -> int:
         for stream in self.streams:
             stream.write(data)
             stream.flush()
-        if self._sink is not None:
-            self._sink.write(data)
+        if self._sink is not None and self._source is not None:
+            self._sink.write(self._source, data)
         return len(data)
 
     def flush(self) -> None:
@@ -100,7 +112,7 @@ class _TeeWriter:
             stream.flush()
 
 
-async def flush_task_logs(task_id: int, job_id: int, run_id: int, lines: list[str]) -> None:
+async def flush_task_logs(task_id: int, job_id: int, run_id: int, lines: list[LogLine]) -> None:
     """Best-effort batch insert of captured log lines into CH ``task_logs``.
 
     A failed write must not fail the task, so errors are logged and swallowed —
@@ -109,7 +121,7 @@ async def flush_task_logs(task_id: int, job_id: int, run_id: int, lines: list[st
     if not lines:
         return
     now = utc_now()
-    rows = [[task_id, job_id, run_id, seq, line, now] for seq, line in enumerate(lines)]
+    rows = [[task_id, job_id, run_id, seq, line.stream, line.text, now] for seq, line in enumerate(lines)]
     try:
         await get_ch_client().insert(
             "task_logs",
@@ -121,27 +133,30 @@ async def flush_task_logs(task_id: int, job_id: int, run_id: int, lines: list[st
         logger.error("Failed to write task_logs for task %s run %s", task_id, run_id, exc_info=True)
 
 
-async def read_task_logs(task_id: int, run_id: int, tail: int | None = None) -> list[str]:
+async def read_task_logs(task_id: int, run_id: int, tail: int | None = None) -> list[LogLine]:
     """Return captured log lines for a single task attempt from CH ``task_logs``.
 
-    When ``tail`` is given, returns only the last ``tail`` lines (still in
-    emission order) — fetched with a ``seq``-descending ``LIMIT`` so the read
-    stays bounded for large logs.
+    Each line carries its source ``stream`` (stdout / stderr). When ``tail`` is
+    given, returns only the last ``tail`` lines (still in emission order) —
+    fetched with a ``seq``-descending ``LIMIT`` so the read stays bounded for
+    large logs.
     """
     where = "WHERE task_id = {task_id:UInt64} AND run_id = {run_id:UInt64}"
     parameters: dict[str, int] = {"task_id": task_id, "run_id": run_id}
     if tail is not None:
         parameters["tail"] = tail
         result = await get_ch_client().query(
-            f"SELECT line FROM task_logs {where} ORDER BY seq DESC LIMIT {{tail:UInt64}}",
+            f"SELECT stream, line FROM task_logs {where} ORDER BY seq DESC LIMIT {{tail:UInt64}}",
             parameters=parameters,
         )
-        return [row[0] for row in reversed(result.result_rows)]
-    result = await get_ch_client().query(
-        f"SELECT line FROM task_logs {where} ORDER BY seq",
-        parameters=parameters,
-    )
-    return [row[0] for row in result.result_rows]
+        rows = list(reversed(result.result_rows))
+    else:
+        result = await get_ch_client().query(
+            f"SELECT stream, line FROM task_logs {where} ORDER BY seq",
+            parameters=parameters,
+        )
+        rows = result.result_rows
+    return [LogLine(stream=row[0], text=row[1]) for row in rows]
 
 
 @asynccontextmanager
@@ -177,8 +192,8 @@ async def capture_task_output(task_id: int, job_id: int, run_id: int):
     sink = _ChLogSink()
     log_file = open(log_path, "w")
 
-    sys.stdout = _TeeWriter(original_stdout, log_file, sink=sink)
-    sys.stderr = _TeeWriter(original_stderr, log_file, sink=sink)
+    sys.stdout = _TeeWriter(original_stdout, log_file, sink=sink, source=STDOUT_STREAM)
+    sys.stderr = _TeeWriter(original_stderr, log_file, sink=sink, source=STDERR_STREAM)
 
     try:
         yield log_path

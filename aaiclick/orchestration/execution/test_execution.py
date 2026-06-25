@@ -392,8 +392,9 @@ async def test_run_job_tasks_streams_logs_to_clickhouse(orch_ctx):
     logs = await get_task_logs(task.id)
 
     assert logs.available is True
-    assert "This is stdout" in logs.lines
-    assert "Error message" in logs.lines
+    by_text = {line.text: line.stream for line in logs.lines}
+    assert by_text.get("This is stdout") == "stdout"
+    assert by_text.get("Error message") == "stderr"
 
 
 # job_test() tests

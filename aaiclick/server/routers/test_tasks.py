@@ -9,7 +9,7 @@ from aaiclick.orchestration.logging import flush_task_logs
 from aaiclick.orchestration.models import Task
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.view_models import ClearTaskView, TaskDetail, TaskLogsView
-from aaiclick.view_models import Problem, ProblemCode
+from aaiclick.view_models import STDOUT_STREAM, LogLine, Problem, ProblemCode
 
 from ..app import API_PREFIX
 
@@ -51,7 +51,7 @@ async def test_get_task_logs_reads_clickhouse_through_scope(orch_ctx, app_client
     scope would raise 'no active data context' here)."""
     job = await create_job("logs_ch_route", simple_task)
     task = (await get_tasks_for_job(job.id))[0]
-    await flush_task_logs(task.id, job.id, 123, ["hello from clickhouse"])
+    await flush_task_logs(task.id, job.id, 123, [LogLine(stream=STDOUT_STREAM, text="hello from clickhouse")])
     async with get_sql_session() as s:
         row = (await s.execute(select(Task).where(Task.id == task.id))).scalar_one()
         row.run_ids = [123]
@@ -63,7 +63,7 @@ async def test_get_task_logs_reads_clickhouse_through_scope(orch_ctx, app_client
     assert response.status_code == 200
     logs = TaskLogsView.model_validate(response.json())
     assert logs.available is True
-    assert logs.lines == ["hello from clickhouse"]
+    assert [(line.stream, line.text) for line in logs.lines] == [(STDOUT_STREAM, "hello from clickhouse")]
 
 
 async def test_get_task_logs_accepts_tail_param(orch_ctx, app_client):

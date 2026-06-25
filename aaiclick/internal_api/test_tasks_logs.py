@@ -11,6 +11,15 @@ from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.logging import flush_task_logs
 from aaiclick.orchestration.models import Task
 from aaiclick.orchestration.orch_context import get_sql_session
+from aaiclick.view_models import STDERR_STREAM, STDOUT_STREAM, LogLine
+
+
+def _out(*texts: str) -> list[LogLine]:
+    return [LogLine(stream=STDOUT_STREAM, text=t) for t in texts]
+
+
+def _texts(lines: list[LogLine]) -> list[str]:
+    return [line.text for line in lines]
 
 
 async def _set_run_ids(task_id: int, run_ids: list[int]) -> None:
@@ -35,39 +44,59 @@ async def test_logs_read_from_clickhouse(orch_ctx):
     job = await create_job("logs_ch", simple_task)
     task = (await get_tasks_for_job(job.id))[0]
     run_id = 42
-    await flush_task_logs(task.id, job.id, run_id, ["line one", "line two"])
+    await flush_task_logs(task.id, job.id, run_id, _out("line one", "line two"))
     await _set_run_ids(task.id, [run_id])
 
     result = await get_task_logs(task.id)
 
     assert result.available is True
-    assert result.lines == ["line one", "line two"]
+    assert _texts(result.lines) == ["line one", "line two"]
+
+
+async def test_logs_preserve_stream_tags(orch_ctx):
+    job = await create_job("logs_streams", simple_task)
+    task = (await get_tasks_for_job(job.id))[0]
+    run_id = 5
+    await flush_task_logs(
+        task.id,
+        job.id,
+        run_id,
+        [LogLine(stream=STDOUT_STREAM, text="to stdout"), LogLine(stream=STDERR_STREAM, text="to stderr")],
+    )
+    await _set_run_ids(task.id, [run_id])
+
+    result = await get_task_logs(task.id)
+
+    assert [(line.stream, line.text) for line in result.lines] == [
+        (STDOUT_STREAM, "to stdout"),
+        (STDERR_STREAM, "to stderr"),
+    ]
 
 
 async def test_logs_read_latest_run_only(orch_ctx):
     job = await create_job("logs_latest", simple_task)
     task = (await get_tasks_for_job(job.id))[0]
-    await flush_task_logs(task.id, job.id, 1, ["first attempt"])
-    await flush_task_logs(task.id, job.id, 2, ["second attempt"])
+    await flush_task_logs(task.id, job.id, 1, _out("first attempt"))
+    await flush_task_logs(task.id, job.id, 2, _out("second attempt"))
     await _set_run_ids(task.id, [1, 2])
 
     result = await get_task_logs(task.id)
 
     assert result.available is True
-    assert result.lines == ["second attempt"]
+    assert _texts(result.lines) == ["second attempt"]
 
 
 async def test_logs_tail_returns_last_n_in_order(orch_ctx):
     job = await create_job("logs_tail", simple_task)
     task = (await get_tasks_for_job(job.id))[0]
     run_id = 99
-    await flush_task_logs(task.id, job.id, run_id, ["a", "b", "c", "d"])
+    await flush_task_logs(task.id, job.id, run_id, _out("a", "b", "c", "d"))
     await _set_run_ids(task.id, [run_id])
 
     result = await get_task_logs(task.id, tail=2)
 
     assert result.available is True
-    assert result.lines == ["c", "d"]
+    assert _texts(result.lines) == ["c", "d"]
 
 
 async def test_logs_unavailable_when_run_has_no_lines(orch_ctx):

@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS task_logs (
     job_id      UInt64,
     run_id      UInt64,
     seq         UInt64,
+    stream      String,
     line        String,
     created_at  DateTime64(3)
 ) ENGINE = MergeTree()
@@ -54,13 +55,15 @@ ORDER BY (task_id, run_id, seq)
 # docker, kubernetes) streams here from inside the task process, so logs are
 # reachable cross-host through a single read path. (task_id, run_id) leads the
 # sort key — the read path always scans one task attempt — and seq preserves
-# the emission order within that attempt.
+# the emission order within that attempt. ``stream`` tags the source
+# (``stdout`` / ``stderr``) so the UI can distinguish them.
 
 TASK_LOGS_EXPECTED_COLUMNS: dict[str, str] = {
     "task_id": "UInt64",
     "job_id": "UInt64",
     "run_id": "UInt64",
     "seq": "UInt64",
+    "stream": "String",
     "line": "String",
     "created_at": "DateTime64(3)",
 }

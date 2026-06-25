@@ -13,7 +13,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from ..view_models import SnowflakeId
+from ..view_models import LogLine, SnowflakeId
 from .jobs.stats import _short_entrypoint
 from .models import (
     TASK_COMPLETED,
@@ -80,7 +80,7 @@ class TaskLogsView(BaseModel):
 
     available: bool
     log_path: str | None = None
-    lines: list[str] = Field(default_factory=list)
+    lines: list[LogLine] = Field(default_factory=list)
 
 
 class JobDetail(JobView):

@@ -33,6 +33,20 @@ ObjectScope = Literal["temp", "temp_named", "job", "global"]
 # to ``int`` on validation.
 SnowflakeId = Annotated[int, PlainSerializer(lambda v: str(v), return_type=str, when_used="json")]
 
+# Captured task output streams. Defined here (not in orchestration.view_models)
+# so aaiclick.orchestration.logging can import LogLine without forming a cycle
+# through the jobs/execution packages.
+STDOUT_STREAM = "stdout"
+STDERR_STREAM = "stderr"
+LogStream = Literal["stdout", "stderr"]
+
+
+class LogLine(BaseModel):
+    """One captured output line tagged with the stream it came from."""
+
+    stream: LogStream
+    text: str
+
 T = TypeVar("T")
 
 RefId = int | str

@@ -631,6 +631,19 @@ export interface components {
              */
             total_tasks: number;
         };
+        /**
+         * LogLine
+         * @description One captured output line tagged with the stream it came from.
+         */
+        LogLine: {
+            /**
+             * Stream
+             * @enum {string}
+             */
+            stream: "stdout" | "stderr";
+            /** Text */
+            text: string;
+        };
         /** LoginRequest */
         LoginRequest: {
             /** Password */
@@ -1017,7 +1030,7 @@ export interface components {
             /** Available */
             available: boolean;
             /** Lines */
-            lines?: string[];
+            lines?: components["schemas"]["LogLine"][];
             /** Log Path */
             log_path?: string | null;
         };
