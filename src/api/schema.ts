@@ -433,7 +433,7 @@ export interface components {
          */
         ClearTaskView: {
             /** Cleared Task Ids */
-            cleared_task_ids?: number[];
+            cleared_task_ids?: string[];
             job: components["schemas"]["JobView"];
         };
         /**
@@ -523,7 +523,7 @@ export interface components {
             /** Error */
             error?: string | null;
             /** Id */
-            id: number;
+            id: string;
             /** Name */
             name: string;
             /**
@@ -532,7 +532,7 @@ export interface components {
              */
             preservation_mode: "NONE" | "FULL";
             /** Registered Job Id */
-            registered_job_id?: number | null;
+            registered_job_id?: string | null;
             /**
              * Run Type
              * @enum {string}
@@ -564,7 +564,7 @@ export interface components {
             /** Exec Time Ms */
             exec_time_ms?: number | null;
             /** Job Id */
-            job_id: number;
+            job_id: string;
             /** Job Name */
             job_name: string;
             /**
@@ -603,7 +603,7 @@ export interface components {
             /** Error */
             error?: string | null;
             /** Id */
-            id: number;
+            id: string;
             /** Name */
             name: string;
             /**
@@ -612,7 +612,7 @@ export interface components {
              */
             preservation_mode: "NONE" | "FULL";
             /** Registered Job Id */
-            registered_job_id?: number | null;
+            registered_job_id?: string | null;
             /**
              * Run Type
              * @enum {string}
@@ -630,6 +630,19 @@ export interface components {
              * @default 0
              */
             total_tasks: number;
+        };
+        /**
+         * LogLine
+         * @description One captured output line tagged with the stream it came from.
+         */
+        LogLine: {
+            /**
+             * Stream
+             * @enum {string}
+             */
+            stream: "stdout" | "stderr";
+            /** Text */
+            text: string;
         };
         /** LoginRequest */
         LoginRequest: {
@@ -865,7 +878,7 @@ export interface components {
             /** Entrypoint */
             entrypoint: string;
             /** Id */
-            id: number;
+            id: string;
             /** Name */
             name: string;
             /** Next Run At */
@@ -979,9 +992,9 @@ export interface components {
             /** Error */
             error?: string | null;
             /** Id */
-            id: number;
+            id: string;
             /** Job Id */
-            job_id: number;
+            job_id: string;
             /** Kwargs */
             kwargs?: {
                 [key: string]: unknown;
@@ -1007,7 +1020,7 @@ export interface components {
              */
             status: "PENDING" | "CLAIMED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_CLEANUP" | "UPSTREAM_FAILED";
             /** Worker Id */
-            worker_id?: number | null;
+            worker_id?: string | null;
         };
         /**
          * TaskLogsView
@@ -1017,7 +1030,7 @@ export interface components {
             /** Available */
             available: boolean;
             /** Lines */
-            lines?: string[];
+            lines?: components["schemas"]["LogLine"][];
             /** Log Path */
             log_path?: string | null;
         };
@@ -1033,7 +1046,7 @@ export interface components {
             /** Exec Time Ms */
             exec_time_ms?: number | null;
             /** Id */
-            id: number;
+            id: string;
             /** Queue Time Ms */
             queue_time_ms?: number | null;
             /**
@@ -1061,9 +1074,9 @@ export interface components {
             /** Error */
             error?: string | null;
             /** Id */
-            id: number;
+            id: string;
             /** Job Id */
-            job_id: number;
+            job_id: string;
             /** Name */
             name: string;
             /** Started At */
@@ -1128,7 +1141,7 @@ export interface components {
             /** Hostname */
             hostname: string;
             /** Id */
-            id: number;
+            id: string;
             /**
              * Last Heartbeat
              * Format: date-time
@@ -1942,7 +1955,10 @@ export interface operations {
     };
     get_task_logs_api_v0_tasks__task_id__logs_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Return only the last N log lines. */
+                tail?: number | null;
+            };
             header?: never;
             path: {
                 task_id: number;

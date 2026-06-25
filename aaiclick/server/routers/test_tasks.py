@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from sqlmodel import select
+
 from aaiclick.orchestration.factories import _callable_to_string, create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
+from aaiclick.orchestration.logging import flush_task_logs
+from aaiclick.orchestration.models import Task
+from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.view_models import ClearTaskView, TaskDetail, TaskLogsView
-from aaiclick.view_models import Problem, ProblemCode
+from aaiclick.view_models import STDOUT_STREAM, LogLine, Problem, ProblemCode
 
 from ..app import API_PREFIX
 
@@ -38,6 +43,37 @@ async def test_get_task_logs(orch_ctx, app_client):
     assert response.status_code == 200
     logs = TaskLogsView.model_validate(response.json())
     assert logs.available is False
+
+
+async def test_get_task_logs_reads_clickhouse_through_scope(orch_ctx, app_client):
+    """A task with captured logs returns them — exercising the CH-backed read
+    path through the endpoint's ``orch_scope_with_ch`` dependency (a SQL-only
+    scope would raise 'no active data context' here)."""
+    job = await create_job("logs_ch_route", simple_task)
+    task = (await get_tasks_for_job(job.id))[0]
+    await flush_task_logs(task.id, job.id, 123, [LogLine(stream=STDOUT_STREAM, text="hello from clickhouse")])
+    async with get_sql_session() as s:
+        row = (await s.execute(select(Task).where(Task.id == task.id))).scalar_one()
+        row.run_ids = [123]
+        s.add(row)
+        await s.commit()
+
+    response = await app_client.get(f"{API_PREFIX}/tasks/{task.id}/logs")
+
+    assert response.status_code == 200
+    logs = TaskLogsView.model_validate(response.json())
+    assert logs.available is True
+    assert [(line.stream, line.text) for line in logs.lines] == [(STDOUT_STREAM, "hello from clickhouse")]
+
+
+async def test_get_task_logs_accepts_tail_param(orch_ctx, app_client):
+    job = await create_job("logs_tail_route_job", simple_task)
+    task = (await get_tasks_for_job(job.id))[0]
+
+    response = await app_client.get(f"{API_PREFIX}/tasks/{task.id}/logs", params={"tail": 5})
+
+    assert response.status_code == 200
+    TaskLogsView.model_validate(response.json())
 
 
 async def test_get_task_logs_not_found_returns_404(orch_ctx, app_client):

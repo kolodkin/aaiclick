@@ -5,7 +5,7 @@ import { MetaGrid } from "../components/MetaGrid";
 import { StatusBadge } from "../components/StatusBadge";
 import { durationBetween, relativeTime } from "../lib/format";
 
-export function TaskDetail({ id, onPrompt }: { id: number; onPrompt: (v: string) => void }) {
+export function TaskDetail({ id, onPrompt }: { id: string; onPrompt: (v: string) => void }) {
   const { data: task, isLoading, isError } = useTask(id);
 
   if (isLoading) return <p className="sub">loading…</p>;

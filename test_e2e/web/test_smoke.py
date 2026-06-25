@@ -20,9 +20,12 @@ runs when the path is passed explicitly or in a dedicated CI workflow."""
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 
 import pytest
+
+from aaiclick.backend import is_local
 
 # Guard 1: the SPA build must exist.
 STATIC = Path(__file__).resolve().parents[2] / "aaiclick" / "server" / "static" / "index.html"
@@ -82,3 +85,56 @@ def test_prompt_updates_url(page, base_url: str) -> None:
     page.fill("#prompt", "@registered")
     # After typing, the URL should contain ?p=@registered.
     page.wait_for_url(lambda url: "p=%40registered" in url or "p=@registered" in url)
+
+
+def _run_logging_task(page, base_url: str) -> str:
+    """Submit a job whose task prints, wait for it to complete, return task id.
+
+    Uses Playwright's API request context (same origin, auth off in local mode).
+    The id comes back as a JSON *string* — snowflakes exceed JS's safe-integer
+    range — and is carried verbatim into the ``@task`` route below.
+    """
+    api = f"{base_url}/api/v0"
+    resp = page.request.post(
+        f"{api}/jobs:run",
+        data={"name": "aaiclick.orchestration.fixtures.sample_tasks.task_with_output"},
+    )
+    assert resp.ok, resp.text()
+    job_id = resp.json()["id"]
+
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        detail = page.request.get(f"{api}/jobs/{job_id}").json()
+        tasks = detail.get("tasks") or []
+        if tasks and tasks[0]["status"] == "COMPLETED":
+            return tasks[0]["id"]
+        time.sleep(0.5)
+    raise AssertionError("task did not reach COMPLETED within 30 s")
+
+
+@pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
+@pytest.mark.skipif(
+    not is_local(),
+    reason="needs auth-off + an in-process worker (local_runtime), both local-mode only; "
+    "the distributed e2e job enforces auth and runs no worker",
+)
+def test_task_view_shows_logs(page, base_url: str) -> None:
+    """The task view renders captured logs (local mode only).
+
+    Runs a job that prints to stdout/stderr, opens ``@task <id>``, and asserts
+    the log viewer shows the printed lines — exercising the cross-host
+    ``task_logs`` read path, the per-stream styling, and the 64-bit string-id
+    round-trip end to end (a rounded id would 404 and show no logs).
+
+    Local-mode only: it drives ``/jobs:run`` unauthenticated and relies on the
+    in-process worker that ``local_runtime`` starts — the distributed e2e job
+    enforces auth (401) and runs no worker, so the job would never execute."""
+    task_id = _run_logging_task(page, base_url)
+
+    page.goto(f"{base_url}/?p=@task {task_id}")
+    page.wait_for_selector("#root")
+    _login_if_needed(page)
+
+    logs = page.locator("div.logs")
+    logs.get_by_text("This is stdout").wait_for(timeout=15000)
+    logs.get_by_text("Error message").wait_for(timeout=15000)

@@ -13,6 +13,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from ..view_models import LogLine, SnowflakeId
 from .jobs.stats import _short_entrypoint
 from .models import (
     TASK_COMPLETED,
@@ -31,12 +32,12 @@ from .models import (
 class JobView(BaseModel):
     """Compact job representation used by list endpoints."""
 
-    id: int
+    id: SnowflakeId
     name: str
     status: JobStatus
     run_type: RunType
     preservation_mode: PreservationMode
-    registered_job_id: int | None = None
+    registered_job_id: SnowflakeId | None = None
     created_at: datetime
     started_at: datetime | None = None
     completed_at: datetime | None = None
@@ -48,8 +49,8 @@ class JobView(BaseModel):
 class TaskView(BaseModel):
     """Compact task representation used by list endpoints and ``JobDetail``."""
 
-    id: int
-    job_id: int
+    id: SnowflakeId
+    job_id: SnowflakeId
     entrypoint: str
     name: str
     status: TaskStatus
@@ -70,7 +71,7 @@ class TaskDetail(TaskView):
     kwargs: dict[str, Any] = Field(default_factory=dict)
     result: dict[str, Any] | None = None
     log_path: str | None = None
-    worker_id: int | None = None
+    worker_id: SnowflakeId | None = None
     max_retries: int = 0
 
 
@@ -79,7 +80,7 @@ class TaskLogsView(BaseModel):
 
     available: bool
     log_path: str | None = None
-    lines: list[str] = Field(default_factory=list)
+    lines: list[LogLine] = Field(default_factory=list)
 
 
 class JobDetail(JobView):
@@ -94,13 +95,13 @@ class ClearTaskView(BaseModel):
     full set of tasks that were reset to ``PENDING`` (target + downstream)."""
 
     job: JobView
-    cleared_task_ids: list[int] = Field(default_factory=list)
+    cleared_task_ids: list[SnowflakeId] = Field(default_factory=list)
 
 
 class TaskStatsView(BaseModel):
     """Per-task execution stats exposed inside ``JobStatsView``."""
 
-    id: int
+    id: SnowflakeId
     entrypoint: str
     status: TaskStatus
     queue_time_ms: int | None = None
@@ -115,7 +116,7 @@ class JobStatsView(BaseModel):
     migrates callers, after which the old dataclass is removed.
     """
 
-    job_id: int
+    job_id: SnowflakeId
     job_name: str
     job_status: JobStatus
     total_tasks: int
@@ -128,7 +129,7 @@ class JobStatsView(BaseModel):
 class WorkerView(BaseModel):
     """Worker representation used by ``GET /workers``."""
 
-    id: int
+    id: SnowflakeId
     hostname: str
     pid: int
     status: WorkerStatus
@@ -141,7 +142,7 @@ class WorkerView(BaseModel):
 class RegisteredJobView(BaseModel):
     """Registered job representation used by ``GET /registered-jobs``."""
 
-    id: int
+    id: SnowflakeId
     name: str
     entrypoint: str
     enabled: bool

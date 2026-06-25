@@ -19,6 +19,7 @@ from .models import (
 from .view_models import (
     JobDetail,
     JobStatsView,
+    LogLine,
     TaskLogsView,
     TaskStatsView,
     TaskView,
@@ -213,5 +214,9 @@ def test_task_logs_view_defaults():
 
 
 def test_task_logs_view_with_lines():
-    view = TaskLogsView(available=True, log_path="/tmp/x.log", lines=["a", "b"])
-    assert view.lines == ["a", "b"]
+    view = TaskLogsView(
+        available=True,
+        log_path="/tmp/x.log",
+        lines=[LogLine(stream="stdout", text="a"), LogLine(stream="stderr", text="b")],
+    )
+    assert [(line.stream, line.text) for line in view.lines] == [("stdout", "a"), ("stderr", "b")]

@@ -124,6 +124,15 @@ Auth + worker-spawn add `StartWorkerRequest` and expand `ProblemCode` — see
 | `Page[T]`              | Generic paged list: `items`, `total`, `next_cursor`          |
 | `Problem`              | Error shape: `title`, `status`, `detail`, `code`             |
 | `RefId`                | `int \| str` — numeric id or human-readable name             |
+| `SnowflakeId`          | `int` serialized as a JSON **string** (`when_used="json"`)   |
+
+**Snowflake ids on the wire**: every 64-bit id field (`id`, `job_id`,
+`worker_id`, …) is typed `SnowflakeId`, so it serializes to a JSON *string*.
+This keeps ids exact in JavaScript, which would otherwise round integers past
+`Number.MAX_SAFE_INTEGER` (2^53-1). It is serialization-only — the Python
+attribute and `model_dump()` stay `int`, and request paths/bodies still accept
+the numeric string and coerce it back to `int`. The generated SPA types
+(`src/api/schema.ts`) follow, declaring these fields `string`.
 | `RunJobRequest`        | `name`, `kwargs`, `preservation_mode`                        |
 | `RegisterJobRequest`   | `entrypoint`, `schedule`, `defaults`                         |
 | `JobListFilter`        | `status`, `name`, `since`, `limit`, `cursor`                 |
@@ -291,8 +300,10 @@ subject to breaking change" to downstream UIs / SDK generators; we graduate to
   `Unauthorized` into `401`.
 - **OpenAPI**: derived automatically from view models; served at
   `/api/v0/openapi.json` with Swagger UI at `/api/v0/docs`.
-- **Logs**: out of scope. Task log files are served statically or streamed
-  verbatim; no log envelope view model.
+- **Logs**: `GET /tasks/{id}/logs` returns a `TaskLogsView` whose `lines` are
+  `LogLine` objects (`stream` = `stdout`/`stderr`, `text`) read from the
+  ClickHouse `task_logs` stream (host-independent); optional `?tail=N` bounds the
+  response to the last N lines.
 
 ## Spawning workers — `POST /api/v0/workers`
 
@@ -492,8 +503,9 @@ scopes, OAuth 2.0 / OIDC, and a per-request audit log are tracked in
 
 # Non-Goals
 
-- **Streaming log envelopes** — task logs stream as files; no `TaskLogLine`
-  view model.
+- **Streaming log envelopes** — `GET /tasks/{id}/logs` returns the captured
+  lines in one `TaskLogsView`; live per-line streaming (`TaskLogLine`) is a
+  follow-up tracked in `docs/future.md`.
 - **WebSockets** — the UI's live update channel is a follow-up once the REST
   surface stabilises.
 - **Backwards-compatible shims for old CLI code paths** — during migration,

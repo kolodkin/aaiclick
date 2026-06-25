@@ -6,10 +6,9 @@ session via the contextvar getter. Returns pydantic view models.
 
 from __future__ import annotations
 
-import os
-
 from aaiclick.orchestration.execution import claiming
 from aaiclick.orchestration.jobs.queries import get_task as _get_task_impl
+from aaiclick.orchestration.logging import read_task_logs
 from aaiclick.orchestration.view_models import (
     ClearTaskView,
     TaskDetail,
@@ -32,12 +31,14 @@ async def get_task(task_id: int) -> TaskDetail:
     return task_to_detail(task)
 
 
-async def get_task_logs(task_id: int) -> TaskLogsView:
-    """Return captured log lines for a task.
+async def get_task_logs(task_id: int, tail: int | None = None) -> TaskLogsView:
+    """Return captured log lines for a task's latest run.
 
-    Reads the file at ``task.log_path``. Returns ``available=False`` when the
-    task has no log path or the file is not present on this process's
-    filesystem (distributed / docker runs).
+    Reads the ClickHouse ``task_logs`` stream written by the task process, so
+    logs are available regardless of which host ran the task (local, docker, or
+    kubernetes). When ``tail`` is given, returns only the last ``tail`` lines.
+    Returns ``available=False`` when the task has not run yet or its latest run
+    produced no captured output.
 
     Raises ``NotFound`` if no task matches ``task_id``.
     """
@@ -45,13 +46,11 @@ async def get_task_logs(task_id: int) -> TaskLogsView:
     if task is None:
         raise NotFound(f"Task not found: {task_id}")
 
-    log_path = task.log_path
-    if not log_path or not os.path.isfile(log_path):
-        return TaskLogsView(available=False, log_path=log_path)
+    if not task.run_ids:
+        return TaskLogsView(available=False, log_path=task.log_path)
 
-    with open(log_path, encoding="utf-8", errors="replace") as f:
-        lines = f.read().splitlines()
-    return TaskLogsView(available=True, log_path=log_path, lines=lines)
+    lines = await read_task_logs(task_id, task.run_ids[-1], tail=tail)
+    return TaskLogsView(available=bool(lines), log_path=task.log_path, lines=lines)
 
 
 async def clear_task(task_id: int) -> ClearTaskView:
