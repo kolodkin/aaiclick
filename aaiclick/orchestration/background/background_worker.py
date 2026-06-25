@@ -314,17 +314,12 @@ class BackgroundWorker:
                 except Exception:
                     logger.debug("Failed to drop table %s", table_name, exc_info=True)
 
-            # operation_log still lives on CH, not SQL.
-            try:
-                await self._ch_client.command(f"ALTER TABLE operation_log DELETE WHERE job_id = {job_id}")
-            except Exception:
-                logger.debug("Failed to delete operation_log for job %s", job_id, exc_info=True)
-
-            # task_logs are CH-only too — drop this job's captured task output.
-            try:
-                await self._ch_client.command(f"ALTER TABLE task_logs DELETE WHERE job_id = {job_id}")
-            except Exception:
-                logger.debug("Failed to delete task_logs for job %s", job_id, exc_info=True)
+            # operation_log and task_logs live on CH, not SQL. Let a failure
+            # propagate: _cleanup_expired_jobs logs it and retries the whole
+            # (idempotent) deletion next cycle — better than committing the SQL
+            # deletes while the CH rows are orphaned behind a swallowed error.
+            await self._ch_client.command(f"ALTER TABLE operation_log DELETE WHERE job_id = {job_id}")
+            await self._ch_client.command(f"ALTER TABLE task_logs DELETE WHERE job_id = {job_id}")
 
             # 4. Delete SQL metadata
             await session.execute(
