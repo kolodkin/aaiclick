@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+from sqlmodel import select
+
 from aaiclick.orchestration.factories import _callable_to_string, create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
+from aaiclick.orchestration.logging import flush_task_logs
+from aaiclick.orchestration.models import Task
+from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.view_models import ClearTaskView, TaskDetail, TaskLogsView
 from aaiclick.view_models import Problem, ProblemCode
 
@@ -38,6 +43,27 @@ async def test_get_task_logs(orch_ctx, app_client):
     assert response.status_code == 200
     logs = TaskLogsView.model_validate(response.json())
     assert logs.available is False
+
+
+async def test_get_task_logs_reads_clickhouse_through_scope(orch_ctx, app_client):
+    """A task with captured logs returns them — exercising the CH-backed read
+    path through the endpoint's ``orch_scope_with_ch`` dependency (a SQL-only
+    scope would raise 'no active data context' here)."""
+    job = await create_job("logs_ch_route", simple_task)
+    task = (await get_tasks_for_job(job.id))[0]
+    await flush_task_logs(task.id, job.id, 123, ["hello from clickhouse"])
+    async with get_sql_session() as s:
+        row = (await s.execute(select(Task).where(Task.id == task.id))).scalar_one()
+        row.run_ids = [123]
+        s.add(row)
+        await s.commit()
+
+    response = await app_client.get(f"{API_PREFIX}/tasks/{task.id}/logs")
+
+    assert response.status_code == 200
+    logs = TaskLogsView.model_validate(response.json())
+    assert logs.available is True
+    assert logs.lines == ["hello from clickhouse"]
 
 
 async def test_get_task_logs_accepts_tail_param(orch_ctx, app_client):

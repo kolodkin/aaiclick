@@ -13,9 +13,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Generic, Literal, TypeVar
+from typing import Annotated, Any, Generic, Literal, TypeVar
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, PlainSerializer, model_validator
 
 from .orchestration.models import JobStatus, PreservationMode, RunnerMode, WorkerStatus
 
@@ -23,6 +23,15 @@ from .orchestration.models import JobStatus, PreservationMode, RunnerMode, Worke
 # module from pulling the heavy aaiclick.data package into CLI/REST startup.
 # Keep the two in lock-step.
 ObjectScope = Literal["temp", "temp_named", "job", "global"]
+
+# Snowflake ids are 64-bit, exceeding JavaScript's safe-integer range (2^53-1),
+# so a JSON number would silently lose precision in the browser. Serialize id
+# fields as strings on the wire (the OpenAPI schema follows, so generated SPA
+# types are honest). ``when_used="json"`` scopes this to JSON output only: the
+# Python attribute and ``model_dump()`` stay ``int``, so the CLI and internal
+# logic are unaffected, and request bodies still coerce a numeric string back
+# to ``int`` on validation.
+SnowflakeId = Annotated[int, PlainSerializer(lambda v: str(v), return_type=str, when_used="json")]
 
 T = TypeVar("T")
 

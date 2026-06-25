@@ -124,6 +124,15 @@ Auth + worker-spawn add `StartWorkerRequest` and expand `ProblemCode` — see
 | `Page[T]`              | Generic paged list: `items`, `total`, `next_cursor`          |
 | `Problem`              | Error shape: `title`, `status`, `detail`, `code`             |
 | `RefId`                | `int \| str` — numeric id or human-readable name             |
+| `SnowflakeId`          | `int` serialized as a JSON **string** (`when_used="json"`)   |
+
+**Snowflake ids on the wire**: every 64-bit id field (`id`, `job_id`,
+`worker_id`, …) is typed `SnowflakeId`, so it serializes to a JSON *string*.
+This keeps ids exact in JavaScript, which would otherwise round integers past
+`Number.MAX_SAFE_INTEGER` (2^53-1). It is serialization-only — the Python
+attribute and `model_dump()` stay `int`, and request paths/bodies still accept
+the numeric string and coerce it back to `int`. The generated SPA types
+(`src/api/schema.ts`) follow, declaring these fields `string`.
 | `RunJobRequest`        | `name`, `kwargs`, `preservation_mode`                        |
 | `RegisterJobRequest`   | `entrypoint`, `schedule`, `defaults`                         |
 | `JobListFilter`        | `status`, `name`, `since`, `limit`, `cursor`                 |

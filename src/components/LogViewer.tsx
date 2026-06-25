@@ -14,7 +14,7 @@ const LogLines = memo(function LogLines({ lines }: { lines: readonly string[] })
   );
 });
 
-export function LogViewer({ taskId }: { taskId: number }) {
+export function LogViewer({ taskId }: { taskId: string }) {
   const { data, isLoading, isError } = useTaskLogs(taskId);
 
   if (isLoading) return <div className="logs">loading logs…</div>;

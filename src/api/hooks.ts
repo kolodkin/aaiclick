@@ -26,19 +26,19 @@ export function useJob(ref: string) {
   });
 }
 
-export function useTask(id: number) {
+export function useTask(id: string) {
   return useQuery({
     queryKey: ["task", id],
     queryFn: () => fetchJSON<TaskDetail>(`/tasks/${id}`),
-    enabled: Number.isFinite(id),
+    enabled: id.length > 0,
   });
 }
 
-export function useTaskLogs(id: number) {
+export function useTaskLogs(id: string) {
   return useQuery({
     queryKey: ["task-logs", id],
     queryFn: () => fetchJSON<TaskLogs>(`/tasks/${id}/logs`),
-    enabled: Number.isFinite(id),
+    enabled: id.length > 0,
   });
 }
 
