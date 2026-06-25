@@ -25,6 +25,8 @@ from pathlib import Path
 
 import pytest
 
+from aaiclick.backend import is_local
+
 # Guard 1: the SPA build must exist.
 STATIC = Path(__file__).resolve().parents[2] / "aaiclick" / "server" / "static" / "index.html"
 
@@ -111,13 +113,22 @@ def _run_logging_task(page, base_url: str) -> str:
 
 
 @pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
+@pytest.mark.skipif(
+    not is_local(),
+    reason="needs auth-off + an in-process worker (local_runtime), both local-mode only; "
+    "the distributed e2e job enforces auth and runs no worker",
+)
 def test_task_view_shows_logs(page, base_url: str) -> None:
-    """The task view renders captured logs.
+    """The task view renders captured logs (local mode only).
 
     Runs a job that prints to stdout/stderr, opens ``@task <id>``, and asserts
     the log viewer shows the printed lines — exercising the cross-host
-    ``task_logs`` read path and the 64-bit string-id round-trip end to end (a
-    rounded id would 404 and show no logs)."""
+    ``task_logs`` read path, the per-stream styling, and the 64-bit string-id
+    round-trip end to end (a rounded id would 404 and show no logs).
+
+    Local-mode only: it drives ``/jobs:run`` unauthenticated and relies on the
+    in-process worker that ``local_runtime`` starts — the distributed e2e job
+    enforces auth (401) and runs no worker, so the job would never execute."""
     task_id = _run_logging_task(page, base_url)
 
     page.goto(f"{base_url}/?p=@task {task_id}")
