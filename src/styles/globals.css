@@ -207,11 +207,12 @@ tbody tr.clickable:hover { background: rgba(91,157,255,.12); }
   box-shadow: var(--hi), var(--shadow);
 }
 .logs .ts { color: #6b7480; }
+.logs .lvl-DEBUG { color: #6b7480; }
 .logs .lvl-INFO { color: #79c0ff; }
-.logs .lvl-WARN { color: #e3b341; }
+.logs .lvl-WARNING { color: #e3b341; }
 .logs .lvl-ERROR { color: #ff7b72; }
+.logs .lvl-CRITICAL { color: #ff7b72; font-weight: 600; }
 .logs .log-line { white-space: pre-wrap; }
-.logs .log-stderr { color: #ff7b72; }
 
 /* forms / panels */
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
