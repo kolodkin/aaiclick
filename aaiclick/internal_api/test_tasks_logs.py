@@ -200,8 +200,29 @@ async def test_capture_no_duplicate_rows_with_preexisting_handler(orch_ctx):
     try:
         async with capture_task_output(task.id, job.id, run_id):
             logging.getLogger("sample").error("once only")
+        assert extra in noisy.handlers  # root handlers restored on exit
     finally:
         noisy.removeHandler(extra)
 
     lines = await read_task_logs(task.id, run_id)
     assert [l.text for l in lines].count("ERROR:sample:once only") == 1
+
+
+async def test_capture_tolerates_invalid_log_level_env(orch_ctx, monkeypatch):
+    monkeypatch.setenv("AAICLICK_LOG_LEVEL", "verbose")
+    job = await create_job("cap_badenv", simple_task)
+    task = (await get_tasks_for_job(job.id))[0]
+    run_id = 83
+
+    root = logging.getLogger()
+    before_handlers = list(root.handlers)
+    before_level = root.level
+
+    async with capture_task_output(task.id, job.id, run_id):
+        logging.getLogger("sample").error("still captured")
+
+    assert list(root.handlers) == before_handlers
+    assert root.level == before_level
+
+    lines = await read_task_logs(task.id, run_id)
+    assert any(l.text == "ERROR:sample:still captured" for l in lines)

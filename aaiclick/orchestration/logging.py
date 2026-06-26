@@ -246,17 +246,17 @@ async def capture_task_output(task_id: int, job_id: int, run_id: int):
     sink = _ChLogSink()
     log_file = open(log_path, "w")
 
-    sys.stdout = _TeeWriter(original_stdout, log_file, sink=sink, source=STDOUT_STREAM)
-    sys.stderr = _TeeWriter(original_stderr, log_file, sink=sink, source=STDERR_STREAM)
-
     root = logging.getLogger()
     saved_handlers = root.handlers[:]
     saved_level = root.level
-    ch_handler = _ChLogHandler(sink, log_file, original_stderr)
-    root.handlers = [ch_handler]
-    root.setLevel(os.getenv("AAICLICK_LOG_LEVEL", "INFO"))
-
     try:
+        sys.stdout = _TeeWriter(original_stdout, log_file, sink=sink, source=STDOUT_STREAM)
+        sys.stderr = _TeeWriter(original_stderr, log_file, sink=sink, source=STDERR_STREAM)
+        root.handlers = [_ChLogHandler(sink, log_file, original_stderr)]
+        try:
+            root.setLevel(os.getenv("AAICLICK_LOG_LEVEL", "INFO").upper())
+        except ValueError:
+            root.setLevel(logging.INFO)
         yield log_path
     finally:
         root.handlers = saved_handlers
