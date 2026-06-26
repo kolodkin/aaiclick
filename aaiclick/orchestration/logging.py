@@ -21,7 +21,7 @@ from aaiclick.backend import get_root, is_local
 from aaiclick.data.data_context import get_ch_client
 from aaiclick.datetime_utils import utc_now
 from aaiclick.oplog.models import TASK_LOGS_EXPECTED_COLUMNS
-from aaiclick.view_models import STDERR_STREAM, STDOUT_STREAM, LogLevel, LogLine, LogStream
+from aaiclick.view_models import STDERR_STREAM, STDOUT_STREAM, LogLevel, LogLine, LogStream, normalize_level
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +135,33 @@ class _TeeWriter:
             stream.flush()
 
 
+class _ChLogHandler(logging.Handler):
+    """Route ``logging`` records into the active CH sink with their true level.
+
+    Echoes the formatted message to the on-host log file and the original stderr
+    for visibility, bypassing the tee so the record is not captured a second time
+    as raw stderr text.
+    """
+
+    def __init__(self, sink: _ChLogSink, log_file: TextIO, console: TextIO):
+        super().__init__()
+        self._sink = sink
+        self._log_file = log_file
+        self._console = console
+        self.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            level = normalize_level(record.levelno)
+            msg = self.format(record)
+            for stream in (self._log_file, self._console):
+                stream.write(msg + "\n")
+                stream.flush()
+            self._sink.record(level, msg)
+        except Exception:  # never let logging crash the task
+            self.handleError(record)
+
+
 async def flush_task_logs(task_id: int, job_id: int, run_id: int, lines: list[LogLine]) -> None:
     """Best-effort batch insert of captured log lines into CH ``task_logs``.
 
@@ -191,11 +218,14 @@ async def read_task_logs(task_id: int, run_id: int, tail: int | None = None) -> 
 @asynccontextmanager
 async def capture_task_output(task_id: int, job_id: int, run_id: int):
     """
-    Context manager to capture stdout and stderr for a single task run.
+    Context manager to capture stdout, stderr, and ``logging`` for one task run.
 
-    Output is teed to the original streams, an on-host log file, and a
-    ClickHouse sink. The sink is flushed to ``task_logs`` once the body exits
-    (on success or failure), giving every runner a host-independent log source.
+    Output is teed to the original streams, an on-host log file, and a ClickHouse
+    sink. ``logging`` records are routed through :class:`_ChLogHandler` so each
+    carries its true level; for the duration of the run the root logger's
+    handlers are replaced with ours (restored on exit) so records are captured
+    exactly once. The sink is flushed to ``task_logs`` once the body exits (on
+    success or failure), giving every runner a host-independent log source.
 
     Log files are organized as: {base}/{job_id}/{task_id}/{run_id}.log
 
@@ -206,11 +236,6 @@ async def capture_task_output(task_id: int, job_id: int, run_id: int):
 
     Yields:
         str: Path to the log file
-
-    Example:
-        async with capture_task_output(task.id, task.job_id, run_id) as log_path:
-            print("This goes to console, the log file, and ClickHouse")
-            # Result: {get_logs_dir()}/{job_id}/{task_id}/{run_id}.log
     """
     log_dir = os.path.join(get_logs_dir(), str(job_id), str(task_id))
     Path(log_dir).mkdir(parents=True, exist_ok=True)
@@ -224,9 +249,18 @@ async def capture_task_output(task_id: int, job_id: int, run_id: int):
     sys.stdout = _TeeWriter(original_stdout, log_file, sink=sink, source=STDOUT_STREAM)
     sys.stderr = _TeeWriter(original_stderr, log_file, sink=sink, source=STDERR_STREAM)
 
+    root = logging.getLogger()
+    saved_handlers = root.handlers[:]
+    saved_level = root.level
+    ch_handler = _ChLogHandler(sink, log_file, original_stderr)
+    root.handlers = [ch_handler]
+    root.setLevel(os.getenv("AAICLICK_LOG_LEVEL", "INFO"))
+
     try:
         yield log_path
     finally:
+        root.handlers = saved_handlers
+        root.setLevel(saved_level)
         sys.stdout = original_stdout
         sys.stderr = original_stderr
         log_file.close()
