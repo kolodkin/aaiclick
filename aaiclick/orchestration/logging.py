@@ -19,8 +19,9 @@ from typing import TextIO
 
 from aaiclick.backend import get_root, is_local
 from aaiclick.data.data_context import get_ch_client
+from aaiclick.datetime_utils import utc_now
 from aaiclick.oplog.models import TASK_LOGS_EXPECTED_COLUMNS
-from aaiclick.view_models import STDERR_STREAM, STDOUT_STREAM, LogLine, LogStream
+from aaiclick.view_models import STDERR_STREAM, STDOUT_STREAM, LogLevel, LogLine, LogStream
 
 logger = logging.getLogger(__name__)
 
@@ -57,15 +58,20 @@ def get_logs_dir() -> str:
     return log_dir
 
 
+_DEFAULT_STREAM_LEVEL: dict[LogStream, LogLevel] = {STDOUT_STREAM: "INFO", STDERR_STREAM: "ERROR"}
+
+
 class _ChLogSink:
-    """Accumulate captured output as stream-tagged lines for a CH batch write.
+    """Accumulate captured output as level-tagged lines for a CH batch write.
 
     ``write`` is sync — it's driven by ``print`` through ``_TeeWriter`` while the
     task runs. Each stream (stdout / stderr) keeps its own partial-line buffer so
     a line is tagged with the stream that emitted it; completed lines are
-    appended in emission order. The async flush happens once after the task body
-    completes (:func:`capture_task_output`), so the task's own ClickHouse work
-    never races the log write on a shared (chdb single-session) client.
+    appended in emission order, each stamped with its own emit time. ``record``
+    is the logging path: it appends already-leveled lines from ``_ChLogHandler``.
+    The async flush happens once after the task body completes
+    (:func:`capture_task_output`), so the task's own ClickHouse work never races
+    the log write on a shared (chdb single-session) client.
     """
 
     def __init__(self) -> None:
@@ -75,13 +81,31 @@ class _ChLogSink:
     def write(self, stream: LogStream, data: str) -> None:
         parts = (self._partial[stream] + data).split("\n")
         self._partial[stream] = parts.pop()
-        self._lines.extend(LogLine(stream=stream, text=p) for p in parts)
+        level = _DEFAULT_STREAM_LEVEL[stream]
+        self._lines.extend(
+            LogLine(stream=stream, level=level, text=p, created_at=utc_now()) for p in parts
+        )
+
+    def record(self, level: LogLevel, text: str) -> None:
+        """Append a logging record's message as level-tagged line(s)."""
+        now = utc_now()
+        self._lines.extend(
+            LogLine(stream=STDERR_STREAM, level=level, text=p, created_at=now)
+            for p in text.split("\n")
+        )
 
     def finalize(self) -> list[LogLine]:
         """Return all captured lines, flushing any unterminated trailing line."""
         for stream in (STDOUT_STREAM, STDERR_STREAM):
             if self._partial[stream]:
-                self._lines.append(LogLine(stream=stream, text=self._partial[stream]))
+                self._lines.append(
+                    LogLine(
+                        stream=stream,
+                        level=_DEFAULT_STREAM_LEVEL[stream],
+                        text=self._partial[stream],
+                        created_at=utc_now(),
+                    )
+                )
                 self._partial[stream] = ""
         lines, self._lines = self._lines, []
         return lines
