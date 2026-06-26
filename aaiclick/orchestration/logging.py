@@ -91,7 +91,7 @@ class _ChLogSink:
         now = utc_now()
         self._lines.extend(
             LogLine(stream=STDERR_STREAM, level=level, text=p, created_at=now)
-            for p in text.split("\n")
+            for p in text.rstrip("\n").split("\n")
         )
 
     def finalize(self) -> list[LogLine]:

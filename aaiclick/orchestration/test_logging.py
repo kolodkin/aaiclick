@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from aaiclick.orchestration.logging import _ChLogSink
 from aaiclick.view_models import STDERR_STREAM, STDOUT_STREAM
 
@@ -30,4 +32,25 @@ def test_sink_stamps_each_line_with_created_at():
     sink = _ChLogSink()
     sink.write(STDOUT_STREAM, "a\nb\n")
     lines = sink.finalize()
-    assert all(l.created_at is not None for l in lines)
+    assert all(isinstance(l.created_at, datetime) for l in lines)
+
+
+def test_sink_record_drops_trailing_newline():
+    sink = _ChLogSink()
+    sink.record("INFO", "msg\n")
+    lines = sink.finalize()
+    assert [l.text for l in lines] == ["msg"]
+
+
+def test_sink_record_preserves_internal_blank_lines():
+    sink = _ChLogSink()
+    sink.record("INFO", "a\n\nb")
+    lines = sink.finalize()
+    assert [l.text for l in lines] == ["a", "", "b"]
+
+
+def test_sink_record_shares_one_timestamp_per_call():
+    sink = _ChLogSink()
+    sink.record("WARNING", "first\nsecond")
+    lines = sink.finalize()
+    assert lines[0].created_at == lines[1].created_at
