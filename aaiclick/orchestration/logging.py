@@ -158,7 +158,10 @@ async def read_task_logs(task_id: int, run_id: int, tail: int | None = None) -> 
             parameters=parameters,
         )
         rows = result.result_rows
-    return [LogLine(stream=row[0], level=row[1], text=row[2], created_at=row[3]) for row in rows]
+    return [
+        LogLine(stream=row[0], level=row[1], text=row[2], created_at=row[3].replace(tzinfo=None))
+        for row in rows
+    ]
 
 
 @asynccontextmanager

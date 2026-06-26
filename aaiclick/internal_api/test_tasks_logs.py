@@ -160,6 +160,5 @@ async def test_logs_preserve_per_line_created_at(orch_ctx):
     result = await get_task_logs(task.id)
 
     stamps = [line.created_at for line in result.lines]
-    assert stamps[0] != stamps[1]
-    assert stamps[0].replace(microsecond=0, tzinfo=None) == early
-    assert stamps[1].replace(microsecond=0, tzinfo=None) == late
+    assert stamps[0].replace(microsecond=0) == early
+    assert stamps[1].replace(microsecond=0) == late
