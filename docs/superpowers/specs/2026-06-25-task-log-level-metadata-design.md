@@ -17,13 +17,14 @@ per-line metadata.
 - Record a `level` for every captured log line.
 - Capture **true levels** for `logging` records (`logger.info/warning/error/...`).
 - Give plain `print()` / raw stream output a sensible default level.
+- Stamp each line with a **per-line creation timestamp** (when it was emitted,
+  not when the batch was flushed) and expose it through the read path.
 - Require **zero user setup** — capture is automatic for every task run.
-- Surface `level` through the existing read path → REST → UI with no extra
-  endpoints.
+- Surface `level` and the timestamp through the existing read path → REST → UI
+  with no extra endpoints. Timestamp display in the UI is **opt-in (toggle)**.
 
 ## Non-goals (YAGNI)
 
-- No per-line capture timestamps beyond the existing `created_at`.
 - No change to thread-safety of the sink (single-task assumption is unchanged;
   noted as a known limitation).
 - Minimal level-based coloring only. The UI gains one CSS class per `LogLevel`
@@ -41,6 +42,7 @@ per-line metadata.
 | Default level: raw stdout | `INFO` |
 | Default level: raw stderr | `ERROR` |
 | Default captured root level | `INFO`, overridable via `AAICLICK_LOG_LEVEL` |
+| Per-line `created_at` | Stamped at emission (reuses existing column); UI display opt-in via toggle |
 
 ## Level vocabulary
 
@@ -89,18 +91,21 @@ def normalize_level(levelno: int) -> LogLevel:
 Raw stream defaults reuse the same names via the type: `stdout → "INFO"`,
 `stderr → "ERROR"` (e.g. a `{stream: LogLevel}` mapping), not new constants.
 
-`LogLine` gains the field (between `stream` and `text`):
+`LogLine` gains `level` and a per-line `created_at`:
 
 ```python
+from datetime import datetime
+
 class LogLine(BaseModel):
     stream: LogStream
     level: LogLevel
     text: str
+    created_at: datetime  # when the line was emitted (UTC), not flush time
 ```
 
 Because `LogLine` is the unit returned by `read_task_logs` and embedded in
-`TaskLogsView`, `level` reaches the REST surface and SPA types with no extra
-wiring.
+`TaskLogsView`, both `level` and `created_at` reach the REST surface and SPA
+types with no extra wiring (`created_at` serializes as an ISO-8601 string).
 
 ## ClickHouse schema
 
@@ -121,9 +126,13 @@ CREATE TABLE IF NOT EXISTS task_logs (
 ORDER BY (task_id, run_id, seq)
 ```
 
-`_validate_schema` already raises a "drop the table and let aaiclick recreate
-it" error when an existing table is missing the column, which is the chosen
-rollout path. No Alembic migration (CH tables are not Alembic-managed).
+Only `level` is a new column; `created_at DateTime64(3)` already exists. What
+changes is its **meaning**: today every row in a run gets one flush-time value;
+now each row carries the line's own emission time. That is a write-path change
+(below), not a schema change. `_validate_schema` already raises a "drop the
+table and let aaiclick recreate it" error when the `level` column is missing,
+which is the chosen rollout path. No Alembic migration (CH tables are not
+Alembic-managed).
 
 ## Capture wiring
 
@@ -131,12 +140,16 @@ rollout path. No Alembic migration (CH tables are not Alembic-managed).
 
 ### `_ChLogSink`
 
+- Every completed line is stamped with `created_at = utc_now()` **at the moment
+  it is appended** to `_lines`, so the timestamp reflects emission time, not the
+  end-of-task flush. Each `LogLine` now carries `level` and `created_at`.
 - `write(stream, data)` tags completed lines with the stream's **default**
-  level: `stdout → INFO`, `stderr → ERROR`. Each `LogLine` now carries `level`.
+  level: `stdout → INFO`, `stderr → ERROR`.
 - A new entry point appends pre-leveled lines from the handler, e.g.
   `record(level, text)` — splits a multi-line message/traceback into per-line
   `LogLine`s that share the same `level`, appended in emission order to the same
-  `_lines` list so ordering with `print()` output is preserved.
+  `_lines` list so ordering with `print()` output is preserved. (All lines of
+  one record share that record's stamp.)
 
 ### `_ChLogHandler(logging.Handler)`
 
@@ -168,23 +181,29 @@ In addition to today's tee setup:
 
 ### `flush_task_logs` / `read_task_logs`
 
-- `flush_task_logs`: include `line.level` in each row tuple; add `level` to the
-  column lists (driven by `TASK_LOGS_EXPECTED_COLUMNS`, so they update
-  automatically).
-- `read_task_logs`: add `level` to both `SELECT`s and to the `LogLine`
-  construction.
+- `flush_task_logs`: include `line.level` and `line.created_at` in each row
+  tuple; column lists are driven by `TASK_LOGS_EXPECTED_COLUMNS`, so they update
+  automatically. Drop the single batch `now = utc_now()` — the timestamp now
+  comes from each line.
+- `read_task_logs`: add `level` and `created_at` to both `SELECT`s and to the
+  `LogLine` construction. Ordering stays by `seq` (the canonical emission order);
+  `created_at` is metadata, not the sort key.
 
 ## Frontend rendering
 
-The whole point of `level` is UI coloring, so the SPA must consume it. The
-change is small and lives in the existing log viewer:
+The point of `level` is UI coloring and the timestamp is opt-in detail, so the
+SPA consumes both. The change is small and lives in the existing log viewer:
 
 - **Generated types** (`src/api/schema.ts`, `src/api/types.ts`): regenerated from
   the OpenAPI schema — `LogLine` gains `level: "DEBUG" | "INFO" | "WARNING" |
-  "ERROR" | "CRITICAL"`. No hand-editing.
-- **`src/components/LogViewer.tsx:12-15`**: today each line is
+  "ERROR" | "CRITICAL"` and `created_at: string`. No hand-editing.
+- **`src/components/LogViewer.tsx`**: today each line is
   `className={line.stream === "stderr" ? "log-line log-stderr" : "log-line"}`.
-  Change it to also carry a per-level class and a stable test hook, e.g.:
+  Two changes:
+  1. Per-level class + stable test hook on each line.
+  2. A "Show timestamps" toggle (a `useState(false)` checkbox in the viewer
+     header). When on, each line is prefixed with a `<span class="log-ts">` of
+     the formatted `created_at`; when off, the timestamp is not rendered.
 
   ```tsx
   <div
@@ -193,31 +212,33 @@ change is small and lives in the existing log viewer:
     className={`log-line log-level-${line.level.toLowerCase()}` +
                (line.stream === "stderr" ? " log-stderr" : "")}
   >
+    {showTimestamps && <span className="log-ts">{fmtTs(line.created_at)} </span>}
     {line.text}
   </div>
   ```
 
   The existing `log-stderr` class stays (back-compat for raw-stream coloring);
   `log-level-*` is the new severity key, and `data-testid` gives the e2e test a
-  selector that does not depend on CSS.
+  selector that does not depend on CSS. The toggle defaults **off** so the
+  default view is unchanged.
 - **`src/styles/globals.css:201-214`**: add one color rule per level alongside
   the existing `.logs .log-stderr` rule — e.g. `.log-level-error` /
   `.log-level-critical` red, `.log-level-warning` amber, `.log-level-info`
   default, `.log-level-debug` muted. Severity color takes precedence over the
-  stream color.
+  stream color. Add a muted `.log-ts` rule for the timestamp prefix.
 
 ## Data flow
 
 ```
 logger.info("x") ──► _ChLogHandler.emit ──► log_file + console (direct)
-                                       └──► sink.record("INFO", "x")
+                                       └──► sink.record("INFO", "x")  [+created_at]
 print("y")       ──► sys.stdout (TeeWriter) ──► console + log_file
-                                          └──► sink.write("stdout", "y")  [INFO]
-print(err, file=sys.stderr) ─► TeeWriter ──► sink.write("stderr", ...)    [ERROR]
+                                          └──► sink.write("stdout", "y")  [INFO +created_at]
+print(err, file=sys.stderr) ─► TeeWriter ──► sink.write("stderr", ...)    [ERROR +created_at]
                                           (task end)
-sink.finalize() ──► flush_task_logs ──► CH task_logs(..., level, line, ...)
-                                  read_task_logs ──► LogLine(stream, level, text)
-                                                ──► TaskLogsView ──► REST ──► UI
+sink.finalize() ──► flush_task_logs ──► CH task_logs(..., level, line, created_at)
+                              read_task_logs ──► LogLine(stream, level, text, created_at)
+                                            ──► TaskLogsView ──► REST ──► UI (toggle)
 ```
 
 ## Testing
@@ -232,6 +253,9 @@ Extend `aaiclick/internal_api/test_tasks_logs.py` (per `python-testing-style`):
 - Root logger handlers and level are restored after the task body exits.
 - No duplicate rows when the task pre-configures a `basicConfig` stderr handler
   (take-over prevents double capture).
+- Each line carries a `created_at`; lines emitted in sequence have
+  non-decreasing timestamps, and they are *not* all equal to the flush time
+  (proves per-line stamping, not the old per-batch value).
 
 ### UI e2e
 
@@ -267,19 +291,27 @@ The existing suite already proves the round trip: `test_smoke.py`'s
       "el => getComputedStyle(el).color"
   )
   assert error_color  # non-empty; exact value asserted against the globals.css rule
+
+  # timestamp is opt-in: hidden by default, shown after toggling.
+  assert logs.locator(".log-ts").count() == 0
+  page.get_by_label("Show timestamps").check()
+  logs.locator(".log-ts").first.wait_for(timeout=5000)
   ```
 
   The `data-testid` assertions prove the right level reached the DOM; the
   `getComputedStyle` check proves the CSS rule is wired so the line is actually
-  colored. This runs in CI under the existing `test-ui-e2e-dist` job
+  colored; the toggle assertions prove `created_at` is delivered and gated behind
+  the opt-in. This runs in CI under the existing `test-ui-e2e-dist` job
   (`.github/workflows/_test-reusable.yaml`) — no new workflow needed, since that
   job already builds the SPA and stands up Postgres + ClickHouse.
 
 ## Documentation
 
 - Update the logging doc (the one describing `task_logs` / `capture_task_output`)
-  to cover the `level` column, the default-level mapping, and
-  `AAICLICK_LOG_LEVEL`. Apply `markdown-style` / `shortify` to the edited doc.
+  to cover the `level` column, the default-level mapping, `AAICLICK_LOG_LEVEL`,
+  the per-line `created_at` semantics (emission time, not flush time), and the
+  opt-in timestamp toggle in the viewer. Apply `markdown-style` / `shortify` to
+  the edited doc.
 
 ## Known limitations
 
