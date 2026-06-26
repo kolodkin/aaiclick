@@ -147,9 +147,11 @@ Alembic-managed).
   level: `stdout → INFO`, `stderr → ERROR`.
 - A new entry point appends pre-leveled lines from the handler, e.g.
   `record(level, text)` — splits a multi-line message/traceback into per-line
-  `LogLine`s that share the same `level`, appended in emission order to the same
+  `LogLine`s that share the same `level` (and `stream=STDERR_STREAM`, since the
+  handler echoes to the original stderr), appended in emission order to the same
   `_lines` list so ordering with `print()` output is preserved. (All lines of
-  one record share that record's stamp.)
+  one record share that record's stamp.) The stored `stream` is informational
+  only; the UI colors by `level`.
 
 ### `_ChLogHandler(logging.Handler)`
 
@@ -209,23 +211,26 @@ SPA consumes both. The change is small and lives in the existing log viewer:
   <div
     key={i}
     data-testid={`log-line-${line.level}`}
-    className={`log-line log-level-${line.level.toLowerCase()}` +
-               (line.stream === "stderr" ? " log-stderr" : "")}
+    className={`log-line lvl-${line.level}`}
   >
-    {showTimestamps && <span className="log-ts">{fmtTs(line.created_at)} </span>}
+    {showTimestamps && <span className="ts">{fmtTs(line.created_at)} </span>}
     {line.text}
   </div>
   ```
 
-  The existing `log-stderr` class stays (back-compat for raw-stream coloring);
-  `log-level-*` is the new severity key, and `data-testid` gives the e2e test a
-  selector that does not depend on CSS. The toggle defaults **off** so the
-  default view is unchanged.
-- **`src/styles/globals.css:201-214`**: add one color rule per level alongside
-  the existing `.logs .log-stderr` rule — e.g. `.log-level-error` /
-  `.log-level-critical` red, `.log-level-warning` amber, `.log-level-info`
-  default, `.log-level-debug` muted. Severity color takes precedence over the
-  stream color. Add a muted `.log-ts` rule for the timestamp prefix.
+  Reuse the class names `globals.css` already ships (`.lvl-INFO` / `.lvl-WARN` /
+  `.lvl-ERROR`, `.ts`) rather than inventing new ones. Coloring is now driven
+  **purely by level**: raw stderr lines already arrive as `ERROR` (→ red via
+  `.lvl-ERROR`), so the old `log-stderr` modifier is superseded and dropped from
+  the markup — keeping it would fight `.lvl-INFO` for `logger.info` records
+  echoed to stderr (equal specificity, later rule wins → wrongly red).
+  `data-testid` gives the e2e test a CSS-independent selector. The timestamp
+  toggle defaults **off** so the default view is unchanged.
+- **`src/styles/globals.css:209-214`**: the file already has `.logs .ts`,
+  `.lvl-INFO`, `.lvl-WARN`, `.lvl-ERROR`. Extend that set so every `LogLevel` is
+  covered: rename `.lvl-WARN` → `.lvl-WARNING` and add `.lvl-DEBUG` (muted) and
+  `.lvl-CRITICAL` (red). The now-unused `.logs .log-stderr` rule is removed.
+  `.ts` (the timestamp prefix) is already muted.
 
 ## Data flow
 
@@ -287,15 +292,15 @@ The existing suite already proves the round trip: `test_smoke.py`'s
   logs.get_by_test_id("log-line-ERROR").get_by_text("error line").wait_for(timeout=15000)
   logs.get_by_test_id("log-line-WARNING").get_by_text("warning line").wait_for(timeout=15000)
   # severity color actually applied (CSS class resolves to a color):
-  error_color = logs.locator(".log-level-error").first.evaluate(
+  error_color = logs.locator(".lvl-ERROR").first.evaluate(
       "el => getComputedStyle(el).color"
   )
   assert error_color  # non-empty; exact value asserted against the globals.css rule
 
   # timestamp is opt-in: hidden by default, shown after toggling.
-  assert logs.locator(".log-ts").count() == 0
+  assert logs.locator(".ts").count() == 0
   page.get_by_label("Show timestamps").check()
-  logs.locator(".log-ts").first.wait_for(timeout=5000)
+  logs.locator(".ts").first.wait_for(timeout=5000)
   ```
 
   The `data-testid` assertions prove the right level reached the DOM; the
