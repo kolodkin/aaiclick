@@ -26,7 +26,9 @@ per-line metadata.
 - No per-line capture timestamps beyond the existing `created_at`.
 - No change to thread-safety of the sink (single-task assumption is unchanged;
   noted as a known limitation).
-- No new colors / UI work in this spec — only the data the UI keys on.
+- Minimal level-based coloring only. The UI gains one CSS class per `LogLevel`
+  and keys color on it; an elaborate themed palette, per-level filtering, or a
+  log-level selector are out of scope.
 
 ## Decisions
 
@@ -172,6 +174,38 @@ In addition to today's tee setup:
 - `read_task_logs`: add `level` to both `SELECT`s and to the `LogLine`
   construction.
 
+## Frontend rendering
+
+The whole point of `level` is UI coloring, so the SPA must consume it. The
+change is small and lives in the existing log viewer:
+
+- **Generated types** (`src/api/schema.ts`, `src/api/types.ts`): regenerated from
+  the OpenAPI schema — `LogLine` gains `level: "DEBUG" | "INFO" | "WARNING" |
+  "ERROR" | "CRITICAL"`. No hand-editing.
+- **`src/components/LogViewer.tsx:12-15`**: today each line is
+  `className={line.stream === "stderr" ? "log-line log-stderr" : "log-line"}`.
+  Change it to also carry a per-level class and a stable test hook, e.g.:
+
+  ```tsx
+  <div
+    key={i}
+    data-testid={`log-line-${line.level}`}
+    className={`log-line log-level-${line.level.toLowerCase()}` +
+               (line.stream === "stderr" ? " log-stderr" : "")}
+  >
+    {line.text}
+  </div>
+  ```
+
+  The existing `log-stderr` class stays (back-compat for raw-stream coloring);
+  `log-level-*` is the new severity key, and `data-testid` gives the e2e test a
+  selector that does not depend on CSS.
+- **`src/styles/globals.css:201-214`**: add one color rule per level alongside
+  the existing `.logs .log-stderr` rule — e.g. `.log-level-error` /
+  `.log-level-critical` red, `.log-level-warning` amber, `.log-level-info`
+  default, `.log-level-debug` muted. Severity color takes precedence over the
+  stream color.
+
 ## Data flow
 
 ```
@@ -188,6 +222,8 @@ sink.finalize() ──► flush_task_logs ──► CH task_logs(..., level, lin
 
 ## Testing
 
+### Backend / capture
+
 Extend `aaiclick/internal_api/test_tasks_logs.py` (per `python-testing-style`):
 
 - True level captured from `logger.warning(...)` / `logger.error(...)`.
@@ -196,6 +232,48 @@ Extend `aaiclick/internal_api/test_tasks_logs.py` (per `python-testing-style`):
 - Root logger handlers and level are restored after the task body exits.
 - No duplicate rows when the task pre-configures a `basicConfig` stderr handler
   (take-over prevents double capture).
+
+### UI e2e
+
+The existing suite already proves the round trip: `test_smoke.py`'s
+`test_task_view_shows_logs` runs the `task_with_output` fixture and asserts the
+`div.logs` viewer shows the lines. We extend that pattern for level coloring.
+
+- **Fixture task** — add to `aaiclick/orchestration/fixtures/sample_tasks.py`
+  alongside `task_with_output`, e.g. `task_with_log_levels()` that emits one
+  record per level through the `logging` module:
+
+  ```python
+  def task_with_log_levels():
+      """Emit one record at each level so the UI can be checked for coloring."""
+      log = logging.getLogger("sample")
+      log.info("info line")
+      log.warning("warning line")
+      log.error("error line")
+  ```
+
+- **e2e test** — add `test_task_view_colors_logs_by_level(page, base_url)` to
+  `test_e2e/web/test_smoke.py`, reusing the existing helpers
+  (`_login_if_needed`, the run-task-then-poll helper) but running the new
+  fixture. It then asserts level-keyed rendering using the `data-testid` hooks
+  added to `LogViewer.tsx`:
+
+  ```python
+  logs = page.locator("div.logs")
+  logs.get_by_test_id("log-line-ERROR").get_by_text("error line").wait_for(timeout=15000)
+  logs.get_by_test_id("log-line-WARNING").get_by_text("warning line").wait_for(timeout=15000)
+  # severity color actually applied (CSS class resolves to a color):
+  error_color = logs.locator(".log-level-error").first.evaluate(
+      "el => getComputedStyle(el).color"
+  )
+  assert error_color  # non-empty; exact value asserted against the globals.css rule
+  ```
+
+  The `data-testid` assertions prove the right level reached the DOM; the
+  `getComputedStyle` check proves the CSS rule is wired so the line is actually
+  colored. This runs in CI under the existing `test-ui-e2e-dist` job
+  (`.github/workflows/_test-reusable.yaml`) — no new workflow needed, since that
+  job already builds the SPA and stands up Postgres + ClickHouse.
 
 ## Documentation
 
