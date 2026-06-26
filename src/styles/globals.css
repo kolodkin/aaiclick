@@ -206,6 +206,7 @@ tbody tr.clickable:hover { background: rgba(91,157,255,.12); }
   max-height: 52vh; border: 1px solid var(--border);
   box-shadow: var(--hi), var(--shadow);
 }
+.logs .logs-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; color: #6b7480; font-size: 11px; cursor: pointer; }
 .logs .ts { color: #6b7480; }
 .logs .lvl-DEBUG { color: #6b7480; }
 .logs .lvl-INFO { color: #79c0ff; }

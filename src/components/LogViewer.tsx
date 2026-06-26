@@ -5,7 +5,9 @@ import { useTaskLogs } from "../api/hooks";
 // Render a captured created_at (ISO string) as HH:MM:SS.mmm for the inline
 // timestamp prefix. Kept tiny and dependency-free; the value is informational.
 function fmtTs(iso: string): string {
-  const d = new Date(iso);
+  // Stored timestamps are naive UTC (no offset); parse as UTC, not browser-local.
+  const utc = /[zZ]|[+-]\d\d:?\d\d$/.test(iso) ? iso : `${iso}Z`;
+  const d = new Date(utc);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toISOString().slice(11, 23);
 }
