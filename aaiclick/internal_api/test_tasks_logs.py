@@ -183,7 +183,7 @@ async def test_capture_records_true_level_and_restores_root(orch_ctx):
     assert root.level == before_level
 
     lines = await read_task_logs(task.id, run_id)
-    by_text = {l.text: l.level for l in lines}
+    by_text = {line.text: line.level for line in lines}
     assert by_text["WARNING:sample:a warning"] == "WARNING"
     assert by_text["ERROR:sample:an error"] == "ERROR"
     assert by_text["plain stdout"] == "INFO"
@@ -205,7 +205,7 @@ async def test_capture_no_duplicate_rows_with_preexisting_handler(orch_ctx):
         noisy.removeHandler(extra)
 
     lines = await read_task_logs(task.id, run_id)
-    assert [l.text for l in lines].count("ERROR:sample:once only") == 1
+    assert [line.text for line in lines].count("ERROR:sample:once only") == 1
 
 
 async def test_capture_tolerates_invalid_log_level_env(orch_ctx, monkeypatch):
@@ -225,4 +225,4 @@ async def test_capture_tolerates_invalid_log_level_env(orch_ctx, monkeypatch):
     assert root.level == before_level
 
     lines = await read_task_logs(task.id, run_id)
-    assert any(l.text == "ERROR:sample:still captured" for l in lines)
+    assert any(line.text == "ERROR:sample:still captured" for line in lines)

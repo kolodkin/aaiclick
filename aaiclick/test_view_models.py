@@ -14,13 +14,13 @@ def test_normalize_level_exact_standard_levels():
 
 
 def test_normalize_level_buckets_custom_levels_down():
-    assert normalize_level(25) == "INFO"      # between INFO and WARNING
-    assert normalize_level(45) == "ERROR"     # between ERROR and CRITICAL
-    assert normalize_level(100) == "CRITICAL" # above CRITICAL
+    assert normalize_level(25) == "INFO"  # between INFO and WARNING
+    assert normalize_level(45) == "ERROR"  # between ERROR and CRITICAL
+    assert normalize_level(100) == "CRITICAL"  # above CRITICAL
 
 
 def test_normalize_level_below_debug_is_debug():
-    assert normalize_level(0) == "DEBUG"      # NOTSET
+    assert normalize_level(0) == "DEBUG"  # NOTSET
     assert normalize_level(5) == "DEBUG"
 
 

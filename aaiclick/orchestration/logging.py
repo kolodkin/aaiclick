@@ -82,16 +82,13 @@ class _ChLogSink:
         parts = (self._partial[stream] + data).split("\n")
         self._partial[stream] = parts.pop()
         level = _DEFAULT_STREAM_LEVEL[stream]
-        self._lines.extend(
-            LogLine(stream=stream, level=level, text=p, created_at=utc_now()) for p in parts
-        )
+        self._lines.extend(LogLine(stream=stream, level=level, text=p, created_at=utc_now()) for p in parts)
 
     def record(self, level: LogLevel, text: str) -> None:
         """Append a logging record's message as level-tagged line(s)."""
         now = utc_now()
         self._lines.extend(
-            LogLine(stream=STDERR_STREAM, level=level, text=p, created_at=now)
-            for p in text.rstrip("\n").split("\n")
+            LogLine(stream=STDERR_STREAM, level=level, text=p, created_at=now) for p in text.rstrip("\n").split("\n")
         )
 
     def finalize(self) -> list[LogLine]:
@@ -209,10 +206,7 @@ async def read_task_logs(task_id: int, run_id: int, tail: int | None = None) -> 
             parameters=parameters,
         )
         rows = result.result_rows
-    return [
-        LogLine(stream=row[0], level=row[1], text=row[2], created_at=row[3].replace(tzinfo=None))
-        for row in rows
-    ]
+    return [LogLine(stream=row[0], level=row[1], text=row[2], created_at=row[3].replace(tzinfo=None)) for row in rows]
 
 
 @asynccontextmanager
