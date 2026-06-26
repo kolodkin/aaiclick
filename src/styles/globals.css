@@ -206,12 +206,14 @@ tbody tr.clickable:hover { background: rgba(91,157,255,.12); }
   max-height: 52vh; border: 1px solid var(--border);
   box-shadow: var(--hi), var(--shadow);
 }
+.logs .logs-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; color: #6b7480; font-size: 11px; cursor: pointer; }
 .logs .ts { color: #6b7480; }
+.logs .lvl-DEBUG { color: #6b7480; }
 .logs .lvl-INFO { color: #79c0ff; }
-.logs .lvl-WARN { color: #e3b341; }
+.logs .lvl-WARNING { color: #e3b341; }
 .logs .lvl-ERROR { color: #ff7b72; }
+.logs .lvl-CRITICAL { color: #ff7b72; font-weight: 600; }
 .logs .log-line { white-space: pre-wrap; }
-.logs .log-stderr { color: #ff7b72; }
 
 /* forms / panels */
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px;

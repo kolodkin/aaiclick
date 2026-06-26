@@ -1,16 +1,33 @@
-import { memo } from "react";
+import { memo, useState } from "react";
 import type { LogLine } from "../api/types";
 import { useTaskLogs } from "../api/hooks";
 
-// `lines` typically grows by appending; memoising on the array identity skips
-// the per-line VDOM rebuild when a poll returns the same payload, and lets
-// React diff incrementally when only the tail changed. stderr lines carry a
-// modifier class so the viewer can distinguish them from stdout.
-const LogLines = memo(function LogLines({ lines }: { lines: readonly LogLine[] }) {
+// Render a captured created_at (ISO string) as HH:MM:SS.mmm for the inline
+// timestamp prefix. Kept tiny and dependency-free; the value is informational.
+function fmtTs(iso: string): string {
+  // Stored timestamps are naive UTC (no offset); parse as UTC, not browser-local.
+  const utc = /[zZ]|[+-]\d\d:?\d\d$/.test(iso) ? iso : `${iso}Z`;
+  const d = new Date(utc);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toISOString().slice(11, 23);
+}
+
+// `lines` typically grows by appending; memoising on the array identity (plus
+// the timestamp flag) skips the per-line VDOM rebuild when a poll returns the
+// same payload. Each line carries a per-level class so the viewer colors by
+// severity; raw stdout/stderr arrive as INFO/ERROR so they color too.
+const LogLines = memo(function LogLines({
+  lines,
+  showTimestamps,
+}: {
+  lines: readonly LogLine[];
+  showTimestamps: boolean;
+}) {
   return (
     <>
       {lines.map((line, i) => (
-        <div key={i} className={line.stream === "stderr" ? "log-line log-stderr" : "log-line"}>
+        <div key={i} data-testid={`log-line-${line.level}`} className={`log-line lvl-${line.level}`}>
+          {showTimestamps && line.created_at && <span className="ts">{fmtTs(line.created_at)} </span>}
           {line.text}
         </div>
       ))}
@@ -20,6 +37,7 @@ const LogLines = memo(function LogLines({ lines }: { lines: readonly LogLine[] }
 
 export function LogViewer({ taskId }: { taskId: string }) {
   const { data, isLoading, isError } = useTaskLogs(taskId);
+  const [showTimestamps, setShowTimestamps] = useState(false);
 
   if (isLoading) return <div className="logs">loading logs…</div>;
   if (isError) return <div className="logs">failed to load logs</div>;
@@ -29,7 +47,15 @@ export function LogViewer({ taskId }: { taskId: string }) {
   }
   return (
     <div className="logs">
-      <LogLines lines={lines} />
+      <label className="logs-toolbar">
+        <input
+          type="checkbox"
+          checked={showTimestamps}
+          onChange={(e) => setShowTimestamps(e.target.checked)}
+        />
+        Show timestamps
+      </label>
+      <LogLines lines={lines} showTimestamps={showTimestamps} />
     </div>
   );
 }

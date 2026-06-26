@@ -11,12 +11,14 @@ surfaces share one vocabulary.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from enum import Enum
 from typing import Annotated, Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, Field, PlainSerializer, model_validator
 
+from .datetime_utils import utc_now
 from .orchestration.models import JobStatus, PreservationMode, RunnerMode, WorkerStatus
 
 # Mirrors aaiclick.data.scope.ObjectScope — re-declared to keep this shared
@@ -40,12 +42,35 @@ STDOUT_STREAM = "stdout"
 STDERR_STREAM = "stderr"
 LogStream = Literal["stdout", "stderr"]
 
+LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
+# highest-first so the first threshold a level clears wins; each string appears
+# once mapped to its logging constant and type-checks as LogLevel. logging owns
+# the level names/numbers, so we do not re-declare LEVEL_* string constants.
+_LEVEL_THRESHOLDS: tuple[tuple[int, LogLevel], ...] = (
+    (logging.CRITICAL, "CRITICAL"),
+    (logging.ERROR, "ERROR"),
+    (logging.WARNING, "WARNING"),
+    (logging.INFO, "INFO"),
+    (logging.DEBUG, "DEBUG"),
+)
+
+
+def normalize_level(levelno: int) -> LogLevel:
+    """Bucket any logging level number to the nearest standard LogLevel name."""
+    for threshold, name in _LEVEL_THRESHOLDS:
+        if levelno >= threshold:
+            return name
+    return "DEBUG"  # below DEBUG (incl. NOTSET)
+
 
 class LogLine(BaseModel):
-    """One captured output line tagged with the stream it came from."""
+    """One captured output line tagged with its stream, level, and emit time."""
 
     stream: LogStream
+    level: LogLevel = "INFO"
     text: str
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 T = TypeVar("T")

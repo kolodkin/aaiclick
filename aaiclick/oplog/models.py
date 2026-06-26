@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS task_logs (
     run_id      UInt64,
     seq         UInt64,
     stream      String,
+    level       String,
     line        String,
     created_at  DateTime64(3)
 ) ENGINE = MergeTree()
@@ -64,6 +65,7 @@ TASK_LOGS_EXPECTED_COLUMNS: dict[str, str] = {
     "run_id": "UInt64",
     "seq": "UInt64",
     "stream": "String",
+    "level": "String",
     "line": "String",
     "created_at": "DateTime64(3)",
 }

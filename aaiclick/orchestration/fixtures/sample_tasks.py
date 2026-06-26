@@ -1,5 +1,6 @@
 """Sample task functions for orchestration tests."""
 
+import logging
 import sys
 from pathlib import Path
 
@@ -33,6 +34,14 @@ def task_with_output():
     """A task that produces both stdout and stderr output."""
     print("This is stdout")
     print("Error message", file=sys.stderr)
+
+
+def task_with_log_levels():
+    """Emit one logging record at each level so the UI can be checked for coloring."""
+    log = logging.getLogger("sample")
+    log.info("info line")
+    log.warning("warning line")
+    log.error("error line")
 
 
 def flaky_task(counter_file: str):

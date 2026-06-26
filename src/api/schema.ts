@@ -633,9 +633,20 @@ export interface components {
         };
         /**
          * LogLine
-         * @description One captured output line tagged with the stream it came from.
+         * @description One captured output line tagged with its stream, level, and emit time.
          */
         LogLine: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+            /**
+             * Level
+             * @default INFO
+             * @enum {string}
+             */
+            level: "DEBUG" | "INFO" | "WARNING" | "ERROR" | "CRITICAL";
             /**
              * Stream
              * @enum {string}
