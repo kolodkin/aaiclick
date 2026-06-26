@@ -186,7 +186,7 @@ Use the `generate-migration` skill. Never hand-write migration files.
    - **Add implementation references**: Point to actual code files and line numbers
    - **Example**: `**Implementation**: aaiclick/orchestration/factories.py:30-107`
    - **Remove duplication**: Once code exists, reference it instead of duplicating
-   - **Mark status**: Use ✅ IMPLEMENTED or ⚠️ NOT YET IMPLEMENTED
+   - **No status icons**: The implementation reference itself signals a feature is built — do not add ✅ IMPLEMENTED markers. Unimplemented work lives in `docs/future.md` (see Future Plans), not inline ⚠️ NOT YET IMPLEMENTED markers.
    - **Keep unimplemented specs**: Detailed descriptions serve as design docs for future work
 
 ## Documentation

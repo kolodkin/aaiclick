@@ -8,9 +8,9 @@ result handoff, and the bind-mounted log file for streamed `kubectl logs`.
 
 It is a third `TaskVehicle` driven by the shared `drive_vehicle` lifecycle.
 
-**Implementation**: `aaiclick/orchestration/execution/worker.py` — see `TaskVehicle`
-and `drive_vehicle`. ⚠️ NOT YET IMPLEMENTED — this is the design spec; see
-`docs/kubernetes_runner_implementation_plan.md` for phasing.
+**Implementation**: `aaiclick/orchestration/execution/kubernetes_worker.py` — see
+`_KubernetesVehicle`, `_run_task_in_pod`, and `_pod_main`; driven by the shared
+`drive_vehicle` lifecycle in `aaiclick/orchestration/execution/worker.py`.
 
 # One CLI primitive for docker and kubectl
 

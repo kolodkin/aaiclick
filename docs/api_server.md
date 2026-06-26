@@ -473,7 +473,7 @@ The server reuses the CLI's existing env vars and adds a single auth knob:
 `aaiclick/internal_api/auth.py` (login/refresh/logout), wired in
 `aaiclick/server/app.py`.
 
-✅ IMPLEMENTED. Username/password users with two roles (`admin` / `viewer`),
+Username/password users with two roles (`admin` / `viewer`),
 authenticated by a short-lived access JWT + rotating refresh token. The CLI
 runs `internal_api` in-process and never crosses this HTTP-transport layer.
 
