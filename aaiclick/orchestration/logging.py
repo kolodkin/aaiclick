@@ -19,7 +19,6 @@ from typing import TextIO
 
 from aaiclick.backend import get_root, is_local
 from aaiclick.data.data_context import get_ch_client
-from aaiclick.datetime_utils import utc_now
 from aaiclick.oplog.models import TASK_LOGS_EXPECTED_COLUMNS
 from aaiclick.view_models import STDERR_STREAM, STDOUT_STREAM, LogLine, LogStream
 
@@ -120,8 +119,10 @@ async def flush_task_logs(task_id: int, job_id: int, run_id: int, lines: list[Lo
     """
     if not lines:
         return
-    now = utc_now()
-    rows = [[task_id, job_id, run_id, seq, line.stream, line.text, now] for seq, line in enumerate(lines)]
+    rows = [
+        [task_id, job_id, run_id, seq, line.stream, line.level, line.text, line.created_at]
+        for seq, line in enumerate(lines)
+    ]
     try:
         await get_ch_client().insert(
             "task_logs",
@@ -136,27 +137,28 @@ async def flush_task_logs(task_id: int, job_id: int, run_id: int, lines: list[Lo
 async def read_task_logs(task_id: int, run_id: int, tail: int | None = None) -> list[LogLine]:
     """Return captured log lines for a single task attempt from CH ``task_logs``.
 
-    Each line carries its source ``stream`` (stdout / stderr). When ``tail`` is
-    given, returns only the last ``tail`` lines (still in emission order) —
-    fetched with a ``seq``-descending ``LIMIT`` so the read stays bounded for
-    large logs.
+    Each line carries its source ``stream`` (stdout / stderr), its ``level``, and
+    the time it was emitted. When ``tail`` is given, returns only the last
+    ``tail`` lines (still in emission order) — fetched with a ``seq``-descending
+    ``LIMIT`` so the read stays bounded for large logs.
     """
     where = "WHERE task_id = {task_id:UInt64} AND run_id = {run_id:UInt64}"
     parameters: dict[str, int] = {"task_id": task_id, "run_id": run_id}
+    cols = "stream, level, line, created_at"
     if tail is not None:
         parameters["tail"] = tail
         result = await get_ch_client().query(
-            f"SELECT stream, line FROM task_logs {where} ORDER BY seq DESC LIMIT {{tail:UInt64}}",
+            f"SELECT {cols} FROM task_logs {where} ORDER BY seq DESC LIMIT {{tail:UInt64}}",
             parameters=parameters,
         )
         rows = list(reversed(result.result_rows))
     else:
         result = await get_ch_client().query(
-            f"SELECT stream, line FROM task_logs {where} ORDER BY seq",
+            f"SELECT {cols} FROM task_logs {where} ORDER BY seq",
             parameters=parameters,
         )
         rows = result.result_rows
-    return [LogLine(stream=row[0], text=row[1]) for row in rows]
+    return [LogLine(stream=row[0], level=row[1], text=row[2], created_at=row[3]) for row in rows]
 
 
 @asynccontextmanager
