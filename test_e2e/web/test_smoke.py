@@ -138,3 +138,49 @@ def test_task_view_shows_logs(page, base_url: str) -> None:
     logs = page.locator("div.logs")
     logs.get_by_text("This is stdout").wait_for(timeout=15000)
     logs.get_by_text("Error message").wait_for(timeout=15000)
+
+
+def _run_log_levels_task(page, base_url: str) -> str:
+    """Run task_with_log_levels and return the completed task id."""
+    api = f"{base_url}/api/v0"
+    resp = page.request.post(
+        f"{api}/jobs:run",
+        data={"name": "aaiclick.orchestration.fixtures.sample_tasks.task_with_log_levels"},
+    )
+    assert resp.ok, resp.text()
+    job_id = resp.json()["id"]
+
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        detail = page.request.get(f"{api}/jobs/{job_id}").json()
+        tasks = detail.get("tasks") or []
+        if tasks and tasks[0]["status"] == "COMPLETED":
+            return tasks[0]["id"]
+        time.sleep(0.5)
+    raise AssertionError("task did not reach COMPLETED within 30 s")
+
+
+@pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
+@pytest.mark.skipif(
+    not is_local(),
+    reason="needs auth-off + an in-process worker (local_runtime), both local-mode only; "
+    "the distributed e2e job enforces auth and runs no worker",
+)
+def test_task_view_colors_logs_by_level(page, base_url: str) -> None:
+    """The task view colors lines by level and shows timestamps only when toggled."""
+    task_id = _run_log_levels_task(page, base_url)
+
+    page.goto(f"{base_url}/?p=@task {task_id}")
+    page.wait_for_selector("#root")
+    _login_if_needed(page)
+
+    logs = page.locator("div.logs")
+    logs.get_by_test_id("log-line-ERROR").get_by_text("error line").wait_for(timeout=15000)
+    logs.get_by_test_id("log-line-WARNING").get_by_text("warning line").wait_for(timeout=15000)
+
+    error_color = logs.locator(".lvl-ERROR").first.evaluate("el => getComputedStyle(el).color")
+    assert error_color
+
+    assert logs.locator(".ts").count() == 0
+    page.get_by_label("Show timestamps").check()
+    logs.locator(".ts").first.wait_for(timeout=5000)
