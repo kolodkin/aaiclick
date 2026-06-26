@@ -25,7 +25,7 @@ const LogLines = memo(function LogLines({
     <>
       {lines.map((line, i) => (
         <div key={i} data-testid={`log-line-${line.level}`} className={`log-line lvl-${line.level}`}>
-          {showTimestamps && <span className="ts">{fmtTs(line.created_at ?? "")} </span>}
+          {showTimestamps && line.created_at && <span className="ts">{fmtTs(line.created_at)} </span>}
           {line.text}
         </div>
       ))}
