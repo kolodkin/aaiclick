@@ -270,9 +270,23 @@ One Alembic migration (via the `generate-migration` skill — never hand-written
    nullable, backfill every existing row to `"module"` in the same migration,
    and finalize the column as not-null. The column carries no server default —
    new rows must supply `entry_type` explicitly from code.
-2. Add `Job.runner`, `RegisteredJob.runner` JSON columns; backfill from the
-   existing flat columns; drop the flat `git_*`/`dockerfile`/`image_tag`/
-   `kubernetes_config` columns.
+2. Add `Job.runner` + `RegisteredJob.runner` JSON columns. Drop the **`Job`**
+   flat columns (`git_remote`/`git_sha`/`git_branch`/`dockerfile`/`image_tag`/
+   `kubernetes_config`) — the Job's fully-resolved config now lives in
+   `Job.runner`, so these are dead.
+
+   **Keep** the `RegisteredJob` flat default columns (`git_remote`,
+   `dockerfile`, `kubernetes_config`). A registration holds only *partial*
+   build defaults — there is no `git_sha` at registration time (it is resolved
+   per run) — and the typed `ImageBuild` source requires a complete `git_sha`,
+   so partial defaults cannot be represented as a `runner` config without
+   making the image-source fields optional (a worse model) or inventing a
+   separate partial-defaults type (scope creep). `RegisteredJob.runner` is used
+   only to carry a `prebuilt` image default; build defaults stay in the flat
+   columns, read by `resolve_runner_config`/`resolve_kubernetes_config` at
+   submission time. This keeps the unification clean where it pays off (the
+   Job's resolved snapshot) without distorting the type model for partial
+   registration defaults.
 
 ## Scope decision (recorded)
 
