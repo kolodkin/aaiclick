@@ -11,19 +11,22 @@ from ..docker_config import resolve_runner_config
 from ..models import Job, RegisteredJob
 from ..runner_config import ImageBuild
 from . import docker_build
+from .docker_build import _build_source
 
 
-def _job(**overrides) -> Job:
+def _job(*, git_remote="https://example.com/repo.git", git_sha="a" * 40,
+         git_branch="main", dockerfile=None, **overrides) -> Job:
+    image: dict = {"type": "build", "git_remote": git_remote, "git_sha": git_sha}
+    if git_branch is not None:
+        image["git_branch"] = git_branch
+    if dockerfile is not None:
+        image["dockerfile"] = dockerfile
     base = {
         "id": 1,
         "name": "test",
         "run_type": "MANUAL",
         "runner_mode": "docker",
-        "git_remote": "https://example.com/repo.git",
-        "git_sha": "a" * 40,
-        "git_branch": "main",
-        "dockerfile": None,
-        "image_tag": "aaiclick-job:" + "a" * 40,
+        "runner": {"type": "docker", "image": image},
     }
     base.update(overrides)
     return Job(**base)
@@ -34,8 +37,8 @@ async def test_collect_build_args_omits_unset_values(monkeypatch):
     monkeypatch.delenv("AAICLICK_PIP_EXTRA_INDEX_URL", raising=False)
     monkeypatch.delenv("AAICLICK_PIP_TRUSTED_HOST", raising=False)
 
-    job = _job(git_branch=None)
-    args = docker_build._collect_build_args(job)
+    source = _build_source(_job(git_branch=None))
+    args = docker_build._collect_build_args(source)
 
     assert "--build-arg" in args
     assert any(a.startswith("GIT_REMOTE=") for a in args)
@@ -49,11 +52,19 @@ async def test_collect_build_args_forwards_pip_indices(monkeypatch):
     monkeypatch.setenv("AAICLICK_PIP_EXTRA_INDEX_URL", "http://extra.test/simple/")
     monkeypatch.setenv("AAICLICK_PIP_TRUSTED_HOST", "pypi.test")
 
-    args = docker_build._collect_build_args(_job())
+    args = docker_build._collect_build_args(_build_source(_job()))
 
     assert "PIP_INDEX_URL=http://pypi.test/simple/" in args
     assert "PIP_EXTRA_INDEX_URL=http://extra.test/simple/" in args
     assert "PIP_TRUSTED_HOST=pypi.test" in args
+
+
+def test_build_source_from_runner():
+    job = Job(id=1, name="j", run_type="MANUAL", runner_mode="docker",
+              runner={"type": "docker", "image": {"type": "build", "git_remote": "r", "git_sha": "d" * 40}})
+    src = _build_source(job)
+    assert src.git_remote == "r"
+    assert src.git_sha == "d" * 40
 
 
 async def test_build_image_pushes_after_local_cache_hit_when_registry_set(monkeypatch):
@@ -68,6 +79,7 @@ async def test_build_image_pushes_after_local_cache_hit_when_registry_set(monkey
     """
     monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
     job = _job()
+    expected_tag = docker_config.compute_image_tag("a" * 40)
 
     monkeypatch.setattr(docker_build, "_fetch_job", AsyncMock(return_value=job))
     pull = AsyncMock(return_value=False)
@@ -83,11 +95,11 @@ async def test_build_image_pushes_after_local_cache_hit_when_registry_set(monkey
 
     await docker_build.build_image.func(job_id=job.id)
 
-    pull.assert_awaited_once_with(job.image_tag)
-    inspect.assert_awaited_once_with(job.image_tag)
+    pull.assert_awaited_once_with(expected_tag)
+    inspect.assert_awaited_once_with(expected_tag)
     clone.assert_not_called()
     build.assert_not_called()
-    push.assert_awaited_once_with(job.image_tag)
+    push.assert_awaited_once_with(expected_tag)
 
 
 async def test_build_image_missing_dockerfile_raises(monkeypatch):
