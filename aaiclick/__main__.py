@@ -30,6 +30,7 @@ Usage:
 import argparse
 import asyncio
 import json
+import shlex
 import sys
 from datetime import datetime
 from typing import cast, get_args
@@ -44,6 +45,7 @@ from aaiclick.internal_api.errors import InternalApiError
 from aaiclick.orchestration.kubernetes_config import build_kubernetes_config
 from aaiclick.orchestration.models import JobStatus, PreservationMode, RunnerMode, WorkerStatus
 from aaiclick.orchestration.orch_context import orch_context
+from aaiclick.orchestration.runner_config import ENTRY_TYPES
 from aaiclick.view_models import (
     JobListFilter,
     MigrationAction,
@@ -134,6 +136,19 @@ def _parse_preservation_mode(value: str | None) -> PreservationMode | None:
     return cast(PreservationMode, value) if value else None
 
 
+def _parse_command_env(pairs: list[str] | None) -> dict[str, str] | None:
+    """Parse repeated ``KEY=VALUE`` CLI args into a dict (None if none given)."""
+    if not pairs:
+        return None
+    result: dict[str, str] = {}
+    for pair in pairs:
+        key, sep, value = pair.partition("=")
+        if not sep:
+            raise ValueError(f"--command-env expects KEY=VALUE, got {pair!r}")
+        result[key] = value
+    return result
+
+
 async def _run_run_job(args: argparse.Namespace) -> None:
     kwargs: dict = json.loads(args.kwargs) if args.kwargs else {}
     request = RunJobRequest(
@@ -147,6 +162,10 @@ async def _run_run_job(args: argparse.Namespace) -> None:
         namespace=args.namespace,
         service_account=args.k8s_service_account,
         image_pull_secret=args.k8s_image_pull_secret,
+        entry_type=args.entry_type,
+        command=shlex.split(args.command) if args.command else None,
+        command_env=_parse_command_env(args.command_env),
+        image=args.image,
     )
     view = await _run_internal_api(internal_api.run_job(request))
     _render(args, view, cli_renderers.render_job_created)
@@ -169,6 +188,7 @@ async def _run_register_job(args: argparse.Namespace) -> None:
         dockerfile=args.dockerfile,
         git_remote=args.git_remote,
         kubernetes_config=kubernetes_config,
+        image=args.image,
     )
     view = await _run_internal_api(internal_api.register_job(request))
     _render(args, view, cli_renderers.render_registered_job)
@@ -348,8 +368,8 @@ def _run_migrate_cli(args: argparse.Namespace) -> None:
     _render(args, result, cli_renderers.render_migration_result)
 
 
-def main():
-    """Main CLI entry point."""
+def build_parser() -> argparse.ArgumentParser:
+    """Build the top-level argparse parser with all subcommands."""
     parser = argparse.ArgumentParser(
         prog="aaiclick",
         description="aaiclick command-line interface",
@@ -617,6 +637,11 @@ def main():
         default=None,
         help="Kubernetes imagePullSecret name (kubernetes runner only); falls back to $AAICLICK_K8S_IMAGE_PULL_SECRET",
     )
+    register_job_parser.add_argument(
+        "--image",
+        default=None,
+        help="Default prebuilt image to run verbatim (no build stage)",
+    )
     _add_json_flag(register_job_parser)
 
     # Add run-job subcommand
@@ -666,6 +691,29 @@ def main():
         "--k8s-image-pull-secret",
         default=None,
         help="Override the kubernetes imagePullSecret for this run (kubernetes runner only)",
+    )
+    run_job_parser.add_argument(
+        "--entry-type",
+        choices=ENTRY_TYPES,
+        default="module",
+        help="How to run the task: 'module' (dotted entrypoint, default) or 'shell' (run --command in the runner's environment)",
+    )
+    run_job_parser.add_argument(
+        "--command",
+        default=None,
+        help="Shell command (argv, shlex-split) to run for --entry-type shell, e.g. --command 'python main.py'",
+    )
+    run_job_parser.add_argument(
+        "--command-env",
+        action="append",
+        metavar="KEY=VALUE",
+        default=None,
+        help="Env var for a shell task (repeatable), e.g. --command-env K=v",
+    )
+    run_job_parser.add_argument(
+        "--image",
+        default=None,
+        help="Prebuilt image to run verbatim (no build stage); mutually exclusive with --git-*",
     )
     _add_json_flag(run_job_parser)
 
@@ -862,6 +910,21 @@ def main():
     user_passwd_parser.add_argument("--password", required=True)
     _add_json_flag(user_passwd_parser)
 
+    return parser
+
+
+def _subcommand_parsers(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser]:
+    """Return the mapping of subcommand name to its parser (for help fallbacks)."""
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return action.choices
+    return {}
+
+
+def main():
+    """Main CLI entry point."""
+    parser = build_parser()
+    subcommands = _subcommand_parsers(parser)
     args = parser.parse_args()
 
     if args.command == "setup":
@@ -877,7 +940,7 @@ def main():
             asyncio.run(start_local(host=args.host, port=args.port, reload=args.reload))
 
         else:
-            local_parser.print_help()
+            subcommands["local"].print_help()
 
     elif args.command == "worker":
         if args.worker_command == "start":
@@ -892,7 +955,7 @@ def main():
             asyncio.run(_run_worker_stop(args))
 
         else:
-            worker_parser.print_help()
+            subcommands["worker"].print_help()
 
     elif args.command == "job":
         if args.job_command == "get":
@@ -914,14 +977,14 @@ def main():
             asyncio.run(_run_job_disable(args))
 
         else:
-            job_parser.print_help()
+            subcommands["job"].print_help()
 
     elif args.command == "task":
         if args.task_command == "get":
             asyncio.run(_run_task_get(args))
 
         else:
-            task_parser.print_help()
+            subcommands["task"].print_help()
 
     elif args.command == "register-job":
         asyncio.run(_run_register_job(args))
@@ -934,7 +997,7 @@ def main():
             asyncio.run(_run_registered_job_list(args))
 
         else:
-            registered_job_parser.print_help()
+            subcommands["registered-job"].print_help()
 
     elif args.command == "data":
         if args.data_command == "list":
@@ -950,7 +1013,7 @@ def main():
             asyncio.run(_run_data_purge(args))
 
         else:
-            data_parser.print_help()
+            subcommands["data"].print_help()
 
     elif args.command == "background":
         from aaiclick.orchestration.cli import start_background
@@ -959,13 +1022,13 @@ def main():
             asyncio.run(start_background(poll_interval=args.poll_interval))
 
         else:
-            background_parser.print_help()
+            subcommands["background"].print_help()
 
     elif args.command == "docker":
         if args.docker_command == "init":
             _run_docker_init(args)
         else:
-            docker_parser.print_help()
+            subcommands["docker"].print_help()
 
     elif args.command == "user":
         if args.user_command == "create":
@@ -984,7 +1047,7 @@ def main():
             asyncio.run(_run_user_passwd(args))
 
         else:
-            user_parser.print_help()
+            subcommands["user"].print_help()
 
     else:
         parser.print_help()
