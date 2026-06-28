@@ -121,6 +121,24 @@ needed:
   hardened identity for enterprise deployments.
 - **Per-request audit log** — who called what, when.
 
+## Shell Tasks & Runner Config Follow-ups
+
+Prebuilt images and `shell` entry tasks ship today (`docs/orchestration.md`).
+Deferred extensions:
+
+- **Shell stdout as a data result** — shell tasks are exit-code-only
+  (`result_ref=None`). Capturing a shell task's stdout *as* a `result.data()`
+  payload would let downstream tasks consume its output.
+- **String-form shell commands** — only argv-list `command` is supported today.
+  A `sh -c "…"` string form would allow shell features (pipes, globs) without
+  hand-splitting an argv.
+- **Split the in-container `module` bootstrap shim** out of `docker_worker.py`
+  into its own module — a naming cleanup. The shim is layer-2 plumbing that
+  only lives there because the module is named for the host worker.
+
+**When to revisit**: opportunistically, when a use case needs shell output
+downstream or the argv form proves limiting.
+
 ## Changelog
 
 `docs/changelog.md` — version history in Keep a Changelog format. Introduce with v1.0.0 release.
