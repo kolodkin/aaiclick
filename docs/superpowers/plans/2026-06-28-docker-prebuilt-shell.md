@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Let docker/kubernetes jobs run against a prebuilt image (no build stage) and add a `shell` task entry type that runs an arbitrary argv in the container, folding the per-job docker/k8s columns into one typed `runner` config.
+**Goal:** Let docker/kubernetes jobs run against a prebuilt image (no build stage) and add a `shell` task entry type that runs an arbitrary argv in *any* runner's environment (host subprocess, container, or Pod), folding the per-job docker/k8s columns into one typed `runner` config.
 
-**Architecture:** Two orthogonal, discriminated-union configs — `entry_type` (`module`/`shell`) on `Task`, and a `runner` config (`subprocess`/`docker`/`kubernetes`, with a nested `build`/`prebuilt` image source) on `Job`/`RegisteredJob`. The build task is injected only for a `build` image source; `shell` tasks bypass the in-container bootstrap shim and `execute_task`, succeeding on container exit code 0.
+**Architecture:** Two orthogonal, discriminated-union configs — `entry_type` (`module`/`shell`) on `Task`, and a `runner` config (`subprocess`/`docker`/`kubernetes`, with a nested `build`/`prebuilt` image source) on `Job`/`RegisteredJob`. `entry_type` is **runner-agnostic**: a `shell` task runs its argv in whatever environment the runner provides — a host subprocess, a container, or a Pod — bypassing the bootstrap shim and `execute_task`, succeeding on exit code 0. The build task is injected only for a `build` image source (docker/kubernetes).
 
 **Tech Stack:** Python 3.12, SQLModel/SQLAlchemy, Pydantic v2 (discriminated unions + `TypeAdapter`), Alembic, pytest (`pytest-asyncio` auto mode), Docker/kubectl CLIs.
 
@@ -27,8 +27,9 @@
 | `aaiclick/orchestration/models.py` | `Task.entry_type/command/command_env`; `Job.runner`; `RegisteredJob.runner`; constants | Modify |
 | `aaiclick/orchestration/docker_config.py` | Build `RunnerConfig` from inputs; `effective_image_tag`; prebuilt path | Modify |
 | `aaiclick/orchestration/factories.py` | `create_task(entry_type=…)`; conditional build-task injection; consume `RunnerConfig` | Modify |
-| `aaiclick/orchestration/execution/dispatch.py` | Read `runner` config / effective tag into `JobDispatch` | Modify |
+| `aaiclick/orchestration/execution/dispatch.py` | Read `runner` config / effective tag into `JobDispatch`; route shell+subprocess | Modify |
 | `aaiclick/orchestration/execution/worker.py` | `JobDispatch` carries entry/runner info | Modify |
+| `aaiclick/orchestration/execution/mp_worker.py` | Subprocess shell host runner (`_HostShellVehicle`, `_run_shell_on_host`) | Modify |
 | `aaiclick/orchestration/execution/docker_worker.py` | Shell branch in `_build_docker_run_cmd`; exit-code result for shell | Modify |
 | `aaiclick/orchestration/execution/docker_build.py` | Read git fields from the `build` source | Modify |
 | `aaiclick/orchestration/execution/kubernetes_worker.py` | Mirror prebuilt + shell | Modify |
@@ -235,21 +236,17 @@ from aaiclick.orchestration.runner_config import validate_task_entry
 
 def test_shell_entry_requires_command():
     with pytest.raises(ValueError, match="shell.*requires.*command"):
-        validate_task_entry(entry_type="shell", command=None, runner_type="docker")
-
-
-def test_shell_entry_rejected_on_subprocess():
-    with pytest.raises(ValueError, match="shell.*subprocess"):
-        validate_task_entry(entry_type="shell", command=["echo", "hi"], runner_type="subprocess")
+        validate_task_entry(entry_type="shell", command=None)
 
 
 def test_module_entry_rejects_command():
     with pytest.raises(ValueError, match="module.*command"):
-        validate_task_entry(entry_type="module", command=["echo", "hi"], runner_type="docker")
+        validate_task_entry(entry_type="module", command=["echo", "hi"])
 
 
-def test_valid_shell_entry_passes():
-    validate_task_entry(entry_type="shell", command=["python", "main.py"], runner_type="docker")
+def test_shell_entry_valid_on_any_runner():
+    # shell is runner-agnostic — valid on subprocess, docker, kubernetes alike
+    validate_task_entry(entry_type="shell", command=["python", "main.py"])
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -261,20 +258,14 @@ Expected: FAIL — `ImportError: cannot import name 'validate_task_entry'`
 
 ```python
 # add to runner_config.py
-def validate_task_entry(
-    *,
-    entry_type: EntryType,
-    command: list[str] | None,
-    runner_type: Literal["subprocess", "docker", "kubernetes"],
-) -> None:
-    """Enforce the entry/runner cross-field rules (spec "Validation").
+def validate_task_entry(*, entry_type: EntryType, command: list[str] | None) -> None:
+    """Enforce the entry cross-field rules (spec "Validation").
 
-    Raises ``ValueError`` on violation; returns ``None`` when valid."""
+    ``shell`` is runner-agnostic — valid on subprocess, docker, and kubernetes —
+    so there is no runner argument. Raises ``ValueError`` on violation."""
     if entry_type == ENTRY_SHELL:
         if not command:
             raise ValueError("shell entry_type requires a non-empty command list")
-        if runner_type == "subprocess":
-            raise ValueError("shell entry_type is container-only; not valid on a subprocess runner")
     elif entry_type == ENTRY_MODULE:
         if command:
             raise ValueError("module entry_type does not take a command")
@@ -857,6 +848,172 @@ git add aaiclick/orchestration/execution/worker.py aaiclick/orchestration/execut
 git commit -m "feat: dispatch reads entry/runner config into JobDispatch"
 ```
 
+### Task 8b: Subprocess shell — host-process runner
+
+A `shell` + `subprocess` task runs its argv as a child process of the worker on
+the host (no container, no mp/chdb child, no `execute_task`). Success = exit 0;
+env = the worker process env with `command_env` overlaid (spec "Env summary").
+
+**Files:**
+- Modify: `aaiclick/orchestration/execution/mp_worker.py` (add `_HostShellVehicle` + `_run_shell_on_host`)
+- Modify: `aaiclick/orchestration/execution/dispatch.py` (route shell+subprocess)
+- Test: `aaiclick/orchestration/execution/test_mp_worker_shell.py` (Create)
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+# aaiclick/orchestration/execution/test_mp_worker_shell.py
+from aaiclick.orchestration.execution.mp_worker import _run_shell_on_host
+from aaiclick.orchestration.execution.worker import JobDispatch
+from aaiclick.orchestration.models import Task
+
+
+def _shell_task(command, command_env=None):
+    return Task(id=1, job_id=1, name="t", entrypoint="", entry_type="shell",
+                command=command, command_env=command_env)
+
+
+async def test_shell_on_host_succeeds_on_exit_zero(orch, tmp_path, monkeypatch):
+    monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmp_path))
+    dispatch = JobDispatch("subprocess", None, None, "shell", ["true"], None)
+    success, result_ref, log_path, error = await _run_shell_on_host(_shell_task(["true"]), 1, dispatch)
+    assert success is True
+    assert result_ref is None
+
+
+async def test_shell_on_host_fails_on_nonzero(orch, tmp_path, monkeypatch):
+    monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmp_path))
+    dispatch = JobDispatch("subprocess", None, None, "shell", ["false"], None)
+    success, _, _, error = await _run_shell_on_host(_shell_task(["false"]), 1, dispatch)
+    assert success is False
+    assert "exit" in (error or "")
+
+
+async def test_shell_on_host_command_env_overlaid(orch, tmp_path, monkeypatch):
+    monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmp_path))
+    cmd = ["python", "-c", "import os,sys; sys.exit(0 if os.environ.get('K')=='v' else 3)"]
+    dispatch = JobDispatch("subprocess", None, None, "shell", cmd, {"K": "v"})
+    success, _, _, _ = await _run_shell_on_host(_shell_task(cmd, {"K": "v"}), 1, dispatch)
+    assert success is True
+```
+
+(Use the same DB fixture name the other execution tests use; `orch` is a
+placeholder — match `conftest.py`.)
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pytest aaiclick/orchestration/execution/test_mp_worker_shell.py -v`
+Expected: FAIL — `_run_shell_on_host` not defined
+
+- [ ] **Step 3: Write minimal implementation**
+
+Add to `mp_worker.py` a `TaskVehicle` that spawns the argv and reuses
+`drive_vehicle` (heartbeat, cancellation, timeout):
+
+```python
+import os
+from pathlib import Path
+from ..logging import get_logs_dir
+from ..runner_config import ENTRY_SHELL
+from .claiming import check_task_cancelled
+from .worker import JobDispatch  # already importing from .worker
+
+
+class _HostShellHandle(NamedTuple):
+    proc: Any
+    log_path: str
+
+
+class _HostShellVehicle(TaskVehicle["_HostShellHandle", None]):
+    """Runs a shell task's argv as a child of the worker process."""
+
+    def __init__(self, command: list[str], command_env: dict[str, str] | None, log_base: str) -> None:
+        self._command = command
+        self._command_env = command_env or {}
+        self._log_base = log_base
+
+    async def launch(self, task: Task, worker_id: int) -> _HostShellHandle:
+        log_path = os.path.join(self._log_base, str(task.job_id), str(task.id), "shell.log")
+        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+        log_file = open(log_path, "wb")  # noqa: SIM115 — closed in cleanup
+        env = {**os.environ, **self._command_env}
+        proc = await asyncio.create_subprocess_exec(
+            *self._command, stdout=log_file, stderr=asyncio.subprocess.STDOUT, env=env,
+        )
+        proc._aaiclick_log_file = log_file  # keep a ref to close later
+        return _HostShellHandle(proc, log_path)
+
+    async def wait(self, handle: _HostShellHandle, timeout: float | None) -> tuple[int, str | None, None]:
+        try:
+            await asyncio.wait_for(handle.proc.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            handle.proc.kill()
+            await handle.proc.wait()
+            return -1, f"Task timed out after {timeout}s", None
+        return handle.proc.returncode, None, None
+
+    async def poll_cancelled(self, task: Task) -> bool:
+        return await check_task_cancelled(task.id)
+
+    async def terminate(self, handle: _HostShellHandle) -> None:
+        handle.proc.kill()
+
+    def collect(self, handle, exit_code, error, was_cancelled, payload) -> RunnerResult:
+        if was_cancelled:
+            return RunnerResult(False, None, handle.log_path, "cancelled")
+        if error is not None:
+            return RunnerResult(False, None, handle.log_path, error)
+        return RunnerResult(exit_code == 0, None, handle.log_path, None if exit_code == 0 else f"exit {exit_code}")
+
+    async def cleanup(self, handle: _HostShellHandle) -> None:
+        lf = getattr(handle.proc, "_aaiclick_log_file", None)
+        if lf is not None:
+            lf.close()
+
+
+async def _run_shell_on_host(task: Task, worker_id: int, dispatch: JobDispatch) -> tuple[bool, dict | None, str | None, str | None]:
+    """ExecuteFn for shell tasks on the subprocess runner."""
+    vehicle = _HostShellVehicle(dispatch.command or [], dispatch.command_env, get_logs_dir())
+    result = await drive_vehicle(
+        task, worker_id, vehicle, timeout=parse_task_timeout(),
+        poll_interval=POLL_INTERVAL, heartbeat_fn=worker_heartbeat,
+    )
+    return result.success, result.result_ref, result.log_path, result.error
+```
+
+Then route it in `dispatch.dispatch_execute` (before the mp fallback):
+
+```python
+from ..runner_config import ENTRY_SHELL
+from .mp_worker import _run_shell_on_host, _run_task_in_child
+
+async def dispatch_execute(task: Task, worker_id: int) -> ExecuteResult:
+    dispatch = await _resolve_dispatch(task)
+    handler = _IMAGE_RUNNERS.get(dispatch.runner_mode)
+    if handler is not None:
+        return await handler(task, worker_id, dispatch)
+    if dispatch.entry_type == ENTRY_SHELL:
+        return await _run_shell_on_host(task, worker_id, dispatch)
+    return await _run_task_in_child(task, worker_id)
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `pytest aaiclick/orchestration/execution/test_mp_worker_shell.py -v`
+Expected: PASS
+
+- [ ] **Step 5: Run the execution suite**
+
+Run: `pytest aaiclick/orchestration/execution/ -q`
+Expected: PASS
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add aaiclick/orchestration/execution/mp_worker.py aaiclick/orchestration/execution/dispatch.py aaiclick/orchestration/execution/test_mp_worker_shell.py
+git commit -m "feat: subprocess runner runs shell tasks as host processes"
+```
+
 ### Task 9: Docker worker — shell container command + exit-code result
 
 **Files:**
@@ -1087,7 +1244,7 @@ Expected: FAIL — `run_job()` has no `entry_type`/`command`/`image` params
 
 - [ ] **Step 3: Write minimal implementation**
 
-Add `entry_type: EntryType = ENTRY_MODULE`, `command`, `command_env`, and `image` params to `run_job`. Before resolving, call `validate_task_entry(entry_type=…, command=…, runner_type=runner_mode)` and reject `image` together with any git field. Resolve via `resolve_runner_config(...)`, then `create_built_job(... runner=cfg, entry_type=…, command=…, command_env=…)`. Add `image`/prebuilt support to `register_job`/`upsert_registered_job` by storing a `runner` config dict (build the `RunnerConfig` from `runner_mode` + `image`/git defaults and `dump_runner_config`).
+Add `entry_type: EntryType = ENTRY_MODULE`, `command`, `command_env`, and `image` params to `run_job`. Before resolving, call `validate_task_entry(entry_type=…, command=…)` and reject `image` together with any git field. A `shell` + `subprocess` job needs no image — when `runner_mode == "subprocess"`, skip `resolve_runner_config`/`create_built_job` and instead create a plain subprocess job whose single task carries the shell entry (extend the existing `create_job`/`create_task` path with `entry_type`/`command`/`command_env`). For `docker`/`kubernetes`, resolve via `resolve_runner_config(...)`, then `create_built_job(... runner=cfg, entry_type=…, command=…, command_env=…)`. Add `image`/prebuilt support to `register_job`/`upsert_registered_job` by storing a `runner` config dict (build the `RunnerConfig` from `runner_mode` + `image`/git defaults and `dump_runner_config`).
 
 - [ ] **Step 4: Run test + suite**
 
@@ -1206,7 +1363,7 @@ git commit -m "docs: document prebuilt images, shell tasks, execution layers"
 
 - [ ] **Step 1: Add entries**
 
-Add: capturing shell stdout as a data result; shell tasks on the subprocess (host-local) runner; string-form (`sh -c`) commands; and the optional later split of the in-container module shim out of `docker_worker.py`.
+Add: capturing shell stdout as a data result; string-form (`sh -c`) commands; and the optional later split of the in-container module shim out of `docker_worker.py`. (Shell on the subprocess runner is now **in scope** — Task 8b — so do *not* list it here.)
 
 - [ ] **Step 2: Commit**
 
@@ -1287,6 +1444,6 @@ git commit -m "test: e2e shell job on prebuilt python:3.12 image"
 
 ## Self-Review Notes
 
-- **Spec coverage:** entry_type/shell (Tasks 1,6,9,11,13,14); prebuilt/build image source (Tasks 1,5,7,10); runner unification + dropped columns (Tasks 3,4,7,17); conditional build injection (Task 7); shell env isolation (Tasks 9,11); exit-code result (Tasks 9,11); validation rules (Task 2,12); API/CLI (Tasks 12–14); execution-layers + orchestration.md (Task 15); future.md (Task 16); migration backfill/no-default (Tasks 4,17); tests incl. distributed e2e (Task 18).
+- **Spec coverage:** entry_type/shell across all runners (Tasks 1,6,**8b**,9,11,13,14); prebuilt/build image source (Tasks 1,5,7,10); runner unification + dropped columns (Tasks 3,4,7,17); conditional build injection (Task 7); shell env (subprocess inherit+overlay Task 8b; container `command_env`-only Tasks 9,11); exit-code result (Tasks 8b,9,11); validation rules — shell valid on every runner (Tasks 2,12); API/CLI (Tasks 12–14); execution-layers + orchestration.md (Task 15); future.md (Task 16); migration backfill/no-default (Tasks 4,17); tests incl. local subprocess-shell (Task 8b) + distributed e2e (Task 18).
 - **Green-at-each-step:** additive columns (Phase 2) precede reader swaps (Phases 3–5); the drop migration is last (Phase 8). `create_task` keeps a `module` default so internal subprocess callers don't break; the "no implicit default" rule is enforced at the submission boundary.
 - **Type consistency:** `RunnerConfig`/`ImageSource`/`EntryType`, `resolve_runner_config`, `effective_image_tag`, `create_built_job`, `validate_task_entry`, `parse_runner_config`/`dump_runner_config` are used with the same signatures across tasks.
