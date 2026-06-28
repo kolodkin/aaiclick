@@ -16,10 +16,10 @@ from sqlmodel import select
 from ..docker_config import BUILD_TASK_ENTRYPOINT, effective_image_tag
 from ..models import RUNNER_DOCKER, RUNNER_KUBERNETES, RUNNER_SUBPROCESS, Job, RunnerMode, Task
 from ..orch_context import get_sql_session
-from ..runner_config import KubernetesRunner, parse_runner_config
+from ..runner_config import ENTRY_SHELL, KubernetesRunner, parse_runner_config
 from .docker_worker import _run_task_in_container
 from .kubernetes_worker import _run_task_in_pod
-from .mp_worker import _run_task_in_child
+from .mp_worker import _run_shell_on_host, _run_task_in_child
 from .worker import JobDispatch
 
 ExecuteResult = tuple[bool, dict | None, str | None, str | None]
@@ -77,4 +77,6 @@ async def dispatch_execute(task: Task, worker_id: int) -> ExecuteResult:
     handler = _IMAGE_RUNNERS.get(dispatch.runner_mode)
     if handler is not None:
         return await handler(task, worker_id, dispatch)
+    if dispatch.entry_type == ENTRY_SHELL:
+        return await _run_shell_on_host(task, worker_id, dispatch)
     return await _run_task_in_child(task, worker_id)
