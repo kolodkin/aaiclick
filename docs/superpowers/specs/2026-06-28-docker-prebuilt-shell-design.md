@@ -137,6 +137,40 @@ RunnerConfig = Annotated[
 A single helper resolves the effective tag from a `RunnerConfig` so dispatch and
 the workers don't branch on the union shape.
 
+## Execution layers
+
+The container invocation lives at a different layer than the task it runs, and
+the existing `module` path blurs the two. Naming this explicitly keeps the
+`entry_type` fork honest. Three layers, host → container:
+
+1. **Host worker** — `_run_task_in_container` driving `drive_vehicle`
+   (heartbeat, cancellation poll, `docker wait`, result read). The genuine
+   worker level: the long-lived host process's ExecuteFn. Identical for
+   `module` and `shell`.
+2. **Container command** — what `docker run <image> …` invokes. Chosen in
+   `_build_docker_run_cmd`, so this is the **runner/vehicle** level, *not* the
+   task's own definition. This is where `entry_type` branches.
+3. **Task execution** — `execute_task(task)` running the module entrypoint.
+
+`python -m …docker_worker --task-id N` is **layer 2, not layer 3**: a per-task
+**bootstrap shim**, framework plumbing that happens to live in the
+`docker_worker` module (named for the host worker — the source of the
+confusion). Despite "worker" in the path, it is not a queue-claiming loop: it
+loads one task by id, boots `orch_context()`, calls `execute_task`, writes
+`result.json`, and exits.
+
+The `module`/`shell` fork therefore differs in *what occupies layer 2*:
+
+| entry_type | layer-2 container command | layer-3 execution |
+| --- | --- | --- |
+| `module` | a fixed bootstrap shim (`…docker_worker --task-id N`) — plumbing, *not* the user's entry | shim calls `execute_task(entrypoint)` inside |
+| `shell` | the user's argv directly — the task definition *is* the container command | none — the argv *is* the execution; no `execute_task` |
+
+So for `module` the user's entry (a dotted path) executes *inside* a worker-level
+shim; for `shell` the user's entry (an argv) *replaces* the shim, bypassing both
+the bootstrap and `execute_task`. Module/code names stay as-is; a later split of
+the in-container shim out of `docker_worker.py` is out of scope here.
+
 ## Behavior
 
 ### Conditional build-task injection
