@@ -159,6 +159,7 @@ async def resolve_runner_config(
             namespace=kc.get("namespace"),
             service_account=kc.get("service_account"),
             image_pull_secret=kc.get("image_pull_secret"),
+            resources=kc.get("resources"),
         )
     return DockerRunner(image=source)
 
