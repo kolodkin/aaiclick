@@ -31,10 +31,12 @@ import pytest
 from sqlmodel import col, select
 
 from aaiclick.datetime_utils import utc_now
+from aaiclick.orchestration.docker_config import BUILD_TASK_ENTRYPOINT, effective_image_tag
 from aaiclick.orchestration.execution.mp_worker import mp_worker_main_loop
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, TASK_COMPLETED, Job
 from aaiclick.orchestration.orch_context import get_sql_session
+from aaiclick.orchestration.runner_config import parse_runner_config
 
 
 def _aaiclick(*args: str, cwd: Path) -> subprocess.CompletedProcess:
@@ -105,8 +107,9 @@ async def test_docker_runner_smoke(orch_ctx, docker_e2e_user_repo):
             pass
 
     assert completed.status == JOB_COMPLETED, completed.error
-    assert completed.image_tag and completed.image_tag.endswith(f":{sha}")
-    assert completed.git_sha == sha
+    runner = parse_runner_config(completed.runner)
+    assert effective_image_tag(runner).endswith(f":{sha}")
+    assert runner.image.git_sha == sha
 
     tasks = await get_tasks_for_job(completed.id)
     entrypoints = [t.entrypoint for t in tasks]
@@ -123,3 +126,106 @@ async def test_docker_runner_smoke(orch_ctx, docker_e2e_user_repo):
     # values are wrapped as ``{"native_value": ...}`` in Task.result.
     summed = next(t for t in tasks if t.entrypoint == "sample_jobs.compute_sum")
     assert summed.result == {"native_value": {"total": 120}}, summed.result
+
+
+@pytest.mark.docker_e2e
+async def test_docker_runner_shell_prebuilt(orch_ctx, tmp_path):
+    """Run a shell command in a prebuilt image (no git repo, no build).
+
+    The prebuilt ``python:3.12`` image runs an exit-0 shell command, so the
+    job completes with no auto-injected build task."""
+    job_name = "docker_e2e_shell_prebuilt"
+
+    _aaiclick(
+        "register-job",
+        "shell.placeholder",
+        "--name",
+        job_name,
+        "--runner",
+        "docker",
+        "--image",
+        "python:3.12",
+        cwd=tmp_path,
+    )
+
+    _aaiclick(
+        "run-job",
+        job_name,
+        "--entry-type",
+        "shell",
+        "--command",
+        'python -c "print(123)"',
+        cwd=tmp_path,
+    )
+
+    worker_task = asyncio.create_task(
+        mp_worker_main_loop(
+            max_tasks=10,
+            install_signal_handlers=False,
+            max_empty_polls=10,
+        )
+    )
+    try:
+        completed = await _wait_for_job(job_name)
+    finally:
+        worker_task.cancel()
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            pass
+
+    assert completed.status == JOB_COMPLETED, completed.error
+
+    tasks = await get_tasks_for_job(completed.id)
+    entrypoints = [t.entrypoint for t in tasks]
+    # Prebuilt image → no build task is injected.
+    assert BUILD_TASK_ENTRYPOINT not in entrypoints, entrypoints
+    # The single shell task ran the exit-0 command and completed.
+    assert len(tasks) == 1, entrypoints
+    assert tasks[0].status == TASK_COMPLETED, tasks[0].error
+
+
+@pytest.mark.docker_e2e
+async def test_docker_runner_shell_nonzero_fails(orch_ctx, tmp_path):
+    """A shell command that exits non-zero fails the job."""
+    job_name = "docker_e2e_shell_nonzero"
+
+    _aaiclick(
+        "register-job",
+        "shell.placeholder",
+        "--name",
+        job_name,
+        "--runner",
+        "docker",
+        "--image",
+        "python:3.12",
+        cwd=tmp_path,
+    )
+
+    _aaiclick(
+        "run-job",
+        job_name,
+        "--entry-type",
+        "shell",
+        "--command",
+        'python -c "import sys; sys.exit(7)"',
+        cwd=tmp_path,
+    )
+
+    worker_task = asyncio.create_task(
+        mp_worker_main_loop(
+            max_tasks=10,
+            install_signal_handlers=False,
+            max_empty_polls=10,
+        )
+    )
+    try:
+        completed = await _wait_for_job(job_name)
+    finally:
+        worker_task.cancel()
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            pass
+
+    assert completed.status == JOB_FAILED, completed.status
