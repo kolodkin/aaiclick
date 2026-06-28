@@ -269,7 +269,11 @@ unification stays because those columns are localized to the Docker/K8s path.
 - `orchestration/execution/docker_build.py` — read git fields from the build
   source.
 - `orchestration/registered_jobs.py`, `view_models.py`, CLI — submission params.
-- `docs/orchestration.md` — document prebuilt + shell.
+- `docs/orchestration.md` — document prebuilt + shell, **and** the
+  "Execution layers" distinction (host worker / container command / task
+  execution; that the in-container `docker_worker --task-id N` shim is layer 2
+  plumbing, not task execution). Updating this section is part of the plan, not
+  optional.
 - Tests across the docker/k8s/factory/dispatch suites.
 
 ## Testing
