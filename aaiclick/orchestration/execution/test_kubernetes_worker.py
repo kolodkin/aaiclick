@@ -20,6 +20,9 @@ def test_build_pod_manifest_shape():
         service_account="sa",
         image_pull_secret="regcred",
         resources={"limits": {"cpu": "1"}},
+        entry_type="module",
+        command=None,
+        command_env=None,
     )
     assert m["kind"] == "Pod"
     assert m["metadata"] == {"name": "aaiclick-task-7-2", "namespace": "ml"}
@@ -45,6 +48,9 @@ def test_build_pod_manifest_omits_optional_fields():
         service_account=None,
         image_pull_secret=None,
         resources=None,
+        entry_type="module",
+        command=None,
+        command_env=None,
     )
     spec = m["spec"]
     assert "serviceAccountName" not in spec
@@ -62,10 +68,23 @@ def _handle(task_id=7, run_epoch=1):
     )
 
 
-def _collect(handle, exit_code, error, was_cancelled, payload):
-    return kw._KubernetesVehicle.__new__(kw._KubernetesVehicle).collect(
-        handle, exit_code, error, was_cancelled, payload
+def _vehicle(entry_type="module"):
+    v = kw._KubernetesVehicle.__new__(kw._KubernetesVehicle)
+    v._spec = kw._PodSpec(
+        image_tag="img",
+        namespace="default",
+        service_account=None,
+        image_pull_secret=None,
+        resources=None,
+        entry_type=entry_type,
+        command=None,
+        command_env=None,
     )
+    return v
+
+
+def _collect(handle, exit_code, error, was_cancelled, payload, entry_type="module"):
+    return _vehicle(entry_type).collect(handle, exit_code, error, was_cancelled, payload)
 
 
 def test_collect_cancelled_overrides_row():
@@ -84,3 +103,36 @@ def test_collect_returns_row():
     payload = kw.RunnerResult(True, {"native_value": 5}, "/logs/k8s-1.log", None)
     out = _collect(_handle(), 0, None, was_cancelled=False, payload=payload)
     assert out.success is True and out.result_ref == {"native_value": 5}
+
+
+def test_shell_pod_runs_argv_only_command_env():
+    m = kw._build_pod_manifest(
+        name="p", namespace="default", image_tag="python:3.12", task_id=1, run_epoch=0,
+        env={"AAICLICK_SQL_URL": "secret"}, service_account=None, image_pull_secret=None,
+        resources=None, entry_type="shell", command=["python", "main.py"], command_env={"K": "v"},
+    )
+    c = m["spec"]["containers"][0]
+    assert c["command"] == ["python", "main.py"]
+    names = {e["name"] for e in c["env"]}
+    assert names == {"K"}  # runner env (AAICLICK_SQL_URL) excluded for shell
+
+
+def test_module_pod_uses_shim_and_runner_env():
+    m = kw._build_pod_manifest(
+        name="p", namespace="default", image_tag="aaiclick-job:abc", task_id=7, run_epoch=2,
+        env={"AAICLICK_SQL_URL": "u"}, service_account=None, image_pull_secret=None,
+        resources=None, entry_type="module", command=None, command_env=None,
+    )
+    c = m["spec"]["containers"][0]
+    assert "--task-id" in c["command"] and "7" in c["command"]
+    assert {e["name"] for e in c["env"]} == {"AAICLICK_SQL_URL"}
+
+
+def test_collect_shell_success_from_exit_code():
+    out = _collect(_handle(), 0, None, was_cancelled=False, payload=None, entry_type="shell")
+    assert out.success is True and out.error is None and out.log_path == "/logs/k8s-1.log"
+
+
+def test_collect_shell_failure_from_exit_code():
+    out = _collect(_handle(), 3, None, was_cancelled=False, payload=None, entry_type="shell")
+    assert out.success is False and out.error == "exit 3"

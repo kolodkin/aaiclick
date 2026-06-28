@@ -28,6 +28,7 @@ from ..models import RemoteTaskResult, Task
 from ..orch_context import get_sql_session
 from . import cli
 from .claiming import check_task_cancelled
+from ..runner_config import ENTRY_SHELL
 from .runner import execute_task, register_returned_tasks, serialize_task_result
 from .runner_env import build_runner_env
 from .worker import (
@@ -65,16 +66,32 @@ def _build_pod_manifest(
     service_account: str | None,
     image_pull_secret: str | None,
     resources: dict | None,
+    entry_type: str,
+    command: list[str] | None,
+    command_env: dict[str, str] | None,
 ) -> dict:
     """Build the bare-Pod manifest (``restartPolicy: Never`` — aaiclick owns
     retries). Optional cluster fields are omitted when unset so the cluster
-    defaults apply."""
-    container: dict = {
-        "name": "task",
-        "image": image_tag,
-        "command": [*POD_ENTRYPOINT, "--task-id", str(task_id), "--run-epoch", str(run_epoch)],
-        "env": [{"name": k, "value": v} for k, v in env.items()],
-    }
+    defaults apply.
+
+    For ``shell`` tasks the container runs the task's argv directly with only
+    ``command_env`` injected — the runner ``env`` (DB creds) is deliberately
+    NOT read, so no aaiclick secrets reach a vanilla user image. For ``module``
+    tasks the Pod runs the aaiclick shim with the full runner ``env``."""
+    if entry_type == ENTRY_SHELL:
+        container: dict = {
+            "name": "task",
+            "image": image_tag,
+            "command": command,
+            "env": [{"name": k, "value": v} for k, v in (command_env or {}).items()],
+        }
+    else:
+        container = {
+            "name": "task",
+            "image": image_tag,
+            "command": [*POD_ENTRYPOINT, "--task-id", str(task_id), "--run-epoch", str(run_epoch)],
+            "env": [{"name": k, "value": v} for k, v in env.items()],
+        }
     if resources:
         container["resources"] = resources
     spec: dict = {"restartPolicy": "Never", "containers": [container]}
@@ -101,6 +118,9 @@ class _PodSpec(NamedTuple):
     service_account: str | None
     image_pull_secret: str | None
     resources: dict | None
+    entry_type: str
+    command: list[str] | None
+    command_env: dict[str, str] | None
 
 
 def _pod_spec_from(task: Task, dispatch: JobDispatch) -> _PodSpec:
@@ -113,6 +133,9 @@ def _pod_spec_from(task: Task, dispatch: JobDispatch) -> _PodSpec:
         service_account=kc.get("service_account"),
         image_pull_secret=kc.get("image_pull_secret"),
         resources=kc.get("resources"),
+        entry_type=dispatch.entry_type,
+        command=dispatch.command,
+        command_env=dispatch.command_env,
     )
 
 
@@ -201,6 +224,9 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
             service_account=self._spec.service_account,
             image_pull_secret=self._spec.image_pull_secret,
             resources=self._spec.resources,
+            entry_type=self._spec.entry_type,
+            command=self._spec.command,
+            command_env=self._spec.command_env,
         )
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
             json.dump(manifest, f)
@@ -227,6 +253,10 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
             await asyncio.sleep(POLL_INTERVAL)
             elapsed += POLL_INTERVAL
         await _capture_pod_logs(handle)
+        # Shell Pods run a vanilla user image that never writes a
+        # ``RemoteTaskResult`` row — the exit code is the result.
+        if self._spec.entry_type == ENTRY_SHELL:
+            return exit_code, error, None
         result_row = await _read_task_run_result_row(handle.task_id, handle.run_epoch)
         return exit_code, error, result_row
 
@@ -241,9 +271,16 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
         self, handle: _PodHandle, exit_code: int, error: str | None, was_cancelled: bool, payload: RunnerResult | None
     ) -> RunnerResult:
         if was_cancelled:
-            return RunnerResult(False, None, None, "cancelled")
+            return RunnerResult(False, None, handle.log_path, "cancelled")
         if error is not None:
-            return RunnerResult(False, None, None, error)
+            return RunnerResult(False, None, handle.log_path, error)
+        if self._spec.entry_type == ENTRY_SHELL:
+            return RunnerResult(
+                exit_code == 0,
+                None,
+                handle.log_path,
+                None if exit_code == 0 else f"exit {exit_code}",
+            )
         if payload is None:
             return RunnerResult(False, None, None, f"pod exited with code {exit_code} but wrote no result row")
         return payload
