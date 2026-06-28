@@ -16,7 +16,7 @@ from sqlmodel import select
 from ..docker_config import BUILD_TASK_ENTRYPOINT, effective_image_tag
 from ..models import RUNNER_DOCKER, RUNNER_KUBERNETES, RUNNER_SUBPROCESS, Job, RunnerMode, Task
 from ..orch_context import get_sql_session
-from ..runner_config import ENTRY_SHELL, KubernetesRunner, parse_runner_config
+from ..runner_config import ENTRY_SHELL, KubernetesRunner, RunnerConfigT, parse_runner_config
 from .docker_worker import _run_task_in_container
 from .kubernetes_worker import _run_task_in_pod
 from .mp_worker import _run_shell_on_host, _run_task_in_child
@@ -25,7 +25,7 @@ from .worker import JobDispatch
 ExecuteResult = tuple[bool, dict | None, str | None, str | None]
 
 
-def _kube_dict(runner) -> dict | None:
+def _kube_dict(runner: RunnerConfigT | None) -> dict | None:
     """Reconstruct the kubernetes_config dict the k8s worker expects from a
     KubernetesRunner; None for any other runner."""
     if not isinstance(runner, KubernetesRunner):

@@ -16,6 +16,7 @@ async def test_shell_on_host_succeeds_on_exit_zero(orch_ctx_no_ch, tmp_path, mon
     success, result_ref, log_path, error = await _run_shell_on_host(_shell_task(["true"]), 1, dispatch)
     assert success is True
     assert result_ref is None
+    assert "shell-0.log" in log_path
 
 
 async def test_shell_on_host_fails_on_nonzero(orch_ctx_no_ch, tmp_path, monkeypatch):
