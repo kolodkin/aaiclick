@@ -23,6 +23,7 @@ from .models import (
     Task,
 )
 from .orch_context import get_sql_session
+from .runner_config import ENTRY_MODULE, ENTRY_SHELL, EntryType
 from .task_registry import get_task_registry
 
 
@@ -125,37 +126,44 @@ def _callable_to_string(func: Callable) -> str:
 
 
 def create_task(
-    callback: str | Callable, kwargs: dict | None = None, *, name: str | None = None, max_retries: int = 0
+    callback: str | Callable | None = None,
+    kwargs: dict | None = None,
+    *,
+    name: str | None = None,
+    max_retries: int = 0,
+    entry_type: EntryType = ENTRY_MODULE,
+    command: list[str] | None = None,
+    command_env: dict[str, str] | None = None,
 ) -> Task:
     """Create a Task object (not committed to database).
 
+    For ``entry_type="module"`` (default), ``callback`` is a dotted path or
+    callable run via ``execute_task``. For ``entry_type="shell"``, ``command``
+    is an argv run directly in the runner's environment and ``callback`` is
+    unused (``entrypoint`` is stored as an empty string).
+
     Args:
-        callback: Either a callback string (e.g., "mymodule.task1") or a callable function
-        kwargs: Keyword arguments for the task function (default: empty dict)
-        name: Human-readable name (default: function name from entrypoint)
-        max_retries: Maximum number of retries on failure (default: 0, no retry)
+        callback: Callback string ("mymodule.task1") or callable, for module tasks.
+        kwargs: Keyword arguments for the task function (default: empty dict).
+        name: Human-readable name (default: derived from entrypoint/command).
+        max_retries: Maximum number of retries on failure (default: 0).
+        entry_type: ``"module"`` (default) or ``"shell"``.
+        command: Argv list for shell tasks.
+        command_env: Env vars (``KEY: VALUE``) injected for shell tasks.
 
     Returns:
-        Task object with generated snowflake ID
-
-    Example:
-        # Using string
-        task = create_task("mymodule.task1", {"param": "value"})
-
-        # Using callable with retries
-        task = create_task(my_function, {"param": "value"}, max_retries=3)
-
-        # Using custom name
-        task = create_task("mymodule.task1", name="my_task")
+        Task object with generated snowflake ID.
     """
     task_id = get_snowflake_id()
 
-    # Convert callable to string if needed
-    if callable(callback):
+    if entry_type == ENTRY_SHELL:
+        entrypoint = ""
+        resolved_name = name or (command[0] if command else "shell")
+    elif callable(callback):
         entrypoint = _callable_to_string(callback)
         resolved_name = name or getattr(callback, "__name__", entrypoint.rsplit(".", 1)[-1])
     else:
-        entrypoint = callback
+        entrypoint = callback or ""
         resolved_name = name or entrypoint.rsplit(".", 1)[-1]
 
     task = Task(
@@ -163,6 +171,9 @@ def create_task(
         entrypoint=entrypoint,
         name=resolved_name,
         kwargs=kwargs or {},
+        entry_type=entry_type,
+        command=command,
+        command_env=command_env,
         status=TASK_PENDING,
         created_at=utc_now(),
         max_retries=max_retries,

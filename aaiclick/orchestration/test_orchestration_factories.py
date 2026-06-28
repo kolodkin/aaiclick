@@ -9,6 +9,7 @@ from aaiclick.orchestration.jobs import get_task
 from aaiclick.orchestration.models import JOB_PENDING, TASK_PENDING, Job, Task
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.result import data_list
+from aaiclick.orchestration.runner_config import ENTRY_MODULE, ENTRY_SHELL
 
 
 async def test_create_task_unique_ids(orch_ctx):
@@ -107,3 +108,17 @@ def test_data_list_multiple(orch_ctx):
     result = data_list("a", "b", "c")
     assert result.data == ["a", "b", "c"]
     assert result.tasks == []
+
+
+def test_create_task_module_default_explicit():
+    t = create_task("mod.fn", {"a": 1}, entry_type=ENTRY_MODULE)
+    assert t.entry_type == ENTRY_MODULE
+    assert t.command is None
+
+
+def test_create_task_shell_carries_command():
+    t = create_task(None, name="run", entry_type=ENTRY_SHELL, command=["python", "main.py"], command_env={"K": "v"})
+    assert t.entry_type == ENTRY_SHELL
+    assert t.command == ["python", "main.py"]
+    assert t.command_env == {"K": "v"}
+    assert t.entrypoint == ""  # shell tasks have no module entrypoint
