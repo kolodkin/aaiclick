@@ -23,9 +23,10 @@ from .orch_context import get_sql_session
 from .runner_config import (
     ENTRY_MODULE,
     ENTRY_SHELL,
+    DockerRunner,
     EntryType,
     ImageBuild,
-    RunnerConfigT,
+    KubernetesRunner,
     dump_runner_config,
 )
 from .task_registry import get_task_registry
@@ -270,7 +271,7 @@ async def create_built_job(
     *,
     name: str,
     entrypoint: str,
-    runner: RunnerConfigT,
+    runner: DockerRunner | KubernetesRunner,
     entry_type: EntryType = ENTRY_MODULE,
     command: list[str] | None = None,
     command_env: dict[str, str] | None = None,

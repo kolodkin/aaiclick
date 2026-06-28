@@ -136,5 +136,7 @@ async def test_resolve_runner_config_kwargs_override_registered_defaults(
     assert isinstance(config.image, ImageBuild)
     assert config.image.git_remote == "git@override.example:repo.git"
     assert config.image.git_sha == "b" * 40
+    # git_branch falls back to auto-detect since kwarg is None
+    assert config.image.git_branch == "auto-branch"
     # dockerfile inherits the registered default since kwarg is None
     assert config.image.dockerfile == "Dockerfile.default"
