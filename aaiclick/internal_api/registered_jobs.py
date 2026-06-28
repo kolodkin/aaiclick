@@ -102,6 +102,7 @@ async def register_job(request: RegisterJobRequest) -> RegisteredJobView:
             runner_mode=request.runner_mode,
             dockerfile=request.dockerfile,
             git_remote=request.git_remote,
+            image=request.image,
             kubernetes_config=request.kubernetes_config,
         )
     except RegisteredJobAlreadyExists as exc:

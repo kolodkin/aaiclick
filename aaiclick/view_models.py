@@ -26,6 +26,11 @@ from .orchestration.models import JobStatus, PreservationMode, RunnerMode, Worke
 # Keep the two in lock-step.
 ObjectScope = Literal["temp", "temp_named", "job", "global"]
 
+# Mirrors aaiclick.orchestration.runner_config.EntryType — re-declared to match
+# the ObjectScope pattern above and keep this module import-light. Keep the two
+# in lock-step.
+EntryType = Literal["module", "shell"]
+
 # Snowflake ids are 64-bit, exceeding JavaScript's safe-integer range (2^53-1),
 # so a JSON number would silently lose precision in the browser. Serialize id
 # fields as strings on the wire (the OpenAPI schema follows, so generated SPA
@@ -113,6 +118,10 @@ class RunJobRequest(BaseModel):
     name: str
     kwargs: dict[str, Any] = Field(default_factory=dict)
     preservation_mode: PreservationMode | None = None
+    entry_type: EntryType = "module"
+    command: list[str] | None = None
+    command_env: dict[str, str] | None = None
+    image: str | None = None
     # Per-run docker overrides; ignored unless the registered job is
     # in docker mode. Each field falls through to the RegisteredJob
     # default, then to git auto-detect (where applicable).
@@ -146,6 +155,7 @@ class RegisterJobRequest(BaseModel):
     runner_mode: RunnerMode = "subprocess"
     dockerfile: str | None = None
     git_remote: str | None = None
+    image: str | None = None
     # Kubernetes-runner cluster defaults (namespace, service_account, ...).
     kubernetes_config: dict[str, Any] | None = None
 
