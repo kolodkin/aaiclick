@@ -46,7 +46,7 @@ The feature is two independent dials that compose freely:
 | Axis | Variants |
 | --- | --- |
 | **entry_type** (per *task*) | `module` (today) / `shell` (new) |
-| **image source** (per *job*, nested in the runner config) | `build` (git → build task → computed tag, today) / `prebuilt` (explicit `image_tag`, no build) |
+| **image_source** (per *job*, nested in the runner config) | `build` (git → build task → computed tag, today) / `prebuilt` (explicit `image_tag`, no build) |
 
 `shell` + `prebuilt` is the headline case (run a command on `python:3.12`).
 `module` + `prebuilt` (a pre-published aaiclick image, no rebuild) and `shell` +
@@ -70,7 +70,7 @@ ENTRY_TYPES: list[EntryType] = [ENTRY_MODULE, ENTRY_SHELL]
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `entry_type` | `String`, not null, default `"module"` | Discriminator. |
+| `entry_type` | `String`, not null, **no default** | Discriminator. Every `Task`-creation site sets it explicitly (`create_task`, the `@task` decorator path, factories). No column default and no implicit fallback in code. |
 | `entrypoint` | `str` | Module dotted path. Required for `module`; unused for `shell`. |
 | `kwargs` | `JSON` | Module args. Empty for `shell`. |
 | `command` | `JSON` (`list[str]`), nullable | Argv for `shell`. Null for `module`. |
@@ -207,8 +207,10 @@ CLI `choices=`):
 
 One Alembic migration (via the `generate-migration` skill — never hand-written):
 
-1. Add `Task.entry_type` (default `"module"`), `Task.command`,
-   `Task.command_env`.
+1. Add `Task.command`, `Task.command_env`, then add `Task.entry_type` as
+   nullable, backfill every existing row to `"module"` in the same migration,
+   and finalize the column as not-null. The column carries no server default —
+   new rows must supply `entry_type` explicitly from code.
 2. Add `Job.runner`, `RegisteredJob.runner` JSON columns; backfill from the
    existing flat columns; drop the flat `git_*`/`dockerfile`/`image_tag`/
    `kubernetes_config` columns.
