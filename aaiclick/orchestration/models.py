@@ -170,12 +170,6 @@ class Job(SQLModel, table=True):
         default=RUNNER_SUBPROCESS,
         sa_column=Column(String, nullable=False, server_default=RUNNER_SUBPROCESS),
     )
-    git_remote: str | None = Field(default=None)
-    git_sha: str | None = Field(default=None, sa_column=Column(String(40), nullable=True))
-    git_branch: str | None = Field(default=None)
-    dockerfile: str | None = Field(default=None)
-    image_tag: str | None = Field(default=None)
-    kubernetes_config: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     runner: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     created_at: datetime = Field(default_factory=utc_now, index=True)
     started_at: datetime | None = Field(default=None)
