@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import os
 import re
-from typing import NamedTuple
 
 from .execution import cli
 from .models import RegisteredJob, RunnerMode
@@ -29,19 +28,6 @@ job's configured runner_mode."""
 
 
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-
-
-class DockerJobConfig(NamedTuple):
-    """Snapshot of Docker config resolved at submission time.
-
-    Maps 1:1 to the new ``Job`` columns. ``run_job`` writes these onto
-    the Job row; the build task and host runner read them back."""
-
-    git_remote: str
-    git_sha: str
-    git_branch: str | None
-    dockerfile: str | None
-    image_tag: str
 
 
 class GitDetectionError(RuntimeError):
@@ -195,45 +181,3 @@ def _validate_sha(sha: str) -> str:
     if not _SHA_RE.match(sha):
         raise ValueError(f"git_sha must be a 40-char lowercase hex string; got {sha!r}")
     return sha
-
-
-async def resolve_docker_config(
-    registered: RegisteredJob | None,
-    *,
-    git_remote: str | None = None,
-    git_sha: str | None = None,
-    git_branch: str | None = None,
-    dockerfile: str | None = None,
-) -> DockerJobConfig:
-    """Resolve docker config for a single ``run_job`` call.
-
-    Precedence (highest first) for each field:
-
-    1. Explicit ``run_job`` kwarg (passed in to this function)
-    2. ``registered`` default (when set on the RegisteredJob row)
-    3. Auto-detect rule (where one applies)
-
-    Returns the snapshot to write onto the Job row."""
-    remote = git_remote
-    if remote is None and registered is not None:
-        remote = registered.git_remote
-    if remote is None:
-        remote = await auto_detect_git_remote()
-
-    sha = _validate_sha(git_sha) if git_sha else await auto_detect_git_sha()
-
-    branch = git_branch
-    if branch is None:
-        branch = await auto_detect_git_branch()
-
-    dfile = dockerfile
-    if dfile is None and registered is not None:
-        dfile = registered.dockerfile
-
-    return DockerJobConfig(
-        git_remote=remote,
-        git_sha=sha,
-        git_branch=branch,
-        dockerfile=dfile,
-        image_tag=compute_image_tag(sha),
-    )

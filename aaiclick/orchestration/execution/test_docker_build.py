@@ -7,8 +7,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 from .. import docker_config
-from ..docker_config import resolve_docker_config
+from ..docker_config import resolve_runner_config
 from ..models import Job, RegisteredJob
+from ..runner_config import ImageBuild
 from . import docker_build
 
 
@@ -107,7 +108,7 @@ async def test_build_image_missing_dockerfile_raises(monkeypatch):
         await docker_build.build_image.func(job_id=job.id)
 
 
-async def test_resolve_docker_config_kwargs_override_registered_defaults(
+async def test_resolve_runner_config_kwargs_override_registered_defaults(
     monkeypatch,
 ):
     """The three-layer resolve picks the right value at each level."""
@@ -123,15 +124,17 @@ async def test_resolve_docker_config_kwargs_override_registered_defaults(
         dockerfile="Dockerfile.default",
     )
 
-    config = await resolve_docker_config(
+    config = await resolve_runner_config(
         registered,
+        runner_mode="docker",
         git_remote="git@override.example:repo.git",
         git_sha="b" * 40,
         git_branch=None,
         dockerfile=None,
     )
 
-    assert config.git_remote == "git@override.example:repo.git"
-    assert config.git_sha == "b" * 40
+    assert isinstance(config.image, ImageBuild)
+    assert config.image.git_remote == "git@override.example:repo.git"
+    assert config.image.git_sha == "b" * 40
     # dockerfile inherits the registered default since kwarg is None
-    assert config.dockerfile == "Dockerfile.default"
+    assert config.image.dockerfile == "Dockerfile.default"

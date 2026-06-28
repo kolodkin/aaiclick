@@ -1,7 +1,7 @@
 """Build task for Docker-runner jobs.
 
 Auto-injected as a prerequisite of the entry task at submission time
-(see ``factories.create_docker_job``). Runs on the host via the
+(see ``factories.create_built_job``). Runs on the host via the
 subprocess runner — even for docker-mode jobs — so it can reach the
 docker daemon and produce the image the rest of the job needs.
 

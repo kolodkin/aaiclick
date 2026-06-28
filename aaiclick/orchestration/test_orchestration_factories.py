@@ -4,12 +4,19 @@ from datetime import datetime
 
 from sqlalchemy import select
 
-from aaiclick.orchestration.factories import create_job, create_task
+from aaiclick.orchestration.docker_config import BUILD_TASK_ENTRYPOINT
+from aaiclick.orchestration.factories import create_built_job, create_job, create_task
 from aaiclick.orchestration.jobs import get_task
 from aaiclick.orchestration.models import JOB_PENDING, TASK_PENDING, Job, Task
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.result import data_list
-from aaiclick.orchestration.runner_config import ENTRY_MODULE, ENTRY_SHELL
+from aaiclick.orchestration.runner_config import (
+    ENTRY_MODULE,
+    ENTRY_SHELL,
+    DockerRunner,
+    ImageBuild,
+    ImagePrebuilt,
+)
 
 
 async def test_create_task_unique_ids(orch_ctx):
@@ -122,3 +129,24 @@ def test_create_task_shell_carries_command():
     assert t.command == ["python", "main.py"]
     assert t.command_env == {"K": "v"}
     assert t.entrypoint == ""  # shell tasks have no module entrypoint
+
+
+async def _task_entrypoints(job_id: int) -> list[str]:
+    async with get_sql_session() as session:
+        rows = (await session.execute(select(Task).where(Task.job_id == job_id))).scalars().all()
+    return [t.entrypoint for t in rows]
+
+
+async def test_prebuilt_job_injects_no_build_task(orch_ctx_no_ch):
+    runner = DockerRunner(image=ImagePrebuilt(image_tag="python:3.12"))
+    job = await create_built_job(
+        name="j", entrypoint="", runner=runner, entry_type="shell", command=["echo", "hi"]
+    )
+    assert BUILD_TASK_ENTRYPOINT not in await _task_entrypoints(job.id)
+    assert job.runner["image"]["type"] == "prebuilt"
+
+
+async def test_build_job_injects_build_task(orch_ctx_no_ch):
+    runner = DockerRunner(image=ImageBuild(git_remote="git@x:r.git", git_sha="c" * 40))
+    job = await create_built_job(name="j", entrypoint="mod.fn", runner=runner, entry_type="module")
+    assert BUILD_TASK_ENTRYPOINT in await _task_entrypoints(job.id)

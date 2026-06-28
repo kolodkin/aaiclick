@@ -11,8 +11,8 @@ from sqlmodel import select
 from ..backend import is_local
 from ..datetime_utils import utc_now
 from ..snowflake import get_snowflake_id
-from .docker_config import resolve_docker_config
-from .factories import create_docker_job, create_job, create_kubernetes_job, create_task
+from .docker_config import resolve_runner_config
+from .factories import create_built_job, create_job, create_task
 from .kubernetes_config import resolve_kubernetes_config
 from .models import (
     RUN_MANUAL,
@@ -315,11 +315,12 @@ async def run_job(
     (see ``factories.resolve_job_config``):
     explicit arg > registered-job default > env var > hardcoded NONE.
 
-    For docker-mode registrations, the docker config snapshots onto
+    For docker-mode registrations, the runner config snapshots onto
     the new ``Job`` row via the precedence chain (see
-    ``docker_config.resolve_docker_config``):
+    ``docker_config.resolve_runner_config``):
     explicit kwarg > registered-job default > git auto-detect.
-    A build task is auto-injected as a prerequisite of the entry task.
+    A build task is auto-injected as a prerequisite of the entry task
+    only when the image source is a git build.
 
     Args:
         name: Job name
@@ -353,40 +354,39 @@ async def run_job(
     runner_mode = registered.runner_mode if registered is not None else RUNNER_SUBPROCESS
 
     if runner_mode in (RUNNER_DOCKER, RUNNER_KUBERNETES):
-        # Both image-built runners share git/image resolution and require
-        # distributed mode; they diverge only in the factory + cluster config.
         if is_local():
             raise ValueError(
                 f"{runner_mode} runner requires distributed mode (Postgres + ClickHouse); "
                 "got chdb + SQLite. Set AAICLICK_SQL_URL and AAICLICK_CH_URL to "
                 "remote services before submitting these jobs."
             )
-        docker_config = await resolve_docker_config(
+        kube_cfg = None
+        if runner_mode == RUNNER_KUBERNETES:
+            kube_cfg = resolve_kubernetes_config(
+                registered,
+                namespace=namespace,
+                service_account=service_account,
+                image_pull_secret=image_pull_secret,
+            )._asdict()
+        runner = await resolve_runner_config(
             registered,
+            runner_mode=runner_mode,
             git_remote=git_remote,
             git_sha=git_sha,
             git_branch=git_branch,
             dockerfile=dockerfile,
+            kubernetes_config=kube_cfg,
         )
-        common = {
-            "name": name,
-            "entrypoint": entrypoint,
-            "kwargs": merged_kwargs,
-            "run_type": run_type,
-            "registered_job_id": registered.id if registered is not None else None,
-            "preservation_mode": preservation_mode,
-            "registered": registered,
-            "docker_config": docker_config,
-        }
-        if runner_mode == RUNNER_DOCKER:
-            return await create_docker_job(**common)
-        kubernetes_config = resolve_kubernetes_config(
-            registered,
-            namespace=namespace,
-            service_account=service_account,
-            image_pull_secret=image_pull_secret,
+        return await create_built_job(
+            name=name,
+            entrypoint=entrypoint,
+            runner=runner,
+            kwargs=merged_kwargs,
+            run_type=run_type,
+            registered_job_id=registered.id if registered is not None else None,
+            preservation_mode=preservation_mode,
+            registered=registered,
         )
-        return await create_kubernetes_job(**common, kubernetes_config=kubernetes_config._asdict())
 
     task = create_task(entrypoint, merged_kwargs, name=name)
     return await create_job(
