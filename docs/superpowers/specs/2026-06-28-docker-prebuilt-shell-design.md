@@ -80,7 +80,7 @@ ENTRY_TYPES: list[EntryType] = [ENTRY_MODULE, ENTRY_SHELL]
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `entry_type` | `String`, not null, **no default** | Discriminator. Every `Task`-creation site sets it explicitly (`create_task`, the `@task` decorator path, factories). No column default and no implicit fallback in code. |
+| `entry_type` | `String`, not null, **no DB server default** | Discriminator. No DB server default; the Python model defaults to `module` only so the framework's module-task constructors stay terse. Every *submission-boundary* path (`run_job`, API request models, CLI) sets it explicitly — that's where "explicit, not silently defaulted" is enforced. |
 | `entrypoint` | `str` | Module dotted path. Required for `module`; unused for `shell`. |
 | `kwargs` | `JSON` | Module args. Empty for `shell`. |
 | `command` | `JSON` (`list[str]`), nullable | Argv for `shell`. Null for `module`. |

@@ -328,10 +328,15 @@ In `models.py`, import the entry constants near the top imports:
 from .runner_config import ENTRY_MODULE, EntryType
 ```
 
-Add to `Task` (after the `kwargs` field, ~line 359). `entry_type` has **no** default — see spec; every creation site sets it. Make it nullable at the column level for the additive migration; Phase 8 finalizes not-null after backfill:
+Add to `Task` (after the `kwargs` field, ~line 359). The column carries **no DB
+server default**; the Python field defaults to `module` only so the framework's
+many module-task constructors (and existing tests) stay terse and the suite
+stays green — every *submission-boundary* path (`run_job`/API/CLI) sets it
+explicitly. The column is nullable for the additive migration; Phase 8 finalizes
+not-null after backfill:
 
 ```python
-    entry_type: EntryType = Field(sa_column=Column(String, nullable=True))
+    entry_type: EntryType = Field(default=ENTRY_MODULE, sa_column=Column(String, nullable=True))
     command: list[str] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     command_env: dict[str, str] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
 ```
