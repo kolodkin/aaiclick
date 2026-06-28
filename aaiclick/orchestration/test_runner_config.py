@@ -9,6 +9,7 @@ from aaiclick.orchestration.runner_config import (
     SubprocessRunner,
     dump_runner_config,
     parse_runner_config,
+    validate_task_entry,
 )
 
 
@@ -50,3 +51,18 @@ def test_kubernetes_runner_optional_cluster_fields():
     assert isinstance(cfg, KubernetesRunner)
     assert cfg.namespace == "ml"
     assert cfg.service_account is None
+
+
+def test_shell_entry_requires_command():
+    with pytest.raises(ValueError, match="shell.*requires.*command"):
+        validate_task_entry(entry_type="shell", command=None)
+
+
+def test_module_entry_rejects_command():
+    with pytest.raises(ValueError, match="module.*command"):
+        validate_task_entry(entry_type="module", command=["echo", "hi"])
+
+
+def test_shell_entry_valid_on_any_runner():
+    # shell is runner-agnostic — valid on subprocess, docker, kubernetes alike
+    validate_task_entry(entry_type="shell", command=["python", "main.py"])

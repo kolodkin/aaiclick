@@ -86,3 +86,18 @@ def parse_runner_config(data: dict) -> RunnerConfigT:
 def dump_runner_config(cfg: RunnerConfigT) -> dict:
     """Serialize a runner model to a JSON-safe dict for the DB column."""
     return _RUNNER_ADAPTER.dump_python(cfg, mode="json")
+
+
+def validate_task_entry(*, entry_type: EntryType, command: list[str] | None) -> None:
+    """Enforce the entry cross-field rules (spec "Validation").
+
+    ``shell`` is runner-agnostic — valid on subprocess, docker, and kubernetes —
+    so there is no runner argument. Raises ``ValueError`` on violation."""
+    if entry_type == ENTRY_SHELL:
+        if not command:
+            raise ValueError("shell entry_type requires a non-empty command list")
+    elif entry_type == ENTRY_MODULE:
+        if command:
+            raise ValueError("module entry_type does not take a command")
+    else:
+        raise ValueError(f"unknown entry_type {entry_type!r}")
