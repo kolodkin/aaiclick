@@ -12,7 +12,15 @@ import re
 from typing import NamedTuple
 
 from .execution import cli
-from .models import RegisteredJob
+from .models import RegisteredJob, RunnerMode
+from .runner_config import (
+    DockerRunner,
+    ImageBuild,
+    ImagePrebuilt,
+    ImageSourceT,
+    KubernetesRunner,
+    RunnerConfigT,
+)
 
 BUILD_TASK_ENTRYPOINT = "aaiclick.orchestration.execution.docker_build.build_image"
 """Entrypoint of the auto-injected build task. Used by `_resolve_runner`
@@ -88,6 +96,85 @@ def compute_image_tag(git_sha: str) -> str:
     registry = os.environ.get("AAICLICK_REGISTRY")
     prefix = f"{registry}/" if registry else ""
     return f"{prefix}aaiclick-job:{git_sha}"
+
+
+def effective_image_tag(runner: RunnerConfigT) -> str | None:
+    """The image a container/pod actually runs: prebuilt tag verbatim, or the
+    computed ``aaiclick-job:<sha>`` for a build source. ``None`` for subprocess."""
+    image = getattr(runner, "image", None)
+    if image is None:
+        return None
+    if isinstance(image, ImagePrebuilt):
+        return image.image_tag
+    return compute_image_tag(image.git_sha)
+
+
+def _registered_image(registered: RegisteredJob | None) -> str | None:
+    """Prebuilt image_tag default from a RegisteredJob's runner config, if any."""
+    if registered is None or registered.runner is None:
+        return None
+    img = registered.runner.get("image") if isinstance(registered.runner, dict) else None
+    if isinstance(img, dict) and img.get("type") == "prebuilt":
+        return img.get("image_tag")
+    return None
+
+
+async def _resolve_image_source(
+    registered: RegisteredJob | None,
+    *,
+    image: str | None,
+    git_remote: str | None,
+    git_sha: str | None,
+    git_branch: str | None,
+    dockerfile: str | None,
+) -> ImageSourceT:
+    """Prebuilt when an explicit ``image`` is given (here or on the registered
+    job); otherwise resolve the build coordinates via the existing precedence."""
+    registered_image = _registered_image(registered)
+    if image is not None:
+        return ImagePrebuilt(image_tag=image)
+    if registered_image is not None:
+        return ImagePrebuilt(image_tag=registered_image)
+
+    remote = git_remote
+    if remote is None and registered is not None:
+        remote = registered.git_remote
+    if remote is None:
+        remote = await auto_detect_git_remote()
+    sha = _validate_sha(git_sha) if git_sha else await auto_detect_git_sha()
+    branch = git_branch if git_branch is not None else await auto_detect_git_branch()
+    dfile = dockerfile
+    if dfile is None and registered is not None:
+        dfile = registered.dockerfile
+    return ImageBuild(git_remote=remote, git_sha=sha, git_branch=branch, dockerfile=dfile)
+
+
+async def resolve_runner_config(
+    registered: RegisteredJob | None,
+    *,
+    runner_mode: RunnerMode,
+    image: str | None = None,
+    git_remote: str | None = None,
+    git_sha: str | None = None,
+    git_branch: str | None = None,
+    dockerfile: str | None = None,
+    kubernetes_config: dict | None = None,
+) -> RunnerConfigT:
+    """Resolve the per-run runner config. ``image`` (prebuilt) and the git
+    fields (build) are mutually exclusive; the caller enforces that."""
+    source = await _resolve_image_source(
+        registered, image=image, git_remote=git_remote, git_sha=git_sha,
+        git_branch=git_branch, dockerfile=dockerfile,
+    )
+    if runner_mode == "kubernetes":
+        kc = kubernetes_config or {}
+        return KubernetesRunner(
+            image=source,
+            namespace=kc.get("namespace"),
+            service_account=kc.get("service_account"),
+            image_pull_secret=kc.get("image_pull_secret"),
+        )
+    return DockerRunner(image=source)
 
 
 def add_host_flags(env_var: str) -> list[str]:
