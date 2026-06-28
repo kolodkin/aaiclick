@@ -127,6 +127,7 @@ class KubernetesRunner(BaseModel):
     namespace: str | None = None
     service_account: str | None = None
     image_pull_secret: str | None = None
+    resources: dict | None = None  # pod resource requests/limits (passthrough)
 
 RunnerConfig = Annotated[
     SubprocessRunner | DockerRunner | KubernetesRunner,
