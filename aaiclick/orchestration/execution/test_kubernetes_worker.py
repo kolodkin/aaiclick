@@ -62,7 +62,7 @@ def _handle(task_id=7, run_epoch=1):
     return kw._PodHandle(
         name="aaiclick-task-7-1",
         namespace="default",
-        log_path="/logs/k8s-1.log",
+        log_path="/logs/1.log",
         task_id=task_id,
         run_epoch=run_epoch,
     )
@@ -100,7 +100,7 @@ def test_collect_synthesizes_failure_when_row_missing():
 
 
 def test_collect_returns_row():
-    payload = kw.RunnerResult(True, {"native_value": 5}, "/logs/k8s-1.log", None)
+    payload = kw.RunnerResult(True, {"native_value": 5}, "/logs/1.log", None)
     out = _collect(_handle(), 0, None, was_cancelled=False, payload=payload)
     assert out.success is True and out.result_ref == {"native_value": 5}
 
@@ -148,7 +148,7 @@ def test_module_pod_uses_shim_and_runner_env():
 
 def test_collect_shell_success_from_exit_code():
     out = _collect(_handle(), 0, None, was_cancelled=False, payload=None, entry_type="shell")
-    assert out.success is True and out.error is None and out.log_path == "/logs/k8s-1.log"
+    assert out.success is True and out.error is None and out.log_path == "/logs/1.log"
 
 
 def test_collect_shell_failure_from_exit_code():

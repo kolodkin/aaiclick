@@ -235,7 +235,7 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
             await cli.run(_kubectl_bin(), "apply", "-f", manifest_path)
         finally:
             os.unlink(manifest_path)
-        log_path = os.path.join(self._log_base, str(task.job_id), str(task.id), f"k8s-{task.run_epoch}.log")
+        log_path = os.path.join(self._log_base, str(task.job_id), str(task.id), f"{task.run_epoch}.log")
         Path(log_path).parent.mkdir(parents=True, exist_ok=True)
         return _PodHandle(name, self._spec.namespace, log_path, task.id, task.run_epoch)
 

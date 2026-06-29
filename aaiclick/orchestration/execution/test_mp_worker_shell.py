@@ -16,7 +16,7 @@ async def test_shell_on_host_succeeds_on_exit_zero(orch_ctx_no_ch, tmp_path, mon
     assert success is True
     assert result_ref is None
     assert log_path is not None
-    assert "shell-0.log" in log_path
+    assert log_path.endswith("/0.log")
 
 
 async def test_shell_on_host_fails_on_nonzero(orch_ctx_no_ch, tmp_path, monkeypatch):

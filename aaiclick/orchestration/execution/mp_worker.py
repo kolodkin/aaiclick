@@ -239,7 +239,7 @@ class _HostShellVehicle(TaskVehicle["_HostShellHandle", None]):
         self._log_base = log_base
 
     async def launch(self, task: Task, worker_id: int) -> _HostShellHandle:
-        log_path = os.path.join(self._log_base, str(task.job_id), str(task.id), f"shell-{task.run_epoch}.log")
+        log_path = os.path.join(self._log_base, str(task.job_id), str(task.id), f"{task.run_epoch}.log")
         Path(log_path).parent.mkdir(parents=True, exist_ok=True)
         log_file = open(log_path, "wb")
         env = {**os.environ, **self._command_env}
