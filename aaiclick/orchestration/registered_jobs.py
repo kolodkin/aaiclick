@@ -380,9 +380,7 @@ async def run_job(
         Created Job
     """
     validate_task_entry(entry_type=entry_type, command=command)
-    if image is not None and any(
-        v is not None for v in (git_remote, git_sha, git_branch, dockerfile)
-    ):
+    if image is not None and any(v is not None for v in (git_remote, git_sha, git_branch, dockerfile)):
         raise ValueError("image (prebuilt) and git_* (build) are mutually exclusive")
 
     registered = await get_registered_job(name)

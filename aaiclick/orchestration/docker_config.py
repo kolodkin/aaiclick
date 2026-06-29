@@ -149,8 +149,12 @@ async def resolve_runner_config(
     """Resolve the per-run runner config. ``image`` (prebuilt) and the git
     fields (build) are mutually exclusive; the caller enforces that."""
     source = await _resolve_image_source(
-        registered, image=image, git_remote=git_remote, git_sha=git_sha,
-        git_branch=git_branch, dockerfile=dockerfile,
+        registered,
+        image=image,
+        git_remote=git_remote,
+        git_sha=git_sha,
+        git_branch=git_branch,
+        dockerfile=dockerfile,
     )
     if runner_mode == "kubernetes":
         kc = kubernetes_config or {}

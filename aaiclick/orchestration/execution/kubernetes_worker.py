@@ -26,9 +26,9 @@ from sqlmodel import select
 from ..logging import get_logs_dir
 from ..models import RemoteTaskResult, Task
 from ..orch_context import get_sql_session
+from ..runner_config import ENTRY_SHELL
 from . import cli
 from .claiming import check_task_cancelled
-from ..runner_config import ENTRY_SHELL
 from .runner import execute_task, register_returned_tasks, serialize_task_result
 from .runner_env import build_runner_env
 from .worker import (

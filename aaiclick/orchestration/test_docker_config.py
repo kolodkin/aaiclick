@@ -1,12 +1,10 @@
-import pytest
-
+from aaiclick.orchestration.docker_config import effective_image_tag, resolve_runner_config
 from aaiclick.orchestration.runner_config import (
     DockerRunner,
     ImageBuild,
     ImagePrebuilt,
     KubernetesRunner,
 )
-from aaiclick.orchestration.docker_config import effective_image_tag, resolve_runner_config
 
 
 async def test_resolve_prebuilt_image_skips_git(monkeypatch):
@@ -22,8 +20,12 @@ async def test_resolve_prebuilt_image_skips_git(monkeypatch):
 async def test_resolve_build_image_computes_tag(monkeypatch):
     monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
     cfg = await resolve_runner_config(
-        registered=None, runner_mode="docker", image=None,
-        git_remote="git@x:r.git", git_sha="b" * 40, git_branch="main",
+        registered=None,
+        runner_mode="docker",
+        image=None,
+        git_remote="git@x:r.git",
+        git_sha="b" * 40,
+        git_branch="main",
     )
     assert isinstance(cfg.image, ImageBuild)
     assert effective_image_tag(cfg) == f"aaiclick-job:{'b' * 40}"
@@ -32,7 +34,9 @@ async def test_resolve_build_image_computes_tag(monkeypatch):
 async def test_resolve_kubernetes_runner_preserves_resources(monkeypatch):
     monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
     cfg = await resolve_runner_config(
-        registered=None, runner_mode="kubernetes", image="python:3.12",
+        registered=None,
+        runner_mode="kubernetes",
+        image="python:3.12",
         kubernetes_config={"namespace": "ml", "resources": {"limits": {"cpu": "2"}}},
     )
     assert isinstance(cfg, KubernetesRunner)

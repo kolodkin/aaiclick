@@ -14,8 +14,9 @@ from . import docker_build
 from .docker_build import _build_source
 
 
-def _job(*, git_remote="https://example.com/repo.git", git_sha="a" * 40,
-         git_branch="main", dockerfile=None, **overrides) -> Job:
+def _job(
+    *, git_remote="https://example.com/repo.git", git_sha="a" * 40, git_branch="main", dockerfile=None, **overrides
+) -> Job:
     image: dict = {"type": "build", "git_remote": git_remote, "git_sha": git_sha}
     if git_branch is not None:
         image["git_branch"] = git_branch
@@ -60,8 +61,13 @@ async def test_collect_build_args_forwards_pip_indices(monkeypatch):
 
 
 def test_build_source_from_runner():
-    job = Job(id=1, name="j", run_type="MANUAL", runner_mode="docker",
-              runner={"type": "docker", "image": {"type": "build", "git_remote": "r", "git_sha": "d" * 40}})
+    job = Job(
+        id=1,
+        name="j",
+        run_type="MANUAL",
+        runner_mode="docker",
+        runner={"type": "docker", "image": {"type": "build", "git_remote": "r", "git_sha": "d" * 40}},
+    )
     src = _build_source(job)
     assert src.git_remote == "r"
     assert src.git_sha == "d" * 40

@@ -16,8 +16,12 @@ def _task(entrypoint="user.module.entry", task_id=42, job_id=1) -> Task:
 
 def test_jobdispatch_carries_entry_fields():
     d = JobDispatch(
-        runner_mode="docker", image_tag="python:3.12", kubernetes_config=None,
-        entry_type="shell", command=["echo", "hi"], command_env={"K": "v"},
+        runner_mode="docker",
+        image_tag="python:3.12",
+        kubernetes_config=None,
+        entry_type="shell",
+        command=["echo", "hi"],
+        command_env={"K": "v"},
     )
     assert d.entry_type == "shell"
     assert d.command == ["echo", "hi"]

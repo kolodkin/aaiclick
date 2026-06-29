@@ -107,9 +107,18 @@ def test_collect_returns_row():
 
 def test_shell_pod_runs_argv_only_command_env():
     m = kw._build_pod_manifest(
-        name="p", namespace="default", image_tag="python:3.12", task_id=1, run_epoch=0,
-        env={"AAICLICK_SQL_URL": "secret"}, service_account=None, image_pull_secret=None,
-        resources=None, entry_type="shell", command=["python", "main.py"], command_env={"K": "v"},
+        name="p",
+        namespace="default",
+        image_tag="python:3.12",
+        task_id=1,
+        run_epoch=0,
+        env={"AAICLICK_SQL_URL": "secret"},
+        service_account=None,
+        image_pull_secret=None,
+        resources=None,
+        entry_type="shell",
+        command=["python", "main.py"],
+        command_env={"K": "v"},
     )
     c = m["spec"]["containers"][0]
     assert c["command"] == ["python", "main.py"]
@@ -119,9 +128,18 @@ def test_shell_pod_runs_argv_only_command_env():
 
 def test_module_pod_uses_shim_and_runner_env():
     m = kw._build_pod_manifest(
-        name="p", namespace="default", image_tag="aaiclick-job:abc", task_id=7, run_epoch=2,
-        env={"AAICLICK_SQL_URL": "u"}, service_account=None, image_pull_secret=None,
-        resources=None, entry_type="module", command=None, command_env=None,
+        name="p",
+        namespace="default",
+        image_tag="aaiclick-job:abc",
+        task_id=7,
+        run_epoch=2,
+        env={"AAICLICK_SQL_URL": "u"},
+        service_account=None,
+        image_pull_secret=None,
+        resources=None,
+        entry_type="module",
+        command=None,
+        command_env=None,
     )
     c = m["spec"]["containers"][0]
     assert "--task-id" in c["command"] and "7" in c["command"]

@@ -273,9 +273,7 @@ class _HostShellVehicle(TaskVehicle["_HostShellHandle", None]):
             return RunnerResult(False, None, handle.log_path, "cancelled")
         if error is not None:
             return RunnerResult(False, None, handle.log_path, error)
-        return RunnerResult(
-            exit_code == 0, None, handle.log_path, None if exit_code == 0 else f"exit {exit_code}"
-        )
+        return RunnerResult(exit_code == 0, None, handle.log_path, None if exit_code == 0 else f"exit {exit_code}")
 
     async def cleanup(self, handle: _HostShellHandle) -> None:
         handle.log_file.close()

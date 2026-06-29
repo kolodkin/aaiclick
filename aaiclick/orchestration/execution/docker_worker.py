@@ -38,9 +38,9 @@ from ..docker_config import add_host_flags
 from ..logging import get_logs_dir
 from ..models import Task
 from ..orch_context import get_sql_session
+from ..runner_config import ENTRY_SHELL
 from . import cli
 from .claiming import check_task_cancelled
-from ..runner_config import ENTRY_SHELL
 from .runner import execute_task, register_returned_tasks, serialize_task_result
 from .runner_env import build_runner_env
 from .worker import (
@@ -120,6 +120,8 @@ def _build_docker_run_cmd(
         cmd.append(image_tag)
         cmd.extend(task.command or [])
         return cmd
+    # Module entry: mount the IPC dir, inject the full runner env, and run the
+    # in-container bootstrap shim (``python -m ...docker_worker --task-id N``).
     cmd = [
         *base,
         "-v",
@@ -279,9 +281,7 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", None]):
     container exit code and the per-task log file is filled from
     ``docker logs`` once the container exits."""
 
-    def __init__(
-        self, image_tag: str, log_base: str, env: dict[str, str], ipc_dir: str, entry_type: str
-    ) -> None:
+    def __init__(self, image_tag: str, log_base: str, env: dict[str, str], ipc_dir: str, entry_type: str) -> None:
         self._image_tag = image_tag
         self._log_base = log_base
         self._env = env
@@ -291,9 +291,11 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", None]):
     async def launch(self, task: Task, worker_id: int) -> _DockerHandle:
         log_path = None
         if task.entry_type == ENTRY_SHELL:
-            log_path = os.path.join(
-                self._log_base, str(task.job_id), str(task.id), f"docker-{task.run_epoch}.log"
-            )
+            # The dir already encodes job/task; the filename adds the runner
+            # ("docker-") and the attempt (run_epoch) so a retry doesn't clobber
+            # the prior run's log — mirrors the k8s ("k8s-") and subprocess
+            # ("shell-") runners.
+            log_path = os.path.join(self._log_base, str(task.job_id), str(task.id), f"docker-{task.run_epoch}.log")
             Path(log_path).parent.mkdir(parents=True, exist_ok=True)
         cmd = _build_docker_run_cmd(task, self._image_tag, self._ipc_dir, self._log_base, self._env)
         container_id = await _docker_run_detached(cmd)
@@ -315,6 +317,9 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", None]):
         self, handle: _DockerHandle, exit_code: int, error: str | None, was_cancelled: bool, payload: None
     ) -> RunnerResult:
         if self._entry_type == ENTRY_SHELL:
+            # ``exit_code`` is the container's main-process status from
+            # ``docker wait`` (see ``wait``) — and the shell task's argv *is*
+            # that main process, so this is the command's own exit code.
             if was_cancelled:
                 return RunnerResult(False, None, handle.log_path, "cancelled")
             if error is not None:

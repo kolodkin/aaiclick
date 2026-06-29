@@ -6,8 +6,7 @@ from aaiclick.orchestration.models import Task
 
 
 def _shell_task(command, command_env=None):
-    return Task(id=1, job_id=1, name="t", entrypoint="", entry_type="shell",
-                command=command, command_env=command_env)
+    return Task(id=1, job_id=1, name="t", entrypoint="", entry_type="shell", command=command, command_env=command_env)
 
 
 async def test_shell_on_host_succeeds_on_exit_zero(orch_ctx_no_ch, tmp_path, monkeypatch):
