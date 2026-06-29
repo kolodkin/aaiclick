@@ -850,6 +850,8 @@ export interface components {
             entrypoint: string;
             /** Git Remote */
             git_remote?: string | null;
+            /** Image */
+            image?: string | null;
             /** Kubernetes Config */
             kubernetes_config?: {
                 [key: string]: unknown;
@@ -909,14 +911,28 @@ export interface components {
          * @description Inputs for ``internal_api.run_job``.
          */
         RunJobRequest: {
+            /** Command */
+            command?: string[] | null;
+            /** Command Env */
+            command_env?: {
+                [key: string]: string;
+            } | null;
             /** Dockerfile */
             dockerfile?: string | null;
+            /**
+             * Entry Type
+             * @default module
+             * @enum {string}
+             */
+            entry_type: "module" | "shell";
             /** Git Branch */
             git_branch?: string | null;
             /** Git Remote */
             git_remote?: string | null;
             /** Git Sha */
             git_sha?: string | null;
+            /** Image */
+            image?: string | null;
             /** Image Pull Secret */
             image_pull_secret?: string | null;
             /** Kwargs */
