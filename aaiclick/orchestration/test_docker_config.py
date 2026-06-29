@@ -27,6 +27,7 @@ async def test_resolve_build_image_computes_tag(monkeypatch):
         git_sha="b" * 40,
         git_branch="main",
     )
+    assert isinstance(cfg, DockerRunner)
     assert isinstance(cfg.image, ImageBuild)
     assert effective_image_tag(cfg) == f"aaiclick-job:{'b' * 40}"
 

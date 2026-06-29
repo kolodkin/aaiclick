@@ -141,6 +141,7 @@ async def test_prebuilt_job_injects_no_build_task(orch_ctx_no_ch):
     runner = DockerRunner(image=ImagePrebuilt(image_tag="python:3.12"))
     job = await create_built_job(name="j", entrypoint="", runner=runner, entry_type="shell", command=["echo", "hi"])
     assert BUILD_TASK_ENTRYPOINT not in await _task_entrypoints(job.id)
+    assert job.runner is not None
     assert job.runner["image"]["type"] == "prebuilt"
 
 

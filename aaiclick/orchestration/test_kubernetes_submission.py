@@ -25,6 +25,7 @@ async def test_create_kubernetes_job_writes_job_and_build_task(orch_ctx_no_ch):
         entry_type="module",
     )
     assert job.runner_mode == RUNNER_KUBERNETES
+    assert job.runner is not None
     assert job.runner["type"] == "kubernetes"
     assert job.runner["image"]["type"] == "build"
     assert job.runner["namespace"] == "ml"

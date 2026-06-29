@@ -24,6 +24,7 @@ def test_parse_docker_build_runner_roundtrips():
 
 def test_parse_docker_prebuilt_runner():
     cfg = parse_runner_config({"type": "docker", "image": {"type": "prebuilt", "image_tag": "python:3.12"}})
+    assert isinstance(cfg, DockerRunner)
     assert isinstance(cfg.image, ImagePrebuilt)
     assert cfg.image.image_tag == "python:3.12"
 

@@ -22,10 +22,12 @@ import pytest
 from sqlmodel import col, select
 
 from aaiclick.datetime_utils import utc_now
+from aaiclick.orchestration.docker_config import effective_image_tag
 from aaiclick.orchestration.execution.mp_worker import mp_worker_main_loop
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, TASK_COMPLETED, Job
 from aaiclick.orchestration.orch_context import get_sql_session
+from aaiclick.orchestration.runner_config import ImageBuild, KubernetesRunner, parse_runner_config
 
 
 def _aaiclick(*args: str, cwd: Path) -> subprocess.CompletedProcess:
@@ -89,8 +91,13 @@ async def test_kubernetes_runner_smoke(orch_ctx, kubernetes_e2e_user_repo):
             pass
 
     assert completed.status == JOB_COMPLETED, completed.error
-    assert completed.image_tag and completed.image_tag.endswith(f":{sha}")
-    assert completed.git_sha == sha
+    assert completed.runner is not None
+    runner = parse_runner_config(completed.runner)
+    assert isinstance(runner, KubernetesRunner)
+    assert isinstance(runner.image, ImageBuild)
+    tag = effective_image_tag(runner)
+    assert tag is not None and tag.endswith(f":{sha}")
+    assert runner.image.git_sha == sha
 
     tasks = await get_tasks_for_job(completed.id)
     entrypoints = [t.entrypoint for t in tasks]

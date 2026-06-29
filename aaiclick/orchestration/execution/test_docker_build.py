@@ -9,7 +9,7 @@ import pytest
 from .. import docker_config
 from ..docker_config import resolve_runner_config
 from ..models import Job, RegisteredJob
-from ..runner_config import ImageBuild
+from ..runner_config import DockerRunner, ImageBuild
 from . import docker_build
 from .docker_build import _build_source
 
@@ -151,6 +151,7 @@ async def test_resolve_runner_config_kwargs_override_registered_defaults(
         dockerfile=None,
     )
 
+    assert isinstance(config, DockerRunner)
     assert isinstance(config.image, ImageBuild)
     assert config.image.git_remote == "git@override.example:repo.git"
     assert config.image.git_sha == "b" * 40

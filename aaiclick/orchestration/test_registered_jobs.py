@@ -354,6 +354,7 @@ async def test_register_job_with_image(orch_ctx):
     )
     fetched = await get_registered_job("prebuilt_job")
     assert fetched is not None
+    assert fetched.runner is not None
     assert fetched.runner["image"]["image_tag"] == "python:3.12"
 
 
@@ -365,4 +366,5 @@ async def test_upsert_job_with_image(orch_ctx):
     )
     fetched = await get_registered_job("upsert_prebuilt")
     assert fetched is not None
+    assert fetched.runner is not None
     assert fetched.runner["image"]["image_tag"] == "python:3.12"
