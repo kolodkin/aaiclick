@@ -291,11 +291,9 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", None]):
     async def launch(self, task: Task, worker_id: int) -> _DockerHandle:
         log_path = None
         if task.entry_type == ENTRY_SHELL:
-            # The dir already encodes job/task; the filename adds the runner
-            # ("docker-") and the attempt (run_epoch) so a retry doesn't clobber
-            # the prior run's log — mirrors the k8s ("k8s-") and subprocess
-            # ("shell-") runners.
-            log_path = os.path.join(self._log_base, str(task.job_id), str(task.id), f"docker-{task.run_epoch}.log")
+            # The dir already encodes job/task; the filename is just the attempt
+            # (run_epoch) so a retry doesn't clobber the prior run's log.
+            log_path = os.path.join(self._log_base, str(task.job_id), str(task.id), f"{task.run_epoch}.log")
             Path(log_path).parent.mkdir(parents=True, exist_ok=True)
         cmd = _build_docker_run_cmd(task, self._image_tag, self._ipc_dir, self._log_base, self._env)
         container_id = await _docker_run_detached(cmd)
