@@ -124,23 +124,13 @@ async def _docker_build(context: str, dockerfile: str, image_tag: str, build_arg
     await cli.run(*cmd)
 
 
-@task(name="docker_build", max_retries=2)
-async def build_image(job_id: int) -> None:
-    """Build (and optionally push) the image declared by the job's runner.
+async def build_image_to_tag(source: ImageBuild, image_tag: str) -> None:
+    """Ensure ``image_tag`` exists in the local docker daemon, building from
+    ``source`` if needed; push when a registry is configured.
 
-    No-op when a registry hit is found. ``max_retries=2`` because clone /
-    pull / push can fail transiently and the build is fully idempotent
-    (the tag is content-addressed by SHA).
-
-    A local-cache hit short-circuits the *build* but **not** the push:
-    if a previous attempt built locally and then failed to push, retry
-    must re-attempt the push instead of seeing the local image and
-    returning. Otherwise host A would build, push-fail, retry-from-cache,
-    return success — and host B would never be able to pull it."""
-    job = await _fetch_job(job_id)
-    source = _build_source(job)
-    image_tag = effective_image_tag(parse_runner_config(job.runner))
-
+    Idempotent and content-addressed by SHA. A local-cache hit short-circuits
+    the *build* but not the push: a prior attempt that built locally then failed
+    to push must re-push on retry, or other hosts could never pull the image."""
     registry = os.environ.get("AAICLICK_REGISTRY")
 
     if registry and await _docker_pull(image_tag):
@@ -166,3 +156,13 @@ async def build_image(job_id: int) -> None:
 
     if registry:
         await _docker_push(image_tag)
+
+
+@task(name="docker_build", max_retries=2)
+async def build_image(job_id: int) -> None:
+    """Deprecated host-side build task (still injected at submission until the
+    on-demand build seam lands). Delegates to ``build_image_to_tag``."""
+    job = await _fetch_job(job_id)
+    source = _build_source(job)
+    image_tag = effective_image_tag(parse_runner_config(job.runner))
+    await build_image_to_tag(source, image_tag)

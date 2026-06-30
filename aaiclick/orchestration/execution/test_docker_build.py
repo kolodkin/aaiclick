@@ -73,7 +73,7 @@ def test_build_source_from_runner():
     assert src.git_sha == "d" * 40
 
 
-async def test_build_image_pushes_after_local_cache_hit_when_registry_set(monkeypatch):
+async def test_build_image_to_tag_pushes_after_local_cache_hit_when_registry_set(monkeypatch):
     """Registry set + registry pull misses + local image present → skip
     the build, but **still** attempt the push.
 
@@ -84,10 +84,9 @@ async def test_build_image_pushes_after_local_cache_hit_when_registry_set(monkey
     image would never reach the registry and other hosts couldn't pull it.
     """
     monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
-    job = _job()
+    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
     expected_tag = docker_config.compute_image_tag("a" * 40)
 
-    monkeypatch.setattr(docker_build, "_fetch_job", AsyncMock(return_value=job))
     pull = AsyncMock(return_value=False)
     inspect = AsyncMock(return_value=True)
     clone = AsyncMock()
@@ -99,7 +98,7 @@ async def test_build_image_pushes_after_local_cache_hit_when_registry_set(monkey
     monkeypatch.setattr(docker_build, "_docker_build", build)
     monkeypatch.setattr(docker_build, "_docker_push", push)
 
-    await docker_build.build_image.func(job_id=job.id)
+    await docker_build.build_image_to_tag(source, expected_tag)
 
     pull.assert_awaited_once_with(expected_tag)
     inspect.assert_awaited_once_with(expected_tag)
@@ -108,22 +107,20 @@ async def test_build_image_pushes_after_local_cache_hit_when_registry_set(monkey
     push.assert_awaited_once_with(expected_tag)
 
 
-async def test_build_image_missing_dockerfile_raises(monkeypatch):
+async def test_build_image_to_tag_missing_dockerfile_raises(monkeypatch):
     monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
-    job = _job(dockerfile="Dockerfile.missing")
+    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40, dockerfile="Dockerfile.missing")
 
-    monkeypatch.setattr(docker_build, "_fetch_job", AsyncMock(return_value=job))
     monkeypatch.setattr(docker_build, "_docker_pull", AsyncMock(return_value=False))
     monkeypatch.setattr(docker_build, "_docker_image_exists_locally", AsyncMock(return_value=False))
 
     async def fake_clone(remote, sha, workdir):
-        # Don't create the Dockerfile — should trigger the check.
         return None
 
     monkeypatch.setattr(docker_build, "_git_clone_at_sha", fake_clone)
 
     with pytest.raises(FileNotFoundError, match="Dockerfile not found"):
-        await docker_build.build_image.func(job_id=job.id)
+        await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
 
 
 async def test_resolve_runner_config_kwargs_override_registered_defaults(
