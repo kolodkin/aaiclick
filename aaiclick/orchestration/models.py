@@ -74,6 +74,19 @@ WorkerStatus = Literal["ACTIVE", "IDLE", "STOPPING", "STOPPED"]
 """Worker status."""
 
 
+BUILD_PENDING = "PENDING"
+BUILD_BUILDING = "BUILDING"
+BUILD_READY = "READY"
+BUILD_FAILED = "FAILED"
+BuildStatus = Literal["PENDING", "BUILDING", "READY", "FAILED"]
+"""Lifecycle of an on-demand image build.
+
+A ``BuildTask`` row is created at claim time (``BUILDING``), before the build
+starts — so concurrent tasks see the in-flight build and attach instead of
+starting a second one. ``READY`` once the image exists; ``FAILED`` after a
+build error (retried while ``attempts <= max_retries``)."""
+
+
 PRESERVATION_NONE = "NONE"
 PRESERVATION_FULL = "FULL"
 PreservationMode = Literal["NONE", "FULL"]
@@ -368,6 +381,9 @@ class Task(SQLModel, table=True):
     worker_id: int | None = Field(
         default=None, sa_column=Column(BigInteger, ForeignKey("workers.id"), index=True, nullable=True)
     )
+    build_task_id: int | None = Field(
+        default=None, sa_column=Column(BigInteger, ForeignKey("build_tasks.id"), index=True, nullable=True)
+    )
     result: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     log_path: str | None = Field(default=None)
     error: str | None = Field(default=None)
@@ -481,6 +497,38 @@ class RemoteTaskResult(SQLModel, table=True):
     log_path: str | None = Field(default=None)
     error: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=utc_now)
+
+
+class BuildTask(SQLModel, table=True):
+    """On-demand image build, keyed by image identity (not by job).
+
+    ``image_key`` is a sha256 of ``(git_remote, git_sha, dockerfile)``; its
+    UNIQUE constraint makes a duplicate build record structurally impossible, so
+    every job/dynamic task on the same image shares this one row. ``ImagePrebuilt``
+    images never create a ``BuildTask``."""
+
+    __tablename__: ClassVar[str] = "build_tasks"
+    __table_args__ = (UniqueConstraint("image_key"),)
+
+    id: int = Field(sa_column=Column(BigInteger, primary_key=True))
+    image_key: str = Field(sa_column=Column(String, nullable=False, index=True))
+    image_tag: str = Field()
+    git_remote: str = Field()
+    git_sha: str = Field()
+    dockerfile: str | None = Field(default=None)
+    status: BuildStatus = Field(
+        default=BUILD_PENDING,
+        sa_column=Column(String, nullable=False, index=True),
+    )
+    holder_worker_id: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True))
+    lease_expires_at: datetime | None = Field(default=None)
+    log_path: str | None = Field(default=None)
+    error: str | None = Field(default=None)
+    attempts: int = Field(default=0)
+    max_retries: int = Field(default=2)
+    created_at: datetime = Field(default_factory=utc_now)
+    started_at: datetime | None = Field(default=None)
+    finished_at: datetime | None = Field(default=None)
 
 
 # Type alias for tasks/groups that can be applied
