@@ -53,6 +53,7 @@ async def _resolve_dispatch(task: Task) -> JobDispatch:
         return JobDispatch(RUNNER_SUBPROCESS, None, None)
     runner = parse_runner_config(job.runner) if job.runner else None
     image_tag = effective_image_tag(runner) if runner is not None else None
+    image_source = getattr(runner, "image", None)
     return JobDispatch(
         job.runner_mode,
         image_tag,
@@ -60,6 +61,7 @@ async def _resolve_dispatch(task: Task) -> JobDispatch:
         task.entry_type,
         task.command,
         task.command_env,
+        image_source,
     )
 
 

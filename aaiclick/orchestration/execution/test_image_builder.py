@@ -8,11 +8,12 @@ import pytest
 from sqlalchemy import select
 
 from .. import docker_config
-from ..models import BUILD_FAILED, BUILD_READY, BuildTask
+from ..factories import create_task
+from ..models import BUILD_FAILED, BUILD_READY, BuildTask, Task
 from ..orch_context import get_sql_session
 from ..runner_config import ImageBuild
 from . import image_builder
-from .image_builder import BuildFailed, ensure_image
+from .image_builder import BuildFailed, ensure_built_image, ensure_image
 
 
 def _source(sha="a" * 40) -> ImageBuild:
@@ -57,3 +58,19 @@ async def test_ensure_image_raises_after_exhausting_retries(orch_ctx_no_ch, monk
         row = (await session.execute(select(BuildTask).where(BuildTask.git_sha == "a" * 40))).scalar_one()
     assert row.status == BUILD_FAILED
     assert row.attempts == row.max_retries + 1
+
+
+async def test_ensure_built_image_stamps_build_task_id_on_task(orch_ctx_no_ch, monkeypatch):
+    monkeypatch.setattr(image_builder, "build_image_to_tag", AsyncMock())
+    source = _source(sha="d" * 40)
+    task = create_task("mod.fn")
+    async with get_sql_session() as session:
+        session.add(task)
+        await session.commit()
+
+    tag = await ensure_built_image(task.id, source, worker_id=7)
+
+    assert tag == docker_config.compute_image_tag("d" * 40)
+    async with get_sql_session() as session:
+        row = (await session.execute(select(Task).where(Task.id == task.id))).scalar_one()
+    assert row.build_task_id is not None

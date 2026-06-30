@@ -31,7 +31,7 @@ from ..models import (
     WorkerStatus,
 )
 from ..orch_context import get_sql_session
-from ..runner_config import ENTRY_MODULE, EntryType
+from ..runner_config import ENTRY_MODULE, EntryType, ImageSourceT
 from .claiming import check_run_aborted, claim_next_task, update_task_status
 from .runner import execute_task, register_returned_tasks, serialize_task_result
 
@@ -82,6 +82,7 @@ class JobDispatch(NamedTuple):
     entry_type: EntryType = ENTRY_MODULE
     command: list[str] | None = None
     command_env: dict[str, str] | None = None
+    image_source: ImageSourceT | None = None
 
 
 # A vehicle's opaque handle (``H``) and ``wait`` payload (``P``) are

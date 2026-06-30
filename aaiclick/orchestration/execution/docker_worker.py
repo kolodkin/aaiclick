@@ -38,9 +38,10 @@ from ..docker_config import add_host_flags
 from ..logging import get_logs_dir
 from ..models import Task
 from ..orch_context import get_sql_session
-from ..runner_config import ENTRY_SHELL
+from ..runner_config import ENTRY_SHELL, ImageBuild
 from . import cli
 from .claiming import check_task_cancelled
+from .image_builder import ensure_built_image
 from .runner import execute_task, register_returned_tasks, serialize_task_result
 from .runner_env import build_runner_env
 from .worker import (
@@ -348,7 +349,10 @@ async def _run_task_in_container(
     shared ``drive_vehicle`` driver, which heartbeats and polls for
     cancellation while the container runs. Cancellation and timeout both
     terminate the container via ``docker kill``."""
-    image_tag = _require_image_tag(task, dispatch.image_tag)
+    if isinstance(dispatch.image_source, ImageBuild):
+        image_tag = await ensure_built_image(task.id, dispatch.image_source, worker_id)
+    else:
+        image_tag = _require_image_tag(task, dispatch.image_tag)
     await _docker_pull_if_registered(image_tag)
 
     timeout = parse_task_timeout()

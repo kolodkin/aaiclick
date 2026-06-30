@@ -27,7 +27,7 @@ from ...backend import is_sqlite
 from ...datetime_utils import utc_now
 from ...snowflake import get_snowflake_id
 from ..docker_config import compute_image_tag, image_key
-from ..models import BUILD_BUILDING, BUILD_FAILED, BUILD_READY, BuildTask
+from ..models import BUILD_BUILDING, BUILD_FAILED, BUILD_READY, BuildTask, Task
 from ..orch_context import get_sql_session
 from ..runner_config import ImageBuild
 from .docker_build import build_image_to_tag
@@ -143,3 +143,13 @@ async def ensure_image(source: ImageBuild, worker_id: int) -> EnsuredImage:
 
         await _finish(claimed.id, status=BUILD_READY, error=None)
         return EnsuredImage(image_tag, claimed.id)
+
+
+async def ensure_built_image(task_id: int, source: ImageBuild, worker_id: int) -> str:
+    """Build the image for ``source`` on demand (once, shared across workers) and
+    stamp the task's ``build_task_id`` link. Returns the resolved image tag."""
+    ensured = await ensure_image(source, worker_id)
+    async with get_sql_session() as session:
+        await session.execute(update(Task).where(Task.id == task_id).values(build_task_id=ensured.build_task_id))
+        await session.commit()
+    return ensured.image_tag
