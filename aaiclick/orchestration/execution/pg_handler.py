@@ -36,10 +36,14 @@ class PgDbHandler(DbHandler):
                         LIMIT 1
                         FOR UPDATE OF t SKIP LOCKED
                     )
-                    RETURNING id, job_id, entrypoint, name, kwargs, status, result,
-                              log_path, error, worker_id, created_at, claimed_at,
-                              started_at, completed_at, group_id,
-                              max_retries, attempt, retry_after
+                    -- RETURNING * (not a hand-maintained column list): every
+                    -- tasks column must reach Task(**row) or it silently falls
+                    -- back to a model default. Dropping entry_type/command made
+                    -- shell tasks run as module tasks; dropping run_epoch broke
+                    -- the fencing guard for cleared/retried runs. SELECT * below
+                    -- forwards the lot; SQLite's handler already does a full
+                    -- ORM load, so this keeps the two backends in parity.
+                    RETURNING *
                 ),
                 updated_job AS (
                     UPDATE jobs
