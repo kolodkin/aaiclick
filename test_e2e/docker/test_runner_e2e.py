@@ -41,15 +41,22 @@ from aaiclick.orchestration.runner_config import DockerRunner, ImageBuild, parse
 
 def _aaiclick(*args: str, cwd: Path) -> subprocess.CompletedProcess:
     """Run a `python -m aaiclick` CLI invocation from ``cwd`` (the user
-    repo, so the entrypoint module is on ``sys.path``). Captures output
-    so failures surface in the pytest log."""
-    return subprocess.run(
+    repo, so the entrypoint module is on ``sys.path``). Echoes the captured
+    output (visible under ``pytest -s``) so a silent submit failure is
+    diagnosable, then raises on a non-zero exit."""
+    proc = subprocess.run(
         [sys.executable, "-m", "aaiclick", *args],
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
         cwd=cwd,
     )
+    print(
+        f"$ aaiclick {' '.join(args)} [exit {proc.returncode}]\n--stdout--\n{proc.stdout}\n--stderr--\n{proc.stderr}",
+        file=sys.stderr,
+    )
+    proc.check_returncode()
+    return proc
 
 
 async def _wait_for_job(job_name: str, timeout: float = 600.0) -> Job:
