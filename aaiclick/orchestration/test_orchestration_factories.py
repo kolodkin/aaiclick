@@ -145,7 +145,11 @@ async def test_prebuilt_job_injects_no_build_task(orch_ctx_no_ch):
     assert job.runner["image"]["type"] == "prebuilt"
 
 
-async def test_build_job_injects_build_task(orch_ctx_no_ch):
+async def test_build_job_injects_no_build_task(orch_ctx_no_ch):
+    """Build images are produced on demand at dispatch, not injected at
+    submission — so no docker_build task appears in the job graph."""
     runner = DockerRunner(image=ImageBuild(git_remote="git@x:r.git", git_sha="c" * 40))
     job = await create_built_job(name="j", entrypoint="mod.fn", runner=runner, entry_type="module")
-    assert BUILD_TASK_ENTRYPOINT in await _task_entrypoints(job.id)
+    entrypoints = await _task_entrypoints(job.id)
+    assert BUILD_TASK_ENTRYPOINT not in entrypoints
+    assert entrypoints == ["mod.fn"]
