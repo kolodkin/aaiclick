@@ -1,4 +1,4 @@
-from aaiclick.orchestration.docker_config import effective_image_tag, resolve_runner_config
+from aaiclick.orchestration.docker_config import effective_image_tag, image_key, resolve_runner_config
 from aaiclick.orchestration.runner_config import (
     DockerRunner,
     ImageBuild,
@@ -43,3 +43,15 @@ async def test_resolve_kubernetes_runner_preserves_resources(monkeypatch):
     assert isinstance(cfg, KubernetesRunner)
     assert cfg.namespace == "ml"
     assert cfg.resources == {"limits": {"cpu": "2"}}
+
+
+def test_image_key_stable_and_distinguishes_fields():
+    a = ImageBuild(git_remote="git@x:r.git", git_sha="a" * 40, dockerfile=None)
+    a_again = ImageBuild(git_remote="git@x:r.git", git_sha="a" * 40, git_branch="ignored", dockerfile=None)
+    b = ImageBuild(git_remote="git@x:r.git", git_sha="b" * 40, dockerfile=None)
+    c = ImageBuild(git_remote="git@x:r.git", git_sha="a" * 40, dockerfile="Dockerfile.gpu")
+
+    assert len(image_key(a)) == 64
+    assert image_key(a) == image_key(a_again)          # git_branch is not part of identity
+    assert image_key(a) != image_key(b)                # sha matters
+    assert image_key(a) != image_key(c)                # dockerfile matters
