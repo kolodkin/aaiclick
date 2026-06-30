@@ -279,8 +279,9 @@ async def create_built_job(
     preservation_mode: PreservationMode | None = None,
     registered: RegisteredJob | None = None,
 ) -> Job:
-    """Create a docker/kubernetes Job from a resolved RunnerConfig. The build
-    task is injected only when the image source is ``build``."""
+    """Create a docker/kubernetes Job from a resolved RunnerConfig. The image
+    is built on demand at dispatch (see ``execution.image_builder.ensure_image``),
+    not injected as a task at submission."""
     mode = resolve_job_config(preservation_mode, registered)
     job_id = get_snowflake_id()
     job = Job(
