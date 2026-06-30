@@ -107,13 +107,12 @@ RunnerMode = Literal["subprocess", "docker", "kubernetes"]
 
 - ``subprocess`` (default): each task runs in a multiprocessing child
   spawned by the host worker process.
-- ``docker``: each task runs in a fresh container built from the user's
-  repo at a specific git SHA. A build task is auto-injected into the
-  job graph and runs on the host (subprocess) before any container task.
-- ``kubernetes``: each task runs in a fresh Pod built from the user's
-  repo at a specific git SHA, scheduled on a cluster. Like ``docker`` it
-  auto-injects a host-side build task; the result is handed back via the
-  ``remote_task_results`` table rather than a bind-mounted file.
+- ``docker``: each task runs in a fresh container built on demand from
+  the user's repo at a specific git SHA.
+- ``kubernetes``: each task runs in a fresh Pod built on demand from the
+  user's repo at a specific git SHA, scheduled on a cluster. The result
+  is handed back via the ``remote_task_results`` table rather than a
+  bind-mounted file.
 """
 RUNNER_MODES: list[RunnerMode] = [RUNNER_SUBPROCESS, RUNNER_DOCKER, RUNNER_KUBERNETES]
 

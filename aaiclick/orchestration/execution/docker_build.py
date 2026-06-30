@@ -1,9 +1,7 @@
-"""Build task for Docker-runner jobs.
+"""Low-level build helpers for Docker-runner jobs.
 
-Auto-injected as a prerequisite of the entry task at submission time
-(see ``factories.create_built_job``). Runs on the host via the
-subprocess runner — even for docker-mode jobs — so it can reach the
-docker daemon and produce the image the rest of the job needs.
+Used by the on-demand build seam (see ``execution.image_builder``) to
+produce the image a docker/kubernetes job's container/pod tasks need.
 
 Cache hierarchy (first hit short-circuits):
 
@@ -21,37 +19,13 @@ import os
 import tempfile
 from pathlib import Path
 
-from sqlmodel import select
-
-from ..decorators import task
-from ..docker_config import add_host_flags, effective_image_tag
-from ..models import Job
-from ..orch_context import get_sql_session
-from ..runner_config import ImageBuild, parse_runner_config
+from ..docker_config import add_host_flags
+from ..runner_config import ImageBuild
 from . import cli
-
-
-def _build_source(job: Job) -> ImageBuild:
-    """The git build source for a build job. Raises if the job is not a build
-    job (a build task is only ever injected for an ImageBuild source)."""
-    runner = parse_runner_config(job.runner) if job.runner else None
-    image = getattr(runner, "image", None)
-    if not isinstance(image, ImageBuild):
-        raise ValueError(f"Job {job.id} has no build image source; build_image must not run for it")
-    return image
 
 
 def _docker_bin() -> str:
     return os.environ.get("AAICLICK_DOCKER_BIN", "docker")
-
-
-async def _fetch_job(job_id: int) -> Job:
-    async with get_sql_session() as session:
-        result = await session.execute(select(Job).where(Job.id == job_id))
-        job = result.scalar_one_or_none()
-        if job is None:
-            raise ValueError(f"Job {job_id} not found")
-        return job
 
 
 async def _docker_image_exists_locally(image_tag: str) -> bool:
@@ -156,13 +130,3 @@ async def build_image_to_tag(source: ImageBuild, image_tag: str) -> None:
 
     if registry:
         await _docker_push(image_tag)
-
-
-@task(name="docker_build", max_retries=2)
-async def build_image(job_id: int) -> None:
-    """Deprecated host-side build task (still injected at submission until the
-    on-demand build seam lands). Delegates to ``build_image_to_tag``."""
-    job = await _fetch_job(job_id)
-    source = _build_source(job)
-    image_tag = effective_image_tag(parse_runner_config(job.runner))
-    await build_image_to_tag(source, image_tag)

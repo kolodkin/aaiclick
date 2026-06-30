@@ -8,29 +8,9 @@ import pytest
 
 from .. import docker_config
 from ..docker_config import resolve_runner_config
-from ..models import Job, RegisteredJob
+from ..models import RegisteredJob
 from ..runner_config import DockerRunner, ImageBuild
 from . import docker_build
-from .docker_build import _build_source
-
-
-def _job(
-    *, git_remote="https://example.com/repo.git", git_sha="a" * 40, git_branch="main", dockerfile=None, **overrides
-) -> Job:
-    image: dict = {"type": "build", "git_remote": git_remote, "git_sha": git_sha}
-    if git_branch is not None:
-        image["git_branch"] = git_branch
-    if dockerfile is not None:
-        image["dockerfile"] = dockerfile
-    base = {
-        "id": 1,
-        "name": "test",
-        "run_type": "MANUAL",
-        "runner_mode": "docker",
-        "runner": {"type": "docker", "image": image},
-    }
-    base.update(overrides)
-    return Job(**base)
 
 
 async def test_collect_build_args_omits_unset_values(monkeypatch):
@@ -38,7 +18,7 @@ async def test_collect_build_args_omits_unset_values(monkeypatch):
     monkeypatch.delenv("AAICLICK_PIP_EXTRA_INDEX_URL", raising=False)
     monkeypatch.delenv("AAICLICK_PIP_TRUSTED_HOST", raising=False)
 
-    source = _build_source(_job(git_branch=None))
+    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
     args = docker_build._collect_build_args(source)
 
     assert "--build-arg" in args
@@ -53,24 +33,12 @@ async def test_collect_build_args_forwards_pip_indices(monkeypatch):
     monkeypatch.setenv("AAICLICK_PIP_EXTRA_INDEX_URL", "http://extra.test/simple/")
     monkeypatch.setenv("AAICLICK_PIP_TRUSTED_HOST", "pypi.test")
 
-    args = docker_build._collect_build_args(_build_source(_job()))
+    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40, git_branch="main")
+    args = docker_build._collect_build_args(source)
 
     assert "PIP_INDEX_URL=http://pypi.test/simple/" in args
     assert "PIP_EXTRA_INDEX_URL=http://extra.test/simple/" in args
     assert "PIP_TRUSTED_HOST=pypi.test" in args
-
-
-def test_build_source_from_runner():
-    job = Job(
-        id=1,
-        name="j",
-        run_type="MANUAL",
-        runner_mode="docker",
-        runner={"type": "docker", "image": {"type": "build", "git_remote": "r", "git_sha": "d" * 40}},
-    )
-    src = _build_source(job)
-    assert src.git_remote == "r"
-    assert src.git_sha == "d" * 40
 
 
 async def test_build_image_to_tag_pushes_after_local_cache_hit_when_registry_set(monkeypatch):

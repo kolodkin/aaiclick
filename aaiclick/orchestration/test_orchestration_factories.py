@@ -4,7 +4,6 @@ from datetime import datetime
 
 from sqlalchemy import select
 
-from aaiclick.orchestration.docker_config import BUILD_TASK_ENTRYPOINT
 from aaiclick.orchestration.factories import create_built_job, create_job, create_task
 from aaiclick.orchestration.jobs import get_task
 from aaiclick.orchestration.models import JOB_PENDING, TASK_PENDING, Job, Task
@@ -140,7 +139,7 @@ async def _task_entrypoints(job_id: int) -> list[str]:
 async def test_prebuilt_job_injects_no_build_task(orch_ctx_no_ch):
     runner = DockerRunner(image=ImagePrebuilt(image_tag="python:3.12"))
     job = await create_built_job(name="j", entrypoint="", runner=runner, entry_type="shell", command=["echo", "hi"])
-    assert BUILD_TASK_ENTRYPOINT not in await _task_entrypoints(job.id)
+    assert await _task_entrypoints(job.id) == [""]
     assert job.runner is not None
     assert job.runner["image"]["type"] == "prebuilt"
 
@@ -151,5 +150,4 @@ async def test_build_job_injects_no_build_task(orch_ctx_no_ch):
     runner = DockerRunner(image=ImageBuild(git_remote="git@x:r.git", git_sha="c" * 40))
     job = await create_built_job(name="j", entrypoint="mod.fn", runner=runner, entry_type="module")
     entrypoints = await _task_entrypoints(job.id)
-    assert BUILD_TASK_ENTRYPOINT not in entrypoints
     assert entrypoints == ["mod.fn"]

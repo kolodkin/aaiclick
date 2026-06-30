@@ -22,12 +22,6 @@ from .runner_config import (
     RunnerConfigT,
 )
 
-BUILD_TASK_ENTRYPOINT = "aaiclick.orchestration.execution.docker_build.build_image"
-"""Entrypoint of the auto-injected build task. Used by `_resolve_runner`
-to keep the build task on the host (subprocess) runner regardless of the
-job's configured runner_mode."""
-
-
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
