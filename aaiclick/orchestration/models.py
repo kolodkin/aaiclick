@@ -14,6 +14,7 @@ from sqlalchemy.orm import Mapped
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
 from ..datetime_utils import utc_now
+from .runner_config import ENTRY_MODULE, EntryType
 from .task_registry import register_task
 
 # Enum columns are stored as plain ``String`` and validated by their ``Literal``
@@ -133,6 +134,7 @@ class RegisteredJob(SQLModel, table=True):
     dockerfile: str | None = Field(default=None)
     git_remote: str | None = Field(default=None)
     kubernetes_config: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    runner: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     next_run_at: datetime | None = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
@@ -168,12 +170,7 @@ class Job(SQLModel, table=True):
         default=RUNNER_SUBPROCESS,
         sa_column=Column(String, nullable=False, server_default=RUNNER_SUBPROCESS),
     )
-    git_remote: str | None = Field(default=None)
-    git_sha: str | None = Field(default=None, sa_column=Column(String(40), nullable=True))
-    git_branch: str | None = Field(default=None)
-    dockerfile: str | None = Field(default=None)
-    image_tag: str | None = Field(default=None)
-    kubernetes_config: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    runner: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     created_at: datetime = Field(default_factory=utc_now, index=True)
     started_at: datetime | None = Field(default=None)
     completed_at: datetime | None = Field(default=None)
@@ -357,6 +354,9 @@ class Task(SQLModel, table=True):
     entrypoint: str = Field()
     name: str = Field()
     kwargs: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    entry_type: EntryType = Field(default=ENTRY_MODULE, sa_column=Column(String, nullable=True))
+    command: list[str] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    command_env: dict[str, str] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     status: TaskStatus = Field(
         default=TASK_PENDING,
         sa_column=Column(String, nullable=False, index=True),

@@ -22,27 +22,40 @@ import pytest
 from sqlmodel import col, select
 
 from aaiclick.datetime_utils import utc_now
+from aaiclick.orchestration.docker_config import effective_image_tag
 from aaiclick.orchestration.execution.mp_worker import mp_worker_main_loop
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, TASK_COMPLETED, Job
 from aaiclick.orchestration.orch_context import get_sql_session
+from aaiclick.orchestration.runner_config import ImageBuild, KubernetesRunner, parse_runner_config
 
 
 def _aaiclick(*args: str, cwd: Path) -> subprocess.CompletedProcess:
     """Run a ``python -m aaiclick`` CLI invocation from ``cwd`` (the user repo,
-    so the entrypoint module is importable). Captures output for the log."""
-    return subprocess.run(
+    so the entrypoint module is importable). Echoes the captured output
+    (visible under ``pytest -s``) so a silent submit failure is diagnosable,
+    then raises on a non-zero exit."""
+    proc = subprocess.run(
         [sys.executable, "-m", "aaiclick", *args],
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
         cwd=cwd,
     )
+    print(
+        f"$ aaiclick {' '.join(args)} [exit {proc.returncode}]\n--stdout--\n{proc.stdout}\n--stderr--\n{proc.stderr}",
+        file=sys.stderr,
+    )
+    proc.check_returncode()
+    return proc
 
 
 async def _wait_for_job(job_name: str, timeout: float = 600.0) -> Job:
-    """Poll the most recent Job with this name until it reaches a terminal status."""
+    """Poll the most recent Job with this name until it reaches a terminal
+    status. On timeout, dump per-task states so a stuck or failing task is
+    diagnosable from the CI log."""
     deadline = utc_now() + timedelta(seconds=timeout)
+    job = None
     while utc_now() < deadline:
         async with get_sql_session() as session:
             result = await session.execute(
@@ -52,7 +65,11 @@ async def _wait_for_job(job_name: str, timeout: float = 600.0) -> Job:
         if job is not None and job.status in (JOB_COMPLETED, JOB_FAILED):
             return job
         await asyncio.sleep(1.0)
-    raise TimeoutError(f"Job {job_name!r} did not complete within {timeout}s")
+    lines = [f"Job {job_name!r} did not complete within {timeout}s; job_status={getattr(job, 'status', None)}"]
+    if job is not None:
+        for t in await get_tasks_for_job(job.id):
+            lines.append(f"  task entrypoint={t.entrypoint!r} status={t.status} attempt={t.attempt} error={t.error!r}")
+    raise TimeoutError("\n".join(lines))
 
 
 @pytest.mark.kubernetes_e2e
@@ -89,8 +106,13 @@ async def test_kubernetes_runner_smoke(orch_ctx, kubernetes_e2e_user_repo):
             pass
 
     assert completed.status == JOB_COMPLETED, completed.error
-    assert completed.image_tag and completed.image_tag.endswith(f":{sha}")
-    assert completed.git_sha == sha
+    assert completed.runner is not None
+    runner = parse_runner_config(completed.runner)
+    assert isinstance(runner, KubernetesRunner)
+    assert isinstance(runner.image, ImageBuild)
+    tag = effective_image_tag(runner)
+    assert tag is not None and tag.endswith(f":{sha}")
+    assert runner.image.git_sha == sha
 
     tasks = await get_tasks_for_job(completed.id)
     entrypoints = [t.entrypoint for t in tasks]

@@ -3,7 +3,7 @@
 Resolves the cluster-specific config (namespace, service account, image-pull
 secret, resource requests/limits) into a snapshot stored on the ``Job`` row's
 ``kubernetes_config`` JSON column. Git/image resolution is shared with the
-Docker runner (``docker_config.resolve_docker_config``) and is not duplicated
+Docker runner (``docker_config.resolve_runner_config``) and is not duplicated
 here.
 """
 

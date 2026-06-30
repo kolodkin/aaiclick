@@ -8,8 +8,51 @@ from pathlib import Path
 from unittest.mock import AsyncMock
 
 from ..models import RUNNER_DOCKER, Task
+from ..runner_config import ENTRY_MODULE, ENTRY_SHELL
 from . import docker_worker
+from .docker_worker import _build_docker_run_cmd
 from .worker import JobDispatch
+
+
+def _cmdtask(**kw):
+    return Task(
+        id=1,
+        job_id=1,
+        name="t",
+        entrypoint=kw.get("entrypoint", ""),
+        entry_type=kw["entry_type"],
+        command=kw.get("command"),
+        command_env=kw.get("command_env"),
+    )
+
+
+def test_module_cmd_uses_bootstrap_shim():
+    cmd = _build_docker_run_cmd(
+        _cmdtask(entry_type=ENTRY_MODULE, entrypoint="m.f"),
+        "python:3.12",
+        "/ipc",
+        "/logs",
+        {"A": "1"},
+    )
+    joined = " ".join(cmd)
+    assert "aaiclick.orchestration.execution.docker_worker" in joined
+    assert "--task-id" in joined
+    assert "/aaiclick-ipc" in joined  # IPC mount present for module
+
+
+def test_shell_cmd_runs_argv_no_ipc_no_runner_env():
+    cmd = _build_docker_run_cmd(
+        _cmdtask(entry_type=ENTRY_SHELL, command=["python", "main.py"], command_env={"K": "v"}),
+        "python:3.12",
+        "/ipc",
+        "/logs",
+        {"AAICLICK_SQL_URL": "secret"},
+    )
+    assert cmd[-3:] == ["python:3.12", "python", "main.py"]
+    joined = " ".join(cmd)
+    assert "AAICLICK_SQL_URL" not in joined  # runner env NOT injected for shell
+    assert "K=v" in joined  # only command_env injected
+    assert "/aaiclick-ipc" not in joined  # no IPC mount for shell
 
 
 def _task(entrypoint="user.module.entry", task_id=42, job_id=1) -> Task:
@@ -23,11 +66,11 @@ def _task(entrypoint="user.module.entry", task_id=42, job_id=1) -> Task:
 
 def test_build_docker_run_cmd_shape():
     cmd = docker_worker._build_docker_run_cmd(
-        image_tag="aaiclick-job:abc",
-        task_id=42,
-        ipc_dir="/tmp/ipc",
-        log_base="/var/log/aaiclick",
-        env={"AAICLICK_SQL_URL": "u"},
+        _cmdtask(entry_type=ENTRY_MODULE, entrypoint="user.module.entry"),
+        "aaiclick-job:abc",
+        "/tmp/ipc",
+        "/var/log/aaiclick",
+        {"AAICLICK_SQL_URL": "u"},
     )
     joined = " ".join(cmd)
     assert "docker run --detach" in joined
@@ -38,7 +81,7 @@ def test_build_docker_run_cmd_shape():
     assert "-v /var/log/aaiclick:/var/log/aaiclick" in joined
     assert "-e AAICLICK_LOG_DIR=/var/log/aaiclick" in joined
     assert "-e AAICLICK_SQL_URL=u" in joined
-    assert joined.endswith("aaiclick-job:abc python -m aaiclick.orchestration.execution.docker_worker --task-id 42")
+    assert joined.endswith("aaiclick-job:abc python -m aaiclick.orchestration.execution.docker_worker --task-id 1")
 
 
 def test_read_result_succeeds_on_success_payload(tmp_path):

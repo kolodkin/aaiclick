@@ -58,6 +58,75 @@ Two deployment modes, controlled by two independent environment variables:
 
 **Implementation**: `aaiclick/backend.py` — see `get_ch_url()`, `get_db_url()`, `is_chdb()`, `is_sqlite()`
 
+# Runners & Entry Types
+
+**Implementation**: `aaiclick/orchestration/runner_config.py` (typed configs), `aaiclick/orchestration/docker_config.py` (resolution helpers)
+
+Two orthogonal dials control how a task runs:
+
+- **runner mode** (per *job*) — `subprocess` (host child process), `docker` (container), or `kubernetes` (Pod).
+- **entry type** (per *task*) — `module` (import and run a Python entrypoint, the default) or `shell` (run a literal argv).
+
+They compose freely: a `shell` task runs the same way — "run this argv, success = exit 0" — whether the environment is a host subprocess, a container, or a Pod.
+
+## Image source (docker / kubernetes)
+
+The container runners run against an image from one of two sources, nested in the job's runner config:
+
+| Source     | How                                              | Build task          |
+|------------|--------------------------------------------------|---------------------|
+| `build`    | git repo → auto-injected `docker_build` task → computed `aaiclick-job:<sha>` tag | injected            |
+| `prebuilt` | `image="python:3.12"` run verbatim, no build stage | skipped entirely    |
+
+Pass `image=` (`run_job` / `RunJobRequest` / `run-job --image`, or `register-job --image` for a default) to select a prebuilt image — **mutually exclusive** with the git build fields (`git_remote` / `git_sha` / `git_branch` / `dockerfile`). For `prebuilt`, `create_built_job` injects no build dependency and the entry task runs straight away.
+
+**Implementation**: `aaiclick/orchestration/docker_config.py` — see `resolve_runner_config()`, `effective_image_tag()`; `aaiclick/orchestration/factories.py` — see `create_built_job()` (conditional build-task injection)
+
+## Shell entry type
+
+A `shell` task runs a literal argv (`command`, a list) directly in the runner's environment instead of importing a Python `entrypoint`. Success is **exit code 0**; there is no `result.data()` and `result_ref` is always `None`. stdout/stderr lands in the normal per-task log file, so logs surface uniformly.
+
+In an isolated environment (container/Pod) a shell task receives **only** `command_env` (a dict) — *not* the aaiclick runner env — so no DB credentials leak into an arbitrary image. The subprocess runner has no isolation boundary, so the command inherits the worker's process env with `command_env` overlaid.
+
+| Task                          | Env injected                                  |
+|-------------------------------|-----------------------------------------------|
+| `module` (any runner)         | `build_runner_env()` — DB URLs + framework knobs |
+| `shell` + docker / kubernetes | `command_env` only (on top of the image's env) |
+| `shell` + subprocess          | worker process env + `command_env` overlay     |
+
+Submit via:
+
+```python
+run_job(name, entry_type="shell", command=["python", "main.py"], command_env={"K": "v"})
+```
+
+```bash
+python -m aaiclick run-job <name> --entry-type shell --command 'python main.py' --command-env K=v
+```
+
+REST/MCP submission uses the same fields on `RunJobRequest`.
+
+**Implementation**: `aaiclick/orchestration/execution/mp_worker.py` — see `_run_shell_on_host()`; `aaiclick/orchestration/execution/docker_worker.py` / `kubernetes_worker.py` — shell branch in the runner vehicle
+
+## Execution layers
+
+The runner's *invocation* sits at a different layer than the task it runs, and the `module` path blurs the two. The same three layers exist for every runner, host → execution environment:
+
+1. **Host worker** — the runner's ExecuteFn (`_run_task_in_child` / `_run_task_in_container` / `_run_task_in_pod`): claim, heartbeat, cancellation poll, wait, result read. Identical for `module` and `shell`.
+2. **Runner invocation** — *what the runner launches*: the mp child target, the `docker run <image> <argv>` command, or the Pod `command`. This is the **runner** level, not the task's own definition. **`entry_type` branches here.**
+3. **Task execution** — `execute_task(task)` running the module entrypoint.
+
+`python -m aaiclick.orchestration.execution.docker_worker --task-id N` (and the Pod equivalent) is a **layer-2 bootstrap shim** — framework plumbing that only lives in the `docker_worker` module because that module is named for the host worker. Despite "worker" in the path it is *not* a queue-claiming loop and *not* task execution (layer 3): it loads one task by id, boots `orch_context()`, calls `execute_task`, writes the result, and exits.
+
+| entry_type | layer-2 runner invocation                          | layer-3 execution               |
+|------------|----------------------------------------------------|---------------------------------|
+| `module`   | bootstrap shim (mp child / `docker_worker --task-id N` / Pod shim) | shim calls `execute_task` |
+| `shell`    | the user's argv directly — the definition *is* the invocation | none — the argv *is* the execution |
+
+So for a `module` task the user's entrypoint runs *inside* the shim; for a `shell` task the user's argv *replaces* the shim, bypassing both the bootstrap and `execute_task`, in whatever environment the runner provides.
+
+**Implementation**: `aaiclick/orchestration/execution/dispatch.py` (ExecuteFn routing) — see `_run_task_in_child()` (`mp_worker.py`), `_run_task_in_container()` (`docker_worker.py`), `_run_task_in_pod()` (`kubernetes_worker.py`)
+
 # DB Models
 
 **Implementation**: `aaiclick/orchestration/models.py`
@@ -202,8 +271,8 @@ python -m aaiclick job cancel <id>
 python -m aaiclick job list [--status RUNNING] [--like "%etl%"] [--limit 20 --offset 40]
 python -m aaiclick job enable <name>          # Enable a registered job
 python -m aaiclick job disable <name>         # Disable a registered job
-python -m aaiclick register-job <entrypoint> [--name NAME] [--schedule "0 8 * * *"] [--kwargs '{"key": "val"}'] [--preservation-mode NONE|FULL]
-python -m aaiclick run-job <name> [--kwargs '{"key": "val"}'] [--preservation-mode NONE|FULL]
+python -m aaiclick register-job <entrypoint> [--name NAME] [--schedule "0 8 * * *"] [--kwargs '{"key": "val"}'] [--preservation-mode NONE|FULL] [--runner subprocess|docker|kubernetes] [--image python:3.12]
+python -m aaiclick run-job <name> [--kwargs '{"key": "val"}'] [--preservation-mode NONE|FULL] [--entry-type module|shell] [--command 'python main.py'] [--command-env K=v] [--image python:3.12]
 python -m aaiclick registered-job list        # List registered jobs
 ```
 

@@ -146,7 +146,7 @@ class KubernetesConfig(NamedTuple):
     resources: dict | None = None  # {cpu/mem requests+limits}
 ```
 
-Resolved at submission time alongside the shared `resolve_docker_config` for
+Resolved at submission time alongside the shared `resolve_runner_config` for
 git/image. Precedence per field (highest first): `run_job` kwarg →
 `RegisteredJob` default → environment variable → hardcoded default. The env
 layer holds cluster-wide deployment defaults (the same across every job),
@@ -182,7 +182,7 @@ RunnerMode = Literal["subprocess", "docker", "kubernetes"]
 - `register-job --runner kubernetes` records the mode (plus `--namespace` and
   resource flags) on the `RegisteredJob`.
 - `run_job` branches on `runner_mode == RUNNER_KUBERNETES` to
-  `resolve_kubernetes_config` + `create_kubernetes_job` (mirrors the Docker branch).
+  `resolve_kubernetes_config` + `create_built_job` (mirrors the Docker branch).
 - `dispatch_execute` routes `RUNNER_KUBERNETES` tasks to the Kubernetes vehicle.
 
 In-flight cancellation works from day one: `poll_cancelled` is wired to

@@ -31,29 +31,42 @@ import pytest
 from sqlmodel import col, select
 
 from aaiclick.datetime_utils import utc_now
+from aaiclick.orchestration.background.background_worker import BackgroundWorker
+from aaiclick.orchestration.docker_config import BUILD_TASK_ENTRYPOINT, effective_image_tag
 from aaiclick.orchestration.execution.mp_worker import mp_worker_main_loop
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, TASK_COMPLETED, Job
 from aaiclick.orchestration.orch_context import get_sql_session
+from aaiclick.orchestration.runner_config import DockerRunner, ImageBuild, parse_runner_config
 
 
 def _aaiclick(*args: str, cwd: Path) -> subprocess.CompletedProcess:
     """Run a `python -m aaiclick` CLI invocation from ``cwd`` (the user
-    repo, so the entrypoint module is on ``sys.path``). Captures output
-    so failures surface in the pytest log."""
-    return subprocess.run(
+    repo, so the entrypoint module is on ``sys.path``). Echoes the captured
+    output (visible under ``pytest -s``) so a silent submit failure is
+    diagnosable, then raises on a non-zero exit."""
+    proc = subprocess.run(
         [sys.executable, "-m", "aaiclick", *args],
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
         cwd=cwd,
     )
+    print(
+        f"$ aaiclick {' '.join(args)} [exit {proc.returncode}]\n--stdout--\n{proc.stdout}\n--stderr--\n{proc.stderr}",
+        file=sys.stderr,
+    )
+    proc.check_returncode()
+    return proc
 
 
 async def _wait_for_job(job_name: str, timeout: float = 600.0) -> Job:
     """Poll the most recent Job with this name until it reaches a
-    terminal status, or fail."""
+    terminal status, or fail. On timeout, dump per-task states so a stuck
+    or failing task is diagnosable from the CI log (the worker writes its
+    own output to per-task log files, not stdout)."""
     deadline = utc_now() + timedelta(seconds=timeout)
+    job = None
     while utc_now() < deadline:
         async with get_sql_session() as session:
             result = await session.execute(
@@ -63,7 +76,11 @@ async def _wait_for_job(job_name: str, timeout: float = 600.0) -> Job:
         if job is not None and job.status in (JOB_COMPLETED, JOB_FAILED):
             return job
         await asyncio.sleep(1.0)
-    raise TimeoutError(f"Job {job_name!r} did not complete within {timeout}s")
+    lines = [f"Job {job_name!r} did not complete within {timeout}s; job_status={getattr(job, 'status', None)}"]
+    if job is not None:
+        for t in await get_tasks_for_job(job.id):
+            lines.append(f"  task entrypoint={t.entrypoint!r} status={t.status} attempt={t.attempt} error={t.error!r}")
+    raise TimeoutError("\n".join(lines))
 
 
 @pytest.mark.docker_e2e
@@ -105,8 +122,13 @@ async def test_docker_runner_smoke(orch_ctx, docker_e2e_user_repo):
             pass
 
     assert completed.status == JOB_COMPLETED, completed.error
-    assert completed.image_tag and completed.image_tag.endswith(f":{sha}")
-    assert completed.git_sha == sha
+    assert completed.runner is not None
+    runner = parse_runner_config(completed.runner)
+    assert isinstance(runner, DockerRunner)
+    assert isinstance(runner.image, ImageBuild)
+    tag = effective_image_tag(runner)
+    assert tag is not None and tag.endswith(f":{sha}")
+    assert runner.image.git_sha == sha
 
     tasks = await get_tasks_for_job(completed.id)
     entrypoints = [t.entrypoint for t in tasks]
@@ -123,3 +145,113 @@ async def test_docker_runner_smoke(orch_ctx, docker_e2e_user_repo):
     # values are wrapped as ``{"native_value": ...}`` in Task.result.
     summed = next(t for t in tasks if t.entrypoint == "sample_jobs.compute_sum")
     assert summed.result == {"native_value": {"total": 120}}, summed.result
+
+
+@pytest.mark.docker_e2e
+async def test_docker_runner_shell_prebuilt(orch_ctx, tmp_path):
+    """Run a shell command in a prebuilt image (no git repo, no build).
+
+    The prebuilt ``python:3.12`` image runs an exit-0 shell command, so the
+    job completes with no auto-injected build task."""
+    job_name = "docker_e2e_shell_prebuilt"
+
+    _aaiclick(
+        "register-job",
+        "shell.placeholder",
+        "--name",
+        job_name,
+        "--runner",
+        "docker",
+        "--image",
+        "python:3.12",
+        cwd=tmp_path,
+    )
+
+    _aaiclick(
+        "run-job",
+        job_name,
+        "--entry-type",
+        "shell",
+        "--command",
+        'python -c "print(123)"',
+        cwd=tmp_path,
+    )
+
+    worker_task = asyncio.create_task(
+        mp_worker_main_loop(
+            max_tasks=10,
+            install_signal_handlers=False,
+            max_empty_polls=10,
+        )
+    )
+    try:
+        completed = await _wait_for_job(job_name)
+    finally:
+        worker_task.cancel()
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            pass
+
+    assert completed.status == JOB_COMPLETED, completed.error
+
+    tasks = await get_tasks_for_job(completed.id)
+    entrypoints = [t.entrypoint for t in tasks]
+    # Prebuilt image → no build task is injected.
+    assert BUILD_TASK_ENTRYPOINT not in entrypoints, entrypoints
+    # The single shell task ran the exit-0 command and completed.
+    assert len(tasks) == 1, entrypoints
+    assert tasks[0].status == TASK_COMPLETED, tasks[0].error
+
+
+@pytest.mark.docker_e2e
+async def test_docker_runner_shell_nonzero_fails(orch_ctx, tmp_path):
+    """A shell command that exits non-zero fails the job."""
+    job_name = "docker_e2e_shell_nonzero"
+
+    _aaiclick(
+        "register-job",
+        "shell.placeholder",
+        "--name",
+        job_name,
+        "--runner",
+        "docker",
+        "--image",
+        "python:3.12",
+        cwd=tmp_path,
+    )
+
+    _aaiclick(
+        "run-job",
+        job_name,
+        "--entry-type",
+        "shell",
+        "--command",
+        'python -c "import sys; sys.exit(7)"',
+        cwd=tmp_path,
+    )
+
+    # A failed task lands in PENDING_CLEANUP; the BackgroundWorker is what
+    # transitions it to FAILED and then fails the job (the success path is
+    # finalized inline by the mp worker, but the failure path is not). Run a
+    # real one alongside the worker so the job reaches its terminal state.
+    bg_worker = BackgroundWorker(poll_interval=1.0)
+    await bg_worker.start()
+    worker_task = asyncio.create_task(
+        mp_worker_main_loop(
+            max_tasks=10,
+            install_signal_handlers=False,
+            max_empty_polls=10,
+        )
+    )
+    try:
+        completed = await _wait_for_job(job_name)
+    finally:
+        worker_task.cancel()
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            pass
+        await bg_worker.stop()
+
+    assert completed.status == JOB_FAILED, completed.status

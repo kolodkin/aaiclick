@@ -13,16 +13,21 @@ from __future__ import annotations
 
 import asyncio
 import multiprocessing
+import os
 import queue
+from pathlib import Path
 from typing import Any, NamedTuple
 
 from sqlmodel import select
 
+from ..logging import get_logs_dir
 from ..models import Task
 from ..orch_context import get_sql_session
+from .claiming import check_task_cancelled
 from .runner import execute_task, register_returned_tasks, serialize_task_result
 from .worker import (
     POLL_INTERVAL,
+    JobDispatch,
     RunnerResult,
     TaskVehicle,
     _worker_loop,
@@ -211,6 +216,83 @@ async def _poll_child(
                 log_path=None,
                 error=f"Child process exited with code {proc.exitcode}",
             )
+
+
+# ---------------------------------------------------------------------------
+# Host shell runner (shell tasks on the subprocess runner)
+# ---------------------------------------------------------------------------
+
+
+class _HostShellHandle(NamedTuple):
+    proc: Any
+    log_path: str
+    log_file: Any
+
+
+class _HostShellVehicle(TaskVehicle["_HostShellHandle", None]):
+    """Runs a shell task's argv as a child of the worker process. Success is the
+    process exit code; env is the worker env with command_env overlaid."""
+
+    def __init__(self, command: list[str], command_env: dict[str, str] | None, log_base: str) -> None:
+        self._command = command
+        self._command_env = command_env or {}
+        self._log_base = log_base
+
+    async def launch(self, task: Task, worker_id: int) -> _HostShellHandle:
+        log_path = os.path.join(self._log_base, str(task.job_id), str(task.id), f"{task.run_epoch}.log")
+        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+        log_file = open(log_path, "wb")
+        env = {**os.environ, **self._command_env}
+        proc = await asyncio.create_subprocess_exec(
+            *self._command,
+            stdout=log_file,
+            stderr=asyncio.subprocess.STDOUT,
+            env=env,
+        )
+        return _HostShellHandle(proc, log_path, log_file)
+
+    async def wait(self, handle: _HostShellHandle, timeout: float | None) -> tuple[int, str | None, None]:
+        try:
+            await asyncio.wait_for(handle.proc.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            handle.proc.kill()
+            await handle.proc.wait()
+            return -1, f"Task timed out after {timeout}s", None
+        return handle.proc.returncode, None, None
+
+    async def poll_cancelled(self, task: Task) -> bool:
+        return await check_task_cancelled(task.id)
+
+    async def terminate(self, handle: _HostShellHandle) -> None:
+        handle.proc.kill()
+
+    def collect(
+        self, handle: _HostShellHandle, exit_code: int, error: str | None, was_cancelled: bool, payload: None
+    ) -> RunnerResult:
+        if was_cancelled:
+            return RunnerResult(False, None, handle.log_path, "cancelled")
+        if error is not None:
+            return RunnerResult(False, None, handle.log_path, error)
+        return RunnerResult(exit_code == 0, None, handle.log_path, None if exit_code == 0 else f"exit {exit_code}")
+
+    async def cleanup(self, handle: _HostShellHandle) -> None:
+        handle.log_file.close()
+
+
+async def _run_shell_on_host(
+    task: Task, worker_id: int, dispatch: JobDispatch
+) -> tuple[bool, dict | None, str | None, str | None]:
+    """ExecuteFn for shell tasks on the subprocess runner."""
+    vehicle = _HostShellVehicle(dispatch.command or [], dispatch.command_env, get_logs_dir())
+    result = await drive_vehicle(
+        task,
+        worker_id,
+        vehicle,
+        timeout=parse_task_timeout(),
+        poll_interval=POLL_INTERVAL,
+        heartbeat_fn=worker_heartbeat,
+    )
+    return result.success, result.result_ref, result.log_path, result.error
 
 
 # ---------------------------------------------------------------------------

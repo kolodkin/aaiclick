@@ -5,32 +5,30 @@ from __future__ import annotations
 import pytest
 from sqlmodel import select
 
-from aaiclick.orchestration.docker_config import DockerJobConfig
-from aaiclick.orchestration.factories import create_kubernetes_job
+from aaiclick.orchestration.factories import create_built_job
 from aaiclick.orchestration.models import RUNNER_KUBERNETES, Task
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import get_registered_job, upsert_registered_job
-
-_DOCKER_CFG = DockerJobConfig(
-    git_remote="git://x/repo.git",
-    git_sha="a" * 40,
-    git_branch="main",
-    dockerfile=None,
-    image_tag="reg/aaiclick-job:" + "a" * 40,
-)
+from aaiclick.orchestration.runner_config import ImageBuild, KubernetesRunner
 
 
 @pytest.mark.usefixtures("fast_poll")
 async def test_create_kubernetes_job_writes_job_and_build_task(orch_ctx_no_ch):
-    job = await create_kubernetes_job(
+    runner = KubernetesRunner(
+        image=ImageBuild(git_remote="git://x/repo.git", git_sha="a" * 40, git_branch="main"),
+        namespace="ml",
+    )
+    job = await create_built_job(
         name="k8s_submit",
         entrypoint="sample_jobs.entry",
-        docker_config=_DOCKER_CFG,
-        kubernetes_config={"namespace": "ml"},
+        runner=runner,
+        entry_type="module",
     )
     assert job.runner_mode == RUNNER_KUBERNETES
-    assert job.image_tag == _DOCKER_CFG.image_tag
-    assert job.kubernetes_config == {"namespace": "ml"}
+    assert job.runner is not None
+    assert job.runner["type"] == "kubernetes"
+    assert job.runner["image"]["type"] == "build"
+    assert job.runner["namespace"] == "ml"
 
     async with get_sql_session() as session:
         tasks = (await session.execute(select(Task).where(Task.job_id == job.id))).scalars().all()

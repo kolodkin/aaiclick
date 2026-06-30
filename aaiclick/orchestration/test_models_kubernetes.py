@@ -20,9 +20,14 @@ def test_kubernetes_is_a_runner_mode():
     assert RUNNER_KUBERNETES in RUNNER_MODES
 
 
-def test_jobs_have_kubernetes_config_column():
-    job = Job(name="j", run_type="MANUAL", kubernetes_config={"namespace": "ml"})
-    assert job.kubernetes_config == {"namespace": "ml"}
+def test_jobs_carry_kubernetes_config_in_runner():
+    job = Job(
+        name="j",
+        run_type="MANUAL",
+        runner_mode="kubernetes",
+        runner={"type": "kubernetes", "namespace": "ml"},
+    )
+    assert job.runner == {"type": "kubernetes", "namespace": "ml"}
     reg = RegisteredJob(name="r", entrypoint="m.f")
     assert reg.kubernetes_config is None  # defaults to None
 

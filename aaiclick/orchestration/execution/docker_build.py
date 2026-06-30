@@ -1,7 +1,7 @@
 """Build task for Docker-runner jobs.
 
 Auto-injected as a prerequisite of the entry task at submission time
-(see ``factories.create_docker_job``). Runs on the host via the
+(see ``factories.create_built_job``). Runs on the host via the
 subprocess runner — even for docker-mode jobs — so it can reach the
 docker daemon and produce the image the rest of the job needs.
 
@@ -24,10 +24,21 @@ from pathlib import Path
 from sqlmodel import select
 
 from ..decorators import task
-from ..docker_config import add_host_flags
+from ..docker_config import add_host_flags, effective_image_tag
 from ..models import Job
 from ..orch_context import get_sql_session
+from ..runner_config import ImageBuild, parse_runner_config
 from . import cli
+
+
+def _build_source(job: Job) -> ImageBuild:
+    """The git build source for a build job. Raises if the job is not a build
+    job (a build task is only ever injected for an ImageBuild source)."""
+    runner = parse_runner_config(job.runner) if job.runner else None
+    image = getattr(runner, "image", None)
+    if not isinstance(image, ImageBuild):
+        raise ValueError(f"Job {job.id} has no build image source; build_image must not run for it")
+    return image
 
 
 def _docker_bin() -> str:
@@ -77,7 +88,7 @@ def _aaiclick_version() -> str:
         return "0.0.0"
 
 
-def _collect_build_args(job: Job) -> list[str]:
+def _collect_build_args(source: ImageBuild) -> list[str]:
     """Build the ``["--build-arg", "K=V", ...]`` slice for ``docker build``.
 
     Only emits args whose value is non-empty / non-None — leaves the
@@ -88,9 +99,9 @@ def _collect_build_args(job: Job) -> list[str]:
         if value:
             args.extend(["--build-arg", f"{key}={value}"])
 
-    add("GIT_REMOTE", job.git_remote)
-    add("GIT_SHA", job.git_sha)
-    add("GIT_BRANCH", job.git_branch)
+    add("GIT_REMOTE", source.git_remote)
+    add("GIT_SHA", source.git_sha)
+    add("GIT_BRANCH", source.git_branch)
     add("PIP_INDEX_URL", os.environ.get("AAICLICK_PIP_INDEX_URL"))
     add("PIP_EXTRA_INDEX_URL", os.environ.get("AAICLICK_PIP_EXTRA_INDEX_URL"))
     add("PIP_TRUSTED_HOST", os.environ.get("AAICLICK_PIP_TRUSTED_HOST"))
@@ -115,7 +126,7 @@ async def _docker_build(context: str, dockerfile: str, image_tag: str, build_arg
 
 @task(name="docker_build", max_retries=2)
 async def build_image(job_id: int) -> None:
-    """Build (and optionally push) the image declared by ``Job.image_tag``.
+    """Build (and optionally push) the image declared by the job's runner.
 
     No-op when a registry hit is found. ``max_retries=2`` because clone /
     pull / push can fail transiently and the build is fully idempotent
@@ -127,29 +138,31 @@ async def build_image(job_id: int) -> None:
     returning. Otherwise host A would build, push-fail, retry-from-cache,
     return success — and host B would never be able to pull it."""
     job = await _fetch_job(job_id)
+    source = _build_source(job)
+    image_tag = effective_image_tag(parse_runner_config(job.runner))
 
     registry = os.environ.get("AAICLICK_REGISTRY")
 
-    if registry and await _docker_pull(job.image_tag):
+    if registry and await _docker_pull(image_tag):
         return
 
-    if not await _docker_image_exists_locally(job.image_tag):
+    if not await _docker_image_exists_locally(image_tag):
         with tempfile.TemporaryDirectory(prefix="aaiclick-build-") as workdir:
-            await _git_clone_at_sha(job.git_remote, job.git_sha, workdir)
+            await _git_clone_at_sha(source.git_remote, source.git_sha, workdir)
 
             context_dir = Path(workdir)
-            dockerfile = context_dir / (job.dockerfile or "Dockerfile")
+            dockerfile = context_dir / (source.dockerfile or "Dockerfile")
             if not dockerfile.is_file():
                 raise FileNotFoundError(
                     f"Dockerfile not found at "
-                    f"{job.dockerfile or 'Dockerfile'} "
-                    f"in repo {job.git_remote}@{job.git_sha}. "
+                    f"{source.dockerfile or 'Dockerfile'} "
+                    f"in repo {source.git_remote}@{source.git_sha}. "
                     f"Run `python -m aaiclick docker init` in the user's repo "
                     f"to scaffold a starter Dockerfile."
                 )
 
-            build_args = _collect_build_args(job)
-            await _docker_build(str(context_dir), str(dockerfile), job.image_tag, build_args)
+            build_args = _collect_build_args(source)
+            await _docker_build(str(context_dir), str(dockerfile), image_tag, build_args)
 
     if registry:
-        await _docker_push(job.image_tag)
+        await _docker_push(image_tag)

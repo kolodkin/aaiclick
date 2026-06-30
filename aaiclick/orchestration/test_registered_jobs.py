@@ -314,3 +314,57 @@ async def test_run_job_override_beats_registered_default(orch_ctx, monkeypatch):
         preservation_mode=PRESERVATION_NONE,
     )
     assert job.preservation_mode == PRESERVATION_NONE
+
+
+# shell tasks and prebuilt images via the submission API
+
+
+async def test_run_job_shell_requires_command():
+    # validate_task_entry runs before any DB access, so no fixture needed
+    with pytest.raises(ValueError, match="shell.*command"):
+        await run_job("j", "", entry_type="shell", command=None)
+
+
+async def test_run_job_image_and_git_mutually_exclusive():
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        await run_job("j", "m.f", image="python:3.12", git_sha="a" * 40)
+
+
+async def test_run_job_shell_creates_shell_task(orch_ctx):
+    job = await run_job(
+        "shell_task",
+        "",
+        entry_type="shell",
+        command=["echo", "hello"],
+        command_env={"FOO": "bar"},
+    )
+    async with get_sql_session() as session:
+        result = await session.execute(select(Task).where(Task.job_id == job.id))
+        task = result.scalar_one()
+    assert task.entry_type == "shell"
+    assert task.command == ["echo", "hello"]
+    assert task.command_env == {"FOO": "bar"}
+
+
+async def test_register_job_with_image(orch_ctx):
+    await register_job(
+        name="prebuilt_job",
+        entrypoint="myapp.prebuilt",
+        image="python:3.12",
+    )
+    fetched = await get_registered_job("prebuilt_job")
+    assert fetched is not None
+    assert fetched.runner is not None
+    assert fetched.runner["image"]["image_tag"] == "python:3.12"
+
+
+async def test_upsert_job_with_image(orch_ctx):
+    await upsert_registered_job(
+        name="upsert_prebuilt",
+        entrypoint="myapp.prebuilt",
+        image="python:3.12",
+    )
+    fetched = await get_registered_job("upsert_prebuilt")
+    assert fetched is not None
+    assert fetched.runner is not None
+    assert fetched.runner["image"]["image_tag"] == "python:3.12"

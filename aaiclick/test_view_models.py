@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from aaiclick.view_models import LogLine, normalize_level
+from aaiclick.view_models import LogLine, RegisterJobRequest, RunJobRequest, normalize_level
 
 
 def test_normalize_level_exact_standard_levels():
@@ -28,3 +28,15 @@ def test_logline_defaults_level_info_and_stamps_created_at():
     line = LogLine(stream="stdout", text="hi")
     assert line.level == "INFO"
     assert line.created_at is not None
+
+
+def test_run_job_request_has_shell_fields():
+    r = RunJobRequest(name="j", entry_type="shell", command=["echo", "hi"], image="python:3.12")
+    assert r.command == ["echo", "hi"]
+    assert r.image == "python:3.12"
+    assert r.command_env is None
+
+
+def test_register_job_request_has_image():
+    r = RegisterJobRequest(entrypoint="m.f", runner_mode="docker", image="python:3.12")
+    assert r.image == "python:3.12"

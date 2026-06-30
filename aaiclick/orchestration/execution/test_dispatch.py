@@ -14,6 +14,19 @@ def _task(entrypoint="user.module.entry", task_id=42, job_id=1) -> Task:
     return Task(id=task_id, job_id=job_id, entrypoint=entrypoint, name="test")
 
 
+def test_jobdispatch_carries_entry_fields():
+    d = JobDispatch(
+        runner_mode="docker",
+        image_tag="python:3.12",
+        kubernetes_config=None,
+        entry_type="shell",
+        command=["echo", "hi"],
+        command_env={"K": "v"},
+    )
+    assert d.entry_type == "shell"
+    assert d.command == ["echo", "hi"]
+
+
 async def test_resolve_dispatch_build_task_always_subprocess():
     """The auto-injected build task entrypoint is hardcoded to subprocess
     even when its job is in docker/kubernetes mode."""
@@ -22,13 +35,13 @@ async def test_resolve_dispatch_build_task_always_subprocess():
 
 
 async def test_resolve_dispatch_reads_job_runner_mode_and_spec(monkeypatch):
-    """User tasks inherit the job's runner_mode and snapshot its launch spec."""
+    """User tasks inherit the job's runner_mode and snapshot its launch spec
+    from the typed ``Job.runner`` config (not the flat columns)."""
     user_task = _task(task_id=100, job_id=200)
 
     class _FakeJob:
         runner_mode = RUNNER_DOCKER
-        image_tag = "aaiclick-job:abc"
-        kubernetes_config = None
+        runner = {"type": "docker", "image": {"type": "prebuilt", "image_tag": "aaiclick-job:abc"}}
 
     class _FakeResult:
         def scalar_one_or_none(self):

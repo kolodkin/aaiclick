@@ -13,15 +13,29 @@ from collections.abc import Awaitable, Callable
 
 from sqlmodel import select
 
-from ..docker_config import BUILD_TASK_ENTRYPOINT
+from ..docker_config import BUILD_TASK_ENTRYPOINT, effective_image_tag
 from ..models import RUNNER_DOCKER, RUNNER_KUBERNETES, RUNNER_SUBPROCESS, Job, RunnerMode, Task
 from ..orch_context import get_sql_session
+from ..runner_config import ENTRY_SHELL, KubernetesRunner, RunnerConfigT, parse_runner_config
 from .docker_worker import _run_task_in_container
 from .kubernetes_worker import _run_task_in_pod
-from .mp_worker import _run_task_in_child
+from .mp_worker import _run_shell_on_host, _run_task_in_child
 from .worker import JobDispatch
 
 ExecuteResult = tuple[bool, dict | None, str | None, str | None]
+
+
+def _kube_dict(runner: RunnerConfigT | None) -> dict | None:
+    """Reconstruct the kubernetes_config dict the k8s worker expects from a
+    KubernetesRunner; None for any other runner."""
+    if not isinstance(runner, KubernetesRunner):
+        return None
+    return {
+        "namespace": runner.namespace,
+        "service_account": runner.service_account,
+        "image_pull_secret": runner.image_pull_secret,
+        "resources": runner.resources,
+    }
 
 
 async def _resolve_dispatch(task: Task) -> JobDispatch:
@@ -37,7 +51,16 @@ async def _resolve_dispatch(task: Task) -> JobDispatch:
         job = (await session.execute(select(Job).where(Job.id == task.job_id))).scalar_one_or_none()
     if job is None:
         return JobDispatch(RUNNER_SUBPROCESS, None, None)
-    return JobDispatch(job.runner_mode, job.image_tag, job.kubernetes_config)
+    runner = parse_runner_config(job.runner) if job.runner else None
+    image_tag = effective_image_tag(runner) if runner is not None else None
+    return JobDispatch(
+        job.runner_mode,
+        image_tag,
+        _kube_dict(runner),
+        task.entry_type,
+        task.command,
+        task.command_env,
+    )
 
 
 # Image-based runners need the dispatch snapshot; subprocess is the default and
@@ -54,4 +77,6 @@ async def dispatch_execute(task: Task, worker_id: int) -> ExecuteResult:
     handler = _IMAGE_RUNNERS.get(dispatch.runner_mode)
     if handler is not None:
         return await handler(task, worker_id, dispatch)
+    if dispatch.entry_type == ENTRY_SHELL:
+        return await _run_shell_on_host(task, worker_id, dispatch)
     return await _run_task_in_child(task, worker_id)
