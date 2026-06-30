@@ -163,7 +163,7 @@ async def _run_run_job(args: argparse.Namespace) -> None:
         service_account=args.k8s_service_account,
         image_pull_secret=args.k8s_image_pull_secret,
         entry_type=args.entry_type,
-        command=shlex.split(args.command) if args.command else None,
+        command=shlex.split(args.command_str) if args.command_str else None,
         command_env=_parse_command_env(args.command_env),
         image=args.image,
     )
@@ -700,6 +700,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_job_parser.add_argument(
         "--command",
+        dest="command_str",
         default=None,
         help="Shell command (argv, shlex-split) to run for --entry-type shell, e.g. --command 'python main.py'",
     )
