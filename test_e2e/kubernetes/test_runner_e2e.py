@@ -43,8 +43,11 @@ def _aaiclick(*args: str, cwd: Path) -> subprocess.CompletedProcess:
 
 
 async def _wait_for_job(job_name: str, timeout: float = 600.0) -> Job:
-    """Poll the most recent Job with this name until it reaches a terminal status."""
+    """Poll the most recent Job with this name until it reaches a terminal
+    status. On timeout, dump per-task states so a stuck or failing task is
+    diagnosable from the CI log."""
     deadline = utc_now() + timedelta(seconds=timeout)
+    job = None
     while utc_now() < deadline:
         async with get_sql_session() as session:
             result = await session.execute(
@@ -54,7 +57,11 @@ async def _wait_for_job(job_name: str, timeout: float = 600.0) -> Job:
         if job is not None and job.status in (JOB_COMPLETED, JOB_FAILED):
             return job
         await asyncio.sleep(1.0)
-    raise TimeoutError(f"Job {job_name!r} did not complete within {timeout}s")
+    lines = [f"Job {job_name!r} did not complete within {timeout}s; job_status={getattr(job, 'status', None)}"]
+    if job is not None:
+        for t in await get_tasks_for_job(job.id):
+            lines.append(f"  task entrypoint={t.entrypoint!r} status={t.status} attempt={t.attempt} error={t.error!r}")
+    raise TimeoutError("\n".join(lines))
 
 
 @pytest.mark.kubernetes_e2e
