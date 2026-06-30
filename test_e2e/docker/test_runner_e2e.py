@@ -31,6 +31,7 @@ import pytest
 from sqlmodel import col, select
 
 from aaiclick.datetime_utils import utc_now
+from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.docker_config import BUILD_TASK_ENTRYPOINT, effective_image_tag
 from aaiclick.orchestration.execution.mp_worker import mp_worker_main_loop
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
@@ -230,6 +231,12 @@ async def test_docker_runner_shell_nonzero_fails(orch_ctx, tmp_path):
         cwd=tmp_path,
     )
 
+    # A failed task lands in PENDING_CLEANUP; the BackgroundWorker is what
+    # transitions it to FAILED and then fails the job (the success path is
+    # finalized inline by the mp worker, but the failure path is not). Run a
+    # real one alongside the worker so the job reaches its terminal state.
+    bg_worker = BackgroundWorker(poll_interval=1.0)
+    await bg_worker.start()
     worker_task = asyncio.create_task(
         mp_worker_main_loop(
             max_tasks=10,
@@ -245,5 +252,6 @@ async def test_docker_runner_shell_nonzero_fails(orch_ctx, tmp_path):
             await worker_task
         except asyncio.CancelledError:
             pass
+        await bg_worker.stop()
 
     assert completed.status == JOB_FAILED, completed.status
