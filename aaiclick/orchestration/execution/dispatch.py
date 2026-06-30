@@ -2,8 +2,8 @@
 
 Neutral home for the routing that maps a task to its execution vehicle, so no
 single runner module owns the cross-cutting dispatcher. ``_worker_loop`` plugs
-``dispatch_execute`` in as its ``ExecuteFn``; a mixed job (e.g. a docker job's
-host-side build task + container tasks) is served by one worker without runner
+``dispatch_execute`` in as its ``ExecuteFn``; a job whose tasks span runners
+(e.g. subprocess and container tasks) is served by one worker without runner
 affinity rules.
 """
 
