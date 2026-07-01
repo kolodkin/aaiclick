@@ -7,7 +7,6 @@ from pathlib import Path
 from aaiclick.snowflake import get_snowflake_id
 
 from ..datetime_utils import utc_now
-from .docker_config import BUILD_TASK_ENTRYPOINT
 from .env import get_default_preservation_mode
 from .models import (
     JOB_PENDING,
@@ -25,7 +24,6 @@ from .runner_config import (
     ENTRY_SHELL,
     DockerRunner,
     EntryType,
-    ImageBuild,
     KubernetesRunner,
     dump_runner_config,
 )
@@ -281,8 +279,9 @@ async def create_built_job(
     preservation_mode: PreservationMode | None = None,
     registered: RegisteredJob | None = None,
 ) -> Job:
-    """Create a docker/kubernetes Job from a resolved RunnerConfig. The build
-    task is injected only when the image source is ``build``."""
+    """Create a docker/kubernetes Job from a resolved RunnerConfig. The image
+    is built on demand at dispatch (see ``execution.image_builder.ensure_image``),
+    not injected as a task at submission."""
     mode = resolve_job_config(preservation_mode, registered)
     job_id = get_snowflake_id()
     job = Job(
@@ -308,17 +307,6 @@ async def create_built_job(
     entry_task.job_id = job_id
 
     to_add = [job, entry_task]
-    if isinstance(runner.image, ImageBuild):
-        build_task = create_task(
-            BUILD_TASK_ENTRYPOINT,
-            {"job_id": job_id},
-            name="docker_build",
-            max_retries=2,
-            entry_type=ENTRY_MODULE,
-        )
-        build_task.job_id = job_id
-        entry_task.depends_on(build_task)
-        to_add.append(build_task)
 
     async with get_sql_session() as session:
         for obj in to_add:

@@ -2,8 +2,8 @@
 
 Neutral home for the routing that maps a task to its execution vehicle, so no
 single runner module owns the cross-cutting dispatcher. ``_worker_loop`` plugs
-``dispatch_execute`` in as its ``ExecuteFn``; a mixed job (e.g. a docker job's
-host-side build task + container tasks) is served by one worker without runner
+``dispatch_execute`` in as its ``ExecuteFn``; a job whose tasks span runners
+(e.g. subprocess and container tasks) is served by one worker without runner
 affinity rules.
 """
 
@@ -13,7 +13,7 @@ from collections.abc import Awaitable, Callable
 
 from sqlmodel import select
 
-from ..docker_config import BUILD_TASK_ENTRYPOINT, effective_image_tag
+from ..docker_config import effective_image_tag
 from ..models import RUNNER_DOCKER, RUNNER_KUBERNETES, RUNNER_SUBPROCESS, Job, RunnerMode, Task
 from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_SHELL, KubernetesRunner, RunnerConfigT, parse_runner_config
@@ -41,18 +41,14 @@ def _kube_dict(runner: RunnerConfigT | None) -> dict | None:
 async def _resolve_dispatch(task: Task) -> JobDispatch:
     """Pick the runner for a task and snapshot its job's launch spec.
 
-    The auto-injected build task always runs on the host (subprocess) runner —
-    it produces the image the rest of the job's container/pod tasks need. Every
-    other task inherits the job's ``runner_mode``."""
-    if task.entrypoint == BUILD_TASK_ENTRYPOINT:
-        return JobDispatch(RUNNER_SUBPROCESS, None, None)
-
+    Every task inherits the job's ``runner_mode``."""
     async with get_sql_session() as session:
         job = (await session.execute(select(Job).where(Job.id == task.job_id))).scalar_one_or_none()
     if job is None:
         return JobDispatch(RUNNER_SUBPROCESS, None, None)
     runner = parse_runner_config(job.runner) if job.runner else None
     image_tag = effective_image_tag(runner) if runner is not None else None
+    image_source = getattr(runner, "image", None)
     return JobDispatch(
         job.runner_mode,
         image_tag,
@@ -60,6 +56,7 @@ async def _resolve_dispatch(task: Task) -> JobDispatch:
         task.entry_type,
         task.command,
         task.command_env,
+        image_source,
     )
 
 

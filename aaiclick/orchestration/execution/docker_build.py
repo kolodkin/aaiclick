@@ -1,9 +1,7 @@
-"""Build task for Docker-runner jobs.
+"""Low-level build helpers for Docker-runner jobs.
 
-Auto-injected as a prerequisite of the entry task at submission time
-(see ``factories.create_built_job``). Runs on the host via the
-subprocess runner — even for docker-mode jobs — so it can reach the
-docker daemon and produce the image the rest of the job needs.
+Used by the on-demand build seam (see ``execution.image_builder``) to
+produce the image a docker/kubernetes job's container/pod tasks need.
 
 Cache hierarchy (first hit short-circuits):
 
@@ -21,37 +19,39 @@ import os
 import tempfile
 from pathlib import Path
 
-from sqlmodel import select
-
-from ..decorators import task
-from ..docker_config import add_host_flags, effective_image_tag
-from ..models import Job
-from ..orch_context import get_sql_session
-from ..runner_config import ImageBuild, parse_runner_config
+from ..docker_config import add_host_flags
+from ..runner_config import ImageBuild
 from . import cli
-
-
-def _build_source(job: Job) -> ImageBuild:
-    """The git build source for a build job. Raises if the job is not a build
-    job (a build task is only ever injected for an ImageBuild source)."""
-    runner = parse_runner_config(job.runner) if job.runner else None
-    image = getattr(runner, "image", None)
-    if not isinstance(image, ImageBuild):
-        raise ValueError(f"Job {job.id} has no build image source; build_image must not run for it")
-    return image
 
 
 def _docker_bin() -> str:
     return os.environ.get("AAICLICK_DOCKER_BIN", "docker")
 
 
-async def _fetch_job(job_id: int) -> Job:
-    async with get_sql_session() as session:
-        result = await session.execute(select(Job).where(Job.id == job_id))
-        job = result.scalar_one_or_none()
-        if job is None:
-            raise ValueError(f"Job {job_id} not found")
-        return job
+async def _require_docker() -> None:
+    """Preflight the build: the docker CLI is on PATH *and* its daemon is reachable.
+
+    A ``build`` image source builds on the worker's own host, so a worker with no
+    Docker fails here with a clear, actionable message instead of a raw
+    ``FileNotFoundError`` (missing CLI) or a daemon-connection error surfacing deep
+    inside the first ``docker`` call. ``docker version`` needs the server, so it
+    validates connectivity, not just the binary."""
+    bin_ = _docker_bin()
+    try:
+        rc, _, stderr = await cli.run(bin_, "version", "--format", "{{.Server.Version}}", check=False, stream=False)
+    except FileNotFoundError as e:
+        raise RuntimeError(
+            f"Docker CLI {bin_!r} not found on this worker, but this job builds its "
+            f"image from source. Install Docker on the worker host, set "
+            f"AAICLICK_DOCKER_BIN to the docker binary, or submit the job with a "
+            f"prebuilt image (image=...)."
+        ) from e
+    if rc != 0:
+        raise RuntimeError(
+            f"Docker daemon is not reachable from this worker (`{bin_} version` exited "
+            f"{rc}): {stderr.strip()}. A build image source builds on the worker host; "
+            f"ensure the daemon is running and this user can access it."
+        )
 
 
 async def _docker_image_exists_locally(image_tag: str) -> bool:
@@ -124,22 +124,14 @@ async def _docker_build(context: str, dockerfile: str, image_tag: str, build_arg
     await cli.run(*cmd)
 
 
-@task(name="docker_build", max_retries=2)
-async def build_image(job_id: int) -> None:
-    """Build (and optionally push) the image declared by the job's runner.
+async def build_image_to_tag(source: ImageBuild, image_tag: str) -> None:
+    """Ensure ``image_tag`` exists in the local docker daemon, building from
+    ``source`` if needed; push when a registry is configured.
 
-    No-op when a registry hit is found. ``max_retries=2`` because clone /
-    pull / push can fail transiently and the build is fully idempotent
-    (the tag is content-addressed by SHA).
-
-    A local-cache hit short-circuits the *build* but **not** the push:
-    if a previous attempt built locally and then failed to push, retry
-    must re-attempt the push instead of seeing the local image and
-    returning. Otherwise host A would build, push-fail, retry-from-cache,
-    return success — and host B would never be able to pull it."""
-    job = await _fetch_job(job_id)
-    source = _build_source(job)
-    image_tag = effective_image_tag(parse_runner_config(job.runner))
+    Idempotent and content-addressed by SHA. A local-cache hit short-circuits
+    the *build* but not the push: a prior attempt that built locally then failed
+    to push must re-push on retry, or other hosts could never pull the image."""
+    await _require_docker()
 
     registry = os.environ.get("AAICLICK_REGISTRY")
 

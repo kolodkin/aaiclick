@@ -7,6 +7,7 @@ houses small primitives used by the build task and host runner.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 
@@ -20,12 +21,6 @@ from .runner_config import (
     KubernetesRunner,
     RunnerConfigT,
 )
-
-BUILD_TASK_ENTRYPOINT = "aaiclick.orchestration.execution.docker_build.build_image"
-"""Entrypoint of the auto-injected build task. Used by `_resolve_runner`
-to keep the build task on the host (subprocess) runner regardless of the
-job's configured runner_mode."""
-
 
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
@@ -82,6 +77,15 @@ def compute_image_tag(git_sha: str) -> str:
     registry = os.environ.get("AAICLICK_REGISTRY")
     prefix = f"{registry}/" if registry else ""
     return f"{prefix}aaiclick-job:{git_sha}"
+
+
+def image_key(source: ImageBuild) -> str:
+    """Stable sha256 identity of a build image over ``(git_remote, git_sha,
+    dockerfile)``. ``git_branch`` is deliberately excluded — it does not change
+    the built image, only where the SHA was found. This is the dedup key for
+    ``build_tasks``."""
+    parts = "\x00".join([source.git_remote, source.git_sha, source.dockerfile or ""])
+    return hashlib.sha256(parts.encode("utf-8")).hexdigest()
 
 
 def effective_image_tag(runner: RunnerConfigT) -> str | None:

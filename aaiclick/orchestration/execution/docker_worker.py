@@ -41,6 +41,7 @@ from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_SHELL
 from . import cli
 from .claiming import check_task_cancelled
+from .image_builder import resolve_image_tag
 from .runner import execute_task, register_returned_tasks, serialize_task_result
 from .runner_env import build_runner_env
 from .worker import (
@@ -258,12 +259,6 @@ def _read_result_or_synthesize_failure(
     )
 
 
-def _require_image_tag(task: Task, image_tag: str | None) -> str:
-    if not image_tag:
-        raise ValueError(f"Job {task.job_id} has no image_tag — was it submitted in docker mode?")
-    return image_tag
-
-
 class _DockerHandle(NamedTuple):
     container_id: str
     ipc_dir: str
@@ -348,7 +343,7 @@ async def _run_task_in_container(
     shared ``drive_vehicle`` driver, which heartbeats and polls for
     cancellation while the container runs. Cancellation and timeout both
     terminate the container via ``docker kill``."""
-    image_tag = _require_image_tag(task, dispatch.image_tag)
+    image_tag = await resolve_image_tag(task, dispatch.image_source, dispatch.image_tag, worker_id)
     await _docker_pull_if_registered(image_tag)
 
     timeout = parse_task_timeout()

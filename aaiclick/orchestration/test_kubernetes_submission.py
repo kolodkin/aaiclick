@@ -13,7 +13,9 @@ from aaiclick.orchestration.runner_config import ImageBuild, KubernetesRunner
 
 
 @pytest.mark.usefixtures("fast_poll")
-async def test_create_kubernetes_job_writes_job_and_build_task(orch_ctx_no_ch):
+async def test_create_kubernetes_job_writes_job_and_entry_task(orch_ctx_no_ch):
+    """The image is built on demand at dispatch, not injected as a task at
+    submission — so only the entry task appears in the job graph."""
     runner = KubernetesRunner(
         image=ImageBuild(git_remote="git://x/repo.git", git_sha="a" * 40, git_branch="main"),
         namespace="ml",
@@ -33,8 +35,7 @@ async def test_create_kubernetes_job_writes_job_and_build_task(orch_ctx_no_ch):
     async with get_sql_session() as session:
         tasks = (await session.execute(select(Task).where(Task.job_id == job.id))).scalars().all()
     entrypoints = {t.entrypoint for t in tasks}
-    assert "aaiclick.orchestration.execution.docker_build.build_image" in entrypoints
-    assert "sample_jobs.entry" in entrypoints
+    assert entrypoints == {"sample_jobs.entry"}
 
 
 @pytest.mark.usefixtures("fast_poll")

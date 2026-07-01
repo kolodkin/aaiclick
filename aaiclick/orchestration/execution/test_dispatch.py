@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
-from ..docker_config import BUILD_TASK_ENTRYPOINT
 from ..models import RUNNER_DOCKER, RUNNER_KUBERNETES, RUNNER_SUBPROCESS, Task
 from . import dispatch
 from .worker import JobDispatch
@@ -25,13 +24,6 @@ def test_jobdispatch_carries_entry_fields():
     )
     assert d.entry_type == "shell"
     assert d.command == ["echo", "hi"]
-
-
-async def test_resolve_dispatch_build_task_always_subprocess():
-    """The auto-injected build task entrypoint is hardcoded to subprocess
-    even when its job is in docker/kubernetes mode."""
-    build_task = _task(entrypoint=BUILD_TASK_ENTRYPOINT, task_id=99)
-    assert (await dispatch._resolve_dispatch(build_task)).runner_mode == RUNNER_SUBPROCESS
 
 
 async def test_resolve_dispatch_reads_job_runner_mode_and_spec(monkeypatch):

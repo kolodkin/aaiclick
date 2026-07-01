@@ -8,29 +8,9 @@ import pytest
 
 from .. import docker_config
 from ..docker_config import resolve_runner_config
-from ..models import Job, RegisteredJob
+from ..models import RegisteredJob
 from ..runner_config import DockerRunner, ImageBuild
 from . import docker_build
-from .docker_build import _build_source
-
-
-def _job(
-    *, git_remote="https://example.com/repo.git", git_sha="a" * 40, git_branch="main", dockerfile=None, **overrides
-) -> Job:
-    image: dict = {"type": "build", "git_remote": git_remote, "git_sha": git_sha}
-    if git_branch is not None:
-        image["git_branch"] = git_branch
-    if dockerfile is not None:
-        image["dockerfile"] = dockerfile
-    base = {
-        "id": 1,
-        "name": "test",
-        "run_type": "MANUAL",
-        "runner_mode": "docker",
-        "runner": {"type": "docker", "image": image},
-    }
-    base.update(overrides)
-    return Job(**base)
 
 
 async def test_collect_build_args_omits_unset_values(monkeypatch):
@@ -38,7 +18,7 @@ async def test_collect_build_args_omits_unset_values(monkeypatch):
     monkeypatch.delenv("AAICLICK_PIP_EXTRA_INDEX_URL", raising=False)
     monkeypatch.delenv("AAICLICK_PIP_TRUSTED_HOST", raising=False)
 
-    source = _build_source(_job(git_branch=None))
+    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
     args = docker_build._collect_build_args(source)
 
     assert "--build-arg" in args
@@ -53,27 +33,15 @@ async def test_collect_build_args_forwards_pip_indices(monkeypatch):
     monkeypatch.setenv("AAICLICK_PIP_EXTRA_INDEX_URL", "http://extra.test/simple/")
     monkeypatch.setenv("AAICLICK_PIP_TRUSTED_HOST", "pypi.test")
 
-    args = docker_build._collect_build_args(_build_source(_job()))
+    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40, git_branch="main")
+    args = docker_build._collect_build_args(source)
 
     assert "PIP_INDEX_URL=http://pypi.test/simple/" in args
     assert "PIP_EXTRA_INDEX_URL=http://extra.test/simple/" in args
     assert "PIP_TRUSTED_HOST=pypi.test" in args
 
 
-def test_build_source_from_runner():
-    job = Job(
-        id=1,
-        name="j",
-        run_type="MANUAL",
-        runner_mode="docker",
-        runner={"type": "docker", "image": {"type": "build", "git_remote": "r", "git_sha": "d" * 40}},
-    )
-    src = _build_source(job)
-    assert src.git_remote == "r"
-    assert src.git_sha == "d" * 40
-
-
-async def test_build_image_pushes_after_local_cache_hit_when_registry_set(monkeypatch):
+async def test_build_image_to_tag_pushes_after_local_cache_hit_when_registry_set(monkeypatch):
     """Registry set + registry pull misses + local image present → skip
     the build, but **still** attempt the push.
 
@@ -84,22 +52,22 @@ async def test_build_image_pushes_after_local_cache_hit_when_registry_set(monkey
     image would never reach the registry and other hosts couldn't pull it.
     """
     monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
-    job = _job()
+    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
     expected_tag = docker_config.compute_image_tag("a" * 40)
 
-    monkeypatch.setattr(docker_build, "_fetch_job", AsyncMock(return_value=job))
     pull = AsyncMock(return_value=False)
     inspect = AsyncMock(return_value=True)
     clone = AsyncMock()
     build = AsyncMock()
     push = AsyncMock()
+    monkeypatch.setattr(docker_build, "_require_docker", AsyncMock())
     monkeypatch.setattr(docker_build, "_docker_pull", pull)
     monkeypatch.setattr(docker_build, "_docker_image_exists_locally", inspect)
     monkeypatch.setattr(docker_build, "_git_clone_at_sha", clone)
     monkeypatch.setattr(docker_build, "_docker_build", build)
     monkeypatch.setattr(docker_build, "_docker_push", push)
 
-    await docker_build.build_image.func(job_id=job.id)
+    await docker_build.build_image_to_tag(source, expected_tag)
 
     pull.assert_awaited_once_with(expected_tag)
     inspect.assert_awaited_once_with(expected_tag)
@@ -108,22 +76,56 @@ async def test_build_image_pushes_after_local_cache_hit_when_registry_set(monkey
     push.assert_awaited_once_with(expected_tag)
 
 
-async def test_build_image_missing_dockerfile_raises(monkeypatch):
+async def test_build_image_to_tag_missing_dockerfile_raises(monkeypatch):
     monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
-    job = _job(dockerfile="Dockerfile.missing")
+    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40, dockerfile="Dockerfile.missing")
 
-    monkeypatch.setattr(docker_build, "_fetch_job", AsyncMock(return_value=job))
+    monkeypatch.setattr(docker_build, "_require_docker", AsyncMock())
     monkeypatch.setattr(docker_build, "_docker_pull", AsyncMock(return_value=False))
     monkeypatch.setattr(docker_build, "_docker_image_exists_locally", AsyncMock(return_value=False))
 
     async def fake_clone(remote, sha, workdir):
-        # Don't create the Dockerfile — should trigger the check.
         return None
 
     monkeypatch.setattr(docker_build, "_git_clone_at_sha", fake_clone)
 
     with pytest.raises(FileNotFoundError, match="Dockerfile not found"):
-        await docker_build.build_image.func(job_id=job.id)
+        await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
+
+
+async def test_require_docker_raises_clear_error_when_cli_missing(monkeypatch):
+    """A worker with no docker binary gets an actionable message, not a raw
+    FileNotFoundError from the first subprocess spawn."""
+    monkeypatch.setattr(docker_build.cli, "run", AsyncMock(side_effect=FileNotFoundError(2, "No such file", "docker")))
+
+    with pytest.raises(RuntimeError, match="Docker CLI 'docker' not found on this worker"):
+        await docker_build._require_docker()
+
+
+async def test_require_docker_raises_clear_error_when_daemon_unreachable(monkeypatch):
+    """CLI present but daemon down → a clear 'not reachable' error including the
+    docker stderr, rather than failing later inside `docker build`."""
+    monkeypatch.setattr(
+        docker_build.cli,
+        "run",
+        AsyncMock(return_value=(1, "", "Cannot connect to the Docker daemon at unix:///var/run/docker.sock")),
+    )
+
+    with pytest.raises(RuntimeError, match="Docker daemon is not reachable"):
+        await docker_build._require_docker()
+
+
+async def test_build_image_to_tag_preflights_docker(monkeypatch):
+    """build_image_to_tag runs the docker preflight before any build step."""
+    monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
+    require = AsyncMock()
+    monkeypatch.setattr(docker_build, "_require_docker", require)
+    monkeypatch.setattr(docker_build, "_docker_image_exists_locally", AsyncMock(return_value=True))
+    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
+
+    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
+
+    require.assert_awaited_once()
 
 
 async def test_resolve_runner_config_kwargs_override_registered_defaults(
