@@ -26,10 +26,10 @@ from sqlmodel import select
 from ..logging import get_logs_dir
 from ..models import RemoteTaskResult, Task
 from ..orch_context import get_sql_session
-from ..runner_config import ENTRY_SHELL, ImageBuild
+from ..runner_config import ENTRY_SHELL
 from . import cli
 from .claiming import check_task_cancelled
-from .image_builder import ensure_built_image
+from .image_builder import resolve_image_tag
 from .runner import execute_task, register_returned_tasks, serialize_task_result
 from .runner_env import build_runner_env
 from .worker import (
@@ -295,10 +295,7 @@ async def _run_task_in_pod(
     task: Task, worker_id: int, dispatch: JobDispatch
 ) -> tuple[bool, dict | None, str | None, str | None]:
     """ExecuteFn for the Kubernetes runner."""
-    if isinstance(dispatch.image_source, ImageBuild):
-        image_tag = await ensure_built_image(task.id, dispatch.image_source, worker_id)
-    else:
-        image_tag = dispatch.image_tag
+    image_tag = await resolve_image_tag(task, dispatch.image_source, dispatch.image_tag, worker_id)
     spec = _pod_spec_from(task, dispatch._replace(image_tag=image_tag))
     timeout = parse_task_timeout()
     vehicle = _KubernetesVehicle(spec, get_logs_dir())

@@ -29,7 +29,7 @@ from ...snowflake import get_snowflake_id
 from ..docker_config import compute_image_tag, image_key
 from ..models import BUILD_BUILDING, BUILD_FAILED, BUILD_READY, BuildTask, Task
 from ..orch_context import get_sql_session
-from ..runner_config import ImageBuild
+from ..runner_config import ImageBuild, ImageSourceT
 from .docker_build import build_image_to_tag
 
 LEASE_SECONDS = 600
@@ -54,9 +54,9 @@ async def _get_row(key: str) -> BuildTask | None:
         return (await session.execute(select(BuildTask).where(BuildTask.image_key == key))).scalar_one_or_none()
 
 
-async def _claim(source: ImageBuild, key: str, image_tag: str, worker_id: int) -> BuildTask | None:
-    """Atomically claim the build. Returns the claimed row, or None if another
-    worker holds a live lease."""
+async def _claim(source: ImageBuild, key: str, image_tag: str, worker_id: int) -> int | None:
+    """Atomically claim the build. Returns the claimed ``BuildTask`` id, or None
+    if another worker holds a live lease."""
     now = utc_now()
     async with get_sql_session() as session:
         insert = sqlite_insert if is_sqlite() else pg_insert
@@ -101,11 +101,9 @@ async def _claim(source: ImageBuild, key: str, image_tag: str, worker_id: int) -
             )
             reclaimed_id = (await session.execute(reclaim)).scalar_one_or_none()
             await session.commit()
-            if reclaimed_id is None:
-                return None
-            return (await session.execute(select(BuildTask).where(BuildTask.id == reclaimed_id))).scalar_one()
+            return reclaimed_id
         await session.commit()
-        return (await session.execute(select(BuildTask).where(BuildTask.id == inserted_id))).scalar_one()
+        return inserted_id
 
 
 async def _finish(build_task_id: int, worker_id: int, *, status: str, error: str | None) -> None:
@@ -137,19 +135,19 @@ async def ensure_image(source: ImageBuild, worker_id: int) -> EnsuredImage:
             if row.status == BUILD_FAILED and row.attempts > row.max_retries:
                 raise BuildFailed(f"image build failed (BuildTask {row.id}): {row.error}")
 
-        claimed = await _claim(source, key, image_tag, worker_id)
-        if claimed is None:
+        build_task_id = await _claim(source, key, image_tag, worker_id)
+        if build_task_id is None:
             await asyncio.sleep(BUILD_POLL_INTERVAL)
             continue
 
         try:
             await build_image_to_tag(source, image_tag)
         except Exception as e:  # noqa: BLE001 — record any build error, then retry-or-raise
-            await _finish(claimed.id, worker_id, status=BUILD_FAILED, error=f"{type(e).__name__}: {e}")
+            await _finish(build_task_id, worker_id, status=BUILD_FAILED, error=f"{type(e).__name__}: {e}")
             continue
 
-        await _finish(claimed.id, worker_id, status=BUILD_READY, error=None)
-        return EnsuredImage(image_tag, claimed.id)
+        await _finish(build_task_id, worker_id, status=BUILD_READY, error=None)
+        return EnsuredImage(image_tag, build_task_id)
 
 
 async def ensure_built_image(task_id: int, source: ImageBuild, worker_id: int) -> str:
@@ -160,3 +158,15 @@ async def ensure_built_image(task_id: int, source: ImageBuild, worker_id: int) -
         await session.execute(update(Task).where(Task.id == task_id).values(build_task_id=ensured.build_task_id))
         await session.commit()
     return ensured.image_tag
+
+
+async def resolve_image_tag(task: Task, image_source: ImageSourceT | None, image_tag: str | None, worker_id: int) -> str:
+    """Resolve the image tag a task's container should run: build on demand for an
+    ``ImageBuild`` source (stamping the task's ``build_task_id``), or the prebuilt
+    tag verbatim. Shared by the docker and kubernetes runners so the build-vs-prebuilt
+    decision lives in one place. Raises if a prebuilt source carries no tag."""
+    if isinstance(image_source, ImageBuild):
+        return await ensure_built_image(task.id, image_source, worker_id)
+    if not image_tag:
+        raise ValueError(f"Job {task.job_id} has no image_tag")
+    return image_tag
