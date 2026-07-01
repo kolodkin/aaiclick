@@ -52,6 +52,6 @@ def test_image_key_stable_and_distinguishes_fields():
     c = ImageBuild(git_remote="git@x:r.git", git_sha="a" * 40, dockerfile="Dockerfile.gpu")
 
     assert len(image_key(a)) == 64
-    assert image_key(a) == image_key(a_again)          # git_branch is not part of identity
-    assert image_key(a) != image_key(b)                # sha matters
-    assert image_key(a) != image_key(c)                # dockerfile matters
+    assert image_key(a) == image_key(a_again)  # git_branch is not part of identity
+    assert image_key(a) != image_key(b)  # sha matters
+    assert image_key(a) != image_key(c)  # dockerfile matters

@@ -160,7 +160,9 @@ async def ensure_built_image(task_id: int, source: ImageBuild, worker_id: int) -
     return ensured.image_tag
 
 
-async def resolve_image_tag(task: Task, image_source: ImageSourceT | None, image_tag: str | None, worker_id: int) -> str:
+async def resolve_image_tag(
+    task: Task, image_source: ImageSourceT | None, image_tag: str | None, worker_id: int
+) -> str:
     """Resolve the image tag a task's container should run: build on demand for an
     ``ImageBuild`` source (stamping the task's ``build_task_id``), or the prebuilt
     tag verbatim. Shared by the docker and kubernetes runners so the build-vs-prebuilt
