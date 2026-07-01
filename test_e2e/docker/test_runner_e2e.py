@@ -32,7 +32,7 @@ from sqlmodel import col, select
 
 from aaiclick.datetime_utils import utc_now
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
-from aaiclick.orchestration.docker_config import BUILD_TASK_ENTRYPOINT, effective_image_tag
+from aaiclick.orchestration.docker_config import effective_image_tag
 from aaiclick.orchestration.execution.mp_worker import mp_worker_main_loop
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, TASK_COMPLETED, Job
@@ -197,9 +197,8 @@ async def test_docker_runner_shell_prebuilt(orch_ctx, tmp_path):
 
     tasks = await get_tasks_for_job(completed.id)
     entrypoints = [t.entrypoint for t in tasks]
-    # Prebuilt image → no build task is injected.
-    assert BUILD_TASK_ENTRYPOINT not in entrypoints, entrypoints
-    # The single shell task ran the exit-0 command and completed.
+    # Prebuilt image → no build task is injected; the single shell task ran
+    # the exit-0 command and completed.
     assert len(tasks) == 1, entrypoints
     assert tasks[0].status == TASK_COMPLETED, tasks[0].error
 

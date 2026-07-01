@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from .. import docker_config
 from ..factories import create_task
-from ..models import BUILD_FAILED, BUILD_READY, BuildTask, Task
+from ..models import BUILD_BUILDING, BUILD_FAILED, BUILD_READY, BuildTask, Task
 from ..orch_context import get_sql_session
 from ..runner_config import ImageBuild
 from . import image_builder
@@ -74,3 +74,32 @@ async def test_ensure_built_image_stamps_build_task_id_on_task(orch_ctx_no_ch, m
     async with get_sql_session() as session:
         row = (await session.execute(select(Task).where(Task.id == task.id))).scalar_one()
     assert row.build_task_id is not None
+
+
+async def test_finish_only_updates_row_for_current_lease_holder(orch_ctx_no_ch):
+    source = _source(sha="e" * 40)
+    build_task = BuildTask(
+        id=1,
+        image_key=docker_config.image_key(source),
+        image_tag=docker_config.compute_image_tag(source.git_sha),
+        git_remote=source.git_remote,
+        git_sha=source.git_sha,
+        status=BUILD_BUILDING,
+        holder_worker_id=1,
+    )
+    async with get_sql_session() as session:
+        session.add(build_task)
+        await session.commit()
+
+    # A stale/zombie worker (worker_id=2) no longer holds the lease (worker 1
+    # does), so its write must be rejected and the row left unchanged.
+    await image_builder._finish(build_task.id, 2, status=BUILD_READY, error=None)
+    async with get_sql_session() as session:
+        row = (await session.execute(select(BuildTask).where(BuildTask.id == build_task.id))).scalar_one()
+    assert row.status == BUILD_BUILDING
+
+    # The actual lease holder (worker_id=1) can record the outcome.
+    await image_builder._finish(build_task.id, 1, status=BUILD_READY, error=None)
+    async with get_sql_session() as session:
+        row = (await session.execute(select(BuildTask).where(BuildTask.id == build_task.id))).scalar_one()
+    assert row.status == BUILD_READY

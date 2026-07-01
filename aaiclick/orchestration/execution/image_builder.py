@@ -94,6 +94,7 @@ async def _claim(source: ImageBuild, key: str, image_tag: str, worker_id: int) -
                     lease_expires_at=_lease_until(),
                     attempts=BuildTask.attempts + 1,
                     started_at=now,
+                    finished_at=None,
                     error=None,
                 )
                 .returning(BuildTask.id)
@@ -107,11 +108,17 @@ async def _claim(source: ImageBuild, key: str, image_tag: str, worker_id: int) -
         return (await session.execute(select(BuildTask).where(BuildTask.id == inserted_id))).scalar_one()
 
 
-async def _finish(build_task_id: int, *, status: str, error: str | None) -> None:
+async def _finish(build_task_id: int, worker_id: int, *, status: str, error: str | None) -> None:
+    """Record the build outcome, but only if ``worker_id`` still holds the lease.
+
+    A stale worker whose lease was reclaimed by another worker after an
+    expired timeout will lose the ``holder_worker_id`` match here, so its
+    write affects zero rows instead of clobbering the current holder's
+    result."""
     async with get_sql_session() as session:
         await session.execute(
             update(BuildTask)
-            .where(BuildTask.id == build_task_id)
+            .where(BuildTask.id == build_task_id, BuildTask.holder_worker_id == worker_id)
             .values(status=status, error=error, finished_at=utc_now())
         )
         await session.commit()
@@ -137,11 +144,11 @@ async def ensure_image(source: ImageBuild, worker_id: int) -> EnsuredImage:
 
         try:
             await build_image_to_tag(source, image_tag)
-        except BaseException as e:  # noqa: BLE001 — record the failure, then loop to retry-or-raise
-            await _finish(claimed.id, status=BUILD_FAILED, error=f"{type(e).__name__}: {e}")
+        except Exception as e:  # noqa: BLE001 — record any build error, then retry-or-raise
+            await _finish(claimed.id, worker_id, status=BUILD_FAILED, error=f"{type(e).__name__}: {e}")
             continue
 
-        await _finish(claimed.id, status=BUILD_READY, error=None)
+        await _finish(claimed.id, worker_id, status=BUILD_READY, error=None)
         return EnsuredImage(image_tag, claimed.id)
 
 
