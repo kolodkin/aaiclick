@@ -85,7 +85,9 @@ async def _claim(source: ImageBuild, key: str, image_tag: str, worker_id: int) -
                 update(BuildTask)
                 .where(
                     BuildTask.image_key == key,
-                    (BuildTask.lease_expires_at < now)
+                    # lease_expires_at is a nullable Column; the `< now` is SQL, not a Python
+                    # comparison — pyright can't see through the ORM Optional here.
+                    (BuildTask.lease_expires_at < now)  # pyright: ignore[reportOptionalOperand]
                     | ((BuildTask.status == BUILD_FAILED) & (BuildTask.attempts <= BuildTask.max_retries)),
                 )
                 .values(

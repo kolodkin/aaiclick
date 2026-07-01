@@ -16,17 +16,17 @@ from aaiclick.snowflake import get_snowflake_id
 
 
 def _build_task(**overrides) -> BuildTask:
-    base = dict(
-        id=get_snowflake_id(),
-        image_key="k" * 64,
-        image_tag="aaiclick-job:" + "a" * 40,
-        git_remote="git@x:r.git",
-        git_sha="a" * 40,
-        dockerfile=None,
-        status=BUILD_BUILDING,
-        max_retries=2,
-        attempts=1,
-    )
+    base = {
+        "id": get_snowflake_id(),
+        "image_key": "k" * 64,
+        "image_tag": "aaiclick-job:" + "a" * 40,
+        "git_remote": "git@x:r.git",
+        "git_sha": "a" * 40,
+        "dockerfile": None,
+        "status": BUILD_BUILDING,
+        "max_retries": 2,
+        "attempts": 1,
+    }
     base.update(overrides)
     return BuildTask(**base)
 
