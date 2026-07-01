@@ -60,6 +60,7 @@ async def test_build_image_to_tag_pushes_after_local_cache_hit_when_registry_set
     clone = AsyncMock()
     build = AsyncMock()
     push = AsyncMock()
+    monkeypatch.setattr(docker_build, "_require_docker", AsyncMock())
     monkeypatch.setattr(docker_build, "_docker_pull", pull)
     monkeypatch.setattr(docker_build, "_docker_image_exists_locally", inspect)
     monkeypatch.setattr(docker_build, "_git_clone_at_sha", clone)
@@ -79,6 +80,7 @@ async def test_build_image_to_tag_missing_dockerfile_raises(monkeypatch):
     monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
     source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40, dockerfile="Dockerfile.missing")
 
+    monkeypatch.setattr(docker_build, "_require_docker", AsyncMock())
     monkeypatch.setattr(docker_build, "_docker_pull", AsyncMock(return_value=False))
     monkeypatch.setattr(docker_build, "_docker_image_exists_locally", AsyncMock(return_value=False))
 
@@ -89,6 +91,41 @@ async def test_build_image_to_tag_missing_dockerfile_raises(monkeypatch):
 
     with pytest.raises(FileNotFoundError, match="Dockerfile not found"):
         await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
+
+
+async def test_require_docker_raises_clear_error_when_cli_missing(monkeypatch):
+    """A worker with no docker binary gets an actionable message, not a raw
+    FileNotFoundError from the first subprocess spawn."""
+    monkeypatch.setattr(docker_build.cli, "run", AsyncMock(side_effect=FileNotFoundError(2, "No such file", "docker")))
+
+    with pytest.raises(RuntimeError, match="Docker CLI 'docker' not found on this worker"):
+        await docker_build._require_docker()
+
+
+async def test_require_docker_raises_clear_error_when_daemon_unreachable(monkeypatch):
+    """CLI present but daemon down → a clear 'not reachable' error including the
+    docker stderr, rather than failing later inside `docker build`."""
+    monkeypatch.setattr(
+        docker_build.cli,
+        "run",
+        AsyncMock(return_value=(1, "", "Cannot connect to the Docker daemon at unix:///var/run/docker.sock")),
+    )
+
+    with pytest.raises(RuntimeError, match="Docker daemon is not reachable"):
+        await docker_build._require_docker()
+
+
+async def test_build_image_to_tag_preflights_docker(monkeypatch):
+    """build_image_to_tag runs the docker preflight before any build step."""
+    monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
+    require = AsyncMock()
+    monkeypatch.setattr(docker_build, "_require_docker", require)
+    monkeypatch.setattr(docker_build, "_docker_image_exists_locally", AsyncMock(return_value=True))
+    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
+
+    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
+
+    require.assert_awaited_once()
 
 
 async def test_resolve_runner_config_kwargs_override_registered_defaults(

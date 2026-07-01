@@ -89,7 +89,9 @@ For a `build` source the image is **not** produced by a task in the job graph. T
 - **`kubernetes` runner, `prebuilt` source** — no Docker on the worker; it only needs cluster access (`kubectl`), and the cluster pulls the image.
 - **`subprocess` runner** — no Docker at all.
 
-**Implementation**: `aaiclick/orchestration/execution/image_builder.py` — see `ensure_image()`, `resolve_image_tag()`; `aaiclick/orchestration/docker_config.py` — see `resolve_runner_config()`, `effective_image_tag()`, `image_key()`
+A `build` starts by preflighting Docker (`docker version`): a worker with no CLI or an unreachable daemon fails the build with an actionable error naming `AAICLICK_DOCKER_BIN` / the prebuilt-image alternative, rather than a raw `FileNotFoundError` or a daemon error deep inside `docker build`.
+
+**Implementation**: `aaiclick/orchestration/execution/image_builder.py` — see `ensure_image()`, `resolve_image_tag()`; `aaiclick/orchestration/execution/docker_build.py` — see `build_image_to_tag()`, `_require_docker()`; `aaiclick/orchestration/docker_config.py` — see `resolve_runner_config()`, `effective_image_tag()`, `image_key()`
 
 ## Shell entry type
 

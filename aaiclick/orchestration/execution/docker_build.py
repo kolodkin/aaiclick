@@ -28,6 +28,32 @@ def _docker_bin() -> str:
     return os.environ.get("AAICLICK_DOCKER_BIN", "docker")
 
 
+async def _require_docker() -> None:
+    """Preflight the build: the docker CLI is on PATH *and* its daemon is reachable.
+
+    A ``build`` image source builds on the worker's own host, so a worker with no
+    Docker fails here with a clear, actionable message instead of a raw
+    ``FileNotFoundError`` (missing CLI) or a daemon-connection error surfacing deep
+    inside the first ``docker`` call. ``docker version`` needs the server, so it
+    validates connectivity, not just the binary."""
+    bin_ = _docker_bin()
+    try:
+        rc, _, stderr = await cli.run(bin_, "version", "--format", "{{.Server.Version}}", check=False, stream=False)
+    except FileNotFoundError as e:
+        raise RuntimeError(
+            f"Docker CLI {bin_!r} not found on this worker, but this job builds its "
+            f"image from source. Install Docker on the worker host, set "
+            f"AAICLICK_DOCKER_BIN to the docker binary, or submit the job with a "
+            f"prebuilt image (image=...)."
+        ) from e
+    if rc != 0:
+        raise RuntimeError(
+            f"Docker daemon is not reachable from this worker (`{bin_} version` exited "
+            f"{rc}): {stderr.strip()}. A build image source builds on the worker host; "
+            f"ensure the daemon is running and this user can access it."
+        )
+
+
 async def _docker_image_exists_locally(image_tag: str) -> bool:
     rc, _, _ = await cli.run(_docker_bin(), "image", "inspect", image_tag, check=False)
     return rc == 0
@@ -105,6 +131,8 @@ async def build_image_to_tag(source: ImageBuild, image_tag: str) -> None:
     Idempotent and content-addressed by SHA. A local-cache hit short-circuits
     the *build* but not the push: a prior attempt that built locally then failed
     to push must re-push on retry, or other hosts could never pull the image."""
+    await _require_docker()
+
     registry = os.environ.get("AAICLICK_REGISTRY")
 
     if registry and await _docker_pull(image_tag):
