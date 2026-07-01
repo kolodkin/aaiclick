@@ -7,9 +7,10 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy import select
 
+from ...snowflake import get_snowflake_id
 from .. import docker_config
 from ..factories import create_task
-from ..models import BUILD_BUILDING, BUILD_FAILED, BUILD_READY, BuildTask, Task
+from ..models import BUILD_BUILDING, BUILD_FAILED, BUILD_READY, BuildTask, Job, Task
 from ..orch_context import get_sql_session
 from ..runner_config import ImageBuild
 from . import image_builder
@@ -63,8 +64,13 @@ async def test_ensure_image_raises_after_exhausting_retries(orch_ctx_no_ch, monk
 async def test_ensure_built_image_stamps_build_task_id_on_task(orch_ctx_no_ch, monkeypatch):
     monkeypatch.setattr(image_builder, "build_image_to_tag", AsyncMock())
     source = _source(sha="d" * 40)
+    # The task needs a real job row so its job_id FK is satisfied on Postgres
+    # (SQLite doesn't enforce foreign keys).
+    job = Job(id=get_snowflake_id(), name="j", run_type="MANUAL")
     task = create_task("mod.fn")
+    task.job_id = job.id
     async with get_sql_session() as session:
+        session.add(job)
         session.add(task)
         await session.commit()
 
