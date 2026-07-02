@@ -31,13 +31,13 @@ Indexing a multi-column Object with a column name returns a view of that
 column:
 
 ```python
---8<-- "aaiclick/data/examples/selectors.py:select_basic"
+--8<-- "aaiclick/data/examples/dict_selectors.py:select_basic"
 ```
 
 Selected columns behave like any other Object — you can operate on them:
 
 ```python
---8<-- "aaiclick/data/examples/selectors.py:select_operate"
+--8<-- "aaiclick/data/examples/dict_selectors.py:select_operate"
 ```
 
 !!! warning "Views are read-only"

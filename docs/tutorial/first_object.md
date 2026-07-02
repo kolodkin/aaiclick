@@ -6,8 +6,9 @@ Python values; the data is stored column-wise and the `Object` references it —
 nothing is held in Python memory.
 
 This tutorial runs on the default local backend (embedded chdb + SQLite) — no
-servers to start. Every snippet below runs inside a `data_context()` block,
-which owns the lifecycle of the tables you create:
+servers to start. Every snippet below runs inside a `data_context()`, which owns
+the lifecycle of the tables you create. Decorate an async function to wrap its
+whole body in one:
 
 ```python
 import asyncio
@@ -16,9 +17,9 @@ from aaiclick import create_object_from_value
 from aaiclick.data.data_context import data_context
 
 
+@data_context()
 async def main():
-    async with data_context():
-        ...  # create and use Objects here
+    ...  # create and use Objects here
 
 asyncio.run(main())
 ```
