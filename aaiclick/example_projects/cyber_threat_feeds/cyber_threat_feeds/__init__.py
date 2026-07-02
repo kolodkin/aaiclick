@@ -23,7 +23,7 @@ Usage:
     python -m cyber_threat_feeds
 
     # Then run worker to execute
-    python -m aaiclick worker start
+    python -m aaiclick execution-worker start
 """
 
 import asyncio
