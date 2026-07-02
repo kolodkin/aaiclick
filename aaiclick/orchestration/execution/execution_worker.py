@@ -18,17 +18,17 @@ from aaiclick.snowflake import get_snowflake_id
 from ...datetime_utils import utc_now
 from ..background.handler import try_complete_job
 from ..models import (
+    EXECUTION_WORKER_ACTIVE,
+    EXECUTION_WORKER_STOPPED,
+    EXECUTION_WORKER_STOPPING,
     TASK_COMPLETED,
     TASK_FAILED,
     TASK_PENDING_CLEANUP,
     TASK_RUNNING,
-    EXECUTION_WORKER_ACTIVE,
-    EXECUTION_WORKER_STOPPED,
-    EXECUTION_WORKER_STOPPING,
-    RunnerMode,
-    Task,
     ExecutionWorker,
     ExecutionWorkerStatus,
+    RunnerMode,
+    Task,
 )
 from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_MODULE, EntryType, ImageSourceT
@@ -189,7 +189,9 @@ async def drive_vehicle(
     handle = await vehicle.launch(task, execution_worker_id)
     done = asyncio.Event()
     cancelled = asyncio.Event()
-    heartbeat = asyncio.create_task(_heartbeat_while_waiting(execution_worker_id, done, heartbeat_interval, heartbeat_fn))
+    heartbeat = asyncio.create_task(
+        _heartbeat_while_waiting(execution_worker_id, done, heartbeat_interval, heartbeat_fn)
+    )
     cancel_watcher = asyncio.create_task(_watch_for_cancellation(vehicle, task, handle, done, cancelled, poll_interval))
 
     try:
@@ -435,7 +437,9 @@ async def _handle_task_result(
             expected_epoch=task.run_epoch,
         )
         if not updated:
-            logger.info("ExecutionWorker %s task %s completion discarded (cleared or cancelled)", execution_worker_id, task.id)
+            logger.info(
+                "ExecutionWorker %s task %s completion discarded (cleared or cancelled)", execution_worker_id, task.id
+            )
             return False
         logger.info("ExecutionWorker %s completed task %s", execution_worker_id, task.id)
         await _increment_execution_worker_stat(execution_worker_id, "tasks_completed")

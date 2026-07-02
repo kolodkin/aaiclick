@@ -41,18 +41,18 @@ from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_SHELL
 from . import cli
 from .claiming import check_task_cancelled
-from .image_builder import resolve_image_tag
-from .runner import execute_task, register_returned_tasks, serialize_task_result
-from .runner_env import build_runner_env
 from .execution_worker import (
     POLL_INTERVAL,
     JobDispatch,
     RunnerResult,
     TaskVehicle,
     drive_vehicle,
-    parse_task_timeout,
     execution_worker_heartbeat,
+    parse_task_timeout,
 )
+from .image_builder import resolve_image_tag
+from .runner import execute_task, register_returned_tasks, serialize_task_result
+from .runner_env import build_runner_env
 
 CONTAINER_IPC_DIR = "/aaiclick-ipc"
 CONTAINER_RESULT_FILE = "result.json"

@@ -11,12 +11,12 @@ from __future__ import annotations
 from aaiclick.auth.view_models import UserView
 from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.orchestration.view_models import (
+    ExecutionWorkerView,
     JobDetail,
     JobStatsView,
     JobView,
     RegisteredJobView,
     TaskDetail,
-    ExecutionWorkerView,
 )
 from aaiclick.view_models import (
     MIGRATE_DOWNGRADE,

@@ -17,6 +17,8 @@ from ..view_models import LogLine, SnowflakeId
 from .jobs.stats import _short_entrypoint
 from .models import (
     TASK_COMPLETED,
+    ExecutionWorker,
+    ExecutionWorkerStatus,
     Job,
     JobStatus,
     PreservationMode,
@@ -24,8 +26,6 @@ from .models import (
     RunType,
     Task,
     TaskStatus,
-    ExecutionWorker,
-    ExecutionWorkerStatus,
 )
 
 
@@ -236,7 +236,7 @@ def clear_to_view(job: Job, cleared_task_ids: list[int]) -> ClearTaskView:
     return ClearTaskView(job=job_to_view(job), cleared_task_ids=cleared_task_ids)
 
 
-def worker_to_view(worker: ExecutionWorker) -> ExecutionWorkerView:
+def execution_worker_to_view(worker: ExecutionWorker) -> ExecutionWorkerView:
     return ExecutionWorkerView(
         id=worker.id,
         hostname=worker.hostname,

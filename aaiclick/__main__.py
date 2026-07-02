@@ -43,10 +43,11 @@ from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import users as users_api
 from aaiclick.internal_api.errors import InternalApiError
 from aaiclick.orchestration.kubernetes_config import build_kubernetes_config
-from aaiclick.orchestration.models import JobStatus, PreservationMode, RunnerMode, ExecutionWorkerStatus
+from aaiclick.orchestration.models import ExecutionWorkerStatus, JobStatus, PreservationMode, RunnerMode
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.orchestration.runner_config import ENTRY_TYPES
 from aaiclick.view_models import (
+    ExecutionWorkerFilter,
     JobListFilter,
     MigrationAction,
     ObjectFilter,
@@ -54,7 +55,6 @@ from aaiclick.view_models import (
     RegisteredJobFilter,
     RegisterJobRequest,
     RunJobRequest,
-    ExecutionWorkerFilter,
 )
 
 _JSON_HELP = "Emit JSON instead of a table"

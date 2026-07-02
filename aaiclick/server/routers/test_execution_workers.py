@@ -3,7 +3,7 @@ from __future__ import annotations
 from aaiclick.auth import security
 from aaiclick.auth.models import ROLE_VIEWER
 from aaiclick.internal_api import execution_workers as execution_workers_api
-from aaiclick.internal_api.errors import Invalid, ExecutionWorkerSpawnFailed
+from aaiclick.internal_api.errors import ExecutionWorkerSpawnFailed, Invalid
 from aaiclick.orchestration.execution.execution_worker import register_execution_worker
 from aaiclick.orchestration.models import EXECUTION_WORKER_STOPPING
 from aaiclick.orchestration.view_models import ExecutionWorkerView
@@ -18,7 +18,9 @@ async def test_viewer_cannot_start_worker(orch_ctx, app_client, monkeypatch):
     monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: False)
     monkeypatch.setenv("AAICLICK_JWT_SECRET", RBAC_SECRET)
     token = security.encode_access_token(user_id=2, role=ROLE_VIEWER, secret=RBAC_SECRET, ttl=60)
-    res = await app_client.post(f"{API_PREFIX}/execution_workers", json={}, headers={"Authorization": f"Bearer {token}"})
+    res = await app_client.post(
+        f"{API_PREFIX}/execution_workers", json={}, headers={"Authorization": f"Bearer {token}"}
+    )
     assert res.status_code == 403
 
 

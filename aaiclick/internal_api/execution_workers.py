@@ -19,10 +19,10 @@ from aaiclick.orchestration.execution.execution_worker import (
     request_execution_worker_stop as _request_worker_stop_impl,
 )
 from aaiclick.orchestration.models import ExecutionWorker
-from aaiclick.orchestration.view_models import ExecutionWorkerView, worker_to_view
-from aaiclick.view_models import Page, StartExecutionWorkerRequest, ExecutionWorkerFilter
+from aaiclick.orchestration.view_models import ExecutionWorkerView, execution_worker_to_view
+from aaiclick.view_models import ExecutionWorkerFilter, Page, StartExecutionWorkerRequest
 
-from .errors import Conflict, Invalid, NotFound, ExecutionWorkerSpawnFailed
+from .errors import Conflict, ExecutionWorkerSpawnFailed, Invalid, NotFound
 from .pagination import paginate
 
 
@@ -46,7 +46,7 @@ async def list_execution_workers(filter: ExecutionWorkerFilter | None = None) ->
         limit=filter.limit,
         offset=filter.offset,
     )
-    return Page[ExecutionWorkerView](items=[worker_to_view(w) for w in page.rows], total=page.total)
+    return Page[ExecutionWorkerView](items=[execution_worker_to_view(w) for w in page.rows], total=page.total)
 
 
 async def start_execution_worker(request: StartExecutionWorkerRequest | None = None) -> None:
@@ -97,4 +97,4 @@ async def stop_execution_worker(execution_worker_id: int) -> ExecutionWorkerView
     refreshed = await get_execution_worker(execution_worker_id)
     if refreshed is None:
         raise RuntimeError(f"ExecutionWorker {execution_worker_id} disappeared after stop")
-    return worker_to_view(refreshed)
+    return execution_worker_to_view(refreshed)

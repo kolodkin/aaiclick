@@ -24,7 +24,6 @@ from ..logging import get_logs_dir
 from ..models import Task
 from ..orch_context import get_sql_session
 from .claiming import check_task_cancelled
-from .runner import execute_task, register_returned_tasks, serialize_task_result
 from .execution_worker import (
     POLL_INTERVAL,
     JobDispatch,
@@ -32,9 +31,10 @@ from .execution_worker import (
     TaskVehicle,
     _execution_worker_loop,
     drive_vehicle,
-    parse_task_timeout,
     execution_worker_heartbeat,
+    parse_task_timeout,
 )
+from .runner import execute_task, register_returned_tasks, serialize_task_result
 
 # How often the parent checks whether the child process has finished.
 # Smaller than POLL_INTERVAL because this polls a local queue, not a database.

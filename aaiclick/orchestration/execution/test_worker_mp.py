@@ -6,8 +6,8 @@ each spawned child).
 """
 
 from ..models import EXECUTION_WORKER_STOPPED
-from .mp_worker import mp_worker_main_loop
 from .execution_worker import get_execution_worker, register_execution_worker, request_execution_worker_stop
+from .mp_worker import mp_worker_main_loop
 
 
 async def test_worker_main_loop_stops_on_stop_request(orch_ctx_no_ch, monkeypatch, fast_poll):

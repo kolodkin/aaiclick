@@ -19,7 +19,7 @@ from typing import Annotated, Any, Generic, Literal, TypeVar
 from pydantic import BaseModel, Field, PlainSerializer, model_validator
 
 from .datetime_utils import utc_now
-from .orchestration.models import JobStatus, PreservationMode, RunnerMode, ExecutionWorkerStatus
+from .orchestration.models import ExecutionWorkerStatus, JobStatus, PreservationMode, RunnerMode
 
 # Mirrors aaiclick.data.scope.ObjectScope — re-declared to keep this shared
 # module from pulling the heavy aaiclick.data package into CLI/REST startup.
@@ -199,8 +199,8 @@ class ExecutionWorkerFilter(BaseModel):
 class StartExecutionWorkerRequest(BaseModel):
     """Inputs for ``internal_api.start_execution_worker``.
 
-    ``max_tasks`` caps how many tasks the spawned worker executes before it
-    exits; ``None`` means unlimited (run until stopped).
+    ``max_tasks`` caps how many tasks the spawned execution worker executes
+    before it exits; ``None`` means unlimited (run until stopped).
     """
 
     max_tasks: int | None = None

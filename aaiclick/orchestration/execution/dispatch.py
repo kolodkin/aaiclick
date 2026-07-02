@@ -18,9 +18,9 @@ from ..models import RUNNER_DOCKER, RUNNER_KUBERNETES, RUNNER_SUBPROCESS, Job, R
 from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_SHELL, KubernetesRunner, RunnerConfigT, parse_runner_config
 from .docker_worker import _run_task_in_container
+from .execution_worker import JobDispatch
 from .kubernetes_worker import _run_task_in_pod
 from .mp_worker import _run_shell_on_host, _run_task_in_child
-from .execution_worker import JobDispatch
 
 ExecuteResult = tuple[bool, dict | None, str | None, str | None]
 

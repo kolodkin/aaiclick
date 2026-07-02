@@ -51,7 +51,9 @@ async def _insert_task(
 async def _get_task_status(engine, task_id):
     async with AsyncSession(engine) as session:
         result = await session.execute(
-            text("SELECT status, attempt, retry_after, error, execution_worker_id, completed_at FROM tasks WHERE id = :id"),
+            text(
+                "SELECT status, attempt, retry_after, error, execution_worker_id, completed_at FROM tasks WHERE id = :id"
+            ),
             {"id": task_id},
         )
         row = result.fetchone()

@@ -12,12 +12,12 @@ from ..jobs import get_task
 from ..models import TASK_CANCELLED, TASK_COMPLETED, TASK_FAILED, TASK_PENDING_CLEANUP, TASK_RUNNING, Task
 from ..orch_context import get_sql_session
 from .claiming import claim_next_task, update_task_status
-from .mp_worker import mp_worker_main_loop
 from .execution_worker import (
     _set_pending_cleanup,
     deregister_execution_worker,
     register_execution_worker,
 )
+from .mp_worker import mp_worker_main_loop
 
 
 async def _cancel_all_pending_tasks():

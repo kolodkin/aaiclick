@@ -13,13 +13,14 @@ See ``docs/api_server.md`` for the full contract.
 
 from .errors import (
     Conflict,
+    ExecutionWorkerSpawnFailed,
     Forbidden,
     InternalApiError,
     Invalid,
     NotFound,
     Unauthorized,
-    ExecutionWorkerSpawnFailed,
 )
+from .execution_workers import list_execution_workers, start_execution_worker, stop_execution_worker
 from .jobs import cancel_job, get_job, job_stats, list_jobs, run_job
 from .lineage import (
     get_table_schema,
@@ -34,4 +35,3 @@ from .registered_jobs import (
     register_job,
 )
 from .tasks import get_task
-from .execution_workers import list_execution_workers, start_execution_worker, stop_execution_worker

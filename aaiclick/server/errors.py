@@ -9,12 +9,12 @@ from fastapi.responses import JSONResponse
 
 from aaiclick.internal_api.errors import (
     Conflict,
+    ExecutionWorkerSpawnFailed,
     Forbidden,
     InternalApiError,
     Invalid,
     NotFound,
     Unauthorized,
-    ExecutionWorkerSpawnFailed,
 )
 from aaiclick.view_models import Problem, ProblemCode
 

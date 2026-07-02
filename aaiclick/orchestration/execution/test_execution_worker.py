@@ -11,27 +11,27 @@ from aaiclick.backend import is_sqlite
 from ...snowflake import get_snowflake_id
 from ..factories import create_job, create_task
 from ..models import (
-    JOB_RUNNING,
-    TASK_COMPLETED,
-    TASK_RUNNING,
     EXECUTION_WORKER_ACTIVE,
     EXECUTION_WORKER_STOPPED,
     EXECUTION_WORKER_STOPPING,
+    JOB_RUNNING,
+    TASK_COMPLETED,
+    TASK_RUNNING,
     Group,
     Job,
     Task,
 )
 from ..orch_context import commit_tasks, get_sql_session
 from .claiming import claim_next_task, update_task_status
-from .runner import execute_task
 from .execution_worker import (
     deregister_execution_worker,
+    execution_worker_heartbeat,
     get_execution_worker,
     list_execution_workers,
     register_execution_worker,
     request_execution_worker_stop,
-    execution_worker_heartbeat,
 )
+from .runner import execute_task
 
 
 async def test_register_worker(orch_ctx):

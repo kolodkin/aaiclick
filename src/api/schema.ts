@@ -72,6 +72,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v0/execution_workers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Execution Workers */
+        get: operations["list_execution_workers_api_v0_execution_workers_get"];
+        put?: never;
+        /**
+         * Start Execution Worker
+         * @description Spawn a detached execution worker subprocess (distributed mode only).
+         *
+         *     Returns ``202 Accepted`` with an empty body once the fork/exec succeeds;
+         *     the caller polls ``GET /execution_workers`` to observe the new execution worker row.
+         */
+        post: operations["start_execution_worker_api_v0_execution_workers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/execution_workers/{execution_worker_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop Execution Worker */
+        post: operations["stop_execution_worker_api_v0_execution_workers__execution_worker_id__stop_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v0/jobs": {
         parameters: {
             query?: never;
@@ -381,47 +422,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v0/workers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Workers */
-        get: operations["list_workers_api_v0_workers_get"];
-        put?: never;
-        /**
-         * Start Worker
-         * @description Spawn a detached worker subprocess (distributed mode only).
-         *
-         *     Returns ``202 Accepted`` with an empty body once the fork/exec succeeds;
-         *     the caller polls ``GET /workers`` to observe the new worker row.
-         */
-        post: operations["start_worker_api_v0_workers_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v0/workers/{worker_id}/stop": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Stop Worker */
-        post: operations["stop_worker_api_v0_workers__worker_id__stop_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -495,6 +495,37 @@ export interface components {
             role: "admin" | "viewer";
             /** Username */
             username: string;
+        };
+        /**
+         * ExecutionWorkerView
+         * @description ExecutionWorker representation used by ``GET /execution_workers``.
+         */
+        ExecutionWorkerView: {
+            /** Hostname */
+            hostname: string;
+            /** Id */
+            id: string;
+            /**
+             * Last Heartbeat
+             * Format: date-time
+             */
+            last_heartbeat: string;
+            /** Pid */
+            pid: number;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ACTIVE" | "IDLE" | "STOPPING" | "STOPPED";
+            /** Tasks Completed */
+            tasks_completed: number;
+            /** Tasks Failed */
+            tasks_failed: number;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -736,6 +767,15 @@ export interface components {
             /** Table */
             table: string;
         };
+        /** Page[ExecutionWorkerView] */
+        Page_ExecutionWorkerView_: {
+            /** Items */
+            items: components["schemas"]["ExecutionWorkerView"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Total */
+            total?: number | null;
+        };
         /** Page[JobView] */
         Page_JobView_: {
             /** Items */
@@ -772,15 +812,6 @@ export interface components {
             /** Total */
             total?: number | null;
         };
-        /** Page[WorkerView] */
-        Page_WorkerView_: {
-            /** Items */
-            items: components["schemas"]["WorkerView"][];
-            /** Next Cursor */
-            next_cursor?: string | null;
-            /** Total */
-            total?: number | null;
-        };
         /**
          * Problem
          * @description RFC 7807-style error payload used by the REST surface.
@@ -799,7 +830,7 @@ export interface components {
          * @description Stable machine-readable code attached to every ``Problem`` response.
          * @enum {string}
          */
-        ProblemCode: "not_found" | "conflict" | "invalid" | "unauthorized" | "forbidden" | "worker_spawn_failed";
+        ProblemCode: "not_found" | "conflict" | "invalid" | "unauthorized" | "forbidden" | "execution_worker_spawn_failed";
         /**
          * PurgeObjectsRequest
          * @description Inputs for ``internal_api.purge_objects``.
@@ -990,13 +1021,13 @@ export interface components {
             role: "admin" | "viewer";
         };
         /**
-         * StartWorkerRequest
-         * @description Inputs for ``internal_api.start_worker``.
+         * StartExecutionWorkerRequest
+         * @description Inputs for ``internal_api.start_execution_worker``.
          *
-         *     ``max_tasks`` caps how many tasks the spawned worker executes before it
-         *     exits; ``None`` means unlimited (run until stopped).
+         *     ``max_tasks`` caps how many tasks the spawned execution worker executes
+         *     before it exits; ``None`` means unlimited (run until stopped).
          */
-        StartWorkerRequest: {
+        StartExecutionWorkerRequest: {
             /** Max Tasks */
             max_tasks?: number | null;
         };
@@ -1018,6 +1049,8 @@ export interface components {
             entrypoint: string;
             /** Error */
             error?: string | null;
+            /** Execution Worker Id */
+            execution_worker_id?: string | null;
             /** Id */
             id: string;
             /** Job Id */
@@ -1046,8 +1079,6 @@ export interface components {
              * @enum {string}
              */
             status: "PENDING" | "CLAIMED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_CLEANUP" | "UPSTREAM_FAILED";
-            /** Worker Id */
-            worker_id?: string | null;
         };
         /**
          * TaskLogsView
@@ -1159,37 +1190,6 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
-        };
-        /**
-         * WorkerView
-         * @description Worker representation used by ``GET /workers``.
-         */
-        WorkerView: {
-            /** Hostname */
-            hostname: string;
-            /** Id */
-            id: string;
-            /**
-             * Last Heartbeat
-             * Format: date-time
-             */
-            last_heartbeat: string;
-            /** Pid */
-            pid: number;
-            /**
-             * Started At
-             * Format: date-time
-             */
-            started_at: string;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "ACTIVE" | "IDLE" | "STOPPING" | "STOPPED";
-            /** Tasks Completed */
-            tasks_completed: number;
-            /** Tasks Failed */
-            tasks_failed: number;
         };
     };
     responses: never;
@@ -1317,6 +1317,149 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_execution_workers_api_v0_execution_workers_get: {
+        parameters: {
+            query?: {
+                status?: ("ACTIVE" | "IDLE" | "STOPPING" | "STOPPED") | null;
+                limit?: number;
+                offset?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_ExecutionWorkerView_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_execution_worker_api_v0_execution_workers_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartExecutionWorkerRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description ExecutionWorker Spawn Failed */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    stop_execution_worker_api_v0_execution_workers__execution_worker_id__stop_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                execution_worker_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutionWorkerView"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2208,149 +2351,6 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_workers_api_v0_workers_get: {
-        parameters: {
-            query?: {
-                status?: ("ACTIVE" | "IDLE" | "STOPPING" | "STOPPED") | null;
-                limit?: number;
-                offset?: number;
-                cursor?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Page_WorkerView_"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    start_worker_api_v0_workers_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StartWorkerRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Invalid Request */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Worker Spawn Failed */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    stop_worker_api_v0_workers__worker_id__stop_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                worker_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkerView"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Conflict */
-            409: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -10,7 +10,7 @@ from aaiclick.orchestration.execution.execution_worker import (
 )
 from aaiclick.orchestration.models import EXECUTION_WORKER_ACTIVE, EXECUTION_WORKER_STOPPED, EXECUTION_WORKER_STOPPING
 from aaiclick.orchestration.view_models import ExecutionWorkerView
-from aaiclick.view_models import Page, StartExecutionWorkerRequest, ExecutionWorkerFilter
+from aaiclick.view_models import ExecutionWorkerFilter, Page, StartExecutionWorkerRequest
 
 from . import errors, execution_workers
 
@@ -34,7 +34,9 @@ async def test_list_workers_filter_by_status(orch_ctx):
     await deregister_execution_worker(stopped.id)
 
     active_page = await execution_workers.list_execution_workers(ExecutionWorkerFilter(status=EXECUTION_WORKER_ACTIVE))
-    stopped_page = await execution_workers.list_execution_workers(ExecutionWorkerFilter(status=EXECUTION_WORKER_STOPPED))
+    stopped_page = await execution_workers.list_execution_workers(
+        ExecutionWorkerFilter(status=EXECUTION_WORKER_STOPPED)
+    )
 
     active_ids = [w.id for w in active_page.items]
     stopped_ids = [w.id for w in stopped_page.items]

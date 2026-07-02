@@ -31,25 +31,26 @@ from fastmcp import FastMCP
 
 from aaiclick.ai.agents.lineage_tools import DEFAULT_ROW_LIMIT, QueryResult, TableSchema
 from aaiclick.data.view_models import ObjectDetail, ObjectView
+from aaiclick.internal_api import execution_workers as execution_workers_api
 from aaiclick.internal_api import jobs as jobs_api
 from aaiclick.internal_api import lineage as lineage_api
 from aaiclick.internal_api import objects as objects_api
 from aaiclick.internal_api import registered_jobs as rj_api
 from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import tasks as tasks_api
-from aaiclick.internal_api import execution_workers as execution_workers_api
 from aaiclick.oplog.lineage import LineageDirection, OplogGraph
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.orchestration.view_models import (
     ClearTaskView,
+    ExecutionWorkerView,
     JobDetail,
     JobStatsView,
     JobView,
     RegisteredJobView,
     TaskDetail,
-    ExecutionWorkerView,
 )
 from aaiclick.view_models import (
+    ExecutionWorkerFilter,
     JobListFilter,
     MigrationAction,
     MigrationResult,
@@ -65,7 +66,6 @@ from aaiclick.view_models import (
     RunJobRequest,
     SetupResult,
     StartExecutionWorkerRequest,
-    ExecutionWorkerFilter,
 )
 
 

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Request, Response
 
 from aaiclick.internal_api import execution_workers as execution_workers_api
 from aaiclick.orchestration.view_models import ExecutionWorkerView
-from aaiclick.view_models import Page, StartExecutionWorkerRequest, ExecutionWorkerFilter
+from aaiclick.view_models import ExecutionWorkerFilter, Page, StartExecutionWorkerRequest
 
 from ..auth import require_admin
 from ..deps import orch_scope
@@ -25,10 +25,10 @@ async def list_execution_workers(filter: ExecutionWorkerFilter = Depends()) -> P
     responses=problem_responses(403, 422, 503),
 )
 async def start_execution_worker(request: StartExecutionWorkerRequest, http_request: Request) -> Response:
-    """Spawn a detached execution_worker subprocess (distributed mode only).
+    """Spawn a detached execution worker subprocess (distributed mode only).
 
     Returns ``202 Accepted`` with an empty body once the fork/exec succeeds;
-    the caller polls ``GET /execution_workers`` to observe the new execution_worker row.
+    the caller polls ``GET /execution_workers`` to observe the new execution worker row.
     """
     await execution_workers_api.start_execution_worker(request)
     return Response(status_code=202, headers={"Location": http_request.url_for("start_execution_worker").path})

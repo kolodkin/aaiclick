@@ -432,7 +432,9 @@ class BackgroundWorker:
 
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
-                text("SELECT id FROM execution_workers WHERE status IN ('ACTIVE', 'STOPPING') AND last_heartbeat < :cutoff"),
+                text(
+                    "SELECT id FROM execution_workers WHERE status IN ('ACTIVE', 'STOPPING') AND last_heartbeat < :cutoff"
+                ),
                 {"cutoff": cutoff},
             )
             dead_execution_worker_ids = [row[0] for row in result.fetchall()]
