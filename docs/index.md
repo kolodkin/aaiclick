@@ -28,20 +28,24 @@ async def load_sales():
     })
 
 @task
-async def analyze(sales):
-    # GROUP BY + SUM — runs as a single ClickHouse query
+async def analyze(sales) -> dict:
+    # GROUP BY + SUM runs as a single ClickHouse query; return a plain dict
     by_region = await sales.group_by("region").sum("amount")
-    print(await by_region.data())  # → {'region': ['EU', 'US'], 'amount': [500, 730]}
+    return await by_region.data()  # → {'region': ['US', 'EU'], 'amount': [730, 500]}
 
-    # append rows without leaving ClickHouse
-    await sales.insert({"region": ["JP"], "amount": [400]})
+@task
+async def report(summary: dict):
+    # receives the plain Python dict returned by analyze()
+    print(f"Regions: {summary['region']}")  # → Regions: ['US', 'EU']
+    print(f"Amounts: {summary['amount']}")  # → Amounts: [730, 500]
+    print(f"Total:   {sum(summary['amount'])}")  # → Total: 1230
 
 @job("sales_pipeline")
 def sales_pipeline():
     sales = load_sales()
     # dependencies resolved from arguments
-    result = analyze(sales=sales)
-    return result
+    summary = analyze(sales=sales)      # returns a Python dict
+    return report(summary=summary)      # the dict flows to report()
 
 if __name__ == "__main__":
     from aaiclick.orchestration import job_test
