@@ -17,7 +17,7 @@ from .auth import AdminAuthMiddleware, require_principal, warn_if_open
 from .errors import register_exception_handlers
 from .mcp import mcp
 from .routers import auth as auth_router
-from .routers import jobs, objects, registered_jobs, tasks, workers
+from .routers import execution_workers, jobs, objects, registered_jobs, tasks
 from .routers import users as users_router
 
 API_PREFIX = "/api/v0"
@@ -25,7 +25,7 @@ MCP_PATH = "/mcp"
 STATIC_DIR = Path(__file__).parent / "static"
 
 # FastMCP's streamable-HTTP sub-app needs its lifespan to run; we chain it
-# with local_runtime() (when local) so workers come up with the server.
+# with local_runtime() (when local) so execution workers come up with the server.
 _mcp_app = mcp.http_app(path="/")
 
 
@@ -71,7 +71,7 @@ for router in (
     jobs.router,
     registered_jobs.router,
     tasks.router,
-    workers.router,
+    execution_workers.router,
     objects.router,
 ):
     app.include_router(router, prefix=API_PREFIX, dependencies=[Depends(require_principal)])

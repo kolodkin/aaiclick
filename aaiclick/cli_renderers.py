@@ -11,12 +11,12 @@ from __future__ import annotations
 from aaiclick.auth.view_models import UserView
 from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.orchestration.view_models import (
+    ExecutionWorkerView,
     JobDetail,
     JobStatsView,
     JobView,
     RegisteredJobView,
     TaskDetail,
-    WorkerView,
 )
 from aaiclick.view_models import (
     MIGRATE_DOWNGRADE,
@@ -156,7 +156,7 @@ def render_registered_job_disabled(view: RegisteredJobView) -> None:
 
 
 def render_task_detail(detail: TaskDetail) -> None:
-    """Print full task details — ID, job, entrypoint, status, timings, worker."""
+    """Print full task details — ID, job, entrypoint, status, timings, execution worker."""
     print(f"ID:           {detail.id}")
     print(f"Job:          {detail.job_id}")
     print(f"Name:         {detail.name}")
@@ -167,7 +167,7 @@ def render_task_detail(detail: TaskDetail) -> None:
     print(f"Created at:   {detail.created_at}")
     print(f"Started at:   {_fmt_optional(detail.started_at)}")
     print(f"Completed at: {_fmt_optional(detail.completed_at)}")
-    print(f"Worker:       {_fmt_optional(detail.worker_id)}")
+    print(f"Exec worker:  {_fmt_optional(detail.execution_worker_id)}")
     print(f"Log path:     {_fmt_optional(detail.log_path)}")
     if detail.kwargs:
         print(f"Kwargs:       {detail.kwargs}")
@@ -177,10 +177,10 @@ def render_task_detail(detail: TaskDetail) -> None:
         print(f"Error:        {detail.error}")
 
 
-def render_workers_page(page: Page[WorkerView], offset: int) -> None:
-    """Print a paged list of workers as an aligned text table."""
+def render_execution_workers_page(page: Page[ExecutionWorkerView], offset: int) -> None:
+    """Print a paged list of execution workers as an aligned text table."""
     if not page.items:
-        print("No workers found")
+        print("No execution workers found")
         return
 
     print(f"{'ID':<20} {'Status':<10} {'Host':<20} {'PID':<8} {'Completed':<10} {'Failed':<8}")
@@ -190,9 +190,9 @@ def render_workers_page(page: Page[WorkerView], offset: int) -> None:
     _print_page_footer(page, offset)
 
 
-def render_worker_stopped(view: WorkerView) -> None:
-    """Single-line confirmation that ``internal_api.stop_worker`` succeeded."""
-    print(f"Stop requested for worker {view.id}")
+def render_execution_worker_stopped(view: ExecutionWorkerView) -> None:
+    """Single-line confirmation that ``internal_api.stop_execution_worker`` succeeded."""
+    print(f"Stop requested for execution worker {view.id}")
 
 
 def render_user(view: UserView) -> None:

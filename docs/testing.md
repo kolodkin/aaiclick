@@ -78,7 +78,7 @@ process; OS resources clean up at process exit. `pin_chdb_session`
 stays as a defensive no-op patch on `chdb_client.close_session` itself
 in case any future caller imports it directly.
 
-# mp-Worker Module Split
+# mp-worker Module Split
 
 Multiprocessing-worker tests (`test_mp_worker.py`, `test_retry_mp.py`,
 `test_worker_mp.py`) need the **parent** process to hold no chdb file
@@ -90,7 +90,7 @@ so the spawned child opens a fresh chdb file.
     The two module-scoped fixtures require conflicting chdb setups.
     Put mp-worker tests in a separate `_mp.py` file.
 
-# Per-xdist-Worker Isolation
+# Per-xdist-worker Isolation
 
 `ch_worker_setup` / `sql_worker_setup` give each xdist worker its own
 CH path + SQL database. The per-test reset

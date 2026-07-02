@@ -12,12 +12,12 @@ from ..jobs import get_task
 from ..models import TASK_CANCELLED, TASK_COMPLETED, TASK_FAILED, TASK_PENDING_CLEANUP, TASK_RUNNING, Task
 from ..orch_context import get_sql_session
 from .claiming import claim_next_task, update_task_status
-from .mp_worker import mp_worker_main_loop
-from .worker import (
+from .execution_worker import (
     _set_pending_cleanup,
-    deregister_worker,
-    register_worker,
+    deregister_execution_worker,
+    register_execution_worker,
 )
+from .mp_worker import mp_worker_main_loop
 
 
 async def _cancel_all_pending_tasks():
@@ -78,7 +78,7 @@ async def test_claim_respects_retry_after(orch_ctx):
         session.add(t)
         await session.commit()
 
-    worker = await register_worker()
+    worker = await register_execution_worker()
 
     # Should not be claimed (retry_after in the future)
     claimed = await claim_next_task(worker.id)
@@ -97,7 +97,7 @@ async def test_claim_respects_retry_after(orch_ctx):
     assert claimed is not None
     assert claimed.id == task_id
 
-    await deregister_worker(worker.id)
+    await deregister_execution_worker(worker.id)
 
 
 async def _run_until_terminal(job_id: int, max_cycles: int = 20) -> None:

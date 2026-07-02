@@ -16,14 +16,14 @@ class PgDbHandler(DbHandler):
     """PostgreSQL: writable CTEs, FOR UPDATE SKIP LOCKED."""
 
     @staticmethod
-    async def claim_next_task(session: AsyncSession, worker_id: int, now: datetime) -> Task | None:
+    async def claim_next_task(session: AsyncSession, execution_worker_id: int, now: datetime) -> Task | None:
         result = await session.execute(
             text(f"""
                 WITH claimed_task AS (
                     UPDATE tasks
                     SET
                         status = :claimed_status,
-                        worker_id = :worker_id,
+                        execution_worker_id = :execution_worker_id,
                         claimed_at = :now
                     WHERE id = (
                         SELECT t.id FROM tasks t
@@ -65,7 +65,7 @@ class PgDbHandler(DbHandler):
                 "running_status": JOB_RUNNING,
                 "cancelled_job_status": JOB_CANCELLED,
                 "failed_job_status": JOB_FAILED,
-                "worker_id": worker_id,
+                "execution_worker_id": execution_worker_id,
                 "now": now,
             },
         )

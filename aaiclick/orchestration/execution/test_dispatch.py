@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 
 from ..models import RUNNER_DOCKER, RUNNER_KUBERNETES, RUNNER_SUBPROCESS, Task
 from . import dispatch
-from .worker import JobDispatch
+from .execution_worker import JobDispatch
 
 
 def _task(entrypoint="user.module.entry", task_id=42, job_id=1) -> Task:
@@ -62,7 +62,7 @@ async def test_dispatch_execute_routes_docker_to_container_runner(monkeypatch):
     in_container = AsyncMock(return_value=(True, None, None, None))
     monkeypatch.setitem(dispatch._IMAGE_RUNNERS, RUNNER_DOCKER, in_container)
 
-    await dispatch.dispatch_execute(user_task, worker_id=1)
+    await dispatch.dispatch_execute(user_task, execution_worker_id=1)
     in_container.assert_awaited_once_with(user_task, 1, spec)
 
 
@@ -73,7 +73,7 @@ async def test_dispatch_execute_routes_subprocess_to_mp_child(monkeypatch):
     in_child = AsyncMock(return_value=(True, None, None, None))
     monkeypatch.setattr(dispatch, "_run_task_in_child", in_child)
 
-    await dispatch.dispatch_execute(user_task, worker_id=2)
+    await dispatch.dispatch_execute(user_task, execution_worker_id=2)
     in_child.assert_awaited_once_with(user_task, 2)
 
 
@@ -84,5 +84,5 @@ async def test_dispatch_execute_routes_kubernetes_to_pod_runner(monkeypatch):
     in_pod = AsyncMock(return_value=(True, None, None, None))
     monkeypatch.setitem(dispatch._IMAGE_RUNNERS, RUNNER_KUBERNETES, in_pod)
 
-    await dispatch.dispatch_execute(user_task, worker_id=3)
+    await dispatch.dispatch_execute(user_task, execution_worker_id=3)
     in_pod.assert_awaited_once_with(user_task, 3, spec)

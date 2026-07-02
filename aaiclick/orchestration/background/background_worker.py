@@ -432,20 +432,22 @@ class BackgroundWorker:
 
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
-                text("SELECT id FROM workers WHERE status IN ('ACTIVE', 'STOPPING') AND last_heartbeat < :cutoff"),
+                text(
+                    "SELECT id FROM execution_workers WHERE status IN ('ACTIVE', 'STOPPING') AND last_heartbeat < :cutoff"
+                ),
                 {"cutoff": cutoff},
             )
-            dead_worker_ids = [row[0] for row in result.fetchall()]
+            dead_execution_worker_ids = [row[0] for row in result.fetchall()]
 
-            if not dead_worker_ids:
+            if not dead_execution_worker_ids:
                 return
 
             now = utc_now()
-            await self._handler.mark_dead_workers(session, dead_worker_ids, now)
+            await self._handler.mark_dead_execution_workers(session, dead_execution_worker_ids, now)
             await session.commit()
 
-            for wid in dead_worker_ids:
-                logger.warning("Worker %s marked as dead (heartbeat timeout)", wid)
+            for wid in dead_execution_worker_ids:
+                logger.warning("ExecutionWorker %s marked as dead (heartbeat timeout)", wid)
 
     async def _check_schedules(self) -> None:
         """Create Job runs for registered jobs whose next_run_at is due.

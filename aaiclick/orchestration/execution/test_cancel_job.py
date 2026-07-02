@@ -25,7 +25,7 @@ from .claiming import (
     update_job_status,
     update_task_status,
 )
-from .worker import register_worker
+from .execution_worker import register_execution_worker
 
 
 async def test_cancel_pending_job(orch_ctx):
@@ -49,7 +49,7 @@ async def test_cancel_pending_job(orch_ctx):
 
 async def test_cancel_running_job(orch_ctx):
     """Test cancelling a RUNNING job cancels all non-terminal tasks."""
-    worker = await register_worker()
+    worker = await register_execution_worker()
 
     # Clear pending tasks from other tests
     while await claim_next_task(worker.id) is not None:
@@ -118,7 +118,7 @@ async def test_cancel_nonexistent_job_raises_not_found(orch_ctx):
 
 async def test_claim_skips_cancelled_job_tasks(orch_ctx):
     """Test that claim_next_task skips tasks from cancelled jobs."""
-    worker = await register_worker()
+    worker = await register_execution_worker()
 
     # Clear pending tasks from other tests
     while await claim_next_task(worker.id) is not None:
@@ -135,7 +135,7 @@ async def test_claim_skips_cancelled_job_tasks(orch_ctx):
 
 async def test_cancel_preserves_completed_tasks(orch_ctx):
     """Test that completed tasks are preserved when a job is cancelled."""
-    worker = await register_worker()
+    worker = await register_execution_worker()
 
     # Clear pending tasks from other tests
     while await claim_next_task(worker.id) is not None:

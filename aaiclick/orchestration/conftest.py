@@ -19,7 +19,7 @@ def _tmp_log_dir(tmp_path, monkeypatch):
 def fast_poll(monkeypatch):
     """Reduce polling and retry delays for worker-loop tests."""
     monkeypatch.setattr(
-        "aaiclick.orchestration.execution.worker.POLL_INTERVAL",
+        "aaiclick.orchestration.execution.execution_worker.POLL_INTERVAL",
         0.5,
     )
     monkeypatch.setattr(

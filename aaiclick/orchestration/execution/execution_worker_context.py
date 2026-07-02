@@ -1,6 +1,6 @@
-"""Worker execution context for passing task metadata to running tasks.
+"""ExecutionWorker execution context for passing task metadata to running tasks.
 
-Provides a ContextVar-based mechanism for the worker loop to make the
+Provides a ContextVar-based mechanism for the execution_worker loop to make the
 current task's metadata (job_id, task_id) available to the executing
 function. This is used by expander tasks (dynamic.py) to know which
 job they belong to when creating child tasks.
