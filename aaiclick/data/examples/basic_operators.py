@@ -239,10 +239,10 @@ async def example():
     print("-" * 50)
 
 
+@data_context()
 async def amain():
-    """Main entry point that creates data_context() and calls example."""
-    async with data_context():
-        await example()
+    """Main entry point that runs the example inside a data_context()."""
+    await example()
 
 
 if __name__ == "__main__":

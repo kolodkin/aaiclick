@@ -76,23 +76,27 @@ python sales_pipeline.py
 
 ## Data Operation Only Mode
 
-Use `data_context()` directly for interactive work without orchestration:
+Use `data_context()` directly for interactive work without orchestration.
+Decorate an async function to wrap its whole body in a context:
 
 ```python
 import asyncio
 from aaiclick import create_object_from_value
 from aaiclick.data.data_context import data_context
 
+@data_context()
 async def main():
-    async with data_context():
-        prices = await create_object_from_value([10.0, 20.0, 30.0])
+    prices = await create_object_from_value([10.0, 20.0, 30.0])
 
-        total = prices + prices * 0.1                # LazyOperator — no DB call yet
-        print(await total.data())                    # → [11.0, 22.0, 33.0]
-        print(await (await total.mean()).data())     # → 22.0
+    total = prices * 1.1                         # LazyOperator — no DB call yet
+    print(await total.data())                    # → [11.0, 22.0, 33.0]
+    print(await (await total.mean()).data())     # → 22.0
 
 asyncio.run(main())
 ```
+
+`data_context()` also works as an `async with` block when you only need part of
+a function inside the context.
 
 ## Documentation
 
