@@ -9,13 +9,12 @@ runner base — without building their own from scratch.
 - Ship container images alongside every `vX.Y.Z` PyPI release.
 - One shared base image plus two CLI-bearing variants for the dispatching-worker
   roles.
+- Multi-arch: build `linux/amd64` + `linux/arm64` for every image via buildx.
 - Reuse the exact wheel that already passed the release gate.
 - Zero new secrets: publish to GHCR with the workflow's built-in token.
 
 ## Non-goals
 
-- Multi-arch. `linux/amd64` only for the first cut; `arm64` is deferred to
-  `docs/future.md`.
 - A runtime-default Dockerfile for *task* images. The docker/k8s runners still
   build per-task images from the user's checked-in Dockerfile at a git SHA —
   that model is unchanged (`aaiclick/orchestration/execution/docker_scaffold.py`).
@@ -23,23 +22,33 @@ runner base — without building their own from scratch.
 ## The three images
 
 All published to GHCR under `ghcr.io/kolodkin/`, tagged `vX.Y.Z` always and
-`latest` only on a non-pre-release.
+`latest` only on a non-pre-release. Each is built for `linux/amd64` and
+`linux/arm64`.
 
 | Image | Bundles | Roles it serves |
 | --- | --- | --- |
 | `aaiclick` | wheel only | API server (default), task base, local/mp worker |
-| `aaiclick-kubectl` | `+ kubectl` | Kubernetes-dispatching worker (in-cluster) |
 | `aaiclick-docker` | `+ docker` CLI | Docker-dispatching worker (host socket mount) |
+| `aaiclick-kubectl` | `+ docker + kubectl` | Kubernetes-dispatching worker (in-cluster) |
 
 The runners shell out to the real CLIs via `asyncio.create_subprocess_exec` —
 `docker` (`AAICLICK_DOCKER_BIN`, default `"docker"`) and `kubectl`
 (`AAICLICK_KUBECTL_BIN`, default `"kubectl"`). Only the *dispatching worker*
 role invokes them; the API server and task-leaf roles never do. Hence the base
-image is CLI-free and the two variants add exactly one binary each.
+image is CLI-free.
+
+The Kubernetes variant carries **both** CLIs, not just `kubectl`: in k8s mode the
+dispatching worker still builds the task image with `docker build`/`docker push`
+before creating pods (`resolve_image_tag` → `build_image_to_tag`,
+`image_builder.py` / `docker_build.py`), then `kubectl` launches pods that
+reference the pushed tag. So the images layer as a strict chain — base →
+`aaiclick-docker` (+docker) → `aaiclick-kubectl` (+kubectl) — sharing all lower
+layers and giving a deterministic build order.
 
 ### Base image — `docker/Dockerfile`
 
-- `FROM python:3.10-slim`
+- `FROM python:3.13-slim` (latest stable 3.13; `requires-python >=3.10` and the
+  deps ship 3.13 wheels).
 - `ARG AAICLICK_VERSION`; `pip install --no-cache-dir "aaiclick[all]==${AAICLICK_VERSION}"`
   from PyPI. `[all]` pulls `distributed,ai,server` — the server needs
   `fastapi`/`uvicorn`, the runner base needs `distributed`.
@@ -50,15 +59,19 @@ image is CLI-free and the two variants add exactly one binary each.
   — `docker run -p 5255:5255 ghcr.io/kolodkin/aaiclick` serves the SPA + `/api/v0`
   out of the box. Bundled SPA ships in the wheel already (`aaiclick/server/static`).
 
-### Variant Dockerfiles — `docker/kubectl.Dockerfile`, `docker/docker.Dockerfile`
+### Variant Dockerfiles — `docker/docker.Dockerfile`, `docker/kubectl.Dockerfile`
 
-Each `FROM ghcr.io/kolodkin/aaiclick:<tag>` (the base built in the same run) and
-installs one CLI, keeping the base layers shared:
+Built as a chain so each shares the layers below it:
 
-- `kubectl.Dockerfile`: download the pinned `kubectl` binary, verify its
-  sha256, drop it on `PATH`.
-- `docker.Dockerfile`: install the Docker CLI (`docker-ce-cli` only — the client,
-  not the daemon).
+- `docker.Dockerfile`: `FROM ghcr.io/kolodkin/aaiclick:<tag>`; install the Docker
+  CLI (`docker-ce-cli` only — the client, not the daemon; apt resolves the arch).
+- `kubectl.Dockerfile`: `FROM ghcr.io/kolodkin/aaiclick-docker:<tag>`; download the
+  pinned `kubectl` binary and verify its sha256, then drop it on `PATH`. So it
+  inherits docker from the layer below and adds kubectl.
+
+Both the base and the variants are multi-arch. The Dockerfiles use buildx's
+`TARGETARCH` build-arg to fetch the correct `kubectl` binary per platform
+(`amd64` / `arm64`); the base and the apt-installed docker CLI are arch-agnostic.
 
 ## Release-workflow integration
 
@@ -69,14 +82,15 @@ Extend `.github/workflows/publish.yaml` with one `publish-image` job:
   `publish` already depends on. The images therefore install the same validated
   wheel a downstream user would.
 - `permissions: { contents: read, packages: write }`.
-- Matrix over the three images. Each entry names its Dockerfile and image name;
-  the base builds first, variants `FROM` it. Because a matrix has no ordering
-  guarantee, build the base in a non-matrix step (or a preceding job) and the two
-  variants in the matrix — see "Open question: build ordering".
-- Steps: `docker/setup-buildx-action` → `docker/login-action` to `ghcr.io` with
-  `${{ github.actor }}` / `${{ secrets.GITHUB_TOKEN }}` → `docker/metadata-action`
-  for tags → `docker/build-push-action` with `platforms: linux/amd64`,
-  `build-args: AAICLICK_VERSION=${tag#v}`.
+- The three images form a `FROM` chain (base → docker → kubectl), so build them
+  sequentially in one job — each `build-push-action` step pushes its tag before
+  the next step's `FROM` resolves it. (A matrix has no ordering guarantee and the
+  chain needs one, so ordered steps, not a matrix.)
+- Steps: `docker/setup-qemu-action` (arm64 emulation) → `docker/setup-buildx-action`
+  → `docker/login-action` to `ghcr.io` with `${{ github.actor }}` /
+  `${{ secrets.GITHUB_TOKEN }}` → three `docker/metadata-action` +
+  `docker/build-push-action` pairs (base, docker, kubectl) with
+  `platforms: linux/amd64,linux/arm64`, `build-args: AAICLICK_VERSION=${tag#v}`.
 - Tags: `vX.Y.Z` always; `latest` added only when `inputs.pre-release == false`
   (reuse the existing `pre-release` input; `docker/metadata-action`'s
   `enable=${{ !inputs.pre-release }}` on the `latest` tag).
@@ -149,6 +163,14 @@ The worker Deployment sets `serviceAccountName: aaiclick-worker` and runs
 namespace, or using a private image, need the Role widened to that namespace and
 `kubernetes_config.image_pull_secret` set.
 
+**The k8s worker also needs Docker to build the task image.** Before creating
+pods it runs `docker build`/`docker push` (that is why `aaiclick-kubectl` bundles
+the docker CLI). So the worker also needs a reachable Docker daemon — a mounted
+host socket, a remote `DOCKER_HOST`, or a build sidecar — plus `AAICLICK_REGISTRY`
+set to a registry the cluster can pull from. Same socket/security caveats as the
+docker worker below. If task images are prebuilt and pushed out-of-band, set the
+job's `image_source` to skip the build and the daemon is not needed.
+
 Out-of-cluster use (talking to a remote cluster) instead mounts a kubeconfig and
 sets `KUBECONFIG` — documented but not optimized for.
 
@@ -171,20 +193,14 @@ the security note that mounting the docker socket grants host-daemon control.
 
 ## Open questions
 
-1. **Build ordering.** The variants `FROM` the base, so the base image tag must
-   exist before they build. Simplest: build+push the base in one job, then a
-   second job (`needs`) matrixes the two variants. Alternative: single job,
-   base as an ordered step before the variant matrix. Decide during
-   implementation-plan writing.
-2. **Docker CLI as non-root + socket group.** The base image runs non-root; the
-   mounted socket is typically `root:docker`. Document running the docker
-   variant with an appropriate group, or leave the docker variant root. Resolve
-   when writing the docker variant Dockerfile.
+1. **Docker CLI as non-root + socket group.** The base image runs non-root; the
+   mounted socket is typically `root:docker`. Document running the docker/kubectl
+   variants with an appropriate group, or leave those variants root. Resolve when
+   writing the docker variant Dockerfile.
 
 ## Files touched
 
-- `docker/Dockerfile` (new) — base image.
-- `docker/kubectl.Dockerfile`, `docker/docker.Dockerfile` (new) — variants.
-- `.github/workflows/publish.yaml` — add `publish-image` job(s).
+- `docker/Dockerfile` (new) — base image (`python:3.13-slim`).
+- `docker/docker.Dockerfile`, `docker/kubectl.Dockerfile` (new) — chained variants.
+- `.github/workflows/publish.yaml` — add the `publish-image` job.
 - `docs/container_images.md` (new); link from `docs/getting_started.md`.
-- `docs/future.md` — record deferred arm64/multi-arch.
