@@ -58,7 +58,9 @@ async def analyze(sales) -> dict:
 @task
 async def report(summary: dict):
     # receives the plain Python dict returned by analyze()
-    print(summary)  # → {'region': ['US', 'EU'], 'amount': [730, 500]}
+    print(f"Regions: {summary['region']}")  # → Regions: ['US', 'EU']
+    print(f"Amounts: {summary['amount']}")  # → Amounts: [730, 500]
+    print(f"Total:   {sum(summary['amount'])}")  # → Total: 1230
 
 @job("sales_pipeline")
 def sales_pipeline():
