@@ -34,7 +34,7 @@ echo
 
 # Step 3: Start worker in background, capturing output to log file
 echo "Starting worker..."
-$PYTHON -m aaiclick worker start > "$WORKER_LOG" 2>&1 &
+$PYTHON -m aaiclick execution-worker start > "$WORKER_LOG" 2>&1 &
 WORKER_PID=$!
 echo "Worker started (PID: $WORKER_PID)"
 echo
