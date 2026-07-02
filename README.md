@@ -50,20 +50,34 @@ async def load_sales():
     })
 
 @task
-async def analyze(sales):
+async def analyze(sales) -> dict:
     # GROUP BY + SUM — runs as a single ClickHouse query
     by_region = await sales.group_by("region").sum("amount")
-    print(await by_region.data())  # → {'region': ['EU', 'US'], 'amount': [500, 730]}
+    total = await sales["amount"].sum()
 
     # append rows without leaving ClickHouse
     await sales.insert({"region": ["JP"], "amount": [400]})
+
+    # A task can return a plain dict. Values pulled from ClickHouse with
+    # .data() are JSON-serialized as the task's result and passed to any
+    # downstream task by keyword.
+    return {
+        "by_region": await by_region.data(),  # → {'region': ['US', 'EU'], 'amount': [730, 500]}
+        "total": await total.data(),           # → 1230
+    }
+
+@task
+async def report(summary: dict):
+    # receives the dict returned by analyze() — keys and all
+    print(f"Total sales: {summary['total']}")        # → 1230
+    print(f"By region:   {summary['by_region']}")    # → {'region': ['US', 'EU'], 'amount': [730, 500]}
 
 @job("sales_pipeline")
 def sales_pipeline():
     sales = load_sales()
     # dependencies resolved from arguments
-    result = analyze(sales=sales)
-    return result
+    summary = analyze(sales=sales)      # analyze() returns a dict
+    return report(summary=summary)      # the dict flows to report() by keyword
 
 if __name__ == "__main__":
     from aaiclick.orchestration import job_test
