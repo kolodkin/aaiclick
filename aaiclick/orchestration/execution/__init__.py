@@ -10,5 +10,5 @@ from .runner import (
     run_job_tasks,
     serialize_task_result,
 )
-from .worker import deregister_worker, list_workers, register_worker, request_worker_stop, worker_main_loop
-from .worker_context import TaskInfo, get_current_task_info, set_current_task_info
+from .execution_worker import deregister_execution_worker, list_execution_workers, register_execution_worker, request_execution_worker_stop, execution_worker_main_loop
+from .execution_worker_context import TaskInfo, get_current_task_info, set_current_task_info

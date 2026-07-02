@@ -25,7 +25,7 @@ class SqliteDbHandler(DbHandler):
     """SQLite: sequential SELECT + UPDATE, no row locking."""
 
     @staticmethod
-    async def claim_next_task(session: AsyncSession, worker_id: int, now: datetime) -> Task | None:
+    async def claim_next_task(session: AsyncSession, execution_worker_id: int, now: datetime) -> Task | None:
         # Step 1: find the next eligible task
         find_result = await session.execute(
             text(f"""
@@ -56,12 +56,12 @@ class SqliteDbHandler(DbHandler):
         await session.execute(
             text(
                 "UPDATE tasks "
-                "SET status = :claimed_status, worker_id = :worker_id, claimed_at = :now "
+                "SET status = :claimed_status, execution_worker_id = :execution_worker_id, claimed_at = :now "
                 "WHERE id = :task_id"
             ),
             {
                 "claimed_status": TASK_RUNNING,
-                "worker_id": worker_id,
+                "execution_worker_id": execution_worker_id,
                 "now": now,
                 "task_id": task_id,
             },

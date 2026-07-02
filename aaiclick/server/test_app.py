@@ -7,8 +7,8 @@ from fastapi.routing import APIRoute
 from starlette.routing import Route
 
 from aaiclick.backend import is_local
-from aaiclick.orchestration.execution import list_workers
-from aaiclick.orchestration.models import WORKER_ACTIVE
+from aaiclick.orchestration.execution import list_execution_workers
+from aaiclick.orchestration.models import EXECUTION_WORKER_ACTIVE
 from aaiclick.view_models import Problem
 
 from .app import API_PREFIX, _lifespan, app
@@ -34,8 +34,8 @@ def test_expected_routes_are_registered():
         f"{API_PREFIX}/registered-jobs/{{name}}/enable",
         f"{API_PREFIX}/registered-jobs/{{name}}/disable",
         f"{API_PREFIX}/tasks/{{task_id}}",
-        f"{API_PREFIX}/workers",
-        f"{API_PREFIX}/workers/{{worker_id}}/stop",
+        f"{API_PREFIX}/execution_workers",
+        f"{API_PREFIX}/execution_workers/{{execution_worker_id}}/stop",
         f"{API_PREFIX}/objects",
         f"{API_PREFIX}/objects/{{name}}",
         f"{API_PREFIX}/objects:purge",
@@ -59,7 +59,7 @@ async def test_openapi_schema_served_under_prefix(app_client):
         "JobDetail",
         "JobStatsView",
         "TaskDetail",
-        "WorkerView",
+        "ExecutionWorkerView",
         "RegisteredJobView",
         "ObjectView",
         "ObjectDetail",
@@ -96,7 +96,7 @@ async def test_openapi_advertises_problem_responses_for_declared_routes(app_clie
 
 
 async def test_lifespan_starts_worker_in_local_mode():
-    """In local mode, the lifespan registers an execution Worker row.
+    """In local mode, the lifespan registers an execution ExecutionWorker row.
 
     httpx 0.28's ASGITransport does not drive lifespans, so we enter
     ``_lifespan`` directly.
@@ -106,7 +106,7 @@ async def test_lifespan_starts_worker_in_local_mode():
 
     async with _lifespan(app):
         for _ in range(50):
-            if await list_workers(status=WORKER_ACTIVE):
+            if await list_execution_workers(status=EXECUTION_WORKER_ACTIVE):
                 return
             await asyncio.sleep(0.1)
 

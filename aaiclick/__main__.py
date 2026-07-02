@@ -5,10 +5,10 @@ Usage:
     python -m aaiclick setup --ai               # Also pull the configured Ollama model
     python -m aaiclick migrate                  # Run database migrations
     python -m aaiclick migrate --help           # Show migration help
-    python -m aaiclick local start              # Start REST + MCP server with workers (local mode)
-    python -m aaiclick worker start             # Start a distributed worker process
-    python -m aaiclick worker list              # List workers
-    python -m aaiclick worker stop <worker_id>  # Stop a worker gracefully
+    python -m aaiclick local start              # Start REST + MCP server with execution workers (local mode)
+    python -m aaiclick execution-worker start   # Start a distributed execution worker process
+    python -m aaiclick execution-worker list     # List execution workers
+    python -m aaiclick execution-worker stop <execution_worker_id>  # Stop an execution worker gracefully
     python -m aaiclick background start         # Start background cleanup worker
     python -m aaiclick job get <ref>            # Get job details (by ID or name)
     python -m aaiclick job stats <ref>          # Show job execution stats
@@ -43,7 +43,7 @@ from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import users as users_api
 from aaiclick.internal_api.errors import InternalApiError
 from aaiclick.orchestration.kubernetes_config import build_kubernetes_config
-from aaiclick.orchestration.models import JobStatus, PreservationMode, RunnerMode, WorkerStatus
+from aaiclick.orchestration.models import JobStatus, PreservationMode, RunnerMode, ExecutionWorkerStatus
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.orchestration.runner_config import ENTRY_TYPES
 from aaiclick.view_models import (
@@ -54,7 +54,7 @@ from aaiclick.view_models import (
     RegisteredJobFilter,
     RegisterJobRequest,
     RunJobRequest,
-    WorkerFilter,
+    ExecutionWorkerFilter,
 )
 
 _JSON_HELP = "Emit JSON instead of a table"
@@ -257,18 +257,18 @@ async def _run_data_purge(args: argparse.Namespace) -> None:
 
 
 async def _run_worker_list(args: argparse.Namespace) -> None:
-    filter = WorkerFilter(
-        status=cast(WorkerStatus, args.status) if args.status else None,
+    filter = ExecutionWorkerFilter(
+        status=cast(ExecutionWorkerStatus, args.status) if args.status else None,
         limit=args.limit,
         offset=args.offset,
     )
-    page = await _run_internal_api(internal_api.list_workers(filter))
-    _render(args, page, lambda p: cli_renderers.render_workers_page(p, offset=args.offset))
+    page = await _run_internal_api(internal_api.list_execution_workers(filter))
+    _render(args, page, lambda p: cli_renderers.render_execution_workers_page(p, offset=args.offset))
 
 
 async def _run_worker_stop(args: argparse.Namespace) -> None:
-    view = await _run_internal_api(internal_api.stop_worker(args.worker_id))
-    _render(args, view, cli_renderers.render_worker_stopped)
+    view = await _run_internal_api(internal_api.stop_execution_worker(args.execution_worker_id))
+    _render(args, view, cli_renderers.render_execution_worker_stopped)
 
 
 async def _run_user_create(args: argparse.Namespace) -> None:
@@ -434,20 +434,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Auto-restart on code change (dev)",
     )
 
-    # Add worker subcommand (distributed mode)
+    # Add execution-worker subcommand (distributed mode)
     worker_parser = subparsers.add_parser(
-        "worker",
-        help="Distributed worker management commands",
+        "execution-worker",
+        help="Distributed execution worker management commands",
     )
     worker_subparsers = worker_parser.add_subparsers(
-        dest="worker_command",
-        help="Worker commands",
+        dest="execution_worker_command",
+        help="Execution worker commands",
     )
 
-    # worker start
+    # execution-worker start
     worker_start_parser = worker_subparsers.add_parser(
         "start",
-        help="Start a distributed worker process",
+        help="Start a distributed execution worker process",
     )
     worker_start_parser.add_argument(
         "--max-tasks",
@@ -456,14 +456,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum tasks to execute (default: unlimited)",
     )
 
-    # worker list
+    # execution-worker list
     worker_list_parser = worker_subparsers.add_parser(
         "list",
-        help="List workers",
+        help="List execution workers",
     )
     worker_list_parser.add_argument(
         "--status",
-        choices=list(get_args(WorkerStatus)),
+        choices=list(get_args(ExecutionWorkerStatus)),
         default=None,
         help="Filter by status",
     )
@@ -481,15 +481,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_json_flag(worker_list_parser)
 
-    # worker stop
+    # execution-worker stop
     worker_stop_parser = worker_subparsers.add_parser(
         "stop",
-        help="Request a worker to stop gracefully",
+        help="Request an execution worker to stop gracefully",
     )
     worker_stop_parser.add_argument(
-        "worker_id",
+        "execution_worker_id",
         type=int,
-        help="Worker ID to stop",
+        help="Execution worker ID to stop",
     )
     _add_json_flag(worker_stop_parser)
 
@@ -943,20 +943,20 @@ def main():
         else:
             subcommands["local"].print_help()
 
-    elif args.command == "worker":
-        if args.worker_command == "start":
-            from aaiclick.orchestration.cli import start_worker
+    elif args.command == "execution-worker":
+        if args.execution_worker_command == "start":
+            from aaiclick.orchestration.cli import start_execution_worker
 
-            asyncio.run(start_worker(max_tasks=args.max_tasks))
+            asyncio.run(start_execution_worker(max_tasks=args.max_tasks))
 
-        elif args.worker_command == "list":
+        elif args.execution_worker_command == "list":
             asyncio.run(_run_worker_list(args))
 
-        elif args.worker_command == "stop":
+        elif args.execution_worker_command == "stop":
             asyncio.run(_run_worker_stop(args))
 
         else:
-            subcommands["worker"].print_help()
+            subcommands["execution-worker"].print_help()
 
     elif args.command == "job":
         if args.job_command == "get":

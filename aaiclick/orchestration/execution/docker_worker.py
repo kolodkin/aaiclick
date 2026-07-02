@@ -19,7 +19,7 @@ Reaper invariant: the container never writes terminal task status. The
 append-only and carry only ``TASK_RUNNING`` for the new attempt — never
 COMPLETED or FAILED. Terminal writes happen exclusively in the host
 worker via ``_handle_task_result``, or in the background reaper via
-``mark_dead_workers``."""
+``mark_dead_execution_workers``."""
 
 from __future__ import annotations
 
@@ -44,14 +44,14 @@ from .claiming import check_task_cancelled
 from .image_builder import resolve_image_tag
 from .runner import execute_task, register_returned_tasks, serialize_task_result
 from .runner_env import build_runner_env
-from .worker import (
+from .execution_worker import (
     POLL_INTERVAL,
     JobDispatch,
     RunnerResult,
     TaskVehicle,
     drive_vehicle,
     parse_task_timeout,
-    worker_heartbeat,
+    execution_worker_heartbeat,
 )
 
 CONTAINER_IPC_DIR = "/aaiclick-ipc"
@@ -283,7 +283,7 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", None]):
         self._ipc_dir = ipc_dir
         self._entry_type = entry_type
 
-    async def launch(self, task: Task, worker_id: int) -> _DockerHandle:
+    async def launch(self, task: Task, execution_worker_id: int) -> _DockerHandle:
         log_path = None
         if task.entry_type == ENTRY_SHELL:
             # The dir already encodes job/task; the filename is just the attempt
@@ -334,7 +334,7 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", None]):
 
 
 async def _run_task_in_container(
-    task: Task, worker_id: int, dispatch: JobDispatch
+    task: Task, execution_worker_id: int, dispatch: JobDispatch
 ) -> tuple[bool, dict | None, str | None, str | None]:
     """ExecuteFn for the Docker runner.
 
@@ -343,7 +343,7 @@ async def _run_task_in_container(
     shared ``drive_vehicle`` driver, which heartbeats and polls for
     cancellation while the container runs. Cancellation and timeout both
     terminate the container via ``docker kill``."""
-    image_tag = await resolve_image_tag(task, dispatch.image_source, dispatch.image_tag, worker_id)
+    image_tag = await resolve_image_tag(task, dispatch.image_source, dispatch.image_tag, execution_worker_id)
     await _docker_pull_if_registered(image_tag)
 
     timeout = parse_task_timeout()
@@ -355,11 +355,11 @@ async def _run_task_in_container(
         vehicle = _DockerVehicle(image_tag, log_base, env, ipc_dir, task.entry_type)
         result = await drive_vehicle(
             task,
-            worker_id,
+            execution_worker_id,
             vehicle,
             timeout=timeout,
             poll_interval=POLL_INTERVAL,
-            heartbeat_fn=worker_heartbeat,
+            heartbeat_fn=execution_worker_heartbeat,
         )
         return result.success, result.result_ref, result.log_path, result.error
 

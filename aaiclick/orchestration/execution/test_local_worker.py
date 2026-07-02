@@ -6,7 +6,7 @@ from sqlmodel import select
 from ..factories import create_job
 from ..models import TASK_COMPLETED, TASK_PENDING_CLEANUP, Task
 from ..orch_context import get_sql_session
-from .worker import worker_main_loop
+from .execution_worker import execution_worker_main_loop
 
 pytestmark = pytest.mark.usefixtures("fast_poll")
 
@@ -18,7 +18,7 @@ async def test_local_worker_executes_task(orch_ctx):
         "aaiclick.orchestration.fixtures.sample_tasks.simple_task",
     )
 
-    tasks_executed = await worker_main_loop(
+    tasks_executed = await execution_worker_main_loop(
         max_tasks=1,
         install_signal_handlers=False,
         max_empty_polls=1,
@@ -39,7 +39,7 @@ async def test_local_worker_handles_failure(orch_ctx):
         "aaiclick.orchestration.fixtures.sample_tasks.failing_task",
     )
 
-    tasks_executed = await worker_main_loop(
+    tasks_executed = await execution_worker_main_loop(
         max_tasks=1,
         install_signal_handlers=False,
         max_empty_polls=1,
@@ -56,7 +56,7 @@ async def test_local_worker_handles_failure(orch_ctx):
 
 async def test_local_worker_no_tasks(orch_ctx):
     """In local mode the worker exits after max_empty_polls with no tasks."""
-    tasks_executed = await worker_main_loop(
+    tasks_executed = await execution_worker_main_loop(
         install_signal_handlers=False,
         max_empty_polls=1,
     )

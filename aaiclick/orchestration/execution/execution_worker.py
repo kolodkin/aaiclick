@@ -1,4 +1,4 @@
-"""Worker management for orchestration backend."""
+"""ExecutionWorker management for orchestration backend."""
 
 from __future__ import annotations
 
@@ -22,13 +22,13 @@ from ..models import (
     TASK_FAILED,
     TASK_PENDING_CLEANUP,
     TASK_RUNNING,
-    WORKER_ACTIVE,
-    WORKER_STOPPED,
-    WORKER_STOPPING,
+    EXECUTION_WORKER_ACTIVE,
+    EXECUTION_WORKER_STOPPED,
+    EXECUTION_WORKER_STOPPING,
     RunnerMode,
     Task,
-    Worker,
-    WorkerStatus,
+    ExecutionWorker,
+    ExecutionWorkerStatus,
 )
 from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_MODULE, EntryType, ImageSourceT
@@ -37,8 +37,8 @@ from .runner import execute_task, register_returned_tasks, serialize_task_result
 
 logger = logging.getLogger(__name__)
 
-# Task execution strategy used by _worker_loop.
-# Args: (task, worker_id). Returns: (success, result_ref, log_path, error).
+# Task execution strategy used by _execution_worker_loop.
+# Args: (task, execution_worker_id). Returns: (success, result_ref, log_path, error).
 ExecuteFn = Callable[[Task, int], Awaitable[tuple[bool, dict | None, str | None, str | None]]]
 
 # Heartbeat interval in seconds
@@ -100,7 +100,7 @@ class TaskVehicle(Protocol[H, P]):
     to spawn an execution vehicle, wait for it, kill it, and read its
     result back."""
 
-    async def launch(self, task: Task, worker_id: int) -> H:
+    async def launch(self, task: Task, execution_worker_id: int) -> H:
         """Start the vehicle; return an opaque handle the other ops use."""
         ...
 
@@ -131,7 +131,7 @@ class TaskVehicle(Protocol[H, P]):
 
 
 async def _heartbeat_while_waiting(
-    worker_id: int,
+    execution_worker_id: int,
     done: asyncio.Event,
     interval: float,
     heartbeat_fn: Callable[[int], Awaitable[Any]],
@@ -142,7 +142,7 @@ async def _heartbeat_while_waiting(
             await asyncio.wait_for(done.wait(), timeout=interval)
             return
         except asyncio.TimeoutError:
-            await heartbeat_fn(worker_id)
+            await heartbeat_fn(execution_worker_id)
 
 
 async def _watch_for_cancellation(
@@ -172,7 +172,7 @@ async def _watch_for_cancellation(
 
 async def drive_vehicle(
     task: Task,
-    worker_id: int,
+    execution_worker_id: int,
     vehicle: TaskVehicle[H, P],
     *,
     timeout: float | None,
@@ -186,10 +186,10 @@ async def drive_vehicle(
     concurrently while it runs, then reads the result back. A fired
     cancellation overrides whatever the vehicle wrote — the host's
     explicit kill is the source of truth."""
-    handle = await vehicle.launch(task, worker_id)
+    handle = await vehicle.launch(task, execution_worker_id)
     done = asyncio.Event()
     cancelled = asyncio.Event()
-    heartbeat = asyncio.create_task(_heartbeat_while_waiting(worker_id, done, heartbeat_interval, heartbeat_fn))
+    heartbeat = asyncio.create_task(_heartbeat_while_waiting(execution_worker_id, done, heartbeat_interval, heartbeat_fn))
     cancel_watcher = asyncio.create_task(_watch_for_cancellation(vehicle, task, handle, done, cancelled, poll_interval))
 
     try:
@@ -208,7 +208,7 @@ async def _set_pending_cleanup(task_id: int, error: str, expected_epoch: int | N
 
     When ``expected_epoch`` is given and no longer matches the task's
     ``run_epoch``, the write is skipped — the run was cleared out from under
-    this worker and its failure must not clobber the reset state. The epoch
+    this execution_worker and its failure must not clobber the reset state. The epoch
     guard lives in the UPDATE's WHERE clause so it is enforced atomically with
     the write on every backend, not only where ``FOR UPDATE`` holds a row lock.
     """
@@ -228,173 +228,173 @@ async def _set_pending_cleanup(task_id: int, error: str, expected_epoch: int | N
         await session.commit()
 
 
-async def register_worker(
+async def register_execution_worker(
     hostname: str | None = None,
     pid: int | None = None,
-) -> Worker:
+) -> ExecutionWorker:
     """
-    Register a new worker process.
+    Register a new execution_worker process.
 
-    Creates a Worker record in the database with ACTIVE status.
+    Creates a ExecutionWorker record in the database with ACTIVE status.
     Uses system hostname and PID if not provided.
 
     Args:
-        hostname: Worker hostname (default: system hostname)
-        pid: Worker process ID (default: current process PID)
+        hostname: ExecutionWorker hostname (default: system hostname)
+        pid: ExecutionWorker process ID (default: current process PID)
 
     Returns:
-        Worker: Registered worker with ID populated
+        ExecutionWorker: Registered execution_worker with ID populated
     """
-    worker_id = get_snowflake_id()
-    worker = Worker(
-        id=worker_id,
+    execution_worker_id = get_snowflake_id()
+    execution_worker = ExecutionWorker(
+        id=execution_worker_id,
         hostname=hostname or socket.gethostname(),
         pid=pid or os.getpid(),
-        status=WORKER_ACTIVE,
+        status=EXECUTION_WORKER_ACTIVE,
         last_heartbeat=utc_now(),
         started_at=utc_now(),
     )
 
     async with get_sql_session() as session:
-        session.add(worker)
+        session.add(execution_worker)
         await session.commit()
-        await session.refresh(worker)
+        await session.refresh(execution_worker)
 
-    return worker
+    return execution_worker
 
 
-async def worker_heartbeat(worker_id: int) -> WorkerStatus | None:
+async def execution_worker_heartbeat(execution_worker_id: int) -> ExecutionWorkerStatus | None:
     """
-    Update worker's last_heartbeat timestamp.
+    Update execution_worker's last_heartbeat timestamp.
 
-    Should be called periodically to indicate the worker is alive.
+    Should be called periodically to indicate the execution_worker is alive.
     Updates last_heartbeat and ensures status is ACTIVE (unless STOPPING).
 
     Args:
-        worker_id: Worker ID to update
+        execution_worker_id: ExecutionWorker ID to update
 
     Returns:
-        The worker's current status after update, or None if worker not found.
+        The execution_worker's current status after update, or None if execution_worker not found.
     """
     async with get_sql_session() as session:
-        result = await session.execute(select(Worker).where(Worker.id == worker_id))
-        worker = result.scalar_one_or_none()
+        result = await session.execute(select(ExecutionWorker).where(ExecutionWorker.id == execution_worker_id))
+        execution_worker = result.scalar_one_or_none()
 
-        if worker is None:
+        if execution_worker is None:
             return None
 
-        worker.last_heartbeat = utc_now()
-        if worker.status != WORKER_STOPPING:
-            worker.status = WORKER_ACTIVE
-        session.add(worker)
+        execution_worker.last_heartbeat = utc_now()
+        if execution_worker.status != EXECUTION_WORKER_STOPPING:
+            execution_worker.status = EXECUTION_WORKER_ACTIVE
+        session.add(execution_worker)
         await session.commit()
 
-    return worker.status
+    return execution_worker.status
 
 
-async def request_worker_stop(worker_id: int) -> bool:
+async def request_execution_worker_stop(execution_worker_id: int) -> bool:
     """
-    Request a worker to stop gracefully.
+    Request a execution_worker to stop gracefully.
 
-    Sets the worker status to STOPPING. The worker will finish its current
+    Sets the execution_worker status to STOPPING. The execution_worker will finish its current
     task and exit on the next heartbeat check.
 
     Args:
-        worker_id: Worker ID to stop
+        execution_worker_id: ExecutionWorker ID to stop
 
     Returns:
-        bool: True if worker was found and set to STOPPING,
+        bool: True if execution_worker was found and set to STOPPING,
               False if not found or already in a terminal state
     """
     async with get_sql_session() as session:
-        result = await session.execute(select(Worker).where(Worker.id == worker_id))
-        worker = result.scalar_one_or_none()
+        result = await session.execute(select(ExecutionWorker).where(ExecutionWorker.id == execution_worker_id))
+        execution_worker = result.scalar_one_or_none()
 
-        if worker is None:
+        if execution_worker is None:
             return False
 
-        if worker.status in (WORKER_STOPPED, WORKER_STOPPING):
+        if execution_worker.status in (EXECUTION_WORKER_STOPPED, EXECUTION_WORKER_STOPPING):
             return False
 
-        worker.status = WORKER_STOPPING
-        session.add(worker)
+        execution_worker.status = EXECUTION_WORKER_STOPPING
+        session.add(execution_worker)
         await session.commit()
 
     return True
 
 
-async def deregister_worker(worker_id: int) -> bool:
+async def deregister_execution_worker(execution_worker_id: int) -> bool:
     """
-    Mark a worker as stopped.
+    Mark a execution_worker as stopped.
 
-    Updates worker status to STOPPED. Does not delete the record
+    Updates execution_worker status to STOPPED. Does not delete the record
     to preserve history.
 
     Args:
-        worker_id: Worker ID to deregister
+        execution_worker_id: ExecutionWorker ID to deregister
 
     Returns:
-        bool: True if worker was found and updated, False otherwise
+        bool: True if execution_worker was found and updated, False otherwise
     """
     async with get_sql_session() as session:
-        result = await session.execute(select(Worker).where(Worker.id == worker_id))
-        worker = result.scalar_one_or_none()
+        result = await session.execute(select(ExecutionWorker).where(ExecutionWorker.id == execution_worker_id))
+        execution_worker = result.scalar_one_or_none()
 
-        if worker is None:
+        if execution_worker is None:
             return False
 
-        worker.status = WORKER_STOPPED
-        session.add(worker)
+        execution_worker.status = EXECUTION_WORKER_STOPPED
+        session.add(execution_worker)
         await session.commit()
 
     return True
 
 
-async def list_workers(status: WorkerStatus | None = None) -> list[Worker]:
+async def list_execution_workers(status: ExecutionWorkerStatus | None = None) -> list[ExecutionWorker]:
     """
-    List workers, optionally filtered by status.
+    List execution_workers, optionally filtered by status.
 
     Args:
-        status: Filter by worker status (default: all workers)
+        status: Filter by execution_worker status (default: all execution_workers)
 
     Returns:
-        list[Worker]: List of workers matching criteria
+        list[ExecutionWorker]: List of execution_workers matching criteria
     """
     async with get_sql_session() as session:
-        query = select(Worker)
+        query = select(ExecutionWorker)
         if status is not None:
-            query = query.where(Worker.status == status)
-        query = query.order_by(col(Worker.started_at).desc())
+            query = query.where(ExecutionWorker.status == status)
+        query = query.order_by(col(ExecutionWorker.started_at).desc())
 
         result = await session.execute(query)
-        workers = result.scalars().all()
+        execution_workers = result.scalars().all()
 
-    return list(workers)
+    return list(execution_workers)
 
 
-async def get_worker(worker_id: int) -> Worker | None:
+async def get_execution_worker(execution_worker_id: int) -> ExecutionWorker | None:
     """
-    Get a worker by ID.
+    Get a execution_worker by ID.
 
     Args:
-        worker_id: Worker ID
+        execution_worker_id: ExecutionWorker ID
 
     Returns:
-        Worker if found, None otherwise
+        ExecutionWorker if found, None otherwise
     """
     async with get_sql_session() as session:
-        result = await session.execute(select(Worker).where(Worker.id == worker_id))
+        result = await session.execute(select(ExecutionWorker).where(ExecutionWorker.id == execution_worker_id))
         return result.scalar_one_or_none()
 
 
-async def _increment_worker_stat(worker_id: int, field: str) -> None:
-    """Increment a worker stat field (tasks_completed or tasks_failed)."""
+async def _increment_execution_worker_stat(execution_worker_id: int, field: str) -> None:
+    """Increment a execution_worker stat field (tasks_completed or tasks_failed)."""
     async with get_sql_session() as session:
-        result = await session.execute(select(Worker).where(Worker.id == worker_id))
-        worker = result.scalar_one_or_none()
-        if worker:
-            setattr(worker, field, getattr(worker, field) + 1)
-            session.add(worker)
+        result = await session.execute(select(ExecutionWorker).where(ExecutionWorker.id == execution_worker_id))
+        execution_worker = result.scalar_one_or_none()
+        if execution_worker:
+            setattr(execution_worker, field, getattr(execution_worker, field) + 1)
+            session.add(execution_worker)
             await session.commit()
 
 
@@ -419,7 +419,7 @@ async def _cancellation_monitor(task_id: int, exec_task: asyncio.Task, expected_
 
 async def _handle_task_result(
     task: Task,
-    worker_id: int,
+    execution_worker_id: int,
     success: bool,
     result_ref: dict | None,
     log_path: str | None,
@@ -435,39 +435,39 @@ async def _handle_task_result(
             expected_epoch=task.run_epoch,
         )
         if not updated:
-            logger.info("Worker %s task %s completion discarded (cleared or cancelled)", worker_id, task.id)
+            logger.info("ExecutionWorker %s task %s completion discarded (cleared or cancelled)", execution_worker_id, task.id)
             return False
-        logger.info("Worker %s completed task %s", worker_id, task.id)
-        await _increment_worker_stat(worker_id, "tasks_completed")
+        logger.info("ExecutionWorker %s completed task %s", execution_worker_id, task.id)
+        await _increment_execution_worker_stat(execution_worker_id, "tasks_completed")
         async with get_sql_session() as session:
             await try_complete_job(session, task.job_id)
             await session.commit()
         return True
 
     error = error or "Unknown error"
-    logger.warning("Worker %s task %s failed: %s", worker_id, task.id, error)
+    logger.warning("ExecutionWorker %s task %s failed: %s", execution_worker_id, task.id, error)
     await _set_pending_cleanup(task.id, error, expected_epoch=task.run_epoch)
-    await _increment_worker_stat(worker_id, "tasks_failed")
-    logger.info("Worker %s task %s set to PENDING_CLEANUP", worker_id, task.id)
+    await _increment_execution_worker_stat(execution_worker_id, "tasks_failed")
+    logger.info("ExecutionWorker %s task %s set to PENDING_CLEANUP", execution_worker_id, task.id)
     return False
 
 
-async def _worker_loop(
+async def _execution_worker_loop(
     execute_fn: ExecuteFn,
-    worker_id: int | None = None,
+    execution_worker_id: int | None = None,
     max_tasks: int | None = None,
     install_signal_handlers: bool = True,
     max_empty_polls: int | None = None,
     mode_label: str = "async",
 ) -> int:
-    """Shared worker loop used by both async and multiprocessing workers.
+    """Shared execution_worker loop used by both async and multiprocessing execution_workers.
 
     Claims tasks, delegates execution to ``execute_fn``, and handles
     status updates, retries, and job completion.
 
     Args:
         execute_fn: Async callable (Task) -> (success, result_ref, log_path, error).
-        worker_id: Worker ID (registers new worker if None).
+        execution_worker_id: ExecutionWorker ID (registers new execution_worker if None).
         max_tasks: Maximum tasks to execute (None for unlimited).
         install_signal_handlers: Install SIGTERM/SIGINT handlers.
         max_empty_polls: Exit after N consecutive empty polls (test helper).
@@ -486,18 +486,18 @@ async def _worker_loop(
         signal.signal(signal.SIGTERM, signal_handler)
         signal.signal(signal.SIGINT, signal_handler)
 
-    if worker_id is None:
-        worker = await register_worker()
-        worker_id = worker.id
+    if execution_worker_id is None:
+        execution_worker = await register_execution_worker()
+        execution_worker_id = execution_worker.id
         logger.info(
-            "Worker %s registered (host=%s, pid=%s, mode=%s)",
-            worker_id,
-            worker.hostname,
-            worker.pid,
+            "ExecutionWorker %s registered (host=%s, pid=%s, mode=%s)",
+            execution_worker_id,
+            execution_worker.hostname,
+            execution_worker.pid,
             mode_label,
         )
     else:
-        logger.info("Worker %s starting (mode=%s)", worker_id, mode_label)
+        logger.info("ExecutionWorker %s starting (mode=%s)", execution_worker_id, mode_label)
 
     tasks_executed = 0
     last_heartbeat = utc_now()
@@ -513,14 +513,14 @@ async def _worker_loop(
 
             now = utc_now()
             if (now - last_heartbeat).total_seconds() >= HEARTBEAT_INTERVAL:
-                status = await worker_heartbeat(worker_id)
+                status = await execution_worker_heartbeat(execution_worker_id)
                 last_heartbeat = now
-                if status == WORKER_STOPPING:
-                    logger.info("Worker %s received stop request", worker_id)
+                if status == EXECUTION_WORKER_STOPPING:
+                    logger.info("ExecutionWorker %s received stop request", execution_worker_id)
                     shutdown_requested = True
                     continue
 
-            task = await claim_next_task(worker_id)
+            task = await claim_next_task(execution_worker_id)
 
             if task is None:
                 empty_polls += 1
@@ -528,21 +528,21 @@ async def _worker_loop(
                 continue
 
             empty_polls = 0
-            logger.info("Worker %s executing task %s: %s", worker_id, task.id, task.entrypoint)
+            logger.info("ExecutionWorker %s executing task %s: %s", execution_worker_id, task.id, task.entrypoint)
             await update_task_status(task.id, TASK_RUNNING, expected_epoch=task.run_epoch)
 
-            success, result_ref, log_path, error = await execute_fn(task, worker_id)
-            if await _handle_task_result(task, worker_id, success, result_ref, log_path, error):
+            success, result_ref, log_path, error = await execute_fn(task, execution_worker_id)
+            if await _handle_task_result(task, execution_worker_id, success, result_ref, log_path, error):
                 tasks_executed += 1
 
     finally:
-        await deregister_worker(worker_id)
-        logger.info("Worker %s stopped (executed %s tasks)", worker_id, tasks_executed)
+        await deregister_execution_worker(execution_worker_id)
+        logger.info("ExecutionWorker %s stopped (executed %s tasks)", execution_worker_id, tasks_executed)
 
     return tasks_executed
 
 
-async def _execute_in_process(task: Task, worker_id: int) -> tuple[bool, dict | None, str | None, str | None]:
+async def _execute_in_process(task: Task, execution_worker_id: int) -> tuple[bool, dict | None, str | None, str | None]:
     """Execute a task in the current async process with cancellation monitoring."""
     exec_task = asyncio.create_task(execute_task(task))
     monitor = asyncio.create_task(_cancellation_monitor(task.id, exec_task, task.run_epoch))
@@ -565,19 +565,19 @@ async def _execute_in_process(task: Task, worker_id: int) -> tuple[bool, dict | 
             pass
 
 
-async def worker_main_loop(
-    worker_id: int | None = None,
+async def execution_worker_main_loop(
+    execution_worker_id: int | None = None,
     max_tasks: int | None = None,
     install_signal_handlers: bool = True,
     max_empty_polls: int | None = None,
 ) -> int:
-    """Main worker execution loop (in-process async execution).
+    """Main execution_worker execution loop (in-process async execution).
 
     Continuously polls for and executes tasks until shutdown signal
     or max_tasks is reached. Must be called inside an active orch_context.
 
     Args:
-        worker_id: Worker ID (registers new worker if None)
+        execution_worker_id: ExecutionWorker ID (registers new execution_worker if None)
         max_tasks: Maximum tasks to execute (None for unlimited)
         install_signal_handlers: Install SIGTERM/SIGINT handlers (default True)
         max_empty_polls: Exit after N consecutive empty polls (None for unlimited)
@@ -585,9 +585,9 @@ async def worker_main_loop(
     Returns:
         int: Number of tasks executed
     """
-    return await _worker_loop(
+    return await _execution_worker_loop(
         execute_fn=_execute_in_process,
-        worker_id=worker_id,
+        execution_worker_id=execution_worker_id,
         max_tasks=max_tasks,
         install_signal_handlers=install_signal_handlers,
         max_empty_polls=max_empty_polls,

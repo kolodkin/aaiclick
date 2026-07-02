@@ -1,4 +1,4 @@
-"""Tests for worker management and task claiming."""
+"""Tests for execution_worker management and task claiming."""
 
 import asyncio
 
@@ -14,9 +14,9 @@ from ..models import (
     JOB_RUNNING,
     TASK_COMPLETED,
     TASK_RUNNING,
-    WORKER_ACTIVE,
-    WORKER_STOPPED,
-    WORKER_STOPPING,
+    EXECUTION_WORKER_ACTIVE,
+    EXECUTION_WORKER_STOPPED,
+    EXECUTION_WORKER_STOPPING,
     Group,
     Job,
     Task,
@@ -24,103 +24,103 @@ from ..models import (
 from ..orch_context import commit_tasks, get_sql_session
 from .claiming import claim_next_task, update_task_status
 from .runner import execute_task
-from .worker import (
-    deregister_worker,
-    get_worker,
-    list_workers,
-    register_worker,
-    request_worker_stop,
-    worker_heartbeat,
+from .execution_worker import (
+    deregister_execution_worker,
+    get_execution_worker,
+    list_execution_workers,
+    register_execution_worker,
+    request_execution_worker_stop,
+    execution_worker_heartbeat,
 )
 
 
 async def test_register_worker(orch_ctx):
-    """Test worker registration."""
-    worker = await register_worker()
+    """Test execution_worker registration."""
+    execution_worker = await register_execution_worker()
 
-    assert worker.id is not None
-    assert worker.status == WORKER_ACTIVE
-    assert worker.hostname is not None
-    assert worker.pid is not None
-    assert worker.tasks_completed == 0
-    assert worker.tasks_failed == 0
+    assert execution_worker.id is not None
+    assert execution_worker.status == EXECUTION_WORKER_ACTIVE
+    assert execution_worker.hostname is not None
+    assert execution_worker.pid is not None
+    assert execution_worker.tasks_completed == 0
+    assert execution_worker.tasks_failed == 0
 
     # Verify in database
-    db_worker = await get_worker(worker.id)
+    db_worker = await get_execution_worker(execution_worker.id)
     assert db_worker is not None
-    assert db_worker.status == WORKER_ACTIVE
+    assert db_worker.status == EXECUTION_WORKER_ACTIVE
 
 
 async def test_register_worker_custom_values(orch_ctx):
-    """Test worker registration with custom hostname and pid."""
-    worker = await register_worker(hostname="test-host", pid=12345)
+    """Test execution_worker registration with custom hostname and pid."""
+    execution_worker = await register_execution_worker(hostname="test-host", pid=12345)
 
-    assert worker.hostname == "test-host"
-    assert worker.pid == 12345
+    assert execution_worker.hostname == "test-host"
+    assert execution_worker.pid == 12345
 
 
 async def test_worker_heartbeat(orch_ctx):
-    """Test worker heartbeat updates."""
-    worker = await register_worker()
-    original_heartbeat = worker.last_heartbeat
+    """Test execution_worker heartbeat updates."""
+    execution_worker = await register_execution_worker()
+    original_heartbeat = execution_worker.last_heartbeat
 
     # Wait a bit and send heartbeat
     await asyncio.sleep(0.1)
-    result = await worker_heartbeat(worker.id)
+    result = await execution_worker_heartbeat(execution_worker.id)
 
-    assert result == WORKER_ACTIVE
+    assert result == EXECUTION_WORKER_ACTIVE
 
     # Verify heartbeat was updated
-    db_worker = await get_worker(worker.id)
+    db_worker = await get_execution_worker(execution_worker.id)
     assert db_worker is not None
     assert db_worker.last_heartbeat > original_heartbeat
 
 
 async def test_worker_heartbeat_nonexistent(orch_ctx):
-    """Test heartbeat for non-existent worker returns None."""
-    result = await worker_heartbeat(999999999)
+    """Test heartbeat for non-existent execution_worker returns None."""
+    result = await execution_worker_heartbeat(999999999)
     assert result is None
 
 
 async def test_deregister_worker(orch_ctx):
-    """Test worker deregistration."""
-    worker = await register_worker()
+    """Test execution_worker deregistration."""
+    execution_worker = await register_execution_worker()
 
-    result = await deregister_worker(worker.id)
+    result = await deregister_execution_worker(execution_worker.id)
     assert result is True
 
     # Verify status changed
-    db_worker = await get_worker(worker.id)
+    db_worker = await get_execution_worker(execution_worker.id)
     assert db_worker is not None
-    assert db_worker.status == WORKER_STOPPED
+    assert db_worker.status == EXECUTION_WORKER_STOPPED
 
 
 async def test_deregister_worker_nonexistent(orch_ctx):
-    """Test deregistering non-existent worker returns False."""
-    result = await deregister_worker(999999999)
+    """Test deregistering non-existent execution_worker returns False."""
+    result = await deregister_execution_worker(999999999)
     assert result is False
 
 
 async def test_list_workers(orch_ctx):
-    """Test listing workers."""
-    # Register multiple workers
-    worker1 = await register_worker(hostname="host1", pid=1001)
-    worker2 = await register_worker(hostname="host2", pid=1002)
+    """Test listing execution_workers."""
+    # Register multiple execution_workers
+    worker1 = await register_execution_worker(hostname="host1", pid=1001)
+    worker2 = await register_execution_worker(hostname="host2", pid=1002)
 
     # Deregister one
-    await deregister_worker(worker1.id)
+    await deregister_execution_worker(worker1.id)
 
-    # List all workers
-    all_workers = await list_workers()
+    # List all execution_workers
+    all_workers = await list_execution_workers()
     assert len(all_workers) >= 2
 
-    # List only active workers
-    active_workers = await list_workers(status=WORKER_ACTIVE)
+    # List only active execution_workers
+    active_workers = await list_execution_workers(status=EXECUTION_WORKER_ACTIVE)
     active_ids = [w.id for w in active_workers]
     assert worker2.id in active_ids
 
-    # List only stopped workers
-    stopped_workers = await list_workers(status=WORKER_STOPPED)
+    # List only stopped execution_workers
+    stopped_workers = await list_execution_workers(status=EXECUTION_WORKER_STOPPED)
     stopped_ids = [w.id for w in stopped_workers]
     assert worker1.id in stopped_ids
 
@@ -131,49 +131,49 @@ async def test_list_workers(orch_ctx):
 
 
 async def test_request_worker_stop(orch_ctx):
-    """Test requesting a worker to stop sets status to STOPPING."""
-    worker = await register_worker()
+    """Test requesting a execution_worker to stop sets status to STOPPING."""
+    execution_worker = await register_execution_worker()
 
-    result = await request_worker_stop(worker.id)
+    result = await request_execution_worker_stop(execution_worker.id)
     assert result is True
 
-    db_worker = await get_worker(worker.id)
+    db_worker = await get_execution_worker(execution_worker.id)
     assert db_worker is not None
-    assert db_worker.status == WORKER_STOPPING
+    assert db_worker.status == EXECUTION_WORKER_STOPPING
 
 
 async def test_request_worker_stop_nonexistent(orch_ctx):
-    """Test requesting stop for non-existent worker returns False."""
-    result = await request_worker_stop(999999999)
+    """Test requesting stop for non-existent execution_worker returns False."""
+    result = await request_execution_worker_stop(999999999)
     assert result is False
 
 
 async def test_request_worker_stop_already_stopped(orch_ctx):
-    """Test requesting stop for already-stopped worker returns False."""
-    worker = await register_worker()
-    await deregister_worker(worker.id)
+    """Test requesting stop for already-stopped execution_worker returns False."""
+    execution_worker = await register_execution_worker()
+    await deregister_execution_worker(execution_worker.id)
 
-    result = await request_worker_stop(worker.id)
+    result = await request_execution_worker_stop(execution_worker.id)
     assert result is False
 
 
 async def test_request_worker_stop_already_stopping(orch_ctx):
-    """Test requesting stop for already-stopping worker returns False."""
-    worker = await register_worker()
-    await request_worker_stop(worker.id)
+    """Test requesting stop for already-stopping execution_worker returns False."""
+    execution_worker = await register_execution_worker()
+    await request_execution_worker_stop(execution_worker.id)
 
-    result = await request_worker_stop(worker.id)
+    result = await request_execution_worker_stop(execution_worker.id)
     assert result is False
 
 
 async def test_heartbeat_preserves_stopping_status(orch_ctx):
     """Test that heartbeat does not reset STOPPING back to ACTIVE."""
-    worker = await register_worker()
-    await request_worker_stop(worker.id)
+    execution_worker = await register_execution_worker()
+    await request_execution_worker_stop(execution_worker.id)
 
     # Heartbeat should return STOPPING, not reset to ACTIVE
-    result = await worker_heartbeat(worker.id)
-    assert result == WORKER_STOPPING
+    result = await execution_worker_heartbeat(execution_worker.id)
+    assert result == EXECUTION_WORKER_STOPPING
 
 
 # =============================================================================
@@ -182,24 +182,24 @@ async def test_heartbeat_preserves_stopping_status(orch_ctx):
 
 
 async def test_claim_next_task_no_tasks(orch_ctx):
-    """Test claiming when no tasks are available for the worker."""
-    worker = await register_worker()
+    """Test claiming when no tasks are available for the execution_worker."""
+    execution_worker = await register_execution_worker()
 
     # Claim all available tasks first to get to empty state
     while True:
-        task = await claim_next_task(worker.id)
+        task = await claim_next_task(execution_worker.id)
         if task is None:
             break
 
     # Now verify no more tasks are available
-    task = await claim_next_task(worker.id)
+    task = await claim_next_task(execution_worker.id)
     assert task is None
 
 
 async def test_claim_next_task_basic(orch_ctx):
     """Test basic task claiming."""
-    # Register worker
-    worker = await register_worker()
+    # Register execution_worker
+    execution_worker = await register_execution_worker()
 
     # Create a job with a task
     job = await create_job(
@@ -208,12 +208,12 @@ async def test_claim_next_task_basic(orch_ctx):
     )
 
     # Claim the task we just created
-    task = await claim_next_task(worker.id)
+    task = await claim_next_task(execution_worker.id)
 
     assert task is not None
     assert task.job_id == job.id
     assert task.status == TASK_RUNNING
-    assert task.worker_id == worker.id
+    assert task.execution_worker_id == execution_worker.id
     assert task.claimed_at is not None
 
     # Verify job status changed to RUNNING
@@ -229,10 +229,10 @@ async def test_claim_next_task_basic(orch_ctx):
     reason="FOR UPDATE SKIP LOCKED requires PostgreSQL",
 )
 async def test_claim_next_task_skip_locked(orch_ctx):
-    """Test that concurrent workers don't claim the same task."""
-    # Register workers first
-    worker1 = await register_worker(hostname="worker1", pid=1001)
-    worker2 = await register_worker(hostname="worker2", pid=1002)
+    """Test that concurrent execution_workers don't claim the same task."""
+    # Register execution_workers first
+    worker1 = await register_execution_worker(hostname="worker1", pid=1001)
+    worker2 = await register_execution_worker(hostname="worker2", pid=1002)
 
     # Create multiple jobs with tasks
     await create_job(
@@ -244,26 +244,26 @@ async def test_claim_next_task_skip_locked(orch_ctx):
         "aaiclick.orchestration.fixtures.sample_tasks.async_task",
     )
 
-    # Both workers claim tasks concurrently
+    # Both execution_workers claim tasks concurrently
     task1, task2 = await asyncio.gather(
         claim_next_task(worker1.id),
         claim_next_task(worker2.id),
     )
 
-    # Each worker should get a different task
+    # Each execution_worker should get a different task
     assert task1 is not None
     assert task2 is not None
     assert task1.id != task2.id
-    assert task1.worker_id == worker1.id
-    assert task2.worker_id == worker2.id
+    assert task1.execution_worker_id == worker1.id
+    assert task2.execution_worker_id == worker2.id
 
 
 async def test_claim_next_task_prioritizes_oldest_job(orch_ctx, monkeypatch, tmpdir):
     """Test that older running jobs are prioritized."""
     monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
 
-    # Create worker first
-    worker = await register_worker()
+    # Create execution_worker first
+    execution_worker = await register_execution_worker()
 
     # Create first job and start it
     job1 = await create_job(
@@ -272,7 +272,7 @@ async def test_claim_next_task_prioritizes_oldest_job(orch_ctx, monkeypatch, tmp
     )
 
     # Claim the first task to start job1
-    task1 = await claim_next_task(worker.id)
+    task1 = await claim_next_task(execution_worker.id)
     assert task1 is not None
     assert task1.job_id == job1.id
 
@@ -294,15 +294,15 @@ async def test_claim_next_task_prioritizes_oldest_job(orch_ctx, monkeypatch, tmp
     await commit_tasks(extra_task, job_id=job1.id)
 
     # Claim next task - should prioritize job1 (older running job)
-    next_task = await claim_next_task(worker.id)
+    next_task = await claim_next_task(execution_worker.id)
     assert next_task is not None
     assert next_task.job_id == job1.id
 
 
 async def test_claim_respects_task_dependency(orch_ctx):
     """Test that claim_next_task respects task -> task dependencies."""
-    # Register worker
-    worker = await register_worker()
+    # Register execution_worker
+    execution_worker = await register_execution_worker()
 
     # Create job with two dependent tasks
     job = await create_job(
@@ -322,19 +322,19 @@ async def test_claim_respects_task_dependency(orch_ctx):
     await commit_tasks(task2, job_id=job.id)
 
     # First claim should get initial_task (no dependencies)
-    claimed1 = await claim_next_task(worker.id)
+    claimed1 = await claim_next_task(execution_worker.id)
     assert claimed1 is not None
     assert claimed1.id == initial_task.id
 
     # Second claim should return None (task2 depends on uncompleted initial_task)
-    claimed2 = await claim_next_task(worker.id)
+    claimed2 = await claim_next_task(execution_worker.id)
     assert claimed2 is None
 
     # Mark initial_task as completed
     await update_task_status(initial_task.id, TASK_COMPLETED)
 
     # Now task2 should be claimable
-    claimed3 = await claim_next_task(worker.id)
+    claimed3 = await claim_next_task(execution_worker.id)
     assert claimed3 is not None
     assert claimed3.id == task2.id
 
@@ -343,8 +343,8 @@ async def test_claim_respects_group_dependency(orch_ctx, monkeypatch, tmpdir):
     """Test that claim_next_task respects group -> task dependencies."""
     monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
 
-    # Register worker
-    worker = await register_worker()
+    # Register execution_worker
+    execution_worker = await register_execution_worker()
 
     # Create job
     job = await create_job(
@@ -377,18 +377,18 @@ async def test_claim_respects_group_dependency(orch_ctx, monkeypatch, tmpdir):
     await commit_tasks(task2, job_id=job.id)
 
     # Claim initial_task (in group1)
-    claimed1 = await claim_next_task(worker.id)
+    claimed1 = await claim_next_task(execution_worker.id)
     assert claimed1 is not None
     assert claimed1.id == initial_task.id
 
     # task2 should not be claimable (depends on group1 which has uncompleted task)
-    claimed2 = await claim_next_task(worker.id)
+    claimed2 = await claim_next_task(execution_worker.id)
     assert claimed2 is None
 
     # Complete initial_task
     await update_task_status(initial_task.id, TASK_COMPLETED)
 
     # Now task2 should be claimable (group1 is complete)
-    claimed3 = await claim_next_task(worker.id)
+    claimed3 = await claim_next_task(execution_worker.id)
     assert claimed3 is not None
     assert claimed3.id == task2.id

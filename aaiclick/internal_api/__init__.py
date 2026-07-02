@@ -18,7 +18,7 @@ from .errors import (
     Invalid,
     NotFound,
     Unauthorized,
-    WorkerSpawnFailed,
+    ExecutionWorkerSpawnFailed,
 )
 from .jobs import cancel_job, get_job, job_stats, list_jobs, run_job
 from .lineage import (
@@ -34,4 +34,4 @@ from .registered_jobs import (
     register_job,
 )
 from .tasks import get_task
-from .workers import list_workers, start_worker, stop_worker
+from .execution_workers import list_execution_workers, start_execution_worker, stop_execution_worker

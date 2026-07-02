@@ -54,7 +54,7 @@ async def _get_row(key: str) -> BuildTask | None:
         return (await session.execute(select(BuildTask).where(BuildTask.image_key == key))).scalar_one_or_none()
 
 
-async def _claim(source: ImageBuild, key: str, image_tag: str, worker_id: int) -> int | None:
+async def _claim(source: ImageBuild, key: str, image_tag: str, execution_worker_id: int) -> int | None:
     """Atomically claim the build. Returns the claimed ``BuildTask`` id, or None
     if another worker holds a live lease."""
     now = utc_now()
@@ -70,7 +70,7 @@ async def _claim(source: ImageBuild, key: str, image_tag: str, worker_id: int) -
                 git_sha=source.git_sha,
                 dockerfile=source.dockerfile,
                 status=BUILD_BUILDING,
-                holder_worker_id=worker_id,
+                holder_execution_worker_id=execution_worker_id,
                 lease_expires_at=_lease_until(),
                 attempts=1,
                 started_at=now,
@@ -92,7 +92,7 @@ async def _claim(source: ImageBuild, key: str, image_tag: str, worker_id: int) -
                 )
                 .values(
                     status=BUILD_BUILDING,
-                    holder_worker_id=worker_id,
+                    holder_execution_worker_id=execution_worker_id,
                     lease_expires_at=_lease_until(),
                     attempts=BuildTask.attempts + 1,
                     started_at=now,
@@ -108,23 +108,23 @@ async def _claim(source: ImageBuild, key: str, image_tag: str, worker_id: int) -
         return inserted_id
 
 
-async def _finish(build_task_id: int, worker_id: int, *, status: str, error: str | None) -> None:
-    """Record the build outcome, but only if ``worker_id`` still holds the lease.
+async def _finish(build_task_id: int, execution_worker_id: int, *, status: str, error: str | None) -> None:
+    """Record the build outcome, but only if ``execution_worker_id`` still holds the lease.
 
     A stale worker whose lease was reclaimed by another worker after an
-    expired timeout will lose the ``holder_worker_id`` match here, so its
+    expired timeout will lose the ``holder_execution_worker_id`` match here, so its
     write affects zero rows instead of clobbering the current holder's
     result."""
     async with get_sql_session() as session:
         await session.execute(
             update(BuildTask)
-            .where(BuildTask.id == build_task_id, BuildTask.holder_worker_id == worker_id)
+            .where(BuildTask.id == build_task_id, BuildTask.holder_execution_worker_id == execution_worker_id)
             .values(status=status, error=error, finished_at=utc_now())
         )
         await session.commit()
 
 
-async def ensure_image(source: ImageBuild, worker_id: int) -> EnsuredImage:
+async def ensure_image(source: ImageBuild, execution_worker_id: int) -> EnsuredImage:
     """Build (or wait for) the image for ``source``; return its tag and the
     ``BuildTask`` id it resolved to. Exactly one build runs per image identity."""
     key = image_key(source)
@@ -137,7 +137,7 @@ async def ensure_image(source: ImageBuild, worker_id: int) -> EnsuredImage:
             if row.status == BUILD_FAILED and row.attempts > row.max_retries:
                 raise BuildFailed(f"image build failed (BuildTask {row.id}): {row.error}")
 
-        build_task_id = await _claim(source, key, image_tag, worker_id)
+        build_task_id = await _claim(source, key, image_tag, execution_worker_id)
         if build_task_id is None:
             await asyncio.sleep(BUILD_POLL_INTERVAL)
             continue
@@ -145,17 +145,17 @@ async def ensure_image(source: ImageBuild, worker_id: int) -> EnsuredImage:
         try:
             await build_image_to_tag(source, image_tag)
         except Exception as e:  # noqa: BLE001 — record any build error, then retry-or-raise
-            await _finish(build_task_id, worker_id, status=BUILD_FAILED, error=f"{type(e).__name__}: {e}")
+            await _finish(build_task_id, execution_worker_id, status=BUILD_FAILED, error=f"{type(e).__name__}: {e}")
             continue
 
-        await _finish(build_task_id, worker_id, status=BUILD_READY, error=None)
+        await _finish(build_task_id, execution_worker_id, status=BUILD_READY, error=None)
         return EnsuredImage(image_tag, build_task_id)
 
 
-async def ensure_built_image(task_id: int, source: ImageBuild, worker_id: int) -> str:
+async def ensure_built_image(task_id: int, source: ImageBuild, execution_worker_id: int) -> str:
     """Build the image for ``source`` on demand (once, shared across workers) and
     stamp the task's ``build_task_id`` link. Returns the resolved image tag."""
-    ensured = await ensure_image(source, worker_id)
+    ensured = await ensure_image(source, execution_worker_id)
     async with get_sql_session() as session:
         await session.execute(update(Task).where(Task.id == task_id).values(build_task_id=ensured.build_task_id))
         await session.commit()
@@ -163,14 +163,14 @@ async def ensure_built_image(task_id: int, source: ImageBuild, worker_id: int) -
 
 
 async def resolve_image_tag(
-    task: Task, image_source: ImageSourceT | None, image_tag: str | None, worker_id: int
+    task: Task, image_source: ImageSourceT | None, image_tag: str | None, execution_worker_id: int
 ) -> str:
     """Resolve the image tag a task's container should run: build on demand for an
     ``ImageBuild`` source (stamping the task's ``build_task_id``), or the prebuilt
     tag verbatim. Shared by the docker and kubernetes runners so the build-vs-prebuilt
     decision lives in one place. Raises if a prebuilt source carries no tag."""
     if isinstance(image_source, ImageBuild):
-        return await ensure_built_image(task.id, image_source, worker_id)
+        return await ensure_built_image(task.id, image_source, execution_worker_id)
     if not image_tag:
         raise ValueError(f"Job {task.job_id} has no image_tag")
     return image_tag

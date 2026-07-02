@@ -1,7 +1,7 @@
 """
 aaiclick.orchestration.models - Data models for orchestration backend.
 
-This module defines SQLModel models for jobs, tasks, workers, groups, and dependencies.
+This module defines SQLModel models for jobs, tasks, execution workers, groups, and dependencies.
 All IDs are snowflake IDs (64-bit integers) generated using aaiclick.snowflake.
 """
 
@@ -66,12 +66,12 @@ task's transitive upstream is ``FAILED``, ``CANCELLED``, or ``UPSTREAM_FAILED``.
 Job rollup treats it as a failure."""
 
 
-WORKER_ACTIVE = "ACTIVE"
-WORKER_IDLE = "IDLE"
-WORKER_STOPPING = "STOPPING"
-WORKER_STOPPED = "STOPPED"
-WorkerStatus = Literal["ACTIVE", "IDLE", "STOPPING", "STOPPED"]
-"""Worker status."""
+EXECUTION_WORKER_ACTIVE = "ACTIVE"
+EXECUTION_WORKER_IDLE = "IDLE"
+EXECUTION_WORKER_STOPPING = "STOPPING"
+EXECUTION_WORKER_STOPPED = "STOPPED"
+ExecutionWorkerStatus = Literal["ACTIVE", "IDLE", "STOPPING", "STOPPED"]
+"""ExecutionWorker status."""
 
 
 BUILD_PENDING = "PENDING"
@@ -189,20 +189,20 @@ class Job(SQLModel, table=True):
     error: str | None = Field(default=None)
 
 
-class Worker(SQLModel, table=True):
+class ExecutionWorker(SQLModel, table=True):
     """
-    Worker model - represents a worker process that executes tasks.
+    ExecutionWorker model - represents a worker process that executes tasks.
 
     Workers claim tasks from the queue and execute them.
     """
 
-    __tablename__: ClassVar[str] = "workers"
+    __tablename__: ClassVar[str] = "execution_workers"
 
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
     hostname: str = Field(index=True)
     pid: int = Field()
-    status: WorkerStatus = Field(
-        default=WORKER_ACTIVE,
+    status: ExecutionWorkerStatus = Field(
+        default=EXECUTION_WORKER_ACTIVE,
         sa_column=Column(String, nullable=False, index=True),
     )
     created_at: datetime = Field(default_factory=utc_now)
@@ -377,8 +377,8 @@ class Task(SQLModel, table=True):
     claimed_at: datetime | None = Field(default=None)
     started_at: datetime | None = Field(default=None)
     completed_at: datetime | None = Field(default=None)
-    worker_id: int | None = Field(
-        default=None, sa_column=Column(BigInteger, ForeignKey("workers.id"), index=True, nullable=True)
+    execution_worker_id: int | None = Field(
+        default=None, sa_column=Column(BigInteger, ForeignKey("execution_workers.id"), index=True, nullable=True)
     )
     build_task_id: int | None = Field(
         default=None, sa_column=Column(BigInteger, ForeignKey("build_tasks.id"), index=True, nullable=True)
@@ -519,7 +519,7 @@ class BuildTask(SQLModel, table=True):
         default=BUILD_PENDING,
         sa_column=Column(String, nullable=False, index=True),
     )
-    holder_worker_id: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True))
+    holder_execution_worker_id: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True))
     lease_expires_at: datetime | None = Field(default=None)
     log_path: str | None = Field(default=None)
     error: str | None = Field(default=None)

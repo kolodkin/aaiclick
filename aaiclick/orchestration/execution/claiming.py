@@ -40,7 +40,7 @@ class TaskNotFound(ValueError):
     """Raised when no task with the given id exists."""
 
 
-async def claim_next_task(worker_id: int) -> Task | None:
+async def claim_next_task(execution_worker_id: int) -> Task | None:
     """
     Atomically claim the next available task for a worker.
 
@@ -57,14 +57,14 @@ async def claim_next_task(worker_id: int) -> Task | None:
     - Group -> Group: Tasks in group wait for all tasks in previous group to complete
 
     Args:
-        worker_id: ID of the worker claiming the task
+        execution_worker_id: ID of the worker claiming the task
 
     Returns:
         Task if one was claimed, None if no tasks available
     """
     handler = get_db_handler()
     async with get_sql_session() as session:
-        task = await handler.claim_next_task(session, worker_id, utc_now())
+        task = await handler.claim_next_task(session, execution_worker_id, utc_now())
         await session.commit()
         return task
 
@@ -361,7 +361,7 @@ async def clear_task(task_id: int) -> tuple[list[int], Job]:
         await session.execute(
             text(
                 f"UPDATE tasks SET status = :pending, run_epoch = run_epoch + 1, "
-                f"worker_id = NULL, claimed_at = NULL, started_at = NULL, "
+                f"execution_worker_id = NULL, claimed_at = NULL, started_at = NULL, "
                 f"completed_at = NULL, error = NULL, result = NULL, log_path = NULL, "
                 f"retry_after = NULL WHERE id IN ({ph})"
             ),

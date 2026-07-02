@@ -19,12 +19,12 @@ from aaiclick.ai.agents.lineage_tools import ColumnSchema, QueryResult, TableSch
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.oplog.lineage import OplogGraph
-from aaiclick.orchestration.execution.worker import register_worker
+from aaiclick.orchestration.execution.execution_worker import register_execution_worker
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
-from aaiclick.orchestration.models import WORKER_STOPPING
-from aaiclick.orchestration.view_models import ClearTaskView, JobDetail, JobView, TaskDetail, WorkerView
+from aaiclick.orchestration.models import EXECUTION_WORKER_STOPPING
+from aaiclick.orchestration.view_models import ClearTaskView, JobDetail, JobView, TaskDetail, ExecutionWorkerView
 from aaiclick.testing import make_oplog_node
 from aaiclick.view_models import Page
 
@@ -42,9 +42,9 @@ EXPECTED_TOOLS = {
     "disable_job",
     "get_task",
     "clear_task",
-    "list_workers",
-    "start_worker",
-    "stop_worker",
+    "list_execution_workers",
+    "start_execution_worker",
+    "stop_execution_worker",
     "list_objects",
     "get_object",
     "delete_object",
@@ -117,21 +117,21 @@ async def test_clear_task_returns_view(orch_ctx, mcp_client):
 
 
 async def test_list_workers_returns_page(orch_ctx, mcp_client):
-    await register_worker(hostname="mcp_worker")
+    await register_execution_worker(hostname="mcp_worker")
 
-    result = await mcp_client.call_tool("list_workers", {})
+    result = await mcp_client.call_tool("list_execution_workers", {})
 
-    page = Page[WorkerView].model_validate(result.structured_content)
+    page = Page[ExecutionWorkerView].model_validate(result.structured_content)
     assert any(w.hostname == "mcp_worker" for w in page.items)
 
 
 async def test_stop_worker_transitions_to_stopping(orch_ctx, mcp_client):
-    worker = await register_worker(hostname="mcp_stop")
+    worker = await register_execution_worker(hostname="mcp_stop")
 
-    result = await mcp_client.call_tool("stop_worker", {"worker_id": worker.id})
+    result = await mcp_client.call_tool("stop_execution_worker", {"execution_worker_id": worker.id})
 
-    view = WorkerView.model_validate(result.structured_content)
-    assert view.status == WORKER_STOPPING
+    view = ExecutionWorkerView.model_validate(result.structured_content)
+    assert view.status == EXECUTION_WORKER_STOPPING
 
 
 async def test_list_objects_returns_page(orch_ctx, mcp_client):

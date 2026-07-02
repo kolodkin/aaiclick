@@ -9,7 +9,7 @@ script as the single entry point.
 
     --8<-- "aaiclick/example_projects/basic_lineage/README.md"
 
-=== "Basic Worker"
+=== "Basic ExecutionWorker"
 
     --8<-- "aaiclick/example_projects/basic_worker/README.md"
 

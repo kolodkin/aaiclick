@@ -11,7 +11,7 @@ from ..models import RUNNER_DOCKER, Task
 from ..runner_config import ENTRY_MODULE, ENTRY_SHELL
 from . import docker_worker
 from .docker_worker import _build_docker_run_cmd
-from .worker import JobDispatch
+from .execution_worker import JobDispatch
 
 
 def _cmdtask(**kw):
@@ -181,12 +181,12 @@ async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypa
     monkeypatch.setattr(docker_worker, "_wait_for_container", fake_wait)
     monkeypatch.setattr(docker_worker, "_docker_rm", AsyncMock())
     monkeypatch.setattr(docker_worker, "_docker_kill", AsyncMock())
-    monkeypatch.setattr(docker_worker, "worker_heartbeat", AsyncMock())
+    monkeypatch.setattr(docker_worker, "execution_worker_heartbeat", AsyncMock())
     monkeypatch.setattr(docker_worker, "check_task_cancelled", fake_check_cancelled)
     # Speed up the poll interval so the watcher actually fires within the test.
     monkeypatch.setattr(docker_worker, "POLL_INTERVAL", 0.05)
 
     dispatch = JobDispatch(RUNNER_DOCKER, "aaiclick-job:abc", None)
-    success, _, _, error = await docker_worker._run_task_in_container(_task(), worker_id=1, dispatch=dispatch)
+    success, _, _, error = await docker_worker._run_task_in_container(_task(), execution_worker_id=1, dispatch=dispatch)
     assert success is False
     assert error == "cancelled"

@@ -25,15 +25,15 @@ from ..models import Task
 from ..orch_context import get_sql_session
 from .claiming import check_task_cancelled
 from .runner import execute_task, register_returned_tasks, serialize_task_result
-from .worker import (
+from .execution_worker import (
     POLL_INTERVAL,
     JobDispatch,
     RunnerResult,
     TaskVehicle,
-    _worker_loop,
+    _execution_worker_loop,
     drive_vehicle,
     parse_task_timeout,
-    worker_heartbeat,
+    execution_worker_heartbeat,
 )
 
 # How often the parent checks whether the child process has finished.
@@ -125,7 +125,7 @@ class _MpVehicle(TaskVehicle["_ChildHandle", "_ProcessResult"]):
     kill path. Pointing this at ``check_run_aborted`` is the free win the
     driver unlocks."""
 
-    async def launch(self, task: Task, worker_id: int) -> _ChildHandle:
+    async def launch(self, task: Task, execution_worker_id: int) -> _ChildHandle:
         result_queue = _mp_ctx.Queue()
         proc = _mp_ctx.Process(
             target=_child_process_target,
@@ -156,7 +156,7 @@ class _MpVehicle(TaskVehicle["_ChildHandle", "_ProcessResult"]):
 
 async def _run_task_in_child(
     task: Task,
-    worker_id: int,
+    execution_worker_id: int,
 ) -> tuple[bool, dict | None, str | None, str | None]:
     """ExecuteFn for the multiprocessing worker.
 
@@ -168,11 +168,11 @@ async def _run_task_in_child(
 
     result = await drive_vehicle(
         task,
-        worker_id,
+        execution_worker_id,
         _MpVehicle(),
         timeout=timeout,
         poll_interval=POLL_INTERVAL,
-        heartbeat_fn=worker_heartbeat,
+        heartbeat_fn=execution_worker_heartbeat,
     )
     return result.success, result.result_ref, result.log_path, result.error
 
@@ -238,7 +238,7 @@ class _HostShellVehicle(TaskVehicle["_HostShellHandle", None]):
         self._command_env = command_env or {}
         self._log_base = log_base
 
-    async def launch(self, task: Task, worker_id: int) -> _HostShellHandle:
+    async def launch(self, task: Task, execution_worker_id: int) -> _HostShellHandle:
         log_path = os.path.join(self._log_base, str(task.job_id), str(task.id), f"{task.run_epoch}.log")
         Path(log_path).parent.mkdir(parents=True, exist_ok=True)
         log_file = open(log_path, "wb")
@@ -280,17 +280,17 @@ class _HostShellVehicle(TaskVehicle["_HostShellHandle", None]):
 
 
 async def _run_shell_on_host(
-    task: Task, worker_id: int, dispatch: JobDispatch
+    task: Task, execution_worker_id: int, dispatch: JobDispatch
 ) -> tuple[bool, dict | None, str | None, str | None]:
     """ExecuteFn for shell tasks on the subprocess runner."""
     vehicle = _HostShellVehicle(dispatch.command or [], dispatch.command_env, get_logs_dir())
     result = await drive_vehicle(
         task,
-        worker_id,
+        execution_worker_id,
         vehicle,
         timeout=parse_task_timeout(),
         poll_interval=POLL_INTERVAL,
-        heartbeat_fn=worker_heartbeat,
+        heartbeat_fn=execution_worker_heartbeat,
     )
     return result.success, result.result_ref, result.log_path, result.error
 
@@ -301,7 +301,7 @@ async def _run_shell_on_host(
 
 
 async def mp_worker_main_loop(
-    worker_id: int | None = None,
+    execution_worker_id: int | None = None,
     max_tasks: int | None = None,
     install_signal_handlers: bool = True,
     max_empty_polls: int | None = None,
@@ -323,7 +323,7 @@ async def mp_worker_main_loop(
     child runner. See ``dispatch.dispatch_execute``.
 
     Args:
-        worker_id: Worker ID (registers new worker if None).
+        execution_worker_id: ExecutionWorker ID (registers new worker if None).
         max_tasks: Maximum tasks to execute (None for unlimited).
         install_signal_handlers: Install SIGTERM/SIGINT handlers.
         max_empty_polls: Exit after N consecutive empty polls (test helper).
@@ -334,9 +334,9 @@ async def mp_worker_main_loop(
     # Delayed import: dispatch imports this module at top level.
     from .dispatch import dispatch_execute
 
-    return await _worker_loop(
+    return await _execution_worker_loop(
         execute_fn=dispatch_execute,
-        worker_id=worker_id,
+        execution_worker_id=execution_worker_id,
         max_tasks=max_tasks,
         install_signal_handlers=install_signal_handlers,
         max_empty_polls=max_empty_polls,

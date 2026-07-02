@@ -1,7 +1,7 @@
 """Tests for the subprocess runner's host shell vehicle."""
 
 from aaiclick.orchestration.execution.mp_worker import _run_shell_on_host
-from aaiclick.orchestration.execution.worker import JobDispatch
+from aaiclick.orchestration.execution.execution_worker import JobDispatch
 from aaiclick.orchestration.models import Task
 
 
