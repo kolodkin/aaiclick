@@ -83,7 +83,7 @@ aaiclick/
     registered_jobs.py             list_registered_jobs, register_job,
                                    enable_job, disable_job
     tasks.py                       get_task
-    workers.py                     list_execution_workers, start_execution_worker, stop_execution_worker
+    execution_workers.py                     list_execution_workers, start_execution_worker, stop_execution_worker
     objects.py                     list_objects, get_object, delete_object, purge_objects
     setup.py                       setup, migrate, bootstrap_ollama
   __main__.py                      ← argparse + text/JSON renderers only
@@ -98,7 +98,7 @@ aaiclick/
                                    /jobs/{id}/cancel
       registered_jobs.py           /registered-jobs, enable/disable, run
       tasks.py                     /tasks/{id}
-      workers.py                   /execution_workers, /execution_workers/{id}/stop
+      execution_workers.py                   /execution-workers, /execution-workers/{id}/stop
       objects.py                   /objects, /objects/{name}
     mcp.py                         FastMCP server; tools wrap internal_api.*
 ```
@@ -106,7 +106,7 @@ aaiclick/
 All HTTP routes are mounted under a single versioned prefix —
 **`/api/v0`** — declared once in `server/app.py` as `API_PREFIX` and passed to
 `include_router(..., prefix=API_PREFIX)`. Individual router files declare
-paths *relative* to the prefix (`/jobs`, `/execution_workers`, ...) so the version lives
+paths *relative* to the prefix (`/jobs`, `/execution-workers`, ...) so the version lives
 in exactly one place. The `v0` segment is deliberate: the schema is still
 experimental and may break; the number advances to `v1` once the contract
 stabilises.
@@ -220,9 +220,9 @@ All REST paths share a common `/api/v0` prefix — see
 | `registered-job list`      | `list_registered_jobs(filter)`     | `GET /registered-jobs`             | `list_registered_jobs`    |
 | `job enable <name>`        | `enable_job(name)`                 | `POST /registered-jobs/{n}/enable` | `enable_job`              |
 | `job disable <name>`       | `disable_job(name)`                | `POST /registered-jobs/{n}/disable`| `disable_job`             |
-| `execution-worker list`              | `list_execution_workers(filter)`             | `GET /execution_workers`                     | `list_execution_workers`            |
-| `execution-worker start`             | `start_execution_worker()`                   | `POST /execution_workers`                    | `start_execution_worker`            |
-| `execution-worker stop <id>`         | `stop_execution_worker(id)`                  | `POST /execution_workers/{id}/stop`          | `stop_execution_worker`             |
+| `execution-worker list`              | `list_execution_workers(filter)`             | `GET /execution-workers`                     | `list_execution_workers`            |
+| `execution-worker start`             | `start_execution_worker()`                   | `POST /execution-workers`                    | `start_execution_worker`            |
+| `execution-worker stop <id>`         | `stop_execution_worker(id)`                  | `POST /execution-workers/{id}/stop`          | `stop_execution_worker`             |
 | `data list`                | `list_objects(filter)`             | `GET /objects`                     | `list_objects`            |
 | `data get <name>`          | `get_object(name)`                 | `GET /objects/{name}`              | `get_object`              |
 | `data delete <name>`       | `delete_object(name)`              | `DELETE /objects/{name}`           | `delete_object`           |
@@ -305,19 +305,19 @@ subject to breaking change" to downstream UIs / SDK generators; we graduate to
   ClickHouse `task_logs` stream (host-independent); optional `?tail=N` bounds the
   response to the last N lines.
 
-## Spawning workers — `POST /api/v0/execution_workers`
+## Spawning workers — `POST /api/v0/execution-workers`
 
-**Implementation**: `internal_api.workers.start_execution_worker`,
+**Implementation**: `internal_api.execution_workers.start_execution_worker`,
 `aaiclick/server/routers/execution_workers.py`.
 
 The CLI's `execution-worker start` is a blocking process loop that runs until
 SIGTERM — it does not fit the request/response pattern. The REST
 endpoint spawns a **detached subprocess** and returns `202 Accepted`
-once the fork/exec has succeeded. The caller polls `GET /api/v0/execution_workers`
+once the fork/exec has succeeded. The caller polls `GET /api/v0/execution-workers`
 if it wants to see the new row:
 
 ```
-POST /api/v0/execution_workers
+POST /api/v0/execution-workers
 Content-Type: application/json
 
 { "max_tasks": 100 }          # all fields optional → unlimited if omitted
@@ -326,7 +326,7 @@ Content-Type: application/json
 Request body maps to `StartWorkerRequest` (new shared view model). The
 handler flow:
 
-1. `internal_api.workers.start_execution_worker(request)` refuses in local mode
+1. `internal_api.execution_workers.start_execution_worker(request)` refuses in local mode
    (`is_local() → raise Invalid`) — same constraint as the CLI.
 2. Spawn `python -m aaiclick execution-worker start [--max-tasks N]` with
    `asyncio.create_subprocess_exec(..., start_new_session=True)` so the
@@ -336,9 +336,9 @@ handler flow:
    to `ExecutionWorkerSpawnFailed` (a `Conflict` subclass) → `503`. Otherwise
    return `None`.
 4. Router returns `202 Accepted` with header
-   `Location: /api/v0/execution_workers` and an empty body.
+   `Location: /api/v0/execution-workers` and an empty body.
 
-The caller polls `GET /api/v0/execution_workers` to observe the new worker row;
+The caller polls `GET /api/v0/execution-workers` to observe the new worker row;
 whether the child has finished registering (or has already crashed) is
 an orchestration-layer concern, not an HTTP concern. This keeps the
 endpoint idempotent in intent ("ensure one more worker is running"),

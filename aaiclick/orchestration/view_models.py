@@ -127,7 +127,7 @@ class JobStatsView(BaseModel):
 
 
 class ExecutionWorkerView(BaseModel):
-    """ExecutionWorker representation used by ``GET /execution_workers``."""
+    """ExecutionWorker representation used by ``GET /execution-workers``."""
 
     id: SnowflakeId
     hostname: str

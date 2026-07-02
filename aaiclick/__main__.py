@@ -7,7 +7,7 @@ Usage:
     python -m aaiclick migrate --help           # Show migration help
     python -m aaiclick local start              # Start REST + MCP server with execution workers (local mode)
     python -m aaiclick execution-worker start   # Start a distributed execution worker process
-    python -m aaiclick execution-worker list     # List execution workers
+    python -m aaiclick execution-worker list    # List execution workers
     python -m aaiclick execution-worker stop <execution_worker_id>  # Stop an execution worker gracefully
     python -m aaiclick background start         # Start background cleanup worker
     python -m aaiclick job get <ref>            # Get job details (by ID or name)
@@ -256,7 +256,7 @@ async def _run_data_purge(args: argparse.Namespace) -> None:
     _render(args, result, cli_renderers.render_objects_purged)
 
 
-async def _run_worker_list(args: argparse.Namespace) -> None:
+async def _run_execution_worker_list(args: argparse.Namespace) -> None:
     filter = ExecutionWorkerFilter(
         status=cast(ExecutionWorkerStatus, args.status) if args.status else None,
         limit=args.limit,
@@ -266,7 +266,7 @@ async def _run_worker_list(args: argparse.Namespace) -> None:
     _render(args, page, lambda p: cli_renderers.render_execution_workers_page(p, offset=args.offset))
 
 
-async def _run_worker_stop(args: argparse.Namespace) -> None:
+async def _run_execution_worker_stop(args: argparse.Namespace) -> None:
     view = await _run_internal_api(internal_api.stop_execution_worker(args.execution_worker_id))
     _render(args, view, cli_renderers.render_execution_worker_stopped)
 
@@ -435,21 +435,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # Add execution-worker subcommand (distributed mode)
-    worker_parser = subparsers.add_parser(
+    execution_worker_parser = subparsers.add_parser(
         "execution-worker",
         help="Distributed execution worker management commands",
     )
-    worker_subparsers = worker_parser.add_subparsers(
+    execution_worker_subparsers = execution_worker_parser.add_subparsers(
         dest="execution_worker_command",
         help="Execution worker commands",
     )
 
     # execution-worker start
-    worker_start_parser = worker_subparsers.add_parser(
+    execution_worker_start_parser = execution_worker_subparsers.add_parser(
         "start",
         help="Start a distributed execution worker process",
     )
-    worker_start_parser.add_argument(
+    execution_worker_start_parser.add_argument(
         "--max-tasks",
         type=int,
         default=None,
@@ -457,41 +457,41 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # execution-worker list
-    worker_list_parser = worker_subparsers.add_parser(
+    execution_worker_list_parser = execution_worker_subparsers.add_parser(
         "list",
         help="List execution workers",
     )
-    worker_list_parser.add_argument(
+    execution_worker_list_parser.add_argument(
         "--status",
         choices=list(get_args(ExecutionWorkerStatus)),
         default=None,
         help="Filter by status",
     )
-    worker_list_parser.add_argument(
+    execution_worker_list_parser.add_argument(
         "--limit",
         type=int,
         default=50,
         help="Maximum results (default: 50)",
     )
-    worker_list_parser.add_argument(
+    execution_worker_list_parser.add_argument(
         "--offset",
         type=int,
         default=0,
         help="Skip N results (default: 0)",
     )
-    _add_json_flag(worker_list_parser)
+    _add_json_flag(execution_worker_list_parser)
 
     # execution-worker stop
-    worker_stop_parser = worker_subparsers.add_parser(
+    execution_worker_stop_parser = execution_worker_subparsers.add_parser(
         "stop",
         help="Request an execution worker to stop gracefully",
     )
-    worker_stop_parser.add_argument(
+    execution_worker_stop_parser.add_argument(
         "execution_worker_id",
         type=int,
         help="Execution worker ID to stop",
     )
-    _add_json_flag(worker_stop_parser)
+    _add_json_flag(execution_worker_stop_parser)
 
     # Add job subcommand
     job_parser = subparsers.add_parser(
@@ -950,10 +950,10 @@ def main():
             asyncio.run(start_execution_worker(max_tasks=args.max_tasks))
 
         elif args.execution_worker_command == "list":
-            asyncio.run(_run_worker_list(args))
+            asyncio.run(_run_execution_worker_list(args))
 
         elif args.execution_worker_command == "stop":
-            asyncio.run(_run_worker_stop(args))
+            asyncio.run(_run_execution_worker_stop(args))
 
         else:
             subcommands["execution-worker"].print_help()

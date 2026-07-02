@@ -72,7 +72,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v0/execution_workers": {
+    "/api/v0/execution-workers": {
         parameters: {
             query?: never;
             header?: never;
@@ -87,7 +87,7 @@ export interface paths {
          * @description Spawn a detached execution worker subprocess (distributed mode only).
          *
          *     Returns ``202 Accepted`` with an empty body once the fork/exec succeeds;
-         *     the caller polls ``GET /execution_workers`` to observe the new execution worker row.
+         *     the caller polls ``GET /execution-workers`` to observe the new execution worker row.
          */
         post: operations["start_execution_worker_api_v0_execution_workers_post"];
         delete?: never;
@@ -96,7 +96,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v0/execution_workers/{execution_worker_id}/stop": {
+    "/api/v0/execution-workers/{execution_worker_id}/stop": {
         parameters: {
             query?: never;
             header?: never;
@@ -498,7 +498,7 @@ export interface components {
         };
         /**
          * ExecutionWorkerView
-         * @description ExecutionWorker representation used by ``GET /execution_workers``.
+         * @description ExecutionWorker representation used by ``GET /execution-workers``.
          */
         ExecutionWorkerView: {
             /** Hostname */

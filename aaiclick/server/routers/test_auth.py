@@ -41,6 +41,6 @@ async def test_refresh_flow(orch_ctx, app_client, enabled):
 
 
 async def test_protected_route_requires_token_when_enabled(orch_ctx, anon_client, enabled):
-    res = await anon_client.get(f"{API_PREFIX}/execution_workers")
+    res = await anon_client.get(f"{API_PREFIX}/execution-workers")
     assert res.status_code == 401
     assert res.headers["www-authenticate"] == "Bearer"

@@ -19,7 +19,7 @@ async def test_viewer_cannot_start_worker(orch_ctx, app_client, monkeypatch):
     monkeypatch.setenv("AAICLICK_JWT_SECRET", RBAC_SECRET)
     token = security.encode_access_token(user_id=2, role=ROLE_VIEWER, secret=RBAC_SECRET, ttl=60)
     res = await app_client.post(
-        f"{API_PREFIX}/execution_workers", json={}, headers={"Authorization": f"Bearer {token}"}
+        f"{API_PREFIX}/execution-workers", json={}, headers={"Authorization": f"Bearer {token}"}
     )
     assert res.status_code == 403
 
@@ -27,7 +27,7 @@ async def test_viewer_cannot_start_worker(orch_ctx, app_client, monkeypatch):
 async def test_list_workers(orch_ctx, app_client):
     await register_execution_worker(hostname="http_worker")
 
-    response = await app_client.get(f"{API_PREFIX}/execution_workers")
+    response = await app_client.get(f"{API_PREFIX}/execution-workers")
 
     assert response.status_code == 200
     page = Page[ExecutionWorkerView].model_validate(response.json())
@@ -38,7 +38,7 @@ async def test_list_workers(orch_ctx, app_client):
 async def test_stop_worker(orch_ctx, app_client):
     execution_worker = await register_execution_worker(hostname="http_stop")
 
-    response = await app_client.post(f"{API_PREFIX}/execution_workers/{execution_worker.id}/stop")
+    response = await app_client.post(f"{API_PREFIX}/execution-workers/{execution_worker.id}/stop")
 
     assert response.status_code == 200
     view = ExecutionWorkerView.model_validate(response.json())
@@ -46,7 +46,7 @@ async def test_stop_worker(orch_ctx, app_client):
 
 
 async def test_stop_worker_not_found_returns_404(orch_ctx, app_client):
-    response = await app_client.post(f"{API_PREFIX}/execution_workers/999999999/stop")
+    response = await app_client.post(f"{API_PREFIX}/execution-workers/999999999/stop")
 
     assert response.status_code == 404
     problem = Problem.model_validate(response.json())
@@ -55,9 +55,9 @@ async def test_stop_worker_not_found_returns_404(orch_ctx, app_client):
 
 async def test_stop_already_stopping_returns_409(orch_ctx, app_client):
     execution_worker = await register_execution_worker(hostname="http_double_stop")
-    await app_client.post(f"{API_PREFIX}/execution_workers/{execution_worker.id}/stop")
+    await app_client.post(f"{API_PREFIX}/execution-workers/{execution_worker.id}/stop")
 
-    response = await app_client.post(f"{API_PREFIX}/execution_workers/{execution_worker.id}/stop")
+    response = await app_client.post(f"{API_PREFIX}/execution-workers/{execution_worker.id}/stop")
 
     assert response.status_code == 409
     problem = Problem.model_validate(response.json())
@@ -70,10 +70,10 @@ async def test_start_worker_returns_202_with_location(orch_ctx, app_client, monk
 
     monkeypatch.setattr(execution_workers_api, "start_execution_worker", ok)
 
-    response = await app_client.post(f"{API_PREFIX}/execution_workers", json={"max_tasks": 5})
+    response = await app_client.post(f"{API_PREFIX}/execution-workers", json={"max_tasks": 5})
 
     assert response.status_code == 202
-    assert response.headers["location"] == f"{API_PREFIX}/execution_workers"
+    assert response.headers["location"] == f"{API_PREFIX}/execution-workers"
     assert response.content == b""
 
 
@@ -83,7 +83,7 @@ async def test_start_worker_local_mode_returns_422(orch_ctx, app_client, monkeyp
 
     monkeypatch.setattr(execution_workers_api, "start_execution_worker", raise_invalid)
 
-    response = await app_client.post(f"{API_PREFIX}/execution_workers", json={})
+    response = await app_client.post(f"{API_PREFIX}/execution-workers", json={})
 
     assert response.status_code == 422
     assert Problem.model_validate(response.json()).code is ProblemCode.INVALID
@@ -95,7 +95,7 @@ async def test_start_worker_spawn_failure_returns_503(orch_ctx, app_client, monk
 
     monkeypatch.setattr(execution_workers_api, "start_execution_worker", raise_spawn)
 
-    response = await app_client.post(f"{API_PREFIX}/execution_workers", json={})
+    response = await app_client.post(f"{API_PREFIX}/execution-workers", json={})
 
     assert response.status_code == 503
     assert Problem.model_validate(response.json()).code is ProblemCode.EXECUTION_WORKER_SPAWN_FAILED

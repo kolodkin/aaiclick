@@ -107,7 +107,7 @@ async def test_start_worker_spawns_detached_process(monkeypatch):
 
     await execution_workers.start_execution_worker(StartExecutionWorkerRequest(max_tasks=7))
 
-    assert captured["cmd"][1:] == ("-m", "aaiclick", "execution_worker", "start", "--max-tasks", "7")
+    assert captured["cmd"][1:] == ("-m", "aaiclick", "execution-worker", "start", "--max-tasks", "7")
     assert captured["kwargs"]["start_new_session"] is True
 
 

@@ -27,7 +27,7 @@ from .pagination import paginate
 
 
 async def list_execution_workers(filter: ExecutionWorkerFilter | None = None) -> Page[ExecutionWorkerView]:
-    """Return a page of execution_workers ordered by ``started_at`` descending.
+    """Return a page of execution workers ordered by ``started_at`` descending.
 
     ``filter.status`` restricts to a single status when set. Pagination uses
     ``filter.limit`` / ``filter.offset``; ``filter.cursor`` is reserved for a
@@ -56,7 +56,7 @@ async def start_execution_worker(request: StartExecutionWorkerRequest | None = N
     where every process shares one chdb data path and a spawned child would
     deadlock on the file lock — use the CLI's ``local start`` there instead.
 
-    The child runs ``python -m aaiclick execution_worker start [--max-tasks N]`` in its
+    The child runs ``python -m aaiclick execution-worker start [--max-tasks N]`` in its
     own session (``start_new_session=True``) so it outlives the caller. The
     server does not track its PID; shutdown goes through the cooperative
     ``stop_execution_worker`` path. Exec failures (missing binary, no permission) raise
@@ -67,14 +67,14 @@ async def start_execution_worker(request: StartExecutionWorkerRequest | None = N
     if is_local():
         raise Invalid("start_execution_worker requires distributed backends; use `local start` in local mode")
 
-    cmd = [sys.executable, "-m", "aaiclick", "execution_worker", "start"]
+    cmd = [sys.executable, "-m", "aaiclick", "execution-worker", "start"]
     if request.max_tasks is not None:
         cmd += ["--max-tasks", str(request.max_tasks)]
 
     try:
         await asyncio.create_subprocess_exec(*cmd, start_new_session=True)
     except (OSError, ValueError) as exc:
-        raise ExecutionWorkerSpawnFailed(f"failed to spawn execution_worker process: {exc}") from exc
+        raise ExecutionWorkerSpawnFailed(f"failed to spawn execution worker process: {exc}") from exc
 
 
 async def stop_execution_worker(execution_worker_id: int) -> ExecutionWorkerView:

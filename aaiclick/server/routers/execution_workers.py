@@ -10,7 +10,7 @@ from ..auth import require_admin
 from ..deps import orch_scope
 from ..errors import problem_responses
 
-router = APIRouter(prefix="/execution_workers", tags=["execution_workers"], dependencies=[Depends(orch_scope)])
+router = APIRouter(prefix="/execution-workers", tags=["execution-workers"], dependencies=[Depends(orch_scope)])
 
 
 @router.get("", response_model=Page[ExecutionWorkerView])
@@ -28,7 +28,7 @@ async def start_execution_worker(request: StartExecutionWorkerRequest, http_requ
     """Spawn a detached execution worker subprocess (distributed mode only).
 
     Returns ``202 Accepted`` with an empty body once the fork/exec succeeds;
-    the caller polls ``GET /execution_workers`` to observe the new execution worker row.
+    the caller polls ``GET /execution-workers`` to observe the new execution worker row.
     """
     await execution_workers_api.start_execution_worker(request)
     return Response(status_code=202, headers={"Location": http_request.url_for("start_execution_worker").path})
