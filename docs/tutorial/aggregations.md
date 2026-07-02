@@ -9,7 +9,7 @@ billion.
 # Basic statistics
 
 ```python
---8<-- "aaiclick/data/examples/statistics.py:basic_stats"
+--8<-- "aaiclick/data/examples/statistics_ops.py:basic_stats"
 ```
 
 # A worked example
@@ -18,7 +18,7 @@ The same methods describe any numeric column — here, a day of temperature
 readings:
 
 ```python
---8<-- "aaiclick/data/examples/statistics.py:temperature"
+--8<-- "aaiclick/data/examples/statistics_ops.py:temperature"
 ```
 
 # Next
