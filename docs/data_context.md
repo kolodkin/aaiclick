@@ -21,7 +21,7 @@ parentheses are required — `data_context` is a factory):
 @data_context()
 async def main():
     obj = await create_object_from_value([1, 2, 3])
-    print(await (await obj.sum()).data())  # 6
+    print(await obj.sum().data())  # 6
 ```
 
 ## Managed Resources

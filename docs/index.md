@@ -64,7 +64,7 @@ async def main():
 
     total = prices * 1.1                         # LazyOperator — no DB call yet
     print(await total.data())                    # → [11.0, 22.0, 33.0]
-    print(await (await total.mean()).data())     # → 22.0
+    print(await total.mean().data())             # → 22.0
 
 asyncio.run(main())
 ```
