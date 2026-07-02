@@ -1,6 +1,14 @@
 from .claiming import cancel_job, check_task_cancelled, claim_next_task, update_job_status, update_task_status
 from .db_handler import DbHandler, _db_handler_var, create_db_handler, get_db_handler
 from .debug import ajob_test, job_test
+from .execution_worker import (
+    deregister_execution_worker,
+    execution_worker_main_loop,
+    list_execution_workers,
+    register_execution_worker,
+    request_execution_worker_stop,
+)
+from .execution_worker_context import TaskInfo, get_current_task_info, set_current_task_info
 from .mp_worker import mp_worker_main_loop
 from .runner import (
     deserialize_task_params,
@@ -10,5 +18,3 @@ from .runner import (
     run_job_tasks,
     serialize_task_result,
 )
-from .worker import deregister_worker, list_workers, register_worker, request_worker_stop, worker_main_loop
-from .worker_context import TaskInfo, get_current_task_info, set_current_task_info

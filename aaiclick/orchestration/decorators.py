@@ -22,8 +22,8 @@ Example:
         return [extracted, transformed]
 
     # Creates Job + entry point task "pipeline" in DB
-    # Worker executes "pipeline" → returns [Task, Task] → those get registered
-    # Worker then executes "extract" → "transform" (respecting dependencies)
+    # ExecutionWorker executes "pipeline" → returns [Task, Task] → those get registered
+    # ExecutionWorker then executes "extract" → "transform" (respecting dependencies)
     job = await pipeline(url="https://example.com/data.parquet")
 """
 

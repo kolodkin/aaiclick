@@ -1,7 +1,7 @@
 """Per-task runner dispatch.
 
 Neutral home for the routing that maps a task to its execution vehicle, so no
-single runner module owns the cross-cutting dispatcher. ``_worker_loop`` plugs
+single runner module owns the cross-cutting dispatcher. ``_execution_worker_loop`` plugs
 ``dispatch_execute`` in as its ``ExecuteFn``; a job whose tasks span runners
 (e.g. subprocess and container tasks) is served by one worker without runner
 affinity rules.
@@ -18,9 +18,9 @@ from ..models import RUNNER_DOCKER, RUNNER_KUBERNETES, RUNNER_SUBPROCESS, Job, R
 from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_SHELL, KubernetesRunner, RunnerConfigT, parse_runner_config
 from .docker_worker import _run_task_in_container
+from .execution_worker import JobDispatch
 from .kubernetes_worker import _run_task_in_pod
 from .mp_worker import _run_shell_on_host, _run_task_in_child
-from .worker import JobDispatch
 
 ExecuteResult = tuple[bool, dict | None, str | None, str | None]
 
@@ -68,12 +68,12 @@ _IMAGE_RUNNERS: dict[RunnerMode, Callable[[Task, int, JobDispatch], Awaitable[Ex
 }
 
 
-async def dispatch_execute(task: Task, worker_id: int) -> ExecuteResult:
+async def dispatch_execute(task: Task, execution_worker_id: int) -> ExecuteResult:
     """ExecuteFn that picks the runner per task."""
     dispatch = await _resolve_dispatch(task)
     handler = _IMAGE_RUNNERS.get(dispatch.runner_mode)
     if handler is not None:
-        return await handler(task, worker_id, dispatch)
+        return await handler(task, execution_worker_id, dispatch)
     if dispatch.entry_type == ENTRY_SHELL:
-        return await _run_shell_on_host(task, worker_id, dispatch)
-    return await _run_task_in_child(task, worker_id)
+        return await _run_shell_on_host(task, execution_worker_id, dispatch)
+    return await _run_task_in_child(task, execution_worker_id)

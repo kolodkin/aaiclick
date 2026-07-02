@@ -25,7 +25,7 @@ from .test_retry import _cancel_all_pending_tasks, _run_until_terminal
 
 
 async def test_worker_retries_and_exhausts(orch_ctx_no_ch, fast_poll):
-    """Worker retries a failing task until max_retries exhausted, then marks FAILED."""
+    """ExecutionWorker retries a failing task until max_retries exhausted, then marks FAILED."""
     await _cancel_all_pending_tasks()
 
     job = await create_job(

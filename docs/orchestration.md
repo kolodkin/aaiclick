@@ -82,7 +82,7 @@ Pass `image=` (`run_job` / `RunJobRequest` / `run-job --image`, or `register-job
 
 For a `build` source the image is **not** produced by a task in the job graph. The first worker to dispatch a container/Pod task builds it on demand via `ensure_image`, recorded in the `build_tasks` table keyed by image identity (`sha256(git_remote, git_sha, dockerfile)`). A `UNIQUE(image_key)` constraint plus an atomic claim/lease make the build run **exactly once** across all workers and jobs — every other task (including dynamically created ones) reuses the same tag, and a concurrent worker polls until the build is `READY`.
 
-**Worker prerequisites** — because the build and the `docker run` happen on the worker's host, not in a separate service:
+**ExecutionWorker prerequisites** — because the build and the `docker run` happen on the worker's host, not in a separate service:
 
 - **`docker` runner** — every worker that may run the job needs a reachable **Docker daemon + CLI** (`AAICLICK_DOCKER_BIN`, default `docker`), for both `build` (to build the image) and `prebuilt` (to `docker run` it).
 - **`kubernetes` runner, `build` source** — the worker needs Docker **and** registry access (`AAICLICK_REGISTRY`): it builds locally and **pushes**, then the Pod pulls. Without a registry, each worker host can only run tasks it built itself.
@@ -150,7 +150,7 @@ All entities use **Snowflake IDs** via ClickHouse [`generateSnowflakeID()`](http
 |----------------|-------------------------------------------------|
 | `JobStatus`    | PENDING, RUNNING, COMPLETED, FAILED, CANCELLED  |
 | `TaskStatus`   | PENDING, CLAIMED, RUNNING, COMPLETED, FAILED, CANCELLED, PENDING_CLEANUP, UPSTREAM_FAILED |
-| `WorkerStatus` | ACTIVE, IDLE, STOPPING, STOPPED                 |
+| `ExecutionWorkerStatus` | ACTIVE, IDLE, STOPPING, STOPPED                 |
 | `RunType`      | SCHEDULED, MANUAL                               |
 
 Two `TaskStatus` values are set by the background sweep, not the worker:
@@ -162,10 +162,10 @@ before it retries to PENDING or settles to FAILED) and `UPSTREAM_FAILED`
 
 - **RegisteredJob** — job catalog entry; fields: `id`, `name` (unique), `entrypoint`, `enabled`, `schedule` (cron), `default_kwargs` (JSON), `preservation_mode`, `next_run_at`, `created_at`, `updated_at`
 - **Job** — a named workflow run; fields: `id`, `name`, `status`, `run_type`, `registered_job_id` (FK), `preservation_mode`, `created_at`, `started_at`, `completed_at`, `error`
-- **Task** — single executable unit; fields: `id`, `job_id`, `group_id`, `entrypoint`, `kwargs` (JSONB), `status`, `result` (JSONB), `log_path`, `error`, `worker_id`, `run_epoch` (fencing token bumped by `clear_task`), timestamps
+- **Task** — single executable unit; fields: `id`, `job_id`, `group_id`, `entrypoint`, `kwargs` (JSONB), `status`, `result` (JSONB), `log_path`, `error`, `execution_worker_id`, `run_epoch` (fencing token bumped by `clear_task`), timestamps
 - **Group** — logical task grouping with optional nesting via `parent_group_id`; fields: `id`, `job_id`, `parent_group_id`, `name`, `created_at`
 - **Dependency** — composite PK `(previous_id, previous_type, next_id, next_type)`; types are `'task'` or `'group'`; supports all four combinations
-- **Worker** — active worker process; fields: `id`, `hostname`, `pid`, `status`, `last_heartbeat`, `tasks_completed`, `tasks_failed`, `started_at`
+- **ExecutionWorker** — active worker process; fields: `id`, `hostname`, `pid`, `status`, `last_heartbeat`, `tasks_completed`, `tasks_failed`, `started_at`
 
 ## Task Parameter Serialization
 
@@ -183,9 +183,9 @@ Task kwargs and results are stored as JSONB via `_serialize_ref()` on Object/Vie
 
 **Implementation**: `aaiclick/orchestration/execution/`
 
-## Worker Main Loop
+## ExecutionWorker Main Loop
 
-**Implementation**: `aaiclick/orchestration/execution/worker.py` — see `worker_main_loop()`
+**Implementation**: `aaiclick/orchestration/execution/execution_worker.py` — see `execution_worker_main_loop()`
 
 Polls for tasks, executes, updates status. Handles registration, heartbeats (30s), graceful shutdown, and per-task lifecycle creation.
 
@@ -265,13 +265,13 @@ python -m aaiclick local start [--host HOST] [--port PORT] [--reload]
 Independent processes; tasks run in child processes for isolation.
 
 ```bash
-python -m aaiclick worker start [--max-tasks N]
-python -m aaiclick worker stop <worker_id>
-python -m aaiclick worker list
+python -m aaiclick execution-worker start [--max-tasks N]
+python -m aaiclick execution-worker stop <execution_worker_id>
+python -m aaiclick execution-worker list
 python -m aaiclick background start
 ```
 
-!!! warning "`worker start`/`background start` require distributed backends"
+!!! warning "`execution-worker start`/`background start` require distributed backends"
     In local mode, use `local start` instead.
 
 ## Common Commands
@@ -326,7 +326,7 @@ In distributed mode, Object table lifecycle is managed through three PostgreSQL 
 The background worker is the sole cleanup authority.
 
 ```
-Worker Process (spawns child per task)
+ExecutionWorker Process (spawns child per task)
 ├── OrchLifecycleHandler (per task, per child process)
 │   ├── incref → insert into table_context_refs + table_run_refs
 │   ├── decref → delete from table_run_refs

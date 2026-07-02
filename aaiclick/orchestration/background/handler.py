@@ -233,7 +233,7 @@ class PendingCleanupTask(NamedTuple):
 
     task_id: int
     job_id: int
-    worker_id: int
+    execution_worker_id: int
     error: str
     run_ids: list
     attempt: int
@@ -245,9 +245,9 @@ class BackgroundHandler(ABC):
 
     @staticmethod
     @abstractmethod
-    async def mark_dead_workers(
+    async def mark_dead_execution_workers(
         session: AsyncSession,
-        dead_worker_ids: list[int],
+        dead_execution_worker_ids: list[int],
         now: datetime,
     ) -> None:
         """Mark dead workers as STOPPED and their tasks as PENDING_CLEANUP."""
@@ -312,7 +312,7 @@ class BackgroundHandler(ABC):
                 text(
                     "UPDATE tasks SET status = :status, "
                     "attempt = :attempt, retry_after = :retry_after, "
-                    "worker_id = NULL, claimed_at = NULL, "
+                    "execution_worker_id = NULL, claimed_at = NULL, "
                     "started_at = NULL, completed_at = NULL "
                     "WHERE id = :task_id AND status = :pending_cleanup"
                 ),

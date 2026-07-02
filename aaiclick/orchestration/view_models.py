@@ -17,6 +17,8 @@ from ..view_models import LogLine, SnowflakeId
 from .jobs.stats import _short_entrypoint
 from .models import (
     TASK_COMPLETED,
+    ExecutionWorker,
+    ExecutionWorkerStatus,
     Job,
     JobStatus,
     PreservationMode,
@@ -24,8 +26,6 @@ from .models import (
     RunType,
     Task,
     TaskStatus,
-    Worker,
-    WorkerStatus,
 )
 
 
@@ -71,7 +71,7 @@ class TaskDetail(TaskView):
     kwargs: dict[str, Any] = Field(default_factory=dict)
     result: dict[str, Any] | None = None
     log_path: str | None = None
-    worker_id: SnowflakeId | None = None
+    execution_worker_id: SnowflakeId | None = None
     max_retries: int = 0
 
 
@@ -126,13 +126,13 @@ class JobStatsView(BaseModel):
     tasks: list[TaskStatsView] = Field(default_factory=list)
 
 
-class WorkerView(BaseModel):
-    """Worker representation used by ``GET /workers``."""
+class ExecutionWorkerView(BaseModel):
+    """ExecutionWorker representation used by ``GET /execution-workers``."""
 
     id: SnowflakeId
     hostname: str
     pid: int
-    status: WorkerStatus
+    status: ExecutionWorkerStatus
     started_at: datetime
     last_heartbeat: datetime
     tasks_completed: int
@@ -206,7 +206,7 @@ def task_to_detail(task: Task) -> TaskDetail:
         kwargs=task.kwargs,
         result=task.result,
         log_path=task.log_path,
-        worker_id=task.worker_id,
+        execution_worker_id=task.execution_worker_id,
         error=task.error,
         max_retries=task.max_retries,
     )
@@ -236,8 +236,8 @@ def clear_to_view(job: Job, cleared_task_ids: list[int]) -> ClearTaskView:
     return ClearTaskView(job=job_to_view(job), cleared_task_ids=cleared_task_ids)
 
 
-def worker_to_view(worker: Worker) -> WorkerView:
-    return WorkerView(
+def execution_worker_to_view(worker: ExecutionWorker) -> ExecutionWorkerView:
+    return ExecutionWorkerView(
         id=worker.id,
         hostname=worker.hostname,
         pid=worker.pid,

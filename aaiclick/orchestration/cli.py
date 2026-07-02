@@ -1,9 +1,9 @@
 """CLI helper functions for orchestration commands.
 
 Encapsulates the async startup logic used by ``__main__.py`` so the CLI
-entry point stays thin. Worker list / stop, job, and registered-job
+entry point stays thin. Execution worker list / stop, job, and registered-job
 commands live in ``aaiclick.internal_api``. This module holds the
-long-running process loops (``worker start``, ``local start``,
+long-running process loops (``execution-worker start``, ``local start``,
 ``background start``) that do not fit the request/response pattern.
 """
 
@@ -19,8 +19,8 @@ from .execution import mp_worker_main_loop
 from .orch_context import orch_context
 
 
-async def start_worker(max_tasks: int | None = None) -> None:
-    """Start a distributed worker process.
+async def start_execution_worker(max_tasks: int | None = None) -> None:
+    """Start a distributed execution worker process.
 
     Each task runs in a dedicated child process for isolation.  The main
     process handles SQL (claim/status), the child process connects to
@@ -37,7 +37,7 @@ async def start_worker(max_tasks: int | None = None) -> None:
     """
     if is_local():
         raise RuntimeError(
-            "'worker start' requires distributed backends (ClickHouse server + PostgreSQL). "
+            "'execution-worker start' requires distributed backends (ClickHouse server + PostgreSQL). "
             "Use 'local start' for local mode (chdb + SQLite)."
         )
     async with orch_context(with_ch=False):

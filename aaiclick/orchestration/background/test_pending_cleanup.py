@@ -23,15 +23,15 @@ from .conftest import get_run_refs, insert_job, insert_pin_ref, insert_run_ref
 
 
 async def _insert_task(
-    engine, task_id, job_id, *, status, attempt=0, max_retries=0, run_ids="[]", error=None, worker_id=None
+    engine, task_id, job_id, *, status, attempt=0, max_retries=0, run_ids="[]", error=None, execution_worker_id=None
 ):
     async with AsyncSession(engine) as session:
         await session.execute(
             text(
                 "INSERT INTO tasks (id, job_id, entrypoint, name, kwargs, status, "
-                "created_at, max_retries, attempt, run_ids, run_statuses, error, worker_id) "
+                "created_at, max_retries, attempt, run_ids, run_statuses, error, execution_worker_id) "
                 "VALUES (:id, :job_id, 'test.func', 'test', '{}', :status, "
-                ":now, :max_retries, :attempt, :run_ids, '[]', :error, :worker_id)"
+                ":now, :max_retries, :attempt, :run_ids, '[]', :error, :execution_worker_id)"
             ),
             {
                 "id": task_id,
@@ -42,7 +42,7 @@ async def _insert_task(
                 "attempt": attempt,
                 "run_ids": run_ids,
                 "error": error,
-                "worker_id": worker_id,
+                "execution_worker_id": execution_worker_id,
             },
         )
         await session.commit()
@@ -51,7 +51,9 @@ async def _insert_task(
 async def _get_task_status(engine, task_id):
     async with AsyncSession(engine) as session:
         result = await session.execute(
-            text("SELECT status, attempt, retry_after, error, worker_id, completed_at FROM tasks WHERE id = :id"),
+            text(
+                "SELECT status, attempt, retry_after, error, execution_worker_id, completed_at FROM tasks WHERE id = :id"
+            ),
             {"id": task_id},
         )
         row = result.fetchone()
@@ -115,18 +117,18 @@ async def test_pending_cleanup_transitions_to_pending_with_retries(bg_db):
         max_retries=3,
         run_ids="[111]",
         error="task failed",
-        worker_id=999,
+        execution_worker_id=999,
     )
     await insert_run_ref(bg_db, "t_intermediate", "111")
 
     await _make_worker(bg_db)._process_pending_cleanup()
 
     row = await _get_task_status(bg_db, 100)
-    status, attempt, retry_after, error, worker_id, completed_at = row
+    status, attempt, retry_after, error, execution_worker_id, completed_at = row
     assert status == "PENDING"
     assert attempt == 1
     assert retry_after is not None
-    assert worker_id is None
+    assert execution_worker_id is None
 
     assert await get_run_refs(bg_db, "t_intermediate") == set()
 
@@ -149,7 +151,7 @@ async def test_pending_cleanup_transitions_to_failed_no_retries(bg_db):
     await _make_worker(bg_db)._process_pending_cleanup()
 
     row = await _get_task_status(bg_db, 100)
-    status, attempt, retry_after, error, worker_id, completed_at = row
+    status, attempt, retry_after, error, execution_worker_id, completed_at = row
     assert status == "FAILED"
     assert completed_at is not None
 
@@ -236,7 +238,7 @@ async def test_pending_cleanup_retry_backoff(bg_db):
     await _make_worker(bg_db)._process_pending_cleanup()
 
     row = await _get_task_status(bg_db, 100)
-    status, attempt, retry_after_str, error, worker_id, completed_at = row
+    status, attempt, retry_after_str, error, execution_worker_id, completed_at = row
     assert status == "PENDING"
     assert attempt == 2
 

@@ -73,7 +73,7 @@ class DbHandler(ABC):
 
     @staticmethod
     @abstractmethod
-    async def claim_next_task(session: AsyncSession, worker_id: int, now: datetime) -> Task | None: ...
+    async def claim_next_task(session: AsyncSession, execution_worker_id: int, now: datetime) -> Task | None: ...
 
     @staticmethod
     @abstractmethod

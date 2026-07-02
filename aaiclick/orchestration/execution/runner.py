@@ -59,7 +59,7 @@ from ..models import (
 )
 from ..orch_context import commit_tasks, get_sql_session, task_scope
 from ..result import TaskResult
-from .worker_context import set_current_task_info
+from .execution_worker_context import set_current_task_info
 
 logger = logging.getLogger(__name__)
 

@@ -14,23 +14,23 @@ class PgBackgroundHandler(BackgroundHandler):
     """PostgreSQL: batch operations with ANY() array operator."""
 
     @staticmethod
-    async def mark_dead_workers(
+    async def mark_dead_execution_workers(
         session: AsyncSession,
-        dead_worker_ids: list[int],
+        dead_execution_worker_ids: list[int],
         now: datetime,
     ) -> None:
         await session.execute(
-            text("UPDATE workers SET status = 'STOPPED' WHERE id = ANY(:worker_ids)"),
-            {"worker_ids": dead_worker_ids},
+            text("UPDATE execution_workers SET status = 'STOPPED' WHERE id = ANY(:execution_worker_ids)"),
+            {"execution_worker_ids": dead_execution_worker_ids},
         )
         await session.execute(
             text(
                 "UPDATE tasks SET status = 'PENDING_CLEANUP', "
-                "error = 'Worker died (heartbeat timeout)' "
-                "WHERE worker_id = ANY(:worker_ids) "
+                "error = 'ExecutionWorker died (heartbeat timeout)' "
+                "WHERE execution_worker_id = ANY(:execution_worker_ids) "
                 "AND status IN ('RUNNING', 'CLAIMED')"
             ),
-            {"worker_ids": dead_worker_ids},
+            {"execution_worker_ids": dead_execution_worker_ids},
         )
 
     @staticmethod
@@ -46,7 +46,7 @@ class PgBackgroundHandler(BackgroundHandler):
     ) -> list[PendingCleanupTask]:
         result = await session.execute(
             text(
-                "SELECT id, job_id, worker_id, error, run_ids, attempt, max_retries "
+                "SELECT id, job_id, execution_worker_id, error, run_ids, attempt, max_retries "
                 "FROM tasks WHERE status = 'PENDING_CLEANUP'"
             ),
         )

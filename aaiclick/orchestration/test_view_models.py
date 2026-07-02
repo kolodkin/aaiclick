@@ -68,7 +68,7 @@ def _make_task(
     completed_at: datetime | None = datetime(2025, 1, 1, 12, 0, 5),
     error: str | None = None,
     kwargs: dict | None = None,
-    worker_id: int | None = None,
+    execution_worker_id: int | None = None,
     log_path: str | None = None,
     result: dict | None = None,
 ) -> Task:
@@ -83,7 +83,7 @@ def _make_task(
         completed_at=completed_at,
         error=error,
         kwargs=kwargs or {},
-        worker_id=worker_id,
+        execution_worker_id=execution_worker_id,
         log_path=log_path,
         result=result,
         attempt=1,
@@ -106,14 +106,14 @@ def test_job_to_view_json_serializes_enums():
 
 
 def test_task_to_view_omits_detail_fields():
-    task = _make_task(kwargs={"x": 1}, worker_id=42)
+    task = _make_task(kwargs={"x": 1}, execution_worker_id=42)
     view = task_to_view(task)
     dumped = view.model_dump()
     assert dumped["id"] == 100
     assert dumped["job_id"] == 1
     assert dumped["status"] == TASK_COMPLETED
     assert "kwargs" not in dumped
-    assert "worker_id" not in dumped
+    assert "execution_worker_id" not in dumped
 
 
 def test_task_to_view_carries_error_reason():

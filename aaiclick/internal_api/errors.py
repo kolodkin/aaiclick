@@ -4,7 +4,7 @@ Each surface maps these to its own error shape:
 
 - CLI renderer: non-zero exit code + human message.
 - FastAPI: ``NotFound`` → 404, ``Conflict`` → 409, ``Invalid`` → 422,
-  ``Unauthorized`` → 401, ``Forbidden`` → 403, ``WorkerSpawnFailed`` → 503
+  ``Unauthorized`` → 401, ``Forbidden`` → 403, ``ExecutionWorkerSpawnFailed`` → 503
   (see ``server/errors.py``).
 - FastMCP: tool error.
 
@@ -28,7 +28,7 @@ class Conflict(InternalApiError):
     """State-transition violation (e.g. cancelling a finished job)."""
 
 
-class WorkerSpawnFailed(Conflict):
+class ExecutionWorkerSpawnFailed(Conflict):
     """Spawning a detached worker subprocess failed (missing binary, etc.).
 
     A ``Conflict`` subclass so ``except Conflict`` still catches it, but

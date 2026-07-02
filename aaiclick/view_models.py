@@ -19,7 +19,7 @@ from typing import Annotated, Any, Generic, Literal, TypeVar
 from pydantic import BaseModel, Field, PlainSerializer, model_validator
 
 from .datetime_utils import utc_now
-from .orchestration.models import JobStatus, PreservationMode, RunnerMode, WorkerStatus
+from .orchestration.models import ExecutionWorkerStatus, JobStatus, PreservationMode, RunnerMode
 
 # Mirrors aaiclick.data.scope.ObjectScope — re-declared to keep this shared
 # module from pulling the heavy aaiclick.data package into CLI/REST startup.
@@ -100,7 +100,7 @@ class ProblemCode(str, Enum):
     INVALID = "invalid"
     UNAUTHORIZED = "unauthorized"
     FORBIDDEN = "forbidden"
-    WORKER_SPAWN_FAILED = "worker_spawn_failed"
+    EXECUTION_WORKER_SPAWN_FAILED = "execution_worker_spawn_failed"
 
 
 class Problem(BaseModel):
@@ -187,20 +187,20 @@ class RegisteredJobFilter(BaseModel):
     cursor: str | None = None
 
 
-class WorkerFilter(BaseModel):
-    """Filter parameters for ``internal_api.list_workers``."""
+class ExecutionWorkerFilter(BaseModel):
+    """Filter parameters for ``internal_api.list_execution_workers``."""
 
-    status: WorkerStatus | None = None
+    status: ExecutionWorkerStatus | None = None
     limit: int = 50
     offset: int = 0
     cursor: str | None = None
 
 
-class StartWorkerRequest(BaseModel):
-    """Inputs for ``internal_api.start_worker``.
+class StartExecutionWorkerRequest(BaseModel):
+    """Inputs for ``internal_api.start_execution_worker``.
 
-    ``max_tasks`` caps how many tasks the spawned worker executes before it
-    exits; ``None`` means unlimited (run until stopped).
+    ``max_tasks`` caps how many tasks the spawned execution worker executes
+    before it exits; ``None`` means unlimited (run until stopped).
     """
 
     max_tasks: int | None = None

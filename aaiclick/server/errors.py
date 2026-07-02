@@ -9,19 +9,19 @@ from fastapi.responses import JSONResponse
 
 from aaiclick.internal_api.errors import (
     Conflict,
+    ExecutionWorkerSpawnFailed,
     Forbidden,
     InternalApiError,
     Invalid,
     NotFound,
     Unauthorized,
-    WorkerSpawnFailed,
 )
 from aaiclick.view_models import Problem, ProblemCode
 
 _PROBLEM_MAP: dict[type[InternalApiError], tuple[str, int, ProblemCode]] = {
     NotFound: ("Not Found", 404, ProblemCode.NOT_FOUND),
     Conflict: ("Conflict", 409, ProblemCode.CONFLICT),
-    WorkerSpawnFailed: ("Worker Spawn Failed", 503, ProblemCode.WORKER_SPAWN_FAILED),
+    ExecutionWorkerSpawnFailed: ("ExecutionWorker Spawn Failed", 503, ProblemCode.EXECUTION_WORKER_SPAWN_FAILED),
     Invalid: ("Invalid Request", 422, ProblemCode.INVALID),
     Unauthorized: ("Unauthorized", 401, ProblemCode.UNAUTHORIZED),
     Forbidden: ("Forbidden", 403, ProblemCode.FORBIDDEN),

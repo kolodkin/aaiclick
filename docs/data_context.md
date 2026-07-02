@@ -14,6 +14,16 @@ async with data_context():
 # obj and result are now stale — using them raises RuntimeError
 ```
 
+To wrap an entire async function, use `data_context()` as a decorator (the
+parentheses are required — `data_context` is a factory):
+
+```python
+@data_context()
+async def main():
+    obj = await create_object_from_value([1, 2, 3])
+    print(await obj.sum().data())  # 6
+```
+
 ## Managed Resources
 
 `data_context()` owns and sets five per-resource ContextVars for the duration of the block.

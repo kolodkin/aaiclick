@@ -15,22 +15,22 @@ class SqliteBackgroundHandler(BackgroundHandler):
     """SQLite: batch operations via IN clause."""
 
     @staticmethod
-    async def mark_dead_workers(
+    async def mark_dead_execution_workers(
         session: AsyncSession,
-        dead_worker_ids: list[int],
+        dead_execution_worker_ids: list[int],
         now: datetime,
     ) -> None:
-        placeholders, params = in_clause(dead_worker_ids, "wid")
+        placeholders, params = in_clause(dead_execution_worker_ids, "wid")
         params["now"] = now
         await session.execute(
-            text(f"UPDATE workers SET status = 'STOPPED' WHERE id IN ({placeholders})"),
+            text(f"UPDATE execution_workers SET status = 'STOPPED' WHERE id IN ({placeholders})"),
             params,
         )
         await session.execute(
             text(
                 f"UPDATE tasks SET status = 'PENDING_CLEANUP', "
-                f"error = 'Worker died (heartbeat timeout)' "
-                f"WHERE worker_id IN ({placeholders}) "
+                f"error = 'ExecutionWorker died (heartbeat timeout)' "
+                f"WHERE execution_worker_id IN ({placeholders}) "
                 f"AND status IN ('RUNNING', 'CLAIMED')"
             ),
             params,
@@ -50,7 +50,7 @@ class SqliteBackgroundHandler(BackgroundHandler):
     ) -> list[PendingCleanupTask]:
         result = await session.execute(
             text(
-                "SELECT id, job_id, worker_id, error, run_ids, attempt, max_retries "
+                "SELECT id, job_id, execution_worker_id, error, run_ids, attempt, max_retries "
                 "FROM tasks WHERE status = 'PENDING_CLEANUP'"
             ),
         )

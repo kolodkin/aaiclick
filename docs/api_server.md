@@ -14,7 +14,7 @@ with pydantic view models. The CLI keeps its current human output and gains
 their schemas, docs, and client SDKs cannot drift from the CLI.
 
 All of view models, `internal_api`, REST, MCP, JWT auth + RBAC (see
-[Authentication](#authentication)), and `start_worker` are implemented.
+[Authentication](#authentication)), and `start_execution_worker` are implemented.
 
 # Motivation
 
@@ -42,7 +42,7 @@ A shared I/O layer lets us:
          │   get_job(ref)              → JobDetail                           │
          │   run_job(req)              → JobView                             │
          │   cancel_job(ref)           → JobView                             │
-         │   list_workers(filter)      → Page[WorkerView]                    │
+         │   list_execution_workers(filter)      → Page[ExecutionWorkerView]                    │
          │   list_objects(filter)      → Page[ObjectView]                    │
          │   get_object(ref)           → ObjectDetail                        │
          │   ...                                                             │
@@ -69,7 +69,7 @@ aaiclick/
     view_models.py                 ← orchestration domain
                                      JobView, JobDetail, JobStatsView,
                                      TaskView, TaskDetail,
-                                     WorkerView, RegisteredJobView
+                                     ExecutionWorkerView, RegisteredJobView
                                      + to_view() adapters (SQLModel → View)
   data/
     view_models.py                 ← data domain
@@ -83,7 +83,7 @@ aaiclick/
     registered_jobs.py             list_registered_jobs, register_job,
                                    enable_job, disable_job
     tasks.py                       get_task
-    workers.py                     list_workers, start_worker, stop_worker
+    execution_workers.py                     list_execution_workers, start_execution_worker, stop_execution_worker
     objects.py                     list_objects, get_object, delete_object, purge_objects
     setup.py                       setup, migrate, bootstrap_ollama
   __main__.py                      ← argparse + text/JSON renderers only
@@ -98,7 +98,7 @@ aaiclick/
                                    /jobs/{id}/cancel
       registered_jobs.py           /registered-jobs, enable/disable, run
       tasks.py                     /tasks/{id}
-      workers.py                   /workers, /workers/{id}/stop
+      execution_workers.py                   /execution-workers, /execution-workers/{id}/stop
       objects.py                   /objects, /objects/{name}
     mcp.py                         FastMCP server; tools wrap internal_api.*
 ```
@@ -106,7 +106,7 @@ aaiclick/
 All HTTP routes are mounted under a single versioned prefix —
 **`/api/v0`** — declared once in `server/app.py` as `API_PREFIX` and passed to
 `include_router(..., prefix=API_PREFIX)`. Individual router files declare
-paths *relative* to the prefix (`/jobs`, `/workers`, ...) so the version lives
+paths *relative* to the prefix (`/jobs`, `/execution-workers`, ...) so the version lives
 in exactly one place. The `v0` segment is deliberate: the schema is still
 experimental and may break; the number advances to `v1` once the contract
 stabilises.
@@ -127,7 +127,7 @@ Auth + worker-spawn add `StartWorkerRequest` and expand `ProblemCode` — see
 | `SnowflakeId`          | `int` serialized as a JSON **string** (`when_used="json"`)   |
 
 **Snowflake ids on the wire**: every 64-bit id field (`id`, `job_id`,
-`worker_id`, …) is typed `SnowflakeId`, so it serializes to a JSON *string*.
+`execution_worker_id`, …) is typed `SnowflakeId`, so it serializes to a JSON *string*.
 This keeps ids exact in JavaScript, which would otherwise round integers past
 `Number.MAX_SAFE_INTEGER` (2^53-1). It is serialization-only — the Python
 attribute and `model_dump()` stay `int`, and request paths/bodies still accept
@@ -137,7 +137,7 @@ the numeric string and coerce it back to `int`. The generated SPA types
 | `RegisterJobRequest`   | `entrypoint`, `schedule`, `defaults`                         |
 | `JobListFilter`        | `status`, `name`, `since`, `limit`, `cursor`                 |
 | `RegisteredJobFilter`  | `enabled`, `name`, `limit`, `cursor`                         |
-| `WorkerFilter`         | `status`, `limit`                                            |
+| `ExecutionWorkerFilter`         | `status`, `limit`                                            |
 | `ObjectFilter`         | `prefix`, `scope`, `limit`, `cursor`                         |
 
 ## Orchestration (`aaiclick/orchestration/view_models.py`)
@@ -148,8 +148,8 @@ the numeric string and coerce it back to `int`. The generated SPA types
 | `JobDetail`            | everything in `JobView` + `tasks: list[TaskView]`, `duration_ms` (computed)      |
 | `JobStatsView`         | `job_id`, `job_name`, `status_counts`, `wall_time_ms`, `exec_time_ms`, `tasks`   |
 | `TaskView`             | `id`, `job_id`, `entrypoint`, `status`, `attempt`, `started_at`, `completed_at`  |
-| `TaskDetail`           | everything in `TaskView` + `kwargs`, `result_ref`, `log_path`, `worker_id`       |
-| `WorkerView`           | `id`, `status`, `started_at`, `last_heartbeat`, `tasks_completed`, `tasks_failed` |
+| `TaskDetail`           | everything in `TaskView` + `kwargs`, `result_ref`, `log_path`, `execution_worker_id`       |
+| `ExecutionWorkerView`           | `id`, `status`, `started_at`, `last_heartbeat`, `tasks_completed`, `tasks_failed` |
 | `RegisteredJobView`    | `name`, `entrypoint`, `schedule`, `enabled`, `defaults`                          |
 
 ## Data (`aaiclick/data/view_models.py`)
@@ -164,7 +164,7 @@ the numeric string and coerce it back to `int`. The generated SPA types
 ## Enums
 
 Reuse existing enums from `aaiclick/orchestration/models.py`:
-`JobStatus`, `TaskStatus`, `WorkerStatus`, `RunType`, `PreservationMode`.
+`JobStatus`, `TaskStatus`, `ExecutionWorkerStatus`, `RunType`, `PreservationMode`.
 View models import **enums only**, never SQLModel classes.
 
 ## View vs Detail
@@ -220,9 +220,9 @@ All REST paths share a common `/api/v0` prefix — see
 | `registered-job list`      | `list_registered_jobs(filter)`     | `GET /registered-jobs`             | `list_registered_jobs`    |
 | `job enable <name>`        | `enable_job(name)`                 | `POST /registered-jobs/{n}/enable` | `enable_job`              |
 | `job disable <name>`       | `disable_job(name)`                | `POST /registered-jobs/{n}/disable`| `disable_job`             |
-| `worker list`              | `list_workers(filter)`             | `GET /workers`                     | `list_workers`            |
-| `worker start`             | `start_worker()`                   | `POST /workers`                    | `start_worker`            |
-| `worker stop <id>`         | `stop_worker(id)`                  | `POST /workers/{id}/stop`          | `stop_worker`             |
+| `execution-worker list`              | `list_execution_workers(filter)`             | `GET /execution-workers`                     | `list_execution_workers`            |
+| `execution-worker start`             | `start_execution_worker()`                   | `POST /execution-workers`                    | `start_execution_worker`            |
+| `execution-worker stop <id>`         | `stop_execution_worker(id)`                  | `POST /execution-workers/{id}/stop`          | `stop_execution_worker`             |
 | `data list`                | `list_objects(filter)`             | `GET /objects`                     | `list_objects`            |
 | `data get <name>`          | `get_object(name)`                 | `GET /objects/{name}`              | `get_object`              |
 | `data delete <name>`       | `delete_object(name)`              | `DELETE /objects/{name}`           | `delete_object`           |
@@ -305,19 +305,19 @@ subject to breaking change" to downstream UIs / SDK generators; we graduate to
   ClickHouse `task_logs` stream (host-independent); optional `?tail=N` bounds the
   response to the last N lines.
 
-## Spawning workers — `POST /api/v0/workers`
+## Spawning workers — `POST /api/v0/execution-workers`
 
-**Implementation**: `internal_api.workers.start_worker`,
-`aaiclick/server/routers/workers.py`.
+**Implementation**: `internal_api.execution_workers.start_execution_worker`,
+`aaiclick/server/routers/execution_workers.py`.
 
-The CLI's `worker start` is a blocking process loop that runs until
+The CLI's `execution-worker start` is a blocking process loop that runs until
 SIGTERM — it does not fit the request/response pattern. The REST
 endpoint spawns a **detached subprocess** and returns `202 Accepted`
-once the fork/exec has succeeded. The caller polls `GET /api/v0/workers`
+once the fork/exec has succeeded. The caller polls `GET /api/v0/execution-workers`
 if it wants to see the new row:
 
 ```
-POST /api/v0/workers
+POST /api/v0/execution-workers
 Content-Type: application/json
 
 { "max_tasks": 100 }          # all fields optional → unlimited if omitted
@@ -326,19 +326,19 @@ Content-Type: application/json
 Request body maps to `StartWorkerRequest` (new shared view model). The
 handler flow:
 
-1. `internal_api.workers.start_worker(request)` refuses in local mode
+1. `internal_api.execution_workers.start_execution_worker(request)` refuses in local mode
    (`is_local() → raise Invalid`) — same constraint as the CLI.
-2. Spawn `python -m aaiclick worker start [--max-tasks N]` with
+2. Spawn `python -m aaiclick execution-worker start [--max-tasks N]` with
    `asyncio.create_subprocess_exec(..., start_new_session=True)` so the
    child survives the HTTP request. POSIX-only, matching the project's
    Linux / macOS scope; Windows is not a supported deployment target.
 3. If exec raises (`FileNotFoundError`, `PermissionError`), translate
-   to `WorkerSpawnFailed` (a `Conflict` subclass) → `503`. Otherwise
+   to `ExecutionWorkerSpawnFailed` (a `Conflict` subclass) → `503`. Otherwise
    return `None`.
 4. Router returns `202 Accepted` with header
-   `Location: /api/v0/workers` and an empty body.
+   `Location: /api/v0/execution-workers` and an empty body.
 
-The caller polls `GET /api/v0/workers` to observe the new worker row;
+The caller polls `GET /api/v0/execution-workers` to observe the new worker row;
 whether the child has finished registering (or has already crashed) is
 an orchestration-layer concern, not an HTTP concern. This keeps the
 endpoint idempotent in intent ("ensure one more worker is running"),
@@ -350,16 +350,16 @@ Failure modes:
 | Scenario                                | HTTP | `Problem.code`        |
 |-----------------------------------------|------|-----------------------|
 | Local mode (chdb + SQLite)              | 422  | `invalid`             |
-| Subprocess exec raises (missing binary) | 503  | `worker_spawn_failed` |
+| Subprocess exec raises (missing binary) | 503  | `execution_worker_spawn_failed` |
 | Insufficient scope (post-scope rollout) | 403  | `forbidden`           |
 
 The server does **not** track child PIDs — shutdown uses the existing
-cooperative `stop_worker` path, which writes a stop signal to SQL and
+cooperative `stop_execution_worker` path, which writes a stop signal to SQL and
 relies on the worker's own polling loop to exit. Orphan reaping remains
 the orchestration layer's responsibility, identical to CLI-spawned
 workers.
 
-!!! warning "`start_worker` requires distributed backends"
+!!! warning "`start_execution_worker` requires distributed backends"
     The endpoint raises `422 Invalid` in local mode (chdb + SQLite),
     where every process shares one chdb data path and a spawned child
     would deadlock on the file lock. Use the CLI's `local start` verb in
@@ -372,7 +372,7 @@ workers.
 | `StartWorkerRequest`  | `aaiclick/view_models.py`      | `max_tasks: int \| None`                                      |
 | `Unauthorized`        | `aaiclick/internal_api/errors` | Missing / invalid bearer token                                |
 | `Forbidden`           | `aaiclick/internal_api/errors` | Reserved for scope rollout; unused in v0                      |
-| `WorkerSpawnFailed`   | `aaiclick/internal_api/errors` | Detached worker exec failed; `Conflict` subclass → `503`      |
+| `ExecutionWorkerSpawnFailed`   | `aaiclick/internal_api/errors` | Detached worker exec failed; `Conflict` subclass → `503`      |
 | `Problem.code`        | `aaiclick/view_models.py`      | Extend `ProblemCode` with `UNAUTHORIZED`, `FORBIDDEN`, `WORKER_SPAWN_FAILED` |
 
 `Forbidden` ships in v0 so the error-mapping table is stable; no route
@@ -446,7 +446,7 @@ no-op and the worker / background processes run separately:
 
 ```bash
 uvicorn aaiclick.server.app:app           # serves REST + MCP
-python -m aaiclick worker start           # one or more worker processes
+python -m aaiclick execution-worker start           # one or more worker processes
 python -m aaiclick background start       # one cleanup process
 ```
 
