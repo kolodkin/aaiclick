@@ -19,7 +19,7 @@ Usage:
     python -m nyc_taxi_pipeline
 
     # Then run worker to execute
-    python -m aaiclick worker start
+    python -m aaiclick execution-worker start
 """
 
 import asyncio
