@@ -417,7 +417,7 @@ the job's retention lifecycle. Fetch them via
 | `AAICLICK_LOG_DIR`       | `{root}/logs` (local)                 | Task log directory override               |
 | `AAICLICK_DEFAULT_PRESERVATION_MODE` | unset                     | Level-3 preservation-mode default         |
 | `AAICLICK_DOCKER_BIN`    | `docker`                              | Docker CLI used by the docker runner      |
-| `AAICLICK_REGISTRY`      | unset                                 | Registry for kubernetes `build` images    |
+| `AAICLICK_REGISTRY`      | unset                                 | Registry for `build` images — pushed after build, pulled as cache by docker & kubernetes runners; required for kubernetes `build` |
 
 # Internal Design
 

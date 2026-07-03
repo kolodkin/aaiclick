@@ -169,20 +169,11 @@ Use the `generate-migration` skill. Never hand-write migration files.
    - Specify all data types, enums, and schemas
    - Keep specifications detailed and comprehensive
 
-2. **Create Implementation Plan** (`docs/designs/<feature>_implementation_plan.md`) for complex features:
-   - Break feature into phases with clear objectives
-   - List specific tasks for each phase
-   - Define deliverables and success criteria
-   - Track progress with ✅ for completed phases
-   - Include file references as implementation progresses
-
-3. **Implement Phase by Phase**:
-   - Follow the implementation plan sequentially
+2. **Plan and Implement with superpowers**: Use the `superpowers:writing-plans` and `superpowers:executing-plans` skills to break the feature into phases and execute them:
    - Write comprehensive tests for each phase
    - Commit working code frequently
-   - Update implementation plan with ✅ and file references
 
-4. **Update Documentation to Reference Implementation**:
+3. **Update Documentation to Reference Implementation**:
    - **Add implementation references**: Point to actual code files and line numbers
    - **Example**: `**Implementation**: aaiclick/orchestration/factories.py:30-107`
    - **Remove duplication**: Once code exists, reference it instead of duplicating
