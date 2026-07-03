@@ -8,9 +8,8 @@ ARG KUBECTL_VERSION=v1.32.2
 ARG TARGETARCH
 
 USER root
+# curl + ca-certificates are inherited from the docker variant this FROMs.
 RUN set -eux; \
-    apt-get update; apt-get install -y --no-install-recommends curl ca-certificates; \
-    rm -rf /var/lib/apt/lists/*; \
     curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" -o /usr/local/bin/kubectl; \
     curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl.sha256" -o /tmp/kubectl.sha256; \
     echo "$(cat /tmp/kubectl.sha256)  /usr/local/bin/kubectl" | sha256sum -c -; \

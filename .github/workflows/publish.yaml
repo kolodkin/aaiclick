@@ -296,6 +296,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      IMAGE_PREFIX: ghcr.io/kolodkin
 
     steps:
       - name: Checkout code
@@ -337,7 +339,7 @@ jobs:
         id: meta-base
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/kolodkin/aaiclick
+          images: ${{ env.IMAGE_PREFIX }}/aaiclick
           tags: |
             type=raw,value=${{ inputs.tag }}
             type=raw,value=latest,enable=${{ !inputs.pre-release }}
@@ -358,7 +360,7 @@ jobs:
         id: meta-docker
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/kolodkin/aaiclick-docker
+          images: ${{ env.IMAGE_PREFIX }}/aaiclick-docker
           tags: |
             type=raw,value=${{ inputs.tag }}
             type=raw,value=latest,enable=${{ !inputs.pre-release }}
@@ -371,7 +373,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            BASE_REF=ghcr.io/kolodkin/aaiclick:${{ inputs.tag }}
+            BASE_REF=${{ env.IMAGE_PREFIX }}/aaiclick:${{ inputs.tag }}
           tags: ${{ steps.meta-docker.outputs.tags }}
           labels: ${{ steps.meta-docker.outputs.labels }}
 
@@ -379,7 +381,7 @@ jobs:
         id: meta-kubectl
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/kolodkin/aaiclick-kubectl
+          images: ${{ env.IMAGE_PREFIX }}/aaiclick-kubectl
           tags: |
             type=raw,value=${{ inputs.tag }}
             type=raw,value=latest,enable=${{ !inputs.pre-release }}
@@ -392,6 +394,6 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            BASE_REF=ghcr.io/kolodkin/aaiclick-docker:${{ inputs.tag }}
+            BASE_REF=${{ env.IMAGE_PREFIX }}/aaiclick-docker:${{ inputs.tag }}
           tags: ${{ steps.meta-kubectl.outputs.tags }}
           labels: ${{ steps.meta-kubectl.outputs.labels }}
