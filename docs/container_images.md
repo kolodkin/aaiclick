@@ -24,13 +24,11 @@ docker run -p 5255:5255 ghcr.io/kolodkin/aaiclick:vX.Y.Z
 # UI + API at http://localhost:5255  (health: /health, API: /api/v0)
 ```
 
-The image runs as the non-root user `aaiclick` and ships a `HEALTHCHECK` that
-probes `/health`.
+Runs as non-root `aaiclick`, with a `HEALTHCHECK` on `/health`.
 
 # Runner base
 
-Use the base image as the parent for a job's task image so per-task builds skip
-reinstalling the framework:
+Base a job's task image on it so per-task builds skip reinstalling the framework:
 
 ```dockerfile
 FROM ghcr.io/kolodkin/aaiclick:vX.Y.Z
