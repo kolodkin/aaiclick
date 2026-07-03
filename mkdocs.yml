@@ -86,5 +86,4 @@ nav:
     - Nullable Columns: examples/nullable.md
     - Orchestration Basics: examples/orchestration_basic.md
     - Orchestration Dynamic: examples/orchestration_dynamic.md
-  - Glossary: glossary.md
   - License: LICENSE.md
