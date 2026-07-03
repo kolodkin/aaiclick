@@ -58,6 +58,18 @@ Two deployment modes, controlled by two independent environment variables:
 
 **Implementation**: `aaiclick/backend.py` — see `get_ch_url()`, `get_db_url()`, `is_chdb()`, `is_sqlite()`
 
+## Distributed runner subtypes
+
+Distributed mode runs worker processes that claim tasks and execute each in one of three **runner subtypes** — a per-job dial detailed in [Runners & Entry Types](#runners-entry-types):
+
+| Subtype                   | Where the task runs                      | Extra worker requirements                   |
+|---------------------------|------------------------------------------|---------------------------------------------|
+| **native** (`subprocess`) | Child process on the worker host         | none                                        |
+| **docker**                | Container via the worker's Docker daemon | Docker daemon + CLI                         |
+| **kubernetes** (k8s)      | Pod in a cluster                         | `kubectl` (+ Docker & registry for `build`) |
+
+The `docker` and `kubernetes` subtypes require the distributed data/SQL backends above: an isolated container or Pod reaches the shared ClickHouse + PostgreSQL over the network, whereas embedded chdb and a local SQLite file cannot be shared into it. The `native` subtype runs in either deployment mode.
+
 # Runners & Entry Types
 
 **Implementation**: `aaiclick/orchestration/runner_config.py` (typed configs), `aaiclick/orchestration/docker_config.py` (resolution helpers)
