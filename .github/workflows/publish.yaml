@@ -289,3 +289,109 @@ jobs:
             --title "${{ inputs.tag }}" \
             --generate-notes \
             ${{ inputs.pre-release && '--prerelease' || '' }}
+
+  publish-image:
+    needs: [publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Compute PEP 440 version
+        id: vars
+        run: |
+          VERSION="${{ inputs.tag }}"
+          echo "pep440=${VERSION#v}" >> "$GITHUB_OUTPUT"
+
+      # The image installs aaiclick==<version> from PyPI, so wait for the
+      # just-published wheel to become resolvable before building.
+      - name: Wait for version on PyPI
+        run: |
+          VERSION="${{ steps.vars.outputs.pep440 }}"
+          for i in $(seq 1 30); do
+            if curl -fsSL "https://pypi.org/pypi/aaiclick/${VERSION}/json" >/dev/null 2>&1; then
+              echo "aaiclick ${VERSION} is on PyPI"; exit 0
+            fi
+            echo "waiting for aaiclick ${VERSION} on PyPI (attempt $i)"; sleep 10
+          done
+          echo "timed out waiting for aaiclick ${VERSION} on PyPI" >&2; exit 1
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Metadata (base)
+        id: meta-base
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/kolodkin/aaiclick
+          tags: |
+            type=raw,value=${{ inputs.tag }}
+            type=raw,value=latest,enable=${{ !inputs.pre-release }}
+
+      - name: Build & push base
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            AAICLICK_VERSION=${{ steps.vars.outputs.pep440 }}
+          tags: ${{ steps.meta-base.outputs.tags }}
+          labels: ${{ steps.meta-base.outputs.labels }}
+
+      - name: Metadata (docker variant)
+        id: meta-docker
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/kolodkin/aaiclick-docker
+          tags: |
+            type=raw,value=${{ inputs.tag }}
+            type=raw,value=latest,enable=${{ !inputs.pre-release }}
+
+      - name: Build & push docker variant
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/docker.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            BASE_REF=ghcr.io/kolodkin/aaiclick:${{ inputs.tag }}
+          tags: ${{ steps.meta-docker.outputs.tags }}
+          labels: ${{ steps.meta-docker.outputs.labels }}
+
+      - name: Metadata (kubectl variant)
+        id: meta-kubectl
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/kolodkin/aaiclick-kubectl
+          tags: |
+            type=raw,value=${{ inputs.tag }}
+            type=raw,value=latest,enable=${{ !inputs.pre-release }}
+
+      - name: Build & push kubectl variant
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/kubectl.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            BASE_REF=ghcr.io/kolodkin/aaiclick-docker:${{ inputs.tag }}
+          tags: ${{ steps.meta-kubectl.outputs.tags }}
+          labels: ${{ steps.meta-kubectl.outputs.labels }}
