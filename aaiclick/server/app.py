@@ -57,7 +57,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(
     title="aaiclick",
-    description="REST surface over aaiclick's internal_api. JWT auth + RBAC in distributed mode (see docs/auth.md); open in local mode.",
+    description="REST surface over aaiclick's internal_api. JWT auth + RBAC in distributed mode (see docs/designs/auth.md); open in local mode.",
     version="0.0.0",
     docs_url=f"{API_PREFIX}/docs",
     redoc_url=f"{API_PREFIX}/redoc",

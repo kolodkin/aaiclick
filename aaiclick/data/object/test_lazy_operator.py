@@ -1,6 +1,6 @@
 """Tests for the LazyOperator class and named operator results.
 
-See ``docs/object.md`` — "Lazy Operator Results".
+See ``docs/user_guide/object.md`` — "Lazy Operator Results".
 """
 
 import pytest

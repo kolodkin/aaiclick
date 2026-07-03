@@ -147,12 +147,12 @@ addopts = "-v --cov=aaiclick --cov-report=term-missing --cov-report=html --stric
 asyncio_mode = "auto"
 # Use one event loop per test module: matches the module-scoped orch_context
 # fixtures in aaiclick/conftest.py that keep chdb alive across tests in a
-# module (see docs/technical_debt.md).
+# module (see docs/designs/technical_debt.md).
 asyncio_default_fixture_loop_scope = "module"
 asyncio_default_test_loop_scope = "module"
 filterwarnings = [
     "error",
-    # clickhouse-connect 'u' type code DeprecationWarning — see docs/technical_debt.md
+    # clickhouse-connect 'u' type code DeprecationWarning — see docs/designs/technical_debt.md
     "ignore:The 'u' type code is deprecated:DeprecationWarning",
 ]
 markers = [

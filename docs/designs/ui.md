@@ -3,7 +3,7 @@ UI Specification
 
 Single-screen, prompt-driven dashboard for aaiclick operators. SPA served by
 the FastAPI backend with 2 s REST polling (v0). Tech stack and build details:
-`docs/frontend.md`.
+`docs/designs/frontend.md`.
 
 **Implementation**: `aaiclick/server/app.py` — see `STATIC_DIR` and the
 `StaticFiles` mount (SPA served when `aaiclick/server/static/` exists);
@@ -117,6 +117,6 @@ Task statuses use the same color scheme as job statuses, plus:
 # Tech stack & real-time
 
 v0 uses 2 s REST polling (`refetchInterval`). SSE and LISTEN/NOTIFY fanout
-are deferred — see `docs/future.md`.
+are deferred — see `docs/designs/future.md`.
 
-For framework choices, project layout, and build workflow, see `docs/frontend.md`.
+For framework choices, project layout, and build workflow, see `docs/designs/frontend.md`.

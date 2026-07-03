@@ -51,6 +51,6 @@ rows.
 
 # See Also
 
-- [Object API](../object.md) — `view`, column selection, and operators
+- [Object API](../user_guide/object.md) — `view`, column selection, and operators
 - [Examples: Views](../examples/views.md) — every constraint combination
 - [Examples: Selectors](../examples/selectors.md) — column selection and metadata

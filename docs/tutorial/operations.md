@@ -39,5 +39,5 @@ Bitwise operators apply per element on integer columns:
 
 # See Also
 
-- [Object API](../object.md) — operators, aggregations, views
+- [Object API](../user_guide/object.md) — operators, aggregations, views
 - [Examples: Basic Operators](../examples/basic_operators.md) — the complete runnable script

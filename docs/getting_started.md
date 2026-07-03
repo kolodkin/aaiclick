@@ -64,8 +64,8 @@ asyncio.run(main())
 
 # Next Steps
 
-- [Object API](object.md) — operators, aggregations, views, group by
-- [DataContext](data_context.md) — lifecycle management, persistent objects
-- [Orchestration](orchestration.md) — `@task` and `@job` decorators, workers
-- [Container images](container_images.md) — published `aaiclick`, `aaiclick-docker`, `aaiclick-kubectl` images and their Kubernetes/Docker runtime requirements
+- [Object API](user_guide/object.md) — operators, aggregations, views, group by
+- [DataContext](user_guide/data_context.md) — lifecycle management, persistent objects
+- [Orchestration](user_guide/orchestration.md) — `@task` and `@job` decorators, workers
+- [Container images](user_guide/container_images.md) — published `aaiclick`, `aaiclick-docker`, `aaiclick-kubectl` images and their Kubernetes/Docker runtime requirements
 - [Examples](examples/basic_operators.md) — runnable scripts for every feature

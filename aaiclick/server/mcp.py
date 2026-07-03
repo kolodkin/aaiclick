@@ -85,7 +85,7 @@ mcp: FastMCP = FastMCP(
     name="aaiclick",
     instructions=(
         "Tools mirror aaiclick's CLI verbs one-to-one. Every tool runs against "
-        "the same backends as the REST surface under /api/v0 — see docs/api_server.md."
+        "the same backends as the REST surface under /api/v0 — see docs/designs/api_server.md."
     ),
     lifespan=_mcp_lifespan,
 )

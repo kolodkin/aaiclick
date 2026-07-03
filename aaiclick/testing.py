@@ -40,7 +40,7 @@ _BASE_SQL_DB = os.environ.get("POSTGRES_DB", "aaiclick")
 
 # Detection harness: when set, force a full GC at every test boundary so
 # aiohttp connection leaks surface as deterministic failures (see
-# gc_leak_check below and docs/technical_debt.md). The nightly dist job sets
+# gc_leak_check below and docs/designs/technical_debt.md). The nightly dist job sets
 # it; the per-PR suite leaves it off because the per-test collect is slow.
 _GC_LEAK_CHECK = bool(os.environ.get("AAICLICK_GC_LEAK_CHECK"))
 
@@ -357,7 +357,7 @@ async def orch_module_ctx():
     """Module-scoped ``orch_context()`` with chdb — entered once per module.
 
     chdb's Session is a true per-process singleton (see
-    ``docs/technical_debt.md``); orch_context never closes it, so this
+    ``docs/designs/technical_debt.md``); orch_context never closes it, so this
     fixture's scope only affects orchestration state, not chdb lifecycle.
     """
     async with module_orch_scope(orch_context()):

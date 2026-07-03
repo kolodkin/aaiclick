@@ -8,7 +8,7 @@ view models; outputs are pydantic view models. The three surfaces
 (``__main__`` / ``server/routers`` / ``server/mcp``) are thin renderers
 over this module.
 
-See ``docs/api_server.md`` for the full contract.
+See ``docs/designs/api_server.md`` for the full contract.
 """
 
 from .errors import (

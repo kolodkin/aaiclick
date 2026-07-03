@@ -5,7 +5,7 @@ principal) and startup logs a ``WARNING``. In distributed mode the
 ``Authorization: Bearer`` access JWT is required; ``HTTPBearer`` (with
 ``auto_error=False``) extracts it and registers the OpenAPI scheme. The
 ``/mcp`` mount keeps an ASGI middleware (admin-only) because ``Depends`` does
-not propagate into mounted sub-apps. See ``docs/auth.md``.
+not propagate into mounted sub-apps. See ``docs/designs/auth.md``.
 """
 
 from __future__ import annotations

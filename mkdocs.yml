@@ -32,6 +32,9 @@ theme:
 plugins:
   - search
 
+exclude_docs: |
+  designs/
+
 markdown_extensions:
   - admonition
   - pymdownx.details
@@ -61,13 +64,13 @@ nav:
     - Building & Combining Data: tutorial/building_data.md
     - Orchestration: tutorial/orchestration.md
   - User Guide:
-    - Object API: object.md
-    - DataContext: data_context.md
-    - Orchestration: orchestration.md
-    - Container Images: container_images.md
-    - AI Layer: ai.md
-    - Operation Log: oplog.md
-  - Example Projects: example_projects.md
+    - Object API: user_guide/object.md
+    - DataContext: user_guide/data_context.md
+    - Orchestration: user_guide/orchestration.md
+    - Container Images: user_guide/container_images.md
+    - AI Layer: user_guide/ai.md
+    - Operation Log: user_guide/oplog.md
+  - Example Projects: user_guide/example_projects.md
   - Examples:
     - Basic Operators: examples/basic_operators.md
     - Array Operators: examples/array_operators.md

@@ -4,7 +4,7 @@ Pod-side tests live in their own module because they exercise the same code
 path the Pod would run — including ``orch_context()`` booting chdb. We use the
 default ``orch_ctx`` (chdb available), exactly like a real Pod; mixing these
 into a module that uses ``orch_ctx_no_ch`` would force two chdb-mode contexts
-in one module (see the chdb single-session constraint in ``docs/testing.md``).
+in one module (see the chdb single-session constraint in ``docs/designs/testing.md``).
 """
 
 from __future__ import annotations

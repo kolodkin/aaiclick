@@ -1,4 +1,4 @@
-"""SQLModel tables for users and refresh tokens. See docs/auth.md."""
+"""SQLModel tables for users and refresh tokens. See docs/designs/auth.md."""
 
 from __future__ import annotations
 

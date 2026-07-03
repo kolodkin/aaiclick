@@ -26,7 +26,7 @@ Shared schema-computation helpers (``_compute_operator_schema``,
 both ``_plan_operator`` (preview) and ``_apply_operator_db`` (materialize)
 hit the same code — no drift between preview and result schemas.
 
-See ``docs/object.md`` ("Lazy Operator Results") for the user-facing
+See ``docs/user_guide/object.md`` ("Lazy Operator Results") for the user-facing
 LazyOperator design, ``.as_(name, scope=...)`` naming API, and the
 materialize-on-await contract.
 

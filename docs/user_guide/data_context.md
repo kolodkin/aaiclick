@@ -65,7 +65,7 @@ Each ContextVar is reset (via token) on context exit, so nested `data_context()`
 
 chdb inserts use pyarrow's `Python()` table function. Type mapping: `_ch_type_to_pa()` in `chdb_client.py`.
 
-See [Orchestration documentation](orchestration.md) — "Deployment Modes" for the full local/distributed comparison table.
+See [Orchestration — Deployment Modes](orchestration.md#deployment-modes) for the full local/distributed comparison table.
 
 ## Object Lifecycle and Staleness
 
@@ -192,7 +192,7 @@ Each column gets a YAML comment with fieldtype: `'s'` (scalar), `'a'` (array), `
 
 Tables are reference-counted and dropped when unreferenced. On context exit, live objects are decreffed and stale-marked. `LocalLifecycleHandler` drops tables on refcount 0; in distributed mode, `OrchLifecycleHandler` defers cleanup to `BackgroundWorker`.
 
-See [Orchestration documentation](orchestration.md) — "Distributed Object Lifecycle" for the full design.
+See the [orchestration design reference](https://github.com/kolodkin/aaiclick/blob/main/docs/designs/orchestration.md) — "Distributed Object Lifecycle" for the full design.
 
 ## Preservation Modes
 
