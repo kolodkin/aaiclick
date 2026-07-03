@@ -105,35 +105,122 @@ python -m aaiclick background start        # scheduler + cleanup
 
 # Running Jobs
 
-## run_job
+Every action is available from three surfaces: Python (inside
+`async with orch_context():`), the CLI, and the REST API served by
+`local start` — default `http://127.0.0.1:5255`, interactive docs at
+`/api/v0/docs`. The MCP server exposes the same operations. In distributed
+mode the mutating REST endpoints require an admin JWT.
 
-`run_job(name, entrypoint, kwargs=..., preservation_mode=..., ...)` runs a job
-immediately. If a registered job matches `name`, the call links to it and
-merges `kwargs` over its `default_kwargs`; otherwise the job runs standalone —
-registration is not a prerequisite.
+## Run a job
 
-```bash
-python -m aaiclick run-job <name> [--kwargs '{"key": "val"}'] [--preservation-mode NONE|FULL] [--entry-type module|shell] [--command 'python main.py'] [--command-env K=v] [--image python:3.12]
-```
+If a registered job matches `name`, the run links to it and merges `kwargs`
+over its `default_kwargs`; otherwise the job runs standalone — registration is
+not a prerequisite.
 
-The same fields are available over REST/MCP via `RunJobRequest`.
+=== "Python"
 
-## Registered jobs
+    ```python
+    from aaiclick.orchestration import orch_context
+    from aaiclick.orchestration.registered_jobs import run_job
+
+    async with orch_context():
+        job = await run_job("etl", "myapp.pipelines.etl", kwargs={"day": "2026-07-01"})
+    ```
+
+=== "CLI"
+
+    ```bash
+    python -m aaiclick run-job etl --kwargs '{"day": "2026-07-01"}'
+    ```
+
+=== "REST"
+
+    ```bash
+    curl -X POST http://127.0.0.1:5255/api/v0/jobs:run \
+      -H "Content-Type: application/json" \
+      -d '{"name": "etl", "kwargs": {"day": "2026-07-01"}}'
+    ```
+
+    A dotted `name` (e.g. `"myapp.pipelines.etl"`) is used as the entrypoint
+    directly; a bare name reuses the registered job's entrypoint.
+
+All three surfaces also accept `preservation_mode` and the runner fields —
+`entry_type` / `command` / `command_env` (see [Shell tasks](#shell-tasks)) and
+`image` / `git_*` / `dockerfile` (see [Image source](#image-source-docker-kubernetes)).
+
+## Register a job
 
 The catalog of known jobs, separate from individual runs. Each entry stores an
 entrypoint, optional cron schedule, default kwargs, preservation-mode default,
-and enabled flag.
+runner defaults, and enabled flag. `name` defaults to the last dotted segment
+of `entrypoint`.
 
-```bash
-python -m aaiclick register-job <entrypoint> [--name NAME] [--schedule "0 8 * * *"] [--kwargs '{"key": "val"}'] [--preservation-mode NONE|FULL] [--runner subprocess|docker|kubernetes] [--image python:3.12]
-python -m aaiclick registered-job list
-python -m aaiclick job enable <name>
-python -m aaiclick job disable <name>
-```
+=== "Python"
 
-From Python: `register_job()`, `get_registered_job()`, `upsert_registered_job()`,
-`enable_job()` / `disable_job()`, `list_registered_jobs()` —
-`aaiclick/orchestration/registered_jobs.py`.
+    ```python
+    from aaiclick.orchestration import orch_context
+    from aaiclick.orchestration.registered_jobs import register_job
+
+    async with orch_context():
+        await register_job(
+            name="etl",
+            entrypoint="myapp.pipelines.etl",
+            schedule="0 8 * * *",
+            default_kwargs={"day": "today"},
+        )
+    ```
+
+=== "CLI"
+
+    ```bash
+    python -m aaiclick register-job myapp.pipelines.etl --name etl \
+        --schedule "0 8 * * *" --kwargs '{"day": "today"}'
+    ```
+
+=== "REST"
+
+    ```bash
+    curl -X POST http://127.0.0.1:5255/api/v0/registered-jobs \
+      -H "Content-Type: application/json" \
+      -d '{"name": "etl", "entrypoint": "myapp.pipelines.etl", "schedule": "0 8 * * *", "default_kwargs": {"day": "today"}}'
+    ```
+
+Runner defaults are set here too: `--runner subprocess|docker|kubernetes` and
+`--image python:3.12` on the CLI, `runner_mode` / `image` in Python and REST.
+
+## Enable, disable, list registrations
+
+=== "Python"
+
+    ```python
+    from aaiclick.orchestration import orch_context
+    from aaiclick.orchestration.registered_jobs import (
+        disable_job,
+        enable_job,
+        list_registered_jobs,
+    )
+
+    async with orch_context():
+        await enable_job("etl")
+        await disable_job("etl")
+        registrations = await list_registered_jobs(enabled_only=True)
+    ```
+
+=== "CLI"
+
+    ```bash
+    python -m aaiclick job enable etl
+    python -m aaiclick job disable etl
+    python -m aaiclick registered-job list
+    ```
+
+=== "REST"
+
+    ```bash
+    curl -X POST http://127.0.0.1:5255/api/v0/registered-jobs/etl/enable
+    curl -X POST http://127.0.0.1:5255/api/v0/registered-jobs/etl/disable
+    curl http://127.0.0.1:5255/api/v0/registered-jobs
+    ```
 
 ## Cron scheduling
 
@@ -233,24 +320,82 @@ downstream tasks can depend on.
 
 # Managing Jobs
 
-```bash
-python -m aaiclick job get <id>
-python -m aaiclick job cancel <id>
-python -m aaiclick job list [--status RUNNING] [--like "%etl%"] [--limit 20 --offset 40]
-```
+## Inspect jobs
 
-From Python (`aaiclick/orchestration/jobs/`):
+=== "Python"
 
-- `get_job()`, `list_jobs(status, name_like, limit, offset)`, `count_jobs()`,
-  `get_tasks_for_job()` — queries
-- `cancel_job(job_id)` — atomically cancels a job and all its non-terminal
-  tasks; returns `False` if not found or already terminal
-- `clear_task(task_id)` — resets a task and all its transitive downstream
-  tasks to PENDING for re-run (Airflow-style "clear task"); upstream tasks and
-  their results are untouched, and a finished job is reactivated
+    ```python
+    from aaiclick.orchestration import get_job, list_jobs, orch_context
 
-Workers detect cancellation by polling task status; a CPU-bound task won't
-interrupt until it yields.
+    async with orch_context():
+        jobs = await list_jobs(status="RUNNING", name_like="%etl%", limit=20)
+        job = await get_job(job_id)
+    ```
+
+=== "CLI"
+
+    ```bash
+    python -m aaiclick job list [--status RUNNING] [--like "%etl%"] [--limit 20 --offset 40]
+    python -m aaiclick job get <id>
+    python -m aaiclick job stats <id>
+    ```
+
+=== "REST"
+
+    ```bash
+    curl "http://127.0.0.1:5255/api/v0/jobs?status=RUNNING&limit=20"
+    curl http://127.0.0.1:5255/api/v0/jobs/<id>
+    curl http://127.0.0.1:5255/api/v0/jobs/<id>/stats
+    ```
+
+## Cancel a job
+
+Atomically cancels the job and all its non-terminal tasks. Workers detect
+cancellation by polling task status; a CPU-bound task won't interrupt until it
+yields.
+
+=== "Python"
+
+    ```python
+    from aaiclick.orchestration import cancel_job, orch_context
+
+    async with orch_context():
+        cancelled = await cancel_job(job_id)  # False if not found or already terminal
+    ```
+
+=== "CLI"
+
+    ```bash
+    python -m aaiclick job cancel <id>
+    ```
+
+=== "REST"
+
+    ```bash
+    curl -X POST http://127.0.0.1:5255/api/v0/jobs/<id>/cancel
+    ```
+
+## Re-run tasks (clear)
+
+`clear_task` resets a task and all its transitive downstream tasks to PENDING
+for re-run (Airflow-style "clear task"); upstream tasks and their results are
+untouched, and a finished job is reactivated.
+
+=== "Python"
+
+    ```python
+    from aaiclick.orchestration import orch_context
+    from aaiclick.orchestration.execution.claiming import clear_task
+
+    async with orch_context():
+        cleared_task_ids, job = await clear_task(task_id)
+    ```
+
+=== "REST"
+
+    ```bash
+    curl -X POST http://127.0.0.1:5255/api/v0/tasks/<task_id>/clear
+    ```
 
 # Task Logs
 
@@ -259,7 +404,8 @@ ClickHouse `task_logs` table, so logs are readable from one place no matter
 which host, container, or Pod ran the task. `logging.*` records keep their
 level; raw `print()` output is captured as `INFO` (stdout) / `ERROR` (stderr).
 `AAICLICK_LOG_LEVEL` sets the captured root level (default `INFO`). Logs share
-the job's retention lifecycle.
+the job's retention lifecycle. Fetch them via
+`GET /api/v0/tasks/<task_id>/logs?tail=100`.
 
 # Configuration
 
