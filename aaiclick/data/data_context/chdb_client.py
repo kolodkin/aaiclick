@@ -312,7 +312,7 @@ class ChdbClient:
         self._session.query(f"INSERT INTO {table}{cols} SELECT * FROM Python(arrow_table)")
 
     async def close(self) -> None:
-        # chdb's Session is a per-process singleton (see docs/technical_debt.md)
+        # chdb's Session is a per-process singleton (see docs/designs/technical_debt.md)
         # owned outside ChdbClient — closing here would break sibling contexts.
         pass
 

@@ -2,7 +2,7 @@
 
 The Pod-side ``_pod_main`` test lives in ``test_kubernetes_pod_main.py`` (its
 own module) because it boots a chdb ``orch_context()``; see the chdb
-single-session constraint in ``docs/testing.md``."""
+single-session constraint in ``docs/designs/testing.md``."""
 
 from __future__ import annotations
 

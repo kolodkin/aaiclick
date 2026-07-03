@@ -112,7 +112,7 @@ cold image measurably tie up workers.
 
 ## SSE Cross-Host Fanout (Redis)
 
-The v0 SSE pipeline (`docs/frontend.md`) feeds deltas onto a single
+The v0 SSE pipeline (`docs/designs/frontend.md`) feeds deltas onto a single
 in-process bus inside one FastAPI process — Postgres `LISTEN/NOTIFY` for
 distributed mode, polling for SQLite local mode. That works for any
 deployment where there is exactly one API process per host that clients
@@ -136,7 +136,7 @@ bottleneck for connection count or fan-out throughput.
 ## API Auth — Beyond Username/Password + RBAC
 
 Username/password users, admin/viewer RBAC, and JWT login (access + refresh)
-ship today (`docs/auth.md`). Follow-ups, once more callers / finer control are
+ship today (`docs/designs/auth.md`). Follow-ups, once more callers / finer control are
 needed:
 
 - **Long-lived API tokens / PATs with scopes** — user-minted, named, expiring

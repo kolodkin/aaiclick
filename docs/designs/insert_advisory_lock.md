@@ -6,7 +6,7 @@ worker's INSERT writes its rows contiguously, without interleaving with
 another worker's. Distributed mode only — local mode (chdb + SQLite) is
 single-process and needs no lock.
 
-Tracked in `docs/future.md` (High Priority).
+Tracked in `docs/designs/future.md` (High Priority).
 
 ---
 
@@ -142,7 +142,7 @@ cross-process concurrency exists to serialize.
 
 `copy_db` deliberately stays lock-free. Two concurrent copies into the same
 named destination are a pipeline-design bug, not a framework concern. This
-is documented as a small admonition on `copy()` in `docs/object.md`.
+is documented as a small admonition on `copy()` in `docs/user_guide/object.md`.
 
 ## Call sequence
 
@@ -209,8 +209,8 @@ connection — same dependency as any other Snowflake-minting code path.
 | `aaiclick/locks.py` (new)                             | `table_insert_lock(advisory_id)` async context manager + per-process `advisory_id` cache |
 | `aaiclick/data/object/ingest.py`                      | Wrap `insert_objects_db` and `concat_objects_db`           |
 | `aaiclick/data/data_context/data_context.py`          | Wrap append path of `create_object_from_value(name=)`      |
-| `docs/object.md`                                      | Admonition on `copy()` clarifying it is not serialized     |
-| `docs/future.md`                                      | Remove this item from High Priority once shipped           |
+| `docs/user_guide/object.md`                                      | Admonition on `copy()` clarifying it is not serialized     |
+| `docs/designs/future.md`                                      | Remove this item from High Priority once shipped           |
 
 ---
 

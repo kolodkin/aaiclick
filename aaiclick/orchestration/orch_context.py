@@ -402,7 +402,7 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
     ch_client_owned = None
     if with_ch:
         # chdb's Session is a true per-process singleton (see
-        # ``docs/technical_debt.md``): we open it once and reuse it for the
+        # ``docs/designs/technical_debt.md``): we open it once and reuse it for the
         # lifetime of the process. Reusing an outer context's client when
         # nested keeps that invariant for callers that enter ``orch_context``
         # multiple times (e.g. ``ajob_test``).

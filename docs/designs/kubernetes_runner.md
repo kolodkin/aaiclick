@@ -81,7 +81,7 @@ today.
 `capture_task_output` streams task stdout/stderr into the ClickHouse `task_logs`
 table from inside the Pod, so `get_task_logs` reads them on the host with no
 node coordination — the same cross-host path every runner uses
-(`docs/orchestration.md` — Cross-host logs).
+(`docs/designs/orchestration.md` — Cross-host logs).
 
 - **Pod side**: no change needed. `capture_task_output` flushes captured output
   to `task_logs` (keyed by `task_id` / `run_id`) before the Pod exits, reaching
@@ -90,7 +90,7 @@ node coordination — the same cross-host path every runner uses
   host-side file at `{log_base}/{job_id}/{task_id}/k8s-{run_epoch}.log` and
   reports it as `log_path`. The read path no longer consults that file (it reads
   CH); both it and `RemoteTaskResult.log_path` are slated for removal in
-  `docs/future.md` — Retire File-Based Task Logs.
+  `docs/designs/future.md` — Retire File-Based Task Logs.
 
 !!! warning "Capture logs before deleting the Pod"
     The `kubectl logs` fetch runs inside `wait()`, before `cleanup()` deletes
@@ -178,7 +178,7 @@ RunnerMode = Literal["subprocess", "docker", "kubernetes"]
     (typing) + the CLI's `choices=` (runtime). This is a scoped deviation from
     the project's String+CHECK enum convention; the other enum columns keep
     their CHECKs. A codebase-wide review of which convention to standardize on is
-    tracked in `docs/future.md`.
+    tracked in `docs/designs/future.md`.
 
 - `register-job --runner kubernetes` records the mode (plus `--namespace` and
   resource flags) on the `RegisteredJob`.

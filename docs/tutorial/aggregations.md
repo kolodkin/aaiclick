@@ -27,5 +27,5 @@ readings:
 
 # See Also
 
-- [Object API](../object.md) — the full method surface
+- [Object API](../user_guide/object.md) — the full method surface
 - [Examples: Statistics](../examples/statistics.md) — the complete runnable script

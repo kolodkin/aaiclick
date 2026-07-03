@@ -2,7 +2,7 @@
 
 Auth enforcement is a *deployment-mode* convention, not a flag: it is always
 disabled in local mode (single-process chdb + SQLite dev) and always enforced
-in distributed mode. See ``docs/auth.md``.
+in distributed mode. See ``docs/designs/auth.md``.
 """
 
 from __future__ import annotations

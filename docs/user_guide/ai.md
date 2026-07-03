@@ -5,7 +5,7 @@ Optional AI-powered lineage querying and debugging (`pip install aaiclick[ai]`);
 
 **Implementation**: `aaiclick/ai/` — see `AIProvider`, `get_ai_provider()`, `explain_lineage()`, `debug_result()`
 
-**Depends on**: `docs/oplog.md` — the oplog module provides the provenance data that AI agents query.
+**Depends on**: `docs/user_guide/oplog.md` — the oplog module provides the provenance data that AI agents query.
 
 ---
 

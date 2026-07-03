@@ -468,7 +468,7 @@ The server reuses the CLI's existing env vars and adds a single auth knob:
 
 # Authentication
 
-**Design**: `docs/auth.md`. **Implementation**: `aaiclick/server/auth.py`
+**Design**: `docs/designs/auth.md`. **Implementation**: `aaiclick/server/auth.py`
 (principal resolution + RBAC), `aaiclick/auth/` (models, security, store),
 `aaiclick/internal_api/auth.py` (login/refresh/logout), wired in
 `aaiclick/server/app.py`.
@@ -499,13 +499,13 @@ The error envelope is the standard `Problem` (`code="unauthorized"` / 401 with
 
 Per-tool MCP RBAC, a user-management UI, long-lived API tokens / PATs with
 scopes, OAuth 2.0 / OIDC, and a per-request audit log are tracked in
-`docs/future.md`.
+`docs/designs/future.md`.
 
 # Non-Goals
 
 - **Streaming log envelopes** — `GET /tasks/{id}/logs` returns the captured
   lines in one `TaskLogsView`; live per-line streaming (`TaskLogLine`) is a
-  follow-up tracked in `docs/future.md`.
+  follow-up tracked in `docs/designs/future.md`.
 - **WebSockets** — the UI's live update channel is a follow-up once the REST
   surface stabilises.
 - **Backwards-compatible shims for old CLI code paths** — during migration,

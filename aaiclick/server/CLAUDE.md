@@ -3,7 +3,7 @@ Server-package guidelines
 
 # Running the server
 
-See `docs/api_server.md` — Running the server.
+See `docs/designs/api_server.md` — Running the server.
 
 # FastAPI tests — use `httpx.AsyncClient` + `ASGITransport`
 

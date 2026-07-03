@@ -8,7 +8,7 @@ Backend-agnostic: the default backend (chdb) fills ``read_rows`` / ``read_bytes`
 / ``elapsed_s`` and leaves ``result_rows`` / ``written_rows`` / ``written_bytes``
 ``None``; the distributed HTTP backend fills all six. Assertions check the
 fields a backend supports and tolerate ``None`` elsewhere (see the availability
-matrix in ``docs/object.md``).
+matrix in ``docs/user_guide/object.md``).
 """
 
 from aaiclick import QueryStats, create_object_from_value

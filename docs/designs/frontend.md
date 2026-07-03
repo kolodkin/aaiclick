@@ -2,7 +2,7 @@ Frontend Architecture
 ---
 
 Technical spec for the aaiclick web UI: framework, build, data layer, and
-real-time updates. UX (layout, modes, wireframes) lives in `docs/ui.md`.
+real-time updates. UX (layout, modes, wireframes) lives in `docs/designs/ui.md`.
 
 # Tech stack
 
@@ -128,7 +128,7 @@ behind the server.
 # Real-time (v0 — REST polling)
 
 v0 uses `refetchInterval: 2000` on every query. No SSE endpoint exists yet;
-design and fanout spec are tracked in `docs/future.md`.
+design and fanout spec are tracked in `docs/designs/future.md`.
 
 ## SSE design (future)
 
@@ -180,4 +180,4 @@ with `test_e2e/docker/` rather than running a parallel Node runner.
     PR against the distributed (Postgres + ClickHouse) backend.
 
 Deferred work (SSE endpoint, cross-host logs, Vitest, OpenAPI codegen, auth)
-is tracked in `docs/future.md`.
+is tracked in `docs/designs/future.md`.

@@ -12,7 +12,7 @@ If any workflows fail, analyze the error logs and fix issues automatically.
 - Tests also run in GitHub Actions with both local and distributed backends
 - For distributed testing, set `AAICLICK_CH_URL` and `AAICLICK_SQL_URL` to remote servers
 
-**Architecture**: `docs/testing.md` — fixture layout, chdb session constraint, module-split rules for mp-worker tests.
+**Architecture**: `docs/designs/testing.md` — fixture layout, chdb session constraint, module-split rules for mp-worker tests.
 
 # Testing
 
@@ -154,7 +154,7 @@ Use the `generate-migration` skill. Never hand-write migration files.
 
 # Future Plans
 
-`docs/future.md` is the single source of truth for unimplemented features. Move planned work there instead of marking it `⚠️ NOT YET IMPLEMENTED` inline. Spec docs may briefly reference it. Remove items when implemented.
+`docs/designs/future.md` is the single source of truth for unimplemented features. Move planned work there instead of marking it `⚠️ NOT YET IMPLEMENTED` inline. Spec docs may briefly reference it. Remove items when implemented.
 
 # Specification-Driven Development
 
@@ -162,31 +162,22 @@ Use the `generate-migration` skill. Never hand-write migration files.
 
 ## Workflow
 
-1. **Create Specification Document** (`docs/<feature>.md`):
+1. **Create Specification Document** (`docs/designs/<feature>.md`):
    - Describe architecture, data models, and APIs
    - Include code examples showing intended usage
    - Document design decisions and trade-offs
    - Specify all data types, enums, and schemas
    - Keep specifications detailed and comprehensive
 
-2. **Create Implementation Plan** (`docs/<feature>_implementation_plan.md`) for complex features:
-   - Break feature into phases with clear objectives
-   - List specific tasks for each phase
-   - Define deliverables and success criteria
-   - Track progress with ✅ for completed phases
-   - Include file references as implementation progresses
-
-3. **Implement Phase by Phase**:
-   - Follow the implementation plan sequentially
+2. **Plan and Implement with superpowers**: Use the `superpowers:writing-plans` and `superpowers:executing-plans` skills to break the feature into phases and execute them:
    - Write comprehensive tests for each phase
    - Commit working code frequently
-   - Update implementation plan with ✅ and file references
 
-4. **Update Documentation to Reference Implementation**:
+3. **Update Documentation to Reference Implementation**:
    - **Add implementation references**: Point to actual code files and line numbers
    - **Example**: `**Implementation**: aaiclick/orchestration/factories.py:30-107`
    - **Remove duplication**: Once code exists, reference it instead of duplicating
-   - **No status icons**: The implementation reference itself signals a feature is built — do not add ✅ IMPLEMENTED markers. Unimplemented work lives in `docs/future.md` (see Future Plans), not inline ⚠️ NOT YET IMPLEMENTED markers.
+   - **No status icons**: The implementation reference itself signals a feature is built — do not add ✅ IMPLEMENTED markers. Unimplemented work lives in `docs/designs/future.md` (see Future Plans), not inline ⚠️ NOT YET IMPLEMENTED markers.
    - **Keep unimplemented specs**: Detailed descriptions serve as design docs for future work
 
 ## Documentation
