@@ -104,7 +104,7 @@ a function inside the context.
 
 ## Documentation
 
-[aaiclick.readthedocs.io](https://aaiclick.readthedocs.io/en/latest/)
+[aaiclick.readthedocs.io](https://aaiclick.readthedocs.io/en/stable/)
 
 ## License
 
