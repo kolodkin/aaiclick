@@ -64,6 +64,7 @@ nav:
     - Object API: object.md
     - DataContext: data_context.md
     - Orchestration: orchestration.md
+    - Container Images: container_images.md
     - AI Layer: ai.md
     - Operation Log: oplog.md
   - Example Projects: example_projects.md
