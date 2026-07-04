@@ -236,7 +236,86 @@ class Dependency(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now)
 
 
-class Group(SQLModel, table=True):
+class _DependencyOps:
+    """Shared dependency wiring for Task and Group.
+
+    Provides ``depends_on`` plus the ``>>`` / ``<<`` operators. Subclasses set
+    ``_dep_next_type`` and define their own ``previous_dependencies``
+    relationship (the primaryjoin differs per table). Methods annotate ``self``
+    as ``Task | Group`` — a bare annotation here would be collected as a
+    pydantic field by the SQLModel metaclass.
+    """
+
+    _dep_next_type: ClassVar[DependencyType]
+
+    def depends_on(self: Union["Task", "Group"], other: Union["Task", "Group"]) -> Union["Task", "Group"]:
+        """
+        Declare that this item depends on a task or group.
+
+        Creates a Dependency record that will be committed when commit_tasks() is called.
+
+        Args:
+            other: Task or Group that must complete before this one
+
+        Returns:
+            self (for chaining)
+        """
+        dependency = Dependency(
+            previous_id=other.id,
+            previous_type=DEPENDENCY_TASK if isinstance(other, Task) else DEPENDENCY_GROUP,
+            next_id=self.id,
+            next_type=self._dep_next_type,
+        )
+        self.previous_dependencies.append(dependency)
+        return self
+
+    def __rshift__(
+        self: Union["Task", "Group"], other: Union["Task", "Group", Sequence[Union["Task", "Group"]]]
+    ) -> Union["Task", "Group", Sequence[Union["Task", "Group"]]]:
+        """A >> B: B depends on A (A executes before B)."""
+        if isinstance(other, (Task, Group)):
+            other.depends_on(self)
+            return other
+        for item in other:
+            item.depends_on(self)
+        return other
+
+    def __lshift__(
+        self: Union["Task", "Group"], other: Union["Task", "Group", list[Union["Task", "Group"]]]
+    ) -> Union["Task", "Group"]:
+        """A << B: A depends on B (B executes before A)."""
+        if isinstance(other, list):
+            for item in other:
+                self.depends_on(item)
+        else:
+            self.depends_on(other)
+        return self
+
+    def __rrshift__(
+        self: Union["Task", "Group"], other: Union["Task", "Group", Sequence[Union["Task", "Group"]]]
+    ) -> Union["Task", "Group"]:
+        """Reverse: [A, B] >> C means C depends on A and B (fan-in)."""
+        if isinstance(other, list):
+            for item in other:
+                self.depends_on(item)
+        else:
+            self.depends_on(other)
+        return self
+
+    def __rlshift__(
+        self: Union["Task", "Group"], other: Union["Task", "Group", list[Union["Task", "Group"]]]
+    ) -> Union["Task", "Group", list[Union["Task", "Group"]]]:
+        """Reverse: [A, B] << C means A and B depend on C (fan-out)."""
+        if isinstance(other, list):
+            for item in other:
+                item.depends_on(self)
+            return other
+        else:
+            other.depends_on(self)
+            return other
+
+
+class Group(_DependencyOps, SQLModel, table=True):
     """
     Group model - represents a logical grouping of tasks.
 
@@ -246,6 +325,7 @@ class Group(SQLModel, table=True):
     """
 
     __tablename__: ClassVar[str] = "groups"
+    _dep_next_type: ClassVar[DependencyType] = DEPENDENCY_GROUP
 
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
     job_id: int = Field(default=0, sa_column=Column(BigInteger, ForeignKey("jobs.id"), index=True))
@@ -282,70 +362,7 @@ class Group(SQLModel, table=True):
         }
     )
 
-    def depends_on(self, other: Union["Task", "Group"]) -> "Group":
-        """
-        Declare that this group depends on a task or another group.
-
-        Creates a Dependency record that will be committed when commit_tasks() is called.
-
-        Args:
-            other: Task or Group that must complete before tasks in this group
-
-        Returns:
-            self (for chaining)
-        """
-        dependency = Dependency(
-            previous_id=other.id,
-            previous_type=DEPENDENCY_TASK if isinstance(other, Task) else DEPENDENCY_GROUP,
-            next_id=self.id,
-            next_type=DEPENDENCY_GROUP,
-        )
-        self.previous_dependencies.append(dependency)
-        return self
-
-    def __rshift__(
-        self, other: Union["Task", "Group", Sequence[Union["Task", "Group"]]]
-    ) -> Union["Task", "Group", Sequence[Union["Task", "Group"]]]:
-        """A >> B: B depends on A (A executes before B)."""
-        if isinstance(other, (Task, Group)):
-            other.depends_on(self)
-            return other
-        for item in other:
-            item.depends_on(self)
-        return other
-
-    def __lshift__(self, other: Union["Task", "Group", list[Union["Task", "Group"]]]) -> "Group":
-        """A << B: A depends on B (B executes before A)."""
-        if isinstance(other, list):
-            for item in other:
-                self.depends_on(item)
-        else:
-            self.depends_on(other)
-        return self
-
-    def __rrshift__(self, other: Union["Task", "Group", Sequence[Union["Task", "Group"]]]) -> "Group":
-        """Reverse: [A, B] >> C means C depends on A and B (fan-in)."""
-        if isinstance(other, list):
-            for item in other:
-                self.depends_on(item)
-        else:
-            self.depends_on(other)
-        return self
-
-    def __rlshift__(
-        self, other: Union["Task", "Group", list[Union["Task", "Group"]]]
-    ) -> Union["Task", "Group", list[Union["Task", "Group"]]]:
-        """Reverse: [A, B] << C means A and B depend on C (fan-out)."""
-        if isinstance(other, list):
-            for item in other:
-                item.depends_on(self)
-            return other
-        else:
-            other.depends_on(self)
-            return other
-
-
-class Task(SQLModel, table=True):
+class Task(_DependencyOps, SQLModel, table=True):
     """
     Task model - represents a unit of work to be executed.
 
@@ -353,6 +370,7 @@ class Task(SQLModel, table=True):
     """
 
     __tablename__: ClassVar[str] = "tasks"
+    _dep_next_type: ClassVar[DependencyType] = DEPENDENCY_TASK
     # Composite index: the rollup aggregate and the cascade UPDATE in
     # background.handler both filter on (job_id, status) — hot path on every
     # task transition.
@@ -409,69 +427,6 @@ class Task(SQLModel, table=True):
             "overlaps": "previous_dependencies",
         }
     )
-
-    def depends_on(self, other: Union["Task", "Group"]) -> "Task":
-        """
-        Declare that this task depends on another task or group.
-
-        Creates a Dependency record that will be committed when commit_tasks() is called.
-
-        Args:
-            other: Task or Group that must complete before this task
-
-        Returns:
-            self (for chaining)
-        """
-        dependency = Dependency(
-            previous_id=other.id,
-            previous_type=DEPENDENCY_TASK if isinstance(other, Task) else DEPENDENCY_GROUP,
-            next_id=self.id,
-            next_type=DEPENDENCY_TASK,
-        )
-        self.previous_dependencies.append(dependency)
-        return self
-
-    def __rshift__(
-        self, other: Union["Task", "Group", Sequence[Union["Task", "Group"]]]
-    ) -> Union["Task", "Group", Sequence[Union["Task", "Group"]]]:
-        """A >> B: B depends on A (A executes before B)."""
-        if isinstance(other, (Task, Group)):
-            other.depends_on(self)
-            return other
-        for item in other:
-            item.depends_on(self)
-        return other
-
-    def __lshift__(self, other: Union["Task", "Group", list[Union["Task", "Group"]]]) -> "Task":
-        """A << B: A depends on B (B executes before A)."""
-        if isinstance(other, list):
-            for item in other:
-                self.depends_on(item)
-        else:
-            self.depends_on(other)
-        return self
-
-    def __rrshift__(self, other: Union["Task", "Group", Sequence[Union["Task", "Group"]]]) -> "Task":
-        """Reverse: [A, B] >> C means C depends on A and B (fan-in)."""
-        if isinstance(other, list):
-            for item in other:
-                self.depends_on(item)
-        else:
-            self.depends_on(other)
-        return self
-
-    def __rlshift__(
-        self, other: Union["Task", "Group", list[Union["Task", "Group"]]]
-    ) -> Union["Task", "Group", list[Union["Task", "Group"]]]:
-        """Reverse: [A, B] << C means A and B depend on C (fan-out)."""
-        if isinstance(other, list):
-            for item in other:
-                item.depends_on(self)
-            return other
-        else:
-            other.depends_on(self)
-            return other
-
 
 class RemoteTaskResult(SQLModel, table=True):
     """Per-attempt result handoff from a remote task vehicle (Kubernetes Pod)
