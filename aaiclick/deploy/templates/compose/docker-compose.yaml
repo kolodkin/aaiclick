@@ -1,0 +1,115 @@
+# Starter docker-compose stack for an aaiclick docker-runner deployment.
+#
+# Scaffolded by `python -m aaiclick compose init` — customize freely; you
+# own this file. Credentials below are starter defaults: change them for
+# anything beyond local evaluation.
+#
+# Task containers spawned by the docker runner run as SIBLINGS on the host
+# docker daemon (the worker mounts /var/run/docker.sock). They cannot
+# resolve compose service names, so everything a task needs (ClickHouse,
+# Postgres, the registry) is published on host ports and addressed via
+# host.docker.internal in the worker's environment.
+
+name: aaiclick
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.3
+    environment:
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: click123
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 0
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "localhost:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  postgres:
+    image: postgres:18.3
+    environment:
+      POSTGRES_USER: aaiclick
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: aaiclick
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "aaiclick"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  registry:
+    image: registry:2
+    ports:
+      - "5000:5000"
+
+  migrate:
+    image: ghcr.io/kolodkin/aaiclick:__AAICLICK_IMAGE_TAG__
+    command: python -m aaiclick migrate upgrade head
+    environment:
+      AAICLICK_SQL_URL: postgresql+asyncpg://aaiclick:secret@postgres:5432/aaiclick
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  server:
+    image: ghcr.io/kolodkin/aaiclick:__AAICLICK_IMAGE_TAG__
+    ports:
+      - "5255:5255"
+    environment:
+      AAICLICK_SQL_URL: postgresql+asyncpg://aaiclick:secret@postgres:5432/aaiclick
+      AAICLICK_CH_URL: clickhouse://default:click123@clickhouse:8123/default
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+
+  worker:
+    image: ghcr.io/kolodkin/aaiclick-docker:__AAICLICK_IMAGE_TAG__
+    command: python -m aaiclick execution-worker start
+    # Root so the mounted docker socket is writable. Alternative: keep the
+    # image's non-root user and add `group_add: ["<host docker gid>"]`.
+    user: root
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      # host.docker.internal DSNs resolve BOTH here (extra_hosts above) and
+      # inside spawned task containers (AAICLICK_DOCKER_RUN_ADD_HOST below),
+      # so tasks inherit working connection strings verbatim.
+      AAICLICK_SQL_URL: postgresql+asyncpg://aaiclick:secret@host.docker.internal:5432/aaiclick
+      AAICLICK_CH_URL: clickhouse://default:click123@host.docker.internal:8123/default
+      AAICLICK_REGISTRY: host.docker.internal:5000
+      AAICLICK_DOCKER_BUILD_ADD_HOST: host.docker.internal:host-gateway
+      AAICLICK_DOCKER_RUN_ADD_HOST: host.docker.internal:host-gateway
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+
+  background:
+    image: ghcr.io/kolodkin/aaiclick:__AAICLICK_IMAGE_TAG__
+    command: python -m aaiclick background start
+    environment:
+      AAICLICK_SQL_URL: postgresql+asyncpg://aaiclick:secret@postgres:5432/aaiclick
+      AAICLICK_CH_URL: clickhouse://default:click123@clickhouse:8123/default
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  clickhouse_data:
+  postgres_data:
