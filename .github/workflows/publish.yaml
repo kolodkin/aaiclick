@@ -344,6 +344,9 @@ jobs:
       version_pin: ${{ inputs.tag }}
 
   test-compose-e2e:
+    permissions:
+      contents: read
+      packages: read
     needs: [build, merge-rc-images]
     uses: ./.github/workflows/_compose-e2e-reusable.yaml
     with:
