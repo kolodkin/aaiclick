@@ -235,8 +235,8 @@ async def purge_objects(request: PurgeObjectsRequest) -> PurgeObjectsResult:
 
 
 # --- lineage primitives -----------------------------------------------
-# Turnkey LLM wrappers (``explain_lineage`` / ``debug_result``) live in
-# ``internal_api.lineage_ai`` for CLI use; MCP exposes the primitives only.
+# MCP exposes the AI-independent primitives only; turnkey LLM wrappers are
+# planned CLI work — see docs/designs/future.md.
 
 
 @mcp.tool
