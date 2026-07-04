@@ -1872,3 +1872,32 @@ git push -u origin claude/scaffold-dockerfile-lii344
 ```
 
 Then use the `check-pr` skill (project convention after every push).
+
+---
+
+### Task 12: evaluation release — v0.0.18 through the new pipeline
+
+Run a real PyPI release through the restructured pipeline to evaluate it end to end. Latest published version is 0.0.17, so the evaluation tag is **v0.0.18**.
+
+- [ ] **Step 1: Trigger the publish workflow**
+
+Trigger `publish.yaml` via `workflow_dispatch` on branch `claude/scaffold-dockerfile-lii344` (the workflow file must be dispatched from the ref that contains the new jobs) with inputs: `tag: v0.0.18`, `pre-release: false`, `skip-docker-e2e: false`. Use the GitHub MCP `actions_run_trigger` tool (or the `devpowers:action-run` skill).
+
+- [ ] **Step 2: Watch the run to completion**
+
+Follow the run with the GitHub MCP actions tools (`actions_list` / `actions_get` / `get_job_logs`). Verify the pipeline shape executes as designed: `build` → `build-rc-images` (amd64 + arm64) → `merge-rc-images` → all five gates in parallel → `publish` → `promote-images`.
+
+- [ ] **Step 3: On failure — diagnose, fix, re-release**
+
+Analyze failing job logs, fix on the branch, push, and dispatch again. PyPI versions are single-use: if the `publish` job succeeded but a later step failed, the next attempt must bump to `v0.0.19`; if the run failed before `publish`, re-use `v0.0.18`. Leftover `-rc` tags from failed runs are expected (kept for debugging).
+
+- [ ] **Step 4: Verify the released artifacts**
+
+```bash
+curl -fsSL https://pypi.org/pypi/aaiclick/0.0.18/json >/dev/null && echo "wheel on PyPI"
+docker buildx imagetools inspect ghcr.io/kolodkin/aaiclick:v0.0.18          # multi-arch manifest
+docker buildx imagetools inspect ghcr.io/kolodkin/aaiclick-docker:v0.0.18
+docker buildx imagetools inspect ghcr.io/kolodkin/aaiclick-kubectl:v0.0.18
+```
+
+Also confirm the promoted digests equal the `-rc` digests the gates tested (compare `imagetools inspect` output if the rc tags survived cleanup), and that a fresh `pip install aaiclick==0.0.18 && python -m aaiclick compose init` scaffolds a compose file pinned to `ghcr.io/kolodkin/aaiclick:v0.0.18`.
