@@ -237,9 +237,12 @@ jobs:
           --junitxml=/tmp/pytest-report.xml
 
   test-package:
-    needs: build
+    needs: [build, merge-rc-images]
     runs-on: ubuntu-latest
     name: test-package (${{ matrix.group }})
+    permissions:
+      contents: read
+      packages: read
     strategy:
       fail-fast: false
       matrix:
@@ -248,37 +251,6 @@ jobs:
             pyargs: aaiclick.data aaiclick.snowflake
           - group: orch
             pyargs: aaiclick.orchestration aaiclick.oplog
-
-    services:
-      clickhouse:
-        image: clickhouse/clickhouse-server:26.3
-        env:
-          CLICKHOUSE_USER: default
-          CLICKHOUSE_PASSWORD: click123
-          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 0
-        ports:
-          - 8123:8123
-          - 9000:9000
-        options: >-
-          --health-cmd "wget --spider -q localhost:8123/ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-          --add-host=host.docker.internal:host-gateway
-
-      postgres:
-        image: postgres:18.3
-        env:
-          POSTGRES_USER: aaiclick
-          POSTGRES_PASSWORD: secret
-          POSTGRES_DB: aaiclick
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U aaiclick"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - name: Install uv
@@ -302,6 +274,36 @@ jobs:
         run: |
           uv pip install -r requirements-dist.txt
           uv pip install --no-deps --no-index --find-links dist/ "aaiclick[distributed]"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Infra comes from the same compose file users scaffold — the release
+      # dogfoods it instead of GHA `services:` blocks. The whole stack comes
+      # up (no profiles); the extra app services are harmless to the suite.
+      - name: Scaffold and start compose stack
+        run: |
+          mkdir -p "$RUNNER_TEMP/stack"
+          uv run --no-project python -m aaiclick compose init \
+            --path "$RUNNER_TEMP/stack/docker-compose.yaml" \
+            --image-tag "${{ inputs.tag }}-rc"
+          docker compose -f "$RUNNER_TEMP/stack/docker-compose.yaml" up -d --quiet-pull
+
+      - name: Wait for infra health
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8123/ping >/dev/null 2>&1 \
+               && docker compose -f "$RUNNER_TEMP/stack/docker-compose.yaml" exec -T postgres pg_isready -U aaiclick >/dev/null 2>&1; then
+              echo "infra healthy"; exit 0
+            fi
+            sleep 5
+          done
+          echo "infra never became healthy" >&2
+          exit 1
 
       - name: Run database migrations
         env:
@@ -334,6 +336,10 @@ jobs:
           -o "markers=live_llm: tests that call a real LLM — requires AAICLICK_AI_LIVE_TESTS=1 and a reachable model"
           --strict-markers
           --junitxml=/tmp/pytest-report.xml
+
+      - name: Tear down stack
+        if: always()
+        run: docker compose -f "$RUNNER_TEMP/stack/docker-compose.yaml" down -v
 
   test-package-docker-e2e:
     needs: build
