@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+
 import pytest
 import yaml
 
@@ -56,3 +59,27 @@ def test_init_compose_force_overwrites(tmp_path):
     init_compose(target, image_tag="v1.0.0", force=True)
 
     assert "ghcr.io/kolodkin/aaiclick:v1.0.0" in target.read_text()
+
+
+def test_cli_compose_init_writes_file(tmp_path):
+    result = subprocess.run(
+        [sys.executable, "-m", "aaiclick", "compose", "init", "--path", "stack.yaml", "--image-tag", "v1.2.3"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Wrote" in result.stdout
+    assert "ghcr.io/kolodkin/aaiclick:v1.2.3" in (tmp_path / "stack.yaml").read_text()
+
+
+def test_cli_compose_init_existing_file_exits_nonzero(tmp_path):
+    (tmp_path / "docker-compose.yaml").write_text("# mine\n")
+    result = subprocess.run(
+        [sys.executable, "-m", "aaiclick", "compose", "init"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 1
+    assert "already exists" in result.stderr

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+
 import pytest
 import yaml
 
@@ -67,3 +70,14 @@ def test_init_helm_force_overwrites(tmp_path):
 
     chart = yaml.safe_load((target / "Chart.yaml").read_text())
     assert chart["name"] == "aaiclick"
+
+
+def test_cli_k8s_init_writes_chart(tmp_path):
+    result = subprocess.run(
+        [sys.executable, "-m", "aaiclick", "k8s", "init", "--path", "chart", "--image-tag", "v1.2.3"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "chart" / "Chart.yaml").is_file()
