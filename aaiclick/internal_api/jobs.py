@@ -113,8 +113,8 @@ async def list_jobs(filter: JobListFilter | None = None) -> Page[JobView]:
     )
 
 
-async def get_job(ref: RefId) -> JobDetail:
-    """Return full job detail including all tasks, ordered by creation time."""
+async def _load_job_and_tasks(ref: RefId) -> tuple[Job, list[Task]]:
+    """Resolve a job ref and load its tasks ordered by creation time."""
     async with get_sql_session() as session:
         job = await _resolve_job(ref, session)
         if job is None:
@@ -124,21 +124,19 @@ async def get_job(ref: RefId) -> JobDetail:
             .scalars()
             .all()
         )
-    return job_to_detail(job, list(tasks))
+    return job, list(tasks)
+
+
+async def get_job(ref: RefId) -> JobDetail:
+    """Return full job detail including all tasks, ordered by creation time."""
+    job, tasks = await _load_job_and_tasks(ref)
+    return job_to_detail(job, tasks)
 
 
 async def job_stats(ref: RefId) -> JobStatsView:
     """Return execution statistics for a job and its tasks."""
-    async with get_sql_session() as session:
-        job = await _resolve_job(ref, session)
-        if job is None:
-            raise NotFound(f"Job not found: {ref}")
-        tasks = (
-            (await session.execute(select(Task).where(Task.job_id == job.id).order_by(col(Task.created_at))))
-            .scalars()
-            .all()
-        )
-    return compute_job_stats_view(job, list(tasks))
+    job, tasks = await _load_job_and_tasks(ref)
+    return compute_job_stats_view(job, tasks)
 
 
 async def cancel_job(ref: RefId) -> JobView:

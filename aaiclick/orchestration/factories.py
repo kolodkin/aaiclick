@@ -11,10 +11,12 @@ from .env import get_default_preservation_mode
 from .models import (
     JOB_PENDING,
     RUN_MANUAL,
+    RUNNER_SUBPROCESS,
     TASK_PENDING,
     Job,
     PreservationMode,
     RegisteredJob,
+    RunnerMode,
     RunType,
     Task,
 )
@@ -53,6 +55,30 @@ def resolve_job_config(
         mode = get_default_preservation_mode()
 
     return mode
+
+
+def new_job_row(
+    name: str,
+    *,
+    run_type: RunType,
+    registered_job_id: int | None = None,
+    preservation_mode: PreservationMode | None = None,
+    registered: RegisteredJob | None = None,
+    runner_mode: RunnerMode = RUNNER_SUBPROCESS,
+    runner: dict | None = None,
+) -> Job:
+    """Build an uncommitted PENDING Job row with a resolved preservation mode."""
+    return Job(
+        id=get_snowflake_id(),
+        name=name,
+        status=JOB_PENDING,
+        run_type=run_type,
+        registered_job_id=registered_job_id,
+        preservation_mode=resolve_job_config(preservation_mode, registered),
+        runner_mode=runner_mode,
+        runner=runner,
+        created_at=utc_now(),
+    )
 
 
 def _resolve_main_module(func: Callable) -> str:
@@ -225,17 +251,12 @@ async def create_job(
         task = create_task("mymodule.task1", {"param": "value"})
         job = await create_job("my_job", task)
     """
-    mode = resolve_job_config(preservation_mode, registered)
-
-    job_id = get_snowflake_id()
-    job = Job(
-        id=job_id,
-        name=name,
-        status=JOB_PENDING,
+    job = new_job_row(
+        name,
         run_type=run_type,
         registered_job_id=registered_job_id,
-        preservation_mode=mode,
-        created_at=utc_now(),
+        preservation_mode=preservation_mode,
+        registered=registered,
     )
 
     # Create task from entry if it's not already a Task
@@ -245,7 +266,7 @@ async def create_job(
         task = create_task(entry)
 
     # Set task's job_id
-    task.job_id = job_id
+    task.job_id = job.id
 
     # Commit to database using OrchContext session
     async with get_sql_session() as session:
@@ -282,18 +303,14 @@ async def create_built_job(
     """Create a docker/kubernetes Job from a resolved RunnerConfig. The image
     is built on demand at dispatch (see ``execution.image_builder.ensure_image``),
     not injected as a task at submission."""
-    mode = resolve_job_config(preservation_mode, registered)
-    job_id = get_snowflake_id()
-    job = Job(
-        id=job_id,
-        name=name,
-        status=JOB_PENDING,
+    job = new_job_row(
+        name,
         run_type=run_type,
         registered_job_id=registered_job_id,
-        preservation_mode=mode,
+        preservation_mode=preservation_mode,
+        registered=registered,
         runner_mode=runner.type,
         runner=dump_runner_config(runner),
-        created_at=utc_now(),
     )
 
     entry_task = create_task(
@@ -304,7 +321,7 @@ async def create_built_job(
         command=command,
         command_env=command_env,
     )
-    entry_task.job_id = job_id
+    entry_task.job_id = job.id
 
     to_add = [job, entry_task]
 

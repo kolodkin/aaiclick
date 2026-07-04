@@ -39,7 +39,7 @@ from .execution_worker import (
     parse_task_timeout,
 )
 from .image_builder import resolve_image_tag
-from .runner import execute_task, register_returned_tasks, serialize_task_result
+from .runner import execute_task, serialize_task_result
 from .runner_env import build_runner_env
 
 POD_ENTRYPOINT = ["python", "-m", "aaiclick.orchestration.execution.kubernetes_worker"]
@@ -352,7 +352,6 @@ async def _pod_main(task_id: int, run_epoch: int) -> int:
             async with get_sql_session() as session:
                 task = (await session.execute(select(Task).where(Task.id == task_id))).scalar_one()
             data_result, log_path = await execute_task(task)
-            data_result = await register_returned_tasks(data_result, task.id, task.job_id)
             result_ref = serialize_task_result(data_result, task.job_id)
             success = True
         except BaseException as e:

@@ -59,6 +59,7 @@ from ..models import (
 )
 from ..orch_context import commit_tasks, get_sql_session, task_scope
 from ..result import TaskResult
+from .db_handler import DEPENDENCY_WHERE
 from .execution_worker_context import set_current_task_info
 
 logger = logging.getLogger(__name__)
@@ -466,50 +467,13 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
     return data_result
 
 
-_READY_TASK_SQL = """
+_READY_TASK_SQL = f"""
     SELECT t.id FROM tasks t
     JOIN jobs j ON t.job_id = j.id
     WHERE t.job_id = :job_id
     AND t.status = :pending_status
     AND (t.retry_after IS NULL OR t.retry_after <= :now)
-    -- Check task → task dependencies
-    AND NOT EXISTS (
-        SELECT 1 FROM dependencies d
-        JOIN tasks prev ON d.previous_id = prev.id
-        WHERE d.next_id = t.id
-        AND d.next_type = 'task'
-        AND d.previous_type = 'task'
-        AND prev.status != :completed_status
-    )
-    -- Check group → task dependencies
-    AND NOT EXISTS (
-        SELECT 1 FROM dependencies d
-        JOIN tasks prev ON prev.group_id = d.previous_id
-        WHERE d.next_id = t.id
-        AND d.next_type = 'task'
-        AND d.previous_type = 'group'
-        AND prev.status != :completed_status
-    )
-    -- Check task → group dependencies
-    AND NOT EXISTS (
-        SELECT 1 FROM dependencies d
-        JOIN tasks prev ON d.previous_id = prev.id
-        WHERE d.next_id = t.group_id
-        AND d.next_type = 'group'
-        AND d.previous_type = 'task'
-        AND prev.status != :completed_status
-        AND t.group_id IS NOT NULL
-    )
-    -- Check group → group dependencies
-    AND NOT EXISTS (
-        SELECT 1 FROM dependencies d
-        JOIN tasks prev ON prev.group_id = d.previous_id
-        WHERE d.next_id = t.group_id
-        AND d.next_type = 'group'
-        AND d.previous_type = 'group'
-        AND prev.status != :completed_status
-        AND t.group_id IS NOT NULL
-    )
+    {DEPENDENCY_WHERE}
     ORDER BY t.id ASC
     LIMIT 1
 """

@@ -152,15 +152,10 @@ def _serialize_parameters(parameters: dict | None) -> dict | None:
 
 @dataclass
 class ChdbQueryResult:
-    """Mimics clickhouse-connect QueryResult with .result_rows and .first_row."""
+    """Mimics clickhouse-connect QueryResult with .result_rows and .column_names."""
 
     result_rows: list[tuple] = field(default_factory=list)
     column_names: list[str] = field(default_factory=list)
-
-    @property
-    def first_row(self) -> tuple:
-        """Return the first row, matching clickhouse-connect QueryResult."""
-        return self.result_rows[0]
 
 
 class ChdbCommandSummary:
@@ -317,33 +312,6 @@ class ChdbClient:
         pass
 
 
-class ChdbSyncClient:
-    """Sync chdb client for TableWorker background thread.
-
-    Matches the sync clickhouse-connect client interface used by TableWorker
-    (command and close methods).
-    """
-
-    def __init__(self, session: Session):
-        self._session = session
-
-    def command(self, query: str) -> object:
-        """Execute a command synchronously."""
-        result = self._session.query(query, "TabSeparated")
-        raw = result.bytes()
-        if raw:
-            text = raw.decode("utf-8").strip()
-            if text:
-                try:
-                    return int(text)
-                except ValueError:
-                    return text
-        return None
-
-    def close(self) -> None:
-        """No-op — chdb Session is a per-process singleton, never closed mid-process."""
-
-
 _PA_BASE_TYPES: dict[str, pa.DataType] = {
     "UInt8": pa.uint8(),
     "UInt16": pa.uint16(),
@@ -425,7 +393,7 @@ def get_chdb_data_path() -> str:
 
 
 # Process-wide singleton chdb session, keyed by data path.
-# All ChdbClient and ChdbSyncClient instances in a process share this session
+# All ChdbClient instances in a process share this session
 # so that tables created in one data_context are visible to all others.
 # chdb's Session cannot be safely closed and reopened in-process — we hold and
 # reuse one Session per process for its entire lifetime; OS process exit is the
@@ -454,13 +422,3 @@ def get_shared_session(path: str | None = None) -> Session:
 def create_chdb_client(path: str | None = None) -> ChdbClient:
     """Create a ChdbClient backed by the shared chdb session."""
     return ChdbClient(get_shared_session(path))
-
-
-def create_chdb_sync_client(connection_string: str) -> ChdbSyncClient:
-    """Create a ChdbSyncClient backed by the shared chdb session.
-
-    Args:
-        connection_string: chdb://path/to/data URL.
-    """
-    path = connection_string[len("chdb://") :]
-    return ChdbSyncClient(get_shared_session(path))

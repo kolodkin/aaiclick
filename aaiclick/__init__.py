@@ -28,7 +28,6 @@ from .data import (
     ORIENT_RECORDS,
     ColumnInfo,
     ColumnType,
-    DataResult,
     FieldSpec,
     LazyOperator,
     Object,

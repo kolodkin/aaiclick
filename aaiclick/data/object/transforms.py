@@ -1,11 +1,7 @@
 """Computed column helper functions for common ClickHouse transformations."""
 
 from ..models import Computed
-
-
-def _escape_sql_string(value: str) -> str:
-    """Escape a Python string for use as a single-quoted SQL literal."""
-    return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+from ..sql_utils import quote_sql_literal
 
 
 def literal(value: str | int | float | bool, ch_type: str) -> Computed:
@@ -24,7 +20,7 @@ def literal(value: str | int | float | bool, ch_type: str) -> Computed:
     if isinstance(value, bool):
         expr = "true" if value else "false"
     elif isinstance(value, str):
-        expr = _escape_sql_string(value)
+        expr = quote_sql_literal(value)
     elif isinstance(value, (int, float)):
         expr = str(value)
     else:
@@ -67,5 +63,5 @@ def split_by_char(col: str, separator: str, element_type: str = "String") -> Com
         split_by_char("genres", ",")
         split_by_char("tags", ",", element_type="LowCardinality(String)")
     """
-    sep_escaped = _escape_sql_string(separator)
+    sep_escaped = quote_sql_literal(separator)
     return Computed(f"Array({element_type})", f"splitByChar({sep_escaped}, {col})")

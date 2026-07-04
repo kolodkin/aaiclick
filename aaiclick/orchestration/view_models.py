@@ -14,7 +14,6 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from ..view_models import LogLine, SnowflakeId
-from .jobs.stats import _short_entrypoint
 from .models import (
     TASK_COMPLETED,
     ExecutionWorker,
@@ -110,11 +109,7 @@ class TaskStatsView(BaseModel):
 
 
 class JobStatsView(BaseModel):
-    """Execution stats for a job and all its tasks.
-
-    Replacement for ``aaiclick.orchestration.jobs.stats.JobStats`` — Phase 2
-    migrates callers, after which the old dataclass is removed.
-    """
+    """Execution stats for a job and all its tasks."""
 
     job_id: SnowflakeId
     job_name: str
@@ -262,6 +257,15 @@ def registered_job_to_view(rj: RegisteredJob) -> RegisteredJobView:
         created_at=rj.created_at,
         updated_at=rj.updated_at,
     )
+
+
+def _short_entrypoint(entrypoint: str) -> str:
+    """Extract the short function name from a fully-qualified entrypoint."""
+    if ":" in entrypoint:
+        return entrypoint.rsplit(":", 1)[-1]
+    if "." in entrypoint:
+        return entrypoint.rsplit(".", 1)[-1]
+    return entrypoint
 
 
 def task_to_stats_view(task: Task) -> TaskStatsView:
