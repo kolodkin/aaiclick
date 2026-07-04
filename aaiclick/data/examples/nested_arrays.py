@@ -136,6 +136,4 @@ if __name__ == "__main__":
     print("=" * 50)
     print("aaiclick Nested Arrays Example")
     print("=" * 50)
-    print("\nNote: This example requires a running ClickHouse server")
-    print("      on localhost:8123\n")
     asyncio.run(amain())
