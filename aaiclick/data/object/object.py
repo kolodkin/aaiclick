@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import functools
 import sys
-from dataclasses import dataclass
 from typing import Any
 
 from typing_extensions import Self
@@ -78,20 +77,6 @@ from .schema_compute import (
 # Sentinel for "caller did not pass this kwarg" — distinguishes from None
 # which means "explicitly no value" (e.g. limit=None to disable the safety cap).
 _UNSET: Any = object()
-
-
-@dataclass
-class DataResult:
-    """
-    Result container for Object.data() that includes both rows and column metadata.
-
-    Attributes:
-        rows: List of tuples containing row data
-        columns: Dict mapping column name to ColumnInfo with datatype/fieldtype info
-    """
-
-    rows: list[tuple[Any, ...]]
-    columns: dict[str, ColumnInfo]
 
 
 def _require_explicit_order_for_cross_table(a: Object, b: Object) -> None:
@@ -464,16 +449,6 @@ class Object:
             parts.append(f"OFFSET {self.offset}")
         return " ".join(parts)
 
-    def same_source_as(self, other: Object) -> bool:
-        """Check if this object references the same rows as another.
-
-        Returns True when both objects share the same base table and identical
-        view constraints (WHERE, ORDER BY, LIMIT, OFFSET).  Used by the
-        operator fast-path to avoid the expensive JOIN on row_number() when
-        two field selections come from the same underlying data.
-        """
-        return self.table == other.table and self._build_constraint_sql() == other._build_constraint_sql()
-
     def _get_ingest_query_info(self) -> IngestQueryInfo:
         """
         Get query information for concat/insert operations.
@@ -502,8 +477,8 @@ class Object:
     async def result(self):
         """Query and return the raw ClickHouse query result for this object.
 
-        Returns the low-level result object from the ClickHouse client, not a
-        structured `DataResult`. Prefer `.data()` for normal use — it returns
+        Returns the low-level result object from the ClickHouse client.
+        Prefer `.data()` for normal use — it returns
         typed Python values and supports orient modes. The concrete type depends
         on the backend (clickhouse_connect `QueryResult` or the chdb equivalent).
 

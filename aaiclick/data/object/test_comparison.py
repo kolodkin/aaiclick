@@ -2,7 +2,7 @@
 Parametrized tests for comparison operators (==, !=, <, <=, >, >=).
 
 Tests element-wise Object-Object comparison for scalar and array Objects.
-Scalar-broadcast comparisons are covered in test_scalar_broadcast.py.
+Scalar-broadcast comparisons are covered in test_arithmetic_broadcast.py.
 """
 
 import pytest

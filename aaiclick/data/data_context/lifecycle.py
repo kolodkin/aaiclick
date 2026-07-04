@@ -137,6 +137,3 @@ class LocalLifecycleHandler(LifecycleHandler):
 
     async def flush(self) -> None:
         await self._worker.flush()
-
-    async def claim(self, table_name: str, job_id: int) -> None:
-        pass  # No distributed refs to release in local mode

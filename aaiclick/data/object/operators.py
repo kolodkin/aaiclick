@@ -497,41 +497,6 @@ async def _apply_aggregation(
 # Aggregation Operators
 
 
-async def min_agg(info: QueryInfo, ch_client, *, name=None, scope=None):
-    """Calculate minimum value at database level."""
-    return await _apply_aggregation(info, "min", ch_client, name=name, scope=scope)
-
-
-async def max_agg(info: QueryInfo, ch_client, *, name=None, scope=None):
-    """Calculate maximum value at database level."""
-    return await _apply_aggregation(info, "max", ch_client, name=name, scope=scope)
-
-
-async def sum_agg(info: QueryInfo, ch_client, *, name=None, scope=None):
-    """Calculate sum at database level."""
-    return await _apply_aggregation(info, "sum", ch_client, name=name, scope=scope)
-
-
-async def mean_agg(info: QueryInfo, ch_client, *, name=None, scope=None):
-    """Calculate mean (average) at database level."""
-    return await _apply_aggregation(info, "mean", ch_client, name=name, scope=scope)
-
-
-async def std_agg(info: QueryInfo, ch_client, *, name=None, scope=None):
-    """Calculate standard deviation (population) at database level."""
-    return await _apply_aggregation(info, "std", ch_client, name=name, scope=scope)
-
-
-async def var_agg(info: QueryInfo, ch_client, *, name=None, scope=None):
-    """Calculate variance (population) at database level."""
-    return await _apply_aggregation(info, "var", ch_client, name=name, scope=scope)
-
-
-async def count_agg(info: QueryInfo, ch_client, *, name=None, scope=None):
-    """Count the number of rows at database level."""
-    return await _apply_aggregation(info, "count", ch_client, name=name, scope=scope)
-
-
 async def count_if_agg(
     info: QueryInfo,
     condition: str | dict[str, str],

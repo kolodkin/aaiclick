@@ -64,7 +64,6 @@ from .models import (
     parse_ch_type,
 )
 from .object import (
-    DataResult,
     GroupByQuery,
     LazyOperator,
     Object,
