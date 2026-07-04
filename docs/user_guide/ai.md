@@ -83,9 +83,8 @@ def ai_available() -> bool:
     ``python -m aaiclick setup --ai``); remote models need AAICLICK_AI_API_KEY."""
 ```
 
-Callers that want to degrade gracefully (e.g. example projects) gate AI steps
-on `ai_available()` instead of requiring an API key — a running local Ollama
-server with the model downloaded counts as available.
+Example projects gate their AI steps on `ai_available()`, so a local Ollama
+server works without any API key.
 
 ---
 
