@@ -18,6 +18,13 @@ TMP_DIR = pathlib.Path(".tmp")
 ExampleList = list[tuple[str, Callable[[], Coroutine]]]
 
 
+def section(title: str) -> None:
+    """Print a banner separating numbered demos in example output."""
+    print("\n" + "=" * 50)
+    print(title)
+    print("-" * 50)
+
+
 def _example_path(title: str) -> pathlib.Path:
     name = title.lower().replace(" ", "_")
     return TMP_DIR / f"{name}.txt"

@@ -14,13 +14,12 @@ import asyncio
 
 from aaiclick import ORIENT_RECORDS, create_object_from_value
 from aaiclick.data.data_context import data_context
+from aaiclick.example_runner import section
 
 
 async def example():
     """Run all view examples."""
-    # Example 1: WHERE clause with int scalar array
-    print("Example 1: WHERE clause with int scalar array")
-    print("-" * 50)
+    section("Example 1: WHERE clause with int scalar array")
 
     # --8<-- [start:view_where]
     obj_int = await create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
@@ -39,10 +38,7 @@ async def example():
     print(f"WHERE value % 2 = 0 (even): {await view_where_even.data()}")  # → [2, 4, 6, 8, 10]
     # --8<-- [end:view_where]
 
-    # Example 2: LIMIT and OFFSET with int scalar array
-    print("\n" + "=" * 50)
-    print("Example 2: LIMIT and OFFSET with int scalar array")
-    print("-" * 50)
+    section("Example 2: LIMIT and OFFSET with int scalar array")
 
     # --8<-- [start:view_limit]
     obj_nums = await create_object_from_value([10, 20, 30, 40, 50, 60, 70, 80])
@@ -61,10 +57,7 @@ async def example():
     print(f"OFFSET 5: {await view_offset.data()}")  # → [60, 70, 80]
     # --8<-- [end:view_limit]
 
-    # Example 3: ORDER BY with int scalar array
-    print("\n" + "=" * 50)
-    print("Example 3: ORDER BY with int scalar array")
-    print("-" * 50)
+    section("Example 3: ORDER BY with int scalar array")
 
     # --8<-- [start:view_orderby]
     obj_unsorted = await create_object_from_value([50, 20, 80, 10, 40, 60, 30, 70])
@@ -79,10 +72,7 @@ async def example():
     print(f"ORDER BY value DESC: {await view_desc.data()}")  # → [80, 70, 60, 50, 40, 30, 20, 10]
     # --8<-- [end:view_orderby]
 
-    # Example 4: Mixed constraints with int scalar array
-    print("\n" + "=" * 50)
-    print("Example 4: Mixed constraints with int scalar array")
-    print("-" * 50)
+    section("Example 4: Mixed constraints with int scalar array")
 
     obj_mixed = await create_object_from_value([15, 8, 42, 23, 4, 16, 35, 12, 28, 50])
     print(f"Original data: {await obj_mixed.data()}\n")  # → [15, 8, 42, 23, 4, 16, 35, 12, 28, 50]
@@ -99,10 +89,7 @@ async def example():
     view_paginate = obj_mixed.view(where="value > 10", order_by="value ASC", offset=2, limit=3)
     print(f"WHERE value > 10 ORDER BY value ASC OFFSET 2 LIMIT 3: {await view_paginate.data()}")  # → [16, 23, 28]
 
-    # Example 5: WHERE clause with dict of scalars
-    print("\n" + "=" * 50)
-    print("Example 5: WHERE clause with dict of scalars")
-    print("-" * 50)
+    section("Example 5: WHERE clause with dict of scalars")
 
     obj_dict_scalar = await create_object_from_value({"id": 101, "name": "Alice", "age": 30, "score": 95.5})
     print(f"Original data: {await obj_dict_scalar.data()}\n")
@@ -119,10 +106,7 @@ async def example():
         f"WHERE score > 90.0: {await view_dict_score.data()}"
     )  # → {'id': 101, 'name': 'Alice', 'age': 30, 'score': 95.5}
 
-    # Example 6: WHERE clause with dict of arrays
-    print("\n" + "=" * 50)
-    print("Example 6: WHERE clause with dict of arrays")
-    print("-" * 50)
+    section("Example 6: WHERE clause with dict of arrays")
 
     obj_dict_arrays = await create_object_from_value(
         {
@@ -153,10 +137,7 @@ async def example():
     for row in score_rows:
         print(f"  {row}")
 
-    # Example 7: LIMIT and OFFSET with dict of arrays
-    print("\n" + "=" * 50)
-    print("Example 7: LIMIT and OFFSET with dict of arrays")
-    print("-" * 50)
+    section("Example 7: LIMIT and OFFSET with dict of arrays")
 
     people = await create_object_from_value(
         {
@@ -194,10 +175,7 @@ async def example():
     for person in page3_data:
         print(f"  {person}")
 
-    # Example 8: ORDER BY with dict of arrays
-    print("\n" + "=" * 50)
-    print("Example 8: ORDER BY with dict of arrays")
-    print("-" * 50)
+    section("Example 8: ORDER BY with dict of arrays")
 
     products = await create_object_from_value(
         {
@@ -236,10 +214,7 @@ async def example():
     for prod in stock_data:
         print(f"  {prod}")
 
-    # Example 9: Mixed constraints with dict of arrays
-    print("\n" + "=" * 50)
-    print("Example 9: Mixed constraints with dict of arrays")
-    print("-" * 50)
+    section("Example 9: Mixed constraints with dict of arrays")
 
     students = await create_object_from_value(
         {
@@ -278,10 +253,7 @@ async def example():
     for student in page_2_data:
         print(f"  {student}")
 
-    # Example 10: Views are read-only
-    print("\n" + "=" * 50)
-    print("Example 10: Views are read-only")
-    print("-" * 50)
+    section("Example 10: Views are read-only")
 
     obj = await create_object_from_value([1, 2, 3, 4, 5])
     print(f"Original data: {await obj.data()}\n")  # → [1, 2, 3, 4, 5]
@@ -296,10 +268,7 @@ async def example():
     except RuntimeError as e:
         print(f"Expected error: {e}")  # → Cannot insert into a view
 
-    # Example 11: Views work with operators
-    print("\n" + "=" * 50)
-    print("Example 11: Views work with operators")
-    print("-" * 50)
+    section("Example 11: Views work with operators")
 
     obj_a = await create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], aai_id=True)
     obj_b = await create_object_from_value([10, 20, 30, 40, 50, 60, 70, 80, 90, 100], aai_id=True)
@@ -323,9 +292,7 @@ async def example():
     print(f"View A * View B: {await result_mul.data()}")  # → [60, 140, 240]
 
     # Note: All objects created via context are automatically cleaned up when context exits
-    print("\n" + "=" * 50)
-    print("Cleanup: All context-created objects will be cleaned up automatically")
-    print("-" * 50)
+    section("Cleanup: All context-created objects will be cleaned up automatically")
 
 
 async def amain():
@@ -338,6 +305,4 @@ if __name__ == "__main__":
     print("=" * 50)
     print("aaiclick Views Example")
     print("=" * 50)
-    print("\nNote: This example requires a running ClickHouse server")
-    print("      on localhost:8123\n")
     asyncio.run(amain())
