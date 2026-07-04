@@ -7,7 +7,7 @@ All IDs are snowflake IDs (64-bit integers) generated using aaiclick.snowflake.
 
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Any, ClassVar, Literal, Union
+from typing import Any, ClassVar, Literal, Union, cast
 
 from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped
@@ -241,14 +241,17 @@ class _DependencyOps:
 
     Provides ``depends_on`` plus the ``>>`` / ``<<`` operators. Subclasses set
     ``_dep_next_type`` and define their own ``previous_dependencies``
-    relationship (the primaryjoin differs per table). Methods annotate ``self``
-    as ``Task | Group`` — a bare annotation here would be collected as a
-    pydantic field by the SQLModel metaclass.
+    relationship (the primaryjoin differs per table). ``_node()`` narrows
+    ``self`` to ``Task | Group`` — a bare attribute annotation here would be
+    collected as a pydantic field by the SQLModel metaclass.
     """
 
     _dep_next_type: ClassVar[DependencyType]
 
-    def depends_on(self: Union["Task", "Group"], other: Union["Task", "Group"]) -> Union["Task", "Group"]:
+    def _node(self) -> Union["Task", "Group"]:
+        return cast(Union["Task", "Group"], self)
+
+    def depends_on(self, other: Union["Task", "Group"]) -> Union["Task", "Group"]:
         """
         Declare that this item depends on a task or group.
 
@@ -260,58 +263,55 @@ class _DependencyOps:
         Returns:
             self (for chaining)
         """
+        node = self._node()
         dependency = Dependency(
             previous_id=other.id,
             previous_type=DEPENDENCY_TASK if isinstance(other, Task) else DEPENDENCY_GROUP,
-            next_id=self.id,
-            next_type=self._dep_next_type,
+            next_id=node.id,
+            next_type=node._dep_next_type,
         )
-        self.previous_dependencies.append(dependency)
-        return self
+        node.previous_dependencies.append(dependency)
+        return node
 
     def __rshift__(
-        self: Union["Task", "Group"], other: Union["Task", "Group", Sequence[Union["Task", "Group"]]]
+        self, other: Union["Task", "Group", Sequence[Union["Task", "Group"]]]
     ) -> Union["Task", "Group", Sequence[Union["Task", "Group"]]]:
         """A >> B: B depends on A (A executes before B)."""
         if isinstance(other, (Task, Group)):
-            other.depends_on(self)
+            other.depends_on(self._node())
             return other
         for item in other:
-            item.depends_on(self)
+            item.depends_on(self._node())
         return other
 
-    def __lshift__(
-        self: Union["Task", "Group"], other: Union["Task", "Group", list[Union["Task", "Group"]]]
-    ) -> Union["Task", "Group"]:
+    def __lshift__(self, other: Union["Task", "Group", list[Union["Task", "Group"]]]) -> Union["Task", "Group"]:
         """A << B: A depends on B (B executes before A)."""
         if isinstance(other, list):
             for item in other:
                 self.depends_on(item)
         else:
             self.depends_on(other)
-        return self
+        return self._node()
 
-    def __rrshift__(
-        self: Union["Task", "Group"], other: Union["Task", "Group", Sequence[Union["Task", "Group"]]]
-    ) -> Union["Task", "Group"]:
+    def __rrshift__(self, other: Union["Task", "Group", Sequence[Union["Task", "Group"]]]) -> Union["Task", "Group"]:
         """Reverse: [A, B] >> C means C depends on A and B (fan-in)."""
         if isinstance(other, list):
             for item in other:
                 self.depends_on(item)
         else:
             self.depends_on(other)
-        return self
+        return self._node()
 
     def __rlshift__(
-        self: Union["Task", "Group"], other: Union["Task", "Group", list[Union["Task", "Group"]]]
+        self, other: Union["Task", "Group", list[Union["Task", "Group"]]]
     ) -> Union["Task", "Group", list[Union["Task", "Group"]]]:
         """Reverse: [A, B] << C means A and B depend on C (fan-out)."""
         if isinstance(other, list):
             for item in other:
-                item.depends_on(self)
+                item.depends_on(self._node())
             return other
         else:
-            other.depends_on(self)
+            other.depends_on(self._node())
             return other
 
 
@@ -361,6 +361,7 @@ class Group(_DependencyOps, SQLModel, table=True):
             "overlaps": "previous_dependencies",
         }
     )
+
 
 class Task(_DependencyOps, SQLModel, table=True):
     """
@@ -427,6 +428,7 @@ class Task(_DependencyOps, SQLModel, table=True):
             "overlaps": "previous_dependencies",
         }
     )
+
 
 class RemoteTaskResult(SQLModel, table=True):
     """Per-attempt result handoff from a remote task vehicle (Kubernetes Pod)
