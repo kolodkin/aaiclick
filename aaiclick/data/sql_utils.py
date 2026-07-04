@@ -21,3 +21,12 @@ def escape_sql_string(value: str) -> str:
     wrap with an additional ``s.replace("\\", "\\\\")`` call.
     """
     return value.replace("'", "\\'")
+
+
+def quote_sql_literal(value: str) -> str:
+    """Escape a Python string and wrap it as a single-quoted SQL literal.
+
+    Handles both backslashes and single quotes, so it is safe for
+    arbitrary user input inlined into SQL text.
+    """
+    return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
