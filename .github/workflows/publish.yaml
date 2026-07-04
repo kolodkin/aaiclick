@@ -85,6 +85,104 @@ jobs:
             requirements-local.txt
             requirements-dist.txt
 
+  build-rc-images:
+    needs: build
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: amd64
+            runner: ubuntu-latest
+          - platform: arm64
+            runner: ubuntu-24.04-arm
+    env:
+      IMAGE_PREFIX: ghcr.io/kolodkin
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+      # The images pip-install aaiclick==<version>. The wheel is not on
+      # PyPI yet (publish is gated on these very images), so serve the
+      # artifact from a local pypiserver; it redirects unknown packages
+      # to pypi.org, so dependencies resolve through the same index URL.
+      - name: Serve wheel via local pypiserver
+        run: |
+          docker run -d --name pypiserver -p 8080:8080 \
+            pypiserver/pypiserver:v2.3.2 run -p 8080 -a . -P . --server gunicorn
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:8080/simple/ >/dev/null 2>&1 && break
+            sleep 2
+          done
+          for f in dist/*.whl dist/*.tar.gz; do
+            curl -fsSL -F "content=@${f}" -F ":action=file_upload" http://localhost:8080/
+          done
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Native per-arch builds (no QEMU). The three images are FROM-chained,
+      # so they build sequentially within each platform leg. --network=host
+      # lets the build reach the pypiserver on localhost; pip trusts
+      # localhost for plain HTTP by default.
+      - name: Build & push per-arch rc images
+        run: |
+          VERSION="${{ inputs.tag }}"
+          PEP440="${VERSION#v}"
+          ARCH_TAG="${VERSION}-rc-${{ matrix.platform }}"
+          docker build --network=host -f docker/Dockerfile \
+            --build-arg AAICLICK_VERSION="${PEP440}" \
+            --build-arg PIP_INDEX_URL="http://localhost:8080/simple/" \
+            -t "${IMAGE_PREFIX}/aaiclick:${ARCH_TAG}" .
+          docker build -f docker/docker.Dockerfile \
+            --build-arg BASE_REF="${IMAGE_PREFIX}/aaiclick:${ARCH_TAG}" \
+            --build-arg TARGETARCH="${{ matrix.platform }}" \
+            -t "${IMAGE_PREFIX}/aaiclick-docker:${ARCH_TAG}" .
+          docker build -f docker/kubectl.Dockerfile \
+            --build-arg BASE_REF="${IMAGE_PREFIX}/aaiclick-docker:${ARCH_TAG}" \
+            --build-arg TARGETARCH="${{ matrix.platform }}" \
+            -t "${IMAGE_PREFIX}/aaiclick-kubectl:${ARCH_TAG}" .
+          docker push "${IMAGE_PREFIX}/aaiclick:${ARCH_TAG}"
+          docker push "${IMAGE_PREFIX}/aaiclick-docker:${ARCH_TAG}"
+          docker push "${IMAGE_PREFIX}/aaiclick-kubectl:${ARCH_TAG}"
+
+  merge-rc-images:
+    needs: build-rc-images
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    strategy:
+      matrix:
+        image: [aaiclick, aaiclick-docker, aaiclick-kubectl]
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Assemble multi-arch rc manifest
+        run: |
+          REF="ghcr.io/kolodkin/${{ matrix.image }}"
+          TAG="${{ inputs.tag }}-rc"
+          docker buildx imagetools create -t "${REF}:${TAG}" \
+            "${REF}:${TAG}-amd64" "${REF}:${TAG}-arm64"
+
   test-package-local:
     needs: build
     runs-on: ubuntu-latest
