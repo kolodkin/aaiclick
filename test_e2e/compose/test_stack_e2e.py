@@ -17,6 +17,7 @@ import pytest
 pytestmark = pytest.mark.compose_e2e
 
 JOB_TIMEOUT_S = 300
+EXEC_TIMEOUT_S = 60
 
 # ``register-job`` validates the entrypoint resolves to a callable at
 # registration time (aaiclick/internal_api/registered_jobs.py
@@ -40,6 +41,7 @@ def _compose_exec(compose_dir: Path, service: str, *args: str) -> str:
         cwd=compose_dir,
         capture_output=True,
         text=True,
+        timeout=EXEC_TIMEOUT_S,
     )
     assert result.returncode == 0, f"exec {service} {args} failed:\n{result.stdout}\n{result.stderr}"
     return result.stdout
