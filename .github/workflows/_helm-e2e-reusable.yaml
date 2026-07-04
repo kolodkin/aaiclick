@@ -44,6 +44,13 @@ jobs:
         with:
           version: v3.16.2
 
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Download dist artifacts
         uses: actions/download-artifact@v7
         with:
@@ -74,6 +81,15 @@ jobs:
 
       - name: Create kind cluster
         run: kind create cluster --name aaiclick-helm-e2e
+
+      # kind nodes can't use the host's registry credentials, so pull on the
+      # host and side-load the images into the cluster.
+      - name: Load rc images into kind
+        run: |
+          for img in aaiclick aaiclick-kubectl; do
+            docker pull "ghcr.io/kolodkin/${img}:${{ inputs.image_tag }}"
+            kind load docker-image "ghcr.io/kolodkin/${img}:${{ inputs.image_tag }}" --name aaiclick-helm-e2e
+          done
 
       - name: Wait for cluster DNS (CoreDNS) ready
         run: kubectl -n kube-system rollout status deploy/coredns --timeout=180s
