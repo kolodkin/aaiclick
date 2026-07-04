@@ -1683,13 +1683,14 @@ jobs:
       - name: Smoke: shell job round trip
         run: |
           kubectl exec deploy/aaiclick-server -- \
-            python -m aaiclick register-job aaiclick.testing --name helm-smoke --runner subprocess
+            python -m aaiclick register-job aaiclick.orchestration.examples.orchestration_basic.simple_arithmetic \
+              --name helm-smoke --runner subprocess
           kubectl exec deploy/aaiclick-server -- \
             python -m aaiclick run-job helm-smoke --entry-type shell --command "python -c 'print(42)'"
           for i in $(seq 1 60); do
             STATUS=$(kubectl exec deploy/aaiclick-server -- \
               python -m aaiclick job list --json \
-              | python3 -c "import json,sys; d=json.load(sys.stdin); jobs=d if isinstance(d,list) else d.get('jobs',[]); m=[j for j in jobs if j.get('name')=='helm-smoke']; print(m[0]['status'] if m else 'MISSING')")
+              | python3 -c "import json,sys; jobs=json.load(sys.stdin)['items']; m=[j for j in jobs if j.get('name')=='helm-smoke']; print(m[0]['status'] if m else 'MISSING')")
             echo "helm-smoke status: $STATUS"
             case "$STATUS" in
               COMPLETED) exit 0 ;;
@@ -1711,7 +1712,7 @@ jobs:
           done
 ```
 
-Same JSON-shape caveat as Task 4: verify `job list --json` output shape before finalizing the status-poll one-liner.
+JSON shape and entrypoint verified during Task 4: `job list --json` prints `{"items": [...], "total": ..., "next_cursor": ...}`, and `register-job` validates the entrypoint resolves to a callable at registration time even for shell-entry runs — `aaiclick.orchestration.examples.orchestration_basic.simple_arithmetic` is a shipped `@task` entrypoint that passes validation (`aaiclick.testing` does not).
 
 - [ ] **Step 2: Wire into publish.yaml**
 
