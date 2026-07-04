@@ -105,7 +105,7 @@ from ..models import (
     parse_ch_type,
 )
 from ..scope import NamedScope
-from ..sql_utils import escape_sql_string, quote_identifier
+from ..sql_utils import escape_sql_string, quote_identifier, quote_sql_literal
 from .schema_compute import (
     AGGREGATION_FUNCTIONS,
     UNARY_TRANSFORMS,
@@ -495,41 +495,6 @@ async def _apply_aggregation(
 
 
 # Aggregation Operators
-
-
-async def min_agg(info: QueryInfo, ch_client, *, name=None, scope=None):
-    """Calculate minimum value at database level."""
-    return await _apply_aggregation(info, "min", ch_client, name=name, scope=scope)
-
-
-async def max_agg(info: QueryInfo, ch_client, *, name=None, scope=None):
-    """Calculate maximum value at database level."""
-    return await _apply_aggregation(info, "max", ch_client, name=name, scope=scope)
-
-
-async def sum_agg(info: QueryInfo, ch_client, *, name=None, scope=None):
-    """Calculate sum at database level."""
-    return await _apply_aggregation(info, "sum", ch_client, name=name, scope=scope)
-
-
-async def mean_agg(info: QueryInfo, ch_client, *, name=None, scope=None):
-    """Calculate mean (average) at database level."""
-    return await _apply_aggregation(info, "mean", ch_client, name=name, scope=scope)
-
-
-async def std_agg(info: QueryInfo, ch_client, *, name=None, scope=None):
-    """Calculate standard deviation (population) at database level."""
-    return await _apply_aggregation(info, "std", ch_client, name=name, scope=scope)
-
-
-async def var_agg(info: QueryInfo, ch_client, *, name=None, scope=None):
-    """Calculate variance (population) at database level."""
-    return await _apply_aggregation(info, "var", ch_client, name=name, scope=scope)
-
-
-async def count_agg(info: QueryInfo, ch_client, *, name=None, scope=None):
-    """Count the number of rows at database level."""
-    return await _apply_aggregation(info, "count", ch_client, name=name, scope=scope)
 
 
 async def count_if_agg(
@@ -937,11 +902,6 @@ STRING_OP_RESULT_TYPES = {
 }
 
 
-def _escape_sql_string(value: str) -> str:
-    """Escape a Python string for use as a SQL string literal (with quotes)."""
-    return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
-
-
 async def _apply_string_op_db(
     info: QueryInfo,
     op_name: str,
@@ -962,10 +922,10 @@ async def _apply_string_op_db(
     Returns:
         New Object instance pointing to result table
     """
-    escaped_pattern = _escape_sql_string(pattern)
+    escaped_pattern = quote_sql_literal(pattern)
     format_args = {"pattern": escaped_pattern}
     if replacement is not None:
-        format_args["replacement"] = _escape_sql_string(replacement)
+        format_args["replacement"] = quote_sql_literal(replacement)
 
     expression = STRING_OP_EXPRESSIONS[op_name].format(**format_args)
     value_type = STRING_OP_RESULT_TYPES[op_name]
@@ -1192,20 +1152,12 @@ async def coalesce_op(info_a: QueryInfo, info_b: QueryInfo, ch_client):
         return result
 
     # Scalar broadcasting (array⊗scalar, scalar⊗array, scalar⊗scalar):
-    if a_is_array:
-        insert_target = result.table
-        select_cols = "coalesce(a.value, b.value) AS value"
-    elif b_is_array:
-        insert_target = result.table
-        select_cols = "coalesce(a.value, b.value) AS value"
-    else:
-        insert_target = f"{result.table} (value)"
-        select_cols = "coalesce(a.value, b.value) AS value"
+    insert_target = result.table if (a_is_array or b_is_array) else f"{result.table} (value)"
 
     result._stats = await execute_for_stats(
         f"""
         INSERT INTO {insert_target}
-        SELECT {select_cols}
+        SELECT coalesce(a.value, b.value) AS value
         FROM {info_a.source} AS a, {info_b.source} AS b
     """,
         client=ch_client,

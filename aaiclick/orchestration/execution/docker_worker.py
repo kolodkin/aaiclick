@@ -51,7 +51,7 @@ from .execution_worker import (
     parse_task_timeout,
 )
 from .image_builder import resolve_image_tag
-from .runner import execute_task, register_returned_tasks, serialize_task_result
+from .runner import execute_task, serialize_task_result
 from .runner_env import build_runner_env
 
 CONTAINER_IPC_DIR = "/aaiclick-ipc"
@@ -61,13 +61,6 @@ CONTAINER_RESULT_FILE = "result.json"
 # SIGKILL'd; this is a safety bound so a stuck daemon doesn't wedge the
 # worker.
 DOCKER_KILL_REAP_TIMEOUT = 10.0
-
-
-class _ContainerResult(NamedTuple):
-    success: bool
-    result_ref: dict | None
-    log_path: str | None
-    error: str | None
 
 
 def _docker_bin() -> str:
@@ -229,17 +222,17 @@ async def _capture_container_logs(container_id: str, log_path: str) -> None:
 
 def _read_result_or_synthesize_failure(
     ipc_dir: str, exit_code: int, error: str | None, was_cancelled: bool
-) -> _ContainerResult:
+) -> RunnerResult:
     """Read ``result.json`` from the IPC dir, falling back to synthesized
     failure when the file is missing or malformed."""
     if was_cancelled:
-        return _ContainerResult(False, None, None, "cancelled")
+        return RunnerResult(False, None, None, "cancelled")
     if error is not None:
-        return _ContainerResult(False, None, None, error)
+        return RunnerResult(False, None, None, error)
 
     result_path = Path(ipc_dir) / CONTAINER_RESULT_FILE
     if not result_path.is_file():
-        return _ContainerResult(
+        return RunnerResult(
             False,
             None,
             None,
@@ -249,9 +242,9 @@ def _read_result_or_synthesize_failure(
     try:
         payload = json.loads(result_path.read_text())
     except json.JSONDecodeError as e:
-        return _ContainerResult(False, None, None, f"container produced malformed result.json: {e}")
+        return RunnerResult(False, None, None, f"container produced malformed result.json: {e}")
 
-    return _ContainerResult(
+    return RunnerResult(
         success=bool(payload.get("success")),
         result_ref=payload.get("result_ref"),
         log_path=payload.get("log_path"),
@@ -324,8 +317,7 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", None]):
                 None if exit_code == 0 else f"exit {exit_code}",
             )
         # Docker reads its result from the bind-mounted IPC file, not ``payload``.
-        result = _read_result_or_synthesize_failure(handle.ipc_dir, exit_code, error, was_cancelled=was_cancelled)
-        return RunnerResult(result.success, result.result_ref, result.log_path, result.error)
+        return _read_result_or_synthesize_failure(handle.ipc_dir, exit_code, error, was_cancelled=was_cancelled)
 
     async def cleanup(self, handle: _DockerHandle) -> None:
         # We dropped --rm so we own cleanup; do this last so a panic
@@ -392,7 +384,6 @@ async def _container_main(task_id: int) -> int:
                 task = result.scalar_one()
 
             data_result, log_path = await execute_task(task)
-            data_result = await register_returned_tasks(data_result, task.id, task.job_id)
             result_ref = serialize_task_result(data_result, task.job_id)
             payload = {
                 "success": True,

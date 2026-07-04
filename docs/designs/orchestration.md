@@ -215,7 +215,7 @@ Finds the oldest pending task with all dependencies satisfied and atomically cla
 **Implementation**: `aaiclick/orchestration/jobs/`
 
 - `queries.py` — `get_job()`, `list_jobs(status, name_like, limit, offset)`, `count_jobs()`, `get_tasks_for_job()`
-- `stats.py` — `compute_job_stats()`, `print_job_stats()`
+- `view_models.py` (package root) — `compute_job_stats_view()` for execution stats
 - `cancel_job(job_id)` — atomically cancels a job and all non-terminal tasks; returns `True` if cancelled, `False` if not found or already terminal. See `execution/claiming.py`.
 - `clear_task(task_id)` — resets a task and all its transitive downstream tasks to PENDING for re-run (Airflow-style "clear task"); leaves upstream tasks and their output tables untouched, and reactivates a terminal job to RUNNING. Each reset bumps the task's `run_epoch` fence so an in-flight worker's late writes are rejected. See `execution/claiming.py`.
 

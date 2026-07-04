@@ -1,97 +1,13 @@
 """
-aaiclick.ai.agents.tools - Tools exposed to AI agents for table inspection.
+aaiclick.ai.agents.tools - Schema helpers shared by the lineage agents.
 """
 
 from __future__ import annotations
 
 import asyncio
-import logging
-from typing import Any
 
 from aaiclick.ai.agents.lineage_tools import describe_table
-from aaiclick.data.data_context import get_ch_client
-from aaiclick.data.sql_utils import escape_sql_string
-from aaiclick.oplog.lineage import OplogNode, backward_oplog
-
-logger = logging.getLogger(__name__)
-
-TOOL_DEFINITIONS: list[dict[str, Any]] = [
-    {
-        "type": "function",
-        "function": {
-            "name": "sample_table",
-            "description": "Sample rows from a ClickHouse table and return them as text.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "table": {"type": "string", "description": "Table name"},
-                    "limit": {"type": "integer", "description": "Max rows to return (default 10)"},
-                    "where": {"type": "string", "description": "Optional WHERE clause predicate"},
-                },
-                "required": ["table"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_schema",
-            "description": "Get the column names and types of a ClickHouse table.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "table": {"type": "string", "description": "Table name"},
-                },
-                "required": ["table"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_column_stats",
-            "description": (
-                "Get count, non-null count, min, and max for every column in a table. "
-                "No need to know column names upfront — the tool discovers them automatically."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "table": {"type": "string", "description": "Table name"},
-                },
-                "required": ["table"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "trace_upstream",
-            "description": "Trace all upstream operations that produced a table.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "table": {"type": "string", "description": "Table name"},
-                    "depth": {"type": "integer", "description": "Max traversal depth (default 10)"},
-                },
-                "required": ["table"],
-            },
-        },
-    },
-]
-
-
-async def sample_table(table: str, limit: int = 10, where: str | None = None) -> str:
-    """Sample rows from a table and return formatted text."""
-    ch_client = get_ch_client()
-    table_escaped = escape_sql_string(table)
-    where_clause = f" WHERE {where}" if where else ""
-    result = await ch_client.query(f"SELECT * FROM {table_escaped}{where_clause} LIMIT {limit}")
-    if not result.result_rows:
-        return f"(empty table: {table})"
-    header = " | ".join(str(col) for col in result.column_names)
-    rows = [" | ".join(str(v) for v in row) for row in result.result_rows]
-    return f"{header}\n" + "\n".join(rows)
+from aaiclick.oplog.lineage import OplogNode
 
 
 async def get_schema(table: str) -> str:
@@ -99,48 +15,6 @@ async def get_schema(table: str) -> str:
     schema = await describe_table(table)
     lines = [f"{c.name}: {c.type}" for c in schema.columns]
     return "\n".join(lines) if lines else f"(table {table} not found)"
-
-
-async def get_column_stats(table: str) -> str:
-    """Return count, non-null count, min, and max for every column in a table.
-
-    Discovers columns via DESCRIBE TABLE, then queries stats for all of them
-    in a single round-trip — the LLM never needs to guess column names.
-    """
-    schema = await describe_table(table)
-    if not schema.columns:
-        return f"(table {table} not found or has no columns)"
-
-    columns = [c.name for c in schema.columns]
-
-    ch_client = get_ch_client()
-    table_escaped = escape_sql_string(table)
-
-    select_parts = []
-    for col in columns:
-        col_escaped = col.replace("`", "\\`")
-        select_parts.append(
-            f"count() AS `{col_escaped}__count`, "
-            f"countIf(`{col_escaped}` IS NOT NULL) AS `{col_escaped}__non_null`, "
-            f"min(`{col_escaped}`) AS `{col_escaped}__min`, "
-            f"max(`{col_escaped}`) AS `{col_escaped}__max`"
-        )
-
-    try:
-        result = await ch_client.query(f"SELECT {', '.join(select_parts)} FROM {table_escaped}")
-    except Exception as exc:
-        return f"(error querying stats for {table}: {exc})"
-
-    if not result.result_rows:
-        return f"(no data in {table})"
-
-    row = result.result_rows[0]
-    lines = []
-    for i, col in enumerate(columns):
-        base = i * 4
-        lines.append(f"{col}: count={row[base]}, non_null={row[base + 1]}, min={row[base + 2]}, max={row[base + 3]}")
-
-    return "\n".join(lines)
 
 
 async def get_schemas_for_nodes(nodes: list[OplogNode]) -> str:
@@ -175,48 +49,3 @@ async def get_schemas_for_nodes(nodes: list[OplogNode]) -> str:
     if not sections:
         return ""
     return "# Table Schemas\n\n" + "\n\n".join(sections)
-
-
-async def trace_upstream(table: str, depth: int = 10) -> str:
-    """Trace upstream operations and return formatted text."""
-    nodes = await backward_oplog(table, max_depth=depth)
-    if not nodes:
-        return f"(no upstream operations found for {table})"
-    lines = []
-    for node in nodes:
-        inputs = ", ".join(node.kwargs.values())
-        lines.append(f"{node.table} <- {node.operation}({inputs})")
-    return "\n".join(lines)
-
-
-async def dispatch_tool(name: str, arguments: dict[str, Any]) -> str:
-    """Dispatch a tool call by name to the appropriate function.
-
-    Missing required arguments and unknown tool names produce a
-    retryable error string fed back to the agent loop, so one bad
-    model-emitted tool call doesn't abort the whole debug session.
-    Unexpected exceptions are logged with ``exc_info`` so real bugs
-    stay visible.
-    """
-    try:
-        if name == "sample_table":
-            return await sample_table(
-                arguments["table"],
-                limit=arguments.get("limit", 10),
-                where=arguments.get("where"),
-            )
-        elif name == "get_schema":
-            return await get_schema(arguments["table"])
-        elif name == "get_column_stats":
-            return await get_column_stats(arguments["table"])
-        elif name == "trace_upstream":
-            return await trace_upstream(arguments["table"], depth=arguments.get("depth", 10))
-        else:
-            return f"(unknown tool: {name})"
-    except KeyError as exc:
-        return (
-            f"(error calling {name}: missing required argument {exc}. provided arguments: {sorted(arguments.keys())})"
-        )
-    except Exception as exc:
-        logger.exception("tool %s raised an unexpected exception", name)
-        return f"(error calling {name}: {exc})"

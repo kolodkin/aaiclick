@@ -1,7 +1,6 @@
 """Pytest configuration for the browser-based web smoke e2e suite.
 
-Registers the ``web_e2e`` marker (keeping ``--strict-markers`` happy),
-launches the FastAPI server on a free port, and yields a ``base_url``
+Launches the FastAPI server on a free port, and yields a ``base_url``
 string fixture plus Playwright fixtures. Playwright is optional — tests
 guard with ``pytest.importorskip`` and skip automatically when the
 package is absent.
@@ -20,13 +19,6 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
-
-
-def pytest_configure(config: pytest.Config) -> None:
-    config.addinivalue_line(
-        "markers",
-        "web_e2e: browser smoke tests requiring the SPA build and Playwright",
-    )
 
 
 def _free_port() -> int:

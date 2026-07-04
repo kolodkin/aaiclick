@@ -63,6 +63,41 @@ def _next_run_at(schedule: str | None, enabled: bool, now: datetime) -> datetime
     return compute_next_run(schedule, now) if schedule and enabled else None
 
 
+def _build_registered_job(
+    *,
+    name: str,
+    entrypoint: str,
+    schedule: str | None,
+    default_kwargs: dict[str, Any] | None,
+    enabled: bool,
+    preservation_mode: PreservationMode | None,
+    runner_mode: RunnerMode,
+    dockerfile: str | None,
+    git_remote: str | None,
+    kubernetes_config: dict[str, Any] | None,
+    runner: dict[str, Any] | None,
+    now: datetime,
+) -> RegisteredJob:
+    """Build an uncommitted RegisteredJob row with computed next_run_at."""
+    return RegisteredJob(
+        id=get_snowflake_id(),
+        name=name,
+        entrypoint=entrypoint,
+        enabled=enabled,
+        schedule=schedule,
+        default_kwargs=default_kwargs,
+        preservation_mode=preservation_mode,
+        runner_mode=runner_mode,
+        dockerfile=dockerfile,
+        git_remote=git_remote,
+        kubernetes_config=kubernetes_config,
+        runner=runner,
+        next_run_at=_next_run_at(schedule, enabled, now),
+        created_at=now,
+        updated_at=now,
+    )
+
+
 async def register_job(
     *,
     name: str,
@@ -104,22 +139,19 @@ async def register_job(
     """
     now = utc_now()
     runner = dump_runner_config(DockerRunner(image=ImagePrebuilt(image_tag=image))) if image else None
-    registered_job = RegisteredJob(
-        id=get_snowflake_id(),
+    registered_job = _build_registered_job(
         name=name,
         entrypoint=entrypoint,
-        enabled=enabled,
         schedule=schedule,
         default_kwargs=default_kwargs,
+        enabled=enabled,
         preservation_mode=preservation_mode,
         runner_mode=runner_mode,
         dockerfile=dockerfile,
         git_remote=git_remote,
         kubernetes_config=kubernetes_config,
         runner=runner,
-        next_run_at=_next_run_at(schedule, enabled, now),
-        created_at=now,
-        updated_at=now,
+        now=now,
     )
 
     async with get_sql_session() as session:
@@ -210,22 +242,19 @@ async def upsert_registered_job(
             await session.refresh(existing)
             return existing
 
-        registered_job = RegisteredJob(
-            id=get_snowflake_id(),
+        registered_job = _build_registered_job(
             name=name,
             entrypoint=entrypoint,
-            enabled=enabled,
             schedule=schedule,
             default_kwargs=default_kwargs,
+            enabled=enabled,
             preservation_mode=preservation_mode,
             runner_mode=runner_mode,
             dockerfile=dockerfile,
             git_remote=git_remote,
             kubernetes_config=kubernetes_config,
             runner=runner,
-            next_run_at=_next_run_at(schedule, enabled, now),
-            created_at=now,
-            updated_at=now,
+            now=now,
         )
         session.add(registered_job)
         await session.commit()

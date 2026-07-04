@@ -21,15 +21,15 @@ export function getAccessToken(): string | null {
   return accessToken;
 }
 
-export function setAccessToken(token: string | null): void {
+function setAccessToken(token: string | null): void {
   accessToken = token;
 }
 
-export function getRefreshToken(): string | null {
+function getRefreshToken(): string | null {
   return localStorage.getItem(REFRESH_KEY);
 }
 
-export function setRefreshToken(token: string | null): void {
+function setRefreshToken(token: string | null): void {
   if (token) localStorage.setItem(REFRESH_KEY, token);
   else localStorage.removeItem(REFRESH_KEY);
 }
@@ -39,7 +39,7 @@ export function clearSession(): void {
   setRefreshToken(null);
 }
 
-export interface TokenPair {
+interface TokenPair {
   access_token: string;
   refresh_token: string;
   expires_in: number;

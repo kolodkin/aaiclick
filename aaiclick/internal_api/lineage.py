@@ -4,10 +4,6 @@ These functions are the building blocks the calling agent (LLM or otherwise)
 composes itself: walk the graph, look at schemas, sample data. They run
 inside an active ``orch_context(with_ch=True)`` and do not require the
 ``ai`` extra.
-
-Turnkey LLM agents (``explain_lineage`` / ``debug_result``) live in
-``internal_api.lineage_ai`` so callers without the ``ai`` extra installed
-can still import this module.
 """
 
 from __future__ import annotations

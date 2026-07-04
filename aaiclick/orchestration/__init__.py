@@ -34,9 +34,6 @@ from .orch_context import commit_tasks, get_sql_session, orch_context
 from .decorators import JobFactory, TaskFactory, job, task
 from .operators import map, reduce
 from .jobs import (
-    JobStats,
-    TaskStats,
-    compute_job_stats,
     count_jobs,
     get_job,
     get_job_result,
@@ -44,7 +41,6 @@ from .jobs import (
     get_task,
     get_tasks_for_job,
     list_jobs,
-    print_job_stats,
     resolve_job,
 )
 from .models import (

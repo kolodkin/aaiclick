@@ -15,45 +15,24 @@ def test_lifecycle_handler_is_abstract():
         LifecycleHandler()  # type: ignore[abstract]
 
 
-def test_local_lifecycle_delegates_incref():
-    """LocalLifecycleHandler.incref delegates to AsyncTableWorker."""
+async def test_local_lifecycle_delegates_to_worker(ctx):
+    """LocalLifecycleHandler passes incref/decref/start/stop through to AsyncTableWorker."""
     handler = LocalLifecycleHandler(MagicMock())
-    handler._worker = MagicMock()
+    mock_worker = AsyncMock()
+    # incref/decref are sync on AsyncTableWorker — plain mocks avoid
+    # unawaited-coroutine warnings from AsyncMock child attributes.
+    mock_worker.incref = MagicMock()
+    mock_worker.decref = MagicMock()
+    handler._worker = mock_worker
 
     handler.incref("table_123")
-
-    handler._worker.incref.assert_called_once_with("table_123")
-
-
-def test_local_lifecycle_delegates_decref():
-    """LocalLifecycleHandler.decref delegates to AsyncTableWorker."""
-    handler = LocalLifecycleHandler(MagicMock())
-    handler._worker = MagicMock()
-
     handler.decref("table_456")
-
-    handler._worker.decref.assert_called_once_with("table_456")
-
-
-async def test_local_lifecycle_start_delegates(ctx):
-    """LocalLifecycleHandler.start delegates to AsyncTableWorker.start."""
-    handler = LocalLifecycleHandler(MagicMock())
-    mock_worker = AsyncMock()
-    handler._worker = mock_worker
-
     await handler.start()
-
-    mock_worker.start.assert_called_once()
-
-
-async def test_local_lifecycle_stop_delegates(ctx):
-    """LocalLifecycleHandler.stop delegates to AsyncTableWorker.stop."""
-    handler = LocalLifecycleHandler(MagicMock())
-    mock_worker = AsyncMock()
-    handler._worker = mock_worker
-
     await handler.stop()
 
+    mock_worker.incref.assert_called_once_with("table_123")
+    mock_worker.decref.assert_called_once_with("table_456")
+    mock_worker.start.assert_called_once()
     mock_worker.stop.assert_called_once()
 
 

@@ -150,6 +150,17 @@ needed:
   hardened identity for enterprise deployments.
 - **Per-request audit log** — who called what, when.
 
+## CLI Lineage AI Commands
+
+A CLI surface for AI lineage (e.g. `aaiclick explain <table>` /
+`aaiclick debug <table> "<question>"`). When it lands, add thin
+`internal_api` wrappers over `ai.agents.lineage_agent.explain_lineage` and
+`ai.agents.debug_agent.debug_result`, kept separate from
+`internal_api.lineage` so callers without the `ai` extra can still import
+the primitives (a previous unwired version, `internal_api/lineage_ai.py`,
+was removed as dead code). MCP intentionally exposes only the
+AI-independent primitives (`server/mcp.py`).
+
 ## Changelog
 
 `docs/changelog.md` — version history in Keep a Changelog format. Introduce with v1.0.0 release.

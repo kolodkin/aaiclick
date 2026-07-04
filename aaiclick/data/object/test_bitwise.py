@@ -3,7 +3,7 @@ Parametrized tests for bitwise operators (&, |, ^).
 
 Tests element-wise Object-Object bitwise operations for scalar and array Objects.
 Array-field bitwise via array_map is covered in test_array_map.py.
-Scalar broadcast is covered in test_scalar_broadcast.py.
+Scalar broadcast is covered in test_arithmetic_broadcast.py.
 """
 
 import pytest

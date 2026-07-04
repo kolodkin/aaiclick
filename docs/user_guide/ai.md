@@ -165,16 +165,14 @@ strings; the `ToolError` `kind` discriminator (`not_select`,
 `out_of_scope`, `not_found`, `not_live`) tells it whether to retry or
 escalate.
 
-### Generic Tools
+### Schema Helpers
 
-Used by `explain_lineage()` and legacy callers — see `aaiclick/ai/agents/tools.py`:
+Used by `explain_lineage()` — see `aaiclick/ai/agents/tools.py`:
 
-| Tool               | Parameters                          | Returns                                                     |
-|--------------------|-------------------------------------|-------------------------------------------------------------|
-| `sample_table`     | `table`, `limit=10`, `where=None`   | Formatted rows as text                                      |
-| `get_schema`       | `table`                             | Column names and types                                      |
-| `get_column_stats` | `table`                             | count, non_null, min, max for every column                  |
-| `trace_upstream`   | `table`, `depth=10`                 | Upstream operation graph as text                            |
+| Helper                  | Parameters | Returns                                          |
+|-------------------------|------------|--------------------------------------------------|
+| `get_schema`            | `table`    | Column names and types                           |
+| `get_schemas_for_nodes` | `nodes`    | Schemas for every table in a lineage graph       |
 
 ---
 
