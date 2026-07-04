@@ -87,18 +87,15 @@ def test_prompt_updates_url(page, base_url: str) -> None:
     page.wait_for_url(lambda url: "p=%40registered" in url or "p=@registered" in url)
 
 
-def _run_logging_task(page, base_url: str) -> str:
-    """Submit a job whose task prints, wait for it to complete, return task id.
+def _run_task_and_wait(page, base_url: str, entrypoint: str) -> str:
+    """Submit a job for ``entrypoint``, wait for it to complete, return task id.
 
     Uses Playwright's API request context (same origin, auth off in local mode).
     The id comes back as a JSON *string* — snowflakes exceed JS's safe-integer
-    range — and is carried verbatim into the ``@task`` route below.
+    range — and is carried verbatim into the ``@task`` routes below.
     """
     api = f"{base_url}/api/v0"
-    resp = page.request.post(
-        f"{api}/jobs:run",
-        data={"name": "aaiclick.orchestration.fixtures.sample_tasks.task_with_output"},
-    )
+    resp = page.request.post(f"{api}/jobs:run", data={"name": entrypoint})
     assert resp.ok, resp.text()
     job_id = resp.json()["id"]
 
@@ -129,7 +126,7 @@ def test_task_view_shows_logs(page, base_url: str) -> None:
     Local-mode only: it drives ``/jobs:run`` unauthenticated and relies on the
     in-process worker that ``local_runtime`` starts — the distributed e2e job
     enforces auth (401) and runs no worker, so the job would never execute."""
-    task_id = _run_logging_task(page, base_url)
+    task_id = _run_task_and_wait(page, base_url, "aaiclick.orchestration.fixtures.sample_tasks.task_with_output")
 
     page.goto(f"{base_url}/?p=@task {task_id}")
     page.wait_for_selector("#root")
@@ -140,26 +137,6 @@ def test_task_view_shows_logs(page, base_url: str) -> None:
     logs.get_by_text("Error message").wait_for(timeout=15000)
 
 
-def _run_log_levels_task(page, base_url: str) -> str:
-    """Run task_with_log_levels and return the completed task id."""
-    api = f"{base_url}/api/v0"
-    resp = page.request.post(
-        f"{api}/jobs:run",
-        data={"name": "aaiclick.orchestration.fixtures.sample_tasks.task_with_log_levels"},
-    )
-    assert resp.ok, resp.text()
-    job_id = resp.json()["id"]
-
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        detail = page.request.get(f"{api}/jobs/{job_id}").json()
-        tasks = detail.get("tasks") or []
-        if tasks and tasks[0]["status"] == "COMPLETED":
-            return tasks[0]["id"]
-        time.sleep(0.5)
-    raise AssertionError("task did not reach COMPLETED within 30 s")
-
-
 @pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
 @pytest.mark.skipif(
     not is_local(),
@@ -168,7 +145,7 @@ def _run_log_levels_task(page, base_url: str) -> str:
 )
 def test_task_view_colors_logs_by_level(page, base_url: str) -> None:
     """The task view colors lines by level and shows timestamps only when toggled."""
-    task_id = _run_log_levels_task(page, base_url)
+    task_id = _run_task_and_wait(page, base_url, "aaiclick.orchestration.fixtures.sample_tasks.task_with_log_levels")
 
     page.goto(f"{base_url}/?p=@task {task_id}")
     page.wait_for_selector("#root")

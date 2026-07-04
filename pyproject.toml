@@ -51,7 +51,6 @@ distributed = [
 ]
 ai = [
     "litellm>=1.83.0",
-    "ollama>=0.6.0",
 ]
 server = [
     "fastapi>=0.115.0",
@@ -139,7 +138,7 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["aaiclick"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"

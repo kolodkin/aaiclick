@@ -184,19 +184,16 @@ async def test_query_table_returns_query_result(orch_ctx, mcp_client):
 
 
 async def test_query_table_rejects_out_of_scope(orch_ctx, mcp_client):
-    """Out-of-scope table reference raises Invalid → MCP ToolError."""
+    """Invalid from internal_api surfaces as an MCP ToolError.
+
+    Validation itself (scope / DDL rules) is covered in
+    aaiclick/internal_api/test_lineage.py — this asserts only the
+    error mapping through the MCP layer.
+    """
     with pytest.raises(ToolError):
         await mcp_client.call_tool(
             "query_table",
             {"sql": "SELECT * FROM p_secret", "scope_tables": ["p_revenue"]},
-        )
-
-
-async def test_query_table_rejects_ddl(orch_ctx, mcp_client):
-    with pytest.raises(ToolError):
-        await mcp_client.call_tool(
-            "query_table",
-            {"sql": "DROP TABLE p_revenue", "scope_tables": ["p_revenue"]},
         )
 
 
@@ -216,11 +213,3 @@ async def test_get_table_schema_returns_columns(orch_ctx, mcp_client):
     parsed = TableSchema.model_validate(result.structured_content)
     assert parsed.table == "p_revenue"
     assert [c.name for c in parsed.columns] == ["id", "val"]
-
-
-async def test_get_table_schema_rejects_out_of_scope(orch_ctx, mcp_client):
-    with pytest.raises(ToolError):
-        await mcp_client.call_tool(
-            "get_table_schema",
-            {"table": "p_secret", "scope_tables": ["p_revenue"]},
-        )
