@@ -53,11 +53,12 @@ python -m aaiclick k8s init [--path ./aaiclick-chart] [--image-tag vX.Y.Z] [--fo
 - Existing files are never silently overwritten — same `--force` semantics and error style as
   `init_dockerfile()` (`ComposeFileExists` / `HelmChartExists` mirroring `DockerfileExists`).
 
-**Implementation**: `aaiclick/deploy/compose_scaffold.py` and
-`aaiclick/deploy/k8s_scaffold.py`; CLI wiring in `aaiclick/__main__.py` alongside
-`_run_docker_init()`.
+**Implementation**: aaiclick/deploy/compose_scaffold.py — see init_compose(); aaiclick/deploy/k8s_scaffold.py —
+see init_helm(); CLI wiring in aaiclick/__main__.py — see _run_compose_init() / _run_k8s_init().
 
 # Compose template (docker-runner setup)
+
+**Implementation**: aaiclick/deploy/templates/compose/docker-compose.yaml.
 
 Full stack — `docker compose up` yields a complete working docker-runner deployment:
 
@@ -76,12 +77,16 @@ Full stack — `docker compose up` yields a complete working docker-runner deplo
 - Task containers run as siblings on the host daemon, so clickhouse/postgres/registry ports
   are published to the host, `AAICLICK_REGISTRY` points at the host-published registry, and
   task-facing DSNs use `host.docker.internal` (`extra_hosts: host-gateway`) — sibling
-  containers cannot resolve compose service names. The server/worker services themselves use
-  compose service names in `AAICLICK_SQL_URL` / `AAICLICK_CH_URL`.
+  containers cannot resolve compose service names. The worker itself also addresses
+  ClickHouse/Postgres/the registry via `host.docker.internal` (not the compose service name)
+  so that spawned task containers inherit the exact same env var values verbatim; only
+  server/background use compose service names in `AAICLICK_SQL_URL` / `AAICLICK_CH_URL`.
 - No profiles: `docker compose up` always brings up the whole stack. CI jobs that only need
   the infra services still run the full stack — simpler than maintaining profile splits.
 
 # Helm chart template (kubernetes setup)
+
+**Implementation**: aaiclick/deploy/templates/helm/aaiclick/.
 
 A user-facing chart — distinct from `test_e2e/kubernetes/chart`, which is CI-only dependency
 infra and stays as it is.
@@ -97,37 +102,43 @@ RBAC toggles, resources.
 
 # Release pipeline restructure
 
+**Implementation**: .github/workflows/publish.yaml.
+
 ```
-build ──► build-rc-images ──► gates (parallel) ──► publish (PyPI) ──► promote-images
+build ──► build-rc-images ──► merge-rc-images ──► gates (parallel) ──► publish (PyPI) ──► promote-images
 ```
 
 ## build-rc-images — per-platform matrix
 
 The three images are FROM-chained (`aaiclick` → `aaiclick-docker` → `aaiclick-kubectl`), so
 they cannot build in parallel per-image. They parallelize per-platform instead, which is also
-the larger win — arm64 under QEMU emulation is the slow leg today:
+the larger win — a QEMU-emulated arm64 leg would otherwise dominate the build time:
 
 - Matrix over `platform: [amd64, arm64]`. Each leg runs a local pypiserver serving the wheel
   artifact, builds the three images in FROM order natively (`PIP_INDEX_URL` build-arg already
   exists in `docker/Dockerfile`), and pushes per-arch digests to GHCR.
 - A merge job assembles the multi-arch `vX.Y.Z-rc` manifest per image with
   `docker buildx imagetools create` (matrix over the three image names).
-- arm64 leg runs on `ubuntu-24.04-arm` when available for the repo; fallback is QEMU on
-  `ubuntu-latest` for that leg only — the matrix shape is identical either way.
+- arm64 leg runs on the `ubuntu-24.04-arm` native runner.
 
 The wheel baked into the rc images is the same artifact file later uploaded to PyPI.
 
 ## Gates — all parallel, all required
 
-All gates depend only on `build` + `build-rc-images`, so they run concurrently:
+All gates depend only on `build` + `merge-rc-images` (or `build` alone for the local-only
+gate), so they run concurrently.
 
-| Gate                | Shape                                                                            |
-|---------------------|----------------------------------------------------------------------------------|
-| test-package-local  | Unchanged (chdb + SQLite, no infra)                                              |
-| test-package        | Existing data/orch matrix; infra now comes from the scaffolded compose file (full stack up) instead of `services:` blocks |
-| compose e2e         | New `_compose-e2e-reusable.yaml` — scaffold via `compose init`, point tags at `-rc`, `docker compose up`, wait for health, submit a job through the API, assert completion |
-| helm e2e            | kind cluster + `k8s init` scaffolded chart installed with the `-rc` images, reusing the existing kubernetes e2e harness |
-| docker e2e          | Existing `_docker-e2e-reusable.yaml` release gate, unchanged                     |
+**Implementation**: .github/workflows/publish.yaml — see jobs test-package-local,
+test-package, test-compose-e2e, test-helm-e2e, test-package-docker-e2e;
+.github/workflows/_compose-e2e-reusable.yaml; .github/workflows/_helm-e2e-reusable.yaml.
+
+| Gate                     | Shape                                                                        |
+|--------------------------|-------------------------------------------------------------------------------|
+| test-package-local       | Unchanged (chdb + SQLite, no infra)                                          |
+| test-package             | Existing data/orch matrix; infra now comes from the scaffolded compose file (full stack up), waiting for the compose `migrate` service to exit 0, instead of `services:` blocks |
+| test-compose-e2e         | Scaffold via `compose init`, point tags at `-rc`, `docker compose up`, wait for server health, then `docker compose exec` into the server container to register/run a job via the CLI and poll `job list --json` for completion |
+| test-helm-e2e            | kind cluster with the `-rc` images side-loaded (`kind load docker-image`), `k8s init` scaffolded chart, `helm lint` + `helm install`, then a server-health port-forward smoke and a `kubectl exec` job round trip (`register-job` / `run-job` / `job list --json`) |
+| test-package-docker-e2e  | Existing `_docker-e2e-reusable.yaml` release gate, unchanged                 |
 
 ## promote-images
 
@@ -139,15 +150,17 @@ behind for debugging.
 
 # Testing
 
-- Unit tests adjacent to each scaffold module, mirroring `test_docker_scaffold.py`:
-    - `aaiclick/deploy/test_compose_scaffold.py` — file written, `--force` semantics,
-      version/tag rendering, output parses as YAML with the expected services.
-    - `aaiclick/deploy/test_k8s_scaffold.py` — chart directory structure written, `--force`
-      semantics, `Chart.yaml` version/`appVersion` rendering, `values.yaml` image tags. Helm
-      templates are not YAML-parseable pre-render; `helm lint` runs in the helm e2e gate, not
-      in unit tests.
-- `test_e2e/compose/` drives the scaffolded stack in CI: health endpoints up, job submission
-  round-trip against the running server/worker.
+**Implementation**: aaiclick/deploy/test_compose_scaffold.py; aaiclick/deploy/test_k8s_scaffold.py;
+test_e2e/compose/ (marker `compose_e2e`, `AAICLICK_E2E_COMPOSE_DIR`).
+
+- Unit tests adjacent to each scaffold module, mirroring `test_docker_scaffold.py`: file
+  written, `--force` semantics, version/tag rendering, output parses as YAML with the expected
+  services (compose) or the chart tree/`Chart.yaml`/`values.yaml` rendering (helm). Helm
+  templates are not YAML-parseable pre-render; `helm lint` runs in the helm e2e gate, not in
+  unit tests.
+- `test_e2e/compose/` drives the scaffolded stack in CI: server health, an execution worker
+  registered, and a job round trip driven via `docker compose exec` into the server container
+  (register/run/poll through the CLI, not the HTTP API).
 
 # Trade-offs and decisions
 
