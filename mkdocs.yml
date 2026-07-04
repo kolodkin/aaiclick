@@ -70,7 +70,7 @@ nav:
     - Container Images: user_guide/container_images.md
     - AI Layer: user_guide/ai.md
     - Operation Log: user_guide/oplog.md
-  - Example Projects: user_guide/example_projects.md
+    - Example Projects: user_guide/example_projects.md
   - Examples:
     - Basic Operators: examples/basic_operators.md
     - Array Operators: examples/array_operators.md
@@ -86,5 +86,4 @@ nav:
     - Nullable Columns: examples/nullable.md
     - Orchestration Basics: examples/orchestration_basic.md
     - Orchestration Dynamic: examples/orchestration_dynamic.md
-  - Glossary: glossary.md
   - License: LICENSE.md

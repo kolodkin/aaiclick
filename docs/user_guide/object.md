@@ -17,9 +17,9 @@ See [DataContext](data_context.md) for lifecycle, schemas, and deployment modes.
 
 | API                                              | Category         | Description                                   | Section                                                              |
 |--------------------------------------------------|------------------|-----------------------------------------------|----------------------------------------------------------------------|
-| `+`, `-`, `*`, `/`, `//`, `%`, `**`              | Arithmetic       | Element-wise arithmetic                       | [Arithmetic Operators](#arithmetic-operators)                        |
-| `==`, `!=`, `<`, `<=`, `>`, `>=`                 | Comparison       | Element-wise comparison                       | [Comparison Operators](#comparison-operators)                        |
-| `&`, `\|`, `^`                                   | Bitwise          | Bitwise AND / OR / XOR                        | [Bitwise Operators](#bitwise-operators)                              |
+| `+`, `-`, `*`, `/`, `//`, `%`, `**`              | Arithmetic       | Element-wise arithmetic                       | [Operator Support](#operator-support)                                |
+| `==`, `!=`, `<`, `<=`, `>`, `>=`                 | Comparison       | Element-wise comparison                       | [Operator Support](#operator-support)                                |
+| `&`, `\|`, `^`                                   | Bitwise          | Bitwise AND / OR / XOR                        | [Operator Support](#operator-support)                                |
 | `.min()`, `.max()`, `.sum()`, `.mean()`          | Aggregation      | Reduce array to scalar                        | [Aggregation Operators](#aggregation-operators)                      |
 | `.std()`, `.var()`, `.count()`, `.quantile(q)`   | Aggregation      | Statistical reduction                         | [Aggregation Operators](#aggregation-operators)                      |
 | `.count_if(condition)`                           | Aggregation      | Count rows matching condition(s)              | [Aggregation Operators](#aggregation-operators)                      |
