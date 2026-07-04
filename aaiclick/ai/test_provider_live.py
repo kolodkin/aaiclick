@@ -9,7 +9,7 @@ Set AAICLICK_AI_MODEL to choose the model (default: ollama/llama3.1:8b).
 
 import pytest
 
-from aaiclick.ai.agents.tools import TOOL_DEFINITIONS
+from aaiclick.ai.agents.lineage_tools import LINEAGE_TOOL_DEFINITIONS
 from aaiclick.ai.config import get_ai_provider
 
 
@@ -18,8 +18,8 @@ async def test_query_with_tools():
     """Provider returns valid tool-call shape when given all available tools."""
     provider = get_ai_provider()
     result = await provider.query_with_tools(
-        prompt="Sample 5 rows from the table called my_table, then get its schema and stats for the value column.",
-        tools=TOOL_DEFINITIONS,
+        prompt="Get the schema of the table called my_table, then sample 5 rows from it with query_table.",
+        tools=LINEAGE_TOOL_DEFINITIONS,
     )
     assert isinstance(result, dict)
     assert "finish_reason" in result
