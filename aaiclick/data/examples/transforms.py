@@ -11,13 +11,12 @@ from datetime import datetime, timezone
 
 from aaiclick import create_object_from_value, literal
 from aaiclick.data.data_context import data_context
+from aaiclick.example_runner import section
 
 
 async def example():
     """Run all transform examples."""
-    # Example 1: Date/time transforms
-    print("Example 1: Date/time transforms")
-    print("-" * 50)
+    section("Example 1: Date/time transforms")
 
     dates = [
         datetime(2023, 3, 15, tzinfo=timezone.utc),
@@ -36,10 +35,7 @@ async def example():
     dows = await obj.day_of_week()
     print(f"day_of_week(): {await dows.data()}")  # → [3, 4, 4]
 
-    # Example 2: String transforms
-    print("\n" + "=" * 50)
-    print("Example 2: String transforms")
-    print("-" * 50)
+    section("Example 2: String transforms")
 
     strings = ["  Hello World  ", " FOO ", "  bar  "]
     obj = await create_object_from_value(strings)
@@ -50,10 +46,7 @@ async def example():
     print(f"trim():   {await obj.trim().data()}")  # → ['Hello World', 'FOO', 'bar']
     print(f"length(): {await obj.length().data()}")  # → [15, 5, 7]
 
-    # Example 3: Math transforms
-    print("\n" + "=" * 50)
-    print("Example 3: Math transforms")
-    print("-" * 50)
+    section("Example 3: Math transforms")
 
     numbers = [-9, -4, 0, 4, 16]
     obj = await create_object_from_value(numbers)
@@ -66,10 +59,7 @@ async def example():
     print(f"log2(): {await positives.log2().data()}")  # → [0.0, 1.0, 2.0, 3.0, 4.0]
     print(f"sqrt(): {await positives.sqrt().data()}")  # → [1.0, 1.414..., 2.0, 2.828..., 4.0]
 
-    # Example 4: Chaining transforms with other operators
-    print("\n" + "=" * 50)
-    print("Example 4: Chaining transforms with aggregations")
-    print("-" * 50)
+    section("Example 4: Chaining transforms with aggregations")
 
     dates = [
         datetime(2024, 1, 1, tzinfo=timezone.utc),
@@ -90,10 +80,7 @@ async def example():
     max_len = await lengths.max()
     print(f"Longest word length: {await max_len.data()}")  # → 6
 
-    # Example 5: literal() — constant computed columns
-    print("\n" + "=" * 50)
-    print("Example 5: literal() helper")
-    print("-" * 50)
+    section("Example 5: literal() helper")
 
     obj = await create_object_from_value([{"city": "NYC"}, {"city": "London"}])
     view = obj.with_columns(
