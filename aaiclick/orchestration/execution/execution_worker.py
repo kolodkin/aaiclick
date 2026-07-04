@@ -33,7 +33,7 @@ from ..models import (
 from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_MODULE, EntryType, ImageSourceT
 from .claiming import check_run_aborted, claim_next_task, update_task_status
-from .runner import execute_task, register_returned_tasks, serialize_task_result
+from .runner import execute_task, serialize_task_result
 
 logger = logging.getLogger(__name__)
 
@@ -553,7 +553,6 @@ async def _execute_in_process(task: Task, execution_worker_id: int) -> tuple[boo
 
     try:
         data_result, log_path = await exec_task
-        data_result = await register_returned_tasks(data_result, task.id, task.job_id)
         result_ref = serialize_task_result(data_result, task.job_id)
         return True, result_ref, log_path, None
     except asyncio.CancelledError:

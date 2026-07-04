@@ -34,20 +34,11 @@ from .execution_worker import (
     execution_worker_heartbeat,
     parse_task_timeout,
 )
-from .runner import execute_task, register_returned_tasks, serialize_task_result
+from .runner import execute_task, serialize_task_result
 
 # How often the parent checks whether the child process has finished.
 # Smaller than POLL_INTERVAL because this polls a local queue, not a database.
 CHILD_POLL_INTERVAL = 0.5
-
-
-class _ProcessResult(NamedTuple):
-    """Result passed from child process back to main via queue."""
-
-    success: bool
-    result_ref: dict | None
-    log_path: str | None
-    error: str | None
 
 
 # "spawn" starts a fresh interpreter — no inherited chdb C++ singleton.
@@ -69,7 +60,7 @@ def _child_process_target(
         asyncio.run(_child_run_task(task_id, job_id, result_queue))
     except BaseException as e:
         result_queue.put(
-            _ProcessResult(
+            RunnerResult(
                 success=False,
                 result_ref=None,
                 log_path=None,
@@ -92,11 +83,10 @@ async def _child_run_task(
             task = db_result.scalar_one()
 
         data_result, log_path = await execute_task(task)
-        data_result = await register_returned_tasks(data_result, task.id, task.job_id)
         result_ref = serialize_task_result(data_result, job_id)
 
         result_queue.put(
-            _ProcessResult(
+            RunnerResult(
                 success=True,
                 result_ref=result_ref,
                 log_path=log_path,
@@ -117,7 +107,7 @@ class _ChildHandle(NamedTuple):
     result_queue: multiprocessing.Queue
 
 
-class _MpVehicle(TaskVehicle["_ChildHandle", "_ProcessResult"]):
+class _MpVehicle(TaskVehicle["_ChildHandle", "RunnerResult"]):
     """``TaskVehicle`` for the multiprocessing runner.
 
     ``poll_cancelled`` returns False today — the subprocess runner has
@@ -135,7 +125,7 @@ class _MpVehicle(TaskVehicle["_ChildHandle", "_ProcessResult"]):
         proc.start()
         return _ChildHandle(proc, result_queue)
 
-    async def wait(self, handle: _ChildHandle, timeout: float | None) -> tuple[int, str | None, _ProcessResult]:
+    async def wait(self, handle: _ChildHandle, timeout: float | None) -> tuple[int, str | None, RunnerResult]:
         result = await _poll_child(handle.proc, handle.result_queue, timeout)
         return (0 if result.success else -1), (None if result.success else result.error), result
 
@@ -146,9 +136,9 @@ class _MpVehicle(TaskVehicle["_ChildHandle", "_ProcessResult"]):
         handle.proc.kill()
 
     def collect(
-        self, handle: _ChildHandle, exit_code: int, error: str | None, was_cancelled: bool, payload: _ProcessResult
+        self, handle: _ChildHandle, exit_code: int, error: str | None, was_cancelled: bool, payload: RunnerResult
     ) -> RunnerResult:
-        return RunnerResult(payload.success, payload.result_ref, payload.log_path, payload.error)
+        return payload
 
     async def cleanup(self, handle: _ChildHandle) -> None:
         pass
@@ -181,7 +171,7 @@ async def _poll_child(
     proc: Any,
     result_queue: multiprocessing.Queue,
     timeout: float | None,
-) -> _ProcessResult:
+) -> RunnerResult:
     """Poll queue for child result, enforce timeout, detect crashes."""
     poll_interval = CHILD_POLL_INTERVAL
     elapsed = 0.0
@@ -202,7 +192,7 @@ async def _poll_child(
         if timeout is not None and elapsed >= timeout:
             proc.kill()
             await asyncio.to_thread(proc.join, timeout=5)
-            return _ProcessResult(
+            return RunnerResult(
                 success=False,
                 result_ref=None,
                 log_path=None,
@@ -210,7 +200,7 @@ async def _poll_child(
             )
 
         if not proc.is_alive():
-            return _ProcessResult(
+            return RunnerResult(
                 success=False,
                 result_ref=None,
                 log_path=None,
