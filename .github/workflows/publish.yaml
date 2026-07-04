@@ -343,14 +343,22 @@ jobs:
       wheel_source: artifact
       version_pin: ${{ inputs.tag }}
 
+  test-compose-e2e:
+    needs: [build, merge-rc-images]
+    uses: ./.github/workflows/_compose-e2e-reusable.yaml
+    with:
+      version_pin: ${{ inputs.tag }}
+      image_tag: ${{ inputs.tag }}-rc
+
   publish:
-    needs: [test-package-local, test-package, test-package-docker-e2e]
+    needs: [test-package-local, test-package, test-package-docker-e2e, test-compose-e2e]
     if: >-
       always()
       && needs.test-package-local.result == 'success'
       && needs.test-package.result == 'success'
       && (needs.test-package-docker-e2e.result == 'success'
           || needs.test-package-docker-e2e.result == 'skipped')
+      && needs.test-compose-e2e.result == 'success'
     runs-on: ubuntu-latest
 
     permissions:
