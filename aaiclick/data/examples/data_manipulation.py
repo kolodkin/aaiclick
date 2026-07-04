@@ -11,13 +11,12 @@ import asyncio
 
 from aaiclick import create_object_from_value
 from aaiclick.data.data_context import data_context
+from aaiclick.example_runner import section
 
 
 async def example():
     """Run all data manipulation examples."""
-    # Example 1: Copying objects
-    print("Example 1: Copying objects")
-    print("-" * 50)
+    section("Example 1: Copying objects")
 
     # --8<-- [start:copy]
     original = await create_object_from_value([1, 2, 3])
@@ -33,10 +32,7 @@ async def example():
     print(f"Tables are different: {original.table != copied.table}")
     # --8<-- [end:copy]
 
-    # Example 2: Concatenate - Creates new object (non-mutating)
-    print("\n" + "=" * 50)
-    print("Example 2: Concatenate (non-mutating)")
-    print("-" * 50)
+    section("Example 2: Concatenate (non-mutating)")
 
     # --8<-- [start:concat]
     obj_a = await create_object_from_value([1, 2, 3])
@@ -53,10 +49,7 @@ async def example():
     print(f"Result is new object: {result.table != obj_a.table}")
     # --8<-- [end:concat]
 
-    # Example 3: Concatenate with scalar value
-    print("\n" + "=" * 50)
-    print("Example 3: Concatenate with scalar value")
-    print("-" * 50)
+    section("Example 3: Concatenate with scalar value")
 
     obj = await create_object_from_value([10, 20, 30])
     print(f"Original array: {await obj.data()}\n")  # → [10, 20, 30]
@@ -66,10 +59,7 @@ async def example():
     print(f"After concat(40): {await result_scalar.data()}")  # → [10, 20, 30, 40]
     print(f"Original unchanged: {await obj.data()}")  # → [10, 20, 30]
 
-    # Example 4: Concatenate with list value
-    print("\n" + "=" * 50)
-    print("Example 4: Concatenate with list value")
-    print("-" * 50)
+    section("Example 4: Concatenate with list value")
 
     obj = await create_object_from_value([1, 2])
     print(f"Original array: {await obj.data()}\n")  # → [1, 2]
@@ -79,10 +69,7 @@ async def example():
     print(f"After concat([3, 4, 5]): {await result_list.data()}")  # → [1, 2, 3, 4, 5]
     print(f"Original unchanged: {await obj.data()}")  # → [1, 2]
 
-    # Example 5: Insert - Modifies in place (mutating)
-    print("\n" + "=" * 50)
-    print("Example 5: Insert (mutating - modifies in place)")
-    print("-" * 50)
+    section("Example 5: Insert (mutating - modifies in place)")
 
     # --8<-- [start:insert]
     obj_x = await create_object_from_value([100, 200, 300])
@@ -99,10 +86,7 @@ async def example():
     print(f"Object Y unchanged: {await obj_y.data()}")  # → [400, 500, 600]
     # --8<-- [end:insert]
 
-    # Example 6: Insert with scalar value
-    print("\n" + "=" * 50)
-    print("Example 6: Insert with scalar value")
-    print("-" * 50)
+    section("Example 6: Insert with scalar value")
 
     obj = await create_object_from_value([1, 2, 3])
     print(f"Before insert: {await obj.data()}")  # → [1, 2, 3]
@@ -112,10 +96,7 @@ async def example():
     print(f"After insert(4): {await obj.data()}")  # → [1, 2, 3, 4]
     print(f"Table (same): {obj.table}")
 
-    # Example 7: Insert with list value
-    print("\n" + "=" * 50)
-    print("Example 7: Insert with list value")
-    print("-" * 50)
+    section("Example 7: Insert with list value")
 
     obj = await create_object_from_value([10, 20])
     print(f"Before insert: {await obj.data()}")  # → [10, 20]
@@ -125,10 +106,7 @@ async def example():
     print(f"After insert([30, 40, 50]): {await obj.data()}")  # → [10, 20, 30, 40, 50]
     print(f"Table (same): {obj.table}")
 
-    # Example 8: Multiple inserts
-    print("\n" + "=" * 50)
-    print("Example 8: Multiple consecutive inserts")
-    print("-" * 50)
+    section("Example 8: Multiple consecutive inserts")
 
     obj = await create_object_from_value([1, 2])
     print(f"Initial: {await obj.data()}")  # → [1, 2]
@@ -142,10 +120,7 @@ async def example():
     await obj.insert(6)
     print(f"After insert(6): {await obj.data()}")  # → [1, 2, 3, 4, 5, 6]
 
-    # Example 9: Comparing concat vs insert
-    print("\n" + "=" * 50)
-    print("Example 9: Comparing concat vs insert")
-    print("-" * 50)
+    section("Example 9: Comparing concat vs insert")
 
     # Using concat (non-mutating)
     a1 = await create_object_from_value([1, 2, 3])
@@ -162,10 +137,7 @@ async def example():
     await a2.insert([4, 5])
     print(f"  After insert: {await a2.data()}, table: {a2.table} (same)")  # → [1, 2, 3, 4, 5]
 
-    # Example 10: Real-world scenario - Building a dataset
-    print("\n" + "=" * 50)
-    print("Example 10: Real-world scenario - Building a dataset")
-    print("-" * 50)
+    section("Example 10: Real-world scenario - Building a dataset")
 
     # Start with initial data
     dataset = await create_object_from_value([10.5, 20.3, 30.7])
@@ -190,9 +162,7 @@ async def example():
     print(f"  Std: {await dataset.std().data():.2f}")  # → 8.62
 
     # Note: All objects created via context are automatically cleaned up when context exits
-    print("\n" + "=" * 50)
-    print("Cleanup: All context-created objects will be cleaned up automatically")
-    print("-" * 50)
+    section("Cleanup: All context-created objects will be cleaned up automatically")
 
 
 async def amain():

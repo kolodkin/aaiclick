@@ -11,13 +11,12 @@ import asyncio
 from aaiclick import create_object_from_value
 from aaiclick.data import Agg
 from aaiclick.data.data_context import data_context
+from aaiclick.example_runner import section
 
 
 async def example():
     """Run all group_by examples."""
-    # Example 1: Basic group_by with sum
-    print("Example 1: Basic group_by with sum")
-    print("-" * 50)
+    section("Example 1: Basic group_by with sum")
 
     # --8<-- [start:groupby_basic]
     sales = await create_object_from_value(
@@ -33,10 +32,7 @@ async def example():
         print(f"  {cat}: ${amt}")
         # --8<-- [end:groupby_basic]
 
-    # Example 2: Count per group
-    print("\n" + "=" * 50)
-    print("Example 2: Count per group")
-    print("-" * 50)
+    section("Example 2: Count per group")
 
     result = await sales.group_by("category").count()
     data = await result.data()
@@ -44,10 +40,7 @@ async def example():
     for cat, cnt in sorted(zip(data["category"], data["_count"], strict=False)):
         print(f"  {cat}: {cnt} transactions")
 
-    # Example 3: Multiple group keys
-    print("\n" + "=" * 50)
-    print("Example 3: Multiple group keys")
-    print("-" * 50)
+    section("Example 3: Multiple group keys")
 
     # --8<-- [start:groupby_multikey]
     orders = await create_object_from_value(
@@ -65,10 +58,7 @@ async def example():
         print(f"  {region} / {cat}: ${rev}")
         # --8<-- [end:groupby_multikey]
 
-    # Example 4: Multi-aggregation with agg()
-    print("\n" + "=" * 50)
-    print("Example 4: Multi-aggregation with agg()")
-    print("-" * 50)
+    section("Example 4: Multi-aggregation with agg()")
 
     # --8<-- [start:groupby_agg]
     products = await create_object_from_value(
@@ -90,10 +80,7 @@ async def example():
         print(f"  {cat}: avg price=${data['price'][i]:.2f}, total qty={data['quantity'][i]}")
         # --8<-- [end:groupby_agg]
 
-    # Example 5: Multiple aggregations on the same column
-    print("\n" + "=" * 50)
-    print("Example 5: Multiple aggregations on the same column")
-    print("-" * 50)
+    section("Example 5: Multiple aggregations on the same column")
 
     result = await products.group_by("category").agg(
         {
@@ -111,10 +98,7 @@ async def example():
             f"total qty={data['total_qty'][i]}"
         )
 
-    # Example 6: Statistical aggregations
-    print("\n" + "=" * 50)
-    print("Example 6: Statistical aggregations")
-    print("-" * 50)
+    section("Example 6: Statistical aggregations")
 
     scores = await create_object_from_value(
         {
@@ -138,10 +122,7 @@ async def example():
     for cls, std in sorted(zip(std_data["class"], std_data["score"], strict=False)):
         print(f"  Class {cls}: {std:.2f}")
 
-    # Example 7: HAVING — filter groups after aggregation
-    print("\n" + "=" * 50)
-    print("Example 7: HAVING — filter groups after aggregation")
-    print("-" * 50)
+    section("Example 7: HAVING — filter groups after aggregation")
 
     transactions = await create_object_from_value(
         {
@@ -161,10 +142,7 @@ async def example():
     for store, amt in sorted(zip(fdata["store"], fdata["amount"], strict=False)):
         print(f"  {store}: ${amt}")
 
-    # Example 8: WHERE + HAVING combined
-    print("\n" + "=" * 50)
-    print("Example 8: WHERE + HAVING combined")
-    print("-" * 50)
+    section("Example 8: WHERE + HAVING combined")
 
     print("Filter rows WHERE amount >= 100, then HAVING count() >= 2:")
     view = transactions.view(where="amount >= 100")
@@ -173,10 +151,7 @@ async def example():
     for store, cnt in sorted(zip(data["store"], data["_count"], strict=False)):
         print(f"  {store}: {cnt} large transactions")
 
-    # Example 9: Chained HAVING with AND
-    print("\n" + "=" * 50)
-    print("Example 9: Chained HAVING with AND")
-    print("-" * 50)
+    section("Example 9: Chained HAVING with AND")
 
     print("Stores with total > $200 AND at least 2 transactions:")
     result = await transactions.group_by("store").having("sum(amount) > 200").having("count() >= 2").sum("amount")
@@ -184,10 +159,7 @@ async def example():
     for store, amt in sorted(zip(data["store"], data["amount"], strict=False)):
         print(f"  {store}: ${amt}")
 
-    # Example 10: OR HAVING
-    print("\n" + "=" * 50)
-    print("Example 10: OR HAVING")
-    print("-" * 50)
+    section("Example 10: OR HAVING")
 
     print("Stores with total > $700 OR only 1 transaction:")
     result = await transactions.group_by("store").having("sum(amount) > 700").or_having("count() = 1").sum("amount")
@@ -195,10 +167,7 @@ async def example():
     for store, amt in sorted(zip(data["store"], data["amount"], strict=False)):
         print(f"  {store}: ${amt}")
 
-    # Example 11: Array value_counts pattern
-    print("\n" + "=" * 50)
-    print("Example 11: Array value_counts pattern")
-    print("-" * 50)
+    section("Example 11: Array value_counts pattern")
 
     colors = await create_object_from_value(["red", "blue", "red", "green", "blue", "red"])
     counts = await colors.group_by("value").count()
@@ -207,10 +176,7 @@ async def example():
     for val, cnt in sorted(zip(data["value"], data["_count"], strict=False), key=lambda x: -x[1]):
         print(f"  {val}: {cnt}")
 
-    # Example 12: Working with group_by results
-    print("\n" + "=" * 50)
-    print("Example 12: Working with group_by results")
-    print("-" * 50)
+    section("Example 12: Working with group_by results")
 
     result = await sales.group_by("category").sum("amount")
     print("Group by result is a normal dict Object")
@@ -227,9 +193,7 @@ async def example():
     records = await result.data(orient="records")
     print(f"  As records: {records}")
 
-    print("\n" + "=" * 50)
-    print("Cleanup: All context-created objects will be cleaned up automatically")
-    print("-" * 50)
+    section("Cleanup: All context-created objects will be cleaned up automatically")
 
 
 async def amain():

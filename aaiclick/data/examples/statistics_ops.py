@@ -9,13 +9,12 @@ import asyncio
 
 from aaiclick import create_object_from_value
 from aaiclick.data.data_context import data_context
+from aaiclick.example_runner import section
 
 
 async def example():
     """Run all statistics examples."""
-    # Example 1: Basic statistics on a simple dataset
-    print("Example 1: Basic statistics on a simple dataset")
-    print("-" * 50)
+    section("Example 1: Basic statistics on a simple dataset")
 
     # --8<-- [start:basic_stats]
     data = [10.0, 20.0, 30.0, 40.0, 50.0]
@@ -36,10 +35,7 @@ async def example():
     print(f"Std Deviation:    {std_val}")  # → 14.142135623730951
     # --8<-- [end:basic_stats]
 
-    # Example 2: Statistics on integer data
-    print("\n" + "=" * 50)
-    print("Example 2: Statistics on integer data")
-    print("-" * 50)
+    section("Example 2: Statistics on integer data")
 
     int_data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     obj_int = await create_object_from_value(int_data)
@@ -52,10 +48,7 @@ async def example():
     print(f"Mean:             {await obj_int.mean().data()}")  # → 5.5
     print(f"Std Deviation:    {await obj_int.std().data()}")  # → 2.8722813232690143
 
-    # Example 3: Statistics on operation results
-    print("\n" + "=" * 50)
-    print("Example 3: Statistics on operation results")
-    print("-" * 50)
+    section("Example 3: Statistics on operation results")
 
     data_a = [100.0, 200.0, 300.0]
     data_b = [50.0, 100.0, 150.0]
@@ -82,10 +75,7 @@ async def example():
 
     # Clean up operation results (obj_a and obj_b cleaned by context)
 
-    # Example 4: Real-world scenario - Temperature analysis
-    print("\n" + "=" * 50)
-    print("Example 4: Real-world scenario - Temperature analysis")
-    print("-" * 50)
+    section("Example 4: Real-world scenario - Temperature analysis")
 
     # --8<-- [start:temperature]
     temperatures = [72.5, 75.0, 68.3, 71.2, 74.8, 69.5, 73.1, 76.2]
@@ -106,10 +96,7 @@ async def example():
     print(f"  Temperature Range: {max_temp - min_temp:.1f}°F")
     # --8<-- [end:temperature]
 
-    # Example 5: Single value edge case
-    print("\n" + "=" * 50)
-    print("Example 5: Single value edge case")
-    print("-" * 50)
+    section("Example 5: Single value edge case")
 
     single_value = [42.0]
     obj_single = await create_object_from_value(single_value)
@@ -122,9 +109,7 @@ async def example():
     print(f"Std Deviation:    {await obj_single.std().data()} (no variation)")  # → 0.0
 
     # Note: All objects created via context are automatically cleaned up when context exits
-    print("\n" + "=" * 50)
-    print("Cleanup: All context-created objects will be cleaned up automatically")
-    print("-" * 50)
+    section("Cleanup: All context-created objects will be cleaned up automatically")
 
 
 async def amain():

@@ -12,13 +12,12 @@ import asyncio
 
 from aaiclick import create_object_from_value
 from aaiclick.data.data_context import data_context
+from aaiclick.example_runner import section
 
 
 async def example():
     """Run all dict selector examples."""
-    # Example 1: Basic dict selector
-    print("Example 1: Basic dict selector")
-    print("-" * 50)
+    section("Example 1: Basic dict selector")
 
     # --8<-- [start:select_basic]
     obj = await create_object_from_value({"param1": [123, 234, 345], "param2": [456, 567, 678]})
@@ -35,10 +34,7 @@ async def example():
     print(f"obj['param2'] data: {await view_param2.data()}")  # → [456, 567, 678]
     # --8<-- [end:select_basic]
 
-    # Example 2: Object metadata
-    print("\n" + "=" * 50)
-    print("Example 2: Object metadata")
-    print("-" * 50)
+    section("Example 2: Object metadata")
 
     schema = obj.schema
     print("Schema for dict Object:")
@@ -48,10 +44,7 @@ async def example():
     for name, col in schema.columns.items():
         print(f"    {name}: type={col.ch_type()}")
 
-    # Example 3: View metadata with selected_fields
-    print("\n" + "=" * 50)
-    print("Example 3: View metadata with selected_fields")
-    print("-" * 50)
+    section("Example 3: View metadata with selected_fields")
 
     view = obj["param1"]
     view_schema = view.schema
@@ -64,10 +57,7 @@ async def example():
     print(f"  offset: {view_schema.offset}")
     print(f"  order_by: {view_schema.order_by}")
 
-    # Example 4: Copy view to array Object
-    print("\n" + "=" * 50)
-    print("Example 4: Copy view to array Object")
-    print("-" * 50)
+    section("Example 4: Copy view to array Object")
 
     view = obj["param1"]
     print(f"View data: {await view.data()}")  # → [123, 234, 345]
@@ -86,10 +76,7 @@ async def example():
     for name, col in arr_schema.columns.items():
         print(f"    {name}: type={col.ch_type()}")
 
-    # Example 5: Operations with selected fields
-    print("\n" + "=" * 50)
-    print("Example 5: Operations with selected fields")
-    print("-" * 50)
+    section("Example 5: Operations with selected fields")
 
     # --8<-- [start:select_operate]
     data = await create_object_from_value({"prices": [10, 20, 30, 40, 50], "quantities": [2, 3, 1, 4, 2]})
@@ -109,10 +96,7 @@ async def example():
     print(f"Sum of totals: {await total_sum.data()}")  # → 370
     # --8<-- [end:select_operate]
 
-    # Example 6: Aggregations on selected fields
-    print("\n" + "=" * 50)
-    print("Example 6: Aggregations on selected fields")
-    print("-" * 50)
+    section("Example 6: Aggregations on selected fields")
 
     metrics = await create_object_from_value(
         {
@@ -138,9 +122,7 @@ async def example():
     print(f"  mean: {await mean_val.data()}")  # → 23.3
     print(f"  count: {await count_val.data()}")  # → 10
 
-    print("\n" + "=" * 50)
-    print("Cleanup: All context-created objects will be cleaned up automatically")
-    print("-" * 50)
+    section("Cleanup: All context-created objects will be cleaned up automatically")
 
 
 async def amain():

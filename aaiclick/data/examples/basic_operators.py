@@ -10,13 +10,12 @@ from datetime import datetime, timezone
 
 from aaiclick import ORIENT_RECORDS, create_object_from_value
 from aaiclick.data.data_context import data_context
+from aaiclick.example_runner import section
 
 
 async def example():
     """Run all examples."""
-    # Example 1: Create objects from scalar values
-    print("Example 1: Creating objects from scalar values")
-    print("-" * 50)
+    section("Example 1: Creating objects from scalar values")
 
     # --8<-- [start:create_scalar]
     obj_scalar_int = await create_object_from_value(42)
@@ -32,10 +31,7 @@ async def example():
     print(f"Value: {await obj_scalar_str.data()}")  # → Hello, ClickHouse!
     # --8<-- [end:create_scalar]
 
-    # Example 2: Create objects from lists (numpy dtype inference)
-    print("\n" + "=" * 50)
-    print("Example 2: Creating objects from lists (numpy infers dtype)")
-    print("-" * 50)
+    section("Example 2: Creating objects from lists (numpy infers dtype)")
 
     # --8<-- [start:create_list]
     obj_list_int = await create_object_from_value([1, 2, 3, 4, 5])
@@ -51,10 +47,7 @@ async def example():
     print(f"Values: {await obj_list_str.data()}")  # → ['apple', 'banana', 'cherry']
     # --8<-- [end:create_list]
 
-    # Example 3: Create objects from dictionaries
-    print("\n" + "=" * 50)
-    print("Example 3: Creating objects from dictionaries")
-    print("-" * 50)
+    section("Example 3: Creating objects from dictionaries")
 
     # --8<-- [start:create_dict]
     # Dict of scalars (single row)
@@ -79,10 +72,7 @@ async def example():
     print(f"All rows (orient='records'): {all_rows}")
     # --8<-- [end:create_dict]
 
-    # Example 4: Arithmetic operations
-    print("\n" + "=" * 50)
-    print("Example 4: Arithmetic operators")
-    print("-" * 50)
+    section("Example 4: Arithmetic operators")
 
     # Create two numeric objects for operations
     # --8<-- [start:arithmetic]
@@ -127,10 +117,7 @@ async def example():
     print(f"Power (a ** b): {await result_pow.data()}")  # → [100.0, 160000.0, 24300000.0]
     # --8<-- [end:arithmetic]
 
-    # Example 5: Comparison operators
-    print("\n" + "=" * 50)
-    print("Example 5: Comparison operators")
-    print("-" * 50)
+    section("Example 5: Comparison operators")
 
     # --8<-- [start:comparison]
     obj_x = await create_object_from_value([1, 5, 10, 15], aai_id=True)
@@ -164,10 +151,7 @@ async def example():
     print(f"Greater or Equal (x >= y): {await result_ge.data()}")  # → [0, 1, 1, 0]
     # --8<-- [end:comparison]
 
-    # Example 6: Bitwise operators
-    print("\n" + "=" * 50)
-    print("Example 6: Bitwise operators")
-    print("-" * 50)
+    section("Example 6: Bitwise operators")
 
     # --8<-- [start:bitwise]
     obj_m = await create_object_from_value([12, 10, 8], aai_id=True)  # Binary: 1100, 1010, 1000
@@ -189,10 +173,7 @@ async def example():
     print(f"Bitwise XOR (m ^ n): {await result_xor.data()}")  # → [6, 6, 12]
     # --8<-- [end:bitwise]
 
-    # Example 7: UTC datetime support
-    print("\n" + "=" * 50)
-    print("Example 7: UTC datetime support")
-    print("-" * 50)
+    section("Example 7: UTC datetime support")
 
     # Scalar datetime
     dt_scalar = await create_object_from_value(datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc))
@@ -222,10 +203,7 @@ async def example():
     print(f"Created from dict with datetime column: {dt_dict}")
     print(f"Values: {await dt_dict.data()}")
 
-    # Example 8: Table name generation with Snowflake IDs
-    print("\n" + "=" * 50)
-    print("Example 7: Automatic table name generation with Snowflake IDs")
-    print("-" * 50)
+    section("Example 7: Automatic table name generation with Snowflake IDs")
 
     obj_auto = await create_object_from_value(42)
     obj_auto2 = await create_object_from_value(99)
@@ -234,9 +212,7 @@ async def example():
     print(f"  Object 2 -> table: {obj_auto2.table}")  # → t_...
 
     # Note: All objects created via context are automatically cleaned up when context exits
-    print("\n" + "=" * 50)
-    print("Cleanup: All context-created objects will be cleaned up automatically")
-    print("-" * 50)
+    section("Cleanup: All context-created objects will be cleaned up automatically")
 
 
 @data_context()

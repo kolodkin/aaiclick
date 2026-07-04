@@ -12,15 +12,14 @@ import asyncio
 from aaiclick import ORIENT_RECORDS, create_object_from_value
 from aaiclick.data import ENGINE_MERGE_TREE
 from aaiclick.data.data_context import data_context, get_ch_client
+from aaiclick.example_runner import section
 
 
 async def example():
     """Run all order_by examples."""
     ch = get_ch_client()
 
-    # Example 1: Single column order_by
-    print("Example 1: Single column order_by")
-    print("-" * 50)
+    section("Example 1: Single column order_by")
 
     sales = await create_object_from_value(
         {
@@ -35,10 +34,7 @@ async def example():
     engine, sorting_key = result.result_rows[0]
     print(f"Engine: {engine}, ORDER BY: {sorting_key}")  # → Engine: MergeTree, ORDER BY: date
 
-    # Example 2: Multiple column order_by
-    print("\n" + "=" * 50)
-    print("Example 2: Multiple column order_by")
-    print("-" * 50)
+    section("Example 2: Multiple column order_by")
 
     events = await create_object_from_value(
         {
@@ -53,10 +49,7 @@ async def example():
     result = await ch.query(f"SELECT sorting_key FROM system.tables WHERE name = '{events.table}'")
     print(f"ORDER BY: {result.result_rows[0][0]}")  # → ORDER BY: category, date
 
-    # Example 3: No order_by (default behaviour)
-    print("\n" + "=" * 50)
-    print("Example 3: No order_by (default)")
-    print("-" * 50)
+    section("Example 3: No order_by (default)")
 
     plain = await create_object_from_value(
         {"x": [3, 1, 2], "y": [30, 10, 20]},

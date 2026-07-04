@@ -12,14 +12,13 @@ import asyncio
 
 from aaiclick import ORIENT_DICT, ORIENT_RECORDS, create_object_from_value
 from aaiclick.data.data_context import data_context
+from aaiclick.example_runner import section
 
 
 async def example():
     """Run all nested array examples."""
     # ── Single Record with Nested Arrays ─────────────────────────
-    print("=" * 60)
-    print("PART 1: Single record with nested arrays")
-    print("=" * 60)
+    section("PART 1: Single record with nested arrays")
 
     obj = await create_object_from_value(
         {
@@ -39,9 +38,7 @@ async def example():
         print(f"  {key}: {val}")
 
     # ── Multiple Records ─────────────────────────────────────────
-    print("\n\n" + "=" * 60)
-    print("PART 2: Multiple records with nested arrays")
-    print("=" * 60)
+    section("PART 2: Multiple records with nested arrays")
 
     obj = await create_object_from_value(
         [
@@ -61,9 +58,7 @@ async def example():
         print(f"  {key}: {val}")
 
     # ── Scalar-Only Sub-Fields ───────────────────────────────────
-    print("\n\n" + "=" * 60)
-    print("PART 3: Nested objects with scalar-only sub-fields")
-    print("=" * 60)
+    section("PART 3: Nested objects with scalar-only sub-fields")
 
     obj = await create_object_from_value(
         {
@@ -80,9 +75,7 @@ async def example():
     print(f"\nResult: {data}")
 
     # ── Array Sub-Fields (Array of Arrays) ───────────────────────
-    print("\n\n" + "=" * 60)
-    print("PART 4: Nested objects with array sub-fields → Array(Array(T))")
-    print("=" * 60)
+    section("PART 4: Nested objects with array sub-fields → Array(Array(T))")
 
     obj = await create_object_from_value(
         {
@@ -102,9 +95,7 @@ async def example():
     print(f"\nResult: {data}")
 
     # ── Deep Nesting (Two Levels) ────────────────────────────────
-    print("\n\n" + "=" * 60)
-    print("PART 5: Deep nesting (two levels of list-of-dicts)")
-    print("=" * 60)
+    section("PART 5: Deep nesting (two levels of list-of-dicts)")
 
     obj = await create_object_from_value(
         {
