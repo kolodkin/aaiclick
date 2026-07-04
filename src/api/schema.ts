@@ -587,9 +587,6 @@ export interface components {
         /**
          * JobStatsView
          * @description Execution stats for a job and all its tasks.
-         *
-         *     Replacement for ``aaiclick.orchestration.jobs.stats.JobStats`` — Phase 2
-         *     migrates callers, after which the old dataclass is removed.
          */
         JobStatsView: {
             /** Exec Time Ms */
