@@ -10,14 +10,13 @@ import asyncio
 
 from aaiclick import ORIENT_RECORDS, create_object_from_value
 from aaiclick.data.data_context import data_context
+from aaiclick.example_runner import section
 
 
 async def example():
     """Run all explode examples."""
     # ── Basic Explode ────────────────────────────────────────
-    print("=" * 60)
-    print("PART 1: Basic explode — Array(String) → one row per tag")
-    print("=" * 60)
+    section("PART 1: Basic explode — Array(String) → one row per tag")
 
     obj = await create_object_from_value(
         [
@@ -37,9 +36,7 @@ async def example():
         print(f"  {row}")
 
     # ── Schema Change ────────────────────────────────────────
-    print("\n\n" + "=" * 60)
-    print("PART 2: Schema — Array(String) becomes String after explode")
-    print("=" * 60)
+    section("PART 2: Schema — Array(String) becomes String after explode")
 
     obj = await create_object_from_value(
         [
@@ -60,9 +57,7 @@ async def example():
         print(f"  {row}")
 
     # ── Chaining with where() ────────────────────────────────
-    print("\n\n" + "=" * 60)
-    print("PART 3: Chain explode with where() filter")
-    print("=" * 60)
+    section("PART 3: Chain explode with where() filter")
 
     obj = await create_object_from_value(
         [
@@ -78,9 +73,7 @@ async def example():
         print(f"  {row}")
 
     # ── Multi-Column Zip Explode ─────────────────────────────
-    print("\n\n" + "=" * 60)
-    print("PART 4: Multi-column zip explode (NOT Cartesian)")
-    print("=" * 60)
+    section("PART 4: Multi-column zip explode (NOT Cartesian)")
 
     obj = await create_object_from_value(
         [
@@ -99,9 +92,7 @@ async def example():
         print(f"  {row}")
 
     # ── LEFT Explode ─────────────────────────────────────────
-    print("\n\n" + "=" * 60)
-    print("PART 5: LEFT explode — preserve rows with empty arrays")
-    print("=" * 60)
+    section("PART 5: LEFT explode — preserve rows with empty arrays")
 
     obj = await create_object_from_value(
         [
@@ -120,9 +111,7 @@ async def example():
         print(f"  {row}")
 
     # ── Materialized copy() ──────────────────────────────────
-    print("\n\n" + "=" * 60)
-    print("PART 6: Materialize exploded view with copy()")
-    print("=" * 60)
+    section("PART 6: Materialize exploded view with copy()")
 
     obj = await create_object_from_value(
         [

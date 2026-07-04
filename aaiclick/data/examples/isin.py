@@ -13,13 +13,12 @@ import asyncio
 
 from aaiclick import ORIENT_RECORDS, create_object_from_value
 from aaiclick.data.data_context import data_context
+from aaiclick.example_runner import section
 
 
 async def example():
     """Run all isin examples."""
-    # Example 1: Basic isin() with strings
-    print("Example 1: Basic isin() with strings")
-    print("-" * 50)
+    section("Example 1: Basic isin() with strings")
 
     fruits = await create_object_from_value(["apple", "banana", "cherry", "date", "elderberry"])
     tropical = await create_object_from_value(["banana", "date", "mango"])
@@ -29,20 +28,14 @@ async def example():
     print(f"Tropical: {await tropical.data()}")
     print(f"isin():   {await mask.data()}")  # → [0, 1, 0, 1, 0]
 
-    # Example 2: isin() with a Python list
-    print("\n" + "=" * 50)
-    print("Example 2: isin() with a Python list")
-    print("-" * 50)
+    section("Example 2: isin() with a Python list")
 
     scores = await create_object_from_value([85, 90, 75, 95, 60])
     mask = await scores.isin([90, 95, 100])
     print(f"Scores:    {await scores.data()}")
     print(f"Top marks: {await mask.data()}")  # → [0, 1, 0, 1, 0]
 
-    # Example 3: Chaining isin() with sum() to count matches
-    print("\n" + "=" * 50)
-    print("Example 3: Count matches with isin() + sum()")
-    print("-" * 50)
+    section("Example 3: Count matches with isin() + sum()")
 
     tags = await create_object_from_value(["python", "java", "python", "rust", "java", "go"])
     popular = await create_object_from_value(["python", "java"])
@@ -52,10 +45,7 @@ async def example():
     print(f"Popular: {await popular.data()}")
     print(f"Matches: {await count.data()}")  # → 4
 
-    # Example 4: isin() on a dict column
-    print("\n" + "=" * 50)
-    print("Example 4: isin() on a dict column")
-    print("-" * 50)
+    section("Example 4: isin() on a dict column")
 
     employees = await create_object_from_value(
         {
@@ -69,10 +59,7 @@ async def example():
     print(f"Departments: {(await employees.data())['department']}")
     print(f"Is tech:     {await mask.data()}")  # → [1, 0, 1, 0]
 
-    # Example 5: with_isin() computed column
-    print("\n" + "=" * 50)
-    print("Example 5: with_isin() computed column")
-    print("-" * 50)
+    section("Example 5: with_isin() computed column")
 
     allowed_depts = await create_object_from_value(["engineering", "marketing"])
     view = employees.with_isin("department", allowed_depts, alias="in_focus")
@@ -81,10 +68,7 @@ async def example():
     print(f"Depts:    {data['department']}")
     print(f"In focus: {data['in_focus']}")  # → [1, 0, 1, 1]
 
-    # Example 6: with_isin() + where() to filter
-    print("\n" + "=" * 50)
-    print("Example 6: Filter with with_isin() + where()")
-    print("-" * 50)
+    section("Example 6: Filter with with_isin() + where()")
 
     filtered = view.where("in_focus = 1")
     data = await filtered.data()
@@ -92,10 +76,7 @@ async def example():
     print(f"  Names:    {data['name']}")  # → ['Alice', 'Charlie', 'Diana']
     print(f"  Salaries: {data['salary']}")  # → [120000, 110000, 90000]
 
-    # Example 7: with_isin() + group_by() for segmented analysis
-    print("\n" + "=" * 50)
-    print("Example 7: Group by membership with with_isin()")
-    print("-" * 50)
+    section("Example 7: Group by membership with with_isin()")
 
     result = await view.group_by("in_focus").sum("salary")
     rows = await result.data(orient=ORIENT_RECORDS)

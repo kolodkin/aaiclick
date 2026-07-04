@@ -25,6 +25,7 @@ from aaiclick.data.models import (
     Computed,
     Schema,
 )
+from aaiclick.example_runner import section
 
 
 async def example():
@@ -32,8 +33,7 @@ async def example():
     # ---------------------------------------------------------------
     # Step 1: Create source data (simulating two different feeds)
     # ---------------------------------------------------------------
-    print("Step 1: Create two data sources")
-    print("-" * 50)
+    section("Step 1: Create two data sources")
 
     # Source A: vulnerability catalog (has vendor and severity info)
     catalog = await create_object_from_value(
@@ -59,8 +59,7 @@ async def example():
     # ---------------------------------------------------------------
     # Step 2: Create AggregatingMergeTree table with ORDER BY cve_id
     # ---------------------------------------------------------------
-    print("Step 2: Create AggregatingMergeTree table and insert from each source")
-    print("-" * 50)
+    section("Step 2: Create AggregatingMergeTree table and insert from each source")
 
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
@@ -109,8 +108,7 @@ async def example():
     # ---------------------------------------------------------------
     # Step 3: Collapse with GROUP BY + any()
     # ---------------------------------------------------------------
-    print("Step 3: Collapse via group_by('cve_id') with any()/max()")
-    print("-" * 50)
+    section("Step 3: Collapse via group_by('cve_id') with any()/max()")
 
     merged = await agg.group_by("cve_id").agg(
         {
@@ -130,8 +128,7 @@ async def example():
     # ---------------------------------------------------------------
     # Step 4: Display merged results
     # ---------------------------------------------------------------
-    print("Step 4: Merged results")
-    print("-" * 50)
+    section("Step 4: Merged results")
     print(f"  {'CVE':<16} {'Cat':>3} {'Scr':>3} {'Vendor':<12} {'Severity':<10} {'CVSS':>5} {'EPSS':>5}")
     print(f"  {'-' * 14}  {'---':>3} {'---':>3} {'-' * 10}   {'-' * 8}   {'-----':>5} {'-----':>5}")
 
