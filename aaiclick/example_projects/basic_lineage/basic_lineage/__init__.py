@@ -10,10 +10,10 @@ tables and trace the computation graph.
 
 import asyncio
 import logging
-import os
 
 from aaiclick.ai.agents.debug_agent import debug_result
 from aaiclick.ai.agents.lineage_agent import explain_lineage
+from aaiclick.ai.config import ai_available
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.data.object import Object
 from aaiclick.oplog.lineage import lineage_context, oplog_subgraph
@@ -101,7 +101,7 @@ async def main():
                 oplog_subgraph(target_table, direction="backward"),
                 oplog_subgraph(source_table, direction="forward"),
             )
-            if os.environ.get("AAICLICK_AI_API_KEY"):
+            if ai_available():
                 explanation = await explain_lineage(
                     target_table,
                     question="How was this table produced? What arithmetic was applied?",
@@ -116,7 +116,11 @@ async def main():
                     graph=backward_graph,
                 )
             else:
-                logger.warning("AAICLICK_AI_API_KEY is not set; skipping AI lineage explanation and debug agent.")
+                logger.warning(
+                    "No AI backend available; skipping AI lineage explanation and debug agent. "
+                    "Start a local Ollama server and run `python -m aaiclick setup --ai`, "
+                    "or set AAICLICK_AI_API_KEY for a remote model."
+                )
 
         print_report(
             tasks=tasks,

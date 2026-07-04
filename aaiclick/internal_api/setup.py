@@ -22,6 +22,14 @@ from pathlib import Path
 from alembic import command
 from sqlalchemy import create_engine
 
+from aaiclick.ai.ollama import (
+    DEFAULT_OLLAMA_MODEL,
+    OLLAMA_BASE_URL,
+    OLLAMA_PING_TIMEOUT_S,
+    OLLAMA_PULL_TIMEOUT_S,
+    OLLAMA_SHOW_TIMEOUT_S,
+    show_model_request,
+)
 from aaiclick.backend import (
     get_ch_url,
     get_root,
@@ -54,12 +62,6 @@ from aaiclick.view_models import (
 )
 
 from .errors import Invalid
-
-OLLAMA_BASE_URL = "http://localhost:11434"
-OLLAMA_PING_TIMEOUT_S = 2
-OLLAMA_SHOW_TIMEOUT_S = 5
-OLLAMA_PULL_TIMEOUT_S = 600
-DEFAULT_OLLAMA_MODEL = "ollama/llama3.1:8b"
 
 
 def is_setup_done() -> bool:
@@ -158,14 +160,8 @@ def bootstrap_ollama(model: str, *, base_url: str = OLLAMA_BASE_URL) -> OllamaBo
             detail=f"ollama server not reachable: {exc}",
         )
 
-    show_req = urllib.request.Request(  # noqa: S310
-        f"{base_url}/api/show",
-        data=json.dumps({"model": model_name}).encode(),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
     try:
-        urllib.request.urlopen(show_req, timeout=OLLAMA_SHOW_TIMEOUT_S)  # noqa: S310
+        urllib.request.urlopen(show_model_request(model_name, base_url), timeout=OLLAMA_SHOW_TIMEOUT_S)  # noqa: S310
         return OllamaBootstrapResult(
             model=model,
             server_url=base_url,
