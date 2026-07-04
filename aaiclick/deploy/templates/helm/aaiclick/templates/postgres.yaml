@@ -1,0 +1,51 @@
+{{- if .Values.devDependencies.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aaiclick-postgres
+  labels:
+    app: aaiclick-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aaiclick-postgres
+  template:
+    metadata:
+      labels:
+        app: aaiclick-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: {{ .Values.devDependencies.postgres.image }}
+          env:
+            - name: POSTGRES_USER
+              value: {{ .Values.devDependencies.postgres.user | quote }}
+            - name: POSTGRES_PASSWORD
+              value: {{ .Values.devDependencies.postgres.password | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.devDependencies.postgres.db | quote }}
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "{{ .Values.devDependencies.postgres.user }}"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 12
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aaiclick-postgres
+  labels:
+    app: aaiclick-postgres
+spec:
+  selector:
+    app: aaiclick-postgres
+  ports:
+    - name: pg
+      port: 5432
+      targetPort: 5432
+{{- end }}
