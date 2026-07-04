@@ -9,7 +9,13 @@ Invoked via ``python -m aaiclick k8s init``."""
 
 from __future__ import annotations
 
-from importlib.abc import Traversable
+import sys
+
+if sys.version_info >= (3, 11):
+    from importlib.resources.abc import Traversable
+else:
+    from importlib.abc import Traversable
+
 from importlib.resources import files
 from pathlib import Path
 
