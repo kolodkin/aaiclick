@@ -78,10 +78,8 @@ Full stack — `docker compose up` yields a complete working docker-runner deplo
   task-facing DSNs use `host.docker.internal` (`extra_hosts: host-gateway`) — sibling
   containers cannot resolve compose service names. The server/worker services themselves use
   compose service names in `AAICLICK_SQL_URL` / `AAICLICK_CH_URL`.
-- **Profiles**: clickhouse, postgres, and registry are profile-free; the aaiclick services sit
-  in an `app` profile. `docker compose up` with no profile gives infra-only — this is what
-  lets CI reuse the user-facing compose file in place of GitHub Actions `services:` blocks,
-  and lets developers run the test suite against compose-provided infra.
+- No profiles: `docker compose up` always brings up the whole stack. CI jobs that only need
+  the infra services still run the full stack — simpler than maintaining profile splits.
 
 # Helm chart template (kubernetes setup)
 
@@ -126,8 +124,8 @@ All gates depend only on `build` + `build-rc-images`, so they run concurrently:
 | Gate                | Shape                                                                            |
 |---------------------|----------------------------------------------------------------------------------|
 | test-package-local  | Unchanged (chdb + SQLite, no infra)                                              |
-| test-package        | Existing data/orch matrix; infra now comes from the scaffolded compose file (infra-only profile) instead of `services:` blocks |
-| compose e2e         | New `_compose-e2e-reusable.yaml` — scaffold via `compose init`, point tags at `-rc`, `docker compose --profile app up`, wait for health, submit a job through the API, assert completion |
+| test-package        | Existing data/orch matrix; infra now comes from the scaffolded compose file (full stack up) instead of `services:` blocks |
+| compose e2e         | New `_compose-e2e-reusable.yaml` — scaffold via `compose init`, point tags at `-rc`, `docker compose up`, wait for health, submit a job through the API, assert completion |
 | helm e2e            | kind cluster + `k8s init` scaffolded chart installed with the `-rc` images, reusing the existing kubernetes e2e harness |
 | docker e2e          | Existing `_docker-e2e-reusable.yaml` release gate, unchanged                     |
 
@@ -143,7 +141,7 @@ behind for debugging.
 
 - Unit tests adjacent to each scaffold module, mirroring `test_docker_scaffold.py`:
     - `aaiclick/deploy/test_compose_scaffold.py` — file written, `--force` semantics,
-      version/tag rendering, output parses as YAML with the expected services and profiles.
+      version/tag rendering, output parses as YAML with the expected services.
     - `aaiclick/deploy/test_k8s_scaffold.py` — chart directory structure written, `--force`
       semantics, `Chart.yaml` version/`appVersion` rendering, `values.yaml` image tags. Helm
       templates are not YAML-parseable pre-render; `helm lint` runs in the helm e2e gate, not
@@ -161,5 +159,6 @@ behind for debugging.
   editor syntax support and can be linted in CI.
 - **Single compose variant (docker-runner)**: less is more — it is the superset of the native
   setup, and one template means one artifact to maintain, test, and gate on.
-- **Compose profiles over separate infra/app files**: one file keeps the scaffold a single
-  artifact users reason about, while still letting CI start infra alone.
+- **No compose profiles**: everything comes up on `docker compose up`. Running the app
+  services during infra-only CI jobs costs a little, but one invocation with no modes is
+  simpler for users and CI alike.
