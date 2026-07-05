@@ -6,6 +6,8 @@ repo_name: kolodkin/aaiclick
 
 theme:
   name: material
+  logo: assets/logo.svg
+  favicon: assets/favicon.png
   palette:
     - scheme: default
       primary: deep orange
