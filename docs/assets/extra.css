@@ -1,0 +1,12 @@
+/* Brand palette: near-black primary + ClickHouse lemon (#FAFF69), see assets/favicon.svg */
+:root {
+  --md-primary-fg-color: #191919;
+  --md-primary-fg-color--light: #2e2e2e;
+  --md-primary-fg-color--dark: #000000;
+  --md-primary-bg-color: #ffffff;
+  --md-primary-bg-color--light: rgba(255, 255, 255, 0.7);
+}
+
+.md-header__topic:first-child {
+  color: #faff69;
+}
