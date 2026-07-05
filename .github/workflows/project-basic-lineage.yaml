@@ -2,7 +2,20 @@ name: project-basic-lineage
 
 on:
   workflow_dispatch:
+    inputs:
+      ai_preset:
+        description: "AI backend: 'ollama' (local llama3.1:8b), 'nim' (NVIDIA NIM llama-3.3-70b)"
+        type: choice
+        options:
+          - ollama
+          - nim
+        default: ollama
   workflow_call:
+    inputs:
+      ai_preset:
+        description: "AI backend preset: 'ollama' or 'nim'"
+        type: string
+        default: ollama
 
 permissions:
   contents: read
@@ -11,7 +24,7 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  AAICLICK_AI_MODEL: nvidia_nim/meta/llama-3.3-70b-instruct
+  AAICLICK_AI_MODEL: ${{ inputs.ai_preset == 'nim' && 'nvidia_nim/meta/llama-3.3-70b-instruct' || 'ollama/llama3.1:8b' }}
 
 jobs:
   basic-lineage:

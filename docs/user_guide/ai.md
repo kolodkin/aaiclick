@@ -3,7 +3,7 @@ AI Layer
 
 Optional AI-powered lineage querying and debugging (`pip install aaiclick[ai]`); the core package works identically without it.
 
-**Implementation**: `aaiclick/ai/` — see `AIProvider`, `get_ai_provider()`, `explain_lineage()`, `debug_result()`
+**Implementation**: `aaiclick/ai/` — see `AIProvider`, `get_ai_provider()`, `ai_available()`, `explain_lineage()`, `debug_result()`
 
 **Depends on**: `docs/user_guide/oplog.md` — the oplog module provides the provenance data that AI agents query.
 
@@ -26,7 +26,8 @@ aaiclick/
 └── ai/
     ├── __init__.py
     ├── provider.py           # AIProvider — thin wrapper around litellm
-    ├── config.py             # Configuration from env vars
+    ├── config.py             # Configuration from env vars + ai_available()
+    ├── ollama.py             # Ollama server/model probe (stdlib-only)
     └── agents/
         ├── __init__.py
         ├── lineage_agent.py  # Backward/forward lineage + explanation
@@ -72,9 +73,16 @@ AAICLICK_AI_API_KEY=...                 # Only needed for remote APIs
 ```python
 # aaiclick/ai/config.py
 def get_ai_provider() -> AIProvider:
-    model = os.environ.get("AAICLICK_AI_MODEL", "ollama/llama3.1:8b")
-    return AIProvider(model=model)
+    return AIProvider(model=get_configured_model(), api_key=os.environ.get("AAICLICK_AI_API_KEY"))
+
+def ai_available() -> bool:
+    """True when the configured model can serve queries: Ollama models need the
+    local server reachable and the model downloaded (pull it with
+    ``python -m aaiclick setup --ai``); remote models need AAICLICK_AI_API_KEY."""
 ```
+
+Example projects gate their AI steps on `ai_available()`, so a local Ollama
+server works without any API key.
 
 ---
 

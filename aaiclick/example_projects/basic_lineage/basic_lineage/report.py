@@ -51,7 +51,7 @@ def print_report(
 
     if explanation is None and debug_answer is None:
         print("\n## AI Explanation\n")
-        print("_Skipped: `AAICLICK_AI_API_KEY` is not set._")
+        print("_Skipped: no AI backend available (no local Ollama model, no `AAICLICK_AI_API_KEY`)._")
         return
 
     print("\n## AI Explanation (backward lineage)\n")

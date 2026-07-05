@@ -1,3 +1,5 @@
+<img src="docs/assets/favicon.svg" alt="aaiclick logo" width="96" />
+
 # aaiclick
 
 aaiclick is a data orchestration framework built to make distributed computing easy, with three principles in mind:

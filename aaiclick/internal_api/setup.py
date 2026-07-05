@@ -14,7 +14,6 @@ alembic, not to this module.
 from __future__ import annotations
 
 import json
-import os
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -22,6 +21,15 @@ from pathlib import Path
 from alembic import command
 from sqlalchemy import create_engine
 
+from aaiclick.ai.ollama import (
+    OLLAMA_BASE_URL,
+    OLLAMA_PULL_TIMEOUT_S,
+    PROBE_MISSING,
+    PROBE_OK,
+    PROBE_UNREACHABLE,
+    get_configured_model,
+    probe_ollama_model,
+)
 from aaiclick.backend import (
     get_ch_url,
     get_root,
@@ -54,12 +62,6 @@ from aaiclick.view_models import (
 )
 
 from .errors import Invalid
-
-OLLAMA_BASE_URL = "http://localhost:11434"
-OLLAMA_PING_TIMEOUT_S = 2
-OLLAMA_SHOW_TIMEOUT_S = 5
-OLLAMA_PULL_TIMEOUT_S = 600
-DEFAULT_OLLAMA_MODEL = "ollama/llama3.1:8b"
 
 
 def is_setup_done() -> bool:
@@ -114,8 +116,7 @@ def setup(*, ai: bool = False) -> SetupResult:
 
     ollama: OllamaBootstrapResult | None = None
     if ai:
-        model = os.environ.get("AAICLICK_AI_MODEL", DEFAULT_OLLAMA_MODEL)
-        ollama = bootstrap_ollama(model)
+        ollama = bootstrap_ollama(get_configured_model())
 
     Path(root).mkdir(parents=True, exist_ok=True)
     (root / "setup_done").write_text("")
@@ -148,42 +149,28 @@ def bootstrap_ollama(model: str, *, base_url: str = OLLAMA_BASE_URL) -> OllamaBo
 
     model_name = model.removeprefix("ollama/")
 
-    try:
-        urllib.request.urlopen(base_url, timeout=OLLAMA_PING_TIMEOUT_S)  # noqa: S310
-    except (urllib.error.URLError, OSError) as exc:
+    probe = probe_ollama_model(model_name, base_url=base_url)
+    if probe.status == PROBE_UNREACHABLE:
         return OllamaBootstrapResult(
             model=model,
             server_url=base_url,
             status=OLLAMA_SERVER_UNREACHABLE,
-            detail=f"ollama server not reachable: {exc}",
+            detail=probe.detail,
         )
-
-    show_req = urllib.request.Request(  # noqa: S310
-        f"{base_url}/api/show",
-        data=json.dumps({"model": model_name}).encode(),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        urllib.request.urlopen(show_req, timeout=OLLAMA_SHOW_TIMEOUT_S)  # noqa: S310
+    if probe.status == PROBE_OK:
         return OllamaBootstrapResult(
             model=model,
             server_url=base_url,
             status=OLLAMA_ALREADY_PRESENT,
-            detail=f"model '{model_name}' already downloaded",
+            detail=probe.detail,
         )
-    except urllib.error.HTTPError as exc:
-        # 404 → fall through to pull. exc.close() releases the response stream
-        # (Python 3.14's tempfile-backed body would raise ResourceWarning on gc,
-        # which filterwarnings=["error"] escalates to a failure).
-        exc.close()
-        if exc.code != 404:
-            return OllamaBootstrapResult(
-                model=model,
-                server_url=base_url,
-                status=OLLAMA_FAILED,
-                detail=f"model lookup failed: {exc}",
-            )
+    if probe.status != PROBE_MISSING:
+        return OllamaBootstrapResult(
+            model=model,
+            server_url=base_url,
+            status=OLLAMA_FAILED,
+            detail=probe.detail,
+        )
 
     pull_req = urllib.request.Request(  # noqa: S310
         f"{base_url}/api/pull",

@@ -29,6 +29,8 @@ jobs:
 
   basic-lineage:
     uses: ./.github/workflows/project-basic-lineage.yaml
+    with:
+      ai_preset: nim
     permissions:
       contents: read
       actions: read

@@ -5,6 +5,35 @@ Planned work across aaiclick, ordered by priority.
 
 ---
 
+# High Priority
+
+## Untangle the `view_models` ↔ `orchestration` Import Cycle
+
+`aaiclick/view_models.py` imports enums from `orchestration.models` at module
+top, while two orchestration modules import back out of it:
+`orchestration/logging.py` (the log vocabulary — `STDOUT_STREAM`, `LogLine`,
+`normalize_level`, …) and `orchestration/view_models.py` (`LogLine`,
+`SnowflakeId`). The cycle resolves only when `orchestration` starts
+initializing first — true for every `internal_api` / CLI / server path, but
+any import path that reaches `view_models` before `orchestration` (e.g.
+`aaiclick.ai.* → view_models`) dies with `ImportError: ... partially
+initialized module`.
+
+Concrete cost today: `bootstrap_ollama()` returns `OllamaBootstrapResult` (a
+view model), so it cannot live in `aaiclick/ai/ollama.py` next to
+`ollama_model_available()` — importing the AI stack first (as the
+`basic_lineage` example does) crashes. It sits in `internal_api/setup.py`
+instead, splitting the Ollama logic across two modules.
+
+**Fix sketch**: move the shared primitives (`SnowflakeId`, the log vocabulary)
+to a neutral leaf module (e.g. `aaiclick/log_models.py`) that both
+`view_models` and `orchestration` import; `view_models` re-exports them for
+the CLI/REST/MCP contract. With no orchestration module importing
+`view_models`, import order stops mattering — then move `bootstrap_ollama()`
+to `aaiclick/ai/ollama.py` beside its probe.
+
+---
+
 # Medium Priority
 
 ## ClickHouse Migration Framework
