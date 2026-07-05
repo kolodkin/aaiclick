@@ -92,6 +92,7 @@ A user-facing chart — distinct from `test_e2e/kubernetes/chart`, which is CI-o
 infra and stays as it is.
 
 Templates: server Deployment + Service, worker Deployment (`aaiclick-kubectl` image),
+background cleanup Deployment (drives job completion, as in the compose stack),
 ServiceAccount + Role/RoleBinding scoped to pod create/get/list/watch/delete (what the
 kubernetes runner needs), and optional in-cluster ClickHouse + Postgres gated by
 `devDependencies.enabled` for evaluation setups. Migrations run as an initContainer on the

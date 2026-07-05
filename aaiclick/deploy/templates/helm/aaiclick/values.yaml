@@ -33,6 +33,10 @@ worker:
   replicas: 1
   resources: {}
 
+background:
+  replicas: 1
+  resources: {}
+
 # Deploy in-cluster ClickHouse + Postgres. Evaluation only — ephemeral,
 # no persistence. Disable and point env.* at managed databases for real use.
 devDependencies:
