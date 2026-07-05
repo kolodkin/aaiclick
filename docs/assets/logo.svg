@@ -1,15 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 16 412 456">
-  <g fill="none" stroke="#FFFFFF" stroke-width="34" stroke-linecap="round">
-    <line x1="196" y1="118" x2="196" y2="58"/>
-    <line x1="144" y1="144" x2="98" y2="98"/>
-    <line x1="118" y1="196" x2="58" y2="196"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="70 27 431 431">
+  <circle cx="232" cy="304" r="102" fill="none" stroke="#FFFFFF" stroke-width="62"/>
+  <rect x="334" y="202" width="62" height="234" rx="31" fill="#FFFFFF"/>
+  <g fill="none" stroke="#FFFFFF" stroke-width="32" stroke-linecap="round">
+    <line x1="365" y1="128" x2="365" y2="76"/>
+    <line x1="418" y1="150" x2="456" y2="112"/>
+    <line x1="308" y1="112" x2="290" y2="64"/>
   </g>
-  <path fill="#FFFFFF" d="M 196 158
-    L 196 420
-    L 258 361
-    L 298 448
-    L 340 429
-    L 300 342
-    L 386 342
-    Z"/>
 </svg>
