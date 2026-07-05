@@ -25,28 +25,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
-
-      - name: Download dist artifacts
-        uses: actions/download-artifact@v7
-        with:
-          name: dist
-          path: dist/
-
-      - name: Download requirements artifacts
-        uses: actions/download-artifact@v7
-        with:
-          name: requirements
+      - name: Setup uv
+        uses: ./.github/actions/setup-uv
 
       - name: Install pinned dependencies and built wheel
-        run: |
-          uv venv --python 3.10
-          uv pip install -r requirements-dist.txt
-          uv pip install --no-deps --no-index --find-links dist/ "aaiclick[distributed]"
+        uses: ./.github/actions/install-dist
+        with:
+          requirements-file: requirements-dist.txt
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -82,23 +67,16 @@ jobs:
         env:
           VIRTUAL_ENV: ${{ github.workspace }}/.venv
           AAICLICK_E2E_COMPOSE_DIR: ${{ runner.temp }}/stack
-        run: |
-          mkdir -p tmp
-          uv run --no-project pytest test_e2e/compose/ -m compose_e2e -n 0 -v \
-            -o asyncio_mode=auto \
-            -o asyncio_default_fixture_loop_scope=module \
-            -o asyncio_default_test_loop_scope=module \
-            -o "filterwarnings=error" \
-            --strict-markers \
-            --junitxml=tmp/pytest-report.xml
-
-      - name: Publish test results
-        uses: dorny/test-reporter@v2
-        if: always()
+        uses: ./.github/actions/run-pytest
         with:
-          name: "Compose Stack E2E"
-          path: tmp/pytest-report.xml
-          reporter: java-junit
+          command: >-
+            uv run --no-project pytest test_e2e/compose/ -m compose_e2e -n 0 -v
+            -o asyncio_mode=auto
+            -o asyncio_default_fixture_loop_scope=module
+            -o asyncio_default_test_loop_scope=module
+            -o "filterwarnings=error"
+            --strict-markers
+          report-name: "Compose Stack E2E"
 
       - name: Dump compose logs on failure
         if: failure()

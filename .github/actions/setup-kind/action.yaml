@@ -1,0 +1,20 @@
+name: Setup kind + kubectl + Helm
+description: >-
+  Install the pinned kind, latest stable kubectl, and pinned Helm used by
+  the kubernetes-flavoured e2e suites.
+
+runs:
+  using: composite
+  steps:
+    - name: Install kind + kubectl
+      shell: bash
+      run: |
+        curl -Lo kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
+        sudo install kind /usr/local/bin/
+        curl -Lo kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        sudo install kubectl /usr/local/bin/
+
+    - name: Install Helm
+      uses: azure/setup-helm@v4
+      with:
+        version: v3.16.2

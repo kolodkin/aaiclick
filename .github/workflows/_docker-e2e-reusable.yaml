@@ -79,11 +79,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
+      - name: Setup uv
+        uses: ./.github/actions/setup-uv
 
       # Linux GitHub runners do not resolve ``host.docker.internal``. The
       # e2e tests use the same DSNs both from runner-side pytest fixtures
@@ -93,32 +90,8 @@ jobs:
       - name: Map host.docker.internal to localhost
         run: echo "127.0.0.1 host.docker.internal" | sudo tee -a /etc/hosts
 
-      # The pypiserver image's default entrypoint runs ``pypi-server`` with
-      # no ``-a`` / ``-P`` flags, so uploads require auth against an empty
-      # The docker-runner build clones the job's git remote host-side (on the
-      # runner, not in a container), so a plain loopback ``git daemon`` is
-      # enough — no service container, no auth, no host-gateway. It serves a
-      # base-path the e2e fixture publishes the user repo into (see
-      # ``docker_e2e_user_repo``); ``--detach`` keeps it alive across steps,
-      # the way ``docker run -d`` does for pypiserver.
       - name: Start git daemon
-        run: |
-          GIT_DAEMON_BASE="$RUNNER_TEMP/gitsrv"
-          mkdir -p "$GIT_DAEMON_BASE"
-          echo "AAICLICK_E2E_GIT_DAEMON_BASE=$GIT_DAEMON_BASE" >> "$GITHUB_ENV"
-          echo "AAICLICK_E2E_GIT_DAEMON_PORT=9418" >> "$GITHUB_ENV"
-          git daemon --reuseaddr --listen=127.0.0.1 --port=9418 \
-            --base-path="$GIT_DAEMON_BASE" --export-all --detach
-          for i in $(seq 1 30); do
-            if (exec 3<>/dev/tcp/127.0.0.1/9418) 2>/dev/null; then
-              exec 3>&-
-              echo "git daemon is ready"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "git daemon failed to become ready" >&2
-          exit 1
+        uses: ./.github/actions/start-git-daemon
 
       # --- Wheel acquisition (branches on wheel_source) -------------------
 
@@ -197,23 +170,16 @@ jobs:
           # The default distributed-mode log dir (/var/log/aaiclick) is not
           # writable on GitHub-hosted runners. Send logs to the workspace.
           AAICLICK_LOG_DIR: "${{ github.workspace }}/tmp/aaiclick-logs"
-        run: |
-          mkdir -p tmp
-          uv run --no-project pytest test_e2e/docker/ -m docker_e2e -n 0 -v \
-            -o asyncio_mode=auto \
-            -o asyncio_default_fixture_loop_scope=module \
-            -o asyncio_default_test_loop_scope=module \
-            -o "filterwarnings=error" \
-            --strict-markers \
-            --junitxml=tmp/pytest-report.xml
-
-      - name: Publish test results
-        uses: dorny/test-reporter@v2
-        if: always()
+        uses: ./.github/actions/run-pytest
         with:
-          name: "Docker Runner E2E (${{ inputs.wheel_source }})"
-          path: tmp/pytest-report.xml
-          reporter: java-junit
+          command: >-
+            uv run --no-project pytest test_e2e/docker/ -m docker_e2e -n 0 -v
+            -o asyncio_mode=auto
+            -o asyncio_default_fixture_loop_scope=module
+            -o asyncio_default_test_loop_scope=module
+            -o "filterwarnings=error"
+            --strict-markers
+          report-name: "Docker Runner E2E (${{ inputs.wheel_source }})"
 
       - name: Cleanup docker resources
         if: always()

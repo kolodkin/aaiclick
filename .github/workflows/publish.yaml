@@ -1,5 +1,11 @@
 name: Publish to PyPI
 
+# Repeated steps (GHCR login, artifact downloads, uv install) and matrices
+# are YAML-anchored at their first use and aliased below — GitHub Actions
+# supports anchors/aliases (not merge keys) since 2025-09. The test-package*
+# jobs deliberately have no checkout (they test the installed package, not
+# the repo), so they cannot use the local composite actions.
+
 on:
   workflow_dispatch:
     inputs:
@@ -106,7 +112,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Download dist artifacts
+      - &download-dist
+        name: Download dist artifacts
         uses: actions/download-artifact@v7
         with:
           name: dist
@@ -132,7 +139,8 @@ jobs:
             curl -fsSL -F "content=@${f}" -F ":action=file_upload" http://localhost:8080/
           done
 
-      - name: Log in to GHCR
+      - &ghcr-login
+        name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -171,14 +179,9 @@ jobs:
       packages: write
     strategy:
       matrix:
-        image: [aaiclick, aaiclick-docker, aaiclick-kubectl]
+        image: &image-matrix [aaiclick, aaiclick-docker, aaiclick-kubectl]
     steps:
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      - *ghcr-login
 
       - name: Assemble multi-arch rc manifest
         run: |
@@ -194,26 +197,25 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
+        include: &package-test-matrix
           - group: data
             pyargs: aaiclick.data aaiclick.snowflake
           - group: orch
             pyargs: aaiclick.orchestration aaiclick.oplog
 
     steps:
-      - name: Install uv
+      - &install-uv
+        name: Install uv
         uses: astral-sh/setup-uv@v7
 
-      - name: Create virtual environment
+      - &create-venv
+        name: Create virtual environment
         run: uv venv --python 3.10
 
-      - name: Download dist artifacts
-        uses: actions/download-artifact@v7
-        with:
-          name: dist
-          path: dist/
+      - *download-dist
 
-      - name: Download requirements artifacts
+      - &download-requirements
+        name: Download requirements artifacts
         uses: actions/download-artifact@v7
         with:
           name: requirements
@@ -250,41 +252,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - group: data
-            pyargs: aaiclick.data aaiclick.snowflake
-          - group: orch
-            pyargs: aaiclick.orchestration aaiclick.oplog
+        include: *package-test-matrix
 
     steps:
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
+      - *install-uv
 
-      - name: Create virtual environment
-        run: uv venv --python 3.10
+      - *create-venv
 
-      - name: Download dist artifacts
-        uses: actions/download-artifact@v7
-        with:
-          name: dist
-          path: dist/
+      - *download-dist
 
-      - name: Download requirements artifacts
-        uses: actions/download-artifact@v7
-        with:
-          name: requirements
+      - *download-requirements
 
       - name: Install pinned dependencies and built wheel
         run: |
           uv pip install -r requirements-dist.txt
           uv pip install --no-deps --no-index --find-links dist/ "aaiclick[distributed]"
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      - *ghcr-login
 
       # Infra comes from the same compose file users scaffold — the release
       # dogfoods it instead of GHA `services:` blocks. The whole stack comes
@@ -416,11 +400,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download dist artifacts
-        uses: actions/download-artifact@v7
-        with:
-          name: dist
-          path: dist/
+      - *download-dist
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
@@ -448,14 +428,9 @@ jobs:
       packages: write
     strategy:
       matrix:
-        image: [aaiclick, aaiclick-docker, aaiclick-kubectl]
+        image: *image-matrix
     steps:
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      - *ghcr-login
 
       # Retag the exact multi-arch manifests every gate tested — no rebuild,
       # no wait-for-PyPI. Tested digests ARE the published digests.

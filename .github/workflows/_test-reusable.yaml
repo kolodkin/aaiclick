@@ -4,6 +4,10 @@ name: tests (reusable)
 # pinned to 3.10 — the project's minimum) and ``test-py-nightly.yaml``
 # (nightly matrix over 3.10 and 3.14) both call this and differ only in
 # the ``python-version`` input.
+#
+# The ClickHouse / Postgres service blocks are YAML-anchored at their first
+# use (test-dist) and aliased by the later jobs — GitHub Actions supports
+# anchors/aliases (not merge keys) since 2025-09.
 
 on:
   workflow_call:
@@ -40,14 +44,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
+      - name: Setup uv
+        uses: ./.github/actions/setup-uv
         with:
-          enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
-
-      - name: Install dependencies
-        run: uv sync --frozen --extra dev --python ${{ inputs.python-version }}
+          python-version: ${{ inputs.python-version }}
+          sync-args: "--extra dev"
 
       - name: Run pre-commit
         uses: pre-commit/action@v3.0.1
@@ -63,20 +64,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
+      - name: Setup uv
+        uses: ./.github/actions/setup-uv
         with:
-          enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
+          python-version: ${{ inputs.python-version }}
+          sync-args: "--extra server"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
-
-      - name: Install Python (server) dependencies
-        run: uv sync --frozen --extra server --python ${{ inputs.python-version }}
 
       - name: Install npm dependencies
         run: npm ci
@@ -119,32 +117,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
+      - name: Setup uv
+        uses: ./.github/actions/setup-uv
         with:
-          enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
-
-      - name: Install dependencies
-        run: |
-          uv sync --frozen --extra test ${{ matrix.extras }} --python ${{ inputs.python-version }}
+          python-version: ${{ inputs.python-version }}
+          sync-args: "--extra test ${{ matrix.extras }}"
 
       - name: Setup local backend
         run: |
           uv run python -m aaiclick setup
 
       - name: Run tests
-        run: |
-          mkdir -p tmp
-          uv run pytest ${{ matrix.test-paths }} -n auto -v --junitxml=tmp/pytest-report.xml
-
-      - name: Publish test results
-        uses: dorny/test-reporter@v2
-        if: always()
+        uses: ./.github/actions/run-pytest
         with:
-          name: "Pytest Results (${{ matrix.group }})"
-          path: tmp/pytest-report.xml
-          reporter: java-junit
+          command: uv run pytest ${{ matrix.test-paths }} -n auto -v
+          report-name: "Pytest Results (${{ matrix.group }})"
 
   test-dist:
     needs: lint
@@ -169,7 +156,10 @@ jobs:
             extras: "--extra server"
 
     services:
-      clickhouse:
+      # The --add-host mapping is only needed by test-dist (containers
+      # spawned by the suite reach back to the runner), but it is harmless
+      # for the aliasing jobs, so all three share one anchored definition.
+      clickhouse: &clickhouse-service
         image: clickhouse/clickhouse-server:26.3
         env:
           CLICKHOUSE_USER: default
@@ -185,7 +175,7 @@ jobs:
           --health-retries 5
           --add-host=host.docker.internal:host-gateway
 
-      postgres:
+      postgres: &postgres-service
         image: postgres:18.3
         env:
           POSTGRES_USER: aaiclick
@@ -203,15 +193,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
+      - name: Setup uv
+        uses: ./.github/actions/setup-uv
         with:
-          enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
-
-      - name: Install dependencies
-        run: |
-          uv sync --frozen --extra distributed --extra test ${{ matrix.extras }} --python ${{ inputs.python-version }}
+          python-version: ${{ inputs.python-version }}
+          sync-args: "--extra distributed --extra test ${{ matrix.extras }}"
 
       - name: Run database migrations
         env:
@@ -242,17 +228,10 @@ jobs:
           # per-PR suite is unaffected. See aaiclick/testing.py:gc_leak_check.
           AAICLICK_GC_LEAK_CHECK: ${{ inputs.gc-leak-check && '1' || '' }}
           PYTHONASYNCIODEBUG: ${{ inputs.gc-leak-check && '1' || '' }}
-        run: |
-          mkdir -p tmp
-          uv run pytest ${{ matrix.test-paths }} -n auto -v --junitxml=tmp/pytest-report.xml
-
-      - name: Publish test results
-        uses: dorny/test-reporter@v2
-        if: always()
+        uses: ./.github/actions/run-pytest
         with:
-          name: "Pytest Results (${{ matrix.group }})"
-          path: tmp/pytest-report.xml
-          reporter: java-junit
+          command: uv run pytest ${{ matrix.test-paths }} -n auto -v
+          report-name: "Pytest Results (${{ matrix.group }})"
 
   test-ui-e2e-dist:
     # Single browser smoke pass against the distributed backend: builds the
@@ -265,44 +244,18 @@ jobs:
     name: UI e2e dist
 
     services:
-      clickhouse:
-        image: clickhouse/clickhouse-server:26.3
-        env:
-          CLICKHOUSE_USER: default
-          CLICKHOUSE_PASSWORD: click123
-          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 0
-        ports:
-          - 8123:8123
-          - 9000:9000
-        options: >-
-          --health-cmd "wget --spider -q localhost:8123/ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-      postgres:
-        image: postgres:18.3
-        env:
-          POSTGRES_USER: aaiclick
-          POSTGRES_PASSWORD: secret
-          POSTGRES_DB: aaiclick
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U aaiclick"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+      clickhouse: *clickhouse-service
+      postgres: *postgres-service
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
+      - name: Setup uv
+        uses: ./.github/actions/setup-uv
         with:
-          enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
+          python-version: ${{ inputs.python-version }}
+          sync-args: "--extra distributed --extra server --extra test"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -310,10 +263,8 @@ jobs:
           node-version: "20"
           cache: "npm"
 
-      - name: Install Python dependencies
-        run: |
-          uv sync --frozen --extra distributed --extra server --extra test --python ${{ inputs.python-version }}
-          uv pip install playwright
+      - name: Install Playwright
+        run: uv pip install playwright
 
       - name: Resolve Playwright version
         id: pw-version
@@ -355,17 +306,10 @@ jobs:
           AAICLICK_JWT_SECRET: ci-test-jwt-secret-key-at-least-32-bytes-long
           AAICLICK_ADMIN_USERNAME: admin
           AAICLICK_ADMIN_PASSWORD: ci-admin-password
-        run: |
-          mkdir -p tmp
-          uv run pytest test_e2e/web/test_smoke.py -v --junitxml=tmp/pytest-report.xml
-
-      - name: Publish test results
-        uses: dorny/test-reporter@v2
-        if: always()
+        uses: ./.github/actions/run-pytest
         with:
-          name: "Pytest Results (UI e2e dist)"
-          path: tmp/pytest-report.xml
-          reporter: java-junit
+          command: uv run pytest test_e2e/web/test_smoke.py -v
+          report-name: "Pytest Results (UI e2e dist)"
 
   examples:
     runs-on: ubuntu-latest
@@ -387,48 +331,18 @@ jobs:
             extras: distributed
 
     services:
-      clickhouse:
-        image: clickhouse/clickhouse-server:26.3
-        env:
-          CLICKHOUSE_USER: default
-          CLICKHOUSE_PASSWORD: click123
-          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 0
-        ports:
-          - 8123:8123
-          - 9000:9000
-        options: >-
-          --health-cmd "wget --spider -q localhost:8123/ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-      postgres:
-        image: postgres:18.3
-        env:
-          POSTGRES_USER: aaiclick
-          POSTGRES_PASSWORD: secret
-          POSTGRES_DB: aaiclick
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U aaiclick"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+      clickhouse: *clickhouse-service
+      postgres: *postgres-service
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
+      - name: Setup uv
+        uses: ./.github/actions/setup-uv
         with:
-          enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
-
-      - name: Install dependencies
-        run: |
-          uv sync --frozen --extra ${{ matrix.extras }} --python ${{ inputs.python-version }}
+          python-version: ${{ inputs.python-version }}
+          sync-args: "--extra ${{ matrix.extras }}"
 
       - name: Run database migrations
         if: matrix.needs-postgres
