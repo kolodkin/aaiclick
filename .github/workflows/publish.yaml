@@ -122,6 +122,10 @@ jobs:
             pypiserver/pypiserver:v2.3.2 run -p 8080 -a . -P . --server gunicorn
           for i in $(seq 1 30); do
             curl -fsS http://localhost:8080/simple/ >/dev/null 2>&1 && break
+            if [ "$i" -eq 30 ]; then
+              echo "pypiserver did not come up in time" >&2
+              exit 1
+            fi
             sleep 2
           done
           for f in dist/*.whl dist/*.tar.gz; do
@@ -306,7 +310,8 @@ jobs:
           done
 
           # Verify infra became healthy
-          if ! curl -fsS http://localhost:8123/ping >/dev/null 2>&1; then
+          if ! curl -fsS http://localhost:8123/ping >/dev/null 2>&1 \
+             || ! docker compose -f "$RUNNER_TEMP/stack/docker-compose.yaml" exec -T postgres pg_isready -U aaiclick >/dev/null 2>&1; then
             echo "infra never became healthy" >&2
             exit 1
           fi
@@ -378,7 +383,6 @@ jobs:
     needs: [build, merge-rc-images]
     uses: ./.github/workflows/_compose-e2e-reusable.yaml
     with:
-      version_pin: ${{ inputs.tag }}
       image_tag: ${{ inputs.tag }}-rc
 
   test-helm-e2e:
@@ -388,7 +392,6 @@ jobs:
     needs: [build, merge-rc-images]
     uses: ./.github/workflows/_helm-e2e-reusable.yaml
     with:
-      version_pin: ${{ inputs.tag }}
       image_tag: ${{ inputs.tag }}-rc
 
   publish:

@@ -19,19 +19,10 @@ pytestmark = pytest.mark.compose_e2e
 JOB_TIMEOUT_S = 300
 EXEC_TIMEOUT_S = 60
 
-# ``register-job`` validates the entrypoint resolves to a callable at
-# registration time (aaiclick/internal_api/registered_jobs.py
-# ``_validate_entrypoint``) unless ``--image`` is passed — and ``--image``
-# would force a prebuilt-image DockerRunner, overriding the ``--runner
-# subprocess`` mode this smoke test wants (tasks executed inside the worker
-# container's own process, matching the docker-runner worker image polling
-# Postgres). A bare module path like ``aaiclick.testing`` does NOT resolve:
-# ``import_callback`` splits it into module ``aaiclick`` + attribute
-# ``testing``, and ``aaiclick/__init__.py`` never imports the ``testing``
-# submodule, so ``getattr`` fails with AttributeError even though
-# ``aaiclick.testing`` is perfectly importable on its own. Use a real
-# ``@task``-decorated function that ships in the wheel instead — verified
-# locally to register and run to completion under the subprocess runner.
+# Must be a shipped ``@task`` callable: ``register-job`` resolves the
+# entrypoint via ``import_callback`` at registration time even for shell-entry
+# runs, and ``--image`` is no workaround (it forces a prebuilt DockerRunner
+# instead of the subprocess mode this smoke test exercises).
 _SMOKE_ENTRYPOINT = "aaiclick.orchestration.examples.orchestration_basic.simple_arithmetic"
 
 

@@ -8,10 +8,6 @@ name: Compose Stack E2E (reusable)
 on:
   workflow_call:
     inputs:
-      version_pin:
-        description: "vX.Y.Z of the wheel under test"
-        required: true
-        type: string
       image_tag:
         description: "GHCR image tag to deploy (e.g. v1.2.3-rc)"
         required: true
@@ -31,6 +27,9 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
 
       - name: Download dist artifacts
         uses: actions/download-artifact@v7
