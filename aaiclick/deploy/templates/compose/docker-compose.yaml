@@ -23,6 +23,10 @@ services:
     ports:
       - "8123:8123"
       - "9000:9000"
+    # Lets ClickHouse fetch url()/insert-from-URL sources served from the
+    # host (e.g. a local fileserver), matching the repo's dev compose file.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - clickhouse_data:/var/lib/clickhouse
     healthcheck:
