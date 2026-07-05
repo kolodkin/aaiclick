@@ -62,16 +62,28 @@ def test_shell_job_round_trip(compose_dir):
     _compose_exec(
         compose_dir,
         "server",
-        "python", "-m", "aaiclick", "register-job", _SMOKE_ENTRYPOINT,
-        "--name", "compose-smoke",
-        "--runner", "subprocess",
+        "python",
+        "-m",
+        "aaiclick",
+        "register-job",
+        _SMOKE_ENTRYPOINT,
+        "--name",
+        "compose-smoke",
+        "--runner",
+        "subprocess",
     )
     _compose_exec(
         compose_dir,
         "server",
-        "python", "-m", "aaiclick", "run-job", "compose-smoke",
-        "--entry-type", "shell",
-        "--command", "python -c 'print(42)'",
+        "python",
+        "-m",
+        "aaiclick",
+        "run-job",
+        "compose-smoke",
+        "--entry-type",
+        "shell",
+        "--command",
+        "python -c 'print(42)'",
     )
 
     deadline = time.monotonic() + JOB_TIMEOUT_S
