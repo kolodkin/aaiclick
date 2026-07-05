@@ -9,9 +9,9 @@ from __future__ import annotations
 import json
 import subprocess
 import time
+import urllib.request
 from pathlib import Path
 
-import httpx
 import pytest
 
 pytestmark = pytest.mark.compose_e2e
@@ -46,8 +46,10 @@ def _job_by_name(compose_dir: Path, name: str) -> dict | None:
 
 
 def test_server_healthy(server_url):
-    response = httpx.get(f"{server_url}/health", timeout=10)
-    assert response.status_code == 200
+    # stdlib on purpose: the CI venv installs only the test+distributed
+    # extras, which do not ship an HTTP client library.
+    with urllib.request.urlopen(f"{server_url}/health", timeout=10) as response:
+        assert response.status == 200
 
 
 def test_worker_registered(compose_dir):
