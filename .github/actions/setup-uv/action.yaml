@@ -1,0 +1,38 @@
+name: Setup uv
+description: >-
+  Install uv with dependency caching and optionally sync the project
+  environment. Wraps the setup-uv + `uv sync --frozen` pair repeated across
+  every workflow job.
+
+inputs:
+  python-version:
+    description: "Python version passed to `uv sync --python`."
+    required: false
+    default: "3.10"
+  sync-args:
+    description: >-
+      Extra arguments for `uv sync --frozen` (e.g. "--extra test --extra
+      server"). Empty skips the sync entirely for jobs that install another
+      way (venv + pip, artifact installs).
+    required: false
+    default: ""
+  cache-dependency-glob:
+    description: "Glob(s) whose changes invalidate the uv cache."
+    required: false
+    default: "pyproject.toml"
+
+runs:
+  using: composite
+  steps:
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+        cache-dependency-glob: ${{ inputs.cache-dependency-glob }}
+
+    - name: Sync dependencies
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.sync-args }}" ]; then
+          uv sync --frozen ${{ inputs.sync-args }} --python ${{ inputs.python-version }}
+        fi

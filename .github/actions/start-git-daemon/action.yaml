@@ -1,0 +1,29 @@
+name: Start git daemon
+description: >-
+  Start a loopback `git daemon` serving a base-path the e2e fixtures publish
+  the user repo into (see `docker_e2e_user_repo`). The runner-side clone
+  needs no auth or host-gateway; `--detach` keeps it alive across steps.
+  Exports AAICLICK_E2E_GIT_DAEMON_BASE / _PORT for the test process.
+
+runs:
+  using: composite
+  steps:
+    - name: Start git daemon
+      shell: bash
+      run: |
+        GIT_DAEMON_BASE="$RUNNER_TEMP/gitsrv"
+        mkdir -p "$GIT_DAEMON_BASE"
+        echo "AAICLICK_E2E_GIT_DAEMON_BASE=$GIT_DAEMON_BASE" >> "$GITHUB_ENV"
+        echo "AAICLICK_E2E_GIT_DAEMON_PORT=9418" >> "$GITHUB_ENV"
+        git daemon --reuseaddr --listen=127.0.0.1 --port=9418 \
+          --base-path="$GIT_DAEMON_BASE" --export-all --detach
+        for i in $(seq 1 30); do
+          if (exec 3<>/dev/tcp/127.0.0.1/9418) 2>/dev/null; then
+            exec 3>&-
+            echo "git daemon is ready"
+            exit 0
+          fi
+          sleep 1
+        done
+        echo "git daemon failed to become ready" >&2
+        exit 1

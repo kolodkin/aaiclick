@@ -46,23 +46,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
+      - name: Setup uv
+        uses: ./.github/actions/setup-uv
 
-      - name: Install kind + kubectl
-        run: |
-          curl -Lo kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
-          sudo install kind /usr/local/bin/
-          curl -Lo kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          sudo install kubectl /usr/local/bin/
-
-      - name: Install Helm
-        uses: azure/setup-helm@v4
-        with:
-          version: v3.16.2
+      - name: Install kind, kubectl and Helm
+        uses: ./.github/actions/setup-kind
 
       # kind config wires the registry mirror to the node's own NodePort and
       # bridges every service NodePort to a standard localhost port on the host.
@@ -111,19 +99,7 @@ jobs:
           echo "AAICLICK_CH_URL=clickhouse://default:click123@aaiclick-clickhouse:8123/default" >> "$GITHUB_ENV"
 
       - name: Start git daemon
-        run: |
-          GIT_DAEMON_BASE="$RUNNER_TEMP/gitsrv"
-          mkdir -p "$GIT_DAEMON_BASE"
-          echo "AAICLICK_E2E_GIT_DAEMON_BASE=$GIT_DAEMON_BASE" >> "$GITHUB_ENV"
-          echo "AAICLICK_E2E_GIT_DAEMON_PORT=9418" >> "$GITHUB_ENV"
-          git daemon --reuseaddr --listen=127.0.0.1 --port=9418 \
-            --base-path="$GIT_DAEMON_BASE" --export-all --detach
-          for i in $(seq 1 30); do
-            if (exec 3<>/dev/tcp/127.0.0.1/9418) 2>/dev/null; then exec 3>&-; echo ready; exit 0; fi
-            sleep 1
-          done
-          echo "git daemon failed to become ready" >&2
-          exit 1
+        uses: ./.github/actions/start-git-daemon
 
       # --- Wheel acquisition (branches on wheel_source) -------------------
 
@@ -178,25 +154,18 @@ jobs:
           AAICLICK_PIP_TRUSTED_HOST: "host.docker.internal"
           AAICLICK_DOCKER_BUILD_ADD_HOST: "host.docker.internal:host-gateway"
           AAICLICK_LOG_DIR: "${{ github.workspace }}/tmp/aaiclick-logs"
-        run: |
-          mkdir -p tmp
-          uv run --no-project pytest test_e2e/kubernetes/ -m kubernetes_e2e -n 0 -v -s \
-            -o asyncio_mode=auto \
-            -o asyncio_default_fixture_loop_scope=module \
-            -o asyncio_default_test_loop_scope=module \
-            -o log_cli=true \
-            -o log_cli_level=INFO \
-            -o "filterwarnings=error" \
-            --strict-markers \
-            --junitxml=tmp/pytest-report.xml
-
-      - name: Publish test results
-        uses: dorny/test-reporter@v2
-        if: always()
+        uses: ./.github/actions/run-pytest
         with:
-          name: "Kubernetes Runner E2E (${{ inputs.wheel_source }})"
-          path: tmp/pytest-report.xml
-          reporter: java-junit
+          command: >-
+            uv run --no-project pytest test_e2e/kubernetes/ -m kubernetes_e2e -n 0 -v -s
+            -o asyncio_mode=auto
+            -o asyncio_default_fixture_loop_scope=module
+            -o asyncio_default_test_loop_scope=module
+            -o log_cli=true
+            -o log_cli_level=INFO
+            -o "filterwarnings=error"
+            --strict-markers
+          report-name: "Kubernetes Runner E2E (${{ inputs.wheel_source }})"
 
       - name: Dump cluster diagnostics on failure
         if: failure()

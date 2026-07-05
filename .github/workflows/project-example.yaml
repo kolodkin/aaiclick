@@ -1,8 +1,31 @@
-name: project-basic-worker
+name: project-example
+
+# One parameterized workflow for the example projects that run against the
+# distributed backend (ClickHouse + Postgres service containers). The three
+# projects previously had byte-identical workflows differing only in the
+# project name. `basic_lineage` stays in its own workflow — it needs an AI
+# backend and the DEV environment instead of database services.
+#
+# The project script is expected at
+# aaiclick/example_projects/<project>/<project>.sh.
 
 on:
   workflow_dispatch:
+    inputs:
+      project:
+        description: "Example project to run"
+        required: true
+        type: choice
+        options:
+          - basic_worker
+          - nyc_taxi_pipeline
+          - cyber_threat_feeds
   workflow_call:
+    inputs:
+      project:
+        description: "Example project to run (directory name under aaiclick/example_projects/)"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -13,7 +36,8 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  basic-worker:
+  run-project:
+    name: ${{ inputs.project }}
     runs-on: ubuntu-latest
 
     services:
@@ -50,15 +74,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
+      - name: Setup uv
+        uses: ./.github/actions/setup-uv
         with:
-          enable-cache: true
-          cache-dependency-glob: "pyproject.toml\nuv.lock\naaiclick/example_projects/basic_worker/uv.lock"
-
-      - name: Install dependencies
-        run: |
-          uv sync --frozen --extra dev --python 3.10
+          sync-args: "--extra dev"
+          cache-dependency-glob: "pyproject.toml\nuv.lock\naaiclick/example_projects/${{ inputs.project }}/uv.lock"
 
       - name: Run database migrations
         env:
@@ -66,7 +86,7 @@ jobs:
         run: |
           uv run python -m aaiclick migrate upgrade head
 
-      - name: Run Basic Worker Example
+      - name: Run example project
         env:
           PYTHON: "uv run --project ${{ github.workspace }} python"
           AAICLICK_CH_URL: "clickhouse://default:click123@localhost:8123/default"
@@ -84,14 +104,16 @@ jobs:
           AAICLICK_LOG_DIR: /tmp/aaiclick/logs
         run: |
           mkdir -p tmp
-          aaiclick/example_projects/basic_worker/basic_worker.sh 2>&1 | tee tmp/basic-worker_output.txt
+          aaiclick/example_projects/${{ inputs.project }}/${{ inputs.project }}.sh 2>&1 \
+            | tee tmp/project_output.txt
           exit ${PIPESTATUS[0]}
 
       - name: Add output to summary
         if: always()
         run: |
+          TITLE=$(echo "${{ inputs.project }}" | tr '_' ' ' | sed 's/\b\(.\)/\u\1/g')
           echo "<details>" >> $GITHUB_STEP_SUMMARY
-          echo "<summary>Basic Worker Example</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "<summary>${TITLE}</summary>" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          cat tmp/basic-worker_output.txt >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "No output captured" >> $GITHUB_STEP_SUMMARY
+          cat tmp/project_output.txt >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "No output captured" >> $GITHUB_STEP_SUMMARY
           echo "</details>" >> $GITHUB_STEP_SUMMARY

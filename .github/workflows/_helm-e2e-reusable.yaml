@@ -25,23 +25,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
+      - name: Setup uv
+        uses: ./.github/actions/setup-uv
 
-      - name: Install kind + kubectl
-        run: |
-          curl -Lo kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
-          sudo install kind /usr/local/bin/
-          curl -Lo kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          sudo install kubectl /usr/local/bin/
-
-      - name: Install Helm
-        uses: azure/setup-helm@v4
-        with:
-          version: v3.16.2
+      - name: Install kind, kubectl and Helm
+        uses: ./.github/actions/setup-kind
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -50,22 +38,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Download dist artifacts
-        uses: actions/download-artifact@v7
-        with:
-          name: dist
-          path: dist/
-
-      - name: Download requirements artifacts
-        uses: actions/download-artifact@v7
-        with:
-          name: requirements
-
       - name: Install pinned dependencies and built wheel
-        run: |
-          uv venv --python 3.10
-          uv pip install -r requirements-dist.txt
-          uv pip install --no-deps --no-index --find-links dist/ "aaiclick[distributed]"
+        uses: ./.github/actions/install-dist
+        with:
+          requirements-file: requirements-dist.txt
 
       - name: Scaffold helm chart
         run: |

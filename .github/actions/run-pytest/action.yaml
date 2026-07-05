@@ -1,0 +1,39 @@
+name: Run pytest with report
+description: >-
+  Run a pytest command with a JUnit XML report and publish it via
+  dorny/test-reporter even when tests fail. The pytest exit code is captured
+  and re-raised after publishing, so job-level `if: failure()` steps behave
+  exactly as if pytest had failed directly.
+
+inputs:
+  command:
+    description: >-
+      Full pytest command line WITHOUT --junitxml (e.g. "uv run pytest
+      aaiclick/data/ -n auto -v"). The junit report path is appended here.
+    required: true
+  report-name:
+    description: "Check-run name for the published test report."
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Run pytest
+      id: pytest
+      shell: bash
+      run: |
+        mkdir -p tmp
+        set +e
+        ${{ inputs.command }} --junitxml=tmp/pytest-report.xml
+        echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+    - name: Publish test results
+      uses: dorny/test-reporter@v2
+      with:
+        name: ${{ inputs.report-name }}
+        path: tmp/pytest-report.xml
+        reporter: java-junit
+
+    - name: Propagate pytest exit code
+      shell: bash
+      run: exit ${{ steps.pytest.outputs.exit_code }}

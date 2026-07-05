@@ -35,15 +35,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
+      - name: Setup uv
+        uses: ./.github/actions/setup-uv
         with:
-          enable-cache: true
+          sync-args: "--extra ai"
           cache-dependency-glob: "pyproject.toml\naaiclick/example_projects/basic_lineage/uv.lock"
-
-      - name: Install dependencies
-        run: |
-          uv sync --frozen --extra ai --python 3.10
 
       - name: Setup local backend
         run: uv run python -m aaiclick setup

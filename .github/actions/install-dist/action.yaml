@@ -1,0 +1,39 @@
+name: Install built distribution
+description: >-
+  Download the `dist` and `requirements` artifacts uploaded by the release
+  `build` job, then install the pinned dependencies and the built wheel into
+  a fresh venv — the exact environment a downstream user gets.
+
+inputs:
+  requirements-file:
+    description: "Pinned requirements export (requirements-local.txt or requirements-dist.txt)."
+    required: true
+  package:
+    description: "Package spec installed from dist/ (e.g. aaiclick or aaiclick[distributed])."
+    required: false
+    default: "aaiclick[distributed]"
+  python-version:
+    description: "Python version for the venv."
+    required: false
+    default: "3.10"
+
+runs:
+  using: composite
+  steps:
+    - name: Download dist artifacts
+      uses: actions/download-artifact@v7
+      with:
+        name: dist
+        path: dist/
+
+    - name: Download requirements artifacts
+      uses: actions/download-artifact@v7
+      with:
+        name: requirements
+
+    - name: Install pinned dependencies and built wheel
+      shell: bash
+      run: |
+        uv venv --python ${{ inputs.python-version }}
+        uv pip install -r ${{ inputs.requirements-file }}
+        uv pip install --no-deps --no-index --find-links dist/ "${{ inputs.package }}"
