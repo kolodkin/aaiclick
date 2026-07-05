@@ -16,7 +16,5 @@ cd "$SCRIPT_DIR"
 
 PYTHON="${PYTHON:-uv run python}"
 
-export AAICLICK_AI_MODEL="${AAICLICK_AI_MODEL:-ollama/llama3.1:8b}"
-
 $PYTHON -m aaiclick setup --ai
 $PYTHON -m basic_lineage

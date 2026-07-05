@@ -73,9 +73,7 @@ AAICLICK_AI_API_KEY=...                 # Only needed for remote APIs
 ```python
 # aaiclick/ai/config.py
 def get_ai_provider() -> AIProvider:
-    model = os.environ.get("AAICLICK_AI_MODEL", DEFAULT_OLLAMA_MODEL)
-    api_key = os.environ.get("AAICLICK_AI_API_KEY")
-    return AIProvider(model=model, api_key=api_key)
+    return AIProvider(model=get_configured_model(), api_key=os.environ.get("AAICLICK_AI_API_KEY"))
 
 def ai_available() -> bool:
     """True when the configured model can serve queries: Ollama models need the

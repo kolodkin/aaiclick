@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from . import config
+from .ollama import DEFAULT_OLLAMA_MODEL
 
 
 def test_ai_available_remote_model_with_api_key(monkeypatch):
@@ -45,6 +46,6 @@ def test_ai_available_api_key_does_not_shortcut_ollama_probe(monkeypatch):
 def test_ai_available_defaults_to_ollama_model(monkeypatch):
     monkeypatch.delenv("AAICLICK_AI_API_KEY", raising=False)
     monkeypatch.delenv("AAICLICK_AI_MODEL", raising=False)
-    monkeypatch.setattr(config, "ollama_model_available", lambda model: model == config.DEFAULT_OLLAMA_MODEL)
+    monkeypatch.setattr(config, "ollama_model_available", lambda model: model == DEFAULT_OLLAMA_MODEL)
 
     assert config.ai_available() is True

@@ -13,7 +13,7 @@ on:
   workflow_call:
     inputs:
       ai_preset:
-        description: "'ollama', 'nim', or a full LiteLLM model string"
+        description: "AI backend preset: 'ollama' or 'nim'"
         type: string
         default: ollama
 
@@ -24,8 +24,7 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  # Preset -> model mapping; anything else passes through as a LiteLLM model string.
-  AAICLICK_AI_MODEL: ${{ inputs.ai_preset == 'ollama' && 'ollama/llama3.1:8b' || inputs.ai_preset == 'nim' && 'nvidia_nim/meta/llama-3.3-70b-instruct' || inputs.ai_preset }}
+  AAICLICK_AI_MODEL: ${{ inputs.ai_preset == 'nim' && 'nvidia_nim/meta/llama-3.3-70b-instruct' || 'ollama/llama3.1:8b' }}
 
 jobs:
   basic-lineage:
