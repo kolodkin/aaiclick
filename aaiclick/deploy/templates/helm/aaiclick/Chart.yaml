@@ -1,0 +1,9 @@
+apiVersion: v2
+name: aaiclick
+description: >-
+  aaiclick API server, kubernetes-runner execution worker, migrations, and
+  optional in-cluster ClickHouse/Postgres for evaluation. Scaffolded by
+  `python -m aaiclick k8s init` — customize freely; you own this chart.
+type: application
+version: 0.1.0
+appVersion: "__AAICLICK_IMAGE_TAG__"

@@ -5,7 +5,7 @@ repos:
       - id: check-yaml
         # Helm chart templates are Go templates that render to YAML, not valid
         # standalone YAML (unquoted `{{ .Values.x }}`, multi-doc `---`).
-        exclude: '^test_e2e/kubernetes/chart/templates/'
+        exclude: '^(test_e2e/kubernetes/chart|aaiclick/deploy/templates/helm/aaiclick)/templates/'
       - id: end-of-file-fixer
         exclude: '\.json$'
       - id: trailing-whitespace

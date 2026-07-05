@@ -1,0 +1,52 @@
+images:
+  server:
+    repository: ghcr.io/kolodkin/aaiclick
+    tag: __AAICLICK_IMAGE_TAG__
+  worker:
+    repository: ghcr.io/kolodkin/aaiclick-kubectl
+    tag: __AAICLICK_IMAGE_TAG__
+imagePullSecrets: []
+
+# Connection URLs consumed by every aaiclick component. The defaults point
+# at the in-cluster dev dependencies below; production installs override
+# them (ideally via --set-file / an external secret manager).
+env:
+  sqlUrl: postgresql+asyncpg://aaiclick:secret@aaiclick-postgres:5432/aaiclick
+  chUrl: clickhouse://default:click123@aaiclick-clickhouse:8123/default
+  # Registry the docker/kubernetes runner pushes task images to. Empty
+  # disables the env var (subprocess and prebuilt-image jobs need none).
+  registry: ""
+
+serviceAccount:
+  name: aaiclick-worker
+rbac:
+  create: true
+
+server:
+  replicas: 1
+  service:
+    type: ClusterIP
+    port: 5255
+  resources: {}
+
+worker:
+  replicas: 1
+  resources: {}
+
+background:
+  replicas: 1
+  resources: {}
+
+# Deploy in-cluster ClickHouse + Postgres. Evaluation only — ephemeral,
+# no persistence. Disable and point env.* at managed databases for real use.
+devDependencies:
+  enabled: false
+  postgres:
+    image: postgres:18.3
+    user: aaiclick
+    password: secret
+    db: aaiclick
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.3
+    user: default
+    password: click123

@@ -25,6 +25,8 @@ Usage:
     python -m aaiclick data delete <name>       # Delete persistent object
     python -m aaiclick data purge --after ISO   # Delete persistent objects by time
     python -m aaiclick docker init              # Scaffold a starter Dockerfile
+    python -m aaiclick compose init             # Scaffold a docker-runner compose stack
+    python -m aaiclick k8s init                 # Scaffold a helm chart
 """
 
 import argparse
@@ -345,6 +347,34 @@ def _run_docker_init(args: argparse.Namespace) -> None:
     try:
         written = init_dockerfile(target, force=args.force)
     except DockerfileExists as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+    print(f"Wrote {written}")
+
+
+def _run_compose_init(args: argparse.Namespace) -> None:
+    from pathlib import Path
+
+    from aaiclick.deploy import ComposeFileExists, init_compose
+
+    target = Path(args.path)
+    try:
+        written = init_compose(target, image_tag=args.image_tag, force=args.force)
+    except ComposeFileExists as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+    print(f"Wrote {written}")
+
+
+def _run_k8s_init(args: argparse.Namespace) -> None:
+    from pathlib import Path
+
+    from aaiclick.deploy import HelmChartExists, init_helm
+
+    target = Path(args.path)
+    try:
+        written = init_helm(target, image_tag=args.image_tag, force=args.force)
+    except HelmChartExists as e:
         print(str(e), file=sys.stderr)
         sys.exit(1)
     print(f"Wrote {written}")
@@ -876,6 +906,68 @@ def build_parser() -> argparse.ArgumentParser:
         help="Overwrite an existing file",
     )
 
+    # Add compose subcommand
+    compose_parser = subparsers.add_parser(
+        "compose",
+        help="Docker-compose deployment helpers",
+    )
+    compose_subparsers = compose_parser.add_subparsers(
+        dest="compose_command",
+        help="Compose commands",
+    )
+
+    # compose init
+    compose_init_parser = compose_subparsers.add_parser(
+        "init",
+        help="Scaffold a docker-runner compose stack in the current directory",
+    )
+    compose_init_parser.add_argument(
+        "--path",
+        default="docker-compose.yaml",
+        help="Output path (default: ./docker-compose.yaml)",
+    )
+    compose_init_parser.add_argument(
+        "--image-tag",
+        default=None,
+        help="GHCR image tag to pin (default: v<installed aaiclick version>)",
+    )
+    compose_init_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite an existing file",
+    )
+
+    # Add k8s subcommand
+    k8s_parser = subparsers.add_parser(
+        "k8s",
+        help="Kubernetes deployment helpers",
+    )
+    k8s_subparsers = k8s_parser.add_subparsers(
+        dest="k8s_command",
+        help="Kubernetes commands",
+    )
+
+    # k8s init
+    k8s_init_parser = k8s_subparsers.add_parser(
+        "init",
+        help="Scaffold a helm chart in the current directory",
+    )
+    k8s_init_parser.add_argument(
+        "--path",
+        default="aaiclick-chart",
+        help="Output directory (default: ./aaiclick-chart)",
+    )
+    k8s_init_parser.add_argument(
+        "--image-tag",
+        default=None,
+        help="GHCR image tag to pin (default: v<installed aaiclick version>)",
+    )
+    k8s_init_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite an existing directory",
+    )
+
     # Add user subcommand (administration)
     user_parser = subparsers.add_parser(
         "user",
@@ -1030,6 +1122,18 @@ def main():
             _run_docker_init(args)
         else:
             subcommands["docker"].print_help()
+
+    elif args.command == "compose":
+        if args.compose_command == "init":
+            _run_compose_init(args)
+        else:
+            subcommands["compose"].print_help()
+
+    elif args.command == "k8s":
+        if args.k8s_command == "init":
+            _run_k8s_init(args)
+        else:
+            subcommands["k8s"].print_help()
 
     elif args.command == "user":
         if args.user_command == "create":

@@ -1,0 +1,62 @@
+# Execution worker. The aaiclick-kubectl image carries kubectl for the
+# kubernetes runner (task pods created via the ServiceAccount below) and
+# runs subprocess-runner tasks in-place. Building task images from git
+# requires a reachable docker daemon (DOCKER_HOST) — not provided here;
+# use prebuilt-image jobs in-cluster.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aaiclick-worker
+  labels:
+    app: aaiclick-worker
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels:
+      app: aaiclick-worker
+  template:
+    metadata:
+      labels:
+        app: aaiclick-worker
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # The server becomes ready only after its migrate initContainer has
+      # completed, so gating on server health serializes worker startup
+      # behind migrations — the same ordering the compose scaffold uses.
+      initContainers:
+        - name: wait-for-server
+          image: "{{ .Values.images.worker.repository }}:{{ .Values.images.worker.tag }}"
+          command:
+            - /bin/sh
+            - -c
+            - >-
+              until python -c "import urllib.request;
+              urllib.request.urlopen('http://aaiclick-server:{{ .Values.server.service.port }}/health', timeout=2)";
+              do echo "waiting for aaiclick-server"; sleep 3; done
+      containers:
+        - name: worker
+          image: "{{ .Values.images.worker.repository }}:{{ .Values.images.worker.tag }}"
+          command: ["python", "-m", "aaiclick", "execution-worker", "start"]
+          env:
+            - name: AAICLICK_SQL_URL
+              value: {{ .Values.env.sqlUrl | quote }}
+            - name: AAICLICK_CH_URL
+              value: {{ .Values.env.chUrl | quote }}
+            # The default distributed-mode log dir (/var/log/aaiclick) is not
+            # writable for the image's non-root user.
+            - name: AAICLICK_LOG_DIR
+              value: /tmp/aaiclick-logs
+            - name: AAICLICK_K8S_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: AAICLICK_K8S_SERVICE_ACCOUNT
+              value: {{ .Values.serviceAccount.name | quote }}
+            {{- if .Values.env.registry }}
+            - name: AAICLICK_REGISTRY
+              value: {{ .Values.env.registry | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}

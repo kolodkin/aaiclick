@@ -1,0 +1,47 @@
+# Background cleanup worker: drives job completion and periodic cleanup,
+# the same role the `background` service plays in the compose stack.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aaiclick-background
+  labels:
+    app: aaiclick-background
+spec:
+  replicas: {{ .Values.background.replicas }}
+  selector:
+    matchLabels:
+      app: aaiclick-background
+  template:
+    metadata:
+      labels:
+        app: aaiclick-background
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: wait-for-server
+          image: "{{ .Values.images.server.repository }}:{{ .Values.images.server.tag }}"
+          command:
+            - /bin/sh
+            - -c
+            - >-
+              until python -c "import urllib.request;
+              urllib.request.urlopen('http://aaiclick-server:{{ .Values.server.service.port }}/health', timeout=2)";
+              do echo "waiting for aaiclick-server"; sleep 3; done
+      containers:
+        - name: background
+          image: "{{ .Values.images.server.repository }}:{{ .Values.images.server.tag }}"
+          command: ["python", "-m", "aaiclick", "background", "start"]
+          env:
+            - name: AAICLICK_SQL_URL
+              value: {{ .Values.env.sqlUrl | quote }}
+            - name: AAICLICK_CH_URL
+              value: {{ .Values.env.chUrl | quote }}
+            # The default distributed-mode log dir (/var/log/aaiclick) is not
+            # writable for the image's non-root user.
+            - name: AAICLICK_LOG_DIR
+              value: /tmp/aaiclick-logs
+          resources:
+            {{- toYaml .Values.background.resources | nindent 12 }}

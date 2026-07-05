@@ -85,6 +85,108 @@ jobs:
             requirements-local.txt
             requirements-dist.txt
 
+  build-rc-images:
+    needs: build
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: amd64
+            runner: ubuntu-latest
+          - platform: arm64
+            runner: ubuntu-24.04-arm
+    env:
+      IMAGE_PREFIX: ghcr.io/kolodkin
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+      # The images pip-install aaiclick==<version>. The wheel is not on
+      # PyPI yet (publish is gated on these very images), so serve the
+      # artifact from a local pypiserver; it redirects unknown packages
+      # to pypi.org, so dependencies resolve through the same index URL.
+      - name: Serve wheel via local pypiserver
+        run: |
+          docker run -d --name pypiserver -p 8080:8080 \
+            pypiserver/pypiserver:v2.3.2 run -p 8080 -a . -P . --server gunicorn
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:8080/simple/ >/dev/null 2>&1 && break
+            if [ "$i" -eq 30 ]; then
+              echo "pypiserver did not come up in time" >&2
+              exit 1
+            fi
+            sleep 2
+          done
+          for f in dist/*.whl dist/*.tar.gz; do
+            curl -fsSL -F "content=@${f}" -F ":action=file_upload" http://localhost:8080/
+          done
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Native per-arch builds (no QEMU). The three images are FROM-chained,
+      # so they build sequentially within each platform leg. --network=host
+      # lets the build reach the pypiserver on localhost; pip trusts
+      # localhost for plain HTTP by default.
+      - name: Build & push per-arch rc images
+        run: |
+          VERSION="${{ inputs.tag }}"
+          PEP440="${VERSION#v}"
+          ARCH_TAG="${VERSION}-rc-${{ matrix.platform }}"
+          docker build --network=host -f docker/Dockerfile \
+            --build-arg AAICLICK_VERSION="${PEP440}" \
+            --build-arg PIP_INDEX_URL="http://localhost:8080/simple/" \
+            -t "${IMAGE_PREFIX}/aaiclick:${ARCH_TAG}" .
+          docker build -f docker/docker.Dockerfile \
+            --build-arg BASE_REF="${IMAGE_PREFIX}/aaiclick:${ARCH_TAG}" \
+            --build-arg TARGETARCH="${{ matrix.platform }}" \
+            -t "${IMAGE_PREFIX}/aaiclick-docker:${ARCH_TAG}" .
+          docker build -f docker/kubectl.Dockerfile \
+            --build-arg BASE_REF="${IMAGE_PREFIX}/aaiclick-docker:${ARCH_TAG}" \
+            --build-arg TARGETARCH="${{ matrix.platform }}" \
+            -t "${IMAGE_PREFIX}/aaiclick-kubectl:${ARCH_TAG}" .
+          docker push "${IMAGE_PREFIX}/aaiclick:${ARCH_TAG}"
+          docker push "${IMAGE_PREFIX}/aaiclick-docker:${ARCH_TAG}"
+          docker push "${IMAGE_PREFIX}/aaiclick-kubectl:${ARCH_TAG}"
+
+  merge-rc-images:
+    needs: build-rc-images
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    strategy:
+      matrix:
+        image: [aaiclick, aaiclick-docker, aaiclick-kubectl]
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Assemble multi-arch rc manifest
+        run: |
+          REF="ghcr.io/kolodkin/${{ matrix.image }}"
+          TAG="${{ inputs.tag }}-rc"
+          docker buildx imagetools create -t "${REF}:${TAG}" \
+            "${REF}:${TAG}-amd64" "${REF}:${TAG}-arm64"
+
   test-package-local:
     needs: build
     runs-on: ubuntu-latest
@@ -139,9 +241,12 @@ jobs:
           --junitxml=/tmp/pytest-report.xml
 
   test-package:
-    needs: build
+    needs: [build, merge-rc-images]
     runs-on: ubuntu-latest
     name: test-package (${{ matrix.group }})
+    permissions:
+      contents: read
+      packages: read
     strategy:
       fail-fast: false
       matrix:
@@ -150,37 +255,6 @@ jobs:
             pyargs: aaiclick.data aaiclick.snowflake
           - group: orch
             pyargs: aaiclick.orchestration aaiclick.oplog
-
-    services:
-      clickhouse:
-        image: clickhouse/clickhouse-server:26.3
-        env:
-          CLICKHOUSE_USER: default
-          CLICKHOUSE_PASSWORD: click123
-          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 0
-        ports:
-          - 8123:8123
-          - 9000:9000
-        options: >-
-          --health-cmd "wget --spider -q localhost:8123/ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-          --add-host=host.docker.internal:host-gateway
-
-      postgres:
-        image: postgres:18.3
-        env:
-          POSTGRES_USER: aaiclick
-          POSTGRES_PASSWORD: secret
-          POSTGRES_DB: aaiclick
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U aaiclick"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - name: Install uv
@@ -204,6 +278,59 @@ jobs:
         run: |
           uv pip install -r requirements-dist.txt
           uv pip install --no-deps --no-index --find-links dist/ "aaiclick[distributed]"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Infra comes from the same compose file users scaffold — the release
+      # dogfoods it instead of GHA `services:` blocks. The whole stack comes
+      # up (no profiles); the extra app services are harmless to the suite.
+      - name: Scaffold and start compose stack
+        run: |
+          mkdir -p "$RUNNER_TEMP/stack"
+          uv run --no-project python -m aaiclick compose init \
+            --path "$RUNNER_TEMP/stack/docker-compose.yaml" \
+            --image-tag "${{ inputs.tag }}-rc"
+          docker compose -f "$RUNNER_TEMP/stack/docker-compose.yaml" up -d --quiet-pull
+
+      - name: Wait for infra health
+        run: |
+          # Wait for ClickHouse and Postgres health
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8123/ping >/dev/null 2>&1 \
+               && docker compose -f "$RUNNER_TEMP/stack/docker-compose.yaml" exec -T postgres pg_isready -U aaiclick >/dev/null 2>&1; then
+              echo "infra healthy"
+              break
+            fi
+            sleep 5
+          done
+
+          # Verify infra became healthy
+          if ! curl -fsS http://localhost:8123/ping >/dev/null 2>&1 \
+             || ! docker compose -f "$RUNNER_TEMP/stack/docker-compose.yaml" exec -T postgres pg_isready -U aaiclick >/dev/null 2>&1; then
+            echo "infra never became healthy" >&2
+            exit 1
+          fi
+
+          # Wait for compose migrate service to complete successfully
+          for i in $(seq 1 60); do
+            CID=$(docker compose -f "$RUNNER_TEMP/stack/docker-compose.yaml" ps -aq migrate)
+            if [ -n "$CID" ]; then
+              STATE=$(docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' "$CID")
+              if [ "$STATE" = "exited 0" ]; then
+                echo "compose migrate completed"
+                exit 0
+              fi
+              case "$STATE" in exited*) echo "compose migrate failed: $STATE" >&2; exit 1 ;; esac
+            fi
+            sleep 5
+          done
+          echo "compose migrate never completed" >&2
+          exit 1
 
       - name: Run database migrations
         env:
@@ -237,6 +364,10 @@ jobs:
           --strict-markers
           --junitxml=/tmp/pytest-report.xml
 
+      - name: Tear down stack
+        if: always()
+        run: docker compose -f "$RUNNER_TEMP/stack/docker-compose.yaml" down -v
+
   test-package-docker-e2e:
     needs: build
     if: ${{ !inputs.skip-docker-e2e }}
@@ -245,12 +376,32 @@ jobs:
       wheel_source: artifact
       version_pin: ${{ inputs.tag }}
 
+  test-compose-e2e:
+    permissions:
+      contents: read
+      packages: read
+    needs: [build, merge-rc-images]
+    uses: ./.github/workflows/_compose-e2e-reusable.yaml
+    with:
+      image_tag: ${{ inputs.tag }}-rc
+
+  test-helm-e2e:
+    permissions:
+      contents: read
+      packages: read
+    needs: [build, merge-rc-images]
+    uses: ./.github/workflows/_helm-e2e-reusable.yaml
+    with:
+      image_tag: ${{ inputs.tag }}-rc
+
   publish:
-    needs: [test-package-local, test-package, test-package-docker-e2e]
+    needs: [test-package-local, test-package, test-package-docker-e2e, test-compose-e2e, test-helm-e2e]
     if: >-
       always()
       && needs.test-package-local.result == 'success'
       && needs.test-package.result == 'success'
+      && needs.test-compose-e2e.result == 'success'
+      && needs.test-helm-e2e.result == 'success'
       && (needs.test-package-docker-e2e.result == 'success'
           || needs.test-package-docker-e2e.result == 'skipped')
     runs-on: ubuntu-latest
@@ -290,44 +441,15 @@ jobs:
             --generate-notes \
             ${{ inputs.pre-release && '--prerelease' || '' }}
 
-  publish-image:
+  promote-images:
     needs: [publish]
     runs-on: ubuntu-latest
     permissions:
-      contents: read
       packages: write
-    env:
-      IMAGE_PREFIX: ghcr.io/kolodkin
-
+    strategy:
+      matrix:
+        image: [aaiclick, aaiclick-docker, aaiclick-kubectl]
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Compute PEP 440 version
-        id: vars
-        run: |
-          VERSION="${{ inputs.tag }}"
-          echo "pep440=${VERSION#v}" >> "$GITHUB_OUTPUT"
-
-      # The image installs aaiclick==<version> from PyPI, so wait for the
-      # just-published wheel to become resolvable before building.
-      - name: Wait for version on PyPI
-        run: |
-          VERSION="${{ steps.vars.outputs.pep440 }}"
-          for i in $(seq 1 30); do
-            if curl -fsSL "https://pypi.org/pypi/aaiclick/${VERSION}/json" >/dev/null 2>&1; then
-              echo "aaiclick ${VERSION} is on PyPI"; exit 0
-            fi
-            echo "waiting for aaiclick ${VERSION} on PyPI (attempt $i)"; sleep 10
-          done
-          echo "timed out waiting for aaiclick ${VERSION} on PyPI" >&2; exit 1
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -335,65 +457,29 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Metadata (base)
-        id: meta-base
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_PREFIX }}/aaiclick
-          tags: |
-            type=raw,value=${{ inputs.tag }}
-            type=raw,value=latest,enable=${{ !inputs.pre-release }}
+      # Retag the exact multi-arch manifests every gate tested — no rebuild,
+      # no wait-for-PyPI. Tested digests ARE the published digests.
+      - name: Promote rc manifest
+        run: |
+          REF="ghcr.io/kolodkin/${{ matrix.image }}"
+          TAGS=(-t "${REF}:${{ inputs.tag }}")
+          if [ "${{ inputs.pre-release }}" != "true" ]; then
+            TAGS+=(-t "${REF}:latest")
+          fi
+          docker buildx imagetools create "${TAGS[@]}" "${REF}:${{ inputs.tag }}-rc"
 
-      - name: Build & push base
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          build-args: |
-            AAICLICK_VERSION=${{ steps.vars.outputs.pep440 }}
-          tags: ${{ steps.meta-base.outputs.tags }}
-          labels: ${{ steps.meta-base.outputs.labels }}
-
-      - name: Metadata (docker variant)
-        id: meta-docker
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_PREFIX }}/aaiclick-docker
-          tags: |
-            type=raw,value=${{ inputs.tag }}
-            type=raw,value=latest,enable=${{ !inputs.pre-release }}
-
-      - name: Build & push docker variant
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/docker.Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          build-args: |
-            BASE_REF=${{ env.IMAGE_PREFIX }}/aaiclick:${{ inputs.tag }}
-          tags: ${{ steps.meta-docker.outputs.tags }}
-          labels: ${{ steps.meta-docker.outputs.labels }}
-
-      - name: Metadata (kubectl variant)
-        id: meta-kubectl
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_PREFIX }}/aaiclick-kubectl
-          tags: |
-            type=raw,value=${{ inputs.tag }}
-            type=raw,value=latest,enable=${{ !inputs.pre-release }}
-
-      - name: Build & push kubectl variant
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/kubectl.Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          build-args: |
-            BASE_REF=${{ env.IMAGE_PREFIX }}/aaiclick-docker:${{ inputs.tag }}
-          tags: ${{ steps.meta-kubectl.outputs.tags }}
-          labels: ${{ steps.meta-kubectl.outputs.labels }}
+      # Best-effort: GITHUB_TOKEN may lack package-version delete rights;
+      # leftover -rc tags are harmless and useful for debugging.
+      - name: Clean up rc tags
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for suffix in rc rc-amd64 rc-arm64; do
+            TAG="${{ inputs.tag }}-${suffix}"
+            VERSION_ID=$(gh api "/user/packages/container/${{ matrix.image }}/versions" --paginate \
+              --jq ".[] | select(.metadata.container.tags[]? == \"${TAG}\") | .id" | head -n1)
+            if [ -n "$VERSION_ID" ]; then
+              gh api -X DELETE "/user/packages/container/${{ matrix.image }}/versions/${VERSION_ID}" || true
+            fi
+          done

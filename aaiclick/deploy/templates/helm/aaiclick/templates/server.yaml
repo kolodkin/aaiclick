@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aaiclick-server
+  labels:
+    app: aaiclick-server
+spec:
+  replicas: {{ .Values.server.replicas }}
+  selector:
+    matchLabels:
+      app: aaiclick-server
+  template:
+    metadata:
+      labels:
+        app: aaiclick-server
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # Migrations run here rather than as a helm hook: pre-install hooks
+      # execute before chart resources exist, which can never succeed when
+      # the databases are in-chart (devDependencies). The pod restarts with
+      # backoff until the database is reachable, then the server starts.
+      initContainers:
+        - name: migrate
+          image: "{{ .Values.images.server.repository }}:{{ .Values.images.server.tag }}"
+          command: ["python", "-m", "aaiclick", "migrate", "upgrade", "head"]
+          env:
+            - name: AAICLICK_SQL_URL
+              value: {{ .Values.env.sqlUrl | quote }}
+      containers:
+        - name: server
+          image: "{{ .Values.images.server.repository }}:{{ .Values.images.server.tag }}"
+          ports:
+            - containerPort: 5255
+          env:
+            - name: AAICLICK_SQL_URL
+              value: {{ .Values.env.sqlUrl | quote }}
+            - name: AAICLICK_CH_URL
+              value: {{ .Values.env.chUrl | quote }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5255
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 12
+          resources:
+            {{- toYaml .Values.server.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aaiclick-server
+  labels:
+    app: aaiclick-server
+spec:
+  type: {{ .Values.server.service.type }}
+  selector:
+    app: aaiclick-server
+  ports:
+    - name: http
+      port: {{ .Values.server.service.port }}
+      targetPort: 5255

@@ -1,0 +1,111 @@
+name: Compose Stack E2E (reusable)
+
+# Release gate for the scaffolded docker-compose stack: installs the wheel
+# artifact, scaffolds via `python -m aaiclick compose init` (dogfooding the
+# exact artifact users get), points the image tags at the -rc candidates,
+# brings the stack up, and runs test_e2e/compose/.
+
+on:
+  workflow_call:
+    inputs:
+      image_tag:
+        description: "GHCR image tag to deploy (e.g. v1.2.3-rc)"
+        required: true
+        type: string
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+      - name: Download requirements artifacts
+        uses: actions/download-artifact@v7
+        with:
+          name: requirements
+
+      - name: Install pinned dependencies and built wheel
+        run: |
+          uv venv --python 3.10
+          uv pip install -r requirements-dist.txt
+          uv pip install --no-deps --no-index --find-links dist/ "aaiclick[distributed]"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Scaffold compose stack
+        run: |
+          mkdir -p "$RUNNER_TEMP/stack"
+          uv run --no-project python -m aaiclick compose init \
+            --path "$RUNNER_TEMP/stack/docker-compose.yaml" \
+            --image-tag "${{ inputs.image_tag }}"
+          cat "$RUNNER_TEMP/stack/docker-compose.yaml"
+
+      - name: Start stack
+        working-directory: ${{ runner.temp }}/stack
+        run: docker compose up -d --quiet-pull
+
+      - name: Wait for server health
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:5255/health >/dev/null 2>&1; then
+              echo "server healthy"; exit 0
+            fi
+            sleep 5
+          done
+          echo "server never became healthy" >&2
+          exit 1
+
+      - name: Run compose e2e tests
+        env:
+          VIRTUAL_ENV: ${{ github.workspace }}/.venv
+          AAICLICK_E2E_COMPOSE_DIR: ${{ runner.temp }}/stack
+        run: |
+          mkdir -p tmp
+          uv run --no-project pytest test_e2e/compose/ -m compose_e2e -n 0 -v \
+            -o asyncio_mode=auto \
+            -o asyncio_default_fixture_loop_scope=module \
+            -o asyncio_default_test_loop_scope=module \
+            -o "filterwarnings=error" \
+            --strict-markers \
+            --junitxml=tmp/pytest-report.xml
+
+      - name: Publish test results
+        uses: dorny/test-reporter@v2
+        if: always()
+        with:
+          name: "Compose Stack E2E"
+          path: tmp/pytest-report.xml
+          reporter: java-junit
+
+      - name: Dump compose logs on failure
+        if: failure()
+        working-directory: ${{ runner.temp }}/stack
+        run: docker compose logs --tail 200
+
+      - name: Tear down stack
+        if: always()
+        working-directory: ${{ runner.temp }}/stack
+        run: docker compose down -v
