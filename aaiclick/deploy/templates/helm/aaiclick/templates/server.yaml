@@ -18,6 +18,17 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      # Migrations run here rather than as a helm hook: pre-install hooks
+      # execute before chart resources exist, which can never succeed when
+      # the databases are in-chart (devDependencies). The pod restarts with
+      # backoff until the database is reachable, then the server starts.
+      initContainers:
+        - name: migrate
+          image: "{{ .Values.images.server.repository }}:{{ .Values.images.server.tag }}"
+          command: ["python", "-m", "aaiclick", "migrate", "upgrade", "head"]
+          env:
+            - name: AAICLICK_SQL_URL
+              value: {{ .Values.env.sqlUrl | quote }}
       containers:
         - name: server
           image: "{{ .Values.images.server.repository }}:{{ .Values.images.server.tag }}"

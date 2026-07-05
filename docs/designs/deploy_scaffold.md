@@ -91,10 +91,13 @@ Full stack — `docker compose up` yields a complete working docker-runner deplo
 A user-facing chart — distinct from `test_e2e/kubernetes/chart`, which is CI-only dependency
 infra and stays as it is.
 
-Templates: server Deployment + Service, worker Deployment (`aaiclick-kubectl` image), migrate
-Job as a `pre-install,pre-upgrade` helm hook, ServiceAccount + Role/RoleBinding scoped to pod
-create/get/list/watch/delete (what the kubernetes runner needs), and optional in-cluster
-ClickHouse + Postgres gated by `devDependencies.enabled` for evaluation setups.
+Templates: server Deployment + Service, worker Deployment (`aaiclick-kubectl` image),
+ServiceAccount + Role/RoleBinding scoped to pod create/get/list/watch/delete (what the
+kubernetes runner needs), and optional in-cluster ClickHouse + Postgres gated by
+`devDependencies.enabled` for evaluation setups. Migrations run as an initContainer on the
+server (not a helm hook — pre-install hooks execute before chart resources exist, so they can
+never succeed against in-chart databases); the worker's initContainer waits for server health,
+giving the same migrate → server → worker ordering as the compose stack.
 
 `values.yaml` covers: image repository/tag per component, `AAICLICK_SQL_URL` /
 `AAICLICK_CH_URL` (secret-ref or literal), registry URL, imagePullSecret, namespace-scoped

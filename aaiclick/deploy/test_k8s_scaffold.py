@@ -14,7 +14,6 @@ from .k8s_scaffold import HelmChartExists, init_helm
 EXPECTED_TEMPLATES = {
     "server.yaml",
     "worker.yaml",
-    "migrate-job.yaml",
     "rbac.yaml",
     "clickhouse.yaml",
     "postgres.yaml",

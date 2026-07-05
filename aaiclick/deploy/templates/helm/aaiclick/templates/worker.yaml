@@ -24,6 +24,19 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      # The server becomes ready only after its migrate initContainer has
+      # completed, so gating on server health serializes worker startup
+      # behind migrations — the same ordering the compose scaffold uses.
+      initContainers:
+        - name: wait-for-server
+          image: "{{ .Values.images.worker.repository }}:{{ .Values.images.worker.tag }}"
+          command:
+            - /bin/sh
+            - -c
+            - >-
+              until python -c "import urllib.request;
+              urllib.request.urlopen('http://aaiclick-server:{{ .Values.server.service.port }}/health', timeout=2)";
+              do echo "waiting for aaiclick-server"; sleep 3; done
       containers:
         - name: worker
           image: "{{ .Values.images.worker.repository }}:{{ .Values.images.worker.tag }}"
