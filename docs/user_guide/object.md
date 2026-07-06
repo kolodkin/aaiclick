@@ -650,6 +650,33 @@ await obj.export("/tmp/data.json.xz")
   asks for it. `INSERT INTO FUNCTION file()` cannot be used here because it
   would write to the *server's* `user_files_path`, not the client.
 
+# Nested Data Flattening
+
+**Implementation**: `aaiclick/data/data_context/data_context.py` — see `_flatten_nested_schema()` / `_flatten_nested_record()`; reconstruction in `aaiclick/data/object/data_extraction.py` — see `_unflatten_record()`.
+
+Nested dicts and lists-of-dicts flatten to standalone columns — better
+compression, skipping indexes, and `LowCardinality` than ClickHouse
+`Map`/`Tuple`/`JSON` types. `data()` reconstructs the original nesting.
+
+| Notation | Input shape                | Cardinality | Type effect                |
+|----------|----------------------------|-------------|----------------------------|
+| `.`      | dict value (nested object) | 1:1         | none — extends name only   |
+| `.*.`    | list-of-dicts value        | 1:N         | adds one `Array()` wrapper |
+
+```python
+obj = await create_object_from_value({"x": {"y": {"z": 1}}})
+# → column x.y.z (Int64)
+await obj.data()            # {"x": {"y": {"z": 1}}}
+
+obj = await create_object_from_value({"b": [{"c": [1, 2], "d": 5}]})
+# → columns b.*.c (Array(Array(Int64))), b.*.d (Array(Int64))
+```
+
+Keys containing `.` and empty dict values raise `ValueError` at ingest —
+reconstruction is name-parsed, so they cannot round-trip.
+
+**Tests**: `aaiclick/data/object/test_nested_dicts.py`, `aaiclick/data/object/test_nested_arrays.py`.
+
 # Views
 
 Read-only filtered projection of an Object — same table, no data copy. Created via `obj.view(where=..., limit=..., offset=..., order_by=...)`. Supports all read operations; cannot `insert()`. See `examples/view_examples.py`.

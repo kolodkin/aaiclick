@@ -27,6 +27,8 @@ No schema metadata.
 
 # Code changes
 
+**Implementation**: `aaiclick/data/data_context/data_context.py` — see `_flatten_nested_schema()`, `_flatten_nested_record()`, `_validate_nested_keys()`; `aaiclick/data/object/data_extraction.py` — see `_undot_record()`, `_unflatten_record()`. Tests: `aaiclick/data/object/test_nested_dicts.py`.
+
 In `aaiclick/data/data_context/data_context.py`:
 
 - `_has_nested_dicts` — also `True` for plain dict values.

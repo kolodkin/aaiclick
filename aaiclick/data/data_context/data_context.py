@@ -676,7 +676,12 @@ async def create_object_from_value(
             - List of scalars: Creates multiple rows
             - Dict of scalars: Single row with columns per key
             - Dict of arrays: Multiple rows with columns per key
-            - Dict/List with nested list-of-dicts: Flattened with dot-star notation
+            - Dict/List with nested dicts: flattened to plain-dot columns
+              (``{"x": {"y": 1}}`` → column ``x.y``)
+            - Dict/List with nested list-of-dicts: flattened with dot-star
+              notation (``{"b": [{"c": 1}]}`` → column ``b.*.c``)
+
+            Keys containing ``.`` and empty dict values raise ``ValueError``.
         name: Optional name. When set, ``scope`` selects the lifetime tier —
               see ``scope`` below. Defaults to ``"temp_named"`` when omitted.
         order_by: Optional list of column names for the table ORDER BY clause.
