@@ -390,6 +390,26 @@ def _has_nested_dicts(record: dict) -> bool:
     return any(isinstance(v, dict) or _is_list_of_dicts(v) for v in record.values())
 
 
+def _validate_nested_keys(record: dict, path: str = "") -> None:
+    """Reject keys containing '.' and empty dict values before flattening.
+
+    Reconstruction in ``data()`` is name-parsed, so a dotted input key would
+    round-trip as a nested dict; an empty dict has no representable columns.
+    """
+    for key, val in record.items():
+        key_path = f"{path}.{key}" if path else key
+        if "." in key:
+            raise ValueError(f"Dict keys must not contain '.': {key_path!r}")
+        if isinstance(val, dict):
+            if not val:
+                raise ValueError(f"Empty dict values are not supported: {key_path!r}")
+            _validate_nested_keys(val, key_path)
+        elif _is_list_of_dicts(val):
+            for item in val:
+                if isinstance(item, dict):
+                    _validate_nested_keys(item, key_path)
+
+
 def _flatten_nested_schema(sample: dict, prefix: str = "", array_depth: int = 0) -> dict[str, ColumnInfo]:
     """Recursively infer flat column schema from a nested record.
 
@@ -597,6 +617,16 @@ async def _create_nested_records_object(
                 f"record {i} has {sorted(record.keys())}"
             )
 
+    all_flat = [_flatten_nested_record(record) for record in val]
+    first_flat_keys = set(all_flat[0].keys())
+    for i, flat in enumerate(all_flat[1:], 1):
+        if set(flat.keys()) != first_flat_keys:
+            raise ValueError(
+                f"All records must have identical keys (including nested dicts). "
+                f"Record 0 has {sorted(first_flat_keys)}, "
+                f"record {i} has {sorted(flat.keys())}"
+            )
+
     # Infer schema from first record, using non-empty samples for nested fields
     sample = dict(val[0])
     for key in sample:
@@ -614,7 +644,6 @@ async def _create_nested_records_object(
     schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
     obj = await create_object(schema, name=name, scope=scope)
 
-    all_flat = [_flatten_nested_record(record) for record in val]
     keys = list(all_flat[0].keys())
     col_data = [[flat[key] for flat in all_flat] for key in keys]
     async with _maybe_insert_lock(obj.table, name):
@@ -695,6 +724,7 @@ async def create_object_from_value(
         return {**columns, AAI_ID_COLUMN: AAI_ID_INFO}
 
     if isinstance(val, dict):
+        _validate_nested_keys(val)
         if _has_nested_dicts(val):
             result = await _create_nested_object(val, ch, name, scope=scope)
             oplog_record(result.table, "create_from_value")
@@ -761,6 +791,8 @@ async def create_object_from_value(
             # Narrow: list-of-dicts (ValueRecordType). pyright can't infer this
             # from isinstance(val[0], dict) alone.
             records = cast("list[ValueDictType]", val)
+            for record in records:
+                _validate_nested_keys(record)
             if _has_nested_dicts(records[0]):
                 result = await _create_nested_records_object(records, ch, name)
                 oplog_record(result.table, "create_from_value")

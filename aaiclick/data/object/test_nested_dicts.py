@@ -6,6 +6,8 @@ Example: {a: 2, x: {y: {z: 1}}}
 Flattens to columns: a (Int64), x.y.z (Int64)
 """
 
+import pytest
+
 from aaiclick import create_object_from_value
 from aaiclick.data.models import ORIENT_DICT, ORIENT_RECORDS
 
@@ -94,3 +96,43 @@ async def test_dict_inside_array_items_round_trip(ctx):
     data = await obj.data()
 
     assert data == {"b": [{"c": {"d": 5}}, {"c": {"d": 10}}]}
+
+
+# =============================================================================
+# Validation
+# =============================================================================
+
+
+async def test_dotted_key_raises(ctx):
+    """Flat dict keys containing '.' are rejected — data() would reshape them."""
+    with pytest.raises(ValueError, match="must not contain"):
+        await create_object_from_value({"a.b": 1})
+
+
+async def test_nested_dotted_key_raises(ctx):
+    """Dotted keys are rejected at any nesting level."""
+    with pytest.raises(ValueError, match="must not contain"):
+        await create_object_from_value({"x": {"a.b": 1}})
+
+
+async def test_dotted_key_inside_array_items_raises(ctx):
+    """Dotted keys inside list-of-dicts items are rejected."""
+    with pytest.raises(ValueError, match="must not contain"):
+        await create_object_from_value([{"b": [{"c.d": 1}]}])
+
+
+async def test_empty_dict_value_raises(ctx):
+    """Empty dicts have no representable columns."""
+    with pytest.raises(ValueError, match="[Ee]mpty dict"):
+        await create_object_from_value({"x": {}})
+
+
+async def test_mismatched_nested_keys_raises(ctx):
+    """Nested dict fields must have identical key sets across records."""
+    with pytest.raises(ValueError, match="identical keys"):
+        await create_object_from_value(
+            [
+                {"m": {"a": 1}},
+                {"m": {"b": 2}},
+            ]
+        )
