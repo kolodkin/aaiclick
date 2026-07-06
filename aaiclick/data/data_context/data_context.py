@@ -744,7 +744,9 @@ async def create_object_from_value(
                         raise ValueError(
                             f"All arrays must have same length. Expected {array_len}, got {len(value)} for key '{key}'"
                         )
-                    col_def = _infer_clickhouse_type(value)
+                    # Narrow: _has_nested_dicts() above already ruled out nested
+                    # dict/list-of-dict values, but pyright can't infer that.
+                    col_def = _infer_clickhouse_type(cast("ValueScalarType | ValueListType", value))
                 else:
                     raise ValueError(
                         f"Dict of arrays requires all values to be lists. Key '{key}' has type {type(value).__name__}"
@@ -770,7 +772,9 @@ async def create_object_from_value(
         else:
             columns = {}
             for key, value in val.items():
-                columns[key] = _infer_clickhouse_type(value)
+                # Narrow: _has_nested_dicts() above already ruled out nested
+                # dict/list-of-dict values, but pyright can't infer that.
+                columns[key] = _infer_clickhouse_type(cast("ValueScalarType | ValueListType", value))
 
             columns = _maybe_add_aai_id(_apply_field_specs(columns, fields))
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
