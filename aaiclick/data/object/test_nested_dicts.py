@@ -7,6 +7,7 @@ Flattens to columns: a (Int64), x.y.z (Int64)
 """
 
 from aaiclick import create_object_from_value
+from aaiclick.data.models import ORIENT_DICT, ORIENT_RECORDS
 
 # =============================================================================
 # Schema — dot notation column names
@@ -42,3 +43,54 @@ async def test_array_of_objects_inside_dict_schema(ctx):
     assert "x.y.*.z" in schema.columns
     assert schema.columns["x.y.*.z"].type == "Int64"
     assert int(schema.columns["x.y.*.z"].array) == 1
+
+
+# =============================================================================
+# Round-trip — data() reconstructs the original nesting
+# =============================================================================
+
+
+async def test_singleton_dict_round_trip(ctx):
+    """Deep plain nesting reconstructs exactly."""
+    obj = await create_object_from_value({"a": 2, "x": {"y": {"z": 1}}})
+
+    data = await obj.data()
+
+    assert data == {"a": 2, "x": {"y": {"z": 1}}}
+
+
+async def test_records_with_dict_field_round_trip(ctx):
+    """Records list with a dict field, both orients."""
+    records = [
+        {"a": 1, "meta": {"source": "s1", "score": 0.5}},
+        {"a": 2, "meta": {"source": "s2", "score": 0.75}},
+    ]
+    obj = await create_object_from_value(records)
+
+    as_records = await obj.data(orient=ORIENT_RECORDS)
+    assert as_records == records
+
+    as_dict = await obj.data(orient=ORIENT_DICT)
+    assert as_dict["a"] == [1, 2]
+    assert as_dict["meta"] == [
+        {"source": "s1", "score": 0.5},
+        {"source": "s2", "score": 0.75},
+    ]
+
+
+async def test_array_of_objects_inside_dict_round_trip(ctx):
+    """Mixed notation x.y.*.z reconstructs dict-of-list-of-dicts."""
+    obj = await create_object_from_value({"x": {"y": [{"z": 1}, {"z": 2}]}})
+
+    data = await obj.data()
+
+    assert data == {"x": {"y": [{"z": 1}, {"z": 2}]}}
+
+
+async def test_dict_inside_array_items_round_trip(ctx):
+    """Mixed notation b.*.c.d reconstructs list-of-dicts-of-dicts."""
+    obj = await create_object_from_value({"b": [{"c": {"d": 5}}, {"c": {"d": 10}}]})
+
+    data = await obj.data()
+
+    assert data == {"b": [{"c": {"d": 5}}, {"c": {"d": 10}}]}
