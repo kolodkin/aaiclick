@@ -386,14 +386,15 @@ def _is_list_of_dicts(value: object) -> bool:
 
 
 def _has_nested_dicts(record: dict) -> bool:
-    """Check if a dict contains any list-of-dicts values (nested structures)."""
-    return any(_is_list_of_dicts(v) for v in record.values())
+    """Check if a dict contains any dict or list-of-dicts values (nested structures)."""
+    return any(isinstance(v, dict) or _is_list_of_dicts(v) for v in record.values())
 
 
 def _flatten_nested_schema(sample: dict, prefix: str = "", array_depth: int = 0) -> dict[str, ColumnInfo]:
     """Recursively infer flat column schema from a nested record.
 
-    Uses dot-star notation for nested array-of-objects levels.
+    Dict values extend the name with plain-dot notation (``x.y``);
+    list-of-dicts values use dot-star (``x.*.y``) and add one Array() level.
     Each ``*`` level adds one Array() wrapper to the leaf column type.
 
     Args:
@@ -408,7 +409,10 @@ def _flatten_nested_schema(sample: dict, prefix: str = "", array_depth: int = 0)
     for key, val in sample.items():
         col_name = f"{prefix}{key}"
 
-        if _is_list_of_dicts(val):
+        if isinstance(val, dict):
+            sub_cols = _flatten_nested_schema(val, f"{col_name}.", array_depth)
+            columns.update(sub_cols)
+        elif _is_list_of_dicts(val):
             sub_cols = _flatten_nested_schema(val[0], f"{col_name}.*.", array_depth + 1)
             columns.update(sub_cols)
         elif isinstance(val, list):
@@ -434,10 +438,11 @@ def _flatten_nested_schema(sample: dict, prefix: str = "", array_depth: int = 0)
 def _flatten_nested_record(record: dict, prefix: str = "") -> dict:
     """Flatten a single nested record into dot-star notation.
 
-    Converts nested list-of-dicts into parallel arrays (one row per record).
+    Dict values extend the name with plain-dot notation (``x.y``);
+    list-of-dicts values use dot-star (``x.*.y``) and convert to parallel arrays.
 
     Args:
-        record: A dict possibly containing list-of-dicts values
+        record: A dict possibly containing dict or list-of-dicts values
         prefix: Column name prefix
 
     Returns:
@@ -447,7 +452,9 @@ def _flatten_nested_record(record: dict, prefix: str = "") -> dict:
     for key, val in record.items():
         col_name = f"{prefix}{key}"
 
-        if _is_list_of_dicts(val):
+        if isinstance(val, dict):
+            result.update(_flatten_nested_record(val, f"{col_name}."))
+        elif _is_list_of_dicts(val):
             sub_records = [_flatten_nested_record(item, f"{col_name}.*.") for item in val]
             if sub_records:
                 for sub_key in sub_records[0]:
