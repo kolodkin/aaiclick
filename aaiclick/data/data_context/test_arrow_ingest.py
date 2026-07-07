@@ -101,6 +101,7 @@ def test_empty_list_falls_back_to_string_array():
     cols = struct_type_to_columns(arr.type)
     assert cols["b"].type == "String"
     assert int(cols["b"].array) == 1
+    assert cols["b"].nullable is True
 
 
 def test_none_dict_value_raises():
@@ -116,7 +117,10 @@ def test_leaf_column_info_mapping():
     assert leaf_column_info(pa.bool_()).type == "Bool"
     assert leaf_column_info(pa.string()).type == "String"
     assert leaf_column_info(pa.timestamp("us")).type == "DateTime64(3, 'UTC')"
-    assert leaf_column_info(pa.null()).type == "String"
+    null_info = leaf_column_info(pa.null())
+    assert null_info.type == "String"
+    assert null_info.nullable is True
+    assert leaf_column_info(pa.int64()).nullable is False
     assert int(leaf_column_info(pa.int64(), array_depth=2).array) == 2
 
 

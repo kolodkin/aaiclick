@@ -205,10 +205,11 @@ async def test_none_item_in_list_of_dicts_raises(ctx):
         await create_object_from_value({"b": [{"c": 1}, None]})
 
 
-async def test_all_none_value_falls_back_to_empty_string(ctx):
-    """All-None values use the String fallback and round-trip as '' (legacy contract)."""
+async def test_all_none_value_round_trips_as_none(ctx):
+    """All-None values infer as Nullable(String) and round-trip as None."""
     obj = await create_object_from_value({"a": None, "b": 1})
 
     data = await obj.data()
 
-    assert data == {"a": "", "b": 1}
+    assert data == {"a": None, "b": 1}
+    assert obj.schema.columns["a"].nullable is True

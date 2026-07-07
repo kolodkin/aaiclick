@@ -43,6 +43,8 @@ def leaf_column_info(pa_type: pa.DataType, array_depth: int = 0) -> ColumnInfo:
         ch_type = "Int64"
     elif pa.types.is_floating(pa_type):
         ch_type = "Float64"
+    elif pa.types.is_null(pa_type):
+        return ColumnInfo("String", nullable=True, array=array_depth)
     else:
         ch_type = "String"
     return ColumnInfo(ch_type, array=array_depth)
@@ -109,7 +111,7 @@ def struct_array_to_columns(arr: pa.StructArray) -> dict[str, list]:
     Any null at a struct/list level, or in a typed leaf, means a key was
     missing (or None) in some records/items -> ValueError. All-null leaves
     (arrow ``null`` type, e.g. from empty lists or all-None values) pass
-    through as the String fallback, matching legacy behavior.
+    through as a Nullable(String) column, matching legacy behavior.
     """
     if arr.null_count:
         raise ValueError("Records must all be dicts (found a null record)")

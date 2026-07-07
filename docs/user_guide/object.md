@@ -678,7 +678,8 @@ obj = await create_object_from_value({"b": [{"c": [1, 2], "d": 5}]})
 ```
 
 Keys containing `.` and empty dict values raise `ValueError` at ingest —
-reconstruction is name-parsed, so they cannot round-trip. That name-parsing
+reconstruction is name-parsed, so they cannot round-trip. All-`None` values
+infer as `Nullable(String)` and round-trip as `None`. That name-parsing
 applies to any dict-shaped read, not just `create_object_from_value` output:
 explicit `Schema` columns, URL/format imports with dotted source columns, and
 Views selecting or renaming into a dotted name all reconstruct the same way.
