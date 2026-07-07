@@ -9,7 +9,8 @@ Flattens to columns: a (Int64), x.y.z (Int64)
 import pytest
 
 from aaiclick import create_object_from_value
-from aaiclick.data.models import ORIENT_DICT, ORIENT_RECORDS
+from aaiclick.data.data_context import create_object
+from aaiclick.data.models import FIELDTYPE_DICT, ORIENT_DICT, ORIENT_RECORDS, ColumnInfo, Schema
 
 # =============================================================================
 # Schema — dot notation column names
@@ -136,3 +137,34 @@ async def test_mismatched_nested_keys_raises(ctx):
                 {"m": {"b": 2}},
             ]
         )
+
+
+# =============================================================================
+# Composition — overlapping prefixes, explicit Schema
+# =============================================================================
+
+
+async def test_star_group_and_plain_column_share_prefix_round_trip(ctx):
+    """A plain-dot sibling and a star group under the same prefix merge correctly."""
+    obj = await create_object_from_value({"x": {"w": 1, "y": [{"z": 1}, {"z": 2}]}})
+
+    data = await obj.data()
+
+    assert data == {"x": {"w": 1, "y": [{"z": 1}, {"z": 2}]}}
+
+
+async def test_explicit_schema_dotted_column_round_trip(ctx):
+    """A column literally named 'a.b' via explicit Schema unflattens on data()."""
+    schema = Schema(
+        fieldtype=FIELDTYPE_DICT,
+        columns={
+            "a.b": ColumnInfo("Int64"),
+        },
+    )
+    obj = await create_object(schema)
+    ch = obj.ch_client
+    await ch.command(f"INSERT INTO {obj.table} (`a.b`) VALUES (1)")
+
+    data = await obj.data()
+
+    assert data == {"a": {"b": 1}}

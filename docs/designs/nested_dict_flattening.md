@@ -54,9 +54,12 @@ In `aaiclick/data/object/data_extraction.py`:
   key-set comparison — mismatched nested keys raise `ValueError` instead
   of failing cryptically at insert.
 
-!!! warning "Dotted column names in explicit Schemas unflatten on `data()`"
-    `Schema` creation stays unrestricted, so a user column named `a.b`
-    comes back as `{"a": {"b": ...}}`.
+!!! warning "Any dict-shaped read reconstructs dotted column names"
+    Reconstruction is name-parsed with no schema metadata, so it applies to
+    every dict-table read path, not just `create_object_from_value` output:
+    explicit `Schema` columns (unrestricted, so `a.b` comes back as
+    `{"a": {"b": ...}}`), URL/format imports whose source columns contain
+    dots, and Views that select or rename columns into a dotted name.
 
 # Testing
 
