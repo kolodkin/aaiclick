@@ -137,6 +137,8 @@ def _extract_field(key_path: str, arr: pa.Array, out: dict[str, pa.Array]) -> No
             raise _missing(key_path)
         if pa.types.is_struct(pa_type.value_type):
             values = arr.values
+            if values.null_count:
+                raise _missing(key_path)
             sub = _extract_struct(values, f"{key_path}.*.")
             for name, leaf in sub.items():
                 out[name] = pa.ListArray.from_arrays(arr.offsets, leaf)

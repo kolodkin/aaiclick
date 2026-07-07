@@ -146,3 +146,17 @@ def test_scalar_null_inside_list_raises():
     arr = infer_struct_array([{"tags": [1, None]}])
     with pytest.raises(ValueError, match="identical keys"):
         struct_array_to_columns(arr)
+
+
+def test_none_item_in_list_of_dicts_raises():
+    """An explicit None item inside a list of dicts is rejected, not fabricated."""
+    arr = infer_struct_array([{"b": [{"c": 1}, None]}])
+    with pytest.raises(ValueError, match="identical keys"):
+        struct_array_to_columns(arr)
+
+
+def test_none_item_with_all_null_leaf_raises():
+    """A None item is rejected even when the only leaf is itself all-null."""
+    arr = infer_struct_array([{"b": [{"c": None}, None]}])
+    with pytest.raises(ValueError, match="identical keys"):
+        struct_array_to_columns(arr)

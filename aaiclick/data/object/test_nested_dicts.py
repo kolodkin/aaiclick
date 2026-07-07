@@ -197,3 +197,18 @@ async def test_cross_record_type_conflict_raises(ctx):
     """A field that changes type across records raises a clear ValueError."""
     with pytest.raises(ValueError, match="uniform schema"):
         await create_object_from_value([{"a": 1}, {"a": "s"}])
+
+
+async def test_none_item_in_list_of_dicts_raises(ctx):
+    """A None mixed into a list of dicts raises instead of fabricating a record."""
+    with pytest.raises(ValueError, match="identical keys"):
+        await create_object_from_value({"b": [{"c": 1}, None]})
+
+
+async def test_all_none_value_falls_back_to_empty_string(ctx):
+    """All-None values use the String fallback and round-trip as '' (legacy contract)."""
+    obj = await create_object_from_value({"a": None, "b": 1})
+
+    data = await obj.data()
+
+    assert data == {"a": "", "b": 1}
