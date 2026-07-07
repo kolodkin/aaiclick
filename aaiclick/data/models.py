@@ -219,7 +219,11 @@ AggSpec = GroupByOpType | Agg | list[Agg]
 # Value type aliases for factory functions
 ValueScalarType = int | float | bool | str | datetime
 ValueListType = list[int] | list[float] | list[bool] | list[str] | list[datetime]
-ValueDictType = dict[str, ValueScalarType | ValueListType]
+# Recursive: a dict value may itself be a scalar, a homogeneous list, a nested
+# dict, or a list of nested dicts (flattened to dot-notation columns upstream).
+# The forward reference lets pyright resolve the self-reference on Python 3.10
+# (PEP 695 `type` statements are not available before 3.12).
+ValueDictType = dict[str, "ValueScalarType | ValueListType | ValueDictType | list[ValueDictType]"]
 ValueRecordType = list[ValueDictType]
 ValueType = ValueScalarType | ValueListType | ValueDictType | ValueRecordType
 

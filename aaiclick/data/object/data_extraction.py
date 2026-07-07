@@ -33,14 +33,35 @@ def _convert_value(value):
 
 
 def _has_nested_columns(column_names: list[str]) -> bool:
-    """Check if any column names use dot-star notation for nested arrays."""
-    return any(".*." in name for name in column_names)
+    """Check if any column names use dot notation for nested structures."""
+    return any("." in name for name in column_names)
+
+
+def _undot_record(flat: dict) -> dict:
+    """Group plain-dot keys by first segment and recurse.
+
+    Converts ``{"a": 2, "x.y.z": 1}`` to ``{"a": 2, "x": {"y": {"z": 1}}}``.
+    """
+    result: dict = {}
+    groups: dict[str, dict] = {}
+    for key, val in flat.items():
+        dot_pos = key.find(".")
+        if dot_pos == -1:
+            result[key] = val
+        else:
+            groups.setdefault(key[:dot_pos], {})[key[dot_pos + 1 :]] = val
+    for prefix, sub in groups.items():
+        result[prefix] = _undot_record(sub)
+    return result
 
 
 def _unflatten_record(flat_record: dict) -> dict:
     """Reconstruct nested dict structure from flat dot-star notation columns.
 
     Converts parallel arrays back into list-of-dicts (reverse of flattening).
+    After the dot-star pass, plain-dot keys (``x.y.z`` and star-group prefixes
+    like ``x.y`` from ``x.y.*.z``) are regrouped into nested dicts by
+    ``_undot_record``.
 
     Example:
         ``{"a": 2, "b.*.c": [[1,2,3], [4,5,6]], "b.*.d": [5, 10]}``
@@ -78,7 +99,7 @@ def _unflatten_record(flat_record: dict) -> dict:
         # Recursively unflatten if deeper nesting exists
         result[prefix] = [_unflatten_record(item) for item in items]
 
-    return result
+    return _undot_record(result)
 
 
 async def extract_scalar_data(obj: Object) -> Any:

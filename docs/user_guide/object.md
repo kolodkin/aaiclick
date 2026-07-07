@@ -650,6 +650,39 @@ await obj.export("/tmp/data.json.xz")
   asks for it. `INSERT INTO FUNCTION file()` cannot be used here because it
   would write to the *server's* `user_files_path`, not the client.
 
+# Nested Data Flattening
+
+**Implementation**: `aaiclick/data/data_context/arrow_ingest.py` — see `infer_struct_array()`, `struct_type_to_columns()`, `struct_array_to_columns()`; reconstruction in `aaiclick/data/object/data_extraction.py` — see `_unflatten_record()`.
+
+Nested dicts and lists-of-dicts flatten to standalone columns — better
+compression, skipping indexes, and `LowCardinality` than ClickHouse
+`Map`/`Tuple`/`JSON`. pyarrow infers the schema from all records in C++
+(no sampling, no per-item Python work); `data()` reconstructs the nesting
+by name-parsing the column names.
+
+| Notation | Input shape                | Cardinality | Type effect                |
+|----------|----------------------------|-------------|----------------------------|
+| `.`      | dict value (nested object) | 1:1         | none — extends name only   |
+| `.*.`    | list-of-dicts value        | 1:N         | adds one `Array()` wrapper |
+
+```python
+obj = await create_object_from_value({"x": {"y": {"z": 1}}})
+# → column x.y.z (Int64)
+await obj.data()            # {"x": {"y": {"z": 1}}}
+
+obj = await create_object_from_value({"b": [{"c": [1, 2], "d": 5}]})
+# → columns b.*.c (Array(Array(Int64))), b.*.d (Array(Int64))
+```
+
+Ingest raises `ValueError` for anything that cannot round-trip: mismatched
+keys across records or items, non-dict items in a list of dicts, type
+conflicts, dotted keys, and empty dicts. All-`None` values infer as
+`Nullable(String)` and round-trip as `None`. Name-parsing applies to any
+dict-shaped read — explicit `Schema` columns, imports, and Views with
+dotted column names reconstruct the same way.
+
+**Tests**: `aaiclick/data/object/test_nested_dicts.py`, `aaiclick/data/object/test_nested_arrays.py`, `aaiclick/data/data_context/test_arrow_ingest.py`.
+
 # Views
 
 Read-only filtered projection of an Object — same table, no data copy. Created via `obj.view(where=..., limit=..., offset=..., order_by=...)`. Supports all read operations; cannot `insert()`. See `examples/view_examples.py`.
