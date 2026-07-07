@@ -652,11 +652,16 @@ await obj.export("/tmp/data.json.xz")
 
 # Nested Data Flattening
 
-**Implementation**: `aaiclick/data/data_context/data_context.py` — see `_flatten_nested_schema()` / `_flatten_nested_record()`; reconstruction in `aaiclick/data/object/data_extraction.py` — see `_unflatten_record()`.
+**Implementation**: `aaiclick/data/data_context/arrow_ingest.py` — see `infer_struct_array()`, `struct_type_to_columns()`, `struct_array_to_columns()`; reconstruction in `aaiclick/data/object/data_extraction.py` — see `_unflatten_record()`.
 
 Nested dicts and lists-of-dicts flatten to standalone columns — better
 compression, skipping indexes, and `LowCardinality` than ClickHouse
-`Map`/`Tuple`/`JSON` types. `data()` reconstructs the original nesting.
+`Map`/`Tuple`/`JSON` types. The schema is inferred by pyarrow scanning
+ALL records in C++ (no first-record sampling, no per-item Python work);
+keys must be identical across records — missing keys, mixed dict/non-dict
+items, and cross-record type conflicts raise `ValueError` at ingest.
+`data()` reconstructs the original nesting by name-parsing the dot /
+dot-star column names.
 
 | Notation | Input shape                | Cardinality | Type effect                |
 |----------|----------------------------|-------------|----------------------------|
@@ -678,7 +683,7 @@ applies to any dict-shaped read, not just `create_object_from_value` output:
 explicit `Schema` columns, URL/format imports with dotted source columns, and
 Views selecting or renaming into a dotted name all reconstruct the same way.
 
-**Tests**: `aaiclick/data/object/test_nested_dicts.py`, `aaiclick/data/object/test_nested_arrays.py`.
+**Tests**: `aaiclick/data/object/test_nested_dicts.py`, `aaiclick/data/object/test_nested_arrays.py`, `aaiclick/data/data_context/test_arrow_ingest.py`.
 
 # Views
 

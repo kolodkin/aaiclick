@@ -59,16 +59,14 @@ Also relevant: ClickHouse's own `ALTER TABLE` is limited — `MODIFY ORDER BY` c
 
 No action today — fresh installs keep working, existing installs degrade gracefully at worst. Revisit once there is a third structural CH-side change (which makes the per-change CLI approach untenable) or once a change actually breaks (not just slows down) an existing install.
 
-## Nested Dict Flattening — Item-Homogeneity Validation
+## Native Arrow Insert for Ingest
 
-`_flatten_nested_record` (`aaiclick/data/data_context/data_context.py`) keys a
-list-of-dicts value off its first item's keys only, so `{"b": [{"c": 1}, {"c":
-2, "d": 3}]}` silently drops `d` for the second item instead of raising, and a
-non-dict item mixed into an otherwise-dict list (`{"b": [{"c": 1}, 2]}`) fails
-with a confusing low-level error rather than a clear `ValueError`.
-`_validate_nested_keys` walks items but doesn't enforce homogeneity — it
-should assert every item in a list-of-dicts value has the same key set (and is
-itself a dict) before flattening runs.
+`create_object_from_value` converts arrow leaves to Python lists
+(`to_pylist()`) for the list-based `ChClient.insert`. A follow-up can add
+an arrow-native insert to the `ChClient` protocol (clickhouse-connect
+`insert_arrow`; chdb `Python()` table engine) to skip that conversion.
+Worth doing only if profiling shows the conversion matters — the
+per-record Python passes are already gone.
 
 ---
 
