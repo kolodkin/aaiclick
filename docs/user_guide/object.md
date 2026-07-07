@@ -656,12 +656,9 @@ await obj.export("/tmp/data.json.xz")
 
 Nested dicts and lists-of-dicts flatten to standalone columns — better
 compression, skipping indexes, and `LowCardinality` than ClickHouse
-`Map`/`Tuple`/`JSON` types. The schema is inferred by pyarrow scanning
-ALL records in C++ (no first-record sampling, no per-item Python work);
-keys must be identical across records — missing keys, mixed dict/non-dict
-items, and cross-record type conflicts raise `ValueError` at ingest.
-`data()` reconstructs the original nesting by name-parsing the dot /
-dot-star column names.
+`Map`/`Tuple`/`JSON`. pyarrow infers the schema from all records in C++
+(no sampling, no per-item Python work); `data()` reconstructs the nesting
+by name-parsing the column names.
 
 | Notation | Input shape                | Cardinality | Type effect                |
 |----------|----------------------------|-------------|----------------------------|
@@ -677,12 +674,12 @@ obj = await create_object_from_value({"b": [{"c": [1, 2], "d": 5}]})
 # → columns b.*.c (Array(Array(Int64))), b.*.d (Array(Int64))
 ```
 
-Keys containing `.` and empty dict values raise `ValueError` at ingest —
-reconstruction is name-parsed, so they cannot round-trip. All-`None` values
-infer as `Nullable(String)` and round-trip as `None`. That name-parsing
-applies to any dict-shaped read, not just `create_object_from_value` output:
-explicit `Schema` columns, URL/format imports with dotted source columns, and
-Views selecting or renaming into a dotted name all reconstruct the same way.
+Ingest raises `ValueError` for anything that cannot round-trip: mismatched
+keys across records or items, non-dict items in a list of dicts, type
+conflicts, dotted keys, and empty dicts. All-`None` values infer as
+`Nullable(String)` and round-trip as `None`. Name-parsing applies to any
+dict-shaped read — explicit `Schema` columns, imports, and Views with
+dotted column names reconstruct the same way.
 
 **Tests**: `aaiclick/data/object/test_nested_dicts.py`, `aaiclick/data/object/test_nested_arrays.py`, `aaiclick/data/data_context/test_arrow_ingest.py`.
 
