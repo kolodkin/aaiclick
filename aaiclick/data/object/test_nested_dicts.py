@@ -168,3 +168,32 @@ async def test_explicit_schema_dotted_column_round_trip(ctx):
     data = await obj.data()
 
     assert data == {"a": {"b": 1}}
+
+
+# =============================================================================
+# Arrow-based inference — whole-dataset strictness
+# =============================================================================
+
+
+async def test_extra_key_in_later_record_raises(ctx):
+    """Keys present only in later records are rejected, not silently dropped."""
+    with pytest.raises(ValueError, match="identical keys"):
+        await create_object_from_value([{"c": 1}, {"c": 2, "d": 3}])
+
+
+async def test_extra_key_in_later_list_item_raises(ctx):
+    """Keys present only in later list-of-dicts items are rejected (silent-drop fix)."""
+    with pytest.raises(ValueError, match="identical keys"):
+        await create_object_from_value({"b": [{"c": 1}, {"c": 2, "d": 3}]})
+
+
+async def test_non_dict_item_in_list_of_dicts_raises(ctx):
+    """A non-dict mixed into a list of dicts raises a clear ValueError."""
+    with pytest.raises(ValueError, match="uniform schema"):
+        await create_object_from_value({"b": [{"c": 1}, 5]})
+
+
+async def test_cross_record_type_conflict_raises(ctx):
+    """A field that changes type across records raises a clear ValueError."""
+    with pytest.raises(ValueError, match="uniform schema"):
+        await create_object_from_value([{"a": 1}, {"a": "s"}])
