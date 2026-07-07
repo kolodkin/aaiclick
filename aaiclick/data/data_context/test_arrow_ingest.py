@@ -118,3 +118,31 @@ def test_leaf_column_info_mapping():
     assert leaf_column_info(pa.timestamp("us")).type == "DateTime64(3, 'UTC')"
     assert leaf_column_info(pa.null()).type == "String"
     assert int(leaf_column_info(pa.int64(), array_depth=2).array) == 2
+
+
+def test_list_of_scalars_extraction():
+    """Plain list fields extract as per-row lists."""
+    arr = infer_struct_array([{"tags": [1, 2]}, {"tags": [3]}])
+    cols = struct_array_to_columns(arr)
+    assert cols["tags"] == [[1, 2], [3]]
+
+
+def test_nested_list_of_scalars_extraction():
+    """list<list<T>> extracts with both levels intact."""
+    arr = infer_struct_array([{"m": [[1, 2], [3]]}])
+    cols = struct_array_to_columns(arr)
+    assert cols["m"] == [[[1, 2], [3]]]
+
+
+def test_intermediate_list_null_raises():
+    """A None at an intermediate list level is rejected, not embedded."""
+    arr = infer_struct_array([{"m": [[1, 2], None, [3]]}])
+    with pytest.raises(ValueError, match="identical keys"):
+        struct_array_to_columns(arr)
+
+
+def test_scalar_null_inside_list_raises():
+    """A None element inside a typed list is rejected."""
+    arr = infer_struct_array([{"tags": [1, None]}])
+    with pytest.raises(ValueError, match="identical keys"):
+        struct_array_to_columns(arr)

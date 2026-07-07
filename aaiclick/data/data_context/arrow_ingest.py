@@ -113,6 +113,7 @@ def struct_array_to_columns(arr: pa.StructArray) -> dict[str, list]:
     """
     if arr.null_count:
         raise ValueError("Records must all be dicts (found a null record)")
+    # Offsets-based rewrapping assumes an unsliced array, i.e. fresh from pa.array().
     leaves = _extract_struct(arr, "")
     return {name: leaf.to_pylist() for name, leaf in leaves.items()}
 
@@ -143,8 +144,8 @@ def _extract_field(key_path: str, arr: pa.Array, out: dict[str, pa.Array]) -> No
             inner = arr
             while _is_list_type(inner.type):
                 inner = inner.values
-            if inner.null_count and not pa.types.is_null(inner.type):
-                raise _missing(key_path)
+                if inner.null_count and not pa.types.is_null(inner.type):
+                    raise _missing(key_path)
             out[key_path] = arr
     else:
         if arr.null_count and not pa.types.is_null(pa_type):
