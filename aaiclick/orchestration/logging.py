@@ -20,8 +20,8 @@ from typing import TextIO
 from aaiclick.backend import get_root, is_local
 from aaiclick.data.data_context import get_ch_client
 from aaiclick.datetime_utils import utc_now
+from aaiclick.log_models import STDERR_STREAM, STDOUT_STREAM, LogLevel, LogLine, LogStream, normalize_level
 from aaiclick.oplog.models import TASK_LOGS_EXPECTED_COLUMNS
-from aaiclick.view_models import STDERR_STREAM, STDOUT_STREAM, LogLevel, LogLine, LogStream, normalize_level
 
 logger = logging.getLogger(__name__)
 

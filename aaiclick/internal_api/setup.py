@@ -9,27 +9,19 @@ Every function returns a pydantic view model; the CLI renderer handles
 human output and the ``--json`` flag. Alembic subcommands still write their
 own status to stdout via their internal logger — that output belongs to
 alembic, not to this module.
+
+``bootstrap_ollama`` lives in ``aaiclick.ai.ollama`` beside its probe and is
+re-exported here so the CLI / REST / MCP surfaces keep one import path.
 """
 
 from __future__ import annotations
 
-import json
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 from alembic import command
 from sqlalchemy import create_engine
 
-from aaiclick.ai.ollama import (
-    OLLAMA_BASE_URL,
-    OLLAMA_PULL_TIMEOUT_S,
-    PROBE_MISSING,
-    PROBE_OK,
-    PROBE_UNREACHABLE,
-    get_configured_model,
-    probe_ollama_model,
-)
+from aaiclick.ai.ollama import bootstrap_ollama, get_configured_model
 from aaiclick.backend import (
     get_ch_url,
     get_root,
@@ -49,11 +41,6 @@ from aaiclick.view_models import (
     MIGRATE_HISTORY,
     MIGRATE_SHOW,
     MIGRATE_UPGRADE,
-    OLLAMA_ALREADY_PRESENT,
-    OLLAMA_FAILED,
-    OLLAMA_NOT_OLLAMA,
-    OLLAMA_PULLED,
-    OLLAMA_SERVER_UNREACHABLE,
     MigrationAction,
     MigrationResult,
     OllamaBootstrapResult,
@@ -128,79 +115,6 @@ def setup(*, ai: bool = False) -> SetupResult:
         mode="local" if is_local() else "distributed",
         steps=steps,
         ollama=ollama,
-    )
-
-
-def bootstrap_ollama(model: str, *, base_url: str = OLLAMA_BASE_URL) -> OllamaBootstrapResult:
-    """Ensure the named Ollama model is available locally.
-
-    Non-Ollama models (anything not prefixed ``ollama/``) short-circuit to
-    ``NOT_OLLAMA``. If the server is unreachable, returns
-    ``SERVER_UNREACHABLE``; if the model is already downloaded, returns
-    ``ALREADY_PRESENT``; otherwise triggers a pull and returns ``PULLED``.
-    """
-    if not model.startswith("ollama/"):
-        return OllamaBootstrapResult(
-            model=model,
-            server_url=base_url,
-            status=OLLAMA_NOT_OLLAMA,
-            detail="not an Ollama model — nothing to pull",
-        )
-
-    model_name = model.removeprefix("ollama/")
-
-    probe = probe_ollama_model(model_name, base_url=base_url)
-    if probe.status == PROBE_UNREACHABLE:
-        return OllamaBootstrapResult(
-            model=model,
-            server_url=base_url,
-            status=OLLAMA_SERVER_UNREACHABLE,
-            detail=probe.detail,
-        )
-    if probe.status == PROBE_OK:
-        return OllamaBootstrapResult(
-            model=model,
-            server_url=base_url,
-            status=OLLAMA_ALREADY_PRESENT,
-            detail=probe.detail,
-        )
-    if probe.status != PROBE_MISSING:
-        return OllamaBootstrapResult(
-            model=model,
-            server_url=base_url,
-            status=OLLAMA_FAILED,
-            detail=probe.detail,
-        )
-
-    pull_req = urllib.request.Request(  # noqa: S310
-        f"{base_url}/api/pull",
-        data=json.dumps({"model": model_name, "stream": False}).encode(),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(pull_req, timeout=OLLAMA_PULL_TIMEOUT_S) as resp:  # noqa: S310
-            payload = json.loads(resp.read())
-    except (urllib.error.URLError, OSError) as exc:
-        return OllamaBootstrapResult(
-            model=model,
-            server_url=base_url,
-            status=OLLAMA_FAILED,
-            detail=f"pull failed: {exc}",
-        )
-
-    if payload.get("status") == "success":
-        return OllamaBootstrapResult(
-            model=model,
-            server_url=base_url,
-            status=OLLAMA_PULLED,
-            detail=f"model '{model_name}' pulled",
-        )
-    return OllamaBootstrapResult(
-        model=model,
-        server_url=base_url,
-        status=OLLAMA_FAILED,
-        detail=f"unexpected pull response: {payload}",
     )
 
 

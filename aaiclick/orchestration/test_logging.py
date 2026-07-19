@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from aaiclick.log_models import STDERR_STREAM, STDOUT_STREAM
 from aaiclick.orchestration.logging import _ChLogSink
-from aaiclick.view_models import STDERR_STREAM, STDOUT_STREAM
 
 
 def test_sink_default_levels_per_stream():

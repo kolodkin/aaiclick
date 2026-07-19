@@ -30,6 +30,7 @@ from contextlib import asynccontextmanager
 from fastmcp import FastMCP
 
 from aaiclick.ai.agents.lineage_tools import DEFAULT_ROW_LIMIT, QueryResult, TableSchema
+from aaiclick.ai.ollama import OLLAMA_BASE_URL
 from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.internal_api import execution_workers as execution_workers_api
 from aaiclick.internal_api import jobs as jobs_api
@@ -290,7 +291,7 @@ def migrate(action: MigrationAction, revision: str | None = None) -> MigrationRe
 @mcp.tool
 def bootstrap_ollama(
     model: str,
-    base_url: str = setup_api.OLLAMA_BASE_URL,
+    base_url: str = OLLAMA_BASE_URL,
 ) -> OllamaBootstrapResult:
     """Ensure an Ollama model is pulled on the configured server."""
     return setup_api.bootstrap_ollama(model, base_url=base_url)

@@ -6,19 +6,38 @@ Domain-specific view models live in ``aaiclick.orchestration.view_models`` and
 
 The view models never import SQLModel classes; adapters do. Enums from
 ``aaiclick.orchestration.models`` are reused so the CLI, REST, and MCP
-surfaces share one vocabulary.
+surfaces share one vocabulary. Primitives needed inside ``orchestration``
+itself (``SnowflakeId``, the log vocabulary) live in ``aaiclick.log_models``
+and are re-exported here — orchestration imports the leaf module, never this
+one, so import order between the two packages doesn't matter.
 """
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime
 from enum import Enum
-from typing import Annotated, Any, Generic, Literal, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 
-from pydantic import BaseModel, Field, PlainSerializer, model_validator
+from pydantic import BaseModel, Field, model_validator
 
-from .datetime_utils import utc_now
+from .ai.ollama import (
+    OLLAMA_ALREADY_PRESENT,
+    OLLAMA_FAILED,
+    OLLAMA_NOT_OLLAMA,
+    OLLAMA_PULLED,
+    OLLAMA_SERVER_UNREACHABLE,
+    OllamaBootstrapResult,
+    OllamaBootstrapStatus,
+)
+from .log_models import (
+    STDERR_STREAM,
+    STDOUT_STREAM,
+    LogLevel,
+    LogLine,
+    LogStream,
+    SnowflakeId,
+    normalize_level,
+)
 from .orchestration.models import ExecutionWorkerStatus, JobStatus, PreservationMode, RunnerMode
 
 # Mirrors aaiclick.data.scope.ObjectScope — re-declared to keep this shared
@@ -30,53 +49,6 @@ ObjectScope = Literal["temp", "temp_named", "job", "global"]
 # the ObjectScope pattern above and keep this module import-light. Keep the two
 # in lock-step.
 EntryType = Literal["module", "shell"]
-
-# Snowflake ids are 64-bit, exceeding JavaScript's safe-integer range (2^53-1),
-# so a JSON number would silently lose precision in the browser. Serialize id
-# fields as strings on the wire (the OpenAPI schema follows, so generated SPA
-# types are honest). ``when_used="json"`` scopes this to JSON output only: the
-# Python attribute and ``model_dump()`` stay ``int``, so the CLI and internal
-# logic are unaffected, and request bodies still coerce a numeric string back
-# to ``int`` on validation.
-SnowflakeId = Annotated[int, PlainSerializer(lambda v: str(v), return_type=str, when_used="json")]
-
-# Captured task output streams. Defined here (not in orchestration.view_models)
-# so aaiclick.orchestration.logging can import LogLine without forming a cycle
-# through the jobs/execution packages.
-STDOUT_STREAM = "stdout"
-STDERR_STREAM = "stderr"
-LogStream = Literal["stdout", "stderr"]
-
-LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-
-# highest-first so the first threshold a level clears wins; each string appears
-# once mapped to its logging constant and type-checks as LogLevel. logging owns
-# the level names/numbers, so we do not re-declare LEVEL_* string constants.
-_LEVEL_THRESHOLDS: tuple[tuple[int, LogLevel], ...] = (
-    (logging.CRITICAL, "CRITICAL"),
-    (logging.ERROR, "ERROR"),
-    (logging.WARNING, "WARNING"),
-    (logging.INFO, "INFO"),
-    (logging.DEBUG, "DEBUG"),
-)
-
-
-def normalize_level(levelno: int) -> LogLevel:
-    """Bucket any logging level number to the nearest standard LogLevel name."""
-    for threshold, name in _LEVEL_THRESHOLDS:
-        if levelno >= threshold:
-            return name
-    return "DEBUG"  # below DEBUG (incl. NOTSET)
-
-
-class LogLine(BaseModel):
-    """One captured output line tagged with its stream, level, and emit time."""
-
-    stream: LogStream
-    level: LogLevel = "INFO"
-    text: str
-    created_at: datetime = Field(default_factory=utc_now)
-
 
 T = TypeVar("T")
 
@@ -246,30 +218,6 @@ class SetupStep(BaseModel):
 
     name: str
     status: SetupStepStatus
-    detail: str | None = None
-
-
-OLLAMA_ALREADY_PRESENT = "already_present"
-OLLAMA_PULLED = "pulled"
-OLLAMA_SERVER_UNREACHABLE = "server_unreachable"
-OLLAMA_NOT_OLLAMA = "not_ollama"
-OLLAMA_FAILED = "failed"
-OllamaBootstrapStatus = Literal[
-    "already_present",
-    "pulled",
-    "server_unreachable",
-    "not_ollama",
-    "failed",
-]
-"""Outcome of ``internal_api.bootstrap_ollama``."""
-
-
-class OllamaBootstrapResult(BaseModel):
-    """Response from ``internal_api.bootstrap_ollama``."""
-
-    model: str
-    server_url: str
-    status: OllamaBootstrapStatus
     detail: str | None = None
 
 

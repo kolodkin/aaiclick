@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import urllib.error
-
 import pytest
 
 from aaiclick.view_models import (
@@ -12,12 +9,7 @@ from aaiclick.view_models import (
     MIGRATE_DOWNGRADE,
     MIGRATE_SHOW,
     MIGRATE_UPGRADE,
-    OLLAMA_ALREADY_PRESENT,
-    OLLAMA_FAILED,
     OLLAMA_NOT_OLLAMA,
-    OLLAMA_PULLED,
-    OLLAMA_SERVER_UNREACHABLE,
-    OllamaBootstrapResult,
     SetupResult,
 )
 
@@ -96,72 +88,6 @@ def test_is_setup_done_false_without_marker(tmp_path, monkeypatch):
     assert setup.is_setup_done() is False
 
 
-def test_bootstrap_ollama_non_ollama_model():
-    result = setup.bootstrap_ollama("openai/gpt-4")
-
-    assert isinstance(result, OllamaBootstrapResult)
-    assert result.status == OLLAMA_NOT_OLLAMA
-    assert result.model == "openai/gpt-4"
-
-
-def test_bootstrap_ollama_server_unreachable():
-    result = setup.bootstrap_ollama("ollama/llama3.1:8b", base_url="http://127.0.0.1:1")
-
-    assert result.status == OLLAMA_SERVER_UNREACHABLE
-    assert "not reachable" in (result.detail or "")
-
-
-def test_bootstrap_ollama_already_present(monkeypatch):
-    monkeypatch.setattr(setup.urllib.request, "urlopen", lambda *a, **k: _StubResponse(b""))
-
-    result = setup.bootstrap_ollama("ollama/llama3.1:8b")
-
-    assert result.status == OLLAMA_ALREADY_PRESENT
-
-
-def test_bootstrap_ollama_pulled(monkeypatch):
-    def fake_urlopen(req, timeout=None):
-        url = req.full_url if hasattr(req, "full_url") else str(req)
-        if url.endswith("/api/show"):
-            raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
-        return _StubResponse(b'{"status": "success"}')
-
-    monkeypatch.setattr(setup.urllib.request, "urlopen", fake_urlopen)
-
-    result = setup.bootstrap_ollama("ollama/llama3.1:8b")
-
-    assert result.status == OLLAMA_PULLED
-
-
-def test_bootstrap_ollama_show_5xx_returns_failed(monkeypatch):
-    def fake_urlopen(req, timeout=None):
-        url = req.full_url if hasattr(req, "full_url") else str(req)
-        if url.endswith("/api/show"):
-            raise urllib.error.HTTPError(url, 500, "Internal Server Error", {}, None)
-        return _StubResponse(b"")
-
-    monkeypatch.setattr(setup.urllib.request, "urlopen", fake_urlopen)
-
-    result = setup.bootstrap_ollama("ollama/llama3.1:8b")
-
-    assert result.status == OLLAMA_FAILED
-    assert "model lookup failed" in (result.detail or "")
-
-
-def test_bootstrap_ollama_pull_unexpected_response(monkeypatch):
-    def fake_urlopen(req, timeout=None):
-        url = req.full_url if hasattr(req, "full_url") else str(req)
-        if url.endswith("/api/show"):
-            raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
-        return _StubResponse(json.dumps({"status": "error"}).encode())
-
-    monkeypatch.setattr(setup.urllib.request, "urlopen", fake_urlopen)
-
-    result = setup.bootstrap_ollama("ollama/llama3.1:8b")
-
-    assert result.status == OLLAMA_FAILED
-
-
 def test_migrate_upgrade_invokes_alembic(monkeypatch):
     calls: list[tuple] = []
     monkeypatch.setattr(setup, "get_alembic_config", lambda: object())
@@ -204,19 +130,3 @@ def test_migrate_current_runs_without_revision(monkeypatch):
     assert result.action == MIGRATE_CURRENT
     assert result.revision is None
     assert calls == [("current", True)]
-
-
-class _StubResponse:
-    """Minimal ``urlopen`` stand-in that supports ``read()`` + context manager."""
-
-    def __init__(self, payload: bytes):
-        self._payload = payload
-
-    def read(self) -> bytes:
-        return self._payload
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        return False

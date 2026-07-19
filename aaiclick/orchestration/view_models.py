@@ -13,7 +13,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from ..view_models import LogLine, SnowflakeId
+from ..log_models import LogLine, SnowflakeId
 from .models import (
     TASK_COMPLETED,
     ExecutionWorker,
