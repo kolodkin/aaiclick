@@ -59,7 +59,24 @@ v0 uses 2 s `refetchInterval` polling. The designed real-time path is:
    fetch authoritative state — events are signals, not payloads.
 
 **SQLite local mode**: poll + snapshot diff every 2 s (same latency as current
-polling, but avoids N×M HTTP requests from N browser tabs).
+polling, but avoids N×M HTTP requests from N browser tabs). SQLite pairs with
+chdb, and local mode is single-process — cross-host fanout doesn't arise there.
+
+**Multi-host is already covered**: Postgres delivers each `NOTIFY` to every
+connection that has issued `LISTEN`, so N API hosts just hold N `LISTEN`
+connections — no extra broker. `NOTIFY` in the same commit as the status
+write guarantees a refetching client sees the committed state. Escape
+hatches, should the feeder ever measurably hurt:
+
+- **Redis Pub/Sub** — only if listener count or notification volume becomes a
+  real cost (dozens of hosts, very high event rates), or payloads outgrow
+  Postgres's ~8 KB `NOTIFY` limit; events are signals, not payloads, so they
+  stay tiny.
+- **ClickHouse tail** — each API host polls `operation_log` (or a dedicated
+  events table) past a watermark: N pollers instead of N×M browser polls, no
+  touch on the SQL commit path. But latency is poll-bound and the CH insert
+  is unordered relative to the SQL commit, so a client can refetch before the
+  status write is visible. chdb is in-process single-session — not a bus.
 
 **When to revisit**: when polling overhead is measurable (many tabs or many
 concurrent jobs), or when sub-2 s latency matters for operators.
@@ -118,29 +135,6 @@ The fix has two halves, both keyed on the `build_tasks` row's `BUILDING` status:
 Correctness doesn't depend on this — the current design is "correct but can
 occupy slots on wide fan-outs." **When to revisit**: when wide fan-out jobs on a
 cold image measurably tie up workers.
-
-## SSE Cross-Host Fanout (Redis)
-
-The v0 SSE pipeline (`docs/designs/frontend.md`) feeds deltas onto a single
-in-process bus inside one FastAPI process — Postgres `LISTEN/NOTIFY` for
-distributed mode, polling for SQLite local mode. That works for any
-deployment where there is exactly one API process per host that clients
-can connect to.
-
-Once we run multiple FastAPI workers across machines (e.g. behind a load
-balancer for horizontal scale), a notification arriving on host A's
-`LISTEN` connection won't reach an SSE client connected to host B.
-LISTEN/NOTIFY can't cheaply solve cross-host fanout — every host would
-need its own `LISTEN`, which doesn't scale and amplifies DB load.
-
-**Solution when it lands**: Redis Pub/Sub. Workers (or the LISTEN
-adapter) publish to a Redis channel; every FastAPI host subscribes and
-forwards onto its in-process bus. The in-process bus and SSE delivery
-layer don't change — only the *feeder* gets a third option.
-
-**When to revisit**: when we horizontally scale the API server beyond a
-single host, or when the single-process bus becomes a measurable
-bottleneck for connection count or fan-out throughput.
 
 ## API Auth — Beyond Username/Password + RBAC
 
