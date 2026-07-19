@@ -126,6 +126,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # re-exports (CLAUDE.md forbids __all__ in __init__.py)
+"aaiclick/view_models.py" = ["F401"]  # re-exports the log_models / ai.ollama contract surface
 
 [tool.mypy]
 python_version = "3.10"
