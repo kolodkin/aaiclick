@@ -155,6 +155,11 @@ worker child ─▶ DB commit ─▶ feeder ─▶ in-process bus ─▶ SSE end
 | Postgres (distributed) | `LISTEN job_events`           | sub-second |
 | SQLite (local)         | poll, diff snapshot every 2 s | up to 2 s  |
 
+The Postgres feeder is inherently multi-host: Postgres delivers each `NOTIFY`
+to every connection that has issued `LISTEN`, so N API hosts just hold N
+`LISTEN` connections — horizontal scaling needs no extra broker (escape
+hatches in `docs/designs/future.md`).
+
 # Testing
 
 | Layer                | Tool                | Where                                          |
