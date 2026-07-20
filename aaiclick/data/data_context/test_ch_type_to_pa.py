@@ -1,9 +1,9 @@
-"""Tests for _ch_type_to_pa ClickHouse→PyArrow type mapping."""
+"""Tests for ch_type_to_pa ClickHouse→PyArrow type mapping."""
 
 import pyarrow as pa
 import pytest
 
-from aaiclick.data.data_context.chdb_client import _ch_type_to_pa
+from aaiclick.data.data_context.arrow_ingest import ch_type_to_pa
 
 
 @pytest.mark.parametrize(
@@ -26,7 +26,7 @@ from aaiclick.data.data_context.chdb_client import _ch_type_to_pa
     ],
 )
 def test_base_types(ch_type, expected):
-    assert _ch_type_to_pa(ch_type) == expected
+    assert ch_type_to_pa(ch_type) == expected
 
 
 @pytest.mark.parametrize(
@@ -38,7 +38,7 @@ def test_base_types(ch_type, expected):
     ],
 )
 def test_nullable(ch_type, expected):
-    assert _ch_type_to_pa(ch_type) == expected
+    assert ch_type_to_pa(ch_type) == expected
 
 
 @pytest.mark.parametrize(
@@ -49,7 +49,7 @@ def test_nullable(ch_type, expected):
     ],
 )
 def test_low_cardinality(ch_type, expected):
-    assert _ch_type_to_pa(ch_type) == expected
+    assert ch_type_to_pa(ch_type) == expected
 
 
 @pytest.mark.parametrize(
@@ -62,7 +62,7 @@ def test_low_cardinality(ch_type, expected):
     ],
 )
 def test_array(ch_type, expected):
-    assert _ch_type_to_pa(ch_type) == expected
+    assert ch_type_to_pa(ch_type) == expected
 
 
 @pytest.mark.parametrize(
@@ -75,7 +75,7 @@ def test_array(ch_type, expected):
     ],
 )
 def test_map(ch_type, expected):
-    assert _ch_type_to_pa(ch_type) == expected
+    assert ch_type_to_pa(ch_type) == expected
 
 
 @pytest.mark.parametrize(
@@ -86,8 +86,8 @@ def test_map(ch_type, expected):
     ],
 )
 def test_tuple(ch_type, expected):
-    assert _ch_type_to_pa(ch_type) == expected
+    assert ch_type_to_pa(ch_type) == expected
 
 
 def test_unknown_falls_back_to_string():
-    assert _ch_type_to_pa("SomeUnknownType") == pa.string()
+    assert ch_type_to_pa("SomeUnknownType") == pa.string()

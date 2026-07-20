@@ -63,7 +63,7 @@ Each ContextVar is reset (via token) on context exit, so nested `data_context()`
 
 **Implementation**: `aaiclick/data/chdb_client.py` (local), `aaiclick/data/clickhouse_client.py` (distributed), `aaiclick/backend.py` (URL helpers)
 
-chdb inserts use pyarrow's `Python()` table function. Type mapping: `_ch_type_to_pa()` in `chdb_client.py`.
+Ingest inserts are arrow-native: `create_object_from_value()` builds a `pa.Table` and calls `ChClient.insert_arrow()` — chdb inserts it via pyarrow's `Python()` table function, clickhouse-connect via its native `insert_arrow`. Type mapping: `ch_type_to_pa()` in `arrow_ingest.py`.
 
 See [Orchestration — Deployment Modes](orchestration.md#deployment-modes) for the full local/distributed comparison table.
 

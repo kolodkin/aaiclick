@@ -13,6 +13,8 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import Protocol, cast
 
+import pyarrow as pa
+
 from aaiclick.backend import is_chdb
 
 from ..formats import open_export_writer
@@ -58,6 +60,7 @@ class ChClient(Protocol):
         column_oriented: bool = False,
         column_type_names: Sequence[str] | None = None,
     ) -> None: ...
+    async def insert_arrow(self, table: str, arrow_table: pa.Table) -> None: ...
     async def close(self) -> None: ...
 
 

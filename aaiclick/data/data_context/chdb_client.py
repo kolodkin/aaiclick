@@ -28,6 +28,8 @@ from chdb.session import Session
 
 from aaiclick.data.sql_utils import escape_sql_string
 
+from .arrow_ingest import ch_type_to_pa
+
 # Matches url('https://...', 'Format') in SQL — used to detect and rewrite
 # URL calls that chdb's embedded HTTP client hangs on.
 _URL_FUNC_RE = re.compile(r"url\('(https?://[^']+)',\s*'([^']+)'\)", re.IGNORECASE)
@@ -297,86 +299,34 @@ class ChdbClient:
             cols_data = [list(col) for col in zip(*data, strict=False)]
 
         if column_type_names:
-            pa_types = [_ch_type_to_pa(ct) for ct in column_type_names]
+            pa_types = [ch_type_to_pa(ct) for ct in column_type_names]
         else:
             pa_types = [None] * len(names)
-        arrow_table = pa.table(  # noqa: F841 — referenced by SQL below
-            {name: pa.array(col, type=pa_type) for name, col, pa_type in zip(names, cols_data, pa_types, strict=False)}
+        await self.insert_arrow(
+            table,
+            pa.table(
+                {
+                    name: pa.array(col, type=pa_type)
+                    for name, col, pa_type in zip(names, cols_data, pa_types, strict=False)
+                }
+            ),
         )
-        cols = f" ({', '.join(f'`{c}`' for c in names)})"
-        self._session.query(f"INSERT INTO {table}{cols} SELECT * FROM Python(arrow_table)")
+
+    async def insert_arrow(self, table: str, arrow_table: pa.Table) -> None:
+        """Insert a pyarrow Table via chdb's ``Python()`` table function.
+
+        Column names are taken from the arrow schema; table columns absent
+        from it (e.g. ``aai_id``) get their ClickHouse defaults.
+        """
+        if arrow_table.num_rows == 0:
+            return
+        cols = ", ".join(f"`{c}`" for c in arrow_table.column_names)
+        self._session.query(f"INSERT INTO {table} ({cols}) SELECT * FROM Python(arrow_table)")
 
     async def close(self) -> None:
         # chdb's Session is a per-process singleton (see docs/designs/technical_debt.md)
         # owned outside ChdbClient — closing here would break sibling contexts.
         pass
-
-
-_PA_BASE_TYPES: dict[str, pa.DataType] = {
-    "UInt8": pa.uint8(),
-    "UInt16": pa.uint16(),
-    "UInt32": pa.uint32(),
-    "UInt64": pa.uint64(),
-    "Int8": pa.int8(),
-    "Int16": pa.int16(),
-    "Int32": pa.int32(),
-    "Int64": pa.int64(),
-    "Float32": pa.float32(),
-    "Float64": pa.float64(),
-    "String": pa.string(),
-    "Bool": pa.bool_(),
-}
-
-
-def _ch_type_to_pa(ch_type: str) -> pa.DataType:
-    """Convert a ClickHouse type string to a pyarrow DataType."""
-    if ch_type.startswith("Nullable("):
-        return _ch_type_to_pa(ch_type[9:-1])
-    if ch_type.startswith("LowCardinality("):
-        return _ch_type_to_pa(ch_type[15:-1])
-    if ch_type in _PA_BASE_TYPES:
-        return _PA_BASE_TYPES[ch_type]
-    if ch_type.startswith("DateTime64"):
-        return pa.timestamp("ms", tz="UTC")
-    if ch_type.startswith("Array("):
-        return pa.list_(_ch_type_to_pa(ch_type[6:-1]))
-    if ch_type.startswith("Map("):
-        key_type, val_type = _split_map_args(ch_type[4:-1])
-        return pa.map_(_ch_type_to_pa(key_type), _ch_type_to_pa(val_type))
-    if ch_type.startswith("Tuple("):
-        elem_types = _split_top_level(ch_type[6:-1])
-        return pa.struct([(f"f{i}", _ch_type_to_pa(t)) for i, t in enumerate(elem_types)])
-    return pa.string()
-
-
-def _split_map_args(inner: str) -> tuple[str, str]:
-    """Split Map(K, V) arguments respecting nested parentheses."""
-    depth = 0
-    for i, ch in enumerate(inner):
-        if ch == "(":
-            depth += 1
-        elif ch == ")":
-            depth -= 1
-        elif ch == "," and depth == 0:
-            return inner[:i].strip(), inner[i + 1 :].strip()
-    return inner, ""
-
-
-def _split_top_level(inner: str) -> list[str]:
-    """Split comma-separated type arguments respecting nested parentheses."""
-    parts: list[str] = []
-    depth = 0
-    start = 0
-    for i, ch in enumerate(inner):
-        if ch == "(":
-            depth += 1
-        elif ch == ")":
-            depth -= 1
-        elif ch == "," and depth == 0:
-            parts.append(inner[start:i].strip())
-            start = i + 1
-    parts.append(inner[start:].strip())
-    return parts
 
 
 def get_chdb_data_path() -> str:
