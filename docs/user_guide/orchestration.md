@@ -399,9 +399,9 @@ untouched, and a finished job is reactivated.
 
 # Task Logs
 
-Task stdout/stderr is written to a per-task log file **and** streamed into the
-ClickHouse `task_logs` table, so logs are readable from one place no matter
-which host, container, or Pod ran the task. `logging.*` records keep their
+Task stdout/stderr is streamed into the ClickHouse `task_logs` table, so logs
+are readable from one place no matter which host, container, or Pod ran the
+task. `logging.*` records keep their
 level; raw `print()` output is captured as `INFO` (stdout) / `ERROR` (stderr).
 `AAICLICK_LOG_LEVEL` sets the captured root level (default `INFO`). Logs share
 the job's retention lifecycle. Fetch them via
@@ -414,7 +414,6 @@ the job's retention lifecycle. Fetch them via
 | `AAICLICK_LOCAL_ROOT`    | `~/.aaiclick`                         | Base directory for all local-mode state   |
 | `AAICLICK_SQL_URL`       | `sqlite+aiosqlite:///{root}/local.db` | SQLAlchemy async URL for orchestration DB |
 | `AAICLICK_CH_URL`        | `chdb://{root}/chdb_data`             | ClickHouse connection URL for data ops    |
-| `AAICLICK_LOG_DIR`       | `{root}/logs` (local)                 | Task log directory override               |
 | `AAICLICK_DEFAULT_PRESERVATION_MODE` | unset                     | Level-3 preservation-mode default         |
 | `AAICLICK_DOCKER_BIN`    | `docker`                              | Docker CLI used by the docker runner      |
 | `AAICLICK_REGISTRY`      | unset                                 | Registry for `build` images — pushed after build, pulled as cache by docker & kubernetes runners; required for kubernetes `build` |

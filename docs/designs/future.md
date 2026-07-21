@@ -72,23 +72,6 @@ hatches, should the feeder ever measurably hurt:
 **When to revisit**: when polling overhead is measurable (many tabs or many
 concurrent jobs), or when sub-2 s latency matters for operators.
 
-## Retire File-Based Task Logs
-
-Cross-host log access shipped: every runner streams captured stdout/stderr into
-the ClickHouse `task_logs` table from inside the task process, and `get_task_logs`
-reads that single host-independent source (`aaiclick/orchestration/logging.py`,
-`aaiclick/oplog/models.py`). Two now-redundant legacy paths remain until a
-cleanup pass:
-
-- **`task.log_path` / file tee** — still written for on-host debugging and
-  surfaced in `TaskDetail`. Drop once nothing reads the local file.
-- **Kubernetes `kubectl logs` host fetch** — `_capture_pod_logs` writes a host
-  file the read path no longer consults (the Pod streams to CH directly). Remove
-  it and the `RemoteTaskResult.log_path` column once the file tee is gone.
-
-**When to revisit**: opportunistically, once the file path has demonstrably no
-consumers; no functional gap blocks it.
-
 ## Live Log Streaming
 
 `task_logs` is flushed once per run, after the task body completes — logs appear

@@ -1,10 +1,16 @@
 Task Log Retirement — ClickHouse as the Sole Log Store
 ---
 
-Design for retiring file-based task logs (`docs/designs/future.md` item "Retire
-File-Based Task Logs"). After this change, ClickHouse `task_logs` is the only
-place task stdout/stderr lives, for every runner and entry type, and the
-`log_path` plumbing disappears end to end.
+Design for retiring file-based task logs. After this change, ClickHouse
+`task_logs` is the only place task stdout/stderr lives, for every runner and
+entry type, and the `log_path` plumbing disappears end to end.
+
+**Implementation**: `aaiclick/orchestration/logging.py` — see
+`capture_task_output`, `shell_text_to_lines`;
+`aaiclick/orchestration/execution/log_flush.py` — see `flush_shell_logs`;
+`aaiclick/orchestration/execution/runner.py` — see `register_run`; shell
+vehicles in `mp_worker.py` (`_HostShellVehicle`), `docker_worker.py`
+(`_DockerVehicle`), `kubernetes_worker.py` (`_KubernetesVehicle`).
 
 # Motivation
 
@@ -57,25 +63,13 @@ identical to today's file behavior.
 
 # Removal
 
-- **`capture_task_output`** — no file tee, no `AAICLICK_LOG_DIR` file layout;
-  yields nothing. `_ChLogHandler` loses its `log_file` echo. `get_logs_dir` and
+- **`capture_task_output`** — no file tee; yields nothing. `get_logs_dir` and
   the `AAICLICK_LOG_DIR` env var are deleted with it.
 - **`RunnerResult` / `ExecuteFn`** — `log_path` dropped from the result tuple
-  everywhere (runner, mp, docker, kubernetes, execution_worker), from docker's
-  `result.json` payload, and from `update_task_status` / `clear_task`.
+  everywhere, from docker's `result.json` payload, and from
+  `update_task_status` / `clear_task`.
 - **Schema** — `tasks.log_path` and `remote_task_results.log_path` dropped via
-  an Alembic migration (generate-migration skill). `build_tasks.log_path` stays;
-  build logs are out of scope here.
-- **API / UI** — `log_path` removed from `TaskDetail` and `TaskLogsView`,
+  Alembic. `build_tasks.log_path` stays; build logs are out of scope here.
+- **API / UI** — `log_path` removed from `TaskDetail`, `TaskLogsView`,
   `internal_api.tasks`, and the CLI task renderer; `src/api/schema.ts`
-  regenerated (`npm run gen-types`). No UI component reads it.
-- **Docs** — `orchestration.md` (designs + user guide), `kubernetes_runner.md`,
-  `api_server.md`, `frontend.md` updated; the future.md item removed.
-
-# Testing
-
-- Host-shell task logs land in CH and are returned by `get_task_logs`
-  (end-to-end on the default backend).
-- Docker / kubernetes vehicle tests: mocks updated for the memory capture and
-  the `RunnerResult` shape; a unit test that captured text converts and flushes.
-- Existing `capture_task_output` tests drop file assertions; CH assertions stay.
+  regenerated. No UI component read it.

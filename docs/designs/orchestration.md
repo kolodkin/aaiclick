@@ -110,7 +110,7 @@ A `build` starts by preflighting Docker (`docker version`): a worker with no CLI
 
 ## Shell entry type
 
-A `shell` task runs a literal argv (`command`, a list) directly in the runner's environment instead of importing a Python `entrypoint`. Success is **exit code 0**; there is no `result.data()` and `result_ref` is always `None`. stdout/stderr lands in the normal per-task log file, so logs surface uniformly.
+A `shell` task runs a literal argv (`command`, a list) directly in the runner's environment instead of importing a Python `entrypoint`. Success is **exit code 0**; there is no `result.data()` and `result_ref` is always `None`. stdout/stderr is captured host-side (pipe, `docker logs`, or `kubectl logs`) and flushed into the ClickHouse `task_logs` table under a host-minted `run_id`, so logs surface uniformly.
 
 In an isolated environment (container/Pod) a shell task receives **only** `command_env` (a dict) — *not* the aaiclick runner env — so no DB credentials leak into an arbitrary image. The subprocess runner has no isolation boundary, so the command inherits the worker's process env with `command_env` overlaid.
 
@@ -177,7 +177,7 @@ before it retries to PENDING or settles to FAILED) and `UPSTREAM_FAILED`
 
 - **RegisteredJob** — job catalog entry; fields: `id`, `name` (unique), `entrypoint`, `enabled`, `schedule` (cron), `default_kwargs` (JSON), `preservation_mode`, `next_run_at`, `created_at`, `updated_at`
 - **Job** — a named workflow run; fields: `id`, `name`, `status`, `run_type`, `registered_job_id` (FK), `preservation_mode`, `created_at`, `started_at`, `completed_at`, `error`
-- **Task** — single executable unit; fields: `id`, `job_id`, `group_id`, `entrypoint`, `kwargs` (JSONB), `status`, `result` (JSONB), `log_path`, `error`, `execution_worker_id`, `run_epoch` (fencing token bumped by `clear_task`), timestamps
+- **Task** — single executable unit; fields: `id`, `job_id`, `group_id`, `entrypoint`, `kwargs` (JSONB), `status`, `result` (JSONB), `error`, `execution_worker_id`, `run_epoch` (fencing token bumped by `clear_task`), timestamps
 - **Group** — logical task grouping with optional nesting via `parent_group_id`; fields: `id`, `job_id`, `parent_group_id`, `name`, `created_at`
 - **Dependency** — composite PK `(previous_id, previous_type, next_id, next_type)`; types are `'task'` or `'group'`; supports all four combinations
 - **ExecutionWorker** — active worker process; fields: `id`, `hostname`, `pid`, `status`, `last_heartbeat`, `tasks_completed`, `tasks_failed`, `started_at`
@@ -452,29 +452,19 @@ All Object operations within a task are automatically logged when `data_context(
 | `AAICLICK_LOCAL_ROOT`    | `~/.aaiclick`                        | Base directory for all local-mode state   |
 | `AAICLICK_SQL_URL` | `sqlite+aiosqlite:///{root}/local.db`| SQLAlchemy async URL for orchestration DB |
 | `AAICLICK_CH_URL`  | `chdb://{root}/chdb_data`            | ClickHouse connection URL for data ops    |
-| `AAICLICK_LOG_DIR` | mode-dependent (see below)           | Task log directory override               |
-
 `is_local()` returns `True` when `AAICLICK_CH_URL` starts with `chdb://` and `AAICLICK_SQL_URL` starts with `sqlite`.
 
-**Log directory defaults** (see `aaiclick/orchestration/logging.py` — `get_logs_dir()`):
-
-| Mode                | Default               |
-|---------------------|-----------------------|
-| Local               | `{AAICLICK_LOCAL_ROOT}/logs`|
-| Distributed (macOS) | `~/.aaiclick/logs`    |
-| Distributed (Linux) | `/var/log/aaiclick`   |
-
-**Cross-host logs**: `capture_task_output` tees task stdout/stderr to the local
-file *and* streams it into the ClickHouse `task_logs` table from inside the task
-process. It also installs a `logging` handler (taking over the root logger for
+**Cross-host logs**: `capture_task_output` streams task stdout/stderr into the
+ClickHouse `task_logs` table from inside the task process. It also installs a `logging` handler (taking over the root logger for
 the task) so each `logging.*` record is captured with its true `level`; raw
 `print()` output defaults to `INFO` (stdout) / `ERROR` (stderr), and
 `AAICLICK_LOG_LEVEL` sets the captured root level (default `INFO`). Every row is
 tagged with its `stream` (`stdout`/`stderr`), its `level`, and a per-line
 `created_at` (emit time, not flush time) so the UI can color by severity and
 optionally show timestamps. Because every runner (subprocess, docker,
-kubernetes) shares that path, `get_task_logs` reads one host-independent source
-regardless of where the task ran — `aaiclick/orchestration/logging.py`,
+kubernetes) shares that path, and shell tasks flush their host-captured output
+through `execution/log_flush.py`, `get_task_logs` reads one host-independent
+source regardless of where the task ran — `aaiclick/orchestration/logging.py`,
 `aaiclick/oplog/models.py`. The rows are job-scoped: the background worker's
 `_delete_job_data` drops a job's `task_logs` alongside its `operation_log` on TTL
 expiry, so logs share the job's retention lifecycle.

@@ -89,8 +89,8 @@ via TanStack Query's `refetchInterval`.
 | `useRegisterJob`  | `POST /api/v0/registered-jobs`   | `aaiclick/server/routers/registered_jobs.py` |
 
 **Implementation**: `aaiclick/server/routers/tasks.py` — see `get_task_logs`;
-`aaiclick/internal_api/tasks.py` — see `get_task_logs` (reads `task.log_path`,
-returns `available=False` when the file is missing or cross-host);
+`aaiclick/internal_api/tasks.py` — see `get_task_logs` (reads the CH
+`task_logs` stream, `available=False` when the task has no captured run);
 `aaiclick/orchestration/view_models.py` — see `TaskLogsView`, `JobView`
 (`total_tasks` / `completed_tasks` populated by `list_jobs`).
 
