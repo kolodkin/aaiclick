@@ -6,6 +6,8 @@ single-session constraint in ``docs/designs/testing.md``."""
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 from . import kubernetes_worker as kw
 
 
@@ -58,13 +60,14 @@ def test_build_pod_manifest_omits_optional_fields():
     assert "resources" not in spec["containers"][0]
 
 
-def _handle(task_id=7, run_epoch=1):
+def _handle(task_id=7, run_epoch=1, run_id=None):
     return kw._PodHandle(
         name="aaiclick-task-7-1",
         namespace="default",
-        log_path="/logs/1.log",
         task_id=task_id,
+        job_id=1,
         run_epoch=run_epoch,
+        run_id=run_id,
     )
 
 
@@ -100,7 +103,7 @@ def test_collect_synthesizes_failure_when_row_missing():
 
 
 def test_collect_returns_row():
-    payload = kw.RunnerResult(True, {"native_value": 5}, "/logs/1.log", None)
+    payload = kw.RunnerResult(True, {"native_value": 5}, None, None)
     out = _collect(_handle(), 0, None, was_cancelled=False, payload=payload)
     assert out.success is True and out.result_ref == {"native_value": 5}
 
@@ -148,9 +151,42 @@ def test_module_pod_uses_shim_and_runner_env():
 
 def test_collect_shell_success_from_exit_code():
     out = _collect(_handle(), 0, None, was_cancelled=False, payload=None, entry_type="shell")
-    assert out.success is True and out.error is None and out.log_path == "/logs/1.log"
+    assert out.success is True and out.error is None
 
 
 def test_collect_shell_failure_from_exit_code():
     out = _collect(_handle(), 3, None, was_cancelled=False, payload=None, entry_type="shell")
     assert out.success is False and out.error == "exit 3"
+
+
+async def test_shell_pod_logs_flushed_to_ch(monkeypatch):
+    """Shell pod output is fetched via `kubectl logs` and flushed to CH under
+    the run_id registered at launch; module pods skip the host-side fetch
+    (they stream to CH from inside the pod)."""
+    flushed = {}
+
+    async def fake_flush(task_id, job_id, run_id, text):
+        flushed.update(task_id=task_id, job_id=job_id, run_id=run_id, text=text)
+
+    monkeypatch.setattr(kw, "flush_shell_logs", fake_flush)
+    monkeypatch.setattr(kw, "_pod_status", AsyncMock(return_value=("Succeeded", 0)))
+    monkeypatch.setattr(kw, "_pod_logs_text", AsyncMock(return_value="pod out\n"))
+
+    exit_code, error, payload = await _vehicle("shell").wait(_handle(run_id=88), None)
+
+    assert (exit_code, error, payload) == (0, None, None)
+    assert flushed == {"task_id": 7, "job_id": 1, "run_id": 88, "text": "pod out\n"}
+
+
+async def test_module_pod_wait_skips_host_log_fetch(monkeypatch):
+    logs_fetch = AsyncMock(return_value="ignored")
+    monkeypatch.setattr(kw, "_pod_logs_text", logs_fetch)
+    monkeypatch.setattr(kw, "_pod_status", AsyncMock(return_value=("Succeeded", 0)))
+    row = kw.RunnerResult(True, None, None, None)
+    monkeypatch.setattr(kw, "_read_task_run_result_row", AsyncMock(return_value=row))
+
+    exit_code, error, payload = await _vehicle("module").wait(_handle(), None)
+
+    assert (exit_code, error) == (0, None)
+    assert payload is row
+    logs_fetch.assert_not_awaited()

@@ -18,12 +18,10 @@ import json
 import os
 import sys
 import tempfile
-from pathlib import Path
 from typing import NamedTuple
 
 from sqlmodel import select
 
-from ..logging import get_logs_dir
 from ..models import RemoteTaskResult, Task
 from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_SHELL
@@ -39,7 +37,8 @@ from .execution_worker import (
     parse_task_timeout,
 )
 from .image_builder import resolve_image_tag
-from .runner import execute_task, serialize_task_result
+from .log_flush import flush_shell_logs
+from .runner import execute_task, register_run, serialize_task_result
 from .runner_env import build_runner_env
 
 POD_ENTRYPOINT = ["python", "-m", "aaiclick.orchestration.execution.kubernetes_worker"]
@@ -144,12 +143,15 @@ class _PodHandle:
     """Pod identity + a ``deleted`` latch so ``cleanup`` doesn't re-delete a
     Pod ``terminate`` already removed (the cancellation path)."""
 
-    def __init__(self, name: str, namespace: str, log_path: str, task_id: int, run_epoch: int) -> None:
+    def __init__(
+        self, name: str, namespace: str, task_id: int, job_id: int, run_epoch: int, run_id: int | None = None
+    ) -> None:
         self.name = name
         self.namespace = namespace
-        self.log_path = log_path
         self.task_id = task_id
+        self.job_id = job_id
         self.run_epoch = run_epoch
+        self.run_id = run_id
         self.deleted = False
 
 
@@ -182,12 +184,11 @@ async def _pod_status(handle: _PodHandle) -> tuple[str, int]:
     return phase, exit_code
 
 
-async def _capture_pod_logs(handle: _PodHandle) -> None:
-    """Authoritative log fetch into the host log file (run once the Pod is
-    terminal). The container's task stdout reaches ``kubectl logs`` because
-    ``capture_task_output`` tees to stdout."""
+async def _pod_logs_text(handle: _PodHandle) -> str:
+    """Fetch the Pod's stdout text (shell Pods run vanilla user images with no
+    in-pod harness — ``kubectl logs`` is the capture)."""
     _, out, _ = await cli.run(_kubectl_bin(), "logs", handle.name, "-n", handle.namespace, check=False, stream=False)
-    Path(handle.log_path).write_text(out)
+    return out
 
 
 async def _read_task_run_result_row(task_id: int, run_epoch: int) -> RunnerResult | None:
@@ -207,11 +208,13 @@ async def _read_task_run_result_row(task_id: int, run_epoch: int) -> RunnerResul
 class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
     """``TaskVehicle`` for the Kubernetes runner."""
 
-    def __init__(self, spec: _PodSpec, log_base: str) -> None:
+    def __init__(self, spec: _PodSpec) -> None:
         self._spec = spec
-        self._log_base = log_base
 
     async def launch(self, task: Task, execution_worker_id: int) -> _PodHandle:
+        run_id = None
+        if self._spec.entry_type == ENTRY_SHELL:
+            run_id = await register_run(task.id)
         env = build_runner_env()
         env["AAICLICK_LOG_DIR"] = POD_LOG_DIR
         name = _pod_name(task.id, task.run_epoch)
@@ -236,9 +239,7 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
             await cli.run(_kubectl_bin(), "apply", "-f", manifest_path)
         finally:
             os.unlink(manifest_path)
-        log_path = os.path.join(self._log_base, str(task.job_id), str(task.id), f"{task.run_epoch}.log")
-        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
-        return _PodHandle(name, self._spec.namespace, log_path, task.id, task.run_epoch)
+        return _PodHandle(name, self._spec.namespace, task.id, task.job_id, task.run_epoch, run_id)
 
     async def wait(self, handle: _PodHandle, timeout: float | None) -> tuple[int, str | None, RunnerResult | None]:
         elapsed = 0.0
@@ -253,10 +254,14 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
                 break
             await asyncio.sleep(POLL_INTERVAL)
             elapsed += POLL_INTERVAL
-        await _capture_pod_logs(handle)
         # Shell Pods run a vanilla user image that never writes a
-        # ``RemoteTaskResult`` row — the exit code is the result.
+        # ``RemoteTaskResult`` row — the exit code is the result, and the
+        # host flushes `kubectl logs` output to CH (module Pods stream to CH
+        # from inside the Pod via capture_task_output).
         if self._spec.entry_type == ENTRY_SHELL:
+            if handle.run_id is not None:
+                text = await _pod_logs_text(handle)
+                await flush_shell_logs(handle.task_id, handle.job_id, handle.run_id, text)
             return exit_code, error, None
         result_row = await _read_task_run_result_row(handle.task_id, handle.run_epoch)
         return exit_code, error, result_row
@@ -272,14 +277,14 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
         self, handle: _PodHandle, exit_code: int, error: str | None, was_cancelled: bool, payload: RunnerResult | None
     ) -> RunnerResult:
         if was_cancelled:
-            return RunnerResult(False, None, handle.log_path, "cancelled")
+            return RunnerResult(False, None, None, "cancelled")
         if error is not None:
-            return RunnerResult(False, None, handle.log_path, error)
+            return RunnerResult(False, None, None, error)
         if self._spec.entry_type == ENTRY_SHELL:
             return RunnerResult(
                 exit_code == 0,
                 None,
-                handle.log_path,
+                None,
                 None if exit_code == 0 else f"exit {exit_code}",
             )
         if payload is None:
@@ -298,7 +303,7 @@ async def _run_task_in_pod(
     image_tag = await resolve_image_tag(task, dispatch.image_source, dispatch.image_tag, execution_worker_id)
     spec = _pod_spec_from(task, dispatch._replace(image_tag=image_tag))
     timeout = parse_task_timeout()
-    vehicle = _KubernetesVehicle(spec, get_logs_dir())
+    vehicle = _KubernetesVehicle(spec)
     result = await drive_vehicle(
         task,
         execution_worker_id,
