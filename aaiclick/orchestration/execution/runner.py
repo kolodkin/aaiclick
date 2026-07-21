@@ -266,6 +266,26 @@ async def deserialize_task_params(serialized_params: dict) -> dict:
         return {k: await _deserialize_value(v, session) for k, v in serialized_params.items()}
 
 
+async def register_run(task_id: int) -> int:
+    """Mint a per-attempt snowflake run_id and record the attempt on the Task.
+
+    Appends the new run_id to ``run_ids`` and ``TASK_RUNNING`` to
+    ``run_statuses``. Shared by ``execute_task`` (module tasks, in the task
+    process) and the shell vehicles (host side), so every attempt — module or
+    shell — keys its ClickHouse ``task_logs`` rows by a registered run_id.
+    """
+    run_id = get_snowflake_id()
+    async with get_sql_session() as session:
+        result = await session.execute(select(Task).where(Task.id == task_id))
+        db_task = result.scalar_one_or_none()
+        if db_task is not None:
+            db_task.run_ids = [*db_task.run_ids, run_id]
+            db_task.run_statuses = [*db_task.run_statuses, TASK_RUNNING]
+            session.add(db_task)
+            await session.commit()
+    return run_id
+
+
 async def execute_task(task: Task) -> tuple[Any, str]:
     """
     Execute a single task inside orch_context.
@@ -279,16 +299,7 @@ async def execute_task(task: Task) -> tuple[Any, str]:
         persisting log_path and updating run_statuses to the final status.
     """
     func = import_callback(task.entrypoint)
-    run_id = get_snowflake_id()
-
-    async with get_sql_session() as session:
-        result = await session.execute(select(Task).where(Task.id == task.id))
-        db_task = result.scalar_one_or_none()
-        if db_task is not None:
-            db_task.run_ids = [*db_task.run_ids, run_id]
-            db_task.run_statuses = [*db_task.run_statuses, TASK_RUNNING]
-            session.add(db_task)
-            await session.commit()
+    run_id = await register_run(task.id)
 
     set_current_task_info(task_id=task.id, job_id=task.job_id)
 

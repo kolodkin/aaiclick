@@ -26,6 +26,7 @@ from aaiclick.orchestration.execution.runner import (
     execute_task,
     import_callback,
     register_returned_tasks,
+    register_run,
     run_job_tasks,
     serialize_task_result,
 )
@@ -39,6 +40,7 @@ from aaiclick.orchestration.models import (
     JOB_PENDING,
     TASK_COMPLETED,
     TASK_FAILED,
+    TASK_RUNNING,
     Dependency,
     Group,
     Task,
@@ -119,6 +121,20 @@ async def test_capture_task_output_stderr(orch_ctx, monkeypatch):
         with open(log_path) as f:
             content = f.read()
             assert "Error message" in content
+
+
+async def test_register_run_appends_run_ids_and_statuses(orch_ctx):
+    """Each register_run call mints a distinct run_id and appends RUNNING."""
+    job = await create_job("register_run_job", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+    task = (await get_tasks_for_job(job.id))[0]
+
+    run1 = await register_run(task.id)
+    run2 = await register_run(task.id)
+
+    assert run1 != run2
+    refreshed = await get_task(task.id)
+    assert refreshed.run_ids == [run1, run2]
+    assert refreshed.run_statuses == [TASK_RUNNING, TASK_RUNNING]
 
 
 # Execution tests

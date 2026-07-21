@@ -159,6 +159,21 @@ class _ChLogHandler(logging.Handler):
             self.handleError(record)
 
 
+def shell_text_to_lines(text: str) -> list[LogLine]:
+    """Convert a shell task's captured output text into ``LogLine`` rows.
+
+    Shell runners capture stdout and stderr merged into one text blob (host
+    pipe, ``docker logs``, ``kubectl logs``), so every line is tagged
+    ``stdout`` / ``INFO``. A trailing newline does not produce an empty line.
+    """
+    if not text:
+        return []
+    parts = text.split("\n")
+    if parts and parts[-1] == "":
+        parts.pop()
+    return [LogLine(stream=STDOUT_STREAM, level="INFO", text=p) for p in parts]
+
+
 async def flush_task_logs(task_id: int, job_id: int, run_id: int, lines: list[LogLine]) -> None:
     """Best-effort batch insert of captured log lines into CH ``task_logs``.
 
