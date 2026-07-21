@@ -1056,8 +1056,6 @@ export interface components {
             kwargs?: {
                 [key: string]: unknown;
             };
-            /** Log Path */
-            log_path?: string | null;
             /**
              * Max Retries
              * @default 0
@@ -1086,8 +1084,6 @@ export interface components {
             available: boolean;
             /** Lines */
             lines?: components["schemas"]["LogLine"][];
-            /** Log Path */
-            log_path?: string | null;
         };
         /**
          * TaskStatsView
