@@ -10,11 +10,11 @@ from __future__ import annotations
 import re
 import warnings
 import weakref
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 import pyarrow as pa
 
@@ -48,7 +48,13 @@ from ..scope import (
     make_scoped_table_name,
 )
 from ..sql_utils import quote_identifier
-from .arrow_ingest import infer_struct_array, leaf_column_info, struct_array_to_columns, struct_type_to_columns
+from .arrow_ingest import (
+    arrow_table_for_insert,
+    infer_struct_array,
+    leaf_column_info,
+    struct_array_to_columns,
+    struct_type_to_columns,
+)
 from .ch_client import _ch_client_var, create_ch_client, get_ch_client
 from .lifecycle import LocalLifecycleHandler, _lifecycle_var, get_data_lifecycle, register_table
 
@@ -521,12 +527,22 @@ async def create_object_from_value(
             raise ValueError(f"aai_id=True conflicts with user column '{AAI_ID_COLUMN}'")
         return {**columns, AAI_ID_COLUMN: AAI_ID_INFO}
 
+    async def _insert_columns(
+        table: str, columns: dict[str, ColumnInfo], col_map: Mapping[str, pa.Array | list]
+    ) -> None:
+        arrow_table = arrow_table_for_insert(col_map, columns)
+        if arrow_table.num_rows == 0:
+            return
+        async with _maybe_insert_lock(table, name):
+            await ch.insert_arrow(table, arrow_table)
+
     if isinstance(val, dict):
         has_arrays = any(isinstance(v, list) for v in val.values())
 
         if has_arrays and not _has_nested_dicts(val):
             # Dict of parallel arrays: one row per element.
             columns = {}
+            col_map: dict[str, pa.Array | list] = {}
             array_len = None
 
             for key, value in val.items():
@@ -549,6 +565,7 @@ async def create_object_from_value(
                         depth += 1
                         elem_type = elem_type.value_type
                     col_def = leaf_column_info(elem_type, depth)
+                    col_map[key] = pa_arr
                 else:
                     raise ValueError(
                         f"Dict of arrays requires all values to be lists. Key '{key}' has type {type(value).__name__}"
@@ -559,17 +576,7 @@ async def create_object_from_value(
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
             obj = await create_object(schema, name=name, scope=scope)
 
-            if array_len and array_len > 0:
-                keys = list(val.keys())
-                array_cols: list[list[Any]] = [cast("list[Any]", val[k]) for k in keys]
-                async with _maybe_insert_lock(obj.table, name):
-                    await ch.insert(
-                        obj.table,
-                        array_cols,
-                        column_names=keys,
-                        column_oriented=True,
-                        column_type_names=[columns[k].ch_type() for k in keys],
-                    )
+            await _insert_columns(obj.table, columns, col_map)
 
         else:
             # Single record (flat or nested): arrow infers the schema, leaves
@@ -582,15 +589,7 @@ async def create_object_from_value(
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
             obj = await create_object(schema, name=name, scope=scope)
 
-            keys = list(col_map.keys())
-            async with _maybe_insert_lock(obj.table, name):
-                await ch.insert(
-                    obj.table,
-                    [col_map[k] for k in keys],
-                    column_names=keys,
-                    column_oriented=True,
-                    column_type_names=[columns[k].ch_type() for k in keys],
-                )
+            await _insert_columns(obj.table, columns, col_map)
 
     elif isinstance(val, list):
         if val and isinstance(val[0], dict):
@@ -611,22 +610,13 @@ async def create_object_from_value(
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
             obj = await create_object(schema, name=name, scope=scope)
 
-            keys = list(col_map.keys())
-            async with _maybe_insert_lock(obj.table, name):
-                await ch.insert(
-                    obj.table,
-                    [col_map[k] for k in keys],
-                    column_names=keys,
-                    column_oriented=True,
-                    column_type_names=[columns[k].ch_type() for k in keys],
-                )
+            await _insert_columns(obj.table, columns, col_map)
         else:
             # Narrow: list of scalars (ValueListType).
             scalars = cast(ValueListType, val)
             col_def = _infer_clickhouse_type(scalars)
             columns = {"value": col_def.with_fieldtype(FIELDTYPE_ARRAY)}
             columns = _maybe_add_aai_id(_apply_field_specs(columns, fields))
-            col_def = columns["value"]
             schema = Schema(
                 fieldtype=FIELDTYPE_ARRAY,
                 columns=columns,
@@ -634,21 +624,12 @@ async def create_object_from_value(
             )
             obj = await create_object(schema, name=name, scope=scope)
 
-            if scalars:
-                async with _maybe_insert_lock(obj.table, name):
-                    await ch.insert(
-                        obj.table,
-                        [scalars],
-                        column_names=["value"],
-                        column_oriented=True,
-                        column_type_names=[col_def.ch_type()],
-                    )
+            await _insert_columns(obj.table, columns, {"value": scalars})
 
     else:
         col_def = _infer_clickhouse_type(val)
         columns = {"value": col_def}
         columns = _apply_field_specs(columns, fields)
-        col_def = columns["value"]
         schema = Schema(
             fieldtype=FIELDTYPE_SCALAR,
             columns=columns,
@@ -656,14 +637,7 @@ async def create_object_from_value(
         )
         obj = await create_object(schema, name=name, scope=scope)
 
-        async with _maybe_insert_lock(obj.table, name):
-            await ch.insert(
-                obj.table,
-                [[val]],
-                column_names=["value"],
-                column_oriented=True,
-                column_type_names=[col_def.ch_type()],
-            )
+        await _insert_columns(obj.table, columns, {"value": [val]})
 
     oplog_record(obj.table, "create_from_value")
     return obj

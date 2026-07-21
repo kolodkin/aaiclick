@@ -8,14 +8,20 @@ it takes top-level keys from the first record only). The type tree maps
 list<struct> -> ``x.*.y`` (one Array level per star). Keys missing in some
 records/items surface as nulls in the unified type and are rejected -
 strict identical-keys semantics with no per-item Python work. Leaf data
-leaves arrow through one ``to_pylist()`` per flat column.
+stays in arrow end to end: flat leaf arrays are assembled into a
+``pa.Table`` (cast to the ClickHouse target schema) and inserted via
+``ChClient.insert_arrow`` - no Python-list round trip.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import pyarrow as pa
+import pyarrow.compute as pc
 
 from ..models import ColumnInfo
+from .arrow_types import ch_type_to_pa
 
 
 def infer_struct_array(records: list) -> pa.StructArray:
@@ -101,23 +107,51 @@ def _walk_type(
         columns[key_path] = leaf_column_info(pa_type, array_depth)
 
 
+def arrow_table_for_insert(
+    col_map: Mapping[str, pa.Array | list],
+    columns: dict[str, ColumnInfo],
+) -> pa.Table:
+    """Assemble ingest columns into a ``pa.Table`` matching the CH schema.
+
+    ``col_map`` values are either arrow leaf arrays (from
+    :func:`struct_array_to_columns` or inference) or plain Python lists.
+    Each column is brought to the arrow type of its ``ColumnInfo`` target:
+    arrow arrays are cast (covers ``FieldSpec`` type overrides and all-null
+    leaves landing in ``Nullable(String)``), Python lists are constructed
+    directly at the target type. Casts allow time truncation — the
+    ``DateTime64(3)`` target intentionally drops sub-millisecond input —
+    but reject every other lossy conversion.
+    """
+    arrays = []
+    for name, value in col_map.items():
+        target = ch_type_to_pa(columns[name].ch_type())
+        if isinstance(value, list):
+            arr = pa.array(value, type=target)
+        elif value.type != target:
+            arr = value.cast(options=pc.CastOptions(target_type=target, allow_time_truncate=True))
+        else:
+            arr = value
+        arrays.append(arr)
+    return pa.table(arrays, names=list(col_map))
+
+
 def _missing(key_path: str) -> ValueError:
     return ValueError(f"All records must have identical keys: field {key_path!r} is missing or None in some records")
 
 
-def struct_array_to_columns(arr: pa.StructArray) -> dict[str, list]:
-    """Extract flat leaf columns as Python lists, enforcing strictness.
+def struct_array_to_columns(arr: pa.StructArray) -> dict[str, pa.Array]:
+    """Extract flat leaf columns as arrow arrays, enforcing strictness.
 
     Any null at a struct/list level, or in a typed leaf, means a key was
     missing (or None) in some records/items -> ValueError. All-null leaves
     (arrow ``null`` type, e.g. from empty lists or all-None values) pass
-    through as a Nullable(String) column, matching legacy behavior.
+    through as-is and are cast to Nullable(String) by
+    :func:`arrow_table_for_insert`, matching legacy behavior.
     """
     if arr.null_count:
         raise ValueError("Records must all be dicts (found a null record)")
     # Offsets-based rewrapping assumes an unsliced array, i.e. fresh from pa.array().
-    leaves = _extract_struct(arr, "")
-    return {name: leaf.to_pylist() for name, leaf in leaves.items()}
+    return _extract_struct(arr, "")
 
 
 def _extract_struct(arr: pa.StructArray, prefix: str) -> dict[str, pa.Array]:

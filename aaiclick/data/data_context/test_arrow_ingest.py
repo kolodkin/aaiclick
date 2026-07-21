@@ -1,14 +1,18 @@
 """Tests for arrow_ingest - pyarrow-based ingest schema evaluation."""
 
+from datetime import datetime, timezone
+
 import pyarrow as pa
 import pytest
 
 from aaiclick.data.data_context.arrow_ingest import (
+    arrow_table_for_insert,
     infer_struct_array,
     leaf_column_info,
     struct_array_to_columns,
     struct_type_to_columns,
 )
+from aaiclick.data.models import ColumnInfo
 
 
 def test_schema_nested_dict():
@@ -53,19 +57,19 @@ def test_missing_key_inside_list_items_raises():
 
 
 def test_extraction_parallel_arrays():
-    """Leaves come out as dot-star parallel arrays with per-row grouping."""
+    """Leaves come out as dot-star parallel arrow arrays with per-row grouping."""
     arr = infer_struct_array([{"a": 1, "b": [{"c": 10}, {"c": 20}]}, {"a": 2, "b": []}])
     cols = struct_array_to_columns(arr)
-    assert cols["a"] == [1, 2]
-    assert cols["b.*.c"] == [[10, 20], []]
+    assert cols["a"].to_pylist() == [1, 2]
+    assert cols["b.*.c"].to_pylist() == [[10, 20], []]
 
 
 def test_extraction_deep_mixed_nesting():
     """dict inside list items and list inside dict both extract correctly."""
     arr = infer_struct_array([{"x": {"w": 1, "y": [{"z": 1}, {"z": 2}]}}])
     cols = struct_array_to_columns(arr)
-    assert cols["x.w"] == [1]
-    assert cols["x.y.*.z"] == [[1, 2]]
+    assert cols["x.w"].to_pylist() == [1]
+    assert cols["x.y.*.z"].to_pylist() == [[1, 2]]
 
 
 def test_non_dict_item_raises():
@@ -128,14 +132,14 @@ def test_list_of_scalars_extraction():
     """Plain list fields extract as per-row lists."""
     arr = infer_struct_array([{"tags": [1, 2]}, {"tags": [3]}])
     cols = struct_array_to_columns(arr)
-    assert cols["tags"] == [[1, 2], [3]]
+    assert cols["tags"].to_pylist() == [[1, 2], [3]]
 
 
 def test_nested_list_of_scalars_extraction():
     """list<list<T>> extracts with both levels intact."""
     arr = infer_struct_array([{"m": [[1, 2], [3]]}])
     cols = struct_array_to_columns(arr)
-    assert cols["m"] == [[[1, 2], [3]]]
+    assert cols["m"].to_pylist() == [[[1, 2], [3]]]
 
 
 def test_intermediate_list_null_raises():
@@ -164,3 +168,55 @@ def test_none_item_with_all_null_leaf_raises():
     arr = infer_struct_array([{"b": [{"c": None}, None]}])
     with pytest.raises(ValueError, match="identical keys"):
         struct_array_to_columns(arr)
+
+
+def test_arrow_table_matching_types_pass_through():
+    """Columns whose arrow type already matches the target are not copied."""
+    col_map = {"a": pa.array([1, 2]), "s": pa.array(["x", "y"])}
+    columns = {"a": ColumnInfo("Int64"), "s": ColumnInfo("String")}
+    tbl = arrow_table_for_insert(col_map, columns)
+    assert tbl.column_names == ["a", "s"]
+    assert tbl.column("a").type == pa.int64()
+    assert tbl.column("a").to_pylist() == [1, 2]
+
+
+def test_arrow_table_casts_type_override():
+    """A FieldSpec-style type override casts the arrow leaf to the target type."""
+    col_map = {"a": pa.array([1, 2])}
+    tbl = arrow_table_for_insert(col_map, {"a": ColumnInfo("Int32")})
+    assert tbl.column("a").type == pa.int32()
+    assert tbl.column("a").to_pylist() == [1, 2]
+
+
+def test_arrow_table_truncates_timestamps_to_ms():
+    """us-precision arrow timestamps truncate to the DateTime64(3) target."""
+    dt = datetime(2024, 1, 1, 12, 0, 0, 123456, tzinfo=timezone.utc)
+    col_map = {"t": pa.array([dt])}
+    tbl = arrow_table_for_insert(col_map, {"t": ColumnInfo("DateTime64(3, 'UTC')")})
+    assert tbl.column("t").type == pa.timestamp("ms", tz="UTC")
+    assert tbl.column("t").to_pylist() == [dt.replace(microsecond=123000)]
+
+
+def test_arrow_table_null_leaf_to_nullable_string():
+    """All-null leaves (arrow null type) become nullable string columns."""
+    col_map = {"n": pa.array([None, None])}
+    tbl = arrow_table_for_insert(col_map, {"n": ColumnInfo("String", nullable=True)})
+    assert tbl.column("n").type == pa.string()
+    assert tbl.column("n").to_pylist() == [None, None]
+
+
+def test_arrow_table_builds_python_lists():
+    """Plain Python list values are constructed directly at the target type."""
+    col_map = {"v": [1.5, 2.5], "tags": [["a"], ["b", "c"]]}
+    columns = {"v": ColumnInfo("Float64"), "tags": ColumnInfo("String", array=1)}
+    tbl = arrow_table_for_insert(col_map, columns)
+    assert tbl.column("v").type == pa.float64()
+    assert tbl.column("tags").type == pa.list_(pa.string())
+    assert tbl.column("tags").to_pylist() == [["a"], ["b", "c"]]
+
+
+def test_arrow_table_incompatible_cast_raises():
+    """Lossy non-timestamp casts (e.g. float -> Int64) are rejected."""
+    col_map = {"a": pa.array([1.5])}
+    with pytest.raises(pa.ArrowInvalid):
+        arrow_table_for_insert(col_map, {"a": ColumnInfo("Int64")})

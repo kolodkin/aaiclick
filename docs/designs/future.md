@@ -30,15 +30,6 @@ Also relevant: ClickHouse's own `ALTER TABLE` is limited — `MODIFY ORDER BY` c
 
 No action today — fresh installs keep working, existing installs degrade gracefully at worst. Revisit once there is a third structural CH-side change (which makes the per-change CLI approach untenable) or once a change actually breaks (not just slows down) an existing install.
 
-## Native Arrow Insert for Ingest
-
-`create_object_from_value` converts arrow leaves to Python lists
-(`to_pylist()`) for the list-based `ChClient.insert`. A follow-up can add
-an arrow-native insert to the `ChClient` protocol (clickhouse-connect
-`insert_arrow`; chdb `Python()` table engine) to skip that conversion.
-Worth doing only if profiling shows the conversion matters — the
-per-record Python passes are already gone.
-
 ---
 
 # Deferred
