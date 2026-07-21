@@ -286,24 +286,24 @@ async def register_run(task_id: int) -> int:
     return run_id
 
 
-async def execute_task(task: Task) -> tuple[Any, str]:
+async def execute_task(task: Task) -> Any:
     """
     Execute a single task inside orch_context.
 
     Generates a per-attempt run_id (snowflake) and appends it to the Task's
-    run_ids/run_statuses arrays. Each attempt gets its own log file at
-    {base}/{job_id}/{task_id}/{run_id}.log.
+    run_ids/run_statuses arrays; the attempt's output streams to CH
+    ``task_logs`` under that run_id.
 
     Returns:
-        Tuple of (task result, log_path). Caller is responsible for
-        persisting log_path and updating run_statuses to the final status.
+        The task result. Caller is responsible for updating run_statuses to
+        the final status.
     """
     func = import_callback(task.entrypoint)
     run_id = await register_run(task.id)
 
     set_current_task_info(task_id=task.id, job_id=task.job_id)
 
-    async with capture_task_output(task.id, task.job_id, run_id) as log_path:
+    async with capture_task_output(task.id, task.job_id, run_id):
         async with task_scope(
             task_id=task.id,
             job_id=task.job_id,
@@ -335,7 +335,7 @@ async def execute_task(task: Task) -> tuple[Any, str]:
             # (ContextVar) that was populated during func() is still active.
             data_result = await register_returned_tasks(result, task.id, task.job_id)
 
-    return data_result, log_path
+    return data_result
 
 
 def _sanitize_for_json(value: Any) -> Any:
@@ -547,7 +547,7 @@ async def run_job_tasks(job: Job) -> None:
             task_job_id = task.job_id
 
         try:
-            data_result, log_path = await execute_task(task)
+            data_result = await execute_task(task)
 
             result_ref = serialize_task_result(data_result, task_job_id)
 
@@ -558,7 +558,6 @@ async def run_job_tasks(job: Job) -> None:
                 task.status = TASK_COMPLETED
                 task.completed_at = utc_now()
                 task.result = result_ref
-                task.log_path = log_path
                 if task.run_statuses:
                     task.run_statuses = [*task.run_statuses[:-1], TASK_COMPLETED]
 

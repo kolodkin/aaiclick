@@ -69,7 +69,6 @@ def _make_task(
     error: str | None = None,
     kwargs: dict | None = None,
     execution_worker_id: int | None = None,
-    log_path: str | None = None,
     result: dict | None = None,
 ) -> Task:
     return Task(
@@ -84,7 +83,6 @@ def _make_task(
         error=error,
         kwargs=kwargs or {},
         execution_worker_id=execution_worker_id,
-        log_path=log_path,
         result=result,
         attempt=1,
     )
@@ -207,16 +205,14 @@ def test_ms_between_handles_nones():
 
 
 def test_task_logs_view_defaults():
-    view = TaskLogsView(available=False, log_path=None)
+    view = TaskLogsView(available=False)
     assert view.lines == []
     assert view.available is False
-    assert view.log_path is None
 
 
 def test_task_logs_view_with_lines():
     view = TaskLogsView(
         available=True,
-        log_path="/tmp/x.log",
         lines=[LogLine(stream="stdout", text="a"), LogLine(stream="stderr", text="b")],
     )
     assert [(line.stream, line.text) for line in view.lines] == [("stdout", "a"), ("stderr", "b")]

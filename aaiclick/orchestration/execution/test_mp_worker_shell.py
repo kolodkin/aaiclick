@@ -30,7 +30,7 @@ async def _reload(task_id: int) -> Task:
 
 async def test_shell_on_host_succeeds_on_exit_zero(orch_ctx_no_ch):
     dispatch = JobDispatch("subprocess", None, None, "shell", ["true"], None)
-    success, result_ref, log_path, error = await _run_shell_on_host(_shell_task(["true"]), 1, dispatch)
+    success, result_ref, error = await _run_shell_on_host(_shell_task(["true"]), 1, dispatch)
     assert success is True
     assert result_ref is None
     assert error is None
@@ -38,7 +38,7 @@ async def test_shell_on_host_succeeds_on_exit_zero(orch_ctx_no_ch):
 
 async def test_shell_on_host_fails_on_nonzero(orch_ctx_no_ch):
     dispatch = JobDispatch("subprocess", None, None, "shell", ["false"], None)
-    success, _, _, error = await _run_shell_on_host(_shell_task(["false"]), 1, dispatch)
+    success, _, error = await _run_shell_on_host(_shell_task(["false"]), 1, dispatch)
     assert success is False
     assert "exit" in (error or "")
 
@@ -46,7 +46,7 @@ async def test_shell_on_host_fails_on_nonzero(orch_ctx_no_ch):
 async def test_shell_on_host_command_env_overlaid(orch_ctx_no_ch):
     cmd = ["python", "-c", "import os,sys; sys.exit(0 if os.environ.get('K')=='v' else 3)"]
     dispatch = JobDispatch("subprocess", None, None, "shell", cmd, {"K": "v"})
-    success, _, _, _ = await _run_shell_on_host(_shell_task(cmd, {"K": "v"}), 1, dispatch)
+    success, _, _ = await _run_shell_on_host(_shell_task(cmd, {"K": "v"}), 1, dispatch)
     assert success is True
 
 
@@ -56,7 +56,7 @@ async def test_shell_on_host_streams_logs_to_clickhouse(orch_ctx_no_ch):
     task = await _persisted_shell_task(cmd)
     dispatch = JobDispatch("subprocess", None, None, "shell", cmd, None)
 
-    success, _, _, _ = await _run_shell_on_host(task, 1, dispatch)
+    success, _, _ = await _run_shell_on_host(task, 1, dispatch)
     assert success is True
 
     refreshed = await _reload(task.id)

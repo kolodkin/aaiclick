@@ -197,7 +197,6 @@ async def test_clear_clears_task_fields(orch_ctx):
     t.completed_at = utc_now()
     t.error = "old error"
     t.result = {"table": "t_old"}
-    t.log_path = "/tmp/old.log"
     await _insert(t)
 
     await clear_task(t.id)
@@ -210,7 +209,6 @@ async def test_clear_clears_task_fields(orch_ctx):
     assert reset.completed_at is None
     assert reset.error is None
     assert reset.result is None
-    assert reset.log_path is None
 
 
 async def test_clear_nonexistent_task_raises(orch_ctx):

@@ -1,11 +1,7 @@
 """Tests for orchestration execution and Job.test() functionality."""
 
 import inspect
-import os
 import sys
-import tempfile
-from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 from pydantic import BaseModel
@@ -33,7 +29,7 @@ from aaiclick.orchestration.execution.runner import (
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.jobs import get_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
-from aaiclick.orchestration.logging import capture_task_output, get_logs_dir
+from aaiclick.orchestration.logging import capture_task_output, read_task_logs
 from aaiclick.orchestration.models import (
     JOB_COMPLETED,
     JOB_FAILED,
@@ -52,75 +48,26 @@ from aaiclick.testing import seed_registry_row
 # Logging tests
 
 
-async def test_get_logs_dir_default(orch_ctx, monkeypatch):
-    """Test get_logs_dir returns platform-appropriate default."""
-    monkeypatch.delenv("AAICLICK_LOG_DIR", raising=False)
+async def test_capture_task_output_stdout(orch_ctx):
+    """stdout printed inside the capture scope lands in CH task_logs."""
+    task_id, job_id, run_id = 12345, 99, 555
 
-    # Mock Path.mkdir to avoid permission issues in CI
-    mock_mkdir = MagicMock()
-    monkeypatch.setattr(Path, "mkdir", mock_mkdir)
+    async with capture_task_output(task_id, job_id, run_id):
+        print("Hello, world!")
 
-    log_dir = get_logs_dir()
-
-    from aaiclick.backend import get_root, is_local
-
-    if is_local():
-        assert log_dir == str(get_root() / "logs")
-    elif sys.platform == "darwin":
-        assert log_dir == os.path.expanduser("~/.aaiclick/logs")
-    else:
-        assert log_dir == "/var/log/aaiclick"
-
-    # Verify mkdir was called
-    mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)
+    lines = await read_task_logs(task_id, run_id)
+    assert any(line.text == "Hello, world!" and line.stream == "stdout" for line in lines)
 
 
-async def test_get_logs_dir_custom(orch_ctx, monkeypatch):
-    """Test get_logs_dir with custom directory."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        custom_dir = os.path.join(tmpdir, "custom_logs")
-        monkeypatch.setenv("AAICLICK_LOG_DIR", custom_dir)
+async def test_capture_task_output_stderr(orch_ctx):
+    """stderr printed inside the capture scope lands in CH task_logs."""
+    task_id, job_id, run_id = 12346, 99, 556
 
-        log_dir = get_logs_dir()
+    async with capture_task_output(task_id, job_id, run_id):
+        print("Error message", file=sys.stderr)
 
-        assert log_dir == custom_dir
-        assert os.path.exists(custom_dir)
-
-
-async def test_capture_task_output_stdout(orch_ctx, monkeypatch):
-    """Test that stdout is captured to log file."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
-
-        task_id = 12345
-        job_id = 99
-        run_id = 555
-
-        async with capture_task_output(task_id, job_id, run_id) as log_path:
-            print("Hello, world!")
-
-        assert os.path.exists(log_path)
-        assert log_path == os.path.join(tmpdir, str(job_id), str(task_id), f"{run_id}.log")
-        with open(log_path) as f:
-            content = f.read()
-            assert "Hello, world!" in content
-
-
-async def test_capture_task_output_stderr(orch_ctx, monkeypatch):
-    """Test that stderr is captured to log file."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
-
-        task_id = 12346
-        job_id = 99
-        run_id = 556
-
-        async with capture_task_output(task_id, job_id, run_id) as log_path:
-            print("Error message", file=sys.stderr)
-
-        with open(log_path) as f:
-            content = f.read()
-            assert "Error message" in content
+    lines = await read_task_logs(task_id, run_id)
+    assert any(line.text == "Error message" and line.stream == "stderr" for line in lines)
 
 
 async def test_register_run_appends_run_ids_and_statuses(orch_ctx):
@@ -330,72 +277,40 @@ async def test_execute_task_async_function(orch_ctx):
 # run_job_tasks tests
 
 
-async def test_run_job_tasks_single_task(orch_ctx, monkeypatch):
+async def test_run_job_tasks_single_task(orch_ctx):
     """Test running a job with a single task."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
+    job = await create_job("test_job", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
 
-        job = await create_job("test_job", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+    await run_job_tasks(job)
 
-        await run_job_tasks(job)
+    assert job.status == JOB_COMPLETED
+    assert job.completed_at is not None
 
-        assert job.status == JOB_COMPLETED
-        assert job.completed_at is not None
-
-        # Verify task completed in database
-        async with get_sql_session() as session:
-            result = await session.execute(select(Task).where(Task.job_id == job.id))
-            tasks = list(result.scalars().all())
-            assert len(tasks) == 1
-            assert tasks[0].status == TASK_COMPLETED
+    # Verify task completed in database
+    async with get_sql_session() as session:
+        result = await session.execute(select(Task).where(Task.job_id == job.id))
+        tasks = list(result.scalars().all())
+        assert len(tasks) == 1
+        assert tasks[0].status == TASK_COMPLETED
 
 
-async def test_run_job_tasks_failing_task(orch_ctx, monkeypatch):
+async def test_run_job_tasks_failing_task(orch_ctx):
     """Test running a job with a failing task."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
+    job = await create_job("test_job_fail", "aaiclick.orchestration.fixtures.sample_tasks.failing_task")
 
-        job = await create_job("test_job_fail", "aaiclick.orchestration.fixtures.sample_tasks.failing_task")
+    await run_job_tasks(job)
 
-        await run_job_tasks(job)
+    assert job.status == JOB_FAILED
+    assert job.error is not None
+    assert "intentionally" in job.error
 
-        assert job.status == JOB_FAILED
-        assert job.error is not None
-        assert "intentionally" in job.error
-
-        # Verify task failed in database
-        async with get_sql_session() as session:
-            result = await session.execute(select(Task).where(Task.job_id == job.id))
-            tasks = list(result.scalars().all())
-            assert len(tasks) == 1
-            assert tasks[0].status == TASK_FAILED
-            assert tasks[0].error is not None
-
-
-async def test_run_job_tasks_creates_log_file(orch_ctx, monkeypatch):
-    """Test that task execution creates per-run log file."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
-
-        job = await create_job("test_job_log", "aaiclick.orchestration.fixtures.sample_tasks.task_with_output")
-
-        await run_job_tasks(job)
-
-        # Get the task to find log file
-        async with get_sql_session() as session:
-            result = await session.execute(select(Task).where(Task.job_id == job.id))
-            task = result.scalar_one()
-
-        assert task.run_ids, "Task should have at least one run_id"
-        run_id = task.run_ids[0]
-        log_path = os.path.join(tmpdir, str(job.id), str(task.id), f"{run_id}.log")
-        assert os.path.exists(log_path)
-        assert task.log_path == log_path
-
-        with open(log_path) as f:
-            content = f.read()
-            assert "This is stdout" in content
-            assert "Error message" in content
+    # Verify task failed in database
+    async with get_sql_session() as session:
+        result = await session.execute(select(Task).where(Task.job_id == job.id))
+        tasks = list(result.scalars().all())
+        assert len(tasks) == 1
+        assert tasks[0].status == TASK_FAILED
+        assert tasks[0].error is not None
 
 
 async def test_run_job_tasks_streams_logs_to_clickhouse(orch_ctx):
@@ -416,22 +331,18 @@ async def test_run_job_tasks_streams_logs_to_clickhouse(orch_ctx):
 # job_test() tests
 
 
-async def test_job_test_simple(orch_ctx, monkeypatch):
+async def test_job_test_simple(orch_ctx):
     """Test job_test() executes a simple task synchronously.
 
     Note: job_test() uses asyncio.run() internally, which is tested
     via ajob_test() in the async context to avoid nested event loops.
     """
-    with tempfile.TemporaryDirectory() as tmpdir:
-        monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
+    job = await create_job("test_sync", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
 
-        # Create the job
-        job = await create_job("test_sync", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+    # Test execution via the async helper (same code path as job_test())
+    await ajob_test(job)
 
-        # Test execution via the async helper (same code path as job_test())
-        await ajob_test(job)
-
-        assert job.status == JOB_COMPLETED
+    assert job.status == JOB_COMPLETED
 
 
 # TaskResult tests
@@ -552,69 +463,60 @@ async def test_register_returned_tasks_task_result_with_data(orch_ctx):
 # Dynamic pipeline integration tests
 
 
-async def test_dynamic_pipeline_creates_entry_task(orch_ctx, monkeypatch):
+async def test_dynamic_pipeline_creates_entry_task(orch_ctx):
     """@job creates a Job with an entry point task."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
+    job = await dynamic_pipeline()
 
-        job = await dynamic_pipeline()
+    assert job.status == JOB_PENDING
 
-        assert job.status == JOB_PENDING
-
-        # Verify entry point task was created
-        async with get_sql_session() as session:
-            result = await session.execute(select(Task).where(Task.job_id == job.id))
-            tasks = list(result.scalars().all())
-            assert len(tasks) == 1
-            assert tasks[0].name == "dynamic_pipeline"
-            assert "orchestration_dynamic.dynamic_pipeline" in tasks[0].entrypoint
+    # Verify entry point task was created
+    async with get_sql_session() as session:
+        result = await session.execute(select(Task).where(Task.job_id == job.id))
+        tasks = list(result.scalars().all())
+        assert len(tasks) == 1
+        assert tasks[0].name == "dynamic_pipeline"
+        assert "orchestration_dynamic.dynamic_pipeline" in tasks[0].entrypoint
 
 
-async def test_dynamic_pipeline_execution(orch_ctx, monkeypatch):
+async def test_dynamic_pipeline_execution(orch_ctx):
     """@job entry point runs and its returned tasks get registered and executed."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
+    job = await dynamic_pipeline()
+    await run_job_tasks(job)
 
-        job = await dynamic_pipeline()
-        await run_job_tasks(job)
+    assert job.status == JOB_COMPLETED
 
-        assert job.status == JOB_COMPLETED
+    # Entry point + 2 child tasks = 3 tasks total
+    async with get_sql_session() as session:
+        result = await session.execute(select(Task).where(Task.job_id == job.id).order_by(Task.id))
+        tasks = list(result.scalars().all())
+        assert len(tasks) == 3
 
-        # Entry point + 2 child tasks = 3 tasks total
-        async with get_sql_session() as session:
-            result = await session.execute(select(Task).where(Task.job_id == job.id).order_by(Task.id))
-            tasks = list(result.scalars().all())
-            assert len(tasks) == 3
+        # All tasks should be completed
+        for t in tasks:
+            assert t.status == TASK_COMPLETED
 
-            # All tasks should be completed
-            for t in tasks:
-                assert t.status == TASK_COMPLETED
-
-            # Child tasks should have results
-            child_tasks = [t for t in tasks if t.name != "dynamic_pipeline"]
-            assert len(child_tasks) == 2
-            for ct in child_tasks:
-                assert ct.result is not None
+        # Child tasks should have results
+        child_tasks = [t for t in tasks if t.name != "dynamic_pipeline"]
+        assert len(child_tasks) == 2
+        for ct in child_tasks:
+            assert ct.result is not None
 
 
-async def test_chain_pipeline_execution(orch_ctx, monkeypatch):
+async def test_chain_pipeline_execution(orch_ctx):
     """Chained dynamic creation: task A returns task B, task B returns task C."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
+    job = await chain_pipeline()
+    await run_job_tasks(job)
 
-        job = await chain_pipeline()
-        await run_job_tasks(job)
+    assert job.status == JOB_COMPLETED
 
-        assert job.status == JOB_COMPLETED
+    # chain_pipeline -> step_one -> step_two = 3 tasks
+    async with get_sql_session() as session:
+        result = await session.execute(select(Task).where(Task.job_id == job.id).order_by(Task.id))
+        tasks = list(result.scalars().all())
+        assert len(tasks) == 3
 
-        # chain_pipeline -> step_one -> step_two = 3 tasks
-        async with get_sql_session() as session:
-            result = await session.execute(select(Task).where(Task.job_id == job.id).order_by(Task.id))
-            tasks = list(result.scalars().all())
-            assert len(tasks) == 3
-
-            for t in tasks:
-                assert t.status == TASK_COMPLETED
+        for t in tasks:
+            assert t.status == TASK_COMPLETED
 
 
 # =============================================================================

@@ -62,7 +62,6 @@ def _child_process_target(
             RunnerResult(
                 success=False,
                 result_ref=None,
-                log_path=None,
                 error=str(e),
             )
         )
@@ -81,14 +80,13 @@ async def _child_run_task(
             db_result = await session.execute(select(Task).where(Task.id == task_id))
             task = db_result.scalar_one()
 
-        data_result, log_path = await execute_task(task)
+        data_result = await execute_task(task)
         result_ref = serialize_task_result(data_result, job_id)
 
         result_queue.put(
             RunnerResult(
                 success=True,
                 result_ref=result_ref,
-                log_path=log_path,
                 error=None,
             )
         )
@@ -146,7 +144,7 @@ class _MpVehicle(TaskVehicle["_ChildHandle", "RunnerResult"]):
 async def _run_task_in_child(
     task: Task,
     execution_worker_id: int,
-) -> tuple[bool, dict | None, str | None, str | None]:
+) -> tuple[bool, dict | None, str | None]:
     """ExecuteFn for the multiprocessing worker.
 
     Hands an ``_MpVehicle`` to the shared ``drive_vehicle`` driver, which
@@ -163,7 +161,7 @@ async def _run_task_in_child(
         poll_interval=POLL_INTERVAL,
         heartbeat_fn=execution_worker_heartbeat,
     )
-    return result.success, result.result_ref, result.log_path, result.error
+    return result.success, result.result_ref, result.error
 
 
 async def _poll_child(
@@ -194,7 +192,6 @@ async def _poll_child(
             return RunnerResult(
                 success=False,
                 result_ref=None,
-                log_path=None,
                 error=f"Task timed out after {timeout}s",
             )
 
@@ -202,7 +199,6 @@ async def _poll_child(
             return RunnerResult(
                 success=False,
                 result_ref=None,
-                log_path=None,
                 error=f"Child process exited with code {proc.exitcode}",
             )
 
@@ -265,10 +261,10 @@ class _HostShellVehicle(TaskVehicle["_HostShellHandle", None]):
         self, handle: _HostShellHandle, exit_code: int, error: str | None, was_cancelled: bool, payload: None
     ) -> RunnerResult:
         if was_cancelled:
-            return RunnerResult(False, None, None, "cancelled")
+            return RunnerResult(False, None, "cancelled")
         if error is not None:
-            return RunnerResult(False, None, None, error)
-        return RunnerResult(exit_code == 0, None, None, None if exit_code == 0 else f"exit {exit_code}")
+            return RunnerResult(False, None, error)
+        return RunnerResult(exit_code == 0, None, None if exit_code == 0 else f"exit {exit_code}")
 
     async def cleanup(self, handle: _HostShellHandle) -> None:
         pass
@@ -276,7 +272,7 @@ class _HostShellVehicle(TaskVehicle["_HostShellHandle", None]):
 
 async def _run_shell_on_host(
     task: Task, execution_worker_id: int, dispatch: JobDispatch
-) -> tuple[bool, dict | None, str | None, str | None]:
+) -> tuple[bool, dict | None, str | None]:
     """ExecuteFn for shell tasks on the subprocess runner."""
     vehicle = _HostShellVehicle(dispatch.command or [], dispatch.command_env)
     result = await drive_vehicle(
@@ -287,7 +283,7 @@ async def _run_shell_on_host(
         poll_interval=POLL_INTERVAL,
         heartbeat_fn=execution_worker_heartbeat,
     )
-    return result.success, result.result_ref, result.log_path, result.error
+    return result.success, result.result_ref, result.error
 
 
 # ---------------------------------------------------------------------------

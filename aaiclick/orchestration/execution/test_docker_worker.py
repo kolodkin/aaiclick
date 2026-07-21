@@ -31,7 +31,6 @@ def test_module_cmd_uses_bootstrap_shim():
         _cmdtask(entry_type=ENTRY_MODULE, entrypoint="m.f"),
         "python:3.12",
         "/ipc",
-        "/logs",
         {"A": "1"},
     )
     joined = " ".join(cmd)
@@ -45,7 +44,6 @@ def test_shell_cmd_runs_argv_no_ipc_no_runner_env():
         _cmdtask(entry_type=ENTRY_SHELL, command=["python", "main.py"], command_env={"K": "v"}),
         "python:3.12",
         "/ipc",
-        "/logs",
         {"AAICLICK_SQL_URL": "secret"},
     )
     assert cmd[-3:] == ["python:3.12", "python", "main.py"]
@@ -70,7 +68,7 @@ async def test_shell_container_logs_flushed_to_ch(monkeypatch):
     monkeypatch.setattr(docker_worker, "_wait_for_container", AsyncMock(return_value=(0, None)))
     monkeypatch.setattr(docker_worker, "_docker_run_detached", AsyncMock(return_value="cid"))
 
-    vehicle = docker_worker._DockerVehicle("img", "/logs", {}, "/ipc", ENTRY_SHELL)
+    vehicle = docker_worker._DockerVehicle("img", {}, "/ipc", ENTRY_SHELL)
     task = _cmdtask(entry_type=ENTRY_SHELL, command=["true"])
     handle = await vehicle.launch(task, 1)
     exit_code, error, _ = await vehicle.wait(handle, None)
@@ -93,7 +91,6 @@ def test_build_docker_run_cmd_shape():
         _cmdtask(entry_type=ENTRY_MODULE, entrypoint="user.module.entry"),
         "aaiclick-job:abc",
         "/tmp/ipc",
-        "/var/log/aaiclick",
         {"AAICLICK_SQL_URL": "u"},
     )
     joined = " ".join(cmd)
@@ -102,8 +99,6 @@ def test_build_docker_run_cmd_shape():
     # so docker wait can race-freely report the exit code.
     assert "--rm" not in cmd
     assert "-v /tmp/ipc:/aaiclick-ipc" in joined
-    assert "-v /var/log/aaiclick:/var/log/aaiclick" in joined
-    assert "-e AAICLICK_LOG_DIR=/var/log/aaiclick" in joined
     assert "-e AAICLICK_SQL_URL=u" in joined
     assert joined.endswith("aaiclick-job:abc python -m aaiclick.orchestration.execution.docker_worker --task-id 1")
 
@@ -112,7 +107,6 @@ def test_read_result_succeeds_on_success_payload(tmp_path):
     payload = {
         "success": True,
         "result_ref": {"foo": 1},
-        "log_path": "/some/log.log",
         "error": None,
     }
     (tmp_path / "result.json").write_text(json.dumps(payload))
@@ -122,7 +116,6 @@ def test_read_result_succeeds_on_success_payload(tmp_path):
     )
     assert result.success is True
     assert result.result_ref == {"foo": 1}
-    assert result.log_path == "/some/log.log"
     assert result.error is None
 
 
@@ -147,7 +140,7 @@ def test_read_result_propagates_cancellation(tmp_path):
     """Even if the container managed to write a success payload before
     being killed, a cancellation flag must override it — the host's
     explicit kill is the source of truth."""
-    payload = {"success": True, "result_ref": {}, "log_path": None, "error": None}
+    payload = {"success": True, "result_ref": {}, "error": None}
     (tmp_path / "result.json").write_text(json.dumps(payload))
     result = docker_worker._read_result_or_synthesize_failure(
         str(tmp_path), exit_code=137, error=None, was_cancelled=True
@@ -185,9 +178,7 @@ async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypa
     async def fake_run_detached(cmd):
         # Container writes a stale success payload before the host kills it.
         ipc_dir = next(arg.split(":", 1)[0] for arg in cmd if arg.endswith(":/aaiclick-ipc"))
-        Path(ipc_dir, "result.json").write_text(
-            json.dumps({"success": True, "result_ref": {}, "log_path": None, "error": None})
-        )
+        Path(ipc_dir, "result.json").write_text(json.dumps({"success": True, "result_ref": {}, "error": None}))
         return "fake-cid"
 
     async def fake_wait(cid, timeout):
@@ -211,6 +202,6 @@ async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypa
     monkeypatch.setattr(docker_worker, "POLL_INTERVAL", 0.05)
 
     dispatch = JobDispatch(RUNNER_DOCKER, "aaiclick-job:abc", None)
-    success, _, _, error = await docker_worker._run_task_in_container(_task(), execution_worker_id=1, dispatch=dispatch)
+    success, _, error = await docker_worker._run_task_in_container(_task(), execution_worker_id=1, dispatch=dispatch)
     assert success is False
     assert error == "cancelled"

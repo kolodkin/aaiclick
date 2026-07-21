@@ -91,7 +91,7 @@ def _collect(handle, exit_code, error, was_cancelled, payload, entry_type="modul
 
 
 def test_collect_cancelled_overrides_row():
-    payload = kw.RunnerResult(True, {"x": 1}, None, None)
+    payload = kw.RunnerResult(True, {"x": 1}, None)
     out = _collect(_handle(), 137, None, was_cancelled=True, payload=payload)
     assert out.success is False and out.error == "cancelled"
 
@@ -103,7 +103,7 @@ def test_collect_synthesizes_failure_when_row_missing():
 
 
 def test_collect_returns_row():
-    payload = kw.RunnerResult(True, {"native_value": 5}, None, None)
+    payload = kw.RunnerResult(True, {"native_value": 5}, None)
     out = _collect(_handle(), 0, None, was_cancelled=False, payload=payload)
     assert out.success is True and out.result_ref == {"native_value": 5}
 
@@ -182,7 +182,7 @@ async def test_module_pod_wait_skips_host_log_fetch(monkeypatch):
     logs_fetch = AsyncMock(return_value="ignored")
     monkeypatch.setattr(kw, "_pod_logs_text", logs_fetch)
     monkeypatch.setattr(kw, "_pod_status", AsyncMock(return_value=("Succeeded", 0)))
-    row = kw.RunnerResult(True, None, None, None)
+    row = kw.RunnerResult(True, None, None)
     monkeypatch.setattr(kw, "_read_task_run_result_row", AsyncMock(return_value=row))
 
     exit_code, error, payload = await _vehicle("module").wait(_handle(), None)

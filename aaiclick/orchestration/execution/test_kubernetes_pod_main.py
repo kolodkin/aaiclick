@@ -40,7 +40,6 @@ async def test_pod_main_writes_success_row(orch_ctx):
         ).scalar_one()
     assert row.success is True
     assert row.error is None
-    assert row.log_path  # path to the captured log file
 
 
 async def test_pod_main_writes_failure_row_on_exception(orch_ctx):

@@ -42,8 +42,6 @@ from .runner import execute_task, register_run, serialize_task_result
 from .runner_env import build_runner_env
 
 POD_ENTRYPOINT = ["python", "-m", "aaiclick.orchestration.execution.kubernetes_worker"]
-# Pod-internal log dir; ephemeral. The host captures logs via `kubectl logs`.
-POD_LOG_DIR = "/tmp/aaiclick-logs"
 
 
 def _kubectl_bin() -> str:
@@ -202,7 +200,7 @@ async def _read_task_run_result_row(task_id: int, run_epoch: int) -> RunnerResul
         ).scalar_one_or_none()
     if row is None:
         return None
-    return RunnerResult(row.success, row.result_ref, row.log_path, row.error)
+    return RunnerResult(row.success, row.result_ref, row.error)
 
 
 class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
@@ -216,7 +214,6 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
         if self._spec.entry_type == ENTRY_SHELL:
             run_id = await register_run(task.id)
         env = build_runner_env()
-        env["AAICLICK_LOG_DIR"] = POD_LOG_DIR
         name = _pod_name(task.id, task.run_epoch)
         manifest = _build_pod_manifest(
             name=name,
@@ -277,18 +274,17 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
         self, handle: _PodHandle, exit_code: int, error: str | None, was_cancelled: bool, payload: RunnerResult | None
     ) -> RunnerResult:
         if was_cancelled:
-            return RunnerResult(False, None, None, "cancelled")
+            return RunnerResult(False, None, "cancelled")
         if error is not None:
-            return RunnerResult(False, None, None, error)
+            return RunnerResult(False, None, error)
         if self._spec.entry_type == ENTRY_SHELL:
             return RunnerResult(
                 exit_code == 0,
                 None,
-                None,
                 None if exit_code == 0 else f"exit {exit_code}",
             )
         if payload is None:
-            return RunnerResult(False, None, None, f"pod exited with code {exit_code} but wrote no result row")
+            return RunnerResult(False, None, f"pod exited with code {exit_code} but wrote no result row")
         return payload
 
     async def cleanup(self, handle: _PodHandle) -> None:
@@ -298,7 +294,7 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
 
 async def _run_task_in_pod(
     task: Task, execution_worker_id: int, dispatch: JobDispatch
-) -> tuple[bool, dict | None, str | None, str | None]:
+) -> tuple[bool, dict | None, str | None]:
     """ExecuteFn for the Kubernetes runner."""
     image_tag = await resolve_image_tag(task, dispatch.image_source, dispatch.image_tag, execution_worker_id)
     spec = _pod_spec_from(task, dispatch._replace(image_tag=image_tag))
@@ -312,7 +308,7 @@ async def _run_task_in_pod(
         poll_interval=POLL_INTERVAL,
         heartbeat_fn=execution_worker_heartbeat,
     )
-    return result.success, result.result_ref, result.log_path, result.error
+    return result.success, result.result_ref, result.error
 
 
 # ---------------------------------------------------------------------------
@@ -321,7 +317,7 @@ async def _run_task_in_pod(
 
 
 async def _write_task_run_result(
-    task_id: int, run_epoch: int, success: bool, result_ref: dict | None, log_path: str | None, error: str | None
+    task_id: int, run_epoch: int, success: bool, result_ref: dict | None, error: str | None
 ) -> None:
     """Upsert the per-attempt result row the host reads back. Keyed by
     ``(task_id, run_epoch)`` so a re-run under a new epoch never collides."""
@@ -338,7 +334,6 @@ async def _write_task_run_result(
             session.add(existing)
         existing.success = success
         existing.result_ref = result_ref
-        existing.log_path = log_path
         existing.error = error
         await session.commit()
 
@@ -348,7 +343,7 @@ async def _pod_main(task_id: int, run_epoch: int) -> int:
     ``execute_task`` path and writes a ``RemoteTaskResult`` row for the host."""
     from ..orch_context import orch_context
 
-    success, result_ref, log_path, error = False, None, None, None
+    success, result_ref, error = False, None, None
     exit_code = 0
     # orch_context wraps both execution and the result write — the latter needs
     # an active SQL session (unlike docker's result.json file write).
@@ -356,13 +351,13 @@ async def _pod_main(task_id: int, run_epoch: int) -> int:
         try:
             async with get_sql_session() as session:
                 task = (await session.execute(select(Task).where(Task.id == task_id))).scalar_one()
-            data_result, log_path = await execute_task(task)
+            data_result = await execute_task(task)
             result_ref = serialize_task_result(data_result, task.job_id)
             success = True
         except BaseException as e:
             success, error, exit_code = False, f"{type(e).__name__}: {e}", 1
 
-        await _write_task_run_result(task_id, run_epoch, success, result_ref, log_path, error)
+        await _write_task_run_result(task_id, run_epoch, success, result_ref, error)
     return exit_code
 
 

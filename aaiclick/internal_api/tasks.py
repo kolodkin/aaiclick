@@ -47,10 +47,10 @@ async def get_task_logs(task_id: int, tail: int | None = None) -> TaskLogsView:
         raise NotFound(f"Task not found: {task_id}")
 
     if not task.run_ids:
-        return TaskLogsView(available=False, log_path=task.log_path)
+        return TaskLogsView(available=False)
 
     lines = await read_task_logs(task_id, task.run_ids[-1], tail=tail)
-    return TaskLogsView(available=bool(lines), log_path=task.log_path, lines=lines)
+    return TaskLogsView(available=bool(lines), lines=lines)
 
 
 async def clear_task(task_id: int) -> ClearTaskView:

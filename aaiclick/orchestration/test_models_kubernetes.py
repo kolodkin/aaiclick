@@ -38,7 +38,6 @@ def test_remote_task_result_fields():
         run_epoch=3,
         success=True,
         result_ref={"native_value": 1},
-        log_path="/logs/3.log",
         error=None,
     )
     assert row.task_id == 42

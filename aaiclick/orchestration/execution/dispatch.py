@@ -22,7 +22,7 @@ from .execution_worker import JobDispatch
 from .kubernetes_worker import _run_task_in_pod
 from .mp_worker import _run_shell_on_host, _run_task_in_child
 
-ExecuteResult = tuple[bool, dict | None, str | None, str | None]
+ExecuteResult = tuple[bool, dict | None, str | None]
 
 
 def _kube_dict(runner: RunnerConfigT | None) -> dict | None:
