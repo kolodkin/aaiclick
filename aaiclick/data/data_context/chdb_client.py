@@ -26,9 +26,9 @@ from urllib.parse import urlparse
 import pyarrow as pa
 from chdb.session import Session
 
-from aaiclick.data.sql_utils import escape_sql_string
+from aaiclick.data.sql_utils import escape_sql_string, quote_identifier
 
-from .arrow_ingest import ch_type_to_pa
+from .arrow_types import ch_type_to_pa
 
 # Matches url('https://...', 'Format') in SQL — used to detect and rewrite
 # URL calls that chdb's embedded HTTP client hangs on.
@@ -320,7 +320,7 @@ class ChdbClient:
         """
         if arrow_table.num_rows == 0:
             return
-        cols = ", ".join(f"`{c}`" for c in arrow_table.column_names)
+        cols = ", ".join(quote_identifier(c) for c in arrow_table.column_names)
         self._session.query(f"INSERT INTO {table} ({cols}) SELECT * FROM Python(arrow_table)")
 
     async def close(self) -> None:

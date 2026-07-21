@@ -3,7 +3,7 @@
 import pyarrow as pa
 import pytest
 
-from aaiclick.data.data_context.arrow_ingest import ch_type_to_pa
+from aaiclick.data.data_context.arrow_types import ch_type_to_pa
 
 
 @pytest.mark.parametrize(

@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 import warnings
 import weakref
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from datetime import datetime
@@ -527,10 +527,12 @@ async def create_object_from_value(
             raise ValueError(f"aai_id=True conflicts with user column '{AAI_ID_COLUMN}'")
         return {**columns, AAI_ID_COLUMN: AAI_ID_INFO}
 
-    async def _insert_columns(obj: Object, columns: dict[str, ColumnInfo], col_map: dict[str, pa.Array | list]) -> None:
+    async def _insert_columns(table: str, columns: dict[str, ColumnInfo], col_map: Mapping[str, pa.Array | list]) -> None:
         arrow_table = arrow_table_for_insert(col_map, columns)
-        async with _maybe_insert_lock(obj.table, name):
-            await ch.insert_arrow(obj.table, arrow_table)
+        if arrow_table.num_rows == 0:
+            return
+        async with _maybe_insert_lock(table, name):
+            await ch.insert_arrow(table, arrow_table)
 
     if isinstance(val, dict):
         has_arrays = any(isinstance(v, list) for v in val.values())
@@ -572,21 +574,20 @@ async def create_object_from_value(
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
             obj = await create_object(schema, name=name, scope=scope)
 
-            if array_len and array_len > 0:
-                await _insert_columns(obj, columns, col_map)
+            await _insert_columns(obj.table, columns, col_map)
 
         else:
             # Single record (flat or nested): arrow infers the schema, leaves
             # flatten to dot/dot-star columns.
             struct_arr = infer_struct_array([val])
             columns = struct_type_to_columns(struct_arr.type)
-            col_map = dict(struct_array_to_columns(struct_arr))
+            col_map = struct_array_to_columns(struct_arr)
 
             columns = _maybe_add_aai_id(_apply_field_specs(columns, fields))
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
             obj = await create_object(schema, name=name, scope=scope)
 
-            await _insert_columns(obj, columns, col_map)
+            await _insert_columns(obj.table, columns, col_map)
 
     elif isinstance(val, list):
         if val and isinstance(val[0], dict):
@@ -601,13 +602,13 @@ async def create_object_from_value(
                 name_: ci.with_fieldtype(FIELDTYPE_ARRAY)
                 for name_, ci in struct_type_to_columns(struct_arr.type).items()
             }
-            col_map = dict(struct_array_to_columns(struct_arr))
+            col_map = struct_array_to_columns(struct_arr)
 
             columns = _maybe_add_aai_id(_apply_field_specs(columns, fields))
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
             obj = await create_object(schema, name=name, scope=scope)
 
-            await _insert_columns(obj, columns, col_map)
+            await _insert_columns(obj.table, columns, col_map)
         else:
             # Narrow: list of scalars (ValueListType).
             scalars = cast(ValueListType, val)
@@ -621,8 +622,7 @@ async def create_object_from_value(
             )
             obj = await create_object(schema, name=name, scope=scope)
 
-            if scalars:
-                await _insert_columns(obj, columns, {"value": scalars})
+            await _insert_columns(obj.table, columns, {"value": scalars})
 
     else:
         col_def = _infer_clickhouse_type(val)
@@ -635,7 +635,7 @@ async def create_object_from_value(
         )
         obj = await create_object(schema, name=name, scope=scope)
 
-        await _insert_columns(obj, columns, {"value": [val]})
+        await _insert_columns(obj.table, columns, {"value": [val]})
 
     oplog_record(obj.table, "create_from_value")
     return obj

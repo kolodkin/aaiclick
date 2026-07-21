@@ -15,9 +15,13 @@ stays in arrow end to end: flat leaf arrays are assembled into a
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import pyarrow as pa
+import pyarrow.compute as pc
 
 from ..models import ColumnInfo
+from .arrow_types import ch_type_to_pa
 
 
 def infer_struct_array(records: list) -> pa.StructArray:
@@ -103,16 +107,8 @@ def _walk_type(
         columns[key_path] = leaf_column_info(pa_type, array_depth)
 
 
-def _contains_timestamp(pa_type: pa.DataType) -> bool:
-    if pa.types.is_timestamp(pa_type):
-        return True
-    if _is_list_type(pa_type):
-        return _contains_timestamp(pa_type.value_type)
-    return False
-
-
 def arrow_table_for_insert(
-    col_map: dict[str, pa.Array | list],
+    col_map: Mapping[str, pa.Array | list],
     columns: dict[str, ColumnInfo],
 ) -> pa.Table:
     """Assemble ingest columns into a ``pa.Table`` matching the CH schema.
@@ -122,9 +118,9 @@ def arrow_table_for_insert(
     Each column is brought to the arrow type of its ``ColumnInfo`` target:
     arrow arrays are cast (covers ``FieldSpec`` type overrides and all-null
     leaves landing in ``Nullable(String)``), Python lists are constructed
-    directly at the target type. Timestamp casts are unchecked because the
-    ``DateTime64(3)`` target intentionally truncates sub-millisecond input;
-    all other casts reject lossy conversions.
+    directly at the target type. Casts allow time truncation — the
+    ``DateTime64(3)`` target intentionally drops sub-millisecond input —
+    but reject every other lossy conversion.
     """
     arrays = []
     for name, value in col_map.items():
@@ -132,78 +128,11 @@ def arrow_table_for_insert(
         if isinstance(value, list):
             arr = pa.array(value, type=target)
         elif value.type != target:
-            arr = value.cast(target, safe=not _contains_timestamp(target))
+            arr = value.cast(options=pc.CastOptions(target_type=target, allow_time_truncate=True))
         else:
             arr = value
         arrays.append(arr)
     return pa.table(arrays, names=list(col_map))
-
-
-_PA_BASE_TYPES: dict[str, pa.DataType] = {
-    "UInt8": pa.uint8(),
-    "UInt16": pa.uint16(),
-    "UInt32": pa.uint32(),
-    "UInt64": pa.uint64(),
-    "Int8": pa.int8(),
-    "Int16": pa.int16(),
-    "Int32": pa.int32(),
-    "Int64": pa.int64(),
-    "Float32": pa.float32(),
-    "Float64": pa.float64(),
-    "String": pa.string(),
-    "Bool": pa.bool_(),
-}
-
-
-def ch_type_to_pa(ch_type: str) -> pa.DataType:
-    """Convert a ClickHouse type string to a pyarrow DataType."""
-    if ch_type.startswith("Nullable("):
-        return ch_type_to_pa(ch_type[9:-1])
-    if ch_type.startswith("LowCardinality("):
-        return ch_type_to_pa(ch_type[15:-1])
-    if ch_type in _PA_BASE_TYPES:
-        return _PA_BASE_TYPES[ch_type]
-    if ch_type.startswith("DateTime64"):
-        return pa.timestamp("ms", tz="UTC")
-    if ch_type.startswith("Array("):
-        return pa.list_(ch_type_to_pa(ch_type[6:-1]))
-    if ch_type.startswith("Map("):
-        key_type, val_type = _split_map_args(ch_type[4:-1])
-        return pa.map_(ch_type_to_pa(key_type), ch_type_to_pa(val_type))
-    if ch_type.startswith("Tuple("):
-        elem_types = _split_top_level(ch_type[6:-1])
-        return pa.struct([(f"f{i}", ch_type_to_pa(t)) for i, t in enumerate(elem_types)])
-    return pa.string()
-
-
-def _split_map_args(inner: str) -> tuple[str, str]:
-    """Split Map(K, V) arguments respecting nested parentheses."""
-    depth = 0
-    for i, ch in enumerate(inner):
-        if ch == "(":
-            depth += 1
-        elif ch == ")":
-            depth -= 1
-        elif ch == "," and depth == 0:
-            return inner[:i].strip(), inner[i + 1 :].strip()
-    return inner, ""
-
-
-def _split_top_level(inner: str) -> list[str]:
-    """Split comma-separated type arguments respecting nested parentheses."""
-    parts: list[str] = []
-    depth = 0
-    start = 0
-    for i, ch in enumerate(inner):
-        if ch == "(":
-            depth += 1
-        elif ch == ")":
-            depth -= 1
-        elif ch == "," and depth == 0:
-            parts.append(inner[start:i].strip())
-            start = i + 1
-    parts.append(inner[start:].strip())
-    return parts
 
 
 def _missing(key_path: str) -> ValueError:

@@ -60,7 +60,14 @@ class ChClient(Protocol):
         column_oriented: bool = False,
         column_type_names: Sequence[str] | None = None,
     ) -> None: ...
-    async def insert_arrow(self, table: str, arrow_table: pa.Table) -> None: ...
+    async def insert_arrow(self, table: str, arrow_table: pa.Table) -> None:
+        """Insert an arrow table; column names come from the arrow schema.
+
+        Contract: an empty table is a no-op, table columns absent from the
+        arrow schema get their ClickHouse defaults, and identifier quoting
+        is the implementation's responsibility.
+        """
+        ...
     async def close(self) -> None: ...
 
 
