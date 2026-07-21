@@ -68,6 +68,7 @@ class ChClient(Protocol):
         is the implementation's responsibility.
         """
         ...
+
     async def close(self) -> None: ...
 
 

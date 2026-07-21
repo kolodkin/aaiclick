@@ -527,7 +527,9 @@ async def create_object_from_value(
             raise ValueError(f"aai_id=True conflicts with user column '{AAI_ID_COLUMN}'")
         return {**columns, AAI_ID_COLUMN: AAI_ID_INFO}
 
-    async def _insert_columns(table: str, columns: dict[str, ColumnInfo], col_map: Mapping[str, pa.Array | list]) -> None:
+    async def _insert_columns(
+        table: str, columns: dict[str, ColumnInfo], col_map: Mapping[str, pa.Array | list]
+    ) -> None:
         arrow_table = arrow_table_for_insert(col_map, columns)
         if arrow_table.num_rows == 0:
             return
