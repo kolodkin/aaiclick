@@ -53,6 +53,30 @@ def test_shell_cmd_runs_argv_no_ipc_no_runner_env():
     assert "AAICLICK_SQL_URL" not in joined  # runner env NOT injected for shell
     assert "K=v" in joined  # only command_env injected
     assert "/aaiclick-ipc" not in joined  # no IPC mount for shell
+    assert "-v" not in cmd  # no mounts at all — logs come from `docker logs`
+
+
+async def test_shell_container_logs_flushed_to_ch(monkeypatch):
+    """Shell container output is fetched via `docker logs` and flushed to CH
+    under the run_id registered at launch."""
+    flushed = {}
+
+    async def fake_flush(task_id, job_id, run_id, text):
+        flushed.update(task_id=task_id, job_id=job_id, run_id=run_id, text=text)
+
+    monkeypatch.setattr(docker_worker, "flush_shell_logs", fake_flush)
+    monkeypatch.setattr(docker_worker, "register_run", AsyncMock(return_value=77))
+    monkeypatch.setattr(docker_worker, "_container_logs_text", AsyncMock(return_value="out line\n"))
+    monkeypatch.setattr(docker_worker, "_wait_for_container", AsyncMock(return_value=(0, None)))
+    monkeypatch.setattr(docker_worker, "_docker_run_detached", AsyncMock(return_value="cid"))
+
+    vehicle = docker_worker._DockerVehicle("img", "/logs", {}, "/ipc", ENTRY_SHELL)
+    task = _cmdtask(entry_type=ENTRY_SHELL, command=["true"])
+    handle = await vehicle.launch(task, 1)
+    exit_code, error, _ = await vehicle.wait(handle, None)
+
+    assert (exit_code, error) == (0, None)
+    assert flushed == {"task_id": 1, "job_id": 1, "run_id": 77, "text": "out line\n"}
 
 
 def _task(entrypoint="user.module.entry", task_id=42, job_id=1) -> Task:

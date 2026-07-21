@@ -51,7 +51,8 @@ from .execution_worker import (
     parse_task_timeout,
 )
 from .image_builder import resolve_image_tag
-from .runner import execute_task, serialize_task_result
+from .log_flush import flush_shell_logs
+from .runner import execute_task, register_run, serialize_task_result
 from .runner_env import build_runner_env
 
 CONTAINER_IPC_DIR = "/aaiclick-ipc"
@@ -105,8 +106,6 @@ def _build_docker_run_cmd(
     if task.entry_type == ENTRY_SHELL:
         cmd: list[str] = [
             *base,
-            "-v",
-            f"{log_base}:{log_base}",
             *add_host_flags("AAICLICK_DOCKER_RUN_ADD_HOST"),
         ]
         for key, value in (task.command_env or {}).items():
@@ -213,11 +212,11 @@ async def _wait_for_container(container_id: str, timeout: float | None) -> tuple
     return exit_code, None
 
 
-async def _capture_container_logs(container_id: str, log_path: str) -> None:
-    """Write the container's stdout+stderr to the per-task log file (shell tasks
-    have no result.json to carry a log path)."""
+async def _container_logs_text(container_id: str) -> str:
+    """Fetch the container's stdout+stderr text (shell tasks have no
+    result.json and no in-container harness — `docker logs` is the capture)."""
     _, out, err = await cli.run(_docker_bin(), "logs", container_id, check=False, stream=False)
-    Path(log_path).write_text(out + err)
+    return out + err
 
 
 def _read_result_or_synthesize_failure(
@@ -255,7 +254,9 @@ def _read_result_or_synthesize_failure(
 class _DockerHandle(NamedTuple):
     container_id: str
     ipc_dir: str
-    log_path: str | None
+    task_id: int
+    job_id: int
+    run_id: int | None
 
 
 class _DockerVehicle(TaskVehicle["_DockerHandle", None]):
@@ -266,8 +267,9 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", None]):
     spawns the container into it.
 
     For ``shell`` tasks there is no IPC result file: success is the
-    container exit code and the per-task log file is filled from
-    ``docker logs`` once the container exits."""
+    container exit code, and once the container exits its ``docker logs``
+    output is flushed to CH ``task_logs`` under the run_id registered at
+    launch."""
 
     def __init__(self, image_tag: str, log_base: str, env: dict[str, str], ipc_dir: str, entry_type: str) -> None:
         self._image_tag = image_tag
@@ -277,20 +279,18 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", None]):
         self._entry_type = entry_type
 
     async def launch(self, task: Task, execution_worker_id: int) -> _DockerHandle:
-        log_path = None
+        run_id = None
         if task.entry_type == ENTRY_SHELL:
-            # The dir already encodes job/task; the filename is just the attempt
-            # (run_epoch) so a retry doesn't clobber the prior run's log.
-            log_path = os.path.join(self._log_base, str(task.job_id), str(task.id), f"{task.run_epoch}.log")
-            Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+            run_id = await register_run(task.id)
         cmd = _build_docker_run_cmd(task, self._image_tag, self._ipc_dir, self._log_base, self._env)
         container_id = await _docker_run_detached(cmd)
-        return _DockerHandle(container_id, self._ipc_dir, log_path)
+        return _DockerHandle(container_id, self._ipc_dir, task.id, task.job_id, run_id)
 
     async def wait(self, handle: _DockerHandle, timeout: float | None) -> tuple[int, str | None, None]:
         exit_code, error = await _wait_for_container(handle.container_id, timeout)
-        if self._entry_type == ENTRY_SHELL and handle.log_path is not None:
-            await _capture_container_logs(handle.container_id, handle.log_path)
+        if self._entry_type == ENTRY_SHELL and handle.run_id is not None:
+            text = await _container_logs_text(handle.container_id)
+            await flush_shell_logs(handle.task_id, handle.job_id, handle.run_id, text)
         return exit_code, error, None
 
     async def poll_cancelled(self, task: Task) -> bool:
@@ -307,13 +307,13 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", None]):
             # ``docker wait`` (see ``wait``) — and the shell task's argv *is*
             # that main process, so this is the command's own exit code.
             if was_cancelled:
-                return RunnerResult(False, None, handle.log_path, "cancelled")
+                return RunnerResult(False, None, None, "cancelled")
             if error is not None:
-                return RunnerResult(False, None, handle.log_path, error)
+                return RunnerResult(False, None, None, error)
             return RunnerResult(
                 exit_code == 0,
                 None,
-                handle.log_path,
+                None,
                 None if exit_code == 0 else f"exit {exit_code}",
             )
         # Docker reads its result from the bind-mounted IPC file, not ``payload``.
