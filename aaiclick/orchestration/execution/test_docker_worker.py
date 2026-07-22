@@ -12,6 +12,7 @@ from ..runner_config import ENTRY_MODULE, ENTRY_SHELL
 from . import docker_worker
 from .docker_worker import _build_docker_run_cmd
 from .execution_worker import JobDispatch
+from .log_test_helpers import flush_recorder
 
 
 def _cmdtask(**kw):
@@ -57,11 +58,7 @@ def test_shell_cmd_runs_argv_no_ipc_no_runner_env():
 async def test_shell_container_logs_flushed_to_ch(monkeypatch):
     """Shell container output is fetched via `docker logs` and flushed to CH
     under the run_id registered at launch."""
-    flushed = {}
-
-    async def fake_flush(task_id, job_id, run_id, text):
-        flushed.update(task_id=task_id, job_id=job_id, run_id=run_id, text=text)
-
+    flushed, fake_flush = flush_recorder()
     monkeypatch.setattr(docker_worker, "flush_shell_logs", fake_flush)
     monkeypatch.setattr(docker_worker, "register_run", AsyncMock(return_value=77))
     monkeypatch.setattr(docker_worker, "_container_logs_text", AsyncMock(return_value="out line\n"))

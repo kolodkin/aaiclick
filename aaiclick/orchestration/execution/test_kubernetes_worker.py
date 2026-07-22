@@ -9,6 +9,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock
 
 from . import kubernetes_worker as kw
+from .log_test_helpers import flush_recorder
 
 
 def test_build_pod_manifest_shape():
@@ -163,11 +164,7 @@ async def test_shell_pod_logs_flushed_to_ch(monkeypatch):
     """Shell pod output is fetched via `kubectl logs` and flushed to CH under
     the run_id registered at launch; module pods skip the host-side fetch
     (they stream to CH from inside the pod)."""
-    flushed = {}
-
-    async def fake_flush(task_id, job_id, run_id, text):
-        flushed.update(task_id=task_id, job_id=job_id, run_id=run_id, text=text)
-
+    flushed, fake_flush = flush_recorder()
     monkeypatch.setattr(kw, "flush_shell_logs", fake_flush)
     monkeypatch.setattr(kw, "_pod_status", AsyncMock(return_value=("Succeeded", 0)))
     monkeypatch.setattr(kw, "_pod_logs_text", AsyncMock(return_value="pod out\n"))

@@ -5,7 +5,7 @@ so the spawned flush/reader children can open chdb themselves.
 """
 
 from aaiclick.orchestration.execution.log_flush import flush_shell_logs
-from aaiclick.orchestration.execution.mp_log_reader import read_logs_via_child
+from aaiclick.orchestration.execution.log_test_helpers import read_logs_via_child
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
