@@ -39,9 +39,5 @@ spec:
               value: {{ .Values.env.sqlUrl | quote }}
             - name: AAICLICK_CH_URL
               value: {{ .Values.env.chUrl | quote }}
-            # The default distributed-mode log dir (/var/log/aaiclick) is not
-            # writable for the image's non-root user.
-            - name: AAICLICK_LOG_DIR
-              value: /tmp/aaiclick-logs
           resources:
             {{- toYaml .Values.background.resources | nindent 12 }}

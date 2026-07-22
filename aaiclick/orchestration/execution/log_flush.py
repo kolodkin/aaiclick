@@ -16,7 +16,7 @@ import logging
 import multiprocessing
 
 from aaiclick.data.data_context import get_ch_client
-from aaiclick.oplog.models import init_oplog_tables
+from aaiclick.oplog.models import TASK_LOGS_DDL
 
 from ..logging import flush_task_logs, shell_text_to_lines
 
@@ -32,7 +32,9 @@ def _flush_child_target(task_id: int, job_id: int, run_id: int, text: str) -> No
 
     async def _run() -> None:
         async with orch_context():
-            await init_oplog_tables(get_ch_client())
+            # A shell-only job on a fresh DB may not have run task_scope's
+            # init_oplog_tables yet; ensure just the one table this child writes.
+            await get_ch_client().command(TASK_LOGS_DDL)
             await flush_task_logs(task_id, job_id, run_id, shell_text_to_lines(text))
 
     asyncio.run(_run())

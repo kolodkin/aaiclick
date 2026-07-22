@@ -1,14 +1,13 @@
 """Tests for the subprocess runner's host shell vehicle."""
 
-from sqlmodel import select
-
 from aaiclick.orchestration.execution.execution_worker import JobDispatch
 from aaiclick.orchestration.execution.mp_log_reader import read_logs_via_child
 from aaiclick.orchestration.execution.mp_worker import _run_shell_on_host
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
+from aaiclick.orchestration.jobs.queries import get_task
 from aaiclick.orchestration.models import Task
-from aaiclick.orchestration.orch_context import commit_tasks, get_sql_session
+from aaiclick.orchestration.orch_context import commit_tasks
 
 
 def _shell_task(command, command_env=None):
@@ -21,11 +20,6 @@ async def _persisted_shell_task(command, command_env=None) -> Task:
     task = create_task(None, entry_type="shell", command=command, command_env=command_env)
     await commit_tasks(task, job.id)
     return task
-
-
-async def _reload(task_id: int) -> Task:
-    async with get_sql_session() as s:
-        return (await s.execute(select(Task).where(Task.id == task_id))).scalar_one()
 
 
 async def test_shell_on_host_succeeds_on_exit_zero(orch_ctx_no_ch):
@@ -59,6 +53,7 @@ async def test_shell_on_host_streams_logs_to_clickhouse(orch_ctx_no_ch):
     success, _, _ = await _run_shell_on_host(task, 1, dispatch)
     assert success is True
 
-    refreshed = await _reload(task.id)
+    refreshed = await get_task(task.id)
+    assert refreshed is not None
     assert len(refreshed.run_ids) == 1
     assert read_logs_via_child(task.id, refreshed.run_ids[-1]) == ["first line", "second line"]
