@@ -3,8 +3,6 @@
 import pytest
 from sqlmodel import select
 
-from aaiclick.internal_api.tasks import get_task_logs
-
 from ..factories import create_job, create_task
 from ..models import TASK_COMPLETED, TASK_PENDING_CLEANUP, Task
 from ..orch_context import get_sql_session
@@ -57,7 +55,8 @@ async def test_local_worker_handles_failure(orch_ctx):
 
 
 async def test_local_worker_executes_shell_task(orch_ctx):
-    """A shell task runs on the in-process worker with logs flushed inline to CH."""
+    """A shell task runs on the in-process worker (log content is pinned in
+    test_execution.py — here only the dispatch through the worker loop)."""
     entry = create_task(None, entry_type="shell", command=["sh", "-c", "echo from shell"])
     job = await create_job("test_local_shell_job", entry)
 
@@ -72,9 +71,6 @@ async def test_local_worker_executes_shell_task(orch_ctx):
         result = await session.execute(select(Task).where(Task.job_id == job.id))
         task = result.scalar_one()
         assert task.status == TASK_COMPLETED
-
-    logs = await get_task_logs(task.id)
-    assert [line.text for line in logs.lines] == ["from shell"]
 
 
 async def test_local_worker_shell_task_nonzero_exit(orch_ctx):

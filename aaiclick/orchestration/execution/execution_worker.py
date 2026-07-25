@@ -31,9 +31,9 @@ from ..models import (
     Task,
 )
 from ..orch_context import get_sql_session
-from ..runner_config import ENTRY_MODULE, ENTRY_SHELL, EntryType, ImageSourceT
+from ..runner_config import ENTRY_MODULE, EntryType, ImageSourceT
 from .claiming import check_run_aborted, claim_next_task, update_task_status
-from .runner import execute_shell_task, execute_task, serialize_task_result
+from .runner import execute_task, serialize_task_result
 
 logger = logging.getLogger(__name__)
 
@@ -544,13 +544,8 @@ async def _execution_worker_loop(
 
 
 async def _execute_in_process(task: Task, execution_worker_id: int) -> tuple[bool, dict | None, str | None]:
-    """Execute a task in the current async process with cancellation monitoring.
-
-    Shell tasks run through ``execute_shell_task`` — in-process, with logs
-    flushed inline — because this loop's process holds the chdb session the
-    mp shell vehicle's spawned flush child would need."""
-    run = execute_shell_task(task) if task.entry_type == ENTRY_SHELL else execute_task(task)
-    exec_task = asyncio.create_task(run)
+    """Execute a task in the current async process with cancellation monitoring."""
+    exec_task = asyncio.create_task(execute_task(task))
     monitor = asyncio.create_task(_cancellation_monitor(task.id, exec_task, task.run_epoch))
 
     try:
