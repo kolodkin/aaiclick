@@ -80,6 +80,7 @@ async def test_register_run_appends_run_ids_and_statuses(orch_ctx):
 
     assert run1 != run2
     refreshed = await get_task(task.id)
+    assert refreshed is not None
     assert refreshed.run_ids == [run1, run2]
     assert refreshed.run_statuses == [TASK_RUNNING, TASK_RUNNING]
 

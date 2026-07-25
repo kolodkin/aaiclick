@@ -137,6 +137,9 @@ class _MpVehicle(TaskVehicle["_ChildHandle", "RunnerResult"]):
     ) -> RunnerResult:
         return payload
 
+    async def cleanup(self, handle: _ChildHandle) -> None:
+        pass
+
 
 async def _run_task_in_child(
     task: Task,
@@ -262,6 +265,9 @@ class _HostShellVehicle(TaskVehicle["_HostShellHandle", None]):
         if error is not None:
             return RunnerResult(False, None, error)
         return RunnerResult(exit_code == 0, None, None if exit_code == 0 else f"exit {exit_code}")
+
+    async def cleanup(self, handle: _HostShellHandle) -> None:
+        pass
 
 
 async def _run_shell_on_host(
