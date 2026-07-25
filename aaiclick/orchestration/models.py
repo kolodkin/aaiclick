@@ -403,7 +403,6 @@ class Task(_DependencyOps, SQLModel, table=True):
         default=None, sa_column=Column(BigInteger, ForeignKey("build_tasks.id"), index=True, nullable=True)
     )
     result: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
-    log_path: str | None = Field(default=None)
     error: str | None = Field(default=None)
     max_retries: int = Field(default=0)
     attempt: int = Field(default=0)
@@ -450,7 +449,6 @@ class RemoteTaskResult(SQLModel, table=True):
     run_epoch: int = Field(sa_column=Column(BigInteger, primary_key=True))
     success: bool = Field(sa_column=Column(Boolean, nullable=False))
     result_ref: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
-    log_path: str | None = Field(default=None)
     error: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=utc_now)
 

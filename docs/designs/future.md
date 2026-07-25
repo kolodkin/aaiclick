@@ -7,6 +7,17 @@ Planned work across aaiclick, ordered by priority.
 
 # Medium Priority
 
+## Shell Tasks on the In-Process Worker
+
+Shell tasks (`entry_type="shell"`) run only on the mp worker — `mp_worker_main_loop` routes them through `dispatch_execute` → `_run_shell_on_host`. The other two execution paths call `execute_task` unconditionally, which does `import_callback(task.entrypoint)`; a shell task's entrypoint is `""`, so the task is claimed and immediately fails with `ValueError: Invalid entrypoint format` instead of running:
+
+- **Local-mode server** (`local_runtime` → `execution_worker_main_loop` → `_execute_in_process`) — a shell job submitted through the API fails this way.
+- **`job_test` / `ajob_test`** (`run_job_tasks`) — same failure for shell tasks in the debug path.
+
+**The fix is not** pointing these loops at `dispatch_execute`: it spawns child processes (mp task children, the shell-log flush child) that need the chdb session the single-process server itself holds. A correct in-process shell branch would run the command in-process and flush its captured output to `task_logs` inline through the already-open CH client — safe precisely because the local server is single-process, no spawn needed.
+
+**When to revisit**: when shell jobs need to run under the local-mode server or `job_test`; until then the mp worker covers shell in both local and distributed modes.
+
 ## ClickHouse Migration Framework
 
 aaiclick has no migration system for the ClickHouse side. Alembic manages the SQL schema (`jobs`, `tasks`, `dependencies`, `registered_jobs`, `table_registry`, …), but ClickHouse tables created via the `ChClient` — `operation_log`, all `p_*` / `t_*` / `j_*` data tables produced at runtime — are created with `CREATE TABLE IF NOT EXISTS` in `aaiclick/oplog/models.py` plus a column-existence validator. No versions, no history, no upgrade path.
@@ -71,23 +82,6 @@ hatches, should the feeder ever measurably hurt:
 
 **When to revisit**: when polling overhead is measurable (many tabs or many
 concurrent jobs), or when sub-2 s latency matters for operators.
-
-## Retire File-Based Task Logs
-
-Cross-host log access shipped: every runner streams captured stdout/stderr into
-the ClickHouse `task_logs` table from inside the task process, and `get_task_logs`
-reads that single host-independent source (`aaiclick/orchestration/logging.py`,
-`aaiclick/oplog/models.py`). Two now-redundant legacy paths remain until a
-cleanup pass:
-
-- **`task.log_path` / file tee** — still written for on-host debugging and
-  surfaced in `TaskDetail`. Drop once nothing reads the local file.
-- **Kubernetes `kubectl logs` host fetch** — `_capture_pod_logs` writes a host
-  file the read path no longer consults (the Pod streams to CH directly). Remove
-  it and the `RemoteTaskResult.log_path` column once the file tee is gone.
-
-**When to revisit**: opportunistically, once the file path has demonstrably no
-consumers; no functional gap blocks it.
 
 ## Live Log Streaming
 

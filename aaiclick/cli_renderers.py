@@ -168,7 +168,6 @@ def render_task_detail(detail: TaskDetail) -> None:
     print(f"Started at:   {_fmt_optional(detail.started_at)}")
     print(f"Completed at: {_fmt_optional(detail.completed_at)}")
     print(f"Exec worker:  {_fmt_optional(detail.execution_worker_id)}")
-    print(f"Log path:     {_fmt_optional(detail.log_path)}")
     if detail.kwargs:
         print(f"Kwargs:       {detail.kwargs}")
     if detail.result is not None:

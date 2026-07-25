@@ -1,23 +1,18 @@
 """Task logging utilities for orchestration backend.
 
-Task stdout/stderr is captured two ways:
-
-- **Local file** — teed to ``{logs_dir}/{job_id}/{task_id}/{run_id}.log`` for
-  on-host debugging.
-- **ClickHouse ``task_logs``** — streamed from inside the task process. Every
-  runner (subprocess, docker, kubernetes) runs the same ``capture_task_output``
-  path, so distributed and containerized runs surface their logs through one
-  cross-host read path (:func:`read_task_logs`) no matter which host wrote them.
+Task stdout/stderr is captured to ClickHouse ``task_logs``, streamed from
+inside the task process. Every runner (subprocess, docker, kubernetes) runs
+the same ``capture_task_output`` path — and shell tasks are flushed host-side
+via ``execution.log_flush`` — so all runs surface their logs through one
+cross-host read path (:func:`read_task_logs`) no matter which host wrote them.
 """
 
 import logging
 import os
 import sys
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import TextIO
 
-from aaiclick.backend import get_root, is_local
 from aaiclick.data.data_context import get_ch_client
 from aaiclick.datetime_utils import utc_now
 from aaiclick.log_models import STDERR_STREAM, STDOUT_STREAM, LogLevel, LogLine, LogStream, normalize_level
@@ -27,35 +22,6 @@ logger = logging.getLogger(__name__)
 
 _TASK_LOG_COLS = list(TASK_LOGS_EXPECTED_COLUMNS)
 _TASK_LOG_TYPE_NAMES = list(TASK_LOGS_EXPECTED_COLUMNS.values())
-
-
-def get_logs_dir() -> str:
-    """
-    Get task log directory.
-
-    The directory is created if it doesn't exist.
-
-    Environment Variables:
-        AAICLICK_LOG_DIR: Override default log directory
-
-    Defaults:
-        Local mode:       {AAICLICK_LOCAL_ROOT}/logs (i.e. ~/.aaiclick/logs)
-        Distributed mode: /var/log/aaiclick (Linux), ~/.aaiclick/logs (macOS)
-
-    Returns:
-        str: Log directory path
-    """
-    if custom_dir := os.getenv("AAICLICK_LOG_DIR"):
-        log_dir = custom_dir
-    elif is_local():
-        log_dir = str(get_root() / "logs")
-    elif sys.platform == "darwin":
-        log_dir = os.path.expanduser("~/.aaiclick/logs")
-    else:
-        log_dir = "/var/log/aaiclick"
-
-    Path(log_dir).mkdir(parents=True, exist_ok=True)
-    return log_dir
 
 
 _DEFAULT_STREAM_LEVEL: dict[LogStream, LogLevel] = {STDOUT_STREAM: "INFO", STDERR_STREAM: "ERROR"}
@@ -135,15 +101,14 @@ class _TeeWriter:
 class _ChLogHandler(logging.Handler):
     """Route ``logging`` records into the active CH sink with their true level.
 
-    Echoes the formatted message to the on-host log file and the original stderr
-    for visibility, bypassing the tee so the record is not captured a second time
-    as raw stderr text.
+    Echoes the formatted message to the original stderr for visibility,
+    bypassing the tee so the record is not captured a second time as raw
+    stderr text.
     """
 
-    def __init__(self, sink: _ChLogSink, log_file: TextIO, console: TextIO):
+    def __init__(self, sink: _ChLogSink, console: TextIO):
         super().__init__()
         self._sink = sink
-        self._log_file = log_file
         self._console = console
         self.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
 
@@ -151,12 +116,26 @@ class _ChLogHandler(logging.Handler):
         try:
             level = normalize_level(record.levelno)
             msg = self.format(record)
-            for stream in (self._log_file, self._console):
-                stream.write(msg + "\n")
-                stream.flush()
+            self._console.write(msg + "\n")
+            self._console.flush()
             self._sink.record(level, msg)
         except Exception:  # never let logging crash the task
             self.handleError(record)
+
+
+def shell_text_to_lines(text: str) -> list[LogLine]:
+    """Convert a shell task's captured output text into ``LogLine`` rows.
+
+    Shell runners capture stdout and stderr merged into one text blob (host
+    pipe, ``docker logs``, ``kubectl logs``), so every line is tagged
+    ``stdout`` / ``INFO``. A trailing newline does not produce an empty line.
+    """
+    if not text:
+        return []
+    parts = text.split("\n")
+    if parts and parts[-1] == "":
+        parts.pop()
+    return [LogLine(stream=STDOUT_STREAM, level="INFO", text=p) for p in parts]
 
 
 async def flush_task_logs(task_id: int, job_id: int, run_id: int, lines: list[LogLine]) -> None:
@@ -214,48 +193,37 @@ async def capture_task_output(task_id: int, job_id: int, run_id: int):
     """
     Context manager to capture stdout, stderr, and ``logging`` for one task run.
 
-    Output is teed to the original streams, an on-host log file, and a ClickHouse
-    sink. ``logging`` records are routed through :class:`_ChLogHandler` so each
-    carries its true level; for the duration of the run the root logger's
-    handlers are replaced with ours (restored on exit) so records are captured
-    exactly once. The sink is flushed to ``task_logs`` once the body exits (on
-    success or failure), giving every runner a host-independent log source.
-
-    Log files are organized as: {base}/{job_id}/{task_id}/{run_id}.log
+    Output is teed to the original streams and a ClickHouse sink. ``logging``
+    records are routed through :class:`_ChLogHandler` so each carries its true
+    level; for the duration of the run the root logger's handlers are replaced
+    with ours (restored on exit) so records are captured exactly once. The sink
+    is flushed to ``task_logs`` once the body exits (on success or failure),
+    giving every runner a host-independent log source.
 
     Args:
-        task_id: Task ID used to generate log file path.
-        job_id: Job ID for the directory hierarchy.
-        run_id: Per-attempt snowflake ID — each retry gets its own log file.
-
-    Yields:
-        str: Path to the log file
+        task_id: Task ID the captured rows are keyed by.
+        job_id: Job ID recorded on each row.
+        run_id: Per-attempt snowflake ID — each retry keeps its own log stream.
     """
-    log_dir = os.path.join(get_logs_dir(), str(job_id), str(task_id))
-    Path(log_dir).mkdir(parents=True, exist_ok=True)
-    log_path = os.path.join(log_dir, f"{run_id}.log")
-
     original_stdout = sys.stdout
     original_stderr = sys.stderr
     sink = _ChLogSink()
-    log_file = open(log_path, "w")
 
     root = logging.getLogger()
     saved_handlers = root.handlers[:]
     saved_level = root.level
     try:
-        sys.stdout = _TeeWriter(original_stdout, log_file, sink=sink, source=STDOUT_STREAM)
-        sys.stderr = _TeeWriter(original_stderr, log_file, sink=sink, source=STDERR_STREAM)
-        root.handlers = [_ChLogHandler(sink, log_file, original_stderr)]
+        sys.stdout = _TeeWriter(original_stdout, sink=sink, source=STDOUT_STREAM)
+        sys.stderr = _TeeWriter(original_stderr, sink=sink, source=STDERR_STREAM)
+        root.handlers = [_ChLogHandler(sink, original_stderr)]
         try:
             root.setLevel(os.getenv("AAICLICK_LOG_LEVEL", "INFO").upper())
         except ValueError:
             root.setLevel(logging.INFO)
-        yield log_path
+        yield
     finally:
         root.handlers = saved_handlers
         root.setLevel(saved_level)
         sys.stdout = original_stdout
         sys.stderr = original_stderr
-        log_file.close()
         await flush_task_logs(task_id, job_id, run_id, sink.finalize())

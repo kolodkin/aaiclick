@@ -38,8 +38,8 @@ from .runner import execute_task, serialize_task_result
 logger = logging.getLogger(__name__)
 
 # Task execution strategy used by _execution_worker_loop.
-# Args: (task, execution_worker_id). Returns: (success, result_ref, log_path, error).
-ExecuteFn = Callable[[Task, int], Awaitable[tuple[bool, dict | None, str | None, str | None]]]
+# Args: (task, execution_worker_id). Returns: (success, result_ref, error).
+ExecuteFn = Callable[[Task, int], Awaitable[tuple[bool, dict | None, str | None]]]
 
 # Heartbeat interval in seconds
 HEARTBEAT_INTERVAL = 30
@@ -61,11 +61,10 @@ class RunnerResult(NamedTuple):
     """Outcome of running a single task on a vehicle.
 
     Shared by every runner so the driver and ``_handle_task_result`` speak
-    one shape instead of an anonymous 4-tuple per module."""
+    one shape instead of an anonymous tuple per module."""
 
     success: bool
     result_ref: dict | None
-    log_path: str | None
     error: str | None
 
 
@@ -424,7 +423,6 @@ async def _handle_task_result(
     execution_worker_id: int,
     success: bool,
     result_ref: dict | None,
-    log_path: str | None,
     error: str | None,
 ) -> bool:
     """Process the result of a task execution. Returns True if task succeeded."""
@@ -433,7 +431,6 @@ async def _handle_task_result(
             task.id,
             TASK_COMPLETED,
             result=result_ref,
-            log_path=log_path,
             expected_epoch=task.run_epoch,
         )
         if not updated:
@@ -470,7 +467,7 @@ async def _execution_worker_loop(
     status updates, retries, and job completion.
 
     Args:
-        execute_fn: Async callable (Task) -> (success, result_ref, log_path, error).
+        execute_fn: Async callable (Task) -> (success, result_ref, error).
         execution_worker_id: ExecutionWorker ID (registers new execution_worker if None).
         max_tasks: Maximum tasks to execute (None for unlimited).
         install_signal_handlers: Install SIGTERM/SIGINT handlers.
@@ -535,8 +532,8 @@ async def _execution_worker_loop(
             logger.info("ExecutionWorker %s executing task %s: %s", execution_worker_id, task.id, task.entrypoint)
             await update_task_status(task.id, TASK_RUNNING, expected_epoch=task.run_epoch)
 
-            success, result_ref, log_path, error = await execute_fn(task, execution_worker_id)
-            if await _handle_task_result(task, execution_worker_id, success, result_ref, log_path, error):
+            success, result_ref, error = await execute_fn(task, execution_worker_id)
+            if await _handle_task_result(task, execution_worker_id, success, result_ref, error):
                 tasks_executed += 1
 
     finally:
@@ -546,20 +543,20 @@ async def _execution_worker_loop(
     return tasks_executed
 
 
-async def _execute_in_process(task: Task, execution_worker_id: int) -> tuple[bool, dict | None, str | None, str | None]:
+async def _execute_in_process(task: Task, execution_worker_id: int) -> tuple[bool, dict | None, str | None]:
     """Execute a task in the current async process with cancellation monitoring."""
     exec_task = asyncio.create_task(execute_task(task))
     monitor = asyncio.create_task(_cancellation_monitor(task.id, exec_task, task.run_epoch))
 
     try:
-        data_result, log_path = await exec_task
+        data_result = await exec_task
         result_ref = serialize_task_result(data_result, task.job_id)
-        return True, result_ref, log_path, None
+        return True, result_ref, None
     except asyncio.CancelledError:
         logger.info("Task %s cancelled", task.id)
-        return False, None, None, None
+        return False, None, None
     except Exception as e:
-        return False, None, None, str(e)
+        return False, None, str(e)
     finally:
         monitor.cancel()
         try:

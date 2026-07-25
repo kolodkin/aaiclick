@@ -60,7 +60,6 @@ asyncio.run(main())
 |-------------------------|--------------------------------------------|--------------------------------------------------------------------------|
 | `AAICLICK_CH_URL`       | `chdb:///~/.aaiclick/chdb_data`            | ClickHouse connection — `chdb://` for embedded, `clickhouse://` for remote |
 | `AAICLICK_SQL_URL`      | `sqlite+aiosqlite:///~/.aaiclick/local.db` | Orchestration DB — SQLite (local) or PostgreSQL (distributed)            |
-| `AAICLICK_LOG_DIR`      | `~/.aaiclick/logs` / `/var/log/aaiclick`   | Log directory override (macOS default / Linux default)                   |
 
 # Next Steps
 

@@ -38,7 +38,6 @@ async def test_container_main_writes_success_payload(orch_ctx, tmp_path):
     payload = json.loads((tmp_path / "result.json").read_text())
     assert payload["success"] is True
     assert payload["error"] is None
-    assert payload["log_path"]  # path to the captured log file
     # `simple_task` returns None; result_ref should reflect that
     assert payload["result_ref"] is None
 
@@ -69,7 +68,6 @@ async def test_container_main_writes_failure_payload_on_exception(orch_ctx, tmp_
     payload = json.loads((tmp_path / "result.json").read_text())
     assert payload["success"] is False
     assert payload["result_ref"] is None
-    assert payload["log_path"] is None
     assert "intentionally" in (payload["error"] or "")
 
 

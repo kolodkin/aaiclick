@@ -69,7 +69,6 @@ class TaskDetail(TaskView):
 
     kwargs: dict[str, Any] = Field(default_factory=dict)
     result: dict[str, Any] | None = None
-    log_path: str | None = None
     execution_worker_id: SnowflakeId | None = None
     max_retries: int = 0
 
@@ -78,7 +77,6 @@ class TaskLogsView(BaseModel):
     """Captured log lines for a task, served by ``GET /tasks/{id}/logs``."""
 
     available: bool
-    log_path: str | None = None
     lines: list[LogLine] = Field(default_factory=list)
 
 
@@ -200,7 +198,6 @@ def task_to_detail(task: Task) -> TaskDetail:
         completed_at=task.completed_at,
         kwargs=task.kwargs,
         result=task.result,
-        log_path=task.log_path,
         execution_worker_id=task.execution_worker_id,
         error=task.error,
         max_retries=task.max_retries,

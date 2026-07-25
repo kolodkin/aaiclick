@@ -74,7 +74,6 @@ async def update_task_status(
     status: TaskStatus,
     error: str | None = None,
     result: dict | None = None,
-    log_path: str | None = None,
     expected_epoch: int | None = None,
 ) -> bool:
     """
@@ -87,7 +86,6 @@ async def update_task_status(
         status: New status
         error: Error message (for FAILED status)
         result: Result reference (for COMPLETED status)
-        log_path: Path to the log file for this run
         expected_epoch: If given, the write is rejected when the task's
             ``run_epoch`` no longer matches — the fencing guard that lets a
             ``clear_task`` invalidate an in-flight run's late writes.
@@ -118,9 +116,6 @@ async def update_task_status(
                 task.error = error
             if result:
                 task.result = result
-
-        if log_path is not None:
-            task.log_path = log_path
 
         if task.run_statuses:
             task.run_statuses = [*task.run_statuses[:-1], status]
@@ -362,7 +357,7 @@ async def clear_task(task_id: int) -> tuple[list[int], Job]:
             text(
                 f"UPDATE tasks SET status = :pending, run_epoch = run_epoch + 1, "
                 f"execution_worker_id = NULL, claimed_at = NULL, started_at = NULL, "
-                f"completed_at = NULL, error = NULL, result = NULL, log_path = NULL, "
+                f"completed_at = NULL, error = NULL, result = NULL, "
                 f"retry_after = NULL WHERE id IN ({ph})"
             ),
             {**params, "pending": TASK_PENDING},

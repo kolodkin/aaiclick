@@ -79,7 +79,6 @@ def map_partitions_pipeline(output_file: str):
 async def test_map_execution_basic(orch_ctx, monkeypatch):
     """map() end-to-end: creates partitions, runs callback on each row."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
         output_file = str(Path(tmpdir) / "output.txt")
 
         j = await map_basic_pipeline(output_file=output_file)
@@ -93,7 +92,6 @@ async def test_map_execution_basic(orch_ctx, monkeypatch):
 async def test_map_execution_with_kwargs(orch_ctx, monkeypatch):
     """map() forwards extra kwargs to callback."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
         output_file = str(Path(tmpdir) / "output.txt")
 
         j = await map_kwargs_pipeline(output_file=output_file, factor=3)
@@ -107,7 +105,6 @@ async def test_map_execution_with_kwargs(orch_ctx, monkeypatch):
 async def test_map_execution_multiple_partitions(orch_ctx, monkeypatch):
     """map() with small partition size creates multiple _map_part tasks."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        monkeypatch.setenv("AAICLICK_LOG_DIR", tmpdir)
         output_file = str(Path(tmpdir) / "output.txt")
 
         j = await map_partitions_pipeline(output_file=output_file)

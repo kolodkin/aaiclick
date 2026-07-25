@@ -165,8 +165,7 @@ async def test_logs_preserve_per_line_created_at(orch_ctx):
     assert stamps[1].replace(microsecond=0) == late
 
 
-async def test_capture_records_true_level_and_restores_root(orch_ctx, tmp_path, monkeypatch):
-    monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmp_path))
+async def test_capture_records_true_level_and_restores_root(orch_ctx):
     job = await create_job("cap_levels", simple_task)
     task = (await get_tasks_for_job(job.id))[0]
     run_id = 81
@@ -190,8 +189,7 @@ async def test_capture_records_true_level_and_restores_root(orch_ctx, tmp_path, 
     assert by_text["plain stdout"] == "INFO"
 
 
-async def test_capture_no_duplicate_rows_with_preexisting_handler(orch_ctx, tmp_path, monkeypatch):
-    monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmp_path))
+async def test_capture_no_duplicate_rows_with_preexisting_handler(orch_ctx):
     job = await create_job("cap_dedup", simple_task)
     task = (await get_tasks_for_job(job.id))[0]
     run_id = 82
@@ -210,8 +208,7 @@ async def test_capture_no_duplicate_rows_with_preexisting_handler(orch_ctx, tmp_
     assert [line.text for line in lines].count("ERROR:sample:once only") == 1
 
 
-async def test_capture_tolerates_invalid_log_level_env(orch_ctx, tmp_path, monkeypatch):
-    monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmp_path))
+async def test_capture_tolerates_invalid_log_level_env(orch_ctx, monkeypatch):
     monkeypatch.setenv("AAICLICK_LOG_LEVEL", "verbose")
     job = await create_job("cap_badenv", simple_task)
     task = (await get_tasks_for_job(job.id))[0]

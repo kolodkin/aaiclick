@@ -35,7 +35,6 @@ from typing import NamedTuple
 from sqlmodel import select
 
 from ..docker_config import add_host_flags
-from ..logging import get_logs_dir
 from ..models import Task
 from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_SHELL
@@ -51,7 +50,8 @@ from .execution_worker import (
     parse_task_timeout,
 )
 from .image_builder import resolve_image_tag
-from .runner import execute_task, serialize_task_result
+from .log_flush import flush_shell_logs
+from .runner import execute_task, register_run, serialize_task_result
 from .runner_env import build_runner_env
 
 CONTAINER_IPC_DIR = "/aaiclick-ipc"
@@ -76,20 +76,17 @@ def _build_docker_run_cmd(
     task: Task,
     image_tag: str,
     ipc_dir: str,
-    log_base: str,
     env: dict[str, str],
 ) -> list[str]:
     """Construct the detached ``docker run`` command line.
 
     For ``shell`` tasks, the task's argv runs directly in the container with
-    only ``command_env`` injected — no IPC mount, no ``AAICLICK_LOG_DIR``, no
-    runner env. Success is the container's exit code; container stdout/stderr
-    is captured separately into the per-task log file.
+    only ``command_env`` injected — no IPC mount, no runner env. Success is
+    the container's exit code; container stdout/stderr is captured via
+    ``docker logs`` and flushed to CH ``task_logs``.
 
     For ``module`` tasks (unchanged): the IPC tmpdir is mounted at
-    ``/aaiclick-ipc``; the host log base is bind-mounted at the same path
-    inside the container so absolute log paths produced by
-    ``capture_task_output`` resolve in both places.
+    ``/aaiclick-ipc``.
 
     The framework deliberately does **not** pass ``--network`` — the
     operator is responsible for ensuring AAICLICK_SQL_URL and
@@ -105,8 +102,6 @@ def _build_docker_run_cmd(
     if task.entry_type == ENTRY_SHELL:
         cmd: list[str] = [
             *base,
-            "-v",
-            f"{log_base}:{log_base}",
             *add_host_flags("AAICLICK_DOCKER_RUN_ADD_HOST"),
         ]
         for key, value in (task.command_env or {}).items():
@@ -120,10 +115,6 @@ def _build_docker_run_cmd(
         *base,
         "-v",
         f"{ipc_dir}:{CONTAINER_IPC_DIR}",
-        "-v",
-        f"{log_base}:{log_base}",
-        "-e",
-        f"AAICLICK_LOG_DIR={log_base}",
         *add_host_flags("AAICLICK_DOCKER_RUN_ADD_HOST"),
     ]
     for key, value in env.items():
@@ -213,11 +204,11 @@ async def _wait_for_container(container_id: str, timeout: float | None) -> tuple
     return exit_code, None
 
 
-async def _capture_container_logs(container_id: str, log_path: str) -> None:
-    """Write the container's stdout+stderr to the per-task log file (shell tasks
-    have no result.json to carry a log path)."""
+async def _container_logs_text(container_id: str) -> str:
+    """Fetch the container's stdout+stderr text (shell tasks have no
+    result.json and no in-container harness — `docker logs` is the capture)."""
     _, out, err = await cli.run(_docker_bin(), "logs", container_id, check=False, stream=False)
-    Path(log_path).write_text(out + err)
+    return out + err
 
 
 def _read_result_or_synthesize_failure(
@@ -226,15 +217,14 @@ def _read_result_or_synthesize_failure(
     """Read ``result.json`` from the IPC dir, falling back to synthesized
     failure when the file is missing or malformed."""
     if was_cancelled:
-        return RunnerResult(False, None, None, "cancelled")
+        return RunnerResult(False, None, "cancelled")
     if error is not None:
-        return RunnerResult(False, None, None, error)
+        return RunnerResult(False, None, error)
 
     result_path = Path(ipc_dir) / CONTAINER_RESULT_FILE
     if not result_path.is_file():
         return RunnerResult(
             False,
-            None,
             None,
             f"container exited with code {exit_code} but produced no result file",
         )
@@ -242,12 +232,11 @@ def _read_result_or_synthesize_failure(
     try:
         payload = json.loads(result_path.read_text())
     except json.JSONDecodeError as e:
-        return RunnerResult(False, None, None, f"container produced malformed result.json: {e}")
+        return RunnerResult(False, None, f"container produced malformed result.json: {e}")
 
     return RunnerResult(
         success=bool(payload.get("success")),
         result_ref=payload.get("result_ref"),
-        log_path=payload.get("log_path"),
         error=payload.get("error"),
     )
 
@@ -255,7 +244,9 @@ def _read_result_or_synthesize_failure(
 class _DockerHandle(NamedTuple):
     container_id: str
     ipc_dir: str
-    log_path: str | None
+    task_id: int
+    job_id: int
+    run_id: int | None
 
 
 class _DockerVehicle(TaskVehicle["_DockerHandle", None]):
@@ -266,31 +257,29 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", None]):
     spawns the container into it.
 
     For ``shell`` tasks there is no IPC result file: success is the
-    container exit code and the per-task log file is filled from
-    ``docker logs`` once the container exits."""
+    container exit code, and once the container exits its ``docker logs``
+    output is flushed to CH ``task_logs`` under the run_id registered at
+    launch."""
 
-    def __init__(self, image_tag: str, log_base: str, env: dict[str, str], ipc_dir: str, entry_type: str) -> None:
+    def __init__(self, image_tag: str, env: dict[str, str], ipc_dir: str, entry_type: str) -> None:
         self._image_tag = image_tag
-        self._log_base = log_base
         self._env = env
         self._ipc_dir = ipc_dir
         self._entry_type = entry_type
 
     async def launch(self, task: Task, execution_worker_id: int) -> _DockerHandle:
-        log_path = None
+        run_id = None
         if task.entry_type == ENTRY_SHELL:
-            # The dir already encodes job/task; the filename is just the attempt
-            # (run_epoch) so a retry doesn't clobber the prior run's log.
-            log_path = os.path.join(self._log_base, str(task.job_id), str(task.id), f"{task.run_epoch}.log")
-            Path(log_path).parent.mkdir(parents=True, exist_ok=True)
-        cmd = _build_docker_run_cmd(task, self._image_tag, self._ipc_dir, self._log_base, self._env)
+            run_id = await register_run(task.id)
+        cmd = _build_docker_run_cmd(task, self._image_tag, self._ipc_dir, self._env)
         container_id = await _docker_run_detached(cmd)
-        return _DockerHandle(container_id, self._ipc_dir, log_path)
+        return _DockerHandle(container_id, self._ipc_dir, task.id, task.job_id, run_id)
 
     async def wait(self, handle: _DockerHandle, timeout: float | None) -> tuple[int, str | None, None]:
         exit_code, error = await _wait_for_container(handle.container_id, timeout)
-        if self._entry_type == ENTRY_SHELL and handle.log_path is not None:
-            await _capture_container_logs(handle.container_id, handle.log_path)
+        if self._entry_type == ENTRY_SHELL and handle.run_id is not None:
+            text = await _container_logs_text(handle.container_id)
+            await flush_shell_logs(handle.task_id, handle.job_id, handle.run_id, text)
         return exit_code, error, None
 
     async def poll_cancelled(self, task: Task) -> bool:
@@ -307,13 +296,12 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", None]):
             # ``docker wait`` (see ``wait``) — and the shell task's argv *is*
             # that main process, so this is the command's own exit code.
             if was_cancelled:
-                return RunnerResult(False, None, handle.log_path, "cancelled")
+                return RunnerResult(False, None, "cancelled")
             if error is not None:
-                return RunnerResult(False, None, handle.log_path, error)
+                return RunnerResult(False, None, error)
             return RunnerResult(
                 exit_code == 0,
                 None,
-                handle.log_path,
                 None if exit_code == 0 else f"exit {exit_code}",
             )
         # Docker reads its result from the bind-mounted IPC file, not ``payload``.
@@ -327,7 +315,7 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", None]):
 
 async def _run_task_in_container(
     task: Task, execution_worker_id: int, dispatch: JobDispatch
-) -> tuple[bool, dict | None, str | None, str | None]:
+) -> tuple[bool, dict | None, str | None]:
     """ExecuteFn for the Docker runner.
 
     Pulls the image (when a registry is configured), bind-mounts an IPC
@@ -340,11 +328,10 @@ async def _run_task_in_container(
 
     timeout = parse_task_timeout()
 
-    log_base = get_logs_dir()
     env = build_runner_env() if task.entry_type != ENTRY_SHELL else {}
 
     with tempfile.TemporaryDirectory(prefix="aaiclick-ipc-") as ipc_dir:
-        vehicle = _DockerVehicle(image_tag, log_base, env, ipc_dir, task.entry_type)
+        vehicle = _DockerVehicle(image_tag, env, ipc_dir, task.entry_type)
         result = await drive_vehicle(
             task,
             execution_worker_id,
@@ -353,7 +340,7 @@ async def _run_task_in_container(
             poll_interval=POLL_INTERVAL,
             heartbeat_fn=execution_worker_heartbeat,
         )
-        return result.success, result.result_ref, result.log_path, result.error
+        return result.success, result.result_ref, result.error
 
 
 # ---------------------------------------------------------------------------
@@ -373,7 +360,6 @@ async def _container_main(task_id: int) -> int:
     payload: dict = {
         "success": False,
         "result_ref": None,
-        "log_path": None,
         "error": None,
     }
     exit_code = 0
@@ -383,19 +369,17 @@ async def _container_main(task_id: int) -> int:
                 result = await session.execute(select(Task).where(Task.id == task_id))
                 task = result.scalar_one()
 
-            data_result, log_path = await execute_task(task)
+            data_result = await execute_task(task)
             result_ref = serialize_task_result(data_result, task.job_id)
             payload = {
                 "success": True,
                 "result_ref": result_ref,
-                "log_path": log_path,
                 "error": None,
             }
     except BaseException as e:
         payload = {
             "success": False,
             "result_ref": None,
-            "log_path": None,
             "error": f"{type(e).__name__}: {e}",
         }
         exit_code = 1

@@ -258,10 +258,8 @@ async def test_claim_next_task_skip_locked(orch_ctx):
     assert task2.execution_worker_id == worker2.id
 
 
-async def test_claim_next_task_prioritizes_oldest_job(orch_ctx, monkeypatch, tmpdir):
+async def test_claim_next_task_prioritizes_oldest_job(orch_ctx):
     """Test that older running jobs are prioritized."""
-    monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
-
     # Create execution_worker first
     execution_worker = await register_execution_worker()
 
@@ -339,10 +337,8 @@ async def test_claim_respects_task_dependency(orch_ctx):
     assert claimed3.id == task2.id
 
 
-async def test_claim_respects_group_dependency(orch_ctx, monkeypatch, tmpdir):
+async def test_claim_respects_group_dependency(orch_ctx):
     """Test that claim_next_task respects group -> task dependencies."""
-    monkeypatch.setenv("AAICLICK_LOG_DIR", str(tmpdir))
-
     # Register execution_worker
     execution_worker = await register_execution_worker()
 

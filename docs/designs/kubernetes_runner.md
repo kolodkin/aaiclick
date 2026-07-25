@@ -3,8 +3,8 @@ Kubernetes Runner
 
 The Kubernetes runner executes each task in a fresh Pod built from the user's
 repo at a specific git SHA — the same model as the [Docker runner](orchestration.md),
-swapping `docker run` for a Pod, the bind-mounted `result.json` for a database
-result handoff, and the bind-mounted log file for streamed `kubectl logs`.
+swapping `docker run` for a Pod and the bind-mounted `result.json` for a
+database result handoff.
 
 It is a third `TaskVehicle` driven by the shared `drive_vehicle` lifecycle.
 
@@ -57,7 +57,6 @@ class RemoteTaskResult(SQLModel, table=True):
     run_epoch: int  # PK part — fences stale attempts
     success: bool
     result_ref: dict | None  # JSON; same payload serialize_task_result produces
-    log_path: str | None
     error: str | None
     created_at: datetime
 ```
@@ -83,19 +82,16 @@ table from inside the Pod, so `get_task_logs` reads them on the host with no
 node coordination — the same cross-host path every runner uses
 (`docs/designs/orchestration.md` — Cross-host logs).
 
-- **Pod side**: no change needed. `capture_task_output` flushes captured output
-  to `task_logs` (keyed by `task_id` / `run_id`) before the Pod exits, reaching
-  the shared ClickHouse the host also queries.
-- **Host side**: the vehicle's `wait()` still fetches `kubectl logs` into a
-  host-side file at `{log_base}/{job_id}/{task_id}/k8s-{run_epoch}.log` and
-  reports it as `log_path`. The read path no longer consults that file (it reads
-  CH); both it and `RemoteTaskResult.log_path` are slated for removal in
-  `docs/designs/future.md` — Retire File-Based Task Logs.
+- **Module Pods**: `capture_task_output` flushes captured output to
+  `task_logs` (keyed by `task_id` / `run_id`) before the Pod exits, reaching
+  the shared ClickHouse the host also queries. No host-side fetch.
+- **Shell Pods**: vanilla user images run no aaiclick harness, so the vehicle's
+  `wait()` fetches `kubectl logs` text and flushes it to `task_logs` under a
+  host-minted `run_id` (`_pod_logs_text` + `execution/log_flush.py`).
 
-!!! warning "Capture logs before deleting the Pod"
+!!! warning "Capture shell logs before deleting the Pod"
     The `kubectl logs` fetch runs inside `wait()`, before `cleanup()` deletes
-    the Pod — a deleted Pod's logs are gone. (CH streaming is independent: the
-    Pod has already flushed `task_logs` regardless of this fetch.)
+    the Pod — a deleted Pod's logs are gone.
 
 # The vehicle
 

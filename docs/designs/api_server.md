@@ -148,7 +148,7 @@ the numeric string and coerce it back to `int`. The generated SPA types
 | `JobDetail`            | everything in `JobView` + `tasks: list[TaskView]`, `duration_ms` (computed)      |
 | `JobStatsView`         | `job_id`, `job_name`, `status_counts`, `wall_time_ms`, `exec_time_ms`, `tasks`   |
 | `TaskView`             | `id`, `job_id`, `entrypoint`, `status`, `attempt`, `started_at`, `completed_at`  |
-| `TaskDetail`           | everything in `TaskView` + `kwargs`, `result_ref`, `log_path`, `execution_worker_id`       |
+| `TaskDetail`           | everything in `TaskView` + `kwargs`, `result_ref`, `execution_worker_id`                   |
 | `ExecutionWorkerView`           | `id`, `status`, `started_at`, `last_heartbeat`, `tasks_completed`, `tasks_failed` |
 | `RegisteredJobView`    | `name`, `entrypoint`, `schedule`, `enabled`, `defaults`                          |
 
