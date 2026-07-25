@@ -132,7 +132,9 @@ python -m aaiclick run-job <name> --entry-type shell --command 'python main.py' 
 
 REST/MCP submission uses the same fields on `RunJobRequest`.
 
-**Implementation**: `aaiclick/orchestration/execution/mp_worker.py` — see `_run_shell_on_host()`; `aaiclick/orchestration/execution/docker_worker.py` / `kubernetes_worker.py` — shell branch in the runner vehicle
+On the in-process paths — the local-mode server's worker and `job_test` / `ajob_test` — the command runs in the worker's own event loop and its output is flushed inline through the already-open CH client (single-process, so no spawned flush child).
+
+**Implementation**: `aaiclick/orchestration/execution/mp_worker.py` — see `_run_shell_on_host()`; `aaiclick/orchestration/execution/docker_worker.py` / `kubernetes_worker.py` — shell branch in the runner vehicle; `aaiclick/orchestration/execution/runner.py` — see `execute_shell_task()` (in-process paths)
 
 ## Execution layers
 

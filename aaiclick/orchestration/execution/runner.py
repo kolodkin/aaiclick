@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import inspect
 import logging
 import math
+import os
 from collections.abc import Callable
 from typing import Any
 
@@ -39,11 +41,13 @@ from aaiclick.data.object.refs import (
     native_value_ref,
     upstream_ref,
 )
+from aaiclick.oplog.models import TASK_LOGS_DDL
 from aaiclick.snowflake import get_snowflake_id
 
 from ...datetime_utils import utc_now
 from ..decorators import JobFactory, TaskFactory
-from ..logging import capture_task_output
+from ..logging import capture_task_output, flush_task_logs, shell_text_to_lines
+from ..runner_config import ENTRY_SHELL
 from ..models import (
     JOB_COMPLETED,
     JOB_FAILED,
@@ -338,6 +342,42 @@ async def execute_task(task: Task) -> Any:
     return data_result
 
 
+async def execute_shell_task(task: Task) -> None:
+    """Run a shell task's argv in the current process's event loop.
+
+    The in-process counterpart of the shell vehicles (``mp_worker``, docker,
+    kubernetes): registers a per-attempt run_id, runs the command with
+    ``command_env`` overlaid on the process environment, and flushes the
+    merged stdout/stderr to CH ``task_logs`` inline through the already-open
+    client — safe because the caller (local-mode server, ``job_test``) is
+    single-process, so no spawned flush child is needed.
+
+    Returns None (shell tasks have no result). Raises ``RuntimeError`` on
+    nonzero exit, matching the ``"exit <code>"`` error the shell vehicles
+    report.
+    """
+    run_id = await register_run(task.id)
+    env = {**os.environ, **(task.command_env or {})}
+    proc = await asyncio.create_subprocess_exec(
+        *(task.command or []),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        env=env,
+    )
+    try:
+        output, _ = await proc.communicate()
+    except asyncio.CancelledError:
+        proc.kill()
+        await proc.wait()
+        raise
+    # A shell-only job on a fresh DB may not have run task_scope's
+    # init_oplog_tables yet; ensure just the one table this flush writes.
+    await get_ch_client().command(TASK_LOGS_DDL)
+    await flush_task_logs(task.id, task.job_id, run_id, shell_text_to_lines(output.decode(errors="replace")))
+    if proc.returncode != 0:
+        raise RuntimeError(f"exit {proc.returncode}")
+
+
 def _sanitize_for_json(value: Any) -> Any:
     """Replace NaN/Inf floats with None for JSON compatibility."""
     if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
@@ -547,7 +587,10 @@ async def run_job_tasks(job: Job) -> None:
             task_job_id = task.job_id
 
         try:
-            data_result = await execute_task(task)
+            if task.entry_type == ENTRY_SHELL:
+                data_result = await execute_shell_task(task)
+            else:
+                data_result = await execute_task(task)
 
             result_ref = serialize_task_result(data_result, task_job_id)
 
