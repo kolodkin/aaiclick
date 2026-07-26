@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import multiprocessing
-import os
 import queue
 from typing import Any, NamedTuple
 
@@ -33,7 +32,7 @@ from .execution_worker import (
     parse_task_timeout,
 )
 from .log_flush import flush_shell_logs
-from .runner import execute_task, register_run, serialize_task_result
+from .runner import execute_task, register_run, serialize_task_result, start_shell_process
 
 # How often the parent checks whether the child process has finished.
 # Smaller than POLL_INTERVAL because this polls a local queue, not a database.
@@ -227,13 +226,7 @@ class _HostShellVehicle(TaskVehicle["_HostShellHandle", None]):
 
     async def launch(self, task: Task, execution_worker_id: int) -> _HostShellHandle:
         run_id = await register_run(task.id)
-        env = {**os.environ, **self._command_env}
-        proc = await asyncio.create_subprocess_exec(
-            *self._command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            env=env,
-        )
+        proc = await start_shell_process(self._command, self._command_env)
         return _HostShellHandle(proc, task.id, task.job_id, run_id)
 
     async def wait(self, handle: _HostShellHandle, timeout: float | None) -> tuple[int, str | None, None]:

@@ -329,6 +329,46 @@ async def test_run_job_tasks_streams_logs_to_clickhouse(orch_ctx):
     assert by_text.get("Error message") == "stderr"
 
 
+async def test_run_job_tasks_shell_task(orch_ctx):
+    """A shell entry task runs in-process and flushes its output inline to CH."""
+    entry = create_task(None, entry_type="shell", command=["sh", "-c", "echo shell line"])
+    job = await create_job("test_job_shell", entry)
+
+    await run_job_tasks(job)
+
+    assert job.status == JOB_COMPLETED
+    task = (await get_tasks_for_job(job.id))[0]
+    assert task.status == TASK_COMPLETED
+    logs = await get_task_logs(task.id)
+    assert [line.text for line in logs.lines] == ["shell line"]
+
+
+async def test_run_job_tasks_failing_shell_task(orch_ctx):
+    """A shell task's nonzero exit fails the job; output is still flushed."""
+    entry = create_task(None, entry_type="shell", command=["sh", "-c", "echo boom; exit 3"])
+    job = await create_job("test_job_shell_fail", entry)
+
+    await run_job_tasks(job)
+
+    assert job.status == JOB_FAILED
+    assert "exit 3" in (job.error or "")
+    task = (await get_tasks_for_job(job.id))[0]
+    assert task.status == TASK_FAILED
+    logs = await get_task_logs(task.id)
+    assert [line.text for line in logs.lines] == ["boom"]
+
+
+async def test_run_job_tasks_shell_command_env(orch_ctx):
+    """command_env is overlaid onto the shell task's environment."""
+    cmd = ["python", "-c", "import os,sys; sys.exit(0 if os.environ.get('K')=='v' else 3)"]
+    entry = create_task(None, entry_type="shell", command=cmd, command_env={"K": "v"})
+    job = await create_job("test_job_shell_env", entry)
+
+    await run_job_tasks(job)
+
+    assert job.status == JOB_COMPLETED
+
+
 # job_test() tests
 
 

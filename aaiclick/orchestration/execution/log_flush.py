@@ -26,16 +26,32 @@ logger = logging.getLogger(__name__)
 _mp_ctx = multiprocessing.get_context("spawn")
 
 
+async def flush_shell_logs_inline(task_id: int, job_id: int, run_id: int, text: str) -> None:
+    """Write a shell task's captured output through this process's open CH client.
+
+    Same best-effort contract as ``flush_task_logs``. Called by the flush
+    child (inside its own orch_context) and directly by the in-process shell
+    runner (``runner.execute_shell_task``), which already holds the client.
+    """
+    if not text:
+        return
+    # A shell-only job on a fresh DB may not have run task_scope's
+    # init_oplog_tables yet; ensure just the one table this write needs.
+    try:
+        await get_ch_client().command(TASK_LOGS_DDL)
+    except Exception:
+        logger.error("Failed to ensure task_logs for task %s run %s", task_id, run_id, exc_info=True)
+        return
+    await flush_task_logs(task_id, job_id, run_id, shell_text_to_lines(text))
+
+
 def _flush_child_target(task_id: int, job_id: int, run_id: int, text: str) -> None:
     """Sync entry point for the flush child — opens its own orch_context."""
     from ..orch_context import orch_context  # Circular dep: orch_context imports the execution package at top level.
 
     async def _run() -> None:
         async with orch_context():
-            # A shell-only job on a fresh DB may not have run task_scope's
-            # init_oplog_tables yet; ensure just the one table this child writes.
-            await get_ch_client().command(TASK_LOGS_DDL)
-            await flush_task_logs(task_id, job_id, run_id, shell_text_to_lines(text))
+            await flush_shell_logs_inline(task_id, job_id, run_id, text)
 
     asyncio.run(_run())
 

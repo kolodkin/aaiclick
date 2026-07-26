@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import inspect
 import logging
 import math
+import os
 from collections.abc import Callable
 from typing import Any
 
@@ -59,8 +61,10 @@ from ..models import (
 )
 from ..orch_context import commit_tasks, get_sql_session, task_scope
 from ..result import TaskResult
+from ..runner_config import ENTRY_SHELL
 from .db_handler import DEPENDENCY_WHERE
 from .execution_worker_context import set_current_task_info
+from .log_flush import flush_shell_logs_inline
 
 logger = logging.getLogger(__name__)
 
@@ -297,7 +301,14 @@ async def execute_task(task: Task) -> Any:
     Returns:
         The task result. Caller is responsible for updating run_statuses to
         the final status.
+
+    Shell tasks (``entry_type="shell"``) delegate to
+    :func:`execute_shell_task` — every in-process caller gets the module/shell
+    routing from this one place.
     """
+    if task.entry_type == ENTRY_SHELL:
+        return await execute_shell_task(task)
+
     func = import_callback(task.entrypoint)
     run_id = await register_run(task.id)
 
@@ -336,6 +347,50 @@ async def execute_task(task: Task) -> Any:
             data_result = await register_returned_tasks(result, task.id, task.job_id)
 
     return data_result
+
+
+async def start_shell_process(
+    command: list[str] | None, command_env: dict[str, str] | None
+) -> asyncio.subprocess.Process:
+    """Spawn a shell task's argv with ``command_env`` overlaid on the worker env.
+
+    stdout and stderr are merged into one pipe, matching how every shell
+    runner captures output. Shared by :func:`execute_shell_task` and the mp
+    worker's host shell vehicle so the env-overlay policy is defined once.
+    """
+    env = {**os.environ, **command_env} if command_env else None
+    return await asyncio.create_subprocess_exec(
+        *(command or []),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        env=env,
+    )
+
+
+async def execute_shell_task(task: Task) -> None:
+    """Run a shell task's argv in the current process's event loop.
+
+    The in-process counterpart of the shell vehicles (``mp_worker``, docker,
+    kubernetes): registers a per-attempt run_id, runs the command, and flushes
+    the merged stdout/stderr to CH ``task_logs`` inline through the
+    already-open client — safe because the caller (local-mode server,
+    ``job_test``) is single-process, so no spawned flush child is needed.
+
+    Returns None (shell tasks have no result). Raises ``RuntimeError`` on
+    nonzero exit, matching the ``"exit <code>"`` error the shell vehicles
+    report.
+    """
+    run_id = await register_run(task.id)
+    proc = await start_shell_process(task.command, task.command_env)
+    try:
+        output, _ = await proc.communicate()
+    except asyncio.CancelledError:
+        proc.kill()
+        await proc.wait()
+        raise
+    await flush_shell_logs_inline(task.id, task.job_id, run_id, output.decode(errors="replace"))
+    if proc.returncode != 0:
+        raise RuntimeError(f"exit {proc.returncode}")
 
 
 def _sanitize_for_json(value: Any) -> Any:
