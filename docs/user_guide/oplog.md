@@ -9,7 +9,7 @@ The `aaiclick/oplog/` module captures operation provenance inside ClickHouse wit
 
 ## operation_log (ClickHouse)
 
-**Implementation**: `aaiclick/oplog/models.py` — see `OPERATION_LOG_DDL`, `init_oplog_tables()`
+**Implementation**: `aaiclick/oplog/migrations/0001_baseline.sql` (DDL), `aaiclick/oplog/models.py` — see `init_oplog_tables()`
 
 Append-only audit log. Fields: `id` (Snowflake), `result_table`, `operation`, `kwargs` (Map), `sql_template`, `task_id`, `job_id`, `created_at`. ORDER BY `(result_table, created_at)`. Cleaned up by `BackgroundWorker._cleanup_expired_jobs()` when the owning job expires (see `AAICLICK_JOB_TTL_DAYS`).
 
@@ -25,7 +25,7 @@ Previously lived in ClickHouse as an append-only MergeTree table. Moved to SQL b
 
 ## Initialization
 
-`init_oplog_tables(ch_client)` creates `operation_log` on CH idempotently and validates its schema via `_validate_schema()`. It also performs a one-time copy of any pre-existing CH `table_registry` rows into SQL and drops the CH side (no-op on fresh installs).
+`init_oplog_tables(ch_client)` brings the CH schema up to date through the migration runner (see `docs/designs/ch_migrations.md`): local mode applies pending migrations directly; distributed mode raises asking for `aaiclick migrate upgrade`. Startup also performs a one-time copy of any pre-existing CH `table_registry` rows into SQL and drops the CH side (no-op on fresh installs).
 
 ---
 

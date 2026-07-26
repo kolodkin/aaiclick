@@ -6,9 +6,6 @@ ClickHouse tables (`operation_log`, `task_logs`, and future internal tables).
 Replaces the `CREATE TABLE IF NOT EXISTS` + column-validator approach in
 `aaiclick/oplog/models.py`, which cannot alter existing installs.
 
-Tracked in `docs/designs/future.md` ("ClickHouse Migration Framework") until
-implemented; remove that entry when this lands.
-
 ---
 
 # Problem
@@ -54,8 +51,8 @@ Alembic layout under `aaiclick/orchestration/migrations/`.
 - Write scripts idempotently where ClickHouse allows (`IF NOT EXISTS`,
   `IF EXISTS`) — see failure recovery under Runner.
 
-`0001_baseline.sql` contains the current `OPERATION_LOG_DDL` and
-`TASK_LOGS_DDL` verbatim.
+`0001_baseline.sql` contains the pre-framework `operation_log` and
+`task_logs` DDL verbatim.
 
 ---
 
@@ -77,8 +74,10 @@ has a row.
 
 # Runner
 
-`aaiclick/oplog/migrate.py` — async, built on the `ChClient` protocol so chdb
-and remote ClickHouse behave identically.
+**Implementation**: `aaiclick/oplog/migrate.py` — see `ch_pending()`, `ch_upgrade()`
+
+Async, built on the `ChClient` protocol so chdb and remote ClickHouse behave
+identically.
 
 - `ch_pending(ch_client) -> list[str]` — ensures `schema_migrations` exists,
   returns versions present on disk but not applied. Raises on gaps (an
@@ -101,7 +100,9 @@ Concurrency: no locking. Local mode is single-process; in distributed mode
 
 # `aaiclick migrate` integration
 
-In `aaiclick/internal_api/setup.py` (`migrate()`):
+**Implementation**: `aaiclick/internal_api/setup.py` — see `migrate()`; sync
+bridges `ch_upgrade_standalone()` / `ch_status_standalone()` in
+`aaiclick/oplog/migrate.py`
 
 | Action                   | Behavior                                                     |
 |--------------------------|--------------------------------------------------------------|
@@ -116,7 +117,9 @@ In `aaiclick/internal_api/setup.py` (`migrate()`):
 
 # Startup
 
-`init_oplog_tables(ch_client)` in `aaiclick/oplog/models.py` becomes:
+**Implementation**: `aaiclick/oplog/models.py` — see `init_oplog_tables()`
+
+`init_oplog_tables(ch_client)` becomes:
 
 - Local mode (`is_local()`): `await ch_upgrade(ch_client)` — a no-op costing
   one `SELECT` on `schema_migrations` when nothing is pending.
@@ -152,9 +155,10 @@ Per `docs/designs/testing.md` and the `python-testing-style` skill.
 Recorded here so they are deliberate omissions, not gaps:
 
 - Down migrations / rollback.
-- Python migration files and shadow-table rebuild helpers (revisit when a
-  migration actually needs an `ALTER` ClickHouse cannot express; see the
-  execution-strategy note in `docs/designs/future.md`).
+- Python migration files and shadow-table rebuild helpers — revisit when a
+  migration actually needs an `ALTER` ClickHouse cannot express (e.g.
+  reshaping an existing `ORDER BY` requires a shadow-table rebuild, since
+  `MODIFY ORDER BY` can only append freshly added columns).
 - A `migrate new` scaffolding command.
 - Adopting Alembic for local SQLite (today: `create_all` at setup) — separate
   discussion.
