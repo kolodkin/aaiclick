@@ -183,6 +183,7 @@ def test_migrate_current_runs_without_revision(monkeypatch):
         "current",
         lambda config, verbose=False: calls.append(("current", verbose)),
     )
+    monkeypatch.setattr(setup, "ch_status_standalone", lambda: [])
 
     result = setup.migrate(MIGRATE_CURRENT)
 
