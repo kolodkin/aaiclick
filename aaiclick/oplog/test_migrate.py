@@ -154,3 +154,32 @@ async def test_ch_upgrade_dry_run_executes_nothing(orch_ctx, tmp_path):
     assert await ch_applied_versions(ch) == []
     exists = (await ch.query("EXISTS TABLE mig_dry")).result_rows
     assert exists[0][0] == 0
+
+
+async def test_baseline_creates_oplog_tables(orch_ctx):
+    """The shipped 0001 baseline creates operation_log and task_logs."""
+    ch = get_ch_client()
+
+    await ch_upgrade(ch)
+
+    for table in ("operation_log", "task_logs"):
+        exists = (await ch.query(f"EXISTS TABLE {table}")).result_rows
+        assert exists[0][0] == 1, table
+    assert "0001" in await ch_applied_versions(ch)
+
+
+async def test_baseline_is_safe_on_existing_tables(orch_ctx):
+    """Pre-existing tables (an install predating the framework) are untouched."""
+    ch = get_ch_client()
+    # Simulate an install that predates the framework: operation_log exists
+    # (with a divergent shape) but schema_migrations does not.
+    await ch.command("DROP TABLE IF EXISTS operation_log")
+    await ch.command("DROP TABLE IF EXISTS schema_migrations")
+    await ch.command("CREATE TABLE operation_log (id UInt64) ENGINE = Memory")
+    await ch.command("INSERT INTO operation_log VALUES (7)")
+
+    await ch_upgrade(ch)
+
+    rows = (await ch.query("SELECT id FROM operation_log")).result_rows
+    assert rows == [(7,)]
+    assert "0001" in await ch_applied_versions(ch)
