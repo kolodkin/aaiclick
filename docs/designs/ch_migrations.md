@@ -33,7 +33,7 @@ The SQL side has Alembic; the ClickHouse side has nothing.
 | Versioning     | Sequential zero-padded numbers (`0001`, `0002`, …), not timestamps — single-repo authorship makes collisions a PR-review concern |
 | Unification    | The existing `aaiclick migrate` command drives Alembic and the CH runner together |
 | Baseline       | `0001_baseline.sql` recreates today's schema with `CREATE TABLE IF NOT EXISTS` — safe on both fresh and existing installs, no stamp/detect logic |
-| Validation     | Version tracking replaces column validation; `_validate_schema` and the `EXPECTED_COLUMNS` dicts are deleted |
+| Validation     | Version tracking replaces column validation; `_validate_schema` is deleted (see Startup for what survives) |
 | Startup, local | Auto-apply pending migrations (zero-ops, single-process — mirrors SQLite) |
 | Startup, distributed | Never applies; raises "schema behind, run `aaiclick migrate upgrade`" (mirrors Postgres) |
 
@@ -123,11 +123,13 @@ In `aaiclick/internal_api/setup.py` (`migrate()`):
 - Distributed mode: `await ch_pending(ch_client)`; if non-empty, raise
   `RuntimeError("ClickHouse schema is behind (pending: 0003, 0004). Run: aaiclick migrate upgrade")`.
 
-`_validate_schema`, `OPERATION_LOG_EXPECTED_COLUMNS`, and
-`TASK_LOGS_EXPECTED_COLUMNS` are deleted. The DDL constants move into
-`0001_baseline.sql`; call sites that imported them (e.g.
-`orchestration/orch_context.py`, `orchestration/execution/log_flush.py`) are
-updated accordingly.
+`_validate_schema` and `TASK_LOGS_EXPECTED_COLUMNS` are deleted.
+`OPERATION_LOG_EXPECTED_COLUMNS` survives as `OPERATION_LOG_COLUMN_TYPES` —
+the oplog flush in `orchestration/orch_context.py` needs the column type
+names for inserts; it is no longer used for validation. The DDL constants
+move into `0001_baseline.sql`; `orchestration/execution/log_flush.py`, which
+ensured `task_logs` directly via `TASK_LOGS_DDL`, calls `init_oplog_tables()`
+instead (its existing best-effort `try`/`except` already tolerates failure).
 
 ---
 
