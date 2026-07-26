@@ -31,6 +31,7 @@ from aaiclick.backend import (
     is_sqlite,
 )
 from aaiclick.data.data_context.chdb_client import get_chdb_data_path, get_shared_session
+from aaiclick.oplog.migrate import ch_status_standalone, ch_upgrade_standalone
 from aaiclick.orchestration.env import get_db_url
 from aaiclick.orchestration.migrate import get_alembic_config
 from aaiclick.orchestration.models import SQLModel
@@ -41,6 +42,7 @@ from aaiclick.view_models import (
     MIGRATE_HISTORY,
     MIGRATE_SHOW,
     MIGRATE_UPGRADE,
+    ChVersionStatus,
     MigrationAction,
     MigrationResult,
     OllamaBootstrapResult,
@@ -118,20 +120,28 @@ def setup(*, ai: bool = False) -> SetupResult:
     )
 
 
-def migrate(action: MigrationAction, revision: str | None = None) -> MigrationResult:
-    """Run an alembic subcommand against the orchestration database.
+def _ch_versions() -> list[ChVersionStatus]:
+    return [ChVersionStatus(version=s.version, applied=s.applied) for s in ch_status_standalone()]
 
-    ``UPGRADE`` defaults ``revision`` to ``"head"`` when omitted;
-    ``DOWNGRADE`` and ``SHOW`` require an explicit revision. Alembic emits
-    its own log output while running — this function returns a structured
-    ``MigrationResult`` describing the invocation.
+
+def migrate(action: MigrationAction, revision: str | None = None) -> MigrationResult:
+    """Run a migration subcommand against both orchestration databases.
+
+    ``UPGRADE`` runs the alembic upgrade and then applies pending ClickHouse
+    migrations; ``CURRENT`` / ``HISTORY`` report both sides. ``DOWNGRADE`` /
+    ``HEADS`` / ``SHOW`` are alembic-only (ClickHouse migrations are
+    forward-only). ``UPGRADE`` defaults ``revision`` to ``"head"`` when
+    omitted; ``DOWNGRADE`` and ``SHOW`` require an explicit revision. Alembic
+    emits its own log output while running — this function returns a
+    structured ``MigrationResult`` describing the invocation.
     """
     config = get_alembic_config()
 
     if action == MIGRATE_UPGRADE:
         target = revision or "head"
         command.upgrade(config, target)
-        return MigrationResult(action=action, revision=target)
+        ch_applied = ch_upgrade_standalone()
+        return MigrationResult(action=action, revision=target, ch_versions_applied=ch_applied)
 
     if action == MIGRATE_DOWNGRADE:
         if revision is None:
@@ -141,11 +151,11 @@ def migrate(action: MigrationAction, revision: str | None = None) -> MigrationRe
 
     if action == MIGRATE_CURRENT:
         command.current(config, verbose=True)
-        return MigrationResult(action=action)
+        return MigrationResult(action=action, ch_versions=_ch_versions())
 
     if action == MIGRATE_HISTORY:
         command.history(config, verbose=True)
-        return MigrationResult(action=action)
+        return MigrationResult(action=action, ch_versions=_ch_versions())
 
     if action == MIGRATE_HEADS:
         command.heads(config, verbose=True)

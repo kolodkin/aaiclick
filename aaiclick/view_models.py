@@ -242,12 +242,22 @@ MigrationAction = Literal["upgrade", "downgrade", "current", "history", "heads",
 """Alembic subcommand executed by ``internal_api.migrate``."""
 
 
+class ChVersionStatus(BaseModel):
+    """One ClickHouse migration version and whether it has been applied."""
+
+    version: str
+    applied: bool
+
+
 class MigrationResult(BaseModel):
     """Response from ``internal_api.migrate`` — describes what was run.
 
     Alembic commands emit their own output to stdout; this model captures the
-    request shape so callers can format / serialise the invocation itself.
+    request shape plus the ClickHouse-side outcome so callers can format /
+    serialise the invocation itself.
     """
 
     action: MigrationAction
     revision: str | None = None
+    ch_versions_applied: list[str] = []
+    ch_versions: list[ChVersionStatus] = []

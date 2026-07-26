@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import pytest
 
+from aaiclick.oplog.migrate import ChVersionState
 from aaiclick.view_models import (
     MIGRATE_CURRENT,
     MIGRATE_DOWNGRADE,
+    MIGRATE_HISTORY,
     MIGRATE_SHOW,
     MIGRATE_UPGRADE,
     OLLAMA_NOT_OLLAMA,
+    ChVersionStatus,
     SetupResult,
 )
 
@@ -92,12 +95,68 @@ def test_migrate_upgrade_invokes_alembic(monkeypatch):
     calls: list[tuple] = []
     monkeypatch.setattr(setup, "get_alembic_config", lambda: object())
     monkeypatch.setattr(setup.command, "upgrade", lambda config, revision: calls.append(("upgrade", revision)))
+    monkeypatch.setattr(setup, "ch_upgrade_standalone", lambda: [])
 
     result = setup.migrate(MIGRATE_UPGRADE)
 
     assert result.action == MIGRATE_UPGRADE
     assert result.revision == "head"
     assert calls == [("upgrade", "head")]
+
+
+def test_migrate_upgrade_runs_alembic_then_ch(monkeypatch):
+    calls: list[tuple] = []
+    monkeypatch.setattr(setup, "get_alembic_config", lambda: object())
+    monkeypatch.setattr(setup.command, "upgrade", lambda config, revision: calls.append(("alembic", revision)))
+    monkeypatch.setattr(setup, "ch_upgrade_standalone", lambda: calls.append(("ch",)) or ["0001"])
+
+    result = setup.migrate(MIGRATE_UPGRADE)
+
+    assert calls == [("alembic", "head"), ("ch",)]
+    assert result.ch_versions_applied == ["0001"]
+
+
+def test_migrate_current_reports_ch_versions(monkeypatch):
+    monkeypatch.setattr(setup, "get_alembic_config", lambda: object())
+    monkeypatch.setattr(setup.command, "current", lambda config, verbose: None)
+    monkeypatch.setattr(
+        setup,
+        "ch_status_standalone",
+        lambda: [ChVersionState(version="0001", applied=True), ChVersionState(version="0002", applied=False)],
+    )
+
+    result = setup.migrate(MIGRATE_CURRENT)
+
+    assert result.ch_versions == [
+        ChVersionStatus(version="0001", applied=True),
+        ChVersionStatus(version="0002", applied=False),
+    ]
+
+
+def test_migrate_history_reports_ch_versions(monkeypatch):
+    monkeypatch.setattr(setup, "get_alembic_config", lambda: object())
+    monkeypatch.setattr(setup.command, "history", lambda config, verbose: None)
+    monkeypatch.setattr(
+        setup,
+        "ch_status_standalone",
+        lambda: [ChVersionState(version="0001", applied=True)],
+    )
+
+    result = setup.migrate(MIGRATE_HISTORY)
+
+    assert result.ch_versions == [ChVersionStatus(version="0001", applied=True)]
+
+
+def test_migrate_downgrade_stays_alembic_only(monkeypatch):
+    calls: list[tuple] = []
+    monkeypatch.setattr(setup, "get_alembic_config", lambda: object())
+    monkeypatch.setattr(setup.command, "downgrade", lambda config, revision: calls.append(("alembic", revision)))
+    monkeypatch.setattr(setup, "ch_upgrade_standalone", lambda: calls.append(("ch",)))
+
+    result = setup.migrate(MIGRATE_DOWNGRADE, "-1")
+
+    assert calls == [("alembic", "-1")]
+    assert result.ch_versions_applied == []
 
 
 def test_migrate_downgrade_requires_revision(monkeypatch):

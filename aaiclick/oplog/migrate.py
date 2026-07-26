@@ -9,12 +9,14 @@ and are applied in version order; applied versions are recorded in the
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from pathlib import Path
 from typing import NamedTuple
 
 from aaiclick.data.data_context import ChClient
+from aaiclick.data.data_context.ch_client import create_ch_client
 
 logger = logging.getLogger(__name__)
 
@@ -138,3 +140,38 @@ async def ch_upgrade(
             parameters={"version": version},
         )
     return pending
+
+
+class ChVersionState(NamedTuple):
+    version: str
+    applied: bool
+
+
+async def _ch_upgrade_with_client(dry_run: bool) -> list[str]:
+    ch_client = await create_ch_client()
+    try:
+        return await ch_upgrade(ch_client, dry_run=dry_run)
+    finally:
+        await ch_client.close()
+
+
+async def _ch_status_with_client() -> list[ChVersionState]:
+    ch_client = await create_ch_client()
+    try:
+        applied = set(await ch_applied_versions(ch_client))
+    finally:
+        await ch_client.close()
+    return [
+        ChVersionState(version=f.version, applied=f.version in applied)
+        for f in list_migration_files(MIGRATIONS_DIR)
+    ]
+
+
+def ch_upgrade_standalone(dry_run: bool = False) -> list[str]:
+    """Sync entry for ``aaiclick migrate``: own client, own event loop."""
+    return asyncio.run(_ch_upgrade_with_client(dry_run))
+
+
+def ch_status_standalone() -> list[ChVersionState]:
+    """Sync entry for ``aaiclick migrate current/history``."""
+    return asyncio.run(_ch_status_with_client())
