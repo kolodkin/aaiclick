@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from aaiclick.data.data_context.ch_client import get_ch_client
+from aaiclick.oplog import models as oplog_models
 from aaiclick.oplog.migrate import (
     MigrationFile,
     ch_applied_versions,
@@ -15,6 +16,7 @@ from aaiclick.oplog.migrate import (
     list_migration_files,
     split_statements,
 )
+from aaiclick.oplog.models import init_oplog_tables
 
 
 def _write(tmp_path: Path, name: str, content: str = "SELECT 1;") -> Path:
@@ -71,6 +73,15 @@ def test_split_statements_last_statement_without_semicolon():
     assert split_statements("SELECT 1") == ["SELECT 1"]
 
 
+async def _fresh_tracking(ch) -> None:
+    """Drop schema_migrations so tmp-dir runner tests start from a clean slate.
+
+    The orch_ctx fixture applies the real baseline on entry, which records
+    version 0001 — colliding with the tmp migration dirs used here.
+    """
+    await ch.command("DROP TABLE IF EXISTS schema_migrations")
+
+
 async def test_ch_upgrade_applies_pending_in_order(orch_ctx, tmp_path):
     _write(tmp_path, "0001_a.sql", "CREATE TABLE IF NOT EXISTS mig_a (x UInt64) ENGINE = Memory;")
     _write(
@@ -79,6 +90,7 @@ async def test_ch_upgrade_applies_pending_in_order(orch_ctx, tmp_path):
         "CREATE TABLE IF NOT EXISTS mig_b (y UInt64) ENGINE = Memory;\nINSERT INTO mig_b VALUES (1);",
     )
     ch = get_ch_client()
+    await _fresh_tracking(ch)
 
     applied = await ch_upgrade(ch, migrations_dir=tmp_path)
 
@@ -92,6 +104,7 @@ async def test_ch_upgrade_applies_pending_in_order(orch_ctx, tmp_path):
 async def test_ch_upgrade_second_run_is_noop(orch_ctx, tmp_path):
     _write(tmp_path, "0001_a.sql", "CREATE TABLE IF NOT EXISTS mig_a (x UInt64) ENGINE = Memory;")
     ch = get_ch_client()
+    await _fresh_tracking(ch)
     await ch_upgrade(ch, migrations_dir=tmp_path)
 
     assert await ch_upgrade(ch, migrations_dir=tmp_path) == []
@@ -100,6 +113,7 @@ async def test_ch_upgrade_second_run_is_noop(orch_ctx, tmp_path):
 async def test_ch_upgrade_applies_only_new_versions(orch_ctx, tmp_path):
     _write(tmp_path, "0001_a.sql", "CREATE TABLE IF NOT EXISTS mig_a (x UInt64) ENGINE = Memory;")
     ch = get_ch_client()
+    await _fresh_tracking(ch)
     await ch_upgrade(ch, migrations_dir=tmp_path)
     _write(tmp_path, "0002_b.sql", "CREATE TABLE IF NOT EXISTS mig_b (y UInt64) ENGINE = Memory;")
 
@@ -110,6 +124,7 @@ async def test_ch_pending_rejects_gap(orch_ctx, tmp_path):
     """An unapplied version older than an applied one means history was rewritten."""
     _write(tmp_path, "0002_b.sql", "CREATE TABLE IF NOT EXISTS mig_b (y UInt64) ENGINE = Memory;")
     ch = get_ch_client()
+    await _fresh_tracking(ch)
     await ch_upgrade(ch, migrations_dir=tmp_path)
     _write(tmp_path, "0001_a.sql", "CREATE TABLE IF NOT EXISTS mig_a (x UInt64) ENGINE = Memory;")
 
@@ -120,6 +135,7 @@ async def test_ch_pending_rejects_gap(orch_ctx, tmp_path):
 async def test_ch_pending_rejects_unknown_applied_version(orch_ctx, tmp_path):
     _write(tmp_path, "0001_a.sql", "CREATE TABLE IF NOT EXISTS mig_a (x UInt64) ENGINE = Memory;")
     ch = get_ch_client()
+    await _fresh_tracking(ch)
     await ch_upgrade(ch, migrations_dir=tmp_path)
     (tmp_path / "0001_a.sql").unlink()
 
@@ -134,6 +150,7 @@ async def test_ch_upgrade_mid_script_failure_leaves_version_unrecorded(orch_ctx,
         "CREATE TABLE IF NOT EXISTS mig_a (x UInt64) ENGINE = Memory;\nSELECT broken syntax here;",
     )
     ch = get_ch_client()
+    await _fresh_tracking(ch)
 
     with pytest.raises(Exception):
         await ch_upgrade(ch, migrations_dir=tmp_path)
@@ -147,6 +164,7 @@ async def test_ch_upgrade_mid_script_failure_leaves_version_unrecorded(orch_ctx,
 async def test_ch_upgrade_dry_run_executes_nothing(orch_ctx, tmp_path):
     _write(tmp_path, "0001_a.sql", "CREATE TABLE IF NOT EXISTS mig_dry (x UInt64) ENGINE = Memory;")
     ch = get_ch_client()
+    await _fresh_tracking(ch)
 
     pending = await ch_upgrade(ch, migrations_dir=tmp_path, dry_run=True)
 
@@ -183,3 +201,33 @@ async def test_baseline_is_safe_on_existing_tables(orch_ctx):
     rows = (await ch.query("SELECT id FROM operation_log")).result_rows
     assert rows == [(7,)]
     assert "0001" in await ch_applied_versions(ch)
+
+
+async def test_init_oplog_tables_local_auto_migrates(orch_ctx):
+    """Local mode: init applies pending migrations (zero-ops)."""
+    ch = get_ch_client()
+    await ch.command("DROP TABLE IF EXISTS operation_log")
+    await ch.command("DROP TABLE IF EXISTS schema_migrations")
+
+    await init_oplog_tables(ch)
+
+    exists = (await ch.query("EXISTS TABLE operation_log")).result_rows
+    assert exists[0][0] == 1
+
+
+async def test_init_oplog_tables_distributed_raises_when_behind(orch_ctx, monkeypatch):
+    """Distributed mode: init never applies; it names the pending versions."""
+    ch = get_ch_client()
+    await ch.command("DROP TABLE IF EXISTS schema_migrations")
+    monkeypatch.setattr(oplog_models, "is_local", lambda: False)
+
+    with pytest.raises(RuntimeError, match=r"aaiclick migrate upgrade"):
+        await init_oplog_tables(ch)
+
+
+async def test_init_oplog_tables_distributed_ok_when_current(orch_ctx, monkeypatch):
+    ch = get_ch_client()
+    await ch_upgrade(ch)
+    monkeypatch.setattr(oplog_models, "is_local", lambda: False)
+
+    await init_oplog_tables(ch)  # must not raise

@@ -16,7 +16,7 @@ import logging
 import multiprocessing
 
 from aaiclick.data.data_context import get_ch_client
-from aaiclick.oplog.models import TASK_LOGS_DDL
+from aaiclick.oplog.models import init_oplog_tables
 
 from ..logging import flush_task_logs, shell_text_to_lines
 
@@ -36,9 +36,9 @@ async def flush_shell_logs_inline(task_id: int, job_id: int, run_id: int, text: 
     if not text:
         return
     # A shell-only job on a fresh DB may not have run task_scope's
-    # init_oplog_tables yet; ensure just the one table this write needs.
+    # init_oplog_tables yet; bring the schema up before writing.
     try:
-        await get_ch_client().command(TASK_LOGS_DDL)
+        await init_oplog_tables(get_ch_client())
     except Exception:
         logger.error("Failed to ensure task_logs for task %s run %s", task_id, run_id, exc_info=True)
         return

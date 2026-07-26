@@ -18,7 +18,7 @@ from aaiclick.data.data_context.data_context import _engine_var, _objects_var, d
 from aaiclick.data.data_context.lifecycle import LifecycleHandler, _lifecycle_var
 from aaiclick.data.models import ENGINE_DEFAULT
 from aaiclick.locks import lookup_advisory_id
-from aaiclick.oplog.models import OPERATION_LOG_EXPECTED_COLUMNS, init_oplog_tables
+from aaiclick.oplog.models import OPERATION_LOG_COLUMN_TYPES, init_oplog_tables
 
 from ..snowflake import get_snowflake_id
 from .env import get_db_url
@@ -41,7 +41,7 @@ _OPLOG_COLS = [
     "run_id",
     "created_at",
 ]
-_OPLOG_TYPE_NAMES = [OPERATION_LOG_EXPECTED_COLUMNS[c] for c in _OPLOG_COLS]
+_OPLOG_TYPE_NAMES = [OPERATION_LOG_COLUMN_TYPES[c] for c in _OPLOG_COLS]
 
 
 class OrchLifecycleHandler(LifecycleHandler):

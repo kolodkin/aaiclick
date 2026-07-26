@@ -16,12 +16,12 @@ from typing import TextIO
 from aaiclick.data.data_context import get_ch_client
 from aaiclick.datetime_utils import utc_now
 from aaiclick.log_models import STDERR_STREAM, STDOUT_STREAM, LogLevel, LogLine, LogStream, normalize_level
-from aaiclick.oplog.models import TASK_LOGS_EXPECTED_COLUMNS
+from aaiclick.oplog.models import TASK_LOGS_COLUMN_TYPES
 
 logger = logging.getLogger(__name__)
 
-_TASK_LOG_COLS = list(TASK_LOGS_EXPECTED_COLUMNS)
-_TASK_LOG_TYPE_NAMES = list(TASK_LOGS_EXPECTED_COLUMNS.values())
+_TASK_LOG_COLS = list(TASK_LOGS_COLUMN_TYPES)
+_TASK_LOG_TYPE_NAMES = list(TASK_LOGS_COLUMN_TYPES.values())
 
 
 _DEFAULT_STREAM_LEVEL: dict[LogStream, LogLevel] = {STDOUT_STREAM: "INFO", STDERR_STREAM: "ERROR"}
