@@ -1,5 +1,6 @@
 """Tests for orchestration execution and Job.test() functionality."""
 
+import asyncio
 import inspect
 import sys
 
@@ -68,6 +69,21 @@ async def test_capture_task_output_stderr(orch_ctx):
 
     lines = await read_task_logs(task_id, run_id)
     assert any(line.text == "Error message" and line.stream == "stderr" for line in lines)
+
+
+async def test_capture_task_output_streams_mid_run(orch_ctx, monkeypatch):
+    """Completed lines are readable from task_logs while the task body is still running."""
+    monkeypatch.setattr("aaiclick.orchestration.logging.LOG_FLUSH_INTERVAL", 0.05)
+    task_id, job_id, run_id = 71, 1, 9101
+    mid_run_lines: list[str] = []
+    async with capture_task_output(task_id, job_id, run_id):
+        print("early line")
+        await asyncio.sleep(0.3)  # let the flusher tick
+        mid_run_lines = [line.text for line in await read_task_logs(task_id, run_id)]
+        print("late line")
+    assert mid_run_lines == ["early line"]
+    final = [line.text for line in await read_task_logs(task_id, run_id)]
+    assert final == ["early line", "late line"]
 
 
 async def test_register_run_appends_run_ids_and_statuses(orch_ctx):
