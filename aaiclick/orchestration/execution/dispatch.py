@@ -17,8 +17,9 @@ from ..docker_config import effective_image_tag
 from ..models import RUNNER_DOCKER, RUNNER_KUBERNETES, RUNNER_SUBPROCESS, Job, RunnerMode, Task
 from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_SHELL, KubernetesRunner, RunnerConfigT, parse_runner_config
-from .docker_worker import _run_task_in_container
+from .docker_worker import _docker_pull_if_registered, _run_task_in_container, build_shell_run_spec
 from .execution_worker import JobDispatch
+from .image_builder import resolve_image_tag
 from .kubernetes_worker import _run_task_in_pod
 from .mp_worker import _run_task_in_child
 from .runner import ShellSpec
@@ -69,10 +70,18 @@ _IMAGE_RUNNERS: dict[RunnerMode, Callable[[Task, int, JobDispatch], Awaitable[Ex
 }
 
 
-def build_shell_spec(task: Task, dispatch: JobDispatch, execution_worker_id: int) -> ShellSpec:
+async def build_shell_spec(task: Task, dispatch: JobDispatch, execution_worker_id: int) -> ShellSpec:
     """Resolve a shell task's launch command for its runner mode.
 
-    Subprocess mode runs the argv directly on the host."""
+    Subprocess mode runs the argv directly; container modes wrap it as a
+    foreground ``docker run`` / ``kubectl run`` so the wrapper's exit code
+    and merged stdout are the task's."""
+    if dispatch.runner_mode == RUNNER_DOCKER:
+        image_tag = await resolve_image_tag(task, dispatch.image_source, dispatch.image_tag, execution_worker_id)
+        await _docker_pull_if_registered(image_tag)
+        return build_shell_run_spec(task, image_tag)
+    if dispatch.runner_mode == RUNNER_KUBERNETES:
+        raise NotImplementedError("kubernetes shell dispatch lands with build_shell_pod_spec")
     return ShellSpec(dispatch.command or [], dispatch.command_env)
 
 
@@ -80,7 +89,7 @@ async def dispatch_execute(task: Task, execution_worker_id: int) -> ExecuteResul
     """ExecuteFn that picks the runner per task."""
     dispatch = await _resolve_dispatch(task)
     if dispatch.entry_type == ENTRY_SHELL:
-        spec = build_shell_spec(task, dispatch, execution_worker_id)
+        spec = await build_shell_spec(task, dispatch, execution_worker_id)
         return await _run_task_in_child(task, execution_worker_id, shell_spec=spec)
     handler = _IMAGE_RUNNERS.get(dispatch.runner_mode)
     if handler is not None:

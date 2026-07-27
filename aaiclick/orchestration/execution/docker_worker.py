@@ -37,7 +37,6 @@ from sqlmodel import select
 from ..docker_config import add_host_flags
 from ..models import Task
 from ..orch_context import get_sql_session
-from ..runner_config import ENTRY_SHELL
 from . import cli
 from .claiming import check_task_cancelled
 from .execution_worker import (
@@ -50,8 +49,7 @@ from .execution_worker import (
     parse_task_timeout,
 )
 from .image_builder import resolve_image_tag
-from .log_flush import flush_shell_logs
-from .runner import execute_task, register_run, serialize_task_result
+from .runner import ShellSpec, execute_task, serialize_task_result
 from .runner_env import build_runner_env
 
 CONTAINER_IPC_DIR = "/aaiclick-ipc"
@@ -72,21 +70,47 @@ def _docker_bin() -> str:
 # ---------------------------------------------------------------------------
 
 
+def _shell_container_name(task: Task) -> str:
+    """Unique-per-attempt container name so cleanup can address it."""
+    return f"aaiclick-task-{task.id}-{task.run_epoch}"
+
+
+def build_shell_run_spec(task: Task, image_tag: str) -> ShellSpec:
+    """Wrap a shell task's argv as a foreground ``docker run``.
+
+    Only ``command_env`` is injected — no IPC mount, no runner env, so no
+    aaiclick secrets reach a vanilla user image. ``--rm`` is safe here
+    (unlike module tasks' detached run): the docker CLI is the wrapper
+    process, so its own exit code *is* the container's — no ``docker wait``
+    race. ``cleanup_argv`` kills the container by name for the
+    timeout/cancel path, where killing the CLI alone would leave it
+    running."""
+    name = _shell_container_name(task)
+    argv = [
+        _docker_bin(),
+        "run",
+        "--rm",
+        "--name",
+        name,
+        *add_host_flags("AAICLICK_DOCKER_RUN_ADD_HOST"),
+    ]
+    for key, value in (task.command_env or {}).items():
+        argv.extend(["-e", f"{key}={value}"])
+    argv.append(image_tag)
+    argv.extend(task.command or [])
+    return ShellSpec(argv, None, cleanup_argv=[_docker_bin(), "kill", name])
+
+
 def _build_docker_run_cmd(
     task: Task,
     image_tag: str,
     ipc_dir: str,
     env: dict[str, str],
 ) -> list[str]:
-    """Construct the detached ``docker run`` command line.
-
-    For ``shell`` tasks, the task's argv runs directly in the container with
-    only ``command_env`` injected — no IPC mount, no runner env. Success is
-    the container's exit code; container stdout/stderr is captured via
-    ``docker logs`` and flushed to CH ``task_logs``.
-
-    For ``module`` tasks (unchanged): the IPC tmpdir is mounted at
-    ``/aaiclick-ipc``.
+    """Construct the detached ``docker run`` command line for a module task:
+    mount the IPC tmpdir at ``/aaiclick-ipc``, inject the full runner env, and
+    run the in-container bootstrap shim (``python -m ...docker_worker
+    --task-id N``).
 
     The framework deliberately does **not** pass ``--network`` — the
     operator is responsible for ensuring AAICLICK_SQL_URL and
@@ -98,21 +122,10 @@ def _build_docker_run_cmd(
     ``docker wait`` can race-freely report the exit code (a ``--rm``
     container that exits between polls disappears from the daemon
     before we can inspect it)."""
-    base = [_docker_bin(), "run", "--detach"]
-    if task.entry_type == ENTRY_SHELL:
-        cmd: list[str] = [
-            *base,
-            *add_host_flags("AAICLICK_DOCKER_RUN_ADD_HOST"),
-        ]
-        for key, value in (task.command_env or {}).items():
-            cmd.extend(["-e", f"{key}={value}"])
-        cmd.append(image_tag)
-        cmd.extend(task.command or [])
-        return cmd
-    # Module entry: mount the IPC dir, inject the full runner env, and run the
-    # in-container bootstrap shim (``python -m ...docker_worker --task-id N``).
     cmd = [
-        *base,
+        _docker_bin(),
+        "run",
+        "--detach",
         "-v",
         f"{ipc_dir}:{CONTAINER_IPC_DIR}",
         *add_host_flags("AAICLICK_DOCKER_RUN_ADD_HOST"),
@@ -204,13 +217,6 @@ async def _wait_for_container(container_id: str, timeout: float | None) -> tuple
     return exit_code, None
 
 
-async def _container_logs_text(container_id: str) -> str:
-    """Fetch the container's stdout+stderr text (shell tasks have no
-    result.json and no in-container harness — `docker logs` is the capture)."""
-    _, out, err = await cli.run(_docker_bin(), "logs", container_id, check=False, stream=False)
-    return out + err
-
-
 def _read_result_or_synthesize_failure(
     ipc_dir: str, exit_code: int, error: str | None, was_cancelled: bool
 ) -> RunnerResult:
@@ -244,42 +250,28 @@ def _read_result_or_synthesize_failure(
 class _DockerHandle(NamedTuple):
     container_id: str
     ipc_dir: str
-    task_id: int
-    job_id: int
-    run_id: int | None
 
 
 class _DockerVehicle(TaskVehicle["_DockerHandle", None]):
-    """``TaskVehicle`` for the Docker runner.
+    """``TaskVehicle`` for the Docker runner (module tasks — shell tasks run
+    through the mp task child with a ``build_shell_run_spec`` argv).
 
     The IPC tmpdir is created by ``_run_task_in_container`` (its lifetime
     is the ``TemporaryDirectory`` context) and handed in; ``launch`` only
-    spawns the container into it.
+    spawns the container into it."""
 
-    For ``shell`` tasks there is no IPC result file: success is the
-    container exit code, and once the container exits its ``docker logs``
-    output is flushed to CH ``task_logs`` under the run_id registered at
-    launch."""
-
-    def __init__(self, image_tag: str, env: dict[str, str], ipc_dir: str, entry_type: str) -> None:
+    def __init__(self, image_tag: str, env: dict[str, str], ipc_dir: str) -> None:
         self._image_tag = image_tag
         self._env = env
         self._ipc_dir = ipc_dir
-        self._entry_type = entry_type
 
     async def launch(self, task: Task, execution_worker_id: int) -> _DockerHandle:
-        run_id = None
-        if task.entry_type == ENTRY_SHELL:
-            run_id = await register_run(task.id)
         cmd = _build_docker_run_cmd(task, self._image_tag, self._ipc_dir, self._env)
         container_id = await _docker_run_detached(cmd)
-        return _DockerHandle(container_id, self._ipc_dir, task.id, task.job_id, run_id)
+        return _DockerHandle(container_id, self._ipc_dir)
 
     async def wait(self, handle: _DockerHandle, timeout: float | None) -> tuple[int, str | None, None]:
         exit_code, error = await _wait_for_container(handle.container_id, timeout)
-        if self._entry_type == ENTRY_SHELL and handle.run_id is not None:
-            text = await _container_logs_text(handle.container_id)
-            await flush_shell_logs(handle.task_id, handle.job_id, handle.run_id, text)
         return exit_code, error, None
 
     async def poll_cancelled(self, task: Task) -> bool:
@@ -291,19 +283,6 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", None]):
     def collect(
         self, handle: _DockerHandle, exit_code: int, error: str | None, was_cancelled: bool, payload: None
     ) -> RunnerResult:
-        if self._entry_type == ENTRY_SHELL:
-            # ``exit_code`` is the container's main-process status from
-            # ``docker wait`` (see ``wait``) — and the shell task's argv *is*
-            # that main process, so this is the command's own exit code.
-            if was_cancelled:
-                return RunnerResult(False, None, "cancelled")
-            if error is not None:
-                return RunnerResult(False, None, error)
-            return RunnerResult(
-                exit_code == 0,
-                None,
-                None if exit_code == 0 else f"exit {exit_code}",
-            )
         # Docker reads its result from the bind-mounted IPC file, not ``payload``.
         return _read_result_or_synthesize_failure(handle.ipc_dir, exit_code, error, was_cancelled=was_cancelled)
 
@@ -328,10 +307,10 @@ async def _run_task_in_container(
 
     timeout = parse_task_timeout()
 
-    env = build_runner_env() if task.entry_type != ENTRY_SHELL else {}
+    env = build_runner_env()
 
     with tempfile.TemporaryDirectory(prefix="aaiclick-ipc-") as ipc_dir:
-        vehicle = _DockerVehicle(image_tag, env, ipc_dir, task.entry_type)
+        vehicle = _DockerVehicle(image_tag, env, ipc_dir)
         result = await drive_vehicle(
             task,
             execution_worker_id,
