@@ -180,6 +180,8 @@ Use the `generate-migration` skill. Never hand-write migration files.
    - **No status icons**: The implementation reference itself signals a feature is built — do not add ✅ IMPLEMENTED markers. Unimplemented work lives in `docs/designs/future.md` (see Future Plans), not inline ⚠️ NOT YET IMPLEMENTED markers.
    - **Keep unimplemented specs**: Detailed descriptions serve as design docs for future work
 
+4. **Remove superpowers plan and spec once implemented**: Delete the superpowers plan (`docs/superpowers/plans/`) and the feature's spec document after the feature lands, and fix any references pointing at them — the code and its user-guide docs are the record. (Unimplemented specs stay, per step 3.)
+
 ## Documentation
 
 - Use the `shortify` skill after writing or editing docs in subdirectories.
