@@ -174,10 +174,17 @@ Per `python-testing-style`:
 
 # Documentation Updates
 
-- `docs/designs/orchestration.md` — shell-capture description and
-  implementation references.
-- `docs/designs/task_log_retirement.md` — capture table ("memory → CH"
-  becomes "streamed → CH").
-- `docs/user_guide/orchestration.md` — logs section mentions live tailing.
-- `docs/designs/future.md` — remove the Live Log Streaming item; the SSE
-  item's `task.log` event note stays (SSE remains deferred).
+All docs are rewritten to state what **is** after the change — current
+behavior with implementation references — never as before/after refactor
+narrative:
+
+- `docs/designs/orchestration.md` — logging/shell-capture sections describe
+  the streaming architecture as current state, with implementation
+  references.
+- `docs/designs/task_log_retirement.md` — capture table updated to the
+  streamed reality.
+- `docs/user_guide/orchestration.md` — logs section documents live tailing.
+- `docs/designs/future.md` — Live Log Streaming item removed; the SSE item's
+  `task.log` note stays (SSE remains deferred).
+- This spec is deleted once the feature lands (project convention) — the
+  code and the docs above are the record.
