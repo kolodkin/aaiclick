@@ -29,6 +29,8 @@ from aaiclick.backend import is_chdb, is_local, parse_ch_url
 from aaiclick.data.data_context import get_ch_client
 from aaiclick.data.models import FIELDTYPE_ARRAY
 from aaiclick.oplog.lineage import OplogNode
+from aaiclick.oplog.migrate import ch_upgrade
+from aaiclick.oplog.models import clear_schema_cache
 from aaiclick.orchestration.migrate import get_alembic_config
 from aaiclick.orchestration.models import SQLModel
 from aaiclick.orchestration.orch_context import get_sql_session, orch_context, task_scope
@@ -99,17 +101,23 @@ async def reset_sql_tables() -> None:
 
 
 async def drop_all_ch_tables() -> None:
-    """Drop every table in the active CH database.
+    """Drop every table in the active CH database, then re-apply migrations.
 
-    Singletons (operation_log) are recreated lazily by init_oplog_tables
-    on next task_scope entry. Safe against real CH because
-    ``ch_worker_setup`` gives each xdist worker its own database, so
-    this never touches another worker's tables.
+    The re-apply keeps distributed mode working: ``init_oplog_tables``
+    never writes there (it demands ``aaiclick migrate upgrade``), so a
+    wiped per-worker database must be brought back to the current schema
+    here rather than lazily on the next ``task_scope`` entry. Safe against
+    real CH because ``ch_worker_setup`` gives each xdist worker its own
+    database, so this never touches another worker's tables.
     """
     ch = get_ch_client()
     result = await ch.query("SELECT name FROM system.tables WHERE database = currentDatabase()")
     for row in result.result_rows:
         await ch.command(f"DROP TABLE IF EXISTS `{row[0]}`")
+    # Column types cached from the dropped tables must not leak into the
+    # next test (which may recreate them with a different shape).
+    clear_schema_cache()
+    await ch_upgrade(ch)
 
 
 async def per_test_reset(*, reset_ch: bool = True, reset_sql: bool = True) -> None:

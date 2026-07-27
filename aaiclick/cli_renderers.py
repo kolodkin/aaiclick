@@ -303,5 +303,11 @@ def render_migration_result(result: MigrationResult) -> None:
     """Confirm upgrade/downgrade success — alembic logs the rest on its own."""
     if result.action == MIGRATE_UPGRADE:
         print(f"Database upgraded to {result.revision}")
+        if result.ch_versions_applied:
+            print(f"ClickHouse migrations applied: {', '.join(result.ch_versions_applied)}")
+        else:
+            print("ClickHouse schema up to date")
     elif result.action == MIGRATE_DOWNGRADE:
         print(f"Database downgraded to {result.revision}")
+    for v in result.ch_versions:
+        print(f"ClickHouse {v.version}: {'applied' if v.applied else 'pending'}")

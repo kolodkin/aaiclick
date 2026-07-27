@@ -314,6 +314,9 @@ Commands:
   heads                Show current available heads
   show [revision]      Show details about a revision
 
+upgrade also applies pending ClickHouse migrations after the SQL upgrade;
+current and history report both databases.
+
 Examples:
   python -m aaiclick migrate                 # Upgrade to latest
   python -m aaiclick migrate upgrade head    # Upgrade to latest

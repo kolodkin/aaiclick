@@ -16,12 +16,11 @@ from typing import TextIO
 from aaiclick.data.data_context import get_ch_client
 from aaiclick.datetime_utils import utc_now
 from aaiclick.log_models import STDERR_STREAM, STDOUT_STREAM, LogLevel, LogLine, LogStream, normalize_level
-from aaiclick.oplog.models import TASK_LOGS_EXPECTED_COLUMNS
+from aaiclick.oplog.models import get_column_types
 
 logger = logging.getLogger(__name__)
 
-_TASK_LOG_COLS = list(TASK_LOGS_EXPECTED_COLUMNS)
-_TASK_LOG_TYPE_NAMES = list(TASK_LOGS_EXPECTED_COLUMNS.values())
+_TASK_LOG_COLS = ["task_id", "job_id", "run_id", "seq", "stream", "level", "line", "created_at"]
 
 
 _DEFAULT_STREAM_LEVEL: dict[LogStream, LogLevel] = {STDOUT_STREAM: "INFO", STDERR_STREAM: "ERROR"}
@@ -151,11 +150,13 @@ async def flush_task_logs(task_id: int, job_id: int, run_id: int, lines: list[Lo
         for seq, line in enumerate(lines)
     ]
     try:
-        await get_ch_client().insert(
+        ch_client = get_ch_client()
+        column_types = await get_column_types(ch_client, "task_logs")
+        await ch_client.insert(
             "task_logs",
             rows,
             column_names=_TASK_LOG_COLS,
-            column_type_names=_TASK_LOG_TYPE_NAMES,
+            column_type_names=[column_types[c] for c in _TASK_LOG_COLS],
         )
     except Exception:
         logger.error("Failed to write task_logs for task %s run %s", task_id, run_id, exc_info=True)

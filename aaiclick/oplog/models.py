@@ -1,100 +1,72 @@
 """
-aaiclick.oplog.models - ClickHouse DDL and schema validation for the
-orchestration-owned CH tables created on task-scope entry: the ``operation_log``
-provenance table and the ``task_logs`` captured-output stream.
+aaiclick.oplog.models - startup entry point for the internal ClickHouse
+schema (``operation_log``, ``task_logs``), driven by the migration runner
+in ``aaiclick.oplog.migrate``. DDL lives in ``aaiclick/oplog/migrations/``.
 """
 
 from __future__ import annotations
 
+from functools import lru_cache
+
+from aaiclick.backend import is_local
 from aaiclick.data.data_context import ChClient
 
-OPERATION_LOG_DDL = """
-CREATE TABLE IF NOT EXISTS operation_log (
-    id              UInt64 DEFAULT generateSnowflakeID(),
-    result_table    String,
-    operation       String,
-    kwargs          Map(String, String),
-    sql_template    Nullable(String),
-    task_id         Nullable(UInt64),
-    job_id          Nullable(UInt64),
-    run_id          Nullable(UInt64),
-    created_at      DateTime64(3)
-) ENGINE = MergeTree()
-ORDER BY (result_table, created_at)
-"""
-# result_table leads the sort key so every oplog consumer
-# (backward_oplog, ...) gets skip-index-friendly lookups;
-# created_at breaks ties within a table so "most recent row"
-# stays a tail scan.
+from .migrate import ch_pending, ch_upgrade
 
-OPERATION_LOG_EXPECTED_COLUMNS: dict[str, str] = {
-    "id": "UInt64",  # DEFAULT generateSnowflakeID() — type check only
-    "result_table": "String",
-    "operation": "String",
-    "kwargs": "Map(String, String)",
-    "sql_template": "Nullable(String)",
-    "task_id": "Nullable(UInt64)",
-    "job_id": "Nullable(UInt64)",
-    "run_id": "Nullable(UInt64)",
-    "created_at": "DateTime64(3)",
-}
-
-TASK_LOGS_DDL = """
-CREATE TABLE IF NOT EXISTS task_logs (
-    task_id     UInt64,
-    job_id      UInt64,
-    run_id      UInt64,
-    seq         UInt64,
-    stream      String,
-    level       String,
-    line        String,
-    created_at  DateTime64(3)
-) ENGINE = MergeTree()
-ORDER BY (task_id, run_id, seq)
-"""
-# Captured task stdout/stderr, one row per line. Every runner (subprocess,
-# docker, kubernetes) streams here from inside the task process, so logs are
-# reachable cross-host through a single read path. (task_id, run_id) leads the
-# sort key — the read path always scans one task attempt — and seq preserves
-# the emission order within that attempt. ``stream`` tags the source
-# (``stdout`` / ``stderr``) so the UI can distinguish them.
-
-TASK_LOGS_EXPECTED_COLUMNS: dict[str, str] = {
-    "task_id": "UInt64",
-    "job_id": "UInt64",
-    "run_id": "UInt64",
-    "seq": "UInt64",
-    "stream": "String",
-    "level": "String",
-    "line": "String",
-    "created_at": "DateTime64(3)",
-}
+INTERNAL_TABLES = ("operation_log", "task_logs")
 
 
-async def _validate_schema(
-    ch_client: ChClient,
-    table: str,
-    expected: dict[str, str],
-) -> None:
-    """Check all expected columns exist with correct types; raise on mismatch."""
-    result = await ch_client.query(f"SELECT name, type FROM system.columns WHERE table = '{table}'")
-    actual = {row[0]: row[1] for row in result.result_rows}
-    for col, expected_type in expected.items():
-        if col not in actual:
-            raise RuntimeError(
-                f"ClickHouse table '{table}' is missing column '{col}'. Drop the table and let aaiclick recreate it."
-            )
-        if actual[col] != expected_type:
-            raise RuntimeError(
-                f"ClickHouse table '{table}' column '{col}' has type "
-                f"'{actual[col]}', expected '{expected_type}'. "
-                f"Drop the table and let aaiclick recreate it."
-            )
+@lru_cache(maxsize=1)
+def _schema_cache() -> dict[str, dict[str, str]]:
+    """Process-wide store for column types read from ``system.columns``.
+
+    ``lru_cache`` cannot wrap the async reader itself, so it holds the
+    mutable store instead — same once-per-process semantics, and
+    ``cache_clear()`` resets it (used by ``aaiclick.testing`` between tests).
+    """
+    return {}
+
+
+def clear_schema_cache() -> None:
+    """Drop the cached column types so the next read hits ``system.columns``."""
+    _schema_cache.cache_clear()
+
+
+async def get_column_types(ch_client: ChClient, table: str) -> dict[str, str]:
+    """Column name → ClickHouse type for an internal table, in schema order.
+
+    Reads ``system.columns`` once per process (all internal tables in one
+    query) and serves every later call from the cache. The tables must
+    exist — call after ``init_oplog_tables``.
+    """
+    cache = _schema_cache()
+    if set(cache) != set(INTERNAL_TABLES):
+        tables_in = ", ".join(f"'{t}'" for t in INTERNAL_TABLES)
+        result = await ch_client.query(
+            f"SELECT table, name, type FROM system.columns"
+            f" WHERE database = currentDatabase() AND table IN ({tables_in})"
+            f" ORDER BY table, position"
+        )
+        for table_name, column, ch_type in result.result_rows:
+            cache.setdefault(table_name, {})[column] = ch_type
+    if table not in cache:
+        raise RuntimeError(f"No columns found for ClickHouse table '{table}' — run init_oplog_tables first.")
+    return cache[table]
 
 
 async def init_oplog_tables(ch_client: ChClient) -> None:
-    """Create oplog tables if they don't exist; validate schema if they do."""
-    await ch_client.command(OPERATION_LOG_DDL)
-    await _validate_schema(ch_client, "operation_log", OPERATION_LOG_EXPECTED_COLUMNS)
-    await ch_client.command(TASK_LOGS_DDL)
-    await _validate_schema(ch_client, "task_logs", TASK_LOGS_EXPECTED_COLUMNS)
+    """Bring the internal CH schema up to date, or fail asking for a migrate.
+
+    Local mode (chdb + SQLite) applies pending migrations directly —
+    single-process, zero-ops, mirrors SQLite's create-on-setup. Distributed
+    mode never writes: the operator runs ``aaiclick migrate upgrade``.
+    """
+    if is_local():
+        await ch_upgrade(ch_client)
+        return
+
+    pending = await ch_pending(ch_client)
+    if pending:
+        raise RuntimeError(
+            f"ClickHouse schema is behind (pending: {', '.join(pending)}). Run: aaiclick migrate upgrade"
+        )

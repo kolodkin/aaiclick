@@ -29,6 +29,8 @@ spec:
           env:
             - name: AAICLICK_SQL_URL
               value: {{ .Values.env.sqlUrl | quote }}
+            - name: AAICLICK_CH_URL
+              value: {{ .Values.env.chUrl | quote }}
       containers:
         - name: server
           image: "{{ .Values.images.server.repository }}:{{ .Values.images.server.tag }}"
