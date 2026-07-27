@@ -6,10 +6,13 @@ single-session constraint in ``docs/designs/testing.md``."""
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock
 
+from ..models import Task
 from . import kubernetes_worker as kw
-from .log_test_helpers import flush_recorder
+from .execution_worker import JobDispatch
+from .kubernetes_worker import build_shell_pod_spec
 
 
 def test_build_pod_manifest_shape():
@@ -61,14 +64,13 @@ def test_build_pod_manifest_omits_optional_fields():
     assert "resources" not in spec["containers"][0]
 
 
-def _handle(task_id=7, run_epoch=1, run_id=None):
+def _handle(task_id=7, run_epoch=1):
     return kw._PodHandle(
         name="aaiclick-task-7-1",
         namespace="default",
         task_id=task_id,
         job_id=1,
         run_epoch=run_epoch,
-        run_id=run_id,
     )
 
 
@@ -150,34 +152,38 @@ def test_module_pod_uses_shim_and_runner_env():
     assert {e["name"] for e in c["env"]} == {"AAICLICK_SQL_URL"}
 
 
-def test_collect_shell_success_from_exit_code():
-    out = _collect(_handle(), 0, None, was_cancelled=False, payload=None, entry_type="shell")
-    assert out.success is True and out.error is None
+def test_build_shell_pod_spec_wraps_argv():
+    task = Task(
+        id=9,
+        job_id=1,
+        name="t",
+        entrypoint="",
+        entry_type="shell",
+        command=["echo", "hi"],
+        command_env={"K": "v"},
+        run_epoch=1,
+    )
+    dispatch = JobDispatch(
+        "kubernetes",
+        "img:tag",
+        {"namespace": "jobs", "service_account": "sa", "image_pull_secret": None, "resources": None},
+        "shell",
+        ["echo", "hi"],
+        {"K": "v"},
+    )
+    spec = build_shell_pod_spec(task, dispatch, "img:tag")
+    assert spec.argv[:3] == ["kubectl", "run", "aaiclick-task-9-1"]
+    assert {"--attach", "--rm", "--quiet", "--restart=Never"} <= set(spec.argv)
+    assert "--image=img:tag" in spec.argv
+    overrides = json.loads(next(a for a in spec.argv if a.startswith("--overrides=")).removeprefix("--overrides="))
+    assert overrides["spec"]["containers"][0]["command"] == ["echo", "hi"]
+    assert overrides["spec"]["containers"][0]["env"] == [{"name": "K", "value": "v"}]
+    assert overrides["spec"]["serviceAccountName"] == "sa"
+    assert ["-n", "jobs"] == spec.argv[spec.argv.index("-n") : spec.argv.index("-n") + 2]
+    assert spec.cleanup_argv == ["kubectl", "delete", "pod", "aaiclick-task-9-1", "-n", "jobs", "--ignore-not-found"]
 
 
-def test_collect_shell_failure_from_exit_code():
-    out = _collect(_handle(), 3, None, was_cancelled=False, payload=None, entry_type="shell")
-    assert out.success is False and out.error == "exit 3"
-
-
-async def test_shell_pod_logs_flushed_to_ch(monkeypatch):
-    """Shell pod output is fetched via `kubectl logs` and flushed to CH under
-    the run_id registered at launch; module pods skip the host-side fetch
-    (they stream to CH from inside the pod)."""
-    flushed, fake_flush = flush_recorder()
-    monkeypatch.setattr(kw, "flush_shell_logs", fake_flush)
-    monkeypatch.setattr(kw, "_pod_status", AsyncMock(return_value=("Succeeded", 0)))
-    monkeypatch.setattr(kw, "_pod_logs_text", AsyncMock(return_value="pod out\n"))
-
-    exit_code, error, payload = await _vehicle("shell").wait(_handle(run_id=88), None)
-
-    assert (exit_code, error, payload) == (0, None, None)
-    assert flushed == {"task_id": 7, "job_id": 1, "run_id": 88, "text": "pod out\n"}
-
-
-async def test_module_pod_wait_skips_host_log_fetch(monkeypatch):
-    logs_fetch = AsyncMock(return_value="ignored")
-    monkeypatch.setattr(kw, "_pod_logs_text", logs_fetch)
+async def test_module_pod_wait_reads_result_row(monkeypatch):
     monkeypatch.setattr(kw, "_pod_status", AsyncMock(return_value=("Succeeded", 0)))
     row = kw.RunnerResult(True, None, None)
     monkeypatch.setattr(kw, "_read_task_run_result_row", AsyncMock(return_value=row))
@@ -186,4 +192,3 @@ async def test_module_pod_wait_skips_host_log_fetch(monkeypatch):
 
     assert (exit_code, error) == (0, None)
     assert payload is row
-    logs_fetch.assert_not_awaited()

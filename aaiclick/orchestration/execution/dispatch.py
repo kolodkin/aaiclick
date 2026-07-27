@@ -20,7 +20,7 @@ from ..runner_config import ENTRY_SHELL, KubernetesRunner, RunnerConfigT, parse_
 from .docker_worker import _docker_pull_if_registered, _run_task_in_container, build_shell_run_spec
 from .execution_worker import JobDispatch
 from .image_builder import resolve_image_tag
-from .kubernetes_worker import _run_task_in_pod
+from .kubernetes_worker import _run_task_in_pod, build_shell_pod_spec
 from .mp_worker import _run_task_in_child
 from .runner import ShellSpec
 
@@ -81,7 +81,8 @@ async def build_shell_spec(task: Task, dispatch: JobDispatch, execution_worker_i
         await _docker_pull_if_registered(image_tag)
         return build_shell_run_spec(task, image_tag)
     if dispatch.runner_mode == RUNNER_KUBERNETES:
-        raise NotImplementedError("kubernetes shell dispatch lands with build_shell_pod_spec")
+        image_tag = await resolve_image_tag(task, dispatch.image_source, dispatch.image_tag, execution_worker_id)
+        return build_shell_pod_spec(task, dispatch, image_tag)
     return ShellSpec(dispatch.command or [], dispatch.command_env)
 
 
