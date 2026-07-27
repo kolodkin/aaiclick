@@ -20,7 +20,8 @@ from ..runner_config import ENTRY_SHELL, KubernetesRunner, RunnerConfigT, parse_
 from .docker_worker import _run_task_in_container
 from .execution_worker import JobDispatch
 from .kubernetes_worker import _run_task_in_pod
-from .mp_worker import _run_shell_on_host, _run_task_in_child
+from .mp_worker import _run_task_in_child
+from .runner import ShellSpec
 
 ExecuteResult = tuple[bool, dict | None, str | None]
 
@@ -68,12 +69,20 @@ _IMAGE_RUNNERS: dict[RunnerMode, Callable[[Task, int, JobDispatch], Awaitable[Ex
 }
 
 
+def build_shell_spec(task: Task, dispatch: JobDispatch, execution_worker_id: int) -> ShellSpec:
+    """Resolve a shell task's launch command for its runner mode.
+
+    Subprocess mode runs the argv directly on the host."""
+    return ShellSpec(dispatch.command or [], dispatch.command_env)
+
+
 async def dispatch_execute(task: Task, execution_worker_id: int) -> ExecuteResult:
     """ExecuteFn that picks the runner per task."""
     dispatch = await _resolve_dispatch(task)
+    if dispatch.entry_type == ENTRY_SHELL:
+        spec = build_shell_spec(task, dispatch, execution_worker_id)
+        return await _run_task_in_child(task, execution_worker_id, shell_spec=spec)
     handler = _IMAGE_RUNNERS.get(dispatch.runner_mode)
     if handler is not None:
         return await handler(task, execution_worker_id, dispatch)
-    if dispatch.entry_type == ENTRY_SHELL:
-        return await _run_shell_on_host(task, execution_worker_id, dispatch)
     return await _run_task_in_child(task, execution_worker_id)
