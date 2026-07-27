@@ -96,9 +96,9 @@ shell tasks share the sink, the flusher, and the seq logic.
 Argv wrapping happens in the worker parent at dispatch: it already resolves
 the image (`ensure_image`) and builds `JobDispatch.command`, so it produces
 the runner-specific argv (plain for host shell; `docker run`- or `kubectl
-run`-wrapped for container runners, named `aai-task-<task_id>` so cleanup can
-address the container/pod — attempts are sequential, so the name is unique
-among live containers) and passes it to the task child alongside the task id.
+run`-wrapped for container runners, named `aaiclick-task-<task_id>-<run_epoch>`
+— the existing pod-name convention — so cleanup can address the
+container/pod) and passes it to the task child alongside the task id.
 
 Lifecycle moves into the child, parent as backstop:
 
