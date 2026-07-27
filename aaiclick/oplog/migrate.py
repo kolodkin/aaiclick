@@ -162,8 +162,7 @@ async def _ch_status_with_client() -> list[ChVersionState]:
     finally:
         await ch_client.close()
     return [
-        ChVersionState(version=f.version, applied=f.version in applied)
-        for f in list_migration_files(MIGRATIONS_DIR)
+        ChVersionState(version=f.version, applied=f.version in applied) for f in list_migration_files(MIGRATIONS_DIR)
     ]
 
 
