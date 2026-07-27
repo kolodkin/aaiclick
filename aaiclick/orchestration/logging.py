@@ -34,9 +34,8 @@ class _ChLogSink:
     a line is tagged with the stream that emitted it; completed lines are
     appended in emission order, each stamped with its own emit time. ``record``
     is the logging path: it appends already-leveled lines from ``_ChLogHandler``.
-    The async flush happens once after the task body completes
-    (:func:`capture_task_output`), so the task's own ClickHouse work never races
-    the log write on a shared (chdb single-session) client.
+    Lines are drained incrementally by a periodic flusher while the task runs
+    and finally on exit (:func:`capture_task_output`).
     """
 
     def __init__(self) -> None:
@@ -56,6 +55,14 @@ class _ChLogSink:
             LogLine(stream=STDERR_STREAM, level=level, text=p, created_at=now) for p in text.rstrip("\n").split("\n")
         )
 
+    def drain(self) -> list[LogLine]:
+        """Return completed lines accumulated so far and clear them.
+
+        Partial-line buffers stay untouched — a half-written line is never
+        emitted early."""
+        lines, self._lines = self._lines, []
+        return lines
+
     def finalize(self) -> list[LogLine]:
         """Return all captured lines, flushing any unterminated trailing line."""
         for stream in (STDOUT_STREAM, STDERR_STREAM):
@@ -69,8 +76,7 @@ class _ChLogSink:
                     )
                 )
                 self._partial[stream] = ""
-        lines, self._lines = self._lines, []
-        return lines
+        return self.drain()
 
 
 class _TeeWriter:
@@ -137,17 +143,19 @@ def shell_text_to_lines(text: str) -> list[LogLine]:
     return [LogLine(stream=STDOUT_STREAM, level="INFO", text=p) for p in parts]
 
 
-async def flush_task_logs(task_id: int, job_id: int, run_id: int, lines: list[LogLine]) -> None:
+async def flush_task_logs(task_id: int, job_id: int, run_id: int, lines: list[LogLine], seq_offset: int = 0) -> None:
     """Best-effort batch insert of captured log lines into CH ``task_logs``.
 
-    A failed write must not fail the task, so errors are logged and swallowed —
-    same contract as oplog row writes.
+    ``seq_offset`` is the number of lines already written for this run —
+    incremental flushes pass a running offset so ``seq`` stays strictly
+    increasing per ``run_id``. A failed write must not fail the task, so
+    errors are logged and swallowed — same contract as oplog row writes.
     """
     if not lines:
         return
     rows = [
-        [task_id, job_id, run_id, seq, line.stream, line.level, line.text, line.created_at]
-        for seq, line in enumerate(lines)
+        [task_id, job_id, run_id, seq_offset + i, line.stream, line.level, line.text, line.created_at]
+        for i, line in enumerate(lines)
     ]
     try:
         ch_client = get_ch_client()

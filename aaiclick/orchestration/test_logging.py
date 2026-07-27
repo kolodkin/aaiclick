@@ -49,6 +49,28 @@ def test_sink_record_preserves_internal_blank_lines():
     assert [line.text for line in lines] == ["a", "", "b"]
 
 
+def test_sink_drain_returns_completed_lines_and_clears():
+    sink = _ChLogSink()
+    sink.write(STDOUT_STREAM, "a\nb\n")
+    assert [line.text for line in sink.drain()] == ["a", "b"]
+    assert sink.drain() == []
+
+
+def test_sink_drain_holds_back_partial_line():
+    sink = _ChLogSink()
+    sink.write(STDOUT_STREAM, "complete\npartial")
+    assert [line.text for line in sink.drain()] == ["complete"]
+    sink.write(STDOUT_STREAM, " tail\n")
+    assert [line.text for line in sink.drain()] == ["partial tail"]
+
+
+def test_sink_finalize_after_drain_flushes_partials():
+    sink = _ChLogSink()
+    sink.write(STDOUT_STREAM, "done\nhalf")
+    sink.drain()
+    assert [line.text for line in sink.finalize()] == ["half"]
+
+
 def test_sink_record_shares_one_timestamp_per_call():
     sink = _ChLogSink()
     sink.record("WARNING", "first\nsecond")
