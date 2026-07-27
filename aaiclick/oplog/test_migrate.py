@@ -203,11 +203,12 @@ async def test_baseline_is_safe_on_existing_tables(orch_ctx):
     assert "0001" in await ch_applied_versions(ch)
 
 
-async def test_init_oplog_tables_local_auto_migrates(orch_ctx):
+async def test_init_oplog_tables_local_auto_migrates(orch_ctx, monkeypatch):
     """Local mode: init applies pending migrations (zero-ops)."""
     ch = get_ch_client()
     await ch.command("DROP TABLE IF EXISTS operation_log")
     await ch.command("DROP TABLE IF EXISTS schema_migrations")
+    monkeypatch.setattr(oplog_models, "is_local", lambda: True)
 
     await init_oplog_tables(ch)
 
