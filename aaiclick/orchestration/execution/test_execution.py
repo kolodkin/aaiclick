@@ -20,6 +20,7 @@ from aaiclick.orchestration.execution.debug import ajob_test
 from aaiclick.orchestration.execution.runner import (
     _materialize_lazies,
     deserialize_task_params,
+    execute_shell_task,
     execute_task,
     import_callback,
     register_returned_tasks,
@@ -42,7 +43,7 @@ from aaiclick.orchestration.models import (
     Group,
     Task,
 )
-from aaiclick.orchestration.orch_context import get_sql_session
+from aaiclick.orchestration.orch_context import commit_tasks, get_sql_session
 from aaiclick.orchestration.result import TaskResult, data_list, task_result, tasks_list
 from aaiclick.testing import seed_registry_row
 
@@ -69,6 +70,32 @@ async def test_capture_task_output_stderr(orch_ctx):
 
     lines = await read_task_logs(task_id, run_id)
     assert any(line.text == "Error message" and line.stream == "stderr" for line in lines)
+
+
+async def _persisted_shell_task(command, command_env=None) -> Task:
+    """A shell Task committed under a real job, so register_run has a row."""
+    job = await create_job(
+        "shell_stream_job", "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
+    )
+    task = create_task(None, entry_type="shell", command=command, command_env=command_env)
+    await commit_tasks(task, job.id)
+    return task
+
+
+async def test_execute_shell_task_streams_mid_run(orch_ctx, monkeypatch):
+    """Shell output reaches task_logs while the process is still running."""
+    monkeypatch.setattr("aaiclick.orchestration.logging.LOG_FLUSH_INTERVAL", 0.05)
+    task = await _persisted_shell_task(["sh", "-c", "echo first; sleep 0.4; echo second"])
+
+    exec_task = asyncio.create_task(execute_shell_task(task))
+    await asyncio.sleep(0.25)
+    refreshed = await get_task(task.id)
+    mid = [line.text for line in await read_task_logs(task.id, refreshed.run_ids[-1])]
+    await exec_task
+
+    assert mid == ["first"]
+    final = [line.text for line in await read_task_logs(task.id, refreshed.run_ids[-1])]
+    assert final == ["first", "second"]
 
 
 async def test_capture_task_output_streams_mid_run(orch_ctx, monkeypatch):

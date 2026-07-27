@@ -9,7 +9,8 @@ import logging
 import math
 import os
 from collections.abc import Callable
-from typing import Any
+from contextlib import suppress
+from typing import Any, NamedTuple
 
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -41,11 +42,13 @@ from aaiclick.data.object.refs import (
     native_value_ref,
     upstream_ref,
 )
+from aaiclick.log_models import STDOUT_STREAM
+from aaiclick.oplog.models import init_oplog_tables
 from aaiclick.snowflake import get_snowflake_id
 
 from ...datetime_utils import utc_now
 from ..decorators import JobFactory, TaskFactory
-from ..logging import capture_task_output
+from ..logging import _ChLogSink, _SinkFlusher, capture_task_output
 from ..models import (
     JOB_COMPLETED,
     JOB_FAILED,
@@ -64,7 +67,6 @@ from ..result import TaskResult
 from ..runner_config import ENTRY_SHELL
 from .db_handler import DEPENDENCY_WHERE
 from .execution_worker_context import set_current_task_info
-from .log_flush import flush_shell_logs_inline
 
 logger = logging.getLogger(__name__)
 
@@ -290,7 +292,7 @@ async def register_run(task_id: int) -> int:
     return run_id
 
 
-async def execute_task(task: Task) -> Any:
+async def execute_task(task: Task, shell_spec: ShellSpec | None = None) -> Any:
     """
     Execute a single task inside orch_context.
 
@@ -304,10 +306,11 @@ async def execute_task(task: Task) -> Any:
 
     Shell tasks (``entry_type="shell"``) delegate to
     :func:`execute_shell_task` — every in-process caller gets the module/shell
-    routing from this one place.
+    routing from this one place. ``shell_spec`` is the dispatch-resolved
+    launch command for shell tasks; ``None`` runs the task's own argv.
     """
     if task.entry_type == ENTRY_SHELL:
-        return await execute_shell_task(task)
+        return await execute_shell_task(task, spec=shell_spec)
 
     func = import_callback(task.entrypoint)
     run_id = await register_run(task.id)
@@ -367,28 +370,86 @@ async def start_shell_process(
     )
 
 
-async def execute_shell_task(task: Task) -> None:
-    """Run a shell task's argv in the current process's event loop.
+class ShellSpec(NamedTuple):
+    """A shell task's fully-resolved launch command.
 
-    The in-process counterpart of the shell vehicles (``mp_worker``, docker,
-    kubernetes): registers a per-attempt run_id, runs the command, and flushes
-    the merged stdout/stderr to CH ``task_logs`` inline through the
-    already-open client — safe because the caller (local-mode server,
-    ``job_test``) is single-process, so no spawned flush child is needed.
+    Built host-side (``dispatch.build_shell_spec``) so runner-specific
+    wrapping (``docker run`` / ``kubectl run``) stays out of the executing
+    process. ``cleanup_argv`` is run after the process ends however it ends —
+    killing the wrapper CLI alone would leave its container/pod running."""
+
+    argv: list[str]
+    env: dict[str, str] | None
+    cleanup_argv: list[str] | None = None
+
+
+async def _run_cleanup_argv(cleanup_argv: list[str]) -> None:
+    """Best-effort teardown command (``docker kill`` / ``kubectl delete``).
+
+    Failure is expected on the happy path (the ``--rm`` container is already
+    gone) — output and exit code are deliberately ignored."""
+    proc = await asyncio.create_subprocess_exec(
+        *cleanup_argv,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    await proc.wait()
+
+
+async def _pump_stream(stream: asyncio.StreamReader, sink: _ChLogSink) -> None:
+    """Feed the merged stdout pipe into the sink chunk by chunk until EOF."""
+    while True:
+        chunk = await stream.read(65536)
+        if not chunk:
+            return
+        sink.write(STDOUT_STREAM, chunk.decode(errors="replace"))
+
+
+async def execute_shell_task(task: Task, spec: ShellSpec | None = None) -> None:
+    """Run a shell task's argv, streaming its output to CH ``task_logs``.
+
+    One code path for every shell runner: the in-process worker and
+    ``job_test`` call it directly (``spec=None`` → the task's own argv), and
+    the mp worker's task child calls it with a dispatch-built ``ShellSpec``
+    (host argv, or ``docker run`` / ``kubectl run`` wrapped). Output is
+    drained to ``task_logs`` every ``LOG_FLUSH_INTERVAL`` seconds and finally
+    at exit, so long-running commands are tailed live.
 
     Returns None (shell tasks have no result). Raises ``RuntimeError`` on
-    nonzero exit, matching the ``"exit <code>"`` error the shell vehicles
-    report.
+    nonzero exit, matching the ``"exit <code>"`` error the workers report.
     """
+    if spec is None:
+        spec = ShellSpec(task.command or [], task.command_env)
     run_id = await register_run(task.id)
-    proc = await start_shell_process(task.command, task.command_env)
+    # A shell-only job on a fresh DB may not have run task_scope's
+    # init_oplog_tables yet; bring the schema up before streaming.
     try:
-        output, _ = await proc.communicate()
+        await init_oplog_tables(get_ch_client())
+    except Exception:
+        logger.error("Failed to ensure task_logs for task %s run %s", task.id, run_id, exc_info=True)
+
+    proc = await start_shell_process(spec.argv, spec.env)
+    sink = _ChLogSink()
+    flusher = _SinkFlusher(sink, task.id, task.job_id, run_id)
+    flusher_task = asyncio.create_task(flusher.run())
+    reader = asyncio.create_task(_pump_stream(proc.stdout, sink))
+    try:
+        await proc.wait()
+        await reader
     except asyncio.CancelledError:
         proc.kill()
         await proc.wait()
         raise
-    await flush_shell_logs_inline(task.id, task.job_id, run_id, output.decode(errors="replace"))
+    finally:
+        reader.cancel()
+        with suppress(asyncio.CancelledError):
+            await reader
+        flusher_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await flusher_task
+        await flusher.flush_final()
+        if spec.cleanup_argv:
+            await _run_cleanup_argv(spec.cleanup_argv)
     if proc.returncode != 0:
         raise RuntimeError(f"exit {proc.returncode}")
 
