@@ -16,7 +16,7 @@ from aaiclick.oplog.migrate import (
     list_migration_files,
     split_statements,
 )
-from aaiclick.oplog.models import init_oplog_tables
+from aaiclick.oplog.models import clear_schema_cache, get_column_types, init_oplog_tables
 
 
 def _write(tmp_path: Path, name: str, content: str = "SELECT 1;") -> Path:
@@ -231,3 +231,38 @@ async def test_init_oplog_tables_distributed_ok_when_current(orch_ctx, monkeypat
     monkeypatch.setattr(oplog_models, "is_local", lambda: False)
 
     await init_oplog_tables(ch)  # must not raise
+
+
+async def test_get_column_types_reads_live_schema(orch_ctx):
+    ch = get_ch_client()
+    await ch_upgrade(ch)
+    clear_schema_cache()
+
+    op_types = await get_column_types(ch, "operation_log")
+    log_types = await get_column_types(ch, "task_logs")
+
+    assert op_types["kwargs"] == "Map(String, String)"
+    assert op_types["task_id"] == "Nullable(UInt64)"
+    assert list(log_types) == ["task_id", "job_id", "run_id", "seq", "stream", "level", "line", "created_at"]
+    assert log_types["created_at"] == "DateTime64(3)"
+
+
+async def test_get_column_types_is_cached(orch_ctx):
+    """After the first read, types are served from cache — no live table needed."""
+    ch = get_ch_client()
+    await ch_upgrade(ch)
+    clear_schema_cache()
+    first = await get_column_types(ch, "operation_log")
+    await ch.command("DROP TABLE operation_log")
+
+    assert await get_column_types(ch, "operation_log") == first
+
+
+async def test_get_column_types_raises_without_schema(orch_ctx):
+    ch = get_ch_client()
+    await ch.command("DROP TABLE IF EXISTS operation_log")
+    await ch.command("DROP TABLE IF EXISTS task_logs")
+    clear_schema_cache()
+
+    with pytest.raises(RuntimeError, match="operation_log"):
+        await get_column_types(ch, "operation_log")

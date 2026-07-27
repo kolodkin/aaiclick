@@ -18,7 +18,7 @@ from aaiclick.data.data_context.data_context import _engine_var, _objects_var, d
 from aaiclick.data.data_context.lifecycle import LifecycleHandler, _lifecycle_var
 from aaiclick.data.models import ENGINE_DEFAULT
 from aaiclick.locks import lookup_advisory_id
-from aaiclick.oplog.models import OPERATION_LOG_COLUMN_TYPES, init_oplog_tables
+from aaiclick.oplog.models import get_column_types, init_oplog_tables
 
 from ..snowflake import get_snowflake_id
 from .env import get_db_url
@@ -41,7 +41,6 @@ _OPLOG_COLS = [
     "run_id",
     "created_at",
 ]
-_OPLOG_TYPE_NAMES = [OPERATION_LOG_COLUMN_TYPES[c] for c in _OPLOG_COLS]
 
 
 class OrchLifecycleHandler(LifecycleHandler):
@@ -208,7 +207,9 @@ class OrchLifecycleHandler(LifecycleHandler):
         # mapped to naive SQL/CH columns; asyncpg rejects aware datetimes there.
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         try:
-            await get_ch_client().insert(
+            ch_client = get_ch_client()
+            column_types = await get_column_types(ch_client, "operation_log")
+            await ch_client.insert(
                 "operation_log",
                 [
                     [
@@ -223,7 +224,7 @@ class OrchLifecycleHandler(LifecycleHandler):
                     ]
                 ],
                 column_names=_OPLOG_COLS,
-                column_type_names=_OPLOG_TYPE_NAMES,
+                column_type_names=[column_types[c] for c in _OPLOG_COLS],
             )
         except Exception:
             logger.error("Failed to write oplog for %s", p.result_table, exc_info=True)
