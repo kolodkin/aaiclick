@@ -399,9 +399,10 @@ untouched, and a finished job is reactivated.
 
 # Task Logs
 
-Task stdout/stderr is streamed into the ClickHouse `task_logs` table, so logs
-are readable from one place no matter which host, container, or Pod ran the
-task. `logging.*` records keep their
+Task stdout/stderr is streamed into the ClickHouse `task_logs` table while the
+task runs (flushed every ~2 s), so a long-running task can be tailed live and
+logs are readable from one place no matter which host, container, or Pod ran
+the task. `logging.*` records keep their
 level; raw `print()` output is captured as `INFO` (stdout) / `ERROR` (stderr).
 `AAICLICK_LOG_LEVEL` sets the captured root level (default `INFO`). Logs share
 the job's retention lifecycle. Fetch them via
