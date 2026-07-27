@@ -109,6 +109,18 @@ Lifecycle moves into the child, parent as backstop:
   would leave the container running.
 - The parent's existing kill-the-child stays as a last-resort backstop.
 
+Division of responsibilities — the parent's SQL role is unchanged (claiming,
+final status updates, worker registration, heartbeats, dispatch); SQL is
+accessed from both processes as today:
+
+| Concern                              | Today                          | After                          |
+|--------------------------------------|--------------------------------|--------------------------------|
+| Claiming, status, heartbeats, dispatch | Parent                       | Parent (unchanged)             |
+| `register_run`                       | Child (module) / parent (shell)| Child (all task types)         |
+| Shell cancellation poll              | Parent (shell vehicles)        | Child                          |
+| Shell timeout enforcement            | Parent `wait()`                | Child; parent kill as backstop |
+| CH log writes                        | Child / spawn flush child      | Child (all task types)         |
+
 !!! warning "Hard-killed child can orphan a container"
     If the parent hard-kills the child (backstop path), the child's `finally`
     never runs and a container/pod may be orphaned. Today's parent-side
