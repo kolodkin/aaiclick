@@ -4,7 +4,7 @@ aaiclick's internal ClickHouse tables.
 
 Migration scripts live in ``aaiclick/oplog/migrations/NNNN_description.sql``
 and are applied in version order; applied versions are recorded in the
-``schema_migrations`` ClickHouse table. See ``docs/designs/ch_migrations.md``.
+``schema_migrations`` ClickHouse table.
 """
 
 from __future__ import annotations

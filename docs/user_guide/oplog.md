@@ -25,7 +25,7 @@ Previously lived in ClickHouse as an append-only MergeTree table. Moved to SQL b
 
 ## Initialization
 
-`init_oplog_tables(ch_client)` brings the CH schema up to date through the migration runner (see `docs/designs/ch_migrations.md`): local mode applies pending migrations directly; distributed mode raises asking for `aaiclick migrate upgrade`. Startup also performs a one-time copy of any pre-existing CH `table_registry` rows into SQL and drops the CH side (no-op on fresh installs).
+`init_oplog_tables(ch_client)` brings the CH schema up to date through the migration runner (`aaiclick/oplog/migrate.py`): local mode applies pending migrations directly; distributed mode raises asking for `aaiclick migrate upgrade`. Startup also performs a one-time copy of any pre-existing CH `table_registry` rows into SQL and drops the CH side (no-op on fresh installs).
 
 ---
 
