@@ -1,10 +1,12 @@
 """Task logging utilities for orchestration backend.
 
-Task stdout/stderr is captured to ClickHouse ``task_logs``, streamed from
-inside the task process. Every runner (subprocess, docker, kubernetes) runs
-the same ``capture_task_output`` path — and shell tasks are flushed host-side
-via ``execution.log_flush`` — so all runs surface their logs through one
-cross-host read path (:func:`read_task_logs`) no matter which host wrote them.
+Task stdout/stderr is captured to ClickHouse ``task_logs``, streamed
+incrementally from inside the task process every ``LOG_FLUSH_INTERVAL``
+seconds. Every runner (subprocess, docker, kubernetes) runs the same
+``capture_task_output`` path for module tasks and ``execution.runner``'s
+``execute_shell_task`` for shell tasks, so all runs surface their logs
+through one cross-host read path (:func:`read_task_logs`) no matter which
+host wrote them.
 """
 
 import asyncio
@@ -197,21 +199,6 @@ class _ChLogHandler(logging.Handler):
             self._sink.record(level, msg)
         except Exception:  # never let logging crash the task
             self.handleError(record)
-
-
-def shell_text_to_lines(text: str) -> list[LogLine]:
-    """Convert a shell task's captured output text into ``LogLine`` rows.
-
-    Shell runners capture stdout and stderr merged into one text blob (host
-    pipe, ``docker logs``, ``kubectl logs``), so every line is tagged
-    ``stdout`` / ``INFO``. A trailing newline does not produce an empty line.
-    """
-    if not text:
-        return []
-    parts = text.split("\n")
-    if parts and parts[-1] == "":
-        parts.pop()
-    return [LogLine(stream=STDOUT_STREAM, level="INFO", text=p) for p in parts]
 
 
 async def flush_task_logs(
