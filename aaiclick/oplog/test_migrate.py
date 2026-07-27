@@ -152,7 +152,7 @@ async def test_ch_upgrade_mid_script_failure_leaves_version_unrecorded(orch_ctx,
     ch = get_ch_client()
     await _fresh_tracking(ch)
 
-    with pytest.raises(Exception):
+    with pytest.raises(Exception, match="DB::Exception"):
         await ch_upgrade(ch, migrations_dir=tmp_path)
 
     assert await ch_applied_versions(ch) == []

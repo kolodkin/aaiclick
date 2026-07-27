@@ -83,6 +83,7 @@ jobs:
       - name: Run database migrations
         env:
           AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
+          AAICLICK_CH_URL: "clickhouse://default:click123@localhost:8123/default"
         run: |
           uv run python -m aaiclick migrate upgrade head
 

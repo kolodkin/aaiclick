@@ -61,8 +61,11 @@ services:
     command: python -m aaiclick migrate upgrade head
     environment:
       AAICLICK_SQL_URL: postgresql+asyncpg://aaiclick:secret@postgres:5432/aaiclick
+      AAICLICK_CH_URL: clickhouse://default:click123@clickhouse:8123/default
     depends_on:
       postgres:
+        condition: service_healthy
+      clickhouse:
         condition: service_healthy
     restart: "no"
 
