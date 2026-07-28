@@ -14,7 +14,6 @@ from __future__ import annotations
 import asyncio
 import multiprocessing
 import queue
-from contextlib import suppress
 from typing import Any, NamedTuple
 
 from sqlmodel import select
@@ -105,9 +104,7 @@ async def _child_run_task(
             except Exception as e:
                 result_queue.put(RunnerResult(success=False, result_ref=None, error=str(e)))
             finally:
-                monitor.cancel()
-                with suppress(asyncio.CancelledError):
-                    await monitor
+                await monitor  # self-terminates once exec_task is done
             return
 
         data_result = await execute_task(task)
