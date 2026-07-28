@@ -74,9 +74,7 @@ async def test_capture_task_output_stderr(orch_ctx):
 
 async def _persisted_shell_task(command, command_env=None) -> Task:
     """A shell Task committed under a real job, so register_run has a row."""
-    job = await create_job(
-        "shell_stream_job", "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
-    )
+    job = await create_job("shell_stream_job", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
     task = create_task(None, entry_type="shell", command=command, command_env=command_env)
     await commit_tasks(task, job.id)
     return task
