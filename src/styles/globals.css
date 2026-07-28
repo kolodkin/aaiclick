@@ -213,6 +213,9 @@ tbody tr.clickable:hover { background: rgba(91,157,255,.12); }
 .logs .lvl-WARNING { color: #e3b341; }
 .logs .lvl-ERROR { color: #ff7b72; }
 .logs .lvl-CRITICAL { color: #ff7b72; font-weight: 600; }
+/* stderr provenance marker — independent of severity color, so a
+   logging.error record shows ERROR red *and* the stderr bar */
+.logs .src-stderr { border-left: 2px solid #8b008b; padding-left: 6px; }
 .logs .log-line { white-space: pre-wrap; }
 
 /* forms / panels */

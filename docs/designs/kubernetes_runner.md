@@ -82,16 +82,13 @@ table from inside the Pod, so `get_task_logs` reads them on the host with no
 node coordination — the same cross-host path every runner uses
 (`docs/designs/orchestration.md` — Cross-host logs).
 
-- **Module Pods**: `capture_task_output` flushes captured output to
-  `task_logs` (keyed by `task_id` / `run_id`) before the Pod exits, reaching
-  the shared ClickHouse the host also queries. No host-side fetch.
-- **Shell Pods**: vanilla user images run no aaiclick harness, so the vehicle's
-  `wait()` fetches `kubectl logs` text and flushes it to `task_logs` under a
-  host-minted `run_id` (`_pod_logs_text` + `execution/log_flush.py`).
-
-!!! warning "Capture shell logs before deleting the Pod"
-    The `kubectl logs` fetch runs inside `wait()`, before `cleanup()` deletes
-    the Pod — a deleted Pod's logs are gone.
+- **Module Pods**: `capture_task_output` streams captured output to
+  `task_logs` (keyed by `task_id` / `run_id`) every 2 s from inside the Pod,
+  reaching the shared ClickHouse the host also queries. No host-side fetch.
+- **Shell Pods**: vanilla user images run no aaiclick harness, so the worker
+  runs them as a foreground `kubectl run --attach --rm` whose stdout is
+  streamed to `task_logs` by `execute_shell_task`
+  (`kubernetes_worker.build_shell_pod_spec`).
 
 # The vehicle
 

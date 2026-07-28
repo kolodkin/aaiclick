@@ -6,11 +6,10 @@ Design for retiring file-based task logs. After this change, ClickHouse
 entry type, and the `log_path` plumbing disappears end to end.
 
 **Implementation**: `aaiclick/orchestration/logging.py` — see
-`capture_task_output`, `shell_text_to_lines`;
-`aaiclick/orchestration/execution/log_flush.py` — see `flush_shell_logs`;
-`aaiclick/orchestration/execution/runner.py` — see `register_run`; shell
-vehicles in `mp_worker.py` (`_HostShellVehicle`), `docker_worker.py`
-(`_DockerVehicle`), `kubernetes_worker.py` (`_KubernetesVehicle`).
+`capture_task_output`, `_SinkFlusher`;
+`aaiclick/orchestration/execution/runner.py` — see `register_run`,
+`execute_shell_task`, `ShellSpec`;
+`aaiclick/orchestration/execution/dispatch.py` — see `build_shell_spec`.
 
 # Motivation
 
@@ -37,29 +36,26 @@ works for them unchanged.
 
 ## Capture per runner
 
-| Runner            | Capture today (file)                   | Capture after (memory → CH)              |
-|-------------------|----------------------------------------|------------------------------------------|
-| Host shell        | child stdout piped to open file        | child stdout piped, read into memory     |
-| Docker `shell`    | `docker logs` written to file          | `docker logs` text kept in memory        |
-| Kubernetes shell  | `_capture_pod_logs` → file             | `kubectl logs` text kept in memory       |
-| Kubernetes module | `_capture_pod_logs` → file (redundant) | removed — pod streams to CH itself       |
+| Runner            | Capture (streamed → CH)                                        |
+|-------------------|----------------------------------------------------------------|
+| Host shell        | child stdout piped into the capture sink, drained every 2 s    |
+| Docker `shell`    | foreground `docker run --rm` stdout, same streaming pipe       |
+| Kubernetes shell  | `kubectl run --attach` stdout, same streaming pipe             |
+| Kubernetes module | pod streams to CH itself via `capture_task_output`             |
 
-Captured text is converted to `LogLine`s (stdout → `INFO`, stderr folded into
-stdout for docker/k8s where the streams are merged) and flushed with the
-existing `flush_task_logs`.
+Captured text is converted to `LogLine`s tagged with their source stream
+(stdout → `INFO`, stderr → `WARNING`; the docker/kubectl wrappers preserve
+the stream split for non-TTY runs) and written with `flush_task_logs` under a
+running `seq` offset.
 
 ## Flushing from the worker parent
 
 The worker parent runs `orch_context(with_ch=False)` — it must not hold the
-chdb session while children need it. The flush therefore runs in a short-lived
-spawned child process (same `spawn` context as `mp_worker`) that opens its own
-`orch_context` and calls `flush_task_logs`. One code path for local (chdb) and
-distributed (remote CH) modes; the spawn cost is per shell-task attempt and
-negligible next to the container/pod lifecycle around it.
-
-Timing: the flush happens at the end of the vehicle `wait()` (where the file
-capture happens today). A run killed before `wait()` completes loses its tail —
-identical to today's file behavior.
+chdb session while children need it. Shell tasks therefore execute inside the
+same spawned task child module tasks use (`_child_run_task`), which opens its
+own `orch_context` and streams inline. One code path for local (chdb) and
+distributed (remote CH) modes. A run killed mid-flight keeps everything
+flushed up to the last 2 s tick.
 
 # Removal
 

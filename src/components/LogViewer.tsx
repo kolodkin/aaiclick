@@ -14,8 +14,10 @@ function fmtTs(iso: string): string {
 
 // `lines` typically grows by appending; memoising on the array identity (plus
 // the timestamp flag) skips the per-line VDOM rebuild when a poll returns the
-// same payload. Each line carries a per-level class so the viewer colors by
-// severity; raw stdout/stderr arrive as INFO/ERROR so they color too.
+// same payload. Each line carries a per-level class (text color by severity;
+// raw stdout/stderr arrive as INFO/WARNING) plus a per-stream class so stderr
+// lines get their own marker independent of severity — a logging.error record
+// shows ERROR red *and* the stderr bar.
 const LogLines = memo(function LogLines({
   lines,
   showTimestamps,
@@ -26,7 +28,7 @@ const LogLines = memo(function LogLines({
   return (
     <>
       {lines.map((line, i) => (
-        <div key={i} data-testid={`log-line-${line.level}`} className={`log-line lvl-${line.level}`}>
+        <div key={i} data-testid={`log-line-${line.level}`} className={`log-line lvl-${line.level} src-${line.stream}`}>
           {showTimestamps && line.created_at && <span className="ts">{fmtTs(line.created_at)} </span>}
           {line.text}
         </div>

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from aaiclick.log_models import STDERR_STREAM, STDOUT_STREAM
-from aaiclick.orchestration.logging import _ChLogSink, shell_text_to_lines
+from aaiclick.orchestration.logging import _ChLogSink
 
 
 def test_sink_default_levels_per_stream():
@@ -13,7 +13,7 @@ def test_sink_default_levels_per_stream():
     lines = sink.finalize()
     assert [(line.stream, line.level, line.text) for line in lines] == [
         (STDOUT_STREAM, "INFO", "out line"),
-        (STDERR_STREAM, "ERROR", "err line"),
+        (STDERR_STREAM, "WARNING", "err line"),
     ]
 
 
@@ -49,28 +49,30 @@ def test_sink_record_preserves_internal_blank_lines():
     assert [line.text for line in lines] == ["a", "", "b"]
 
 
+def test_sink_drain_returns_completed_lines_and_clears():
+    sink = _ChLogSink()
+    sink.write(STDOUT_STREAM, "a\nb\n")
+    assert [line.text for line in sink.drain()] == ["a", "b"]
+    assert sink.drain() == []
+
+
+def test_sink_drain_holds_back_partial_line():
+    sink = _ChLogSink()
+    sink.write(STDOUT_STREAM, "complete\npartial")
+    assert [line.text for line in sink.drain()] == ["complete"]
+    sink.write(STDOUT_STREAM, " tail\n")
+    assert [line.text for line in sink.drain()] == ["partial tail"]
+
+
+def test_sink_finalize_after_drain_flushes_partials():
+    sink = _ChLogSink()
+    sink.write(STDOUT_STREAM, "done\nhalf")
+    sink.drain()
+    assert [line.text for line in sink.finalize()] == ["half"]
+
+
 def test_sink_record_shares_one_timestamp_per_call():
     sink = _ChLogSink()
     sink.record("WARNING", "first\nsecond")
     lines = sink.finalize()
     assert lines[0].created_at == lines[1].created_at
-
-
-def test_shell_text_to_lines_splits_and_tags():
-    lines = shell_text_to_lines("a\nb\n")
-    assert [(line.stream, line.level, line.text) for line in lines] == [
-        (STDOUT_STREAM, "INFO", "a"),
-        (STDOUT_STREAM, "INFO", "b"),
-    ]
-
-
-def test_shell_text_to_lines_keeps_unterminated_tail():
-    assert [line.text for line in shell_text_to_lines("a\nb")] == ["a", "b"]
-
-
-def test_shell_text_to_lines_preserves_internal_blank_lines():
-    assert [line.text for line in shell_text_to_lines("a\n\nb\n")] == ["a", "", "b"]
-
-
-def test_shell_text_to_lines_empty_text():
-    assert shell_text_to_lines("") == []

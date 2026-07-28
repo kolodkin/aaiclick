@@ -45,15 +45,6 @@ hatches, should the feeder ever measurably hurt:
 **When to revisit**: when polling overhead is measurable (many tabs or many
 concurrent jobs), or when sub-2 s latency matters for operators.
 
-## Live Log Streaming
-
-`task_logs` is flushed once per run, after the task body completes — logs appear
-when the attempt finishes, not while it runs. For live tailing of a long-running
-task, the writer would flush incrementally (periodic drain of the
-`_ChLogSink` buffer). Deferred to keep the writer off the task's shared
-(chdb single-session) client during execution; revisit alongside the SSE
-`task.log` event path below.
-
 ## Non-Blocking Image-Build Wait (Release-and-Requeue)
 
 On-demand image builds are inline at dispatch: a worker resolves a build-source

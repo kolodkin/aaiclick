@@ -20,23 +20,25 @@ from sqlmodel import select
 
 from ..models import Task
 from ..orch_context import get_sql_session
-from .claiming import check_task_cancelled
 from .execution_worker import (
     POLL_INTERVAL,
-    JobDispatch,
     RunnerResult,
     TaskVehicle,
+    _cancellation_monitor,
     _execution_worker_loop,
     drive_vehicle,
     execution_worker_heartbeat,
     parse_task_timeout,
 )
-from .log_flush import flush_shell_logs
-from .runner import execute_task, register_run, serialize_task_result, start_shell_process
+from .runner import ShellSpec, execute_task, serialize_task_result
 
 # How often the parent checks whether the child process has finished.
 # Smaller than POLL_INTERVAL because this polls a local queue, not a database.
 CHILD_POLL_INTERVAL = 0.5
+
+# Backstop slack the parent adds over the child-enforced shell timeout, so the
+# parent's kill only fires when the child itself wedges.
+CHILD_TIMEOUT_GRACE = 30.0
 
 
 # "spawn" starts a fresh interpreter — no inherited chdb C++ singleton.
@@ -52,10 +54,11 @@ def _child_process_target(
     task_id: int,
     job_id: int,
     result_queue: multiprocessing.Queue,
+    shell_spec: ShellSpec | None = None,
 ) -> None:
     """Sync entry point for the child process — bridges to async."""
     try:
-        asyncio.run(_child_run_task(task_id, job_id, result_queue))
+        asyncio.run(_child_run_task(task_id, job_id, result_queue, shell_spec))
     except BaseException as e:
         result_queue.put(
             RunnerResult(
@@ -70,14 +73,37 @@ async def _child_run_task(
     task_id: int,
     job_id: int,
     result_queue: multiprocessing.Queue,
+    shell_spec: ShellSpec | None = None,
 ) -> None:
-    """Set up orch_context, fetch task from DB, execute, send result back."""
+    """Set up orch_context, fetch task from DB, execute, send result back.
+
+    Shell tasks enforce their own timeout and poll cancellation here — the
+    parent holds no CH client and its kill is only the backstop."""
     from ..orch_context import orch_context
 
     async with orch_context():
         async with get_sql_session() as session:
             db_result = await session.execute(select(Task).where(Task.id == task_id))
             task = db_result.scalar_one()
+
+        if shell_spec is not None:
+            timeout = parse_task_timeout()
+            exec_task = asyncio.create_task(
+                asyncio.wait_for(execute_task(task, shell_spec=shell_spec), timeout=timeout)
+            )
+            monitor = asyncio.create_task(_cancellation_monitor(task.id, exec_task, task.run_epoch))
+            try:
+                await exec_task
+                result_queue.put(RunnerResult(success=True, result_ref=None, error=None))
+            except asyncio.CancelledError:
+                result_queue.put(RunnerResult(success=False, result_ref=None, error="cancelled"))
+            except asyncio.TimeoutError:
+                result_queue.put(RunnerResult(success=False, result_ref=None, error=f"Task timed out after {timeout}s"))
+            except Exception as e:
+                result_queue.put(RunnerResult(success=False, result_ref=None, error=str(e)))
+            finally:
+                await monitor  # self-terminates once exec_task is done
+            return
 
         data_result = await execute_task(task)
         result_ref = serialize_task_result(data_result, job_id)
@@ -106,16 +132,19 @@ class _ChildHandle(NamedTuple):
 class _MpVehicle(TaskVehicle["_ChildHandle", "RunnerResult"]):
     """``TaskVehicle`` for the multiprocessing runner.
 
-    ``poll_cancelled`` returns False today — the subprocess runner has
-    never had in-flight cancellation; timeout (inside ``wait``) is its only
-    kill path. Pointing this at ``check_run_aborted`` is the free win the
-    driver unlocks."""
+    ``poll_cancelled`` returns False — module tasks have never had in-flight
+    cancellation on this runner, and shell tasks poll cancellation inside the
+    child (``_child_run_task``); timeout (inside ``wait``) is the parent's
+    only kill path."""
+
+    def __init__(self, shell_spec: ShellSpec | None = None) -> None:
+        self._shell_spec = shell_spec
 
     async def launch(self, task: Task, execution_worker_id: int) -> _ChildHandle:
         result_queue = _mp_ctx.Queue()
         proc = _mp_ctx.Process(
             target=_child_process_target,
-            args=(task.id, task.job_id, result_queue),
+            args=(task.id, task.job_id, result_queue, self._shell_spec),
             daemon=True,
         )
         proc.start()
@@ -143,19 +172,23 @@ class _MpVehicle(TaskVehicle["_ChildHandle", "RunnerResult"]):
 async def _run_task_in_child(
     task: Task,
     execution_worker_id: int,
+    shell_spec: ShellSpec | None = None,
 ) -> tuple[bool, dict | None, str | None]:
     """ExecuteFn for the multiprocessing worker.
 
-    Hands an ``_MpVehicle`` to the shared ``drive_vehicle`` driver, which
-    spawns the child, heartbeats while it runs, and enforces
-    AAICLICK_TASK_TIMEOUT (inside the vehicle's ``wait``).
+    Hands an ``_MpVehicle`` to the shared ``drive_vehicle`` driver. Shell
+    tasks enforce timeout and cancellation inside the child; the parent's
+    timeout gets ``CHILD_TIMEOUT_GRACE`` slack so it only fires as a backstop
+    when the child itself wedges.
     """
     timeout = parse_task_timeout()
+    if shell_spec is not None and timeout is not None:
+        timeout += CHILD_TIMEOUT_GRACE
 
     result = await drive_vehicle(
         task,
         execution_worker_id,
-        _MpVehicle(),
+        _MpVehicle(shell_spec),
         timeout=timeout,
         poll_interval=POLL_INTERVAL,
         heartbeat_fn=execution_worker_heartbeat,
@@ -200,83 +233,6 @@ async def _poll_child(
                 result_ref=None,
                 error=f"Child process exited with code {proc.exitcode}",
             )
-
-
-# ---------------------------------------------------------------------------
-# Host shell runner (shell tasks on the subprocess runner)
-# ---------------------------------------------------------------------------
-
-
-class _HostShellHandle(NamedTuple):
-    proc: Any
-    task_id: int
-    job_id: int
-    run_id: int
-
-
-class _HostShellVehicle(TaskVehicle["_HostShellHandle", None]):
-    """Runs a shell task's argv as a child of the worker process. Success is the
-    process exit code; env is the worker env with command_env overlaid. Output
-    is captured in memory and flushed to CH ``task_logs`` once the process
-    exits (kill included — the pipe drains to EOF either way)."""
-
-    def __init__(self, command: list[str], command_env: dict[str, str] | None) -> None:
-        self._command = command
-        self._command_env = command_env or {}
-
-    async def launch(self, task: Task, execution_worker_id: int) -> _HostShellHandle:
-        run_id = await register_run(task.id)
-        proc = await start_shell_process(self._command, self._command_env)
-        return _HostShellHandle(proc, task.id, task.job_id, run_id)
-
-    async def wait(self, handle: _HostShellHandle, timeout: float | None) -> tuple[int, str | None, None]:
-        # Drain stdout concurrently so a full pipe buffer can't deadlock wait().
-        reader = asyncio.create_task(handle.proc.stdout.read())
-        error: str | None = None
-        try:
-            await asyncio.wait_for(handle.proc.wait(), timeout=timeout)
-            exit_code = handle.proc.returncode
-        except asyncio.TimeoutError:
-            handle.proc.kill()
-            await handle.proc.wait()
-            error, exit_code = f"Task timed out after {timeout}s", -1
-        output = await reader
-        await flush_shell_logs(handle.task_id, handle.job_id, handle.run_id, output.decode(errors="replace"))
-        return exit_code, error, None
-
-    async def poll_cancelled(self, task: Task) -> bool:
-        return await check_task_cancelled(task.id)
-
-    async def terminate(self, handle: _HostShellHandle) -> None:
-        handle.proc.kill()
-
-    def collect(
-        self, handle: _HostShellHandle, exit_code: int, error: str | None, was_cancelled: bool, payload: None
-    ) -> RunnerResult:
-        if was_cancelled:
-            return RunnerResult(False, None, "cancelled")
-        if error is not None:
-            return RunnerResult(False, None, error)
-        return RunnerResult(exit_code == 0, None, None if exit_code == 0 else f"exit {exit_code}")
-
-    async def cleanup(self, handle: _HostShellHandle) -> None:
-        pass
-
-
-async def _run_shell_on_host(
-    task: Task, execution_worker_id: int, dispatch: JobDispatch
-) -> tuple[bool, dict | None, str | None]:
-    """ExecuteFn for shell tasks on the subprocess runner."""
-    vehicle = _HostShellVehicle(dispatch.command or [], dispatch.command_env)
-    result = await drive_vehicle(
-        task,
-        execution_worker_id,
-        vehicle,
-        timeout=parse_task_timeout(),
-        poll_interval=POLL_INTERVAL,
-        heartbeat_fn=execution_worker_heartbeat,
-    )
-    return result.success, result.result_ref, result.error
 
 
 # ---------------------------------------------------------------------------

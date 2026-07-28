@@ -8,11 +8,10 @@ from pathlib import Path
 from unittest.mock import AsyncMock
 
 from ..models import RUNNER_DOCKER, Task
-from ..runner_config import ENTRY_MODULE, ENTRY_SHELL
+from ..runner_config import ENTRY_MODULE
 from . import docker_worker
-from .docker_worker import _build_docker_run_cmd
+from .docker_worker import _build_docker_run_cmd, build_shell_run_spec
 from .execution_worker import JobDispatch
-from .log_test_helpers import flush_recorder
 
 
 def _cmdtask(**kw):
@@ -40,38 +39,25 @@ def test_module_cmd_uses_bootstrap_shim():
     assert "/aaiclick-ipc" in joined  # IPC mount present for module
 
 
-def test_shell_cmd_runs_argv_no_ipc_no_runner_env():
-    cmd = _build_docker_run_cmd(
-        _cmdtask(entry_type=ENTRY_SHELL, command=["python", "main.py"], command_env={"K": "v"}),
-        "python:3.12",
-        "/ipc",
-        {"AAICLICK_SQL_URL": "secret"},
+def test_build_shell_run_spec_wraps_argv():
+    task = Task(
+        id=7,
+        job_id=1,
+        name="t",
+        entrypoint="",
+        entry_type="shell",
+        command=["echo", "hi"],
+        command_env={"K": "v"},
+        run_epoch=2,
     )
-    assert cmd[-3:] == ["python:3.12", "python", "main.py"]
-    joined = " ".join(cmd)
-    assert "AAICLICK_SQL_URL" not in joined  # runner env NOT injected for shell
-    assert "K=v" in joined  # only command_env injected
-    assert "/aaiclick-ipc" not in joined  # no IPC mount for shell
-    assert "-v" not in cmd  # no mounts at all — logs come from `docker logs`
-
-
-async def test_shell_container_logs_flushed_to_ch(monkeypatch):
-    """Shell container output is fetched via `docker logs` and flushed to CH
-    under the run_id registered at launch."""
-    flushed, fake_flush = flush_recorder()
-    monkeypatch.setattr(docker_worker, "flush_shell_logs", fake_flush)
-    monkeypatch.setattr(docker_worker, "register_run", AsyncMock(return_value=77))
-    monkeypatch.setattr(docker_worker, "_container_logs_text", AsyncMock(return_value="out line\n"))
-    monkeypatch.setattr(docker_worker, "_wait_for_container", AsyncMock(return_value=(0, None)))
-    monkeypatch.setattr(docker_worker, "_docker_run_detached", AsyncMock(return_value="cid"))
-
-    vehicle = docker_worker._DockerVehicle("img", {}, "/ipc", ENTRY_SHELL)
-    task = _cmdtask(entry_type=ENTRY_SHELL, command=["true"])
-    handle = await vehicle.launch(task, 1)
-    exit_code, error, _ = await vehicle.wait(handle, None)
-
-    assert (exit_code, error) == (0, None)
-    assert flushed == {"task_id": 1, "job_id": 1, "run_id": 77, "text": "out line\n"}
+    spec = build_shell_run_spec(task, "img:tag")
+    assert spec.argv[:2] == ["docker", "run"]
+    assert "--rm" in spec.argv
+    assert "--name" in spec.argv and "aaiclick-task-7-2" in spec.argv
+    assert ["-e", "K=v"] == spec.argv[spec.argv.index("-e") : spec.argv.index("-e") + 2]
+    assert spec.argv[-3:] == ["img:tag", "echo", "hi"]
+    assert spec.env is None
+    assert spec.cleanup_argv == ["docker", "kill", "aaiclick-task-7-2"]
 
 
 def _task(entrypoint="user.module.entry", task_id=42, job_id=1) -> Task:

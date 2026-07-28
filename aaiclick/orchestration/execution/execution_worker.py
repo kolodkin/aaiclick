@@ -408,11 +408,17 @@ async def _cancellation_monitor(task_id: int, exec_task: asyncio.Task, expected_
     cancels the asyncio.Task, raising CancelledError at the next await point
     in the running coroutine.
 
+    ``exec_task`` doubles as the stop signal: the poll sleep waits on it with
+    a timeout, so the monitor wakes the moment the task finishes and returns
+    on its own — callers just ``await`` it, no cancel needed.
+
     Note: asyncio cancellation is cooperative — CPU-bound code without
     await points won't be interrupted until it yields.
     """
     while not exec_task.done():
-        await asyncio.sleep(POLL_INTERVAL)
+        await asyncio.wait({exec_task}, timeout=POLL_INTERVAL)
+        if exec_task.done():
+            return
         if await check_run_aborted(task_id, expected_epoch):
             exec_task.cancel()
             return
@@ -558,11 +564,7 @@ async def _execute_in_process(task: Task, execution_worker_id: int) -> tuple[boo
     except Exception as e:
         return False, None, str(e)
     finally:
-        monitor.cancel()
-        try:
-            await monitor
-        except asyncio.CancelledError:
-            pass
+        await monitor  # self-terminates once exec_task is done
 
 
 async def execution_worker_main_loop(

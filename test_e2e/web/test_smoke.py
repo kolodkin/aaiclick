@@ -136,6 +136,10 @@ def test_task_view_shows_logs(page, base_url: str) -> None:
     logs.get_by_text("This is stdout").wait_for(timeout=15000)
     logs.get_by_text("Error message").wait_for(timeout=15000)
 
+    # Stream provenance: stderr lines carry the src-stderr marker, stdout lines don't.
+    assert logs.locator(".src-stderr", has_text="Error message").count() == 1
+    assert logs.locator(".src-stderr", has_text="This is stdout").count() == 0
+
 
 @pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
 @pytest.mark.skipif(
