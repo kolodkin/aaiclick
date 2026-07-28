@@ -92,10 +92,11 @@ class _SinkFlusher:
     """Incrementally write a sink's completed lines to CH ``task_logs``.
 
     Tracks the running ``seq`` offset so successive flushes keep ``seq``
-    strictly increasing per ``run_id``. ``run`` loops until cancelled; the
-    owner cancels it and calls ``flush_final`` for the tail. Reads
-    ``LOG_FLUSH_INTERVAL`` through the module on every tick so tests can
-    monkeypatch it.
+    strictly increasing per ``run_id``. ``run`` loops until ``request_stop``;
+    the owner signals stop, awaits ``run`` so an in-flight flush completes
+    (cancelling mid-write would lose the drained-but-unwritten batch), then
+    calls ``flush_final`` for the tail. Reads ``LOG_FLUSH_INTERVAL`` through
+    the module on every tick so tests can monkeypatch it.
 
     Client choice per backend: chdb calls are sync on the event loop, so the
     flusher shares the task's client — the two can never interleave. A remote
@@ -111,6 +112,12 @@ class _SinkFlusher:
         self._run_id = run_id
         self._offset = 0
         self._own_client: ChClient | None = None
+        self._stop = asyncio.Event()
+
+    def request_stop(self) -> None:
+        """Signal ``run`` to exit at its next check; awaiting ``run`` after
+        this drains gracefully instead of dropping an in-flight flush."""
+        self._stop.set()
 
     async def _client(self) -> ChClient:
         if is_chdb():
@@ -148,7 +155,11 @@ class _SinkFlusher:
 
     async def run(self) -> None:
         while True:
-            await asyncio.sleep(LOG_FLUSH_INTERVAL)
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=LOG_FLUSH_INTERVAL)
+                return
+            except asyncio.TimeoutError:
+                pass
             await self.flush_pending()
 
 
@@ -307,7 +318,6 @@ async def capture_task_output(task_id: int, job_id: int, run_id: int):
         root.setLevel(saved_level)
         sys.stdout = original_stdout
         sys.stderr = original_stderr
-        flusher_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await flusher_task
+        flusher.request_stop()
+        await flusher_task
         await flusher.flush_final()

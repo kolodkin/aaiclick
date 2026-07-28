@@ -444,9 +444,8 @@ async def execute_shell_task(task: Task, spec: ShellSpec | None = None) -> None:
         reader.cancel()
         with suppress(asyncio.CancelledError):
             await reader
-        flusher_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await flusher_task
+        flusher.request_stop()
+        await flusher_task
         await flusher.flush_final()
         if spec.cleanup_argv:
             await _run_cleanup_argv(spec.cleanup_argv)
