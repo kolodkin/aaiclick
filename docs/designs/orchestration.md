@@ -110,7 +110,18 @@ A `build` starts by preflighting Docker (`docker version`): a worker with no CLI
 
 ## Shell entry type
 
-A `shell` task runs a literal argv (`command`, a list) directly in the runner's environment instead of importing a Python `entrypoint`. Success is **exit code 0**; there is no `result.data()` and `result_ref` is always `None`. Every shell task executes through one streaming path — `execute_shell_task` — which pipes the command's stdout and stderr (separate pipes, so lines keep their source stream) into the ClickHouse `task_logs` table every `LOG_FLUSH_INTERVAL` (2 s) under a registered `run_id`, so logs surface uniformly and are tailable live. Container runners are wrapped argvs on the same path: docker shell tasks run as a foreground `docker run --rm --name aaiclick-task-<id>-<epoch>`, kubernetes shell tasks as `kubectl run --attach --rm --restart=Never` with the pod spec in `--overrides` — the wrapper CLI's exit code *is* the container's, and its stdout is the container's output.
+A `shell` task runs a literal argv (`command`, a list) directly in the runner's
+environment instead of importing a Python `entrypoint`. Success is **exit code
+0**; there is no `result.data()` and `result_ref` is always `None`. Every shell
+task executes through one streaming path — `execute_shell_task` — which pipes
+the command's stdout and stderr (separate pipes, so lines keep their source
+stream) into the ClickHouse `task_logs` table every `LOG_FLUSH_INTERVAL` (2 s)
+under a registered `run_id`, so logs surface uniformly and are tailable live.
+Container runners are wrapped argvs on the same path: docker shell tasks run as
+a foreground `docker run --rm --name aaiclick-task-<id>-<epoch>`, kubernetes
+shell tasks as `kubectl run --attach --rm --restart=Never` with the pod spec in
+`--overrides` — the wrapper CLI's exit code *is* the container's, and its
+stdout is the container's output.
 
 In an isolated environment (container/Pod) a shell task receives **only** `command_env` (a dict) — *not* the aaiclick runner env — so no DB credentials leak into an arbitrary image. The subprocess runner has no isolation boundary, so the command inherits the worker's process env with `command_env` overlaid.
 
@@ -132,7 +143,13 @@ python -m aaiclick run-job <name> --entry-type shell --command 'python main.py' 
 
 REST/MCP submission uses the same fields on `RunJobRequest`.
 
-The executing process always legally holds the CH client: on the in-process paths — the local-mode server's worker and `job_test` / `ajob_test` — the command runs in the worker's own event loop; on the mp worker, dispatch resolves a `ShellSpec` (plain or container-wrapped argv plus a cleanup command) and runs it inside the same spawned task child module tasks use, which enforces the task timeout and polls cancellation itself (the parent's kill is a `CHILD_TIMEOUT_GRACE` backstop).
+The executing process always legally holds the CH client: on the in-process
+paths — the local-mode server's worker and `job_test` / `ajob_test` — the
+command runs in the worker's own event loop; on the mp worker, dispatch
+resolves a `ShellSpec` (plain or container-wrapped argv plus a cleanup
+command) and runs it inside the same spawned task child module tasks use,
+which enforces the task timeout and polls cancellation itself (the parent's
+kill is a `CHILD_TIMEOUT_GRACE` backstop).
 
 **Implementation**: `aaiclick/orchestration/execution/runner.py` — see `execute_shell_task()`, `ShellSpec`; `aaiclick/orchestration/execution/dispatch.py` — see `build_shell_spec()`; `aaiclick/orchestration/execution/docker_worker.py` — see `build_shell_run_spec()`; `aaiclick/orchestration/execution/kubernetes_worker.py` — see `build_shell_pod_spec()`; `aaiclick/orchestration/execution/mp_worker.py` — see `_child_run_task()`
 
