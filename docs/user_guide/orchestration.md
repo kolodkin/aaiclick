@@ -403,7 +403,8 @@ Task stdout/stderr is streamed into the ClickHouse `task_logs` table while the
 task runs (flushed every ~2 s), so a long-running task can be tailed live and
 logs are readable from one place no matter which host, container, or Pod ran
 the task. `logging.*` records keep their
-level; raw `print()` output is captured as `INFO` (stdout) / `ERROR` (stderr).
+level; raw `print()` output is captured as `INFO` (stdout) / `WARNING`
+(stderr) — `ERROR` is reserved for `logging.error` records.
 `AAICLICK_LOG_LEVEL` sets the captured root level (default `INFO`). Logs share
 the job's retention lifecycle. Fetch them via
 `GET /api/v0/tasks/<task_id>/logs?tail=100`.

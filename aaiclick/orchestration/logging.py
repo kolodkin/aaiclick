@@ -32,7 +32,10 @@ _TASK_LOG_COLS = ["task_id", "job_id", "run_id", "seq", "stream", "level", "line
 LOG_FLUSH_INTERVAL = 2.0
 
 
-_DEFAULT_STREAM_LEVEL: dict[LogStream, LogLevel] = {STDOUT_STREAM: "INFO", STDERR_STREAM: "ERROR"}
+# stderr defaults to WARNING, not ERROR: tools routinely write progress and
+# diagnostics to stderr, and provenance is already recorded in ``stream``.
+# True ERROR is reserved for ``logging.error`` records, which keep their level.
+_DEFAULT_STREAM_LEVEL: dict[LogStream, LogLevel] = {STDOUT_STREAM: "INFO", STDERR_STREAM: "WARNING"}
 
 
 class _ChLogSink:

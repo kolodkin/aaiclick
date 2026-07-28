@@ -98,6 +98,19 @@ async def test_execute_shell_task_streams_mid_run(orch_ctx, monkeypatch):
     assert final == ["first", "second"]
 
 
+async def test_execute_shell_task_splits_streams(orch_ctx):
+    """Shell stdout and stderr keep their streams; stderr defaults to WARNING."""
+    task = await _persisted_shell_task(["sh", "-c", "echo out line; echo err line 1>&2"])
+    await execute_shell_task(task)
+    refreshed = await get_task(task.id)
+    lines = await read_task_logs(task.id, refreshed.run_ids[-1])
+    # Cross-stream ordering is approximate (two pipes) — compare as a set.
+    assert {(line.stream, line.level, line.text) for line in lines} == {
+        ("stdout", "INFO", "out line"),
+        ("stderr", "WARNING", "err line"),
+    }
+
+
 async def test_capture_task_output_streams_mid_run(orch_ctx, monkeypatch):
     """Completed lines are readable from task_logs while the task body is still running."""
     monkeypatch.setattr("aaiclick.orchestration.logging.LOG_FLUSH_INTERVAL", 0.05)

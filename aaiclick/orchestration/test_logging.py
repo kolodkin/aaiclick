@@ -13,7 +13,7 @@ def test_sink_default_levels_per_stream():
     lines = sink.finalize()
     assert [(line.stream, line.level, line.text) for line in lines] == [
         (STDOUT_STREAM, "INFO", "out line"),
-        (STDERR_STREAM, "ERROR", "err line"),
+        (STDERR_STREAM, "WARNING", "err line"),
     ]
 
 

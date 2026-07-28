@@ -43,9 +43,10 @@ works for them unchanged.
 | Kubernetes shell  | `kubectl run --attach` stdout, same streaming pipe             |
 | Kubernetes module | pod streams to CH itself via `capture_task_output`             |
 
-Captured text is converted to `LogLine`s (stdout → `INFO`; docker/k8s merge
-stderr into stdout) and written with `flush_task_logs` under a running `seq`
-offset.
+Captured text is converted to `LogLine`s tagged with their source stream
+(stdout → `INFO`, stderr → `WARNING`; the docker/kubectl wrappers preserve
+the stream split for non-TTY runs) and written with `flush_task_logs` under a
+running `seq` offset.
 
 ## Flushing from the worker parent
 

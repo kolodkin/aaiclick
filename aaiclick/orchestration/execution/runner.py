@@ -42,7 +42,7 @@ from aaiclick.data.object.refs import (
     native_value_ref,
     upstream_ref,
 )
-from aaiclick.log_models import STDOUT_STREAM
+from aaiclick.log_models import STDERR_STREAM, STDOUT_STREAM, LogStream
 from aaiclick.oplog.models import init_oplog_tables
 from aaiclick.snowflake import get_snowflake_id
 
@@ -357,15 +357,15 @@ async def start_shell_process(
 ) -> asyncio.subprocess.Process:
     """Spawn a shell task's argv with ``command_env`` overlaid on the worker env.
 
-    stdout and stderr are merged into one pipe, matching how every shell
-    runner captures output. Shared by :func:`execute_shell_task` and the mp
-    worker's host shell vehicle so the env-overlay policy is defined once.
+    stdout and stderr are separate pipes so captured lines keep their source
+    stream (the docker / kubectl wrappers preserve the split for non-TTY
+    runs). :func:`execute_shell_task` pumps both.
     """
     env = {**os.environ, **command_env} if command_env else None
     return await asyncio.create_subprocess_exec(
         *(command or []),
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
+        stderr=asyncio.subprocess.PIPE,
         env=env,
     )
 
@@ -396,13 +396,13 @@ async def _run_cleanup_argv(cleanup_argv: list[str]) -> None:
     await proc.wait()
 
 
-async def _pump_stream(stream: asyncio.StreamReader, sink: _ChLogSink) -> None:
-    """Feed the merged stdout pipe into the sink chunk by chunk until EOF."""
+async def _pump_stream(stream: asyncio.StreamReader, sink: _ChLogSink, source: LogStream) -> None:
+    """Feed one output pipe into the sink chunk by chunk until EOF."""
     while True:
         chunk = await stream.read(65536)
         if not chunk:
             return
-        sink.write(STDOUT_STREAM, chunk.decode(errors="replace"))
+        sink.write(source, chunk.decode(errors="replace"))
 
 
 async def execute_shell_task(task: Task, spec: ShellSpec | None = None) -> None:
@@ -432,18 +432,23 @@ async def execute_shell_task(task: Task, spec: ShellSpec | None = None) -> None:
     sink = _ChLogSink()
     flusher = _SinkFlusher(sink, task.id, task.job_id, run_id)
     flusher_task = asyncio.create_task(flusher.run())
-    reader = asyncio.create_task(_pump_stream(proc.stdout, sink))
+    readers = [
+        asyncio.create_task(_pump_stream(proc.stdout, sink, STDOUT_STREAM)),
+        asyncio.create_task(_pump_stream(proc.stderr, sink, STDERR_STREAM)),
+    ]
     try:
         await proc.wait()
-        await reader
+        for reader in readers:
+            await reader
     except asyncio.CancelledError:
         proc.kill()
         await proc.wait()
         raise
     finally:
-        reader.cancel()
-        with suppress(asyncio.CancelledError):
-            await reader
+        for reader in readers:
+            reader.cancel()
+            with suppress(asyncio.CancelledError):
+                await reader
         flusher.request_stop()
         await flusher_task
         await flusher.flush_final()
