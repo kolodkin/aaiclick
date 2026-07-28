@@ -18,7 +18,7 @@ from typing import TextIO
 
 from aaiclick.backend import is_chdb
 from aaiclick.data.data_context import ChClient, get_ch_client
-from aaiclick.data.data_context.clickhouse_client import create_clickhouse_client
+from aaiclick.data.data_context.ch_client import create_ch_client
 from aaiclick.datetime_utils import utc_now
 from aaiclick.log_models import STDERR_STREAM, STDOUT_STREAM, LogLevel, LogLine, LogStream, normalize_level
 from aaiclick.oplog.models import get_column_types
@@ -126,7 +126,7 @@ class _SinkFlusher:
         if is_chdb():
             return get_ch_client()
         if self._own_client is None:
-            self._own_client = await create_clickhouse_client()
+            self._own_client = await create_ch_client()
         return self._own_client
 
     async def _write(self, lines: list[LogLine]) -> None:

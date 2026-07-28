@@ -88,6 +88,7 @@ async def test_execute_shell_task_streams_mid_run(orch_ctx, monkeypatch):
     exec_task = asyncio.create_task(execute_shell_task(task))
     await asyncio.sleep(0.25)
     refreshed = await get_task(task.id)
+    assert refreshed is not None
     mid = [line.text for line in await read_task_logs(task.id, refreshed.run_ids[-1])]
     await exec_task
 
@@ -101,6 +102,7 @@ async def test_execute_shell_task_splits_streams(orch_ctx):
     task = await _persisted_shell_task(["sh", "-c", "echo out line; echo err line 1>&2"])
     await execute_shell_task(task)
     refreshed = await get_task(task.id)
+    assert refreshed is not None
     lines = await read_task_logs(task.id, refreshed.run_ids[-1])
     # Cross-stream ordering is approximate (two pipes) — compare as a set.
     assert {(line.stream, line.level, line.text) for line in lines} == {
