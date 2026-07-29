@@ -9,13 +9,13 @@ from aaiclick.orchestration.factories import create_built_job
 from aaiclick.orchestration.models import RUNNER_KUBERNETES, Task
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import get_registered_job, upsert_registered_job
-from aaiclick.orchestration.runner_config import ImageBuild, KubernetesRunner
+from aaiclick.orchestration.runner_config import BUILD_TASK_ENTRYPOINT, ImageBuild, KubernetesRunner
 
 
 @pytest.mark.usefixtures("fast_poll")
 async def test_create_kubernetes_job_writes_job_and_entry_task(orch_ctx_no_ch):
-    """The image is built on demand at dispatch, not injected as a task at
-    submission — so only the entry task appears in the job graph."""
+    """A build-source kubernetes job carries the injected image-build task
+    alongside the entry task (see ``create_built_job``)."""
     runner = KubernetesRunner(
         image=ImageBuild(git_remote="git://x/repo.git", git_sha="a" * 40, git_branch="main"),
         namespace="ml",
@@ -35,7 +35,7 @@ async def test_create_kubernetes_job_writes_job_and_entry_task(orch_ctx_no_ch):
     async with get_sql_session() as session:
         tasks = (await session.execute(select(Task).where(Task.job_id == job.id))).scalars().all()
     entrypoints = {t.entrypoint for t in tasks}
-    assert entrypoints == {"sample_jobs.entry"}
+    assert entrypoints == {"sample_jobs.entry", BUILD_TASK_ENTRYPOINT}
 
 
 @pytest.mark.usefixtures("fast_poll")

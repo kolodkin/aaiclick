@@ -18,6 +18,14 @@ ENTRY_SHELL = "shell"
 EntryType = Literal["module", "shell"]
 ENTRY_TYPES: list[EntryType] = [ENTRY_MODULE, ENTRY_SHELL]
 
+# Entrypoint of the image-build task injected into every build-source
+# docker/kubernetes job (see ``factories.create_built_job``). Dispatch pins
+# tasks with this entrypoint to the host (subprocess) runner — they produce
+# the image the job's container/pod tasks need. Lives here (not next to the
+# function it names) so ``factories`` and ``dispatch`` can share it without
+# importing the execution package.
+BUILD_TASK_ENTRYPOINT = "aaiclick.orchestration.execution.image_builder.build_job_image"
+
 
 # --- image source (nested in docker/kubernetes runners) -------------------
 class ImageBuild(BaseModel):

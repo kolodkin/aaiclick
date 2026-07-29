@@ -22,10 +22,12 @@ from .models import (
 )
 from .orch_context import get_sql_session
 from .runner_config import (
+    BUILD_TASK_ENTRYPOINT,
     ENTRY_MODULE,
     ENTRY_SHELL,
     DockerRunner,
     EntryType,
+    ImageBuild,
     KubernetesRunner,
     dump_runner_config,
 )
@@ -300,9 +302,13 @@ async def create_built_job(
     preservation_mode: PreservationMode | None = None,
     registered: RegisteredJob | None = None,
 ) -> Job:
-    """Create a docker/kubernetes Job from a resolved RunnerConfig. The image
-    is built on demand at dispatch (see ``execution.image_builder.ensure_image``),
-    not injected as a task at submission."""
+    """Create a docker/kubernetes Job from a resolved RunnerConfig.
+
+    A ``build`` image source injects an image-build task that the entry task
+    depends on, so the scheduler never claims a container/pod task before the
+    image is ready. The build task attaches to the shared ``build_tasks`` row
+    (``execution.image_builder.ensure_image``), so concurrent jobs on the same
+    image still build it exactly once. Prebuilt sources inject nothing."""
     job = new_job_row(
         name,
         run_type=run_type,
@@ -324,6 +330,11 @@ async def create_built_job(
     entry_task.job_id = job.id
 
     to_add = [job, entry_task]
+    if isinstance(runner.image, ImageBuild):
+        build_task = create_task(BUILD_TASK_ENTRYPOINT, {"job_id": job.id}, name="image_build")
+        build_task.job_id = job.id
+        entry_task.depends_on(build_task)
+        to_add.append(build_task)
 
     async with get_sql_session() as session:
         for obj in to_add:

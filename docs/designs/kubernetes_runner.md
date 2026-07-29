@@ -111,9 +111,10 @@ write a `RemoteTaskResult` row instead of `result.json`.
 
 # Image build is shared
 
-Kubernetes reuses the Docker build pipeline unchanged. The image is built
-on demand at dispatch, not injected as a task at submission: the worker
-calls `image_builder.ensure_image`, which claims a `BuildTask` row keyed by
+Kubernetes reuses the Docker build pipeline unchanged. A build-source job
+carries an injected image-build task the rest of the graph depends on (see
+`docs/designs/orchestration.md`, "Image source"); its body calls
+`image_builder.ensure_image`, which claims a `BuildTask` row keyed by
 image identity (deduping concurrent builders onto the same build) and runs
 `docker_build.build_image_to_tag` to clone the repo at the SHA, build the
 image, and push it to a registry. A Kubernetes job therefore **requires**

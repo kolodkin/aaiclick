@@ -6,10 +6,11 @@ from sqlalchemy import select
 
 from aaiclick.orchestration.factories import create_built_job, create_job, create_task
 from aaiclick.orchestration.jobs import get_task
-from aaiclick.orchestration.models import JOB_PENDING, TASK_PENDING, Job, Task
+from aaiclick.orchestration.models import JOB_PENDING, TASK_PENDING, Dependency, Job, Task
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.result import data_list
 from aaiclick.orchestration.runner_config import (
+    BUILD_TASK_ENTRYPOINT,
     ENTRY_MODULE,
     ENTRY_SHELL,
     DockerRunner,
@@ -144,10 +145,18 @@ async def test_prebuilt_job_injects_no_build_task(orch_ctx_no_ch):
     assert job.runner["image"]["type"] == "prebuilt"
 
 
-async def test_build_job_injects_no_build_task(orch_ctx_no_ch):
-    """Build images are produced on demand at dispatch, not injected at
-    submission — so no docker_build task appears in the job graph."""
+async def test_build_job_injects_build_task_gating_entry(orch_ctx_no_ch):
+    """A build image source injects an image-build task the entry task depends
+    on, so the scheduler holds container tasks back until the image is ready."""
     runner = DockerRunner(image=ImageBuild(git_remote="git@x:r.git", git_sha="c" * 40))
     job = await create_built_job(name="j", entrypoint="mod.fn", runner=runner, entry_type="module")
-    entrypoints = await _task_entrypoints(job.id)
-    assert entrypoints == ["mod.fn"]
+
+    async with get_sql_session() as session:
+        tasks = (await session.execute(select(Task).where(Task.job_id == job.id))).scalars().all()
+        by_entrypoint = {t.entrypoint: t for t in tasks}
+        assert set(by_entrypoint) == {"mod.fn", BUILD_TASK_ENTRYPOINT}
+        build_task = by_entrypoint[BUILD_TASK_ENTRYPOINT]
+        entry_task = by_entrypoint["mod.fn"]
+        assert build_task.kwargs == {"job_id": job.id}
+        deps = (await session.execute(select(Dependency).where(Dependency.next_id == entry_task.id))).scalars().all()
+    assert [(d.previous_id, d.previous_type, d.next_type) for d in deps] == [(build_task.id, "task", "task")]

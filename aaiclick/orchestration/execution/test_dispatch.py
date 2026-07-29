@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock
 
 from ..models import RUNNER_DOCKER, RUNNER_KUBERNETES, RUNNER_SUBPROCESS, Task
+from ..runner_config import BUILD_TASK_ENTRYPOINT
 from . import dispatch
 from .execution_worker import JobDispatch
 
@@ -53,6 +54,16 @@ async def test_resolve_dispatch_reads_job_runner_mode_and_spec(monkeypatch):
     resolved = await dispatch._resolve_dispatch(user_task)
     assert resolved.runner_mode == RUNNER_DOCKER
     assert resolved.image_tag == "aaiclick-job:abc"
+
+
+async def test_resolve_dispatch_pins_build_task_to_host_runner():
+    """The injected image-build task runs on the host regardless of the job's
+    runner_mode — it produces the image the container tasks need. No session
+    mock: the routing must not touch the database."""
+    build_task = _task(entrypoint=BUILD_TASK_ENTRYPOINT)
+    resolved = await dispatch._resolve_dispatch(build_task)
+    assert resolved.runner_mode == RUNNER_SUBPROCESS
+    assert resolved.image_tag is None
 
 
 async def test_dispatch_execute_routes_docker_to_container_runner(monkeypatch):

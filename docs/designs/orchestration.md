@@ -95,7 +95,9 @@ The container runners run against an image from one of two sources, nested in th
 
 Pass `image=` (`run_job` / `RunJobRequest` / `run-job --image`, or `register-job --image` for a default) to select a prebuilt image — **mutually exclusive** with the git build fields (`git_remote` / `git_sha` / `git_branch` / `dockerfile`).
 
-For a `build` source the image is **not** produced by a task in the job graph. The first worker to dispatch a container/Pod task builds it on demand via `ensure_image`, recorded in the `build_tasks` table keyed by image identity (`sha256(git_remote, git_sha, dockerfile)`). A `UNIQUE(image_key)` constraint plus an atomic claim/lease make the build run **exactly once** across all workers and jobs — every other task (including dynamically created ones) reuses the same tag, and a concurrent worker polls until the build is `READY`.
+For a `build` source, job submission injects an **image-build task** (`build_job_image`) that every other task depends on — directly for the entry task, transitively for the rest. The scheduler therefore never claims a container/Pod task before its image is ready — no worker slot is spent waiting on an in-flight build. Dispatch pins the build task to the host (subprocess) runner, so the build runs as a normal task with logs, cancellation, and timeout handling.
+
+The build itself goes through `ensure_image`, recorded in the `build_tasks` table keyed by image identity (`sha256(git_remote, git_sha, dockerfile)`). A `UNIQUE(image_key)` constraint plus an atomic claim/lease make the build run **exactly once** across all workers and jobs — concurrent jobs on the same image share one row (the second job's build task attaches to the in-flight build or returns immediately on `READY`). At container launch `resolve_image_tag` remains as a fast path and as a fallback that still builds inline if the row is missing.
 
 **ExecutionWorker prerequisites** — because the build and the `docker run` happen on the worker's host, not in a separate service:
 
@@ -106,7 +108,7 @@ For a `build` source the image is **not** produced by a task in the job graph. T
 
 A `build` starts by preflighting Docker (`docker version`): a worker with no CLI or an unreachable daemon fails the build with an actionable error naming `AAICLICK_DOCKER_BIN` / the prebuilt-image alternative, rather than a raw `FileNotFoundError` or a daemon error deep inside `docker build`.
 
-**Implementation**: `aaiclick/orchestration/execution/image_builder.py` — see `ensure_image()`, `resolve_image_tag()`; `aaiclick/orchestration/execution/docker_build.py` — see `build_image_to_tag()`, `_require_docker()`; `aaiclick/orchestration/docker_config.py` — see `resolve_runner_config()`, `effective_image_tag()`, `image_key()`
+**Implementation**: `aaiclick/orchestration/execution/image_builder.py` — see `build_job_image()`, `ensure_image()`, `resolve_image_tag()`; `aaiclick/orchestration/factories.py` — see `create_built_job()` (build-task injection); `aaiclick/orchestration/execution/docker_build.py` — see `build_image_to_tag()`, `_require_docker()`; `aaiclick/orchestration/docker_config.py` — see `resolve_runner_config()`, `effective_image_tag()`, `image_key()`
 
 ## Shell entry type
 

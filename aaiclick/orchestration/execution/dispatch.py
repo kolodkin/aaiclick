@@ -16,7 +16,7 @@ from sqlmodel import select
 from ..docker_config import effective_image_tag
 from ..models import RUNNER_DOCKER, RUNNER_KUBERNETES, RUNNER_SUBPROCESS, Job, RunnerMode, Task
 from ..orch_context import get_sql_session
-from ..runner_config import ENTRY_SHELL, KubernetesRunner, RunnerConfigT, parse_runner_config
+from ..runner_config import BUILD_TASK_ENTRYPOINT, ENTRY_SHELL, KubernetesRunner, RunnerConfigT, parse_runner_config
 from .docker_worker import _docker_pull_if_registered, _run_task_in_container, build_shell_run_spec
 from .execution_worker import JobDispatch
 from .image_builder import resolve_image_tag
@@ -43,7 +43,12 @@ def _kube_dict(runner: RunnerConfigT | None) -> dict | None:
 async def _resolve_dispatch(task: Task) -> JobDispatch:
     """Pick the runner for a task and snapshot its job's launch spec.
 
-    Every task inherits the job's ``runner_mode``."""
+    The auto-injected image-build task always runs on the host (subprocess)
+    runner — it produces the image the rest of the job's container/pod tasks
+    need. Every other task inherits the job's ``runner_mode``."""
+    if task.entrypoint == BUILD_TASK_ENTRYPOINT:
+        return JobDispatch(RUNNER_SUBPROCESS, None, None)
+
     async with get_sql_session() as session:
         job = (await session.execute(select(Job).where(Job.id == task.job_id))).scalar_one_or_none()
     if job is None:
