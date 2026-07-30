@@ -45,6 +45,15 @@ hatches, should the feeder ever measurably hurt:
 **When to revisit**: when polling overhead is measurable (many tabs or many
 concurrent jobs), or when sub-2 s latency matters for operators.
 
+## Per-Task Image Requirement
+
+Move the container image from a job-level setting to a task-level requirement
+with a job-level fallback: `tasks.image_source` (nullable JSON) overrides the
+job's image; task graphs get one injected build task **per distinct image**,
+each task gated on its own image's build. Design: `docs/designs/task_image.md`.
+**When to revisit**: when a job needs tasks on different images (e.g. a
+side-tool container next to the main codebase image).
+
 ## API Auth — Beyond Username/Password + RBAC
 
 Username/password users, admin/viewer RBAC, and JWT login (access + refresh)
