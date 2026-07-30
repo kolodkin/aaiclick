@@ -5,8 +5,9 @@ from __future__ import annotations
 from unittest.mock import AsyncMock
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 
+from ...datetime_utils import utc_now
 from ...snowflake import get_snowflake_id
 from .. import docker_config
 from ..factories import create_built_job, create_task
@@ -15,6 +16,7 @@ from ..orch_context import get_sql_session
 from ..runner_config import BUILD_TASK_ENTRYPOINT, DockerRunner, ImageBuild, ImagePrebuilt
 from . import image_builder
 from .claiming import claim_next_task, update_task_status
+from .execution_worker import deregister_execution_worker, register_execution_worker
 from .execution_worker_context import set_current_task_info
 from .image_builder import BuildFailed, build_job_image, ensure_built_image, ensure_image
 
@@ -148,20 +150,38 @@ async def test_build_job_image_rejects_job_without_build_source(orch_ctx_no_ch):
         await build_job_image(job.id)
 
 
+async def _cancel_all_pending_tasks():
+    """Cancel leftover claimable tasks so claim_next_task sees only this test's
+    job (the distributed backend shares one database across tests)."""
+    async with get_sql_session() as session:
+        await session.execute(
+            text(
+                "UPDATE tasks SET status = 'CANCELLED', completed_at = :now "
+                "WHERE status IN ('PENDING', 'CLAIMED', 'RUNNING', 'PENDING_CLEANUP')"
+            ),
+            {"now": utc_now()},
+        )
+        await session.commit()
+
+
 async def test_build_task_gates_entry_task_claiming(orch_ctx_no_ch):
     """The injected build task is claimed first; the entry task stays
     unclaimable until the build task completes, so no worker slot is spent
     waiting on an in-flight image build."""
+    await _cancel_all_pending_tasks()
     await create_built_job(name="gate", entrypoint="mod.entry", runner=_build_runner("2" * 40))
+    worker = await register_execution_worker()
 
-    first = await claim_next_task(execution_worker_id=1)
+    first = await claim_next_task(worker.id)
     assert first is not None
     assert first.entrypoint == BUILD_TASK_ENTRYPOINT
 
     # Entry task depends on the (still-running) build task.
-    assert await claim_next_task(execution_worker_id=2) is None
+    assert await claim_next_task(worker.id) is None
 
     await update_task_status(first.id, TASK_COMPLETED)
-    second = await claim_next_task(execution_worker_id=2)
+    second = await claim_next_task(worker.id)
     assert second is not None
     assert second.entrypoint == "mod.entry"
+
+    await deregister_execution_worker(worker.id)
