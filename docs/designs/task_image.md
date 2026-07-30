@@ -33,6 +33,32 @@ Status: design — not implemented.
   `DockerRunner` becomes an empty marker, preserving the discriminated union
   so `parse_runner_config` call sites are untouched.
 
+# The build is an ordinary task
+
+The mental model is plain graph wiring — `image_build_task >> entrypoint_task`
+(job-level image) or `image_build_task >> taskX` (task-level image). The build
+is a normal `tasks` row: normal statuses, normal `max_retries`, normal
+retry/reaper crash recovery. No dedicated table, no lease, no scheduler
+special-casing — the existing dependency filter is the whole coordination
+story. Exactly three deviations from "just another task", each with a
+concrete reason:
+
+1. **Auto-injected, not user-written.** Users declare *what image a task
+   needs* (`image_source`); the commit path expands that into the build task
+   plus dependency edges, deduping so N tasks on the same image share one
+   build task. Injection is only sugar that writes the `build >> dependents`
+   edges you would otherwise wire by hand.
+2. **Runs on the host.** Chicken-and-egg: the build task cannot run inside
+   the image it is building, and it needs the docker CLI + daemon socket. Not
+   a special flag — `image_source=NULL` ⇒ host subprocess is a rule for any
+   task; the build task just uses it.
+3. **No-registry mode gets no build task at all.** A task's `SUCCESS` is a
+   global fact in the DB, but without a registry the built image exists only
+   in one host's Docker daemon — a completed build task would tell workers on
+   other hosts the image is ready, which is a lie. With a registry,
+   `docker push` makes success a global fact again, which is why the
+   graph-task model works there. See "No registry: always inline".
+
 # Inheritance — stamped at commit, never resolved at dispatch
 
 By the time a task row is committed, its `image_source` is final, so `NULL`
@@ -87,9 +113,8 @@ Revisit only if double-builds show up as a real cost.
 
 # No registry: always inline
 
-Without a registry the built image lives only in one host's Docker daemon —
-a global "ready" marker would be a lie, and a build task's output could not
-reach other hosts — so no build task is injected. The docker launch path does
+No build task is injected without a registry (deviation 3 above — build
+success is host-local, not a global fact). The docker launch path does
 `docker image inspect` → hit ⇒ run; miss ⇒ clone + `docker build` inline,
 holding the slot for the cold build (accepted — no-registry is de facto
 single-host / small-scale mode). Kubernetes `build` sources already require
