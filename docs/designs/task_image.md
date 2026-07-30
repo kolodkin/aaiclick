@@ -59,6 +59,12 @@ concrete reason:
    `docker push` makes success a global fact again, which is why the
    graph-task model works there. See "No registry: always inline".
 
+Build tasks (and their edges) stay identifiable for the UI without schema:
+the build entrypoint is a fixed module path, so view models expose a computed
+`is_image_build` flag on the task view — the UI can style build nodes and the
+edges leaving them. No `dependencies.kind` column; promote to a `tasks.kind`
+column only if more system-injected task kinds appear.
+
 # Inheritance — stamped at commit, never resolved at dispatch
 
 By the time a task row is committed, its `image_source` is final, so `NULL`
