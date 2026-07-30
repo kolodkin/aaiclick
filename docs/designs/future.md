@@ -47,12 +47,14 @@ concurrent jobs), or when sub-2 s latency matters for operators.
 
 ## Per-Task Image Requirement
 
-Move the container image from a job-level setting to a task-level requirement
-with a job-level fallback: `tasks.image_source` (nullable JSON) overrides the
-job's image; task graphs get one injected build task **per distinct image**,
-each task gated on its own image's build. Design: `docs/designs/task_image.md`.
-**When to revisit**: when a job needs tasks on different images (e.g. a
-side-tool container next to the main codebase image).
+Replace the job-level ("entrypoint") image concept: the image becomes a task
+requirement (`tasks.image_source`, parent→child inheritance), and the build
+becomes a plain task running `docker build`. Registry mode injects one build
+task per distinct image with every dependent task wired to it; no registry
+means always-inline per-host builds. Retires the `build_tasks` claim/lease
+machinery in favor of graph dependencies + registry pull-first. Design:
+`docs/designs/task_image.md`. **When to revisit**: when a job needs tasks on
+different images, or the lease machinery's complexity needs paying down.
 
 ## API Auth — Beyond Username/Password + RBAC
 

@@ -1,94 +1,87 @@
 Per-Task Image Requirement
 ---
 
-Move the container image from a job-level setting to a **task-level
-requirement** with a job-level fallback. A task's image is a property of the
-unit of work (what code/environment it needs), not of the job that groups the
-work — today's per-job image is a simplification that makes "task_B and
-task_C need a different image than the entry task" inexpressible.
+Make the container image a **task requirement**, replacing the job-level
+("entrypoint") image concept altogether. A task declares the image it needs;
+jobs keep only `runner_mode` (where containers run) and kubernetes cluster
+config. This supersedes the injected job-level build task *and* the
+`build_tasks` claim/lease machinery: the build becomes **just another task
+running `docker build`**, and coordination reduces to graph dependencies plus
+registry pull-first.
 
-Status: **design — not implemented**. Builds directly on the injected
-image-build task design (`docs/designs/orchestration.md`, "Image source");
-the gating and dedup machinery there needs no changes.
+Status: **design — not implemented**.
 
 # Model
 
-Add one nullable JSON column to `tasks`:
+| Piece                  | Today                              | Target                                            |
+|------------------------|------------------------------------|---------------------------------------------------|
+| Image declaration      | `Job.runner.image` (one per job)   | `tasks.image_source` (JSON) on every container task |
+| Inheritance            | job → all tasks                    | parent task → dynamic children (submission sugar stamps the entry task) |
+| Build coordination     | `build_tasks` row + lease + poll   | build task in the graph (registry mode) / inline per-host build (no registry) |
+| Build↔task link        | `tasks.build_task_id` FK           | the dependency edge itself                        |
 
-| Column         | Type          | Meaning                                                       |
-|----------------|---------------|---------------------------------------------------------------|
-| `image_source` | `JSON`, null  | Serialized `ImageSource` (`build` / `prebuilt`); `NULL` = inherit the job's image |
+- `run_job(image=... / git_*=...)` stays as API sugar: it stamps the entry
+  task's `image_source`. Dynamic children inherit their parent's image unless
+  they declare their own.
+- `runner_mode` stays per job; a task-level `image_source` is only valid on
+  docker/kubernetes jobs.
 
-- The job's `runner` config keeps its image as the **default** — the common
-  case ("one codebase at one SHA") still declares the image once, per job.
-- `runner_mode` (subprocess / docker / kubernetes) **stays per job**: where
-  containers run is a deployment concern; which image a task runs in is a
-  code concern. A per-task `image_source` is only valid on docker/kubernetes
-  jobs (validated at task creation).
-- Migration: single nullable column via the `generate-migration` skill.
+# Registry mode (`AAICLICK_REGISTRY` set)
 
-# Build task per distinct image
+Submission and every dynamic `commit_tasks`:
 
-Today `create_built_job` injects exactly one build task wired to the entry
-task. Generalized rule, applied **wherever tasks are committed** (submission
-in `create_built_job`, dynamic commits in `commit_tasks`):
+1. Group the committed tasks by effective `image_key` (`build` sources only —
+   `prebuilt` needs nothing).
+2. For each key without a build task in this job yet, inject one — a plain
+   module task, host-runner pinned, `max_retries` for transient failures,
+   image source in its kwargs.
+3. **The wiring challenge**: every committed task depends on its image's
+   build task (`task.depends_on(build_task)`). This is the load-bearing step —
+   the scheduler's existing dependency filter then guarantees no task is
+   claimed before its image is pushed.
 
-1. Collect the distinct `image_key`s of the committed tasks' *effective*
-   image sources (task override, else job default), `build` sources only —
-   `prebuilt` needs no build task.
-2. For each key with no build task in this job yet, inject one build task.
-3. Wire each committed task to its image's build task
-   (`task.depends_on(build_task)`).
+The build task body is pull-first: `docker pull` from the registry (someone
+already pushed this SHA → done), else clone + `docker build` + `docker push`.
+Cross-job dedup is the registry itself — two jobs racing on the same SHA may
+double-build in the worst case, which is wasteful but correct (identical
+images by construction, last push wins). That accepted cost is what buys
+deleting the lease/fencing/poll machinery.
 
-Consequences:
+Distinct images are independent roots: they build in parallel, and each task
+subtree unlocks when *its* image is pushed.
 
-- Distinct images build **in parallel** — independent root build tasks.
-- Each task subtree unlocks as *its* image becomes `READY`, independently of
-  the other images.
-- Dynamic tasks whose image differs from their parent's are gated correctly:
-  the dynamic commit injects/wires a build task for the new image. (Today
-  dynamic tasks need no edge only because they always share the parent's
-  image.)
+# No registry: always inline
 
-The build task's kwargs change from `{"job_id": ...}` to carrying the image
-source itself (`{"image": {...}}`): with several images per job,
-`build_job_image` can no longer read "the" image off the job row.
-Cross-job/cross-worker dedup is unchanged — `ensure_image` and the
-`build_tasks` table are already keyed by image identity, not by job.
+Without a registry the built image lives only in one host's Docker daemon —
+a global "ready" marker would be a lie, and a build task's output could not
+reach other hosts anyway. So no build task is injected; each dispatching
+worker builds inline at launch: local `docker image inspect`, else clone +
+`docker build`. Per-host daemon cache dedups repeats; holding the slot during
+a cold build is accepted (no-registry is de facto single-host / small-scale
+mode). Kubernetes `build` sources already require a registry, so inline mode
+applies to the docker runner only.
 
-# Dispatch and launch
+Note: registry presence is worker-side env, but injection happens at
+submission — the API server and workers must agree on `AAICLICK_REGISTRY`
+(same env layer, as today for k8s builds).
 
-- `dispatch._resolve_dispatch` resolves the task's effective source (task
-  override, else job default) into `JobDispatch.image_source` / `image_tag`.
-- `resolve_image_tag` at container launch is untouched — it already takes the
-  source per call and serves as the `READY`-row fast path / inline fallback.
-- The build task keeps its host-runner pin.
+# What this retires
 
-# API surface
+- `build_tasks` table, `BUILD_*` statuses, `ensure_image` claim/lease/poll,
+  `tasks.build_task_id` (migration drops both columns/table).
+- `build_job_image` + job-level build-task injection in `create_built_job`
+  (replaced by per-image injection at commit points).
+- `resolve_image_tag`'s dispatch-time polling — launch either pulls (registry
+  mode, image guaranteed pushed by the dependency) or builds inline (no
+  registry).
 
-Python-first — tasks are defined in code:
-
-```python
-@task(image=ImagePrebuilt(image_tag="python:3.12"))
-async def side_tool(...): ...
-
-create_task("mod.fn", image_source=ImageBuild(git_remote=..., git_sha=...))
-```
-
-- `create_task` / `@task` accept the override; `run_job` / `register-job`
-  keep declaring the job default only.
-- Validation at creation: override present ⇒ job is docker/kubernetes mode.
-- REST/UI: task detail shows the effective image; no write surface needed
-  beyond job submission (tasks come from code).
-
-# Out of scope
-
-- Per-task `runner_mode` (mixing subprocess and docker tasks in one job
-  beyond the existing host-pinned build task).
-- Per-task kubernetes cluster config — stays on the job.
+Crash recovery moves from lease reclaim to ordinary task retries: a worker
+dying mid-build fails/orphans the build task, and the normal retry/reaper
+path re-runs it — pull-first makes the retry cheap if the push happened.
 
 # Open questions
 
-- Full per-task runner override vs. image-only (this spec: image-only).
-- Whether the entry task itself may override the job image, or the job
-  default exists precisely to serve the entry task.
+- Exactly-once building across concurrent same-image jobs is given up for
+  simplicity — acceptable, or keep a lightweight advisory lock per image_key?
+- Should `prebuilt` per-task overrides be allowed on subprocess jobs (no) —
+  confirm validation lives in `create_task`.
