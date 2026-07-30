@@ -543,6 +543,7 @@ git commit -m "Add commit-time image stamping, validation, and build-task inject
 **Files:**
 - Modify: `aaiclick/orchestration/orch_context.py` (`commit_tasks`)
 - Modify: `aaiclick/orchestration/factories.py` (`create_built_job`)
+- Modify: `aaiclick/orchestration/execution/runner_env.py` (`ALWAYS_PASSED_ENV_VARS`)
 - Test: `aaiclick/orchestration/test_image_injection.py` (extend), `aaiclick/orchestration/test_orchestration_factories.py` (extend)
 
 **Interfaces:**
@@ -670,6 +671,8 @@ async def commit_tasks(items: TasksType, job_id: int) -> TasksType:
         return items_list
     return items_list[0]
 ```
+
+In `runner_env.py`: add `"AAICLICK_REGISTRY"` to `ALWAYS_PASSED_ENV_VARS` and extend the constant's docstring — dynamic `commit_tasks` runs *inside* containers, and `inject_build_tasks` checks the registry var at commit time; without forwarding it, a dynamic child declaring a new build image would silently skip injection and later fail pulling an unpushed tag.
 
 Cycle check: `orch_context` already imports from `.execution.db_handler`; `image_injection` imports `docker_config` + `execution.image_build_task`, neither of which imports `orch_context`. If an import cycle appears at test time, follow CLAUDE.md's restructuring rules (move shared code; no inline imports).
 

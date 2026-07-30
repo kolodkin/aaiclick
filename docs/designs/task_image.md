@@ -128,8 +128,12 @@ a registry, so inline mode applies to the docker runner only.
 
 !!! warning "Submission and workers must agree on `AAICLICK_REGISTRY`"
     Registry presence is worker-side env, but build-task injection happens at
-    submission — the API server and workers must share the same
+    commit time — the API server and workers must share the same
     `AAICLICK_REGISTRY` setting (same env layer, as today for k8s builds).
+    Dynamic `commit_tasks` runs *inside* containers, so `AAICLICK_REGISTRY`
+    joins `ALWAYS_PASSED_ENV_VARS` (`execution/runner_env.py`) — otherwise a
+    dynamic child declaring a new build image would silently skip injection
+    and later fail pulling an unpushed tag.
 
 # Dispatch
 
