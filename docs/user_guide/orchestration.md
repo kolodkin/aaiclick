@@ -268,19 +268,38 @@ works in either deployment mode.
 
 Container runners take their image from one of two sources:
 
-| Source     | How                                                        | When built            |
-|------------|------------------------------------------------------------|-----------------------|
-| `build`    | Your git repo, built into an image at a specific SHA       | on demand at dispatch |
-| `prebuilt` | `image="python:3.12"` run verbatim                         | never                 |
+| Source     | How                                                        | When built                        |
+|------------|------------------------------------------------------------|-----------------------------------|
+| `build`    | Your git repo, built into an image at a specific SHA       | once, by an injected build task   |
+| `prebuilt` | `image="python:3.12"` run verbatim                         | never                             |
 
 Pass `image=` (`run_job` / `run-job --image`, or `register-job --image` for a
 default) to select a prebuilt image — mutually exclusive with the git build
-fields (`git_remote` / `git_sha` / `git_branch` / `dockerfile`). A `build`
-image is built exactly once per (repo, SHA, Dockerfile) across all workers and
-jobs, then reused.
+fields (`git_remote` / `git_sha` / `git_branch` / `dockerfile`).
+
+A `build` job carries an auto-injected **image-build task** that every other
+task depends on, so the scheduler doesn't release container tasks until the
+image is ready — no worker sits idle waiting on an in-flight build. The image
+is built exactly once per (repo, SHA, Dockerfile) across all workers and jobs,
+then reused.
 
 For the released `aaiclick` container images and their Docker/Kubernetes
 runtime requirements, see [Container Images](container_images.md).
+
+## Existing images
+
+Nothing is rebuilt when a usable image already exists:
+
+- **`prebuilt`** — never built at all. Each worker host (or cluster node)
+  pulls the tag before running; the Docker daemon / kubelet layer cache makes
+  repeat pulls cheap.
+- **`build`, already built by an earlier job** — the shared build record is
+  `READY`, so the build task returns immediately.
+- **`build`, image in the registry but not built by this deployment** (e.g.
+  pushed by CI) — the build task short-circuits through the build cache
+  hierarchy: `docker pull` from `AAICLICK_REGISTRY`, then local
+  `docker image inspect`, and only on a full miss the real clone + build
+  (+ push).
 
 ## Shell tasks
 
