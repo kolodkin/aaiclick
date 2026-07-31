@@ -22,6 +22,22 @@ if config.config_file_name is not None:
 target_metadata = SQLModel.metadata
 
 
+def include_object(obj, name, type_, reflected, compare_to) -> bool:
+    """Skip reflected FK constraints whose referred table is gone from the
+    model metadata.
+
+    When one revision drops both a table and the FK column referencing it
+    (e.g. build_tasks + tasks.build_task_id), autogenerate crashes resolving
+    the reflected FK (``NoReferencedTableError``). Postgres drops the
+    constraint together with the column, so skipping the comparison loses
+    nothing."""
+    if type_ == "foreign_key_constraint" and reflected:
+        referred_tables = {el.target_fullname.rsplit(".", 2)[-2] for el in obj.elements}
+        if not referred_tables <= set(target_metadata.tables):
+            return False
+    return True
+
+
 def get_url() -> str:
     """
     Get sync PostgreSQL connection URL for Alembic.
@@ -68,6 +84,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -91,7 +108,7 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(connection=connection, target_metadata=target_metadata, include_object=include_object)
 
         with context.begin_transaction():
             context.run_migrations()
