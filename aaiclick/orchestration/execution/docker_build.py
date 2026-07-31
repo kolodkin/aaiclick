@@ -1,7 +1,8 @@
 """Low-level build helpers for Docker-runner jobs.
 
-Used by the on-demand build seam (see ``execution.image_builder``) to
-produce the image a docker/kubernetes job's container/pod tasks need.
+Used by the injected image-build task (``execution.image_build_task``) in
+registry mode, and by ``resolve_launch_image`` for the inline no-registry
+build at container launch.
 
 Cache hierarchy (first hit short-circuits):
 
@@ -20,7 +21,7 @@ import tempfile
 from pathlib import Path
 
 from ..docker_config import add_host_flags
-from ..runner_config import ImageBuild
+from ..runner_config import ImageBuild, ImageSourceT
 from . import cli
 
 
@@ -122,6 +123,22 @@ async def _docker_build(context: str, dockerfile: str, image_tag: str, build_arg
         context,
     ]
     await cli.run(*cmd)
+
+
+async def resolve_launch_image(image_source: ImageSourceT, image_tag: str | None) -> str:
+    """Resolve the image a container actually launches with.
+
+    Registry mode: the ``build >> task`` dependency edge guarantees the tag
+    is already pushed — return it (the launch path pulls). No registry +
+    build source: build inline on this host (``build_image_to_tag``
+    short-circuits on a local-cache hit), holding the worker slot for a cold
+    build — accepted, no-registry is de facto single-host mode (spec:
+    docs/designs/task_image.md)."""
+    if not image_tag:
+        raise ValueError("container task resolved no image tag")
+    if isinstance(image_source, ImageBuild) and not os.environ.get("AAICLICK_REGISTRY"):
+        await build_image_to_tag(image_source, image_tag)
+    return image_tag
 
 
 async def build_image_to_tag(source: ImageBuild, image_tag: str) -> None:

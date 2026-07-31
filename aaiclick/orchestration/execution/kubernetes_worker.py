@@ -36,7 +36,7 @@ from .execution_worker import (
     execution_worker_heartbeat,
     parse_task_timeout,
 )
-from .image_builder import resolve_image_tag
+from .docker_build import resolve_launch_image
 from .runner import ShellSpec, execute_task, serialize_task_result
 from .runner_env import build_runner_env
 
@@ -314,7 +314,9 @@ async def _run_task_in_pod(
     task: Task, execution_worker_id: int, dispatch: JobDispatch
 ) -> tuple[bool, dict | None, str | None]:
     """ExecuteFn for the Kubernetes runner."""
-    image_tag = await resolve_image_tag(task, dispatch.image_source, dispatch.image_tag, execution_worker_id)
+    if dispatch.image_source is None:
+        raise ValueError(f"kubernetes task {task.id} has no image_source")
+    image_tag = await resolve_launch_image(dispatch.image_source, dispatch.image_tag)
     spec = _pod_spec_from(task, dispatch._replace(image_tag=image_tag))
     timeout = parse_task_timeout()
     vehicle = _KubernetesVehicle(spec)

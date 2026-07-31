@@ -48,7 +48,7 @@ from .execution_worker import (
     execution_worker_heartbeat,
     parse_task_timeout,
 )
-from .image_builder import resolve_image_tag
+from .docker_build import resolve_launch_image
 from .runner import ShellSpec, execute_task, serialize_task_result
 from .runner_env import build_runner_env
 
@@ -302,7 +302,9 @@ async def _run_task_in_container(
     shared ``drive_vehicle`` driver, which heartbeats and polls for
     cancellation while the container runs. Cancellation and timeout both
     terminate the container via ``docker kill``."""
-    image_tag = await resolve_image_tag(task, dispatch.image_source, dispatch.image_tag, execution_worker_id)
+    if dispatch.image_source is None:
+        raise ValueError(f"docker task {task.id} has no image_source")
+    image_tag = await resolve_launch_image(dispatch.image_source, dispatch.image_tag)
     await _docker_pull_if_registered(image_tag)
 
     timeout = parse_task_timeout()
