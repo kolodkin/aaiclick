@@ -2,6 +2,7 @@
 
 from datetime import datetime
 
+from .execution.image_build_task import IMAGE_BUILD_ENTRYPOINT
 from .models import (
     JOB_COMPLETED,
     JOB_FAILED,
@@ -112,6 +113,12 @@ def test_task_to_view_omits_detail_fields():
     assert dumped["status"] == TASK_COMPLETED
     assert "kwargs" not in dumped
     assert "execution_worker_id" not in dumped
+
+
+def test_task_to_view_flags_image_build_tasks():
+    build = _make_task(entrypoint=IMAGE_BUILD_ENTRYPOINT)
+    assert task_to_view(build).is_image_build
+    assert not task_to_view(_make_task()).is_image_build
 
 
 def test_task_to_view_carries_error_reason():
