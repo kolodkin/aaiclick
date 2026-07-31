@@ -1050,6 +1050,11 @@ export interface components {
             execution_worker_id?: string | null;
             /** Id */
             id: string;
+            /**
+             * Is Image Build
+             * @default false
+             */
+            is_image_build: boolean;
             /** Job Id */
             job_id: string;
             /** Kwargs */
@@ -1126,6 +1131,11 @@ export interface components {
             error?: string | null;
             /** Id */
             id: string;
+            /**
+             * Is Image Build
+             * @default false
+             */
+            is_image_build: boolean;
             /** Job Id */
             job_id: string;
             /** Name */
