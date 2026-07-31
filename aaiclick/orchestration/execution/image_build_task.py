@@ -51,7 +51,8 @@ async def run_image_build(
     if not os.environ.get("AAICLICK_REGISTRY"):
         raise RuntimeError(
             "image build task requires AAICLICK_REGISTRY on the worker; "
-            "submission-side and worker-side env must agree (see docs/designs/task_image.md)"
+            "submission-side and worker-side env must agree "
+            "(see docs/designs/orchestration.md, 'Image source')"
         )
     source = ImageBuild(git_remote=git_remote, git_sha=git_sha, git_branch=git_branch, dockerfile=dockerfile)
     await build_image_to_tag(source, compute_image_tag(git_sha))

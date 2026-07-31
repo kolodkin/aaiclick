@@ -171,7 +171,7 @@ async def test_prebuilt_job_injects_no_build_task(orch_ctx_no_ch):
 
 async def test_build_job_injects_no_build_task_without_registry(orch_ctx_no_ch, monkeypatch):
     """Without a registry the build is inline at launch — no build task in
-    the graph (spec: docs/designs/task_image.md, "No registry")."""
+    the graph (spec: docs/designs/orchestration.md "Image source", "No registry")."""
     monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
     source = ImageBuild(git_remote="git@x:r.git", git_sha="c" * 40)
     job = await create_built_job(

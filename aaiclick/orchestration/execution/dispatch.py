@@ -52,7 +52,7 @@ async def _resolve_dispatch(task: Task) -> JobDispatch:
 
     NULL ``image_source`` ⇒ host subprocess, regardless of the job's
     ``runner_mode`` — the rule that host-pins injected build tasks (spec:
-    docs/designs/task_image.md). Container tasks read the job row only for
+    docs/designs/orchestration.md "Image source"). Container tasks read the job row only for
     ``runner_mode`` and kubernetes cluster config."""
     if task.image_source is None:
         return JobDispatch(RUNNER_SUBPROCESS, None, None, task.entry_type, task.command, task.command_env, None)

@@ -346,7 +346,7 @@ async def create_built_job(
     """Create a docker/kubernetes Job. ``runner`` carries only cluster/vehicle
     config; ``image_source`` is stamped onto the entry task, and in registry
     mode a build task is injected with a ``build >> entry`` edge (spec:
-    docs/designs/task_image.md)."""
+    docs/designs/orchestration.md "Image source")."""
     job = new_job_row(
         name,
         run_type=run_type,

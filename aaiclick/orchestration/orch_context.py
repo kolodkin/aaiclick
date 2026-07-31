@@ -554,7 +554,7 @@ async def commit_tasks(
     records, so callers only need to pass terminal (leaf) tasks — all upstream
     tasks are discovered automatically.
 
-    Image handling (spec: docs/designs/task_image.md): tasks that declared no
+    Image handling (spec: docs/designs/orchestration.md "Image source"): tasks that declared no
     ``image_source`` inherit the committing task's (dynamic children follow
     their parent); in registry mode a build task per distinct build image is
     injected with ``build >> dependent`` edges in the same commit.

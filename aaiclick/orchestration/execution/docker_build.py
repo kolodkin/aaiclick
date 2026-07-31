@@ -133,7 +133,7 @@ async def resolve_launch_image(image_source: ImageSourceT, image_tag: str | None
     build source: build inline on this host (``build_image_to_tag``
     short-circuits on a local-cache hit), holding the worker slot for a cold
     build — accepted, no-registry is de facto single-host mode (spec:
-    docs/designs/task_image.md)."""
+    docs/designs/orchestration.md "Image source")."""
     if not image_tag:
         raise ValueError("container task resolved no image tag")
     if isinstance(image_source, ImageBuild) and not os.environ.get("AAICLICK_REGISTRY"):

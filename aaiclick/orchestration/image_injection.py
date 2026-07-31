@@ -5,7 +5,7 @@ Called from every commit point (``orch_context.commit_tasks`` and
 final by the time its row lands — dispatch never resolves inheritance. In
 registry mode it injects one ordinary build task per distinct build image
 and wires ``build >> dependent`` edges; the scheduler's existing dependency
-filter is the whole coordination story (spec: docs/designs/task_image.md).
+filter is the whole coordination story (spec: docs/designs/orchestration.md "Image source").
 
 Deliberately imports neither ``factories`` nor ``orch_context`` (both reach
 this module), building ``Task`` rows directly instead.
