@@ -36,6 +36,7 @@ async def test_create_kubernetes_job_writes_job_and_entry_task(orch_ctx_no_ch, m
         tasks = (await session.execute(select(Task).where(Task.job_id == job.id))).scalars().all()
     entrypoints = {t.entrypoint for t in tasks}
     assert entrypoints == {"sample_jobs.entry"}
+    assert tasks[0].image_source is not None
     assert tasks[0].image_source["type"] == "build"
 
 

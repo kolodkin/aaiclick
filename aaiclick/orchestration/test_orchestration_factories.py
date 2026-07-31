@@ -132,6 +132,7 @@ def test_create_task_image_kwarg_sets_prebuilt_source():
 
 def test_create_task_git_kwargs_set_build_source():
     t = create_task("m.f", git_remote="https://example.com/r.git", git_sha="a" * 40, dockerfile="Dockerfile.gpu")
+    assert t.image_source is not None
     assert t.image_source["type"] == "build"
     assert t.image_source["git_sha"] == "a" * 40
 

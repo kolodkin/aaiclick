@@ -1,4 +1,9 @@
-from aaiclick.orchestration.docker_config import compute_image_tag, image_key, resolve_image_source, resolve_runner_config
+from aaiclick.orchestration.docker_config import (
+    compute_image_tag,
+    image_key,
+    resolve_image_source,
+    resolve_runner_config,
+)
 from aaiclick.orchestration.models import RegisteredJob
 from aaiclick.orchestration.runner_config import (
     DockerRunner,

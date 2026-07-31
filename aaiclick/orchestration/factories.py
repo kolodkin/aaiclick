@@ -8,6 +8,7 @@ from aaiclick.snowflake import get_snowflake_id
 
 from ..datetime_utils import utc_now
 from .env import get_default_preservation_mode
+from .image_injection import inject_build_tasks
 from .models import (
     JOB_PENDING,
     RUN_MANUAL,
@@ -20,7 +21,6 @@ from .models import (
     RunType,
     Task,
 )
-from .image_injection import inject_build_tasks
 from .orch_context import get_sql_session
 from .runner_config import (
     ENTRY_MODULE,

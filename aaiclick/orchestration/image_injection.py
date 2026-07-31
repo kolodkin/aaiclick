@@ -115,11 +115,7 @@ async def inject_build_tasks(session: AsyncSession, tasks: list[Task], job: Job)
         return []
 
     existing = (
-        (
-            await session.execute(
-                select(Task).where(Task.job_id == job.id, Task.entrypoint == IMAGE_BUILD_ENTRYPOINT)
-            )
-        )
+        (await session.execute(select(Task).where(Task.job_id == job.id, Task.entrypoint == IMAGE_BUILD_ENTRYPOINT)))
         .scalars()
         .all()
     )

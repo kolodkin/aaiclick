@@ -27,6 +27,7 @@ from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_SHELL
 from . import cli
 from .claiming import check_task_cancelled
+from .docker_build import resolve_launch_image
 from .execution_worker import (
     POLL_INTERVAL,
     JobDispatch,
@@ -36,7 +37,6 @@ from .execution_worker import (
     execution_worker_heartbeat,
     parse_task_timeout,
 )
-from .docker_build import resolve_launch_image
 from .runner import ShellSpec, execute_task, serialize_task_result
 from .runner_env import build_runner_env
 
