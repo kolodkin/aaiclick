@@ -13,25 +13,14 @@ this module), building ``Task`` rows directly instead.
 
 from __future__ import annotations
 
-import os
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..datetime_utils import utc_now
 from ..snowflake import get_snowflake_id
-from .docker_config import image_key
-from .execution.image_build_task import IMAGE_BUILD_ENTRYPOINT, build_task_name
-from .models import (
-    DEPENDENCY_TASK,
-    RUNNER_DOCKER,
-    RUNNER_KUBERNETES,
-    TASK_PENDING,
-    Dependency,
-    Job,
-    RunnerMode,
-    Task,
-)
+from .docker_config import get_registry, image_key
+from .execution.image_build_task import IMAGE_BUILD_ENTRYPOINT, build_task_name, is_image_build_task
+from .models import RUNNER_DOCKER, RUNNER_KUBERNETES, TASK_PENDING, Job, RunnerMode, Task
 from .runner_config import ImageBuild, parse_image_source
 
 BUILD_TASK_MAX_RETRIES = 2
@@ -61,25 +50,22 @@ def validate_image_sources(tasks: list[Task], runner_mode: RunnerMode) -> None:
                 f"is {runner_mode!r}; images are only valid on docker/kubernetes jobs"
             )
         source = parse_image_source(task.image_source)
-        if (
-            isinstance(source, ImageBuild)
-            and runner_mode == RUNNER_KUBERNETES
-            and not os.environ.get("AAICLICK_REGISTRY")
-        ):
+        if isinstance(source, ImageBuild) and runner_mode == RUNNER_KUBERNETES and get_registry() is None:
             raise ValueError(
                 "kubernetes build image sources require AAICLICK_REGISTRY — "
                 "the cluster cannot pull from a worker's local docker daemon"
             )
 
 
-def _make_build_task(source: ImageBuild, key: str, job_id: int) -> Task:
+def _make_build_task(source: ImageBuild, job_id: int) -> Task:
+    """Build-task kwargs mirror ``run_image_build``'s signature exactly (the
+    module task is invoked as ``run_image_build(**kwargs)``)."""
     return Task(
         id=get_snowflake_id(),
         job_id=job_id,
         entrypoint=IMAGE_BUILD_ENTRYPOINT,
         name=build_task_name(source.git_sha),
         kwargs={
-            "image_key": key,
             "git_remote": source.git_remote,
             "git_sha": source.git_sha,
             "git_branch": source.git_branch,
@@ -91,6 +77,18 @@ def _make_build_task(source: ImageBuild, key: str, job_id: int) -> Task:
     )
 
 
+def _build_task_key(build: Task) -> str:
+    """Dedup key of an existing build task, recomputed from its stored build
+    coordinates — no derived value is persisted, so the key algorithm can
+    change without diverging from old rows."""
+    source = ImageBuild(
+        git_remote=build.kwargs["git_remote"],
+        git_sha=build.kwargs["git_sha"],
+        dockerfile=build.kwargs.get("dockerfile"),
+    )
+    return image_key(source)
+
+
 async def inject_build_tasks(session: AsyncSession, tasks: list[Task], job: Job) -> list[Task]:
     """Ensure a build task exists per distinct build image and wire
     ``build >> dependent`` edges onto ``tasks``.
@@ -100,23 +98,20 @@ async def inject_build_tasks(session: AsyncSession, tasks: list[Task], job: Job)
     commits in one job can race past the lookup and double-inject; both
     builds are pull-first so the loser is a cheap no-op (accepted, spec
     "Races")."""
-    if not os.environ.get("AAICLICK_REGISTRY"):
+    if get_registry() is None:
         return []
     if job.runner_mode not in (RUNNER_DOCKER, RUNNER_KUBERNETES):
         return []
 
-    dependents_by_key: dict[str, list[Task]] = {}
-    source_by_key: dict[str, ImageBuild] = {}
+    groups: dict[str, tuple[ImageBuild, list[Task]]] = {}
     for task in tasks:
-        if task.image_source is None or task.entrypoint == IMAGE_BUILD_ENTRYPOINT:
+        if task.image_source is None or is_image_build_task(task.entrypoint):
             continue
         source = parse_image_source(task.image_source)
         if not isinstance(source, ImageBuild):
             continue
-        key = image_key(source)
-        dependents_by_key.setdefault(key, []).append(task)
-        source_by_key[key] = source
-    if not dependents_by_key:
+        groups.setdefault(image_key(source), (source, []))[1].append(task)
+    if not groups:
         return []
 
     existing = (
@@ -128,22 +123,15 @@ async def inject_build_tasks(session: AsyncSession, tasks: list[Task], job: Job)
         .scalars()
         .all()
     )
-    build_by_key: dict[str, Task] = {t.kwargs["image_key"]: t for t in existing}
+    build_by_key: dict[str, Task] = {_build_task_key(t): t for t in existing}
 
     injected: list[Task] = []
-    for key, dependents in dependents_by_key.items():
+    for key, (source, dependents) in groups.items():
         build = build_by_key.get(key)
         if build is None:
-            build = _make_build_task(source_by_key[key], key, job.id)
+            build = _make_build_task(source, job.id)
             build_by_key[key] = build
             injected.append(build)
         for task in dependents:
-            task.previous_dependencies.append(
-                Dependency(
-                    previous_id=build.id,
-                    previous_type=DEPENDENCY_TASK,
-                    next_id=task.id,
-                    next_type=DEPENDENCY_TASK,
-                )
-            )
+            task.depends_on(build)
     return injected

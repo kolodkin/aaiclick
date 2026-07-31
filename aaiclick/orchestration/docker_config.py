@@ -72,9 +72,18 @@ async def auto_detect_git_branch() -> str | None:
     return None if branch == "HEAD" else branch
 
 
+def get_registry() -> str | None:
+    """The configured image registry (``AAICLICK_REGISTRY``), or None.
+
+    The single owner of the registry-mode decision — commit-time injection,
+    tag computation, launch-time pull-vs-build, and the build task body all
+    read it here, so submission and workers agree on one semantics."""
+    return os.environ.get("AAICLICK_REGISTRY") or None
+
+
 def compute_image_tag(git_sha: str) -> str:
     """``[<registry>/]aaiclick-job:<sha>``."""
-    registry = os.environ.get("AAICLICK_REGISTRY")
+    registry = get_registry()
     prefix = f"{registry}/" if registry else ""
     return f"{prefix}aaiclick-job:{git_sha}"
 
@@ -91,11 +100,11 @@ def image_key(source: ImageBuild) -> str:
 async def resolve_image_source(
     registered: RegisteredJob | None,
     *,
-    image: str | None,
-    git_remote: str | None,
-    git_sha: str | None,
-    git_branch: str | None,
-    dockerfile: str | None,
+    image: str | None = None,
+    git_remote: str | None = None,
+    git_sha: str | None = None,
+    git_branch: str | None = None,
+    dockerfile: str | None = None,
 ) -> ImageSourceT:
     """Resolve the image source a run's entry task is stamped with.
 

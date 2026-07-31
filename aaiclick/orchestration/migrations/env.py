@@ -116,12 +116,16 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
 
-    # Inspect on a dedicated connection: reflection implicitly begins a
-    # transaction, and sharing the migration connection would leave alembic's
-    # begin_transaction() without ownership — the upgrade's DDL would roll
-    # back when the connection closes.
-    with connectable.connect() as inspect_connection:
-        include_name = _make_include_name(inspect_connection)
+    # The dangling-FK filter only matters for autogenerate comparison — a
+    # plain upgrade never consults include_name, so skip the reflection pass
+    # there. Inspect on a dedicated connection: reflection implicitly begins
+    # a transaction, and sharing the migration connection would leave
+    # alembic's begin_transaction() without ownership — the upgrade's DDL
+    # would roll back when the connection closes.
+    include_name = None
+    if getattr(config.cmd_opts, "autogenerate", False):
+        with connectable.connect() as inspect_connection:
+            include_name = _make_include_name(inspect_connection)
 
     with connectable.connect() as connection:
         context.configure(

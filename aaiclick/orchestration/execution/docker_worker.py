@@ -34,7 +34,7 @@ from typing import NamedTuple
 
 from sqlmodel import select
 
-from ..docker_config import add_host_flags
+from ..docker_config import add_host_flags, get_registry
 from ..models import Task
 from ..orch_context import get_sql_session
 from . import cli
@@ -146,7 +146,7 @@ def _build_docker_run_cmd(
 
 
 async def _docker_pull_if_registered(image_tag: str) -> None:
-    if not os.environ.get("AAICLICK_REGISTRY"):
+    if get_registry() is None:
         return
     await cli.run(_docker_bin(), "pull", image_tag, check=False, stream=False)
 
@@ -302,9 +302,7 @@ async def _run_task_in_container(
     shared ``drive_vehicle`` driver, which heartbeats and polls for
     cancellation while the container runs. Cancellation and timeout both
     terminate the container via ``docker kill``."""
-    if dispatch.image_source is None:
-        raise ValueError(f"docker task {task.id} has no image_source")
-    image_tag = await resolve_launch_image(dispatch.image_source, dispatch.image_tag)
+    image_tag = await resolve_launch_image(dispatch.image_source, task_id=task.id)
     await _docker_pull_if_registered(image_tag)
 
     timeout = parse_task_timeout()

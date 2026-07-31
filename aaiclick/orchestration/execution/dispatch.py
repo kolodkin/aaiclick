@@ -13,12 +13,10 @@ from collections.abc import Awaitable, Callable
 
 from sqlmodel import select
 
-from ..docker_config import compute_image_tag
 from ..models import RUNNER_DOCKER, RUNNER_KUBERNETES, RUNNER_SUBPROCESS, Job, RunnerMode, Task
 from ..orch_context import get_sql_session
 from ..runner_config import (
     ENTRY_SHELL,
-    ImagePrebuilt,
     KubernetesRunner,
     RunnerConfigT,
     parse_image_source,
@@ -47,25 +45,27 @@ def _kube_dict(runner: RunnerConfigT | None) -> dict | None:
     }
 
 
+def _subprocess_dispatch(task: Task) -> JobDispatch:
+    return JobDispatch(RUNNER_SUBPROCESS, None, task.entry_type, task.command, task.command_env, None)
+
+
 async def _resolve_dispatch(task: Task) -> JobDispatch:
     """Pick the runner for a task from its own ``image_source``.
 
     NULL ``image_source`` ⇒ host subprocess, regardless of the job's
     ``runner_mode`` — the rule that host-pins injected build tasks (spec:
-    docs/designs/orchestration.md "Image source"). Container tasks read the job row only for
-    ``runner_mode`` and kubernetes cluster config."""
+    docs/designs/orchestration.md "Image source"). Container tasks read the
+    job row only for ``runner_mode`` and kubernetes cluster config."""
     if task.image_source is None:
-        return JobDispatch(RUNNER_SUBPROCESS, None, None, task.entry_type, task.command, task.command_env, None)
+        return _subprocess_dispatch(task)
     source = parse_image_source(task.image_source)
     async with get_sql_session() as session:
         job = (await session.execute(select(Job).where(Job.id == task.job_id))).scalar_one_or_none()
     if job is None:
-        return JobDispatch(RUNNER_SUBPROCESS, None, None, task.entry_type, task.command, task.command_env, None)
+        return _subprocess_dispatch(task)
     runner = parse_runner_config(job.runner) if job.runner else None
-    image_tag = source.image_tag if isinstance(source, ImagePrebuilt) else compute_image_tag(source.git_sha)
     return JobDispatch(
         job.runner_mode,
-        image_tag,
         _kube_dict(runner),
         task.entry_type,
         task.command,
@@ -89,15 +89,11 @@ async def build_shell_spec(task: Task, dispatch: JobDispatch) -> ShellSpec:
     foreground ``docker run`` / ``kubectl run`` so the wrapper's exit code
     and merged stdout are the task's."""
     if dispatch.runner_mode == RUNNER_DOCKER:
-        if dispatch.image_source is None:
-            raise ValueError(f"docker shell task {task.id} has no image_source")
-        image_tag = await resolve_launch_image(dispatch.image_source, dispatch.image_tag)
+        image_tag = await resolve_launch_image(dispatch.image_source, task_id=task.id)
         await _docker_pull_if_registered(image_tag)
         return build_shell_run_spec(task, image_tag)
     if dispatch.runner_mode == RUNNER_KUBERNETES:
-        if dispatch.image_source is None:
-            raise ValueError(f"kubernetes shell task {task.id} has no image_source")
-        image_tag = await resolve_launch_image(dispatch.image_source, dispatch.image_tag)
+        image_tag = await resolve_launch_image(dispatch.image_source, task_id=task.id)
         return build_shell_pod_spec(task, dispatch, image_tag)
     return ShellSpec(dispatch.command or [], dispatch.command_env)
 

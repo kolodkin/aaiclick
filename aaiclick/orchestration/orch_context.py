@@ -527,16 +527,12 @@ def _collect_from_registry(items: list[Task | Group]) -> list[Task | Group]:
     return result
 
 
-async def _current_parent_image_source() -> dict | None:
+def _current_parent_image_source() -> dict | None:
     """The committing task's own image_source, or None outside task execution."""
     try:
-        info = get_current_task_info()
+        return get_current_task_info().image_source
     except RuntimeError:
         return None
-    async with get_sql_session() as session:
-        return (
-            await session.execute(select(Task.image_source).where(Task.id == info.task_id))
-        ).scalar_one_or_none()
 
 
 async def commit_tasks(
@@ -570,17 +566,17 @@ async def commit_tasks(
     all_items = _collect_from_registry(items_list)
     tasks_only = [item for item in all_items if isinstance(item, Task)]
 
-    parent_image = await _current_parent_image_source()
-    stamp_inherited_image(tasks_only, parent_image)
+    stamp_inherited_image(tasks_only, _current_parent_image_source())
 
     async with get_sql_session() as session:
-        job = (await session.execute(select(Job).where(Job.id == job_id))).scalar_one_or_none()
         injected: list[Task] = []
-        if job is not None:
-            validate_image_sources(tasks_only, job.runner_mode)
-            for item in tasks_only:
-                item.job_id = job_id
-            injected = await inject_build_tasks(session, tasks_only, job)
+        # Only container tasks need the job row (runner_mode) for validation
+        # and injection — the common all-subprocess commit skips the fetch.
+        if any(task.image_source is not None for task in tasks_only):
+            job = (await session.execute(select(Job).where(Job.id == job_id))).scalar_one_or_none()
+            if job is not None:
+                validate_image_sources(tasks_only, job.runner_mode)
+                injected = await inject_build_tasks(session, tasks_only, job)
 
         for item in [*injected, *all_items]:
             item.job_id = job_id

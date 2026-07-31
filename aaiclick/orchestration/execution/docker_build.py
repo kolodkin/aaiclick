@@ -20,7 +20,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from ..docker_config import add_host_flags
+from ..docker_config import add_host_flags, compute_image_tag, get_registry
 from ..runner_config import ImageBuild, ImageSourceT
 from . import cli
 
@@ -125,20 +125,28 @@ async def _docker_build(context: str, dockerfile: str, image_tag: str, build_arg
     await cli.run(*cmd)
 
 
-async def resolve_launch_image(image_source: ImageSourceT, image_tag: str | None) -> str:
-    """Resolve the image a container actually launches with.
+async def resolve_launch_image(image_source: ImageSourceT | None, *, task_id: int) -> str:
+    """Resolve the image tag a container actually launches with.
 
-    Registry mode: the ``build >> task`` dependency edge guarantees the tag
-    is already pushed — return it (the launch path pulls). No registry +
-    build source: build inline on this host (``build_image_to_tag``
-    short-circuits on a local-cache hit), holding the worker slot for a cold
-    build — accepted, no-registry is de facto single-host mode (spec:
-    docs/designs/orchestration.md "Image source")."""
-    if not image_tag:
-        raise ValueError("container task resolved no image tag")
-    if isinstance(image_source, ImageBuild) and not os.environ.get("AAICLICK_REGISTRY"):
-        await build_image_to_tag(image_source, image_tag)
-    return image_tag
+    The tag is derived from the source (prebuilt tag verbatim, computed
+    ``aaiclick-job:<sha>`` for a build). Registry mode: the ``build >> task``
+    dependency edge guarantees the tag is already pushed — the launch path
+    pulls. No registry + build source: build inline on this host
+    (``build_image_to_tag`` short-circuits on a local-cache hit), holding the
+    worker slot for a cold build — accepted, no-registry is de facto
+    single-host mode (spec: docs/designs/orchestration.md "Image source").
+
+    A ``None`` source cannot occur through dispatch (``_resolve_dispatch``
+    routes NULL-image tasks to the subprocess vehicle); the raise here is the
+    single owner of that invariant for all container launch paths."""
+    if image_source is None:
+        raise ValueError(f"container task {task_id} has no image_source")
+    if isinstance(image_source, ImageBuild):
+        image_tag = compute_image_tag(image_source.git_sha)
+        if get_registry() is None:
+            await build_image_to_tag(image_source, image_tag)
+        return image_tag
+    return image_source.image_tag
 
 
 async def build_image_to_tag(source: ImageBuild, image_tag: str) -> None:
@@ -150,7 +158,7 @@ async def build_image_to_tag(source: ImageBuild, image_tag: str) -> None:
     to push must re-push on retry, or other hosts could never pull the image."""
     await _require_docker()
 
-    registry = os.environ.get("AAICLICK_REGISTRY")
+    registry = get_registry()
 
     if registry and await _docker_pull(image_tag):
         return

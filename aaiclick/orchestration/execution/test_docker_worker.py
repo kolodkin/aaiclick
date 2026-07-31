@@ -184,7 +184,7 @@ async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypa
     # Speed up the poll interval so the watcher actually fires within the test.
     monkeypatch.setattr(docker_worker, "POLL_INTERVAL", 0.05)
 
-    dispatch = JobDispatch(RUNNER_DOCKER, "aaiclick-job:abc", None, image_source=ImagePrebuilt(image_tag="aaiclick-job:abc"))
+    dispatch = JobDispatch(RUNNER_DOCKER, None, image_source=ImagePrebuilt(image_tag="aaiclick-job:abc"))
     success, _, error = await docker_worker._run_task_in_container(_task(), execution_worker_id=1, dispatch=dispatch)
     assert success is False
     assert error == "cancelled"

@@ -26,7 +26,7 @@ from .models import (
     RunType,
 )
 from .orch_context import get_sql_session
-from .runner_config import ENTRY_MODULE, EntryType, validate_task_entry
+from .runner_config import ENTRY_MODULE, EntryType, validate_image_exclusivity, validate_task_entry
 
 
 class RegisteredJobAlreadyExists(ValueError):
@@ -400,8 +400,7 @@ async def run_job(
         Created Job
     """
     validate_task_entry(entry_type=entry_type, command=command)
-    if image is not None and any(v is not None for v in (git_remote, git_sha, git_branch, dockerfile)):
-        raise ValueError("image (prebuilt) and git_* (build) are mutually exclusive")
+    validate_image_exclusivity(image, git_remote, git_sha, git_branch, dockerfile)
 
     registered = await get_registered_job(name)
 

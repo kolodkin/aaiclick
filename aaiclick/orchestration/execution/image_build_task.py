@@ -12,9 +12,7 @@ double-builds, which is wasteful but correct.
 
 from __future__ import annotations
 
-import os
-
-from ..docker_config import compute_image_tag
+from ..docker_config import compute_image_tag, get_registry
 from ..runner_config import ImageBuild
 from .docker_build import build_image_to_tag
 
@@ -22,8 +20,9 @@ IMAGE_BUILD_ENTRYPOINT = "aaiclick.orchestration.execution.image_build_task.run_
 
 
 def is_image_build_task(entrypoint: str) -> bool:
-    """True for the injected image-build task; drives UI styling and the
-    per-job injection dedup lookup."""
+    """True for the injected image-build task — drives UI styling and the
+    injection-side skip checks. (SQL ``WHERE`` clauses compare against
+    ``IMAGE_BUILD_ENTRYPOINT`` directly.)"""
     return entrypoint == IMAGE_BUILD_ENTRYPOINT
 
 
@@ -34,7 +33,6 @@ def build_task_name(git_sha: str) -> str:
 
 async def run_image_build(
     *,
-    image_key: str,
     git_remote: str,
     git_sha: str,
     git_branch: str | None = None,
@@ -42,13 +40,11 @@ async def run_image_build(
 ) -> None:
     """Ensure the image for these build coordinates is pushed to the registry.
 
-    ``image_key`` is carried in kwargs for the injection dedup lookup; the
-    body itself only needs the build coordinates. Build tasks are only
-    injected when submission saw ``AAICLICK_REGISTRY``; a worker without it
-    would build an image no other host could use, so fail loudly on the
-    env-layer mismatch instead.
+    Build tasks are only injected when submission saw ``AAICLICK_REGISTRY``;
+    a worker without it would build an image no other host could use, so
+    fail loudly on the env-layer mismatch instead.
     """
-    if not os.environ.get("AAICLICK_REGISTRY"):
+    if get_registry() is None:
         raise RuntimeError(
             "image build task requires AAICLICK_REGISTRY on the worker; "
             "submission-side and worker-side env must agree "

@@ -33,6 +33,7 @@ from .runner_config import (
     KubernetesRunner,
     dump_image_source,
     dump_runner_config,
+    validate_image_exclusivity,
 )
 from .task_registry import get_task_registry
 
@@ -210,8 +211,7 @@ def create_task(
     """
     image_source: dict | None = None
     git_fields = (git_remote, git_sha, git_branch, dockerfile)
-    if image is not None and any(v is not None for v in git_fields):
-        raise ValueError("image (prebuilt) and git_* (build) are mutually exclusive")
+    validate_image_exclusivity(image, *git_fields)
     if image is not None:
         image_source = dump_image_source(ImagePrebuilt(image_tag=image))
     elif any(v is not None for v in git_fields):

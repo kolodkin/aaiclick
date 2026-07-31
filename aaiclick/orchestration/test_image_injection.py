@@ -103,7 +103,7 @@ async def test_commit_tasks_stamps_and_injects_for_docker_job(orch_ctx_no_ch, mo
         await session.commit()
         entry_id = entry.id
 
-    set_current_task_info(task_id=entry_id, job_id=job.id)
+    set_current_task_info(task_id=entry_id, job_id=job.id, image_source=BUILD_A)
     child = create_task("m.child")
     await commit_tasks(child, job.id)
 

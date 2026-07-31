@@ -99,6 +99,14 @@ def dump_image_source(source: ImageSourceT) -> dict:
     return _IMAGE_ADAPTER.dump_python(source, mode="json")
 
 
+def validate_image_exclusivity(image: str | None, *git_fields: str | None) -> None:
+    """A prebuilt ``image`` and the ``git_*``/``dockerfile`` build fields are
+    mutually exclusive — shared by every submission surface so the rule and
+    its message live in one place. Raises ``ValueError``."""
+    if image is not None and any(v is not None for v in git_fields):
+        raise ValueError("image (prebuilt) and git_* (build) are mutually exclusive")
+
+
 def validate_task_entry(*, entry_type: EntryType, command: list[str] | None) -> None:
     """Enforce the entry cross-field rules (spec "Validation").
 
