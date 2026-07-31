@@ -4,6 +4,7 @@ from datetime import datetime
 
 from sqlalchemy import select
 
+from aaiclick.orchestration.execution.image_build_task import IMAGE_BUILD_ENTRYPOINT
 from aaiclick.orchestration.factories import create_built_job, create_job, create_task
 from aaiclick.orchestration.jobs import get_task
 from aaiclick.orchestration.models import JOB_PENDING, TASK_PENDING, Job, Task
@@ -15,6 +16,7 @@ from aaiclick.orchestration.runner_config import (
     DockerRunner,
     ImageBuild,
     ImagePrebuilt,
+    dump_image_source,
 )
 
 
@@ -144,10 +146,32 @@ async def test_prebuilt_job_injects_no_build_task(orch_ctx_no_ch):
     assert job.runner["image"]["type"] == "prebuilt"
 
 
-async def test_build_job_injects_no_build_task(orch_ctx_no_ch):
-    """Build images are produced on demand at dispatch, not injected at
-    submission — so no docker_build task appears in the job graph."""
+async def test_build_job_injects_no_build_task_without_registry(orch_ctx_no_ch, monkeypatch):
+    """Without a registry the build is inline at launch — no build task in
+    the graph (spec: docs/designs/task_image.md, "No registry")."""
+    monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
     runner = DockerRunner(image=ImageBuild(git_remote="git@x:r.git", git_sha="c" * 40))
     job = await create_built_job(name="j", entrypoint="mod.fn", runner=runner, entry_type="module")
     entrypoints = await _task_entrypoints(job.id)
     assert entrypoints == ["mod.fn"]
+
+
+async def test_create_built_job_stamps_entry_and_injects_build_task(orch_ctx_no_ch, monkeypatch):
+    monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
+    runner = DockerRunner(image=ImageBuild(git_remote="https://example.com/r.git", git_sha="c" * 40))
+    job = await create_built_job(name="j", entrypoint="m.entry", runner=runner)
+    async with get_sql_session() as session:
+        rows = (await session.execute(select(Task).where(Task.job_id == job.id))).scalars().all()
+    by_entry = {t.entrypoint: t for t in rows}
+    assert by_entry["m.entry"].image_source == dump_image_source(runner.image)
+    assert IMAGE_BUILD_ENTRYPOINT in by_entry
+
+
+async def test_create_built_job_prebuilt_injects_nothing(orch_ctx_no_ch, monkeypatch):
+    monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
+    runner = DockerRunner(image=ImagePrebuilt(image_tag="ghcr.io/x/y:1"))
+    job = await create_built_job(name="j", entrypoint="m.entry", runner=runner)
+    async with get_sql_session() as session:
+        rows = (await session.execute(select(Task).where(Task.job_id == job.id))).scalars().all()
+    assert [t.entrypoint for t in rows] == ["m.entry"]
+    assert rows[0].image_source == dump_image_source(runner.image)

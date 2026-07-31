@@ -13,12 +13,17 @@ ALWAYS_PASSED_ENV_VARS = (
     "AAICLICK_CH_URL",
     "AAICLICK_TASK_TIMEOUT",
     "AAICLICK_DEFAULT_PRESERVATION_MODE",
+    "AAICLICK_REGISTRY",
 )
 """Env vars always copied into the remote executor without opt-in.
 
 The executor can't function without SQL and CH URLs; the timeout var must
 propagate so child tasks honor the same wall-clock cap; the preservation-mode
-default must propagate so subjobs the user spawns inherit the same setting."""
+default must propagate so subjobs the user spawns inherit the same setting;
+the registry must propagate because dynamic ``commit_tasks`` runs inside
+containers and build-task injection checks it at commit time — without it a
+dynamic child declaring a new build image would silently skip injection and
+later fail pulling an unpushed tag."""
 
 
 def build_runner_env() -> dict[str, str]:

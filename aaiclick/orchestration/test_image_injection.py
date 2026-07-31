@@ -3,11 +3,12 @@
 import pytest
 from sqlmodel import select
 
+from .execution.execution_worker_context import set_current_task_info
 from .execution.image_build_task import IMAGE_BUILD_ENTRYPOINT
 from .factories import create_job, create_task
 from .image_injection import inject_build_tasks, stamp_inherited_image, validate_image_sources
-from .models import RUNNER_DOCKER, RUNNER_SUBPROCESS, Job, Task
-from .orch_context import get_sql_session
+from .models import RUNNER_DOCKER, RUNNER_SUBPROCESS, Dependency, Job, Task
+from .orch_context import commit_tasks, get_sql_session
 from .runner_config import ImageBuild, dump_image_source
 
 BUILD_A = dump_image_source(ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40))
@@ -87,6 +88,45 @@ async def test_inject_dedups_against_existing_build_task_in_job(orch_ctx_no_ch, 
         injected2 = await inject_build_tasks(session, [second], row)
         assert injected2 == []  # existing build task reused
         assert second.previous_dependencies[0].previous_id == injected1[0].id
+
+
+async def test_commit_tasks_stamps_and_injects_for_docker_job(orch_ctx_no_ch, monkeypatch):
+    """commit_tasks on a docker job: undeclared tasks inherit the committing
+    task's image, and a build task + edges appear in the same commit."""
+    monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
+    job = await create_job("j", "m.entry")
+    async with get_sql_session() as session:
+        row = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
+        row.runner_mode = RUNNER_DOCKER
+        entry = (await session.execute(select(Task).where(Task.job_id == job.id))).scalar_one()
+        entry.image_source = BUILD_A
+        await session.commit()
+        entry_id = entry.id
+
+    set_current_task_info(task_id=entry_id, job_id=job.id)
+    child = create_task("m.child")
+    await commit_tasks(child, job.id)
+
+    async with get_sql_session() as session:
+        rows = (await session.execute(select(Task).where(Task.job_id == job.id))).scalars().all()
+    by_entry = {t.entrypoint: t for t in rows}
+    assert by_entry["m.child"].image_source == BUILD_A
+    build = by_entry[IMAGE_BUILD_ENTRYPOINT]
+    async with get_sql_session() as session:
+        deps = (
+            (await session.execute(select(Dependency).where(Dependency.next_id == by_entry["m.child"].id)))
+            .scalars()
+            .all()
+        )
+    assert build.id in {d.previous_id for d in deps}
+
+
+async def test_commit_tasks_subprocess_job_rejects_image(orch_ctx_no_ch):
+    job = await create_job("j", "m.entry")
+    t = create_task("m.child")
+    t.image_source = BUILD_A
+    with pytest.raises(ValueError, match="subprocess"):
+        await commit_tasks(t, job.id)
 
 
 async def test_inject_noop_without_registry(orch_ctx_no_ch, monkeypatch):

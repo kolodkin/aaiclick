@@ -20,6 +20,7 @@ from .models import (
     RunType,
     Task,
 )
+from .image_injection import inject_build_tasks
 from .orch_context import get_sql_session
 from .runner_config import (
     ENTRY_MODULE,
@@ -27,6 +28,7 @@ from .runner_config import (
     DockerRunner,
     EntryType,
     KubernetesRunner,
+    dump_image_source,
     dump_runner_config,
 )
 from .task_registry import get_task_registry
@@ -300,9 +302,10 @@ async def create_built_job(
     preservation_mode: PreservationMode | None = None,
     registered: RegisteredJob | None = None,
 ) -> Job:
-    """Create a docker/kubernetes Job from a resolved RunnerConfig. The image
-    is built on demand at dispatch (see ``execution.image_builder.ensure_image``),
-    not injected as a task at submission."""
+    """Create a docker/kubernetes Job from a resolved RunnerConfig. The
+    runner's image source is stamped onto the entry task; in registry mode a
+    build task is injected with a ``build >> entry`` edge (spec:
+    docs/designs/task_image.md)."""
     job = new_job_row(
         name,
         run_type=run_type,
@@ -322,10 +325,11 @@ async def create_built_job(
         command_env=command_env,
     )
     entry_task.job_id = job.id
-
-    to_add = [job, entry_task]
+    entry_task.image_source = dump_image_source(runner.image)
 
     async with get_sql_session() as session:
+        injected = await inject_build_tasks(session, [entry_task], job)
+        to_add = [job, *injected, entry_task]
         for obj in to_add:
             session.add(obj)
         await session.commit()
