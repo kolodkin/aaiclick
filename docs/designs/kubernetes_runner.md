@@ -111,13 +111,14 @@ write a `RemoteTaskResult` row instead of `result.json`.
 
 # Image build is shared
 
-Kubernetes reuses the Docker build pipeline unchanged. The image is built
-on demand at dispatch, not injected as a task at submission: the worker
-calls `image_builder.ensure_image`, which claims a `BuildTask` row keyed by
-image identity (deduping concurrent builders onto the same build) and runs
+Kubernetes reuses the Docker build pipeline unchanged. The image is an
+ordinary **build task** injected into the job graph at commit points
+(`image_injection.inject_build_tasks`), host-pinned and wired
+`build >> dependent`; its body (`image_build_task.run_image_build`) runs
 `docker_build.build_image_to_tag` to clone the repo at the SHA, build the
-image, and push it to a registry. A Kubernetes job therefore **requires**
-`AAICLICK_REGISTRY` (cluster nodes pull the image by tag).
+image, and push it to a registry. A Kubernetes `build` source therefore
+**requires** `AAICLICK_REGISTRY` (cluster nodes pull the image by tag),
+validated at commit points.
 
 !!! note "`AAICLICK_DOCKER_REGISTRY` → `AAICLICK_REGISTRY`"
     The registry is the one `AAICLICK_DOCKER_*` setting both runners share (k8s

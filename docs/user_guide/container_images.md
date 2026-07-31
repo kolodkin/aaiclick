@@ -81,12 +81,13 @@ or using a private image, need the Role widened to that namespace and
 `kubernetes_config.image_pull_secret` set.
 
 !!! warning "The k8s worker also needs Docker to build the task image"
-    Before creating pods, the worker runs `docker build` / `docker push` (that is
-    why `aaiclick-kubectl` bundles the docker CLI). So it also needs a reachable
+    For `build` image sources, a host-pinned `build-image` task runs
+    `docker build` / `docker push` on the worker (that is why
+    `aaiclick-kubectl` bundles the docker CLI). So it also needs a reachable
     Docker daemon — a mounted host socket, a remote `DOCKER_HOST`, or a build
     sidecar — plus `AAICLICK_REGISTRY` pointing at a registry the cluster can pull
-    from. If task images are prebuilt and pushed out-of-band, set the job's
-    `image_source` to skip the build and no daemon is needed.
+    from. If task images are prebuilt and pushed out-of-band, submit with
+    `image=` to skip the build and no daemon is needed.
 
 Out-of-cluster use (talking to a remote cluster) instead mounts a kubeconfig and
 sets `KUBECONFIG`.

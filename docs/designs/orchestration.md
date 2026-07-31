@@ -86,27 +86,27 @@ They compose freely: a `shell` task runs the same way — "run this argv, succes
 
 ## Image source (docker / kubernetes)
 
-The container runners run against an image from one of two sources, nested in the job's runner config:
+The image is a **task** property: every container task carries a nullable `tasks.image_source` JSON (`build` or `prebuilt`), and **`NULL` means the task runs as a host subprocess** regardless of the job's `runner_mode`. The job keeps only `runner_mode` and kubernetes cluster config.
 
 | Source     | How                                              | When built             |
 |------------|--------------------------------------------------|------------------------|
-| `build`    | git repo → `aaiclick-job:<sha>` image built from `git clone` + `docker build` | on demand at dispatch  |
+| `build`    | git repo → `aaiclick-job:<sha>` image built from `git clone` + `docker build` | build task in the graph (registry mode) / inline at launch (no registry) |
 | `prebuilt` | `image="python:3.12"` run verbatim, no build stage | never                  |
 
-Pass `image=` (`run_job` / `RunJobRequest` / `run-job --image`, or `register-job --image` for a default) to select a prebuilt image — **mutually exclusive** with the git build fields (`git_remote` / `git_sha` / `git_branch` / `dockerfile`).
+Pass `image=` (`run_job` / `RunJobRequest` / `run-job --image`, or `register-job --image` for a default) to select a prebuilt image — **mutually exclusive** with the git build fields (`git_remote` / `git_sha` / `git_branch` / `dockerfile`). `run_job` stamps the resolved source onto the **entry task**; dynamic children inherit the committing task's image at `commit_tasks` unless they declare their own (`create_task(image=... / git_*=...)`).
 
-For a `build` source the image is **not** produced by a task in the job graph. The first worker to dispatch a container/Pod task builds it on demand via `ensure_image`, recorded in the `build_tasks` table keyed by image identity (`sha256(git_remote, git_sha, dockerfile)`). A `UNIQUE(image_key)` constraint plus an atomic claim/lease make the build run **exactly once** across all workers and jobs — every other task (including dynamically created ones) reuses the same tag, and a concurrent worker polls until the build is `READY`.
+With `AAICLICK_REGISTRY` set, commit points inject one **ordinary build task** per distinct image identity (`sha256(git_remote, git_sha, dockerfile)`) into the job, host-pinned via `image_source=NULL`, wired `build >> dependent` for every task on that image — the scheduler's existing dependency filter guarantees no task is claimed before its image is pushed. The build body is pull-first (`docker pull` → done, else clone + build + push); crash recovery is the ordinary task retry/reaper path. Cross-job dedup is the registry itself: concurrent same-SHA jobs may double-build, which is wasteful but correct. Without a registry no build task is injected — the docker launch path builds inline on the dispatching host (a build's success would be host-local, not a global fact).
 
 **ExecutionWorker prerequisites** — because the build and the `docker run` happen on the worker's host, not in a separate service:
 
 - **`docker` runner** — every worker that may run the job needs a reachable **Docker daemon + CLI** (`AAICLICK_DOCKER_BIN`, default `docker`), for both `build` (to build the image) and `prebuilt` (to `docker run` it).
-- **`kubernetes` runner, `build` source** — the worker needs Docker **and** registry access (`AAICLICK_REGISTRY`): it builds locally and **pushes**, then the Pod pulls. Without a registry, each worker host can only run tasks it built itself.
+- **`kubernetes` runner, `build` source** — **requires `AAICLICK_REGISTRY`** (validated at commit points); the injected build task needs Docker on the worker host, then the Pod pulls from the registry.
 - **`kubernetes` runner, `prebuilt` source** — no Docker on the worker; it only needs cluster access (`kubectl`), and the cluster pulls the image.
 - **`subprocess` runner** — no Docker at all.
 
 A `build` starts by preflighting Docker (`docker version`): a worker with no CLI or an unreachable daemon fails the build with an actionable error naming `AAICLICK_DOCKER_BIN` / the prebuilt-image alternative, rather than a raw `FileNotFoundError` or a daemon error deep inside `docker build`.
 
-**Implementation**: `aaiclick/orchestration/execution/image_builder.py` — see `ensure_image()`, `resolve_image_tag()`; `aaiclick/orchestration/execution/docker_build.py` — see `build_image_to_tag()`, `_require_docker()`; `aaiclick/orchestration/docker_config.py` — see `resolve_runner_config()`, `effective_image_tag()`, `image_key()`
+**Implementation**: `aaiclick/orchestration/image_injection.py` — see `inject_build_tasks()`, `stamp_inherited_image()`, `validate_image_sources()`; `aaiclick/orchestration/execution/image_build_task.py` — see `run_image_build()`; `aaiclick/orchestration/execution/docker_build.py` — see `build_image_to_tag()`, `resolve_launch_image()`, `_require_docker()`; `aaiclick/orchestration/docker_config.py` — see `resolve_image_source()`, `resolve_runner_config()`, `image_key()`
 
 ## Shell entry type
 

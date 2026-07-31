@@ -45,34 +45,15 @@ hatches, should the feeder ever measurably hurt:
 **When to revisit**: when polling overhead is measurable (many tabs or many
 concurrent jobs), or when sub-2 s latency matters for operators.
 
-## Non-Blocking Image-Build Wait (Release-and-Requeue)
+## Inline No-Registry Build Holds the Worker Slot
 
-On-demand image builds are inline at dispatch: a worker resolves a build-source
-task through `ensure_image` (`aaiclick/orchestration/execution/image_builder.py`),
-and exactly one worker wins the `build_tasks` claim and builds while any other
-worker that already claimed a task needing the same image **polls** the row
-(2 s loop) until it is `READY`. The poller holds its worker slot for the whole
-build. In the common case the DAG's entry task gates the graph, so only the
-builder is busy — but a job whose first runnable layer is a wide fan-out of
-independent tasks can tie up N−1 slots polling for a single cold `docker build`.
-
-The fix has two halves, both keyed on the `build_tasks` row's `BUILDING` status:
-
-- **Claim-time avoidance** — `claim_next_task`
-  (`aaiclick/orchestration/execution/claiming.py`) prefers tasks whose image is
-  *not* currently building, so a free worker picks up independent runnable work
-  instead of blocking behind an in-flight build. This is the primary motivation:
-  scheduling should route around the image being built at that moment, not just
-  wait on it.
-- **Release-and-requeue** — a worker that would otherwise poll releases its
-  claim (back to `PENDING` with a short `retry_after`) instead of holding the
-  slot; the task is re-claimed once the image reaches `READY`. The builder still
-  blocks on its own build (unavoidable — someone has to build), but everyone
-  else frees their slot.
-
-Correctness doesn't depend on this — the current design is "correct but can
-occupy slots on wide fan-outs." **When to revisit**: when wide fan-out jobs on a
-cold image measurably tie up workers.
+In registry mode, image builds are ordinary graph tasks gated by dependency
+edges — no worker ever waits on someone else's build. Without a registry the
+docker launch path builds inline (`docker_build.resolve_launch_image`),
+holding the worker slot for the cold build. Accepted: no-registry is de facto
+single-host / small-scale mode, and per-host daemon cache dedups repeats.
+**When to revisit**: only if no-registry multi-worker hosts with cold builds
+become a real workload — the likely fix is a registry, not scheduler work.
 
 ## API Auth — Beyond Username/Password + RBAC
 
