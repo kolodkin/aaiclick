@@ -1,0 +1,149 @@
+"""Commit-time image stamping, validation, and build-task injection.
+
+Called from every commit point (``orch_context.commit_tasks`` and
+``factories.create_built_job``) so a committed task's ``image_source`` is
+final by the time its row lands — dispatch never resolves inheritance. In
+registry mode it injects one ordinary build task per distinct build image
+and wires ``build >> dependent`` edges; the scheduler's existing dependency
+filter is the whole coordination story (spec: docs/designs/task_image.md).
+
+Deliberately imports neither ``factories`` nor ``orch_context`` (both reach
+this module), building ``Task`` rows directly instead.
+"""
+
+from __future__ import annotations
+
+import os
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..datetime_utils import utc_now
+from ..snowflake import get_snowflake_id
+from .docker_config import image_key
+from .execution.image_build_task import IMAGE_BUILD_ENTRYPOINT, build_task_name
+from .models import (
+    DEPENDENCY_TASK,
+    RUNNER_DOCKER,
+    RUNNER_KUBERNETES,
+    TASK_PENDING,
+    Dependency,
+    Job,
+    RunnerMode,
+    Task,
+)
+from .runner_config import ImageBuild, parse_image_source
+
+BUILD_TASK_MAX_RETRIES = 2
+
+
+def stamp_inherited_image(tasks: list[Task], parent_image_source: dict | None) -> None:
+    """Fill ``image_source`` on tasks that didn't declare their own.
+
+    ``parent_image_source`` is the committing task's own stamped value (or
+    None outside task execution / for a NULL-image parent, in which case
+    undeclared children stay NULL ⇒ host subprocess)."""
+    if parent_image_source is None:
+        return
+    for task in tasks:
+        if task.image_source is None:
+            task.image_source = parent_image_source
+
+
+def validate_image_sources(tasks: list[Task], runner_mode: RunnerMode) -> None:
+    """Enforce the commit-point rules; raises ``ValueError``."""
+    for task in tasks:
+        if task.image_source is None:
+            continue
+        if runner_mode not in (RUNNER_DOCKER, RUNNER_KUBERNETES):
+            raise ValueError(
+                f"task {task.name!r} declares an image_source but the job's runner_mode "
+                f"is {runner_mode!r}; images are only valid on docker/kubernetes jobs"
+            )
+        source = parse_image_source(task.image_source)
+        if (
+            isinstance(source, ImageBuild)
+            and runner_mode == RUNNER_KUBERNETES
+            and not os.environ.get("AAICLICK_REGISTRY")
+        ):
+            raise ValueError(
+                "kubernetes build image sources require AAICLICK_REGISTRY — "
+                "the cluster cannot pull from a worker's local docker daemon"
+            )
+
+
+def _make_build_task(source: ImageBuild, key: str, job_id: int) -> Task:
+    return Task(
+        id=get_snowflake_id(),
+        job_id=job_id,
+        entrypoint=IMAGE_BUILD_ENTRYPOINT,
+        name=build_task_name(source.git_sha),
+        kwargs={
+            "image_key": key,
+            "git_remote": source.git_remote,
+            "git_sha": source.git_sha,
+            "git_branch": source.git_branch,
+            "dockerfile": source.dockerfile,
+        },
+        status=TASK_PENDING,
+        created_at=utc_now(),
+        max_retries=BUILD_TASK_MAX_RETRIES,
+    )
+
+
+async def inject_build_tasks(session: AsyncSession, tasks: list[Task], job: Job) -> list[Task]:
+    """Ensure a build task exists per distinct build image and wire
+    ``build >> dependent`` edges onto ``tasks``.
+
+    Registry mode + docker/kubernetes jobs only. Returns newly created build
+    tasks — the caller commits them alongside ``tasks``. Two concurrent
+    commits in one job can race past the lookup and double-inject; both
+    builds are pull-first so the loser is a cheap no-op (accepted, spec
+    "Races")."""
+    if not os.environ.get("AAICLICK_REGISTRY"):
+        return []
+    if job.runner_mode not in (RUNNER_DOCKER, RUNNER_KUBERNETES):
+        return []
+
+    dependents_by_key: dict[str, list[Task]] = {}
+    source_by_key: dict[str, ImageBuild] = {}
+    for task in tasks:
+        if task.image_source is None or task.entrypoint == IMAGE_BUILD_ENTRYPOINT:
+            continue
+        source = parse_image_source(task.image_source)
+        if not isinstance(source, ImageBuild):
+            continue
+        key = image_key(source)
+        dependents_by_key.setdefault(key, []).append(task)
+        source_by_key[key] = source
+    if not dependents_by_key:
+        return []
+
+    existing = (
+        (
+            await session.execute(
+                select(Task).where(Task.job_id == job.id, Task.entrypoint == IMAGE_BUILD_ENTRYPOINT)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    build_by_key: dict[str, Task] = {t.kwargs["image_key"]: t for t in existing}
+
+    injected: list[Task] = []
+    for key, dependents in dependents_by_key.items():
+        build = build_by_key.get(key)
+        if build is None:
+            build = _make_build_task(source_by_key[key], key, job.id)
+            build_by_key[key] = build
+            injected.append(build)
+        for task in dependents:
+            task.previous_dependencies.append(
+                Dependency(
+                    previous_id=build.id,
+                    previous_type=DEPENDENCY_TASK,
+                    next_id=task.id,
+                    next_type=DEPENDENCY_TASK,
+                )
+            )
+    return injected
