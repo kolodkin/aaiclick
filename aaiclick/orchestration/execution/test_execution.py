@@ -96,14 +96,18 @@ async def test_execute_shell_task_streams_mid_run(orch_ctx, monkeypatch, tmp_pat
             return []
         return [line.text for line in await read_task_logs(task.id, refreshed.run_ids[-1])]
 
-    deadline = asyncio.get_running_loop().time() + 30
-    while not (mid := await _current_lines()):
-        assert asyncio.get_running_loop().time() < deadline, "'first' was never flushed to task_logs"
-        await asyncio.sleep(0.05)
+    try:
+        deadline = asyncio.get_running_loop().time() + 30
+        while not (mid := await _current_lines()):
+            assert asyncio.get_running_loop().time() < deadline, "'first' was never flushed to task_logs"
+            await asyncio.sleep(0.05)
 
-    assert mid == ["first"]
-    gate.touch()
-    await exec_task
+        assert mid == ["first"]
+    finally:
+        # Release the gate and reap the process even on assertion failure,
+        # so the shell process never outlives the test.
+        gate.touch()
+        await asyncio.wait_for(exec_task, timeout=30)
 
     assert await _current_lines() == ["first", "second"]
 
