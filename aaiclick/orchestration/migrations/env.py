@@ -116,11 +116,18 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
 
+    # Inspect on a dedicated connection: reflection implicitly begins a
+    # transaction, and sharing the migration connection would leave alembic's
+    # begin_transaction() without ownership — the upgrade's DDL would roll
+    # back when the connection closes.
+    with connectable.connect() as inspect_connection:
+        include_name = _make_include_name(inspect_connection)
+
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
-            include_name=_make_include_name(connection),
+            include_name=include_name,
         )
 
         with context.begin_transaction():
