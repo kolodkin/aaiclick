@@ -80,21 +80,32 @@ async def _persisted_shell_task(command, command_env=None) -> Task:
     return task
 
 
-async def test_execute_shell_task_streams_mid_run(orch_ctx, monkeypatch):
+async def test_execute_shell_task_streams_mid_run(orch_ctx, monkeypatch, tmp_path):
     """Shell output reaches task_logs while the process is still running."""
     monkeypatch.setattr("aaiclick.orchestration.logging.LOG_FLUSH_INTERVAL", 0.05)
-    task = await _persisted_shell_task(["sh", "-c", "echo first; sleep 0.4; echo second"])
+    # The process blocks on a gate file the test controls, so "second" cannot
+    # be emitted until the mid-run state has been verified — no timing races.
+    gate = tmp_path / "gate"
+    task = await _persisted_shell_task(["sh", "-c", f"echo first; until [ -e '{gate}' ]; do sleep 0.05; done; echo second"])
 
     exec_task = asyncio.create_task(execute_shell_task(task))
-    await asyncio.sleep(0.25)
-    refreshed = await get_task(task.id)
-    assert refreshed is not None
-    mid = [line.text for line in await read_task_logs(task.id, refreshed.run_ids[-1])]
-    await exec_task
+
+    async def _current_lines() -> list[str]:
+        refreshed = await get_task(task.id)
+        if refreshed is None or not refreshed.run_ids:
+            return []
+        return [line.text for line in await read_task_logs(task.id, refreshed.run_ids[-1])]
+
+    deadline = asyncio.get_running_loop().time() + 30
+    while not (mid := await _current_lines()):
+        assert asyncio.get_running_loop().time() < deadline, "'first' was never flushed to task_logs"
+        await asyncio.sleep(0.05)
 
     assert mid == ["first"]
-    final = [line.text for line in await read_task_logs(task.id, refreshed.run_ids[-1])]
-    assert final == ["first", "second"]
+    gate.touch()
+    await exec_task
+
+    assert await _current_lines() == ["first", "second"]
 
 
 async def test_execute_shell_task_splits_streams(orch_ctx):
