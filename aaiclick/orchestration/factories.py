@@ -27,6 +27,9 @@ from .runner_config import (
     ENTRY_SHELL,
     DockerRunner,
     EntryType,
+    ImageBuild,
+    ImagePrebuilt,
+    ImageSourceT,
     KubernetesRunner,
     dump_image_source,
     dump_runner_config,
@@ -165,6 +168,11 @@ def create_task(
     entry_type: EntryType = ENTRY_MODULE,
     command: list[str] | None = None,
     command_env: dict[str, str] | None = None,
+    image: str | None = None,
+    git_remote: str | None = None,
+    git_sha: str | None = None,
+    git_branch: str | None = None,
+    dockerfile: str | None = None,
 ) -> Task:
     """Create a Task object (not committed to database).
 
@@ -172,6 +180,10 @@ def create_task(
     callable run via ``execute_task``. For ``entry_type="shell"``, ``command``
     is an argv run directly in the runner's environment and ``callback`` is
     unused (``entrypoint`` is stored as an empty string).
+
+    A task on a docker/kubernetes job may declare its own container image;
+    tasks that declare none inherit the committing task's image at
+    ``commit_tasks`` (dynamic children follow their parent).
 
     Args:
         callback: Callback string ("mymodule.task1") or callable, for module tasks.
@@ -181,10 +193,37 @@ def create_task(
         entry_type: ``"module"`` (default) or ``"shell"``.
         command: Argv list for shell tasks.
         command_env: Env vars (``KEY: VALUE``) injected for shell tasks.
+        image: Prebuilt image tag to run this task in, verbatim
+            (e.g. ``"ghcr.io/org/app:1.2"``). Mutually exclusive with the
+            ``git_*``/``dockerfile`` build fields.
+        git_remote: Git remote URL to build this task's image from.
+            Required together with ``git_sha`` for a build declaration —
+            ``create_task`` is synchronous, so there is no git auto-detect
+            (that only exists at ``run_job`` submission).
+        git_sha: 40-char commit SHA to build at.
+        git_branch: Captured as build-arg metadata (optional).
+        dockerfile: Dockerfile path relative to the repo root (optional;
+            defaults to ``"Dockerfile"`` at build time).
 
     Returns:
         Task object with generated snowflake ID.
     """
+    image_source: dict | None = None
+    git_fields = (git_remote, git_sha, git_branch, dockerfile)
+    if image is not None and any(v is not None for v in git_fields):
+        raise ValueError("image (prebuilt) and git_* (build) are mutually exclusive")
+    if image is not None:
+        image_source = dump_image_source(ImagePrebuilt(image_tag=image))
+    elif any(v is not None for v in git_fields):
+        if git_remote is None or git_sha is None:
+            raise ValueError(
+                "a per-task build image requires both git_remote and git_sha "
+                "(create_task has no git auto-detect; that only exists at run_job submission)"
+            )
+        image_source = dump_image_source(
+            ImageBuild(git_remote=git_remote, git_sha=git_sha, git_branch=git_branch, dockerfile=dockerfile)
+        )
+
     task_id = get_snowflake_id()
 
     if entry_type == ENTRY_SHELL:
@@ -205,6 +244,7 @@ def create_task(
         entry_type=entry_type,
         command=command,
         command_env=command_env,
+        image_source=image_source,
         status=TASK_PENDING,
         created_at=utc_now(),
         max_retries=max_retries,
@@ -293,6 +333,7 @@ async def create_built_job(
     name: str,
     entrypoint: str,
     runner: DockerRunner | KubernetesRunner,
+    image_source: ImageSourceT,
     entry_type: EntryType = ENTRY_MODULE,
     command: list[str] | None = None,
     command_env: dict[str, str] | None = None,
@@ -302,9 +343,9 @@ async def create_built_job(
     preservation_mode: PreservationMode | None = None,
     registered: RegisteredJob | None = None,
 ) -> Job:
-    """Create a docker/kubernetes Job from a resolved RunnerConfig. The
-    runner's image source is stamped onto the entry task; in registry mode a
-    build task is injected with a ``build >> entry`` edge (spec:
+    """Create a docker/kubernetes Job. ``runner`` carries only cluster/vehicle
+    config; ``image_source`` is stamped onto the entry task, and in registry
+    mode a build task is injected with a ``build >> entry`` edge (spec:
     docs/designs/task_image.md)."""
     job = new_job_row(
         name,
@@ -325,7 +366,7 @@ async def create_built_job(
         command_env=command_env,
     )
     entry_task.job_id = job.id
-    entry_task.image_source = dump_image_source(runner.image)
+    entry_task.image_source = dump_image_source(image_source)
 
     async with get_sql_session() as session:
         injected = await inject_build_tasks(session, [entry_task], job)

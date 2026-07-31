@@ -13,29 +13,30 @@ from aaiclick.orchestration.runner_config import ImageBuild, KubernetesRunner
 
 
 @pytest.mark.usefixtures("fast_poll")
-async def test_create_kubernetes_job_writes_job_and_entry_task(orch_ctx_no_ch):
-    """The image is built on demand at dispatch, not injected as a task at
-    submission — so only the entry task appears in the job graph."""
-    runner = KubernetesRunner(
-        image=ImageBuild(git_remote="git://x/repo.git", git_sha="a" * 40, git_branch="main"),
-        namespace="ml",
-    )
+async def test_create_kubernetes_job_writes_job_and_entry_task(orch_ctx_no_ch, monkeypatch):
+    """The job row carries only runner_mode + cluster config; the image is
+    stamped on the entry task. Without a registry no build task is injected
+    (k8s build sources require one; validation lives at commit points)."""
+    monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
+    source = ImageBuild(git_remote="git://x/repo.git", git_sha="a" * 40, git_branch="main")
     job = await create_built_job(
         name="k8s_submit",
         entrypoint="sample_jobs.entry",
-        runner=runner,
+        runner=KubernetesRunner(namespace="ml"),
+        image_source=source,
         entry_type="module",
     )
     assert job.runner_mode == RUNNER_KUBERNETES
     assert job.runner is not None
     assert job.runner["type"] == "kubernetes"
-    assert job.runner["image"]["type"] == "build"
+    assert "image" not in job.runner
     assert job.runner["namespace"] == "ml"
 
     async with get_sql_session() as session:
         tasks = (await session.execute(select(Task).where(Task.job_id == job.id))).scalars().all()
     entrypoints = {t.entrypoint for t in tasks}
     assert entrypoints == {"sample_jobs.entry"}
+    assert tasks[0].image_source["type"] == "build"
 
 
 @pytest.mark.usefixtures("fast_poll")

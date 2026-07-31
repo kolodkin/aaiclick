@@ -1,4 +1,5 @@
-from aaiclick.orchestration.docker_config import effective_image_tag, image_key, resolve_runner_config
+from aaiclick.orchestration.docker_config import compute_image_tag, image_key, resolve_image_source, resolve_runner_config
+from aaiclick.orchestration.models import RegisteredJob
 from aaiclick.orchestration.runner_config import (
     DockerRunner,
     ImageBuild,
@@ -9,40 +10,44 @@ from aaiclick.orchestration.runner_config import (
 
 async def test_resolve_prebuilt_image_skips_git(monkeypatch):
     monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
-    cfg = await resolve_runner_config(
-        registered=None, runner_mode="docker", image="python:3.12", git_remote=None, git_sha=None
+    source = await resolve_image_source(
+        None, image="python:3.12", git_remote=None, git_sha=None, git_branch=None, dockerfile=None
     )
-    assert isinstance(cfg, DockerRunner)
-    assert isinstance(cfg.image, ImagePrebuilt)
-    assert effective_image_tag(cfg) == "python:3.12"
+    assert isinstance(source, ImagePrebuilt)
+    assert source.image_tag == "python:3.12"
 
 
 async def test_resolve_build_image_computes_tag(monkeypatch):
     monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
-    cfg = await resolve_runner_config(
-        registered=None,
-        runner_mode="docker",
-        image=None,
-        git_remote="git@x:r.git",
-        git_sha="b" * 40,
-        git_branch="main",
+    source = await resolve_image_source(
+        None, image=None, git_remote="git@x:r.git", git_sha="b" * 40, git_branch="main", dockerfile=None
     )
-    assert isinstance(cfg, DockerRunner)
-    assert isinstance(cfg.image, ImageBuild)
-    assert effective_image_tag(cfg) == f"aaiclick-job:{'b' * 40}"
+    assert isinstance(source, ImageBuild)
+    assert compute_image_tag(source.git_sha) == f"aaiclick-job:{'b' * 40}"
 
 
-async def test_resolve_kubernetes_runner_preserves_resources(monkeypatch):
-    monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
-    cfg = await resolve_runner_config(
-        registered=None,
+async def test_registered_prebuilt_image_default():
+    registered = RegisteredJob(id=1, name="j", entrypoint="m.e", image="ghcr.io/x/y:1")
+    source = await resolve_image_source(
+        registered, image=None, git_remote=None, git_sha=None, git_branch=None, dockerfile=None
+    )
+    assert isinstance(source, ImagePrebuilt)
+    assert source.image_tag == "ghcr.io/x/y:1"
+
+
+def test_resolve_kubernetes_runner_preserves_resources():
+    cfg = resolve_runner_config(
         runner_mode="kubernetes",
-        image="python:3.12",
         kubernetes_config={"namespace": "ml", "resources": {"limits": {"cpu": "2"}}},
     )
     assert isinstance(cfg, KubernetesRunner)
     assert cfg.namespace == "ml"
     assert cfg.resources == {"limits": {"cpu": "2"}}
+
+
+def test_resolve_docker_runner_is_bare_marker():
+    cfg = resolve_runner_config(runner_mode="docker")
+    assert isinstance(cfg, DockerRunner)
 
 
 def test_image_key_stable_and_distinguishes_fields():

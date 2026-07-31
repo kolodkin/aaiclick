@@ -48,19 +48,19 @@ class ImagePrebuilt(BaseModel):
 ImageSource = Annotated[ImageBuild | ImagePrebuilt, Field(discriminator="type")]
 
 
-# --- runner (lives on Job / RegisteredJob) --------------------------------
+# --- runner (lives on Job) ------------------------------------------------
+# Cluster/vehicle config only — the image is a per-task property
+# (``tasks.image_source``), never a runner property.
 class SubprocessRunner(BaseModel):
     type: Literal["subprocess"] = "subprocess"
 
 
 class DockerRunner(BaseModel):
     type: Literal["docker"] = "docker"
-    image: ImageSource
 
 
 class KubernetesRunner(BaseModel):
     type: Literal["kubernetes"] = "kubernetes"
-    image: ImageSource
     namespace: str | None = None
     service_account: str | None = None
     image_pull_secret: str | None = None

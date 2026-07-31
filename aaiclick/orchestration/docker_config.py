@@ -88,28 +88,7 @@ def image_key(source: ImageBuild) -> str:
     return hashlib.sha256(parts.encode("utf-8")).hexdigest()
 
 
-def effective_image_tag(runner: RunnerConfigT) -> str | None:
-    """The image a container/pod actually runs: prebuilt tag verbatim, or the
-    computed ``aaiclick-job:<sha>`` for a build source. ``None`` for subprocess."""
-    image = getattr(runner, "image", None)
-    if image is None:
-        return None
-    if isinstance(image, ImagePrebuilt):
-        return image.image_tag
-    return compute_image_tag(image.git_sha)
-
-
-def _registered_image(registered: RegisteredJob | None) -> str | None:
-    """Prebuilt image_tag default from a RegisteredJob's runner config, if any."""
-    if registered is None or registered.runner is None:
-        return None
-    img = registered.runner.get("image") if isinstance(registered.runner, dict) else None
-    if isinstance(img, dict) and img.get("type") == "prebuilt":
-        return img.get("image_tag")
-    return None
-
-
-async def _resolve_image_source(
+async def resolve_image_source(
     registered: RegisteredJob | None,
     *,
     image: str | None,
@@ -118,13 +97,15 @@ async def _resolve_image_source(
     git_branch: str | None,
     dockerfile: str | None,
 ) -> ImageSourceT:
-    """Prebuilt when an explicit ``image`` is given (here or on the registered
-    job); otherwise resolve the build coordinates via the existing precedence."""
-    registered_image = _registered_image(registered)
+    """Resolve the image source a run's entry task is stamped with.
+
+    Prebuilt when an explicit ``image`` is given (here or as the registered
+    job's default); otherwise resolve the build coordinates via the existing
+    precedence (explicit kwarg → registered default → git auto-detect)."""
     if image is not None:
         return ImagePrebuilt(image_tag=image)
-    if registered_image is not None:
-        return ImagePrebuilt(image_tag=registered_image)
+    if registered is not None and registered.image is not None:
+        return ImagePrebuilt(image_tag=registered.image)
 
     remote = git_remote
     if remote is None and registered is not None:
@@ -139,37 +120,22 @@ async def _resolve_image_source(
     return ImageBuild(git_remote=remote, git_sha=sha, git_branch=branch, dockerfile=dfile)
 
 
-async def resolve_runner_config(
-    registered: RegisteredJob | None,
+def resolve_runner_config(
     *,
     runner_mode: RunnerMode,
-    image: str | None = None,
-    git_remote: str | None = None,
-    git_sha: str | None = None,
-    git_branch: str | None = None,
-    dockerfile: str | None = None,
     kubernetes_config: dict | None = None,
 ) -> RunnerConfigT:
-    """Resolve the per-run runner config. ``image`` (prebuilt) and the git
-    fields (build) are mutually exclusive; the caller enforces that."""
-    source = await _resolve_image_source(
-        registered,
-        image=image,
-        git_remote=git_remote,
-        git_sha=git_sha,
-        git_branch=git_branch,
-        dockerfile=dockerfile,
-    )
+    """Resolve the per-run runner (cluster/vehicle) config. Image resolution
+    is separate (``resolve_image_source``) — the image is a task property."""
     if runner_mode == "kubernetes":
         kc = kubernetes_config or {}
         return KubernetesRunner(
-            image=source,
             namespace=kc.get("namespace"),
             service_account=kc.get("service_account"),
             image_pull_secret=kc.get("image_pull_secret"),
             resources=kc.get("resources"),
         )
-    return DockerRunner(image=source)
+    return DockerRunner()
 
 
 def add_host_flags(env_var: str) -> list[str]:
