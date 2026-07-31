@@ -388,6 +388,10 @@ class Task(_DependencyOps, SQLModel, table=True):
     entry_type: EntryType = Field(default=ENTRY_MODULE, sa_column=Column(String, nullable=True))
     command: list[str] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     command_env: dict[str, str] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    # ImageSource JSON (see runner_config.parse_image_source). NULL means this
+    # task runs as a host subprocess regardless of the job's runner_mode —
+    # the rule that host-pins injected image-build tasks.
+    image_source: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     status: TaskStatus = Field(
         default=TASK_PENDING,
         sa_column=Column(String, nullable=False, index=True),

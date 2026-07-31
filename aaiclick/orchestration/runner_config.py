@@ -89,6 +89,16 @@ def dump_runner_config(cfg: RunnerConfigT) -> dict:
     return _RUNNER_ADAPTER.dump_python(cfg, mode="json")
 
 
+def parse_image_source(data: dict) -> ImageSourceT:
+    """Validate a JSON dict into the matching image-source model."""
+    return _IMAGE_ADAPTER.validate_python(data)
+
+
+def dump_image_source(source: ImageSourceT) -> dict:
+    """Serialize an image-source model to a JSON-safe dict for the DB column."""
+    return _IMAGE_ADAPTER.dump_python(source, mode="json")
+
+
 def validate_task_entry(*, entry_type: EntryType, command: list[str] | None) -> None:
     """Enforce the entry cross-field rules (spec "Validation").
 

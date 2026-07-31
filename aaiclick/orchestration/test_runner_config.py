@@ -7,7 +7,9 @@ from aaiclick.orchestration.runner_config import (
     ImagePrebuilt,
     KubernetesRunner,
     SubprocessRunner,
+    dump_image_source,
     dump_runner_config,
+    parse_image_source,
     parse_runner_config,
     validate_task_entry,
 )
@@ -67,3 +69,21 @@ def test_module_entry_rejects_command():
 def test_shell_entry_valid_on_any_runner():
     # shell is runner-agnostic — valid on subprocess, docker, kubernetes alike
     validate_task_entry(entry_type="shell", command=["python", "main.py"])
+
+
+def test_image_source_round_trip_build():
+    source = ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40, dockerfile="Dockerfile.gpu")
+    parsed = parse_image_source(dump_image_source(source))
+    assert isinstance(parsed, ImageBuild)
+    assert parsed.git_sha == "a" * 40
+
+
+def test_image_source_round_trip_prebuilt():
+    parsed = parse_image_source(dump_image_source(ImagePrebuilt(image_tag="ghcr.io/x/y:1")))
+    assert isinstance(parsed, ImagePrebuilt)
+    assert parsed.image_tag == "ghcr.io/x/y:1"
+
+
+def test_parse_image_source_rejects_unknown_type():
+    with pytest.raises(ValidationError):
+        parse_image_source({"type": "carrier-pigeon"})
