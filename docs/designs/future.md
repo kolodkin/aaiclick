@@ -45,6 +45,21 @@ hatches, should the feeder ever measurably hurt:
 **When to revisit**: when polling overhead is measurable (many tabs or many
 concurrent jobs), or when sub-2 s latency matters for operators.
 
+## Job Graph View — Group Containers
+
+The graph view (`docs/designs/job_graph_view.md`) renders tasks only. Groups
+are honoured semantically — dependencies touching a group are expanded onto its
+source / sink tasks — but are not drawn. Containers would render as React Flow
+subflows (`parentId` + `extent`) with a status rolled up from member tasks.
+The endpoint already accommodates this: `GraphNodeView.kind` gains `"group"`
+and `parent_group_id` is populated today.
+
+**When to revisit**: when jobs routinely use nested groups and the flattened
+view loses structure operators need. Expect to reassess the layout engine at
+the same time — dagre's nested-cluster quality is its weakest area, and the
+MIT-compatible escape hatch is Graphviz WASM (`@hpcc-js/wasm-graphviz`), not
+elkjs (dual EPL-2.0 / GPL-3.0-or-later).
+
 ## Inline No-Registry Build Holds the Worker Slot
 
 In registry mode, image builds are ordinary graph tasks gated by dependency
