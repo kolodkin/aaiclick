@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Background, Controls, ReactFlow, type Edge } from "@xyflow/react";
+import { Background, Controls, MarkerType, ReactFlow, type Edge } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useJobGraph } from "../../api/hooks";
 import { layout, structuralKey } from "../../lib/graphLayout";
@@ -53,6 +53,9 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
         source: String(e.source_id),
         target: String(e.target_id),
         className: buildTaskIds.has(String(e.source_id)) ? "gedge-build" : undefined,
+        // Direction is the whole point of a dependency graph, and React Flow
+        // draws no arrowhead by default.
+        markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
         animated: false,
       })),
     [rawEdges, buildTaskIds],

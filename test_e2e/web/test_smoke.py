@@ -19,11 +19,11 @@ runs when the path is passed explicitly or in a dedicated CI workflow."""
 
 from __future__ import annotations
 
-import os
 import time
 from pathlib import Path
 
 import pytest
+from helpers import login_if_needed
 
 from aaiclick.backend import is_local
 
@@ -34,33 +34,13 @@ STATIC = Path(__file__).resolve().parents[2] / "aaiclick" / "server" / "static" 
 # reason that appears in the pytest output — do not raise ImportError here.
 pytest.importorskip("playwright.sync_api")
 
-# Seeded admin credentials. In distributed mode the server enforces auth, so the
-# smoke logs in before the SPA shell renders; the server seeds this admin on
-# startup from the same env vars. In local mode auth is off and login is skipped.
-_ADMIN_USER = os.getenv("AAICLICK_ADMIN_USERNAME", "admin")
-_ADMIN_PASS = os.getenv("AAICLICK_ADMIN_PASSWORD", "admin")
-
-
-def _login_if_needed(page) -> None:
-    """Authenticate through the SPA login form when auth is enforced.
-
-    Waits for either the login form (auth on) or the prompt input (auth off or
-    already authenticated), then logs in only if the form is present.
-    """
-    page.wait_for_selector("#login-username, #prompt")
-    if page.query_selector("#login-username"):
-        page.fill("#login-username", _ADMIN_USER)
-        page.fill("#login-password", _ADMIN_PASS)
-        page.click("#login-submit")
-        page.wait_for_selector("#prompt")
-
 
 @pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
 def test_home_loads(page, base_url: str) -> None:
     """Root URL renders the SPA shell (header + content area)."""
     page.goto(f"{base_url}/")
     page.wait_for_selector("#root")
-    _login_if_needed(page)
+    login_if_needed(page)
     # The header prompt input is present.
     page.wait_for_selector("#prompt")
 
@@ -70,7 +50,7 @@ def test_jobs_view_loads(page, base_url: str) -> None:
     """Navigating to /?p=@jobs shows the jobs view."""
     page.goto(f"{base_url}/?p=@jobs")
     page.wait_for_selector("#root")
-    _login_if_needed(page)
+    login_if_needed(page)
     # The prompt input is populated with the value from the URL.
     prompt_val = page.input_value("#prompt")
     assert prompt_val == "@jobs"
@@ -80,7 +60,7 @@ def test_jobs_view_loads(page, base_url: str) -> None:
 def test_prompt_updates_url(page, base_url: str) -> None:
     """Typing into the prompt input updates the URL query parameter."""
     page.goto(f"{base_url}/")
-    _login_if_needed(page)
+    login_if_needed(page)
     page.wait_for_selector("#prompt")
     page.fill("#prompt", "@registered")
     # After typing, the URL should contain ?p=@registered.
@@ -130,7 +110,7 @@ def test_task_view_shows_logs(page, base_url: str) -> None:
 
     page.goto(f"{base_url}/?p=@task {task_id}")
     page.wait_for_selector("#root")
-    _login_if_needed(page)
+    login_if_needed(page)
 
     logs = page.locator("div.logs")
     logs.get_by_text("This is stdout").wait_for(timeout=15000)
@@ -153,7 +133,7 @@ def test_task_view_colors_logs_by_level(page, base_url: str) -> None:
 
     page.goto(f"{base_url}/?p=@task {task_id}")
     page.wait_for_selector("#root")
-    _login_if_needed(page)
+    login_if_needed(page)
 
     logs = page.locator("div.logs")
     logs.get_by_test_id("log-line-ERROR").get_by_text("error line").wait_for(timeout=15000)
@@ -194,7 +174,7 @@ def test_job_graph_view_renders_nodes(page, base_url: str) -> None:
 
     page.goto(f"{base_url}/?p=@job {job_id} graph")
     page.wait_for_selector("#root")
-    _login_if_needed(page)
+    login_if_needed(page)
 
     page.wait_for_selector("[data-testid='job-graph']", timeout=15000)
     page.locator(".gnode").first.wait_for(timeout=15000)
