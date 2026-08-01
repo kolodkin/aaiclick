@@ -80,6 +80,9 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
           onNodeClick={(_event, node) => onPrompt(`@task ${node.id}`)}
           onlyRenderVisibleElements
           fitView
+          // Cap zoom at 1:1 — fitView's default maxZoom of 2 blows a
+          // single-node graph up to twice its designed size.
+          fitViewOptions={{ maxZoom: 1, padding: 0.2 }}
         >
           <Background />
           <Controls />
