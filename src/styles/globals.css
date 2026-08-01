@@ -268,3 +268,41 @@ tbody tr.clickable:hover { background: rgba(91,157,255,.12); }
 .fake-prompt.empty { color: var(--muted); }
 .frame-body { padding: 22px; }
 .frame-body .logs { max-height: 320px; }
+
+/* ---- job graph ---- */
+.graph-canvas {
+  height: 70vh;
+  min-height: 420px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(10, 14, 26, .35);
+}
+.gnode {
+  width: 220px;
+  height: 76px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--gray);
+  border-radius: 8px;
+  background: var(--panel-strong);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--hi);
+  cursor: pointer;
+  overflow: hidden;
+}
+.gnode-head { display: flex; align-items: center; gap: 6px; justify-content: space-between; }
+.gnode-name { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gnode-meta { display: flex; gap: 8px; margin-top: 6px; font-size: 11px; color: var(--muted); }
+.gnode-PENDING   { border-left-color: var(--gray); }
+.gnode-CLAIMED   { border-left-color: var(--purple); }
+.gnode-RUNNING   { border-left-color: var(--blue); }
+.gnode-COMPLETED { border-left-color: var(--green); }
+.gnode-FAILED,
+.gnode-UPSTREAM_FAILED { border-left-color: var(--red); }
+.gnode-CANCELLED { border-left-color: var(--yellow); }
+.gnode-build { border-style: dashed; }
+.react-flow__edge.gedge-build .react-flow__edge-path {
+  stroke-dasharray: 4 3;
+  opacity: .65;
+}
