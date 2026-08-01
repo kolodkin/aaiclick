@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchJSON, postJSON } from "./client";
 import type {
   JobDetail,
+  JobGraphView,
   JobView,
   Page,
   RegisteredJobView,
@@ -22,6 +23,14 @@ export function useJob(ref: string) {
   return useQuery({
     queryKey: ["job", ref],
     queryFn: () => fetchJSON<JobDetail>(`/jobs/${encodeURIComponent(ref)}`),
+    enabled: ref.length > 0,
+  });
+}
+
+export function useJobGraph(ref: string) {
+  return useQuery({
+    queryKey: ["job-graph", ref],
+    queryFn: () => fetchJSON<JobGraphView>(`/jobs/${encodeURIComponent(ref)}/graph`),
     enabled: ref.length > 0,
   });
 }
