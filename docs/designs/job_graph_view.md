@@ -60,6 +60,11 @@ what is blocking what — the question this view exists to answer.
 
 # Backend
 
+**Implementation**: `aaiclick/orchestration/graph.py` — see `build_graph_edges`;
+`aaiclick/orchestration/view_models.py` — see `build_job_graph_view`;
+`aaiclick/internal_api/jobs.py` — see `get_job_graph`;
+`aaiclick/server/routers/jobs.py` — see `job_graph`.
+
 ## Endpoint
 
 ```
@@ -70,42 +75,17 @@ Accepts the same `ref` (id or name) as `GET /api/v0/jobs/{ref}`.
 
 ## View models
 
-Added to `aaiclick/orchestration/view_models.py`:
+`GraphNodeView`, `GraphEdgeView`, and `JobGraphView` in
+`aaiclick/orchestration/view_models.py`.
 
-```python
-class GraphNodeView(BaseModel):
-    id: SnowflakeId
-    kind: GraphNodeKind          # "task" — "group" reserved for v2
-    name: str
-    parent_group_id: SnowflakeId | None = None
-    status: TaskStatus
-    entrypoint: str
-    attempt: int
-    started_at: datetime | None = None
-    completed_at: datetime | None = None
-    error: str | None = None
-    is_image_build: bool = False
+Two decisions the field list does not explain:
 
-
-class GraphEdgeView(BaseModel):
-    source_id: SnowflakeId
-    target_id: SnowflakeId
-
-
-class JobGraphView(BaseModel):
-    job_id: SnowflakeId
-    nodes: list[GraphNodeView] = Field(default_factory=list)
-    edges: list[GraphEdgeView] = Field(default_factory=list)
-    dropped_cycle_edges: int = 0
-```
-
-`parent_group_id` is populated in v1 even though groups are not drawn — it
-carries the hierarchy the v2 container work needs, so the endpoint does not
-change shape later.
-
-Per the project's `Literal` convention, `GraphNodeKind` is
-`Literal["task", "group"]` with module-level `GRAPH_NODE_TASK` /
-`GRAPH_NODE_GROUP` constants — not an enum.
+- `parent_group_id` is populated in v1 even though groups are not drawn — it
+  carries the hierarchy the v2 container work needs, so the endpoint does not
+  change shape later.
+- `GraphNodeKind` is `Literal["task", "group"]` with module-level
+  `GRAPH_NODE_TASK` / `GRAPH_NODE_GROUP` constants, per the project's `Literal`
+  convention. v1 emits only `"task"`.
 
 ## Group expansion
 
@@ -142,6 +122,11 @@ groups, and dependencies, then delegate to `graph.py` for flattening and
 routes do.
 
 # Frontend
+
+**Implementation**: `src/lib/graphLayout.ts` — see `layout` and `structuralKey`;
+`src/components/graph/JobGraph.tsx` — see `JobGraph`;
+`src/components/graph/TaskNode.tsx` — see `TaskNode`;
+`src/views/JobDetail.tsx` — see `JobDetail` for the table/graph toggle.
 
 ## Technology
 

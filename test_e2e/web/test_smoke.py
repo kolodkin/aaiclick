@@ -165,3 +165,37 @@ def test_task_view_colors_logs_by_level(page, base_url: str) -> None:
     assert logs.locator(".ts").count() == 0
     page.get_by_label("Show timestamps").check()
     logs.locator(".ts").first.wait_for(timeout=5000)
+
+
+@pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
+@pytest.mark.skipif(
+    not is_local(),
+    reason="needs auth-off + an in-process worker (local_runtime), both local-mode only; "
+    "the distributed e2e job enforces auth and runs no worker",
+)
+def test_job_graph_view_renders_nodes(page, base_url: str) -> None:
+    """`@job <ref> graph` renders a React Flow canvas with a node per task."""
+    api = f"{base_url}/api/v0"
+    entrypoint = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
+    resp = page.request.post(f"{api}/jobs:run", data={"name": entrypoint})
+    assert resp.ok, resp.text()
+    job_id = resp.json()["id"]
+
+    # The graph endpoint is authoritative — poll it before driving the browser
+    # so a render failure is not confused with the job not having started.
+    graph = None
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        graph = page.request.get(f"{api}/jobs/{job_id}/graph").json()
+        if graph.get("nodes"):
+            break
+        time.sleep(0.5)
+    assert graph and graph["nodes"], "graph endpoint returned no nodes"
+
+    page.goto(f"{base_url}/?p=@job {job_id} graph")
+    page.wait_for_selector("#root")
+    _login_if_needed(page)
+
+    page.wait_for_selector("[data-testid='job-graph']", timeout=15000)
+    page.locator(".gnode").first.wait_for(timeout=15000)
+    assert page.locator(".gnode").count() >= 1

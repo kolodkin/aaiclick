@@ -98,6 +98,10 @@ Header with job info, followed by a table of tasks. Auto-refreshes via REST poll
 | Started    | `started_at`   | Relative time                   |
 | Duration   | computed       | `started_at` to `completed_at` or now |
 
+A Table/Graph toggle switches the body between the tasks table and the
+dependency graph. The prompt carries the mode — `@job <name> graph` — so the
+view stays shareable as a URL. Design: `docs/designs/job_graph_view.md`.
+
 Task statuses use the same color scheme as job statuses, plus:
 
 | Status    | Color  |
