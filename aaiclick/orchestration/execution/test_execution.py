@@ -3,6 +3,7 @@
 import asyncio
 import inspect
 import sys
+import time
 
 import pytest
 from pydantic import BaseModel
@@ -83,32 +84,28 @@ async def _persisted_shell_task(command, command_env=None) -> Task:
 async def test_execute_shell_task_streams_mid_run(orch_ctx, monkeypatch, tmp_path):
     """Shell output reaches task_logs while the process is still running."""
     monkeypatch.setattr("aaiclick.orchestration.logging.LOG_FLUSH_INTERVAL", 0.05)
-    # The process blocks on a gate file the test controls, so "second" cannot
-    # be emitted until the mid-run state has been verified — no timing races.
+    # The process blocks on a gate file the test controls, so "second" cannot be
+    # emitted until the mid-run state has been verified.
     gate = tmp_path / "gate"
-    task = await _persisted_shell_task(["sh", "-c", f"echo first; until [ -e '{gate}' ]; do sleep 0.05; done; echo second"])
+    script = f"echo first; until [ -e '{gate}' ]; do sleep 0.05; done; echo second"
+    task = await _persisted_shell_task(["sh", "-c", script])
 
     exec_task = asyncio.create_task(execute_shell_task(task))
 
     async def _current_lines() -> list[str]:
-        refreshed = await get_task(task.id)
-        if refreshed is None or not refreshed.run_ids:
-            return []
-        return [line.text for line in await read_task_logs(task.id, refreshed.run_ids[-1])]
+        return [line.text for line in (await get_task_logs(task.id)).lines]
 
     try:
-        deadline = asyncio.get_running_loop().time() + 30
+        deadline = time.monotonic() + 30
         while not (mid := await _current_lines()):
-            assert asyncio.get_running_loop().time() < deadline, "'first' was never flushed to task_logs"
+            assert time.monotonic() < deadline, "'first' was never flushed to task_logs"
             await asyncio.sleep(0.05)
-
-        assert mid == ["first"]
     finally:
-        # Release the gate and reap the process even on assertion failure,
-        # so the shell process never outlives the test.
+        # An assertion failure must not orphan the gate-blocked shell.
         gate.touch()
         await asyncio.wait_for(exec_task, timeout=30)
 
+    assert mid == ["first"]
     assert await _current_lines() == ["first", "second"]
 
 
