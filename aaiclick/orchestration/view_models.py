@@ -62,6 +62,9 @@ class TaskView(BaseModel):
     # a sibling-aborted error) reads differently from an operator cancellation
     # (``CANCELLED`` with no error).
     error: str | None = None
+    # Injected image-build task (derived from the fixed build entrypoint) —
+    # lets the UI style build nodes and their outgoing edges distinctly.
+    is_image_build: bool = False
 
 
 class TaskDetail(TaskView):
@@ -182,6 +185,7 @@ def task_to_view(task: Task) -> TaskView:
         started_at=task.started_at,
         completed_at=task.completed_at,
         error=task.error,
+        is_image_build=task.is_image_build,
     )
 
 

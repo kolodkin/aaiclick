@@ -48,19 +48,19 @@ class ImagePrebuilt(BaseModel):
 ImageSource = Annotated[ImageBuild | ImagePrebuilt, Field(discriminator="type")]
 
 
-# --- runner (lives on Job / RegisteredJob) --------------------------------
+# --- runner (lives on Job) ------------------------------------------------
+# Cluster/vehicle config only — the image is a per-task property
+# (``tasks.image_source``), never a runner property.
 class SubprocessRunner(BaseModel):
     type: Literal["subprocess"] = "subprocess"
 
 
 class DockerRunner(BaseModel):
     type: Literal["docker"] = "docker"
-    image: ImageSource
 
 
 class KubernetesRunner(BaseModel):
     type: Literal["kubernetes"] = "kubernetes"
-    image: ImageSource
     namespace: str | None = None
     service_account: str | None = None
     image_pull_secret: str | None = None
@@ -87,6 +87,24 @@ def parse_runner_config(data: dict) -> RunnerConfigT:
 def dump_runner_config(cfg: RunnerConfigT) -> dict:
     """Serialize a runner model to a JSON-safe dict for the DB column."""
     return _RUNNER_ADAPTER.dump_python(cfg, mode="json")
+
+
+def parse_image_source(data: dict) -> ImageSourceT:
+    """Validate a JSON dict into the matching image-source model."""
+    return _IMAGE_ADAPTER.validate_python(data)
+
+
+def dump_image_source(source: ImageSourceT) -> dict:
+    """Serialize an image-source model to a JSON-safe dict for the DB column."""
+    return _IMAGE_ADAPTER.dump_python(source, mode="json")
+
+
+def validate_image_exclusivity(image: str | None, *git_fields: str | None) -> None:
+    """A prebuilt ``image`` and the ``git_*``/``dockerfile`` build fields are
+    mutually exclusive — shared by every submission surface so the rule and
+    its message live in one place. Raises ``ValueError``."""
+    if image is not None and any(v is not None for v in git_fields):
+        raise ValueError("image (prebuilt) and git_* (build) are mutually exclusive")
 
 
 def validate_task_entry(*, entry_type: EntryType, command: list[str] | None) -> None:

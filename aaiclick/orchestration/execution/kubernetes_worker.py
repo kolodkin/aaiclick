@@ -27,6 +27,7 @@ from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_SHELL
 from . import cli
 from .claiming import check_task_cancelled
+from .docker_build import resolve_launch_image
 from .execution_worker import (
     POLL_INTERVAL,
     JobDispatch,
@@ -36,7 +37,6 @@ from .execution_worker import (
     execution_worker_heartbeat,
     parse_task_timeout,
 )
-from .image_builder import resolve_image_tag
 from .runner import ShellSpec, execute_task, serialize_task_result
 from .runner_env import build_runner_env
 
@@ -120,12 +120,10 @@ class _PodSpec(NamedTuple):
     command_env: dict[str, str] | None
 
 
-def _pod_spec_from(task: Task, dispatch: JobDispatch) -> _PodSpec:
-    if not dispatch.image_tag:
-        raise ValueError(f"Job {task.job_id} has no image_tag — was it submitted in kubernetes mode?")
+def _pod_spec_from(task: Task, dispatch: JobDispatch, image_tag: str) -> _PodSpec:
     kc = dispatch.kubernetes_config or {}
     return _PodSpec(
-        image_tag=dispatch.image_tag,
+        image_tag=image_tag,
         namespace=kc.get("namespace") or "default",
         service_account=kc.get("service_account"),
         image_pull_secret=kc.get("image_pull_secret"),
@@ -187,7 +185,7 @@ def build_shell_pod_spec(task: Task, dispatch: JobDispatch, image_tag: str) -> S
     propagates the container's exit code and streams its output on the
     kubectl process's stdout. ``--quiet`` keeps kubectl's own chatter out of
     the captured log."""
-    pod = _pod_spec_from(task, dispatch._replace(image_tag=image_tag))
+    pod = _pod_spec_from(task, dispatch, image_tag)
     name = _pod_name(task.id, task.run_epoch)
     manifest = _build_pod_manifest(
         name=name,
@@ -314,8 +312,8 @@ async def _run_task_in_pod(
     task: Task, execution_worker_id: int, dispatch: JobDispatch
 ) -> tuple[bool, dict | None, str | None]:
     """ExecuteFn for the Kubernetes runner."""
-    image_tag = await resolve_image_tag(task, dispatch.image_source, dispatch.image_tag, execution_worker_id)
-    spec = _pod_spec_from(task, dispatch._replace(image_tag=image_tag))
+    image_tag = await resolve_launch_image(dispatch.image_source, task_id=task.id)
+    spec = _pod_spec_from(task, dispatch, image_tag)
     timeout = parse_task_timeout()
     vehicle = _KubernetesVehicle(spec)
     result = await drive_vehicle(

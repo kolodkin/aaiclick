@@ -1,7 +1,8 @@
 """Low-level build helpers for Docker-runner jobs.
 
-Used by the on-demand build seam (see ``execution.image_builder``) to
-produce the image a docker/kubernetes job's container/pod tasks need.
+Used by the injected image-build task (``execution.image_build_task``) in
+registry mode, and by ``resolve_launch_image`` for the inline no-registry
+build at container launch.
 
 Cache hierarchy (first hit short-circuits):
 
@@ -19,8 +20,8 @@ import os
 import tempfile
 from pathlib import Path
 
-from ..docker_config import add_host_flags
-from ..runner_config import ImageBuild
+from ..docker_config import add_host_flags, compute_image_tag, get_registry
+from ..runner_config import ImageBuild, ImageSourceT
 from . import cli
 
 
@@ -124,6 +125,30 @@ async def _docker_build(context: str, dockerfile: str, image_tag: str, build_arg
     await cli.run(*cmd)
 
 
+async def resolve_launch_image(image_source: ImageSourceT | None, *, task_id: int) -> str:
+    """Resolve the image tag a container actually launches with.
+
+    The tag is derived from the source (prebuilt tag verbatim, computed
+    ``aaiclick-job:<sha>`` for a build). Registry mode: the ``build >> task``
+    dependency edge guarantees the tag is already pushed — the launch path
+    pulls. No registry + build source: build inline on this host
+    (``build_image_to_tag`` short-circuits on a local-cache hit), holding the
+    worker slot for a cold build — accepted, no-registry is de facto
+    single-host mode (spec: docs/designs/orchestration.md "Image source").
+
+    A ``None`` source cannot occur through dispatch (``_resolve_dispatch``
+    routes NULL-image tasks to the subprocess vehicle); the raise here is the
+    single owner of that invariant for all container launch paths."""
+    if image_source is None:
+        raise ValueError(f"container task {task_id} has no image_source")
+    if isinstance(image_source, ImageBuild):
+        image_tag = compute_image_tag(image_source.git_sha)
+        if get_registry() is None:
+            await build_image_to_tag(image_source, image_tag)
+        return image_tag
+    return image_source.image_tag
+
+
 async def build_image_to_tag(source: ImageBuild, image_tag: str) -> None:
     """Ensure ``image_tag`` exists in the local docker daemon, building from
     ``source`` if needed; push when a registry is configured.
@@ -133,7 +158,7 @@ async def build_image_to_tag(source: ImageBuild, image_tag: str) -> None:
     to push must re-push on retry, or other hosts could never pull the image."""
     await _require_docker()
 
-    registry = os.environ.get("AAICLICK_REGISTRY")
+    registry = get_registry()
 
     if registry and await _docker_pull(image_tag):
         return

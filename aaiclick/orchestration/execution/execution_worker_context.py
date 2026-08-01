@@ -18,14 +18,17 @@ class TaskInfo:
 
     task_id: int
     job_id: int
+    # The executing task's own image_source, carried so commit_tasks can stamp
+    # inheritance onto dynamic children without re-fetching the task row.
+    image_source: dict | None = None
 
 
 _current_task_info: ContextVar[TaskInfo] = ContextVar("current_task_info")
 
 
-def set_current_task_info(task_id: int, job_id: int) -> None:
+def set_current_task_info(task_id: int, job_id: int, image_source: dict | None = None) -> None:
     """Set the current task info for the executing context."""
-    _current_task_info.set(TaskInfo(task_id=task_id, job_id=job_id))
+    _current_task_info.set(TaskInfo(task_id=task_id, job_id=job_id, image_source=image_source))
 
 
 def get_current_task_info() -> TaskInfo:

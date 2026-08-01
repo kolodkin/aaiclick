@@ -266,18 +266,26 @@ works in either deployment mode.
 
 ## Image source (docker / kubernetes)
 
-Container runners take their image from one of two sources:
+The image is a **per-task** requirement. Each container task carries an
+`image_source` from one of two kinds; a task with none runs as a host
+subprocess even inside a docker/kubernetes job:
 
 | Source     | How                                                        | When built            |
 |------------|------------------------------------------------------------|-----------------------|
-| `build`    | Your git repo, built into an image at a specific SHA       | on demand at dispatch |
+| `build`    | Your git repo, built into an image at a specific SHA       | by a `build-image` task in the job graph (with `AAICLICK_REGISTRY`), else inline at launch |
 | `prebuilt` | `image="python:3.12"` run verbatim                         | never                 |
 
 Pass `image=` (`run_job` / `run-job --image`, or `register-job --image` for a
 default) to select a prebuilt image — mutually exclusive with the git build
-fields (`git_remote` / `git_sha` / `git_branch` / `dockerfile`). A `build`
-image is built exactly once per (repo, SHA, Dockerfile) across all workers and
-jobs, then reused.
+fields (`git_remote` / `git_sha` / `git_branch` / `dockerfile`). `run_job`
+stamps the resolved image on the job's entry task; dynamic child tasks inherit
+their parent's image unless they declare their own
+(`create_task(image=...)` or `create_task(git_remote=..., git_sha=...)`).
+
+With `AAICLICK_REGISTRY` set, each distinct image gets one `build-image` task
+in the job that every task on that image depends on — it pulls if the
+registry already has the SHA, otherwise builds and pushes, and it appears in
+the job graph like any other task (retries, logs, UI included).
 
 For the released `aaiclick` container images and their Docker/Kubernetes
 runtime requirements, see [Container Images](container_images.md).

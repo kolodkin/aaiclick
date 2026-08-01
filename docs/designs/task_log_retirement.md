@@ -65,7 +65,8 @@ flushed up to the last 2 s tick.
   everywhere, from docker's `result.json` payload, and from
   `update_task_status` / `clear_task`.
 - **Schema** — `tasks.log_path` and `remote_task_results.log_path` dropped via
-  Alembic. `build_tasks.log_path` stays; build logs are out of scope here.
+  Alembic. (Image builds are ordinary tasks now, so their logs ride the same
+  task-log path — no separate build log location exists.)
 - **API / UI** — `log_path` removed from `TaskDetail`, `TaskLogsView`,
   `internal_api.tasks`, and the CLI task renderer; `src/api/schema.ts`
   regenerated. No UI component read it.

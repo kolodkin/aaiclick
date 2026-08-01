@@ -114,6 +114,13 @@ def test_task_to_view_omits_detail_fields():
     assert "execution_worker_id" not in dumped
 
 
+def test_task_to_view_flags_image_build_tasks():
+    build = _make_task()
+    build.is_image_build = True
+    assert task_to_view(build).is_image_build
+    assert not task_to_view(_make_task()).is_image_build
+
+
 def test_task_to_view_carries_error_reason():
     """List views surface ``error`` so a terminal status reads with its reason
     (e.g. a fail-fast group-sibling abort vs. an operator cancellation)."""

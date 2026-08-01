@@ -74,19 +74,6 @@ ExecutionWorkerStatus = Literal["ACTIVE", "IDLE", "STOPPING", "STOPPED"]
 """ExecutionWorker status."""
 
 
-BUILD_PENDING = "PENDING"
-BUILD_BUILDING = "BUILDING"
-BUILD_READY = "READY"
-BUILD_FAILED = "FAILED"
-BuildStatus = Literal["PENDING", "BUILDING", "READY", "FAILED"]
-"""Lifecycle of an on-demand image build.
-
-A ``BuildTask`` row is created at claim time (``BUILDING``), before the build
-starts — so concurrent tasks see the in-flight build and attach instead of
-starting a second one. ``READY`` once the image exists; ``FAILED`` after a
-build error (retried while ``attempts <= max_retries``)."""
-
-
 PRESERVATION_NONE = "NONE"
 PRESERVATION_FULL = "FULL"
 PreservationMode = Literal["NONE", "FULL"]
@@ -145,8 +132,10 @@ class RegisteredJob(SQLModel, table=True):
     )
     dockerfile: str | None = Field(default=None)
     git_remote: str | None = Field(default=None)
+    # Default prebuilt image tag — a flat default like dockerfile/git_remote,
+    # feeding docker_config.resolve_image_source's precedence chain.
+    image: str | None = Field(default=None)
     kubernetes_config: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
-    runner: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     next_run_at: datetime | None = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
@@ -388,6 +377,15 @@ class Task(_DependencyOps, SQLModel, table=True):
     entry_type: EntryType = Field(default=ENTRY_MODULE, sa_column=Column(String, nullable=True))
     command: list[str] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     command_env: dict[str, str] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    # ImageSource JSON (see runner_config.parse_image_source). NULL means this
+    # task runs as a host subprocess regardless of the job's runner_mode —
+    # the rule that host-pins injected image-build tasks.
+    image_source: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    # Marks the system-injected image-build task (image_injection). A real
+    # column rather than an entrypoint-string comparison: the injection dedup
+    # lookup filters on it in SQL, and moving/renaming the build module never
+    # orphans rows written under the old dotted path.
+    is_image_build: bool = Field(default=False, sa_column=Column(Boolean, nullable=False, server_default="0"))
     status: TaskStatus = Field(
         default=TASK_PENDING,
         sa_column=Column(String, nullable=False, index=True),
@@ -398,9 +396,6 @@ class Task(_DependencyOps, SQLModel, table=True):
     completed_at: datetime | None = Field(default=None)
     execution_worker_id: int | None = Field(
         default=None, sa_column=Column(BigInteger, ForeignKey("execution_workers.id"), index=True, nullable=True)
-    )
-    build_task_id: int | None = Field(
-        default=None, sa_column=Column(BigInteger, ForeignKey("build_tasks.id"), index=True, nullable=True)
     )
     result: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     error: str | None = Field(default=None)
@@ -451,38 +446,6 @@ class RemoteTaskResult(SQLModel, table=True):
     result_ref: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     error: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=utc_now)
-
-
-class BuildTask(SQLModel, table=True):
-    """On-demand image build, keyed by image identity (not by job).
-
-    ``image_key`` is a sha256 of ``(git_remote, git_sha, dockerfile)``; its
-    UNIQUE constraint makes a duplicate build record structurally impossible, so
-    every job/dynamic task on the same image shares this one row. ``ImagePrebuilt``
-    images never create a ``BuildTask``."""
-
-    __tablename__: ClassVar[str] = "build_tasks"
-    __table_args__ = (UniqueConstraint("image_key"),)
-
-    id: int = Field(sa_column=Column(BigInteger, primary_key=True))
-    image_key: str = Field(sa_column=Column(String, nullable=False, index=True))
-    image_tag: str = Field()
-    git_remote: str = Field()
-    git_sha: str = Field()
-    dockerfile: str | None = Field(default=None)
-    status: BuildStatus = Field(
-        default=BUILD_PENDING,
-        sa_column=Column(String, nullable=False, index=True),
-    )
-    holder_execution_worker_id: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True))
-    lease_expires_at: datetime | None = Field(default=None)
-    log_path: str | None = Field(default=None)
-    error: str | None = Field(default=None)
-    attempts: int = Field(default=0)
-    max_retries: int = Field(default=2)
-    created_at: datetime = Field(default_factory=utc_now)
-    started_at: datetime | None = Field(default=None)
-    finished_at: datetime | None = Field(default=None)
 
 
 # Type alias for tasks/groups that can be applied

@@ -11,7 +11,7 @@ from sqlmodel import select
 from ..backend import is_local
 from ..datetime_utils import utc_now
 from ..snowflake import get_snowflake_id
-from .docker_config import resolve_runner_config
+from .docker_config import resolve_image_source, resolve_runner_config
 from .factories import create_built_job, create_job, create_task
 from .kubernetes_config import resolve_kubernetes_config
 from .models import (
@@ -26,14 +26,7 @@ from .models import (
     RunType,
 )
 from .orch_context import get_sql_session
-from .runner_config import (
-    ENTRY_MODULE,
-    DockerRunner,
-    EntryType,
-    ImagePrebuilt,
-    dump_runner_config,
-    validate_task_entry,
-)
+from .runner_config import ENTRY_MODULE, EntryType, validate_image_exclusivity, validate_task_entry
 
 
 class RegisteredJobAlreadyExists(ValueError):
@@ -74,8 +67,8 @@ def _build_registered_job(
     runner_mode: RunnerMode,
     dockerfile: str | None,
     git_remote: str | None,
+    image: str | None,
     kubernetes_config: dict[str, Any] | None,
-    runner: dict[str, Any] | None,
     now: datetime,
 ) -> RegisteredJob:
     """Build an uncommitted RegisteredJob row with computed next_run_at."""
@@ -90,8 +83,8 @@ def _build_registered_job(
         runner_mode=runner_mode,
         dockerfile=dockerfile,
         git_remote=git_remote,
+        image=image,
         kubernetes_config=kubernetes_config,
-        runner=runner,
         next_run_at=_next_run_at(schedule, enabled, now),
         created_at=now,
         updated_at=now,
@@ -138,7 +131,6 @@ async def register_job(
         RegisteredJobAlreadyExists: If a job with this name already exists.
     """
     now = utc_now()
-    runner = dump_runner_config(DockerRunner(image=ImagePrebuilt(image_tag=image))) if image else None
     registered_job = _build_registered_job(
         name=name,
         entrypoint=entrypoint,
@@ -149,8 +141,8 @@ async def register_job(
         runner_mode=runner_mode,
         dockerfile=dockerfile,
         git_remote=git_remote,
+        image=image,
         kubernetes_config=kubernetes_config,
-        runner=runner,
         now=now,
     )
 
@@ -218,7 +210,6 @@ async def upsert_registered_job(
         The created or updated RegisteredJob
     """
     now = utc_now()
-    runner = dump_runner_config(DockerRunner(image=ImagePrebuilt(image_tag=image))) if image else None
 
     async with get_sql_session() as session:
         result = await session.execute(select(RegisteredJob).where(RegisteredJob.name == name))
@@ -233,8 +224,8 @@ async def upsert_registered_job(
             existing.runner_mode = runner_mode
             existing.dockerfile = dockerfile
             existing.git_remote = git_remote
+            existing.image = image
             existing.kubernetes_config = kubernetes_config
-            existing.runner = runner
             existing.updated_at = now
             existing.next_run_at = _next_run_at(schedule, enabled, now)
             session.add(existing)
@@ -252,8 +243,8 @@ async def upsert_registered_job(
             runner_mode=runner_mode,
             dockerfile=dockerfile,
             git_remote=git_remote,
+            image=image,
             kubernetes_config=kubernetes_config,
-            runner=runner,
             now=now,
         )
         session.add(registered_job)
@@ -369,12 +360,12 @@ async def run_job(
     (see ``factories.resolve_job_config``):
     explicit arg > registered-job default > env var > hardcoded NONE.
 
-    For docker-mode registrations, the runner config snapshots onto
-    the new ``Job`` row via the precedence chain (see
-    ``docker_config.resolve_runner_config``):
-    explicit kwarg > registered-job default > git auto-detect.
-    A build task is auto-injected as a prerequisite of the entry task
-    only when the image source is a git build.
+    For docker/kubernetes registrations, the image source resolves via the
+    precedence chain (see ``docker_config.resolve_image_source``):
+    explicit kwarg > registered-job default > git auto-detect — and is
+    stamped onto the entry task (``tasks.image_source``). In registry mode
+    a build task is auto-injected as a ``build >> entry`` dependency for
+    git-build sources (see ``image_injection.inject_build_tasks``).
 
     Args:
         name: Job name
@@ -409,8 +400,7 @@ async def run_job(
         Created Job
     """
     validate_task_entry(entry_type=entry_type, command=command)
-    if image is not None and any(v is not None for v in (git_remote, git_sha, git_branch, dockerfile)):
-        raise ValueError("image (prebuilt) and git_* (build) are mutually exclusive")
+    validate_image_exclusivity(image, git_remote, git_sha, git_branch, dockerfile)
 
     registered = await get_registered_job(name)
 
@@ -434,20 +424,20 @@ async def run_job(
                 service_account=service_account,
                 image_pull_secret=image_pull_secret,
             )._asdict()
-        runner = await resolve_runner_config(
+        source = await resolve_image_source(
             registered,
-            runner_mode=runner_mode,
             image=image,
             git_remote=git_remote,
             git_sha=git_sha,
             git_branch=git_branch,
             dockerfile=dockerfile,
-            kubernetes_config=kube_cfg,
         )
+        runner = resolve_runner_config(runner_mode=runner_mode, kubernetes_config=kube_cfg)
         return await create_built_job(
             name=name,
             entrypoint=entrypoint,
             runner=runner,
+            image_source=source,
             entry_type=entry_type,
             command=command,
             command_env=command_env,

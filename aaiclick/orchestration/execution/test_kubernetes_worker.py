@@ -165,7 +165,6 @@ def test_build_shell_pod_spec_wraps_argv():
     )
     dispatch = JobDispatch(
         "kubernetes",
-        "img:tag",
         {"namespace": "jobs", "service_account": "sa", "image_pull_secret": None, "resources": None},
         "shell",
         ["echo", "hi"],

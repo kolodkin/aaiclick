@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
+from sqlmodel import select
 
 from aaiclick.backend import is_postgres
 from aaiclick.data.data_context.ch_client import _ch_client_var, create_ch_client, get_ch_client
@@ -23,8 +24,10 @@ from aaiclick.oplog.models import get_column_types, init_oplog_tables
 from ..snowflake import get_snowflake_id
 from .env import get_db_url
 from .execution.db_handler import _db_handler_var, create_db_handler, get_db_handler  # noqa: F401
+from .execution.execution_worker_context import get_current_task_info
+from .image_injection import inject_build_tasks, stamp_inherited_image, validate_image_sources
 from .lifecycle.db_lifecycle import DBLifecycleMessage, DBLifecycleOp, OplogPayload, OplogTablePayload
-from .models import Group, Task, TasksType
+from .models import Group, Job, Task, TasksType
 from .oplog_backfill import migrate_table_registry_to_sql
 from .sql_context import _sql_engine_var, get_sql_session
 from .task_registry import _task_registry_var, get_task_registry
@@ -524,6 +527,14 @@ def _collect_from_registry(items: list[Task | Group]) -> list[Task | Group]:
     return result
 
 
+def _current_parent_image_source() -> dict | None:
+    """The committing task's own image_source, or None outside task execution."""
+    try:
+        return get_current_task_info().image_source
+    except RuntimeError:
+        return None
+
+
 async def commit_tasks(
     items: TasksType,
     job_id: int,
@@ -539,6 +550,11 @@ async def commit_tasks(
     records, so callers only need to pass terminal (leaf) tasks — all upstream
     tasks are discovered automatically.
 
+    Image handling (spec: docs/designs/orchestration.md "Image source"): tasks that declared no
+    ``image_source`` inherit the committing task's (dynamic children follow
+    their parent); in registry mode a build task per distinct build image is
+    injected with ``build >> dependent`` edges in the same commit.
+
     Args:
         items: Single Task/Group or list of Task/Group objects
         job_id: Job ID to assign to all items
@@ -548,9 +564,21 @@ async def commit_tasks(
     """
     items_list = items if isinstance(items, list) else [items]
     all_items = _collect_from_registry(items_list)
+    tasks_only = [item for item in all_items if isinstance(item, Task)]
+
+    stamp_inherited_image(tasks_only, _current_parent_image_source())
 
     async with get_sql_session() as session:
-        for item in all_items:
+        injected: list[Task] = []
+        # Only container tasks need the job row (runner_mode) for validation
+        # and injection — the common all-subprocess commit skips the fetch.
+        if any(task.image_source is not None for task in tasks_only):
+            job = (await session.execute(select(Job).where(Job.id == job_id))).scalar_one_or_none()
+            if job is not None:
+                validate_image_sources(tasks_only, job.runner_mode)
+                injected = await inject_build_tasks(session, tasks_only, job)
+
+        for item in [*injected, *all_items]:
             item.job_id = job_id
 
             if isinstance(item, Group) and item.id is None:

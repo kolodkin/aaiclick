@@ -72,11 +72,11 @@ class JobDispatch(NamedTuple):
     """A task's runner choice plus the launch spec its runner needs.
 
     Loaded once per task (in ``dispatch._resolve_dispatch``) so the image-based
-    runners don't re-query the ``Job`` for ``image_tag`` / ``kubernetes_config``
-    after dispatch already read the row to pick the runner."""
+    runners don't re-query the ``Job`` for ``kubernetes_config`` after dispatch
+    already read the row to pick the runner. The launch tag is derived from
+    ``image_source`` by ``docker_build.resolve_launch_image``."""
 
     runner_mode: RunnerMode
-    image_tag: str | None
     kubernetes_config: dict | None
     entry_type: EntryType = ENTRY_MODULE
     command: list[str] | None = None

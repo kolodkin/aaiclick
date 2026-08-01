@@ -2,7 +2,7 @@ import os
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, inspect, pool
 from sqlmodel import SQLModel
 
 # Import models module to ensure all models are registered with SQLModel metadata
@@ -20,6 +20,32 @@ if config.config_file_name is not None:
 
 # Set SQLModel metadata as the target for autogenerate
 target_metadata = SQLModel.metadata
+
+
+def _make_include_name(connection):
+    """Build an ``include_name`` filter that skips reflected FK constraints
+    whose referred table is gone from the model metadata.
+
+    When one revision drops both a table and the FK column referencing it
+    (e.g. build_tasks + tasks.build_task_id), autogenerate crashes resolving
+    the reflected FK (``NoReferencedTableError``). Name filters run before
+    that resolution (``include_object`` runs after it, too late). Postgres
+    drops the constraint together with the column, so skipping the
+    comparison loses nothing."""
+    model_tables = set(target_metadata.tables)
+    dangling_fk_names: set[str] = set()
+    inspector = inspect(connection)
+    for table_name in inspector.get_table_names():
+        for fk in inspector.get_foreign_keys(table_name):
+            if fk.get("referred_table") not in model_tables and fk.get("name"):
+                dangling_fk_names.add(fk["name"])
+
+    def include_name(name, type_, parent_names) -> bool:
+        if type_ == "foreign_key_constraint" and name in dangling_fk_names:
+            return False
+        return True
+
+    return include_name
 
 
 def get_url() -> str:
@@ -90,8 +116,23 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
 
+    # The dangling-FK filter only matters for autogenerate comparison — a
+    # plain upgrade never consults include_name, so skip the reflection pass
+    # there. Inspect on a dedicated connection: reflection implicitly begins
+    # a transaction, and sharing the migration connection would leave
+    # alembic's begin_transaction() without ownership — the upgrade's DDL
+    # would roll back when the connection closes.
+    include_name = None
+    if getattr(config.cmd_opts, "autogenerate", False):
+        with connectable.connect() as inspect_connection:
+            include_name = _make_include_name(inspect_connection)
+
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            include_name=include_name,
+        )
 
         with context.begin_transaction():
             context.run_migrations()

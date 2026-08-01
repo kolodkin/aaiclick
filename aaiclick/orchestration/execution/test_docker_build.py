@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 from .. import docker_config
-from ..docker_config import resolve_runner_config
+from ..docker_config import resolve_image_source
 from ..models import RegisteredJob
-from ..runner_config import DockerRunner, ImageBuild
+from ..runner_config import ImageBuild
 from . import docker_build
 
 
@@ -128,7 +128,7 @@ async def test_build_image_to_tag_preflights_docker(monkeypatch):
     require.assert_awaited_once()
 
 
-async def test_resolve_runner_config_kwargs_override_registered_defaults(
+async def test_resolve_image_source_kwargs_override_registered_defaults(
     monkeypatch,
 ):
     """The three-layer resolve picks the right value at each level."""
@@ -144,20 +144,19 @@ async def test_resolve_runner_config_kwargs_override_registered_defaults(
         dockerfile="Dockerfile.default",
     )
 
-    config = await resolve_runner_config(
+    source = await resolve_image_source(
         registered,
-        runner_mode="docker",
+        image=None,
         git_remote="git@override.example:repo.git",
         git_sha="b" * 40,
         git_branch=None,
         dockerfile=None,
     )
 
-    assert isinstance(config, DockerRunner)
-    assert isinstance(config.image, ImageBuild)
-    assert config.image.git_remote == "git@override.example:repo.git"
-    assert config.image.git_sha == "b" * 40
+    assert isinstance(source, ImageBuild)
+    assert source.git_remote == "git@override.example:repo.git"
+    assert source.git_sha == "b" * 40
     # git_branch falls back to auto-detect since kwarg is None
-    assert config.image.git_branch == "auto-branch"
+    assert source.git_branch == "auto-branch"
     # dockerfile inherits the registered default since kwarg is None
-    assert config.image.dockerfile == "Dockerfile.default"
+    assert source.dockerfile == "Dockerfile.default"
