@@ -30,7 +30,7 @@ function renderRoute(prompt: string, onPrompt: (v: string) => void) {
     case "register":
       return <RegisterForm name={route.name} onPrompt={onPrompt} />;
     case "job":
-      return <JobDetail name={route.name} onPrompt={onPrompt} />;
+      return <JobDetail name={route.name} view={route.view} onPrompt={onPrompt} />;
     case "task":
       return <TaskDetail id={route.id} onPrompt={onPrompt} />;
     case "run-confirm":

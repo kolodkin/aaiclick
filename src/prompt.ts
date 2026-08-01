@@ -1,10 +1,14 @@
+// Named JobViewMode, not JobView — `src/api/types.ts` already exports JobView
+// as the server model.
+export type JobViewMode = "table" | "graph";
+
 export type Route =
   | { kind: "home" }
   | { kind: "all" }
   | { kind: "jobs" }
   | { kind: "registered" }
   | { kind: "register"; name: string }
-  | { kind: "job"; name: string }
+  | { kind: "job"; name: string; view: JobViewMode }
   | { kind: "task"; id: string }
   | { kind: "run-confirm"; name: string }
   | { kind: "run-form"; name: string }
@@ -19,7 +23,13 @@ export function parsePrompt(raw: string): Route {
   if (p === "@registered") return { kind: "registered" };
   if (p === "register") return { kind: "register", name: "" };
   if (p.startsWith("register ")) return { kind: "register", name: p.slice(9).trim() };
-  if (p.startsWith("@job ")) return { kind: "job", name: p.slice(5).trim() };
+  if (p.startsWith("@job ")) {
+    const rest = p.slice(5).trim();
+    if (rest.endsWith(" graph")) {
+      return { kind: "job", name: rest.slice(0, -6).trim(), view: "graph" };
+    }
+    return { kind: "job", name: rest, view: "table" };
+  }
   // Ids are 64-bit snowflakes — keep them as opaque strings (parseInt would
   // round past Number.MAX_SAFE_INTEGER and break the lookup).
   if (p.startsWith("@task ")) return { kind: "task", id: p.slice(6).trim() };

@@ -1,12 +1,22 @@
 import { useJob } from "../api/hooks";
 import { Chips } from "../components/Chips";
+import { JobGraph } from "../components/graph/JobGraph";
 import { MetaGrid } from "../components/MetaGrid";
 import { ProgressBar } from "../components/ProgressBar";
 import { StatusBadge } from "../components/StatusBadge";
 import { TasksTable } from "../components/TasksTable";
 import { durationMs, relativeTime } from "../lib/format";
+import type { JobViewMode } from "../prompt";
 
-export function JobDetail({ name, onPrompt }: { name: string; onPrompt: (v: string) => void }) {
+export function JobDetail({
+  name,
+  view,
+  onPrompt,
+}: {
+  name: string;
+  view: JobViewMode;
+  onPrompt: (v: string) => void;
+}) {
   const { data: job, isLoading, isError } = useJob(name);
 
   if (isLoading) return <p className="sub">loading…</p>;
@@ -48,7 +58,25 @@ export function JobDetail({ name, onPrompt }: { name: string; onPrompt: (v: stri
         />
         {job.error && <div className="err">{job.error}</div>}
       </div>
-      <TasksTable tasks={job.tasks ?? []} onPrompt={onPrompt} />
+      <div className="chips">
+        <span
+          className={`chip${view === "table" ? " chip-active" : ""}`}
+          onClick={() => onPrompt(`@job ${job.name}`)}
+        >
+          Table
+        </span>
+        <span
+          className={`chip${view === "graph" ? " chip-active" : ""}`}
+          onClick={() => onPrompt(`@job ${job.name} graph`)}
+        >
+          Graph
+        </span>
+      </div>
+      {view === "graph" ? (
+        <JobGraph refId={job.name} onPrompt={onPrompt} />
+      ) : (
+        <TasksTable tasks={job.tasks ?? []} onPrompt={onPrompt} />
+      )}
     </>
   );
 }

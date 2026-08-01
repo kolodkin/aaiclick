@@ -306,3 +306,4 @@ tbody tr.clickable:hover { background: rgba(91,157,255,.12); }
   stroke-dasharray: 4 3;
   opacity: .65;
 }
+.chip-active { border-color: var(--accent); color: var(--accent); }
