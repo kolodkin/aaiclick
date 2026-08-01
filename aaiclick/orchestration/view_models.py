@@ -9,15 +9,18 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 from ..log_models import LogLine, SnowflakeId
+from .graph import DependencyRow, build_graph_edges
 from .models import (
     TASK_COMPLETED,
+    Dependency,
     ExecutionWorker,
     ExecutionWorkerStatus,
+    Group,
     Job,
     JobStatus,
     PreservationMode,
@@ -88,6 +91,43 @@ class JobDetail(JobView):
 
     tasks: list[TaskView] = Field(default_factory=list)
     duration_ms: int | None = None
+
+
+GRAPH_NODE_TASK = "task"
+GRAPH_NODE_GROUP = "group"
+GraphNodeKind = Literal["task", "group"]
+
+
+class GraphNodeView(BaseModel):
+    """A node in the job graph. v1 emits only ``"task"`` nodes."""
+
+    id: SnowflakeId
+    kind: GraphNodeKind
+    name: str
+    parent_group_id: SnowflakeId | None = None
+    status: TaskStatus
+    entrypoint: str
+    attempt: int
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    error: str | None = None
+    is_image_build: bool = False
+
+
+class GraphEdgeView(BaseModel):
+    """A resolved task-to-task edge."""
+
+    source_id: SnowflakeId
+    target_id: SnowflakeId
+
+
+class JobGraphView(BaseModel):
+    """Job dependency graph served by ``GET /jobs/{ref}/graph``."""
+
+    job_id: SnowflakeId
+    nodes: list[GraphNodeView] = Field(default_factory=list)
+    edges: list[GraphEdgeView] = Field(default_factory=list)
+    dropped_cycle_edges: int = 0
 
 
 class ClearTaskView(BaseModel):
@@ -225,6 +265,57 @@ def job_to_detail(job: Job, tasks: list[Task]) -> JobDetail:
         duration_ms=_ms_between(job.started_at, job.completed_at),
         total_tasks=len(tasks),
         completed_tasks=completed,
+    )
+
+
+def task_to_graph_node(task: Task) -> GraphNodeView:
+    return GraphNodeView(
+        id=task.id,
+        kind=GRAPH_NODE_TASK,
+        name=task.name,
+        parent_group_id=task.group_id,
+        status=task.status,
+        entrypoint=task.entrypoint,
+        attempt=task.attempt,
+        started_at=task.started_at,
+        completed_at=task.completed_at,
+        error=task.error,
+        is_image_build=task.is_image_build,
+    )
+
+
+def build_job_graph_view(
+    job: Job,
+    tasks: list[Task],
+    groups: list[Group],
+    dependencies: list[Dependency],
+) -> JobGraphView:
+    """Resolve the job's DAG into task nodes and task-to-task edges."""
+    group_members: dict[int, set[int]] = {g.id: set() for g in groups}
+    for task in tasks:
+        if task.group_id is not None:
+            group_members.setdefault(task.group_id, set()).add(task.id)
+
+    group_children: dict[int, set[int]] = {g.id: set() for g in groups}
+    for group in groups:
+        if group.parent_group_id is not None:
+            group_children.setdefault(group.parent_group_id, set()).add(group.id)
+
+    rows = [DependencyRow(d.previous_id, d.previous_type, d.next_id, d.next_type) for d in dependencies]
+    edges, dropped = build_graph_edges(rows, group_members, group_children)
+
+    # A dependency row can reference a task removed by a retention sweep;
+    # React Flow throws on an edge whose endpoint is missing.
+    known = {t.id for t in tasks}
+    return JobGraphView(
+        job_id=job.id,
+        nodes=[task_to_graph_node(t) for t in tasks],
+        edges=[
+            GraphEdgeView(source_id=e.source_id, target_id=e.target_id)
+            for e in edges
+            if e.source_id in known and e.target_id in known
+        ],
+        dropped_cycle_edges=dropped,
     )
 
 
