@@ -15,14 +15,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
 from aaiclick.orchestration.execution import claiming
-from aaiclick.orchestration.models import TASK_COMPLETED, Job, Task
+from aaiclick.orchestration.models import TASK_COMPLETED, Dependency, Group, Job, Task
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import get_registered_job
 from aaiclick.orchestration.registered_jobs import run_job as _run_job_impl
 from aaiclick.orchestration.view_models import (
     JobDetail,
+    JobGraphView,
     JobStatsView,
     JobView,
+    build_job_graph_view,
     compute_job_stats_view,
     job_to_detail,
     job_to_view,
@@ -131,6 +133,44 @@ async def get_job(ref: RefId) -> JobDetail:
     """Return full job detail including all tasks, ordered by creation time."""
     job, tasks = await _load_job_and_tasks(ref)
     return job_to_detail(job, tasks)
+
+
+async def get_job_graph(ref: RefId) -> JobGraphView:
+    """Return the job's dependency graph as task nodes and task-to-task edges.
+
+    Group dependencies are expanded onto member tasks server-side — the client
+    receives no ``Group`` or ``Dependency`` rows.
+    """
+    async with get_sql_session() as session:
+        job = await _resolve_job(ref, session)
+        if job is None:
+            raise NotFound(f"Job not found: {ref}")
+        tasks = list(
+            (await session.execute(select(Task).where(Task.job_id == job.id).order_by(col(Task.created_at))))
+            .scalars()
+            .all()
+        )
+        groups = list((await session.execute(select(Group).where(Group.job_id == job.id))).scalars().all())
+
+        # Dependency rows are scoped by their endpoint ids, not by job — the
+        # table has no ``job_id``. Bail out before emitting an ``IN ()``, which
+        # some backends reject.
+        endpoint_ids = [t.id for t in tasks] + [g.id for g in groups]
+        if not endpoint_ids:
+            return JobGraphView(job_id=job.id)
+
+        dependencies = list(
+            (
+                await session.execute(
+                    select(Dependency).where(
+                        col(Dependency.next_id).in_(endpoint_ids) | col(Dependency.previous_id).in_(endpoint_ids)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    return build_job_graph_view(job, tasks, groups, dependencies)
 
 
 async def job_stats(ref: RefId) -> JobStatsView:
