@@ -3,6 +3,7 @@
 import asyncio
 import inspect
 import sys
+import time
 
 import pytest
 from pydantic import BaseModel
@@ -80,21 +81,32 @@ async def _persisted_shell_task(command, command_env=None) -> Task:
     return task
 
 
-async def test_execute_shell_task_streams_mid_run(orch_ctx, monkeypatch):
+async def test_execute_shell_task_streams_mid_run(orch_ctx, monkeypatch, tmp_path):
     """Shell output reaches task_logs while the process is still running."""
     monkeypatch.setattr("aaiclick.orchestration.logging.LOG_FLUSH_INTERVAL", 0.05)
-    task = await _persisted_shell_task(["sh", "-c", "echo first; sleep 0.4; echo second"])
+    # The process blocks on a gate file the test controls, so "second" cannot be
+    # emitted until the mid-run state has been verified.
+    gate = tmp_path / "gate"
+    script = f"echo first; until [ -e '{gate}' ]; do sleep 0.05; done; echo second"
+    task = await _persisted_shell_task(["sh", "-c", script])
 
     exec_task = asyncio.create_task(execute_shell_task(task))
-    await asyncio.sleep(0.25)
-    refreshed = await get_task(task.id)
-    assert refreshed is not None
-    mid = [line.text for line in await read_task_logs(task.id, refreshed.run_ids[-1])]
-    await exec_task
+
+    async def _current_lines() -> list[str]:
+        return [line.text for line in (await get_task_logs(task.id)).lines]
+
+    try:
+        deadline = time.monotonic() + 30
+        while not (mid := await _current_lines()):
+            assert time.monotonic() < deadline, "'first' was never flushed to task_logs"
+            await asyncio.sleep(0.05)
+    finally:
+        # An assertion failure must not orphan the gate-blocked shell.
+        gate.touch()
+        await asyncio.wait_for(exec_task, timeout=30)
 
     assert mid == ["first"]
-    final = [line.text for line in await read_task_logs(task.id, refreshed.run_ids[-1])]
-    assert final == ["first", "second"]
+    assert await _current_lines() == ["first", "second"]
 
 
 async def test_execute_shell_task_splits_streams(orch_ctx):
