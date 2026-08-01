@@ -14,7 +14,6 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from ..log_models import LogLine, SnowflakeId
-from .execution.image_build_task import is_image_build_task
 from .models import (
     TASK_COMPLETED,
     ExecutionWorker,
@@ -186,7 +185,7 @@ def task_to_view(task: Task) -> TaskView:
         started_at=task.started_at,
         completed_at=task.completed_at,
         error=task.error,
-        is_image_build=is_image_build_task(task.entrypoint),
+        is_image_build=task.is_image_build,
     )
 
 

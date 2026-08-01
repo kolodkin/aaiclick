@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..datetime_utils import utc_now
 from ..snowflake import get_snowflake_id
 from .docker_config import get_registry, image_key
-from .execution.image_build_task import IMAGE_BUILD_ENTRYPOINT, build_task_name, is_image_build_task
+from .execution.image_build_task import IMAGE_BUILD_ENTRYPOINT, build_task_name
 from .models import RUNNER_DOCKER, RUNNER_KUBERNETES, TASK_PENDING, Job, RunnerMode, Task
 from .runner_config import ImageBuild, parse_image_source
 
@@ -64,13 +64,14 @@ def _make_build_task(source: ImageBuild, job_id: int) -> Task:
         id=get_snowflake_id(),
         job_id=job_id,
         entrypoint=IMAGE_BUILD_ENTRYPOINT,
-        name=build_task_name(source.git_sha),
+        name=build_task_name(source),
         kwargs={
             "git_remote": source.git_remote,
             "git_sha": source.git_sha,
             "git_branch": source.git_branch,
             "dockerfile": source.dockerfile,
         },
+        is_image_build=True,
         status=TASK_PENDING,
         created_at=utc_now(),
         max_retries=BUILD_TASK_MAX_RETRIES,
@@ -105,7 +106,7 @@ async def inject_build_tasks(session: AsyncSession, tasks: list[Task], job: Job)
 
     groups: dict[str, tuple[ImageBuild, list[Task]]] = {}
     for task in tasks:
-        if task.image_source is None or is_image_build_task(task.entrypoint):
+        if task.image_source is None or task.is_image_build:
             continue
         source = parse_image_source(task.image_source)
         if not isinstance(source, ImageBuild):
@@ -115,7 +116,7 @@ async def inject_build_tasks(session: AsyncSession, tasks: list[Task], job: Job)
         return []
 
     existing = (
-        (await session.execute(select(Task).where(Task.job_id == job.id, Task.entrypoint == IMAGE_BUILD_ENTRYPOINT)))
+        (await session.execute(select(Task).where(Task.job_id == job.id, Task.is_image_build == True)))  # noqa: E712
         .scalars()
         .all()
     )

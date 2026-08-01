@@ -2,7 +2,6 @@
 
 from datetime import datetime
 
-from .execution.image_build_task import IMAGE_BUILD_ENTRYPOINT
 from .models import (
     JOB_COMPLETED,
     JOB_FAILED,
@@ -116,7 +115,8 @@ def test_task_to_view_omits_detail_fields():
 
 
 def test_task_to_view_flags_image_build_tasks():
-    build = _make_task(entrypoint=IMAGE_BUILD_ENTRYPOINT)
+    build = _make_task()
+    build.is_image_build = True
     assert task_to_view(build).is_image_build
     assert not task_to_view(_make_task()).is_image_build
 

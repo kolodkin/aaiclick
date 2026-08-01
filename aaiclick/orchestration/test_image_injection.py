@@ -58,6 +58,7 @@ async def test_inject_creates_one_build_task_per_image(orch_ctx_no_ch, monkeypat
         injected = await inject_build_tasks(session, [t1, t2, t3], row)
         assert len(injected) == 2
         assert all(b.entrypoint == IMAGE_BUILD_ENTRYPOINT and b.image_source is None for b in injected)
+        assert all(b.is_image_build for b in injected)
         assert all(b.max_retries == 2 for b in injected)
         # every dependent got an edge to its image's build task
         edges = {(d.previous_id, d.next_id) for t in (t1, t2, t3) for d in t.previous_dependencies}

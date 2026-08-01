@@ -19,16 +19,25 @@ from .docker_build import build_image_to_tag
 IMAGE_BUILD_ENTRYPOINT = "aaiclick.orchestration.execution.image_build_task.run_image_build"
 
 
-def is_image_build_task(entrypoint: str) -> bool:
-    """True for the injected image-build task — drives UI styling and the
-    injection-side skip checks. (SQL ``WHERE`` clauses compare against
-    ``IMAGE_BUILD_ENTRYPOINT`` directly.)"""
-    return entrypoint == IMAGE_BUILD_ENTRYPOINT
+def _repo_slug(git_remote: str) -> str:
+    """Last path segment of a git remote, minus ``.git`` — ``repo`` for both
+    ``https://host/org/repo.git`` and ``git@host:org/repo.git``."""
+    slug = git_remote.rstrip("/").rsplit("/", 1)[-1].rsplit(":", 1)[-1]
+    return slug.removesuffix(".git")
 
 
-def build_task_name(git_sha: str) -> str:
-    """Display name for an injected build task."""
-    return f"build-image:{git_sha[:8]}"
+def build_task_name(source: ImageBuild) -> str:
+    """Display name for an injected build task — repo, branch when known, and
+    short SHA (e.g. ``build-image:myrepo@main:a1b2c3d4``), so a job graph with
+    several build tasks says what each one builds. A non-default Dockerfile is
+    appended because two images can differ by nothing else."""
+    name = f"build-image:{_repo_slug(source.git_remote)}"
+    if source.git_branch:
+        name += f"@{source.git_branch}"
+    name += f":{source.git_sha[:8]}"
+    if source.dockerfile:
+        name += f" ({source.dockerfile})"
+    return name
 
 
 async def run_image_build(

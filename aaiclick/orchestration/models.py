@@ -381,6 +381,11 @@ class Task(_DependencyOps, SQLModel, table=True):
     # task runs as a host subprocess regardless of the job's runner_mode —
     # the rule that host-pins injected image-build tasks.
     image_source: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    # Marks the system-injected image-build task (image_injection). A real
+    # column rather than an entrypoint-string comparison: the injection dedup
+    # lookup filters on it in SQL, and moving/renaming the build module never
+    # orphans rows written under the old dotted path.
+    is_image_build: bool = Field(default=False, sa_column=Column(Boolean, nullable=False, server_default="0"))
     status: TaskStatus = Field(
         default=TASK_PENDING,
         sa_column=Column(String, nullable=False, index=True),
