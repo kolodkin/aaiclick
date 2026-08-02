@@ -19,12 +19,13 @@ import pytest
 from helpers import login_if_needed
 
 from aaiclick.backend import is_local
+from aaiclick.orchestration.models import JOB_COMPLETED, TASK_COMPLETED
 
 STATIC = Path(__file__).resolve().parents[2] / "aaiclick" / "server" / "static" / "index.html"
 
 pytest.importorskip("playwright.sync_api")
 
-from seed import seed_graph_job  # noqa: E402  (must follow the playwright guard)
+from seed import DEFAULT_STATES, TaskState, seed_graph_job  # noqa: E402  (must follow the playwright guard)
 
 # Every status the graph can render, and the node class each one produces.
 _EXPECTED_STATUSES = [
@@ -59,8 +60,12 @@ def seeded_job_id() -> int:
     inside one either. A dedicated thread gives the seeding a clean loop and
     leaves the test thread loop-free.
     """
+    return _seed("graph_ui_demo")
+
+
+def _seed(name: str, **kwargs) -> int:
     with ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(lambda: asyncio.run(seed_graph_job("graph_ui_demo"))).result()
+        return pool.submit(lambda: asyncio.run(seed_graph_job(name, **kwargs))).result()
 
 
 @pytest.fixture()
@@ -130,3 +135,23 @@ def test_toggle_switches_between_table_and_graph(page, base_url: str, seeded_job
     page.wait_for_selector("[data-testid='job-graph']", timeout=15000)
 
     assert page.input_value("#prompt").endswith(" graph")
+
+
+def test_seed_accepts_custom_states(page, base_url: str) -> None:
+    """A caller-supplied state map overrides the defaults, so a UI test can
+    stage any scenario without a second fixture graph."""
+    all_green = {name: TaskState(TASK_COMPLETED, None, 0, 30) for name in DEFAULT_STATES}
+    job_id = _seed("graph_ui_all_green", states=all_green, job_status=JOB_COMPLETED)
+
+    page.goto(f"{base_url}/?p=@job {job_id} graph")
+    page.wait_for_selector("#root")
+    login_if_needed(page)
+    page.wait_for_selector("[data-testid='job-graph']", timeout=15000)
+    page.wait_for_function(
+        "count => document.querySelectorAll('.gnode-COMPLETED').length === count",
+        arg=_NODE_COUNT,
+        timeout=15000,
+    )
+
+    assert page.locator(".gnode-COMPLETED").count() == _NODE_COUNT
+    assert page.locator(".gnode-FAILED").count() == 0

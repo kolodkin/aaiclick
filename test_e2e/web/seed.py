@@ -21,12 +21,15 @@ source/sink logic in ``aaiclick.orchestration.graph``, exercised end to end.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
+from typing import NamedTuple
 
 from sqlmodel import select
 
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.models import (
+    JOB_RUNNING,
     TASK_CANCELLED,
     TASK_CLAIMED,
     TASK_COMPLETED,
@@ -35,7 +38,10 @@ from aaiclick.orchestration.models import (
     TASK_RUNNING,
     TASK_UPSTREAM_FAILED,
     Group,
+    Job,
+    JobStatus,
     Task,
+    TaskStatus,
 )
 from aaiclick.orchestration.orch_context import commit_tasks, get_sql_session, orch_context
 from aaiclick.snowflake import get_snowflake_id
@@ -47,21 +53,37 @@ ENTRYPOINT = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
 # a fixed past base would render an absurd "5096h 11m".
 _BASE = datetime.now(timezone.utc) - timedelta(seconds=90)
 
-# name -> (status, error, started_offset_s, completed_offset_s)
-_STATES: dict[str, tuple[str, str | None, int | None, int | None]] = {
-    "build_image": (TASK_COMPLETED, None, 0, 42),
-    "extract": (TASK_COMPLETED, None, 42, 55),
-    "transform_a": (TASK_COMPLETED, None, 55, 71),
-    "transform_b": (TASK_RUNNING, None, 71, None),
-    "validate": (TASK_CLAIMED, None, None, None),
-    "enrich": (TASK_FAILED, "ValueError: unexpected null in column 'amount'", 55, 63),
-    "load": (TASK_UPSTREAM_FAILED, "Upstream task 'enrich' failed", None, None),
-    "notify": (TASK_CANCELLED, "Aborted: a sibling task in the group failed", None, None),
-    "report": (TASK_PENDING, None, None, None),
+
+def _offset(seconds: int | None) -> datetime | None:
+    return _BASE + timedelta(seconds=seconds) if seconds is not None else None
+
+
+class TaskState(NamedTuple):
+    """Seeded state for one task in the fixture graph."""
+
+    status: TaskStatus
+    error: str | None = None
+    started_offset_s: int | None = None
+    completed_offset_s: int | None = None
+
+
+#: Default states — every status the graph can render, exactly once each.
+#: Pass a partial override to ``seed_graph_job`` to seed a different scenario;
+#: task names not mentioned keep the default below.
+DEFAULT_STATES: dict[str, TaskState] = {
+    "build_image": TaskState(TASK_COMPLETED, None, 0, 42),
+    "extract": TaskState(TASK_COMPLETED, None, 42, 55),
+    "transform_a": TaskState(TASK_COMPLETED, None, 55, 71),
+    "transform_b": TaskState(TASK_RUNNING, None, 71, None),
+    "validate": TaskState(TASK_CLAIMED),
+    "enrich": TaskState(TASK_FAILED, "ValueError: unexpected null in column 'amount'", 55, 63),
+    "load": TaskState(TASK_UPSTREAM_FAILED, "Upstream task 'enrich' failed"),
+    "notify": TaskState(TASK_CANCELLED, "Aborted: a sibling task in the group failed"),
+    "report": TaskState(TASK_PENDING),
 }
 
 
-async def _build(job_name: str) -> int:
+async def _build(job_name: str, states: Mapping[str, TaskState], job_status: JobStatus) -> int:
     build_image = create_task(ENTRYPOINT, name="build_image")
     job = await create_job(job_name, build_image)
 
@@ -98,26 +120,44 @@ async def _build(job_name: str) -> int:
     async with get_sql_session() as session:
         rows = (await session.execute(select(Task).where(Task.job_id == job.id))).scalars().all()
         for task in rows:
-            state = _STATES.get(task.name)
+            state = states.get(task.name)
             if state is None:
                 continue
-            status, error, started, completed = state
-            task.status = status
-            task.error = error
-            task.started_at = _BASE + timedelta(seconds=started) if started is not None else None
-            task.completed_at = _BASE + timedelta(seconds=completed) if completed is not None else None
+            task.status = state.status
+            task.error = state.error
+            task.started_at = _offset(state.started_offset_s)
+            task.completed_at = _offset(state.completed_offset_s)
             task.is_image_build = task.name == "build_image"
             session.add(task)
+
+        # Seed the job row too, or the header contradicts the tasks below it —
+        # a PENDING job above a graph with RUNNING and FAILED nodes.
+        job_row = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
+        job_row.status = job_status
+        job_row.started_at = _BASE
+        session.add(job_row)
         await session.commit()
 
     return job.id
 
 
-async def seed_graph_job(job_name: str) -> int:
+async def seed_graph_job(
+    job_name: str,
+    states: Mapping[str, TaskState] | None = None,
+    job_status: JobStatus = JOB_RUNNING,
+) -> int:
     """Create the demo graph job and return its id.
+
+    Args:
+        job_name: Name for the seeded job.
+        states: Per-task overrides merged over ``DEFAULT_STATES``; task names
+            not mentioned keep their default. Pass this to seed a scenario
+            other than the all-statuses default (e.g. an all-green graph).
+        job_status: Status written to the job row.
 
     ``with_ch=False`` is required: the e2e server subprocess holds the chdb
     file lock, and opening a second ClickHouse client here would deadlock.
     """
+    merged = {**DEFAULT_STATES, **(states or {})}
     async with orch_context(with_ch=False):
-        return await _build(job_name)
+        return await _build(job_name, merged, job_status)
