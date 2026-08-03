@@ -207,3 +207,39 @@ def test_task_view_meta_cells_do_not_overflow(page, base_url: str) -> None:
     )
 
     assert overflowing == [], f"meta cells overflow their column: {overflowing}"
+
+
+@pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
+@pytest.mark.skipif(
+    not is_local(),
+    reason="needs auth-off + an in-process worker (local_runtime), both local-mode only; "
+    "the distributed e2e job enforces auth and runs no worker",
+)
+def test_task_view_truncates_long_entrypoint_from_the_start(page, base_url: str) -> None:
+    """An over-long entrypoint keeps its tail and expands on click.
+
+    The fixture entrypoint is 61 chars, so it renders as an ellipsis plus the
+    last 49 — the module and function, which is the part that identifies it.
+    """
+    entrypoint = "aaiclick.orchestration.fixtures.sample_tasks.task_with_output"
+    task_id = _run_task_and_wait(page, base_url, entrypoint)
+
+    page.goto(f"{base_url}/?p=@task {task_id}")
+    page.wait_for_selector("#root")
+    login_if_needed(page)
+
+    truncated = page.locator(".meta [data-testid='truncated']")
+    truncated.wait_for(timeout=15000)
+
+    collapsed = truncated.inner_text()
+    assert collapsed.startswith("…")
+    assert len(collapsed) == 50
+    assert collapsed.endswith("task_with_output")
+    assert entrypoint.endswith(collapsed[1:])
+
+    truncated.click()
+    page.wait_for_function(
+        "() => document.querySelector('.meta [data-testid=\\'truncated\\']').textContent.startsWith('aaiclick')"
+    )
+
+    assert truncated.inner_text() == entrypoint
