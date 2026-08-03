@@ -216,10 +216,10 @@ def test_task_view_meta_cells_do_not_overflow(page, base_url: str) -> None:
     "the distributed e2e job enforces auth and runs no worker",
 )
 def test_task_view_truncates_long_entrypoint_from_the_start(page, base_url: str) -> None:
-    """An over-long entrypoint keeps its tail and expands on click.
+    """An over-long entrypoint stays on one line, keeps its tail, and expands.
 
-    The fixture entrypoint is 61 chars, so it renders as an ellipsis plus the
-    last 49 — the module and function, which is the part that identifies it.
+    The elision is done in CSS so it fits the column exactly; the assertions
+    therefore check rendered geometry, not a character count.
     """
     entrypoint = "aaiclick.orchestration.fixtures.sample_tasks.task_with_output"
     task_id = _run_task_and_wait(page, base_url, entrypoint)
@@ -228,18 +228,22 @@ def test_task_view_truncates_long_entrypoint_from_the_start(page, base_url: str)
     page.wait_for_selector("#root")
     login_if_needed(page)
 
-    truncated = page.locator(".meta [data-testid='truncated']")
-    truncated.wait_for(timeout=15000)
+    value = page.locator(".meta [data-testid='truncated']")
+    toggle = page.locator(".meta [data-testid='truncated-toggle']")
+    value.wait_for(timeout=15000)
 
-    collapsed = truncated.inner_text()
-    assert collapsed.startswith("…")
-    assert len(collapsed) == 50
-    assert collapsed.endswith("task_with_output")
-    assert entrypoint.endswith(collapsed[1:])
+    # Collapsed: one line, and clipped (so an ellipsis is actually showing).
+    collapsed_height = value.bounding_box()["height"]
+    assert value.evaluate("el => el.scrollWidth > el.clientWidth")
+    assert value.evaluate("el => getComputedStyle(el).direction") == "rtl"
 
-    truncated.click()
-    page.wait_for_function(
-        "() => document.querySelector('.meta [data-testid=\\'truncated\\']').textContent.startsWith('aaiclick')"
-    )
+    # The toggle is a real, visible control — not just a dotted underline.
+    assert toggle.is_visible()
+    assert toggle.inner_text() == "show full"
 
-    assert truncated.inner_text() == entrypoint
+    toggle.click()
+    page.wait_for_selector(".meta .truncated.is-expanded")
+
+    assert toggle.inner_text() == "show less"
+    assert value.bounding_box()["height"] > collapsed_height
+    assert value.inner_text() == entrypoint
