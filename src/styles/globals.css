@@ -194,7 +194,10 @@ tbody tr.clickable:hover { background: rgba(91,157,255,.12); }
 .detail-head h2 { display: flex; align-items: center; gap: 10px; margin: 0; }
 .meta { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 10px 24px; margin-top: 12px; }
-.meta div { font-size: 13px; }
+/* min-width:0 overrides a grid item's default `auto`, which otherwise refuses
+   to shrink below its content and lets a long unbreakable value (entrypoints,
+   snowflake ids) overflow into the neighbouring cell. */
+.meta div { font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
 .meta .k { color: var(--muted); display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
 .err { color: var(--red); background: var(--red-bg); border-radius: 8px; padding: 10px 12px; margin-top: 12px; font-family: var(--mono); font-size: 12px; }
 

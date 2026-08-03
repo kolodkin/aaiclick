@@ -179,3 +179,31 @@ def test_job_graph_view_renders_nodes(page, base_url: str) -> None:
     page.wait_for_selector("[data-testid='job-graph']", timeout=15000)
     page.locator(".gnode").first.wait_for(timeout=15000)
     assert page.locator(".gnode").count() >= 1
+
+
+@pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
+@pytest.mark.skipif(
+    not is_local(),
+    reason="needs auth-off + an in-process worker (local_runtime), both local-mode only; "
+    "the distributed e2e job enforces auth and runs no worker",
+)
+def test_task_view_meta_cells_do_not_overflow(page, base_url: str) -> None:
+    """Long values wrap inside their grid cell instead of overlapping the next.
+
+    Grid items default to ``min-width: auto`` and refuse to shrink below their
+    content, so an unbreakable entrypoint or snowflake id used to spill across
+    the neighbouring column and render two values on top of each other.
+    """
+    task_id = _run_task_and_wait(page, base_url, "aaiclick.orchestration.fixtures.sample_tasks.task_with_output")
+
+    page.goto(f"{base_url}/?p=@task {task_id}")
+    page.wait_for_selector("#root")
+    login_if_needed(page)
+    page.wait_for_selector(".meta div")
+
+    overflowing = page.eval_on_selector_all(
+        ".meta div",
+        "els => els.filter(el => el.scrollWidth > el.clientWidth).map(el => el.textContent)",
+    )
+
+    assert overflowing == [], f"meta cells overflow their column: {overflowing}"
