@@ -2,7 +2,8 @@ UI Specification
 ---
 
 Single-screen, prompt-driven dashboard for aaiclick operators. SPA served by
-the FastAPI backend with 2 s REST polling (v0). Tech stack and build details:
+the FastAPI backend with 2 s REST polling (v0); SSE is deferred to
+`docs/designs/future.md`. Tech stack and build details:
 `docs/designs/frontend.md`.
 
 **Implementation**: `aaiclick/server/app.py` — see `STATIC_DIR` and the
@@ -126,10 +127,3 @@ Task statuses use the same color scheme as job statuses, plus:
 **Main section**: log viewer filling the remaining screen with vertical scroll. Logs poll every 2 s in v0; real-time SSE is deferred. Lines come from the ClickHouse `task_logs` stream for the task's latest run, so they resolve regardless of which host ran the task. Returns `available=false` when the task has not run yet or its latest run captured no output. Lines are colored by `level` (`lvl-*` classes) and an opt-in "Show timestamps" toggle reveals each line's `created_at`.
 
 **Implementation**: `src/views/TaskDetail.tsx` — see `TaskDetail` component; `src/components/LogViewer.tsx` — see `LogViewer`; `aaiclick/server/routers/tasks.py` — see `get_task_logs`; `aaiclick/internal_api/tasks.py` — see `get_task_logs`.
-
-# Tech stack & real-time
-
-v0 uses 2 s REST polling (`refetchInterval`). SSE and LISTEN/NOTIFY fanout
-are deferred — see `docs/designs/future.md`.
-
-For framework choices, project layout, and build workflow, see `docs/designs/frontend.md`.
