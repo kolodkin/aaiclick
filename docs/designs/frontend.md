@@ -16,6 +16,23 @@ real-time updates. UX (layout, modes, wireframes) lives in `docs/designs/ui.md`.
 | Client state | None (URL is the state)      | The prompt drives navigation; no Redux/Zustand   |
 | Graph        | React Flow 12 + dagre 3      | Layered DAG view of job tasks (both MIT)         |
 
+??? info "Why React Flow + dagre for the graph"
+    React Flow renders nodes as React components, so `StatusBadge` and the
+    status CSS variables are reused directly; Cytoscape.js scales better but
+    draws to canvas, forcing the visual language to be rebuilt in its own
+    stylesheet language. React Flow ships no layout algorithm, so an engine is
+    needed either way — d3 cannot supply one (`d3-hierarchy` is trees only and
+    tasks fan in, which is why `d3-dag` exists separately).
+
+    The maintained dagre package is `@dagrejs/dagre`; the unscoped `dagre` has
+    not shipped since 2022.
+
+    The engine sits behind `layout()` in `src/lib/graphLayout.ts`, the only
+    module importing it, so replacing it is a one-file change. If nested-cluster
+    quality disappoints, the MIT-compatible escape hatch is Graphviz WASM
+    (`@hpcc-js/wasm-graphviz`) — **not** elkjs, which is dual EPL-2.0 /
+    GPL-3.0-or-later and cannot ship inside this MIT wheel.
+
 # Project layout
 
 `package.json` lives at the repo root alongside the Python package.

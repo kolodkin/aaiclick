@@ -47,7 +47,7 @@ concurrent jobs), or when sub-2 s latency matters for operators.
 
 ## Job Graph View — Group Containers
 
-The graph view (`docs/designs/job_graph_view.md`) renders tasks only. Groups
+The job graph view (`docs/designs/ui.md`) renders tasks only. Groups
 are honoured semantically — dependencies touching a group are expanded onto its
 source / sink tasks — but are not drawn. Containers would render as React Flow
 subflows (`parentId` + `extent`) with a status rolled up from member tasks.

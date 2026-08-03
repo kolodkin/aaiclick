@@ -100,7 +100,16 @@ Header with job info, followed by a table of tasks. Auto-refreshes via REST poll
 
 A Table/Graph toggle switches the body between the tasks table and the
 dependency graph. The prompt carries the mode — `@job <name> graph` — so the
-view stays shareable as a URL. Design: `docs/designs/job_graph_view.md`.
+view stays shareable as a URL.
+
+Nodes are task-level: the server resolves `Group` dependencies onto member
+tasks, so the client receives plain task nodes and task-to-task edges. Node
+colour follows task status, and an image-build task and its outgoing edges are
+styled distinctly.
+
+**Implementation**: `src/components/graph/JobGraph.tsx` — see `JobGraph`;
+`aaiclick/orchestration/graph.py` — see `build_graph_edges`;
+`aaiclick/server/routers/jobs.py` — see `job_graph`.
 
 Task statuses use the same color scheme as job statuses, plus:
 

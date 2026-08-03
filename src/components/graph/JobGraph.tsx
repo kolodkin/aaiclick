@@ -24,7 +24,7 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
 
   // Deliberately keyed on structure alone. Including the node data here would
   // re-run dagre on every 2 s poll and shuffle nodes while an operator reads
-  // them — see docs/designs/job_graph_view.md.
+  // them. Status changes must re-colour in place, never reposition.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const positions = useMemo(() => layout(layoutNodes, layoutEdges), [key]);
 

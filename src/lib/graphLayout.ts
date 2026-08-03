@@ -1,6 +1,6 @@
 // The ONLY module permitted to import a layout engine. Everything else works
 // through `layout()` and `structuralKey()`, so replacing dagre is a one-file
-// change — see docs/designs/job_graph_view.md.
+// change — see docs/designs/frontend.md for the engine rationale.
 import dagre from "@dagrejs/dagre";
 
 export interface LayoutNode {
