@@ -4,14 +4,21 @@ The web e2e server runs as a subprocess against the default local SQLite
 database, so this module writes to the same database in-process and the
 server reads the result back through ``GET /jobs/{ref}/graph``.
 
-Shape (9 tasks, 9 edges), chosen so one fixture proves layout, edge routing,
+Shape (9 tasks, 16 edges), chosen so one fixture proves layout, edge routing,
 and every status colour at once::
 
-    build_image ─▶ extract ─┬─▶ [group transforms] transform_a ─▶ transform_b ─┐
-                            │                                                  ├─▶ report
-                            ├─▶ validate ──────────────────────────────────────┘
-                            │        └─▶ enrich ─▶ load
-                            └─▶ notify
+    extract ─┬─▶ [group transforms] transform_a ─▶ transform_b ─┐
+             │                                                   ├─▶ report
+             ├─▶ validate ───────────────────────────────────────┘
+             │        └─▶ enrich ─▶ load
+             └─▶ notify
+
+    build_image ─▶ (every task above)
+
+The build task is a hub, not a link in the chain: ``inject_build_tasks`` wires
+``build >> dependent`` for every task sharing the image, and a registry-mode
+job normally shares one image job-wide. Modelling it as a chain would test a
+shape that never occurs.
 
 ``transforms`` is a real ``Group`` with an internal edge, so its source is
 ``transform_a`` and its sink is ``transform_b``. ``extract >> group`` and
@@ -100,7 +107,15 @@ async def _build(job_name: str, states: Mapping[str, TaskState], job_status: Job
     transform_a.group_id = transforms.id
     transform_b.group_id = transforms.id
 
-    build_image >> extract
+    pipeline = [extract, transform_a, transform_b, validate, enrich, load, notify, report]
+
+    # Mirrors `inject_build_tasks`, which wires `build >> dependent` for *every*
+    # task sharing the built image — not just the entry task. In a registry-mode
+    # docker/k8s job `stamp_inherited_image` spreads one image across the whole
+    # job, so the build node's out-degree is N-1, a hub rather than a chain.
+    for task in pipeline:
+        build_image >> task
+
     transform_a >> transform_b
     extract >> transforms
     transforms >> report
@@ -112,10 +127,7 @@ async def _build(job_name: str, states: Mapping[str, TaskState], job_status: Job
 
     # Pass every item explicitly rather than relying on registry collection:
     # the group's members hang off ``group_id``, not off task-level edges.
-    await commit_tasks(
-        [extract, transform_a, transform_b, validate, enrich, load, notify, report, transforms],
-        job_id=job.id,
-    )
+    await commit_tasks([*pipeline, transforms], job_id=job.id)
 
     async with get_sql_session() as session:
         rows = (await session.execute(select(Task).where(Task.job_id == job.id))).scalars().all()

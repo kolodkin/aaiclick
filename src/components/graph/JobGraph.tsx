@@ -3,7 +3,7 @@ import { Background, Controls, MarkerType, ReactFlow, type Edge } from "@xyflow/
 import "@xyflow/react/dist/style.css";
 import { useJobGraph } from "../../api/hooks";
 import { layout, structuralKey } from "../../lib/graphLayout";
-import { TaskNode, type TaskNodeType } from "./TaskNode";
+import { TaskNode, type BuildGate, type TaskNodeType } from "./TaskNode";
 
 const NODE_TYPES = { task: TaskNode };
 const CROWDED_NODE_COUNT = 300;
@@ -12,7 +12,32 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
   const { data, isLoading, isError } = useJobGraph(refId);
 
   const rawNodes = useMemo(() => data?.nodes ?? [], [data]);
-  const rawEdges = useMemo(() => data?.edges ?? [], [data]);
+  const allEdges = useMemo(() => data?.edges ?? [], [data]);
+
+  // A build gates every task sharing its image, so its out-degree is N-1 and
+  // drawing those edges buries the real pipeline under a fan of lines that all
+  // say the same thing. They are collapsed into a per-node badge instead —
+  // stated once where it applies, in every build state, with no layout churn
+  // when the build finishes.
+  const buildNodes = useMemo(() => new Map(rawNodes.filter((n) => n.is_image_build).map((n) => [String(n.id), n])), [
+    rawNodes,
+  ]);
+
+  const buildGates = useMemo(() => {
+    const gates = new Map<string, BuildGate>();
+    for (const edge of allEdges) {
+      const build = buildNodes.get(String(edge.source_id));
+      if (build) {
+        gates.set(String(edge.target_id), { id: String(build.id), name: build.name, status: build.status });
+      }
+    }
+    return gates;
+  }, [allEdges, buildNodes]);
+
+  const rawEdges = useMemo(
+    () => allEdges.filter((e) => !buildNodes.has(String(e.source_id))),
+    [allEdges, buildNodes],
+  );
 
   const layoutNodes = useMemo(() => rawNodes.map((n) => ({ id: String(n.id) })), [rawNodes]);
   const layoutEdges = useMemo(
@@ -34,16 +59,9 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
         id: String(view.id),
         type: "task" as const,
         position: positions.get(String(view.id)) ?? { x: 0, y: 0 },
-        data: { view },
+        data: { view, buildGate: buildGates.get(String(view.id)), onPrompt },
       })),
-    [rawNodes, positions],
-  );
-
-  // Image-build tasks gate the rest of the graph, so their outgoing edges are
-  // styled distinctly — the purpose `TaskView.is_image_build` was added for.
-  const buildTaskIds = useMemo(
-    () => new Set(rawNodes.filter((n) => n.is_image_build).map((n) => String(n.id))),
-    [rawNodes],
+    [rawNodes, positions, buildGates, onPrompt],
   );
 
   const edges: Edge[] = useMemo(
@@ -52,13 +70,12 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
         id: `${e.source_id}-${e.target_id}`,
         source: String(e.source_id),
         target: String(e.target_id),
-        className: buildTaskIds.has(String(e.source_id)) ? "gedge-build" : undefined,
         // Direction is the whole point of a dependency graph, and React Flow
         // draws no arrowhead by default.
         markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
         animated: false,
       })),
-    [rawEdges, buildTaskIds],
+    [rawEdges],
   );
 
   if (isLoading) return <p className="sub">loading graph…</p>;

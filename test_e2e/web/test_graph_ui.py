@@ -19,7 +19,7 @@ import pytest
 from helpers import login_if_needed
 
 from aaiclick.backend import is_local
-from aaiclick.orchestration.models import JOB_COMPLETED, TASK_COMPLETED
+from aaiclick.orchestration.models import JOB_COMPLETED, TASK_COMPLETED, TASK_RUNNING
 
 STATIC = Path(__file__).resolve().parents[2] / "aaiclick" / "server" / "static" / "index.html"
 
@@ -39,7 +39,11 @@ _EXPECTED_STATUSES = [
 ]
 
 _NODE_COUNT = 9
-_EDGE_COUNT = 9
+# `inject_build_tasks` fans a build out to everything sharing its image, so the
+# seed has 8 pipeline edges plus 8 build dependencies. The build dependencies
+# are collapsed into per-node badges, never drawn, so only the pipeline is.
+_PIPELINE_EDGE_COUNT = 8
+_BUILD_GATED_COUNT = 8
 
 pytestmark = [
     pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`"),
@@ -85,9 +89,13 @@ def graph_page(page, base_url: str, seeded_job_id: int):
 
 
 def test_graph_renders_every_task_and_edge(graph_page) -> None:
-    """All 9 seeded tasks and all 9 resolved edges reach the canvas."""
+    """All 9 seeded tasks reach the canvas, with the pipeline edges drawn.
+
+    The build's 8 dependencies are collapsed into badges, so the drawn edges
+    are the pipeline alone.
+    """
     assert graph_page.locator(".gnode").count() == _NODE_COUNT
-    assert graph_page.locator(".react-flow__edge").count() == _EDGE_COUNT
+    assert graph_page.locator(".react-flow__edge").count() == _PIPELINE_EDGE_COUNT
 
 
 @pytest.mark.parametrize("status", _EXPECTED_STATUSES)
@@ -96,10 +104,49 @@ def test_graph_colors_each_status(graph_page, status: str) -> None:
     assert graph_page.locator(f".gnode-{status}").count() >= 1
 
 
-def test_graph_marks_image_build_task_and_its_edge(graph_page) -> None:
-    """The build task is styled distinctly, as is the edge it gates."""
+def test_build_dependencies_render_as_badges_not_edges(graph_page) -> None:
+    """The build gates every other task, shown once per node rather than as
+    N-1 edges crossing the canvas."""
     assert graph_page.locator(".gnode-build").count() == 1
-    assert graph_page.locator(".react-flow__edge.gedge-build").count() == 1
+    assert graph_page.locator("[data-testid='build-gate']").count() == _BUILD_GATED_COUNT
+
+    # No build edge is ever drawn — the badge replaces them outright.
+    assert graph_page.locator(".react-flow__edge").count() == _PIPELINE_EDGE_COUNT
+
+    # The build task itself carries no badge; it is the build.
+    build_node = graph_page.locator(".gnode-build")
+    assert build_node.locator("[data-testid='build-gate']").count() == 0
+
+
+def test_build_badge_reflects_build_status(page, base_url: str) -> None:
+    """The badge is coloured by the build's own status, so a stalled or failed
+    build is visible from any task it blocks."""
+    job_id = _seed("graph_ui_building", states={"build_image": TaskState(TASK_RUNNING, None, 0, None)})
+
+    page.goto(f"{base_url}/?p=@job {job_id} graph")
+    page.wait_for_selector("#root")
+    login_if_needed(page)
+    page.wait_for_selector("[data-testid='job-graph']", timeout=15000)
+    page.wait_for_function(
+        "count => document.querySelectorAll('.gnode-buildgate-RUNNING').length === count",
+        arg=_BUILD_GATED_COUNT,
+        timeout=15000,
+    )
+
+    assert page.locator(".gnode-buildgate-RUNNING").count() == _BUILD_GATED_COUNT
+    # Still no drawn build edges, even while the build is in flight.
+    assert page.locator(".react-flow__edge").count() == _PIPELINE_EDGE_COUNT
+
+
+def test_clicking_build_badge_opens_the_build_task(graph_page, seeded_job_id: int) -> None:
+    """The badge is the way into the build's own detail and logs."""
+    graph = graph_page.request.get(f"{graph_page.url.split('/?')[0]}/api/v0/jobs/{seeded_job_id}/graph").json()
+    build_id = next(n["id"] for n in graph["nodes"] if n["is_image_build"])
+
+    graph_page.locator("[data-testid='build-gate']").first.click()
+    graph_page.wait_for_function("id => document.querySelector('#prompt').value === `@task ${id}`", arg=str(build_id))
+
+    assert graph_page.input_value("#prompt") == f"@task {build_id}"
 
 
 def test_graph_expands_group_to_source_and_sink_only(graph_page, seeded_job_id: int) -> None:
