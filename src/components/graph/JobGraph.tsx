@@ -2,10 +2,12 @@ import { useMemo, useState } from "react";
 import { Background, Controls, MarkerType, ReactFlow, type Edge } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useJobGraph } from "../../api/hooks";
-import { layout, structuralKey } from "../../lib/graphLayout";
+import { edgeKey, layout, structuralKey } from "../../lib/graphLayout";
+import { RoutedEdge } from "./RoutedEdge";
 import { TaskNode, type BuildGate, type TaskNodeType } from "./TaskNode";
 
 const NODE_TYPES = { task: TaskNode };
+const EDGE_TYPES = { routed: RoutedEdge };
 const CROWDED_NODE_COUNT = 300;
 
 export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: string) => void }) {
@@ -59,15 +61,13 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
   );
 
   const layoutNodes = useMemo(() => rawNodes.map((n) => ({ id: String(n.id) })), [rawNodes]);
-  // Layout always sees the pipeline plus the root build edges and never the
-  // expanded ones, so toggling them on overlays lines without moving a node.
+  // Layout always sees *every* edge, including the collapsed build ones. dagre
+  // then reserves space and computes waypoints for them, so revealing them
+  // routes around nodes rather than through — and because the input never
+  // changes, toggling moves nothing.
   const layoutEdges = useMemo(
-    () =>
-      [...pipelineEdges, ...rootBuildEdges].map((e) => ({
-        source: String(e.source_id),
-        target: String(e.target_id),
-      })),
-    [pipelineEdges, rootBuildEdges],
+    () => allEdges.map((e) => ({ source: String(e.source_id), target: String(e.target_id) })),
+    [allEdges],
   );
 
   const key = useMemo(() => structuralKey(layoutNodes, layoutEdges), [layoutNodes, layoutEdges]);
@@ -76,7 +76,7 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
   // re-run dagre on every 2 s poll and shuffle nodes while an operator reads
   // them. Status changes must re-colour in place, never reposition.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const positions = useMemo(() => layout(layoutNodes, layoutEdges), [key]);
+  const { positions, edgePoints } = useMemo(() => layout(layoutNodes, layoutEdges), [key]);
 
   const nodes: TaskNodeType[] = useMemo(
     () =>
@@ -102,6 +102,8 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
         id,
         source: String(e.source_id),
         target: String(e.target_id),
+        type: "routed" as const,
+        data: { points: edgePoints.get(edgeKey(String(e.source_id), String(e.target_id))) },
         className: buildEdgeIds.has(id) ? "gedge-build" : undefined,
         // Direction is the whole point of a dependency graph, and React Flow
         // draws no arrowhead by default.
@@ -109,7 +111,7 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
         animated: false,
       };
     });
-  }, [pipelineEdges, rootBuildEdges, extraBuildEdges, buildEdges, showBuildEdges]);
+  }, [pipelineEdges, rootBuildEdges, extraBuildEdges, buildEdges, showBuildEdges, edgePoints]);
 
   if (isLoading) return <p className="sub">loading graph…</p>;
   if (isError) return <p className="err">Could not load the job graph.</p>;
@@ -141,6 +143,7 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
           nodes={nodes}
           edges={edges}
           nodeTypes={NODE_TYPES}
+          edgeTypes={EDGE_TYPES}
           onNodeClick={(_event, node) => onPrompt(`@task ${node.id}`)}
           onlyRenderVisibleElements
           fitView

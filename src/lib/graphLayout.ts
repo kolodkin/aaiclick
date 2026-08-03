@@ -29,7 +29,22 @@ export function structuralKey(nodes: LayoutNode[], edges: LayoutEdge[]): string 
   return `${n}|${e}`;
 }
 
-export function layout(nodes: LayoutNode[], edges: LayoutEdge[]): Map<string, { x: number; y: number }> {
+export interface Point {
+  x: number;
+  y: number;
+}
+
+export interface Layout {
+  positions: Map<string, Point>;
+  /** Waypoints per `source>target`, routed clear of intervening nodes. */
+  edgePoints: Map<string, Point[]>;
+}
+
+export function edgeKey(source: string, target: string): string {
+  return `${source}>${target}`;
+}
+
+export function layout(nodes: LayoutNode[], edges: LayoutEdge[]): Layout {
   const g = new dagre.graphlib.Graph();
   g.setGraph({ rankdir: "LR", nodesep: 24, ranksep: 72 });
   g.setDefaultEdgeLabel(() => ({}));
@@ -43,7 +58,7 @@ export function layout(nodes: LayoutNode[], edges: LayoutEdge[]): Map<string, { 
 
   dagre.layout(g);
 
-  const positions = new Map<string, { x: number; y: number }>();
+  const positions = new Map<string, Point>();
   for (const node of nodes) {
     const placed = g.node(node.id);
     // dagre returns node centres; React Flow positions by top-left corner.
@@ -52,5 +67,18 @@ export function layout(nodes: LayoutNode[], edges: LayoutEdge[]): Map<string, { 
       y: placed.y - NODE_SIZE.height / 2,
     });
   }
-  return positions;
+
+  // dagre inserts virtual nodes for edges that span more than one rank and
+  // reserves space for them, so its waypoints already avoid the node boxes.
+  // React Flow's built-in edges draw a naive handle-to-handle bezier instead,
+  // which cuts straight through whatever sits between — so keep the points.
+  const edgePoints = new Map<string, Point[]>();
+  for (const edge of edges) {
+    const routed = g.edge(edge.source, edge.target);
+    if (routed?.points?.length) {
+      edgePoints.set(edgeKey(edge.source, edge.target), routed.points);
+    }
+  }
+
+  return { positions, edgePoints };
 }
