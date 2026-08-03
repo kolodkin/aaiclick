@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Background, Controls, MarkerType, ReactFlow, type Edge } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useJobGraph } from "../../api/hooks";
@@ -10,6 +10,7 @@ const CROWDED_NODE_COUNT = 300;
 
 export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: string) => void }) {
   const { data, isLoading, isError } = useJobGraph(refId);
+  const [showBuildEdges, setShowBuildEdges] = useState(false);
 
   const rawNodes = useMemo(() => data?.nodes ?? [], [data]);
   const allEdges = useMemo(() => data?.edges ?? [], [data]);
@@ -34,15 +35,39 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
     return gates;
   }, [allEdges, buildNodes]);
 
-  const rawEdges = useMemo(
+  const pipelineEdges = useMemo(
     () => allEdges.filter((e) => !buildNodes.has(String(e.source_id))),
     [allEdges, buildNodes],
   );
+  const buildEdges = useMemo(
+    () => allEdges.filter((e) => buildNodes.has(String(e.source_id))),
+    [allEdges, buildNodes],
+  );
+
+  // Keep the build attached to the graph by drawing only the edges into the
+  // pipeline's roots — tasks with no other predecessor. That is the shortest
+  // path from the build into the work, and it stops the build node floating
+  // unconnected while the other N-1 edges stay collapsed behind the badge.
+  const rootBuildEdges = useMemo(() => {
+    const hasPipelinePredecessor = new Set(pipelineEdges.map((e) => String(e.target_id)));
+    return buildEdges.filter((e) => !hasPipelinePredecessor.has(String(e.target_id)));
+  }, [buildEdges, pipelineEdges]);
+
+  const extraBuildEdges = useMemo(
+    () => buildEdges.filter((e) => !rootBuildEdges.includes(e)),
+    [buildEdges, rootBuildEdges],
+  );
 
   const layoutNodes = useMemo(() => rawNodes.map((n) => ({ id: String(n.id) })), [rawNodes]);
+  // Layout always sees the pipeline plus the root build edges and never the
+  // expanded ones, so toggling them on overlays lines without moving a node.
   const layoutEdges = useMemo(
-    () => rawEdges.map((e) => ({ source: String(e.source_id), target: String(e.target_id) })),
-    [rawEdges],
+    () =>
+      [...pipelineEdges, ...rootBuildEdges].map((e) => ({
+        source: String(e.source_id),
+        target: String(e.target_id),
+      })),
+    [pipelineEdges, rootBuildEdges],
   );
 
   const key = useMemo(() => structuralKey(layoutNodes, layoutEdges), [layoutNodes, layoutEdges]);
@@ -64,19 +89,27 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
     [rawNodes, positions, buildGates, onPrompt],
   );
 
-  const edges: Edge[] = useMemo(
-    () =>
-      rawEdges.map((e) => ({
-        id: `${e.source_id}-${e.target_id}`,
+  const edges: Edge[] = useMemo(() => {
+    const shown = [
+      ...pipelineEdges,
+      ...rootBuildEdges,
+      ...(showBuildEdges ? extraBuildEdges : []),
+    ];
+    const buildEdgeIds = new Set(buildEdges.map((e) => `${e.source_id}-${e.target_id}`));
+    return shown.map((e) => {
+      const id = `${e.source_id}-${e.target_id}`;
+      return {
+        id,
         source: String(e.source_id),
         target: String(e.target_id),
+        className: buildEdgeIds.has(id) ? "gedge-build" : undefined,
         // Direction is the whole point of a dependency graph, and React Flow
         // draws no arrowhead by default.
         markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
         animated: false,
-      })),
-    [rawEdges],
-  );
+      };
+    });
+  }, [pipelineEdges, rootBuildEdges, extraBuildEdges, buildEdges, showBuildEdges]);
 
   if (isLoading) return <p className="sub">loading graph…</p>;
   if (isError) return <p className="err">Could not load the job graph.</p>;
@@ -91,6 +124,17 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
       )}
       {rawNodes.length > CROWDED_NODE_COUNT && (
         <div className="sub">{rawNodes.length} tasks — the table view may be easier to scan.</div>
+      )}
+      {extraBuildEdges.length > 0 && (
+        <div className="chips">
+          <span
+            className={`chip${showBuildEdges ? " chip-active" : ""}`}
+            data-testid="build-edges-toggle"
+            onClick={() => setShowBuildEdges((v) => !v)}
+          >
+            {showBuildEdges ? "Hide" : "Show"} build dependencies ({extraBuildEdges.length})
+          </span>
+        </div>
       )}
       <div className="graph-canvas" data-testid="job-graph">
         <ReactFlow

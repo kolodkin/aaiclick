@@ -40,10 +40,14 @@ _EXPECTED_STATUSES = [
 
 _NODE_COUNT = 9
 # `inject_build_tasks` fans a build out to everything sharing its image, so the
-# seed has 8 pipeline edges plus 8 build dependencies. The build dependencies
-# are collapsed into per-node badges, never drawn, so only the pipeline is.
+# seed has 8 pipeline edges plus 8 build dependencies. Those 8 collapse into
+# per-node badges, save the one into the pipeline root.
 _PIPELINE_EDGE_COUNT = 8
 _BUILD_GATED_COUNT = 8
+# One build edge into the pipeline root (`extract`) is always drawn so the
+# build stays attached; the other 7 are behind the toggle.
+_ROOT_BUILD_EDGE_COUNT = 1
+_COLLAPSED_BUILD_EDGE_COUNT = _BUILD_GATED_COUNT - _ROOT_BUILD_EDGE_COUNT
 
 pytestmark = [
     pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`"),
@@ -91,11 +95,11 @@ def graph_page(page, base_url: str, seeded_job_id: int):
 def test_graph_renders_every_task_and_edge(graph_page) -> None:
     """All 9 seeded tasks reach the canvas, with the pipeline edges drawn.
 
-    The build's 8 dependencies are collapsed into badges, so the drawn edges
-    are the pipeline alone.
+    The build's 8 dependencies collapse into badges, except the one into the
+    pipeline root which is kept so the build is not left floating.
     """
     assert graph_page.locator(".gnode").count() == _NODE_COUNT
-    assert graph_page.locator(".react-flow__edge").count() == _PIPELINE_EDGE_COUNT
+    assert graph_page.locator(".react-flow__edge").count() == _PIPELINE_EDGE_COUNT + _ROOT_BUILD_EDGE_COUNT
 
 
 @pytest.mark.parametrize("status", _EXPECTED_STATUSES)
@@ -110,8 +114,8 @@ def test_build_dependencies_render_as_badges_not_edges(graph_page) -> None:
     assert graph_page.locator(".gnode-build").count() == 1
     assert graph_page.locator("[data-testid='build-gate']").count() == _BUILD_GATED_COUNT
 
-    # No build edge is ever drawn — the badge replaces them outright.
-    assert graph_page.locator(".react-flow__edge").count() == _PIPELINE_EDGE_COUNT
+    # Only the root build edge is drawn by default; the rest are collapsed.
+    assert graph_page.locator(".react-flow__edge.gedge-build").count() == _ROOT_BUILD_EDGE_COUNT
 
     # The build task itself carries no badge; it is the build.
     build_node = graph_page.locator(".gnode-build")
@@ -134,8 +138,35 @@ def test_build_badge_reflects_build_status(page, base_url: str) -> None:
     )
 
     assert page.locator(".gnode-buildgate-RUNNING").count() == _BUILD_GATED_COUNT
-    # Still no drawn build edges, even while the build is in flight.
-    assert page.locator(".react-flow__edge").count() == _PIPELINE_EDGE_COUNT
+    # Collapsed by default regardless of build state.
+    assert page.locator(".react-flow__edge.gedge-build").count() == _ROOT_BUILD_EDGE_COUNT
+
+
+def test_build_edges_toggle_reveals_every_dependency(graph_page) -> None:
+    """The full fan is available on demand, and toggling it must not move a
+    node — layout is computed from the collapsed set either way."""
+    toggle = graph_page.locator("[data-testid='build-edges-toggle']")
+    assert toggle.is_visible()
+    assert str(_COLLAPSED_BUILD_EDGE_COUNT) in toggle.inner_text()
+
+    before = graph_page.locator(".gnode").first.bounding_box()
+
+    toggle.click()
+    graph_page.wait_for_function(
+        "count => document.querySelectorAll('.react-flow__edge.gedge-build').length === count",
+        arg=_BUILD_GATED_COUNT,
+        timeout=15000,
+    )
+
+    assert graph_page.locator(".react-flow__edge").count() == _PIPELINE_EDGE_COUNT + _BUILD_GATED_COUNT
+    assert graph_page.locator(".gnode").first.bounding_box() == before
+
+    toggle.click()
+    graph_page.wait_for_function(
+        "count => document.querySelectorAll('.react-flow__edge.gedge-build').length === count",
+        arg=_ROOT_BUILD_EDGE_COUNT,
+        timeout=15000,
+    )
 
 
 def test_clicking_build_badge_opens_the_build_task(graph_page, seeded_job_id: int) -> None:

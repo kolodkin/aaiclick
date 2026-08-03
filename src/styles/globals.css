@@ -342,3 +342,7 @@ tbody tr.clickable:hover { background: rgba(91,157,255,.12); }
 .gnode-buildgate-FAILED { background: var(--red); color: #3a1210; }
 .gnode-buildgate-RUNNING, .gnode-buildgate-CLAIMED { background: var(--blue); color: #0d1c33; }
 .gnode-buildgate-PENDING { background: var(--gray); color: #1a1f2b; }
+
+/* build-gate edges: dashed and dimmed so they read as a secondary overlay */
+.react-flow__edge.gedge-build .react-flow__edge-path { stroke-dasharray: 4 3; opacity: .55; }
+.react-flow__edge.gedge-build .react-flow__arrowhead polyline { opacity: .55; }
