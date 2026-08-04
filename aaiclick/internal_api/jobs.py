@@ -15,14 +15,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
 from aaiclick.orchestration.execution import claiming
-from aaiclick.orchestration.models import TASK_COMPLETED, Job, Task
+from aaiclick.orchestration.models import TASK_COMPLETED, Dependency, Group, Job, Task
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import get_registered_job
 from aaiclick.orchestration.registered_jobs import run_job as _run_job_impl
 from aaiclick.orchestration.view_models import (
     JobDetail,
+    JobGraphView,
     JobStatsView,
     JobView,
+    build_job_graph_view,
     compute_job_stats_view,
     job_to_detail,
     job_to_view,
@@ -113,16 +115,19 @@ async def list_jobs(filter: JobListFilter | None = None) -> Page[JobView]:
     )
 
 
-async def _load_job_and_tasks(ref: RefId) -> tuple[Job, list[Task]]:
-    """Resolve a job ref and load its tasks ordered by creation time."""
-    async with get_sql_session() as session:
-        job = await _resolve_job(ref, session)
+async def _load_job_and_tasks(ref: RefId, session: AsyncSession | None = None) -> tuple[Job, list[Task]]:
+    """Resolve a job ref and load its tasks ordered by creation time.
+
+    Takes an optional session, like ``_resolve_job``, so a caller that needs
+    further queries on the same job can reuse it rather than re-implementing
+    the resolve-and-load contract.
+    """
+    async with _sql_session(session) as s:
+        job = await _resolve_job(ref, s)
         if job is None:
             raise NotFound(f"Job not found: {ref}")
         tasks = (
-            (await session.execute(select(Task).where(Task.job_id == job.id).order_by(col(Task.created_at))))
-            .scalars()
-            .all()
+            (await s.execute(select(Task).where(Task.job_id == job.id).order_by(col(Task.created_at)))).scalars().all()
         )
     return job, list(tasks)
 
@@ -131,6 +136,39 @@ async def get_job(ref: RefId) -> JobDetail:
     """Return full job detail including all tasks, ordered by creation time."""
     job, tasks = await _load_job_and_tasks(ref)
     return job_to_detail(job, tasks)
+
+
+async def get_job_graph(ref: RefId) -> JobGraphView:
+    """Return the job's dependency graph as task nodes and task-to-task edges.
+
+    Group dependencies are expanded onto member tasks server-side — the client
+    receives no ``Group`` or ``Dependency`` rows.
+    """
+    async with get_sql_session() as session:
+        job, tasks = await _load_job_and_tasks(ref, session)
+        groups = list((await session.execute(select(Group).where(Group.job_id == job.id))).scalars().all())
+        if not tasks and not groups:
+            return JobGraphView(job_id=job.id)
+
+        # Dependency rows are scoped by their endpoint ids, not by job — the
+        # table has no ``job_id``. Match with subqueries rather than inlining
+        # the ids: the SQL text stays constant-size so the statement cache
+        # hits, and a large job cannot blow SQLite's bind-parameter ceiling.
+        endpoint_ids = (
+            select(Task.id).where(Task.job_id == job.id).union_all(select(Group.id).where(Group.job_id == job.id))
+        )
+        dependencies = list(
+            (
+                await session.execute(
+                    select(Dependency).where(
+                        col(Dependency.next_id).in_(endpoint_ids) | col(Dependency.previous_id).in_(endpoint_ids)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    return build_job_graph_view(job, tasks, groups, dependencies)
 
 
 async def job_stats(ref: RefId) -> JobStatsView:

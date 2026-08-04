@@ -19,11 +19,11 @@ runs when the path is passed explicitly or in a dedicated CI workflow."""
 
 from __future__ import annotations
 
-import os
 import time
 from pathlib import Path
 
 import pytest
+from helpers import login_if_needed, open_page
 
 from aaiclick.backend import is_local
 
@@ -34,53 +34,38 @@ STATIC = Path(__file__).resolve().parents[2] / "aaiclick" / "server" / "static" 
 # reason that appears in the pytest output — do not raise ImportError here.
 pytest.importorskip("playwright.sync_api")
 
-# Seeded admin credentials. In distributed mode the server enforces auth, so the
-# smoke logs in before the SPA shell renders; the server seeds this admin on
-# startup from the same env vars. In local mode auth is off and login is skipped.
-_ADMIN_USER = os.getenv("AAICLICK_ADMIN_USERNAME", "admin")
-_ADMIN_PASS = os.getenv("AAICLICK_ADMIN_PASSWORD", "admin")
+_spa_built = pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
+# Several tests drive /jobs:run unauthenticated and rely on the in-process
+# worker that local_runtime starts; the distributed e2e job enforces auth (401)
+# and runs no worker, so the job would never execute.
+_local_only = pytest.mark.skipif(
+    not is_local(),
+    reason="needs auth-off + an in-process worker (local_runtime), both local-mode only",
+)
 
 
-def _login_if_needed(page) -> None:
-    """Authenticate through the SPA login form when auth is enforced.
-
-    Waits for either the login form (auth on) or the prompt input (auth off or
-    already authenticated), then logs in only if the form is present.
-    """
-    page.wait_for_selector("#login-username, #prompt")
-    if page.query_selector("#login-username"):
-        page.fill("#login-username", _ADMIN_USER)
-        page.fill("#login-password", _ADMIN_PASS)
-        page.click("#login-submit")
-        page.wait_for_selector("#prompt")
-
-
-@pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
+@_spa_built
 def test_home_loads(page, base_url: str) -> None:
     """Root URL renders the SPA shell (header + content area)."""
-    page.goto(f"{base_url}/")
-    page.wait_for_selector("#root")
-    _login_if_needed(page)
+    open_page(page, f"{base_url}/")
     # The header prompt input is present.
     page.wait_for_selector("#prompt")
 
 
-@pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
+@_spa_built
 def test_jobs_view_loads(page, base_url: str) -> None:
     """Navigating to /?p=@jobs shows the jobs view."""
-    page.goto(f"{base_url}/?p=@jobs")
-    page.wait_for_selector("#root")
-    _login_if_needed(page)
+    open_page(page, f"{base_url}/?p=@jobs")
     # The prompt input is populated with the value from the URL.
     prompt_val = page.input_value("#prompt")
     assert prompt_val == "@jobs"
 
 
-@pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
+@_spa_built
 def test_prompt_updates_url(page, base_url: str) -> None:
     """Typing into the prompt input updates the URL query parameter."""
     page.goto(f"{base_url}/")
-    _login_if_needed(page)
+    login_if_needed(page)
     page.wait_for_selector("#prompt")
     page.fill("#prompt", "@registered")
     # After typing, the URL should contain ?p=@registered.
@@ -109,12 +94,8 @@ def _run_task_and_wait(page, base_url: str, entrypoint: str) -> str:
     raise AssertionError("task did not reach COMPLETED within 30 s")
 
 
-@pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
-@pytest.mark.skipif(
-    not is_local(),
-    reason="needs auth-off + an in-process worker (local_runtime), both local-mode only; "
-    "the distributed e2e job enforces auth and runs no worker",
-)
+@_spa_built
+@_local_only
 def test_task_view_shows_logs(page, base_url: str) -> None:
     """The task view renders captured logs (local mode only).
 
@@ -128,9 +109,7 @@ def test_task_view_shows_logs(page, base_url: str) -> None:
     enforces auth (401) and runs no worker, so the job would never execute."""
     task_id = _run_task_and_wait(page, base_url, "aaiclick.orchestration.fixtures.sample_tasks.task_with_output")
 
-    page.goto(f"{base_url}/?p=@task {task_id}")
-    page.wait_for_selector("#root")
-    _login_if_needed(page)
+    open_page(page, f"{base_url}/?p=@task {task_id}")
 
     logs = page.locator("div.logs")
     logs.get_by_text("This is stdout").wait_for(timeout=15000)
@@ -141,19 +120,13 @@ def test_task_view_shows_logs(page, base_url: str) -> None:
     assert logs.locator(".src-stderr", has_text="This is stdout").count() == 0
 
 
-@pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
-@pytest.mark.skipif(
-    not is_local(),
-    reason="needs auth-off + an in-process worker (local_runtime), both local-mode only; "
-    "the distributed e2e job enforces auth and runs no worker",
-)
+@_spa_built
+@_local_only
 def test_task_view_colors_logs_by_level(page, base_url: str) -> None:
     """The task view colors lines by level and shows timestamps only when toggled."""
     task_id = _run_task_and_wait(page, base_url, "aaiclick.orchestration.fixtures.sample_tasks.task_with_log_levels")
 
-    page.goto(f"{base_url}/?p=@task {task_id}")
-    page.wait_for_selector("#root")
-    _login_if_needed(page)
+    open_page(page, f"{base_url}/?p=@task {task_id}")
 
     logs = page.locator("div.logs")
     logs.get_by_test_id("log-line-ERROR").get_by_text("error line").wait_for(timeout=15000)
@@ -165,3 +138,87 @@ def test_task_view_colors_logs_by_level(page, base_url: str) -> None:
     assert logs.locator(".ts").count() == 0
     page.get_by_label("Show timestamps").check()
     logs.locator(".ts").first.wait_for(timeout=5000)
+
+
+@_spa_built
+@_local_only
+def test_job_graph_view_renders_nodes(page, base_url: str) -> None:
+    """`@job <ref> graph` renders a React Flow canvas with a node per task."""
+    api = f"{base_url}/api/v0"
+    entrypoint = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
+    resp = page.request.post(f"{api}/jobs:run", data={"name": entrypoint})
+    assert resp.ok, resp.text()
+    job_id = resp.json()["id"]
+
+    # The graph endpoint is authoritative — poll it before driving the browser
+    # so a render failure is not confused with the job not having started.
+    graph = None
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        graph = page.request.get(f"{api}/jobs/{job_id}/graph").json()
+        if graph.get("nodes"):
+            break
+        time.sleep(0.5)
+    assert graph and graph["nodes"], "graph endpoint returned no nodes"
+
+    open_page(page, f"{base_url}/?p=@job {job_id} graph")
+
+    page.wait_for_selector("[data-testid='job-graph']", timeout=15000)
+    page.locator(".gnode").first.wait_for(timeout=15000)
+    assert page.locator(".gnode").count() >= 1
+
+
+@_spa_built
+@_local_only
+def test_task_view_meta_cells_do_not_overflow(page, base_url: str) -> None:
+    """Long values wrap inside their grid cell instead of overlapping the next.
+
+    Grid items default to ``min-width: auto`` and refuse to shrink below their
+    content, so an unbreakable entrypoint or snowflake id used to spill across
+    the neighbouring column and render two values on top of each other.
+    """
+    task_id = _run_task_and_wait(page, base_url, "aaiclick.orchestration.fixtures.sample_tasks.task_with_output")
+
+    open_page(page, f"{base_url}/?p=@task {task_id}")
+    page.wait_for_selector(".meta div")
+
+    overflowing = page.eval_on_selector_all(
+        ".meta div",
+        "els => els.filter(el => el.scrollWidth > el.clientWidth).map(el => el.textContent)",
+    )
+
+    assert overflowing == [], f"meta cells overflow their column: {overflowing}"
+
+
+@_spa_built
+@_local_only
+def test_task_view_truncates_long_entrypoint_from_the_start(page, base_url: str) -> None:
+    """An over-long entrypoint stays on one line, keeps its tail, and expands.
+
+    The elision is done in CSS so it fits the column exactly; the assertions
+    therefore check rendered geometry, not a character count.
+    """
+    entrypoint = "aaiclick.orchestration.fixtures.sample_tasks.task_with_output"
+    task_id = _run_task_and_wait(page, base_url, entrypoint)
+
+    open_page(page, f"{base_url}/?p=@task {task_id}")
+
+    value = page.locator(".meta [data-testid='truncated']")
+    toggle = page.locator(".meta [data-testid='truncated-toggle']")
+    value.wait_for(timeout=15000)
+
+    # Collapsed: one line, and clipped (so an ellipsis is actually showing).
+    collapsed_height = value.bounding_box()["height"]
+    assert value.evaluate("el => el.scrollWidth > el.clientWidth")
+    assert value.evaluate("el => getComputedStyle(el).direction") == "rtl"
+
+    # The toggle is a real, visible control — not just a dotted underline.
+    assert toggle.is_visible()
+    assert toggle.inner_text() == "show full"
+
+    toggle.click()
+    page.wait_for_selector(".meta .truncated.is-expanded")
+
+    assert toggle.inner_text() == "show less"
+    assert value.bounding_box()["height"] > collapsed_height
+    assert value.inner_text() == entrypoint

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "./components/Auth";
 import { Header } from "./components/Header";
 import { parsePrompt, promptFromUrl, pushPromptToUrl } from "./prompt";
@@ -30,7 +30,7 @@ function renderRoute(prompt: string, onPrompt: (v: string) => void) {
     case "register":
       return <RegisterForm name={route.name} onPrompt={onPrompt} />;
     case "job":
-      return <JobDetail name={route.name} onPrompt={onPrompt} />;
+      return <JobDetail name={route.name} view={route.view} onPrompt={onPrompt} />;
     case "task":
       return <TaskDetail id={route.id} onPrompt={onPrompt} />;
     case "run-confirm":
@@ -61,10 +61,12 @@ export function App() {
   const { me, ready } = useAuth();
   const [prompt, setPrompt] = useState(promptFromUrl);
 
-  const onPrompt = (value: string) => {
+  // Stable identity: Header calls this on every keystroke, and JobGraph's node
+  // memo depends on it — a fresh function per render rebuilds every node object.
+  const onPrompt = useCallback((value: string) => {
     setPrompt(value);
     pushPromptToUrl(value);
-  };
+  }, []);
 
   useEffect(() => {
     const onPop = () => setPrompt(promptFromUrl());

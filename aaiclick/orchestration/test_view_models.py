@@ -3,6 +3,8 @@
 from datetime import datetime
 
 from .models import (
+    DEPENDENCY_GROUP,
+    DEPENDENCY_TASK,
     JOB_COMPLETED,
     JOB_FAILED,
     JOB_PENDING,
@@ -11,12 +13,17 @@ from .models import (
     TASK_COMPLETED,
     TASK_FAILED,
     TASK_PENDING,
+    Dependency,
+    Group,
     Job,
     JobStatus,
     Task,
     TaskStatus,
 )
 from .view_models import (
+    GRAPH_EDGE_BUILD,
+    GRAPH_EDGE_DEPENDENCY,
+    GRAPH_NODE_TASK,
     JobDetail,
     JobStatsView,
     LogLine,
@@ -24,6 +31,7 @@ from .view_models import (
     TaskStatsView,
     TaskView,
     _ms_between,
+    build_job_graph_view,
     compute_job_stats_view,
     job_to_detail,
     job_to_view,
@@ -223,3 +231,67 @@ def test_task_logs_view_with_lines():
         lines=[LogLine(stream="stdout", text="a"), LogLine(stream="stderr", text="b")],
     )
     assert [(line.stream, line.text) for line in view.lines] == [("stdout", "a"), ("stderr", "b")]
+
+
+def test_build_job_graph_view_expands_group_dependency_onto_sink_task():
+    """A group→task dependency must reach the graph as a task→task edge."""
+    job = Job(id=1, name="graph_job")
+    tasks = [
+        Task(id=101, job_id=1, group_id=200, entrypoint="m.a", name="a"),
+        Task(id=102, job_id=1, group_id=200, entrypoint="m.b", name="b"),
+        Task(id=103, job_id=1, entrypoint="m.c", name="c"),
+    ]
+    groups = [Group(id=200, job_id=1, name="g")]
+    dependencies = [
+        Dependency(previous_id=101, previous_type=DEPENDENCY_TASK, next_id=102, next_type=DEPENDENCY_TASK),
+        Dependency(previous_id=200, previous_type=DEPENDENCY_GROUP, next_id=103, next_type=DEPENDENCY_TASK),
+    ]
+
+    view = build_job_graph_view(job, tasks, groups, dependencies)
+
+    assert {n.id for n in view.nodes} == {101, 102, 103}
+    assert all(n.kind == GRAPH_NODE_TASK for n in view.nodes)
+    edges = {(e.source_id, e.target_id) for e in view.edges}
+    assert (102, 103) in edges
+    assert (101, 103) not in edges
+    assert view.dropped_cycle_edges == 0
+
+
+def test_build_job_graph_view_carries_parent_group_id_for_future_containers():
+    job = Job(id=1, name="graph_job")
+    tasks = [Task(id=101, job_id=1, group_id=200, entrypoint="m.a", name="a")]
+    groups = [Group(id=200, job_id=1, name="g")]
+
+    view = build_job_graph_view(job, tasks, groups, [])
+
+    assert view.nodes[0].parent_group_id == 200
+
+
+def test_build_job_graph_view_classifies_build_edges_and_the_attaching_one():
+    """A build gates every task sharing its image; only the edge into a task
+    with no other predecessor attaches it to the pipeline."""
+    job = Job(id=1, name="graph_job")
+    tasks = [
+        Task(id=100, job_id=1, entrypoint="m.build", name="build", is_image_build=True),
+        Task(id=101, job_id=1, entrypoint="m.a", name="a"),
+        Task(id=102, job_id=1, entrypoint="m.b", name="b"),
+    ]
+    dependencies = [
+        Dependency(previous_id=101, previous_type=DEPENDENCY_TASK, next_id=102, next_type=DEPENDENCY_TASK),
+        Dependency(previous_id=100, previous_type=DEPENDENCY_TASK, next_id=101, next_type=DEPENDENCY_TASK),
+        Dependency(previous_id=100, previous_type=DEPENDENCY_TASK, next_id=102, next_type=DEPENDENCY_TASK),
+    ]
+
+    view = build_job_graph_view(job, tasks, [], dependencies)
+    by_pair = {(e.source_id, e.target_id): e for e in view.edges}
+
+    assert by_pair[(101, 102)].kind == GRAPH_EDGE_DEPENDENCY
+    assert not by_pair[(101, 102)].attaches_build
+
+    # `a` is a pipeline root, so its build edge is the attaching one.
+    assert by_pair[(100, 101)].kind == GRAPH_EDGE_BUILD
+    assert by_pair[(100, 101)].attaches_build
+
+    # `b` already depends on `a`, so its build edge is collapsible.
+    assert by_pair[(100, 102)].kind == GRAPH_EDGE_BUILD
+    assert not by_pair[(100, 102)].attaches_build

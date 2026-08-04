@@ -3,6 +3,7 @@ import { Chips } from "../components/Chips";
 import { LogViewer } from "../components/LogViewer";
 import { MetaGrid } from "../components/MetaGrid";
 import { StatusBadge } from "../components/StatusBadge";
+import { Truncated } from "../components/Truncated";
 import { durationBetween, relativeTime } from "../lib/format";
 
 export function TaskDetail({ id, onPrompt }: { id: string; onPrompt: (v: string) => void }) {
@@ -35,7 +36,7 @@ export function TaskDetail({ id, onPrompt }: { id: string; onPrompt: (v: string)
           items={[
             { k: "Task ID", v: `#${task.id}`, mono: true },
             { k: "Job", v: String(task.job_id), mono: true },
-            { k: "Entrypoint", v: task.entrypoint, mono: true },
+            { k: "Entrypoint", v: <Truncated text={task.entrypoint} /> },
             { k: "Attempt", v: `${task.attempt}/${task.max_retries}`, mono: true },
             { k: "Execution worker", v: task.execution_worker_id == null ? "—" : String(task.execution_worker_id), mono: true },
             { k: "Started", v: relativeTime(task.started_at) },

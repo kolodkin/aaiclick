@@ -14,6 +14,24 @@ real-time updates. UX (layout, modes, wireframes) lives in `docs/designs/ui.md`.
 | Data fetch   | TanStack Query 5             | Caching, retries, `refetchInterval` polling      |
 | Real-time    | REST polling (v0)            | 2 s `refetchInterval`; SSE deferred (see below)  |
 | Client state | None (URL is the state)      | The prompt drives navigation; no Redux/Zustand   |
+| Graph        | React Flow 12 + dagre 3      | Layered DAG view of job tasks (both MIT)         |
+
+??? info "Why React Flow + dagre for the graph"
+    React Flow renders nodes as React components, so `StatusBadge` and the
+    status CSS variables are reused directly; Cytoscape.js scales better but
+    draws to canvas, forcing the visual language to be rebuilt in its own
+    stylesheet language. React Flow ships no layout algorithm, so an engine is
+    needed either way — d3 cannot supply one (`d3-hierarchy` is trees only and
+    tasks fan in, which is why `d3-dag` exists separately).
+
+    The maintained dagre package is `@dagrejs/dagre`; the unscoped `dagre` has
+    not shipped since 2022.
+
+    The engine sits behind `layout()` in `src/lib/graphLayout.ts`, the only
+    module importing it, so replacing it is a one-file change. If nested-cluster
+    quality disappoints, the MIT-compatible escape hatch is Graphviz WASM
+    (`@hpcc-js/wasm-graphviz`) — **not** elkjs, which is dual EPL-2.0 /
+    GPL-3.0-or-later and cannot ship inside this MIT wheel.
 
 # Project layout
 
@@ -81,6 +99,7 @@ via TanStack Query's `refetchInterval`.
 |-------------------|----------------------------------|------------------------------------------|
 | `useJobs`         | `GET /api/v0/jobs`               | `aaiclick/server/routers/jobs.py`        |
 | `useJob`          | `GET /api/v0/jobs/{ref}`         | `aaiclick/server/routers/jobs.py`        |
+| `useJobGraph`     | `GET /api/v0/jobs/{ref}/graph`   | `aaiclick/server/routers/jobs.py`        |
 | `useTask`         | `GET /api/v0/tasks/{id}`         | `aaiclick/server/routers/tasks.py`       |
 | `useTaskLogs`     | `GET /api/v0/tasks/{id}/logs`    | `aaiclick/server/routers/tasks.py`       |
 | `useRegisteredJobs` | `GET /api/v0/registered-jobs`  | `aaiclick/server/routers/registered_jobs.py` |
@@ -168,7 +187,7 @@ hatches in `docs/designs/future.md`).
 | End-to-end (browser) | Playwright (Python) | `test_e2e/web/test_smoke.py`, pytest           |
 
 **Implementation**: `test_e2e/web/test_smoke.py` — golden-path smoke
-(home load, `@jobs` view, URL sync); `test_e2e/web/conftest.py` — server
+(home load, `@jobs` view, URL sync, job graph render); `test_e2e/web/conftest.py` — server
 fixture (uvicorn on a free port) + Playwright fixtures (`base_url`,
 `browser`, `page`). Playwright is an optional dep — tests skip cleanly
 when the package is absent.

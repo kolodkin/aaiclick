@@ -164,6 +164,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v0/jobs/{ref}/graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Job Graph */
+        get: operations["job_graph_api_v0_jobs__ref__graph_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v0/jobs/{ref}/stats": {
         parameters: {
             query?: never;
@@ -527,6 +544,70 @@ export interface components {
             /** Tasks Failed */
             tasks_failed: number;
         };
+        /**
+         * GraphEdgeView
+         * @description A resolved task-to-task edge.
+         *
+         *     ``kind`` and ``attaches_build`` are graph semantics, so they are settled
+         *     here rather than re-derived per client: an image build gates every task
+         *     sharing its image, and a UI that draws all of those edges buries the
+         *     pipeline. ``attaches_build`` marks the one edge per root that keeps the
+         *     build connected, so the rest can be collapsed.
+         */
+        GraphEdgeView: {
+            /**
+             * Attaches Build
+             * @default false
+             */
+            attaches_build: boolean;
+            /**
+             * Kind
+             * @default dependency
+             * @enum {string}
+             */
+            kind: "dependency" | "build";
+            /** Source Id */
+            source_id: string;
+            /** Target Id */
+            target_id: string;
+        };
+        /**
+         * GraphNodeView
+         * @description A node in the job graph. v1 emits only ``"task"`` nodes.
+         */
+        GraphNodeView: {
+            /** Attempt */
+            attempt: number;
+            /** Completed At */
+            completed_at?: string | null;
+            /** Entrypoint */
+            entrypoint: string;
+            /** Error */
+            error?: string | null;
+            /** Id */
+            id: string;
+            /**
+             * Is Image Build
+             * @default false
+             */
+            is_image_build: boolean;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "task" | "group";
+            /** Name */
+            name: string;
+            /** Parent Group Id */
+            parent_group_id?: string | null;
+            /** Started At */
+            started_at?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "PENDING" | "CLAIMED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_CLEANUP" | "UPSTREAM_FAILED";
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -583,6 +664,23 @@ export interface components {
              * @default 0
              */
             total_tasks: number;
+        };
+        /**
+         * JobGraphView
+         * @description Job dependency graph served by ``GET /jobs/{ref}/graph``.
+         */
+        JobGraphView: {
+            /**
+             * Dropped Cycle Edges
+             * @default 0
+             */
+            dropped_cycle_edges: number;
+            /** Edges */
+            edges?: components["schemas"]["GraphEdgeView"][];
+            /** Job Id */
+            job_id: string;
+            /** Nodes */
+            nodes?: components["schemas"]["GraphNodeView"][];
         };
         /**
          * JobStatsView
@@ -1597,6 +1695,46 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    job_graph_api_v0_jobs__ref__graph_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: number | string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobGraphView"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

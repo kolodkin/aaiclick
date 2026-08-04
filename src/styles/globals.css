@@ -194,7 +194,10 @@ tbody tr.clickable:hover { background: rgba(91,157,255,.12); }
 .detail-head h2 { display: flex; align-items: center; gap: 10px; margin: 0; }
 .meta { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 10px 24px; margin-top: 12px; }
-.meta div { font-size: 13px; }
+/* min-width:0 overrides a grid item's default `auto`, which otherwise refuses
+   to shrink below its content and lets a long unbreakable value (entrypoints,
+   snowflake ids) overflow into the neighbouring cell. */
+.meta div { font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
 .meta .k { color: var(--muted); display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
 .err { color: var(--red); background: var(--red-bg); border-radius: 8px; padding: 10px 12px; margin-top: 12px; font-family: var(--mono); font-size: 12px; }
 
@@ -268,3 +271,79 @@ tbody tr.clickable:hover { background: rgba(91,157,255,.12); }
 .fake-prompt.empty { color: var(--muted); }
 .frame-body { padding: 22px; }
 .frame-body .logs { max-height: 320px; }
+
+/* ---- job graph ---- */
+.graph-canvas {
+  height: 70vh;
+  min-height: 420px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(10, 14, 26, .35);
+}
+.gnode { position: relative;
+  width: 220px;
+  height: 76px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--gray);
+  border-radius: 8px;
+  background: var(--panel-strong);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--hi);
+  cursor: pointer;
+  /* visible, not hidden: the build-gate badge overhangs the top-left corner.
+     Long text is clipped by .gnode-name / .gnode-meta instead. */
+  overflow: visible;
+}
+.gnode-head { display: flex; align-items: center; gap: 6px; justify-content: space-between; overflow: hidden; }
+.gnode-name { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gnode-meta { display: flex; gap: 8px; margin-top: 6px; font-size: 11px; color: var(--muted); overflow: hidden; white-space: nowrap; }
+.gnode-PENDING   { border-left-color: var(--gray); }
+.gnode-CLAIMED   { border-left-color: var(--purple); }
+.gnode-RUNNING   { border-left-color: var(--blue); }
+.gnode-COMPLETED { border-left-color: var(--green); }
+.gnode-FAILED,
+.gnode-UPSTREAM_FAILED { border-left-color: var(--red); }
+.gnode-CANCELLED { border-left-color: var(--yellow); }
+.gnode-PENDING_CLEANUP { border-left-color: var(--gray); }
+.gnode-build { border-style: dashed; }
+.chip-active { border-color: var(--accent); color: var(--accent); }
+
+/* head-elided values (long entrypoints) with a visible expand toggle */
+.truncated-wrap { display: block; }
+.truncated { display: block; }
+/* direction:rtl puts the ellipsis at the start, so the informative tail
+   survives. CSS elides to the column's real width — a fixed character count
+   cannot, and would still wrap. */
+.truncated:not(.is-expanded) {
+  direction: rtl; text-align: left; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.truncated.is-expanded { overflow-wrap: anywhere; }
+.truncated-toggle {
+  display: inline-block; margin-top: 2px; padding: 0; border: 0; background: none;
+  font: 11px inherit; color: var(--accent); cursor: pointer; text-decoration: underline;
+}
+.truncated-toggle:hover { filter: brightness(1.2); }
+.truncated-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+
+/* image-build gate badge — collapses the build's N-1 dependency edges.
+   line-height equal to the content box centres a single glyph more reliably
+   than flex alignment, which sits high on a monospace ascent. */
+.gnode-buildgate {
+  position: absolute; top: -5px; left: -5px; z-index: 2;
+  width: 15px; height: 15px; padding: 0;
+  border-radius: 50%; border: 1px solid rgba(10,14,26,.9);
+  background: var(--purple); color: #241539;
+  font: 700 9px/13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  text-align: center; cursor: pointer;
+}
+.gnode-buildgate:hover { filter: brightness(1.12); }
+.gnode-buildgate-FAILED { background: var(--red); color: #3a1210; }
+.gnode-buildgate-RUNNING, .gnode-buildgate-CLAIMED { background: var(--blue); color: #0d1c33; }
+.gnode-buildgate-COMPLETED { background: var(--green); color: #08301c; }
+.gnode-buildgate-PENDING { background: var(--gray); color: #1a1f2b; }
+
+/* build-gate edges: dashed and dimmed so they read as a secondary overlay */
+.react-flow__edge.gedge-build .react-flow__edge-path { stroke-dasharray: 4 3; opacity: .55; }
