@@ -95,7 +95,9 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
       ...rootBuildEdges,
       ...(showBuildEdges ? extraBuildEdges : []),
     ];
-    const buildEdgeIds = new Set(buildEdges.map((e) => `${e.source_id}-${e.target_id}`));
+    // Only the toggled-on extras are dashed. The root edge is always drawn
+    // and is part of the graph's backbone, so it reads as a normal edge.
+    const dashedIds = new Set(extraBuildEdges.map((e) => `${e.source_id}-${e.target_id}`));
     return shown.map((e) => {
       const id = `${e.source_id}-${e.target_id}`;
       return {
@@ -104,14 +106,14 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
         target: String(e.target_id),
         type: "routed" as const,
         data: { points: edgePoints.get(edgeKey(String(e.source_id), String(e.target_id))) },
-        className: buildEdgeIds.has(id) ? "gedge-build" : undefined,
+        className: dashedIds.has(id) ? "gedge-build" : undefined,
         // Direction is the whole point of a dependency graph, and React Flow
         // draws no arrowhead by default.
         markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
         animated: false,
       };
     });
-  }, [pipelineEdges, rootBuildEdges, extraBuildEdges, buildEdges, showBuildEdges, edgePoints]);
+  }, [pipelineEdges, rootBuildEdges, extraBuildEdges, showBuildEdges, edgePoints]);
 
   if (isLoading) return <p className="sub">loading graph…</p>;
   if (isError) return <p className="err">Could not load the job graph.</p>;

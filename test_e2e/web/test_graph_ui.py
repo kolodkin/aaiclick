@@ -44,8 +44,8 @@ _NODE_COUNT = 9
 # per-node badges, save the one into the pipeline root.
 _PIPELINE_EDGE_COUNT = 8
 _BUILD_GATED_COUNT = 8
-# One build edge into the pipeline root (`extract`) is always drawn so the
-# build stays attached; the other 7 are behind the toggle.
+# One build edge into the pipeline root (`extract`) is always drawn solid so
+# the build stays attached; the other 7 are dashed and behind the toggle.
 _ROOT_BUILD_EDGE_COUNT = 1
 _COLLAPSED_BUILD_EDGE_COUNT = _BUILD_GATED_COUNT - _ROOT_BUILD_EDGE_COUNT
 
@@ -114,8 +114,10 @@ def test_build_dependencies_render_as_badges_not_edges(graph_page) -> None:
     assert graph_page.locator(".gnode-build").count() == 1
     assert graph_page.locator("[data-testid='build-gate']").count() == _BUILD_GATED_COUNT
 
-    # Only the root build edge is drawn by default; the rest are collapsed.
-    assert graph_page.locator(".react-flow__edge.gedge-build").count() == _ROOT_BUILD_EDGE_COUNT
+    # The root edge is drawn solid — it is backbone, not overlay — so nothing
+    # is dashed until the extras are revealed.
+    assert graph_page.locator(".react-flow__edge.gedge-build").count() == 0
+    assert graph_page.locator(".react-flow__edge").count() == _PIPELINE_EDGE_COUNT + _ROOT_BUILD_EDGE_COUNT
 
     # The build task itself carries no badge; it is the build.
     build_node = graph_page.locator(".gnode-build")
@@ -139,7 +141,7 @@ def test_build_badge_reflects_build_status(page, base_url: str) -> None:
 
     assert page.locator(".gnode-buildgate-RUNNING").count() == _BUILD_GATED_COUNT
     # Collapsed by default regardless of build state.
-    assert page.locator(".react-flow__edge.gedge-build").count() == _ROOT_BUILD_EDGE_COUNT
+    assert page.locator(".react-flow__edge.gedge-build").count() == 0
 
 
 def test_build_edges_toggle_reveals_every_dependency(graph_page) -> None:
@@ -154,7 +156,7 @@ def test_build_edges_toggle_reveals_every_dependency(graph_page) -> None:
     toggle.click()
     graph_page.wait_for_function(
         "count => document.querySelectorAll('.react-flow__edge.gedge-build').length === count",
-        arg=_BUILD_GATED_COUNT,
+        arg=_COLLAPSED_BUILD_EDGE_COUNT,
         timeout=15000,
     )
 
@@ -163,8 +165,7 @@ def test_build_edges_toggle_reveals_every_dependency(graph_page) -> None:
 
     toggle.click()
     graph_page.wait_for_function(
-        "count => document.querySelectorAll('.react-flow__edge.gedge-build').length === count",
-        arg=_ROOT_BUILD_EDGE_COUNT,
+        "() => document.querySelectorAll('.react-flow__edge.gedge-build').length === 0",
         timeout=15000,
     )
 
