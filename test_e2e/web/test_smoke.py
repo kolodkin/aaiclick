@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 
 import pytest
-from helpers import login_if_needed
+from helpers import login_if_needed, open_page
 
 from aaiclick.backend import is_local
 
@@ -34,29 +34,34 @@ STATIC = Path(__file__).resolve().parents[2] / "aaiclick" / "server" / "static" 
 # reason that appears in the pytest output — do not raise ImportError here.
 pytest.importorskip("playwright.sync_api")
 
+_spa_built = pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
+# Several tests drive /jobs:run unauthenticated and rely on the in-process
+# worker that local_runtime starts; the distributed e2e job enforces auth (401)
+# and runs no worker, so the job would never execute.
+_local_only = pytest.mark.skipif(
+    not is_local(),
+    reason="needs auth-off + an in-process worker (local_runtime), both local-mode only",
+)
 
-@pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
+
+@_spa_built
 def test_home_loads(page, base_url: str) -> None:
     """Root URL renders the SPA shell (header + content area)."""
-    page.goto(f"{base_url}/")
-    page.wait_for_selector("#root")
-    login_if_needed(page)
+    open_page(page, f"{base_url}/")
     # The header prompt input is present.
     page.wait_for_selector("#prompt")
 
 
-@pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
+@_spa_built
 def test_jobs_view_loads(page, base_url: str) -> None:
     """Navigating to /?p=@jobs shows the jobs view."""
-    page.goto(f"{base_url}/?p=@jobs")
-    page.wait_for_selector("#root")
-    login_if_needed(page)
+    open_page(page, f"{base_url}/?p=@jobs")
     # The prompt input is populated with the value from the URL.
     prompt_val = page.input_value("#prompt")
     assert prompt_val == "@jobs"
 
 
-@pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
+@_spa_built
 def test_prompt_updates_url(page, base_url: str) -> None:
     """Typing into the prompt input updates the URL query parameter."""
     page.goto(f"{base_url}/")
@@ -89,12 +94,8 @@ def _run_task_and_wait(page, base_url: str, entrypoint: str) -> str:
     raise AssertionError("task did not reach COMPLETED within 30 s")
 
 
-@pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
-@pytest.mark.skipif(
-    not is_local(),
-    reason="needs auth-off + an in-process worker (local_runtime), both local-mode only; "
-    "the distributed e2e job enforces auth and runs no worker",
-)
+@_spa_built
+@_local_only
 def test_task_view_shows_logs(page, base_url: str) -> None:
     """The task view renders captured logs (local mode only).
 
@@ -108,9 +109,7 @@ def test_task_view_shows_logs(page, base_url: str) -> None:
     enforces auth (401) and runs no worker, so the job would never execute."""
     task_id = _run_task_and_wait(page, base_url, "aaiclick.orchestration.fixtures.sample_tasks.task_with_output")
 
-    page.goto(f"{base_url}/?p=@task {task_id}")
-    page.wait_for_selector("#root")
-    login_if_needed(page)
+    open_page(page, f"{base_url}/?p=@task {task_id}")
 
     logs = page.locator("div.logs")
     logs.get_by_text("This is stdout").wait_for(timeout=15000)
@@ -121,19 +120,13 @@ def test_task_view_shows_logs(page, base_url: str) -> None:
     assert logs.locator(".src-stderr", has_text="This is stdout").count() == 0
 
 
-@pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
-@pytest.mark.skipif(
-    not is_local(),
-    reason="needs auth-off + an in-process worker (local_runtime), both local-mode only; "
-    "the distributed e2e job enforces auth and runs no worker",
-)
+@_spa_built
+@_local_only
 def test_task_view_colors_logs_by_level(page, base_url: str) -> None:
     """The task view colors lines by level and shows timestamps only when toggled."""
     task_id = _run_task_and_wait(page, base_url, "aaiclick.orchestration.fixtures.sample_tasks.task_with_log_levels")
 
-    page.goto(f"{base_url}/?p=@task {task_id}")
-    page.wait_for_selector("#root")
-    login_if_needed(page)
+    open_page(page, f"{base_url}/?p=@task {task_id}")
 
     logs = page.locator("div.logs")
     logs.get_by_test_id("log-line-ERROR").get_by_text("error line").wait_for(timeout=15000)
@@ -147,12 +140,8 @@ def test_task_view_colors_logs_by_level(page, base_url: str) -> None:
     logs.locator(".ts").first.wait_for(timeout=5000)
 
 
-@pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
-@pytest.mark.skipif(
-    not is_local(),
-    reason="needs auth-off + an in-process worker (local_runtime), both local-mode only; "
-    "the distributed e2e job enforces auth and runs no worker",
-)
+@_spa_built
+@_local_only
 def test_job_graph_view_renders_nodes(page, base_url: str) -> None:
     """`@job <ref> graph` renders a React Flow canvas with a node per task."""
     api = f"{base_url}/api/v0"
@@ -172,21 +161,15 @@ def test_job_graph_view_renders_nodes(page, base_url: str) -> None:
         time.sleep(0.5)
     assert graph and graph["nodes"], "graph endpoint returned no nodes"
 
-    page.goto(f"{base_url}/?p=@job {job_id} graph")
-    page.wait_for_selector("#root")
-    login_if_needed(page)
+    open_page(page, f"{base_url}/?p=@job {job_id} graph")
 
     page.wait_for_selector("[data-testid='job-graph']", timeout=15000)
     page.locator(".gnode").first.wait_for(timeout=15000)
     assert page.locator(".gnode").count() >= 1
 
 
-@pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
-@pytest.mark.skipif(
-    not is_local(),
-    reason="needs auth-off + an in-process worker (local_runtime), both local-mode only; "
-    "the distributed e2e job enforces auth and runs no worker",
-)
+@_spa_built
+@_local_only
 def test_task_view_meta_cells_do_not_overflow(page, base_url: str) -> None:
     """Long values wrap inside their grid cell instead of overlapping the next.
 
@@ -196,9 +179,7 @@ def test_task_view_meta_cells_do_not_overflow(page, base_url: str) -> None:
     """
     task_id = _run_task_and_wait(page, base_url, "aaiclick.orchestration.fixtures.sample_tasks.task_with_output")
 
-    page.goto(f"{base_url}/?p=@task {task_id}")
-    page.wait_for_selector("#root")
-    login_if_needed(page)
+    open_page(page, f"{base_url}/?p=@task {task_id}")
     page.wait_for_selector(".meta div")
 
     overflowing = page.eval_on_selector_all(
@@ -209,12 +190,8 @@ def test_task_view_meta_cells_do_not_overflow(page, base_url: str) -> None:
     assert overflowing == [], f"meta cells overflow their column: {overflowing}"
 
 
-@pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
-@pytest.mark.skipif(
-    not is_local(),
-    reason="needs auth-off + an in-process worker (local_runtime), both local-mode only; "
-    "the distributed e2e job enforces auth and runs no worker",
-)
+@_spa_built
+@_local_only
 def test_task_view_truncates_long_entrypoint_from_the_start(page, base_url: str) -> None:
     """An over-long entrypoint stays on one line, keeps its tail, and expands.
 
@@ -224,9 +201,7 @@ def test_task_view_truncates_long_entrypoint_from_the_start(page, base_url: str)
     entrypoint = "aaiclick.orchestration.fixtures.sample_tasks.task_with_output"
     task_id = _run_task_and_wait(page, base_url, entrypoint)
 
-    page.goto(f"{base_url}/?p=@task {task_id}")
-    page.wait_for_selector("#root")
-    login_if_needed(page)
+    open_page(page, f"{base_url}/?p=@task {task_id}")
 
     value = page.locator(".meta [data-testid='truncated']")
     toggle = page.locator(".meta [data-testid='truncated-toggle']")

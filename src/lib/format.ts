@@ -29,3 +29,15 @@ export function durationMs(ms: number | null | undefined): string {
   if (ms == null) return "—";
   return formatSeconds(Math.max(0, Math.round(ms / 1000)));
 }
+
+/**
+ * Last segment of a fully-qualified entrypoint — the function name.
+ *
+ * Mirrors `_short_entrypoint` in `aaiclick/orchestration/view_models.py`, which
+ * `TaskStatsView` uses server-side.
+ */
+export function shortEntrypoint(entrypoint: string): string {
+  if (entrypoint.includes(":")) return entrypoint.split(":").pop() ?? entrypoint;
+  if (entrypoint.includes(".")) return entrypoint.split(".").pop() ?? entrypoint;
+  return entrypoint;
+}

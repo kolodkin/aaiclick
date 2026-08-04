@@ -55,18 +55,32 @@ def group_member_tasks(
     return tasks
 
 
-def _inner_edges(members: set[int], task_edges: Sequence[GraphEdge]) -> list[GraphEdge]:
-    return [e for e in task_edges if e.source_id in members and e.target_id in members]
+class _Endpoints(NamedTuple):
+    """A group's entry and exit tasks."""
+
+    sources: set[int]
+    sinks: set[int]
 
 
-def _sources(members: set[int], inner: Sequence[GraphEdge]) -> set[int]:
-    """Members with no predecessor inside the group."""
-    return members - {e.target_id for e in inner}
+def _group_endpoints(
+    group_id: int,
+    group_members: Mapping[int, set[int]],
+    group_children: Mapping[int, set[int]],
+    task_edges: Sequence[GraphEdge],
+) -> _Endpoints:
+    """Members with no predecessor / no successor inside the group.
 
-
-def _sinks(members: set[int], inner: Sequence[GraphEdge]) -> set[int]:
-    """Members with no successor inside the group."""
-    return members - {e.source_id for e in inner}
+    Sources and sinks are a property of the group, so callers memoise this
+    rather than re-walking the tree for every dependency that touches it.
+    """
+    members = group_member_tasks(group_id, group_members, group_children)
+    has_predecessor: set[int] = set()
+    has_successor: set[int] = set()
+    for edge in task_edges:
+        if edge.source_id in members and edge.target_id in members:
+            has_predecessor.add(edge.target_id)
+            has_successor.add(edge.source_id)
+    return _Endpoints(members - has_predecessor, members - has_successor)
 
 
 def expand_dependencies(
@@ -85,20 +99,24 @@ def expand_dependencies(
         if d.previous_type == DEPENDENCY_TASK and d.next_type == DEPENDENCY_TASK
     ]
     edges: set[GraphEdge] = set(task_edges)
+    endpoints: dict[int, _Endpoints] = {}
+
+    def endpoints_of(group_id: int) -> _Endpoints:
+        if group_id not in endpoints:
+            endpoints[group_id] = _group_endpoints(group_id, group_members, group_children, task_edges)
+        return endpoints[group_id]
 
     for dep in dependencies:
         if dep.previous_type == DEPENDENCY_TASK and dep.next_type == DEPENDENCY_TASK:
             continue
 
         if dep.previous_type == DEPENDENCY_GROUP:
-            members = group_member_tasks(dep.previous_id, group_members, group_children)
-            heads = _sinks(members, _inner_edges(members, task_edges))
+            heads = endpoints_of(dep.previous_id).sinks
         else:
             heads = {dep.previous_id}
 
         if dep.next_type == DEPENDENCY_GROUP:
-            members = group_member_tasks(dep.next_id, group_members, group_children)
-            tails = _sources(members, _inner_edges(members, task_edges))
+            tails = endpoints_of(dep.next_id).sources
         else:
             tails = {dep.next_id}
 
@@ -133,19 +151,15 @@ def drop_cycle_edges(edges: Sequence[GraphEdge]) -> tuple[list[GraphEdge], int]:
         stack: list[tuple[int, Iterator[int]]] = [(root, iter(adjacency.get(root, ())))]
         while stack:
             node, remaining = stack[-1]
-            descended = False
-            for nxt in remaining:
-                state = color.get(nxt, _WHITE)
-                if state == _GREY:
-                    dropped.add(GraphEdge(node, nxt))
-                elif state == _WHITE:
-                    color[nxt] = _GREY
-                    stack.append((nxt, iter(adjacency.get(nxt, ()))))
-                    descended = True
-                    break
-            if not descended:
+            nxt = next(remaining, None)
+            if nxt is None:
                 color[node] = _BLACK
                 stack.pop()
+            elif color.get(nxt, _WHITE) == _GREY:
+                dropped.add(GraphEdge(node, nxt))
+            elif color.get(nxt, _WHITE) == _WHITE:
+                color[nxt] = _GREY
+                stack.append((nxt, iter(adjacency.get(nxt, ()))))
 
     return [e for e in ordered if e not in dropped], len(dropped)
 

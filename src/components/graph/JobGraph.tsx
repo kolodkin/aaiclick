@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Background, Controls, MarkerType, ReactFlow, type Edge } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useJobGraph } from "../../api/hooks";
+import { Chips } from "../Chips";
 import { edgeKey, layout, structuralKey } from "../../lib/graphLayout";
 import { RoutedEdge } from "./RoutedEdge";
 import { TaskNode, type BuildGate, type TaskNodeType } from "./TaskNode";
@@ -17,48 +18,33 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
   const rawNodes = useMemo(() => data?.nodes ?? [], [data]);
   const allEdges = useMemo(() => data?.edges ?? [], [data]);
 
-  // A build gates every task sharing its image, so its out-degree is N-1 and
-  // drawing those edges buries the real pipeline under a fan of lines that all
-  // say the same thing. They are collapsed into a per-node badge instead —
-  // stated once where it applies, in every build state, with no layout churn
-  // when the build finishes.
-  const buildNodes = useMemo(() => new Map(rawNodes.filter((n) => n.is_image_build).map((n) => [String(n.id), n])), [
-    rawNodes,
-  ]);
+  // The server classifies edges (`kind`, `attaches_build`) — which edges a
+  // build gates, and which one keeps it attached to the pipeline, is graph
+  // semantics, not geometry. These three partitions therefore depend only on
+  // `allEdges`, which react-query keeps referentially stable across a
+  // status-only poll, so the edge layer stops re-rendering every 2 s.
+  const pipelineEdges = useMemo(() => allEdges.filter((e) => e.kind !== "build"), [allEdges]);
+  const rootBuildEdges = useMemo(
+    () => allEdges.filter((e) => e.kind === "build" && e.attaches_build),
+    [allEdges],
+  );
+  const extraBuildEdges = useMemo(
+    () => allEdges.filter((e) => e.kind === "build" && !e.attaches_build),
+    [allEdges],
+  );
 
+  // Carries the build's own status, so this one legitimately tracks node data.
   const buildGates = useMemo(() => {
+    const builds = new Map(rawNodes.filter((n) => n.is_image_build).map((n) => [String(n.id), n]));
     const gates = new Map<string, BuildGate>();
     for (const edge of allEdges) {
-      const build = buildNodes.get(String(edge.source_id));
+      const build = builds.get(String(edge.source_id));
       if (build) {
         gates.set(String(edge.target_id), { id: String(build.id), name: build.name, status: build.status });
       }
     }
     return gates;
-  }, [allEdges, buildNodes]);
-
-  const pipelineEdges = useMemo(
-    () => allEdges.filter((e) => !buildNodes.has(String(e.source_id))),
-    [allEdges, buildNodes],
-  );
-  const buildEdges = useMemo(
-    () => allEdges.filter((e) => buildNodes.has(String(e.source_id))),
-    [allEdges, buildNodes],
-  );
-
-  // Keep the build attached to the graph by drawing only the edges into the
-  // pipeline's roots — tasks with no other predecessor. That is the shortest
-  // path from the build into the work, and it stops the build node floating
-  // unconnected while the other N-1 edges stay collapsed behind the badge.
-  const rootBuildEdges = useMemo(() => {
-    const hasPipelinePredecessor = new Set(pipelineEdges.map((e) => String(e.target_id)));
-    return buildEdges.filter((e) => !hasPipelinePredecessor.has(String(e.target_id)));
-  }, [buildEdges, pipelineEdges]);
-
-  const extraBuildEdges = useMemo(
-    () => buildEdges.filter((e) => !rootBuildEdges.includes(e)),
-    [buildEdges, rootBuildEdges],
-  );
+  }, [allEdges, rawNodes]);
 
   const layoutNodes = useMemo(() => rawNodes.map((n) => ({ id: String(n.id) })), [rawNodes]);
   // Layout always sees *every* edge, including the collapsed build ones. dagre
@@ -90,29 +76,29 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
   );
 
   const edges: Edge[] = useMemo(() => {
-    const shown = [
-      ...pipelineEdges,
-      ...rootBuildEdges,
-      ...(showBuildEdges ? extraBuildEdges : []),
+    // Only the toggled-on extras are dashed. The root edge is always drawn and
+    // is part of the graph's backbone, so it reads as a normal edge.
+    const groups: [typeof pipelineEdges, boolean][] = [
+      [pipelineEdges, false],
+      [rootBuildEdges, false],
+      [showBuildEdges ? extraBuildEdges : [], true],
     ];
-    // Only the toggled-on extras are dashed. The root edge is always drawn
-    // and is part of the graph's backbone, so it reads as a normal edge.
-    const dashedIds = new Set(extraBuildEdges.map((e) => `${e.source_id}-${e.target_id}`));
-    return shown.map((e) => {
-      const id = `${e.source_id}-${e.target_id}`;
-      return {
-        id,
-        source: String(e.source_id),
-        target: String(e.target_id),
-        type: "routed" as const,
-        data: { points: edgePoints.get(edgeKey(String(e.source_id), String(e.target_id))) },
-        className: dashedIds.has(id) ? "gedge-build" : undefined,
-        // Direction is the whole point of a dependency graph, and React Flow
-        // draws no arrowhead by default.
-        markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
-        animated: false,
-      };
-    });
+    return groups.flatMap(([group, dashed]) =>
+      group.map((e) => {
+        const key = edgeKey(String(e.source_id), String(e.target_id));
+        return {
+          id: key,
+          source: String(e.source_id),
+          target: String(e.target_id),
+          type: "routed" as const,
+          data: { points: edgePoints.get(key) },
+          className: dashed ? "gedge-build" : undefined,
+          // Direction is the whole point of a dependency graph, and React Flow
+          // draws no arrowhead by default.
+          markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
+        };
+      }),
+    );
   }, [pipelineEdges, rootBuildEdges, extraBuildEdges, showBuildEdges, edgePoints]);
 
   if (isLoading) return <p className="sub">loading graph…</p>;
@@ -130,15 +116,16 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
         <div className="sub">{rawNodes.length} tasks — the table view may be easier to scan.</div>
       )}
       {extraBuildEdges.length > 0 && (
-        <div className="chips">
-          <span
-            className={`chip${showBuildEdges ? " chip-active" : ""}`}
-            data-testid="build-edges-toggle"
-            onClick={() => setShowBuildEdges((v) => !v)}
-          >
-            {showBuildEdges ? "Hide" : "Show"} build dependencies ({extraBuildEdges.length})
-          </span>
-        </div>
+        <Chips
+          chips={[
+            {
+              label: `${showBuildEdges ? "Hide" : "Show"} build dependencies (${extraBuildEdges.length})`,
+              onClick: () => setShowBuildEdges((v) => !v),
+              testId: "build-edges-toggle",
+              active: showBuildEdges,
+            },
+          ]}
+        />
       )}
       <div className="graph-canvas" data-testid="job-graph">
         <ReactFlow

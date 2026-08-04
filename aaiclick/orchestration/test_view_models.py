@@ -21,6 +21,8 @@ from .models import (
     TaskStatus,
 )
 from .view_models import (
+    GRAPH_EDGE_BUILD,
+    GRAPH_EDGE_DEPENDENCY,
     GRAPH_NODE_TASK,
     JobDetail,
     JobStatsView,
@@ -263,3 +265,33 @@ def test_build_job_graph_view_carries_parent_group_id_for_future_containers():
     view = build_job_graph_view(job, tasks, groups, [])
 
     assert view.nodes[0].parent_group_id == 200
+
+
+def test_build_job_graph_view_classifies_build_edges_and_the_attaching_one():
+    """A build gates every task sharing its image; only the edge into a task
+    with no other predecessor attaches it to the pipeline."""
+    job = Job(id=1, name="graph_job")
+    tasks = [
+        Task(id=100, job_id=1, entrypoint="m.build", name="build", is_image_build=True),
+        Task(id=101, job_id=1, entrypoint="m.a", name="a"),
+        Task(id=102, job_id=1, entrypoint="m.b", name="b"),
+    ]
+    dependencies = [
+        Dependency(previous_id=101, previous_type=DEPENDENCY_TASK, next_id=102, next_type=DEPENDENCY_TASK),
+        Dependency(previous_id=100, previous_type=DEPENDENCY_TASK, next_id=101, next_type=DEPENDENCY_TASK),
+        Dependency(previous_id=100, previous_type=DEPENDENCY_TASK, next_id=102, next_type=DEPENDENCY_TASK),
+    ]
+
+    view = build_job_graph_view(job, tasks, [], dependencies)
+    by_pair = {(e.source_id, e.target_id): e for e in view.edges}
+
+    assert by_pair[(101, 102)].kind == GRAPH_EDGE_DEPENDENCY
+    assert not by_pair[(101, 102)].attaches_build
+
+    # `a` is a pipeline root, so its build edge is the attaching one.
+    assert by_pair[(100, 101)].kind == GRAPH_EDGE_BUILD
+    assert by_pair[(100, 101)].attaches_build
+
+    # `b` already depends on `a`, so its build edge is collapsible.
+    assert by_pair[(100, 102)].kind == GRAPH_EDGE_BUILD
+    assert not by_pair[(100, 102)].attaches_build

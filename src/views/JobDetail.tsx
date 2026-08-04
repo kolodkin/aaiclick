@@ -58,20 +58,13 @@ export function JobDetail({
         />
         {job.error && <div className="err">{job.error}</div>}
       </div>
-      <div className="chips">
-        <span
-          className={`chip${view === "table" ? " chip-active" : ""}`}
-          onClick={() => onPrompt(`@job ${job.name}`)}
-        >
-          Table
-        </span>
-        <span
-          className={`chip${view === "graph" ? " chip-active" : ""}`}
-          onClick={() => onPrompt(`@job ${job.name} graph`)}
-        >
-          Graph
-        </span>
-      </div>
+      <Chips
+        chips={[
+          { label: "Table", cmd: `@job ${job.name}`, active: view === "table" },
+          { label: "Graph", cmd: `@job ${job.name} graph`, active: view === "graph" },
+        ]}
+        onPrompt={onPrompt}
+      />
       {view === "graph" ? (
         <JobGraph refId={job.name} onPrompt={onPrompt} />
       ) : (

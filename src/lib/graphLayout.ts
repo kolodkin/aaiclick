@@ -23,7 +23,7 @@ export function structuralKey(nodes: LayoutNode[], edges: LayoutEdge[]): string 
     .sort()
     .join(",");
   const e = edges
-    .map((x) => `${x.source}>${x.target}`)
+    .map((x) => edgeKey(x.source, x.target))
     .sort()
     .join(",");
   return `${n}|${e}`;
@@ -36,7 +36,12 @@ export interface Point {
 
 export interface Layout {
   positions: Map<string, Point>;
-  /** Waypoints per `source>target`, routed clear of intervening nodes. */
+  /**
+   * Waypoints per `source>target`, strictly *between* the endpoints, in render
+   * order, to be connected as a polyline. Excluding the endpoints keeps this
+   * engine-neutral: a replacement engine must satisfy this contract rather
+   * than the consumer inferring dagre's own endpoint convention.
+   */
   edgePoints: Map<string, Point[]>;
 }
 
@@ -74,9 +79,12 @@ export function layout(nodes: LayoutNode[], edges: LayoutEdge[]): Layout {
   // which cuts straight through whatever sits between — so keep the points.
   const edgePoints = new Map<string, Point[]>();
   for (const edge of edges) {
+    // dagre brackets its polyline with both endpoints, which sit on the node
+    // box a few px from where React Flow renders the handle. Trim them here so
+    // consumers never encode that detail.
     const routed = g.edge(edge.source, edge.target);
     if (routed?.points?.length) {
-      edgePoints.set(edgeKey(edge.source, edge.target), routed.points);
+      edgePoints.set(edgeKey(edge.source, edge.target), routed.points.slice(1, -1));
     }
   }
 

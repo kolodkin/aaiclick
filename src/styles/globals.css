@@ -306,11 +306,12 @@ tbody tr.clickable:hover { background: rgba(91,157,255,.12); }
 .gnode-FAILED,
 .gnode-UPSTREAM_FAILED { border-left-color: var(--red); }
 .gnode-CANCELLED { border-left-color: var(--yellow); }
+.gnode-PENDING_CLEANUP { border-left-color: var(--gray); }
 .gnode-build { border-style: dashed; }
 .chip-active { border-color: var(--accent); color: var(--accent); }
 
 /* head-elided values (long entrypoints) with a visible expand toggle */
-.truncated-wrap { display: block; min-width: 0; }
+.truncated-wrap { display: block; }
 .truncated { display: block; }
 /* direction:rtl puts the ellipsis at the start, so the informative tail
    survives. CSS elides to the column's real width — a fixed character count
@@ -341,8 +342,8 @@ tbody tr.clickable:hover { background: rgba(91,157,255,.12); }
 .gnode-buildgate:hover { filter: brightness(1.12); }
 .gnode-buildgate-FAILED { background: var(--red); color: #3a1210; }
 .gnode-buildgate-RUNNING, .gnode-buildgate-CLAIMED { background: var(--blue); color: #0d1c33; }
+.gnode-buildgate-COMPLETED { background: var(--green); color: #08301c; }
 .gnode-buildgate-PENDING { background: var(--gray); color: #1a1f2b; }
 
 /* build-gate edges: dashed and dimmed so they read as a secondary overlay */
 .react-flow__edge.gedge-build .react-flow__edge-path { stroke-dasharray: 4 3; opacity: .55; }
-.react-flow__edge.gedge-build .react-flow__arrowhead polyline { opacity: .55; }

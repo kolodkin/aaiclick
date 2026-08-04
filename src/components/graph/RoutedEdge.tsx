@@ -24,7 +24,7 @@ export function RoutedEdge({
 }: EdgeProps) {
   const points = (data as RoutedEdgeData | undefined)?.points;
 
-  if (!points || points.length < 2) {
+  if (!points || points.length === 0) {
     const [fallback] = getBezierPath({
       sourceX,
       sourceY,
@@ -36,16 +36,20 @@ export function RoutedEdge({
     return <BaseEdge id={id} path={fallback} markerEnd={markerEnd} style={style} />;
   }
 
-  // Anchor to the real handles — dagre's ends sit on the node box, which is a
-  // few pixels off from where React Flow renders the handle.
-  const via = points.slice(1, -1);
-  return <BaseEdge id={id} path={smoothPath(sourceX, sourceY, via, targetX, targetY)} markerEnd={markerEnd} style={style} />;
+  // `points` are the waypoints between the endpoints, so anchor to the real
+  // handle coordinates at each end.
+  return (
+    <BaseEdge
+      id={id}
+      path={smoothPath(sourceX, sourceY, points, targetX, targetY)}
+      markerEnd={markerEnd}
+      style={style}
+    />
+  );
 }
 
 /** Quadratic segments through the midpoints, so corners round off. */
 function smoothPath(startX: number, startY: number, via: Point[], endX: number, endY: number): string {
-  if (via.length === 0) return `M ${startX},${startY} L ${endX},${endY}`;
-
   let d = `M ${startX},${startY}`;
   for (let i = 0; i < via.length; i++) {
     const current = via[i];

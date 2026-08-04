@@ -85,7 +85,7 @@ DEFAULT_STATES: dict[str, TaskState] = {
     "validate": TaskState(TASK_CLAIMED),
     "enrich": TaskState(TASK_FAILED, "ValueError: unexpected null in column 'amount'", 55, 63),
     "load": TaskState(TASK_UPSTREAM_FAILED, "Upstream task 'enrich' failed"),
-    "notify": TaskState(TASK_CANCELLED, "Aborted: a sibling task in the group failed"),
+    "notify": TaskState(TASK_CANCELLED, "Cancelled: job aborted before this task started"),
     "report": TaskState(TASK_PENDING),
 }
 

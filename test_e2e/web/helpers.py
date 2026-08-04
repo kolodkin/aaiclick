@@ -23,3 +23,10 @@ def login_if_needed(page) -> None:
         page.fill("#login-password", ADMIN_PASS)
         page.click("#login-submit")
         page.wait_for_selector("#prompt")
+
+
+def open_page(page, url: str) -> None:
+    """Navigate, wait for the SPA shell, and authenticate if the server asks."""
+    page.goto(url)
+    page.wait_for_selector("#root")
+    login_if_needed(page)

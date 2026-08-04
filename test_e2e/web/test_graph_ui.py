@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-from helpers import login_if_needed
+from helpers import open_page
 
 from aaiclick.backend import is_local
 from aaiclick.orchestration.models import JOB_COMPLETED, TASK_COMPLETED, TASK_RUNNING
@@ -76,20 +76,22 @@ def _seed(name: str, **kwargs) -> int:
         return pool.submit(lambda: asyncio.run(seed_graph_job(name, **kwargs))).result()
 
 
-@pytest.fixture()
-def graph_page(page, base_url: str, seeded_job_id: int):
-    """Open the seeded job's graph view with every node rendered."""
-    page.goto(f"{base_url}/?p=@job {seeded_job_id} graph")
-    page.wait_for_selector("#root")
-    login_if_needed(page)
+def open_graph(page, base_url: str, job_id: int, node_count: int = _NODE_COUNT):
+    """Open a job's graph view and wait until every node has rendered."""
+    open_page(page, f"{base_url}/?p=@job {job_id} graph")
     page.wait_for_selector("[data-testid='job-graph']", timeout=15000)
-    page.locator(".gnode").first.wait_for(timeout=15000)
     page.wait_for_function(
         "count => document.querySelectorAll('.gnode').length === count",
-        arg=_NODE_COUNT,
+        arg=node_count,
         timeout=15000,
     )
     return page
+
+
+@pytest.fixture()
+def graph_page(page, base_url: str, seeded_job_id: int):
+    """Open the seeded job's graph view with every node rendered."""
+    return open_graph(page, base_url, seeded_job_id)
 
 
 def test_graph_renders_every_task_and_edge(graph_page) -> None:
@@ -129,10 +131,7 @@ def test_build_badge_reflects_build_status(page, base_url: str) -> None:
     build is visible from any task it blocks."""
     job_id = _seed("graph_ui_building", states={"build_image": TaskState(TASK_RUNNING, None, 0, None)})
 
-    page.goto(f"{base_url}/?p=@job {job_id} graph")
-    page.wait_for_selector("#root")
-    login_if_needed(page)
-    page.wait_for_selector("[data-testid='job-graph']", timeout=15000)
+    open_graph(page, base_url, job_id)
     page.wait_for_function(
         "count => document.querySelectorAll('.gnode-buildgate-RUNNING').length === count",
         arg=_BUILD_GATED_COUNT,
@@ -146,7 +145,7 @@ def test_build_badge_reflects_build_status(page, base_url: str) -> None:
 
 def test_build_edges_toggle_reveals_every_dependency(graph_page) -> None:
     """The full fan is available on demand, and toggling it must not move a
-    node — layout is computed from the collapsed set either way."""
+    node — layout is computed from every edge, drawn or not."""
     toggle = graph_page.locator("[data-testid='build-edges-toggle']")
     assert toggle.is_visible()
     assert str(_COLLAPSED_BUILD_EDGE_COUNT) in toggle.inner_text()
@@ -204,9 +203,7 @@ def test_clicking_a_node_navigates_to_the_task(graph_page) -> None:
 
 def test_toggle_switches_between_table_and_graph(page, base_url: str, seeded_job_id: int) -> None:
     """The Table/Graph chips move the prompt between the two views."""
-    page.goto(f"{base_url}/?p=@job {seeded_job_id}")
-    page.wait_for_selector("#root")
-    login_if_needed(page)
+    open_page(page, f"{base_url}/?p=@job {seeded_job_id}")
     page.wait_for_selector("table")
     assert page.locator("[data-testid='job-graph']").count() == 0
 
@@ -222,10 +219,7 @@ def test_seed_accepts_custom_states(page, base_url: str) -> None:
     all_green = {name: TaskState(TASK_COMPLETED, None, 0, 30) for name in DEFAULT_STATES}
     job_id = _seed("graph_ui_all_green", states=all_green, job_status=JOB_COMPLETED)
 
-    page.goto(f"{base_url}/?p=@job {job_id} graph")
-    page.wait_for_selector("#root")
-    login_if_needed(page)
-    page.wait_for_selector("[data-testid='job-graph']", timeout=15000)
+    open_graph(page, base_url, job_id)
     page.wait_for_function(
         "count => document.querySelectorAll('.gnode-COMPLETED').length === count",
         arg=_NODE_COUNT,

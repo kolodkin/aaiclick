@@ -547,8 +547,25 @@ export interface components {
         /**
          * GraphEdgeView
          * @description A resolved task-to-task edge.
+         *
+         *     ``kind`` and ``attaches_build`` are graph semantics, so they are settled
+         *     here rather than re-derived per client: an image build gates every task
+         *     sharing its image, and a UI that draws all of those edges buries the
+         *     pipeline. ``attaches_build`` marks the one edge per root that keeps the
+         *     build connected, so the rest can be collapsed.
          */
         GraphEdgeView: {
+            /**
+             * Attaches Build
+             * @default false
+             */
+            attaches_build: boolean;
+            /**
+             * Kind
+             * @default dependency
+             * @enum {string}
+             */
+            kind: "dependency" | "build";
             /** Source Id */
             source_id: string;
             /** Target Id */

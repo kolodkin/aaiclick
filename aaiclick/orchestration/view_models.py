@@ -114,11 +114,25 @@ class GraphNodeView(BaseModel):
     is_image_build: bool = False
 
 
+GRAPH_EDGE_DEPENDENCY = "dependency"
+GRAPH_EDGE_BUILD = "build"
+GraphEdgeKind = Literal["dependency", "build"]
+
+
 class GraphEdgeView(BaseModel):
-    """A resolved task-to-task edge."""
+    """A resolved task-to-task edge.
+
+    ``kind`` and ``attaches_build`` are graph semantics, so they are settled
+    here rather than re-derived per client: an image build gates every task
+    sharing its image, and a UI that draws all of those edges buries the
+    pipeline. ``attaches_build`` marks the one edge per root that keeps the
+    build connected, so the rest can be collapsed.
+    """
 
     source_id: SnowflakeId
     target_id: SnowflakeId
+    kind: GraphEdgeKind = GRAPH_EDGE_DEPENDENCY
+    attaches_build: bool = False
 
 
 class JobGraphView(BaseModel):
@@ -307,13 +321,23 @@ def build_job_graph_view(
     # A dependency row can reference a task removed by a retention sweep;
     # React Flow throws on an edge whose endpoint is missing.
     known = {t.id for t in tasks}
+    kept = [e for e in edges if e.source_id in known and e.target_id in known]
+
+    build_ids = {t.id for t in tasks if t.is_image_build}
+    # A task is a pipeline root when nothing but a build precedes it.
+    has_dependency_predecessor = {e.target_id for e in kept if e.source_id not in build_ids}
+
     return JobGraphView(
         job_id=job.id,
         nodes=[task_to_graph_node(t) for t in tasks],
         edges=[
-            GraphEdgeView(source_id=e.source_id, target_id=e.target_id)
-            for e in edges
-            if e.source_id in known and e.target_id in known
+            GraphEdgeView(
+                source_id=e.source_id,
+                target_id=e.target_id,
+                kind=GRAPH_EDGE_BUILD if e.source_id in build_ids else GRAPH_EDGE_DEPENDENCY,
+                attaches_build=e.source_id in build_ids and e.target_id not in has_dependency_predecessor,
+            )
+            for e in kept
         ],
         dropped_cycle_edges=dropped,
     )

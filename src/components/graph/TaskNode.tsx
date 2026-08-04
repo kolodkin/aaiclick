@@ -1,6 +1,6 @@
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import type { GraphNodeView } from "../../api/types";
-import { durationBetween } from "../../lib/format";
+import { durationBetween, shortEntrypoint } from "../../lib/format";
 import { StatusBadge } from "../StatusBadge";
 
 export type BuildGate = { id: string; name: string; status: string };
@@ -10,12 +10,6 @@ export type TaskNodeData = {
   onPrompt: (v: string) => void;
 };
 export type TaskNodeType = Node<TaskNodeData, "task">;
-
-function shortEntrypoint(entrypoint: string): string {
-  if (entrypoint.includes(":")) return entrypoint.split(":").pop() ?? entrypoint;
-  if (entrypoint.includes(".")) return entrypoint.split(".").pop() ?? entrypoint;
-  return entrypoint;
-}
 
 export function TaskNode({ data }: NodeProps<TaskNodeType>) {
   const { view, buildGate, onPrompt } = data;
