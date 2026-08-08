@@ -18,7 +18,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * The claim SQL is PgDbHandler.claim_next_task() + DEPENDENCY_WHERE from
  * aaiclick/orchestration/execution/{pg_handler,db_handler}.py ported
  * verbatim, with two Java-worker capability predicates appended:
- * entry_type = 'shell' AND image_source IS NULL.
+ * entry_type = 'shell' and no image_source. SQLAlchemy writes absent JSON
+ * fields as JSON null (not SQL NULL), so the predicate must accept both.
  */
 public class TaskRepo {
 
@@ -72,7 +73,7 @@ public class TaskRepo {
                 AND (t.retry_after IS NULL OR t.retry_after <= ?)
                 AND j.status NOT IN ('CANCELLED', 'FAILED')
                 AND t.entry_type = 'shell'
-                AND t.image_source IS NULL
+                AND (t.image_source IS NULL OR t.image_source::text = 'null')
                 """ + DEPENDENCY_WHERE + """
                 ORDER BY j.started_at ASC NULLS LAST, t.id ASC
                 LIMIT 1

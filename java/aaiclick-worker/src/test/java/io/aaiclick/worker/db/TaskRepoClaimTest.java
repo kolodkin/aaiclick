@@ -53,6 +53,18 @@ class TaskRepoClaimTest extends PgTestBase {
     }
 
     @Test
+    void claimsTaskWithJsonNullImageSource() throws SQLException {
+        // SQLAlchemy stores absent image_source as JSON null, not SQL NULL
+        new WorkerRepo(db()).register(1L, "h", 1);
+        Fixtures.insertJob(db(), 10L, "PENDING");
+        Fixtures.insertShellTask(db(), 100L, 10L, "PENDING", "[\"echo\", \"hi\"]");
+        try (Connection conn = db().connect(); Statement stmt = conn.createStatement()) {
+            stmt.execute("UPDATE tasks SET image_source = 'null'::json WHERE id = 100");
+        }
+        assertEquals(100L, new TaskRepo(db()).claimNext(1L).id());
+    }
+
+    @Test
     void skipsContainerShellTasks() throws SQLException {
         new WorkerRepo(db()).register(1L, "h", 1);
         Fixtures.insertJob(db(), 10L, "PENDING");
