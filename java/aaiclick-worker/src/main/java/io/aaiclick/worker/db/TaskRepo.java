@@ -128,4 +128,130 @@ public class TaskRepo {
             throw new IllegalStateException("Malformed JSON column: " + json, e);
         }
     }
+
+    public void startRun(long taskId, long runId) throws SQLException {
+        try (Connection conn = db.connect()) {
+            conn.setAutoCommit(false);
+            try (PreparedStatement select = conn.prepareStatement(
+                     "SELECT run_ids::text, run_statuses::text FROM tasks WHERE id = ? FOR UPDATE")) {
+                select.setLong(1, taskId);
+                try (ResultSet rs = select.executeQuery()) {
+                    if (!rs.next()) {
+                        conn.rollback();
+                        return;
+                    }
+                    List<Long> runIds = new java.util.ArrayList<>(
+                        parseJson(rs.getString(1), new TypeReference<List<Long>>() {}));
+                    List<String> runStatuses = new java.util.ArrayList<>(
+                        parseJson(rs.getString(2), new TypeReference<List<String>>() {}));
+                    runIds.add(runId);
+                    runStatuses.add("RUNNING");
+                    try (PreparedStatement update = conn.prepareStatement(
+                             "UPDATE tasks SET started_at = ?, run_ids = ?::json, run_statuses = ?::json"
+                             + " WHERE id = ?")) {
+                        update.setTimestamp(1, Timestamp.from(Instant.now()));
+                        update.setString(2, MAPPER.writeValueAsString(runIds));
+                        update.setString(3, MAPPER.writeValueAsString(runStatuses));
+                        update.setLong(4, taskId);
+                        update.executeUpdate();
+                    }
+                }
+            } catch (JsonProcessingException e) {
+                conn.rollback();
+                throw new IllegalStateException("Failed to serialize run arrays", e);
+            }
+            conn.commit();
+        }
+    }
+
+    public boolean complete(long taskId, long expectedEpoch) throws SQLException {
+        return finishRun(taskId, expectedEpoch, "COMPLETED", null);
+    }
+
+    public boolean failPendingCleanup(long taskId, long expectedEpoch, String error) throws SQLException {
+        return finishRun(taskId, expectedEpoch, "PENDING_CLEANUP", error);
+    }
+
+    /** Epoch-fenced terminal write; the last run_statuses entry mirrors the
+     *  task outcome (COMPLETED, or FAILED for the PENDING_CLEANUP path). */
+    private boolean finishRun(long taskId, long expectedEpoch, String status, String error) throws SQLException {
+        String runStatus = status.equals("COMPLETED") ? "COMPLETED" : "FAILED";
+        try (Connection conn = db.connect()) {
+            conn.setAutoCommit(false);
+            try (PreparedStatement select = conn.prepareStatement(
+                     "SELECT run_statuses::text FROM tasks WHERE id = ? AND run_epoch = ? FOR UPDATE")) {
+                select.setLong(1, taskId);
+                select.setLong(2, expectedEpoch);
+                try (ResultSet rs = select.executeQuery()) {
+                    if (!rs.next()) {
+                        conn.rollback();
+                        return false;
+                    }
+                    List<String> runStatuses = new java.util.ArrayList<>(
+                        parseJson(rs.getString(1), new TypeReference<List<String>>() {}));
+                    if (!runStatuses.isEmpty()) {
+                        runStatuses.set(runStatuses.size() - 1, runStatus);
+                    }
+                    try (PreparedStatement update = conn.prepareStatement(
+                             "UPDATE tasks SET status = ?, completed_at = ?, error = ?, run_statuses = ?::json"
+                             + " WHERE id = ? AND run_epoch = ?")) {
+                        update.setString(1, status);
+                        update.setTimestamp(2, Timestamp.from(Instant.now()));
+                        update.setString(3, error);
+                        update.setString(4, MAPPER.writeValueAsString(runStatuses));
+                        update.setLong(5, taskId);
+                        update.setLong(6, expectedEpoch);
+                        boolean updated = update.executeUpdate() > 0;
+                        conn.commit();
+                        return updated;
+                    }
+                }
+            } catch (JsonProcessingException e) {
+                conn.rollback();
+                throw new IllegalStateException("Failed to serialize run_statuses", e);
+            }
+        }
+    }
+
+    public boolean isRunAborted(long taskId, long expectedEpoch) throws SQLException {
+        try (Connection conn = db.connect();
+             PreparedStatement stmt = conn.prepareStatement(
+                 "SELECT status, run_epoch FROM tasks WHERE id = ?")) {
+            stmt.setLong(1, taskId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (!rs.next()) {
+                    return false;
+                }
+                return "CANCELLED".equals(rs.getString(1)) || rs.getLong(2) != expectedEpoch;
+            }
+        }
+    }
+
+    public void tryCompleteJob(long jobId) throws SQLException {
+        try (Connection conn = db.connect();
+             PreparedStatement stmt = conn.prepareStatement("""
+                 UPDATE jobs SET
+                     status = CASE WHEN EXISTS (
+                         SELECT 1 FROM tasks WHERE job_id = ?
+                         AND status IN ('FAILED', 'UPSTREAM_FAILED')
+                     ) THEN 'FAILED' ELSE 'COMPLETED' END,
+                     error = CASE WHEN EXISTS (
+                         SELECT 1 FROM tasks WHERE job_id = ?
+                         AND status IN ('FAILED', 'UPSTREAM_FAILED')
+                     ) THEN 'One or more tasks failed' ELSE error END,
+                     completed_at = ?
+                 WHERE id = ?
+                 AND status NOT IN ('COMPLETED', 'FAILED', 'CANCELLED')
+                 AND NOT EXISTS (
+                     SELECT 1 FROM tasks WHERE job_id = ?
+                     AND status IN ('PENDING', 'CLAIMED', 'RUNNING', 'PENDING_CLEANUP')
+                 )""")) {
+            stmt.setLong(1, jobId);
+            stmt.setLong(2, jobId);
+            stmt.setTimestamp(3, Timestamp.from(Instant.now()));
+            stmt.setLong(4, jobId);
+            stmt.setLong(5, jobId);
+            stmt.executeUpdate();
+        }
+    }
 }
