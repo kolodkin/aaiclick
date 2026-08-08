@@ -36,41 +36,28 @@ lifecycle — are exactly what this design excludes.
 
 # Phase 1 — Shell-Only Worker
 
-## Java side
+Implemented in `java/aaiclick-worker`:
 
-A single deployable jar (PostgreSQL JDBC plus one small HTTP client):
+| Concern                   | Implementation (`src/main/java/io/aaiclick/worker/`)          |
+|---------------------------|---------------------------------------------------------------|
+| Config + local-URL refusal| `config/WorkerConfig.java` — see `fromEnv()`                  |
+| CH HTTP + snowflake IDs   | `ch/ChClient.java` — see `nextSnowflakeId()`, `insertJsonEachRow()` |
+| Registration / heartbeat  | `db/WorkerRepo.java` — see `heartbeat()` (STOPPING-aware)     |
+| Claim CTE + capability filter | `db/TaskRepo.java` — see `claimNext()`                    |
+| Run lifecycle + epoch fencing | `db/TaskRepo.java` — see `startRun()`, `complete()`, `failPendingCleanup()`, `tryCompleteJob()` |
+| Shell execution           | `exec/ShellRunner.java` — see `run()` (env overlay, timeout, abort poll) |
+| Log streaming             | `logs/LogFlusher.java` — see `flush()` (seq offsets)          |
+| Main loop / shutdown      | `Worker.java` — see `runLoop()`                               |
 
-1. **Config** — parse `AAICLICK_SQL_URL` / `AAICLICK_CH_URL` into JDBC and
-   ClickHouse HTTP endpoints. Refuse to start on `sqlite`/`chdb` URLs —
-   distributed-only by construction.
-2. **Registration and heartbeat** — insert an `execution_workers` row,
-   heartbeat every 30s, SIGTERM → STOPPING → finish current task → STOPPED.
-   IDs come from `SELECT generateSnowflakeID()` over the ClickHouse HTTP
-   interface — no local snowflake implementation.
-3. **Claim loop** — the ported claim CTE plus two capability predicates:
-   `entry_type = 'shell' AND image_source IS NULL`. The second predicate keeps
-   docker/kubernetes shell tasks on Python workers, which own the
-   image-resolution machinery (`aaiclick/orchestration/execution/dispatch.py`
-   — see `build_shell_spec()`).
-4. **Execution** — `ProcessBuilder` with the worker process env plus
-   `command_env` overlaid (subprocess-runner semantics), exit 0 = success,
-   `result_ref = NULL`. Enforces `AAICLICK_TASK_TIMEOUT`; polls task status
-   ~1s for cancellation and `clear_task`, killing the child; every write is
-   fenced on `run_epoch`.
-5. **Completion** — success → `COMPLETED` plus a `try_complete_job`-equivalent
-   SQL check (all tasks terminal → job COMPLETED); failure →
-   `PENDING_CLEANUP`, then the background worker takes over.
-6. **Logs** — pipe child stdout/stderr into ClickHouse `task_logs` via HTTP
-   `INSERT ... FORMAT JSONEachRow` every ~2s, mirroring `_SinkFlusher`
-   semantics (per-line `created_at`, `stream`, `seq`) so Java-run tasks are
-   tailable in the UI like every other task. This is the worker's only
-   ClickHouse touchpoint.
+Key semantics: claim adds `entry_type = 'shell'` and no-`image_source`
+predicates (accepting both SQL `NULL` and JSON `null` — SQLAlchemy writes the
+latter); failure only sets `PENDING_CLEANUP`, leaving retries and ref cleanup
+to the Python `BackgroundWorker`; the Python side needed no changes — shell
+tasks go to whichever worker claims first.
 
-## Python side
-
-Nearly nothing: the capability filter lives in the Java worker's own claim
-SQL. Python workers keep claiming shell tasks too; claiming is atomic, so
-whichever worker claims first wins.
+Cross-language e2e (and drift guard for the Java test schema fixture):
+`aaiclick/orchestration/execution/test_java_worker_e2e.py`. CI: the
+`java-worker` job in `.github/workflows/test.yaml`.
 
 ## Object-lifecycle interaction
 
@@ -128,12 +115,12 @@ builds only the worker module; the parent POM makes the API module additive.
 
 # Testing & CI
 
-- New job in `test.yaml`: Maven build + unit tests.
-- The worker joins the existing distributed-backend integration matrix:
-  submit a shell job via the Python CLI, run the Java worker against the same
-  PostgreSQL + ClickHouse, assert completion, logs, cancellation, and
-  dead-worker reaping (kill -9 the worker; the background worker marks the
-  task PENDING_CLEANUP).
+The `java-worker` job in `.github/workflows/test.yaml` runs Maven unit tests
+and then the cross-language e2e against a Python-migrated schema. Java test
+backends resolve from `AAICLICK_TEST_PG_JDBC` / `AAICLICK_TEST_CH_HTTP` env
+vars or fall back to Testcontainers
+(`java/aaiclick-worker/src/test/java/io/aaiclick/worker/testsupport/Backends.java`),
+so the suite also runs in Docker-less sandboxes against external servers.
 
 # Release
 

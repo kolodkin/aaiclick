@@ -73,6 +73,12 @@ Distributed mode runs worker processes that claim tasks and execute each in one 
 
 The `docker` and `kubernetes` subtypes require the distributed data/SQL backends above: an isolated container or Pod reaches the shared ClickHouse + PostgreSQL over the network, whereas embedded chdb and a local SQLite file cannot be shared into it. The `native` subtype runs in either deployment mode.
 
+## Java worker
+
+A standalone JVM worker (`java -jar aaiclick-worker.jar [--max-tasks N]`, built from `java/aaiclick-worker`) claims and runs **host-subprocess shell tasks only** — its claim CTE adds `entry_type = 'shell'` and no-`image_source` predicates, so module and container tasks stay on Python workers. Distributed-only by construction (refuses chdb/SQLite URLs); no Object/View support. On failure it just sets `PENDING_CLEANUP` — retries and cleanup remain the Python `BackgroundWorker`'s job — and its only ClickHouse touchpoints are `generateSnowflakeID()` and `task_logs` inserts over HTTP.
+
+**Implementation**: `java/aaiclick-worker/src/main/java/io/aaiclick/worker/Worker.java` — see `Worker.runLoop()`; cross-language e2e: `aaiclick/orchestration/execution/test_java_worker_e2e.py`; design: `docs/superpowers/specs/2026-08-08-java-worker-design.md`
+
 # Runners & Entry Types
 
 **Implementation**: `aaiclick/orchestration/runner_config.py` (typed configs), `aaiclick/orchestration/docker_config.py` (resolution helpers)
