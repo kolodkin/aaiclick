@@ -36,6 +36,17 @@
     </dependency>
   </dependencies>
   <build>
+    <resources>
+      <resource>
+        <directory>src/main/resources</directory>
+      </resource>
+      <!-- Shared SQL contract: the same claim query pg_handler.py executes.
+           Embedded at build time so the shaded jar stays self-contained. -->
+      <resource>
+        <directory>../../aaiclick/orchestration/execution/sql</directory>
+        <targetPath>aaiclick-sql</targetPath>
+      </resource>
+    </resources>
     <plugins>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>

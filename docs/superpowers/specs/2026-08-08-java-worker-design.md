@@ -43,17 +43,20 @@ Implemented in `java/aaiclick-worker`:
 | Config + local-URL refusal| `config/WorkerConfig.java` — see `fromEnv()`                  |
 | CH HTTP + snowflake IDs   | `ch/ChClient.java` — see `nextSnowflakeId()`, `insertJsonEachRow()` |
 | Registration / heartbeat  | `db/WorkerRepo.java` — see `heartbeat()` (STOPPING-aware)     |
-| Claim CTE + capability filter | `db/TaskRepo.java` — see `claimNext()`                    |
+| Shared claim SQL          | `aaiclick/orchestration/execution/sql/claim_next_task.sql` — executed by both `pg_handler.py` and `db/TaskRepo.java` (via `db/NamedParamSql.java`, a named→positional converter) |
+| Claim + capability binds  | `db/TaskRepo.java` — see `claimNext()`                        |
 | Run lifecycle + epoch fencing | `db/TaskRepo.java` — see `startRun()`, `complete()`, `failPendingCleanup()`, `tryCompleteJob()` |
 | Shell execution           | `exec/ShellRunner.java` — see `run()` (env overlay, timeout, abort poll) |
 | Log streaming             | `logs/LogFlusher.java` — see `flush()` (seq offsets)          |
 | Main loop / shutdown      | `Worker.java` — see `runLoop()`                               |
 
-Key semantics: claim adds `entry_type = 'shell'` and no-`image_source`
-predicates (accepting both SQL `NULL` and JSON `null` — SQLAlchemy writes the
-latter); failure only sets `PENDING_CLEANUP`, leaving retries and ref cleanup
-to the Python `BackgroundWorker`; the Python side needed no changes — shell
-tasks go to whichever worker claims first.
+Key semantics: both workers execute the shared claim SQL; per-worker
+capabilities are bound values — Java passes `entry_types=['shell']`,
+`allow_image_tasks=false`; Python passes the full set. The no-image predicate
+accepts both SQL `NULL` and JSON `null` (SQLAlchemy writes the latter).
+Failure only sets `PENDING_CLEANUP`, leaving retries and ref cleanup to the
+Python `BackgroundWorker`; shell tasks go to whichever worker claims first.
+SQLite keeps its Python-only claim path (`sqlite_handler.py`).
 
 Cross-language e2e (and drift guard for the Java test schema fixture):
 `aaiclick/orchestration/execution/test_java_worker_e2e.py`. CI: the

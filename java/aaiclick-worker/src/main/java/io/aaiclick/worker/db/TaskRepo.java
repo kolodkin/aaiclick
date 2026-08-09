@@ -15,81 +15,18 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 /** tasks-table operations: claiming and the run lifecycle.
  *
- * The claim SQL is PgDbHandler.claim_next_task() + DEPENDENCY_WHERE from
- * aaiclick/orchestration/execution/{pg_handler,db_handler}.py ported
- * verbatim, with two Java-worker capability predicates appended:
- * entry_type = 'shell' and no image_source. SQLAlchemy writes absent JSON
- * fields as JSON null (not SQL NULL), so the predicate must accept both.
+ * The claim query is the shared SQL contract with the Python worker —
+ * sql/claim_next_task.sql from aaiclick/orchestration/execution, embedded
+ * as the /aaiclick-sql classpath resource at build time. Worker capability
+ * differences are bound values (entry_types, allow_image_tasks), never
+ * query edits; this worker claims shell-only, host-subprocess tasks.
  */
 public class TaskRepo {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    private static final String DEPENDENCY_WHERE = """
-        AND NOT EXISTS (
-            SELECT 1 FROM dependencies d
-            JOIN tasks prev ON d.previous_id = prev.id
-            WHERE d.next_id = t.id
-            AND d.next_type = 'task'
-            AND d.previous_type = 'task'
-            AND prev.status != 'COMPLETED'
-        )
-        AND NOT EXISTS (
-            SELECT 1 FROM dependencies d
-            JOIN tasks prev ON prev.group_id = d.previous_id
-            WHERE d.next_id = t.id
-            AND d.next_type = 'task'
-            AND d.previous_type = 'group'
-            AND prev.status != 'COMPLETED'
-        )
-        AND NOT EXISTS (
-            SELECT 1 FROM dependencies d
-            JOIN tasks prev ON d.previous_id = prev.id
-            WHERE d.next_id = t.group_id
-            AND d.next_type = 'group'
-            AND d.previous_type = 'task'
-            AND prev.status != 'COMPLETED'
-            AND t.group_id IS NOT NULL
-        )
-        AND NOT EXISTS (
-            SELECT 1 FROM dependencies d
-            JOIN tasks prev ON prev.group_id = d.previous_id
-            WHERE d.next_id = t.group_id
-            AND d.next_type = 'group'
-            AND d.previous_type = 'group'
-            AND prev.status != 'COMPLETED'
-            AND t.group_id IS NOT NULL
-        )
-        """;
-
-    private static final String CLAIM_SQL = """
-        WITH claimed_task AS (
-            UPDATE tasks
-            SET status = 'RUNNING', execution_worker_id = ?, claimed_at = ?
-            WHERE id = (
-                SELECT t.id FROM tasks t
-                JOIN jobs j ON t.job_id = j.id
-                WHERE t.status = 'PENDING'
-                AND (t.retry_after IS NULL OR t.retry_after <= ?)
-                AND j.status NOT IN ('CANCELLED', 'FAILED')
-                AND t.entry_type = 'shell'
-                AND (t.image_source IS NULL OR t.image_source::text = 'null')
-                """ + DEPENDENCY_WHERE + """
-                ORDER BY j.started_at ASC NULLS LAST, t.id ASC
-                LIMIT 1
-                FOR UPDATE OF t SKIP LOCKED
-            )
-            RETURNING id, job_id, name, command, command_env, run_epoch
-        ),
-        updated_job AS (
-            UPDATE jobs
-            SET started_at = COALESCE(started_at, ?),
-                status = CASE WHEN started_at IS NULL THEN 'RUNNING' ELSE status END
-            WHERE id = (SELECT job_id FROM claimed_task)
-            RETURNING id
-        )
-        SELECT * FROM claimed_task
-        """;
+    private static final NamedParamSql CLAIM_SQL =
+        NamedParamSql.fromResource("/aaiclick-sql/claim_next_task.sql");
 
     protected final Db db;
 
@@ -98,12 +35,21 @@ public class TaskRepo {
     }
 
     public ClaimedTask claimNext(long workerId) throws SQLException {
-        try (Connection conn = db.connect(); PreparedStatement stmt = conn.prepareStatement(CLAIM_SQL)) {
+        try (Connection conn = db.connect();
+             PreparedStatement stmt = conn.prepareStatement(CLAIM_SQL.jdbcSql())) {
             Timestamp now = Timestamp.from(Instant.now());
-            stmt.setLong(1, workerId);
-            stmt.setTimestamp(2, now);
-            stmt.setTimestamp(3, now);
-            stmt.setTimestamp(4, now);
+            List<String> order = CLAIM_SQL.paramOrder();
+            for (int i = 0; i < order.size(); i++) {
+                switch (order.get(i)) {
+                    case "execution_worker_id" -> stmt.setLong(i + 1, workerId);
+                    case "now" -> stmt.setTimestamp(i + 1, now);
+                    case "entry_types" ->
+                        stmt.setArray(i + 1, conn.createArrayOf("varchar", new String[] {"shell"}));
+                    case "allow_image_tasks" -> stmt.setBoolean(i + 1, false);
+                    default -> throw new IllegalStateException(
+                        "Unknown parameter in shared claim SQL: " + order.get(i));
+                }
+            }
             try (ResultSet rs = stmt.executeQuery()) {
                 if (!rs.next()) {
                     return null;
