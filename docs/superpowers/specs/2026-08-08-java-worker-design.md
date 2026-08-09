@@ -127,6 +127,9 @@ so the suite also runs in Docker-less sandboxes against external servers.
 
 # Release
 
+Not yet wired into `publish.yaml` — tracked in `docs/designs/future.md`
+("Java Worker Release Flow").
+
 Publishing goes through the Central Publisher Portal (OSSRH is sunset).
 Namespace `io.github.kolodkin` is auto-verified against the GitHub account; a
 custom groupId needs DNS-verified domain ownership. Artifacts need GPG

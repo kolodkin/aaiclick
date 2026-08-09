@@ -98,6 +98,27 @@ the primitives (a previous unwired version, `internal_api/lineage_ai.py`,
 was removed as dead code). MCP intentionally exposes only the
 AI-independent primitives (`server/mcp.py`).
 
+## Java Worker Release Flow
+
+`publish.yaml` has no Java steps yet — the wiring needs a real `vX.Y.Z`
+release tag to test against. When added, a `java` job on the **same tag** as
+the Python package (lockstep versioning: the worker's compatibility contract
+is a specific release's PostgreSQL schema and task semantics):
+
+1. Derive the Maven version from the tag, `mvn -B package`, attach the shaded
+   `aaiclick-worker` jar as a GitHub Release asset, and publish a docker
+   image alongside the existing ones.
+2. Phase 2 adds Maven Central via the Central Publisher Portal for the
+   `aaiclick-task-api` module (namespace `io.github.kolodkin` auto-verifies
+   against the GitHub account; needs GPG signing + sources/javadoc jars,
+   `central-publishing-maven-plugin`, two secrets: portal token, GPG key).
+   De-risk early with a one-time `0.0.x` dry-run publish of an empty
+   artifact — namespace verification and signing setup are the only steps
+   with bureaucratic latency.
+
+Design: `docs/superpowers/specs/2026-08-08-java-worker-design.md` (Release
+section).
+
 ## Changelog
 
 `docs/changelog.md` — version history in Keep a Changelog format. Introduce with v1.0.0 release.
