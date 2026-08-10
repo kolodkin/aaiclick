@@ -63,6 +63,14 @@ class NamedParamSqlTest {
     }
 
     @Test
+    void parsesTheSharedRollupQueries() {
+        assertEquals(List.of("job_id"),
+            NamedParamSql.fromResource("/aaiclick-sql/job_rollup.sql").paramOrder());
+        assertEquals(List.of("status", "now", "error", "job_id"),
+            NamedParamSql.fromResource("/aaiclick-sql/complete_job.sql").paramOrder());
+    }
+
+    @Test
     void missingResourceThrows() {
         assertThrows(IllegalStateException.class, () -> NamedParamSql.fromResource("/nope.sql"));
     }

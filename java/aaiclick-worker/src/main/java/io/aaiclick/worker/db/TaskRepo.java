@@ -28,6 +28,15 @@ public class TaskRepo {
     private static final NamedParamSql CLAIM_SQL =
         NamedParamSql.fromResource("/aaiclick-sql/claim_next_task.sql");
 
+    private static final NamedParamSql JOB_ROLLUP_SQL =
+        NamedParamSql.fromResource("/aaiclick-sql/job_rollup.sql");
+
+    private static final NamedParamSql COMPLETE_JOB_SQL =
+        NamedParamSql.fromResource("/aaiclick-sql/complete_job.sql");
+
+    // Mirrors JOB_FAILED_ERROR in aaiclick/orchestration/background/handler.py.
+    private static final String JOB_FAILED_ERROR = "One or more tasks failed";
+
     protected final Db db;
 
     public TaskRepo(Db db) {
@@ -174,31 +183,53 @@ public class TaskRepo {
         }
     }
 
+    /** The rollup-only recipe shared with the Python worker (roll_up_job in
+     *  background/handler.py): mark the job COMPLETED/FAILED once every task
+     *  is terminal, from the same two SQL files. No cascade — stranded
+     *  downstream tasks are the failure-transition owners' job (Python
+     *  BackgroundWorker, cancel_job), never a worker's success path. */
     public void tryCompleteJob(long jobId) throws SQLException {
-        try (Connection conn = db.connect();
-             PreparedStatement stmt = conn.prepareStatement("""
-                 UPDATE jobs SET
-                     status = CASE WHEN EXISTS (
-                         SELECT 1 FROM tasks WHERE job_id = ?
-                         AND status IN ('FAILED', 'UPSTREAM_FAILED')
-                     ) THEN 'FAILED' ELSE 'COMPLETED' END,
-                     error = CASE WHEN EXISTS (
-                         SELECT 1 FROM tasks WHERE job_id = ?
-                         AND status IN ('FAILED', 'UPSTREAM_FAILED')
-                     ) THEN 'One or more tasks failed' ELSE error END,
-                     completed_at = ?
-                 WHERE id = ?
-                 AND status NOT IN ('COMPLETED', 'FAILED', 'CANCELLED')
-                 AND NOT EXISTS (
-                     SELECT 1 FROM tasks WHERE job_id = ?
-                     AND status IN ('PENDING', 'CLAIMED', 'RUNNING', 'PENDING_CLEANUP')
-                 )""")) {
-            stmt.setLong(1, jobId);
-            stmt.setLong(2, jobId);
-            stmt.setTimestamp(3, Timestamp.from(Instant.now()));
-            stmt.setLong(4, jobId);
-            stmt.setLong(5, jobId);
-            stmt.executeUpdate();
+        try (Connection conn = db.connect()) {
+            conn.setAutoCommit(false);
+            long total;
+            long nonTerminal;
+            long failed;
+            try (PreparedStatement stmt = conn.prepareStatement(JOB_ROLLUP_SQL.jdbcSql())) {
+                bindByName(stmt, JOB_ROLLUP_SQL, jobId, null, null);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    rs.next();
+                    total = rs.getLong("total");
+                    nonTerminal = rs.getLong("non_terminal");
+                    failed = rs.getLong("failed");
+                }
+            }
+            if (total == 0 || nonTerminal > 0) {
+                conn.rollback();
+                return;
+            }
+            try (PreparedStatement stmt = conn.prepareStatement(COMPLETE_JOB_SQL.jdbcSql())) {
+                bindByName(stmt, COMPLETE_JOB_SQL, jobId,
+                    failed > 0 ? "FAILED" : "COMPLETED",
+                    failed > 0 ? JOB_FAILED_ERROR : null);
+                stmt.executeUpdate();
+            }
+            conn.commit();
+        }
+    }
+
+    /** Bind the shared rollup/complete files' named parameters positionally. */
+    private static void bindByName(PreparedStatement stmt, NamedParamSql sql, long jobId,
+            String status, String error) throws SQLException {
+        List<String> order = sql.paramOrder();
+        for (int i = 0; i < order.size(); i++) {
+            switch (order.get(i)) {
+                case "job_id" -> stmt.setLong(i + 1, jobId);
+                case "now" -> stmt.setTimestamp(i + 1, Timestamp.from(Instant.now()));
+                case "status" -> stmt.setString(i + 1, status);
+                case "error" -> stmt.setString(i + 1, error);
+                default -> throw new IllegalStateException(
+                    "Unknown parameter in shared SQL: " + order.get(i));
+            }
         }
     }
 }

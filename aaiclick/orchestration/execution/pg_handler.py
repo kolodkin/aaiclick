@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from functools import cache
-from pathlib import Path
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,19 +11,7 @@ from sqlalchemy.sql import Select
 from ..models import Task
 from ..runner_config import ENTRY_TYPES
 from .db_handler import DbHandler
-
-
-@cache
-def load_sql(name: str) -> str:
-    """Read a shared SQL file from the packaged ``sql/`` directory, once.
-
-    The files are the cross-language contract with the Java worker
-    (java/aaiclick-worker embeds the same directory as a build-time
-    resource); capability differences between workers are bound values,
-    not query edits. See each file's header comment.
-    """
-    return (Path(__file__).parent / "sql" / name).read_text()
-
+from .sql_loader import load_sql
 
 # Eager on purpose: a wheel that fails to package sql/*.sql breaks every
 # import loudly, instead of only distributed claiming at runtime.

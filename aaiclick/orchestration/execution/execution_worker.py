@@ -16,7 +16,7 @@ from sqlmodel import col, select
 from aaiclick.snowflake import get_snowflake_id
 
 from ...datetime_utils import utc_now
-from ..background.handler import try_complete_job
+from ..background.handler import roll_up_job
 from ..models import (
     EXECUTION_WORKER_ACTIVE,
     EXECUTION_WORKER_STOPPED,
@@ -447,7 +447,10 @@ async def _handle_task_result(
         logger.info("ExecutionWorker %s completed task %s", execution_worker_id, task.id)
         await _increment_execution_worker_stat(execution_worker_id, "tasks_completed")
         async with get_sql_session() as session:
-            await try_complete_job(session, task.job_id)
+            # Rollup-only, the recipe shared with the Java worker: cascade
+            # handling belongs to failure-transition owners (BackgroundWorker,
+            # cancel_job), not to a worker's success path.
+            await roll_up_job(session, task.job_id)
             await session.commit()
         return True
 

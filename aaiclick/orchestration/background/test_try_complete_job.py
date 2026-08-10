@@ -15,6 +15,7 @@ from aaiclick.orchestration.background.handler import (
     GROUP_SIBLING_ABORTED_ERROR,
     JOB_FAILED_ERROR,
     UPSTREAM_FAILED_ERROR,
+    roll_up_job,
     try_complete_job,
 )
 
@@ -112,6 +113,12 @@ async def _run_try_complete(engine, job_id):
         await session.commit()
 
 
+async def _run_roll_up(engine, job_id):
+    async with AsyncSession(engine) as session:
+        await roll_up_job(session, job_id)
+        await session.commit()
+
+
 async def test_try_complete_job_empty_job_is_noop(bg_db):
     """Job with no tasks is a no-op — stays as-is."""
     await insert_job(bg_db, 1)
@@ -175,6 +182,59 @@ async def test_try_complete_job_cancelled_counts_as_terminal_non_failed(bg_db):
 
 
 # --- Cascade UPSTREAM_FAILED tests ---
+
+
+async def test_roll_up_job_all_completed_marks_completed(bg_db):
+    """The shared worker recipe: all tasks terminal → job COMPLETED."""
+    await insert_job(bg_db, 61)
+    await _insert_tasks(bg_db, 61, ["COMPLETED", "COMPLETED"])
+
+    await _run_roll_up(bg_db, 61)
+
+    status, completed_at, error = await _get_job(bg_db, 61)
+    assert status == "COMPLETED"
+    assert completed_at is not None
+    assert error is None
+
+
+async def test_roll_up_job_any_failed_marks_failed(bg_db):
+    await insert_job(bg_db, 62)
+    await _insert_tasks(bg_db, 62, ["COMPLETED", "FAILED"])
+
+    await _run_roll_up(bg_db, 62)
+
+    status, _, error = await _get_job(bg_db, 62)
+    assert status == "FAILED"
+    assert error == JOB_FAILED_ERROR
+
+
+async def test_roll_up_job_non_terminal_is_noop(bg_db):
+    await insert_job(bg_db, 63)
+    await _insert_tasks(bg_db, 63, ["COMPLETED", "RUNNING"])
+
+    await _run_roll_up(bg_db, 63)
+
+    status, completed_at, _ = await _get_job(bg_db, 63)
+    assert status == "RUNNING"
+    assert completed_at is None
+
+
+async def test_roll_up_job_does_not_cascade(bg_db):
+    """Rollup-only by contract: a PENDING task stranded behind a FAILED
+    upstream stays untouched — the UPSTREAM_FAILED sweep belongs to the
+    failure-transition owners (try_complete_job), never a worker's
+    success-path rollup."""
+    await insert_job(bg_db, 64)
+    await _insert_task(bg_db, task_id=6401, job_id=64, status="FAILED")
+    await _insert_task(bg_db, task_id=6402, job_id=64, status="PENDING")
+    await _insert_dependency(bg_db, previous_id=6401, previous_type="task", next_id=6402, next_type="task")
+
+    await _run_roll_up(bg_db, 64)
+
+    task_status, _ = await _get_task(bg_db, 6402)
+    assert task_status == "PENDING"
+    job_status, _, _ = await _get_job(bg_db, 64)
+    assert job_status == "RUNNING"
 
 
 async def test_cascade_task_to_task(bg_db):

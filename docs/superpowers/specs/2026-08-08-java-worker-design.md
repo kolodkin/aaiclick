@@ -43,8 +43,9 @@ Implemented in `java/aaiclick-worker`:
 | Config + local-URL refusal| `config/WorkerConfig.java` — see `fromEnv()`                  |
 | CH HTTP + snowflake IDs   | `ch/ChClient.java` — see `nextSnowflakeId()`, `insertJsonEachRow()` |
 | Registration / heartbeat  | `db/WorkerRepo.java` — see `heartbeat()` (STOPPING-aware)     |
-| Shared claim SQL          | `aaiclick/orchestration/execution/sql/claim_next_task.sql` — executed by both `pg_handler.py` and `db/TaskRepo.java` (via `db/NamedParamSql.java`, a named→positional converter) |
+| Shared SQL contract       | `aaiclick/orchestration/execution/sql/` — `claim_next_task.sql`, `job_rollup.sql`, `complete_job.sql`; loaded by `sql_loader.load_sql()` (Python) and `db/NamedParamSql.java` (Java, named→positional; both sides skip comments) |
 | Claim + capability binds  | `db/TaskRepo.java` — see `claimNext()`                        |
+| Job rollup (worker recipe)| `roll_up_job()` in `background/handler.py` and `TaskRepo.tryCompleteJob()` — the identical rollup-only recipe from the shared files |
 | Run lifecycle + epoch fencing | `db/TaskRepo.java` — see `startRun()`, `complete()`, `failPendingCleanup()`, `tryCompleteJob()` |
 | Shell execution           | `exec/ShellRunner.java` — see `run()` (env overlay, timeout, abort poll) |
 | Log streaming             | `logs/LogFlusher.java` — see `flush()` (seq offsets)          |
@@ -57,6 +58,14 @@ accepts both SQL `NULL` and JSON `null` (SQLAlchemy writes the latter).
 Failure only sets `PENDING_CLEANUP`, leaving retries and ref cleanup to the
 Python `BackgroundWorker`; shell tasks go to whichever worker claims first.
 SQLite keeps its Python-only claim path (`sqlite_handler.py`).
+
+**One worker recipe, both languages**: on task success every worker runs the
+same rollup-only completion check (`roll_up_job` / `tryCompleteJob`, from the
+shared `job_rollup.sql` + `complete_job.sql`). The `UPSTREAM_FAILED` cascade
+belongs exclusively to failure-transition owners — `try_complete_job` on the
+BackgroundWorker's PENDING_CLEANUP path, and `cancel_job` — so a stranded
+downstream task is always swept at failure time, never by a worker's success
+path.
 
 Cross-language e2e (and drift guard for the Java test schema fixture):
 `aaiclick/orchestration/execution/test_java_worker_e2e.py`. CI: the

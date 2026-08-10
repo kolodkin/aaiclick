@@ -5,11 +5,11 @@
 --
 -- Named parameters only; every predicate difference between workers is a
 -- bound VALUE, never a structural edit:
---   :execution_worker_id  claiming worker id
---   :now                  claim timestamp (repeated)
---   :entry_types          entry types this worker can execute
+--   execution_worker_id  claiming worker id
+--   now                  claim timestamp (repeated)
+--   entry_types          entry types this worker can execute
 --                         (Python: all; Java: shell only)
---   :allow_image_tasks    false pins the worker to host-subprocess tasks
+--   allow_image_tasks    false pins the worker to host-subprocess tasks
 --                         (image_source both SQL NULL and JSON null mean
 --                         "no image" — SQLAlchemy writes the latter)
 WITH claimed_task AS (

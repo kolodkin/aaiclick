@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aaiclick.backend import is_sqlite
 
 from ...datetime_utils import utc_now
+from ..execution.sql_loader import load_sql
 from ..models import (
     JOB_COMPLETED,
     JOB_FAILED,
@@ -161,44 +162,66 @@ def in_clause(ids: list, prefix: str) -> tuple[str, dict]:
     return placeholders, params
 
 
+# Shared with the Java worker — both workers run the identical rollup-only
+# recipe from these files; the status-set knowledge lives in the SQL, not in
+# per-language code. Eager loads keep a mis-packaged wheel failing at import.
+JOB_ROLLUP_SQL = load_sql("job_rollup.sql")
+COMPLETE_JOB_SQL = load_sql("complete_job.sql")
+
+
+async def _job_rollup(session: AsyncSession, job_id: int) -> tuple[int, int, int, int]:
+    """Aggregate a job's task statuses: (total, non_terminal, failed, cascade_trigger)."""
+    result = await session.execute(text(JOB_ROLLUP_SQL), {"job_id": job_id})
+    total, non_terminal, failed, cascade_trigger = result.one()
+    return total, non_terminal or 0, failed or 0, cascade_trigger or 0
+
+
+async def _complete_job(session: AsyncSession, job_id: int, failed: int) -> None:
+    """Terminal job update, run only after the rollup saw zero non-terminal tasks."""
+    await session.execute(
+        text(COMPLETE_JOB_SQL),
+        {
+            "job_id": job_id,
+            "now": utc_now(),
+            "status": JOB_FAILED if failed else JOB_COMPLETED,
+            "error": JOB_FAILED_ERROR if failed else None,
+        },
+    )
+
+
+async def roll_up_job(session: AsyncSession, job_id: int) -> None:
+    """The worker recipe: mark a job COMPLETED/FAILED once all tasks are terminal.
+
+    This is the language-neutral contract both execution workers follow on
+    task success (the Java worker runs the same two SQL files). No cascade:
+    stranded downstream tasks are handled by whoever performs failure
+    transitions — ``try_complete_job`` on the BackgroundWorker's
+    PENDING_CLEANUP path, and ``cancel_job`` — so by the time a success-path
+    rollup runs, any UPSTREAM_FAILED sweep has already happened.
+    """
+    total, non_terminal, failed, _ = await _job_rollup(session, job_id)
+    if not total or non_terminal:
+        return
+    await _complete_job(session, job_id, failed)
+
+
 async def try_complete_job(session: AsyncSession, job_id: int) -> None:
     """Mark a job COMPLETED or FAILED if all its tasks are in terminal states.
 
     No-op while any task is still PENDING, CLAIMED, RUNNING, or PENDING_CLEANUP.
     The terminal check is aggregated inside SQL (one row returned regardless
-    of task count) so this stays O(1) on the worker hot path even for large
-    jobs. Uses raw SQL on the passed session so it works both inside and
-    outside an active ``orch_context``. The caller is responsible for committing.
+    of task count) so this stays O(1) even for large jobs. Uses raw SQL on
+    the passed session so it works both inside and outside an active
+    ``orch_context``. The caller is responsible for committing.
 
-    When any task is in a non-success terminal state, sweeps PENDING tasks
-    whose transitive upstream failed and marks them UPSTREAM_FAILED — otherwise
+    The full recipe for failure-transition owners (BackgroundWorker,
+    ``cancel_job``): on top of ``roll_up_job``'s shared rollup, when any task
+    is in a non-success terminal state it sweeps PENDING tasks whose
+    transitive upstream failed and marks them UPSTREAM_FAILED — otherwise
     they would block job completion forever. The sweep is gated on the rollup
     aggregate so the happy path stays a single SELECT.
     """
-    result = await session.execute(
-        text(
-            "SELECT "
-            "  COUNT(*) AS total, "
-            "  SUM(CASE WHEN status IN "
-            "    (:pending, :claimed, :running, :pending_cleanup) "
-            "    THEN 1 ELSE 0 END) AS non_terminal, "
-            "  SUM(CASE WHEN status IN (:failed, :upstream_failed) THEN 1 ELSE 0 END) AS failed, "
-            "  SUM(CASE WHEN status IN (:failed, :cancelled, :upstream_failed) "
-            "    THEN 1 ELSE 0 END) AS cascade_trigger "
-            "FROM tasks WHERE job_id = :job_id"
-        ),
-        {
-            "job_id": job_id,
-            "pending": TASK_PENDING,
-            "claimed": TASK_CLAIMED,
-            "running": TASK_RUNNING,
-            "pending_cleanup": TASK_PENDING_CLEANUP,
-            "failed": TASK_FAILED,
-            "cancelled": TASK_CANCELLED,
-            "upstream_failed": TASK_UPSTREAM_FAILED,
-        },
-    )
-    total, non_terminal, failed, cascade_trigger = result.one()
+    total, non_terminal, failed, cascade_trigger = await _job_rollup(session, job_id)
     if cascade_trigger and non_terminal:
         # Fail-fast first: cancelling a doomed group's still-active siblings
         # turns them into CANCELLED upstreams, which the downstream
@@ -209,23 +232,7 @@ async def try_complete_job(session: AsyncSession, job_id: int) -> None:
         failed += marked
     if not total or non_terminal:
         return
-
-    now = utc_now()
-    if failed:
-        await session.execute(
-            text("UPDATE jobs SET status = :status, completed_at = :now, error = :error WHERE id = :job_id"),
-            {
-                "job_id": job_id,
-                "now": now,
-                "status": JOB_FAILED,
-                "error": JOB_FAILED_ERROR,
-            },
-        )
-    else:
-        await session.execute(
-            text("UPDATE jobs SET status = :status, completed_at = :now WHERE id = :job_id"),
-            {"job_id": job_id, "now": now, "status": JOB_COMPLETED},
-        )
+    await _complete_job(session, job_id, failed)
 
 
 class PendingCleanupTask(NamedTuple):

@@ -1,0 +1,18 @@
+"""Loader for the shared SQL files in ``sql/``.
+
+The files are the cross-language contract with the Java worker
+(java/aaiclick-worker embeds the same directory as a build-time resource);
+worker differences are bound values, not query edits. Neutral module so both
+the execution package and the background package import it without cycles.
+"""
+
+from __future__ import annotations
+
+from functools import cache
+from pathlib import Path
+
+
+@cache
+def load_sql(name: str) -> str:
+    """Read a shared SQL file from the packaged ``sql/`` directory, once."""
+    return (Path(__file__).parent / "sql" / name).read_text()
