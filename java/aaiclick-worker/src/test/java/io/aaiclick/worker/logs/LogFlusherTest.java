@@ -48,6 +48,11 @@ class LogFlusherTest {
             "SELECT seq, stream, level, line FROM task_logs"
             + " WHERE task_id = 100 AND run_id = 555 ORDER BY seq");
         assertEquals("0\tstdout\tINFO\tfirst\n1\tstderr\tWARNING\tsecond\n2\tstdout\tINFO\tthird", rows);
+
+        // created_at must parse as a real timestamp, not fall back to epoch 0
+        assertEquals("3", ch.query(
+            "SELECT COUNT(*) FROM task_logs WHERE task_id = 100 AND run_id = 555"
+            + " AND created_at > now() - INTERVAL 1 DAY"));
     }
 
     @Test

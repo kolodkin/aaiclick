@@ -1,5 +1,7 @@
 package io.aaiclick.worker.logs;
 
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -17,6 +19,12 @@ import io.aaiclick.worker.ch.ChClient;
 public class LogFlusher {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    // Canonical DateTime64(3) text form. A numeric epoch double would be
+    // serialized by Jackson in scientific notation (1.78646E9), which older
+    // ClickHouse versions reject in JSONEachRow input.
+    private static final DateTimeFormatter CH_DATETIME =
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS").withZone(ZoneOffset.UTC);
 
     private final ChClient ch;
     private final long taskId;
@@ -59,7 +67,7 @@ public class LogFlusher {
             row.put("stream", line.stream());
             row.put("level", line.level());
             row.put("line", line.text());
-            row.put("created_at", line.createdAt().toEpochMilli() / 1000.0);
+            row.put("created_at", CH_DATETIME.format(line.createdAt()));
             rows.add(row);
         }
         ch.insertJsonEachRow("task_logs", rows);
