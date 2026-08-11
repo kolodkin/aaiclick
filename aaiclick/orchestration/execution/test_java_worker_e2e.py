@@ -79,8 +79,7 @@ async def test_java_worker_completes_shell_task(orch_ctx):
 
         logs = await read_task_logs(entry_task.id, entry_task.run_ids[-1])
         assert any("from-java-worker" in line.text for line in logs), (
-            f"log line missing for run_ids={entry_task.run_ids}; "
-            + await _log_rows_diagnostic(entry_task.id)
+            f"log line missing for run_ids={entry_task.run_ids}; " + await _log_rows_diagnostic(entry_task.id)
         )
     finally:
         proc.terminate()
