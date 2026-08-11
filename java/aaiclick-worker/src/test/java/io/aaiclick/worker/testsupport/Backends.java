@@ -41,7 +41,12 @@ public final class Backends {
             if (http != null && !http.isEmpty()) {
                 ch = new ChBackend(http, env("AAICLICK_TEST_CH_USER"), env("AAICLICK_TEST_CH_PASS"));
             } else {
-                ClickHouseContainer container = new ClickHouseContainer("clickhouse/clickhouse-server:24.8");
+                // An explicit password is required: with the module's default
+                // (empty) password the image's entrypoint restricts the
+                // 'default' user to localhost, so connections through the
+                // mapped port are rejected with AUTHENTICATION_FAILED.
+                ClickHouseContainer container = new ClickHouseContainer("clickhouse/clickhouse-server:24.8")
+                    .withPassword("test");
                 container.start();
                 ch = new ChBackend(
                     "http://" + container.getHost() + ":" + container.getMappedPort(8123),
