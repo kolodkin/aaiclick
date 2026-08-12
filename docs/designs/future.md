@@ -116,8 +116,28 @@ is a specific release's PostgreSQL schema and task semantics):
    artifact — namespace verification and signing setup are the only steps
    with bureaucratic latency.
 
-Design: `docs/superpowers/specs/2026-08-08-java-worker-design.md` (Release
-section).
+## Java Worker Phase 2 — `jvm` Entry Type
+
+Native Java tasks on the existing worker (`java/aaiclick-worker` runs
+shell-only today):
+
+- Add `"jvm"` to the `EntryType` Literal (code change only — plain String
+  column, no migration). `tasks.entrypoint` holds a Java class name; `kwargs`
+  JSON binds to method parameters via Jackson; the return value is JSON
+  (plain values only).
+- **Submission validation**: `jvm` tasks must not receive Object/View refs as
+  kwargs and their results are never auto-converted to Objects — enforced at
+  commit points alongside `validate_image_sources()`
+  (`aaiclick/orchestration/image_injection.py`). This keeps the worker's
+  "no ClickHouse object support" boundary honest.
+- **Java task SDK**: a new `aaiclick-task-api` Maven module (the parent POM
+  anticipates it) — `@AaiTask` annotation + registry; each task runs in a
+  spawned child JVM mirroring the mp worker's isolation/timeout/kill
+  semantics.
+- **Claim filters are bound values** in the shared
+  `sql/claim_next_task.sql`: Python workers drop `jvm` from their
+  `entry_types` bind; the Java worker widens to `['shell', 'jvm']`. CLI,
+  `run_job()`, and `RunJobRequest` grow the `jvm` choice.
 
 ## Changelog
 
