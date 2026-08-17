@@ -50,7 +50,7 @@ Two SQLModel tables in `aaiclick/auth/models.py`. IDs are snowflake
 | `id`            | `BigInteger` PK (snowflake)     |                        |
 | `username`      | `String`, unique, indexed       | Login identifier       |
 | `password_hash` | `String`                        | bcrypt                 |
-| `role`          | `String` + CHECK `IN ('admin','viewer')` | `Role` literal |
+| `role`          | `String`                        | `Role` literal         |
 | `disabled`      | `Boolean`, default `false`      | Disabled → cannot log in |
 | `created_at`    | `datetime` (`utc_now`)          |                        |
 
@@ -158,6 +158,7 @@ rather than FastAPI's bare `HTTPException`), then resolves a
 | `GET` reads (jobs, tasks, workers, objects, lineage)    | ✅     | ✅    |
 | `/auth/*` (login, refresh, logout, me)                  | ✅     | ✅    |
 | Run / cancel jobs, register / enable / disable jobs     | ❌     | ✅    |
+| Clear tasks (resets status, bumps `run_epoch`)          | ❌     | ✅    |
 | Delete / purge objects                                  | ❌     | ✅    |
 | Start / stop workers                                    | ❌     | ✅    |
 | User management (`/users`)                              | ❌     | ✅    |

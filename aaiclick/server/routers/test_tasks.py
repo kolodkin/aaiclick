@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from sqlmodel import select
 
+from aaiclick.auth import security
+from aaiclick.auth.models import ROLE_VIEWER
 from aaiclick.orchestration.factories import _callable_to_string, create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
@@ -12,6 +14,24 @@ from aaiclick.orchestration.view_models import ClearTaskView, TaskDetail, TaskLo
 from aaiclick.view_models import STDOUT_STREAM, LogLine, Problem, ProblemCode
 
 from ..app import API_PREFIX
+
+RBAC_SECRET = "rbac-tasks-test-secret-key-32-plus-bytes"
+
+
+async def test_viewer_cannot_clear_task(orch_ctx, app_client, monkeypatch):
+    """``clear_task`` bumps ``run_epoch`` and resets downstream tasks — a
+    mutation, so it is admin-only like cancel/purge."""
+    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: False)
+    monkeypatch.setenv("AAICLICK_JWT_SECRET", RBAC_SECRET)
+    job = await create_job("rbac_clear_job", simple_task)
+    task = (await get_tasks_for_job(job.id))[0]
+    token = security.encode_access_token(user_id=2, role=ROLE_VIEWER, secret=RBAC_SECRET, ttl=60)
+
+    response = await app_client.post(
+        f"{API_PREFIX}/tasks/{task.id}/clear", headers={"Authorization": f"Bearer {token}"}
+    )
+
+    assert response.status_code == 403
 
 
 async def test_get_task(orch_ctx, app_client):
