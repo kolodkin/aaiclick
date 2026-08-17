@@ -98,13 +98,13 @@ jobs:
       matrix:
         include:
           - group: Data local
-            test-paths: "aaiclick/data/ aaiclick/snowflake/"
+            test-paths: "aaiclick/data/ aaiclick/snowflake/ aaiclick/data_extra_tests/"
             extras: ""
           - group: Orch local
             test-paths: "aaiclick/orchestration/ aaiclick/oplog/"
             extras: ""
           - group: Internal API local
-            test-paths: "aaiclick/internal_api/"
+            test-paths: "aaiclick/internal_api/ aaiclick/auth/"
             extras: ""
           - group: Server local
             test-paths: "aaiclick/server/"
@@ -112,6 +112,11 @@ jobs:
           - group: AI local
             test-paths: "aaiclick/ai/"
             extras: "--extra ai"
+          - group: Misc local
+            # Backend-independent tests with no package directory of their
+            # own: deploy scaffolds, the argparse CLI, and view/log models.
+            test-paths: "aaiclick/deploy/ aaiclick/test_cli.py aaiclick/test_view_models.py aaiclick/test_log_models.py"
+            extras: ""
 
     steps:
       - name: Checkout code
@@ -143,13 +148,13 @@ jobs:
       matrix:
         include:
           - group: Data dist
-            test-paths: "aaiclick/data/ aaiclick/snowflake/"
+            test-paths: "aaiclick/data/ aaiclick/snowflake/ aaiclick/data_extra_tests/"
             extras: ""
           - group: Orch dist
             test-paths: "aaiclick/orchestration/ aaiclick/oplog/"
             extras: ""
           - group: Internal API dist
-            test-paths: "aaiclick/internal_api/"
+            test-paths: "aaiclick/internal_api/ aaiclick/auth/"
             extras: ""
           - group: Server dist
             test-paths: "aaiclick/server/"
