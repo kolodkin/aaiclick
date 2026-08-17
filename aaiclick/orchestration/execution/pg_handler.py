@@ -8,8 +8,14 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
-from ..models import JOB_CANCELLED, JOB_FAILED, JOB_RUNNING, TASK_COMPLETED, TASK_PENDING, TASK_RUNNING, Task
-from .db_handler import DEPENDENCY_WHERE, DbHandler
+from ..models import Task
+from ..runner_config import ENTRY_TYPES
+from .db_handler import DbHandler
+from .sql_loader import load_sql
+
+# Eager on purpose: a wheel that fails to package sql/*.sql breaks every
+# import loudly, instead of only distributed claiming at runtime.
+CLAIM_NEXT_TASK_SQL = load_sql("claim_next_task.sql")
 
 
 class PgDbHandler(DbHandler):
@@ -18,55 +24,14 @@ class PgDbHandler(DbHandler):
     @staticmethod
     async def claim_next_task(session: AsyncSession, execution_worker_id: int, now: datetime) -> Task | None:
         result = await session.execute(
-            text(f"""
-                WITH claimed_task AS (
-                    UPDATE tasks
-                    SET
-                        status = :claimed_status,
-                        execution_worker_id = :execution_worker_id,
-                        claimed_at = :now
-                    WHERE id = (
-                        SELECT t.id FROM tasks t
-                        JOIN jobs j ON t.job_id = j.id
-                        WHERE t.status = :pending_status
-                        AND (t.retry_after IS NULL OR t.retry_after <= :now)
-                        AND j.status NOT IN (:cancelled_job_status, :failed_job_status)
-                        {DEPENDENCY_WHERE}
-                        ORDER BY j.started_at ASC NULLS LAST, t.id ASC
-                        LIMIT 1
-                        FOR UPDATE OF t SKIP LOCKED
-                    )
-                    -- RETURNING * (not a hand-maintained column list): every
-                    -- tasks column must reach Task(**row) or it silently falls
-                    -- back to a model default. Dropping entry_type/command made
-                    -- shell tasks run as module tasks; dropping run_epoch broke
-                    -- the fencing guard for cleared/retried runs. SELECT * below
-                    -- forwards the lot; SQLite's handler already does a full
-                    -- ORM load, so this keeps the two backends in parity.
-                    RETURNING *
-                ),
-                updated_job AS (
-                    UPDATE jobs
-                    SET
-                        started_at = COALESCE(started_at, :now),
-                        status = CASE
-                            WHEN started_at IS NULL THEN :running_status
-                            ELSE status
-                        END
-                    WHERE id = (SELECT job_id FROM claimed_task)
-                    RETURNING id
-                )
-                SELECT * FROM claimed_task
-            """),
+            text(CLAIM_NEXT_TASK_SQL),
             {
-                "claimed_status": TASK_RUNNING,
-                "pending_status": TASK_PENDING,
-                "completed_status": TASK_COMPLETED,
-                "running_status": JOB_RUNNING,
-                "cancelled_job_status": JOB_CANCELLED,
-                "failed_job_status": JOB_FAILED,
                 "execution_worker_id": execution_worker_id,
                 "now": now,
+                # The Python worker executes every entry type and dispatches
+                # image-based tasks itself, so its capability set is total.
+                "entry_types": list(ENTRY_TYPES),
+                "allow_image_tasks": True,
             },
         )
 

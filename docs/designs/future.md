@@ -98,6 +98,47 @@ the primitives (a previous unwired version, `internal_api/lineage_ai.py`,
 was removed as dead code). MCP intentionally exposes only the
 AI-independent primitives (`server/mcp.py`).
 
+## Java Worker Release Flow
+
+`publish.yaml` has no Java steps yet — the wiring needs a real `vX.Y.Z`
+release tag to test against. When added, a `java` job on the **same tag** as
+the Python package (lockstep versioning: the worker's compatibility contract
+is a specific release's PostgreSQL schema and task semantics):
+
+1. Derive the Maven version from the tag, `mvn -B package`, attach the shaded
+   `aaiclick-worker` jar as a GitHub Release asset, and publish a docker
+   image alongside the existing ones.
+2. Phase 2 adds Maven Central via the Central Publisher Portal for the
+   `aaiclick-task-api` module (namespace `io.github.kolodkin` auto-verifies
+   against the GitHub account; needs GPG signing + sources/javadoc jars,
+   `central-publishing-maven-plugin`, two secrets: portal token, GPG key).
+   De-risk early with a one-time `0.0.x` dry-run publish of an empty
+   artifact — namespace verification and signing setup are the only steps
+   with bureaucratic latency.
+
+## Java Worker Phase 2 — `jvm` Entry Type
+
+Native Java tasks on the existing worker (`java/aaiclick-worker` runs
+shell-only today):
+
+- Add `"jvm"` to the `EntryType` Literal (code change only — plain String
+  column, no migration). `tasks.entrypoint` holds a Java class name; `kwargs`
+  JSON binds to method parameters via Jackson; the return value is JSON
+  (plain values only).
+- **Submission validation**: `jvm` tasks must not receive Object/View refs as
+  kwargs and their results are never auto-converted to Objects — enforced at
+  commit points alongside `validate_image_sources()`
+  (`aaiclick/orchestration/image_injection.py`). This keeps the worker's
+  "no ClickHouse object support" boundary honest.
+- **Java task SDK**: a new `aaiclick-task-api` Maven module (the parent POM
+  anticipates it) — `@AaiTask` annotation + registry; each task runs in a
+  spawned child JVM mirroring the mp worker's isolation/timeout/kill
+  semantics.
+- **Claim filters are bound values** in the shared
+  `sql/claim_next_task.sql`: Python workers drop `jvm` from their
+  `entry_types` bind; the Java worker widens to `['shell', 'jvm']`. CLI,
+  `run_job()`, and `RunJobRequest` grow the `jvm` choice.
+
 ## Changelog
 
 `docs/changelog.md` — version history in Keep a Changelog format. Introduce with v1.0.0 release.
