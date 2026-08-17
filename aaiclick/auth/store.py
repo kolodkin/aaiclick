@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from sqlmodel import select
+from sqlmodel import col, select
 
 from ..datetime_utils import utc_now
 from ..orchestration.orch_context import get_sql_session
@@ -114,6 +114,36 @@ async def rotate_refresh(token_id: int) -> None:
 
 async def revoke_refresh(token_id: int) -> None:
     await _stamp_refresh(token_id, "revoked_at")
+
+
+async def revoke_all_for_user(user_id: int) -> int:
+    """Revoke every still-active refresh token for a user; returns the count.
+
+    Ends the user's sessions at the refresh boundary — an already-issued access
+    JWT stays valid until it expires, because it is verified by signature alone
+    (see ``server/auth.py``). Used when a role change, disable, or password
+    change should stop the user renewing.
+    """
+    async with get_sql_session() as session:
+        rows = (
+            (
+                await session.execute(
+                    select(RefreshToken).where(
+                        RefreshToken.user_id == user_id,
+                        col(RefreshToken.rotated_at).is_(None),
+                        col(RefreshToken.revoked_at).is_(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        now = utc_now()
+        for row in rows:
+            row.revoked_at = now
+            session.add(row)
+        await session.commit()
+    return len(rows)
 
 
 async def _stamp_refresh(token_id: int, field: str) -> None:

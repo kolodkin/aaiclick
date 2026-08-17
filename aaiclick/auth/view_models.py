@@ -57,6 +57,14 @@ class SetPasswordRequest(BaseModel):
     password: str
 
 
+class ChangePasswordRequest(BaseModel):
+    """Self-service password change. ``current_password`` is required so a
+    stolen access token cannot take over the account on its own."""
+
+    current_password: str
+    new_password: str
+
+
 class UserListFilter(BaseModel):
     limit: int = 50
     offset: int = 0

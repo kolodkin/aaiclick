@@ -4,9 +4,15 @@ router supplies the JWT secret from aaiclick.auth.config."""
 from __future__ import annotations
 
 from aaiclick.auth import config, security, store
-from aaiclick.auth.view_models import LoginRequest, LogoutRequest, RefreshRequest, TokenPair
+from aaiclick.auth.view_models import (
+    ChangePasswordRequest,
+    LoginRequest,
+    LogoutRequest,
+    RefreshRequest,
+    TokenPair,
+)
 
-from .errors import Unauthorized
+from .errors import Invalid, Unauthorized
 
 
 async def _mint_pair(*, user_id: int, role: str, secret: str) -> TokenPair:
@@ -38,6 +44,22 @@ async def refresh(request: RefreshRequest, *, secret: str) -> TokenPair:
         raise Unauthorized("user is disabled")
     await store.rotate_refresh(row.id)  # rotation: old token becomes inactive
     return await _mint_pair(user_id=user.id, role=user.role, secret=secret)
+
+
+async def change_password(user_id: int | None, request: ChangePasswordRequest) -> None:
+    """Change the caller's own password, then end all their sessions.
+
+    Revoking is the point of the feature: someone changing their password
+    because they suspect a leak needs the other party's refresh token dead. The
+    caller's own client is logged out too and must sign in again.
+    """
+    if user_id is None:
+        raise Invalid("auth is disabled — there is no current user to change a password for")
+    user = await store.get_user_by_id(user_id)
+    if user is None or user.disabled or not security.verify_password(request.current_password, user.password_hash):
+        raise Unauthorized("invalid current password")
+    await store.set_password_hash(user_id, security.hash_password(request.new_password))
+    await store.revoke_all_for_user(user_id)
 
 
 async def logout(request: LogoutRequest) -> None:

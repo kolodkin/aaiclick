@@ -40,6 +40,35 @@ async def test_refresh_flow(orch_ctx, app_client, enabled):
     assert res.status_code == 200 and res.json()["refresh_token"] != login["refresh_token"]
 
 
+async def test_change_own_password_as_viewer(orch_ctx, app_client, enabled):
+    """A viewer can reach ``/auth/me/password`` — ``/users`` is admin-only, so
+    this is their only route to a password change."""
+    await users.create_user(CreateUserRequest(username="vw", password="pw", role="viewer"))
+    login = (await app_client.post(f"{API_PREFIX}/auth/login", json={"username": "vw", "password": "pw"})).json()
+
+    res = await app_client.put(
+        f"{API_PREFIX}/auth/me/password",
+        json={"current_password": "pw", "new_password": "pw2"},
+        headers={"Authorization": f"Bearer {login['access_token']}"},
+    )
+
+    assert res.status_code == 204
+
+
+async def test_change_own_password_wrong_current_401(orch_ctx, app_client, enabled):
+    await users.create_user(CreateUserRequest(username="vw2", password="pw", role="viewer"))
+    login = (await app_client.post(f"{API_PREFIX}/auth/login", json={"username": "vw2", "password": "pw"})).json()
+
+    res = await app_client.put(
+        f"{API_PREFIX}/auth/me/password",
+        json={"current_password": "wrong", "new_password": "pw2"},
+        headers={"Authorization": f"Bearer {login['access_token']}"},
+    )
+
+    assert res.status_code == 401
+    assert res.json()["code"] == "unauthorized"
+
+
 async def test_protected_route_requires_token_when_enabled(orch_ctx, anon_client, enabled):
     res = await anon_client.get(f"{API_PREFIX}/execution-workers")
     assert res.status_code == 401
