@@ -27,7 +27,6 @@ Subpackage conftests only hold subpackage-local fixtures.
 |----------------------|-------------------------------------------------------------------------|
 | `ch_worker_setup`    | Per-xdist-worker chdb tempdir / CH database                             |
 | `sql_worker_setup`   | Per-xdist-worker SQLite file / Postgres database                        |
-| `pin_chdb_session`   | Defensive no-op patch on `chdb_client.close_session` for the pytest run (production no longer calls it from `orch_context` exit either) |
 
 **Module-scoped** — one entry per test module, explicit via `orch_ctx*`:
 
@@ -72,11 +71,16 @@ Two independent mitigations compose to get a stable suite:
    in `pyproject.toml` so the async fixtures persist across the module's
    tests.
 
-Production aligned with this constraint: `orch_context.py` no longer
-calls `close_session()` on exit. The Session lives for the whole
-process; OS resources clean up at process exit. `pin_chdb_session`
-stays as a defensive no-op patch on `chdb_client.close_session` itself
-in case any future caller imports it directly.
+Production aligned with this constraint: `orch_context.py` never
+closes the Session mid-process. It lives for the whole process and is
+closed exactly once by the `atexit` hook in
+`aaiclick/data/data_context/chdb_client.py` — see `_close_sessions()`.
+Relying on bare process exit instead is not safe: when
+`Session.__del__` doesn't fire during interpreter finalization, chdb's
+background threads (e.g. `BgSchPool`) outlive Python and race the
+library's C++ static destructors inside `exit()`, intermittently
+crashing (SIGSEGV/SIGABRT) after a fully green single-process pytest
+run.
 
 # mp-worker Module Split
 

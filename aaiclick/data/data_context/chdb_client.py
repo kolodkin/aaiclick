@@ -11,6 +11,7 @@ Thread-safe for concurrent access from background workers.
 from __future__ import annotations
 
 import asyncio
+import atexit
 import re
 import shutil
 import tempfile
@@ -324,7 +325,7 @@ class ChdbClient:
         self._session.query(f"INSERT INTO {table} ({cols}) SELECT * FROM Python(arrow_table)")
 
     async def close(self) -> None:
-        # chdb's Session is a per-process singleton (see docs/designs/technical_debt.md)
+        # chdb's Session is a per-process singleton (see docs/designs/testing.md)
         # owned outside ChdbClient — closing here would break sibling contexts.
         pass
 
@@ -346,9 +347,27 @@ def get_chdb_data_path() -> str:
 # All ChdbClient instances in a process share this session
 # so that tables created in one data_context are visible to all others.
 # chdb's Session cannot be safely closed and reopened in-process — we hold and
-# reuse one Session per process for its entire lifetime; OS process exit is the
-# only teardown.
+# reuse one Session per process for its entire lifetime and only close via the
+# atexit hook below.
 _sessions: dict[str, Session] = {}
+
+
+def _close_sessions() -> None:
+    """Shut down the shared sessions' engines before interpreter teardown.
+
+    Registered with ``atexit`` so it runs while Python is still fully alive.
+    Without it, whether the engine shuts down depends on ``Session.__del__``
+    firing during interpreter finalization; when it doesn't, chdb's background
+    threads (e.g. BgSchPool) outlive the interpreter and race the library's
+    C++ static destructors inside ``exit()`` — an intermittent SIGSEGV/SIGABRT
+    after an otherwise green process.
+    """
+    while _sessions:
+        _, session = _sessions.popitem()
+        session.cleanup()
+
+
+atexit.register(_close_sessions)
 
 
 def get_shared_session(path: str | None = None) -> Session:
