@@ -36,12 +36,9 @@ from typing import Any, overload
 from aaiclick.data.object import Object
 from aaiclick.data.object.refs import callable_ref, group_results_ref, upstream_ref
 
-from ..datetime_utils import utc_now
-from ..snowflake import get_snowflake_id
-from .factories import _callable_to_string, new_job_row
+from .factories import _callable_to_string, create_task, new_job_row
 from .models import (
     RUN_MANUAL,
-    TASK_PENDING,
     Group,
     Job,
     PreservationMode,
@@ -144,14 +141,10 @@ class TaskFactory:
         # Serialize kwargs
         serialized_kwargs = {k: _serialize_value(v) for k, v in kwargs.items()}
 
-        task_id = get_snowflake_id()
-        task = Task(
-            id=task_id,
-            entrypoint=self.entrypoint,
+        task = create_task(
+            self.entrypoint,
+            serialized_kwargs,
             name=self.name,
-            kwargs=serialized_kwargs,
-            status=TASK_PENDING,
-            created_at=utc_now(),
             max_retries=self.max_retries,
         )
 
@@ -274,17 +267,8 @@ class JobFactory:
             session.add(job)
             await session.commit()
 
-        # Create entry point task
-        entry_task = Task(
-            id=get_snowflake_id(),
-            entrypoint=self.entrypoint,
-            name=self.name,
-            kwargs=serialized_kwargs,
-            status=TASK_PENDING,
-            created_at=utc_now(),
-        )
-
-        # Commit entry point task with job_id
+        # Create and commit the entry point task with job_id
+        entry_task = create_task(self.entrypoint, serialized_kwargs, name=self.name)
         await commit_tasks([entry_task], job.id)
 
         return job
