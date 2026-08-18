@@ -222,7 +222,12 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", "RunnerResult | None"]):
         await _docker_kill(handle.container_id)
 
     def collect(
-        self, handle: _DockerHandle, exit_code: int, error: str | None, was_cancelled: bool, payload: RunnerResult | None
+        self,
+        handle: _DockerHandle,
+        exit_code: int,
+        error: str | None,
+        was_cancelled: bool,
+        payload: RunnerResult | None,
     ) -> RunnerResult:
         return collect_remote_result(exit_code, error, was_cancelled, payload, "container")
 
