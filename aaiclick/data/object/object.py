@@ -462,12 +462,12 @@ class Object:
         """
         Get query information for concat/insert operations.
 
-        Extends QueryInfo with full column schema so ingest functions
-        can validate without querying system.columns.
+        Extends QueryInfo with the effective column schema (View field
+        selection, renames, and computed columns applied) so ingest
+        functions can validate without querying system.columns.
         """
         info = self._get_query_info()
-        columns = self._schema.columns
-        return IngestQueryInfo(**vars(info), columns=columns)
+        return IngestQueryInfo(**vars(info), columns=self._effective_columns)
 
     def _get_copy_info(self) -> CopyInfo:
         """
@@ -2027,16 +2027,9 @@ class GroupByQuery:
         if schema is None:
             raise ValueError("Source object has no cached schema")
 
-        if isinstance(source, View) and source.is_single_field:
-            # Single-field View projects to {value}
-            available = {"value"}
-        elif isinstance(source, View) and source.selected_fields:
-            available = set(source.selected_fields)
-        else:
-            available = set(schema.columns)
-        # Include computed columns
-        if source.computed_columns:
-            available |= set(source.computed_columns.keys())
+        # _effective_columns resolves field selection, renames, computed
+        # columns, and explode depth for any Object or View.
+        available = set(source._effective_columns)
 
         for key in keys:
             if key not in available:
@@ -2124,58 +2117,23 @@ class GroupByQuery:
         """
         Build GroupByInfo from the source Object.
 
-        Handles plain Objects, Views with WHERE/LIMIT constraints,
-        multi-field Views, and single-field Views.
+        ``_effective_columns`` resolves field selection, renames, computed
+        columns, and explode depth for any Object or View, so plain Objects
+        and every View shape share one path.
 
         Returns:
             GroupByInfo with source, group keys, and column metadata
         """
         source = self._source
-        schema = source._schema
-
-        # Determine source query and columns based on source type
-        if isinstance(source, View):
-            if source.is_single_field and source.selected_fields:
-                # Single-field View projects to {value}
-                field = source.selected_fields[0]
-                col_def = schema.columns.get(field, ColumnInfo("Float64"))
-                columns = {"value": col_def.type}
-                source_query = f"({source._build_select()})"
-            elif source.selected_fields:
-                columns = {}
-                for field in source.selected_fields:
-                    col_def = schema.columns.get(field, ColumnInfo("Float64"))
-                    columns[field] = col_def.type
-                if source.computed_columns:
-                    for col_name, comp in source.computed_columns.items():
-                        columns[col_name] = comp.type
-                source_query = f"({source._build_select()})"
-            elif source.has_constraints:
-                # WHERE/LIMIT View: full columns, wrapped in subquery
-                columns = {k: cd.type for k, cd in schema.columns.items()}
-                if source.computed_columns:
-                    for col_name, comp in source.computed_columns.items():
-                        columns[col_name] = comp.type
-                source_query = f"({source._build_select()})"
-            else:
-                # Base View (no constraints): same as plain Object
-                columns = {k: cd.type for k, cd in schema.columns.items()}
-                source_query = source.table
-        else:
-            # Plain Object
-            columns = {k: cd.type for k, cd in schema.columns.items()}
-            source_query = (
-                f"({source._build_select()})"
-                if hasattr(source, "has_constraints") and source.has_constraints
-                else source.table
-            )
+        source_query = f"({source._build_select()})" if source.has_constraints else source.table
+        columns = {name: info.type for name, info in source._effective_columns.items()}
 
         return GroupByInfo(
             source=source_query,
             base_table=source.table,
             group_keys=self._keys,
             columns=columns,
-            fieldtype=schema.fieldtype,
+            fieldtype=source._schema.fieldtype,
             having=self._build_having(),
         )
 
@@ -2743,14 +2701,6 @@ class View(Object):
             selected_fields=self.selected_fields,
             computed_columns=self.computed_columns,
         )
-
-    def _get_ingest_query_info(self) -> IngestQueryInfo:
-        """Build effective column schema for insert/concat validation.
-
-        Delegates to effective_columns property for column resolution.
-        """
-        info = self._get_query_info()
-        return IngestQueryInfo(**vars(info), columns=self._effective_columns)
 
     async def insert(self, *args) -> None:
         """Views are read-only and cannot be modified."""
