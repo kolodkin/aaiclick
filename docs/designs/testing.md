@@ -73,14 +73,10 @@ Two independent mitigations compose to get a stable suite:
 
 Production aligned with this constraint: `orch_context.py` never
 closes the Session mid-process. It lives for the whole process and is
-closed exactly once by the `atexit` hook in
-`aaiclick/data/data_context/chdb_client.py` — see `_close_sessions()`.
-Relying on bare process exit instead is not safe: when
-`Session.__del__` doesn't fire during interpreter finalization, chdb's
-background threads (e.g. `BgSchPool`) outlive Python and race the
-library's C++ static destructors inside `exit()`, intermittently
-crashing (SIGSEGV/SIGABRT) after a fully green single-process pytest
-run.
+closed exactly once at exit — see `_close_sessions()` in
+`aaiclick/data/data_context/chdb_client.py` for why bare process exit
+isn't safe (engine threads racing C++ static destructors — an
+intermittent shutdown SIGSEGV after a green run).
 
 # mp-worker Module Split
 

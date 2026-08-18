@@ -356,8 +356,7 @@ def _close_sessions() -> None:
     """Shut down the shared sessions' engines before interpreter teardown.
 
     Registered with ``atexit`` so it runs while Python is still fully alive.
-    Without it, whether the engine shuts down depends on ``Session.__del__``
-    firing during interpreter finalization; when it doesn't, chdb's background
+    Left to ``Session.__del__`` (which may never fire), chdb's background
     threads (e.g. BgSchPool) outlive the interpreter and race the library's
     C++ static destructors inside ``exit()`` — an intermittent SIGSEGV/SIGABRT
     after an otherwise green process.
