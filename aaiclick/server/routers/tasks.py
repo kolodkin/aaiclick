@@ -40,7 +40,7 @@ async def get_task_logs(
 @router.post(
     "/{task_id}/clear",
     response_model=ClearTaskView,
-    responses=problem_responses(404),
+    responses=problem_responses(403, 404),
     dependencies=[Depends(orch_scope), Depends(require_admin)],
 )
 async def clear_task(task_id: int) -> ClearTaskView:

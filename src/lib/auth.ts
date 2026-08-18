@@ -1,7 +1,7 @@
 // Module-level token store. `fetchJSON`/`postJSON` are plain functions outside
 // React, so the access token lives in a module singleton; the refresh token
 // persists in localStorage so a page reload can re-establish a session.
-import type { Role } from "../api/types";
+import type { MeView } from "../api/types";
 
 // Local base + POST helper. We deliberately do NOT route through client.ts's
 // `request` (it would recurse: this module IS the 401-refresh path), and we
@@ -35,6 +35,8 @@ function setRefreshToken(token: string | null): void {
   else localStorage.removeItem(REFRESH_KEY);
 }
 
+export type { MeView };
+
 export function clearSession(): void {
   accessToken = null;
   setRefreshToken(null);
@@ -44,12 +46,6 @@ interface TokenPair {
   access_token: string;
   refresh_token: string;
   expires_in: number;
-}
-
-export interface MeView {
-  id: number;
-  username: string;
-  role: Role;
 }
 
 export async function login(username: string, password: string): Promise<void> {

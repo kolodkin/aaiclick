@@ -20,6 +20,7 @@ import json
 from pathlib import Path
 
 import pytest
+from helpers import open_page
 
 STATIC = Path(__file__).resolve().parents[2] / "aaiclick" / "server" / "static" / "index.html"
 
@@ -58,12 +59,12 @@ def _stub_session(page, role: str) -> None:
     )
 
 
-def _open_registered(page, base_url: str, role: str):
+def _open_registered(page, base_url: str, role: str) -> None:
+    """Stub the session, then navigate via the suite's shared helper so this
+    file picks up SPA-shell changes like the other web tests do."""
     _stub_session(page, role)
-    page.goto(f"{base_url}/?p=@registered")
-    page.wait_for_selector("#prompt")
+    open_page(page, f"{base_url}/?p=@registered")
     page.wait_for_selector("table")
-    return page
 
 
 @_spa_built
