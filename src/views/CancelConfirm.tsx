@@ -1,4 +1,5 @@
 import { useCancelJob } from "../api/hooks";
+import { AdminButton } from "../components/AdminButton";
 import { Chips } from "../components/Chips";
 import { Panel } from "../components/Panel";
 import { useToast } from "../components/Toast";
@@ -26,9 +27,9 @@ export function CancelConfirm({ refId, onPrompt }: { refId: string; onPrompt: (v
           POST /api/v0/jobs/{refId}/cancel — pending tasks are cancelled and any running task is signalled to abort.
         </p>
         <div className="form-actions">
-          <button className="btn btn-danger" disabled={cancel.isPending} onClick={onCancel}>
+          <AdminButton className="btn btn-danger" disabled={cancel.isPending} onClick={onCancel}>
             Cancel job
-          </button>
+          </AdminButton>
           <button className="btn" onClick={() => onPrompt(`@job ${refId}`)}>
             Keep running
           </button>

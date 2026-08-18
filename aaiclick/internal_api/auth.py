@@ -4,9 +4,17 @@ router supplies the JWT secret from aaiclick.auth.config."""
 from __future__ import annotations
 
 from aaiclick.auth import config, security, store
-from aaiclick.auth.view_models import LoginRequest, LogoutRequest, RefreshRequest, TokenPair
+from aaiclick.auth.models import User
+from aaiclick.auth.view_models import (
+    ChangePasswordRequest,
+    LoginRequest,
+    LogoutRequest,
+    RefreshRequest,
+    TokenPair,
+)
 
-from .errors import Unauthorized
+from . import users
+from .errors import Invalid, Unauthorized
 
 
 async def _mint_pair(*, user_id: int, role: str, secret: str) -> TokenPair:
@@ -22,9 +30,15 @@ async def _mint_pair(*, user_id: int, role: str, secret: str) -> TokenPair:
     )
 
 
+def _authenticates(user: User, password: str) -> bool:
+    """Whether ``password`` admits this user — the one definition of the rule,
+    so login and the self-service password change cannot drift apart."""
+    return not user.disabled and security.verify_password(password, user.password_hash)
+
+
 async def login(request: LoginRequest, *, secret: str) -> TokenPair:
     user = await store.get_user_by_username(request.username)
-    if user is None or user.disabled or not security.verify_password(request.password, user.password_hash):
+    if user is None or not _authenticates(user, request.password):
         raise Unauthorized("invalid username or password")
     return await _mint_pair(user_id=user.id, role=user.role, secret=secret)
 
@@ -38,6 +52,22 @@ async def refresh(request: RefreshRequest, *, secret: str) -> TokenPair:
         raise Unauthorized("user is disabled")
     await store.rotate_refresh(row.id)  # rotation: old token becomes inactive
     return await _mint_pair(user_id=user.id, role=user.role, secret=secret)
+
+
+async def change_password(user_id: int | None, request: ChangePasswordRequest) -> None:
+    """Change the caller's own password, then end all their sessions.
+
+    Revoking is the point of the feature: someone changing their password
+    because they suspect a leak needs the other party's refresh token dead. The
+    caller's own client is logged out too and must sign in again.
+    """
+    if user_id is None:
+        raise Invalid("auth is disabled — there is no current user to change a password for")
+    user = await store.get_user_by_id(user_id)
+    if user is None or not _authenticates(user, request.current_password):
+        raise Unauthorized("invalid current password")
+    # Delegate the write so "a password change revokes sessions" has one home.
+    await users.set_password(user_id, request.new_password)
 
 
 async def logout(request: LogoutRequest) -> None:

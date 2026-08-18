@@ -173,14 +173,18 @@ tbody tr.clickable:hover { background: rgba(91,157,255,.12); }
   border: 1px solid var(--border); background: var(--panel); color: var(--text); cursor: pointer;
   backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
   box-shadow: var(--hi); transition: border-color .15s, background .15s, filter .15s; }
-.btn:hover { border-color: var(--accent); background: var(--panel-strong); }
+.btn:hover:not(:disabled) { border-color: var(--accent); background: var(--panel-strong); }
 .btn-primary { background: linear-gradient(180deg, #6aa6ff, #3f7fe8); border-color: rgba(255,255,255,.20);
   color: #fff; box-shadow: var(--hi), 0 6px 18px rgba(63,127,232,.45); }
-.btn-primary:hover { filter: brightness(1.08); background: linear-gradient(180deg, #6aa6ff, #3f7fe8); }
+.btn-primary:hover:not(:disabled) { filter: brightness(1.08); background: linear-gradient(180deg, #6aa6ff, #3f7fe8); }
 .btn-danger { background: linear-gradient(180deg, #ff8079, #e0463d); border-color: rgba(255,255,255,.20);
   color: #fff; box-shadow: var(--hi), 0 6px 18px rgba(224,70,61,.42); }
-.btn-danger:hover { filter: brightness(1.08); }
+.btn-danger:hover:not(:disabled) { filter: brightness(1.08); }
 .btn-sm { padding: 5px 10px; font-size: 12px; }
+/* Disabled covers both in-flight mutations and the admin-only gate (see
+   components/AdminButton.tsx); the :hover rules are scoped :not(:disabled)
+   so a greyed-out control never looks interactive. */
+.btn:disabled, .toggle:disabled { opacity: .45; cursor: not-allowed; filter: grayscale(.55); }
 .row-actions { display: flex; gap: 6px; }
 
 /* detail header */

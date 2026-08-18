@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Query
 from aaiclick.internal_api import tasks as tasks_api
 from aaiclick.orchestration.view_models import ClearTaskView, TaskDetail, TaskLogsView
 
+from ..auth import require_admin
 from ..deps import orch_scope, orch_scope_with_ch
 from ..errors import problem_responses
 
@@ -39,8 +40,8 @@ async def get_task_logs(
 @router.post(
     "/{task_id}/clear",
     response_model=ClearTaskView,
-    responses=problem_responses(404),
-    dependencies=[Depends(orch_scope)],
+    responses=problem_responses(403, 404),
+    dependencies=[Depends(orch_scope), Depends(require_admin)],
 )
 async def clear_task(task_id: int) -> ClearTaskView:
     return await tasks_api.clear_task(task_id)

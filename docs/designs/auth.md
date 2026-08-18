@@ -50,7 +50,7 @@ Two SQLModel tables in `aaiclick/auth/models.py`. IDs are snowflake
 | `id`            | `BigInteger` PK (snowflake)     |                        |
 | `username`      | `String`, unique, indexed       | Login identifier       |
 | `password_hash` | `String`                        | bcrypt                 |
-| `role`          | `String` + CHECK `IN ('admin','viewer')` | `Role` literal |
+| `role`          | `String`                        | `Role` literal         |
 | `disabled`      | `Boolean`, default `false`      | Disabled → cannot log in |
 | `created_at`    | `datetime` (`utc_now`)          |                        |
 
@@ -77,17 +77,18 @@ aaiclick/
     security.py      bcrypt hash/verify; secret gen + sha256; JWT encode/decode
                      (pure functions, no DB, no contextvars)
     config.py        env getters (enabled, secret, TTLs, admin seed)
-    store.py         raw DB CRUD over users / refresh_tokens
+    store.py         raw DB CRUD over users / refresh_tokens; revoke_all_for_user
     view_models.py   LoginRequest, RefreshRequest, LogoutRequest, TokenPair,
                      MeView, UserView, CreateUserRequest, ...
   internal_api/
-    auth.py          login(), refresh(), logout()  → view models
+    auth.py          login(), refresh(), logout(), change_password()
     users.py         create_user, list_users, get_user, set_role,
                      disable_user, set_password
   server/
     auth.py          principal resolution + RBAC dependencies + /mcp middleware
     routers/
-      auth.py        /auth/login, /auth/refresh, /auth/logout, /auth/me
+      auth.py        /auth/login, /auth/refresh, /auth/logout, /auth/me,
+                     /auth/me/password
       users.py       /users   (admin-only)
   __main__.py        aaiclick user create|list|set-role|disable|passwd
 ```
@@ -133,6 +134,31 @@ JWTs are stateless and expire on their own (≤ 30 min).
 
 `GET /api/v0/auth/me` → `MeView {id, username, role}` for the current principal.
 
+## Change own password
+
+`PUT /api/v0/auth/me/password` `{current_password, new_password}` → `204`. Open
+to **any** role — `/users` is admin-only, so without this a viewer could never
+rotate their own credential. `current_password` is required so a stolen access
+token alone cannot seize the account, and a mismatch is `401`. Local mode has no
+current user (the synthetic admin's `user_id` is `None`), so the route answers
+`422` there.
+
+## Session revocation
+
+`store.revoke_all_for_user` stamps `revoked_at` on every still-active refresh row.
+It runs on role change, disable, admin password reset, and self-service password
+change — a demotion or reset must not be outlived by a refresh token still
+minting the old role, and someone changing their password after a suspected leak
+needs the other party's token dead.
+
+!!! note "Revocation binds at the refresh boundary, not instantly"
+    Access JWTs are verified by signature alone — no DB read — so a revoked
+    user keeps their existing access token until it expires (≤ 30 min by
+    default). Revocation closes the renewal chain; it does not claw back the
+    token in flight. Immediate cutoff would mean a per-request DB lookup or a
+    denylist, trading away that statelessness on every read. Tighten
+    `AAICLICK_JWT_ACCESS_TTL` if the window matters more than refresh chatter.
+
 # Principal Resolution & RBAC
 
 `require_principal` extracts the credential with FastAPI's
@@ -144,8 +170,9 @@ rather than FastAPI's bare `HTTPException`), then resolves a
 - **Auth disabled** → a synthetic admin principal; all routes open.
 - **Valid access JWT** (`type="access"`, valid signature + `exp`) → claims are
   trusted for the token's ≤30-min lifetime (`sub`, `role`). Disabling or
-  demoting a user takes full effect within one access-TTL — the next
-  `/auth/refresh` re-reads the DB and fails / downgrades.
+  demoting a user revokes their refresh rows immediately (see *Session
+  revocation*) but takes full effect on the access token only within one
+  access-TTL.
 - **Otherwise** → `401` with `WWW-Authenticate: Bearer`.
 
 `require_admin` depends on `require_principal` and raises `Forbidden` (`403`,
@@ -157,7 +184,9 @@ rather than FastAPI's bare `HTTPException`), then resolves a
 |---------------------------------------------------------|:------:|:-----:|
 | `GET` reads (jobs, tasks, workers, objects, lineage)    | ✅     | ✅    |
 | `/auth/*` (login, refresh, logout, me)                  | ✅     | ✅    |
+| Change **own** password (`/auth/me/password`)            | ✅     | ✅    |
 | Run / cancel jobs, register / enable / disable jobs     | ❌     | ✅    |
+| Clear tasks (resets status, bumps `run_epoch`)          | ❌     | ✅    |
 | Delete / purge objects                                  | ❌     | ✅    |
 | Start / stop workers                                    | ❌     | ✅    |
 | User management (`/users`)                              | ❌     | ✅    |
@@ -194,7 +223,13 @@ get a `401`/`403` `Problem`.
 - `src/lib/auth.ts`: in-memory access token + `localStorage` refresh token;
   `login` / `logout` / `tryRefresh` / `fetchMe` helpers.
 - `src/components/Auth.tsx`: `AuthProvider` / `useAuth`, bootstrapped from
-  `/auth/me`.
+  `/auth/me`; exposes `isAdmin`.
+- `src/components/AdminButton.tsx`: renders an admin-only action. Viewers get it
+  **disabled with a tooltip** rather than hidden — a greyed-out control shows the
+  action exists and why it is unavailable, where hiding it reads as a missing
+  feature. Used for run / cancel / register / enable-toggle, and for the
+  navigation buttons leading into those flows. Presentation only; `require_admin`
+  is still the enforcement.
 - `src/views/Login.tsx`: username + password form.
 - `App.tsx` gates rendering on the session. When auth is disabled `/auth/me`
   returns the synthetic admin, so no login wall appears.

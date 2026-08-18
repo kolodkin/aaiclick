@@ -6,6 +6,7 @@ import type { components } from "./schema";
 
 type S = components["schemas"];
 
+export type MeView = S["MeView"];
 export type JobStatus = S["JobView"]["status"];
 export type TaskStatus = S["TaskView"]["status"];
 

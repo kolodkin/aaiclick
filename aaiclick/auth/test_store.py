@@ -30,6 +30,30 @@ async def test_set_role_missing_user_raises(orch_ctx):
         await store.set_role(999, ROLE_ADMIN)
 
 
+async def test_revoke_all_for_user_kills_active_tokens(orch_ctx):
+    u = await store.create_user(username="dave", password_hash="h", role=ROLE_VIEWER)
+    await store.create_refresh_token(user_id=u.id, token_hash="d1", ttl=3600)
+    await store.create_refresh_token(user_id=u.id, token_hash="d2", ttl=3600)
+
+    assert await store.revoke_all_for_user(u.id) == 2
+    assert await store.get_active_refresh("d1") is None
+    assert await store.get_active_refresh("d2") is None
+
+
+async def test_revoke_all_for_user_skips_rotated_and_other_users(orch_ctx):
+    """Only this user's still-active rows are counted — already-rotated rows are
+    inactive, and another user's session must survive."""
+    u = await store.create_user(username="erin", password_hash="h", role=ROLE_VIEWER)
+    other = await store.create_user(username="frank", password_hash="h", role=ROLE_VIEWER)
+    rotated = await store.create_refresh_token(user_id=u.id, token_hash="e_rotated", ttl=3600)
+    await store.rotate_refresh(rotated.id)
+    await store.create_refresh_token(user_id=u.id, token_hash="e_active", ttl=3600)
+    await store.create_refresh_token(user_id=other.id, token_hash="f_active", ttl=3600)
+
+    assert await store.revoke_all_for_user(u.id) == 1
+    assert await store.get_active_refresh("f_active") is not None
+
+
 async def test_refresh_token_lifecycle(orch_ctx):
     u = await store.create_user(username="carol", password_hash="h", role=ROLE_VIEWER)
     rt = await store.create_refresh_token(user_id=u.id, token_hash="hash1", ttl=3600)

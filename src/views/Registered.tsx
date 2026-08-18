@@ -1,4 +1,5 @@
 import { useRegisteredJobs } from "../api/hooks";
+import { AdminButton } from "../components/AdminButton";
 import { EnabledToggle } from "../components/EnabledToggle";
 
 export function Registered({ onPrompt }: { onPrompt: (v: string) => void }) {
@@ -10,9 +11,9 @@ export function Registered({ onPrompt }: { onPrompt: (v: string) => void }) {
           ← @jobs
         </span>
         <div className="spacer" />
-        <button className="btn btn-primary btn-sm" onClick={() => onPrompt("register")}>
+        <AdminButton className="btn btn-primary btn-sm" onClick={() => onPrompt("register")}>
           + Register new job
-        </button>
+        </AdminButton>
       </div>
       <h2>Registered jobs</h2>
       <p className="sub">Run on demand, or on a cron schedule via the background scheduler.</p>
@@ -44,12 +45,12 @@ export function Registered({ onPrompt }: { onPrompt: (v: string) => void }) {
                 <td>{r.next_run_at ?? "—"}</td>
                 <td>
                   <div className="row-actions">
-                    <button className="btn btn-primary btn-sm" onClick={() => onPrompt(`run ${r.name}`)}>
+                    <AdminButton className="btn btn-primary btn-sm" onClick={() => onPrompt(`run ${r.name}`)}>
                       Run
-                    </button>
-                    <button className="btn btn-sm" onClick={() => onPrompt(`run ${r.name} ?`)}>
+                    </AdminButton>
+                    <AdminButton className="btn btn-sm" onClick={() => onPrompt(`run ${r.name} ?`)}>
                       Run…
-                    </button>
+                    </AdminButton>
                   </div>
                 </td>
               </tr>

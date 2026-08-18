@@ -49,21 +49,32 @@ async def get_user(user_id: int) -> UserView:
 
 
 async def set_role(user_id: int, role: Role) -> UserView:
+    """Change a user's role and end their sessions, so a demotion cannot be
+    outlived by a refresh token still minting the old role."""
     try:
-        return _to_view(await store.set_role(user_id, role))
+        user = await store.set_role(user_id, role)
     except store.UserNotFound as exc:
         raise NotFound(str(exc)) from exc
+    await store.revoke_all_for_user(user_id)
+    return _to_view(user)
 
 
 async def disable_user(user_id: int, disabled: bool = True) -> UserView:
     try:
-        return _to_view(await store.set_disabled(user_id, disabled))
+        user = await store.set_disabled(user_id, disabled)
     except store.UserNotFound as exc:
         raise NotFound(str(exc)) from exc
+    if disabled:
+        await store.revoke_all_for_user(user_id)
+    return _to_view(user)
 
 
 async def set_password(user_id: int, password: str) -> UserView:
+    """Admin password reset — also ends the user's sessions, so resetting a
+    suspected-compromised account actually locks the other party out."""
     try:
-        return _to_view(await store.set_password_hash(user_id, security.hash_password(password)))
+        user = await store.set_password_hash(user_id, security.hash_password(password))
     except store.UserNotFound as exc:
         raise NotFound(str(exc)) from exc
+    await store.revoke_all_for_user(user_id)
+    return _to_view(user)

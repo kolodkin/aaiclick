@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useRunJob } from "../api/hooks";
+import { AdminButton } from "../components/AdminButton";
 import { Chips } from "../components/Chips";
 import { Panel } from "../components/Panel";
 import { useToast } from "../components/Toast";
@@ -53,9 +54,9 @@ export function RunForm({ name, onPrompt }: { name: string; onPrompt: (v: string
           </select>
         </div>
         <div className="form-actions">
-          <button className="btn btn-primary" disabled={run.isPending} onClick={onRun}>
+          <AdminButton className="btn btn-primary" disabled={run.isPending} onClick={onRun}>
             Run job
-          </button>
+          </AdminButton>
           <button className="btn" onClick={() => onPrompt("@registered")}>
             Cancel
           </button>

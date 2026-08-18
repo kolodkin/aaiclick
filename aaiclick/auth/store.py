@@ -4,8 +4,10 @@ internal_api layer maps these to InternalApiError / Problem responses."""
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import Any, cast
 
-from sqlmodel import select
+from sqlalchemy import CursorResult, update
+from sqlmodel import col, select
 
 from ..datetime_utils import utc_now
 from ..orchestration.orch_context import get_sql_session
@@ -114,6 +116,33 @@ async def rotate_refresh(token_id: int) -> None:
 
 async def revoke_refresh(token_id: int) -> None:
     await _stamp_refresh(token_id, "revoked_at")
+
+
+async def revoke_all_for_user(user_id: int) -> int:
+    """Revoke every still-active refresh token for a user; returns the count.
+
+    Ends the user's sessions at the refresh boundary — an already-issued access
+    JWT stays valid until it expires, because it is verified by signature alone
+    (see ``server/auth.py``). Used when a role change, disable, or password
+    change should stop the user renewing.
+    """
+    async with get_sql_session() as session:
+        # An UPDATE always yields a CursorResult; ``execute`` is just typed
+        # for the general case, and ``rowcount`` is how the count comes free.
+        result = cast(
+            "CursorResult[Any]",
+            await session.execute(
+                update(RefreshToken)
+                .where(
+                    col(RefreshToken.user_id) == user_id,
+                    col(RefreshToken.rotated_at).is_(None),
+                    col(RefreshToken.revoked_at).is_(None),
+                )
+                .values(revoked_at=utc_now())
+            ),
+        )
+        await session.commit()
+    return result.rowcount
 
 
 async def _stamp_refresh(token_id: int, field: str) -> None:

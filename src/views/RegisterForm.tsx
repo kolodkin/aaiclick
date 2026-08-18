@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useRegisterJob } from "../api/hooks";
+import { AdminButton } from "../components/AdminButton";
 import { Chips } from "../components/Chips";
 import { Panel } from "../components/Panel";
 import { useToast } from "../components/Toast";
@@ -78,9 +79,9 @@ export function RegisterForm({ name, onPrompt }: { name: string; onPrompt: (v: s
           <label htmlFor="reg-enabled">Enabled</label>
         </div>
         <div className="form-actions">
-          <button className="btn btn-primary" disabled={register.isPending || !entrypoint} onClick={onRegister}>
+          <AdminButton className="btn btn-primary" disabled={register.isPending || !entrypoint} onClick={onRegister}>
             Register
-          </button>
+          </AdminButton>
           <button className="btn" onClick={() => onPrompt("@registered")}>
             Cancel
           </button>

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 
 from aaiclick.auth import config
 from aaiclick.auth.view_models import (
+    ChangePasswordRequest,
     LoginRequest,
     LogoutRequest,
     MeView,
@@ -43,3 +44,12 @@ async def me(principal: Principal = Depends(require_principal)) -> MeView:
         username=principal.username or "admin",
         role=principal.role,
     )
+
+
+@router.put("/me/password", status_code=204, responses=problem_responses(401, 422))
+async def change_password(
+    request: ChangePasswordRequest,
+    principal: Principal = Depends(require_principal),
+) -> None:
+    """Any role may change their own password — ``/users`` is admin-only."""
+    await auth_api.change_password(principal.user_id, request)

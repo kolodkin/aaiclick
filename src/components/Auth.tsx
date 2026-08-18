@@ -11,6 +11,10 @@ import { clearSession, fetchMe, logout as doLogout, type MeView } from "../lib/a
 interface AuthState {
   me: MeView | null;
   ready: boolean; // false until the initial /auth/me probe resolves
+  // Mutating controls are admin-only server-side; the UI disables rather than
+  // hides them so a viewer can see the action exists. When the server has auth
+  // disabled, /auth/me returns a synthetic admin, so nothing is gated.
+  isAdmin: boolean;
   refresh: () => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -18,6 +22,7 @@ interface AuthState {
 const AuthContext = createContext<AuthState>({
   me: null,
   ready: false,
+  isAdmin: false,
   refresh: async () => {},
   signOut: async () => {},
 });
@@ -55,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ me, ready, refresh, signOut }}>
+    <AuthContext.Provider value={{ me, ready, isAdmin: me?.role === "admin", refresh, signOut }}>
       {children}
     </AuthContext.Provider>
   );
