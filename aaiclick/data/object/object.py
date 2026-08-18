@@ -352,6 +352,15 @@ class Object:
                 parts.append(f"{connector} ({condition})")
         return " ".join(parts)
 
+    def _select_head(self, columns: str) -> str:
+        """SELECT head (projection + FROM, before WHERE).
+
+        View overrides this to apply field selection, renames, computed
+        columns, and ARRAY JOIN; the WHERE/ORDER BY/LIMIT/OFFSET tail in
+        ``_build_select`` is shared.
+        """
+        return f"SELECT {columns} FROM {self.table}"
+
     def _build_select(
         self,
         columns: str = "*",
@@ -381,7 +390,7 @@ class Object:
         eff_limit = limit if limit is not _UNSET else self.limit
         eff_offset = offset if offset is not _UNSET else self.offset
 
-        query = f"SELECT {columns} FROM {self.table}"
+        query = self._select_head(columns)
         where = self._build_where()
         if where:
             query += f" WHERE {where}"
@@ -2541,35 +2550,15 @@ class View(Object):
         merged.update(columns)
         return View(self, computed_columns=merged)
 
-    def _build_select(
-        self,
-        columns: str = "*",
-        default_order_by: str | None = None,
-        skip_order_by: bool = False,
-        *,
-        order_by: Any = _UNSET,
-        limit: Any = _UNSET,
-        offset: Any = _UNSET,
-    ) -> str:
-        """
-        Build a SELECT query with view constraints applied.
+    def _select_head(self, columns: str) -> str:
+        """SELECT head with View projections applied (before the shared tail).
 
         For single-field selection, renames the field as 'value' for array compatibility.
         For multi-field selection, selects all specified fields.
         If columns="value" is requested, only the value column is selected.
         Computed columns are appended as ``expr AS name`` aliases.
         Renamed columns are emitted as ``old_name AS new_name`` aliases.
-
-        Args:
-            columns: Column specification (default "*", respected for field selection views)
-            default_order_by: Default ORDER BY clause if view doesn't have custom order_by
-            skip_order_by: If True, omit ORDER BY from the query. Used by copy()
-                to avoid a wasted sort when the order is preserved as a View.
-            order_by/limit/offset: Per-call overrides — when not ``_UNSET``,
-                used in place of the View's stored attributes.
-
-        Returns:
-            str: SELECT query string with WHERE/LIMIT/OFFSET/ORDER BY applied
+        Exploded columns append an ARRAY JOIN clause.
         """
         if self.selected_fields:
             # Carry aai_id through field-selected subqueries so binary
@@ -2641,21 +2630,6 @@ class View(Object):
                 else:
                     join_parts.append(quote_identifier(col))
             query += f" {join_type} {', '.join(join_parts)}"
-        eff_order_by = order_by if order_by is not _UNSET else self.order_by
-        eff_limit = limit if limit is not _UNSET else self.limit
-        eff_offset = offset if offset is not _UNSET else self.offset
-
-        where_clause = self._build_where()
-        if where_clause:
-            query += f" WHERE {where_clause}"
-        if not skip_order_by:
-            order_clause = eff_order_by or default_order_by
-            if order_clause:
-                query += f" ORDER BY {order_clause}"
-        if eff_limit is not None:
-            query += f" LIMIT {eff_limit}"
-        if eff_offset is not None:
-            query += f" OFFSET {eff_offset}"
         return query
 
     def _get_copy_info(self) -> CopyInfo:
