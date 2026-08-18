@@ -1,7 +1,7 @@
 """Tests for the Kubernetes runner — manifest builder and collect logic.
 
-The Pod-side ``_pod_main`` test lives in ``test_kubernetes_pod_main.py`` (its
-own module) because it boots a chdb ``orch_context()``; see the chdb
+The container-side entrypoint tests live in ``test_remote_result.py`` (its
+own module) because they boot a chdb ``orch_context()``; see the chdb
 single-session constraint in ``docs/designs/testing.md``."""
 
 from __future__ import annotations
@@ -185,7 +185,7 @@ def test_build_shell_pod_spec_wraps_argv():
 async def test_module_pod_wait_reads_result_row(monkeypatch):
     monkeypatch.setattr(kw, "_pod_status", AsyncMock(return_value=("Succeeded", 0)))
     row = kw.RunnerResult(True, None, None)
-    monkeypatch.setattr(kw, "_read_task_run_result_row", AsyncMock(return_value=row))
+    monkeypatch.setattr(kw, "read_task_run_result", AsyncMock(return_value=row))
 
     exit_code, error, payload = await _vehicle("module").wait(_handle(), None)
 
