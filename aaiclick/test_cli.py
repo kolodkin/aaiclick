@@ -140,7 +140,10 @@ def test_main_dispatches_run_job_to_handler():
     with (
         patch("sys.argv", ["aaiclick", "run-job", "myjob", "--git-sha", "b" * 40]),
         patch("aaiclick.__main__.asyncio.run"),
-        patch("aaiclick.__main__._run_run_job") as handler,
+        # Patching an async def defaults to AsyncMock, whose call creates a
+        # coroutine the mocked asyncio.run never awaits — an unraisable
+        # RuntimeWarning that filterwarnings=["error"] fails the run.
+        patch("aaiclick.__main__._run_run_job", new_callable=MagicMock) as handler,
     ):
         main()
 

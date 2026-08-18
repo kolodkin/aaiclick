@@ -365,7 +365,7 @@ async def orch_module_ctx():
     """Module-scoped ``orch_context()`` with chdb — entered once per module.
 
     chdb's Session is a true per-process singleton (see
-    ``docs/designs/technical_debt.md``); orch_context never closes it, so this
+    ``docs/designs/testing.md``); orch_context never closes it, so this
     fixture's scope only affects orchestration state, not chdb lifecycle.
     """
     async with module_orch_scope(orch_context()):
