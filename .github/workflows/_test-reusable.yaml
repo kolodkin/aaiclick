@@ -315,7 +315,7 @@ jobs:
           AAICLICK_ADMIN_PASSWORD: ci-admin-password
         uses: ./.github/actions/run-pytest
         with:
-          command: uv run pytest test_e2e/web/test_smoke.py -v
+          command: uv run pytest test_e2e/web/ -v
           report-name: "Pytest Results (UI e2e dist)"
 
   examples:

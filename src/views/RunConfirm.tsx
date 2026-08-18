@@ -1,4 +1,5 @@
 import { useRunJob } from "../api/hooks";
+import { AdminButton } from "../components/AdminButton";
 import { Chips } from "../components/Chips";
 import { Panel } from "../components/Panel";
 import { useToast } from "../components/Toast";
@@ -27,9 +28,9 @@ export function RunConfirm({ name, onPrompt }: { name: string; onPrompt: (v: str
         </h2>
         <p className="sub">Starts a new job with the registered default parameters.</p>
         <div className="form-actions">
-          <button className="btn btn-primary" disabled={run.isPending} onClick={onRun}>
+          <AdminButton className="btn btn-primary" disabled={run.isPending} onClick={onRun}>
             Run job
-          </button>
+          </AdminButton>
           <button className="btn" onClick={() => onPrompt(`run ${name} ?`)}>
             Edit parameters…
           </button>

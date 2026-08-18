@@ -1,4 +1,5 @@
 import { useToggleRegisteredJob } from "../api/hooks";
+import { AdminButton } from "./AdminButton";
 import { useToast } from "./Toast";
 
 export function EnabledToggle({ name, enabled }: { name: string; enabled: boolean }) {
@@ -12,9 +13,9 @@ export function EnabledToggle({ name, enabled }: { name: string; enabled: boolea
     );
   };
   return (
-    <button className={`toggle ${enabled ? "on" : "off"}`} onClick={onClick}>
+    <AdminButton className={`toggle ${enabled ? "on" : "off"}`} onClick={onClick}>
       <span className="switch" />
       {enabled ? "enabled" : "disabled"}
-    </button>
+    </AdminButton>
   );
 }

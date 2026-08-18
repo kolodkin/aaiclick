@@ -1,4 +1,5 @@
 import { useJob } from "../api/hooks";
+import { AdminButton } from "../components/AdminButton";
 import { Chips } from "../components/Chips";
 import { JobGraph } from "../components/graph/JobGraph";
 import { MetaGrid } from "../components/MetaGrid";
@@ -42,9 +43,9 @@ export function JobDetail({
           </h2>
           <div className="spacer" />
           {cancellable && (
-            <button className="btn btn-danger btn-sm" onClick={onCancel}>
+            <AdminButton className="btn btn-danger btn-sm" onClick={onCancel}>
               Cancel job
-            </button>
+            </AdminButton>
           )}
         </div>
         <MetaGrid

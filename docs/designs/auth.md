@@ -223,7 +223,13 @@ get a `401`/`403` `Problem`.
 - `src/lib/auth.ts`: in-memory access token + `localStorage` refresh token;
   `login` / `logout` / `tryRefresh` / `fetchMe` helpers.
 - `src/components/Auth.tsx`: `AuthProvider` / `useAuth`, bootstrapped from
-  `/auth/me`.
+  `/auth/me`; exposes `isAdmin`.
+- `src/components/AdminButton.tsx`: renders an admin-only action. Viewers get it
+  **disabled with a tooltip** rather than hidden — a greyed-out control shows the
+  action exists and why it is unavailable, where hiding it reads as a missing
+  feature. Used for run / cancel / register / enable-toggle, and for the
+  navigation buttons leading into those flows. Presentation only; `require_admin`
+  is still the enforcement.
 - `src/views/Login.tsx`: username + password form.
 - `App.tsx` gates rendering on the session. When auth is disabled `/auth/me`
   returns the synthetic admin, so no login wall appears.

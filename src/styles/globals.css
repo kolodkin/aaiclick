@@ -162,6 +162,7 @@ tbody tr.clickable:hover { background: rgba(91,157,255,.12); }
 .toggle.on .switch::after { left: 18px; }
 .toggle.on { color: var(--green); }
 .toggle.off { color: var(--muted); }
+.toggle:disabled { opacity: .45; cursor: not-allowed; filter: grayscale(.55); }
 
 /* progress */
 .progress { display: flex; align-items: center; gap: 8px; }
@@ -181,6 +182,13 @@ tbody tr.clickable:hover { background: rgba(91,157,255,.12); }
   color: #fff; box-shadow: var(--hi), 0 6px 18px rgba(224,70,61,.42); }
 .btn-danger:hover { filter: brightness(1.08); }
 .btn-sm { padding: 5px 10px; font-size: 12px; }
+/* Disabled covers both in-flight mutations and the admin-only gate (see
+   components/AdminButton.tsx). Hover effects are neutralised so a greyed-out
+   control never looks interactive. */
+.btn:disabled { opacity: .45; cursor: not-allowed; filter: grayscale(.55); }
+.btn:disabled:hover { border-color: var(--border); background: var(--panel); filter: grayscale(.55); }
+.btn-primary:disabled:hover { background: linear-gradient(180deg, #6aa6ff, #3f7fe8); }
+.btn-danger:disabled:hover { background: linear-gradient(180deg, #ff8079, #e0463d); }
 .row-actions { display: flex; gap: 6px; }
 
 /* detail header */
