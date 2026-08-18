@@ -139,12 +139,11 @@ def test_main_dispatches_run_job_to_handler():
     branch comparison ever drifted from the subparser name."""
     with (
         patch("sys.argv", ["aaiclick", "run-job", "myjob", "--git-sha", "b" * 40]),
-        # ``_run_run_job`` patches to an AsyncMock, so calling it builds a
-        # coroutine. Consume it like real ``asyncio.run`` would — a bare mock
-        # drops it unawaited, and the resulting RuntimeWarning surfaces at GC
-        # time against whatever test happens to be running (filterwarnings=error).
-        patch("aaiclick.__main__.asyncio.run", side_effect=lambda coro: coro.close()),
-        patch("aaiclick.__main__._run_run_job") as handler,
+        patch("aaiclick.__main__.asyncio.run"),
+        # Patching an async def defaults to AsyncMock, whose call creates a
+        # coroutine the mocked asyncio.run never awaits — an unraisable
+        # RuntimeWarning that filterwarnings=["error"] fails the run.
+        patch("aaiclick.__main__._run_run_job", new_callable=MagicMock) as handler,
     ):
         main()
 
