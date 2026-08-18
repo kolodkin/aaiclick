@@ -181,11 +181,11 @@ The runner's *invocation* sits at a different layer than the task it runs, and t
 2. **Runner invocation** — *what the runner launches*: the mp child target, the `docker run <image> <argv>` command, or the Pod `command`. This is the **runner** level, not the task's own definition. **`entry_type` branches here.**
 3. **Task execution** — `execute_task(task)` running the module entrypoint.
 
-`python -m aaiclick.orchestration.execution.docker_worker --task-id N` (and the Pod equivalent) is a **layer-2 bootstrap shim** — framework plumbing that only lives in the `docker_worker` module because that module is named for the host worker. Despite "worker" in the path it is *not* a queue-claiming loop and *not* task execution (layer 3): it loads one task by id, boots `orch_context()`, calls `execute_task`, writes the result, and exits.
+`python -m aaiclick.orchestration.execution.remote_result --task-id N --run-epoch M` (run by both docker containers and Pods) is a **layer-2 bootstrap shim** — framework plumbing, *not* a queue-claiming loop and *not* task execution (layer 3): it loads one task by id, boots `orch_context()`, calls `execute_task`, writes a `RemoteTaskResult` row, and exits.
 
 | entry_type | layer-2 runner invocation                          | layer-3 execution               |
 |------------|----------------------------------------------------|---------------------------------|
-| `module`   | bootstrap shim (mp child / `docker_worker --task-id N` / Pod shim) | shim calls `execute_task` |
+| `module`   | bootstrap shim (mp child / `remote_result` shim in a container or Pod) | shim calls `execute_task` |
 | `shell`    | the user's argv directly — the definition *is* the invocation | none — the argv *is* the execution |
 
 So for a `module` task the user's entrypoint runs *inside* the shim; for a `shell` task the user's argv *replaces* the shim, bypassing both the bootstrap and `execute_task`, in whatever environment the runner provides.

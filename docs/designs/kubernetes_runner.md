@@ -3,14 +3,16 @@ Kubernetes Runner
 
 The Kubernetes runner executes each task in a fresh Pod built from the user's
 repo at a specific git SHA — the same model as the [Docker runner](orchestration.md),
-swapping `docker run` for a Pod and the bind-mounted `result.json` for a
-database result handoff.
+swapping `docker run` for a Pod. Both runners hand results back through the
+shared `remote_task_results` transport.
 
 It is a third `TaskVehicle` driven by the shared `drive_vehicle` lifecycle.
 
 **Implementation**: `aaiclick/orchestration/execution/kubernetes_worker.py` — see
-`_KubernetesVehicle`, `_run_task_in_pod`, and `_pod_main`; driven by the shared
-`drive_vehicle` lifecycle in `aaiclick/orchestration/execution/execution_worker.py`.
+`_KubernetesVehicle` and `_run_task_in_pod`; the container-side entrypoint and
+result transport live in `aaiclick/orchestration/execution/remote_result.py` —
+see `remote_entry_main`; driven by the shared `drive_vehicle` lifecycle in
+`aaiclick/orchestration/execution/execution_worker.py`.
 
 # One CLI primitive for docker and kubectl
 
@@ -44,10 +46,11 @@ lifecycle.
 
 # Result handoff via `remote_task_results`
 
-A Pod may be scheduled on a different node, so Docker's bind-mounted
-`result.json` has no equivalent. Result transport lives entirely inside a
-vehicle's `wait()` / `collect()`, so the Kubernetes vehicle keeps the same
-`collect()` contract but reads the result from a database table.
+A Pod may be scheduled on a different node, so a bind-mounted file handoff
+has no equivalent. Result transport lives entirely inside a vehicle's
+`wait()` / `collect()`: the container writes a database row the host reads
+back at the claimed epoch. The Docker runner shares this transport
+(`remote_result.py`).
 
 ```python
 class RemoteTaskResult(SQLModel, table=True):
@@ -105,9 +108,9 @@ cancelled-overrides-result are all generic).
 | `collect`        | Return the stashed result row; synthesize failure if absent; cancellation overrides |
 | `cleanup`        | `kubectl delete pod` (idempotent); always runs, after logs are captured           |
 
-The Pod-side entrypoint mirrors `docker_worker._container_main`: boot
-`orch_context`, run the task through the shared `runner.execute_task` path, then
-write a `RemoteTaskResult` row instead of `result.json`.
+The Pod runs the shared container entrypoint (`remote_result.remote_entry_main`,
+also used by Docker containers): boot `orch_context`, run the task through the
+shared `runner.execute_task` path, then write a `RemoteTaskResult` row.
 
 # Image build is shared
 
