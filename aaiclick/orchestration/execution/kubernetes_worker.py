@@ -1,29 +1,20 @@
-"""Kubernetes runner — host-side ExecuteFn and Pod-side entrypoint.
+"""Kubernetes runner — host-side ExecuteFn driving Pods.
 
 Mirrors ``docker_worker``: ``_run_task_in_pod`` drives a ``KubernetesVehicle``
-via the shared ``drive_vehicle``; ``_pod_main`` runs inside the Pod and writes
-a ``RemoteTaskResult`` row — the cross-node equivalent of docker's bind-mounted
-``result.json``.
-
-Reaper invariant: the Pod never writes terminal task status. It writes only
-its own ``remote_task_results`` row; the host worker writes the terminal ``Task``
-status via ``_handle_task_result``.
+via the shared ``drive_vehicle``. The Pod runs the shared container entrypoint
+(``remote_result``), which writes a ``RemoteTaskResult`` row the host reads
+back after the Pod exits.
 """
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 import json
 import os
-import sys
 import tempfile
 from typing import NamedTuple
 
-from sqlmodel import select
-
-from ..models import RemoteTaskResult, Task
-from ..orch_context import get_sql_session
+from ..models import Task
 from ..runner_config import ENTRY_SHELL
 from . import cli
 from .claiming import check_task_cancelled
@@ -37,10 +28,9 @@ from .execution_worker import (
     execution_worker_heartbeat,
     parse_task_timeout,
 )
-from .runner import ShellSpec, execute_task, serialize_task_result
+from .remote_result import REMOTE_ENTRYPOINT, collect_remote_result, read_task_run_result
+from .runner import ShellSpec
 from .runner_env import build_runner_env
-
-POD_ENTRYPOINT = ["python", "-m", "aaiclick.orchestration.execution.kubernetes_worker"]
 
 
 def _kubectl_bin() -> str:
@@ -86,7 +76,7 @@ def _build_pod_manifest(
         container = {
             "name": "task",
             "image": image_tag,
-            "command": [*POD_ENTRYPOINT, "--task-id", str(task_id), "--run-epoch", str(run_epoch)],
+            "command": [*REMOTE_ENTRYPOINT, "--task-id", str(task_id), "--run-epoch", str(run_epoch)],
             "env": [{"name": k, "value": v} for k, v in env.items()],
         }
     if resources:
@@ -222,20 +212,6 @@ def build_shell_pod_spec(task: Task, dispatch: JobDispatch, image_tag: str) -> S
     )
 
 
-async def _read_task_run_result_row(task_id: int, run_epoch: int) -> RunnerResult | None:
-    async with get_sql_session() as session:
-        row = (
-            await session.execute(
-                select(RemoteTaskResult).where(
-                    RemoteTaskResult.task_id == task_id, RemoteTaskResult.run_epoch == run_epoch
-                )
-            )
-        ).scalar_one_or_none()
-    if row is None:
-        return None
-    return RunnerResult(row.success, row.result_ref, row.error)
-
-
 class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
     """``TaskVehicle`` for the Kubernetes runner (module tasks — shell tasks
     run through the mp task child with a ``build_shell_pod_spec`` argv)."""
@@ -282,7 +258,7 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
                 break
             await asyncio.sleep(POLL_INTERVAL)
             elapsed += POLL_INTERVAL
-        result_row = await _read_task_run_result_row(handle.task_id, handle.run_epoch)
+        result_row = await read_task_run_result(handle.task_id, handle.run_epoch)
         return exit_code, error, result_row
 
     async def poll_cancelled(self, task: Task) -> bool:
@@ -295,13 +271,7 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
     def collect(
         self, handle: _PodHandle, exit_code: int, error: str | None, was_cancelled: bool, payload: RunnerResult | None
     ) -> RunnerResult:
-        if was_cancelled:
-            return RunnerResult(False, None, "cancelled")
-        if error is not None:
-            return RunnerResult(False, None, error)
-        if payload is None:
-            return RunnerResult(False, None, f"pod exited with code {exit_code} but wrote no result row")
-        return payload
+        return collect_remote_result(exit_code, error, was_cancelled, payload, "pod")
 
     async def cleanup(self, handle: _PodHandle) -> None:
         if not handle.deleted:
@@ -325,68 +295,3 @@ async def _run_task_in_pod(
         heartbeat_fn=execution_worker_heartbeat,
     )
     return result.success, result.result_ref, result.error
-
-
-# ---------------------------------------------------------------------------
-# Pod-side
-# ---------------------------------------------------------------------------
-
-
-async def _write_task_run_result(
-    task_id: int, run_epoch: int, success: bool, result_ref: dict | None, error: str | None
-) -> None:
-    """Upsert the per-attempt result row the host reads back. Keyed by
-    ``(task_id, run_epoch)`` so a re-run under a new epoch never collides."""
-    async with get_sql_session() as session:
-        existing = (
-            await session.execute(
-                select(RemoteTaskResult).where(
-                    RemoteTaskResult.task_id == task_id, RemoteTaskResult.run_epoch == run_epoch
-                )
-            )
-        ).scalar_one_or_none()
-        if existing is None:
-            existing = RemoteTaskResult(task_id=task_id, run_epoch=run_epoch, success=success)
-            session.add(existing)
-        existing.success = success
-        existing.result_ref = result_ref
-        existing.error = error
-        await session.commit()
-
-
-async def _pod_main(task_id: int, run_epoch: int) -> int:
-    """Entry point invoked inside the Pod. Runs the task via the shared
-    ``execute_task`` path and writes a ``RemoteTaskResult`` row for the host."""
-    from ..orch_context import orch_context
-
-    success, result_ref, error = False, None, None
-    exit_code = 0
-    # orch_context wraps both execution and the result write — the latter needs
-    # an active SQL session (unlike docker's result.json file write).
-    async with orch_context():
-        try:
-            async with get_sql_session() as session:
-                task = (await session.execute(select(Task).where(Task.id == task_id))).scalar_one()
-            data_result = await execute_task(task)
-            result_ref = serialize_task_result(data_result, task.job_id)
-            success = True
-        except BaseException as e:
-            success, error, exit_code = False, f"{type(e).__name__}: {e}", 1
-
-        await _write_task_run_result(task_id, run_epoch, success, result_ref, error)
-    return exit_code
-
-
-def _pod_cli() -> None:
-    parser = argparse.ArgumentParser(
-        prog="python -m aaiclick.orchestration.execution.kubernetes_worker",
-        description="Pod-side entrypoint for the Kubernetes runner.",
-    )
-    parser.add_argument("--task-id", type=int, required=True)
-    parser.add_argument("--run-epoch", type=int, required=True)
-    args = parser.parse_args()
-    sys.exit(asyncio.run(_pod_main(args.task_id, args.run_epoch)))
-
-
-if __name__ == "__main__":
-    _pod_cli()

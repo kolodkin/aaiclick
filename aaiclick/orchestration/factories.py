@@ -21,7 +21,7 @@ from .models import (
     RunType,
     Task,
 )
-from .orch_context import get_sql_session
+from .orch_context import commit_tasks, get_sql_session
 from .runner_config import (
     ENTRY_MODULE,
     ENTRY_SHELL,
@@ -249,9 +249,6 @@ def create_task(
         created_at=utc_now(),
         max_retries=max_retries,
     )
-    registry = get_task_registry()
-    if registry is not None:
-        registry[task_id] = task
     return task
 
 
@@ -301,30 +298,15 @@ async def create_job(
         registered=registered,
     )
 
-    # Create task from entry if it's not already a Task
-    if isinstance(entry, Task):
-        task = entry
-    else:
-        task = create_task(entry)
+    task = entry if isinstance(entry, Task) else create_task(entry)
 
-    # Set task's job_id
-    task.job_id = job.id
-
-    # Commit to database using OrchContext session
     async with get_sql_session() as session:
-        # Add job and task using ORM
         session.add(job)
-        session.add(task)
-
-        # Commit transaction
         await session.commit()
 
-    # Remove the entry task from the registry after commit so that subsequent
-    # registry lookups for the same task ID don't return the now-detached object.
-    registry = get_task_registry()
-    if registry is not None:
-        registry.pop(task.id, None)
-
+    # commit_tasks stamps job_id, validates/injects image build tasks when
+    # needed, and drops committed items from the registry.
+    await commit_tasks(task, job.id)
     return job
 
 
@@ -368,6 +350,9 @@ async def create_built_job(
     entry_task.job_id = job.id
     entry_task.image_source = dump_image_source(image_source)
 
+    # Not routed through commit_tasks: submission must succeed even when the
+    # submitting machine lacks AAICLICK_REGISTRY (commit_tasks validates
+    # image sources; that check belongs to worker-side commit points).
     async with get_sql_session() as session:
         injected = await inject_build_tasks(session, [entry_task], job)
         to_add = [job, *injected, entry_task]

@@ -1,17 +1,15 @@
-"""Tests for the docker host-side runner — dispatch, IPC, cancellation, timeout."""
+"""Tests for the docker host-side runner — dispatch, cancellation, timeout."""
 
 from __future__ import annotations
 
 import asyncio
-import json
-from pathlib import Path
 from unittest.mock import AsyncMock
 
 from ..models import RUNNER_DOCKER, Task
 from ..runner_config import ENTRY_MODULE, ImagePrebuilt
 from . import docker_worker
 from .docker_worker import _build_docker_run_cmd, build_shell_run_spec
-from .execution_worker import JobDispatch
+from .execution_worker import JobDispatch, RunnerResult
 
 
 def _cmdtask(**kw):
@@ -30,13 +28,12 @@ def test_module_cmd_uses_bootstrap_shim():
     cmd = _build_docker_run_cmd(
         _cmdtask(entry_type=ENTRY_MODULE, entrypoint="m.f"),
         "python:3.12",
-        "/ipc",
         {"A": "1"},
     )
     joined = " ".join(cmd)
-    assert "aaiclick.orchestration.execution.docker_worker" in joined
+    assert "aaiclick.orchestration.execution.remote_result" in joined
     assert "--task-id" in joined
-    assert "/aaiclick-ipc" in joined  # IPC mount present for module
+    assert "--run-epoch" in joined
 
 
 def test_build_shell_run_spec_wraps_argv():
@@ -73,7 +70,6 @@ def test_build_docker_run_cmd_shape():
     cmd = docker_worker._build_docker_run_cmd(
         _cmdtask(entry_type=ENTRY_MODULE, entrypoint="user.module.entry"),
         "aaiclick-job:abc",
-        "/tmp/ipc",
         {"AAICLICK_SQL_URL": "u"},
     )
     joined = " ".join(cmd)
@@ -81,74 +77,16 @@ def test_build_docker_run_cmd_shape():
     # --rm is intentionally absent — the host parent calls docker rm itself
     # so docker wait can race-freely report the exit code.
     assert "--rm" not in cmd
-    assert "-v /tmp/ipc:/aaiclick-ipc" in joined
     assert "-e AAICLICK_SQL_URL=u" in joined
-    assert joined.endswith("aaiclick-job:abc python -m aaiclick.orchestration.execution.docker_worker --task-id 1")
-
-
-def test_read_result_succeeds_on_success_payload(tmp_path):
-    payload = {
-        "success": True,
-        "result_ref": {"foo": 1},
-        "error": None,
-    }
-    (tmp_path / "result.json").write_text(json.dumps(payload))
-
-    result = docker_worker._read_result_or_synthesize_failure(
-        str(tmp_path), exit_code=0, error=None, was_cancelled=False
+    assert joined.endswith(
+        "aaiclick-job:abc python -m aaiclick.orchestration.execution.remote_result --task-id 1 --run-epoch 0"
     )
-    assert result.success is True
-    assert result.result_ref == {"foo": 1}
-    assert result.error is None
 
 
-def test_read_result_synthesizes_failure_when_file_missing(tmp_path):
-    result = docker_worker._read_result_or_synthesize_failure(
-        str(tmp_path), exit_code=137, error=None, was_cancelled=False
-    )
-    assert result.success is False
-    assert result.error and "exited with code 137" in result.error
-
-
-def test_read_result_synthesizes_failure_on_malformed_json(tmp_path):
-    (tmp_path / "result.json").write_text("not-valid-json")
-    result = docker_worker._read_result_or_synthesize_failure(
-        str(tmp_path), exit_code=0, error=None, was_cancelled=False
-    )
-    assert result.success is False
-    assert result.error and "malformed" in result.error
-
-
-def test_read_result_propagates_cancellation(tmp_path):
-    """Even if the container managed to write a success payload before
-    being killed, a cancellation flag must override it — the host's
-    explicit kill is the source of truth."""
-    payload = {"success": True, "result_ref": {}, "error": None}
-    (tmp_path / "result.json").write_text(json.dumps(payload))
-    result = docker_worker._read_result_or_synthesize_failure(
-        str(tmp_path), exit_code=137, error=None, was_cancelled=True
-    )
-    assert result.success is False
-    assert result.error == "cancelled"
-
-
-def test_read_result_propagates_timeout_error(tmp_path):
-    """Timeout error from _wait_for_container takes precedence over
-    file contents — same reasoning as cancellation."""
-    result = docker_worker._read_result_or_synthesize_failure(
-        str(tmp_path),
-        exit_code=-1,
-        error="Task timed out after 60.0s",
-        was_cancelled=False,
-    )
-    assert result.success is False
-    assert "timed out" in (result.error or "")
-
-
-async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypatch, tmp_path):
+async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypatch):
     """When the cancel watcher fires while the container is running, the
     ``cancelled`` Event must reach the host parent and override whatever
-    the container managed to write to result.json before being killed.
+    result row the container managed to write before being killed.
 
     Regression guard for the original race where the host inspected
     ``cancel_watcher`` task state directly: the watcher could still be
@@ -159,9 +97,6 @@ async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypa
     cancelled_seen = []
 
     async def fake_run_detached(cmd):
-        # Container writes a stale success payload before the host kills it.
-        ipc_dir = next(arg.split(":", 1)[0] for arg in cmd if arg.endswith(":/aaiclick-ipc"))
-        Path(ipc_dir, "result.json").write_text(json.dumps({"success": True, "result_ref": {}, "error": None}))
         return "fake-cid"
 
     async def fake_wait(cid, timeout):
@@ -177,6 +112,8 @@ async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypa
 
     monkeypatch.setattr(docker_worker, "_docker_run_detached", fake_run_detached)
     monkeypatch.setattr(docker_worker, "_wait_for_container", fake_wait)
+    # Container wrote a stale success row before the host killed it.
+    monkeypatch.setattr(docker_worker, "read_task_run_result", AsyncMock(return_value=RunnerResult(True, {}, None)))
     monkeypatch.setattr(docker_worker, "_docker_rm", AsyncMock())
     monkeypatch.setattr(docker_worker, "_docker_kill", AsyncMock())
     monkeypatch.setattr(docker_worker, "execution_worker_heartbeat", AsyncMock())

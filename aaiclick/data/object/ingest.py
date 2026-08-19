@@ -26,6 +26,7 @@ from ..models import (
 )
 from ..scope import NamedScope
 from ..sql_utils import quote_identifier
+from .emit import emit_result
 
 
 def promote_nullable(col: ColumnInfo) -> ColumnInfo:
@@ -166,17 +167,18 @@ async def copy_db(
         Object: New Object containing the copied data.
     """
     schema = Schema(fieldtype=copy_info.fieldtype, columns=copy_info.columns)
-    result = await create_object(schema, name=name, scope=scope)
 
     alias = " AS s" if copy_info.source_query.startswith("(") else ""
     cols_str = ", ".join(copy_info.columns)
     order_clause = f" ORDER BY {copy_info.order_by}" if copy_info.order_by else ""
-    insert_query = (
-        f"INSERT INTO {result.table} ({cols_str}) SELECT {cols_str} FROM {copy_info.source_query}{alias}{order_clause}"
+    return await emit_result(
+        schema,
+        f"SELECT {cols_str} FROM {copy_info.source_query}{alias}{order_clause}",
+        ch_client,
+        insert_cols=cols_str,
+        name=name,
+        scope=scope,
     )
-
-    result._stats = await execute_for_stats(insert_query, client=ch_client)
-    return result
 
 
 async def copy_db_selected_fields(
@@ -208,25 +210,18 @@ async def copy_db_selected_fields(
     if copy_info.is_single_field:
         field = copy_info.selected_fields[0]
         new_schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns={"value": copy_info.columns[field]})
-        result = await create_object(new_schema, name=name, scope=scope)
         # The source_query already aliases the selected field as ``value``
-        # (see Object._build_select's single-field branch).
-        insert_query = f"""
-        INSERT INTO {result.table} (value)
-        SELECT value FROM {copy_info.source_query}{alias}
-        """
+        # (see the single-field branch of View's SELECT head).
+        select_query = f"SELECT value FROM {copy_info.source_query}{alias}"
+        insert_cols = "value"
     else:
         columns = {field: copy_info.columns[field] for field in copy_info.selected_fields}
         new_schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
-        result = await create_object(new_schema, name=name, scope=scope)
         fields_str = ", ".join(quote_identifier(f) for f in copy_info.selected_fields)
-        insert_query = f"""
-        INSERT INTO {result.table} ({fields_str})
-        SELECT {fields_str} FROM {copy_info.source_query}{alias}
-        """
+        select_query = f"SELECT {fields_str} FROM {copy_info.source_query}{alias}"
+        insert_cols = fields_str
 
-    result._stats = await execute_for_stats(insert_query, client=ch_client)
-    return result
+    return await emit_result(new_schema, select_query, ch_client, insert_cols=insert_cols, name=name, scope=scope)
 
 
 async def _insert_source(

@@ -106,6 +106,7 @@ from ..models import (
 )
 from ..scope import NamedScope
 from ..sql_utils import escape_sql_string, quote_identifier, quote_sql_literal
+from .emit import emit_result
 from .schema_compute import (
     AGGREGATION_FUNCTIONS,
     UNARY_TRANSFORMS,
@@ -475,23 +476,17 @@ async def _apply_aggregation(
         columns={"value": ColumnInfo(value_type)},
     )
 
-    # Create result object with schema
-    result = await create_object(schema, name=name, scope=scope)
-
     # count() uses count() without column, others use func(value)
-    if agg_func == "count":
-        agg_expr = f"{sql_func}()"
-    else:
-        agg_expr = f"{sql_func}(value)"
-    insert_query = f"""
-    INSERT INTO {result.table} (value)
-    SELECT {agg_expr} AS value
-    FROM {info.source}
-    """
-    result._stats = await execute_for_stats(insert_query, client=ch_client)
-
-    oplog_record_sample(result.table, agg_func, kwargs={"source": info.base_table})
-    return result
+    agg_expr = f"{sql_func}()" if agg_func == "count" else f"{sql_func}(value)"
+    return await emit_result(
+        schema,
+        f"SELECT {agg_expr} AS value FROM {info.source}",
+        ch_client,
+        name=name,
+        scope=scope,
+        oplog_op=agg_func,
+        oplog_kwargs={"source": info.base_table},
+    )
 
 
 # Aggregation Operators
@@ -528,10 +523,13 @@ async def count_if_agg(
             fieldtype=FIELDTYPE_SCALAR,
             columns={"value": ColumnInfo("UInt64")},
         )
-        result = await create_object(schema, name=name, scope=scope)
-        query = f"INSERT INTO {result.table} (value) SELECT countIf({condition}) AS value FROM {info.source}"
-        result._stats = await execute_for_stats(query, client=ch_client)
-        return result
+        return await emit_result(
+            schema,
+            f"SELECT countIf({condition}) AS value FROM {info.source}",
+            ch_client,
+            name=name,
+            scope=scope,
+        )
 
     columns = {}
     select_exprs = []
@@ -543,12 +541,15 @@ async def count_if_agg(
         fieldtype=FIELDTYPE_DICT,
         columns=columns,
     )
-    result = await create_object(schema, name=name, scope=scope)
-    insert_cols = ", ".join(condition.keys())
     select_str = ", ".join(select_exprs)
-    query = f"INSERT INTO {result.table} ({insert_cols}) SELECT {select_str} FROM {info.source}"
-    result._stats = await execute_for_stats(query, client=ch_client)
-    return result
+    return await emit_result(
+        schema,
+        f"SELECT {select_str} FROM {info.source}",
+        ch_client,
+        insert_cols=", ".join(condition.keys()),
+        name=name,
+        scope=scope,
+    )
 
 
 async def quantile_agg(
@@ -576,25 +577,17 @@ async def quantile_agg(
         raise ValueError(f"Quantile level must be between 0 and 1, got {q}")
 
     # Quantile always returns Float64
-    value_type = "Float64"
-
-    # Build schema for result table (scalar type)
     schema = Schema(
         fieldtype=FIELDTYPE_SCALAR,
-        columns={"value": ColumnInfo(value_type)},
+        columns={"value": ColumnInfo("Float64")},
     )
-
-    # Create result object with schema
-    result = await create_object(schema, name=name, scope=scope)
-
-    insert_query = f"""
-    INSERT INTO {result.table} (value)
-    SELECT quantile({q})(value) AS value
-    FROM {info.source}
-    """
-    result._stats = await execute_for_stats(insert_query, client=ch_client)
-
-    return result
+    return await emit_result(
+        schema,
+        f"SELECT quantile({q})(value) AS value FROM {info.source}",
+        ch_client,
+        name=name,
+        scope=scope,
+    )
 
 
 async def unique_group(
@@ -628,17 +621,14 @@ async def unique_group(
     # Build schema for result table (array type - multiple unique values)
     schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns={"value": source_col_def})
 
-    # Create result object with schema
-    result = await create_object(schema, name=name, scope=scope)
-
-    # Insert unique values using GROUP BY (not DISTINCT) entirely in ClickHouse
-    insert_query = f"""
-    INSERT INTO {result.table} (value)
-    SELECT value FROM {info.source} GROUP BY value
-    """
-    result._stats = await execute_for_stats(insert_query, client=ch_client)
-
-    return result
+    # Unique values via GROUP BY (not DISTINCT) entirely in ClickHouse
+    return await emit_result(
+        schema,
+        f"SELECT value FROM {info.source} GROUP BY value",
+        ch_client,
+        name=name,
+        scope=scope,
+    )
 
 
 async def nunique_agg(
@@ -670,17 +660,15 @@ async def nunique_agg(
         fieldtype=FIELDTYPE_SCALAR,
         columns={"value": ColumnInfo("UInt64")},
     )
-    result = await create_object(schema, name=name, scope=scope)
-    result._stats = await execute_for_stats(
-        f"""
-        INSERT INTO {result.table} (value)
-        SELECT count() AS value FROM (SELECT value FROM {info.source} GROUP BY value)
-    """,
-        client=ch_client,
+    return await emit_result(
+        schema,
+        f"SELECT count() AS value FROM (SELECT value FROM {info.source} GROUP BY value)",
+        ch_client,
+        name=name,
+        scope=scope,
+        oplog_op="nunique",
+        oplog_kwargs={"source": info.base_table},
     )
-
-    oplog_record_sample(result.table, "nunique", kwargs={"source": info.base_table})
-    return result
 
 
 # arrayMap Operators
@@ -730,15 +718,13 @@ async def array_map_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_c
         fieldtype=FIELDTYPE_ARRAY,
         columns={"value": ColumnInfo(value_type, nullable=result_nullable)},
     )
-    result = await create_object(schema)
 
     b_is_scalar = info_b.fieldtype == FIELDTYPE_SCALAR
 
     if b_is_scalar:
         # arrayMap with single array + scalar as subquery in lambda body
         scalar_expr = expression.replace("y", f"(SELECT value FROM {info_b.source})")
-        insert_query = f"""
-        INSERT INTO {result.table} (value)
+        select_query = f"""
         SELECT arrayJoin(
             arrayMap(
                 x -> {scalar_expr},
@@ -748,8 +734,7 @@ async def array_map_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_c
         """
     else:
         # arrayMap with two arrays — ClickHouse enforces equal sizes
-        insert_query = f"""
-        INSERT INTO {result.table} (value)
+        select_query = f"""
         SELECT arrayJoin(
             arrayMap(
                 (x, y) -> {expression},
@@ -759,8 +744,7 @@ async def array_map_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_c
         ) AS value
         """
 
-    result._stats = await execute_for_stats(insert_query, client=ch_client)
-    return result
+    return await emit_result(schema, select_query, ch_client)
 
 
 # Group By Operators
@@ -847,8 +831,6 @@ async def group_by_agg(
 
     agg_str = ", ".join(agg_exprs)
 
-    insert_cols_str = ", ".join(result_columns)
-
     if info.having:
         # Use temporary aliases to avoid ClickHouse resolving HAVING column
         # references to SELECT aliases (which causes ILLEGAL_AGGREGATION error
@@ -871,12 +853,7 @@ async def group_by_agg(
         query = f"SELECT {keys_str}, {agg_str} FROM {info.source} GROUP BY {keys_str}"
 
     schema = Schema(fieldtype=FIELDTYPE_DICT, columns=result_columns)
-    result = await create_object(schema, name=name, scope=scope)
-
-    insert_query = f"INSERT INTO {result.table} ({insert_cols_str}) {query}"
-    result._stats = await execute_for_stats(insert_query, client=ch_client)
-
-    return result
+    return await emit_result(schema, query, ch_client, name=name, scope=scope)
 
 
 # String/Regex Operators
@@ -929,24 +906,12 @@ async def _apply_string_op_db(
 
     expression = STRING_OP_EXPRESSIONS[op_name].format(**format_args)
     value_type = STRING_OP_RESULT_TYPES[op_name]
-    fieldtype = info.fieldtype
 
     schema = Schema(
-        fieldtype=fieldtype,
+        fieldtype=info.fieldtype,
         columns={"value": ColumnInfo(value_type)},
     )
-
-    result = await create_object(schema)
-
-    result._stats = await execute_for_stats(
-        f"""
-        INSERT INTO {result.table}
-        SELECT {expression} AS value
-        FROM {info.source} AS a
-    """,
-        client=ch_client,
-    )
-    return result
+    return await emit_result(schema, f"SELECT {expression} AS value FROM {info.source} AS a", ch_client)
 
 
 async def match_op(info: QueryInfo, pattern: str, ch_client):
@@ -983,23 +948,18 @@ async def isin_op(info: QueryInfo, other_info: QueryInfo, ch_client):
 
     Generates: value IN (SELECT value FROM other_table)
     """
-    fieldtype = info.fieldtype
     schema = Schema(
-        fieldtype=fieldtype,
+        fieldtype=info.fieldtype,
         columns={"value": ColumnInfo("UInt8")},
     )
-    result = await create_object(schema)
     subquery = f"SELECT value FROM {other_info.source}"
-    result._stats = await execute_for_stats(
-        f"""
-        INSERT INTO {result.table}
-        SELECT toUInt8(a.value IN ({subquery})) AS value
-        FROM {info.source} AS a
-    """,
-        client=ch_client,
+    return await emit_result(
+        schema,
+        f"SELECT toUInt8(a.value IN ({subquery})) AS value FROM {info.source} AS a",
+        ch_client,
+        oplog_op="isin",
+        oplog_kwargs={"source": info.base_table, "other": other_info.base_table},
     )
-    oplog_record_sample(result.table, "isin", kwargs={"source": info.base_table, "other": other_info.base_table})
-    return result
 
 
 # Unary Transform Operations
@@ -1037,16 +997,13 @@ async def unary_transform(
         fieldtype=info.fieldtype,
         columns={"value": ColumnInfo(result_type)},
     )
-    result = await create_object(schema, name=name, scope=scope)
-
-    result._stats = await execute_for_stats(
-        f"""
-        INSERT INTO {result.table}
-        SELECT {ch_func}(value) AS value FROM {info.source}
-    """,
-        client=ch_client,
+    return await emit_result(
+        schema,
+        f"SELECT {ch_func}(value) AS value FROM {info.source}",
+        ch_client,
+        name=name,
+        scope=scope,
     )
-    return result
 
 
 # Null Operations
@@ -1059,13 +1016,7 @@ async def is_null_op(info: QueryInfo, ch_client):
         fieldtype=info.fieldtype,
         columns={"value": ColumnInfo("UInt8")},
     )
-    result = await create_object(schema)
-    insert_query = f"""
-    INSERT INTO {result.table}
-    SELECT isNull(value) AS value FROM {info.source}
-    """
-    result._stats = await execute_for_stats(insert_query, client=ch_client)
-    return result
+    return await emit_result(schema, f"SELECT isNull(value) AS value FROM {info.source}", ch_client)
 
 
 async def is_not_null_op(info: QueryInfo, ch_client):
@@ -1074,13 +1025,7 @@ async def is_not_null_op(info: QueryInfo, ch_client):
         fieldtype=info.fieldtype,
         columns={"value": ColumnInfo("UInt8")},
     )
-    result = await create_object(schema)
-    insert_query = f"""
-    INSERT INTO {result.table}
-    SELECT isNotNull(value) AS value FROM {info.source}
-    """
-    result._stats = await execute_for_stats(insert_query, client=ch_client)
-    return result
+    return await emit_result(schema, f"SELECT isNotNull(value) AS value FROM {info.source}", ch_client)
 
 
 async def coalesce_op(info_a: QueryInfo, info_b: QueryInfo, ch_client):

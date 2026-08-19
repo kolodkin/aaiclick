@@ -65,6 +65,7 @@ from ..models import (
 from ..orch_context import commit_tasks, get_sql_session, task_scope
 from ..result import TaskResult
 from ..runner_config import ENTRY_SHELL
+from .claiming import update_job_status, update_task_status
 from .db_handler import DEPENDENCY_WHERE
 from .execution_worker_context import set_current_task_info
 
@@ -638,87 +639,41 @@ async def run_job_tasks(job: Job) -> None:
     while True:
         async with get_sql_session() as session:
             # Fetch next ready task (dependency-aware)
-            now = utc_now()
             result = await session.execute(
                 text(_READY_TASK_SQL),
                 {
                     "job_id": job.id,
                     "pending_status": TASK_PENDING,
                     "completed_status": TASK_COMPLETED,
-                    "now": now,
+                    "now": utc_now(),
                 },
             )
             row = result.fetchone()
 
-            if row is None:
-                break
+        if row is None:
+            break
 
-            task_id = row[0]
-
-            # Fetch the full task and update to RUNNING
-            db_result = await session.execute(select(Task).where(Task.id == task_id))
-            task = db_result.scalar_one()
-
-            task.status = TASK_RUNNING
-            task.started_at = now
-            session.add(task)
-            await session.commit()
-
-            task_job_id = task.job_id
+        task_id = row[0]
+        await update_task_status(task_id, TASK_RUNNING)
+        async with get_sql_session() as session:
+            task = (await session.execute(select(Task).where(Task.id == task_id))).scalar_one()
 
         try:
             data_result = await execute_task(task)
-
-            result_ref = serialize_task_result(data_result, task_job_id)
-
-            async with get_sql_session() as session:
-                db_result = await session.execute(select(Task).where(Task.id == task_id))
-                task = db_result.scalar_one()
-
-                task.status = TASK_COMPLETED
-                task.completed_at = utc_now()
-                task.result = result_ref
-                if task.run_statuses:
-                    task.run_statuses = [*task.run_statuses[:-1], TASK_COMPLETED]
-
-                session.add(task)
-                await session.commit()
-
+            result_ref = serialize_task_result(data_result, task.job_id)
+            await update_task_status(task_id, TASK_COMPLETED, result=result_ref)
         except Exception as e:
             job_failed = True
             error_msg = str(e)
             logger.exception("Task %r failed: %s", task.name, e)
-
-            async with get_sql_session() as session:
-                db_result = await session.execute(select(Task).where(Task.id == task_id))
-                task = db_result.scalar_one()
-
-                task.status = TASK_FAILED
-                task.completed_at = utc_now()
-                task.error = str(e)
-                if task.run_statuses:
-                    task.run_statuses = [*task.run_statuses[:-1], TASK_FAILED]
-                session.add(task)
-                await session.commit()
-
+            await update_task_status(task_id, TASK_FAILED, error=str(e))
             break
 
+    await update_job_status(job.id, JOB_FAILED if job_failed else JOB_COMPLETED, error=error_msg)
+
+    # Update in-memory job object
     async with get_sql_session() as session:
-        # Reload job and update final status
-        result = await session.execute(select(Job).where(Job.id == job.id))
-        db_job = result.scalar_one()
-
-        if job_failed:
-            db_job.status = JOB_FAILED
-            db_job.error = error_msg
-        else:
-            db_job.status = JOB_COMPLETED
-
-        db_job.completed_at = utc_now()
-        session.add(db_job)
-        await session.commit()
-
-        # Update in-memory job object
+        db_job = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
         job.status = db_job.status
         job.completed_at = db_job.completed_at
         job.error = db_job.error

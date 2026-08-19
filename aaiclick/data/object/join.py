@@ -14,10 +14,6 @@ from __future__ import annotations
 
 from typing import Literal, NamedTuple
 
-from aaiclick.oplog.oplog_api import oplog_record_sample
-
-from ..data_context import create_object
-from ..data_context.ch_client import execute_for_stats
 from ..models import (
     FIELDTYPE_DICT,
     ColumnInfo,
@@ -25,6 +21,7 @@ from ..models import (
     Schema,
 )
 from ..scope import NamedScope
+from .emit import emit_result
 from .ingest import _are_types_compatible, promote_nullable
 
 JoinHow = Literal["inner", "left", "right", "full", "cross"]
@@ -335,8 +332,6 @@ async def join_objects_db(
     schema, left_proj, right_proj, using_form = jschema
     using_keys = set(keys.left) if using_form else set()
 
-    result = await create_object(schema, name=name, scope=scope)
-
     insert_cols = [out for _, out in left_proj] + [out for _, out in right_proj]
     insert_cols_sql = ", ".join(insert_cols)
 
@@ -371,17 +366,15 @@ async def join_objects_db(
     # default.
     settings_clause = " SETTINGS join_use_nulls = 1" if how in ("left", "right", "full") else ""
 
-    result._stats = await execute_for_stats(
-        f"INSERT INTO {result.table} ({insert_cols_sql}) "
-        f"SELECT {select_sql} FROM {left.source} AS l "
-        f"{HOW_TO_SQL[how]} {right.source} AS r{on_clause}{settings_clause}",
-        client=ch_client,
-    )
-
-    oplog_record_sample(
-        result.table,
-        "join",
-        kwargs={
+    return await emit_result(
+        schema,
+        f"SELECT {select_sql} FROM {left.source} AS l {HOW_TO_SQL[how]} {right.source} AS r{on_clause}{settings_clause}",
+        ch_client,
+        insert_cols=insert_cols_sql,
+        name=name,
+        scope=scope,
+        oplog_op="join",
+        oplog_kwargs={
             "left": left.base_table,
             "right": right.base_table,
             "left_on": ",".join(keys.left),
@@ -389,5 +382,3 @@ async def join_objects_db(
             "how": how,
         },
     )
-
-    return result

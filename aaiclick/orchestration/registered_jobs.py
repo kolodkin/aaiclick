@@ -253,6 +253,15 @@ async def upsert_registered_job(
         return registered_job
 
 
+async def _get_registered_or_raise(session, name: str) -> RegisteredJob:
+    """Fetch a registration by name or raise RegisteredJobNotFound."""
+    result = await session.execute(select(RegisteredJob).where(RegisteredJob.name == name))
+    job = result.scalar_one_or_none()
+    if job is None:
+        raise RegisteredJobNotFound(f"Registered job '{name}' not found")
+    return job
+
+
 async def enable_job(name: str) -> RegisteredJob:
     """Enable a registered job and recompute next_run_at.
 
@@ -268,11 +277,7 @@ async def enable_job(name: str) -> RegisteredJob:
     now = utc_now()
 
     async with get_sql_session() as session:
-        result = await session.execute(select(RegisteredJob).where(RegisteredJob.name == name))
-        job = result.scalar_one_or_none()
-        if job is None:
-            raise RegisteredJobNotFound(f"Registered job '{name}' not found")
-
+        job = await _get_registered_or_raise(session, name)
         job.enabled = True
         job.updated_at = now
         job.next_run_at = _next_run_at(job.schedule, True, now)
@@ -295,11 +300,7 @@ async def disable_job(name: str) -> RegisteredJob:
         RegisteredJobNotFound: If no job with this name exists
     """
     async with get_sql_session() as session:
-        result = await session.execute(select(RegisteredJob).where(RegisteredJob.name == name))
-        job = result.scalar_one_or_none()
-        if job is None:
-            raise RegisteredJobNotFound(f"Registered job '{name}' not found")
-
+        job = await _get_registered_or_raise(session, name)
         job.enabled = False
         job.next_run_at = None
         job.updated_at = utc_now()

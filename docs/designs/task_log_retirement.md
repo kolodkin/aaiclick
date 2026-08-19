@@ -62,7 +62,7 @@ flushed up to the last 2 s tick.
 - **`capture_task_output`** — no file tee; yields nothing. `get_logs_dir` and
   the `AAICLICK_LOG_DIR` env var are deleted with it.
 - **`RunnerResult` / `ExecuteFn`** — `log_path` dropped from the result tuple
-  everywhere, from docker's `result.json` payload, and from
+  everywhere, from docker's result payload, and from
   `update_task_status` / `clear_task`.
 - **Schema** — `tasks.log_path` and `remote_task_results.log_path` dropped via
   Alembic. (Image builds are ordinary tasks now, so their logs ride the same
