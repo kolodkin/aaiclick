@@ -130,8 +130,10 @@ async def test_capture_task_output_streams_mid_run(orch_ctx, monkeypatch):
     mid_run_lines: list[str] = []
     async with capture_task_output(task_id, job_id, run_id):
         print("early line")
-        await asyncio.sleep(0.3)  # let the flusher tick
-        mid_run_lines = [line.text for line in await read_task_logs(task_id, run_id)]
+        deadline = time.monotonic() + 5.0
+        while not mid_run_lines and time.monotonic() < deadline:
+            await asyncio.sleep(0.05)
+            mid_run_lines = [line.text for line in await read_task_logs(task_id, run_id)]
         print("late line")
     assert mid_run_lines == ["early line"]
     final = [line.text for line in await read_task_logs(task_id, run_id)]
