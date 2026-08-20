@@ -57,6 +57,15 @@ def test_module_entry_rejects_command():
         validate_task_entry(entry_type="module", command=["echo", "hi"])
 
 
+def test_jvm_entry_rejects_command():
+    with pytest.raises(ValueError, match="jvm.*command"):
+        validate_task_entry(entry_type="jvm", command=["java", "-jar", "app.jar"])
+
+
+def test_jvm_entry_valid_without_command():
+    validate_task_entry(entry_type="jvm", command=None)
+
+
 def test_shell_entry_valid_on_any_runner():
     # shell is runner-agnostic — valid on subprocess, docker, kubernetes alike
     validate_task_entry(entry_type="shell", command=["python", "main.py"])

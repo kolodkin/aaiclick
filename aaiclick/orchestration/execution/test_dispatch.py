@@ -54,6 +54,15 @@ def test_jobdispatch_carries_entry_fields():
     assert d.command == ["echo", "hi"]
 
 
+async def test_jvm_without_container_runner_fails_instead_of_python_child():
+    task = _task(entrypoint="com.example.Pipeline", image_source=None)
+    task.entry_type = "jvm"
+    success, result_ref, error = await dispatch.dispatch_execute(task, execution_worker_id=1)
+    assert success is False
+    assert result_ref is None
+    assert "jvm" in (error or "")
+
+
 async def test_null_image_source_dispatches_subprocess_even_on_docker_job():
     """A NULL-image task runs on the host regardless of job runner_mode —
     the rule that host-pins injected build tasks. No job query needed."""
