@@ -31,8 +31,8 @@ def get_db_handler() -> DbHandler:
 
 # Shared dependency check SQL — identical for both backends
 # SQLite-only: the PostgreSQL claim path carries its own copy of these
-# clauses inside the shared sql/claim_next_task.sql (also embedded by the
-# Java worker) — keep the two in sync when eligibility rules change.
+# clauses inside the shared sql/claim_next_task.sql — keep the two in sync
+# when eligibility rules change.
 DEPENDENCY_WHERE = """
     AND NOT EXISTS (
         SELECT 1 FROM dependencies d

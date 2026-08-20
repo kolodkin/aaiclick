@@ -447,9 +447,9 @@ async def _handle_task_result(
         logger.info("ExecutionWorker %s completed task %s", execution_worker_id, task.id)
         await _increment_execution_worker_stat(execution_worker_id, "tasks_completed")
         async with get_sql_session() as session:
-            # Rollup-only, the recipe shared with the Java worker: cascade
-            # handling belongs to failure-transition owners (BackgroundWorker,
-            # cancel_job), not to a worker's success path.
+            # Rollup-only: cascade handling belongs to failure-transition
+            # owners (BackgroundWorker, cancel_job), not to a worker's
+            # success path.
             await roll_up_job(session, task.job_id)
             await session.commit()
         return True

@@ -162,9 +162,8 @@ def in_clause(ids: list, prefix: str) -> tuple[str, dict]:
     return placeholders, params
 
 
-# Shared with the Java worker — both workers run the identical rollup-only
-# recipe from these files; the status-set knowledge lives in the SQL, not in
-# per-language code. Eager loads keep a mis-packaged wheel failing at import.
+# The status-set knowledge lives in the SQL files, not in code. Eager loads
+# keep a mis-packaged wheel failing at import.
 JOB_ROLLUP_SQL = load_sql("job_rollup.sql")
 COMPLETE_JOB_SQL = load_sql("complete_job.sql")
 
@@ -192,9 +191,8 @@ async def _complete_job(session: AsyncSession, job_id: int, failed: int) -> None
 async def roll_up_job(session: AsyncSession, job_id: int) -> None:
     """The worker recipe: mark a job COMPLETED/FAILED once all tasks are terminal.
 
-    This is the language-neutral contract both execution workers follow on
-    task success (the Java worker runs the same two SQL files). No cascade:
-    stranded downstream tasks are handled by whoever performs failure
+    This is the contract the execution worker follows on task success.
+    No cascade: stranded downstream tasks are handled by whoever performs failure
     transitions — ``try_complete_job`` on the BackgroundWorker's
     PENDING_CLEANUP path, and ``cancel_job`` — so by the time a success-path
     rollup runs, any UPSTREAM_FAILED sweep has already happened.

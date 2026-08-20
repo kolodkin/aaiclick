@@ -1,7 +1,7 @@
 """Regression guard for the Postgres claim query's column completeness.
 
 ``PgDbHandler.claim_next_task`` reconstructs a ``Task`` from the shared claim
-SQL's row (``sql/claim_next_task.sql`` — also embedded by the Java worker).
+SQL's row (``sql/claim_next_task.sql``).
 Every ``tasks`` column must reach ``Task(**row)``, or the field silently
 falls back to its model default: dropping ``entry_type``/``command`` made
 shell tasks run as module tasks; dropping ``run_epoch`` broke the fencing
@@ -24,8 +24,8 @@ def test_pg_claim_returns_all_columns_not_a_hand_listed_subset():
 
 
 def test_shared_claim_sql_parameterizes_worker_capabilities():
-    # Worker differences (Python vs Java) must stay bound values — a worker
-    # editing the query text would fork the shared contract.
+    # Per-worker capabilities must stay bound values — a worker editing the
+    # query text would fork the shared contract.
     assert ":entry_types" in CLAIM_NEXT_TASK_SQL
     assert ":allow_image_tasks" in CLAIM_NEXT_TASK_SQL
 
@@ -33,8 +33,7 @@ def test_shared_claim_sql_parameterizes_worker_capabilities():
 def test_shared_sql_binds_are_exactly_the_contract():
     """Each shared file's bind set, as SQLAlchemy parses it.
 
-    Mirrors the Java side's NamedParamSqlTest resource assertions. Also guards
-    against ``:name`` leaking into SQL comments: SQLAlchemy's ``text()``
+    Guards against ``:name`` leaking into SQL comments: SQLAlchemy's ``text()``
     parses those as binds too, which breaks SQLite's positional paramstyle
     (PostgreSQL masks it by reusing ``$n`` per name).
     """

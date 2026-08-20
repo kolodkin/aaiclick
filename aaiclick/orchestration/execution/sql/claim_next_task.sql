@@ -1,14 +1,12 @@
--- Shared PostgreSQL claim query — the single source of truth for both the
--- Python worker (pg_handler.py) and the Java worker (TaskRepo.java, which
--- embeds this file as a build-time resource). SQLite has its own
--- Python-only implementation in sqlite_handler.py.
+-- Shared PostgreSQL claim query — the single source of truth for the
+-- worker claim path (pg_handler.py). SQLite has its own Python-only
+-- implementation in sqlite_handler.py.
 --
 -- Named parameters only; every predicate difference between workers is a
 -- bound VALUE, never a structural edit:
 --   execution_worker_id  claiming worker id
 --   now                  claim timestamp (repeated)
 --   entry_types          entry types this worker can execute
---                         (Python: all; Java: shell only)
 --   allow_image_tasks    false pins the worker to host-subprocess tasks
 --                         (image_source both SQL NULL and JSON null mean
 --                         "no image" — SQLAlchemy writes the latter)
@@ -67,8 +65,7 @@ WITH claimed_task AS (
     -- RETURNING * (not a hand-maintained column list): every tasks column
     -- must reach Python's Task(**row) or it silently falls back to a model
     -- default. Dropping entry_type/command made shell tasks run as module
-    -- tasks; dropping run_epoch broke the fencing guard. Java reads only
-    -- the columns it needs, by name, from the same result set.
+    -- tasks; dropping run_epoch broke the fencing guard.
     RETURNING *
 ),
 updated_job AS (
