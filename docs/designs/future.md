@@ -129,12 +129,12 @@ SDK closes that gap without a second worker implementation.
   the GitHub account; needs GPG signing + sources/javadoc jars,
   `central-publishing-maven-plugin`, two secrets (portal token, GPG key).
   De-risk early with a one-time `0.0.x` dry-run publish of an empty artifact.
-- **Retire `java/aaiclick-worker`**: the standalone claim loop is superseded —
-  it duplicated claim/heartbeat/rollup semantics in a distributed-only
-  component the local (chdb + SQLite) dev loop can never exercise, and it
-  closed none of the data-plane gap. Salvage `ChClient` / `Db` /
-  `NamedParamSql` into the SDK; drop the worker's e2e test, CI wiring, and
-  the orchestration.md "Java worker" section with it.
+- **Salvage from git history**: the standalone `java/aaiclick-worker` claim
+  loop was removed (superseded — it duplicated claim/heartbeat/rollup
+  semantics in a distributed-only component the local chdb + SQLite dev loop
+  could never exercise, and closed none of the data-plane gap). Its
+  `ChClient` / `Db` / `NamedParamSql` classes are reusable starting points
+  for the SDK, recoverable from git history.
 
 ## Changelog
 
