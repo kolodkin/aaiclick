@@ -98,46 +98,43 @@ the primitives (a previous unwired version, `internal_api/lineage_ai.py`,
 was removed as dead code). MCP intentionally exposes only the
 AI-independent primitives (`server/mcp.py`).
 
-## Java Worker Release Flow
+## Java Task SDK — Shim Jar (`jvm` Entry Type)
 
-`publish.yaml` has no Java steps yet — the wiring needs a real `vX.Y.Z`
-release tag to test against. When added, a `java` job on the **same tag** as
-the Python package (lockstep versioning: the worker's compatibility contract
-is a specific release's PostgreSQL schema and task semantics):
+**Decision**: Java payloads run through the existing shell/container path,
+claimed by Python workers — a `.jar` already runs on every runner via
+`entry_type="shell"` plus a prebuilt JVM image. What shell tasks lack is the
+data plane: typed kwargs, a return value, downstream consumption. The shim-jar
+SDK closes that gap without a second worker implementation.
 
-1. Derive the Maven version from the tag, `mvn -B package`, attach the shaded
-   `aaiclick-worker` jar as a GitHub Release asset, and publish a docker
-   image alongside the existing ones.
-2. Phase 2 adds Maven Central via the Central Publisher Portal for the
-   `aaiclick-task-api` module (namespace `io.github.kolodkin` auto-verifies
-   against the GitHub account; needs GPG signing + sources/javadoc jars,
-   `central-publishing-maven-plugin`, two secrets: portal token, GPG key).
-   De-risk early with a one-time `0.0.x` dry-run publish of an empty
-   artifact — namespace verification and signing setup are the only steps
-   with bureaucratic latency.
-
-## Java Worker Phase 2 — `jvm` Entry Type
-
-Native Java tasks on the existing worker (`java/aaiclick-worker` runs
-shell-only today):
-
-- Add `"jvm"` to the `EntryType` Literal (code change only — plain String
-  column, no migration). `tasks.entrypoint` holds a Java class name; `kwargs`
-  JSON binds to method parameters via Jackson; the return value is JSON
-  (plain values only).
+- **`aaiclick-task-api` Maven module** (the parent POM anticipates it):
+  `@AaiTask` annotation + registry, plus a bootstrap `main()` mirroring the
+  Python `remote_result` shim — load the task row by
+  `--task-id N --run-epoch M`, Jackson-bind `kwargs` to the annotated method,
+  write the JSON result row (plain values only). The user's image embeds the
+  SDK; the runner invocation is the shim, like the module path's layer-2
+  bootstrap.
+- **`"jvm"` entry type**: add to the `EntryType` Literal (plain String column
+  — code change only, no migration). `tasks.entrypoint` holds the Java class
+  name. Python workers claim `jvm` tasks and dispatch them like module
+  container tasks, injecting the full runner env (same trust model as module
+  images). CLI, `run_job()`, and `RunJobRequest` grow the `jvm` choice.
 - **Submission validation**: `jvm` tasks must not receive Object/View refs as
   kwargs and their results are never auto-converted to Objects — enforced at
   commit points alongside `validate_image_sources()`
-  (`aaiclick/orchestration/image_injection.py`). This keeps the worker's
-  "no ClickHouse object support" boundary honest.
-- **Java task SDK**: a new `aaiclick-task-api` Maven module (the parent POM
-  anticipates it) — `@AaiTask` annotation + registry; each task runs in a
-  spawned child JVM mirroring the mp worker's isolation/timeout/kill
-  semantics.
-- **Claim filters are bound values** in the shared
-  `sql/claim_next_task.sql`: Python workers drop `jvm` from their
-  `entry_types` bind; the Java worker widens to `['shell', 'jvm']`. CLI,
-  `run_job()`, and `RunJobRequest` grow the `jvm` choice.
+  (`aaiclick/orchestration/image_injection.py`).
+- **Publishing**: `aaiclick-task-api` to Maven Central via the Central
+  Publisher Portal, on the **same tag** as the Python package (lockstep
+  versioning — the compatibility contract is a release's PostgreSQL schema
+  and task semantics). Namespace `io.github.kolodkin` auto-verifies against
+  the GitHub account; needs GPG signing + sources/javadoc jars,
+  `central-publishing-maven-plugin`, two secrets (portal token, GPG key).
+  De-risk early with a one-time `0.0.x` dry-run publish of an empty artifact.
+- **Retire `java/aaiclick-worker`**: the standalone claim loop is superseded —
+  it duplicated claim/heartbeat/rollup semantics in a distributed-only
+  component the local (chdb + SQLite) dev loop can never exercise, and it
+  closed none of the data-plane gap. Salvage `ChClient` / `Db` /
+  `NamedParamSql` into the SDK; drop the worker's e2e test, CI wiring, and
+  the orchestration.md "Java worker" section with it.
 
 ## Changelog
 
