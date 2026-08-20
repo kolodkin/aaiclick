@@ -98,44 +98,6 @@ the primitives (a previous unwired version, `internal_api/lineage_ai.py`,
 was removed as dead code). MCP intentionally exposes only the
 AI-independent primitives (`server/mcp.py`).
 
-## Java Task SDK — Shim Jar (`jvm` Entry Type)
-
-**Decision**: Java payloads run through the existing shell/container path,
-claimed by Python workers — a `.jar` already runs on every runner via
-`entry_type="shell"` plus a prebuilt JVM image. What shell tasks lack is the
-data plane: typed kwargs, a return value, downstream consumption. The shim-jar
-SDK closes that gap without a second worker implementation.
-
-- **`aaiclick-task-api` Maven module** (the parent POM anticipates it):
-  `@AaiTask` annotation + registry, plus a bootstrap `main()` mirroring the
-  Python `remote_result` shim — load the task row by
-  `--task-id N --run-epoch M`, Jackson-bind `kwargs` to the annotated method,
-  write the JSON result row (plain values only). The user's image embeds the
-  SDK; the runner invocation is the shim, like the module path's layer-2
-  bootstrap.
-- **`"jvm"` entry type**: add to the `EntryType` Literal (plain String column
-  — code change only, no migration). `tasks.entrypoint` holds the Java class
-  name. Python workers claim `jvm` tasks and dispatch them like module
-  container tasks, injecting the full runner env (same trust model as module
-  images). CLI, `run_job()`, and `RunJobRequest` grow the `jvm` choice.
-- **Submission validation**: `jvm` tasks must not receive Object/View refs as
-  kwargs and their results are never auto-converted to Objects — enforced at
-  commit points alongside `validate_image_sources()`
-  (`aaiclick/orchestration/image_injection.py`).
-- **Publishing**: `aaiclick-task-api` to Maven Central via the Central
-  Publisher Portal, on the **same tag** as the Python package (lockstep
-  versioning — the compatibility contract is a release's PostgreSQL schema
-  and task semantics). Namespace `io.github.kolodkin` auto-verifies against
-  the GitHub account; needs GPG signing + sources/javadoc jars,
-  `central-publishing-maven-plugin`, two secrets (portal token, GPG key).
-  De-risk early with a one-time `0.0.x` dry-run publish of an empty artifact.
-- **Salvage from git history**: the standalone `java/aaiclick-worker` claim
-  loop was removed (superseded — it duplicated claim/heartbeat/rollup
-  semantics in a distributed-only component the local chdb + SQLite dev loop
-  could never exercise, and closed none of the data-plane gap). Its
-  `ChClient` / `Db` / `NamedParamSql` classes are reusable starting points
-  for the SDK, recoverable from git history.
-
 ## Changelog
 
 `docs/changelog.md` — version history in Keep a Changelog format. Introduce with v1.0.0 release.

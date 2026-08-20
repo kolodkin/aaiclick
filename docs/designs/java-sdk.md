@@ -11,14 +11,11 @@ contract as the Python container bootstrap (`remote_result`).
 
 # Architecture
 
-The three-layer split from `docs/designs/orchestration.md` ("Execution layers")
-gains one row:
-
-| entry_type | layer-2 runner invocation                                        | layer-3 execution                          |
-|------------|------------------------------------------------------------------|--------------------------------------------|
-| `module`   | the aaiclick Python shim (`remote_result --task-id N ...`)       | `execute_task` imports and runs entrypoint |
-| `shell`    | the user's argv directly — the definition *is* the invocation    | none — the argv *is* the execution         |
-| `jvm`      | the image's own `ENTRYPOINT` (the SDK shim) + `--task-id N ...`  | the shim reflects and invokes the `@AaiTask` method |
+`jvm` is the third row of the entry-type/layers table in
+`docs/designs/orchestration.md` ("Execution layers"): the layer-2 runner
+invocation is the image's own `ENTRYPOINT` (the SDK shim) plus
+`--task-id N --run-epoch M`, and layer-3 is the shim reflecting and invoking
+the `@AaiTask` method.
 
 A `jvm` task is dispatched exactly like a `module` container task: the Python
 worker claims it, launches a detached container / Pod with the **full runner
