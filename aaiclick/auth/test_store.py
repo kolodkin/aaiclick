@@ -61,3 +61,45 @@ async def test_refresh_token_lifecycle(orch_ctx):
     assert found is not None and found.id == rt.id
     await store.rotate_refresh(rt.id)
     assert await store.get_active_refresh("hash1") is None  # rotated => inactive
+
+
+async def test_create_and_get_tenant(orch_ctx):
+    created = await store.create_tenant(slug="acme", name="Acme Corp")
+    assert (await store.get_tenant_by_slug("acme")).id == created.id
+    assert (await store.get_tenant_by_id(created.id)).slug == "acme"
+
+
+async def test_create_tenant_explicit_id(orch_ctx):
+    created = await store.create_tenant(slug="fixed", name="Fixed", tenant_id=1)
+    assert created.id == 1
+
+
+async def test_duplicate_slug_raises(orch_ctx):
+    await store.create_tenant(slug="acme", name="Acme")
+    with pytest.raises(store.SlugTaken):
+        await store.create_tenant(slug="acme", name="Other")
+
+
+async def test_list_tenants_ordered_by_slug(orch_ctx):
+    await store.create_tenant(slug="zeta", name="Z")
+    await store.create_tenant(slug="alpha", name="A")
+    slugs = [t.slug for t in await store.list_tenants()]
+    assert slugs == ["alpha", "zeta"]
+
+
+async def test_set_membership_creates_then_updates(orch_ctx):
+    t = await store.create_tenant(slug="acme", name="Acme")
+    u = await store.create_user(username="gail", password_hash="h", role=ROLE_VIEWER)
+    first = await store.set_membership(tenant_id=t.id, user_id=u.id, role=ROLE_VIEWER)
+    second = await store.set_membership(tenant_id=t.id, user_id=u.id, role=ROLE_ADMIN)
+    assert second.id == first.id and second.role == ROLE_ADMIN
+    assert len(await store.list_memberships_for_user(u.id)) == 1
+
+
+async def test_remove_membership(orch_ctx):
+    t = await store.create_tenant(slug="acme", name="Acme")
+    u = await store.create_user(username="hank", password_hash="h", role=ROLE_VIEWER)
+    await store.set_membership(tenant_id=t.id, user_id=u.id, role=ROLE_VIEWER)
+    assert await store.remove_membership(tenant_id=t.id, user_id=u.id) is True
+    assert await store.remove_membership(tenant_id=t.id, user_id=u.id) is False
+    assert await store.list_memberships_for_tenant(t.id) == []

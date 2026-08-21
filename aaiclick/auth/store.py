@@ -12,11 +12,15 @@ from sqlmodel import col, select
 from ..datetime_utils import utc_now
 from ..orchestration.orch_context import get_sql_session
 from ..snowflake import get_snowflake_id
-from .models import RefreshToken, Role, User
+from .models import RefreshToken, Role, Tenant, TenantMembership, User
 
 
 class UsernameTaken(ValueError):
     """A user with this username already exists."""
+
+
+class SlugTaken(ValueError):
+    """A tenant with this slug already exists."""
 
 
 class UserNotFound(ValueError):
@@ -81,6 +85,87 @@ async def _update_user(user_id: int, **fields) -> User:
         await session.commit()
         await session.refresh(user)
     return user
+
+
+async def create_tenant(*, slug: str, name: str, tenant_id: int | None = None) -> Tenant:
+    """Create a tenant. ``tenant_id`` lets setup/migration seed the fixed
+    default-tenant id; everyone else gets a snowflake."""
+    tenant = Tenant(id=tenant_id if tenant_id is not None else get_snowflake_id(), slug=slug, name=name)
+    async with get_sql_session() as session:
+        existing = await session.execute(select(Tenant).where(Tenant.slug == slug))
+        if existing.scalar_one_or_none() is not None:
+            raise SlugTaken(f"tenant slug '{slug}' already exists")
+        session.add(tenant)
+        await session.commit()
+        await session.refresh(tenant)
+    return tenant
+
+
+async def get_tenant_by_id(tenant_id: int) -> Tenant | None:
+    async with get_sql_session() as session:
+        result = await session.execute(select(Tenant).where(Tenant.id == tenant_id))
+        return result.scalar_one_or_none()
+
+
+async def get_tenant_by_slug(slug: str) -> Tenant | None:
+    async with get_sql_session() as session:
+        result = await session.execute(select(Tenant).where(Tenant.slug == slug))
+        return result.scalar_one_or_none()
+
+
+async def list_tenants() -> list[Tenant]:
+    async with get_sql_session() as session:
+        result = await session.execute(select(Tenant).order_by(col(Tenant.slug).asc()))
+        return list(result.scalars().all())
+
+
+async def set_membership(*, tenant_id: int, user_id: int, role: Role) -> TenantMembership:
+    """Add a user to a tenant, or update their role if already a member."""
+    async with get_sql_session() as session:
+        existing = (
+            await session.execute(
+                select(TenantMembership).where(
+                    TenantMembership.tenant_id == tenant_id, TenantMembership.user_id == user_id
+                )
+            )
+        ).scalar_one_or_none()
+        row = existing if existing is not None else TenantMembership(
+            id=get_snowflake_id(), tenant_id=tenant_id, user_id=user_id, role=role
+        )
+        row.role = role
+        session.add(row)
+        await session.commit()
+        await session.refresh(row)
+    return row
+
+
+async def remove_membership(*, tenant_id: int, user_id: int) -> bool:
+    """Remove a user from a tenant; True if a row was deleted."""
+    async with get_sql_session() as session:
+        row = (
+            await session.execute(
+                select(TenantMembership).where(
+                    TenantMembership.tenant_id == tenant_id, TenantMembership.user_id == user_id
+                )
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            return False
+        await session.delete(row)
+        await session.commit()
+    return True
+
+
+async def list_memberships_for_user(user_id: int) -> list[TenantMembership]:
+    async with get_sql_session() as session:
+        result = await session.execute(select(TenantMembership).where(TenantMembership.user_id == user_id))
+        return list(result.scalars().all())
+
+
+async def list_memberships_for_tenant(tenant_id: int) -> list[TenantMembership]:
+    async with get_sql_session() as session:
+        result = await session.execute(select(TenantMembership).where(TenantMembership.tenant_id == tenant_id))
+        return list(result.scalars().all())
 
 
 async def create_refresh_token(*, user_id: int, token_hash: str, ttl: int) -> RefreshToken:
