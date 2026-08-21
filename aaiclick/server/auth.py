@@ -11,7 +11,7 @@ not propagate into mounted sub-apps. See ``docs/designs/auth.md``.
 from __future__ import annotations
 
 import logging
-from typing import NamedTuple
+from typing import NamedTuple, cast
 
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -20,7 +20,7 @@ from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from aaiclick.auth import config, security
-from aaiclick.auth.models import ROLE_ADMIN, Role
+from aaiclick.auth.models import Role
 from aaiclick.internal_api.errors import Forbidden, Unauthorized
 from aaiclick.view_models import ProblemCode
 
@@ -35,10 +35,12 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 class Principal(NamedTuple):
     user_id: int | None
     username: str | None
-    role: Role
+    superadmin: bool
+    tenants: dict[int, Role]
+    """Membership map ``tenant_id -> role`` from the access JWT."""
 
 
-_SYNTHETIC_ADMIN = Principal(user_id=None, username=None, role=ROLE_ADMIN)
+_SYNTHETIC_ADMIN = Principal(user_id=None, username=None, superadmin=True, tenants={})
 
 
 def _principal_from_token(token: str) -> Principal:
@@ -47,7 +49,8 @@ def _principal_from_token(token: str) -> Principal:
         claims = security.decode_access_token(token, config.require_jwt_secret())
     except security.TokenError as exc:
         raise Unauthorized(str(exc)) from exc
-    return Principal(user_id=claims.user_id, username=None, role=claims.role)
+    tenants = cast("dict[int, Role]", claims.tenants)
+    return Principal(user_id=claims.user_id, username=None, superadmin=claims.superadmin, tenants=tenants)
 
 
 def resolve_principal(authorization: str | None) -> Principal:
@@ -76,10 +79,15 @@ async def require_principal(
     return _principal_from_token(creds.credentials)
 
 
-async def require_admin(principal: Principal = Depends(require_principal)) -> Principal:
-    if principal.role != ROLE_ADMIN:
-        raise Forbidden("admin role required")
+async def require_superadmin(principal: Principal = Depends(require_principal)) -> Principal:
+    if not principal.superadmin:
+        raise Forbidden("superadmin required")
     return principal
+
+
+# Interim alias until require_tenant lands: mutating tenant-scoped routes keep
+# ``require_admin`` as their guard name while the tenant dependency is built.
+require_admin = require_superadmin
 
 
 def warn_if_open() -> None:
@@ -88,7 +96,7 @@ def warn_if_open() -> None:
 
 
 class AdminAuthMiddleware:
-    """ASGI guard for the ``/mcp`` mount: admin-only when auth is enabled."""
+    """ASGI guard for the ``/mcp`` mount: superadmin-only when auth is enabled."""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -99,8 +107,8 @@ class AdminAuthMiddleware:
         authorization = Headers(scope=scope).get("authorization")
         try:
             principal = resolve_principal(authorization)
-            if principal.role != ROLE_ADMIN:
-                raise Forbidden("admin role required")
+            if not principal.superadmin:
+                raise Forbidden("superadmin required")
         except Unauthorized as exc:
             response = problem_response("Unauthorized", 401, str(exc), ProblemCode.UNAUTHORIZED, BEARER_CHALLENGE)
             await response(scope, receive, send)

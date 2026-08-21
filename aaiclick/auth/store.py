@@ -31,8 +31,8 @@ class RefreshInvalid(ValueError):
     """Refresh token is missing, expired, rotated, or revoked."""
 
 
-async def create_user(*, username: str, password_hash: str, role: Role) -> User:
-    user = User(id=get_snowflake_id(), username=username, password_hash=password_hash, role=role)
+async def create_user(*, username: str, password_hash: str, superadmin: bool = False) -> User:
+    user = User(id=get_snowflake_id(), username=username, password_hash=password_hash, superadmin=superadmin)
     async with get_sql_session() as session:
         existing = await session.execute(select(User).where(User.username == username))
         if existing.scalar_one_or_none() is not None:
@@ -62,8 +62,8 @@ async def has_users() -> bool:
         return result.first() is not None
 
 
-async def set_role(user_id: int, role: Role) -> User:
-    return await _update_user(user_id, role=role)
+async def set_superadmin(user_id: int, superadmin: bool) -> User:
+    return await _update_user(user_id, superadmin=superadmin)
 
 
 async def set_disabled(user_id: int, disabled: bool) -> User:

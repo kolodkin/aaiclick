@@ -29,16 +29,27 @@ class TokenPair(BaseModel):
     expires_in: int
 
 
-class MeView(BaseModel):
-    id: int
-    username: str
+class TenantRoleView(BaseModel):
+    tenant_id: int
+    slug: str
+    name: str
     role: Role
+
+
+class MeView(BaseModel):
+    """Current principal. ``id``/``username`` are ``None`` in local mode
+    (auth disabled — the synthetic superadmin has no user row)."""
+
+    id: int | None
+    username: str | None
+    superadmin: bool
+    tenants: list[TenantRoleView]
 
 
 class UserView(BaseModel):
     id: int
     username: str
-    role: Role
+    superadmin: bool
     disabled: bool
     created_at: datetime
 
@@ -46,11 +57,11 @@ class UserView(BaseModel):
 class CreateUserRequest(BaseModel):
     username: str
     password: str
-    role: Role = "viewer"
+    superadmin: bool = False
 
 
-class SetRoleRequest(BaseModel):
-    role: Role
+class SetSuperadminRequest(BaseModel):
+    superadmin: bool
 
 
 class SetPasswordRequest(BaseModel):

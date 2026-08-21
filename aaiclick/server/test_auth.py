@@ -14,7 +14,6 @@ import jwt
 import pytest
 
 from aaiclick.auth import security
-from aaiclick.auth.models import ROLE_ADMIN, ROLE_VIEWER
 from aaiclick.internal_api.errors import Unauthorized
 
 from . import auth
@@ -36,7 +35,7 @@ def _bearer(token: str) -> str:
 
 
 def _admin_token() -> str:
-    return security.encode_access_token(user_id=1, role=ROLE_ADMIN, secret=SECRET, ttl=60)
+    return security.encode_access_token(user_id=1, superadmin=True, tenants={}, secret=SECRET, ttl=60)
 
 
 # --- resolve_principal ---------------------------------------------------
@@ -45,7 +44,7 @@ def _admin_token() -> str:
 def test_local_mode_returns_synthetic_admin(monkeypatch):
     monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
     principal = auth.resolve_principal(authorization=None)
-    assert principal.role == ROLE_ADMIN
+    assert principal.superadmin is True
 
 
 def test_enabled_missing_token_unauthorized(enabled):
@@ -54,13 +53,14 @@ def test_enabled_missing_token_unauthorized(enabled):
 
 
 def test_enabled_valid_jwt(enabled):
-    token = security.encode_access_token(user_id=7, role=ROLE_VIEWER, secret=SECRET, ttl=60)
+    token = security.encode_access_token(user_id=7, superadmin=False, tenants={3: "viewer"}, secret=SECRET, ttl=60)
     principal = auth.resolve_principal(authorization=_bearer(token))
-    assert principal.user_id == 7 and principal.role == ROLE_VIEWER
+    assert principal.user_id == 7 and principal.superadmin is False
+    assert principal.tenants == {3: "viewer"}
 
 
 def test_enabled_bad_signature_unauthorized(enabled):
-    token = jwt.encode({"sub": "1", "role": "admin", "type": "access"}, OTHER_SECRET, algorithm="HS256")
+    token = jwt.encode({"sub": "1", "type": "access"}, OTHER_SECRET, algorithm="HS256")
     with pytest.raises(Unauthorized):
         auth.resolve_principal(authorization=_bearer(token))
 
@@ -94,7 +94,7 @@ async def test_mcp_middleware_rejects_missing_token(enabled):
 
 async def test_mcp_middleware_rejects_viewer(enabled):
     called: list[bool] = []
-    token = security.encode_access_token(user_id=2, role=ROLE_VIEWER, secret=SECRET, ttl=60)
+    token = security.encode_access_token(user_id=2, superadmin=False, tenants={3: "admin"}, secret=SECRET, ttl=60)
     scope = {"type": "http", "headers": [(b"authorization", f"Bearer {token}".encode())]}
     sent = await _drive(scope, called)
     assert not called

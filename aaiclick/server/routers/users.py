@@ -7,21 +7,21 @@ from fastapi import APIRouter, Depends
 from aaiclick.auth.view_models import (
     CreateUserRequest,
     SetPasswordRequest,
-    SetRoleRequest,
+    SetSuperadminRequest,
     UserListFilter,
     UserView,
 )
 from aaiclick.internal_api import users as users_api
 from aaiclick.view_models import Page
 
-from ..auth import require_admin
+from ..auth import require_superadmin
 from ..deps import orch_scope
 from ..errors import problem_responses
 
 router = APIRouter(
     prefix="/users",
     tags=["users"],
-    dependencies=[Depends(orch_scope), Depends(require_admin)],
+    dependencies=[Depends(orch_scope), Depends(require_superadmin)],
 )
 
 
@@ -35,9 +35,9 @@ async def create_user(request: CreateUserRequest) -> UserView:
     return await users_api.create_user(request)
 
 
-@router.put("/{user_id}/role", response_model=UserView, responses=problem_responses(404))
-async def set_role(user_id: int, request: SetRoleRequest) -> UserView:
-    return await users_api.set_role(user_id, request.role)
+@router.put("/{user_id}/superadmin", response_model=UserView, responses=problem_responses(404))
+async def set_superadmin(user_id: int, request: SetSuperadminRequest) -> UserView:
+    return await users_api.set_superadmin(user_id, request.superadmin)
 
 
 @router.put("/{user_id}/password", response_model=UserView, responses=problem_responses(404))

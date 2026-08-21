@@ -1,6 +1,6 @@
 from sqlmodel import select
 
-from aaiclick.auth.models import ROLE_ADMIN, RefreshToken, User
+from aaiclick.auth.models import RefreshToken, User
 from aaiclick.datetime_utils import utc_now
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.snowflake import get_snowflake_id
@@ -9,19 +9,19 @@ from aaiclick.snowflake import get_snowflake_id
 async def test_user_round_trips(orch_ctx):
     uid = get_snowflake_id()
     async with get_sql_session() as session:
-        session.add(User(id=uid, username="alice", password_hash="x", role=ROLE_ADMIN))
+        session.add(User(id=uid, username="alice", password_hash="x", superadmin=True))
         await session.commit()
     async with get_sql_session() as session:
         row = (await session.execute(select(User).where(User.username == "alice"))).scalar_one()
         assert row.id == uid
-        assert row.role == ROLE_ADMIN
+        assert row.superadmin is True
         assert row.disabled is False
 
 
 async def test_refresh_token_round_trips(orch_ctx):
     uid = get_snowflake_id()
     async with get_sql_session() as session:
-        session.add(User(id=uid, username="bob", password_hash="x", role=ROLE_ADMIN))
+        session.add(User(id=uid, username="bob", password_hash="x"))
         # No ORM relationship links the two models, so flush to guarantee the
         # user row exists before the FK'd token insert (Postgres enforces it).
         await session.flush()

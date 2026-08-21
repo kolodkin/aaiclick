@@ -3,7 +3,6 @@ from __future__ import annotations
 from sqlmodel import select
 
 from aaiclick.auth import security
-from aaiclick.auth.models import ROLE_VIEWER
 from aaiclick.orchestration.factories import _callable_to_string, create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
@@ -25,7 +24,7 @@ async def test_viewer_cannot_clear_task(orch_ctx, app_client, monkeypatch):
     monkeypatch.setenv("AAICLICK_JWT_SECRET", RBAC_SECRET)
     job = await create_job("rbac_clear_job", simple_task)
     task = (await get_tasks_for_job(job.id))[0]
-    token = security.encode_access_token(user_id=2, role=ROLE_VIEWER, secret=RBAC_SECRET, ttl=60)
+    token = security.encode_access_token(user_id=2, superadmin=False, tenants={}, secret=RBAC_SECRET, ttl=60)
 
     response = await app_client.post(
         f"{API_PREFIX}/tasks/{task.id}/clear", headers={"Authorization": f"Bearer {token}"}

@@ -22,9 +22,7 @@ class User(SQLModel, table=True):
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
     username: str = Field(sa_column=Column(String, nullable=False, unique=True, index=True))
     password_hash: str = Field(sa_column=Column(String, nullable=False))
-    role: Role = Field(
-        sa_column=Column(String, nullable=False),
-    )
+    superadmin: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="0"), default=False)
     disabled: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="0"), default=False)
     created_at: datetime = Field(default_factory=utc_now)
 

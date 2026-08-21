@@ -16,14 +16,16 @@ def enabled(monkeypatch):
 
 
 async def test_login_then_access_protected(orch_ctx, app_client, enabled):
-    await users.create_user(CreateUserRequest(username="alice", password="pw", role="admin"))
+    await users.create_user(CreateUserRequest(username="alice", password="pw", superadmin=True))
 
     login = await app_client.post(f"{API_PREFIX}/auth/login", json={"username": "alice", "password": "pw"})
     assert login.status_code == 200
     access = login.json()["access_token"]
 
     me = await app_client.get(f"{API_PREFIX}/auth/me", headers={"Authorization": f"Bearer {access}"})
-    assert me.status_code == 200 and me.json()["role"] == "admin"
+    assert me.status_code == 200
+    body = me.json()
+    assert body["superadmin"] is True and body["username"] == "alice" and body["tenants"] == []
 
 
 async def test_login_bad_password_401(orch_ctx, app_client, enabled):
@@ -43,7 +45,7 @@ async def test_refresh_flow(orch_ctx, app_client, enabled):
 async def test_change_own_password_as_viewer(orch_ctx, app_client, enabled):
     """A viewer can reach ``/auth/me/password`` — ``/users`` is admin-only, so
     this is their only route to a password change."""
-    await users.create_user(CreateUserRequest(username="vw", password="pw", role="viewer"))
+    await users.create_user(CreateUserRequest(username="vw", password="pw"))
     login = (await app_client.post(f"{API_PREFIX}/auth/login", json={"username": "vw", "password": "pw"})).json()
 
     res = await app_client.put(
@@ -56,7 +58,7 @@ async def test_change_own_password_as_viewer(orch_ctx, app_client, enabled):
 
 
 async def test_change_own_password_wrong_current_401(orch_ctx, app_client, enabled):
-    await users.create_user(CreateUserRequest(username="vw2", password="pw", role="viewer"))
+    await users.create_user(CreateUserRequest(username="vw2", password="pw"))
     login = (await app_client.post(f"{API_PREFIX}/auth/login", json={"username": "vw2", "password": "pw"})).json()
 
     res = await app_client.put(

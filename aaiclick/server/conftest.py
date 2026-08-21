@@ -6,7 +6,6 @@ import httpx
 import pytest
 
 from aaiclick.auth import config, security
-from aaiclick.auth.models import ROLE_ADMIN
 
 from .app import app
 
@@ -22,7 +21,9 @@ def _admin_headers() -> dict[str, str]:
     """
     if not config.auth_enabled():
         return {}
-    token = security.encode_access_token(user_id=1, role=ROLE_ADMIN, secret=config.require_jwt_secret(), ttl=3600)
+    token = security.encode_access_token(
+        user_id=1, superadmin=True, tenants={}, secret=config.require_jwt_secret(), ttl=3600
+    )
     return {"Authorization": f"Bearer {token}"}
 
 

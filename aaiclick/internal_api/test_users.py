@@ -9,15 +9,15 @@ SECRET = "internal-api-users-test-secret-key-32-plus-bytes"
 
 
 async def _logged_in(username: str) -> tuple[UserView, str]:
-    view = await users.create_user(CreateUserRequest(username=username, password="pw", role="admin"))
+    view = await users.create_user(CreateUserRequest(username=username, password="pw", superadmin=True))
     pair = await auth.login(LoginRequest(username=username, password="pw"), secret=SECRET)
     return view, pair.refresh_token
 
 
 async def test_create_user_returns_view(orch_ctx):
-    view = await users.create_user(CreateUserRequest(username="alice", password="pw", role="admin"))
+    view = await users.create_user(CreateUserRequest(username="alice", password="pw", superadmin=True))
     assert isinstance(view, UserView)
-    assert view.username == "alice" and view.role == "admin"
+    assert view.username == "alice" and view.superadmin is True
 
 
 async def test_create_duplicate_raises_conflict(orch_ctx):
@@ -34,9 +34,9 @@ async def test_list_users_paginated(orch_ctx):
     assert page.total is not None and page.total >= 2
 
 
-async def test_set_role_missing_raises_not_found(orch_ctx):
+async def test_set_superadmin_missing_raises_not_found(orch_ctx):
     with pytest.raises(NotFound):
-        await users.set_role(12345, "admin")
+        await users.set_superadmin(12345, True)
 
 
 async def test_demotion_revokes_sessions(orch_ctx):
@@ -44,7 +44,7 @@ async def test_demotion_revokes_sessions(orch_ctx):
     tokens, and the demotion would only bind at its natural expiry."""
     view, refresh_token = await _logged_in("demoted")
 
-    await users.set_role(view.id, "viewer")
+    await users.set_superadmin(view.id, False)
 
     with pytest.raises(Unauthorized):
         await auth.refresh(RefreshRequest(refresh_token=refresh_token), secret=SECRET)

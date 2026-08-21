@@ -10,6 +10,7 @@ from aaiclick.auth.view_models import (
     LoginRequest,
     LogoutRequest,
     RefreshRequest,
+    TenantRoleView,
     TokenPair,
 )
 
@@ -17,17 +18,31 @@ from . import users
 from .errors import Invalid, Unauthorized
 
 
-async def _mint_pair(*, user_id: int, role: str, secret: str) -> TokenPair:
+async def _mint_pair(*, user: User, secret: str) -> TokenPair:
     access_ttl = config.access_ttl()
     refresh_secret = security.generate_secret()
     await store.create_refresh_token(
-        user_id=user_id, token_hash=security.sha256_hex(refresh_secret), ttl=config.refresh_ttl()
+        user_id=user.id, token_hash=security.sha256_hex(refresh_secret), ttl=config.refresh_ttl()
     )
+    memberships = await store.list_memberships_for_user(user.id)
+    tenants = {m.tenant_id: m.role for m in memberships}
     return TokenPair(
-        access_token=security.encode_access_token(user_id=user_id, role=role, secret=secret, ttl=access_ttl),
+        access_token=security.encode_access_token(
+            user_id=user.id, superadmin=user.superadmin, tenants=tenants, secret=secret, ttl=access_ttl
+        ),
         refresh_token=refresh_secret,
         expires_in=access_ttl,
     )
+
+
+async def my_tenants(user_id: int) -> list[TenantRoleView]:
+    """Resolve the user's memberships to tenant views for ``/auth/me``."""
+    views: list[TenantRoleView] = []
+    for m in await store.list_memberships_for_user(user_id):
+        tenant = await store.get_tenant_by_id(m.tenant_id)
+        if tenant is not None:
+            views.append(TenantRoleView(tenant_id=tenant.id, slug=tenant.slug, name=tenant.name, role=m.role))
+    return views
 
 
 def _authenticates(user: User, password: str) -> bool:
@@ -40,7 +55,7 @@ async def login(request: LoginRequest, *, secret: str) -> TokenPair:
     user = await store.get_user_by_username(request.username)
     if user is None or not _authenticates(user, request.password):
         raise Unauthorized("invalid username or password")
-    return await _mint_pair(user_id=user.id, role=user.role, secret=secret)
+    return await _mint_pair(user=user, secret=secret)
 
 
 async def refresh(request: RefreshRequest, *, secret: str) -> TokenPair:
@@ -51,7 +66,7 @@ async def refresh(request: RefreshRequest, *, secret: str) -> TokenPair:
     if user is None or user.disabled:
         raise Unauthorized("user is disabled")
     await store.rotate_refresh(row.id)  # rotation: old token becomes inactive
-    return await _mint_pair(user_id=user.id, role=user.role, secret=secret)
+    return await _mint_pair(user=user, secret=secret)
 
 
 async def change_password(user_id: int | None, request: ChangePasswordRequest) -> None:

@@ -196,7 +196,7 @@ def render_execution_worker_stopped(view: ExecutionWorkerView) -> None:
 
 def render_user(view: UserView) -> None:
     """Single-line summary of one user."""
-    print(f"{view.id}  {view.username}  role={view.role}  disabled={view.disabled}")
+    print(f"{view.id}  {view.username}  superadmin={view.superadmin}  disabled={view.disabled}")
 
 
 def render_users_page(page: Page[UserView], offset: int) -> None:
@@ -205,10 +205,10 @@ def render_users_page(page: Page[UserView], offset: int) -> None:
         print("No users found")
         return
 
-    print(f"{'ID':<20} {'Username':<20} {'Role':<8} {'Disabled':<8}")
+    print(f"{'ID':<20} {'Username':<20} {'Superadmin':<10} {'Disabled':<8}")
     print("-" * 60)
     for u in page.items:
-        print(f"{u.id:<20} {u.username:<20} {u.role:<8} {str(u.disabled):<8}")
+        print(f"{u.id:<20} {u.username:<20} {str(u.superadmin):<10} {str(u.disabled):<8}")
     _print_page_footer(page, offset)
 
 

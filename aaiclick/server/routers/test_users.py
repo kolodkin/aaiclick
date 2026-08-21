@@ -1,7 +1,6 @@
 import pytest
 
 from aaiclick.auth import security
-from aaiclick.auth.models import ROLE_ADMIN, ROLE_VIEWER
 from aaiclick.auth.view_models import CreateUserRequest
 from aaiclick.internal_api import users
 from aaiclick.server.app import API_PREFIX
@@ -16,19 +15,19 @@ def enabled(monkeypatch):
 
 
 def _admin_header():
-    token = security.encode_access_token(user_id=1, role=ROLE_ADMIN, secret=SECRET, ttl=60)
+    token = security.encode_access_token(user_id=1, superadmin=True, tenants={}, secret=SECRET, ttl=60)
     return {"Authorization": f"Bearer {token}"}
 
 
 def _viewer_header():
-    token = security.encode_access_token(user_id=2, role=ROLE_VIEWER, secret=SECRET, ttl=60)
+    token = security.encode_access_token(user_id=2, superadmin=False, tenants={9: "admin"}, secret=SECRET, ttl=60)
     return {"Authorization": f"Bearer {token}"}
 
 
 async def test_admin_can_create_user(orch_ctx, app_client, enabled):
     res = await app_client.post(
         f"{API_PREFIX}/users",
-        json={"username": "newbie", "password": "pw", "role": "viewer"},
+        json={"username": "newbie", "password": "pw"},
         headers=_admin_header(),
     )
     assert res.status_code == 201 and res.json()["username"] == "newbie"

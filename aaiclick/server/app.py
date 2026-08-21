@@ -8,7 +8,6 @@ from fastapi import Depends, FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from aaiclick.auth import config, security, store
-from aaiclick.auth.models import ROLE_ADMIN
 from aaiclick.backend import is_local
 from aaiclick.orchestration.local_runtime import local_runtime
 from aaiclick.orchestration.orch_context import orch_context
@@ -30,7 +29,7 @@ _mcp_app = mcp.http_app(path="/")
 
 
 async def _seed_admin() -> None:
-    """Insert the env-configured admin on first startup (empty users table)."""
+    """Insert the env-configured superadmin on first startup (empty users table)."""
     seed = config.admin_seed()
     if seed is None or not config.auth_enabled():
         return
@@ -39,7 +38,7 @@ async def _seed_admin() -> None:
             await store.create_user(
                 username=seed.username,
                 password_hash=security.hash_password(seed.password),
-                role=ROLE_ADMIN,
+                superadmin=True,
             )
 
 

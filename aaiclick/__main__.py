@@ -38,7 +38,6 @@ from datetime import datetime
 from typing import cast, get_args
 
 from aaiclick import cli_renderers, internal_api
-from aaiclick.auth.models import ROLE_VIEWER, ROLES
 from aaiclick.auth.view_models import CreateUserRequest, UserListFilter
 from aaiclick.data.data_context import data_context
 from aaiclick.internal_api import setup as setup_api
@@ -275,7 +274,9 @@ async def _run_execution_worker_stop(args: argparse.Namespace) -> None:
 
 async def _run_user_create(args: argparse.Namespace) -> None:
     view = await _run_internal_api(
-        users_api.create_user(CreateUserRequest(username=args.username, password=args.password, role=args.role))
+        users_api.create_user(
+            CreateUserRequest(username=args.username, password=args.password, superadmin=args.superadmin)
+        )
     )
     _render(args, view, cli_renderers.render_user)
 
@@ -285,8 +286,8 @@ async def _run_user_list(args: argparse.Namespace) -> None:
     _render(args, page, lambda p: cli_renderers.render_users_page(p, offset=args.offset))
 
 
-async def _run_user_set_role(args: argparse.Namespace) -> None:
-    view = await _run_internal_api(users_api.set_role(args.user_id, args.role))
+async def _run_user_set_superadmin(args: argparse.Namespace) -> None:
+    view = await _run_internal_api(users_api.set_superadmin(args.user_id, args.superadmin == "true"))
     _render(args, view, cli_renderers.render_user)
 
 
@@ -984,7 +985,7 @@ def build_parser() -> argparse.ArgumentParser:
     user_create_parser = user_subparsers.add_parser("create", help="Create a user")
     user_create_parser.add_argument("username")
     user_create_parser.add_argument("--password", required=True)
-    user_create_parser.add_argument("--role", choices=list(ROLES), default=ROLE_VIEWER)
+    user_create_parser.add_argument("--superadmin", action="store_true")
     _add_json_flag(user_create_parser)
 
     user_list_parser = user_subparsers.add_parser("list", help="List users")
@@ -992,10 +993,12 @@ def build_parser() -> argparse.ArgumentParser:
     user_list_parser.add_argument("--offset", type=int, default=0)
     _add_json_flag(user_list_parser)
 
-    user_set_role_parser = user_subparsers.add_parser("set-role", help="Change a user's role")
-    user_set_role_parser.add_argument("user_id", type=int)
-    user_set_role_parser.add_argument("role", choices=list(ROLES))
-    _add_json_flag(user_set_role_parser)
+    user_set_superadmin_parser = user_subparsers.add_parser(
+        "set-superadmin", help="Grant or revoke the instance superadmin flag"
+    )
+    user_set_superadmin_parser.add_argument("user_id", type=int)
+    user_set_superadmin_parser.add_argument("superadmin", choices=["true", "false"])
+    _add_json_flag(user_set_superadmin_parser)
 
     user_disable_parser = user_subparsers.add_parser("disable", help="Disable a user")
     user_disable_parser.add_argument("user_id", type=int)
@@ -1145,8 +1148,8 @@ def main():
         elif args.user_command == "list":
             asyncio.run(_run_user_list(args))
 
-        elif args.user_command == "set-role":
-            asyncio.run(_run_user_set_role(args))
+        elif args.user_command == "set-superadmin":
+            asyncio.run(_run_user_set_superadmin(args))
 
         elif args.user_command == "disable":
             asyncio.run(_run_user_disable(args))
