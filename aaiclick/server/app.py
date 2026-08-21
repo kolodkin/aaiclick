@@ -17,6 +17,7 @@ from .errors import register_exception_handlers
 from .mcp import mcp
 from .routers import auth as auth_router
 from .routers import execution_workers, jobs, objects, registered_jobs, tasks
+from .routers import tenants as tenants_router
 from .routers import users as users_router
 
 API_PREFIX = "/api/v0"
@@ -81,6 +82,7 @@ app.include_router(execution_workers.router, prefix=API_PREFIX, dependencies=[De
 # own `require_admin`. Neither takes the blanket `require_principal` above.
 app.include_router(auth_router.router, prefix=API_PREFIX)
 app.include_router(users_router.router, prefix=API_PREFIX)
+app.include_router(tenants_router.router, prefix=API_PREFIX, dependencies=[Depends(require_principal)])
 
 # `Depends` doesn't cross the mount boundary into the FastMCP sub-app, so the
 # admin-only check runs as ASGI middleware wrapping the mount.

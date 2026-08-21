@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from .models import Role
 
@@ -27,6 +28,38 @@ class TokenPair(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     expires_in: int
+
+
+SLUG_RE = re.compile(r"^[a-z0-9_]+$")
+
+
+class TenantView(BaseModel):
+    id: int
+    slug: str
+    name: str
+    created_at: datetime
+
+
+class CreateTenantRequest(BaseModel):
+    slug: str
+    name: str
+
+    @field_validator("slug")
+    @classmethod
+    def _validate_slug(cls, value: str) -> str:
+        if not SLUG_RE.fullmatch(value):
+            raise ValueError("slug must match [a-z0-9_]+")
+        return value
+
+
+class MemberView(BaseModel):
+    user_id: int
+    username: str
+    role: Role
+
+
+class SetMemberRequest(BaseModel):
+    role: Role
 
 
 class TenantRoleView(BaseModel):
