@@ -65,8 +65,10 @@ async def test_refresh_token_lifecycle(orch_ctx):
 
 async def test_create_and_get_tenant(orch_ctx):
     created = await store.create_tenant(slug="acme", name="Acme Corp")
-    assert (await store.get_tenant_by_slug("acme")).id == created.id
-    assert (await store.get_tenant_by_id(created.id)).slug == "acme"
+    by_slug = await store.get_tenant_by_slug("acme")
+    by_id = await store.get_tenant_by_id(created.id)
+    assert by_slug is not None and by_slug.id == created.id
+    assert by_id is not None and by_id.slug == "acme"
 
 
 async def test_create_tenant_explicit_id(orch_ctx):
