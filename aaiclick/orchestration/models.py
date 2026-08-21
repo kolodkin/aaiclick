@@ -114,9 +114,16 @@ class RegisteredJob(SQLModel, table=True):
     """
 
     __tablename__: ClassVar[str] = "registered_jobs"
-    __table_args__ = (UniqueConstraint("name"),)
+    __table_args__ = (UniqueConstraint("tenant_id", "name"),)
 
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
+    # Plain BigInteger, not an FK to ``tenants``: the auth tables live in a
+    # separate module whose import here would cycle, and cross-package DDL
+    # coupling buys nothing — the reference is enforced at the API boundary.
+    tenant_id: int = Field(
+        default=1,
+        sa_column=Column(BigInteger, nullable=False, index=True, server_default="1"),
+    )
     name: str = Field(index=True)
     entrypoint: str = Field()
     enabled: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="1"), default=True)
@@ -151,6 +158,13 @@ class Job(SQLModel, table=True):
     __tablename__: ClassVar[str] = "jobs"
 
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
+    # Plain BigInteger, not an FK to ``tenants``: the auth tables live in a
+    # separate module whose import here would cycle, and cross-package DDL
+    # coupling buys nothing — the reference is enforced at the API boundary.
+    tenant_id: int = Field(
+        default=1,
+        sa_column=Column(BigInteger, nullable=False, index=True, server_default="1"),
+    )
     name: str = Field(index=True)
     status: JobStatus = Field(
         default=JOB_PENDING,

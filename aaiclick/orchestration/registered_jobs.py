@@ -11,6 +11,7 @@ from sqlmodel import select
 from ..backend import is_local
 from ..datetime_utils import utc_now
 from ..snowflake import get_snowflake_id
+from ..tenancy import get_active_tenant_id
 from .docker_config import resolve_image_source, resolve_runner_config
 from .factories import create_built_job, create_job, create_task
 from .kubernetes_config import resolve_kubernetes_config
@@ -74,6 +75,7 @@ def _build_registered_job(
     """Build an uncommitted RegisteredJob row with computed next_run_at."""
     return RegisteredJob(
         id=get_snowflake_id(),
+        tenant_id=get_active_tenant_id(),
         name=name,
         entrypoint=entrypoint,
         enabled=enabled,

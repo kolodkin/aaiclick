@@ -6,9 +6,18 @@ import pytest
 from sqlalchemy import select
 
 from aaiclick.orchestration.execution.image_build_task import IMAGE_BUILD_ENTRYPOINT
-from aaiclick.orchestration.factories import create_built_job, create_job, create_task
+from aaiclick.orchestration.factories import create_built_job, create_job, create_task, new_job_row
 from aaiclick.orchestration.jobs import get_task
-from aaiclick.orchestration.models import JOB_PENDING, TASK_PENDING, Job, Task
+from aaiclick.orchestration.models import (
+    JOB_PENDING,
+    RUN_MANUAL,
+    RUN_SCHEDULED,
+    TASK_PENDING,
+    Job,
+    RegisteredJob,
+    Task,
+)
+from aaiclick.tenancy import DEFAULT_TENANT_ID, active_tenant
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.result import data_list
 from aaiclick.orchestration.runner_config import (
@@ -201,3 +210,21 @@ async def test_create_built_job_prebuilt_injects_nothing(orch_ctx_no_ch, monkeyp
         rows = (await session.execute(select(Task).where(Task.job_id == job.id))).scalars().all()
     assert [t.entrypoint for t in rows] == ["m.entry"]
     assert rows[0].image_source == dump_image_source(source)
+
+
+def test_new_job_row_stamps_active_tenant():
+    with active_tenant(7):
+        job = new_job_row("t", run_type=RUN_MANUAL)
+    assert job.tenant_id == 7
+
+
+def test_new_job_row_inherits_registered_tenant():
+    registered = RegisteredJob(id=1, name="r", entrypoint="x.y", tenant_id=9)
+    with active_tenant(7):
+        job = new_job_row("t", run_type=RUN_SCHEDULED, registered_job_id=1, registered=registered)
+    assert job.tenant_id == 9
+
+
+def test_new_job_row_defaults_to_default_tenant():
+    job = new_job_row("t", run_type=RUN_MANUAL)
+    assert job.tenant_id == DEFAULT_TENANT_ID
