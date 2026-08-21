@@ -149,7 +149,11 @@ async def register_job(
     )
 
     async with get_sql_session() as session:
-        existing = await session.execute(select(RegisteredJob).where(RegisteredJob.name == name))
+        existing = await session.execute(
+            select(RegisteredJob).where(
+                RegisteredJob.name == name, RegisteredJob.tenant_id == get_active_tenant_id()
+            )
+        )
         if existing.scalar_one_or_none() is not None:
             raise RegisteredJobAlreadyExists(f"Registered job '{name}' already exists")
 
@@ -170,7 +174,11 @@ async def get_registered_job(name: str) -> RegisteredJob | None:
         RegisteredJob if found, None otherwise
     """
     async with get_sql_session() as session:
-        result = await session.execute(select(RegisteredJob).where(RegisteredJob.name == name))
+        result = await session.execute(
+            select(RegisteredJob).where(
+                RegisteredJob.name == name, RegisteredJob.tenant_id == get_active_tenant_id()
+            )
+        )
         return result.scalar_one_or_none()
 
 
@@ -214,7 +222,11 @@ async def upsert_registered_job(
     now = utc_now()
 
     async with get_sql_session() as session:
-        result = await session.execute(select(RegisteredJob).where(RegisteredJob.name == name))
+        result = await session.execute(
+            select(RegisteredJob).where(
+                RegisteredJob.name == name, RegisteredJob.tenant_id == get_active_tenant_id()
+            )
+        )
         existing = result.scalar_one_or_none()
 
         if existing is not None:
@@ -257,7 +269,9 @@ async def upsert_registered_job(
 
 async def _get_registered_or_raise(session, name: str) -> RegisteredJob:
     """Fetch a registration by name or raise RegisteredJobNotFound."""
-    result = await session.execute(select(RegisteredJob).where(RegisteredJob.name == name))
+    result = await session.execute(
+        select(RegisteredJob).where(RegisteredJob.name == name, RegisteredJob.tenant_id == get_active_tenant_id())
+    )
     job = result.scalar_one_or_none()
     if job is None:
         raise RegisteredJobNotFound(f"Registered job '{name}' not found")

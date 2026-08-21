@@ -29,6 +29,7 @@ from aaiclick.orchestration.view_models import (
     job_to_detail,
     job_to_view,
 )
+from aaiclick.tenancy import get_active_tenant_id
 from aaiclick.view_models import JobListFilter, Page, RefId, RunJobRequest
 
 from .errors import Conflict, NotFound
@@ -47,17 +48,27 @@ async def _sql_session(session: AsyncSession | None) -> AsyncIterator[AsyncSessi
 
 async def _resolve_job(ref: RefId, session: AsyncSession | None = None) -> Job | None:
     """Look up a job by numeric ID or the most recent job with a matching name."""
+    tenant_id = get_active_tenant_id()
     async with _sql_session(session) as s:
         if isinstance(ref, int):
-            return (await s.execute(select(Job).where(Job.id == ref))).scalar_one_or_none()
+            return (
+                await s.execute(select(Job).where(Job.id == ref, Job.tenant_id == tenant_id))
+            ).scalar_one_or_none()
 
         if ref.isdigit():
-            found = (await s.execute(select(Job).where(Job.id == int(ref)))).scalar_one_or_none()
+            found = (
+                await s.execute(select(Job).where(Job.id == int(ref), Job.tenant_id == tenant_id))
+            ).scalar_one_or_none()
             if found is not None:
                 return found
 
         return (
-            await s.execute(select(Job).where(Job.name == ref).order_by(col(Job.created_at).desc()).limit(1))
+            await s.execute(
+                select(Job)
+                .where(Job.name == ref, Job.tenant_id == tenant_id)
+                .order_by(col(Job.created_at).desc())
+                .limit(1)
+            )
         ).scalar_one_or_none()
 
 
@@ -71,7 +82,7 @@ async def list_jobs(filter: JobListFilter | None = None) -> Page[JobView]:
     """
     filter = filter or JobListFilter()
 
-    predicates = []
+    predicates = [Job.tenant_id == get_active_tenant_id()]
     if filter.status is not None:
         predicates.append(Job.status == filter.status)
     if filter.name is not None:

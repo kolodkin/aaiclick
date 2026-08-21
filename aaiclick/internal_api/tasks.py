@@ -6,9 +6,14 @@ session via the contextvar getter. Returns pydantic view models.
 
 from __future__ import annotations
 
+from sqlmodel import select
+
 from aaiclick.orchestration.execution import claiming
 from aaiclick.orchestration.jobs.queries import get_task as _get_task_impl
 from aaiclick.orchestration.logging import read_task_logs
+from aaiclick.orchestration.models import Job, Task
+from aaiclick.orchestration.orch_context import get_sql_session
+from aaiclick.tenancy import get_active_tenant_id
 from aaiclick.orchestration.view_models import (
     ClearTaskView,
     TaskDetail,
@@ -20,12 +25,27 @@ from aaiclick.orchestration.view_models import (
 from .errors import NotFound
 
 
+async def _visible_task(task_id: int) -> Task | None:
+    """Load a task only if its job belongs to the active tenant.
+
+    A cross-tenant task reads as missing (``None``) — no existence leak.
+    """
+    task = await _get_task_impl(task_id)
+    if task is None:
+        return None
+    async with get_sql_session() as session:
+        job = (await session.execute(select(Job).where(Job.id == task.job_id))).scalar_one_or_none()
+    if job is None or job.tenant_id != get_active_tenant_id():
+        return None
+    return task
+
+
 async def get_task(task_id: int) -> TaskDetail:
     """Return full task detail by numeric ID.
 
     Raises ``NotFound`` if no task matches ``task_id``.
     """
-    task = await _get_task_impl(task_id)
+    task = await _visible_task(task_id)
     if task is None:
         raise NotFound(f"Task not found: {task_id}")
     return task_to_detail(task)
@@ -42,7 +62,7 @@ async def get_task_logs(task_id: int, tail: int | None = None) -> TaskLogsView:
 
     Raises ``NotFound`` if no task matches ``task_id``.
     """
-    task = await _get_task_impl(task_id)
+    task = await _visible_task(task_id)
     if task is None:
         raise NotFound(f"Task not found: {task_id}")
 
@@ -60,6 +80,8 @@ async def clear_task(task_id: int) -> ClearTaskView:
     is reactivated so the cleared tasks run again. Raises ``NotFound`` if no
     task matches ``task_id``.
     """
+    if await _visible_task(task_id) is None:
+        raise NotFound(f"Task not found: {task_id}")
     try:
         cleared_ids, job = await claiming.clear_task(task_id)
     except claiming.TaskNotFound as exc:

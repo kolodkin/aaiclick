@@ -6,6 +6,7 @@ import pytest
 
 from aaiclick.orchestration.models import PRESERVATION_FULL
 from aaiclick.orchestration.registered_jobs import register_job as _register_job_impl
+from aaiclick.tenancy import active_tenant
 from aaiclick.orchestration.view_models import RegisteredJobView
 from aaiclick.view_models import Page, RegisteredJobFilter, RegisterJobRequest
 
@@ -152,3 +153,29 @@ async def test_disable_job_clears_next_run(orch_ctx):
 async def test_disable_job_missing_raises_not_found(orch_ctx):
     with pytest.raises(errors.NotFound):
         await registered_jobs.disable_job("ghost_job")
+
+
+async def test_list_registered_jobs_filters_by_active_tenant(orch_ctx):
+    with active_tenant(2):
+        await _register_job_impl(name="rj_t2", entrypoint="myapp.t2")
+    await _register_job_impl(name="rj_default", entrypoint="myapp.default")
+
+    with active_tenant(2):
+        page = await registered_jobs.list_registered_jobs()
+        assert [r.name for r in page.items] == ["rj_t2"]
+    assert [r.name for r in (await registered_jobs.list_registered_jobs()).items] == ["rj_default"]
+
+
+async def test_same_name_registers_in_two_tenants(orch_ctx):
+    await _register_job_impl(name="rj_shared", entrypoint="myapp.shared")
+    with active_tenant(2):
+        await _register_job_impl(name="rj_shared", entrypoint="myapp.shared")
+        page = await registered_jobs.list_registered_jobs()
+    assert [r.name for r in page.items] == ["rj_shared"]
+
+
+async def test_enable_cross_tenant_is_not_found(orch_ctx):
+    with active_tenant(2):
+        await _register_job_impl(name="rj_hidden", entrypoint="myapp.hidden")
+    with pytest.raises(errors.NotFound):
+        await registered_jobs.enable_job("rj_hidden")
