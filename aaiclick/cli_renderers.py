@@ -8,7 +8,7 @@ from SQLModel rows — so the JSON schema and text columns cannot drift.
 
 from __future__ import annotations
 
-from aaiclick.auth.view_models import UserView
+from aaiclick.auth.view_models import MemberView, TenantView, UserView
 from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.orchestration.view_models import (
     ExecutionWorkerView,
@@ -197,6 +197,28 @@ def render_execution_worker_stopped(view: ExecutionWorkerView) -> None:
 def render_user(view: UserView) -> None:
     """Single-line summary of one user."""
     print(f"{view.id}  {view.username}  superadmin={view.superadmin}  disabled={view.disabled}")
+
+
+def render_tenant(view: TenantView) -> None:
+    """Single-line summary of one tenant."""
+    print(f"{view.id}  {view.slug}  {view.name}")
+
+
+def render_tenants_page(page: Page[TenantView]) -> None:
+    """Print all tenants as an aligned text table."""
+    if not page.items:
+        print("No tenants found")
+        return
+
+    print(f"{'ID':<20} {'Slug':<20} {'Name':<30}")
+    print("-" * 72)
+    for t in page.items:
+        print(f"{t.id:<20} {t.slug:<20} {t.name:<30}")
+
+
+def render_member(view: MemberView) -> None:
+    """Single-line summary of one tenant member."""
+    print(f"{view.user_id}  {view.username}  role={view.role}")
 
 
 def render_users_page(page: Page[UserView], offset: int) -> None:

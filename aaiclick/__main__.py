@@ -38,15 +38,19 @@ from datetime import datetime
 from typing import cast, get_args
 
 from aaiclick import cli_renderers, internal_api
-from aaiclick.auth.view_models import CreateUserRequest, UserListFilter
+from aaiclick.auth import store as auth_store
+from aaiclick.auth.models import ROLE_VIEWER, ROLES
+from aaiclick.auth.view_models import CreateTenantRequest, CreateUserRequest, UserListFilter
 from aaiclick.data.data_context import data_context
 from aaiclick.internal_api import setup as setup_api
+from aaiclick.internal_api import tenants as tenants_api
 from aaiclick.internal_api import users as users_api
-from aaiclick.internal_api.errors import InternalApiError
+from aaiclick.internal_api.errors import InternalApiError, NotFound
 from aaiclick.orchestration.kubernetes_config import build_kubernetes_config
 from aaiclick.orchestration.models import ExecutionWorkerStatus, JobStatus, PreservationMode, RunnerMode
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.orchestration.runner_config import ENTRY_TYPES
+from aaiclick.tenancy import active_tenant
 from aaiclick.view_models import (
     ExecutionWorkerFilter,
     JobListFilter,
@@ -78,11 +82,30 @@ def _render(args: argparse.Namespace, view, text_renderer) -> None:
         text_renderer(view)
 
 
+_tenant_slug: str | None = None
+"""Global ``--tenant`` value; set once by ``main()`` before dispatch."""
+
+
+async def _resolve_tenant_id(slug: str) -> int:
+    tenant = await auth_store.get_tenant_by_slug(slug)
+    if tenant is None:
+        raise NotFound(f"tenant '{slug}' not found")
+    return tenant.id
+
+
 async def _run_internal_api(coro):
-    """Run ``coro`` inside ``orch_context(with_ch=False)``, mapping API errors to exit 1."""
+    """Run ``coro`` inside ``orch_context(with_ch=False)``, mapping API errors to exit 1.
+
+    When the global ``--tenant`` flag is set, the command runs with that
+    tenant active (contextvars are read at await time, so setting the scope
+    here covers the already-created coroutine).
+    """
     try:
         async with orch_context(with_ch=False):
-            return await coro
+            if _tenant_slug is None:
+                return await coro
+            with active_tenant(await _resolve_tenant_id(_tenant_slug)):
+                return await coro
     except InternalApiError as exc:
         print(exc, file=sys.stderr)
         sys.exit(1)
@@ -301,6 +324,41 @@ async def _run_user_passwd(args: argparse.Namespace) -> None:
     _render(args, view, cli_renderers.render_user)
 
 
+async def _run_tenant_create(args: argparse.Namespace) -> None:
+    request = CreateTenantRequest(slug=args.slug, name=args.name or args.slug)
+    view = await _run_internal_api(tenants_api.create_tenant(request))
+    _render(args, view, cli_renderers.render_tenant)
+
+
+async def _run_tenant_list(args: argparse.Namespace) -> None:
+    page = await _run_internal_api(tenants_api.list_tenants())
+    _render(args, page, cli_renderers.render_tenants_page)
+
+
+async def _member_set(args: argparse.Namespace) -> None:
+    async def do():
+        tenant_id = await _resolve_tenant_id(args.tenant)
+        user = await auth_store.get_user_by_username(args.username)
+        if user is None:
+            raise NotFound(f"user '{args.username}' not found")
+        return await tenants_api.set_member(tenant_id, user.id, args.role)
+
+    view = await _run_internal_api(do())
+    _render(args, view, cli_renderers.render_member)
+
+
+async def _run_member_remove(args: argparse.Namespace) -> None:
+    async def do():
+        tenant_id = await _resolve_tenant_id(args.tenant)
+        user = await auth_store.get_user_by_username(args.username)
+        if user is None:
+            raise NotFound(f"user '{args.username}' not found")
+        await tenants_api.remove_member(tenant_id, user.id)
+
+    await _run_internal_api(do())
+    print(f"removed '{args.username}' from tenant '{args.tenant}'")
+
+
 _MIGRATE_HELP = """\
 Database Migration Commands
 ==================================================
@@ -407,6 +465,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="aaiclick",
         description="aaiclick command-line interface",
+    )
+    parser.add_argument(
+        "--tenant",
+        default=None,
+        help="Tenant slug to run the command in (default: the default tenant)",
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
@@ -1009,6 +1072,34 @@ def build_parser() -> argparse.ArgumentParser:
     user_passwd_parser.add_argument("--password", required=True)
     _add_json_flag(user_passwd_parser)
 
+    # Add tenant subcommand (administration)
+    tenant_parser = subparsers.add_parser("tenant", help="Tenant administration")
+    tenant_subparsers = tenant_parser.add_subparsers(dest="tenant_command", help="Tenant commands")
+
+    tenant_create_parser = tenant_subparsers.add_parser("create", help="Create a tenant")
+    tenant_create_parser.add_argument("slug")
+    tenant_create_parser.add_argument("--name", default=None, help="Display name (default: the slug)")
+    _add_json_flag(tenant_create_parser)
+
+    tenant_list_parser = tenant_subparsers.add_parser("list", help="List tenants")
+    _add_json_flag(tenant_list_parser)
+
+    # Add member subcommand (tenant membership administration)
+    member_parser = subparsers.add_parser("member", help="Tenant membership administration")
+    member_subparsers = member_parser.add_subparsers(dest="member_command", help="Membership commands")
+
+    for member_cmd, member_help in (("add", "Add a user to a tenant"), ("set-role", "Change a member's role")):
+        member_set_parser = member_subparsers.add_parser(member_cmd, help=member_help)
+        member_set_parser.add_argument("--tenant", required=True, help="Tenant slug")
+        member_set_parser.add_argument("--username", required=True)
+        member_set_parser.add_argument("--role", choices=list(ROLES), default=ROLE_VIEWER)
+        _add_json_flag(member_set_parser)
+
+    member_remove_parser = member_subparsers.add_parser("remove", help="Remove a user from a tenant")
+    member_remove_parser.add_argument("--tenant", required=True, help="Tenant slug")
+    member_remove_parser.add_argument("--username", required=True)
+    _add_json_flag(member_remove_parser)
+
     return parser
 
 
@@ -1022,9 +1113,13 @@ def _subcommand_parsers(parser: argparse.ArgumentParser) -> dict[str, argparse.A
 
 def main():
     """Main CLI entry point."""
+    global _tenant_slug
     parser = build_parser()
     subcommands = _subcommand_parsers(parser)
     args = parser.parse_args()
+    if args.command not in ("tenant", "member"):
+        # tenant/member subcommands own their --tenant argument.
+        _tenant_slug = args.tenant
 
     if args.command == "setup":
         _run_setup_cli(args)
@@ -1140,6 +1235,22 @@ def main():
             _run_k8s_init(args)
         else:
             subcommands["k8s"].print_help()
+
+    elif args.command == "tenant":
+        if args.tenant_command == "create":
+            asyncio.run(_run_tenant_create(args))
+        elif args.tenant_command == "list":
+            asyncio.run(_run_tenant_list(args))
+        else:
+            subcommands["tenant"].print_help()
+
+    elif args.command == "member":
+        if args.member_command in ("add", "set-role"):
+            asyncio.run(_member_set(args))
+        elif args.member_command == "remove":
+            asyncio.run(_run_member_remove(args))
+        else:
+            subcommands["member"].print_help()
 
     elif args.command == "user":
         if args.user_command == "create":

@@ -19,7 +19,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from alembic import command
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, insert, select
+from sqlalchemy.engine import Engine
 
 from aaiclick.ai.ollama import bootstrap_ollama, get_configured_model
 from aaiclick.backend import (
@@ -34,7 +35,10 @@ from aaiclick.data.data_context.chdb_client import get_chdb_data_path, get_share
 from aaiclick.oplog.migrate import ch_status_standalone, ch_upgrade_standalone
 from aaiclick.orchestration.env import get_db_url
 from aaiclick.orchestration.migrate import get_alembic_config
+from aaiclick.auth.models import Tenant
+from aaiclick.datetime_utils import utc_now
 from aaiclick.orchestration.models import SQLModel
+from aaiclick.tenancy import DEFAULT_TENANT_ID, DEFAULT_TENANT_SLUG
 from aaiclick.view_models import (
     MIGRATE_CURRENT,
     MIGRATE_DOWNGRADE,
@@ -51,6 +55,18 @@ from aaiclick.view_models import (
 )
 
 from .errors import Invalid
+
+
+def _seed_default_tenant(engine: Engine) -> None:
+    """Insert the default tenant (fixed id) if missing — idempotent re-run."""
+    with engine.begin() as conn:
+        exists = conn.execute(select(Tenant.id).where(Tenant.id == DEFAULT_TENANT_ID)).first()
+        if exists is None:
+            conn.execute(
+                insert(Tenant).values(
+                    id=DEFAULT_TENANT_ID, slug=DEFAULT_TENANT_SLUG, name="Default", created_at=utc_now()
+                )
+            )
 
 
 def is_setup_done() -> bool:
@@ -92,6 +108,7 @@ def setup(*, ai: bool = False) -> SetupResult:
         sync_url = db_url.replace("sqlite+aiosqlite", "sqlite")
         engine = create_engine(sync_url)
         SQLModel.metadata.create_all(engine)
+        _seed_default_tenant(engine)
         engine.dispose()
         steps.append(SetupStep(name="sqlite", status="ok", detail=db_url))
     else:
