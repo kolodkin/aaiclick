@@ -5,10 +5,9 @@ from __future__ import annotations
 import pytest
 
 from aaiclick.orchestration.factories import create_job
+from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.view_models import ClearTaskView, TaskDetail
-
-from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.tenancy import active_tenant
 
 from . import errors, tasks

@@ -8,9 +8,8 @@ from sqlalchemy import select as sa_select
 from sqlmodel import SQLModel
 
 from aaiclick.auth.models import Tenant
-from aaiclick.tenancy import DEFAULT_TENANT_ID, DEFAULT_TENANT_SLUG
-
 from aaiclick.oplog.migrate import ChVersionState
+from aaiclick.tenancy import DEFAULT_TENANT_ID, DEFAULT_TENANT_SLUG
 from aaiclick.view_models import (
     MIGRATE_CURRENT,
     MIGRATE_DOWNGRADE,

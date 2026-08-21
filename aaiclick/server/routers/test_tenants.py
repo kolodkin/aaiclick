@@ -17,9 +17,7 @@ def enabled(monkeypatch):
 
 
 def _header(*, superadmin=False, tenants=None):
-    token = security.encode_access_token(
-        user_id=1, superadmin=superadmin, tenants=tenants or {}, secret=SECRET, ttl=60
-    )
+    token = security.encode_access_token(user_id=1, superadmin=superadmin, tenants=tenants or {}, secret=SECRET, ttl=60)
     return {"Authorization": f"Bearer {token}"}
 
 

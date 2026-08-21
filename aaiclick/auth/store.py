@@ -129,8 +129,10 @@ async def set_membership(*, tenant_id: int, user_id: int, role: Role) -> TenantM
                 )
             )
         ).scalar_one_or_none()
-        row = existing if existing is not None else TenantMembership(
-            id=get_snowflake_id(), tenant_id=tenant_id, user_id=user_id, role=role
+        row = (
+            existing
+            if existing is not None
+            else TenantMembership(id=get_snowflake_id(), tenant_id=tenant_id, user_id=user_id, role=role)
         )
         row.role = role
         session.add(row)

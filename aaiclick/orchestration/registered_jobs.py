@@ -150,9 +150,7 @@ async def register_job(
 
     async with get_sql_session() as session:
         existing = await session.execute(
-            select(RegisteredJob).where(
-                RegisteredJob.name == name, RegisteredJob.tenant_id == get_active_tenant_id()
-            )
+            select(RegisteredJob).where(RegisteredJob.name == name, RegisteredJob.tenant_id == get_active_tenant_id())
         )
         if existing.scalar_one_or_none() is not None:
             raise RegisteredJobAlreadyExists(f"Registered job '{name}' already exists")
@@ -175,9 +173,7 @@ async def get_registered_job(name: str) -> RegisteredJob | None:
     """
     async with get_sql_session() as session:
         result = await session.execute(
-            select(RegisteredJob).where(
-                RegisteredJob.name == name, RegisteredJob.tenant_id == get_active_tenant_id()
-            )
+            select(RegisteredJob).where(RegisteredJob.name == name, RegisteredJob.tenant_id == get_active_tenant_id())
         )
         return result.scalar_one_or_none()
 
@@ -223,9 +219,7 @@ async def upsert_registered_job(
 
     async with get_sql_session() as session:
         result = await session.execute(
-            select(RegisteredJob).where(
-                RegisteredJob.name == name, RegisteredJob.tenant_id == get_active_tenant_id()
-            )
+            select(RegisteredJob).where(RegisteredJob.name == name, RegisteredJob.tenant_id == get_active_tenant_id())
         )
         existing = result.scalar_one_or_none()
 

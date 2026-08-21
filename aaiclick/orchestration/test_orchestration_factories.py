@@ -17,7 +17,6 @@ from aaiclick.orchestration.models import (
     RegisteredJob,
     Task,
 )
-from aaiclick.tenancy import DEFAULT_TENANT_ID, active_tenant
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.result import data_list
 from aaiclick.orchestration.runner_config import (
@@ -28,6 +27,7 @@ from aaiclick.orchestration.runner_config import (
     ImagePrebuilt,
     dump_image_source,
 )
+from aaiclick.tenancy import DEFAULT_TENANT_ID, active_tenant
 
 
 async def test_create_task_unique_ids(orch_ctx):

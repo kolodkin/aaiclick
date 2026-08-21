@@ -23,7 +23,9 @@ def test_generate_secret_unique():
 
 
 def test_access_token_round_trip():
-    token = security.encode_access_token(user_id=42, superadmin=True, tenants={5: "admin", 6: "viewer"}, secret=SECRET, ttl=60)
+    token = security.encode_access_token(
+        user_id=42, superadmin=True, tenants={5: "admin", 6: "viewer"}, secret=SECRET, ttl=60
+    )
     claims = security.decode_access_token(token, SECRET)
     assert claims.user_id == 42
     assert claims.superadmin is True

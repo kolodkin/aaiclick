@@ -13,7 +13,6 @@ from aaiclick.orchestration.jobs.queries import get_task as _get_task_impl
 from aaiclick.orchestration.logging import read_task_logs
 from aaiclick.orchestration.models import Job, Task
 from aaiclick.orchestration.orch_context import get_sql_session
-from aaiclick.tenancy import get_active_tenant_id
 from aaiclick.orchestration.view_models import (
     ClearTaskView,
     TaskDetail,
@@ -21,6 +20,7 @@ from aaiclick.orchestration.view_models import (
     clear_to_view,
     task_to_detail,
 )
+from aaiclick.tenancy import get_active_tenant_id
 
 from .errors import NotFound
 

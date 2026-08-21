@@ -51,9 +51,7 @@ async def _resolve_job(ref: RefId, session: AsyncSession | None = None) -> Job |
     tenant_id = get_active_tenant_id()
     async with _sql_session(session) as s:
         if isinstance(ref, int):
-            return (
-                await s.execute(select(Job).where(Job.id == ref, Job.tenant_id == tenant_id))
-            ).scalar_one_or_none()
+            return (await s.execute(select(Job).where(Job.id == ref, Job.tenant_id == tenant_id))).scalar_one_or_none()
 
         if ref.isdigit():
             found = (

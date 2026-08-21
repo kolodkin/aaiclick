@@ -1,5 +1,7 @@
 import pytest
 
+from aaiclick.auth import security, store
+from aaiclick.auth.models import ROLE_VIEWER
 from aaiclick.auth.view_models import (
     ChangePasswordRequest,
     CreateUserRequest,
@@ -8,8 +10,6 @@ from aaiclick.auth.view_models import (
     RefreshRequest,
     TokenPair,
 )
-from aaiclick.auth import security, store
-from aaiclick.auth.models import ROLE_VIEWER
 from aaiclick.internal_api import auth, users
 from aaiclick.internal_api.errors import Invalid, Unauthorized
 

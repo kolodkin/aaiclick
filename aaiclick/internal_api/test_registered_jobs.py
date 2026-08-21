@@ -6,8 +6,8 @@ import pytest
 
 from aaiclick.orchestration.models import PRESERVATION_FULL
 from aaiclick.orchestration.registered_jobs import register_job as _register_job_impl
-from aaiclick.tenancy import active_tenant
 from aaiclick.orchestration.view_models import RegisteredJobView
+from aaiclick.tenancy import active_tenant
 from aaiclick.view_models import Page, RegisteredJobFilter, RegisterJobRequest
 
 from . import errors, registered_jobs

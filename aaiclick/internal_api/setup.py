@@ -23,6 +23,7 @@ from sqlalchemy import create_engine, insert, select
 from sqlalchemy.engine import Engine
 
 from aaiclick.ai.ollama import bootstrap_ollama, get_configured_model
+from aaiclick.auth.models import Tenant
 from aaiclick.backend import (
     get_ch_url,
     get_root,
@@ -32,11 +33,10 @@ from aaiclick.backend import (
     is_sqlite,
 )
 from aaiclick.data.data_context.chdb_client import get_chdb_data_path, get_shared_session
+from aaiclick.datetime_utils import utc_now
 from aaiclick.oplog.migrate import ch_status_standalone, ch_upgrade_standalone
 from aaiclick.orchestration.env import get_db_url
 from aaiclick.orchestration.migrate import get_alembic_config
-from aaiclick.auth.models import Tenant
-from aaiclick.datetime_utils import utc_now
 from aaiclick.orchestration.models import SQLModel
 from aaiclick.tenancy import DEFAULT_TENANT_ID, DEFAULT_TENANT_SLUG
 from aaiclick.view_models import (
