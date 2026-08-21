@@ -40,13 +40,23 @@ _REGISTERED_JOB = {
 
 
 def _stub_session(page, role: str) -> None:
-    """Serve a fixed principal and one registered job, whatever the backend."""
+    """Serve a fixed principal and one registered job, whatever the backend.
+
+    ``admin`` maps to the superadmin flag: until the tenant switcher lands
+    (tenant RBAC phase 3) the SPA's ``isAdmin`` gate reads ``me.superadmin``.
+    """
+    me = {
+        "id": 1,
+        "username": f"{role}_user",
+        "superadmin": role == "admin",
+        "tenants": [{"tenant_id": 1, "slug": "default", "name": "Default", "role": role}],
+    }
     page.route(
         "**/api/v0/auth/me",
         lambda route: route.fulfill(
             status=200,
             content_type="application/json",
-            body=json.dumps({"id": 1, "username": f"{role}_user", "role": role}),
+            body=json.dumps(me),
         ),
     )
     page.route(
