@@ -93,8 +93,7 @@ def validate_jvm_tasks(tasks: list[Task]) -> None:
             )
         if _contains_object_ref(task.kwargs):
             raise ValueError(
-                f"jvm task {task.name!r} receives an Object/View ref in kwargs; "
-                "the JVM data plane is plain values only"
+                f"jvm task {task.name!r} receives an Object/View ref in kwargs; the JVM data plane is plain values only"
             )
 
 
