@@ -1,4 +1,4 @@
-import { clearSession, getAccessToken, tryRefresh } from "../lib/auth";
+import { clearSession, getAccessToken, getActiveTenantId, tryRefresh } from "../lib/auth";
 import type { Problem } from "./types";
 
 export const API = "/api/v0";
@@ -28,6 +28,8 @@ function authHeaders(extra?: HeadersInit): Record<string, string> {
   const headers: Record<string, string> = { ...(extra as Record<string, string>) };
   const token = getAccessToken();
   if (token) headers.Authorization = `Bearer ${token}`;
+  const tenantId = getActiveTenantId();
+  if (tenantId) headers["X-Tenant-Id"] = tenantId;
   return headers;
 }
 

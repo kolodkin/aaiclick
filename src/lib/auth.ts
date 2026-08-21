@@ -22,6 +22,26 @@ export function getAccessToken(): string | null {
   return accessToken;
 }
 
+// Active tenant sent as X-Tenant-Id by client.ts. Until the tenant switcher
+// lands (tenant RBAC phase 3) this is derived from /auth/me: the user's first
+// membership, else the default tenant (fixed id 1) for superadmins / local
+// mode (docs/designs/tenant_rbac.md).
+let activeTenantId: string | null = null;
+
+export function getActiveTenantId(): string | null {
+  return activeTenantId;
+}
+
+export function deriveActiveTenant(me: MeView | null): void {
+  if (me === null) {
+    activeTenantId = null;
+  } else if (me.tenants.length > 0) {
+    activeTenantId = String(me.tenants[0].tenant_id);
+  } else {
+    activeTenantId = "1";
+  }
+}
+
 function setAccessToken(token: string | null): void {
   accessToken = token;
 }
@@ -91,6 +111,11 @@ export async function fetchMe(): Promise<MeView | null> {
       headers: { Authorization: `Bearer ${getAccessToken()}` },
     });
   }
-  if (!res.ok) return null;
-  return (await res.json()) as MeView;
+  if (!res.ok) {
+    deriveActiveTenant(null);
+    return null;
+  }
+  const me = (await res.json()) as MeView;
+  deriveActiveTenant(me);
+  return me;
 }
