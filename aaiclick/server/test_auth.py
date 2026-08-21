@@ -14,7 +14,7 @@ import jwt
 import pytest
 
 from aaiclick.auth import security
-from aaiclick.internal_api.errors import Unauthorized
+from aaiclick.internal_api.errors import Forbidden, Invalid, Unauthorized
 
 from . import auth
 from .auth import AdminAuthMiddleware, warn_if_open
@@ -63,6 +63,50 @@ def test_enabled_bad_signature_unauthorized(enabled):
     token = jwt.encode({"sub": "1", "type": "access"}, OTHER_SECRET, algorithm="HS256")
     with pytest.raises(Unauthorized):
         auth.resolve_principal(authorization=_bearer(token))
+
+
+# --- resolve_tenant ------------------------------------------------------
+
+
+def _principal(superadmin=False, tenants=None):
+    return auth.Principal(user_id=5, username=None, superadmin=superadmin, tenants=tenants or {})
+
+
+def test_tenant_header_resolves_membership_role():
+    ctx = auth.resolve_tenant(_principal(tenants={7: "viewer"}), "7")
+    assert ctx == auth.TenantContext(tenant_id=7, role="viewer")
+
+
+def test_tenant_header_superadmin_gets_admin_anywhere():
+    ctx = auth.resolve_tenant(_principal(superadmin=True), "7")
+    assert ctx.role == "admin" and ctx.tenant_id == 7
+
+
+def test_tenant_header_non_member_forbidden():
+    with pytest.raises(Forbidden):
+        auth.resolve_tenant(_principal(tenants={7: "admin"}), "8")
+
+
+def test_tenant_header_bad_int_invalid():
+    with pytest.raises(Invalid):
+        auth.resolve_tenant(_principal(tenants={7: "admin"}), "acme")
+
+
+def test_tenant_header_missing_single_membership_implied():
+    ctx = auth.resolve_tenant(_principal(tenants={7: "admin"}), None)
+    assert ctx == auth.TenantContext(tenant_id=7, role="admin")
+
+
+def test_tenant_header_missing_zero_or_many_invalid():
+    with pytest.raises(Invalid):
+        auth.resolve_tenant(_principal(), None)
+    with pytest.raises(Invalid):
+        auth.resolve_tenant(_principal(tenants={7: "admin", 8: "viewer"}), None)
+
+
+def test_tenant_header_missing_superadmin_requires_header():
+    with pytest.raises(Invalid):
+        auth.resolve_tenant(_principal(superadmin=True), None)
 
 
 # --- AdminAuthMiddleware -------------------------------------------------

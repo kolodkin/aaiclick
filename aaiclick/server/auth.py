@@ -11,22 +11,25 @@ not propagate into mounted sub-apps. See ``docs/designs/auth.md``.
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 from typing import NamedTuple, cast
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.security.utils import get_authorization_scheme_param
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from aaiclick.auth import config, security
-from aaiclick.auth.models import Role
-from aaiclick.internal_api.errors import Forbidden, Unauthorized
+from aaiclick.auth.models import ROLE_ADMIN, Role
+from aaiclick.internal_api.errors import Forbidden, Invalid, Unauthorized
+from aaiclick.tenancy import DEFAULT_TENANT_ID, active_tenant
 from aaiclick.view_models import ProblemCode
 
 from .errors import problem_response
 
 BEARER_CHALLENGE = {"WWW-Authenticate": "Bearer"}
+TENANT_HEADER = "X-Tenant-Id"
 logger = logging.getLogger(__name__)
 
 _bearer_scheme = HTTPBearer(auto_error=False)
@@ -79,15 +82,58 @@ async def require_principal(
     return _principal_from_token(creds.credentials)
 
 
+class TenantContext(NamedTuple):
+    tenant_id: int
+    role: Role
+
+
+def resolve_tenant(principal: Principal, header_value: str | None) -> TenantContext:
+    """Resolve the active tenant from the ``X-Tenant-Id`` header.
+
+    A missing header is implied only when the principal has exactly one
+    membership; superadmins (who can act in every tenant) must always name
+    one. A tenant the principal cannot act in is ``Forbidden``.
+    """
+    if header_value is not None:
+        try:
+            tenant_id = int(header_value)
+        except ValueError as exc:
+            raise Invalid(f"{TENANT_HEADER} must be an integer") from exc
+        role = principal.tenants.get(tenant_id)
+        if role is None and principal.superadmin:
+            role = ROLE_ADMIN
+        if role is None:
+            raise Forbidden(f"no access to tenant {tenant_id}")
+        return TenantContext(tenant_id=tenant_id, role=role)
+    if len(principal.tenants) == 1:
+        tenant_id, role = next(iter(principal.tenants.items()))
+        return TenantContext(tenant_id=tenant_id, role=role)
+    raise Invalid(f"{TENANT_HEADER} header required")
+
+
+async def require_tenant(
+    request: Request, principal: Principal = Depends(require_principal)
+) -> AsyncIterator[TenantContext]:
+    """Resolve the active tenant and pin the tenancy contextvar for the request."""
+    if not config.auth_enabled():
+        ctx = TenantContext(tenant_id=DEFAULT_TENANT_ID, role=ROLE_ADMIN)
+    else:
+        ctx = resolve_tenant(principal, request.headers.get(TENANT_HEADER))
+    with active_tenant(ctx.tenant_id):
+        yield ctx
+
+
+async def require_admin(ctx: TenantContext = Depends(require_tenant)) -> TenantContext:
+    """Tenant-admin guard for mutating tenant-scoped routes."""
+    if ctx.role != ROLE_ADMIN:
+        raise Forbidden("tenant admin role required")
+    return ctx
+
+
 async def require_superadmin(principal: Principal = Depends(require_principal)) -> Principal:
     if not principal.superadmin:
         raise Forbidden("superadmin required")
     return principal
-
-
-# Interim alias until require_tenant lands: mutating tenant-scoped routes keep
-# ``require_admin`` as their guard name while the tenant dependency is built.
-require_admin = require_superadmin
 
 
 def warn_if_open() -> None:

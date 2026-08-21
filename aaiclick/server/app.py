@@ -12,7 +12,7 @@ from aaiclick.backend import is_local
 from aaiclick.orchestration.local_runtime import local_runtime
 from aaiclick.orchestration.orch_context import orch_context
 
-from .auth import AdminAuthMiddleware, require_principal, warn_if_open
+from .auth import AdminAuthMiddleware, require_principal, require_tenant, warn_if_open
 from .errors import register_exception_handlers
 from .mcp import mcp
 from .routers import auth as auth_router
@@ -66,14 +66,16 @@ app = FastAPI(
 
 register_exception_handlers(app)
 
+# Tenant-scoped routers resolve the active tenant (X-Tenant-Id) per request;
+# execution workers are shared infrastructure and only need a principal.
 for router in (
     jobs.router,
     registered_jobs.router,
     tasks.router,
-    execution_workers.router,
     objects.router,
 ):
-    app.include_router(router, prefix=API_PREFIX, dependencies=[Depends(require_principal)])
+    app.include_router(router, prefix=API_PREFIX, dependencies=[Depends(require_tenant)])
+app.include_router(execution_workers.router, prefix=API_PREFIX, dependencies=[Depends(require_principal)])
 
 # `/auth` is public (login/refresh mint the credential); `/users` carries its
 # own `require_admin`. Neither takes the blanket `require_principal` above.

@@ -98,3 +98,16 @@ async def test_start_worker_spawn_failure_returns_503(orch_ctx, app_client, monk
 
     assert response.status_code == 503
     assert Problem.model_validate(response.json()).code is ProblemCode.EXECUTION_WORKER_SPAWN_FAILED
+
+
+async def test_start_forbidden_for_tenant_admin(orch_ctx, app_client, monkeypatch):
+    """Workers are shared infrastructure: a tenant admin is not enough."""
+    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: False)
+    monkeypatch.setenv("AAICLICK_JWT_SECRET", RBAC_SECRET)
+    token = security.encode_access_token(user_id=3, superadmin=False, tenants={7: "admin"}, secret=RBAC_SECRET, ttl=60)
+    res = await app_client.post(
+        f"{API_PREFIX}/execution-workers",
+        json={},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res.status_code == 403 and res.json()["code"] == "forbidden"
