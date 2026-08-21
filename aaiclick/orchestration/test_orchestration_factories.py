@@ -125,6 +125,17 @@ def test_create_task_module_default_explicit():
     assert t.command is None
 
 
+def test_create_task_jvm_takes_class_name_string():
+    task = create_task("com.example.Pipeline#aggregate", {"window": 7}, entry_type="jvm")
+    assert task.entrypoint == "com.example.Pipeline#aggregate"
+    assert task.name == "Pipeline#aggregate"
+
+
+def test_create_task_jvm_rejects_callable():
+    with pytest.raises(ValueError, match="jvm.*class name"):
+        create_task(lambda: None, entry_type="jvm")
+
+
 def test_create_task_image_kwarg_sets_prebuilt_source():
     t = create_task("m.f", image="ghcr.io/x/y:1")
     assert t.image_source == {"type": "prebuilt", "image_tag": "ghcr.io/x/y:1"}

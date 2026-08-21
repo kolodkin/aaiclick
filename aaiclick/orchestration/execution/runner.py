@@ -64,7 +64,7 @@ from ..models import (
 )
 from ..orch_context import commit_tasks, get_sql_session, task_scope
 from ..result import TaskResult
-from ..runner_config import ENTRY_SHELL
+from ..runner_config import ENTRY_JVM, ENTRY_SHELL
 from .claiming import update_job_status, update_task_status
 from .db_handler import DEPENDENCY_WHERE
 from .execution_worker_context import set_current_task_info
@@ -312,6 +312,11 @@ async def execute_task(task: Task, shell_spec: ShellSpec | None = None) -> Any:
     """
     if task.entry_type == ENTRY_SHELL:
         return await execute_shell_task(task, spec=shell_spec)
+    if task.entry_type == ENTRY_JVM:
+        raise RuntimeError(
+            f"jvm task {task.id} cannot execute in-process — the aaiclick-task-api "
+            "shim runs it inside its container image"
+        )
 
     func = import_callback(task.entrypoint)
     run_id = await register_run(task.id)

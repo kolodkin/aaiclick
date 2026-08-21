@@ -15,8 +15,9 @@ from pydantic import BaseModel, Field, TypeAdapter, field_validator
 # --- entry_type discriminator (lives on Task) -----------------------------
 ENTRY_MODULE = "module"
 ENTRY_SHELL = "shell"
-EntryType = Literal["module", "shell"]
-ENTRY_TYPES: list[EntryType] = [ENTRY_MODULE, ENTRY_SHELL]
+ENTRY_JVM = "jvm"
+EntryType = Literal["module", "shell", "jvm"]
+ENTRY_TYPES: list[EntryType] = [ENTRY_MODULE, ENTRY_SHELL, ENTRY_JVM]
 
 
 # --- image source (nested in docker/kubernetes runners) -------------------
@@ -115,8 +116,8 @@ def validate_task_entry(*, entry_type: EntryType, command: list[str] | None) -> 
     if entry_type == ENTRY_SHELL:
         if not command:
             raise ValueError("shell entry_type requires a non-empty command list")
-    elif entry_type == ENTRY_MODULE:
+    elif entry_type in (ENTRY_MODULE, ENTRY_JVM):
         if command:
-            raise ValueError("module entry_type does not take a command")
+            raise ValueError(f"{entry_type} entry_type does not take a command")
     else:
         raise ValueError(f"unknown entry_type {entry_type!r}")

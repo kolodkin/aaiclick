@@ -1,0 +1,54 @@
+name: Publish aaiclick-task-api (reusable)
+
+# Publishes java/aaiclick-task-api to Maven Central through the Central
+# Publisher Portal (central-publishing-maven-plugin, publishingServerId
+# "central"). Called by publish.yaml on the release tag (lockstep with the
+# Python package) and by publish-java.yaml for out-of-band / dry-run
+# publishes. Secrets: MAVEN_CENTRAL_USERNAME / MAVEN_CENTRAL_PASSWORD
+# (portal token) and MAVEN_GPG_PRIVATE_KEY / MAVEN_GPG_PASSPHRASE.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Maven version to publish (X.Y.Z; a leading v is stripped)"
+        required: true
+        type: string
+    secrets:
+      MAVEN_CENTRAL_USERNAME:
+        required: true
+      MAVEN_CENTRAL_PASSWORD:
+        required: true
+      MAVEN_GPG_PRIVATE_KEY:
+        required: true
+      MAVEN_GPG_PASSPHRASE:
+        required: true
+
+jobs:
+  publish-java:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          server-id: central
+          server-username: MAVEN_CENTRAL_USERNAME
+          server-password: MAVEN_CENTRAL_PASSWORD
+          gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+
+      - name: Publish to Maven Central
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: |
+          VERSION="${{ inputs.version }}"
+          mvn -B -f java/pom.xml -Prelease -Drevision="${VERSION#v}" deploy

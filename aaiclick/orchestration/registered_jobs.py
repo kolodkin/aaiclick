@@ -26,7 +26,7 @@ from .models import (
     RunType,
 )
 from .orch_context import get_sql_session
-from .runner_config import ENTRY_MODULE, EntryType, validate_image_exclusivity, validate_task_entry
+from .runner_config import ENTRY_JVM, ENTRY_MODULE, EntryType, validate_image_exclusivity, validate_task_entry
 
 
 class RegisteredJobAlreadyExists(ValueError):
@@ -377,7 +377,10 @@ async def run_job(
             baseline. Pass ``None`` to inherit.
         entry_type: ``"module"`` (default) runs ``entrypoint`` as a dotted
             path; ``"shell"`` runs ``command`` directly in the runner's
-            environment. Shell tasks work on every runner.
+            environment; ``"jvm"`` resolves ``entrypoint`` as a Java class
+            name via the ``aaiclick-task-api`` shim inside the container
+            image. Shell tasks work on every runner; jvm tasks require a
+            docker/kubernetes registered job.
         command: Argv list for shell tasks (required when
             ``entry_type="shell"``, rejected for ``"module"``).
         command_env: Env vars (``KEY: VALUE``) injected for shell tasks.
@@ -409,6 +412,12 @@ async def run_job(
     merged_kwargs = {**(default_kwargs or {}), **(kwargs or {})}
 
     runner_mode = registered.runner_mode if registered is not None else RUNNER_SUBPROCESS
+
+    if entry_type == ENTRY_JVM and runner_mode not in (RUNNER_DOCKER, RUNNER_KUBERNETES):
+        raise ValueError(
+            "jvm entry_type requires a docker/kubernetes registered job — the shim jar "
+            "runs only inside the task's container image (spec: docs/designs/java-sdk.md)"
+        )
 
     if runner_mode in (RUNNER_DOCKER, RUNNER_KUBERNETES):
         if is_local():

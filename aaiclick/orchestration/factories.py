@@ -8,7 +8,7 @@ from aaiclick.snowflake import get_snowflake_id
 
 from ..datetime_utils import utc_now
 from .env import get_default_preservation_mode
-from .image_injection import inject_build_tasks
+from .image_injection import inject_build_tasks, validate_jvm_tasks
 from .models import (
     JOB_PENDING,
     RUN_MANUAL,
@@ -23,6 +23,7 @@ from .models import (
 )
 from .orch_context import commit_tasks, get_sql_session
 from .runner_config import (
+    ENTRY_JVM,
     ENTRY_MODULE,
     ENTRY_SHELL,
     DockerRunner,
@@ -180,7 +181,10 @@ def create_task(
     For ``entry_type="module"`` (default), ``callback`` is a dotted path or
     callable run via ``execute_task``. For ``entry_type="shell"``, ``command``
     is an argv run directly in the runner's environment and ``callback`` is
-    unused (``entrypoint`` is stored as an empty string).
+    unused (``entrypoint`` is stored as an empty string). For
+    ``entry_type="jvm"``, ``callback`` is a Java class name resolved by the
+    ``aaiclick-task-api`` shim inside the task's container image (spec:
+    docs/designs/java-sdk.md).
 
     A task on a docker/kubernetes job may declare its own container image;
     tasks that declare none inherit the committing task's image at
@@ -191,7 +195,7 @@ def create_task(
         kwargs: Keyword arguments for the task function (default: empty dict).
         name: Human-readable name (default: derived from entrypoint/command).
         max_retries: Maximum number of retries on failure (default: 0).
-        entry_type: ``"module"`` (default) or ``"shell"``.
+        entry_type: ``"module"`` (default), ``"shell"``, or ``"jvm"``.
         command: Argv list for shell tasks.
         command_env: Env vars (``KEY: VALUE``) injected for shell tasks.
         image: Prebuilt image tag to run this task in, verbatim
@@ -225,6 +229,9 @@ def create_task(
         )
 
     task_id = get_snowflake_id()
+
+    if entry_type == ENTRY_JVM and callable(callback):
+        raise ValueError("jvm entry_type takes a Java class name string, not a callable")
 
     if entry_type == ENTRY_SHELL:
         entrypoint = ""
@@ -349,6 +356,7 @@ async def create_built_job(
     )
     entry_task.job_id = job.id
     entry_task.image_source = dump_image_source(image_source)
+    validate_jvm_tasks([entry_task])
 
     # Not routed through commit_tasks: submission must succeed even when the
     # submitting machine lacks AAICLICK_REGISTRY (commit_tasks validates

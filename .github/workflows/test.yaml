@@ -28,6 +28,44 @@ jobs:
       - name: Build docs (strict)
         run: uv run mkdocs build --strict
 
+  java-sdk:
+    # aaiclick-task-api Maven suite — infra-free (per-test SQLite files over
+    # JDBC). The schema fixture is generated from the Python SQLModel metadata
+    # (AAICLICK_TEST_SQLITE_DB) so the Java DDL mirror can't drift silently.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup uv
+        uses: ./.github/actions/setup-uv
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Generate SQLite schema fixture from Python metadata
+        run: |
+          uv run --frozen python - <<'EOF'
+          from sqlalchemy import create_engine
+          from sqlmodel import SQLModel
+
+          import aaiclick.orchestration.models  # noqa: F401 — registers the tables
+
+          engine = create_engine("sqlite:////tmp/aaiclick-schema-fixture.db")
+          SQLModel.metadata.create_all(engine)
+          engine.dispose()
+          EOF
+
+      - name: Run Maven verify
+        env:
+          AAICLICK_TEST_SQLITE_DB: /tmp/aaiclick-schema-fixture.db
+        run: mvn -B -f java/pom.xml verify
+
   tests:
     uses: ./.github/workflows/_test-reusable.yaml
     with:

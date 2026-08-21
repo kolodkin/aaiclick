@@ -729,7 +729,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--entry-type",
         choices=ENTRY_TYPES,
         default="module",
-        help="How to run the task: 'module' (dotted entrypoint, default) or 'shell' (run --command in the runner's environment)",
+        help=(
+            "How to run the task: 'module' (dotted entrypoint, default), 'shell' (run --command "
+            "in the runner's environment), or 'jvm' (Java class name resolved by the aaiclick-task-api "
+            "shim inside the container image)"
+        ),
     )
     run_job_parser.add_argument(
         "--command",

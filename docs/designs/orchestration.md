@@ -80,9 +80,9 @@ The `docker` and `kubernetes` subtypes require the distributed data/SQL backends
 Two orthogonal dials control how a task runs:
 
 - **runner mode** (per *job*) — `subprocess` (host child process), `docker` (container), or `kubernetes` (Pod).
-- **entry type** (per *task*) — `module` (import and run a Python entrypoint, the default) or `shell` (run a literal argv).
+- **entry type** (per *task*) — `module` (import and run a Python entrypoint, the default), `shell` (run a literal argv), or `jvm` (a Java class name resolved by the `aaiclick-task-api` shim inside the task's container image — see `docs/designs/java-sdk.md`).
 
-They compose freely: a `shell` task runs the same way — "run this argv, success = exit 0" — whether the environment is a host subprocess, a container, or a Pod.
+They compose freely: a `shell` task runs the same way — "run this argv, success = exit 0" — whether the environment is a host subprocess, a container, or a Pod. `jvm` tasks are container-only (docker / kubernetes with an image).
 
 ## Image source (docker / kubernetes)
 
@@ -128,6 +128,7 @@ In an isolated environment (container/Pod) a shell task receives **only** `comma
 | Task                          | Env injected                                  |
 |-------------------------------|-----------------------------------------------|
 | `module` (any runner)         | `build_runner_env()` — DB URLs + framework knobs |
+| `jvm` (docker / kubernetes)   | `build_runner_env()` — same trust model as module images |
 | `shell` + docker / kubernetes | `command_env` only (on top of the image's env) |
 | `shell` + subprocess          | worker process env + `command_env` overlay     |
 
@@ -167,8 +168,9 @@ The runner's *invocation* sits at a different layer than the task it runs, and t
 |------------|----------------------------------------------------|---------------------------------|
 | `module`   | bootstrap shim (mp child / `remote_result` shim in a container or Pod) | shim calls `execute_task` |
 | `shell`    | the user's argv directly — the definition *is* the invocation | none — the argv *is* the execution |
+| `jvm`      | the image's own `ENTRYPOINT` (the `aaiclick-task-api` shim) + `--task-id N --run-epoch M` | the shim reflects and invokes the `@AaiTask` method |
 
-So for a `module` task the user's entrypoint runs *inside* the shim; for a `shell` task the user's argv *replaces* the shim, bypassing both the bootstrap and `execute_task`, in whatever environment the runner provides.
+So for a `module` task the user's entrypoint runs *inside* the shim; for a `shell` task the user's argv *replaces* the shim, bypassing both the bootstrap and `execute_task`, in whatever environment the runner provides. A `jvm` task keeps the shim pattern but the shim is the SDK jar embedded in the user's image (`docs/designs/java-sdk.md`): it writes the same `RemoteTaskResult` row the host reads back.
 
 **Implementation**: `aaiclick/orchestration/execution/dispatch.py` (ExecuteFn routing) — see `_run_task_in_child()` (`mp_worker.py`), `_run_task_in_container()` (`docker_worker.py`), `_run_task_in_pod()` (`kubernetes_worker.py`)
 
@@ -317,7 +319,7 @@ python -m aaiclick job list [--status RUNNING] [--like "%etl%"] [--limit 20 --of
 python -m aaiclick job enable <name>          # Enable a registered job
 python -m aaiclick job disable <name>         # Disable a registered job
 python -m aaiclick register-job <entrypoint> [--name NAME] [--schedule "0 8 * * *"] [--kwargs '{"key": "val"}'] [--preservation-mode NONE|FULL] [--runner subprocess|docker|kubernetes] [--image python:3.12]
-python -m aaiclick run-job <name> [--kwargs '{"key": "val"}'] [--preservation-mode NONE|FULL] [--entry-type module|shell] [--command 'python main.py'] [--command-env K=v] [--image python:3.12]
+python -m aaiclick run-job <name> [--kwargs '{"key": "val"}'] [--preservation-mode NONE|FULL] [--entry-type module|shell|jvm] [--command 'python main.py'] [--command-env K=v] [--image python:3.12]
 python -m aaiclick registered-job list        # List registered jobs
 ```
 

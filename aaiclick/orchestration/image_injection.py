@@ -13,15 +13,19 @@ this module), building ``Task`` rows directly instead.
 
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from aaiclick.data.object.refs import OBJECT_TYPE
 
 from ..datetime_utils import utc_now
 from ..snowflake import get_snowflake_id
 from .docker_config import get_registry, image_key
 from .execution.image_build_task import IMAGE_BUILD_ENTRYPOINT, build_task_name
 from .models import RUNNER_DOCKER, RUNNER_KUBERNETES, TASK_PENDING, Job, RunnerMode, Task
-from .runner_config import ImageBuild, parse_image_source
+from .runner_config import ENTRY_JVM, ImageBuild, parse_image_source
 
 BUILD_TASK_MAX_RETRIES = 2
 
@@ -54,6 +58,42 @@ def validate_image_sources(tasks: list[Task], runner_mode: RunnerMode) -> None:
             raise ValueError(
                 "kubernetes build image sources require AAICLICK_REGISTRY — "
                 "the cluster cannot pull from a worker's local docker daemon"
+            )
+
+
+def _contains_object_ref(value: Any) -> bool:
+    """True when a serialized kwargs value carries an Object/View ref
+    (a dict with ``object_type``) at any nesting depth."""
+    if isinstance(value, dict):
+        if OBJECT_TYPE in value:
+            return True
+        return any(_contains_object_ref(v) for v in value.values())
+    if isinstance(value, list):
+        return any(_contains_object_ref(v) for v in value)
+    return False
+
+
+def validate_jvm_tasks(tasks: list[Task]) -> None:
+    """Enforce the ``jvm`` commit-point rules (spec: docs/designs/java-sdk.md
+    "Validation"); raises ``ValueError``.
+
+    The shim jar has no ClickHouse data plane, so Object/View refs can never
+    reach a jvm task's kwargs; and there is no host-subprocess JVM contract,
+    so a jvm task must carry an image (docker/kubernetes jobs only — implied
+    by ``validate_image_sources`` once the image is required)."""
+    for task in tasks:
+        if task.entry_type != ENTRY_JVM:
+            continue
+        if not task.entrypoint:
+            raise ValueError(f"jvm task {task.name!r} requires a Java class name as its entrypoint")
+        if task.image_source is None:
+            raise ValueError(
+                f"jvm task {task.name!r} declares no image_source; jvm tasks run only "
+                "in containers on docker/kubernetes jobs"
+            )
+        if _contains_object_ref(task.kwargs):
+            raise ValueError(
+                f"jvm task {task.name!r} receives an Object/View ref in kwargs; the JVM data plane is plain values only"
             )
 
 

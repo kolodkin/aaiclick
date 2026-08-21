@@ -325,6 +325,12 @@ async def test_run_job_shell_requires_command():
         await run_job("j", "", entry_type="shell", command=None)
 
 
+async def test_run_job_jvm_requires_container_runner(orch_ctx):
+    # No registration ⇒ runner_mode subprocess — jvm has no host-JVM contract
+    with pytest.raises(ValueError, match="jvm.*docker/kubernetes"):
+        await run_job("jvm_job", "com.example.Pipeline", entry_type="jvm")
+
+
 async def test_run_job_image_and_git_mutually_exclusive():
     with pytest.raises(ValueError, match="mutually exclusive"):
         await run_job("j", "m.f", image="python:3.12", git_sha="a" * 40)

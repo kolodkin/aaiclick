@@ -6,13 +6,15 @@ from sqlmodel import select
 from .execution.execution_worker_context import set_current_task_info
 from .execution.image_build_task import IMAGE_BUILD_ENTRYPOINT
 from .factories import create_job, create_task
-from .image_injection import inject_build_tasks, stamp_inherited_image, validate_image_sources
+from .image_injection import inject_build_tasks, stamp_inherited_image, validate_image_sources, validate_jvm_tasks
 from .models import RUNNER_DOCKER, RUNNER_SUBPROCESS, Dependency, Job, Task
 from .orch_context import commit_tasks, get_sql_session
-from .runner_config import ImageBuild, dump_image_source
+from .runner_config import ImageBuild, ImagePrebuilt, dump_image_source
 
 BUILD_A = dump_image_source(ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40))
 BUILD_B = dump_image_source(ImageBuild(git_remote="https://example.com/r.git", git_sha="b" * 40))
+PREBUILT = dump_image_source(ImagePrebuilt(image_tag="ghcr.io/example/pipeline:1.0"))
+OBJECT_REF = {"object_type": "object", "table": "t_1", "persistent": False}
 
 
 def test_stamp_inherited_image_fills_only_undeclared():
@@ -43,6 +45,38 @@ def test_validate_rejects_kubernetes_build_without_registry(monkeypatch):
     t.image_source = BUILD_A
     with pytest.raises(ValueError, match="AAICLICK_REGISTRY"):
         validate_image_sources([t], "kubernetes")
+
+
+def _jvm_task(kwargs: dict | None = None, image_source: dict | None = PREBUILT) -> Task:
+    t = create_task("com.example.Pipeline", kwargs, entry_type="jvm")
+    t.image_source = image_source
+    return t
+
+
+def test_validate_jvm_accepts_plain_kwargs():
+    validate_jvm_tasks([_jvm_task({"date": "2026-08-20", "window": 7})])
+
+
+def test_validate_jvm_requires_image_source():
+    with pytest.raises(ValueError, match="image_source"):
+        validate_jvm_tasks([_jvm_task(image_source=None)])
+
+
+def test_validate_jvm_requires_entrypoint():
+    t = _jvm_task()
+    t.entrypoint = ""
+    with pytest.raises(ValueError, match="class name"):
+        validate_jvm_tasks([t])
+
+
+def test_validate_jvm_rejects_nested_object_ref():
+    with pytest.raises(ValueError, match="plain values only"):
+        validate_jvm_tasks([_jvm_task({"inputs": [{"nested": OBJECT_REF}]})])
+
+
+def test_validate_jvm_ignores_non_jvm_tasks():
+    t = create_task("m.f", {"obj": OBJECT_REF})
+    validate_jvm_tasks([t])
 
 
 async def test_inject_creates_one_build_task_per_image(orch_ctx_no_ch, monkeypatch):

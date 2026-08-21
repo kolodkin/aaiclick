@@ -152,6 +152,28 @@ def test_module_pod_uses_shim_and_runner_env():
     assert {e["name"] for e in c["env"]} == {"AAICLICK_SQL_URL"}
 
 
+def test_jvm_pod_sets_args_only_with_runner_env():
+    m = kw._build_pod_manifest(
+        name="p",
+        namespace="default",
+        image_tag="ghcr.io/example/pipeline:1.0",
+        task_id=7,
+        run_epoch=2,
+        env={"AAICLICK_SQL_URL": "u"},
+        service_account=None,
+        image_pull_secret=None,
+        resources=None,
+        entry_type="jvm",
+        command=None,
+        command_env=None,
+    )
+    c = m["spec"]["containers"][0]
+    # The image's own ENTRYPOINT is the aaiclick-task-api shim — only args are set.
+    assert "command" not in c
+    assert c["args"] == ["--task-id", "7", "--run-epoch", "2"]
+    assert {e["name"] for e in c["env"]} == {"AAICLICK_SQL_URL"}
+
+
 def test_build_shell_pod_spec_wraps_argv():
     task = Task(
         id=9,

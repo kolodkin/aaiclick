@@ -15,7 +15,7 @@ import tempfile
 from typing import NamedTuple
 
 from ..models import Task
-from ..runner_config import ENTRY_SHELL
+from ..runner_config import ENTRY_JVM, ENTRY_SHELL
 from . import cli
 from .claiming import check_task_cancelled
 from .docker_build import resolve_launch_image
@@ -64,13 +64,23 @@ def _build_pod_manifest(
     For ``shell`` tasks the container runs the task's argv directly with only
     ``command_env`` injected — the runner ``env`` (DB creds) is deliberately
     NOT read, so no aaiclick secrets reach a vanilla user image. For ``module``
-    tasks the Pod runs the aaiclick shim with the full runner ``env``."""
+    tasks the Pod runs the aaiclick shim with the full runner ``env``. For
+    ``jvm`` tasks only ``args`` are set — the image's own ``ENTRYPOINT`` is
+    the aaiclick-task-api shim (spec: docs/designs/java-sdk.md) — with the
+    full runner ``env`` (same trust model as module images)."""
     if entry_type == ENTRY_SHELL:
         container: dict = {
             "name": "task",
             "image": image_tag,
             "command": command,
             "env": [{"name": k, "value": v} for k, v in (command_env or {}).items()],
+        }
+    elif entry_type == ENTRY_JVM:
+        container = {
+            "name": "task",
+            "image": image_tag,
+            "args": ["--task-id", str(task_id), "--run-epoch", str(run_epoch)],
+            "env": [{"name": k, "value": v} for k, v in env.items()],
         }
     else:
         container = {
