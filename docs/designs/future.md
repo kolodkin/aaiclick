@@ -87,6 +87,17 @@ needed:
   hardened identity for enterprise deployments.
 - **Per-request audit log** — who called what, when.
 
+## Tenant RBAC — Remaining Phases
+
+Phase 1 (backend core) is implemented — `docs/designs/tenant_rbac.md`.
+Remaining:
+
+- **Phase 2 — object tenancy**: tenant-prefixed `p_*` naming
+  (`p_<tenant_id>_<name>`; default tenant keeps bare `p_<name>`) and
+  tenant-scoped object endpoints.
+- **Phase 3 — SPA**: tenant switcher sending `X-Tenant-Id`, membership admin
+  UI, superadmin-gated controls.
+
 ## CLI Lineage AI Commands
 
 A CLI surface for AI lineage (e.g. `aaiclick explain <table>` /

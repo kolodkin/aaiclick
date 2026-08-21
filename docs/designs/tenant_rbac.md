@@ -32,10 +32,11 @@ database-per-tenant isolation.
 
 # Data Model
 
-New tables live in `aaiclick/auth/models.py` beside `users` /
-`refresh_tokens`. IDs are snowflake `BigInteger` PKs; role columns are plain
-`String` typed with the `Role` literal (no DB CHECK — see CLAUDE.md,
-"Prefer Literal").
+**Implementation**: `aaiclick/auth/models.py` — see `Tenant`, `TenantMembership`;
+store CRUD in `aaiclick/auth/store.py` (`create_tenant`, `set_membership`, ...).
+
+IDs are snowflake `BigInteger` PKs; role columns are plain `String` typed
+with the `Role` literal (no DB CHECK — see CLAUDE.md, "Prefer Literal").
 
 ## `tenants`
 
@@ -51,10 +52,10 @@ New tables live in `aaiclick/auth/models.py` beside `users` /
 | Column       | Type                                    | Notes                  |
 |--------------|-----------------------------------------|------------------------|
 | `id`         | `BigInteger` PK (snowflake)             |                        |
-| `tenant_id`  | `BigInteger` FK → `tenants.id`, indexed |                        |
-| `user_id`    | `BigInteger` FK → `users.id`, indexed   |                        |
-| `role`       | `String`                                | `Role` literal         |
-| `created_at` | `datetime` (`utc_now`)                  |                        |
+| `tenant_id`  | `BigInteger` FK → `tenants.id`, indexed |                |
+| `user_id`    | `BigInteger` FK → `users.id`, indexed   |                |
+| `role`       | `String`                                | `Role` literal |
+| `created_at` | `datetime` (`utc_now`)                  |                |
 
 Unique constraint on `(tenant_id, user_id)`.
 
@@ -66,7 +67,9 @@ when `superadmin` is set.
 
 ## Resource scoping
 
-`tenant_id` (`BigInteger` FK → `tenants.id`, non-null, indexed) is added to
+`tenant_id` (`BigInteger`, non-null, indexed — a plain column, not a DB FK:
+the auth tables live in a separate module and cross-package DDL coupling buys
+nothing, so the reference is enforced at the API boundary) is added to
 **`registered_jobs` and `jobs` only**. Tasks, groups, dependencies, remote
 task results, and lineage all reach their job via `job_id`, so they derive
 tenancy by join — no column sprawl and no write-path changes in the worker
@@ -83,6 +86,10 @@ entirely in this tenant.
 
 # Access Tokens
 
+**Implementation**: `aaiclick/auth/security.py` — see `AccessClaims`,
+`encode_access_token`; minting in `aaiclick/internal_api/auth.py` — see
+`_mint_pair`.
+
 JWT claims extend the existing scheme (`docs/designs/auth.md` — Auth
 Mechanics): `sub`, `exp`, `type="access"` stay; `role` is replaced by
 
@@ -95,6 +102,10 @@ lifetime (≤ 30 min); membership grant/revoke/role-change calls
 `store.revoke_all_for_user`, so changes bind at the refresh boundary.
 
 # Active Tenant Resolution
+
+**Implementation**: `aaiclick/server/auth.py` — see `resolve_tenant`,
+`require_tenant`, `require_admin`, `require_superadmin`; the contextvar in
+`aaiclick/tenancy.py`.
 
 The active tenant is selected per request with the **`X-Tenant-Id`**
 header. Header-based selection keeps every router path, the SPA client
@@ -125,8 +136,10 @@ Enforcement lives in `internal_api` query filters, not in routers: a
 tenant contextvar (set by the server dependency, or by the CLI / local
 runtime to the default tenant) is read by `internal_api.jobs`,
 `registered_jobs`, and `tasks`, which add `WHERE tenant_id = :active`
-(tasks/groups via join through `jobs`). A cross-tenant `get` by id returns
-`404`, never `403` — no existence leak.
+(tasks/groups via join through `jobs` — see `internal_api/tasks.py`
+`_visible_task`). A cross-tenant `get` by id returns `404`, never `403` —
+no existence leak. Job rows are stamped in `orchestration/factories.py` —
+see `new_job_row` (a scheduled run inherits its registration's tenant).
 
 # Role Matrix
 
@@ -149,6 +162,9 @@ not tenant-filtered in phase 1).
 
 # API Surface
 
+**Implementation**: `aaiclick/server/routers/tenants.py`;
+`aaiclick/internal_api/tenants.py`.
+
 Existing routers keep their paths and become tenant-scoped through the
 principal dependency — no per-endpoint changes beyond swapping
 `require_admin` / `require_superadmin` where the role matrix says so.
@@ -168,6 +184,9 @@ New `tenants` router:
 populate its switcher without an extra round trip.
 
 # CLI
+
+**Implementation**: `aaiclick/__main__.py` — see `_run_tenant_create`,
+`_member_set`, and the global ``--tenant`` handling in `_run_internal_api`.
 
 Thin renderers over `internal_api`, in-process (no HTTP auth):
 
@@ -213,6 +232,9 @@ Each phase is one PR. Business-logic tests live in
 SQLite, no infrastructure); router tests assert HTTP plumbing only.
 
 # Migration
+
+**Implementation**: `aaiclick/orchestration/migrations/versions/` — revision
+`39cd0baa9f90` (tenant rbac).
 
 One Alembic revision (via the `generate-migration` skill): create
 `tenants` / `tenant_memberships`, seed the default tenant, add
