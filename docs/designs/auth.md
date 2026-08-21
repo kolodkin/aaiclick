@@ -30,7 +30,7 @@ var. These variables tune the enforced (distributed) case:
 | `AAICLICK_JWT_SECRET`      | HS256 signing secret. **Required** in distributed mode.        | unset          |
 | `AAICLICK_JWT_ACCESS_TTL`  | Access-JWT lifetime, seconds.                                  | `1800` (30 min)|
 | `AAICLICK_JWT_REFRESH_TTL` | Refresh-token lifetime, seconds.                               | `1209600` (14 d)|
-| `AAICLICK_ADMIN_USERNAME`  | Seed-admin username (inserted on startup when no users exist). | unset          |
+| `AAICLICK_ADMIN_USERNAME`  | Seed-superadmin username (inserted on startup when no users exist). | `superadmin`   |
 | `AAICLICK_ADMIN_PASSWORD`  | Seed-admin password.                                           | unset          |
 
 !!! warning "Distributed without a secret is a hard error"
@@ -203,10 +203,10 @@ additionally requires `superadmin`; other requests get a `401`/`403`
   `list`, `set-superadmin`, `disable`, `passwd` — thin renderers over
   `internal_api.users`, running in-process. Tenant and membership commands:
   `docs/designs/tenant_rbac.md` — CLI.
-- **Startup seed**: when auth is enabled and `AAICLICK_ADMIN_USERNAME` /
-  `AAICLICK_ADMIN_PASSWORD` are set, that **superadmin** is inserted during
-  server lifespan startup if the `users` table is empty. The seed and the CLI
-  both bootstrap the first superadmin.
+- **Startup seed**: when auth is enabled and `AAICLICK_ADMIN_PASSWORD` is
+  set, a **superadmin** is inserted during server lifespan startup if the
+  `users` table is empty (username from `AAICLICK_ADMIN_USERNAME`, default
+  `superadmin`). The seed and the CLI both bootstrap the first superadmin.
 
 # SPA
 

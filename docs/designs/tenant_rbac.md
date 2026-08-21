@@ -78,7 +78,7 @@ inherits its `tenant_id`; a manual run stamps the caller's active tenant).
 
 ## Default tenant
 
-A `default` tenant (slug `default`) is seeded by the migration and by
+A default tenant (slug `aaiclick`, fixed id `1`) is seeded by the migration and by
 `aaiclick setup`. The migration backfills every existing `registered_jobs`
 / `jobs` row into it, maps existing `admin` users to `superadmin=true`, and
 gives existing `viewer` users a `viewer` membership in it. Local mode runs

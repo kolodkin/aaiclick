@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 
 DEFAULT_TENANT_ID = 1
-DEFAULT_TENANT_SLUG = "default"
+DEFAULT_TENANT_SLUG = "aaiclick"
 
 _active_tenant_id: ContextVar[int] = ContextVar("active_tenant_id", default=DEFAULT_TENANT_ID)
 

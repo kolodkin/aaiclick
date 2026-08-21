@@ -64,7 +64,7 @@ def _seed_default_tenant(engine: Engine) -> None:
         if exists is None:
             conn.execute(
                 insert(Tenant).values(
-                    id=DEFAULT_TENANT_ID, slug=DEFAULT_TENANT_SLUG, name="Default", created_at=utc_now()
+                    id=DEFAULT_TENANT_ID, slug=DEFAULT_TENANT_SLUG, name=DEFAULT_TENANT_SLUG, created_at=utc_now()
                 )
             )
 

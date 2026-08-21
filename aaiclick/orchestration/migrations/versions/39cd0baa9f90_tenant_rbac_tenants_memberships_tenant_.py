@@ -32,7 +32,7 @@ def upgrade() -> None:
     op.create_index(op.f("ix_tenants_slug"), "tenants", ["slug"], unique=True)
     # Seed the default tenant (fixed id 1) — existing rows backfill to it via
     # the tenant_id server_default below.
-    op.execute("INSERT INTO tenants (id, slug, name, created_at) VALUES (1, 'default', 'Default', CURRENT_TIMESTAMP)")
+    op.execute("INSERT INTO tenants (id, slug, name, created_at) VALUES (1, 'aaiclick', 'aaiclick', CURRENT_TIMESTAMP)")
     op.create_table(
         "tenant_memberships",
         sa.Column("id", sa.BigInteger(), nullable=False),
