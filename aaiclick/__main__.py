@@ -34,6 +34,7 @@ import asyncio
 import json
 import shlex
 import sys
+from contextvars import ContextVar
 from datetime import datetime
 from typing import cast, get_args
 
@@ -82,8 +83,15 @@ def _render(args: argparse.Namespace, view, text_renderer) -> None:
         text_renderer(view)
 
 
-_tenant_slug: str | None = None
-"""Global ``--tenant`` value; set once by ``main()`` before dispatch."""
+_tenant_slug: ContextVar[str | None] = ContextVar("cli_tenant_slug", default=None)
+"""``--tenant`` slug for this invocation, set by ``main()`` before dispatch.
+
+A ContextVar rather than a module global: the write site needs no ``global``
+statement, and the value is scoped to the calling context instead of the
+process, so it stays correct if commands are ever driven concurrently.
+``asyncio.run`` copies the current context, so a value set here reaches the
+coroutine.
+"""
 
 
 async def _resolve_tenant_id(slug: str) -> int:
@@ -96,15 +104,16 @@ async def _resolve_tenant_id(slug: str) -> int:
 async def _run_internal_api(coro):
     """Run ``coro`` inside ``orch_context(with_ch=False)``, mapping API errors to exit 1.
 
-    When the global ``--tenant`` flag is set, the command runs with that
+    When the top-level ``--tenant`` flag is set, the command runs with that
     tenant active (contextvars are read at await time, so setting the scope
     here covers the already-created coroutine).
     """
+    slug = _tenant_slug.get()
     try:
         async with orch_context(with_ch=False):
-            if _tenant_slug is None:
+            if slug is None:
                 return await coro
-            with active_tenant(await _resolve_tenant_id(_tenant_slug)):
+            with active_tenant(await _resolve_tenant_id(slug)):
                 return await coro
     except InternalApiError as exc:
         print(exc, file=sys.stderr)
@@ -1117,11 +1126,10 @@ def _subcommand_parsers(parser: argparse.ArgumentParser) -> dict[str, argparse.A
 
 def main():
     """Main CLI entry point."""
-    global _tenant_slug
     parser = build_parser()
     subcommands = _subcommand_parsers(parser)
     args = parser.parse_args()
-    _tenant_slug = args.global_tenant
+    _tenant_slug.set(args.global_tenant)
 
     if args.command == "setup":
         _run_setup_cli(args)
