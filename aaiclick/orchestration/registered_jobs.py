@@ -38,6 +38,15 @@ class RegisteredJobNotFound(ValueError):
     """Raised when enabling/disabling a non-existent registration."""
 
 
+def _by_name(name: str):
+    """Select the registration named ``name`` within the active tenant.
+
+    One builder for every by-name lookup: names are unique per tenant, so a
+    call site that forgot the tenant predicate would read another tenant's row.
+    """
+    return select(RegisteredJob).where(RegisteredJob.name == name, RegisteredJob.tenant_id == get_active_tenant_id())
+
+
 def compute_next_run(cron_expr: str, after: datetime | None = None) -> datetime:
     """Compute the next fire time for a cron expression.
 
@@ -149,9 +158,7 @@ async def register_job(
     )
 
     async with get_sql_session() as session:
-        existing = await session.execute(
-            select(RegisteredJob).where(RegisteredJob.name == name, RegisteredJob.tenant_id == get_active_tenant_id())
-        )
+        existing = await session.execute(_by_name(name))
         if existing.scalar_one_or_none() is not None:
             raise RegisteredJobAlreadyExists(f"Registered job '{name}' already exists")
 
@@ -172,9 +179,7 @@ async def get_registered_job(name: str) -> RegisteredJob | None:
         RegisteredJob if found, None otherwise
     """
     async with get_sql_session() as session:
-        result = await session.execute(
-            select(RegisteredJob).where(RegisteredJob.name == name, RegisteredJob.tenant_id == get_active_tenant_id())
-        )
+        result = await session.execute(_by_name(name))
         return result.scalar_one_or_none()
 
 
@@ -218,9 +223,7 @@ async def upsert_registered_job(
     now = utc_now()
 
     async with get_sql_session() as session:
-        result = await session.execute(
-            select(RegisteredJob).where(RegisteredJob.name == name, RegisteredJob.tenant_id == get_active_tenant_id())
-        )
+        result = await session.execute(_by_name(name))
         existing = result.scalar_one_or_none()
 
         if existing is not None:
@@ -263,9 +266,7 @@ async def upsert_registered_job(
 
 async def _get_registered_or_raise(session, name: str) -> RegisteredJob:
     """Fetch a registration by name or raise RegisteredJobNotFound."""
-    result = await session.execute(
-        select(RegisteredJob).where(RegisteredJob.name == name, RegisteredJob.tenant_id == get_active_tenant_id())
-    )
+    result = await session.execute(_by_name(name))
     job = result.scalar_one_or_none()
     if job is None:
         raise RegisteredJobNotFound(f"Registered job '{name}' not found")

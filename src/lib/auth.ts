@@ -8,6 +8,8 @@ import type { MeView } from "../api/types";
 // keep the prefix local to avoid an import cycle with client.ts.
 const API = "/api/v0";
 const REFRESH_KEY = "aaiclick.refresh";
+// Mirrors DEFAULT_TENANT_ID in aaiclick/tenancy.py.
+const DEFAULT_TENANT_ID = 1;
 let accessToken: string | null = null;
 
 function postAuth(path: string, body: unknown): Promise<Response> {
@@ -22,24 +24,16 @@ export function getAccessToken(): string | null {
   return accessToken;
 }
 
+// The session's principal, kept so the active tenant is *derived* rather than
+// tracked as a second piece of state that transitions could forget to update.
+let currentMe: MeView | null = null;
+
 // Active tenant sent as X-Tenant-Id by client.ts. Until the tenant switcher
-// lands (tenant RBAC phase 3) this is derived from /auth/me: the user's first
-// membership, else the default tenant (fixed id 1) for superadmins / local
-// mode (docs/designs/tenant_rbac.md).
-let activeTenantId: string | null = null;
-
+// lands (tenant RBAC phase 3) it is the user's first membership, else the
+// default tenant for superadmins / local mode (docs/designs/tenant_rbac.md).
 export function getActiveTenantId(): string | null {
-  return activeTenantId;
-}
-
-export function deriveActiveTenant(me: MeView | null): void {
-  if (me === null) {
-    activeTenantId = null;
-  } else if (me.tenants.length > 0) {
-    activeTenantId = String(me.tenants[0].tenant_id);
-  } else {
-    activeTenantId = "1";
-  }
+  if (currentMe === null) return null;
+  return String(currentMe.tenants[0]?.tenant_id ?? DEFAULT_TENANT_ID);
 }
 
 function setAccessToken(token: string | null): void {
@@ -59,6 +53,7 @@ export type { MeView };
 
 export function clearSession(): void {
   accessToken = null;
+  currentMe = null;
   setRefreshToken(null);
 }
 
@@ -112,10 +107,9 @@ export async function fetchMe(): Promise<MeView | null> {
     });
   }
   if (!res.ok) {
-    deriveActiveTenant(null);
+    currentMe = null;
     return null;
   }
-  const me = (await res.json()) as MeView;
-  deriveActiveTenant(me);
-  return me;
+  currentMe = (await res.json()) as MeView;
+  return currentMe;
 }

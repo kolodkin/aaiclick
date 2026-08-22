@@ -228,7 +228,7 @@ def render_users_page(page: Page[UserView], offset: int) -> None:
         return
 
     print(f"{'ID':<20} {'Username':<20} {'Superadmin':<10} {'Disabled':<8}")
-    print("-" * 60)
+    print("-" * 61)
     for u in page.items:
         print(f"{u.id:<20} {u.username:<20} {str(u.superadmin):<10} {str(u.disabled):<8}")
     _print_page_footer(page, offset)

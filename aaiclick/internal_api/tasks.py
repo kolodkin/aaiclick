@@ -6,10 +6,9 @@ session via the contextvar getter. Returns pydantic view models.
 
 from __future__ import annotations
 
-from sqlmodel import select
+from sqlmodel import col, select
 
 from aaiclick.orchestration.execution import claiming
-from aaiclick.orchestration.jobs.queries import get_task as _get_task_impl
 from aaiclick.orchestration.logging import read_task_logs
 from aaiclick.orchestration.models import Job, Task
 from aaiclick.orchestration.orch_context import get_sql_session
@@ -25,18 +24,21 @@ from aaiclick.tenancy import get_active_tenant_id
 from .errors import NotFound
 
 
-async def _visible_task(task_id: int) -> Task | None:
-    """Load a task only if its job belongs to the active tenant.
+async def _require_visible_task(task_id: int) -> Task:
+    """Load a task, joined to its job so tenancy is inherited in one query.
 
-    A cross-tenant task reads as missing (``None``) — no existence leak.
+    A task outside the active tenant reads as missing — no existence leak.
     """
-    task = await _get_task_impl(task_id)
-    if task is None:
-        return None
     async with get_sql_session() as session:
-        job = (await session.execute(select(Job).where(Job.id == task.job_id))).scalar_one_or_none()
-    if job is None or job.tenant_id != get_active_tenant_id():
-        return None
+        task = (
+            await session.execute(
+                select(Task)
+                .join(Job, col(Job.id) == col(Task.job_id))
+                .where(Task.id == task_id, Job.tenant_id == get_active_tenant_id())
+            )
+        ).scalar_one_or_none()
+    if task is None:
+        raise NotFound(f"Task not found: {task_id}")
     return task
 
 
@@ -45,10 +47,7 @@ async def get_task(task_id: int) -> TaskDetail:
 
     Raises ``NotFound`` if no task matches ``task_id``.
     """
-    task = await _visible_task(task_id)
-    if task is None:
-        raise NotFound(f"Task not found: {task_id}")
-    return task_to_detail(task)
+    return task_to_detail(await _require_visible_task(task_id))
 
 
 async def get_task_logs(task_id: int, tail: int | None = None) -> TaskLogsView:
@@ -62,9 +61,7 @@ async def get_task_logs(task_id: int, tail: int | None = None) -> TaskLogsView:
 
     Raises ``NotFound`` if no task matches ``task_id``.
     """
-    task = await _visible_task(task_id)
-    if task is None:
-        raise NotFound(f"Task not found: {task_id}")
+    task = await _require_visible_task(task_id)
 
     if not task.run_ids:
         return TaskLogsView(available=False)
@@ -80,8 +77,7 @@ async def clear_task(task_id: int) -> ClearTaskView:
     is reactivated so the cleared tasks run again. Raises ``NotFound`` if no
     task matches ``task_id``.
     """
-    if await _visible_task(task_id) is None:
-        raise NotFound(f"Task not found: {task_id}")
+    await _require_visible_task(task_id)
     try:
         cleared_ids, job = await claiming.clear_task(task_id)
     except claiming.TaskNotFound as exc:

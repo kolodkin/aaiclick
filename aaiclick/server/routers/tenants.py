@@ -10,12 +10,18 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from aaiclick.auth.models import ROLE_ADMIN
-from aaiclick.auth.view_models import CreateTenantRequest, MemberView, SetMemberRequest, TenantView
+from aaiclick.auth.view_models import (
+    CreateTenantRequest,
+    MemberView,
+    SetMemberRequest,
+    TenantListFilter,
+    TenantView,
+)
 from aaiclick.internal_api import tenants as tenants_api
 from aaiclick.internal_api.errors import Forbidden, NotFound
 from aaiclick.view_models import Page
 
-from ..auth import Principal, require_principal, require_superadmin
+from ..auth import Principal, require_principal, require_superadmin, role_in_tenant
 from ..deps import orch_scope
 from ..errors import problem_responses
 
@@ -23,21 +29,19 @@ router = APIRouter(prefix="/tenants", tags=["tenants"], dependencies=[Depends(or
 
 
 def _require_tenant_admin(principal: Principal, tenant_id: int) -> None:
-    if principal.superadmin or principal.tenants.get(tenant_id) == ROLE_ADMIN:
-        return
-    raise Forbidden("tenant admin role required")
+    if role_in_tenant(principal, tenant_id) != ROLE_ADMIN:
+        raise Forbidden("tenant admin role required")
 
 
 def _require_member(principal: Principal, tenant_id: int) -> None:
     """Non-members read a tenant as missing — no existence leak."""
-    if principal.superadmin or tenant_id in principal.tenants:
-        return
-    raise NotFound(f"tenant {tenant_id} not found")
+    if role_in_tenant(principal, tenant_id) is None:
+        raise NotFound(f"tenant {tenant_id} not found")
 
 
 @router.get("", response_model=Page[TenantView], dependencies=[Depends(require_superadmin)])
-async def list_tenants() -> Page[TenantView]:
-    return await tenants_api.list_tenants()
+async def list_tenants(filter: TenantListFilter = Depends()) -> Page[TenantView]:
+    return await tenants_api.list_tenants(filter)
 
 
 @router.post(

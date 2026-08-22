@@ -78,11 +78,12 @@ for router in (
     app.include_router(router, prefix=API_PREFIX, dependencies=[Depends(require_tenant)])
 app.include_router(execution_workers.router, prefix=API_PREFIX, dependencies=[Depends(require_principal)])
 
-# `/auth` is public (login/refresh mint the credential); `/users` carries its
-# own `require_admin`. Neither takes the blanket `require_principal` above.
+# `/auth` is public (login/refresh mint the credential); `/users` and
+# `/tenants` declare their own guards per route (`require_superadmin`,
+# `require_principal`). None takes the blanket dependency above.
 app.include_router(auth_router.router, prefix=API_PREFIX)
 app.include_router(users_router.router, prefix=API_PREFIX)
-app.include_router(tenants_router.router, prefix=API_PREFIX, dependencies=[Depends(require_principal)])
+app.include_router(tenants_router.router, prefix=API_PREFIX)
 
 # `Depends` doesn't cross the mount boundary into the FastMCP sub-app, so the
 # admin-only check runs as ASGI middleware wrapping the mount.

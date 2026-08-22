@@ -2528,7 +2528,11 @@ export interface operations {
     };
     list_tenants_api_v0_tenants_get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+                offset?: number;
+                cursor?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2542,6 +2546,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_TenantView_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

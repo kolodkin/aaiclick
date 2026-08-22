@@ -69,7 +69,7 @@ def test_enabled_bad_signature_unauthorized(enabled):
 
 
 def _principal(superadmin=False, tenants=None):
-    return auth.Principal(user_id=5, username=None, superadmin=superadmin, tenants=tenants or {})
+    return auth.Principal(user_id=5, superadmin=superadmin, tenants=tenants or {})
 
 
 def test_tenant_header_resolves_membership_role():

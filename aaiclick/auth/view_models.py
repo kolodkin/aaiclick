@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import re
 from datetime import datetime
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field
 
 from .models import Role
 
@@ -30,9 +29,6 @@ class TokenPair(BaseModel):
     expires_in: int
 
 
-SLUG_RE = re.compile(r"^[a-z0-9_]+$")
-
-
 class TenantView(BaseModel):
     id: int
     slug: str
@@ -41,15 +37,10 @@ class TenantView(BaseModel):
 
 
 class CreateTenantRequest(BaseModel):
-    slug: str
+    # Pattern as a field constraint, not a validator, so it reaches the
+    # generated OpenAPI schema the SPA types are built from.
+    slug: str = Field(pattern=r"^[a-z0-9_]+$")
     name: str
-
-    @field_validator("slug")
-    @classmethod
-    def _validate_slug(cls, value: str) -> str:
-        if not SLUG_RE.fullmatch(value):
-            raise ValueError("slug must match [a-z0-9_]+")
-        return value
 
 
 class MemberView(BaseModel):
@@ -110,6 +101,12 @@ class ChangePasswordRequest(BaseModel):
 
 
 class UserListFilter(BaseModel):
+    limit: int = 50
+    offset: int = 0
+    cursor: str | None = None
+
+
+class TenantListFilter(BaseModel):
     limit: int = 50
     offset: int = 0
     cursor: str | None = None

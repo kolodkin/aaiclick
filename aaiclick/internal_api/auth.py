@@ -37,12 +37,10 @@ async def _mint_pair(*, user: User, secret: str) -> TokenPair:
 
 async def my_tenants(user_id: int) -> list[TenantRoleView]:
     """Resolve the user's memberships to tenant views for ``/auth/me``."""
-    views: list[TenantRoleView] = []
-    for m in await store.list_memberships_for_user(user_id):
-        tenant = await store.get_tenant_by_id(m.tenant_id)
-        if tenant is not None:
-            views.append(TenantRoleView(tenant_id=tenant.id, slug=tenant.slug, name=tenant.name, role=m.role))
-    return views
+    return [
+        TenantRoleView(tenant_id=tenant.id, slug=tenant.slug, name=tenant.name, role=membership.role)
+        for membership, tenant in await store.list_user_tenants(user_id)
+    ]
 
 
 def _authenticates(user: User, password: str) -> bool:

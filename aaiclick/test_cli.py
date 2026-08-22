@@ -175,6 +175,14 @@ def test_member_parser():
 def test_global_tenant_flag():
     parser = build_parser()
     args = parser.parse_args(["--tenant", "acme", "registered-job", "list"])
-    assert args.tenant == "acme" and args.command == "registered-job"
+    assert args.global_tenant == "acme" and args.command == "registered-job"
     args = parser.parse_args(["registered-job", "list"])
-    assert args.tenant is None
+    assert args.global_tenant is None
+
+
+def test_global_and_subcommand_tenant_flags_do_not_collide():
+    """The member subcommand owns ``--tenant``; the global flag keeps its own
+    slot, so neither silently overwrites the other."""
+    parser = build_parser()
+    args = parser.parse_args(["--tenant", "global_t", "member", "add", "--tenant", "acme", "--username", "u"])
+    assert args.global_tenant == "global_t" and args.tenant == "acme"

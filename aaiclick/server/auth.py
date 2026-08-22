@@ -37,13 +37,12 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 
 class Principal(NamedTuple):
     user_id: int | None
-    username: str | None
     superadmin: bool
     tenants: dict[int, Role]
     """Membership map ``tenant_id -> role`` from the access JWT."""
 
 
-_SYNTHETIC_ADMIN = Principal(user_id=None, username=None, superadmin=True, tenants={})
+_SYNTHETIC_ADMIN = Principal(user_id=None, superadmin=True, tenants={})
 
 
 def _principal_from_token(token: str) -> Principal:
@@ -53,7 +52,7 @@ def _principal_from_token(token: str) -> Principal:
     except security.TokenError as exc:
         raise Unauthorized(str(exc)) from exc
     tenants = cast("dict[int, Role]", claims.tenants)
-    return Principal(user_id=claims.user_id, username=None, superadmin=claims.superadmin, tenants=tenants)
+    return Principal(user_id=claims.user_id, superadmin=claims.superadmin, tenants=tenants)
 
 
 def resolve_principal(authorization: str | None) -> Principal:
@@ -87,6 +86,19 @@ class TenantContext(NamedTuple):
     role: Role
 
 
+def role_in_tenant(principal: Principal, tenant_id: int) -> Role | None:
+    """The principal's effective role in ``tenant_id``, or ``None`` if barred.
+
+    The one place that encodes "a superadmin acts as tenant admin everywhere" —
+    both the header-scoped routes and the path-scoped ``/tenants`` routes ask
+    this rather than re-deriving it.
+    """
+    role = principal.tenants.get(tenant_id)
+    if role is None and principal.superadmin:
+        return ROLE_ADMIN
+    return role
+
+
 def resolve_tenant(principal: Principal, header_value: str | None) -> TenantContext:
     """Resolve the active tenant from the ``X-Tenant-Id`` header.
 
@@ -99,9 +111,7 @@ def resolve_tenant(principal: Principal, header_value: str | None) -> TenantCont
             tenant_id = int(header_value)
         except ValueError as exc:
             raise Invalid(f"{TENANT_HEADER} must be an integer") from exc
-        role = principal.tenants.get(tenant_id)
-        if role is None and principal.superadmin:
-            role = ROLE_ADMIN
+        role = role_in_tenant(principal, tenant_id)
         if role is None:
             raise Forbidden(f"no access to tenant {tenant_id}")
         return TenantContext(tenant_id=tenant_id, role=role)

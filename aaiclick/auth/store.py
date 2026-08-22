@@ -87,10 +87,8 @@ async def _update_user(user_id: int, **fields) -> User:
     return user
 
 
-async def create_tenant(*, slug: str, name: str, tenant_id: int | None = None) -> Tenant:
-    """Create a tenant. ``tenant_id`` lets setup/migration seed the fixed
-    default-tenant id; everyone else gets a snowflake."""
-    tenant = Tenant(id=tenant_id if tenant_id is not None else get_snowflake_id(), slug=slug, name=name)
+async def create_tenant(*, slug: str, name: str) -> Tenant:
+    tenant = Tenant(id=get_snowflake_id(), slug=slug, name=name)
     async with get_sql_session() as session:
         existing = await session.execute(select(Tenant).where(Tenant.slug == slug))
         if existing.scalar_one_or_none() is not None:
@@ -113,12 +111,6 @@ async def get_tenant_by_slug(slug: str) -> Tenant | None:
         return result.scalar_one_or_none()
 
 
-async def list_tenants() -> list[Tenant]:
-    async with get_sql_session() as session:
-        result = await session.execute(select(Tenant).order_by(col(Tenant.slug).asc()))
-        return list(result.scalars().all())
-
-
 async def set_membership(*, tenant_id: int, user_id: int, role: Role) -> TenantMembership:
     """Add a user to a tenant, or update their role if already a member."""
     async with get_sql_session() as session:
@@ -129,11 +121,7 @@ async def set_membership(*, tenant_id: int, user_id: int, role: Role) -> TenantM
                 )
             )
         ).scalar_one_or_none()
-        row = (
-            existing
-            if existing is not None
-            else TenantMembership(id=get_snowflake_id(), tenant_id=tenant_id, user_id=user_id, role=role)
-        )
+        row = existing or TenantMembership(id=get_snowflake_id(), tenant_id=tenant_id, user_id=user_id, role=role)
         row.role = role
         session.add(row)
         await session.commit()
@@ -164,10 +152,32 @@ async def list_memberships_for_user(user_id: int) -> list[TenantMembership]:
         return list(result.scalars().all())
 
 
-async def list_memberships_for_tenant(tenant_id: int) -> list[TenantMembership]:
+async def list_user_tenants(user_id: int) -> list[tuple[TenantMembership, Tenant]]:
+    """Every tenant the user belongs to, paired with the membership role.
+
+    Joined rather than membership-then-lookup: ``/auth/me`` runs this on every
+    session bootstrap, and the per-membership round trip was the cost.
+    """
     async with get_sql_session() as session:
-        result = await session.execute(select(TenantMembership).where(TenantMembership.tenant_id == tenant_id))
-        return list(result.scalars().all())
+        result = await session.execute(
+            select(TenantMembership, Tenant)
+            .join(Tenant, col(Tenant.id) == col(TenantMembership.tenant_id))
+            .where(TenantMembership.user_id == user_id)
+            .order_by(col(Tenant.slug).asc())
+        )
+        return [(membership, tenant) for membership, tenant in result.all()]
+
+
+async def list_tenant_members(tenant_id: int) -> list[tuple[TenantMembership, User]]:
+    """Every member of a tenant, paired with their user row (single join)."""
+    async with get_sql_session() as session:
+        result = await session.execute(
+            select(TenantMembership, User)
+            .join(User, col(User.id) == col(TenantMembership.user_id))
+            .where(TenantMembership.tenant_id == tenant_id)
+            .order_by(col(User.username).asc())
+        )
+        return [(membership, user) for membership, user in result.all()]
 
 
 async def create_refresh_token(*, user_id: int, token_hash: str, ttl: int) -> RefreshToken:

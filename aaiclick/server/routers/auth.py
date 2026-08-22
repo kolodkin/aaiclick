@@ -40,16 +40,14 @@ async def logout(request: LogoutRequest) -> None:
 
 @router.get("/me", response_model=MeView)
 async def me(principal: Principal = Depends(require_principal)) -> MeView:
-    tenants = await auth_api.my_tenants(principal.user_id) if principal.user_id is not None else []
-    username = principal.username
-    if username is None and principal.user_id is not None:
-        user = await users_api.get_user(principal.user_id)
-        username = user.username
+    if principal.user_id is None:  # local mode — synthetic superadmin, no user row
+        return MeView(id=None, username=None, superadmin=principal.superadmin, tenants=[])
+    user = await users_api.get_user(principal.user_id)
     return MeView(
-        id=principal.user_id,
-        username=username,
+        id=user.id,
+        username=user.username,
         superadmin=principal.superadmin,
-        tenants=tenants,
+        tenants=await auth_api.my_tenants(principal.user_id),
     )
 
 

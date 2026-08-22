@@ -14,8 +14,14 @@ from sqlalchemy.orm import Mapped
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
 from ..datetime_utils import utc_now
+from ..tenancy import DEFAULT_TENANT_ID
 from .runner_config import ENTRY_MODULE, EntryType
 from .task_registry import register_task
+
+# ``tenant_id`` is a plain ``BigInteger``, not an FK to ``tenants``: the auth
+# tables live in a separate module whose import here would cycle, and
+# cross-package DDL coupling buys nothing — the reference is enforced at the
+# API boundary (see docs/designs/tenant_rbac.md).
 
 # Enum columns are stored as plain ``String`` and validated by their ``Literal``
 # type plus boundary validation (SQLModel/Pydantic on write, the CLI's
@@ -117,12 +123,9 @@ class RegisteredJob(SQLModel, table=True):
     __table_args__ = (UniqueConstraint("tenant_id", "name"),)
 
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
-    # Plain BigInteger, not an FK to ``tenants``: the auth tables live in a
-    # separate module whose import here would cycle, and cross-package DDL
-    # coupling buys nothing — the reference is enforced at the API boundary.
     tenant_id: int = Field(
-        default=1,
-        sa_column=Column(BigInteger, nullable=False, index=True, server_default="1"),
+        default=DEFAULT_TENANT_ID,
+        sa_column=Column(BigInteger, nullable=False, index=True, server_default=str(DEFAULT_TENANT_ID)),
     )
     name: str = Field(index=True)
     entrypoint: str = Field()
@@ -158,12 +161,9 @@ class Job(SQLModel, table=True):
     __tablename__: ClassVar[str] = "jobs"
 
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
-    # Plain BigInteger, not an FK to ``tenants``: the auth tables live in a
-    # separate module whose import here would cycle, and cross-package DDL
-    # coupling buys nothing — the reference is enforced at the API boundary.
     tenant_id: int = Field(
-        default=1,
-        sa_column=Column(BigInteger, nullable=False, index=True, server_default="1"),
+        default=DEFAULT_TENANT_ID,
+        sa_column=Column(BigInteger, nullable=False, index=True, server_default=str(DEFAULT_TENANT_ID)),
     )
     name: str = Field(index=True)
     status: JobStatus = Field(

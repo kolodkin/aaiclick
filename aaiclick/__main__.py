@@ -335,13 +335,19 @@ async def _run_tenant_list(args: argparse.Namespace) -> None:
     _render(args, page, cli_renderers.render_tenants_page)
 
 
-async def _member_set(args: argparse.Namespace) -> None:
+async def _resolve_member(args: argparse.Namespace) -> tuple[int, int]:
+    """Resolve ``--tenant`` slug and ``--username`` to their ids."""
+    tenant_id = await _resolve_tenant_id(args.tenant)
+    user = await auth_store.get_user_by_username(args.username)
+    if user is None:
+        raise NotFound(f"user '{args.username}' not found")
+    return tenant_id, user.id
+
+
+async def _run_member_set(args: argparse.Namespace) -> None:
     async def do():
-        tenant_id = await _resolve_tenant_id(args.tenant)
-        user = await auth_store.get_user_by_username(args.username)
-        if user is None:
-            raise NotFound(f"user '{args.username}' not found")
-        return await tenants_api.set_member(tenant_id, user.id, args.role)
+        tenant_id, user_id = await _resolve_member(args)
+        return await tenants_api.set_member(tenant_id, user_id, args.role)
 
     view = await _run_internal_api(do())
     _render(args, view, cli_renderers.render_member)
@@ -349,11 +355,8 @@ async def _member_set(args: argparse.Namespace) -> None:
 
 async def _run_member_remove(args: argparse.Namespace) -> None:
     async def do():
-        tenant_id = await _resolve_tenant_id(args.tenant)
-        user = await auth_store.get_user_by_username(args.username)
-        if user is None:
-            raise NotFound(f"user '{args.username}' not found")
-        await tenants_api.remove_member(tenant_id, user.id)
+        tenant_id, user_id = await _resolve_member(args)
+        await tenants_api.remove_member(tenant_id, user_id)
 
     await _run_internal_api(do())
     print(f"removed '{args.username}' from tenant '{args.tenant}'")
@@ -468,6 +471,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--tenant",
+        dest="global_tenant",
         default=None,
         help="Tenant slug to run the command in (default: the default tenant)",
     )
@@ -1117,9 +1121,7 @@ def main():
     parser = build_parser()
     subcommands = _subcommand_parsers(parser)
     args = parser.parse_args()
-    if args.command not in ("tenant", "member"):
-        # tenant/member subcommands own their --tenant argument.
-        _tenant_slug = args.tenant
+    _tenant_slug = args.global_tenant
 
     if args.command == "setup":
         _run_setup_cli(args)
@@ -1246,7 +1248,7 @@ def main():
 
     elif args.command == "member":
         if args.member_command in ("add", "set-role"):
-            asyncio.run(_member_set(args))
+            asyncio.run(_run_member_set(args))
         elif args.member_command == "remove":
             asyncio.run(_run_member_remove(args))
         else:

@@ -8,16 +8,23 @@ assume the caller is authorized.
 
 from __future__ import annotations
 
+from sqlmodel import col
+
 from aaiclick.auth import store
-from aaiclick.auth.models import Role, Tenant
-from aaiclick.auth.view_models import CreateTenantRequest, MemberView, TenantView
+from aaiclick.auth.models import Role, Tenant, TenantMembership, User
+from aaiclick.auth.view_models import CreateTenantRequest, MemberView, TenantListFilter, TenantView
 from aaiclick.view_models import Page
 
 from .errors import Conflict, NotFound
+from .pagination import paginate
 
 
 def _to_view(tenant: Tenant) -> TenantView:
     return TenantView(id=tenant.id, slug=tenant.slug, name=tenant.name, created_at=tenant.created_at)
+
+
+def _to_member_view(membership: TenantMembership, user: User) -> MemberView:
+    return MemberView(user_id=user.id, username=user.username, role=membership.role)
 
 
 async def create_tenant(request: CreateTenantRequest) -> TenantView:
@@ -28,16 +35,14 @@ async def create_tenant(request: CreateTenantRequest) -> TenantView:
     return _to_view(tenant)
 
 
-async def list_tenants() -> Page[TenantView]:
-    rows = await store.list_tenants()
-    return Page[TenantView](items=[_to_view(t) for t in rows], total=len(rows))
+async def list_tenants(filter: TenantListFilter | None = None) -> Page[TenantView]:
+    filter = filter or TenantListFilter()
+    page = await paginate(Tenant, order_by=col(Tenant.slug).asc(), limit=filter.limit, offset=filter.offset)
+    return Page[TenantView](items=[_to_view(t) for t in page.rows], total=page.total)
 
 
 async def get_tenant(tenant_id: int) -> TenantView:
-    tenant = await store.get_tenant_by_id(tenant_id)
-    if tenant is None:
-        raise NotFound(f"tenant {tenant_id} not found")
-    return _to_view(tenant)
+    return _to_view(await _require_tenant_row(tenant_id))
 
 
 async def _require_tenant_row(tenant_id: int) -> Tenant:
@@ -49,12 +54,8 @@ async def _require_tenant_row(tenant_id: int) -> Tenant:
 
 async def list_members(tenant_id: int) -> Page[MemberView]:
     await _require_tenant_row(tenant_id)
-    memberships = await store.list_memberships_for_tenant(tenant_id)
-    items = []
-    for m in memberships:
-        user = await store.get_user_by_id(m.user_id)
-        if user is not None:
-            items.append(MemberView(user_id=user.id, username=user.username, role=m.role))
+    rows = await store.list_tenant_members(tenant_id)
+    items = [_to_member_view(membership, user) for membership, user in rows]
     return Page[MemberView](items=items, total=len(items))
 
 
@@ -67,7 +68,7 @@ async def set_member(tenant_id: int, user_id: int, role: Role) -> MemberView:
         raise NotFound(f"user {user_id} not found")
     membership = await store.set_membership(tenant_id=tenant_id, user_id=user_id, role=role)
     await store.revoke_all_for_user(user_id)
-    return MemberView(user_id=user.id, username=user.username, role=membership.role)
+    return _to_member_view(membership, user)
 
 
 async def remove_member(tenant_id: int, user_id: int) -> None:

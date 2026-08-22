@@ -71,22 +71,21 @@ async def test_create_and_get_tenant(orch_ctx):
     assert by_id is not None and by_id.slug == "acme"
 
 
-async def test_create_tenant_explicit_id(orch_ctx):
-    created = await store.create_tenant(slug="fixed", name="Fixed", tenant_id=1)
-    assert created.id == 1
-
-
 async def test_duplicate_slug_raises(orch_ctx):
     await store.create_tenant(slug="acme", name="Acme")
     with pytest.raises(store.SlugTaken):
         await store.create_tenant(slug="acme", name="Other")
 
 
-async def test_list_tenants_ordered_by_slug(orch_ctx):
-    await store.create_tenant(slug="zeta", name="Z")
-    await store.create_tenant(slug="alpha", name="A")
-    slugs = [t.slug for t in await store.list_tenants()]
-    assert slugs == ["alpha", "zeta"]
+async def test_list_user_tenants_joins_tenant_rows(orch_ctx):
+    zeta = await store.create_tenant(slug="zeta", name="Z")
+    alpha = await store.create_tenant(slug="alpha", name="A")
+    u = await store.create_user(username="joins", password_hash="h")
+    await store.set_membership(tenant_id=zeta.id, user_id=u.id, role=ROLE_VIEWER)
+    await store.set_membership(tenant_id=alpha.id, user_id=u.id, role=ROLE_ADMIN)
+
+    rows = await store.list_user_tenants(u.id)
+    assert [(t.slug, m.role) for m, t in rows] == [("alpha", ROLE_ADMIN), ("zeta", ROLE_VIEWER)]
 
 
 async def test_set_membership_creates_then_updates(orch_ctx):
@@ -95,7 +94,8 @@ async def test_set_membership_creates_then_updates(orch_ctx):
     first = await store.set_membership(tenant_id=t.id, user_id=u.id, role=ROLE_VIEWER)
     second = await store.set_membership(tenant_id=t.id, user_id=u.id, role=ROLE_ADMIN)
     assert second.id == first.id and second.role == ROLE_ADMIN
-    assert len(await store.list_memberships_for_user(u.id)) == 1
+    members = await store.list_tenant_members(t.id)
+    assert [(user.username, m.role) for m, user in members] == [("gail", ROLE_ADMIN)]
 
 
 async def test_remove_membership(orch_ctx):
@@ -104,4 +104,4 @@ async def test_remove_membership(orch_ctx):
     await store.set_membership(tenant_id=t.id, user_id=u.id, role=ROLE_VIEWER)
     assert await store.remove_membership(tenant_id=t.id, user_id=u.id) is True
     assert await store.remove_membership(tenant_id=t.id, user_id=u.id) is False
-    assert await store.list_memberships_for_tenant(t.id) == []
+    assert await store.list_tenant_members(t.id) == []
