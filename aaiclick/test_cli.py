@@ -152,3 +152,37 @@ def test_main_dispatches_run_job_to_handler():
     assert dispatched_args.command == "run-job"
     assert dispatched_args.name == "myjob"
     assert dispatched_args.git_sha == "b" * 40
+
+
+def test_tenant_parser():
+    parser = build_parser()
+    args = parser.parse_args(["tenant", "create", "acme", "--name", "Acme Corp"])
+    assert args.command == "tenant" and args.tenant_command == "create"
+    assert args.slug == "acme" and args.name == "Acme Corp"
+    args = parser.parse_args(["tenant", "list"])
+    assert args.tenant_command == "list"
+
+
+def test_member_parser():
+    parser = build_parser()
+    args = parser.parse_args(["member", "add", "--tenant", "acme", "--username", "u", "--role", "admin"])
+    assert args.command == "member" and args.member_command == "add"
+    assert args.tenant == "acme" and args.username == "u" and args.role == "admin"
+    args = parser.parse_args(["member", "remove", "--tenant", "acme", "--username", "u"])
+    assert args.member_command == "remove"
+
+
+def test_global_tenant_flag():
+    parser = build_parser()
+    args = parser.parse_args(["--tenant", "acme", "registered-job", "list"])
+    assert args.global_tenant == "acme" and args.command == "registered-job"
+    args = parser.parse_args(["registered-job", "list"])
+    assert args.global_tenant is None
+
+
+def test_global_and_subcommand_tenant_flags_do_not_collide():
+    """The member subcommand owns ``--tenant``; the global flag keeps its own
+    slot, so neither silently overwrites the other."""
+    parser = build_parser()
+    args = parser.parse_args(["--tenant", "global_t", "member", "add", "--tenant", "acme", "--username", "u"])
+    assert args.global_tenant == "global_t" and args.tenant == "acme"

@@ -60,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ me, ready, isAdmin: me?.role === "admin", refresh, signOut }}>
+    <AuthContext.Provider value={{ me, ready, isAdmin: me?.superadmin ?? false, refresh, signOut }}>
       {children}
     </AuthContext.Provider>
   );

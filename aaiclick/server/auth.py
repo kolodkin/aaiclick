@@ -11,9 +11,10 @@ not propagate into mounted sub-apps. See ``docs/designs/auth.md``.
 from __future__ import annotations
 
 import logging
-from typing import NamedTuple
+from collections.abc import AsyncIterator
+from typing import NamedTuple, cast
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.security.utils import get_authorization_scheme_param
 from starlette.datastructures import Headers
@@ -21,12 +22,14 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from aaiclick.auth import config, security
 from aaiclick.auth.models import ROLE_ADMIN, Role
-from aaiclick.internal_api.errors import Forbidden, Unauthorized
+from aaiclick.internal_api.errors import Forbidden, Invalid, Unauthorized
+from aaiclick.tenancy import DEFAULT_TENANT_ID, active_tenant
 from aaiclick.view_models import ProblemCode
 
 from .errors import problem_response
 
 BEARER_CHALLENGE = {"WWW-Authenticate": "Bearer"}
+TENANT_HEADER = "X-Tenant-Id"
 logger = logging.getLogger(__name__)
 
 _bearer_scheme = HTTPBearer(auto_error=False)
@@ -34,11 +37,12 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 
 class Principal(NamedTuple):
     user_id: int | None
-    username: str | None
-    role: Role
+    superadmin: bool
+    tenants: dict[int, Role]
+    """Membership map ``tenant_id -> role`` from the access JWT."""
 
 
-_SYNTHETIC_ADMIN = Principal(user_id=None, username=None, role=ROLE_ADMIN)
+_SYNTHETIC_ADMIN = Principal(user_id=None, superadmin=True, tenants={})
 
 
 def _principal_from_token(token: str) -> Principal:
@@ -47,7 +51,8 @@ def _principal_from_token(token: str) -> Principal:
         claims = security.decode_access_token(token, config.require_jwt_secret())
     except security.TokenError as exc:
         raise Unauthorized(str(exc)) from exc
-    return Principal(user_id=claims.user_id, username=None, role=claims.role)
+    tenants = cast("dict[int, Role]", claims.tenants)
+    return Principal(user_id=claims.user_id, superadmin=claims.superadmin, tenants=tenants)
 
 
 def resolve_principal(authorization: str | None) -> Principal:
@@ -76,9 +81,68 @@ async def require_principal(
     return _principal_from_token(creds.credentials)
 
 
-async def require_admin(principal: Principal = Depends(require_principal)) -> Principal:
-    if principal.role != ROLE_ADMIN:
-        raise Forbidden("admin role required")
+class TenantContext(NamedTuple):
+    tenant_id: int
+    role: Role
+
+
+def role_in_tenant(principal: Principal, tenant_id: int) -> Role | None:
+    """The principal's effective role in ``tenant_id``, or ``None`` if barred.
+
+    The one place that encodes "a superadmin acts as tenant admin everywhere" —
+    both the header-scoped routes and the path-scoped ``/tenants`` routes ask
+    this rather than re-deriving it.
+    """
+    role = principal.tenants.get(tenant_id)
+    if role is None and principal.superadmin:
+        return ROLE_ADMIN
+    return role
+
+
+def resolve_tenant(principal: Principal, header_value: str | None) -> TenantContext:
+    """Resolve the active tenant from the ``X-Tenant-Id`` header.
+
+    A missing header is implied only when the principal has exactly one
+    membership; superadmins (who can act in every tenant) must always name
+    one. A tenant the principal cannot act in is ``Forbidden``.
+    """
+    if header_value is not None:
+        try:
+            tenant_id = int(header_value)
+        except ValueError as exc:
+            raise Invalid(f"{TENANT_HEADER} must be an integer") from exc
+        role = role_in_tenant(principal, tenant_id)
+        if role is None:
+            raise Forbidden(f"no access to tenant {tenant_id}")
+        return TenantContext(tenant_id=tenant_id, role=role)
+    if len(principal.tenants) == 1:
+        tenant_id, role = next(iter(principal.tenants.items()))
+        return TenantContext(tenant_id=tenant_id, role=role)
+    raise Invalid(f"{TENANT_HEADER} header required")
+
+
+async def require_tenant(
+    request: Request, principal: Principal = Depends(require_principal)
+) -> AsyncIterator[TenantContext]:
+    """Resolve the active tenant and pin the tenancy contextvar for the request."""
+    if not config.auth_enabled():
+        ctx = TenantContext(tenant_id=DEFAULT_TENANT_ID, role=ROLE_ADMIN)
+    else:
+        ctx = resolve_tenant(principal, request.headers.get(TENANT_HEADER))
+    with active_tenant(ctx.tenant_id):
+        yield ctx
+
+
+async def require_admin(ctx: TenantContext = Depends(require_tenant)) -> TenantContext:
+    """Tenant-admin guard for mutating tenant-scoped routes."""
+    if ctx.role != ROLE_ADMIN:
+        raise Forbidden("tenant admin role required")
+    return ctx
+
+
+async def require_superadmin(principal: Principal = Depends(require_principal)) -> Principal:
+    if not principal.superadmin:
+        raise Forbidden("superadmin required")
     return principal
 
 
@@ -88,7 +152,7 @@ def warn_if_open() -> None:
 
 
 class AdminAuthMiddleware:
-    """ASGI guard for the ``/mcp`` mount: admin-only when auth is enabled."""
+    """ASGI guard for the ``/mcp`` mount: superadmin-only when auth is enabled."""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -99,8 +163,8 @@ class AdminAuthMiddleware:
         authorization = Headers(scope=scope).get("authorization")
         try:
             principal = resolve_principal(authorization)
-            if principal.role != ROLE_ADMIN:
-                raise Forbidden("admin role required")
+            if not principal.superadmin:
+                raise Forbidden("superadmin required")
         except Unauthorized as exc:
             response = problem_response("Unauthorized", 401, str(exc), ProblemCode.UNAUTHORIZED, BEARER_CHALLENGE)
             await response(scope, receive, send)

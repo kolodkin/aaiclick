@@ -390,6 +390,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v0/tenants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Tenants */
+        get: operations["list_tenants_api_v0_tenants_get"];
+        put?: never;
+        /** Create Tenant */
+        post: operations["create_tenant_api_v0_tenants_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/tenants/{tenant_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Tenant */
+        get: operations["get_tenant_api_v0_tenants__tenant_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/tenants/{tenant_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Members */
+        get: operations["list_members_api_v0_tenants__tenant_id__members_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/tenants/{tenant_id}/members/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Member */
+        put: operations["set_member_api_v0_tenants__tenant_id__members__user_id__put"];
+        post?: never;
+        /** Remove Member */
+        delete: operations["remove_member_api_v0_tenants__tenant_id__members__user_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v0/users": {
         parameters: {
             query?: never;
@@ -442,7 +512,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v0/users/{user_id}/role": {
+    "/api/v0/users/{user_id}/superadmin": {
         parameters: {
             query?: never;
             header?: never;
@@ -450,8 +520,8 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Set Role */
-        put: operations["set_role_api_v0_users__user_id__role_put"];
+        /** Set Superadmin */
+        put: operations["set_superadmin_api_v0_users__user_id__superadmin_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -531,16 +601,22 @@ export interface components {
             /** Type */
             type: string;
         };
+        /** CreateTenantRequest */
+        CreateTenantRequest: {
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+        };
         /** CreateUserRequest */
         CreateUserRequest: {
             /** Password */
             password: string;
             /**
-             * Role
-             * @default viewer
-             * @enum {string}
+             * Superadmin
+             * @default false
              */
-            role: "admin" | "viewer";
+            superadmin: boolean;
             /** Username */
             username: string;
         };
@@ -824,15 +900,30 @@ export interface components {
             /** Refresh Token */
             refresh_token: string;
         };
-        /** MeView */
+        /**
+         * MeView
+         * @description Current principal. ``id``/``username`` are ``None`` in local mode
+         *     (auth disabled — the synthetic superadmin has no user row).
+         */
         MeView: {
             /** Id */
-            id: number;
+            id: number | null;
+            /** Superadmin */
+            superadmin: boolean;
+            /** Tenants */
+            tenants: components["schemas"]["TenantRoleView"][];
+            /** Username */
+            username: string | null;
+        };
+        /** MemberView */
+        MemberView: {
             /**
              * Role
              * @enum {string}
              */
             role: "admin" | "viewer";
+            /** User Id */
+            user_id: number;
             /** Username */
             username: string;
         };
@@ -911,6 +1002,15 @@ export interface components {
             /** Total */
             total?: number | null;
         };
+        /** Page[MemberView] */
+        Page_MemberView_: {
+            /** Items */
+            items: components["schemas"]["MemberView"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Total */
+            total?: number | null;
+        };
         /** Page[ObjectView] */
         Page_ObjectView_: {
             /** Items */
@@ -924,6 +1024,15 @@ export interface components {
         Page_RegisteredJobView_: {
             /** Items */
             items: components["schemas"]["RegisteredJobView"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Total */
+            total?: number | null;
+        };
+        /** Page[TenantView] */
+        Page_TenantView_: {
+            /** Items */
+            items: components["schemas"]["TenantView"][];
             /** Next Cursor */
             next_cursor?: string | null;
             /** Total */
@@ -1133,18 +1242,23 @@ export interface components {
             /** Table */
             table?: string | null;
         };
-        /** SetPasswordRequest */
-        SetPasswordRequest: {
-            /** Password */
-            password: string;
-        };
-        /** SetRoleRequest */
-        SetRoleRequest: {
+        /** SetMemberRequest */
+        SetMemberRequest: {
             /**
              * Role
              * @enum {string}
              */
             role: "admin" | "viewer";
+        };
+        /** SetPasswordRequest */
+        SetPasswordRequest: {
+            /** Password */
+            password: string;
+        };
+        /** SetSuperadminRequest */
+        SetSuperadminRequest: {
+            /** Superadmin */
+            superadmin: boolean;
         };
         /**
          * StartExecutionWorkerRequest
@@ -1277,6 +1391,34 @@ export interface components {
              */
             status: "PENDING" | "CLAIMED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_CLEANUP" | "UPSTREAM_FAILED";
         };
+        /** TenantRoleView */
+        TenantRoleView: {
+            /** Name */
+            name: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "admin" | "viewer";
+            /** Slug */
+            slug: string;
+            /** Tenant Id */
+            tenant_id: number;
+        };
+        /** TenantView */
+        TenantView: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+        };
         /** TokenPair */
         TokenPair: {
             /** Access Token */
@@ -1302,11 +1444,8 @@ export interface components {
             disabled: boolean;
             /** Id */
             id: number;
-            /**
-             * Role
-             * @enum {string}
-             */
-            role: "admin" | "viewer";
+            /** Superadmin */
+            superadmin: boolean;
             /** Username */
             username: string;
         };
@@ -2387,6 +2526,245 @@ export interface operations {
             };
         };
     };
+    list_tenants_api_v0_tenants_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_TenantView_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_tenant_api_v0_tenants_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTenantRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantView"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_tenant_api_v0_tenants__tenant_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantView"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_members_api_v0_tenants__tenant_id__members_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_MemberView_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_member_api_v0_tenants__tenant_id__members__user_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: number;
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetMemberRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberView"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_member_api_v0_tenants__tenant_id__members__user_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: number;
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_users_api_v0_users_get: {
         parameters: {
             query?: {
@@ -2546,7 +2924,7 @@ export interface operations {
             };
         };
     };
-    set_role_api_v0_users__user_id__role_put: {
+    set_superadmin_api_v0_users__user_id__superadmin_put: {
         parameters: {
             query?: never;
             header?: never;
@@ -2557,7 +2935,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SetRoleRequest"];
+                "application/json": components["schemas"]["SetSuperadminRequest"];
             };
         };
         responses: {

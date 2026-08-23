@@ -6,7 +6,7 @@ from aaiclick.internal_api import execution_workers as execution_workers_api
 from aaiclick.orchestration.view_models import ExecutionWorkerView
 from aaiclick.view_models import ExecutionWorkerFilter, Page, StartExecutionWorkerRequest
 
-from ..auth import require_admin
+from ..auth import require_superadmin
 from ..deps import orch_scope
 from ..errors import problem_responses
 
@@ -21,7 +21,7 @@ async def list_execution_workers(filter: ExecutionWorkerFilter = Depends()) -> P
 @router.post(
     "",
     status_code=202,
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_superadmin)],
     responses=problem_responses(403, 422, 503),
 )
 async def start_execution_worker(request: StartExecutionWorkerRequest, http_request: Request) -> Response:
@@ -37,7 +37,7 @@ async def start_execution_worker(request: StartExecutionWorkerRequest, http_requ
 @router.post(
     "/{execution_worker_id}/stop",
     response_model=ExecutionWorkerView,
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_superadmin)],
     responses=problem_responses(403, 404, 409),
 )
 async def stop_execution_worker(execution_worker_id: int) -> ExecutionWorkerView:

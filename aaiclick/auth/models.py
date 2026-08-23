@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import ClassVar, Literal
 
-from sqlalchemy import BigInteger, Boolean, Column, ForeignKey, String
+from sqlalchemy import BigInteger, Boolean, Column, ForeignKey, String, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 from ..datetime_utils import utc_now
@@ -22,10 +22,28 @@ class User(SQLModel, table=True):
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
     username: str = Field(sa_column=Column(String, nullable=False, unique=True, index=True))
     password_hash: str = Field(sa_column=Column(String, nullable=False))
-    role: Role = Field(
-        sa_column=Column(String, nullable=False),
-    )
+    superadmin: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="0"), default=False)
     disabled: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="0"), default=False)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class Tenant(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "tenants"
+
+    id: int = Field(sa_column=Column(BigInteger, primary_key=True))
+    slug: str = Field(sa_column=Column(String, nullable=False, unique=True, index=True))
+    name: str = Field(sa_column=Column(String, nullable=False))
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class TenantMembership(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "tenant_memberships"
+    __table_args__ = (UniqueConstraint("tenant_id", "user_id"),)
+
+    id: int = Field(sa_column=Column(BigInteger, primary_key=True))
+    tenant_id: int = Field(sa_column=Column(BigInteger, ForeignKey("tenants.id"), nullable=False, index=True))
+    user_id: int = Field(sa_column=Column(BigInteger, ForeignKey("users.id"), nullable=False, index=True))
+    role: Role = Field(sa_column=Column(String, nullable=False))
     created_at: datetime = Field(default_factory=utc_now)
 
 

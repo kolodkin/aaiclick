@@ -27,6 +27,7 @@ from aaiclick.orchestration.view_models import (
     RegisteredJobView,
     registered_job_to_view,
 )
+from aaiclick.tenancy import get_active_tenant_id
 from aaiclick.view_models import Page, RegisteredJobFilter, RegisterJobRequest
 
 from .errors import Conflict, Invalid, NotFound
@@ -64,7 +65,7 @@ async def list_registered_jobs(filter: RegisteredJobFilter | None = None) -> Pag
     """
     filter = filter or RegisteredJobFilter()
 
-    predicates = []
+    predicates = [RegisteredJob.tenant_id == get_active_tenant_id()]
     if filter.enabled is not None:
         predicates.append(RegisteredJob.enabled == filter.enabled)
     if filter.name is not None:

@@ -14,6 +14,7 @@ from aaiclick.auth.view_models import (
     TokenPair,
 )
 from aaiclick.internal_api import auth as auth_api
+from aaiclick.internal_api import users as users_api
 
 from ..auth import Principal, require_principal
 from ..deps import orch_scope
@@ -39,10 +40,14 @@ async def logout(request: LogoutRequest) -> None:
 
 @router.get("/me", response_model=MeView)
 async def me(principal: Principal = Depends(require_principal)) -> MeView:
+    if principal.user_id is None:  # local mode — synthetic superadmin, no user row
+        return MeView(id=None, username=None, superadmin=principal.superadmin, tenants=[])
+    user = await users_api.get_user(principal.user_id)
     return MeView(
-        id=principal.user_id or 0,
-        username=principal.username or "admin",
-        role=principal.role,
+        id=user.id,
+        username=user.username,
+        superadmin=principal.superadmin,
+        tenants=await auth_api.my_tenants(principal.user_id),
     )
 
 

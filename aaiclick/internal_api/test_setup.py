@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import create_engine as sa_create_engine
+from sqlalchemy import select as sa_select
+from sqlmodel import SQLModel
 
+from aaiclick.auth.models import Tenant
 from aaiclick.oplog.migrate import ChVersionState
+from aaiclick.tenancy import DEFAULT_TENANT_ID
 from aaiclick.view_models import (
     MIGRATE_CURRENT,
     MIGRATE_DOWNGRADE,
@@ -39,6 +44,7 @@ def _stub_chdb_and_sqlalchemy(monkeypatch):
     monkeypatch.setattr(setup, "get_shared_session", lambda _path: _FakeSession())
     monkeypatch.setattr(setup, "create_engine", lambda _url: _FakeEngine())
     monkeypatch.setattr(setup.SQLModel.metadata, "create_all", lambda _engine: None)
+    monkeypatch.setattr(setup, "_seed_default_tenant", lambda _engine: None)
 
 
 def test_setup_local_writes_marker_and_returns_ok_steps(tmp_path, monkeypatch):
@@ -190,3 +196,15 @@ def test_migrate_current_runs_without_revision(monkeypatch):
     assert result.action == MIGRATE_CURRENT
     assert result.revision is None
     assert calls == [("current", True)]
+
+
+def test_seed_default_tenant_inserts_once():
+    engine = sa_create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(engine)
+
+    setup._seed_default_tenant(engine)
+    setup._seed_default_tenant(engine)  # idempotent re-run
+
+    with engine.connect() as conn:
+        rows = conn.execute(sa_select(Tenant.id, Tenant.slug)).all()
+    assert rows == [(DEFAULT_TENANT_ID, "aaiclick")]

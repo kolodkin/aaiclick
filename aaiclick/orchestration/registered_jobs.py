@@ -11,6 +11,7 @@ from sqlmodel import select
 from ..backend import is_local
 from ..datetime_utils import utc_now
 from ..snowflake import get_snowflake_id
+from ..tenancy import get_active_tenant_id
 from .docker_config import resolve_image_source, resolve_runner_config
 from .factories import create_built_job, create_job, create_task
 from .kubernetes_config import resolve_kubernetes_config
@@ -35,6 +36,15 @@ class RegisteredJobAlreadyExists(ValueError):
 
 class RegisteredJobNotFound(ValueError):
     """Raised when enabling/disabling a non-existent registration."""
+
+
+def _by_name(name: str):
+    """Select the registration named ``name`` within the active tenant.
+
+    One builder for every by-name lookup: names are unique per tenant, so a
+    call site that forgot the tenant predicate would read another tenant's row.
+    """
+    return select(RegisteredJob).where(RegisteredJob.name == name, RegisteredJob.tenant_id == get_active_tenant_id())
 
 
 def compute_next_run(cron_expr: str, after: datetime | None = None) -> datetime:
@@ -74,6 +84,7 @@ def _build_registered_job(
     """Build an uncommitted RegisteredJob row with computed next_run_at."""
     return RegisteredJob(
         id=get_snowflake_id(),
+        tenant_id=get_active_tenant_id(),
         name=name,
         entrypoint=entrypoint,
         enabled=enabled,
@@ -147,7 +158,7 @@ async def register_job(
     )
 
     async with get_sql_session() as session:
-        existing = await session.execute(select(RegisteredJob).where(RegisteredJob.name == name))
+        existing = await session.execute(_by_name(name))
         if existing.scalar_one_or_none() is not None:
             raise RegisteredJobAlreadyExists(f"Registered job '{name}' already exists")
 
@@ -168,7 +179,7 @@ async def get_registered_job(name: str) -> RegisteredJob | None:
         RegisteredJob if found, None otherwise
     """
     async with get_sql_session() as session:
-        result = await session.execute(select(RegisteredJob).where(RegisteredJob.name == name))
+        result = await session.execute(_by_name(name))
         return result.scalar_one_or_none()
 
 
@@ -212,7 +223,7 @@ async def upsert_registered_job(
     now = utc_now()
 
     async with get_sql_session() as session:
-        result = await session.execute(select(RegisteredJob).where(RegisteredJob.name == name))
+        result = await session.execute(_by_name(name))
         existing = result.scalar_one_or_none()
 
         if existing is not None:
@@ -255,7 +266,7 @@ async def upsert_registered_job(
 
 async def _get_registered_or_raise(session, name: str) -> RegisteredJob:
     """Fetch a registration by name or raise RegisteredJobNotFound."""
-    result = await session.execute(select(RegisteredJob).where(RegisteredJob.name == name))
+    result = await session.execute(_by_name(name))
     job = result.scalar_one_or_none()
     if job is None:
         raise RegisteredJobNotFound(f"Registered job '{name}' not found")

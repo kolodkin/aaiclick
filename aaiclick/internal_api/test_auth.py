@@ -1,5 +1,7 @@
 import pytest
 
+from aaiclick.auth import security, store
+from aaiclick.auth.models import ROLE_VIEWER
 from aaiclick.auth.view_models import (
     ChangePasswordRequest,
     CreateUserRequest,
@@ -14,8 +16,8 @@ from aaiclick.internal_api.errors import Invalid, Unauthorized
 SECRET = "internal-api-test-secret-key-32-plus-bytes"
 
 
-async def _make_user(username="alice", password="pw", role="admin"):
-    await users.create_user(CreateUserRequest(username=username, password=password, role=role))
+async def _make_user(username="alice", password="pw"):
+    await users.create_user(CreateUserRequest(username=username, password=password))
 
 
 async def test_login_success(orch_ctx):
@@ -23,6 +25,17 @@ async def test_login_success(orch_ctx):
     pair = await auth.login(LoginRequest(username="alice", password="pw"), secret=SECRET)
     assert isinstance(pair, TokenPair)
     assert pair.access_token and pair.refresh_token
+
+
+async def test_login_token_carries_memberships(orch_ctx):
+    view = await users.create_user(CreateUserRequest(username="member", password="pw", superadmin=True))
+    tenant = await store.create_tenant(slug="acme", name="Acme")
+    await store.set_membership(tenant_id=tenant.id, user_id=view.id, role=ROLE_VIEWER)
+
+    pair = await auth.login(LoginRequest(username="member", password="pw"), secret=SECRET)
+    claims = security.decode_access_token(pair.access_token, SECRET)
+    assert claims.superadmin is True
+    assert claims.tenants == {tenant.id: ROLE_VIEWER}
 
 
 async def test_login_bad_password_raises(orch_ctx):

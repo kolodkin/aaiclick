@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from aaiclick.auth import config, security
-from aaiclick.auth.models import ROLE_ADMIN
+from aaiclick.tenancy import DEFAULT_TENANT_ID
 
 from .app import app
 
@@ -16,14 +16,18 @@ def _admin_headers() -> dict[str, str]:
 
     Auth is mode-derived (``config.auth_enabled()`` → ``not is_local()``), so the
     distributed test matrix runs with auth ON and every protected route needs a
-    token. Minting an admin access JWT directly is enough — the access-token path
-    trusts claims and never hits the DB, so no seeded user row is required. In
-    local mode auth is off and no header is attached (synthetic admin applies).
+    token. Minting a superadmin access JWT directly is enough — the access-token
+    path trusts claims and never hits the DB, so no seeded user row is required.
+    Superadmins must name the active tenant on tenant-scoped routes, so the
+    default tenant rides along as ``X-Tenant-Id``. In local mode auth is off and
+    no headers are attached (synthetic superadmin + default tenant apply).
     """
     if not config.auth_enabled():
         return {}
-    token = security.encode_access_token(user_id=1, role=ROLE_ADMIN, secret=config.require_jwt_secret(), ttl=3600)
-    return {"Authorization": f"Bearer {token}"}
+    token = security.encode_access_token(
+        user_id=1, superadmin=True, tenants={}, secret=config.require_jwt_secret(), ttl=3600
+    )
+    return {"Authorization": f"Bearer {token}", "X-Tenant-Id": str(DEFAULT_TENANT_ID)}
 
 
 @pytest.fixture

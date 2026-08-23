@@ -79,6 +79,42 @@ Use the `python-testing-style` skill for test layout, async test rules, Object A
   - Prefer `obj: mod.ClassName` over `obj: Any`
   - If restructuring is needed to get proper types, do it
 
+- **Mutable process state: `ContextVar`, never a `global`**: Runtime state that is
+  written after import belongs in a `contextvars.ContextVar`. Do not rebind a
+  module-level variable with a `global` statement.
+  - A `ContextVar` scopes the value to the calling context rather than the whole
+    process, so concurrent callers — server requests, parallel tasks, tests
+    sharing one interpreter — cannot clobber each other's value.
+  - `asyncio.run()` and task creation copy the current context, so a value set
+    before the event loop starts still reaches the coroutine.
+  - Expose a `@contextmanager` that sets a token and resets it in `finally`, so
+    the previous value is restored on exit; keep the `ContextVar` itself private
+    (`_name`) behind getter/setter helpers.
+  - This is about values that *change*. Module-level **constants** never rebound
+    after import stay plain module attributes.
+  - Reference implementation: `aaiclick/tenancy.py` (`active_tenant` /
+    `get_active_tenant_id`).
+
+  ```python
+  # GOOD — context-scoped, restored on exit
+  _active_tenant_id: ContextVar[int] = ContextVar("active_tenant_id", default=DEFAULT_TENANT_ID)
+
+  @contextmanager
+  def active_tenant(tenant_id: int) -> Iterator[None]:
+      token = _active_tenant_id.set(tenant_id)
+      try:
+          yield
+      finally:
+          _active_tenant_id.reset(token)
+
+  # BAD — process-wide, leaks across concurrent callers
+  _tenant_id = None
+
+  def set_tenant(tenant_id):
+      global _tenant_id
+      _tenant_id = tenant_id
+  ```
+
 - **Prefer `Literal` over `StrEnum` / `(str, Enum)` for string constants**: Use `typing.Literal` for closed sets of string values. Reach for a real `Enum` class only when something forces it.
   - Define a `Literal` type alias for the validated value set.
   - Export module-level constants for the individual values so callers don't repeat string literals at call sites.

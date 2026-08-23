@@ -20,6 +20,7 @@ ENV_ADMIN_PASSWORD = "AAICLICK_ADMIN_PASSWORD"
 
 DEFAULT_ACCESS_TTL = 1800
 DEFAULT_REFRESH_TTL = 1209600
+DEFAULT_ADMIN_USERNAME = "superadmin"
 
 
 class AdminSeed(NamedTuple):
@@ -53,8 +54,13 @@ def refresh_ttl() -> int:
 
 
 def admin_seed() -> AdminSeed | None:
-    username = os.getenv(ENV_ADMIN_USERNAME)
+    """First-startup superadmin seed; the username defaults to ``superadmin``.
+
+    The password has no default — without ``AAICLICK_ADMIN_PASSWORD`` nothing
+    is seeded, so a deployment never ships a well-known credential.
+    """
+    username = os.getenv(ENV_ADMIN_USERNAME) or DEFAULT_ADMIN_USERNAME
     password = os.getenv(ENV_ADMIN_PASSWORD)
-    if username and password:
+    if password:
         return AdminSeed(username, password)
     return None

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .models import Role
 
@@ -29,16 +29,51 @@ class TokenPair(BaseModel):
     expires_in: int
 
 
-class MeView(BaseModel):
+class TenantView(BaseModel):
     id: int
+    slug: str
+    name: str
+    created_at: datetime
+
+
+class CreateTenantRequest(BaseModel):
+    # Pattern as a field constraint, not a validator, so it reaches the
+    # generated OpenAPI schema the SPA types are built from.
+    slug: str = Field(pattern=r"^[a-z0-9_]+$")
+    name: str
+
+
+class MemberView(BaseModel):
+    user_id: int
     username: str
     role: Role
+
+
+class SetMemberRequest(BaseModel):
+    role: Role
+
+
+class TenantRoleView(BaseModel):
+    tenant_id: int
+    slug: str
+    name: str
+    role: Role
+
+
+class MeView(BaseModel):
+    """Current principal. ``id``/``username`` are ``None`` in local mode
+    (auth disabled — the synthetic superadmin has no user row)."""
+
+    id: int | None
+    username: str | None
+    superadmin: bool
+    tenants: list[TenantRoleView]
 
 
 class UserView(BaseModel):
     id: int
     username: str
-    role: Role
+    superadmin: bool
     disabled: bool
     created_at: datetime
 
@@ -46,11 +81,11 @@ class UserView(BaseModel):
 class CreateUserRequest(BaseModel):
     username: str
     password: str
-    role: Role = "viewer"
+    superadmin: bool = False
 
 
-class SetRoleRequest(BaseModel):
-    role: Role
+class SetSuperadminRequest(BaseModel):
+    superadmin: bool
 
 
 class SetPasswordRequest(BaseModel):
@@ -66,6 +101,12 @@ class ChangePasswordRequest(BaseModel):
 
 
 class UserListFilter(BaseModel):
+    limit: int = 50
+    offset: int = 0
+    cursor: str | None = None
+
+
+class TenantListFilter(BaseModel):
     limit: int = 50
     offset: int = 0
     cursor: str | None = None

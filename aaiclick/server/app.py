@@ -8,16 +8,16 @@ from fastapi import Depends, FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from aaiclick.auth import config, security, store
-from aaiclick.auth.models import ROLE_ADMIN
 from aaiclick.backend import is_local
 from aaiclick.orchestration.local_runtime import local_runtime
 from aaiclick.orchestration.orch_context import orch_context
 
-from .auth import AdminAuthMiddleware, require_principal, warn_if_open
+from .auth import AdminAuthMiddleware, require_principal, require_tenant, warn_if_open
 from .errors import register_exception_handlers
 from .mcp import mcp
 from .routers import auth as auth_router
 from .routers import execution_workers, jobs, objects, registered_jobs, tasks
+from .routers import tenants as tenants_router
 from .routers import users as users_router
 
 API_PREFIX = "/api/v0"
@@ -30,7 +30,7 @@ _mcp_app = mcp.http_app(path="/")
 
 
 async def _seed_admin() -> None:
-    """Insert the env-configured admin on first startup (empty users table)."""
+    """Insert the env-configured superadmin on first startup (empty users table)."""
     seed = config.admin_seed()
     if seed is None or not config.auth_enabled():
         return
@@ -39,7 +39,7 @@ async def _seed_admin() -> None:
             await store.create_user(
                 username=seed.username,
                 password_hash=security.hash_password(seed.password),
-                role=ROLE_ADMIN,
+                superadmin=True,
             )
 
 
@@ -67,19 +67,23 @@ app = FastAPI(
 
 register_exception_handlers(app)
 
+# Tenant-scoped routers resolve the active tenant (X-Tenant-Id) per request;
+# execution workers are shared infrastructure and only need a principal.
 for router in (
     jobs.router,
     registered_jobs.router,
     tasks.router,
-    execution_workers.router,
     objects.router,
 ):
-    app.include_router(router, prefix=API_PREFIX, dependencies=[Depends(require_principal)])
+    app.include_router(router, prefix=API_PREFIX, dependencies=[Depends(require_tenant)])
+app.include_router(execution_workers.router, prefix=API_PREFIX, dependencies=[Depends(require_principal)])
 
-# `/auth` is public (login/refresh mint the credential); `/users` carries its
-# own `require_admin`. Neither takes the blanket `require_principal` above.
+# `/auth` is public (login/refresh mint the credential); `/users` and
+# `/tenants` declare their own guards per route (`require_superadmin`,
+# `require_principal`). None takes the blanket dependency above.
 app.include_router(auth_router.router, prefix=API_PREFIX)
 app.include_router(users_router.router, prefix=API_PREFIX)
+app.include_router(tenants_router.router, prefix=API_PREFIX)
 
 # `Depends` doesn't cross the mount boundary into the FastMCP sub-app, so the
 # admin-only check runs as ASGI middleware wrapping the mount.

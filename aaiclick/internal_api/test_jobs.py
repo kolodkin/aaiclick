@@ -6,10 +6,12 @@ import pytest
 from sqlmodel import select
 
 from aaiclick.orchestration.factories import create_job
+from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.models import JOB_CANCELLED, JOB_COMPLETED, JOB_PENDING, Task
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import register_job
 from aaiclick.orchestration.view_models import JobDetail, JobStatsView, JobView
+from aaiclick.tenancy import active_tenant
 from aaiclick.view_models import JobListFilter, Page, RunJobRequest
 
 from . import errors, jobs
@@ -158,3 +160,24 @@ async def test_run_job_bare_name_resolves_registered_entrypoint(orch_ctx):
     detail = await jobs.get_job(view.id)
 
     assert detail.tasks[0].entrypoint == _SAMPLE_TASK
+
+
+async def test_list_jobs_filters_by_active_tenant(orch_ctx):
+    with active_tenant(2):
+        await create_job("tenant2_job", simple_task)
+    await create_job("default_job", simple_task)
+
+    with active_tenant(2):
+        page = await jobs.list_jobs()
+        assert [j.name for j in page.items] == ["tenant2_job"]
+    assert [j.name for j in (await jobs.list_jobs()).items] == ["default_job"]
+
+
+async def test_get_job_cross_tenant_is_not_found(orch_ctx):
+    with active_tenant(2):
+        job = await create_job("hidden_job", simple_task)
+
+    with pytest.raises(errors.NotFound):
+        await jobs.get_job(job.id)
+    with active_tenant(2):
+        assert (await jobs.get_job(job.id)).id == job.id

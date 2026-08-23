@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlmodel import col
 
 from aaiclick.auth import security, store
-from aaiclick.auth.models import Role, User
+from aaiclick.auth.models import User
 from aaiclick.auth.view_models import CreateUserRequest, UserListFilter, UserView
 from aaiclick.view_models import Page
 
@@ -17,7 +17,7 @@ def _to_view(user: User) -> UserView:
     return UserView(
         id=user.id,
         username=user.username,
-        role=user.role,
+        superadmin=user.superadmin,
         disabled=user.disabled,
         created_at=user.created_at,
     )
@@ -28,7 +28,7 @@ async def create_user(request: CreateUserRequest) -> UserView:
         user = await store.create_user(
             username=request.username,
             password_hash=security.hash_password(request.password),
-            role=request.role,
+            superadmin=request.superadmin,
         )
     except store.UsernameTaken as exc:
         raise Conflict(str(exc)) from exc
@@ -48,11 +48,11 @@ async def get_user(user_id: int) -> UserView:
     return _to_view(user)
 
 
-async def set_role(user_id: int, role: Role) -> UserView:
-    """Change a user's role and end their sessions, so a demotion cannot be
-    outlived by a refresh token still minting the old role."""
+async def set_superadmin(user_id: int, superadmin: bool) -> UserView:
+    """Change a user's superadmin flag and end their sessions, so a demotion
+    cannot be outlived by a refresh token still minting the old claims."""
     try:
-        user = await store.set_role(user_id, role)
+        user = await store.set_superadmin(user_id, superadmin)
     except store.UserNotFound as exc:
         raise NotFound(str(exc)) from exc
     await store.revoke_all_for_user(user_id)

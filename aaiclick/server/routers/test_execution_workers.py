@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from aaiclick.auth import security
-from aaiclick.auth.models import ROLE_VIEWER
 from aaiclick.internal_api import execution_workers as execution_workers_api
 from aaiclick.internal_api.errors import ExecutionWorkerSpawnFailed, Invalid
 from aaiclick.orchestration.execution.execution_worker import register_execution_worker
@@ -17,7 +16,7 @@ RBAC_SECRET = "rbac-execution_workers-test-secret-key-32-plus-bytes"
 async def test_viewer_cannot_start_worker(orch_ctx, app_client, monkeypatch):
     monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: False)
     monkeypatch.setenv("AAICLICK_JWT_SECRET", RBAC_SECRET)
-    token = security.encode_access_token(user_id=2, role=ROLE_VIEWER, secret=RBAC_SECRET, ttl=60)
+    token = security.encode_access_token(user_id=2, superadmin=False, tenants={}, secret=RBAC_SECRET, ttl=60)
     res = await app_client.post(
         f"{API_PREFIX}/execution-workers", json={}, headers={"Authorization": f"Bearer {token}"}
     )
@@ -99,3 +98,16 @@ async def test_start_worker_spawn_failure_returns_503(orch_ctx, app_client, monk
 
     assert response.status_code == 503
     assert Problem.model_validate(response.json()).code is ProblemCode.EXECUTION_WORKER_SPAWN_FAILED
+
+
+async def test_start_forbidden_for_tenant_admin(orch_ctx, app_client, monkeypatch):
+    """Workers are shared infrastructure: a tenant admin is not enough."""
+    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: False)
+    monkeypatch.setenv("AAICLICK_JWT_SECRET", RBAC_SECRET)
+    token = security.encode_access_token(user_id=3, superadmin=False, tenants={7: "admin"}, secret=RBAC_SECRET, ttl=60)
+    res = await app_client.post(
+        f"{API_PREFIX}/execution-workers",
+        json={},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res.status_code == 403 and res.json()["code"] == "forbidden"
