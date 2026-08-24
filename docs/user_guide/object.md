@@ -687,7 +687,8 @@ exempt at the leaf level — missing or `None` values ingest as NULL and
 read back as `None`; a `None` dict or list item still raises. All-`None`
 values infer as `Nullable(String)` and round-trip as `None`. Name-parsing applies to any
 dict-shaped read — explicit `Schema` columns, imports, and Views with
-dotted column names reconstruct the same way.
+dotted column names reconstruct the same way; a plain column colliding
+with a dotted prefix (`x` next to `x.y`) raises rather than dropping data.
 
 **Tests**: `aaiclick/data/object/test_nested_dicts.py`, `aaiclick/data/object/test_nested_arrays.py`, `aaiclick/data/data_context/test_arrow_ingest.py`.
 

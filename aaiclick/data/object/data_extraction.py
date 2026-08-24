@@ -51,6 +51,8 @@ def _undot_record(flat: dict) -> dict:
         else:
             groups.setdefault(key[:dot_pos], {})[key[dot_pos + 1 :]] = val
     for prefix, sub in groups.items():
+        if prefix in result:
+            raise ValueError(f"Column {prefix!r} collides with nested columns prefixed {prefix + '.'!r}")
         result[prefix] = _undot_record(sub)
     return result
 
@@ -86,6 +88,8 @@ def _unflatten_record(flat_record: dict) -> dict:
     result = dict(plain)
 
     for prefix, sub_fields in nested_groups.items():
+        if prefix in plain:
+            raise ValueError(f"Column {prefix!r} collides with nested columns prefixed {prefix + '.'!r}")
         first_val = next(iter(sub_fields.values()))
         length = len(first_val) if isinstance(first_val, (list, tuple)) else 1
 
