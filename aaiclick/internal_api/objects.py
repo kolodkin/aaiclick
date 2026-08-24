@@ -1,7 +1,9 @@
 """Internal API for persistent data-object commands.
 
-Each function runs inside an active ``data_context()`` and reads the
-ClickHouse client via the contextvar getter. Returns pydantic view models.
+Each function runs inside an active ``orch_context(with_ch=True)`` and reads
+the ClickHouse client via the contextvar getter. Registry-backed paths
+(``get_object`` -> ``open_object``) additionally need the SQL session that
+only orch provides. Returns pydantic view models.
 
 Scope support is intentionally narrow in this migration: all operations
 target the ``global`` persistence tier (``p_*`` tables), matching what the

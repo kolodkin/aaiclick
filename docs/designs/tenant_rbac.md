@@ -199,17 +199,82 @@ on first startup, unchanged otherwise.
 
 # Object Tenancy (Phase 2)
 
-Persistent objects have no SQL metadata — they are discovered by scanning
-ClickHouse table names (`aaiclick/data/scope.py` prefix scheme). Tenant
-scoping therefore extends the naming convention:
+Persistent objects are namespaced twice: the ClickHouse table name carries the
+tenant, so two tenants can hold the same object name, and a SQL
+`table_registry` row records which tenant owns it. Neither layer is sufficient
+alone.
+
+## Physical namespace — tenant-prefixed table names
 
 - Default tenant keeps bare `p_<name>` — full backward compatibility.
 - Other tenants use `p_<tenant_id>_<name>`.
 
 `scope.py` gains tenant-aware `make_scoped_table_name` / `name_from_table`
-variants; `internal_api.objects` lists, opens, deletes, and purges through
-the active tenant's prefix. Job-scoped (`j_*`) and temp (`t_*`) tables need
-no change — they are reachable only through their tenant-scoped job.
+variants; `internal_api.objects` lists, opens, deletes, and purges through the
+active tenant's prefix. Job-scoped (`j_*`) and temp (`t_*`) tables need no
+change — they are reachable only through their tenant-scoped job, and the
+tenant prefix never stacks onto them.
+
+The prefix parses unambiguously because `_validate_persistent_name`
+(`aaiclick/data/data_context/data_context.py`) rejects a leading digit, so no
+default-tenant object can produce a `p_<digits>_` prefix. A test pins that
+coupling, so relaxing the name regex cannot silently introduce a collision.
+
+!!! warning "The prefix, not the registry, is what prevents cross-tenant writes"
+    Persistent creates use `CREATE TABLE IF NOT EXISTS` (see `create_object`)
+    and the registry insert is `ON CONFLICT (table_name) DO NOTHING` (see
+    `DBLifecycleHandler._write_table_registry_row`). On a shared physical name,
+    a second tenant creating an already-taken name would write silently into
+    the first tenant's table while the registry kept attributing it to the
+    original owner. Tenant-unique names remove the case.
+
+## Ownership — `table_registry.tenant_id`
+
+**Implementation**: `aaiclick/orchestration/lifecycle/db_lifecycle.py` — see
+`TableRegistry`.
+
+`table_registry` holds one row per ClickHouse table aaiclick creates and is
+already authoritative on the read path: `open_object()` resolves an object's
+schema through it (`aaiclick/data/object/ingest.py` — see `_get_table_schema`),
+raising `LookupError` when no row exists. A `tenant_id` column (`BigInteger`,
+non-null, indexed — a plain column, not a DB FK, matching `registered_jobs` /
+`jobs`) makes that path tenant-aware:
+
+| Surface                     | Change                                                                  |
+|-----------------------------|-------------------------------------------------------------------------|
+| `open_object()`             | Add `tenant_id = :active` to the `_get_table_schema` lookup — a cross-tenant open raises the existing `LookupError`, surfacing as `404`, never `403` |
+| `list_persistent_objects()` | Filter `table_registry` by the active tenant instead of scanning `system.tables` |
+| Background cleanup          | `j_*` / `t_*` rows carry the tenant too, giving the worker tenant visibility for free |
+
+Global-scope creation already requires an orch context — `_resolve_scope`
+rejects `scope="global"` under a bare `data_context()` — so every persistent
+object has a registry row by construction, and the column has no
+partially-populated case.
+
+!!! warning "The CLI object path must move to an orch context first"
+    The CLI runs object commands under a bare `data_context()`
+    (`aaiclick/__main__.py` — see `_run_data_api`), which provides no SQL
+    session, while the server mounts `orch_scope_with_ch`. `open_object()`
+    therefore raises `RuntimeError` inside `get_sql_session()`, and
+    `get_object` catches `RuntimeError` broadly and reports `NotFound` — so
+    `aaiclick data get <name>` reports every object as missing while
+    `aaiclick data list` still shows it. Phase 2 moves `_run_data_api` to
+    `orch_context(with_ch=True)`; registry-backed listing needs the same SQL
+    session.
+
+## Name length budget
+
+ClickHouse caps table names near `213 - len(database)` characters (measured
+against chdb: 242 in `default`, 205 in a database named `aaiclick`), regardless
+of the data directory path. A snowflake renders as 19 digits, so
+`p_<tenant_id>_` costs 22 characters — the same as the `j_<job_id>_` and
+`t_<name>_<snowid>` prefixes already in use — leaving 183+ for the name.
+
+Names are unvalidated for length today, so an over-long one fails deep in
+ClickHouse with `ARGUMENT_OUT_OF_BOUND`, or an unhandled
+`std::filesystem::filesystem_error` past 251 characters. Phase 2 adds a
+conservative cap (128) to `_validate_persistent_name`, turning that into a
+`ValueError` at the API boundary.
 
 # SPA (Phase 3)
 
@@ -224,7 +289,7 @@ no change — they are reachable only through their tenant-scoped job.
 | Phase | Deliverable                                                              |
 |-------|--------------------------------------------------------------------------|
 | 1     | Tables + migration, JWT/principal changes, tenant contextvar + query scoping, `/tenants` API, CLI, docs |
-| 2     | Tenant-prefixed `p_*` naming, tenant-scoped object endpoints             |
+| 2     | Tenant-prefixed `p_*` naming, `table_registry.tenant_id`, tenant-scoped object endpoints |
 | 3     | SPA tenant switcher, membership admin UI, superadmin-gated controls      |
 
 Each phase is one PR. Business-logic tests live in
@@ -243,3 +308,7 @@ and convert `users.role` → `users.superadmin` (admin → `true`; viewer →
 `false` + default-tenant `viewer` membership). Local/dev (`aaiclick setup`)
 builds tables from `SQLModel.metadata` and seeds the default tenant in
 code, so the revision is only required for Postgres-backed deployments.
+
+Phase 2 adds a second revision for `table_registry.tenant_id`, backfilled to
+the default tenant. Rows for tables that predate the column keep the default
+tenant, matching the bare `p_<name>` prefix they already carry.
