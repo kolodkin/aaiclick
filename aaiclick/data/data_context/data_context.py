@@ -472,7 +472,10 @@ async def create_object_from_value(
             - Scalar (int, float, bool, str): Creates single row
             - List of scalars: Creates multiple rows
             - Dict of scalars: Single row with columns per key
-            - Dict of arrays: Multiple rows with columns per key
+            - Dict of arrays (ALL values lists): Multiple rows with columns per key
+            - Dict mixing scalars and lists: Single row — each list becomes
+              an ``Array(T)`` column (``{"id": 1, "tags": ["a"]}`` →
+              columns ``id`` Int64, ``tags`` Array(String))
             - Dict/List with nested dicts: flattened to plain-dot columns
               (``{"x": {"y": 1}}`` → column ``x.y``)
             - Dict/List with nested list-of-dicts: flattened with dot-star
@@ -537,40 +540,34 @@ async def create_object_from_value(
             await ch.insert_arrow(table, arrow_table)
 
     if isinstance(val, dict):
-        has_arrays = any(isinstance(v, list) for v in val.values())
+        all_arrays = bool(val) and all(isinstance(v, list) for v in val.values())
 
-        if has_arrays and not _has_nested_dicts(val):
+        if all_arrays and not _has_nested_dicts(val):
             # Dict of parallel arrays: one row per element.
             columns = {}
             col_map: dict[str, pa.Array | list] = {}
             array_len = None
 
             for key, value in val.items():
-                if isinstance(value, list):
-                    if array_len is None:
-                        array_len = len(value)
-                    elif len(value) != array_len:
-                        raise ValueError(
-                            f"All arrays must have same length. Expected {array_len}, got {len(value)} for key '{key}'"
-                        )
-                    if "." in key:
-                        raise ValueError(f"Dict keys must not contain '.': {key!r}")
-                    try:
-                        pa_arr = pa.array(value)
-                    except (pa.ArrowInvalid, pa.ArrowTypeError) as e:
-                        raise ValueError(f"Cannot infer a uniform schema from records: {e}") from e
-                    elem_type = pa_arr.type
-                    depth = 0
-                    while pa.types.is_list(elem_type) or pa.types.is_large_list(elem_type):
-                        depth += 1
-                        elem_type = elem_type.value_type
-                    col_def = leaf_column_info(elem_type, depth)
-                    col_map[key] = pa_arr
-                else:
+                if array_len is None:
+                    array_len = len(value)
+                elif len(value) != array_len:
                     raise ValueError(
-                        f"Dict of arrays requires all values to be lists. Key '{key}' has type {type(value).__name__}"
+                        f"All arrays must have same length. Expected {array_len}, got {len(value)} for key '{key}'"
                     )
-                columns[key] = col_def.with_fieldtype(FIELDTYPE_ARRAY)
+                if "." in key:
+                    raise ValueError(f"Dict keys must not contain '.': {key!r}")
+                try:
+                    pa_arr = pa.array(value)
+                except (pa.ArrowInvalid, pa.ArrowTypeError) as e:
+                    raise ValueError(f"Cannot infer a uniform schema from records: {e}") from e
+                elem_type = pa_arr.type
+                depth = 0
+                while pa.types.is_list(elem_type) or pa.types.is_large_list(elem_type):
+                    depth += 1
+                    elem_type = elem_type.value_type
+                col_map[key] = pa_arr
+                columns[key] = leaf_column_info(elem_type, depth).with_fieldtype(FIELDTYPE_ARRAY)
 
             columns = _maybe_add_aai_id(_apply_field_specs(columns, fields))
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
@@ -579,8 +576,9 @@ async def create_object_from_value(
             await _insert_columns(obj.table, columns, col_map)
 
         else:
-            # Single record (flat or nested): arrow infers the schema, leaves
-            # flatten to dot/dot-star columns.
+            # Single record (flat, nested, or mixing scalars with lists):
+            # arrow infers the schema, leaves flatten to dot/dot-star columns
+            # and scalar lists become Array columns.
             struct_arr = infer_struct_array([val])
             columns = struct_type_to_columns(struct_arr.type)
             col_map = struct_array_to_columns(struct_arr)

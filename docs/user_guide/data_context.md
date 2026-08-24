@@ -122,12 +122,18 @@ Each Object gets a ClickHouse table `t{snowflake_id}` containing only the user-d
 
 ### Schema Patterns
 
-| Data Type       | Columns                | Rows     |
-|-----------------|------------------------|----------|
-| Scalar          | `value {type}`         | 1        |
-| Array/List      | `value {type}`         | N        |
-| Dict of Scalars | `col1`, `col2`, ...    | 1        |
-| Dict of Arrays  | `col1`, `col2`, ...    | N        |
+| Data Type                    | Columns                | Rows     |
+|------------------------------|------------------------|----------|
+| Scalar                       | `value {type}`         | 1        |
+| Array/List                   | `value {type}`         | N        |
+| Dict of Scalars              | `col1`, `col2`, ...    | 1        |
+| Dict of Arrays (all lists)   | `col1`, `col2`, ...    | N        |
+| Dict Mixing Scalars + Lists  | `col1`, `col2`, ...    | 1        |
+
+A dict routes to parallel arrays (one row per element) only when **all** values
+are lists. A dict mixing scalars and lists is a single record — each list
+becomes an `Array(T)` column (`{"id": 1, "tags": ["a"]}` → `id` Int64,
+`tags` Array(String)).
 
 Column names are backtick-quoted via `quote_identifier()` in `aaiclick/data/sql_utils.py`.
 
