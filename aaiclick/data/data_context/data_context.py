@@ -723,12 +723,13 @@ async def _forget_registry_rows(table_names: list[str]) -> None:
     # so the registry model and SQL session are resolved at call time
     # (same pattern as list_persistent_objects).
     from sqlalchemy import delete as sql_delete
+    from sqlmodel import col
 
     from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
     from aaiclick.orchestration.sql_context import get_sql_session
 
     async with get_sql_session() as session:
-        await session.execute(sql_delete(TableRegistry).where(TableRegistry.table_name.in_(table_names)))
+        await session.execute(sql_delete(TableRegistry).where(col(TableRegistry.table_name).in_(table_names)))
         await session.commit()
 
 
@@ -798,7 +799,7 @@ async def list_persistent_objects() -> list[str]:
     # Circular dep: orchestration imports the data package at import time,
     # so the registry model and SQL session are resolved at call time
     # (same pattern as aaiclick/data/object/ingest.py::_get_table_schema).
-    from sqlmodel import select
+    from sqlmodel import col, select
 
     from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
     from aaiclick.orchestration.sql_context import get_sql_session
@@ -807,7 +808,7 @@ async def list_persistent_objects() -> list[str]:
         result = await session.execute(
             select(TableRegistry.table_name).where(
                 TableRegistry.tenant_id == get_active_tenant_id(),
-                TableRegistry.table_name.startswith(GLOBAL_PREFIX),
+                col(TableRegistry.table_name).startswith(GLOBAL_PREFIX),
             )
         )
     return [name_from_table(row[0]) for row in result.all()]
