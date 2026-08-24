@@ -14,6 +14,8 @@ covered alongside the unnamed-temp default in
 ``aaiclick/data/data_context/test_persistent.py``.
 """
 
+from datetime import datetime
+
 import pytest
 from sqlmodel import select
 
@@ -22,6 +24,7 @@ from aaiclick.data.data_context import (
     delete_persistent_object,
     delete_persistent_objects,
     get_data_lifecycle,
+    list_persistent_objects,
     open_object,
 )
 from aaiclick.data.data_context.data_context import MAX_PERSISTENT_NAME_LEN, _validate_persistent_name
@@ -192,3 +195,38 @@ async def test_open_object_does_not_cross_tenants(orch_ctx):
     with active_tenant(8):
         with pytest.raises(ObjectNotFoundError):
             await open_object("private", scope="global")
+
+
+async def test_listing_shows_only_the_active_tenants_objects(orch_ctx):
+    with active_tenant(7):
+        await create_object_from_value([1], name="seven_only", scope="global")
+    with active_tenant(8):
+        await create_object_from_value([2], name="eight_only", scope="global")
+
+    with active_tenant(7):
+        assert await list_persistent_objects() == ["seven_only"]
+    with active_tenant(8):
+        assert await list_persistent_objects() == ["eight_only"]
+
+
+async def test_purge_leaves_other_tenants_objects_alone(orch_ctx):
+    """A purge is scoped to the caller's tenant, not the whole database."""
+    with active_tenant(7):
+        await create_object_from_value([1], name="mine", scope="global")
+    with active_tenant(8):
+        await create_object_from_value([2], name="theirs", scope="global")
+
+    with active_tenant(7):
+        # ``before`` (not ``after``): chdb reports metadata_modification_time
+        # as the epoch, so an after-window can never match on that backend.
+        deleted = await delete_persistent_objects(before=datetime(2100, 1, 1))
+        assert deleted == ["mine"]
+    with active_tenant(8):
+        assert await list_persistent_objects() == ["theirs"]
+
+
+async def test_delete_clears_the_registry_row(orch_ctx):
+    """A dropped object must vanish from registry-backed listing too."""
+    await create_object_from_value([1], name="short_lived", scope="global")
+    await delete_persistent_object("short_lived", scope="global")
+    assert "short_lived" not in await list_persistent_objects()

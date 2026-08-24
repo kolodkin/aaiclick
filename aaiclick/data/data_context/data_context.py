@@ -42,14 +42,16 @@ from ..models import (
     build_order_by_clause,
 )
 from ..scope import (
+    GLOBAL_PREFIX,
     SCOPE_GLOBAL,
     SCOPE_JOB,
     SCOPE_TEMP_NAMED,
     NamedScope,
     PersistentScope,
     make_scoped_table_name,
+    name_from_table,
 )
-from ..sql_utils import quote_identifier
+from ..sql_utils import escape_sql_string, quote_identifier
 from .arrow_ingest import (
     arrow_table_for_insert,
     infer_struct_array,
@@ -705,23 +707,47 @@ async def delete_persistent_object(name: str, scope: PersistentScope = SCOPE_JOB
     """
     table_name = _build_scoped_table(name, scope)
     await get_ch_client().command(f"DROP TABLE IF EXISTS {table_name}")
+    await _forget_registry_rows([table_name])
+
+
+async def _forget_registry_rows(table_names: list[str]) -> None:
+    """Delete ``table_registry`` rows for dropped tables.
+
+    Without this a re-created object would hit the registry's
+    ``ON CONFLICT (table_name) DO NOTHING`` and keep a stale schema_doc,
+    and registry-backed listing would keep showing the dropped object.
+    """
+    if not table_names:
+        return
+    # Circular dep: orchestration imports the data package at import time,
+    # so the registry model and SQL session are resolved at call time
+    # (same pattern as list_persistent_objects).
+    from sqlalchemy import delete as sql_delete
+
+    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
+    from aaiclick.orchestration.sql_context import get_sql_session
+
+    async with get_sql_session() as session:
+        await session.execute(sql_delete(TableRegistry).where(TableRegistry.table_name.in_(table_names)))
+        await session.commit()
 
 
 async def delete_persistent_objects(
     after: datetime | None = None,
     before: datetime | None = None,
 ) -> list[str]:
-    """Drop persistent tables filtered by creation time.
+    """Drop the active tenant's persistent tables, filtered by creation time.
 
-    Uses ClickHouse ``system.tables.metadata_modification_time`` to
-    determine when each table was created.
+    Candidates come from ``table_registry`` so the purge cannot reach another
+    tenant's tables; the time window is still evaluated against ClickHouse
+    ``system.tables.metadata_modification_time``.
 
     Args:
         after: Drop tables created at or after this time (inclusive).
         before: Drop tables created before this time (exclusive).
 
     Returns:
-        List of deleted persistent names (without ``p_`` prefix).
+        List of deleted persistent names (without prefix).
 
     Raises:
         ValueError: If neither ``after`` nor ``before`` is specified.
@@ -731,11 +757,16 @@ async def delete_persistent_objects(
             "At least one of 'after' or 'before' must be specified "
             "to prevent accidental deletion of all persistent objects"
         )
+    tenant_id = get_active_tenant_id()
+    owned = sorted(
+        make_scoped_table_name(SCOPE_GLOBAL, n, tenant_id=tenant_id) for n in await list_persistent_objects()
+    )
+    if not owned:
+        return []
+
     ch = get_ch_client()
-    conditions = [
-        "database = currentDatabase()",
-        r"name LIKE 'p\_%'",
-    ]
+    names_lit = ", ".join(f"'{escape_sql_string(t)}'" for t in owned)
+    conditions = ["database = currentDatabase()", f"name IN ({names_lit})"]
     if after is not None:
         after_str = after.strftime("%Y-%m-%d %H:%M:%S")
         conditions.append(f"metadata_modification_time >= '{after_str}'")
@@ -749,19 +780,34 @@ async def delete_persistent_objects(
 
     for table_name in names:
         await ch.command(f"DROP TABLE IF EXISTS {table_name}")
+    await _forget_registry_rows(names)
 
-    return [n[2:] for n in names]
+    return [name_from_table(n) for n in names]
 
 
 async def list_persistent_objects() -> list[str]:
-    """List all persistent object names.
+    """List the active tenant's persistent object names.
+
+    Reads SQL ``table_registry`` rather than scanning ``system.tables``:
+    ownership lives in SQL, and a ClickHouse scan cannot tell one tenant's
+    tables from another's without re-parsing every prefix.
 
     Returns:
-        List of persistent names (without ``p_`` prefix).
+        List of persistent names (without prefix).
     """
-    result = await get_ch_client().query(
-        "SELECT name FROM system.tables "
-        "WHERE database = currentDatabase() "
-        r"AND name LIKE 'p\_%'"
-    )
-    return [row[0][2:] for row in result.result_rows]
+    # Circular dep: orchestration imports the data package at import time,
+    # so the registry model and SQL session are resolved at call time
+    # (same pattern as aaiclick/data/object/ingest.py::_get_table_schema).
+    from sqlmodel import select
+
+    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
+    from aaiclick.orchestration.sql_context import get_sql_session
+
+    async with get_sql_session() as session:
+        result = await session.execute(
+            select(TableRegistry.table_name).where(
+                TableRegistry.tenant_id == get_active_tenant_id(),
+                TableRegistry.table_name.startswith(GLOBAL_PREFIX),
+            )
+        )
+    return [name_from_table(row[0]) for row in result.all()]
