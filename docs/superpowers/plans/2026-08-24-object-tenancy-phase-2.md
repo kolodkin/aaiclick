@@ -38,7 +38,7 @@
 | File | Responsibility | Change |
 |-------------------------------------------------|---------------------------------------------------|--------|
 | `aaiclick/data/scope.py`                         | Table-name prefix scheme; gains tenant awareness   | Modify |
-| `aaiclick/data/test_scope.py`                    | Prefix round-trip tests                            | Create |
+| `aaiclick/data/test_scope.py`                    | Prefix round-trip tests                            | Modify |
 | `aaiclick/orchestration/lifecycle/db_lifecycle.py` | `TableRegistry` model + `OplogTablePayload`      | Modify |
 | `aaiclick/orchestration/orch_context.py`         | Stamps `tenant_id` on registry rows                | Modify |
 | `aaiclick/data/data_context/data_context.py`     | Builds scoped names; lists / deletes persistent objects | Modify |
@@ -54,7 +54,7 @@ Task order is dependency order: the naming layer (1) is independent, the column 
 
 **Files:**
 - Modify: `aaiclick/data/scope.py`
-- Test: `aaiclick/data/test_scope.py` (create)
+- Test: `aaiclick/data/test_scope.py` (modify — the file already exists with 17 scope tests; append, do not overwrite)
 
 **Interfaces:**
 - Consumes: `DEFAULT_TENANT_ID` from `aaiclick.tenancy`.
@@ -68,7 +68,7 @@ Only `scope="global"` gains a tenant prefix. `j_*` and `t_*` are unchanged — t
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `aaiclick/data/test_scope.py`:
+Append to `aaiclick/data/test_scope.py` (17 tests already live there — keep them):
 
 ```python
 """Tests for ``aaiclick.data.scope`` tenant-aware prefixing."""

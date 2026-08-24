@@ -11,7 +11,9 @@ from aaiclick.data.scope import (
     make_scoped_table_name,
     name_from_table,
     scope_of,
+    tenant_from_table,
 )
+from aaiclick.tenancy import DEFAULT_TENANT_ID
 
 
 def test_scope_of_temp():
@@ -107,3 +109,40 @@ def test_name_from_table_temp_named():
 
 def test_name_from_table_temp_falls_back_to_table():
     assert name_from_table("t_9999999999") == "t_9999999999"
+
+
+def test_default_tenant_keeps_bare_global_prefix():
+    """Backward compatibility: existing deployments must not need a rename."""
+    table = make_scoped_table_name("global", "sales", tenant_id=DEFAULT_TENANT_ID)
+    assert table == "p_sales"
+    assert name_from_table(table) == "sales"
+    assert tenant_from_table(table) == DEFAULT_TENANT_ID
+
+
+def test_other_tenants_get_a_prefixed_global_name():
+    table = make_scoped_table_name("global", "sales", tenant_id=7)
+    assert table == "p_7_sales"
+    assert scope_of(table) == "global"
+    assert name_from_table(table) == "sales"
+    assert tenant_from_table(table) == 7
+
+
+def test_two_tenants_may_share_an_object_name():
+    """The physical name is what stops a cross-tenant overwrite."""
+    assert make_scoped_table_name("global", "sales", tenant_id=7) != make_scoped_table_name(
+        "global", "sales", tenant_id=8
+    )
+
+
+def test_leading_underscore_name_does_not_look_tenant_prefixed():
+    """``_5_x`` is a legal name; ``p__5_x`` must not parse as tenant 5."""
+    table = make_scoped_table_name("global", "_5_x", tenant_id=DEFAULT_TENANT_ID)
+    assert table == "p__5_x"
+    assert tenant_from_table(table) == DEFAULT_TENANT_ID
+    assert name_from_table(table) == "_5_x"
+
+
+def test_job_and_temp_names_never_take_a_tenant_prefix():
+    """They reach their tenant through the owning job — no stacking."""
+    assert make_scoped_table_name("job", "x", job_id=42, tenant_id=7) == "j_42_x"
+    assert make_scoped_table_name("temp_named", "x", snowid=99, tenant_id=7) == "t_x_99"
