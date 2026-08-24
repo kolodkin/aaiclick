@@ -565,6 +565,8 @@ async def create_object_from_value(
                 while pa.types.is_list(elem_type) or pa.types.is_large_list(elem_type):
                     depth += 1
                     elem_type = elem_type.value_type
+                if pa.types.is_struct(elem_type):
+                    raise ValueError(f"Lists of lists of dicts are not supported: {key!r}")
                 col_map[key] = pa_arr
                 columns[key] = leaf_column_info(elem_type, depth).with_fieldtype(FIELDTYPE_ARRAY)
 

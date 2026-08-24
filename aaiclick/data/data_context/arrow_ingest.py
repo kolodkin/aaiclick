@@ -102,6 +102,8 @@ def _walk_type(
             while _is_list_type(elem):
                 depth += 1
                 elem = elem.value_type
+            if pa.types.is_struct(elem):
+                raise ValueError(f"Lists of lists of dicts are not supported: {key_path!r}")
             columns[key_path] = leaf_column_info(elem, depth)
     else:
         columns[key_path] = leaf_column_info(pa_type, array_depth)
