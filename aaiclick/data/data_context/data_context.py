@@ -472,10 +472,9 @@ async def create_object_from_value(
             - Scalar (int, float, bool, str): Creates single row
             - List of scalars: Creates multiple rows
             - Dict of scalars: Single row with columns per key
-            - Dict of arrays (ALL values lists): Multiple rows with columns per key
-            - Dict mixing scalars and lists: Single row — each list becomes
-              an ``Array(T)`` column (``{"id": 1, "tags": ["a"]}`` →
-              columns ``id`` Int64, ``tags`` Array(String))
+            - Dict of arrays (all values lists): Multiple rows with columns per key
+            - Dict mixing scalars and lists: Single row; lists become
+              ``Array(T)`` columns
             - Dict/List with nested dicts: flattened to plain-dot columns
               (``{"x": {"y": 1}}`` → column ``x.y``)
             - Dict/List with nested list-of-dicts: flattened with dot-star
@@ -576,9 +575,8 @@ async def create_object_from_value(
             await _insert_columns(obj.table, columns, col_map)
 
         else:
-            # Single record (flat, nested, or mixing scalars with lists):
-            # arrow infers the schema, leaves flatten to dot/dot-star columns
-            # and scalar lists become Array columns.
+            # Single record (flat, nested, or mixed scalar/list): arrow
+            # infers the schema; leaves flatten to dot/dot-star columns.
             struct_arr = infer_struct_array([val])
             columns = struct_type_to_columns(struct_arr.type)
             col_map = struct_array_to_columns(struct_arr)

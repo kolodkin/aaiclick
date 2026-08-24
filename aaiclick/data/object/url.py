@@ -48,11 +48,9 @@ def _validate_url_format(fmt: str) -> None:
 
 
 def _json_path_keys(path: str, param: str) -> list[str]:
-    """Split a dotted JSON path into its key segments.
+    """Split a dotted JSON path into key segments (``"cve.id"`` → ``["cve", "id"]``).
 
-    Dots separate nesting levels (``"cve.id"`` → ``["cve", "id"]``), matching
-    the framework's dot-notation columns. Keys whose names literally contain
-    ``.`` are therefore not addressable.
+    Keys whose names literally contain ``.`` are not addressable.
     """
     keys = path.split(".")
     if any(not k for k in keys):
@@ -172,11 +170,11 @@ async def create_object_from_url(
         format: ClickHouse format name. Default "Parquet".
         where: Optional SQL WHERE clause for filtering rows at load time
         limit: Optional row limit applied at load time
-        json_path: Dotted path to the JSON array in the response (e.g.,
-            ``"vulnerabilities"`` or ``"result.vulnerabilities"``). Requires json_columns.
-        json_columns: Mapping of dotted JSON field paths (relative to each array
-            element, e.g. ``"cve.id"``) to ColumnInfo types. Requires json_path.
-            Keys whose names literally contain ``.`` are not addressable.
+        json_path: Dotted path to the JSON array (e.g. ``"result.vulnerabilities"``).
+            Requires json_columns.
+        json_columns: Mapping of dotted field paths relative to each array element
+            (e.g. ``"cve.id"``) to ColumnInfo types. Requires json_path. Keys whose
+            names literally contain ``.`` are not addressable.
         ch_settings: Optional ClickHouse query settings passed to the read operation.
             Useful for format-specific options, e.g.
             ``{"input_format_csv_skip_first_lines": 1}`` to skip a comment header line.
