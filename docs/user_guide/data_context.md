@@ -122,12 +122,17 @@ Each Object gets a ClickHouse table `t{snowflake_id}` containing only the user-d
 
 ### Schema Patterns
 
-| Data Type       | Columns                | Rows     |
-|-----------------|------------------------|----------|
-| Scalar          | `value {type}`         | 1        |
-| Array/List      | `value {type}`         | N        |
-| Dict of Scalars | `col1`, `col2`, ...    | 1        |
-| Dict of Arrays  | `col1`, `col2`, ...    | N        |
+| Data Type                    | Columns                | Rows     |
+|------------------------------|------------------------|----------|
+| Scalar                       | `value {type}`         | 1        |
+| Array/List                   | `value {type}`         | N        |
+| Dict of Scalars              | `col1`, `col2`, ...    | 1        |
+| Dict of Arrays (all lists)   | `col1`, `col2`, ...    | N        |
+| Dict Mixing Scalars + Lists  | `col1`, `col2`, ...    | 1        |
+
+A dict routes to parallel arrays (one row per element) only when **all** values
+are lists; a mixed dict is a single record whose lists become `Array(T)`
+columns (`{"id": 1, "tags": ["a"]}` → `id` Int64, `tags` Array(String)).
 
 Column names are backtick-quoted via `quote_identifier()` in `aaiclick/data/sql_utils.py`.
 
@@ -172,6 +177,13 @@ obj = await create_object_from_value(
     [10, 20, 30],
     fields={"value": FieldSpec(nullable=True)},
 )
+
+# nullable=True also admits missing / None leaf values in records
+obj = await create_object_from_value(
+    [{"a": 1, "score": 0.5}, {"a": 2}],
+    fields={"score": FieldSpec(nullable=True)},
+)
+await obj.data()  # {"a": [1, 2], "score": [0.5, None]}
 ```
 
 | Attribute        | Default | Description                                                         |

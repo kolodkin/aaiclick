@@ -533,3 +533,38 @@ async def test_insert_view_chained_where(ctx):
     data = await target.data()
 
     assert sorted(data) == [1, 10, 15, 20]
+
+
+# =============================================================================
+# Dot-notation column names (nested-dict ingest)
+# =============================================================================
+
+
+async def test_insert_nested_dot_column(ctx):
+    """insert() must quote dotted column names produced by nested-dict ingest."""
+    target = await create_object_from_value([{"a": 1, "m": {"x": 10}}])
+    source = await create_object_from_value([{"a": 2, "m": {"x": 20}}])
+
+    await target.insert(source)
+
+    assert await target.data() == {"a": [1, 2], "m": [{"x": 10}, {"x": 20}]}
+
+
+async def test_insert_dot_star_column(ctx):
+    """insert() must quote dot-star column names produced by list-of-dicts ingest."""
+    target = await create_object_from_value([{"a": 1, "b": [{"x": 10}]}])
+    source = await create_object_from_value([{"a": 2, "b": [{"x": 20}]}])
+
+    await target.insert(source)
+
+    assert await target.data() == {"a": [1, 2], "b": [[{"x": 10}], [{"x": 20}]]}
+
+
+async def test_concat_nested_dot_column(ctx):
+    """concat() builds its own CAST list — dotted names must be quoted there too."""
+    left = await create_object_from_value([{"a": 1, "m": {"x": 10}}])
+    right = await create_object_from_value([{"a": 2, "m": {"x": 20}}])
+
+    result = await left.concat(right)
+
+    assert await result.data() == {"a": [1, 2], "m": [{"x": 10}, {"x": 20}]}

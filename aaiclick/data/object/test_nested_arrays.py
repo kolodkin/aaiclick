@@ -220,3 +220,15 @@ async def test_deep_nested_two_levels(ctx):
     assert data["level1"][0]["level2"] == [{"val": 10}, {"val": 20}]
     assert data["level1"][1]["name"] == "second"
     assert data["level1"][1]["level2"] == [{"val": 30}]
+
+
+async def test_list_of_lists_of_dicts_raises(ctx):
+    """Doubly-nested lists of dicts have no dot-star representation."""
+    with pytest.raises(ValueError, match="[Ll]ists of lists of dicts"):
+        await create_object_from_value({"a": [[{"x": 1}]]})
+
+
+async def test_list_of_lists_of_dicts_in_records_raises(ctx):
+    """Same rejection when the shape appears inside a records list."""
+    with pytest.raises(ValueError, match="[Ll]ists of lists of dicts"):
+        await create_object_from_value([{"a": [[{"x": 1}]]}, {"a": [[{"x": 2}]]}])

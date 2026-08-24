@@ -392,7 +392,12 @@ await create_object_from_url(
 For nested JSON APIs that wrap rows inside an envelope (e.g.
 `{"vulnerabilities": [...]}`), pass `RawBLOB` or `JSONAsString` plus
 `json_path` and `json_columns`. ClickHouse loads the whole document as a
-single string and applies `JSONExtract` per field:
+single string and applies `JSONExtract` per field. Dots walk nesting in
+both parameters — `json_path="result.vulnerabilities"` reaches an array
+inside an envelope, `"cve.id"` a nested field of each element (keys
+literally containing `.` are not addressable). Dotted keys become
+dot-notation columns that `data()` re-nests — see
+[Nested Data Flattening](#nested-data-flattening):
 
 ```python
 await create_object_from_url(
@@ -676,10 +681,14 @@ obj = await create_object_from_value({"b": [{"c": [1, 2], "d": 5}]})
 
 Ingest raises `ValueError` for anything that cannot round-trip: mismatched
 keys across records or items, non-dict items in a list of dicts, type
-conflicts, dotted keys, and empty dicts. All-`None` values infer as
-`Nullable(String)` and round-trip as `None`. Name-parsing applies to any
+conflicts, dotted keys, empty dicts, and lists of lists of dicts (no
+dot-star representation). Columns marked `FieldSpec(nullable=True)` are
+exempt at the leaf level — missing or `None` values ingest as NULL and
+read back as `None`; a `None` dict or list item still raises. All-`None`
+values infer as `Nullable(String)` and round-trip as `None`. Name-parsing applies to any
 dict-shaped read — explicit `Schema` columns, imports, and Views with
-dotted column names reconstruct the same way.
+dotted column names reconstruct the same way; a plain column colliding
+with a dotted prefix (`x` next to `x.y`) raises rather than dropping data.
 
 **Tests**: `aaiclick/data/object/test_nested_dicts.py`, `aaiclick/data/object/test_nested_arrays.py`, `aaiclick/data/data_context/test_arrow_ingest.py`.
 

@@ -466,10 +466,22 @@ _SAMPLE_JSON = {
     ],
 }
 
+# Envelope with a nested array path and nested item fields — dots in
+# ``json_path`` / ``json_columns`` keys walk these paths.
+_SAMPLE_JSON_NESTED = {
+    "result": {
+        "vulnerabilities": [
+            {"cve": {"id": "CVE-1", "metrics": {"score": 9.8}}, "status": "analyzed"},
+            {"cve": {"id": "CVE-2", "metrics": {"score": 5.4}}, "status": "modified"},
+        ]
+    }
+}
+
 
 class _JsonHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        body = json.dumps(_SAMPLE_JSON).encode()
+        doc = _SAMPLE_JSON_NESTED if self.path.endswith("/nested.json") else _SAMPLE_JSON
+        body = json.dumps(doc).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -609,6 +621,70 @@ async def test_json_load_json_as_string_format(ctx, json_server):
     # Single-column → FIELDTYPE_ARRAY Object — data() returns a list.
     data = await obj.data()
     assert len(data) == 3
+
+
+async def test_json_nested_path_extracts_array(ctx, json_server):
+    """A dotted json_path walks the envelope to reach a nested array."""
+    obj = await create_object_from_url(
+        f"{json_server}/nested.json",
+        format="RawBLOB",
+        json_path="result.vulnerabilities",
+        json_columns={"status": ColumnInfo("String")},
+    )
+    data = await obj.data()
+
+    assert sorted(data) == ["analyzed", "modified"]
+
+
+async def test_json_dotted_columns_walk_nested_fields(ctx, json_server):
+    """Dotted json_columns keys extract nested item fields; data() re-nests them."""
+    obj = await create_object_from_url(
+        f"{json_server}/nested.json",
+        format="RawBLOB",
+        json_path="result.vulnerabilities",
+        json_columns={
+            "cve.id": ColumnInfo("String"),
+            "cve.metrics.score": ColumnInfo("Float64"),
+            "status": ColumnInfo("String"),
+        },
+    )
+    assert set(obj.schema.columns) == {"cve.id", "cve.metrics.score", "status"}
+    data = await obj.data()
+
+    by_status = dict(zip(data["status"], data["cve"], strict=True))
+    assert by_status["analyzed"] == {"id": "CVE-1", "metrics": {"score": 9.8}}
+    assert by_status["modified"] == {"id": "CVE-2", "metrics": {"score": 5.4}}
+
+
+async def test_json_single_dotted_column_renames_to_value(ctx, json_server):
+    """A single dotted json_columns key still collapses to the "value" column."""
+    obj = await create_object_from_url(
+        f"{json_server}/nested.json",
+        format="RawBLOB",
+        json_path="result.vulnerabilities",
+        json_columns={"cve.id": ColumnInfo("String")},
+    )
+    data = await obj.data()
+
+    assert sorted(data) == ["CVE-1", "CVE-2"]
+
+
+async def test_json_empty_path_segment_raises(ctx, json_server):
+    """Empty segments in json_path or json_columns keys are rejected."""
+    with pytest.raises(ValueError, match="empty path segment"):
+        await create_object_from_url(
+            f"{json_server}/nested.json",
+            format="RawBLOB",
+            json_path="result..vulnerabilities",
+            json_columns={"status": ColumnInfo("String")},
+        )
+    with pytest.raises(ValueError, match="empty path segment"):
+        await create_object_from_url(
+            f"{json_server}/nested.json",
+            format="RawBLOB",
+            json_path="result.vulnerabilities",
+            json_columns={".status": ColumnInfo("String")},
+        )
 
 
 # =============================================================================
