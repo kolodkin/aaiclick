@@ -25,6 +25,7 @@ from aaiclick.data.data_context import (
     open_object,
 )
 from aaiclick.data.data_context.data_context import MAX_PERSISTENT_NAME_LEN, _validate_persistent_name
+from aaiclick.data.errors import ObjectNotFoundError
 from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
 from aaiclick.orchestration.sql_context import get_sql_session
 from aaiclick.tenancy import active_tenant
@@ -168,3 +169,26 @@ async def test_register_table_stamps_the_active_tenant(orch_ctx):
     async with get_sql_session() as session:
         result = await session.execute(select(TableRegistry.table_name).where(TableRegistry.tenant_id == 7))
         assert result.scalar_one().endswith("owned")
+
+
+async def test_two_tenants_hold_distinct_objects_of_one_name(orch_ctx):
+    """Same name, different tenants — separate tables, separate data."""
+    with active_tenant(7):
+        await create_object_from_value([1, 2, 3], name="shared", scope="global")
+    with active_tenant(8):
+        await create_object_from_value([9], name="shared", scope="global")
+
+    with active_tenant(7):
+        assert await (await open_object("shared", scope="global")).data() == [1, 2, 3]
+    with active_tenant(8):
+        assert await (await open_object("shared", scope="global")).data() == [9]
+
+
+async def test_open_object_does_not_cross_tenants(orch_ctx):
+    """Another tenant's object is missing, not forbidden — no existence leak."""
+    with active_tenant(7):
+        await create_object_from_value([1, 2, 3], name="private", scope="global")
+
+    with active_tenant(8):
+        with pytest.raises(ObjectNotFoundError):
+            await open_object("private", scope="global")

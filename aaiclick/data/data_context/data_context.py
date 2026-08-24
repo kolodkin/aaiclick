@@ -21,6 +21,7 @@ import pyarrow as pa
 from aaiclick.locks import load_advisory_id, table_insert_lock
 from aaiclick.oplog.oplog_api import oplog_record
 from aaiclick.snowflake import get_snowflake_id
+from aaiclick.tenancy import get_active_tenant_id
 
 from ..errors import ObjectNotFoundError
 from ..models import (
@@ -292,7 +293,7 @@ def _build_scoped_table(name: str, scope: NamedScope) -> str:
     if scope == SCOPE_JOB:
         lifecycle = get_data_lifecycle()
         job_id = lifecycle.current_job_id() if lifecycle is not None else None
-    return make_scoped_table_name(scope, name, job_id=job_id)
+    return make_scoped_table_name(scope, name, job_id=job_id, tenant_id=get_active_tenant_id())
 
 
 async def create_object(
