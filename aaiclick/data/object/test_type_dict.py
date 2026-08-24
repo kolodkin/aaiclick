@@ -203,3 +203,36 @@ async def test_dict_of_arrays_records_preserves_order(ctx):
     assert data[0] == {"letter": "z", "number": 3}
     assert data[1] == {"letter": "a", "number": 1}
     assert data[2] == {"letter": "m", "number": 2}
+
+
+# =============================================================================
+# Mixed scalar/list dicts — single record with Array(T) columns
+# =============================================================================
+
+
+async def test_dict_mixed_scalar_and_list(ctx):
+    """A dict mixing scalars and lists is one record; lists become Array columns."""
+    obj = await create_object_from_value({"id": 1, "tags": ["a", "b"]})
+
+    schema = obj.schema
+    assert schema.columns["id"].type == "Int64"
+    assert int(schema.columns["id"].array) == 0
+    assert schema.columns["tags"].type == "String"
+    assert int(schema.columns["tags"].array) == 1
+
+    assert await obj.data() == {"id": 1, "tags": ["a", "b"]}
+
+
+async def test_dict_mixed_scalar_and_empty_list(ctx):
+    """An empty list in a mixed dict round-trips as an empty Array."""
+    obj = await create_object_from_value({"id": 1, "tags": []})
+
+    assert await obj.data() == {"id": 1, "tags": []}
+
+
+async def test_dict_mixed_scalar_list_and_nested_list(ctx):
+    """Nested scalar lists in a mixed dict become Array(Array(T))."""
+    obj = await create_object_from_value({"id": 1, "grid": [[1, 2], [3]]})
+
+    assert int(obj.schema.columns["grid"].array) == 2
+    assert await obj.data() == {"id": 1, "grid": [[1, 2], [3]]}

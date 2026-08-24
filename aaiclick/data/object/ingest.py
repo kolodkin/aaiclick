@@ -224,6 +224,13 @@ async def copy_db_selected_fields(
     return await emit_result(new_schema, select_query, ch_client, insert_cols=insert_cols, name=name, scope=scope)
 
 
+def _cast_select_exprs(col_names: list[str], columns: dict[str, ColumnInfo]) -> str:
+    """SELECT list casting each quoted column to its target type."""
+    return ", ".join(
+        f"CAST({quote_identifier(col)} AS {columns[col].ch_type()}) AS {quote_identifier(col)}" for col in col_names
+    )
+
+
 async def _insert_source(
     target_table: str,
     info: IngestQueryInfo,
@@ -242,9 +249,9 @@ async def _insert_source(
         ch_client: ClickHouse client instance.
     """
     col_names = sorted(target_types)
-    cast_exprs = ", ".join(f"CAST({col} AS {target_types[col].ch_type()}) AS {col}" for col in col_names)
+    cast_exprs = _cast_select_exprs(col_names, target_types)
     alias = f" AS s{alias_index}" if info.source.startswith("(") else ""
-    insert_cols = ", ".join(col_names)
+    insert_cols = ", ".join(quote_identifier(col) for col in col_names)
     select = f"SELECT {cast_exprs} FROM {info.source}{alias}"
 
     await ch_client.command(f"""
@@ -311,14 +318,14 @@ async def concat_objects_db(
     result = await create_object(schema, name=name, scope=scope)
 
     col_names = sorted(result_columns)
-    insert_cols = ", ".join(col_names)
+    insert_cols = ", ".join(quote_identifier(col) for col in col_names)
 
     # Build a single INSERT with UNION ALL so all rows share one
     # generateSnowflakeID() context (monotonic within one INSERT).
     # ORDER BY _src_ord ensures source-argument order is preserved.
+    cast_exprs = _cast_select_exprs(col_names, result_columns)
     selects = []
     for i, info in enumerate(query_infos):
-        cast_exprs = ", ".join(f"CAST({col} AS {result_columns[col].ch_type()}) AS {col}" for col in col_names)
         alias = f" AS s{i}" if info.source.startswith("(") else ""
         selects.append(f"SELECT {cast_exprs}, {i} AS _src_ord FROM {info.source}{alias}")
 

@@ -213,3 +213,35 @@ async def test_all_none_value_round_trips_as_none(ctx):
 
     assert data == {"a": None, "b": 1}
     assert obj.schema.columns["a"].nullable is True
+
+
+async def test_plain_column_colliding_with_dot_prefix_raises(ctx):
+    """A column named 'x' next to 'x.y' cannot be reconstructed — raise, don't drop."""
+    schema = Schema(
+        fieldtype=FIELDTYPE_DICT,
+        columns={
+            "x": ColumnInfo("Int64"),
+            "x.y": ColumnInfo("Int64"),
+        },
+    )
+    obj = await create_object(schema)
+    await obj.ch_client.command(f"INSERT INTO {obj.table} (`x`, `x.y`) VALUES (1, 2)")
+
+    with pytest.raises(ValueError, match="collide"):
+        await obj.data()
+
+
+async def test_plain_column_colliding_with_star_prefix_raises(ctx):
+    """A column named 'x' next to 'x.*.y' is the same collision through the star path."""
+    schema = Schema(
+        fieldtype=FIELDTYPE_DICT,
+        columns={
+            "x": ColumnInfo("Int64"),
+            "x.*.y": ColumnInfo("Int64", array=True),
+        },
+    )
+    obj = await create_object(schema)
+    await obj.ch_client.command(f"INSERT INTO {obj.table} (`x`, `x.*.y`) VALUES (1, [2])")
+
+    with pytest.raises(ValueError, match="collide"):
+        await obj.data()
