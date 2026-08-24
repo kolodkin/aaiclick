@@ -29,6 +29,7 @@ from aaiclick.data.view_models import (
     ObjectDetail,
     ObjectView,
 )
+from aaiclick.tenancy import get_active_tenant_id
 from aaiclick.view_models import (
     ObjectDeleted,
     ObjectFilter,
@@ -76,7 +77,7 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
 
     total = len(names)
     paged = names[: filter.limit]
-    tables = [make_scoped_table_name(SCOPE_GLOBAL, n) for n in paged]
+    tables = [make_scoped_table_name(SCOPE_GLOBAL, n, tenant_id=get_active_tenant_id()) for n in paged]
     metadata = await _fetch_table_metadata(tables)
 
     items = [

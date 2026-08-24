@@ -206,19 +206,23 @@ alone.
 
 ## Physical namespace — tenant-prefixed table names
 
+**Implementation**: `aaiclick/data/scope.py` — see `make_scoped_table_name`,
+`tenant_from_table`; the active tenant is applied in
+`aaiclick/data/data_context/data_context.py` — see `_build_scoped_table`.
+
 - Default tenant keeps bare `p_<name>` — full backward compatibility.
 - Other tenants use `p_<tenant_id>_<name>`.
 
-`scope.py` gains tenant-aware `make_scoped_table_name` / `name_from_table`
-variants; `internal_api.objects` lists, opens, deletes, and purges through the
-active tenant's prefix. Job-scoped (`j_*`) and temp (`t_*`) tables need no
-change — they are reachable only through their tenant-scoped job, and the
-tenant prefix never stacks onto them.
+Job-scoped (`j_*`) and temp (`t_*`) tables are unchanged — they are reachable
+only through their tenant-scoped job, and the tenant prefix never stacks onto
+them.
 
 The prefix parses unambiguously because `_validate_persistent_name`
 (`aaiclick/data/data_context/data_context.py`) rejects a leading digit, so no
 default-tenant object can produce a `p_<digits>_` prefix. A test pins that
-coupling, so relaxing the name regex cannot silently introduce a collision.
+coupling (`aaiclick/data/test_scope.py` — see
+`test_leading_underscore_name_does_not_look_tenant_prefixed`), so relaxing the
+name regex cannot silently introduce a collision.
 
 !!! warning "The prefix, not the registry, is what prevents cross-tenant writes"
     Persistent creates use `CREATE TABLE IF NOT EXISTS` (see `create_object`)
@@ -234,16 +238,19 @@ coupling, so relaxing the name regex cannot silently introduce a collision.
 `TableRegistry`.
 
 `table_registry` holds one row per ClickHouse table aaiclick creates and is
-already authoritative on the read path: `open_object()` resolves an object's
-schema through it (`aaiclick/data/object/ingest.py` — see `_get_table_schema`),
-raising `LookupError` when no row exists. A `tenant_id` column (`BigInteger`,
-non-null, indexed — a plain column, not a DB FK, matching `registered_jobs` /
-`jobs`) makes that path tenant-aware:
+authoritative on the read path: `open_object()` resolves an object's schema
+through it (`aaiclick/data/object/ingest.py` — see `_get_table_schema`),
+raising `LookupError` when no row exists. The `tenant_id` column
+(`BigInteger`, non-null, indexed — a plain column, not a DB FK, matching
+`registered_jobs` / `jobs`) makes that path tenant-aware; the orch lifecycle
+handler stamps the active tenant on every row it registers
+(`aaiclick/orchestration/orch_context.py` — see `register_table`).
 
-| Surface                     | Change                                                                  |
+| Surface                     | Behaviour                                                                |
 |-----------------------------|-------------------------------------------------------------------------|
-| `open_object()`             | Add `tenant_id = :active` to the `_get_table_schema` lookup — a cross-tenant open raises the existing `LookupError`, surfacing as `404`, never `403` |
-| `list_persistent_objects()` | Filter `table_registry` by the active tenant instead of scanning `system.tables` |
+| `open_object()`             | `_get_table_schema` filters by the active tenant — a cross-tenant open raises `ObjectNotFoundError`, surfacing as `404`, never `403` |
+| `list_persistent_objects()` | Reads `table_registry` filtered by the active tenant instead of scanning `system.tables` |
+| `delete_persistent_objects()` | Purge candidates come from the tenant-filtered listing; drops clear their registry rows (see `_forget_registry_rows`) |
 | Background cleanup          | `j_*` / `t_*` rows carry the tenant too, giving the worker tenant visibility for free |
 
 Global-scope creation already requires an orch context — `_resolve_scope`
@@ -312,6 +319,6 @@ and convert `users.role` → `users.superadmin` (admin → `true`; viewer →
 builds tables from `SQLModel.metadata` and seeds the default tenant in
 code, so the revision is only required for Postgres-backed deployments.
 
-Phase 2 adds a second revision for `table_registry.tenant_id`, backfilled to
-the default tenant. Rows for tables that predate the column keep the default
-tenant, matching the bare `p_<name>` prefix they already carry.
+Phase 2's revision `1da307dfbd95` adds `table_registry.tenant_id` with
+`server_default='1'`, so rows for tables that predate the column backfill to
+the default tenant — matching the bare `p_<name>` prefix they already carry.

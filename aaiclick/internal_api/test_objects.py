@@ -11,6 +11,7 @@ from aaiclick.data.data_context import (
     list_persistent_objects,
 )
 from aaiclick.data.view_models import ObjectDetail, ObjectView
+from aaiclick.tenancy import active_tenant
 from aaiclick.view_models import ObjectFilter, Page, PurgeObjectsRequest
 
 from . import errors, objects
@@ -25,11 +26,17 @@ async def _object_data_ctx(orch_ctx) -> AsyncIterator[None]:
     via the OrchLifecycleHandler — Phase 2's registry-backed read path
     requires it.
     """
-    for name in await list_persistent_objects():
-        await objects.delete_object(name)
+    await _drop_everything()
     yield
-    for name in await list_persistent_objects():
-        await objects.delete_object(name)
+    await _drop_everything()
+
+
+async def _drop_everything() -> None:
+    """Sweep the tenants these tests create objects in (default, 7, 8)."""
+    for tenant_id in (1, 7, 8):
+        with active_tenant(tenant_id):
+            for name in await list_persistent_objects():
+                await objects.delete_object(name)
 
 
 async def test_list_objects_returns_page():
@@ -118,3 +125,34 @@ async def test_delete_object_missing_is_idempotent():
 async def test_purge_objects_requires_time_filter():
     with pytest.raises(errors.Invalid):
         await objects.purge_objects(PurgeObjectsRequest())
+
+
+async def test_list_objects_is_tenant_scoped():
+    with active_tenant(7):
+        await create_object_from_value([1], name="seven", scope="global")
+    with active_tenant(8):
+        await create_object_from_value([2], name="eight", scope="global")
+
+    with active_tenant(7):
+        page = await objects.list_objects()
+        assert [item.name for item in page.items] == ["seven"]
+        # Metadata must resolve through the tenant-prefixed table name.
+        assert page.items[0].row_count == 1
+
+
+async def test_get_object_across_tenants_is_not_found():
+    """404, never 403 — a cross-tenant get must not leak existence."""
+    with active_tenant(7):
+        await create_object_from_value([1], name="seven", scope="global")
+
+    with active_tenant(8):
+        with pytest.raises(errors.NotFound):
+            await objects.get_object("seven")
+
+
+async def test_object_detail_carries_row_count_for_a_non_default_tenant():
+    """Metadata lookup must use the tenant-prefixed table name."""
+    with active_tenant(7):
+        await create_object_from_value([1, 2, 3], name="seven", scope="global")
+        detail = await objects.get_object("seven")
+        assert detail.row_count == 3

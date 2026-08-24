@@ -89,13 +89,9 @@ needed:
 
 ## Tenant RBAC — Remaining Phases
 
-Phase 1 (backend core) is implemented — `docs/designs/tenant_rbac.md`.
-Remaining:
+Phases 1 (backend core) and 2 (object tenancy) are implemented —
+`docs/designs/tenant_rbac.md`. Remaining:
 
-- **Phase 2 — object tenancy**: tenant-prefixed `p_*` naming
-  (`p_<tenant_id>_<name>`; default tenant keeps bare `p_<name>`) for the
-  physical namespace, a `table_registry.tenant_id` column for ownership and
-  query scoping, and tenant-scoped object endpoints.
 - **Phase 3 — SPA**: tenant switcher sending `X-Tenant-Id`, membership admin
   UI, superadmin-gated controls.
 
