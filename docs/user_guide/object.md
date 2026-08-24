@@ -682,8 +682,10 @@ obj = await create_object_from_value({"b": [{"c": [1, 2], "d": 5}]})
 Ingest raises `ValueError` for anything that cannot round-trip: mismatched
 keys across records or items, non-dict items in a list of dicts, type
 conflicts, dotted keys, empty dicts, and lists of lists of dicts (no
-dot-star representation). All-`None` values infer as
-`Nullable(String)` and round-trip as `None`. Name-parsing applies to any
+dot-star representation). Columns marked `FieldSpec(nullable=True)` are
+exempt at the leaf level — missing or `None` values ingest as NULL and
+read back as `None`; a `None` dict or list item still raises. All-`None`
+values infer as `Nullable(String)` and round-trip as `None`. Name-parsing applies to any
 dict-shaped read — explicit `Schema` columns, imports, and Views with
 dotted column names reconstruct the same way.
 

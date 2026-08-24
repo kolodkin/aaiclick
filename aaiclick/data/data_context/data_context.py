@@ -442,6 +442,13 @@ def _apply_field_spec(col: ColumnInfo, spec: FieldSpec) -> ColumnInfo:
     )
 
 
+def _nullable_keys(fields: dict[str, FieldSpec] | None) -> frozenset[str]:
+    """Column keys marked nullable — exempt from ingest strictness."""
+    if not fields:
+        return frozenset()
+    return frozenset(name for name, spec in fields.items() if spec.nullable)
+
+
 def _apply_field_specs(
     columns: dict[str, ColumnInfo],
     fields: dict[str, FieldSpec] | None,
@@ -480,7 +487,9 @@ async def create_object_from_value(
             - Dict/List with nested list-of-dicts: flattened with dot-star
               notation (``{"b": [{"c": 1}]}`` → column ``b.*.c``)
             The schema is inferred by pyarrow across ALL records — keys must
-            be identical in every record (missing keys raise ``ValueError``).
+            be identical in every record (missing keys raise ``ValueError``),
+            except columns marked ``FieldSpec(nullable=True)``, whose missing
+            or ``None`` leaf values ingest as NULL.
 
             Keys containing ``.`` and empty dict values raise ``ValueError``.
         name: Optional name. When set, ``scope`` selects the lifetime tier —
@@ -581,7 +590,7 @@ async def create_object_from_value(
             # infers the schema; leaves flatten to dot/dot-star columns.
             struct_arr = infer_struct_array([val])
             columns = struct_type_to_columns(struct_arr.type)
-            col_map = struct_array_to_columns(struct_arr)
+            col_map = struct_array_to_columns(struct_arr, _nullable_keys(fields))
 
             columns = _maybe_add_aai_id(_apply_field_specs(columns, fields))
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
@@ -602,7 +611,7 @@ async def create_object_from_value(
                 name_: ci.with_fieldtype(FIELDTYPE_ARRAY)
                 for name_, ci in struct_type_to_columns(struct_arr.type).items()
             }
-            col_map = struct_array_to_columns(struct_arr)
+            col_map = struct_array_to_columns(struct_arr, _nullable_keys(fields))
 
             columns = _maybe_add_aai_id(_apply_field_specs(columns, fields))
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)

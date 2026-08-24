@@ -177,6 +177,13 @@ obj = await create_object_from_value(
     [10, 20, 30],
     fields={"value": FieldSpec(nullable=True)},
 )
+
+# nullable=True also admits missing / None leaf values in records
+obj = await create_object_from_value(
+    [{"a": 1, "score": 0.5}, {"a": 2}],
+    fields={"score": FieldSpec(nullable=True)},
+)
+await obj.data()  # {"a": [1, 2], "score": [0.5, None]}
 ```
 
 | Attribute        | Default | Description                                                         |

@@ -141,11 +141,14 @@ def _missing(key_path: str) -> ValueError:
     return ValueError(f"All records must have identical keys: field {key_path!r} is missing or None in some records")
 
 
-def struct_array_to_columns(arr: pa.StructArray) -> dict[str, pa.Array]:
+def struct_array_to_columns(arr: pa.StructArray, nullable_keys: frozenset[str] = frozenset()) -> dict[str, pa.Array]:
     """Extract flat leaf columns as arrow arrays, enforcing strictness.
 
     Any null at a struct/list level, or in a typed leaf, means a key was
-    missing (or None) in some records/items -> ValueError. All-null leaves
+    missing (or None) in some records/items -> ValueError. Leaves whose
+    dot-notation key is in ``nullable_keys`` (from ``FieldSpec(nullable=True)``)
+    are exempt — their nulls ingest as NULL. Struct- and list-level nulls
+    always raise: a None dict or list item cannot round-trip. All-null leaves
     (arrow ``null`` type, e.g. from empty lists or all-None values) pass
     through as-is and are cast to Nullable(String) by
     :func:`arrow_table_for_insert`, matching legacy behavior.
@@ -153,23 +156,23 @@ def struct_array_to_columns(arr: pa.StructArray) -> dict[str, pa.Array]:
     if arr.null_count:
         raise ValueError("Records must all be dicts (found a null record)")
     # Offsets-based rewrapping assumes an unsliced array, i.e. fresh from pa.array().
-    return _extract_struct(arr, "")
+    return _extract_struct(arr, "", nullable_keys)
 
 
-def _extract_struct(arr: pa.StructArray, prefix: str) -> dict[str, pa.Array]:
+def _extract_struct(arr: pa.StructArray, prefix: str, nullable_keys: frozenset[str]) -> dict[str, pa.Array]:
     out: dict[str, pa.Array] = {}
     for i in range(arr.type.num_fields):
         field = arr.type.field(i)
-        _extract_field(f"{prefix}{field.name}", arr.field(i), out)
+        _extract_field(f"{prefix}{field.name}", arr.field(i), out, nullable_keys)
     return out
 
 
-def _extract_field(key_path: str, arr: pa.Array, out: dict[str, pa.Array]) -> None:
+def _extract_field(key_path: str, arr: pa.Array, out: dict[str, pa.Array], nullable_keys: frozenset[str]) -> None:
     pa_type = arr.type
     if pa.types.is_struct(pa_type):
         if arr.null_count:
             raise _missing(key_path)
-        out.update(_extract_struct(arr, f"{key_path}."))
+        out.update(_extract_struct(arr, f"{key_path}.", nullable_keys))
     elif _is_list_type(pa_type):
         if arr.null_count:
             raise _missing(key_path)
@@ -177,17 +180,17 @@ def _extract_field(key_path: str, arr: pa.Array, out: dict[str, pa.Array]) -> No
             values = arr.values
             if values.null_count:
                 raise _missing(key_path)
-            sub = _extract_struct(values, f"{key_path}.*.")
+            sub = _extract_struct(values, f"{key_path}.*.", nullable_keys)
             for name, leaf in sub.items():
                 out[name] = pa.ListArray.from_arrays(arr.offsets, leaf)
         else:
             inner = arr
             while _is_list_type(inner.type):
                 inner = inner.values
-                if inner.null_count and not pa.types.is_null(inner.type):
+                if inner.null_count and not pa.types.is_null(inner.type) and key_path not in nullable_keys:
                     raise _missing(key_path)
             out[key_path] = arr
     else:
-        if arr.null_count and not pa.types.is_null(pa_type):
+        if arr.null_count and not pa.types.is_null(pa_type) and key_path not in nullable_keys:
             raise _missing(key_path)
         out[key_path] = arr
