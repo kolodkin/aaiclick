@@ -37,6 +37,17 @@ def _has_nested_columns(column_names: list[str]) -> bool:
     return any("." in name for name in column_names)
 
 
+def _check_prefix_collisions(column_names: list[str]) -> None:
+    """A plain column that is also a dotted prefix of another cannot be reconstructed."""
+    names = set(column_names)
+    for name in column_names:
+        parts = name.split(".")
+        for i in range(1, len(parts)):
+            prefix = ".".join(parts[:i])
+            if prefix in names:
+                raise ValueError(f"Column {prefix!r} collides with nested column {name!r}")
+
+
 def _undot_record(flat: dict) -> dict:
     """Group plain-dot keys by first segment and recurse.
 
@@ -51,8 +62,6 @@ def _undot_record(flat: dict) -> dict:
         else:
             groups.setdefault(key[:dot_pos], {})[key[dot_pos + 1 :]] = val
     for prefix, sub in groups.items():
-        if prefix in result:
-            raise ValueError(f"Column {prefix!r} collides with nested columns prefixed {prefix + '.'!r}")
         result[prefix] = _undot_record(sub)
     return result
 
@@ -88,8 +97,6 @@ def _unflatten_record(flat_record: dict) -> dict:
     result = dict(plain)
 
     for prefix, sub_fields in nested_groups.items():
-        if prefix in plain:
-            raise ValueError(f"Column {prefix!r} collides with nested columns prefixed {prefix + '.'!r}")
         first_val = next(iter(sub_fields.values()))
         length = len(first_val) if isinstance(first_val, (list, tuple)) else 1
 
@@ -165,6 +172,8 @@ async def extract_dict_data(
     col_indices = {name: column_names.index(name) for name in output_columns}
 
     nested = _has_nested_columns(output_columns)
+    if nested:
+        _check_prefix_collisions(output_columns)
 
     # Dict-of-arrays when the first column carries fieldtype=ARRAY.
     first_col = output_columns[0] if output_columns else None

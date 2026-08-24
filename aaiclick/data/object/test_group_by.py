@@ -852,16 +852,16 @@ async def test_group_by_count_with_name(ctx):
 # Dot-notation column names (nested-dict ingest)
 # =============================================================================
 
+_NESTED_AMOUNT_ROWS = [
+    {"category": "A", "m": {"amount": 10}},
+    {"category": "A", "m": {"amount": 20}},
+    {"category": "B", "m": {"amount": 35}},
+]
+
 
 async def test_group_by_agg_on_nested_dot_column(ctx):
     """Aggregating a dot-notation column must quote it in the GROUP BY SQL."""
-    obj = await create_object_from_value(
-        [
-            {"category": "A", "m": {"amount": 10}},
-            {"category": "A", "m": {"amount": 20}},
-            {"category": "B", "m": {"amount": 35}},
-        ]
-    )
+    obj = await create_object_from_value(_NESTED_AMOUNT_ROWS)
     result = await obj.group_by("category").sum("m.amount")
     data = await result.data()
 
@@ -888,13 +888,7 @@ async def test_group_by_nested_dot_key(ctx):
 
 async def test_group_by_agg_alias_avoids_dotted_result_column(ctx):
     """An explicit Agg alias renames a dotted source column to a flat result column."""
-    obj = await create_object_from_value(
-        [
-            {"category": "A", "m": {"amount": 10}},
-            {"category": "A", "m": {"amount": 20}},
-            {"category": "B", "m": {"amount": 35}},
-        ]
-    )
+    obj = await create_object_from_value(_NESTED_AMOUNT_ROWS)
     result = await obj.group_by("category").agg({"m.amount": Agg("sum", "total")})
     data = await result.data()
 
@@ -904,13 +898,7 @@ async def test_group_by_agg_alias_avoids_dotted_result_column(ctx):
 
 async def test_group_by_having_on_nested_dot_column(ctx):
     """The HAVING path aliases aggregates internally — dotted names must be quoted there too."""
-    obj = await create_object_from_value(
-        [
-            {"category": "A", "m": {"amount": 10}},
-            {"category": "A", "m": {"amount": 20}},
-            {"category": "B", "m": {"amount": 35}},
-        ]
-    )
+    obj = await create_object_from_value(_NESTED_AMOUNT_ROWS)
     result = await obj.group_by("category").having("sum(`m.amount`) > 30").sum("m.amount")
     data = await result.data()
 

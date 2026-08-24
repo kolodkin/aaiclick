@@ -47,3 +47,9 @@ Technical Debt
 - **`ColumnType`** (`aaiclick/data/models.py`)
   - **Issue**: The literal lists `Tuple`, `Map`, and `Nested`, but nothing produces them — inference emits only leaf types (nested data flattens to dot-notation columns), `parse_ch_type()` does not decompose them, and `ch_type_to_pa()` falls back to `pa.string()` for any unrecognized type, so a compound column arriving via explicit `Schema` would be silently mistyped at ingest.
   - **Debt**: Either drop the three entries from `ColumnType` (flattening is the supported representation) or implement real parse/arrow support. If they stay, replace the silent `pa.string()` fallback in `ch_type_to_pa()` with a raise so mistyping surfaces at the boundary.
+
+# Unquoted Identifier Interpolation in Remaining SQL Builders
+
+- **`copy_db()`, `join.py` projections, `Object.insert_from_url()`, `count_if` dict form, `build_order_by_clause()`, `Computed` transform helpers** (`aaiclick/data/object/ingest.py`, `join.py`, `object.py`, `operators.py`, `transforms.py`, `aaiclick/data/models.py`)
+  - **Issue**: dotted column names (`m.x`, `b.*.c`) are first-class since nested-dict ingest, but only the insert/concat/group_by builders quote identifiers. The listed builders still interpolate raw column names into SQL (`", ".join(columns)`, `f"toYear({column})"`, `ORDER BY ({', '.join(columns)})`), so each fails or misparses on dotted names and will be discovered as its own one-line bug.
+  - **Debt**: route SQL emitters through a shared expression-builder (`select_list`, `cast_as`, `qualified`, `alias`) so quoting is an invariant of construction rather than per-site discipline; `_cast_select_exprs()` in `ingest.py` is the seed.

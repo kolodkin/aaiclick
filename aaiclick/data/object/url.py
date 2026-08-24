@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 from ..data_context import create_object, get_ch_client
 from ..formats import INPUT_FORMATS, JSON_BLOB_FORMATS
 from ..models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, ColumnInfo, Schema, parse_ch_type
-from ..sql_utils import escape_sql_string, quote_identifier
+from ..sql_utils import escape_sql_string, quote_identifier, quote_sql_literal
 from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
 
 if TYPE_CHECKING:
@@ -47,20 +47,18 @@ def _validate_url_format(fmt: str) -> None:
         raise ValueError(f"Unsupported format '{fmt}'. Supported formats: {sorted(INPUT_FORMATS)}")
 
 
-def _json_path_keys(path: str, param: str) -> list[str]:
-    """Split a dotted JSON path into key segments (``"cve.id"`` → ``["cve", "id"]``).
+def _validate_json_path(path: str, param: str) -> None:
+    """Reject empty segments in a dotted JSON path (dots separate nesting levels).
 
     Keys whose names literally contain ``.`` are not addressable.
     """
-    keys = path.split(".")
-    if any(not k for k in keys):
+    if any(not k for k in path.split(".")):
         raise ValueError(f"{param} contains an empty path segment: {path!r}")
-    return keys
 
 
-def _json_keys_sql(path: str, param: str) -> str:
+def _json_keys_sql(path: str) -> str:
     """Render a dotted JSON path as variadic JSONExtract key arguments."""
-    return ", ".join(f"'{escape_sql_string(k)}'" for k in _json_path_keys(path, param))
+    return ", ".join(quote_sql_literal(k) for k in path.split("."))
 
 
 def _json_extract_expr(field_name: str, col_info: ColumnInfo) -> str:
@@ -77,7 +75,7 @@ def _json_extract_expr(field_name: str, col_info: ColumnInfo) -> str:
     Returns:
         SQL expression like "JSONExtractString(elem, 'cve', 'id')"
     """
-    keys_sql = _json_keys_sql(field_name, "json_columns key")
+    keys_sql = _json_keys_sql(field_name)
 
     if col_info.array or col_info.nullable:
         return f"JSONExtract(elem, {keys_sql}, '{col_info.ch_type()}')"
@@ -117,7 +115,7 @@ def _build_json_select(
         (select_exprs, from_subquery) tuple for use in INSERT...SELECT
     """
     source_col = _FORMAT_SOURCE_COLUMN[format]
-    path_keys_sql = _json_keys_sql(json_path, "json_path")
+    path_keys_sql = _json_keys_sql(json_path)
 
     select_parts = []
     for field_name, col_info in json_columns.items():
@@ -216,9 +214,9 @@ async def create_object_from_url(
             raise ValueError("json_columns must be a non-empty dict")
         if format not in JSON_BLOB_FORMATS:
             raise ValueError(f"JSON mode requires format to be one of {sorted(JSON_BLOB_FORMATS)}, got '{format}'")
-        _json_path_keys(json_path, "json_path")
+        _validate_json_path(json_path, "json_path")
         for key in json_columns:
-            _json_path_keys(key, "json_columns key")
+            _validate_json_path(key, "json_columns key")
         return await _create_from_json(
             url, format, json_path, json_columns, where, limit, ch_settings, retries, backoff_factor
         )

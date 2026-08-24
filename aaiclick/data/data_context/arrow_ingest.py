@@ -60,6 +60,16 @@ def _is_list_type(pa_type: pa.DataType) -> bool:
     return pa.types.is_list(pa_type) or pa.types.is_large_list(pa_type)
 
 
+def list_leaf_column_info(pa_type: pa.DataType, array_depth: int, key_path: str) -> ColumnInfo:
+    """Descend list nesting to the leaf ColumnInfo; a dict below a list level cannot round-trip."""
+    while _is_list_type(pa_type):
+        array_depth += 1
+        pa_type = pa_type.value_type
+    if pa.types.is_struct(pa_type):
+        raise ValueError(f"Lists of lists of dicts are not supported: {key_path!r}")
+    return leaf_column_info(pa_type, array_depth)
+
+
 def struct_type_to_columns(struct_type: pa.StructType) -> dict[str, ColumnInfo]:
     """Walk the arrow type tree into flat dot-notation ColumnInfos.
 
@@ -98,13 +108,7 @@ def _walk_type(
                 field = elem.field(i)
                 _walk_type(field.name, field.type, f"{key_path}.*.", array_depth + 1, columns)
         else:
-            depth = array_depth + 1
-            while _is_list_type(elem):
-                depth += 1
-                elem = elem.value_type
-            if pa.types.is_struct(elem):
-                raise ValueError(f"Lists of lists of dicts are not supported: {key_path!r}")
-            columns[key_path] = leaf_column_info(elem, depth)
+            columns[key_path] = list_leaf_column_info(pa_type, array_depth, key_path)
     else:
         columns[key_path] = leaf_column_info(pa_type, array_depth)
 

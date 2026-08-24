@@ -51,7 +51,7 @@ from ..sql_utils import quote_identifier
 from .arrow_ingest import (
     arrow_table_for_insert,
     infer_struct_array,
-    leaf_column_info,
+    list_leaf_column_info,
     struct_array_to_columns,
     struct_type_to_columns,
 )
@@ -442,11 +442,9 @@ def _apply_field_spec(col: ColumnInfo, spec: FieldSpec) -> ColumnInfo:
     )
 
 
-def _nullable_keys(fields: dict[str, FieldSpec] | None) -> frozenset[str]:
-    """Column keys marked nullable — exempt from ingest strictness."""
-    if not fields:
-        return frozenset()
-    return frozenset(name for name, spec in fields.items() if spec.nullable)
+def _nullable_column_keys(columns: dict[str, ColumnInfo]) -> frozenset[str]:
+    """Keys of nullable columns — exempt from ingest strictness."""
+    return frozenset(name for name, col in columns.items() if col.nullable)
 
 
 def _apply_field_specs(
@@ -569,15 +567,8 @@ async def create_object_from_value(
                     pa_arr = pa.array(value)
                 except (pa.ArrowInvalid, pa.ArrowTypeError) as e:
                     raise ValueError(f"Cannot infer a uniform schema from records: {e}") from e
-                elem_type = pa_arr.type
-                depth = 0
-                while pa.types.is_list(elem_type) or pa.types.is_large_list(elem_type):
-                    depth += 1
-                    elem_type = elem_type.value_type
-                if pa.types.is_struct(elem_type):
-                    raise ValueError(f"Lists of lists of dicts are not supported: {key!r}")
                 col_map[key] = pa_arr
-                columns[key] = leaf_column_info(elem_type, depth).with_fieldtype(FIELDTYPE_ARRAY)
+                columns[key] = list_leaf_column_info(pa_arr.type, 0, key).with_fieldtype(FIELDTYPE_ARRAY)
 
             columns = _maybe_add_aai_id(_apply_field_specs(columns, fields))
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
@@ -590,9 +581,8 @@ async def create_object_from_value(
             # infers the schema; leaves flatten to dot/dot-star columns.
             struct_arr = infer_struct_array([val])
             columns = struct_type_to_columns(struct_arr.type)
-            col_map = struct_array_to_columns(struct_arr, _nullable_keys(fields))
-
             columns = _maybe_add_aai_id(_apply_field_specs(columns, fields))
+            col_map = struct_array_to_columns(struct_arr, _nullable_column_keys(columns))
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
             obj = await create_object(schema, name=name, scope=scope)
 
@@ -611,9 +601,8 @@ async def create_object_from_value(
                 name_: ci.with_fieldtype(FIELDTYPE_ARRAY)
                 for name_, ci in struct_type_to_columns(struct_arr.type).items()
             }
-            col_map = struct_array_to_columns(struct_arr, _nullable_keys(fields))
-
             columns = _maybe_add_aai_id(_apply_field_specs(columns, fields))
+            col_map = struct_array_to_columns(struct_arr, _nullable_column_keys(columns))
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
             obj = await create_object(schema, name=name, scope=scope)
 

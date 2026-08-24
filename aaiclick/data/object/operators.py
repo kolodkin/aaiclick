@@ -772,6 +772,12 @@ def _normalize_aggregations(aggregations: dict) -> list[tuple[str, Agg]]:
     return result
 
 
+def _agg_expr(op: str, source_col: str, alias: str) -> str:
+    """One aggregation SELECT expression; count() takes no argument."""
+    arg = "" if op == "count" else quote_identifier(source_col)
+    return f"{AGGREGATION_FUNCTIONS[op]}({arg}) AS {quote_identifier(alias)}"
+
+
 async def group_by_agg(
     info: GroupByInfo,
     aggregations: dict,
@@ -813,23 +819,18 @@ async def group_by_agg(
         result_columns[key] = ColumnInfo(info.columns[key], fieldtype=FIELDTYPE_ARRAY)
 
     for source_col, agg in entries:
-        sql_func = AGGREGATION_FUNCTIONS[agg.op]
+        agg_exprs.append(_agg_expr(agg.op, source_col, agg.alias))
         if agg.op == "count":
-            agg_exprs.append(f"{sql_func}() AS {quote_identifier(agg.alias)}")
             result_columns[agg.alias] = ColumnInfo("UInt64", fieldtype=FIELDTYPE_ARRAY)
         elif agg.op == "group_array_distinct":
-            agg_exprs.append(f"{sql_func}({quote_identifier(source_col)}) AS {quote_identifier(agg.alias)}")
             source_type = info.columns[source_col]
             base_type = parse_ch_type(source_type).type if isinstance(source_type, str) else source_type.type
             result_columns[agg.alias] = ColumnInfo(base_type, array=True, fieldtype=FIELDTYPE_ARRAY)
         else:
-            agg_exprs.append(f"{sql_func}({quote_identifier(source_col)}) AS {quote_identifier(agg.alias)}")
             source_type = info.columns[source_col]
             result_columns[agg.alias] = ColumnInfo(
                 _determine_agg_result_type(agg.op, source_type), fieldtype=FIELDTYPE_ARRAY
             )
-
-    agg_str = ", ".join(agg_exprs)
 
     if info.having:
         # Use temporary aliases to avoid ClickHouse resolving HAVING column
@@ -838,19 +839,15 @@ async def group_by_agg(
         tmp_agg_exprs = []
         rename_exprs = []
         for source_col, agg in entries:
-            sql_func = AGGREGATION_FUNCTIONS[agg.op]
             tmp_alias = f"__agg_{agg.alias}"
-            if agg.op == "count":
-                tmp_agg_exprs.append(f"{sql_func}() AS {quote_identifier(tmp_alias)}")
-            else:
-                tmp_agg_exprs.append(f"{sql_func}({quote_identifier(source_col)}) AS {quote_identifier(tmp_alias)}")
+            tmp_agg_exprs.append(_agg_expr(agg.op, source_col, tmp_alias))
             rename_exprs.append(f"{quote_identifier(tmp_alias)} AS {quote_identifier(agg.alias)}")
         tmp_agg_str = ", ".join(tmp_agg_exprs)
         rename_str = ", ".join(rename_exprs)
         inner = f"SELECT {keys_str}, {tmp_agg_str} FROM {info.source} GROUP BY {keys_str} HAVING {info.having}"
         query = f"SELECT {keys_str}, {rename_str} FROM ({inner})"
     else:
-        query = f"SELECT {keys_str}, {agg_str} FROM {info.source} GROUP BY {keys_str}"
+        query = f"SELECT {keys_str}, {', '.join(agg_exprs)} FROM {info.source} GROUP BY {keys_str}"
 
     schema = Schema(fieldtype=FIELDTYPE_DICT, columns=result_columns)
     return await emit_result(schema, query, ch_client, name=name, scope=scope)
