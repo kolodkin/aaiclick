@@ -251,16 +251,19 @@ rejects `scope="global"` under a bare `data_context()` — so every persistent
 object has a registry row by construction, and the column has no
 partially-populated case.
 
-!!! warning "The CLI object path must move to an orch context first"
-    The CLI runs object commands under a bare `data_context()`
-    (`aaiclick/__main__.py` — see `_run_data_api`), which provides no SQL
-    session, while the server mounts `orch_scope_with_ch`. `open_object()`
-    therefore raises `RuntimeError` inside `get_sql_session()`, and
-    `get_object` catches `RuntimeError` broadly and reports `NotFound` — so
-    `aaiclick data get <name>` reports every object as missing while
-    `aaiclick data list` still shows it. Phase 2 moves `_run_data_api` to
-    `orch_context(with_ch=True)`; registry-backed listing needs the same SQL
-    session.
+Both callers supply that SQL session: the server mounts `orch_scope_with_ch`
+(`aaiclick/server/routers/objects.py`) and the CLI runs `data` subcommands
+through `_run_data_api` (`aaiclick/__main__.py`), which delegates to
+`_run_internal_api(..., with_ch=True)` and so also applies the top-level
+`--tenant` flag. Registry-backed listing can rely on both.
+
+!!! warning "Distinguish a missing object from a missing context"
+    `open_object()` raises `ObjectNotFoundError` (`aaiclick/data/errors.py`),
+    a `RuntimeError` subclass, and `get_object` catches only that. Catching
+    plain `RuntimeError` there swallows the `get_sql_session()` "no active
+    orch_context" error as a `404`, which previously made `aaiclick data get
+    <name>` report every object as missing while `aaiclick data list` still
+    listed it.
 
 ## Name length budget
 

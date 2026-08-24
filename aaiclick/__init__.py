@@ -31,6 +31,7 @@ from .data import (
     FieldSpec,
     LazyOperator,
     Object,
+    ObjectNotFoundError,
     QueryStats,
     Schema,
     ValueListType,

@@ -24,6 +24,7 @@ from .data_context import (
     open_object,
     register_object,
 )
+from .errors import ObjectNotFoundError
 from .models import (
     DATE_TYPES,
     ENGINE_AGGREGATING_MERGE_TREE,

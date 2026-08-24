@@ -22,6 +22,7 @@ from aaiclick.data.data_context import (
     list_persistent_objects,
     open_object,
 )
+from aaiclick.data.errors import ObjectNotFoundError
 from aaiclick.data.object.adapters import object_to_detail
 from aaiclick.data.scope import SCOPE_GLOBAL, make_scoped_table_name
 from aaiclick.data.view_models import (
@@ -98,7 +99,7 @@ async def get_object(name: str) -> ObjectDetail:
     """
     try:
         obj = await open_object(name, scope=SCOPE_GLOBAL)
-    except RuntimeError as exc:
+    except ObjectNotFoundError as exc:
         raise NotFound(f"Object not found: {name}") from exc
 
     metadata = await _fetch_table_metadata([obj.table])

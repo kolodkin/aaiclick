@@ -22,6 +22,7 @@ from aaiclick.locks import load_advisory_id, table_insert_lock
 from aaiclick.oplog.oplog_api import oplog_record
 from aaiclick.snowflake import get_snowflake_id
 
+from ..errors import ObjectNotFoundError
 from ..models import (
     AAI_ID_COLUMN,
     AAI_ID_INFO,
@@ -658,7 +659,7 @@ async def open_object(name: str, scope: PersistentScope = SCOPE_JOB) -> Object:
 
     Raises:
         ValueError: If name is invalid.
-        RuntimeError: If table does not exist.
+        ObjectNotFoundError: If the table does not exist.
     """
     from ..object import Object
     from ..object.ingest import _get_table_schema
@@ -668,7 +669,7 @@ async def open_object(name: str, scope: PersistentScope = SCOPE_JOB) -> Object:
 
     result = await ch.command(f"EXISTS TABLE {table_name}")
     if not result:
-        raise RuntimeError(f"Persistent object '{name}' does not exist (table {table_name})")
+        raise ObjectNotFoundError(f"Persistent object '{name}' does not exist (table {table_name})")
 
     fieldtype, columns = await _get_table_schema(table_name, ch)
     schema = Schema(fieldtype=fieldtype, columns=columns)
