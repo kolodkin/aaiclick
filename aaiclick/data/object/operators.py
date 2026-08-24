@@ -802,7 +802,7 @@ async def group_by_agg(
         New dict Object with group keys + all aggregated columns
     """
     entries = _normalize_aggregations(aggregations)
-    keys_str = ", ".join(info.group_keys)
+    keys_str = ", ".join(quote_identifier(k) for k in info.group_keys)
 
     # Build aggregation expressions and result schema. Every result column
     # carries multiple rows (one per group), so fieldtype=ARRAY.
@@ -815,15 +815,15 @@ async def group_by_agg(
     for source_col, agg in entries:
         sql_func = AGGREGATION_FUNCTIONS[agg.op]
         if agg.op == "count":
-            agg_exprs.append(f"{sql_func}() AS {agg.alias}")
+            agg_exprs.append(f"{sql_func}() AS {quote_identifier(agg.alias)}")
             result_columns[agg.alias] = ColumnInfo("UInt64", fieldtype=FIELDTYPE_ARRAY)
         elif agg.op == "group_array_distinct":
-            agg_exprs.append(f"{sql_func}({source_col}) AS {agg.alias}")
+            agg_exprs.append(f"{sql_func}({quote_identifier(source_col)}) AS {quote_identifier(agg.alias)}")
             source_type = info.columns[source_col]
             base_type = parse_ch_type(source_type).type if isinstance(source_type, str) else source_type.type
             result_columns[agg.alias] = ColumnInfo(base_type, array=True, fieldtype=FIELDTYPE_ARRAY)
         else:
-            agg_exprs.append(f"{sql_func}({source_col}) AS {agg.alias}")
+            agg_exprs.append(f"{sql_func}({quote_identifier(source_col)}) AS {quote_identifier(agg.alias)}")
             source_type = info.columns[source_col]
             result_columns[agg.alias] = ColumnInfo(
                 _determine_agg_result_type(agg.op, source_type), fieldtype=FIELDTYPE_ARRAY
@@ -841,10 +841,10 @@ async def group_by_agg(
             sql_func = AGGREGATION_FUNCTIONS[agg.op]
             tmp_alias = f"__agg_{agg.alias}"
             if agg.op == "count":
-                tmp_agg_exprs.append(f"{sql_func}() AS {tmp_alias}")
+                tmp_agg_exprs.append(f"{sql_func}() AS {quote_identifier(tmp_alias)}")
             else:
-                tmp_agg_exprs.append(f"{sql_func}({source_col}) AS {tmp_alias}")
-            rename_exprs.append(f"{tmp_alias} AS {agg.alias}")
+                tmp_agg_exprs.append(f"{sql_func}({quote_identifier(source_col)}) AS {quote_identifier(tmp_alias)}")
+            rename_exprs.append(f"{quote_identifier(tmp_alias)} AS {quote_identifier(agg.alias)}")
         tmp_agg_str = ", ".join(tmp_agg_exprs)
         rename_str = ", ".join(rename_exprs)
         inner = f"SELECT {keys_str}, {tmp_agg_str} FROM {info.source} GROUP BY {keys_str} HAVING {info.having}"
