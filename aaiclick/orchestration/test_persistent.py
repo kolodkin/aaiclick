@@ -15,6 +15,7 @@ covered alongside the unnamed-temp default in
 """
 
 import pytest
+from sqlmodel import select
 
 from aaiclick import create_object_from_value
 from aaiclick.data.data_context import (
@@ -24,6 +25,9 @@ from aaiclick.data.data_context import (
     open_object,
 )
 from aaiclick.data.data_context.data_context import MAX_PERSISTENT_NAME_LEN, _validate_persistent_name
+from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
+from aaiclick.orchestration.sql_context import get_sql_session
+from aaiclick.tenancy import active_tenant
 
 
 async def test_scope_default_is_temp_named_when_name_set(orch_ctx):
@@ -150,3 +154,17 @@ async def test_persistent_name_length_is_capped():
     _validate_persistent_name("a" * MAX_PERSISTENT_NAME_LEN)
     with pytest.raises(ValueError, match="Invalid persistent name"):
         _validate_persistent_name("a" * (MAX_PERSISTENT_NAME_LEN + 1))
+
+
+async def test_register_table_stamps_the_active_tenant(orch_ctx):
+    """A registry row records who owns the table, for query scoping.
+
+    Looks the row up *by tenant* rather than by table name: the stamp is
+    what this covers, and the name gains its tenant prefix separately.
+    """
+    with active_tenant(7):
+        await create_object_from_value([1, 2, 3], name="owned", scope="global")
+
+    async with get_sql_session() as session:
+        result = await session.execute(select(TableRegistry.table_name).where(TableRegistry.tenant_id == 7))
+        assert result.scalar_one().endswith("owned")

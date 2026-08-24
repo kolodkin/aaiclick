@@ -20,6 +20,7 @@ from aaiclick.data.data_context.lifecycle import LifecycleHandler, _lifecycle_va
 from aaiclick.data.models import ENGINE_DEFAULT
 from aaiclick.locks import lookup_advisory_id
 from aaiclick.oplog.models import get_column_types, init_oplog_tables
+from aaiclick.tenancy import get_active_tenant_id
 
 from ..snowflake import get_snowflake_id
 from .env import get_db_url
@@ -195,6 +196,7 @@ class OrchLifecycleHandler(LifecycleHandler):
                     self._job_id,
                     self._run_id,
                     schema_doc=schema_doc,
+                    tenant_id=get_active_tenant_id(),
                 ),
             )
         )
@@ -246,12 +248,13 @@ class OrchLifecycleHandler(LifecycleHandler):
                 await session.execute(
                     text(
                         "INSERT INTO table_registry "
-                        "(table_name, job_id, task_id, run_id, created_at, schema_doc) "
-                        "VALUES (:table_name, :job_id, :task_id, :run_id, :created_at, :schema_doc) "
+                        "(table_name, tenant_id, job_id, task_id, run_id, created_at, schema_doc) "
+                        "VALUES (:table_name, :tenant_id, :job_id, :task_id, :run_id, :created_at, :schema_doc) "
                         "ON CONFLICT (table_name) DO NOTHING"
                     ),
                     {
                         "table_name": p.table_name,
+                        "tenant_id": p.tenant_id,
                         "job_id": p.job_id,
                         "task_id": p.task_id,
                         "run_id": p.run_id,

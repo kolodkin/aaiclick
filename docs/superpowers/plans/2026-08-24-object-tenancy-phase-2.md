@@ -224,7 +224,7 @@ git commit -m "feat: tenant-aware global object table names"
 **Files:**
 - Modify: `aaiclick/orchestration/lifecycle/db_lifecycle.py`
 - Modify: `aaiclick/orchestration/orch_context.py`
-- Test: `aaiclick/orchestration/background/test_db_lifecycle.py`
+- Test: `aaiclick/orchestration/test_persistent.py` (the `orch_ctx` fixture supplies orch_context + task_scope; `background/test_db_lifecycle.py` uses a raw `bg_db` engine and cannot exercise the write path)
 - Generate: `aaiclick/orchestration/migrations/versions/<rev>_add_table_registry_tenant_id.py`
 
 **Interfaces:**
@@ -236,20 +236,22 @@ git commit -m "feat: tenant-aware global object table names"
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `aaiclick/orchestration/background/test_db_lifecycle.py`:
+Append to `aaiclick/orchestration/test_persistent.py`:
 
 ```python
 async def test_register_table_stamps_the_active_tenant(orch_ctx):
-    """A registry row records who owns the table, for query scoping."""
-    async with task_scope(task_id=1, job_id=1, run_id=1):
-        with active_tenant(7):
-            await create_object_from_value([1, 2, 3], name="owned", scope="global")
+    """A registry row records who owns the table, for query scoping.
+
+    Looks the row up *by tenant* rather than by table name: the stamp is
+    what this task delivers, and the name gains its tenant prefix in
+    Task 3. Asserting the prefixed name here would fail until then.
+    """
+    with active_tenant(7):
+        await create_object_from_value([1, 2, 3], name="owned", scope="global")
 
     async with get_sql_session() as session:
-        result = await session.execute(
-            select(TableRegistry.tenant_id).where(TableRegistry.table_name == "p_7_owned")
-        )
-        assert result.scalar_one() == 7
+        result = await session.execute(select(TableRegistry.table_name).where(TableRegistry.tenant_id == 7))
+        assert result.scalar_one().endswith("owned")
 ```
 
 Add these imports at the top of that file (top-of-file only — never inside the test):
@@ -259,7 +261,6 @@ from sqlmodel import select
 
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
-from aaiclick.orchestration.orch_context import task_scope
 from aaiclick.orchestration.sql_context import get_sql_session
 from aaiclick.tenancy import active_tenant
 ```
@@ -268,7 +269,7 @@ Drop any import the file already has.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `uv run pytest aaiclick/orchestration/background/test_db_lifecycle.py -q --no-cov`
+Run: `uv run pytest aaiclick/orchestration/test_persistent.py -q --no-cov`
 Expected: FAIL — `AttributeError: type object 'TableRegistry' has no attribute 'tenant_id'`
 
 - [ ] **Step 3: Add the column and stamp it**
@@ -337,7 +338,7 @@ Leave `ON CONFLICT (table_name) DO NOTHING` alone. It is correct precisely becau
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `uv run pytest aaiclick/orchestration/background/test_db_lifecycle.py -q --no-cov`
+Run: `uv run pytest aaiclick/orchestration/test_persistent.py -q --no-cov`
 Expected: PASS
 
 Local and dev builds tables from `SQLModel.metadata`, so no migration is needed for this step to go green.
@@ -371,7 +372,7 @@ git commit -m "feat: record owning tenant on table_registry rows"
 **Files:**
 - Modify: `aaiclick/data/data_context/data_context.py`
 - Modify: `aaiclick/data/object/ingest.py`
-- Test: `aaiclick/data/data_context/test_persistent.py`
+- Test: `aaiclick/orchestration/test_persistent.py`
 
 **Interfaces:**
 - Consumes: `make_scoped_table_name(..., tenant_id=...)` and `tenant_from_table` from Task 1; `TableRegistry.tenant_id` from Task 2.
@@ -379,7 +380,7 @@ git commit -m "feat: record owning tenant on table_registry rows"
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `aaiclick/data/data_context/test_persistent.py` (add `active_tenant` and `open_object` to its top-of-file imports if absent):
+Append to `aaiclick/orchestration/test_persistent.py` (add `active_tenant` and `open_object` to its top-of-file imports if absent):
 
 ```python
 async def test_two_tenants_hold_distinct_objects_of_one_name(orch_ctx):
@@ -411,7 +412,7 @@ Import `ObjectNotFoundError` from `aaiclick.data.errors` at the top of the file.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `uv run pytest aaiclick/data/data_context/test_persistent.py -q --no-cov`
+Run: `uv run pytest aaiclick/orchestration/test_persistent.py -q --no-cov`
 Expected: FAIL — tenant 8 opens tenant 7's `p_private`, because names are not yet tenant-scoped at the call site.
 
 - [ ] **Step 3: Route name-building through the active tenant**
@@ -461,7 +462,7 @@ belongs at the top like any other import.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `uv run pytest aaiclick/data/data_context/test_persistent.py -q --no-cov`
+Run: `uv run pytest aaiclick/orchestration/test_persistent.py -q --no-cov`
 Expected: PASS
 
 - [ ] **Step 6: Run the full suite**
@@ -482,7 +483,7 @@ git commit -m "feat: scope persistent object create and open by tenant"
 
 **Files:**
 - Modify: `aaiclick/data/data_context/data_context.py`
-- Test: `aaiclick/data/data_context/test_persistent.py`
+- Test: `aaiclick/orchestration/test_persistent.py`
 
 **Interfaces:**
 - Consumes: `TableRegistry.tenant_id` (Task 2), `name_from_table` (Task 1).
@@ -490,7 +491,7 @@ git commit -m "feat: scope persistent object create and open by tenant"
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `aaiclick/data/data_context/test_persistent.py`:
+Append to `aaiclick/orchestration/test_persistent.py`:
 
 ```python
 async def test_listing_shows_only_the_active_tenants_objects(orch_ctx):
@@ -507,7 +508,7 @@ async def test_listing_shows_only_the_active_tenants_objects(orch_ctx):
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `uv run pytest aaiclick/data/data_context/test_persistent.py::test_listing_shows_only_the_active_tenants_objects -q --no-cov`
+Run: `uv run pytest aaiclick/orchestration/test_persistent.py::test_listing_shows_only_the_active_tenants_objects -q --no-cov`
 Expected: FAIL — the `system.tables` scan matches `p\_%`, so tenant 7 also sees `p_8_eight_only`.
 
 - [ ] **Step 3: Read the registry instead of scanning ClickHouse**
@@ -539,7 +540,7 @@ Add `GLOBAL_PREFIX` and `name_from_table` to the existing `from ..scope import (
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `uv run pytest aaiclick/data/data_context/test_persistent.py -q --no-cov`
+Run: `uv run pytest aaiclick/orchestration/test_persistent.py -q --no-cov`
 Expected: PASS
 
 - [ ] **Step 5: Run the full suite**
@@ -567,7 +568,7 @@ git commit -m "feat: list persistent objects from the tenant-filtered registry"
 
 **Files:**
 - Modify: `aaiclick/data/data_context/data_context.py`
-- Test: `aaiclick/data/data_context/test_persistent.py`
+- Test: `aaiclick/orchestration/test_persistent.py`
 
 **Interfaces:**
 - Consumes: everything from Tasks 1-4.
@@ -594,7 +595,7 @@ Add `from datetime import datetime` to the file's top-of-file imports if absent.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `uv run pytest aaiclick/data/data_context/test_persistent.py::test_purge_leaves_other_tenants_objects_alone -q --no-cov`
+Run: `uv run pytest aaiclick/orchestration/test_persistent.py::test_purge_leaves_other_tenants_objects_alone -q --no-cov`
 Expected: FAIL — the `system.tables` scan drops both tenants' tables.
 
 - [ ] **Step 3: Scope the drops and clear registry rows**
@@ -682,7 +683,7 @@ comment pattern Task 4 established for `TableRegistry` / `get_sql_session`;
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `uv run pytest aaiclick/data/data_context/test_persistent.py -q --no-cov`
+Run: `uv run pytest aaiclick/orchestration/test_persistent.py -q --no-cov`
 Expected: PASS
 
 - [ ] **Step 5: Run the full suite**
