@@ -273,11 +273,11 @@ of the data directory path. A snowflake renders as 19 digits, so
 `p_<tenant_id>_` costs 22 characters — the same as the `j_<job_id>_` and
 `t_<name>_<snowid>` prefixes already in use — leaving 183+ for the name.
 
-Names are unvalidated for length today, so an over-long one fails deep in
-ClickHouse with `ARGUMENT_OUT_OF_BOUND`, or an unhandled
-`std::filesystem::filesystem_error` past 251 characters. Phase 2 adds a
-conservative cap (128) to `_validate_persistent_name`, turning that into a
-`ValueError` at the API boundary.
+`_validate_persistent_name` (`aaiclick/data/data_context/data_context.py` —
+see `MAX_PERSISTENT_NAME_LEN`) caps names at 128 characters, so an over-long
+name raises `ValueError` at the API boundary instead of failing deep in
+ClickHouse with `ARGUMENT_OUT_OF_BOUND` — or, past 251 characters, an
+unhandled `std::filesystem::filesystem_error`.
 
 # SPA (Phase 3)
 

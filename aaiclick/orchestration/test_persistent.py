@@ -23,7 +23,7 @@ from aaiclick.data.data_context import (
     get_data_lifecycle,
     open_object,
 )
-from aaiclick.data.data_context.data_context import _validate_persistent_name
+from aaiclick.data.data_context.data_context import MAX_PERSISTENT_NAME_LEN, _validate_persistent_name
 
 
 async def test_scope_default_is_temp_named_when_name_set(orch_ctx):
@@ -123,6 +123,12 @@ async def test_unnamed_object_is_temp_in_orch_context(orch_ctx):
 
 
 async def test_persistent_name_validation():
+    """Rejecting a leading digit is load-bearing beyond tidiness.
+
+    Tenant-prefixed object naming (``p_<tenant_id>_<name>``, see
+    ``docs/designs/tenant_rbac.md``) is only unambiguous while no
+    default-tenant object can produce a ``p_<digits>_`` prefix.
+    """
     with pytest.raises(ValueError, match="Invalid persistent name"):
         _validate_persistent_name("123bad")
     with pytest.raises(ValueError, match="Invalid persistent name"):
@@ -132,3 +138,15 @@ async def test_persistent_name_validation():
     _validate_persistent_name("valid_name")
     _validate_persistent_name("_underscore")
     _validate_persistent_name("CamelCase")
+
+
+async def test_persistent_name_length_is_capped():
+    """An over-long name must fail here, not deep inside ClickHouse.
+
+    ClickHouse caps table names near ``213 - len(database)`` characters and
+    raises an opaque filesystem error past 251, so the boundary check keeps
+    the failure a ``ValueError`` at the API boundary.
+    """
+    _validate_persistent_name("a" * MAX_PERSISTENT_NAME_LEN)
+    with pytest.raises(ValueError, match="Invalid persistent name"):
+        _validate_persistent_name("a" * (MAX_PERSISTENT_NAME_LEN + 1))

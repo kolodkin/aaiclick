@@ -225,15 +225,28 @@ def get_engine_clause(engine: EngineType, order_by: str = "tuple()") -> str:
 
 _VALID_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
+# ClickHouse caps table names near ``213 - len(database)`` characters, and a
+# scope prefix (``j_<job_id>_``, ``t_<name>_<snowid>``) already spends 22 of
+# them. 128 stays clear of the tightest realistic budget while exceeding any
+# name a caller would write; past the cap ClickHouse fails with
+# ARGUMENT_OUT_OF_BOUND, or an opaque filesystem error beyond 251 characters.
+MAX_PERSISTENT_NAME_LEN = 128
+
 
 def _validate_persistent_name(name: str) -> None:
     """Validate a persistent object name.
 
     Raises:
-        ValueError: If name doesn't match [a-zA-Z_][a-zA-Z0-9_]*
+        ValueError: If name doesn't match [a-zA-Z_][a-zA-Z0-9_]* or exceeds
+            ``MAX_PERSISTENT_NAME_LEN`` characters.
     """
     if not _VALID_NAME_RE.match(name):
         raise ValueError(f"Invalid persistent name '{name}': must match [a-zA-Z_][a-zA-Z0-9_]*")
+    if len(name) > MAX_PERSISTENT_NAME_LEN:
+        raise ValueError(
+            f"Invalid persistent name '{name[:32]}...': {len(name)} characters "
+            f"exceeds the {MAX_PERSISTENT_NAME_LEN}-character limit"
+        )
 
 
 def _resolve_scope(name: str | None, scope: NamedScope | None) -> NamedScope | None:
