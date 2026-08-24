@@ -87,10 +87,6 @@ class TableContextRef(SQLModel, table=True):
     __tablename__: ClassVar[str] = "table_context_refs"
 
     table_name: str = Field(sa_column=Column(String, primary_key=True))
-    tenant_id: int = Field(
-        default=DEFAULT_TENANT_ID,
-        sa_column=Column(BigInteger, nullable=False, index=True, server_default=str(DEFAULT_TENANT_ID)),
-    )
     context_id: int = Field(sa_column=Column(BigInteger, primary_key=True))
     advisory_id: int = Field(sa_column=Column(BigInteger, nullable=False))
 
@@ -106,10 +102,6 @@ class TablePinRef(SQLModel, table=True):
     __tablename__: ClassVar[str] = "table_pin_refs"
 
     table_name: str = Field(sa_column=Column(String, primary_key=True))
-    tenant_id: int = Field(
-        default=DEFAULT_TENANT_ID,
-        sa_column=Column(BigInteger, nullable=False, index=True, server_default=str(DEFAULT_TENANT_ID)),
-    )
     task_id: int = Field(sa_column=Column(BigInteger, primary_key=True))
 
 
@@ -125,10 +117,6 @@ class TableRunRef(SQLModel, table=True):
     __tablename__: ClassVar[str] = "table_run_refs"
 
     table_name: str = Field(sa_column=Column(String, primary_key=True))
-    tenant_id: int = Field(
-        default=DEFAULT_TENANT_ID,
-        sa_column=Column(BigInteger, nullable=False, index=True, server_default=str(DEFAULT_TENANT_ID)),
-    )
     run_id: str = Field(sa_column=Column(String, primary_key=True))
 
 
