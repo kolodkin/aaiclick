@@ -16,6 +16,7 @@ from .data_context import (
     get_engine,
     incref,
     list_persistent_objects,
+    list_persistent_tables,
     open_object,
     register_object,
 )

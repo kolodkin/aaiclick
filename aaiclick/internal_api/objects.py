@@ -19,17 +19,16 @@ from aaiclick.data.data_context import (
     delete_persistent_object,
     delete_persistent_objects,
     get_ch_client,
-    list_persistent_objects,
+    list_persistent_tables,
     open_object,
 )
 from aaiclick.data.errors import ObjectNotFoundError
 from aaiclick.data.object.adapters import object_to_detail
-from aaiclick.data.scope import SCOPE_GLOBAL, make_scoped_table_name
+from aaiclick.data.scope import SCOPE_GLOBAL, name_from_table
 from aaiclick.data.view_models import (
     ObjectDetail,
     ObjectView,
 )
-from aaiclick.tenancy import get_active_tenant_id
 from aaiclick.view_models import (
     ObjectDeleted,
     ObjectFilter,
@@ -71,14 +70,13 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
     if filter.scope not in (None, SCOPE_GLOBAL):
         raise Invalid(f"scope={filter.scope!r} not yet supported (global only)")
 
-    names = sorted(await list_persistent_objects())
+    pairs = sorted((name_from_table(t), t) for t in await list_persistent_tables())
     if filter.prefix:
-        names = [n for n in names if n.startswith(filter.prefix)]
+        pairs = [(n, t) for n, t in pairs if n.startswith(filter.prefix)]
 
-    total = len(names)
-    paged = names[: filter.limit]
-    tables = [make_scoped_table_name(SCOPE_GLOBAL, n, tenant_id=get_active_tenant_id()) for n in paged]
-    metadata = await _fetch_table_metadata(tables)
+    total = len(pairs)
+    paged = pairs[: filter.limit]
+    metadata = await _fetch_table_metadata([t for _, t in paged])
 
     items = [
         ObjectView(
@@ -88,7 +86,7 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
             persistent=True,
             **metadata.get(table, {}),
         )
-        for name, table in zip(paged, tables, strict=True)
+        for name, table in paged
     ]
     return Page[ObjectView](items=items, total=total)
 

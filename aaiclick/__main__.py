@@ -125,13 +125,8 @@ async def _run_internal_api(coro, *, with_ch: bool = False):
 
 
 async def _run_data_api(coro):
-    """Run a ``data`` subcommand inside an orch context with ClickHouse attached.
-
-    ``open_object`` reads the object's schema from SQL ``table_registry``, so
-    these commands need the SQL session an orch context provides — a bare
-    ``data_context()`` has none, and ``get_object`` would report every
-    existing object as missing.
-    """
+    """Run a ``data`` subcommand with ClickHouse attached — ``open_object``
+    needs the SQL ``table_registry`` session only an orch context provides."""
     return await _run_internal_api(coro, with_ch=True)
 
 

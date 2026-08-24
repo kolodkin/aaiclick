@@ -18,25 +18,13 @@ from . import errors, objects
 
 
 @pytest.fixture(autouse=True)
-async def _object_data_ctx(orch_ctx) -> AsyncIterator[None]:
-    """Drop any leftover persistent objects around each test.
+async def _object_orch_ctx(orch_ctx) -> AsyncIterator[None]:
+    """Run every test under orch (registry read path) with per-test reset.
 
-    Reuses the shared ``orch_ctx`` fixture (orch_context + synthetic
-    task_scope) so ``create_object`` writes ``table_registry.schema_doc``
-    via the OrchLifecycleHandler — Phase 2's registry-backed read path
-    requires it.
+    ``orch_ctx``'s ``per_test_reset`` already drops every CH table and SQL
+    row — all tenants included — so no extra sweep is needed here.
     """
-    await _drop_everything()
     yield
-    await _drop_everything()
-
-
-async def _drop_everything() -> None:
-    """Sweep the tenants these tests create objects in (default, 7, 8)."""
-    for tenant_id in (1, 7, 8):
-        with active_tenant(tenant_id):
-            for name in await list_persistent_objects():
-                await objects.delete_object(name)
 
 
 async def test_list_objects_returns_page():

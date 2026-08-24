@@ -17,6 +17,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING, cast
 
 import pyarrow as pa
+from sqlalchemy import delete as sql_delete
+from sqlmodel import col, select
 
 from aaiclick.locks import load_advisory_id, table_insert_lock
 from aaiclick.oplog.oplog_api import oplog_record
@@ -228,11 +230,8 @@ def get_engine_clause(engine: EngineType, order_by: str = "tuple()") -> str:
 
 _VALID_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
-# ClickHouse caps table names near ``213 - len(database)`` characters, and a
-# scope prefix (``j_<job_id>_``, ``t_<name>_<snowid>``) already spends 22 of
-# them. 128 stays clear of the tightest realistic budget while exceeding any
-# name a caller would write; past the cap ClickHouse fails with
-# ARGUMENT_OUT_OF_BOUND, or an opaque filesystem error beyond 251 characters.
+# Stays clear of ClickHouse's table-name ceiling after any scope prefix —
+# see docs/designs/tenant_rbac.md, "Name length budget".
 MAX_PERSISTENT_NAME_LEN = 128
 
 
@@ -719,12 +718,7 @@ async def _forget_registry_rows(table_names: list[str]) -> None:
     """
     if not table_names:
         return
-    # Circular dep: orchestration imports the data package at import time,
-    # so the registry model and SQL session are resolved at call time
-    # (same pattern as list_persistent_objects).
-    from sqlalchemy import delete as sql_delete
-    from sqlmodel import col
-
+    # Circular dep: see list_persistent_tables.
     from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
     from aaiclick.orchestration.sql_context import get_sql_session
 
@@ -758,10 +752,7 @@ async def delete_persistent_objects(
             "At least one of 'after' or 'before' must be specified "
             "to prevent accidental deletion of all persistent objects"
         )
-    tenant_id = get_active_tenant_id()
-    owned = sorted(
-        make_scoped_table_name(SCOPE_GLOBAL, n, tenant_id=tenant_id) for n in await list_persistent_objects()
-    )
+    owned = await list_persistent_tables()
     if not owned:
         return []
 
@@ -786,21 +777,16 @@ async def delete_persistent_objects(
     return [name_from_table(n) for n in names]
 
 
-async def list_persistent_objects() -> list[str]:
-    """List the active tenant's persistent object names.
+async def list_persistent_tables() -> list[str]:
+    """List the active tenant's persistent CH table names (``p_*``).
 
     Reads SQL ``table_registry`` rather than scanning ``system.tables``:
     ownership lives in SQL, and a ClickHouse scan cannot tell one tenant's
     tables from another's without re-parsing every prefix.
-
-    Returns:
-        List of persistent names (without prefix).
     """
     # Circular dep: orchestration imports the data package at import time,
     # so the registry model and SQL session are resolved at call time
     # (same pattern as aaiclick/data/object/ingest.py::_get_table_schema).
-    from sqlmodel import col, select
-
     from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
     from aaiclick.orchestration.sql_context import get_sql_session
 
@@ -808,7 +794,12 @@ async def list_persistent_objects() -> list[str]:
         result = await session.execute(
             select(TableRegistry.table_name).where(
                 TableRegistry.tenant_id == get_active_tenant_id(),
-                col(TableRegistry.table_name).startswith(GLOBAL_PREFIX),
+                col(TableRegistry.table_name).startswith(GLOBAL_PREFIX, autoescape=True),
             )
         )
-    return [name_from_table(row[0]) for row in result.all()]
+    return [row[0] for row in result.all()]
+
+
+async def list_persistent_objects() -> list[str]:
+    """List the active tenant's persistent object names (without prefix)."""
+    return [name_from_table(t) for t in await list_persistent_tables()]

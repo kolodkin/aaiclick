@@ -199,12 +199,6 @@ def test_global_and_subcommand_tenant_flags_do_not_collide():
 async def test_run_data_api_provides_a_sql_session():
     """``aaiclick data`` commands need an orch context, not a bare data context.
 
-    ``get_object`` -> ``open_object`` reads the object's schema from SQL
-    ``table_registry``. Under a bare ``data_context()`` there is no SQL
-    session, so ``get_sql_session()`` raises ``RuntimeError`` and
-    ``get_object`` maps it to ``NotFound`` -- reporting every existing object
-    as missing while ``data list`` still shows it.
-
     Deliberately takes no ``orch_ctx`` fixture: an ambient orch context leaves
     the SQL engine contextvar set and hides the defect.
     """

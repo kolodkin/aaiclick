@@ -207,7 +207,7 @@ alone.
 ## Physical namespace — tenant-prefixed table names
 
 **Implementation**: `aaiclick/data/scope.py` — see `make_scoped_table_name`,
-`tenant_from_table`; the active tenant is applied in
+`name_from_table`; the active tenant is applied in
 `aaiclick/data/data_context/data_context.py` — see `_build_scoped_table`.
 
 - Default tenant keeps bare `p_<name>` — full backward compatibility.

@@ -149,12 +149,8 @@ async def test_persistent_name_validation():
 
 
 async def test_persistent_name_length_is_capped():
-    """An over-long name must fail here, not deep inside ClickHouse.
-
-    ClickHouse caps table names near ``213 - len(database)`` characters and
-    raises an opaque filesystem error past 251, so the boundary check keeps
-    the failure a ``ValueError`` at the API boundary.
-    """
+    """An over-long name must raise ``ValueError`` here, not fail deep inside
+    ClickHouse — see docs/designs/tenant_rbac.md, "Name length budget"."""
     _validate_persistent_name("a" * MAX_PERSISTENT_NAME_LEN)
     with pytest.raises(ValueError, match="Invalid persistent name"):
         _validate_persistent_name("a" * (MAX_PERSISTENT_NAME_LEN + 1))

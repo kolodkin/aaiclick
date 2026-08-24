@@ -30,7 +30,9 @@ PersistentScope = Literal["job", "global"]
 GLOBAL_PREFIX = "p_"
 TEMP_PREFIX = "t_"
 JOB_SCOPED_RE = re.compile(r"^j_\d+_")
-GLOBAL_TENANT_RE = re.compile(r"^p_(\d+)_")
+# Unambiguous because persistent names may not start with a digit
+# (_validate_persistent_name), so no default-tenant object matches this.
+GLOBAL_TENANT_RE = re.compile(r"^p_\d+_")
 TEMP_NAMED_RE = re.compile(r"^t_[a-zA-Z_][a-zA-Z0-9_]*_\d+$")
 
 
@@ -61,26 +63,12 @@ def name_from_table(table_name: str) -> str:
     scope = scope_of(table_name)
     if scope == SCOPE_GLOBAL:
         match = GLOBAL_TENANT_RE.match(table_name)
-        if match:
-            return table_name[match.end() :]
-        return table_name[len(GLOBAL_PREFIX) :]
+        return table_name[match.end() if match else len(GLOBAL_PREFIX) :]
     if scope == SCOPE_JOB:
         return table_name.split("_", 2)[2]
     if scope == SCOPE_TEMP_NAMED:
         return table_name[len(TEMP_PREFIX) :].rsplit("_", 1)[0]
     return table_name
-
-
-def tenant_from_table(table_name: str) -> int:
-    """Return the tenant a global-scope table belongs to.
-
-    A bare ``p_<name>`` belongs to the default tenant. The parse is
-    unambiguous because persistent names may not start with a digit
-    (``_validate_persistent_name``), so no default-tenant object can
-    produce a ``p_<digits>_`` prefix.
-    """
-    match = GLOBAL_TENANT_RE.match(table_name)
-    return int(match.group(1)) if match else DEFAULT_TENANT_ID
 
 
 def make_scoped_table_name(
