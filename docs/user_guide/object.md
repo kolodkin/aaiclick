@@ -392,7 +392,12 @@ await create_object_from_url(
 For nested JSON APIs that wrap rows inside an envelope (e.g.
 `{"vulnerabilities": [...]}`), pass `RawBLOB` or `JSONAsString` plus
 `json_path` and `json_columns`. ClickHouse loads the whole document as a
-single string and applies `JSONExtract` per field:
+single string and applies `JSONExtract` per field. Dots walk nesting in
+both parameters: `json_path="result.vulnerabilities"` reaches an array
+inside an envelope, and a `json_columns` key like `"cve.id"` extracts a
+nested field of each element (keys whose names literally contain `.` are
+not addressable). Dotted keys become dot-notation columns, so `data()`
+re-nests them — see [Nested Data Flattening](#nested-data-flattening):
 
 ```python
 await create_object_from_url(
