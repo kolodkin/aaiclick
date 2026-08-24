@@ -13,7 +13,7 @@ import weakref
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, cast
 
 import pyarrow as pa
@@ -25,7 +25,6 @@ from aaiclick.oplog.oplog_api import oplog_record
 from aaiclick.snowflake import get_snowflake_id
 from aaiclick.tenancy import get_active_tenant_id
 
-from ..errors import ObjectNotFoundError
 from ..models import (
     AAI_ID_COLUMN,
     AAI_ID_INFO,
@@ -53,7 +52,7 @@ from ..scope import (
     make_scoped_table_name,
     name_from_table,
 )
-from ..sql_utils import escape_sql_string, quote_identifier
+from ..sql_utils import quote_identifier
 from .arrow_ingest import (
     arrow_table_for_insert,
     infer_struct_array,
@@ -246,8 +245,7 @@ def _validate_persistent_name(name: str) -> None:
         raise ValueError(f"Invalid persistent name '{name}': must match [a-zA-Z_][a-zA-Z0-9_]*")
     if len(name) > MAX_PERSISTENT_NAME_LEN:
         raise ValueError(
-            f"Invalid persistent name '{name[:32]}...': {len(name)} characters "
-            f"exceeds the {MAX_PERSISTENT_NAME_LEN}-character limit"
+            f"Invalid persistent name: {len(name)} characters exceeds the {MAX_PERSISTENT_NAME_LEN}-character limit"
         )
 
 
@@ -659,6 +657,14 @@ async def create_object_from_value(
     return obj
 
 
+class ObjectNotFoundError(RuntimeError):
+    """No persistent object exists under the requested name and scope.
+
+    A ``RuntimeError`` subclass so callers written against ``open_object``'s
+    original contract keep working.
+    """
+
+
 async def open_object(name: str, scope: PersistentScope = SCOPE_JOB) -> Object:
     """Open an existing persistent Object by name.
 
@@ -733,9 +739,10 @@ async def delete_persistent_objects(
 ) -> list[str]:
     """Drop the active tenant's persistent tables, filtered by creation time.
 
-    Candidates come from ``table_registry`` so the purge cannot reach another
-    tenant's tables; the time window is still evaluated against ClickHouse
-    ``system.tables.metadata_modification_time``.
+    Candidates come from ``table_registry`` (see ``list_persistent_tables``),
+    so the purge cannot reach another tenant's tables and the time window is
+    evaluated against the registry's ``created_at`` — not ClickHouse's
+    ``metadata_modification_time``, which chdb reports as the epoch.
 
     Args:
         after: Drop tables created at or after this time (inclusive).
@@ -752,37 +759,32 @@ async def delete_persistent_objects(
             "At least one of 'after' or 'before' must be specified "
             "to prevent accidental deletion of all persistent objects"
         )
-    owned = await list_persistent_tables()
-    if not owned:
-        return []
-
     ch = get_ch_client()
-    names_lit = ", ".join(f"'{escape_sql_string(t)}'" for t in owned)
-    conditions = ["database = currentDatabase()", f"name IN ({names_lit})"]
-    if after is not None:
-        after_str = after.strftime("%Y-%m-%d %H:%M:%S")
-        conditions.append(f"metadata_modification_time >= '{after_str}'")
-    if before is not None:
-        before_str = before.strftime("%Y-%m-%d %H:%M:%S")
-        conditions.append(f"metadata_modification_time < '{before_str}'")
-
-    where = " AND ".join(conditions)
-    result = await ch.query(f"SELECT name FROM system.tables WHERE {where}")
-    names = [row[0] for row in result.result_rows]
-
+    names = await list_persistent_tables(after=after, before=before)
     for table_name in names:
         await ch.command(f"DROP TABLE IF EXISTS {table_name}")
     await _forget_registry_rows(names)
-
     return [name_from_table(n) for n in names]
 
 
-async def list_persistent_tables() -> list[str]:
+def _naive_utc(dt: datetime) -> datetime:
+    """Coerce to the storage convention — naive UTC (see ``datetime_utils``)."""
+    return dt.astimezone(timezone.utc).replace(tzinfo=None) if dt.tzinfo else dt
+
+
+async def list_persistent_tables(
+    after: datetime | None = None,
+    before: datetime | None = None,
+) -> list[str]:
     """List the active tenant's persistent CH table names (``p_*``).
 
     Reads SQL ``table_registry`` rather than scanning ``system.tables``:
     ownership lives in SQL, and a ClickHouse scan cannot tell one tenant's
     tables from another's without re-parsing every prefix.
+
+    Args:
+        after: Only tables registered at or after this time (inclusive).
+        before: Only tables registered before this time (exclusive).
     """
     # Circular dep: orchestration imports the data package at import time,
     # so the registry model and SQL session are resolved at call time
@@ -790,13 +792,16 @@ async def list_persistent_tables() -> list[str]:
     from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
     from aaiclick.orchestration.sql_context import get_sql_session
 
+    predicates = [
+        TableRegistry.tenant_id == get_active_tenant_id(),
+        col(TableRegistry.table_name).startswith(GLOBAL_PREFIX, autoescape=True),
+    ]
+    if after is not None:
+        predicates.append(col(TableRegistry.created_at) >= _naive_utc(after))
+    if before is not None:
+        predicates.append(col(TableRegistry.created_at) < _naive_utc(before))
     async with get_sql_session() as session:
-        result = await session.execute(
-            select(TableRegistry.table_name).where(
-                TableRegistry.tenant_id == get_active_tenant_id(),
-                col(TableRegistry.table_name).startswith(GLOBAL_PREFIX, autoescape=True),
-            )
-        )
+        result = await session.execute(select(TableRegistry.table_name).where(*predicates))
     return [row[0] for row in result.all()]
 
 

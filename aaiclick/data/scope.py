@@ -32,7 +32,7 @@ TEMP_PREFIX = "t_"
 JOB_SCOPED_RE = re.compile(r"^j_\d+_")
 # Unambiguous because persistent names may not start with a digit
 # (_validate_persistent_name), so no default-tenant object matches this.
-GLOBAL_TENANT_RE = re.compile(r"^p_\d+_")
+GLOBAL_TENANT_RE = re.compile(rf"^{GLOBAL_PREFIX}\d+_")
 TEMP_NAMED_RE = re.compile(r"^t_[a-zA-Z_][a-zA-Z0-9_]*_\d+$")
 
 

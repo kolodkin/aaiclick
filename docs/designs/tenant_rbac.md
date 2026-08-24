@@ -265,7 +265,7 @@ through `_run_data_api` (`aaiclick/__main__.py`), which delegates to
 `--tenant` flag. Registry-backed listing can rely on both.
 
 !!! warning "Distinguish a missing object from a missing context"
-    `open_object()` raises `ObjectNotFoundError` (`aaiclick/data/errors.py`),
+    `open_object()` raises `ObjectNotFoundError` (`aaiclick/data/data_context/data_context.py`),
     a `RuntimeError` subclass, and `get_object` catches only that. Catching
     plain `RuntimeError` there swallows the `get_sql_session()` "no active
     orch_context" error as a `404`, which previously made `aaiclick data get

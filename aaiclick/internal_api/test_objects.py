@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-
 import pytest
 
 from aaiclick.data.data_context import (
@@ -16,15 +14,9 @@ from aaiclick.view_models import ObjectFilter, Page, PurgeObjectsRequest
 
 from . import errors, objects
 
-
-@pytest.fixture(autouse=True)
-async def _object_orch_ctx(orch_ctx) -> AsyncIterator[None]:
-    """Run every test under orch (registry read path) with per-test reset.
-
-    ``orch_ctx``'s ``per_test_reset`` already drops every CH table and SQL
-    row — all tenants included — so no extra sweep is needed here.
-    """
-    yield
+# orch supplies the registry read path; its per-test reset drops every CH
+# table and SQL row — all tenants included — so no extra sweep is needed.
+pytestmark = pytest.mark.usefixtures("orch_ctx")
 
 
 async def test_list_objects_returns_page():

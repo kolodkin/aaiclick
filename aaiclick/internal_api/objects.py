@@ -16,13 +16,13 @@ from __future__ import annotations
 from typing import Any
 
 from aaiclick.data.data_context import (
+    ObjectNotFoundError,
     delete_persistent_object,
     delete_persistent_objects,
     get_ch_client,
     list_persistent_tables,
     open_object,
 )
-from aaiclick.data.errors import ObjectNotFoundError
 from aaiclick.data.object.adapters import object_to_detail
 from aaiclick.data.scope import SCOPE_GLOBAL, name_from_table
 from aaiclick.data.view_models import (

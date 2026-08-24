@@ -71,6 +71,9 @@ def test_temp_named_regex():
 
 def test_make_scoped_table_name_global():
     assert make_scoped_table_name("global", "foo") == "p_foo"
+    # Backward compatibility: the default tenant keeps the bare form, so
+    # existing deployments never need a table rename.
+    assert make_scoped_table_name("global", "foo", tenant_id=DEFAULT_TENANT_ID) == "p_foo"
 
 
 def test_make_scoped_table_name_job():
@@ -108,13 +111,6 @@ def test_name_from_table_temp_named():
 
 def test_name_from_table_temp_falls_back_to_table():
     assert name_from_table("t_9999999999") == "t_9999999999"
-
-
-def test_default_tenant_keeps_bare_global_prefix():
-    """Backward compatibility: existing deployments must not need a rename."""
-    table = make_scoped_table_name("global", "sales", tenant_id=DEFAULT_TENANT_ID)
-    assert table == "p_sales"
-    assert name_from_table(table) == "sales"
 
 
 def test_other_tenants_get_a_prefixed_global_name():

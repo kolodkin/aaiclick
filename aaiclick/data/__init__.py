@@ -9,6 +9,7 @@ from .data_context import (
     ChClient,
     LifecycleHandler,
     LocalLifecycleHandler,
+    ObjectNotFoundError,
     create_object,
     create_object_from_value,
     data_context,
@@ -24,7 +25,6 @@ from .data_context import (
     open_object,
     register_object,
 )
-from .errors import ObjectNotFoundError
 from .models import (
     DATE_TYPES,
     ENGINE_AGGREGATING_MERGE_TREE,
