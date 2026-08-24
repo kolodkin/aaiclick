@@ -41,3 +41,9 @@ Technical Debt
   - **Issue**: Python 3.10 rejects `class PageRows(NamedTuple, Generic[T])` with `TypeError: Multiple inheritance with NamedTuple is not supported`. Subscripting a frozen-dataclass generic at runtime (`PageRows[int](...)`) also fails on 3.10 because `__orig_class__` assignment hits the frozen guard. Python 3.11 fixes both.
   - **Workaround**: `PageRows` is declared as `@dataclass(frozen=True, slots=True)` + `Generic[T]`, and constructed without a runtime subscript (`PageRows(total=..., rows=...)`). The return annotation on `paginate()` keeps the generic info for type checking.
   - **Debt**: Switch back to `class PageRows(NamedTuple, Generic[T])` — lighter runtime, iterable/unpackable — once `requires-python` bumps to `>=3.11`. Python 3.10 reaches EOL October 2026.
+
+# Unused Compound Entries in `ColumnType`
+
+- **`ColumnType`** (`aaiclick/data/models.py`)
+  - **Issue**: The literal lists `Tuple`, `Map`, and `Nested`, but nothing produces them — inference emits only leaf types (nested data flattens to dot-notation columns), `parse_ch_type()` does not decompose them, and `ch_type_to_pa()` falls back to `pa.string()` for any unrecognized type, so a compound column arriving via explicit `Schema` would be silently mistyped at ingest.
+  - **Debt**: Either drop the three entries from `ColumnType` (flattening is the supported representation) or implement real parse/arrow support. If they stay, replace the silent `pa.string()` fallback in `ch_type_to_pa()` with a raise so mistyping surfaces at the boundary.
