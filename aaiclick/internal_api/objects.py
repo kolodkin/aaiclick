@@ -1,7 +1,9 @@
 """Internal API for persistent data-object commands.
 
-Each function runs inside an active ``data_context()`` and reads the
-ClickHouse client via the contextvar getter. Returns pydantic view models.
+Each function runs inside an active ``orch_context(with_ch=True)`` and reads
+the ClickHouse client via the contextvar getter. Registry-backed paths
+(``get_object`` -> ``open_object``) additionally need the SQL session that
+only orch provides. Returns pydantic view models.
 
 Scope support is intentionally narrow in this migration: all operations
 target the ``global`` persistence tier (``p_*`` tables), matching what the
@@ -14,14 +16,15 @@ from __future__ import annotations
 from typing import Any
 
 from aaiclick.data.data_context import (
+    ObjectNotFoundError,
     delete_persistent_object,
     delete_persistent_objects,
     get_ch_client,
-    list_persistent_objects,
+    list_persistent_tables,
     open_object,
 )
 from aaiclick.data.object.adapters import object_to_detail
-from aaiclick.data.scope import SCOPE_GLOBAL, make_scoped_table_name
+from aaiclick.data.scope import SCOPE_GLOBAL, name_from_table
 from aaiclick.data.view_models import (
     ObjectDetail,
     ObjectView,
@@ -67,14 +70,13 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
     if filter.scope not in (None, SCOPE_GLOBAL):
         raise Invalid(f"scope={filter.scope!r} not yet supported (global only)")
 
-    names = sorted(await list_persistent_objects())
+    pairs = sorted((name_from_table(t), t) for t in await list_persistent_tables())
     if filter.prefix:
-        names = [n for n in names if n.startswith(filter.prefix)]
+        pairs = [(n, t) for n, t in pairs if n.startswith(filter.prefix)]
 
-    total = len(names)
-    paged = names[: filter.limit]
-    tables = [make_scoped_table_name(SCOPE_GLOBAL, n) for n in paged]
-    metadata = await _fetch_table_metadata(tables)
+    total = len(pairs)
+    paged = pairs[: filter.limit]
+    metadata = await _fetch_table_metadata([t for _, t in paged])
 
     items = [
         ObjectView(
@@ -84,7 +86,7 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
             persistent=True,
             **metadata.get(table, {}),
         )
-        for name, table in zip(paged, tables, strict=True)
+        for name, table in paged
     ]
     return Page[ObjectView](items=items, total=total)
 
@@ -96,7 +98,7 @@ async def get_object(name: str) -> ObjectDetail:
     """
     try:
         obj = await open_object(name, scope=SCOPE_GLOBAL)
-    except RuntimeError as exc:
+    except ObjectNotFoundError as exc:
         raise NotFound(f"Object not found: {name}") from exc
 
     metadata = await _fetch_table_metadata([obj.table])

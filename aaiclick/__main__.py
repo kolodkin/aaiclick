@@ -42,7 +42,6 @@ from aaiclick import cli_renderers, internal_api
 from aaiclick.auth import store as auth_store
 from aaiclick.auth.models import ROLE_VIEWER, ROLES
 from aaiclick.auth.view_models import CreateTenantRequest, CreateUserRequest, UserListFilter
-from aaiclick.data.data_context import data_context
 from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import tenants as tenants_api
 from aaiclick.internal_api import users as users_api
@@ -101,16 +100,21 @@ async def _resolve_tenant_id(slug: str) -> int:
     return tenant.id
 
 
-async def _run_internal_api(coro):
-    """Run ``coro`` inside ``orch_context(with_ch=False)``, mapping API errors to exit 1.
+async def _run_internal_api(coro, *, with_ch: bool = False):
+    """Run ``coro`` inside ``orch_context``, mapping API errors to exit 1.
 
     When the top-level ``--tenant`` flag is set, the command runs with that
     tenant active (contextvars are read at await time, so setting the scope
     here covers the already-created coroutine).
+
+    Args:
+        coro: The ``internal_api`` coroutine to await.
+        with_ch: Attach a ClickHouse client — required by the ``data``
+            subcommands, unnecessary for the orchestration ones.
     """
     slug = _tenant_slug.get()
     try:
-        async with orch_context(with_ch=False):
+        async with orch_context(with_ch=with_ch):
             if slug is None:
                 return await coro
             with active_tenant(await _resolve_tenant_id(slug)):
@@ -121,13 +125,9 @@ async def _run_internal_api(coro):
 
 
 async def _run_data_api(coro):
-    """Run ``coro`` inside ``data_context()``, mapping API errors to exit 1."""
-    try:
-        async with data_context():
-            return await coro
-    except InternalApiError as exc:
-        print(exc, file=sys.stderr)
-        sys.exit(1)
+    """Run a ``data`` subcommand with ClickHouse attached — ``open_object``
+    needs the SQL ``table_registry`` session only an orch context provides."""
+    return await _run_internal_api(coro, with_ch=True)
 
 
 def _run_sync_api(call):

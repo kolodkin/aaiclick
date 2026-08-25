@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from aaiclick.locks import load_advisory_id, table_insert_lock
 from aaiclick.oplog.oplog_api import oplog_record_sample
+from aaiclick.tenancy import get_active_tenant_id
 
 from ..data_context import create_object
 from ..data_context.ch_client import execute_for_stats
@@ -101,7 +102,12 @@ async def _get_table_schema(table: str, ch_client) -> tuple[str, dict[str, Colum
     from aaiclick.orchestration.sql_context import get_sql_session
 
     async with get_sql_session() as sess:
-        result = await sess.execute(select(TableRegistry.schema_doc).where(TableRegistry.table_name == table))
+        result = await sess.execute(
+            select(TableRegistry.schema_doc).where(
+                TableRegistry.table_name == table,
+                TableRegistry.tenant_id == get_active_tenant_id(),
+            )
+        )
         row = result.one_or_none()
 
     if row is None or row[0] is None:

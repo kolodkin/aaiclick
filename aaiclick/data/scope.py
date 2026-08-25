@@ -16,6 +16,8 @@ from __future__ import annotations
 import re
 from typing import Literal
 
+from aaiclick.tenancy import DEFAULT_TENANT_ID
+
 SCOPE_TEMP = "temp"
 SCOPE_TEMP_NAMED = "temp_named"
 SCOPE_JOB = "job"
@@ -28,6 +30,9 @@ PersistentScope = Literal["job", "global"]
 GLOBAL_PREFIX = "p_"
 TEMP_PREFIX = "t_"
 JOB_SCOPED_RE = re.compile(r"^j_\d+_")
+# Unambiguous because persistent names may not start with a digit
+# (_validate_persistent_name), so no default-tenant object matches this.
+GLOBAL_TENANT_RE = re.compile(rf"^{GLOBAL_PREFIX}\d+_")
 TEMP_NAMED_RE = re.compile(r"^t_[a-zA-Z_][a-zA-Z0-9_]*_\d+$")
 
 
@@ -57,7 +62,8 @@ def name_from_table(table_name: str) -> str:
     """
     scope = scope_of(table_name)
     if scope == SCOPE_GLOBAL:
-        return table_name[len(GLOBAL_PREFIX) :]
+        match = GLOBAL_TENANT_RE.match(table_name)
+        return table_name[match.end() if match else len(GLOBAL_PREFIX) :]
     if scope == SCOPE_JOB:
         return table_name.split("_", 2)[2]
     if scope == SCOPE_TEMP_NAMED:
@@ -70,6 +76,7 @@ def make_scoped_table_name(
     name: str,
     job_id: int | None = None,
     snowid: int | None = None,
+    tenant_id: int = DEFAULT_TENANT_ID,
 ) -> str:
     """Build the full CH table name for a scoped named object.
 
@@ -78,9 +85,14 @@ def make_scoped_table_name(
         name: Validated persistent name (without prefix).
         job_id: Required when ``scope="job"``.
         snowid: Required when ``scope="temp_named"``.
+        tenant_id: Owning tenant. Only ``scope="global"`` encodes it; the
+            default tenant keeps the bare ``p_<name>`` form. Job- and
+            temp-scoped tables reach their tenant through the owning job.
     """
     if scope == SCOPE_GLOBAL:
-        return f"{GLOBAL_PREFIX}{name}"
+        if tenant_id == DEFAULT_TENANT_ID:
+            return f"{GLOBAL_PREFIX}{name}"
+        return f"{GLOBAL_PREFIX}{tenant_id}_{name}"
     if scope == SCOPE_TEMP_NAMED:
         if snowid is None:
             raise ValueError("scope='temp_named' requires a snowid")

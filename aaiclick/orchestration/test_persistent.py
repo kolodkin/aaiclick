@@ -14,16 +14,21 @@ covered alongside the unnamed-temp default in
 ``aaiclick/data/data_context/test_persistent.py``.
 """
 
+from datetime import datetime
+
 import pytest
 
 from aaiclick import create_object_from_value
 from aaiclick.data.data_context import (
+    ObjectNotFoundError,
     delete_persistent_object,
     delete_persistent_objects,
     get_data_lifecycle,
+    list_persistent_objects,
     open_object,
 )
-from aaiclick.data.data_context.data_context import _validate_persistent_name
+from aaiclick.data.data_context.data_context import MAX_PERSISTENT_NAME_LEN, _validate_persistent_name
+from aaiclick.tenancy import active_tenant
 
 
 async def test_scope_default_is_temp_named_when_name_set(orch_ctx):
@@ -123,6 +128,12 @@ async def test_unnamed_object_is_temp_in_orch_context(orch_ctx):
 
 
 async def test_persistent_name_validation():
+    """Rejecting a leading digit is load-bearing beyond tidiness.
+
+    Tenant-prefixed object naming (``p_<tenant_id>_<name>``, see
+    ``docs/designs/tenant_rbac.md``) is only unambiguous while no
+    default-tenant object can produce a ``p_<digits>_`` prefix.
+    """
     with pytest.raises(ValueError, match="Invalid persistent name"):
         _validate_persistent_name("123bad")
     with pytest.raises(ValueError, match="Invalid persistent name"):
@@ -132,3 +143,69 @@ async def test_persistent_name_validation():
     _validate_persistent_name("valid_name")
     _validate_persistent_name("_underscore")
     _validate_persistent_name("CamelCase")
+
+
+async def test_persistent_name_length_is_capped():
+    """An over-long name must raise ``ValueError`` here, not fail deep inside
+    ClickHouse — see docs/designs/tenant_rbac.md, "Name length budget"."""
+    _validate_persistent_name("a" * MAX_PERSISTENT_NAME_LEN)
+    with pytest.raises(ValueError, match="Invalid persistent name"):
+        _validate_persistent_name("a" * (MAX_PERSISTENT_NAME_LEN + 1))
+
+
+async def test_two_tenants_hold_distinct_objects_of_one_name(orch_ctx):
+    """Same name, different tenants — separate tables, separate data."""
+    with active_tenant(7):
+        await create_object_from_value([1, 2, 3], name="shared", scope="global")
+    with active_tenant(8):
+        await create_object_from_value([9], name="shared", scope="global")
+
+    with active_tenant(7):
+        assert await (await open_object("shared", scope="global")).data() == [1, 2, 3]
+    with active_tenant(8):
+        assert await (await open_object("shared", scope="global")).data() == [9]
+
+
+async def test_open_object_does_not_cross_tenants(orch_ctx):
+    """Another tenant's object is missing, not forbidden — no existence leak."""
+    with active_tenant(7):
+        await create_object_from_value([1, 2, 3], name="private", scope="global")
+
+    with active_tenant(8):
+        with pytest.raises(ObjectNotFoundError):
+            await open_object("private", scope="global")
+
+
+async def test_listing_shows_only_the_active_tenants_objects(orch_ctx):
+    with active_tenant(7):
+        await create_object_from_value([1], name="seven_only", scope="global")
+    with active_tenant(8):
+        await create_object_from_value([2], name="eight_only", scope="global")
+
+    with active_tenant(7):
+        assert await list_persistent_objects() == ["seven_only"]
+    with active_tenant(8):
+        assert await list_persistent_objects() == ["eight_only"]
+
+
+async def test_purge_leaves_other_tenants_objects_alone(orch_ctx):
+    """A purge is scoped to the caller's tenant, not the whole database."""
+    with active_tenant(7):
+        await create_object_from_value([1], name="mine", scope="global")
+    with active_tenant(8):
+        await create_object_from_value([2], name="theirs", scope="global")
+
+    with active_tenant(7):
+        # ``after`` works on every backend now that the window is evaluated
+        # against registry ``created_at``, not CH metadata_modification_time.
+        deleted = await delete_persistent_objects(after=datetime(2000, 1, 1))
+        assert deleted == ["mine"]
+    with active_tenant(8):
+        assert await list_persistent_objects() == ["theirs"]
+
+
+async def test_delete_clears_the_registry_row(orch_ctx):
+    """A dropped object must vanish from registry-backed listing too."""
+    await create_object_from_value([1], name="short_lived", scope="global")
+    await delete_persistent_object("short_lived", scope="global")
+    assert "short_lived" not in await list_persistent_objects()

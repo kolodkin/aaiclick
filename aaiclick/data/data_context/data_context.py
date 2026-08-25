@@ -13,14 +13,17 @@ import weakref
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, cast
 
 import pyarrow as pa
+from sqlalchemy import delete as sql_delete
+from sqlmodel import col, select
 
 from aaiclick.locks import load_advisory_id, table_insert_lock
 from aaiclick.oplog.oplog_api import oplog_record
 from aaiclick.snowflake import get_snowflake_id
+from aaiclick.tenancy import get_active_tenant_id
 
 from ..models import (
     AAI_ID_COLUMN,
@@ -40,12 +43,14 @@ from ..models import (
     build_order_by_clause,
 )
 from ..scope import (
+    GLOBAL_PREFIX,
     SCOPE_GLOBAL,
     SCOPE_JOB,
     SCOPE_TEMP_NAMED,
     NamedScope,
     PersistentScope,
     make_scoped_table_name,
+    name_from_table,
 )
 from ..sql_utils import quote_identifier
 from .arrow_ingest import (
@@ -224,15 +229,24 @@ def get_engine_clause(engine: EngineType, order_by: str = "tuple()") -> str:
 
 _VALID_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
+# Stays clear of ClickHouse's table-name ceiling after any scope prefix —
+# see docs/designs/tenant_rbac.md, "Name length budget".
+MAX_PERSISTENT_NAME_LEN = 128
+
 
 def _validate_persistent_name(name: str) -> None:
     """Validate a persistent object name.
 
     Raises:
-        ValueError: If name doesn't match [a-zA-Z_][a-zA-Z0-9_]*
+        ValueError: If name doesn't match [a-zA-Z_][a-zA-Z0-9_]* or exceeds
+            ``MAX_PERSISTENT_NAME_LEN`` characters.
     """
     if not _VALID_NAME_RE.match(name):
         raise ValueError(f"Invalid persistent name '{name}': must match [a-zA-Z_][a-zA-Z0-9_]*")
+    if len(name) > MAX_PERSISTENT_NAME_LEN:
+        raise ValueError(
+            f"Invalid persistent name: {len(name)} characters exceeds the {MAX_PERSISTENT_NAME_LEN}-character limit"
+        )
 
 
 def _resolve_scope(name: str | None, scope: NamedScope | None) -> NamedScope | None:
@@ -278,7 +292,7 @@ def _build_scoped_table(name: str, scope: NamedScope) -> str:
     if scope == SCOPE_JOB:
         lifecycle = get_data_lifecycle()
         job_id = lifecycle.current_job_id() if lifecycle is not None else None
-    return make_scoped_table_name(scope, name, job_id=job_id)
+    return make_scoped_table_name(scope, name, job_id=job_id, tenant_id=get_active_tenant_id())
 
 
 async def create_object(
@@ -639,6 +653,14 @@ async def create_object_from_value(
     return obj
 
 
+class ObjectNotFoundError(RuntimeError):
+    """No persistent object exists under the requested name and scope.
+
+    A ``RuntimeError`` subclass so callers written against ``open_object``'s
+    original contract keep working.
+    """
+
+
 async def open_object(name: str, scope: PersistentScope = SCOPE_JOB) -> Object:
     """Open an existing persistent Object by name.
 
@@ -654,7 +676,7 @@ async def open_object(name: str, scope: PersistentScope = SCOPE_JOB) -> Object:
 
     Raises:
         ValueError: If name is invalid.
-        RuntimeError: If table does not exist.
+        ObjectNotFoundError: If the table does not exist.
     """
     from ..object import Object
     from ..object.ingest import _get_table_schema
@@ -664,7 +686,7 @@ async def open_object(name: str, scope: PersistentScope = SCOPE_JOB) -> Object:
 
     result = await ch.command(f"EXISTS TABLE {table_name}")
     if not result:
-        raise RuntimeError(f"Persistent object '{name}' does not exist (table {table_name})")
+        raise ObjectNotFoundError(f"Persistent object '{name}' does not exist (table {table_name})")
 
     fieldtype, columns = await _get_table_schema(table_name, ch)
     schema = Schema(fieldtype=fieldtype, columns=columns)
@@ -686,23 +708,44 @@ async def delete_persistent_object(name: str, scope: PersistentScope = SCOPE_JOB
     """
     table_name = _build_scoped_table(name, scope)
     await get_ch_client().command(f"DROP TABLE IF EXISTS {table_name}")
+    await _forget_registry_rows([table_name])
+
+
+async def _forget_registry_rows(table_names: list[str]) -> None:
+    """Delete ``table_registry`` rows for dropped tables.
+
+    Without this a re-created object would hit the registry's
+    ``ON CONFLICT (table_name) DO NOTHING`` and keep a stale schema_doc,
+    and registry-backed listing would keep showing the dropped object.
+    """
+    if not table_names:
+        return
+    # Circular dep: see list_persistent_tables.
+    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
+    from aaiclick.orchestration.sql_context import get_sql_session
+
+    async with get_sql_session() as session:
+        await session.execute(sql_delete(TableRegistry).where(col(TableRegistry.table_name).in_(table_names)))
+        await session.commit()
 
 
 async def delete_persistent_objects(
     after: datetime | None = None,
     before: datetime | None = None,
 ) -> list[str]:
-    """Drop persistent tables filtered by creation time.
+    """Drop the active tenant's persistent tables, filtered by creation time.
 
-    Uses ClickHouse ``system.tables.metadata_modification_time`` to
-    determine when each table was created.
+    Candidates come from ``table_registry`` (see ``list_persistent_tables``),
+    so the purge cannot reach another tenant's tables and the time window is
+    evaluated against the registry's ``created_at`` — not ClickHouse's
+    ``metadata_modification_time``, which chdb reports as the epoch.
 
     Args:
         after: Drop tables created at or after this time (inclusive).
         before: Drop tables created before this time (exclusive).
 
     Returns:
-        List of deleted persistent names (without ``p_`` prefix).
+        List of deleted persistent names (without prefix).
 
     Raises:
         ValueError: If neither ``after`` nor ``before`` is specified.
@@ -713,36 +756,51 @@ async def delete_persistent_objects(
             "to prevent accidental deletion of all persistent objects"
         )
     ch = get_ch_client()
-    conditions = [
-        "database = currentDatabase()",
-        r"name LIKE 'p\_%'",
-    ]
-    if after is not None:
-        after_str = after.strftime("%Y-%m-%d %H:%M:%S")
-        conditions.append(f"metadata_modification_time >= '{after_str}'")
-    if before is not None:
-        before_str = before.strftime("%Y-%m-%d %H:%M:%S")
-        conditions.append(f"metadata_modification_time < '{before_str}'")
-
-    where = " AND ".join(conditions)
-    result = await ch.query(f"SELECT name FROM system.tables WHERE {where}")
-    names = [row[0] for row in result.result_rows]
-
+    names = await list_persistent_tables(after=after, before=before)
     for table_name in names:
         await ch.command(f"DROP TABLE IF EXISTS {table_name}")
+    await _forget_registry_rows(names)
+    return [name_from_table(n) for n in names]
 
-    return [n[2:] for n in names]
+
+def _naive_utc(dt: datetime) -> datetime:
+    """Coerce to the storage convention — naive UTC (see ``datetime_utils``)."""
+    return dt.astimezone(timezone.utc).replace(tzinfo=None) if dt.tzinfo else dt
+
+
+async def list_persistent_tables(
+    after: datetime | None = None,
+    before: datetime | None = None,
+) -> list[str]:
+    """List the active tenant's persistent CH table names (``p_*``).
+
+    Reads SQL ``table_registry`` rather than scanning ``system.tables``:
+    ownership lives in SQL, and a ClickHouse scan cannot tell one tenant's
+    tables from another's without re-parsing every prefix.
+
+    Args:
+        after: Only tables registered at or after this time (inclusive).
+        before: Only tables registered before this time (exclusive).
+    """
+    # Circular dep: orchestration imports the data package at import time,
+    # so the registry model and SQL session are resolved at call time
+    # (same pattern as aaiclick/data/object/ingest.py::_get_table_schema).
+    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
+    from aaiclick.orchestration.sql_context import get_sql_session
+
+    predicates = [
+        TableRegistry.tenant_id == get_active_tenant_id(),
+        col(TableRegistry.table_name).startswith(GLOBAL_PREFIX, autoescape=True),
+    ]
+    if after is not None:
+        predicates.append(col(TableRegistry.created_at) >= _naive_utc(after))
+    if before is not None:
+        predicates.append(col(TableRegistry.created_at) < _naive_utc(before))
+    async with get_sql_session() as session:
+        result = await session.execute(select(TableRegistry.table_name).where(*predicates))
+    return [row[0] for row in result.all()]
 
 
 async def list_persistent_objects() -> list[str]:
-    """List all persistent object names.
-
-    Returns:
-        List of persistent names (without ``p_`` prefix).
-    """
-    result = await get_ch_client().query(
-        "SELECT name FROM system.tables "
-        "WHERE database = currentDatabase() "
-        r"AND name LIKE 'p\_%'"
-    )
-    return [row[0][2:] for row in result.result_rows]
+    """List the active tenant's persistent object names (without prefix)."""
+    return [name_from_table(t) for t in await list_persistent_tables()]

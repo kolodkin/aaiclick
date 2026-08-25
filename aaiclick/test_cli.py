@@ -4,7 +4,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from aaiclick.__main__ import _parse_command_env, _run_register_job, _run_run_job, build_parser, main
+from aaiclick.__main__ import (
+    _parse_command_env,
+    _run_data_api,
+    _run_register_job,
+    _run_run_job,
+    build_parser,
+    main,
+)
+from aaiclick.orchestration.sql_context import get_sql_session
 
 
 async def _noop_run_internal_api(awaitable):
@@ -186,3 +194,17 @@ def test_global_and_subcommand_tenant_flags_do_not_collide():
     parser = build_parser()
     args = parser.parse_args(["--tenant", "global_t", "member", "add", "--tenant", "acme", "--username", "u"])
     assert args.global_tenant == "global_t" and args.tenant == "acme"
+
+
+async def test_run_data_api_provides_a_sql_session():
+    """``aaiclick data`` commands need an orch context, not a bare data context.
+
+    Deliberately takes no ``orch_ctx`` fixture: an ambient orch context leaves
+    the SQL engine contextvar set and hides the defect.
+    """
+
+    async def _uses_sql_session() -> bool:
+        async with get_sql_session():
+            return True
+
+    assert await _run_data_api(_uses_sql_session())

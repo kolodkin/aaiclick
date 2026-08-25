@@ -9,6 +9,7 @@ from .data_context import (
     ChClient,
     LifecycleHandler,
     LocalLifecycleHandler,
+    ObjectNotFoundError,
     create_object,
     create_object_from_value,
     data_context,
