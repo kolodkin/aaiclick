@@ -5,7 +5,8 @@ aaiclick.data.data_context.arrow_ingest - Arrow-based ingest schema evaluation.
 C++ (no first-record sampling; ``pa.Table.from_pylist`` must NOT be used -
 it takes top-level keys from the first record only). The type tree maps
 1:1 onto dot notation: struct field -> ``x.y`` (no Array level),
-list<struct> -> ``x.*.y`` (one Array level per star). Keys missing in some
+list<struct> -> ``x.*.y`` (one Array level per star), and stars stack for
+lists of lists of dicts: list<list<struct>> -> ``x.*.*.y``. Keys missing in some
 records/items surface as nulls in the unified type and are rejected -
 strict identical-keys semantics with no per-item Python work. Leaf data
 stays in arrow end to end: flat leaf arrays are assembled into a
@@ -61,12 +62,17 @@ def _is_list_type(pa_type: pa.DataType) -> bool:
 
 
 def list_leaf_column_info(pa_type: pa.DataType, array_depth: int, key_path: str) -> ColumnInfo:
-    """Descend list nesting to the leaf ColumnInfo; a dict below a list level cannot round-trip."""
+    """Descend list nesting to the leaf ColumnInfo for a parallel-array column.
+
+    Dict items cannot appear here: a column whose sampled first element chain
+    leads to a dict routes to the nested-record path instead, so a struct leaf
+    means dicts were mixed with empty or non-dict lists in the same column.
+    """
     while _is_list_type(pa_type):
         array_depth += 1
         pa_type = pa_type.value_type
     if pa.types.is_struct(pa_type):
-        raise ValueError(f"Lists of lists of dicts are not supported: {key_path!r}")
+        raise ValueError(f"Cannot infer a uniform schema for column {key_path!r}: dict items mixed with non-dict lists")
     return leaf_column_info(pa_type, array_depth)
 
 
@@ -101,14 +107,19 @@ def _walk_type(
             _walk_type(field.name, field.type, f"{key_path}.", array_depth, columns)
     elif _is_list_type(pa_type):
         elem = pa_type.value_type
+        list_depth = 1
+        while _is_list_type(elem):
+            elem = elem.value_type
+            list_depth += 1
         if pa.types.is_struct(elem):
             if elem.num_fields == 0:
                 raise ValueError(f"Empty dict values are not supported: {key_path!r}")
+            star_prefix = key_path + ".*" * list_depth + "."
             for i in range(elem.num_fields):
                 field = elem.field(i)
-                _walk_type(field.name, field.type, f"{key_path}.*.", array_depth + 1, columns)
+                _walk_type(field.name, field.type, star_prefix, array_depth + list_depth, columns)
         else:
-            columns[key_path] = list_leaf_column_info(pa_type, array_depth, key_path)
+            columns[key_path] = leaf_column_info(elem, array_depth + list_depth)
     else:
         columns[key_path] = leaf_column_info(pa_type, array_depth)
 
@@ -180,13 +191,24 @@ def _extract_field(key_path: str, arr: pa.Array, out: dict[str, pa.Array], nulla
     elif _is_list_type(pa_type):
         if arr.null_count:
             raise _missing(key_path)
-        if pa.types.is_struct(pa_type.value_type):
-            values = arr.values
-            if values.null_count:
-                raise _missing(key_path)
-            sub = _extract_struct(values, f"{key_path}.*.", nullable_keys)
+        elem = pa_type.value_type
+        list_depth = 1
+        while _is_list_type(elem):
+            elem = elem.value_type
+            list_depth += 1
+        if pa.types.is_struct(elem):
+            values = arr
+            offsets_per_level = []
+            for _ in range(list_depth):
+                offsets_per_level.append(values.offsets)
+                values = values.values
+                if values.null_count:
+                    raise _missing(key_path)
+            sub = _extract_struct(values, key_path + ".*" * list_depth + ".", nullable_keys)
             for name, leaf in sub.items():
-                out[name] = pa.ListArray.from_arrays(arr.offsets, leaf)
+                for offsets in reversed(offsets_per_level):
+                    leaf = pa.ListArray.from_arrays(offsets, leaf)
+                out[name] = leaf
         else:
             inner = arr
             while _is_list_type(inner.type):
