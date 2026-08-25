@@ -224,13 +224,17 @@ coupling (`aaiclick/data/test_scope.py` — see
 `test_leading_underscore_name_does_not_look_tenant_prefixed`), so relaxing the
 name regex cannot silently introduce a collision.
 
-!!! warning "The prefix, not the registry, is what prevents cross-tenant writes"
+!!! important "Design decision: the prefix, not the registry, prevents cross-tenant writes"
     Persistent creates use `CREATE TABLE IF NOT EXISTS` (see `create_object`)
     and the registry insert is `ON CONFLICT (table_name) DO NOTHING` (see
     `DBLifecycleHandler._write_table_registry_row`). On a shared physical name,
     a second tenant creating an already-taken name would write silently into
     the first tenant's table while the registry kept attributing it to the
-    original owner. Tenant-unique names remove the case.
+    original owner. Tenant-unique names remove the case, which is why the
+    physical namespace stays tenant-prefixed even with registry ownership in
+    place — any future change that drops the prefix (see `docs/designs/future.md`,
+    "Opaque Object Table Names") must re-establish per-tenant uniqueness by
+    other means first.
 
 ## Ownership — `table_registry.tenant_id`
 
