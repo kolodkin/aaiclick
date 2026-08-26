@@ -184,22 +184,6 @@ Do this when next in these modules, or if a concurrency bug implicates one.
 A lint gate would need an allowlist for the deliberate cases — ruff has no
 built-in `global` check.
 
-## Double-Star Nesting — Lists of Lists of Dicts
-
-Ingest rejects `{"a": [[{"x": 1}]]}` with `ValueError` because dot-star
-notation maps one `.*.` star to exactly one `Array` level of dict items —
-there is no column-name encoding for two list levels around a dict. Arrow
-itself represents `list<list<struct>>` natively, so the gap is purely the
-flattening notation and its `data()` reconstruction.
-
-Supporting it means `a.*.*.x` columns (one star per list level, each adding
-an `Array()` wrapper), recursive star-group handling in `_unflatten_record`
-(`aaiclick/data/object/data_extraction.py`), and the matching type walk in
-`_walk_type` (`aaiclick/data/data_context/arrow_ingest.py`).
-
-Do this when a real feed needs the shape — none of the current example
-projects do.
-
 ## Changelog
 
 `docs/changelog.md` — version history in Keep a Changelog format. Introduce with v1.0.0 release.

@@ -396,8 +396,14 @@ async def create_object(
 
 
 def _is_list_of_dicts(value: object) -> bool:
-    """Check if a value is a non-empty list of dicts (nested array-of-objects)."""
-    return isinstance(value, list) and bool(value) and isinstance(value[0], dict)
+    """Check if a value is a non-empty list of dicts (nested array-of-objects).
+
+    Recurses through leading list levels so lists of lists of dicts
+    (``[[{...}]]``) are also treated as nested structures.
+    """
+    if not (isinstance(value, list) and value):
+        return False
+    return isinstance(value[0], dict) or _is_list_of_dicts(value[0])
 
 
 def _has_nested_dicts(record: dict) -> bool:

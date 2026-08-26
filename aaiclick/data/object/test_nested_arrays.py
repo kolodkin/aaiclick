@@ -222,13 +222,63 @@ async def test_deep_nested_two_levels(ctx):
     assert data["level1"][1]["level2"] == [{"val": 30}]
 
 
-async def test_list_of_lists_of_dicts_raises(ctx):
-    """Doubly-nested lists of dicts have no dot-star representation."""
-    with pytest.raises(ValueError, match="[Ll]ists of lists of dicts"):
-        await create_object_from_value({"a": [[{"x": 1}]]})
+async def test_list_of_lists_of_dicts(ctx):
+    """Doubly-nested lists of dicts flatten with one star per list level."""
+    value = {"a": [[{"x": 1}], [{"x": 2}, {"x": 3}]]}
+    obj = await create_object_from_value(value)
+
+    data = await obj.data()
+
+    assert data == value
 
 
-async def test_list_of_lists_of_dicts_in_records_raises(ctx):
-    """Same rejection when the shape appears inside a records list."""
-    with pytest.raises(ValueError, match="[Ll]ists of lists of dicts"):
-        await create_object_from_value([{"a": [[{"x": 1}]]}, {"a": [[{"x": 2}]]}])
+async def test_list_of_lists_of_dicts_schema(ctx):
+    """Each list level around the dict adds one star and one Array wrapper."""
+    obj = await create_object_from_value({"a": [[{"x": 1, "c": [1, 2]}]]})
+
+    schema = obj.schema
+    assert "a.*.*.x" in schema.columns
+    assert schema.columns["a.*.*.x"].type == "Int64"
+    assert int(schema.columns["a.*.*.x"].array) == 2
+    assert "a.*.*.c" in schema.columns
+    assert schema.columns["a.*.*.c"].type == "Int64"
+    assert int(schema.columns["a.*.*.c"].array) == 3
+
+
+async def test_list_of_lists_of_dicts_in_records(ctx):
+    """Same shape round-trips inside a records list, including empty inner lists."""
+    records = [
+        {"a": [[{"x": 1}], []]},
+        {"a": [[{"x": 2}, {"x": 3}]]},
+    ]
+    obj = await create_object_from_value(records)
+
+    data = await obj.data(orient=ORIENT_RECORDS)
+
+    assert data == records
+
+
+async def test_triple_nested_lists_of_dicts(ctx):
+    """Three list levels stack three stars."""
+    value = {"a": [[[{"x": 1}, {"x": 2}]], [[{"x": 3}]]]}
+    obj = await create_object_from_value(value)
+
+    data = await obj.data()
+
+    assert data == value
+
+
+async def test_double_star_with_inner_list_of_dicts(ctx):
+    """A dict below two list levels can itself hold a list of dicts."""
+    value = {"a": [[{"name": "n", "inner": [{"v": 1}, {"v": 2}]}]]}
+    obj = await create_object_from_value(value)
+
+    data = await obj.data()
+
+    assert data == value
+
+
+async def test_empty_dict_below_double_list_raises(ctx):
+    """Empty dicts stay rejected below any number of list levels."""
+    with pytest.raises(ValueError, match="[Ee]mpty dict"):
+        await create_object_from_value({"a": [[{}]]})

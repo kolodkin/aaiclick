@@ -670,6 +670,9 @@ by name-parsing the column names.
 | `.`      | dict value (nested object) | 1:1         | none — extends name only   |
 | `.*.`    | list-of-dicts value        | 1:N         | adds one `Array()` wrapper |
 
+Stars stack: each extra list level around a dict adds another `*` segment
+and another `Array()` wrapper.
+
 ```python
 obj = await create_object_from_value({"x": {"y": {"z": 1}}})
 # → column x.y.z (Int64)
@@ -677,12 +680,14 @@ await obj.data()            # {"x": {"y": {"z": 1}}}
 
 obj = await create_object_from_value({"b": [{"c": [1, 2], "d": 5}]})
 # → columns b.*.c (Array(Array(Int64))), b.*.d (Array(Int64))
+
+obj = await create_object_from_value({"a": [[{"x": 1}], [{"x": 2}]]})
+# → column a.*.*.x (Array(Array(Int64)))
 ```
 
 Ingest raises `ValueError` for anything that cannot round-trip: mismatched
 keys across records or items, non-dict items in a list of dicts, type
-conflicts, dotted keys, empty dicts, and lists of lists of dicts (no
-dot-star representation). Columns marked `FieldSpec(nullable=True)` are
+conflicts, dotted keys, and empty dicts. Columns marked `FieldSpec(nullable=True)` are
 exempt at the leaf level — missing or `None` values ingest as NULL and
 read back as `None`; a `None` dict or list item still raises. All-`None`
 values infer as `Nullable(String)` and round-trip as `None`. Name-parsing applies to any
