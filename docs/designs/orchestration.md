@@ -45,6 +45,25 @@ Wraps a workflow function into a `JobFactory`. Auto-manages `orch_context()` and
 
 **Job testing**: `job_test(job)` and `ajob_test(job)` execute synchronously (`aaiclick/orchestration/execution/debug.py`).
 
+# Topology
+
+Two storage services, three process roles:
+
+| Component         | Count | Role                                                                 |
+|-------------------|-------|----------------------------------------------------------------------|
+| PostgreSQL        | 1     | Orchestration + user state: jobs, tasks, workers, auth, table refs   |
+| ClickHouse        | 1     | Data factory: Object tables, `task_logs`, oplog                      |
+| API server        | 1     | Combined REST + MCP FastAPI app                                      |
+| Background worker | 1     | Cron scheduling, dead-worker detection, sole table-cleanup authority |
+| Execution worker  | N     | Claims tasks; runs each in a child process / container / Pod         |
+
+Processes never talk to each other — all coordination goes through the two
+databases: task claiming, heartbeats, and cancellation polling via PostgreSQL;
+data and logs via ClickHouse. Local mode collapses the three process roles into
+one process — hence exactly one execution worker — on embedded chdb + SQLite.
+
+**Implementation**: `aaiclick/orchestration/local_runtime.py` — see `local_runtime()`
+
 # Deployment Modes
 
 Two deployment modes, controlled by two independent environment variables:
@@ -53,7 +72,8 @@ Two deployment modes, controlled by two independent environment variables:
 |---------------------|----------------------------------------------|-----------------------------------------------------|
 | **Data backend**    | chdb (embedded ClickHouse)                   | ClickHouse server                                   |
 | **SQL backend**     | SQLite via aiosqlite                         | PostgreSQL via asyncpg                              |
-| **SQL URL**         | `sqlite+aiosqlite:///~/.aaiclick/local.db`   | `postgresql+asyncpg://user:pass@host:5432/database` |
+| **`AAICLICK_CH_URL`**  | `chdb:///~/.aaiclick/chdb_data`           | `clickhouse://user:pass@host:8123/database`         |
+| **`AAICLICK_SQL_URL`** | `sqlite+aiosqlite:///~/.aaiclick/local.db` | `postgresql+asyncpg://user:pass@host:5432/database` |
 | **Setup**           | `python -m aaiclick setup`                   | Provision servers + `python -m aaiclick migrate upgrade head` |
 | **Task claiming**   | Sequential SELECT + UPDATE                   | Atomic CTE with `FOR UPDATE SKIP LOCKED`            |
 | **Table lifecycle** | `LocalLifecycleHandler` (background thread)  | `OrchLifecycleHandler` (SQL refcounts)              |
