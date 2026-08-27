@@ -8,15 +8,12 @@ like Wikidata SPARQL or HuggingFace CDN. This module provides a thin retry
 wrapper around those calls with exponential backoff for a bounded set of
 retryable errors.
 
-Backend differences:
-    * **chdb**: HTTP fetch happens in Python via ``urllib.request.urlretrieve``
-      (see ``chdb_client._rewrite_external_urls``); errors are
-      ``urllib.error.HTTPError`` / ``URLError`` / ``OSError``.
-    * **clickhouse-connect**: HTTP fetch happens server-side; errors come back
-      wrapped in driver exceptions whose message text carries the original
-      status code or ClickHouse error code.
-
-The predicate inspects both shapes.
+Both backends fetch over HTTP inside the engine, so an upstream failure
+arrives as a driver exception whose message text carries the original status
+code or ClickHouse error name (``HTTPException ... HTTP status code: 503``,
+``RECEIVED_ERROR_FROM_REMOTE_IO_SERVER``). The predicate also recognizes the
+Python-level socket and urllib error shapes, so a caller fetching in Python
+keeps the same retry semantics.
 """
 
 from __future__ import annotations
@@ -35,12 +32,11 @@ DEFAULT_BACKOFF_FACTOR = 2.0
 
 _RETRYABLE_HTTP_CODES = frozenset({429, 500, 502, 503, 504})
 
-# clickhouse-connect path: the server wraps an upstream HTTP failure into a
-# driver exception whose ``str()`` includes either the upstream HTTP status
-# line or a ClickHouse error code/name. We pattern-match both because the
-# server can rephrase the message ("Received error from remote server",
-# "HTTP/1.1 502 Bad Gateway", "Code: 86. RECEIVED_ERROR_FROM_REMOTE_IO_SERVER",
-# etc.).
+# Engine path: the engine wraps an upstream HTTP failure into a driver
+# exception whose ``str()`` includes either the upstream HTTP status line or a
+# ClickHouse error code/name. We pattern-match both because the message gets
+# rephrased ("Received error from remote server", "HTTP/1.1 502 Bad Gateway",
+# "Code: 86. RECEIVED_ERROR_FROM_REMOTE_IO_SERVER", etc.).
 _HTTP_STATUS_RE = re.compile(r"\b(429|500|502|503|504)\b")
 _RETRYABLE_CH_ERROR_NAMES = (
     "NETWORK_ERROR",  # Code: 210 — generic network failure
@@ -56,23 +52,20 @@ _RETRYABLE_CH_ERROR_NAMES = (
 def _is_retryable_url_error(exc: BaseException) -> bool:
     """Return True if ``exc`` represents a transient upstream failure.
 
-    The predicate dispatches by exception shape, which implicitly partitions
-    the two backends:
+    The predicate dispatches by exception shape:
 
-    * **chdb** raises native Python exceptions because the HTTP fetch happens
-      in :func:`chdb_client._download_to_path` — branches 1–3 below
-      (``HTTPError`` / ``URLError`` / ``TimeoutError`` / ``ConnectionError``
-      / ``socket.*``).
-    * **clickhouse-connect** raises driver exceptions whose ``str()`` carries
-      the original status code and CH error name — branch 4 below
-      (``_HTTP_STATUS_RE`` + ``_RETRYABLE_CH_ERROR_NAMES``).
+    * Both engines fetch server-side and raise driver exceptions whose
+      ``str()`` carries the upstream status code and CH error name — branch 4
+      below (``_HTTP_STATUS_RE`` + ``_RETRYABLE_CH_ERROR_NAMES``).
+    * Branches 1–3 cover Python-level fetch failures (``HTTPError`` /
+      ``URLError`` / ``TimeoutError`` / ``ConnectionError`` / ``socket.*``).
 
     Don't retry on:
         * 4xx other than 429
         * SSL/TLS errors
         * Anything we don't recognize as transient — fail fast
     """
-    # ── chdb path ────────────────────────────────────────────────────────
+    # ── Python-level fetch ───────────────────────────────────────────────
     # urllib.urlopen raises HTTPError on non-2xx responses (4xx/5xx).
     if isinstance(exc, urllib.error.HTTPError):
         return exc.code in _RETRYABLE_HTTP_CODES
@@ -88,9 +81,9 @@ def _is_retryable_url_error(exc: BaseException) -> bool:
     if isinstance(exc, (TimeoutError, ConnectionError, socket.timeout, socket.gaierror)):
         return True
 
-    # ── clickhouse-connect path ─────────────────────────────────────────
-    # The CH server made the HTTP call; we get its driver exception with
-    # the upstream failure encoded in the message text.
+    # ── Engine-side fetch ───────────────────────────────────────────────
+    # The engine made the HTTP call; we get its driver exception with the
+    # upstream failure encoded in the message text.
     msg = str(exc)
     if _HTTP_STATUS_RE.search(msg) and (
         "Bad Gateway" in msg
