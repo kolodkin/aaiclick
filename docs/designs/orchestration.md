@@ -72,7 +72,8 @@ Two deployment modes, controlled by two independent environment variables:
 |---------------------|----------------------------------------------|-----------------------------------------------------|
 | **Data backend**    | chdb (embedded ClickHouse)                   | ClickHouse server                                   |
 | **SQL backend**     | SQLite via aiosqlite                         | PostgreSQL via asyncpg                              |
-| **SQL URL**         | `sqlite+aiosqlite:///~/.aaiclick/local.db`   | `postgresql+asyncpg://user:pass@host:5432/database` |
+| **`AAICLICK_CH_URL`**  | `chdb://~/.aaiclick/chdb_data`            | `clickhouse://user:pass@host:9000/database`         |
+| **`AAICLICK_SQL_URL`** | `sqlite+aiosqlite:///~/.aaiclick/local.db` | `postgresql+asyncpg://user:pass@host:5432/database` |
 | **Setup**           | `python -m aaiclick setup`                   | Provision servers + `python -m aaiclick migrate upgrade head` |
 | **Task claiming**   | Sequential SELECT + UPDATE                   | Atomic CTE with `FOR UPDATE SKIP LOCKED`            |
 | **Table lifecycle** | `LocalLifecycleHandler` (background thread)  | `OrchLifecycleHandler` (SQL refcounts)              |
