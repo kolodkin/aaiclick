@@ -200,11 +200,14 @@ def test_migrate_current_runs_without_revision(monkeypatch):
 
 def test_seed_default_tenant_inserts_once():
     engine = sa_create_engine("sqlite:///:memory:")
-    SQLModel.metadata.create_all(engine)
+    try:
+        SQLModel.metadata.create_all(engine)
 
-    setup._seed_default_tenant(engine)
-    setup._seed_default_tenant(engine)  # idempotent re-run
+        setup._seed_default_tenant(engine)
+        setup._seed_default_tenant(engine)  # idempotent re-run
 
-    with engine.connect() as conn:
-        rows = conn.execute(sa_select(Tenant.id, Tenant.slug)).all()
-    assert rows == [(DEFAULT_TENANT_ID, "aaiclick")]
+        with engine.connect() as conn:
+            rows = conn.execute(sa_select(Tenant.id, Tenant.slug)).all()
+        assert rows == [(DEFAULT_TENANT_ID, "aaiclick")]
+    finally:
+        engine.dispose()
