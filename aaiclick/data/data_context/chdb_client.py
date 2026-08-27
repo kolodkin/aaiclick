@@ -10,19 +10,10 @@ Thread-safe for concurrent access from background workers.
 
 from __future__ import annotations
 
-import asyncio
 import atexit
-import re
-import shutil
-import tempfile
-import urllib.error
-import urllib.request
-from collections.abc import AsyncIterator, Sequence
-from contextlib import asynccontextmanager
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
-from urllib.parse import urlparse
 
 import pyarrow as pa
 from chdb.session import Session
@@ -30,81 +21,6 @@ from chdb.session import Session
 from aaiclick.data.sql_utils import escape_sql_string, quote_identifier
 
 from .arrow_types import ch_type_to_pa
-
-# Matches url('https://...', 'Format') in SQL — used to detect and rewrite
-# URL calls that chdb's embedded HTTP client hangs on.
-_URL_FUNC_RE = re.compile(r"url\('(https?://[^']+)',\s*'([^']+)'\)", re.IGNORECASE)
-
-
-def _download_to_path(url: str, dest: str) -> None:
-    """Download ``url`` to ``dest`` with deterministic socket cleanup.
-
-    Uses a bare opener (``HTTPHandler`` / ``HTTPSHandler`` without
-    ``HTTPErrorProcessor``) so non-2xx responses surface as a regular
-    ``HTTPResponse`` whose socket closes when the ``with`` block exits.
-    The default ``urllib.request.urlopen`` raises ``HTTPError`` from
-    inside the error processor and leaks the underlying socket, which
-    later trips ``filterwarnings=error`` via ``PytestUnraisableExceptionWarning``.
-    """
-    opener = urllib.request.OpenerDirector()
-    opener.add_handler(urllib.request.HTTPHandler())
-    opener.add_handler(urllib.request.HTTPSHandler())
-    opener.add_handler(urllib.request.HTTPDefaultErrorHandler())
-    with opener.open(url) as response:
-        if response.status >= 400:
-            raise urllib.error.HTTPError(
-                url,
-                response.status,
-                response.reason,
-                response.headers,
-                response,  # type: ignore[arg-type]
-            )
-        with open(dest, "wb") as out:
-            shutil.copyfileobj(response, out)
-
-
-@asynccontextmanager
-async def _rewrite_external_urls(query: str) -> AsyncIterator[str]:
-    """Context manager that rewrites ``url('https://...', 'fmt')`` → ``file(...)``.
-
-    Downloads each URL to a :class:`tempfile.NamedTemporaryFile` via
-    :func:`asyncio.to_thread`.  Files are deleted automatically when the
-    ``async with`` block exits, whether normally or on exception.
-
-    chdb's embedded ClickHouse hangs indefinitely on HTTP/HTTPS requests via
-    ``url()``.  Downloading through Python first and loading with ``file()``
-    is the reliable workaround.
-    """
-    matches = list(_URL_FUNC_RE.finditer(query))
-    if not matches:
-        yield query
-        return
-
-    replacements: dict[tuple[int, int], str] = {}
-    tmp_files: list[Any] = []
-    try:
-        for m in matches:
-            url, fmt = m.group(1), m.group(2)
-            suffix = "".join(Path(urlparse(url).path).suffixes)  # e.g. ".tsv.gz"
-            tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=True)
-            tmp_files.append(tmp)
-            await asyncio.to_thread(_download_to_path, url, tmp.name)
-            safe_tmp = escape_sql_string(tmp.name)
-            replacements[m.span()] = f"file('{safe_tmp}', '{fmt}')"
-
-        if not replacements:
-            yield query
-            return
-
-        # Apply replacements in reverse order to preserve string offsets.
-        result = query
-        for (start, end), replacement in sorted(replacements.items(), reverse=True):
-            result = result[:start] + replacement + result[end:]
-
-        yield result
-    finally:
-        for tmp in tmp_files:
-            tmp.close()
 
 
 def _with_settings(query: str, settings: dict | None) -> str:
@@ -218,18 +134,13 @@ class ChdbClient:
         Settings are embedded as a SQL SETTINGS clause since chdb does not accept
         them as keyword arguments. ``parameters`` are forwarded to chdb's
         native ``{name:Type}`` placeholder binding.
-
-        Any ``url('https://...', 'fmt')`` calls in *query* are transparently
-        rewritten to ``file('/tmp/x', 'fmt')`` because chdb's embedded HTTP client
-        hangs on external URLs.
         """
-        async with _rewrite_external_urls(query) as rewritten:
-            result = self._session.query(
-                _with_settings(rewritten, settings),
-                "TabSeparated",
-                params=_serialize_parameters(parameters),
-            )
-            raw = result.bytes()
+        result = self._session.query(
+            _with_settings(query, settings),
+            "TabSeparated",
+            params=_serialize_parameters(parameters),
+        )
+        raw = result.bytes()
         if raw:
             text = raw.decode("utf-8").strip()
             if text:
@@ -252,25 +163,20 @@ class ChdbClient:
         Settings are embedded as a SQL SETTINGS clause since chdb does not accept
         them as keyword arguments. ``parameters`` are forwarded to chdb's
         native ``{name:Type}`` placeholder binding.
-
-        Any ``url('https://...', 'fmt')`` calls in *query* are transparently
-        rewritten to ``file('/tmp/x', 'fmt')`` because chdb's embedded HTTP client
-        hangs on external URLs.
         """
-        async with _rewrite_external_urls(query) as rewritten:
-            table = self._session.query(
-                _with_settings(rewritten, settings),
-                "Arrowtable",
-                params=_serialize_parameters(parameters),
-            )
-            if table is None or table.num_rows == 0:
-                return ChdbQueryResult()
+        table = self._session.query(
+            _with_settings(query, settings),
+            "Arrowtable",
+            params=_serialize_parameters(parameters),
+        )
+        if table is None or table.num_rows == 0:
+            return ChdbQueryResult()
 
-            columns = table.to_pydict()
-            col_names = list(table.column_names)
-            n_rows = table.num_rows
-            rows = [tuple(columns[name][i] for name in col_names) for i in range(n_rows)]
-            return ChdbQueryResult(result_rows=rows, column_names=col_names)
+        columns = table.to_pydict()
+        col_names = list(table.column_names)
+        n_rows = table.num_rows
+        rows = [tuple(columns[name][i] for name in col_names) for i in range(n_rows)]
+        return ChdbQueryResult(result_rows=rows, column_names=col_names)
 
     async def insert(
         self,

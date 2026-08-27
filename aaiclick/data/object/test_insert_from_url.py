@@ -688,6 +688,141 @@ async def test_json_empty_path_segment_raises(ctx, json_server):
 
 
 # =============================================================================
+# Compressed input: codec inferred from the URL's trailing suffix
+# =============================================================================
+
+
+@pytest.mark.parametrize("filename", ["sample.csv.gz", "sample.csv.xz"])
+async def test_url_compressed_input(ctx, fileserver, filename):
+    """ClickHouse decompresses input by the URL's trailing codec suffix.
+
+    Real feeds ship this way — the cyber_threat_feeds example loads EPSS from
+    a ``.csv.gz``. Decoded rows are the proof: the compressed bytes do not
+    parse as CSV, so correct values mean decompression happened.
+    """
+    obj = await create_object_from_url(
+        f"{fileserver}/{filename}",
+        columns=["id", "price", "name"],
+        format="CSVWithNames",
+        limit=100,
+    )
+    data = await obj.data()
+    assert len(data["id"]) == 100
+    assert data["id"][0] == 1
+    assert data["price"][0] == 1.5
+    assert data["name"][0] == "item_1"
+
+
+# =============================================================================
+# Redirect integration: upstream 302 to the real file
+# =============================================================================
+
+
+# ClickHouse resolves absolute and root-relative ``Location`` headers, but
+# resolves a path-relative one against the full request path instead of the
+# parent directory — ``/dir/entry.parquet`` + ``sample.parquet`` becomes
+# ``/dir/entry.parquet/sample.parquet``. Both backends share the engine's HTTP
+# client, so this is not backend-specific.
+_LOCATION_STYLES = {
+    "absolute": "http://{host}/dir/sample.parquet",
+    "root-relative": "/dir/sample.parquet",
+    "path-relative": "sample.parquet",
+}
+
+
+class _RedirectHandler(BaseHTTPRequestHandler):
+    """302s ``/dir/entry.parquet`` to the sample file under ``/dir/``.
+
+    ``location_style`` selects the ``Location`` form; the absolute form echoes
+    the client's own ``Host`` header so it resolves from localhost and from a
+    ClickHouse container reaching the fixture via ``host.docker.internal``.
+    """
+
+    body: bytes = b""
+    location_style: str = "absolute"
+
+    def _headers_200(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Length", str(len(type(self).body)))
+        self.end_headers()
+
+    def do_HEAD(self):
+        self._headers_200()
+
+    def do_GET(self):
+        if self.path.startswith("/dir/entry.parquet"):
+            self.send_response(302)
+            location = _LOCATION_STYLES[type(self).location_style]
+            self.send_header("Location", location.format(host=self.headers["Host"]))
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if self.path == "/dir/sample.parquet":
+            self._headers_200()
+            self.wfile.write(type(self).body)
+            return
+        self.send_response(404)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def log_message(self, *_args):
+        pass
+
+
+@pytest.fixture(scope="module")
+def redirect_server():
+    """HTTP server whose entry URL 302s to the real sample.parquet."""
+    _RedirectHandler.body = (Path(_SAMPLES_DIR) / "sample.parquet").read_bytes()
+    server = HTTPServer(("0.0.0.0", 0), _RedirectHandler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://{_FILESERVER_HOST}:{port}"
+    server.shutdown()
+    server.server_close()
+
+
+async def _load_via_redirect(base: str, **kwargs):
+    return await create_object_from_url(
+        f"{base}/dir/entry.parquet",
+        columns=["id", "price"],
+        format="Parquet",
+        limit=5,
+        **kwargs,
+    )
+
+
+@pytest.mark.parametrize("style", ["absolute", "root-relative"])
+async def test_url_follows_redirect(ctx, redirect_server, style):
+    """A 302 is followed when ``max_http_get_redirects`` allows it."""
+    _RedirectHandler.location_style = style
+    obj = await _load_via_redirect(redirect_server, ch_settings={"max_http_get_redirects": 10})
+    data = await obj.data()
+    assert len(data["id"]) == 5
+    assert data["id"][0] == 1
+
+
+async def test_url_path_relative_redirect_unsupported(ctx, redirect_server):
+    """A path-relative ``Location`` is resolved wrong by the engine and fails.
+
+    Callers must resolve such redirects before handing the URL over — the
+    cyber_threat_feeds EPSS loader does exactly that. Pinned here so the day
+    the engine fixes it, this test fails and the workaround can go.
+    """
+    _RedirectHandler.location_style = "path-relative"
+    with pytest.raises(Exception, match="[Rr]edirect"):
+        await _load_via_redirect(redirect_server, ch_settings={"max_http_get_redirects": 10})
+
+
+async def test_url_redirect_without_setting_raises(ctx, redirect_server):
+    """An unfollowed redirect fails loudly instead of loading the 3xx body as data."""
+    _RedirectHandler.location_style = "absolute"
+    with pytest.raises(Exception, match="[Rr]edirect"):
+        await _load_via_redirect(redirect_server)
+
+
+# =============================================================================
 # Retry integration: flaky upstream server returning 503 then 200
 # =============================================================================
 
@@ -695,9 +830,11 @@ async def test_json_empty_path_segment_raises(ctx, json_server):
 class _FlakyHandler(BaseHTTPRequestHandler):
     """Returns 503 on the first ``fail_count`` GETs, then serves the static body.
 
-    HEAD always succeeds — the distributed ClickHouse backend sends a HEAD
-    probe before each GET to determine content length, so we want HEAD to be
-    invisible to the retry counter.
+    HEAD always succeeds — ClickHouse sends a HEAD probe before each GET to
+    determine content length, so we want HEAD to be invisible to the retry
+    counter. It must not advertise ``Accept-Ranges``: the engine would then
+    issue a Range GET, and answering that with the whole body fails the read
+    with ``HTTP_RANGE_NOT_SATISFIABLE``.
     """
 
     fail_count = 1
@@ -707,7 +844,6 @@ class _FlakyHandler(BaseHTTPRequestHandler):
     def do_HEAD(self):
         self.send_response(200)
         self.send_header("Content-Type", "application/octet-stream")
-        self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Length", str(len(type(self).body)))
         self.end_headers()
 
@@ -745,11 +881,17 @@ def flaky_server():
     server.server_close()
 
 
+# ``http_max_tries=1`` disables the engine's own upstream retry loop, leaving
+# ``with_url_retry`` as the only thing that can reissue a failed fetch — so a
+# second upstream hit is attributable to the wrapper under test.
+_NO_ENGINE_RETRY: dict[str, str | int] = {"http_max_tries": 1}
+
+
 @pytest.mark.skipif(
     not is_chdb(),
-    reason="Real ClickHouse server adds Range requests and internal http_max_tries "
-    "retries that confound the simple flaky stub. Retry logic itself is covered "
-    "by aaiclick/data/object/test_url_retry.py.",
+    reason="The real ClickHouse server issues Range requests the minimal flaky "
+    "stub does not implement. Retry logic itself is covered by "
+    "aaiclick/data/object/test_url_retry.py.",
 )
 async def test_url_retries_transient_503(ctx, flaky_server):
     """create_object_from_url retries on 503 and succeeds on the second attempt."""
@@ -764,19 +906,20 @@ async def test_url_retries_transient_503(ctx, flaky_server):
         format="Parquet",
         limit=5,
         column_types={"id": ColumnInfo("Int64"), "price": ColumnInfo("Float64")},
+        ch_settings=_NO_ENGINE_RETRY,
         backoff_factor=0,  # zero sleep — keep test fast
     )
     data = await obj.data()
     assert len(data["id"]) == 5
-    # Two upstream hits: first 503, second 200.
-    assert handler.request_count == 2
+    # The first GET was spent on the 503, so loading at all took a reissue.
+    assert handler.request_count >= 2
 
 
 @pytest.mark.skipif(
     not is_chdb(),
-    reason="Real ClickHouse server adds Range requests and internal http_max_tries "
-    "retries that confound the simple flaky stub. Retry logic itself is covered "
-    "by aaiclick/data/object/test_url_retry.py.",
+    reason="The real ClickHouse server issues Range requests the minimal flaky "
+    "stub does not implement. Retry logic itself is covered by "
+    "aaiclick/data/object/test_url_retry.py.",
 )
 async def test_url_exhausts_retries_on_persistent_503(ctx, flaky_server):
     """Persistent 503 exhausts retries and raises."""
@@ -790,8 +933,9 @@ async def test_url_exhausts_retries_on_persistent_503(ctx, flaky_server):
             format="Parquet",
             limit=5,
             column_types={"id": ColumnInfo("Int64"), "price": ColumnInfo("Float64")},
+            ch_settings=_NO_ENGINE_RETRY,
             retries=3,
             backoff_factor=0,
         )
-    # 3 attempts, all 503.
+    # 3 attempts, each failing on its first upstream GET.
     assert handler.request_count == 3

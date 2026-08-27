@@ -1,12 +1,12 @@
 Technical Debt
 ---
 
-# chdb `url()` Table Function
+# ClickHouse Mishandles Path-Relative Redirects
 
-- **`ChdbClient._rewrite_external_urls()`** (`aaiclick/data/data_context/chdb_client.py`)
-  - **Issue**: chdb's embedded ClickHouse hangs or misinterprets external HTTP/HTTPS URLs passed to the `url()` table function. The embedded HTTP client either blocks the process with no timeout (≤4.1.2) or treats URLs as named collections (26.1.0).
-  - **Workaround**: `ChdbClient.command()` and `.query()` intercept any `url('https://...', 'fmt')` in SQL via regex, download the file to a `NamedTemporaryFile` via `asyncio.to_thread(urllib.request.urlretrieve)`, and rewrite the expression to `file('/tmp/x', 'fmt')` before execution. All URLs (including localhost) are rewritten consistently. `NamedTemporaryFile` is used (not `TemporaryFile`) because chdb needs a filesystem path string.
-  - **Debt**: Confirmed broken in chdb 4.1.2 and 26.1.0; no upstream fix. Remove this workaround once chdb's `url()` works reliably. Track at [chdb-io/chdb](https://github.com/chdb-io/chdb).
+- **`_resolve_redirect_url()`** (`aaiclick/example_projects/cyber_threat_feeds/cyber_threat_feeds/epss.py`)
+  - **Issue**: The engine resolves a path-relative `Location` (`sample.parquet`) against the full request path rather than its parent directory, so `/dir/entry.parquet` redirects to `/dir/entry.parquet/sample.parquet` and the fetch fails. Absolute and root-relative `Location` headers resolve correctly. Both backends share the engine's HTTP client, so neither escapes it.
+  - **Workaround**: The EPSS loader issues a `HEAD` in Python and passes the resolved final URL to `url()`. Its feed 301s cross-host and then 302s path-relative.
+  - **Debt**: Drop the pre-resolution once the engine resolves relative redirects per RFC 3986. `test_url_path_relative_redirect_unsupported` pins the current behavior and will fail when that lands. Track at [ClickHouse/ClickHouse](https://github.com/ClickHouse/ClickHouse).
 
 # chdb Missing `HTML` Output Format
 
