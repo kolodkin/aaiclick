@@ -688,38 +688,83 @@ async def test_json_empty_path_segment_raises(ctx, json_server):
 
 
 # =============================================================================
+# Compressed input: codec inferred from the URL's trailing suffix
+# =============================================================================
+
+
+@pytest.mark.parametrize("filename", ["sample.csv.gz", "sample.csv.xz"])
+async def test_url_compressed_input(ctx, fileserver, filename):
+    """ClickHouse decompresses input by the URL's trailing codec suffix.
+
+    Real feeds ship this way — the cyber_threat_feeds example loads EPSS from
+    a ``.csv.gz``. Decoded rows are the proof: the compressed bytes do not
+    parse as CSV, so correct values mean decompression happened.
+    """
+    obj = await create_object_from_url(
+        f"{fileserver}/{filename}",
+        columns=["id", "price", "name"],
+        format="CSVWithNames",
+        limit=100,
+    )
+    data = await obj.data()
+    assert len(data["id"]) == 100
+    assert data["id"][0] == 1
+    assert data["price"][0] == 1.5
+    assert data["name"][0] == "item_1"
+
+
+# =============================================================================
 # Redirect integration: upstream 302 to the real file
 # =============================================================================
 
 
-class _RedirectHandler(BaseHTTPRequestHandler):
-    """302s ``/entry.parquet`` to ``/sample.parquet``, then serves the file.
+# ClickHouse resolves absolute and root-relative ``Location`` headers, but
+# resolves a path-relative one against the full request path instead of the
+# parent directory — ``/dir/entry.parquet`` + ``sample.parquet`` becomes
+# ``/dir/entry.parquet/sample.parquet``. Both backends share the engine's HTTP
+# client, so this is not backend-specific.
+_LOCATION_STYLES = {
+    "absolute": "http://{host}/dir/sample.parquet",
+    "root-relative": "/dir/sample.parquet",
+    "path-relative": "sample.parquet",
+}
 
-    ``Location`` echoes the client's own ``Host`` header so the redirect
-    resolves both from localhost and from a ClickHouse container reaching the
-    fixture via ``host.docker.internal``.
+
+class _RedirectHandler(BaseHTTPRequestHandler):
+    """302s ``/dir/entry.parquet`` to the sample file under ``/dir/``.
+
+    ``location_style`` selects the ``Location`` form; the absolute form echoes
+    the client's own ``Host`` header so it resolves from localhost and from a
+    ClickHouse container reaching the fixture via ``host.docker.internal``.
     """
 
     body: bytes = b""
+    location_style: str = "absolute"
 
-    def do_HEAD(self):
+    def _headers_200(self):
         self.send_response(200)
         self.send_header("Content-Type", "application/octet-stream")
         self.send_header("Content-Length", str(len(type(self).body)))
         self.end_headers()
 
+    def do_HEAD(self):
+        self._headers_200()
+
     def do_GET(self):
-        if self.path == "/entry.parquet":
+        if self.path.startswith("/dir/entry.parquet"):
             self.send_response(302)
-            self.send_header("Location", f"http://{self.headers['Host']}/sample.parquet")
+            location = _LOCATION_STYLES[type(self).location_style]
+            self.send_header("Location", location.format(host=self.headers["Host"]))
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
-        self.send_response(200)
-        self.send_header("Content-Type", "application/octet-stream")
-        self.send_header("Content-Length", str(len(type(self).body)))
+        if self.path == "/dir/sample.parquet":
+            self._headers_200()
+            self.wfile.write(type(self).body)
+            return
+        self.send_response(404)
+        self.send_header("Content-Length", "0")
         self.end_headers()
-        self.wfile.write(type(self).body)
 
     def log_message(self, *_args):
         pass
@@ -738,29 +783,43 @@ def redirect_server():
     server.server_close()
 
 
-async def test_url_follows_redirect(ctx, redirect_server):
-    """A 302 is followed when ``max_http_get_redirects`` allows it."""
-    obj = await create_object_from_url(
-        f"{redirect_server}/entry.parquet",
+async def _load_via_redirect(base: str, **kwargs):
+    return await create_object_from_url(
+        f"{base}/dir/entry.parquet",
         columns=["id", "price"],
         format="Parquet",
         limit=5,
-        ch_settings={"max_http_get_redirects": 10},
+        **kwargs,
     )
+
+
+@pytest.mark.parametrize("style", ["absolute", "root-relative"])
+async def test_url_follows_redirect(ctx, redirect_server, style):
+    """A 302 is followed when ``max_http_get_redirects`` allows it."""
+    _RedirectHandler.location_style = style
+    obj = await _load_via_redirect(redirect_server, ch_settings={"max_http_get_redirects": 10})
     data = await obj.data()
     assert len(data["id"]) == 5
     assert data["id"][0] == 1
 
 
+async def test_url_path_relative_redirect_unsupported(ctx, redirect_server):
+    """A path-relative ``Location`` is resolved wrong by the engine and fails.
+
+    Callers must resolve such redirects before handing the URL over — the
+    cyber_threat_feeds EPSS loader does exactly that. Pinned here so the day
+    the engine fixes it, this test fails and the workaround can go.
+    """
+    _RedirectHandler.location_style = "path-relative"
+    with pytest.raises(Exception, match="[Rr]edirect"):
+        await _load_via_redirect(redirect_server, ch_settings={"max_http_get_redirects": 10})
+
+
 async def test_url_redirect_without_setting_raises(ctx, redirect_server):
     """An unfollowed redirect fails loudly instead of loading the 3xx body as data."""
+    _RedirectHandler.location_style = "absolute"
     with pytest.raises(Exception, match="[Rr]edirect"):
-        await create_object_from_url(
-            f"{redirect_server}/entry.parquet",
-            columns=["id", "price"],
-            format="Parquet",
-            limit=5,
-        )
+        await _load_via_redirect(redirect_server)
 
 
 # =============================================================================
