@@ -13,7 +13,7 @@ Technical Debt
 - **`FORMATS`** (`aaiclick/data/formats.py`)
   - **Issue**: `Object.export()` maps an `.html` extension to ClickHouse's `HTML` output format, but the chdb build aaiclick ships against omits the HTML output handler and rejects it with `Unknown format HTML. Maybe you meant: ['XML']. (UNKNOWN_FORMAT)`. The format is supported by upstream server ClickHouse.
   - **Workaround**: No `.html` / `HTML` entry in `FORMATS` — the extension is simply unsupported for export.
-  - **Debt**: Re-confirmed broken on chdb 4.1.9 (chdb-core 26.5.0 / ClickHouse 26.5.1). Add an `.html` → `HTML` `FormatSpec` (and its export test) once chdb's build includes the HTML output handler, or once aaiclick gains a fallback to clickhouse-connect for formats chdb doesn't ship. Track at [chdb-io/chdb](https://github.com/chdb-io/chdb).
+  - **Debt**: Re-confirmed broken on chdb 4.3.0 (chdb-core 26.7.0 / ClickHouse 26.7.2.1). Add an `.html` → `HTML` `FormatSpec` (and its export test) once chdb's build includes the HTML output handler, or once aaiclick gains a fallback to clickhouse-connect for formats chdb doesn't ship. Track at [chdb-io/chdb](https://github.com/chdb-io/chdb).
 
 # clickhouse-connect `'u'` Type Code DeprecationWarning on Python 3.13
 
