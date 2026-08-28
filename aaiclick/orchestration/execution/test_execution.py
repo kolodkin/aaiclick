@@ -569,9 +569,9 @@ async def test_register_returned_tasks_task_result_with_data(orch_ctx):
         assert len(children) == 2
 
 
-@pytest.mark.parametrize("shape", ["flat_list", "bare_tuple", "tuple_of_lists", "nested"])
-async def test_register_returned_tasks_iterable_shapes(orch_ctx, shape):
-    """Lists, tuples and nestings of them all flatten to the same registration."""
+@pytest.mark.parametrize("shape", ["flat_list", "bare_tuple"])
+async def test_register_returned_tasks_flat_shapes(orch_ctx, shape):
+    """A flat list or tuple of Tasks registers them and returns None data."""
     job = await create_job(f"reg_shape_{shape}", "mod.func")
     parent = create_task("mod.parent")
     parent.job_id = job.id
@@ -580,8 +580,6 @@ async def test_register_returned_tasks_iterable_shapes(orch_ctx, shape):
     payload = {
         "flat_list": [a, b, c, d],
         "bare_tuple": (a, b, c, d),  # ``return a, b`` — no brackets needed
-        "tuple_of_lists": ([a, b], [c, d]),
-        "nested": [[a, [b]], (c, d)],
     }[shape]
 
     assert await register_returned_tasks(payload, parent_task_id=parent.id, job_id=job.id) is None
@@ -591,6 +589,36 @@ async def test_register_returned_tasks_iterable_shapes(orch_ctx, shape):
             select(Task).where(Task.job_id == job.id, col(Task.entrypoint).like("mod.child%"))
         )
         assert len(result.scalars().all()) == 4
+
+
+@pytest.mark.parametrize("shape", ["tuple_of_lists", "list_of_tuples", "deep"])
+async def test_register_returned_tasks_rejects_nesting(orch_ctx, shape):
+    """Nesting carries no meaning in the graph, so it is rejected, not flattened."""
+    job = await create_job(f"reg_nested_{shape}", "mod.func")
+    parent = create_task("mod.parent")
+    parent.job_id = job.id
+
+    a, b = create_task("mod.child0"), create_task("mod.child1")
+    payload = {
+        "tuple_of_lists": ([a], [b]),
+        "list_of_tuples": [(a,), (b,)],
+        "deep": [a, [b]],
+    }[shape]
+
+    with pytest.raises(TypeError, match="nested"):
+        await register_returned_tasks(payload, parent_task_id=parent.id, job_id=job.id)
+
+
+async def test_register_returned_tasks_rejects_nested_task_result(orch_ctx):
+    """The same flatness rule applies to task_result(tasks=[...])."""
+    job = await create_job("reg_nested_task_result", "mod.func")
+    parent = create_task("mod.parent")
+    parent.job_id = job.id
+
+    with pytest.raises(TypeError, match="nested"):
+        await register_returned_tasks(
+            task_result(tasks=[[create_task("mod.child0")]]), parent_task_id=parent.id, job_id=job.id
+        )
 
 
 async def test_register_returned_tasks_list_of_data(orch_ctx):
