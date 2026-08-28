@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import create_engine as sa_create_engine
 from sqlalchemy import select as sa_select
+from sqlalchemy import text as sa_text
 from sqlmodel import SQLModel
 
 from aaiclick.auth.models import Tenant
@@ -208,3 +209,123 @@ def test_seed_default_tenant_inserts_once():
     with engine.connect() as conn:
         rows = conn.execute(sa_select(Tenant.id, Tenant.slug)).all()
     assert rows == [(DEFAULT_TENANT_ID, "aaiclick")]
+
+
+def _older_sqlite_db(path):
+    """Build a database shaped like one written before tenancy landed."""
+    engine = sa_create_engine(f"sqlite:///{path}")
+    SQLModel.metadata.create_all(engine)
+    with engine.begin() as conn:
+        conn.execute(
+            sa_text(
+                "INSERT INTO jobs (id, tenant_id, name, status, run_type, "
+                "preservation_mode, runner_mode, created_at) "
+                "VALUES (1, 1, 'old-job', 'pending', 'flat', 'NONE', 'subprocess', '2024-01-01')"
+            )
+        )
+        conn.execute(sa_text("DROP INDEX ix_jobs_tenant_id"))
+        conn.execute(sa_text("ALTER TABLE jobs DROP COLUMN tenant_id"))
+        conn.execute(sa_text("DROP TABLE tenants"))
+    engine.dispose()
+
+
+def _stub_chdb(monkeypatch):
+    class _FakeSession:
+        def query(self, _sql):
+            return None
+
+    monkeypatch.setattr(setup, "get_shared_session", lambda _path: _FakeSession())
+
+
+def test_stale_local_db_lists_columns_added_since(tmp_path, monkeypatch):
+    """A database written by an older version reports the columns it lacks."""
+    db = tmp_path / "local.db"
+    monkeypatch.setenv("AAICLICK_SQL_URL", f"sqlite+aiosqlite:///{db}")
+    _older_sqlite_db(db)
+
+    assert "jobs.tenant_id" in setup.stale_local_db()
+
+
+def test_stale_local_db_empty_for_current_schema(tmp_path, monkeypatch):
+    """A database at the current schema is not reported stale."""
+    db = tmp_path / "local.db"
+    monkeypatch.setenv("AAICLICK_SQL_URL", f"sqlite+aiosqlite:///{db}")
+    engine = sa_create_engine(f"sqlite:///{db}")
+    SQLModel.metadata.create_all(engine)
+    engine.dispose()
+
+    assert setup.stale_local_db() == []
+
+
+def test_stale_local_db_empty_when_absent(tmp_path, monkeypatch):
+    """A first run has no database to compare against."""
+    monkeypatch.setenv("AAICLICK_SQL_URL", f"sqlite+aiosqlite:///{tmp_path / 'local.db'}")
+
+    assert setup.stale_local_db() == []
+
+
+def test_setup_refuses_stale_local_db_without_force(tmp_path, monkeypatch):
+    """Regression: ``setup`` used to run ``create_all`` over an older
+    ``local.db``, which creates missing *tables* but never alters existing
+    ones — so it reported ``ok`` while ``jobs`` silently kept its old shape
+    and every tenant-scoped query failed with "no such column: tenant_id".
+
+    It now refuses instead, naming the flag that recreates the database."""
+    db = tmp_path / "local.db"
+    monkeypatch.setenv("AAICLICK_LOCAL_ROOT", str(tmp_path))
+    monkeypatch.setenv("AAICLICK_SQL_URL", f"sqlite+aiosqlite:///{db}")
+    monkeypatch.delenv("AAICLICK_CH_URL", raising=False)
+    _stub_chdb(monkeypatch)
+    _older_sqlite_db(db)
+
+    with pytest.raises(errors.Invalid, match="--force"):
+        setup.setup()
+
+    assert db.exists()
+
+
+def test_setup_force_recreates_stale_local_db(tmp_path, monkeypatch):
+    """``--force`` deletes the outdated database and rebuilds it current."""
+    db = tmp_path / "local.db"
+    monkeypatch.setenv("AAICLICK_LOCAL_ROOT", str(tmp_path))
+    monkeypatch.setenv("AAICLICK_SQL_URL", f"sqlite+aiosqlite:///{db}")
+    monkeypatch.delenv("AAICLICK_CH_URL", raising=False)
+    _stub_chdb(monkeypatch)
+    _older_sqlite_db(db)
+
+    result = setup.setup(force=True)
+
+    sqlite_step = next(s for s in result.steps if s.name == "sqlite")
+    assert "recreated" in (sqlite_step.detail or "")
+    assert setup.stale_local_db() == []
+    engine = sa_create_engine(f"sqlite:///{db}")
+    with engine.connect() as conn:
+        assert conn.execute(sa_text("SELECT count(*) FROM jobs")).scalar() == 0
+        assert conn.execute(sa_text("SELECT slug FROM tenants")).scalar() == "aaiclick"
+    engine.dispose()
+
+
+def test_setup_force_keeps_a_current_database(tmp_path, monkeypatch):
+    """``--force`` only deletes on a schema collision — an up-to-date
+    database keeps its rows so a routine re-run is never destructive."""
+    db = tmp_path / "local.db"
+    monkeypatch.setenv("AAICLICK_LOCAL_ROOT", str(tmp_path))
+    monkeypatch.setenv("AAICLICK_SQL_URL", f"sqlite+aiosqlite:///{db}")
+    monkeypatch.delenv("AAICLICK_CH_URL", raising=False)
+    _stub_chdb(monkeypatch)
+    engine = sa_create_engine(f"sqlite:///{db}")
+    SQLModel.metadata.create_all(engine)
+    with engine.begin() as conn:
+        conn.execute(
+            sa_text(
+                "INSERT INTO jobs (id, tenant_id, name, status, run_type, "
+                "preservation_mode, runner_mode, created_at) "
+                "VALUES (1, 1, 'keep-me', 'pending', 'flat', 'NONE', 'subprocess', '2024-01-01')"
+            )
+        )
+
+    setup.setup(force=True)
+
+    with engine.connect() as conn:
+        assert conn.execute(sa_text("SELECT name FROM jobs WHERE id = 1")).scalar() == "keep-me"
+    engine.dispose()

@@ -390,3 +390,64 @@ async def test_job_wait_json_timeout_keeps_stdout_clean_and_diagnoses_on_stderr(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "mod.stuck" in captured.err
+
+
+def test_setup_prompts_before_recreating_stale_local_db(monkeypatch, capsys):
+    """An interactive run offers to recreate a local.db left by an older
+    version, and forwards the answer as ``force``."""
+    monkeypatch.setattr("aaiclick.__main__.setup_api.stale_local_db", lambda: ["jobs.tenant_id"])
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "y")
+    calls: list[bool] = []
+    monkeypatch.setattr(
+        "aaiclick.__main__.setup_api.setup",
+        lambda *, ai, force: calls.append(force) or MagicMock(),
+    )
+    monkeypatch.setattr("aaiclick.__main__._render", lambda *a, **k: None)
+
+    with patch("sys.argv", ["aaiclick", "setup"]):
+        main()
+
+    assert calls == [True]
+    assert "jobs.tenant_id" in capsys.readouterr().err
+
+
+def test_setup_declined_prompt_leaves_database_alone(monkeypatch):
+    """Answering no forwards ``force=False``, so setup refuses rather than
+    deleting the database behind the user's back."""
+    monkeypatch.setattr("aaiclick.__main__.setup_api.stale_local_db", lambda: ["jobs.tenant_id"])
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "")
+    calls: list[bool] = []
+    monkeypatch.setattr(
+        "aaiclick.__main__.setup_api.setup",
+        lambda *, ai, force: calls.append(force) or MagicMock(),
+    )
+    monkeypatch.setattr("aaiclick.__main__._render", lambda *a, **k: None)
+
+    with patch("sys.argv", ["aaiclick", "setup"]):
+        main()
+
+    assert calls == [False]
+
+
+def test_setup_does_not_prompt_when_not_a_tty(monkeypatch):
+    """A piped run must never block on input — setup() reports instead."""
+    monkeypatch.setattr("aaiclick.__main__.setup_api.stale_local_db", lambda: ["jobs.tenant_id"])
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+
+    def _no_input(_prompt=""):
+        raise AssertionError("must not prompt without a TTY")
+
+    monkeypatch.setattr("builtins.input", _no_input)
+    calls: list[bool] = []
+    monkeypatch.setattr(
+        "aaiclick.__main__.setup_api.setup",
+        lambda *, ai, force: calls.append(force) or MagicMock(),
+    )
+    monkeypatch.setattr("aaiclick.__main__._render", lambda *a, **k: None)
+
+    with patch("sys.argv", ["aaiclick", "setup"]):
+        main()
+
+    assert calls == [False]
