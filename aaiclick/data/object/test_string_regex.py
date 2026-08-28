@@ -5,6 +5,8 @@ Tests match(), like(), ilike(), extract(), and replace() methods
 on both scalar and array string Objects.
 """
 
+import pytest
+
 from aaiclick import create_object_from_value
 
 # =============================================================================
@@ -12,28 +14,19 @@ from aaiclick import create_object_from_value
 # =============================================================================
 
 
-async def test_match_array_basic(ctx):
-    obj = await create_object_from_value(["apple", "banana", "avocado"])
-    result = await obj.match("^a")
-    assert await result.data() == [1, 0, 1]
-
-
-async def test_match_scalar(ctx):
-    obj = await create_object_from_value("hello")
-    result = await obj.match("ell")
-    assert await result.data() == 1
-
-
-async def test_match_no_match(ctx):
-    obj = await create_object_from_value(["abc", "def"])
-    result = await obj.match("xyz")
-    assert await result.data() == [0, 0]
-
-
-async def test_match_all_match(ctx):
-    obj = await create_object_from_value(["abc", "abcdef"])
-    result = await obj.match("abc")
-    assert await result.data() == [1, 1]
+@pytest.mark.parametrize(
+    "value, pattern, expected",
+    [
+        pytest.param(["apple", "banana", "avocado"], "^a", [1, 0, 1], id="array-basic"),
+        pytest.param("hello", "ell", 1, id="scalar"),
+        pytest.param(["abc", "def"], "xyz", [0, 0], id="no-match"),
+        pytest.param(["abc", "abcdef"], "abc", [1, 1], id="all-match"),
+    ],
+)
+async def test_match(ctx, value, pattern, expected):
+    obj = await create_object_from_value(value)
+    result = await obj.match(pattern)
+    assert await result.data() == expected
 
 
 # =============================================================================
@@ -41,34 +34,20 @@ async def test_match_all_match(ctx):
 # =============================================================================
 
 
-async def test_like_array_prefix(ctx):
-    obj = await create_object_from_value(["apple", "banana", "avocado"])
-    result = await obj.like("a%")
-    assert await result.data() == [1, 0, 1]
-
-
-async def test_like_array_suffix(ctx):
-    obj = await create_object_from_value(["apple", "banana", "avocado"])
-    result = await obj.like("%a")
-    assert await result.data() == [0, 1, 0]
-
-
-async def test_like_array_contains(ctx):
-    obj = await create_object_from_value(["apple", "banana", "cherry"])
-    result = await obj.like("%an%")
-    assert await result.data() == [0, 1, 0]
-
-
-async def test_like_scalar(ctx):
-    obj = await create_object_from_value("hello")
-    result = await obj.like("h%")
-    assert await result.data() == 1
-
-
-async def test_like_underscore_wildcard(ctx):
-    obj = await create_object_from_value(["cat", "cut", "cot"])
-    result = await obj.like("c_t")
-    assert await result.data() == [1, 1, 1]
+@pytest.mark.parametrize(
+    "value, pattern, expected",
+    [
+        pytest.param(["apple", "banana", "avocado"], "a%", [1, 0, 1], id="array-prefix"),
+        pytest.param(["apple", "banana", "avocado"], "%a", [0, 1, 0], id="array-suffix"),
+        pytest.param(["apple", "banana", "cherry"], "%an%", [0, 1, 0], id="array-contains"),
+        pytest.param("hello", "h%", 1, id="scalar"),
+        pytest.param(["cat", "cut", "cot"], "c_t", [1, 1, 1], id="underscore-wildcard"),
+    ],
+)
+async def test_like(ctx, value, pattern, expected):
+    obj = await create_object_from_value(value)
+    result = await obj.like(pattern)
+    assert await result.data() == expected
 
 
 # =============================================================================
@@ -76,16 +55,17 @@ async def test_like_underscore_wildcard(ctx):
 # =============================================================================
 
 
-async def test_ilike_case_insensitive(ctx):
-    obj = await create_object_from_value(["Apple", "BANANA", "avocado"])
-    result = await obj.ilike("a%")
-    assert await result.data() == [1, 0, 1]
-
-
-async def test_ilike_scalar(ctx):
-    obj = await create_object_from_value("Hello")
-    result = await obj.ilike("h%")
-    assert await result.data() == 1
+@pytest.mark.parametrize(
+    "value, pattern, expected",
+    [
+        pytest.param(["Apple", "BANANA", "avocado"], "a%", [1, 0, 1], id="case-insensitive"),
+        pytest.param("Hello", "h%", 1, id="scalar"),
+    ],
+)
+async def test_ilike(ctx, value, pattern, expected):
+    obj = await create_object_from_value(value)
+    result = await obj.ilike(pattern)
+    assert await result.data() == expected
 
 
 # =============================================================================
@@ -93,22 +73,18 @@ async def test_ilike_scalar(ctx):
 # =============================================================================
 
 
-async def test_extract_digits(ctx):
-    obj = await create_object_from_value(["user_123", "user_456", "admin_789"])
-    result = await obj.extract("(\\d+)")
-    assert await result.data() == ["123", "456", "789"]
-
-
-async def test_extract_no_match(ctx):
-    obj = await create_object_from_value(["abc", "def"])
-    result = await obj.extract("(\\d+)")
-    assert await result.data() == ["", ""]
-
-
-async def test_extract_scalar(ctx):
-    obj = await create_object_from_value("hello_123")
-    result = await obj.extract("(\\d+)")
-    assert await result.data() == "123"
+@pytest.mark.parametrize(
+    "value, pattern, expected",
+    [
+        pytest.param(["user_123", "user_456", "admin_789"], "(\\d+)", ["123", "456", "789"], id="digits"),
+        pytest.param(["abc", "def"], "(\\d+)", ["", ""], id="no-match"),
+        pytest.param("hello_123", "(\\d+)", "123", id="scalar"),
+    ],
+)
+async def test_extract(ctx, value, pattern, expected):
+    obj = await create_object_from_value(value)
+    result = await obj.extract(pattern)
+    assert await result.data() == expected
 
 
 # =============================================================================
@@ -116,28 +92,19 @@ async def test_extract_scalar(ctx):
 # =============================================================================
 
 
-async def test_replace_basic(ctx):
-    obj = await create_object_from_value(["hello world", "foo bar"])
-    result = await obj.replace(" ", "_")
-    assert await result.data() == ["hello_world", "foo_bar"]
-
-
-async def test_replace_regex(ctx):
-    obj = await create_object_from_value(["a1b2c3", "x9y8z7"])
-    result = await obj.replace("\\d", "")
-    assert await result.data() == ["abc", "xyz"]
-
-
-async def test_replace_all_occurrences(ctx):
-    obj = await create_object_from_value(["aaa", "bbb"])
-    result = await obj.replace("a", "x")
-    assert await result.data() == ["xxx", "bbb"]
-
-
-async def test_replace_scalar(ctx):
-    obj = await create_object_from_value("hello world")
-    result = await obj.replace("world", "there")
-    assert await result.data() == "hello there"
+@pytest.mark.parametrize(
+    "value, pattern, replacement, expected",
+    [
+        pytest.param(["hello world", "foo bar"], " ", "_", ["hello_world", "foo_bar"], id="basic"),
+        pytest.param(["a1b2c3", "x9y8z7"], "\\d", "", ["abc", "xyz"], id="regex"),
+        pytest.param(["aaa", "bbb"], "a", "x", ["xxx", "bbb"], id="all-occurrences"),
+        pytest.param("hello world", "world", "there", "hello there", id="scalar"),
+    ],
+)
+async def test_replace(ctx, value, pattern, replacement, expected):
+    obj = await create_object_from_value(value)
+    result = await obj.replace(pattern, replacement)
+    assert await result.data() == expected
 
 
 # =============================================================================

@@ -4,6 +4,8 @@ Tests for isin() operator and with_isin() domain helper.
 Tests membership testing via IN subquery on scalar, array, and dict Objects.
 """
 
+import pytest
+
 from aaiclick import ORIENT_RECORDS, create_object_from_value
 
 # =============================================================================
@@ -11,66 +13,37 @@ from aaiclick import ORIENT_RECORDS, create_object_from_value
 # =============================================================================
 
 
-async def test_isin_array_strings(ctx):
-    """isin() on string array: returns 1 for values in the allowed set."""
-    obj = await create_object_from_value(["a", "b", "c", "d"])
-    allowed = await create_object_from_value(["a", "c"])
-    result = await obj.isin(allowed)
-    assert await result.data() == [1, 0, 1, 0]
+@pytest.mark.parametrize(
+    "value, allowed, expected",
+    [
+        pytest.param(["a", "b", "c", "d"], ["a", "c"], [1, 0, 1, 0], id="array-strings"),
+        pytest.param([1, 2, 3, 4, 5], [2, 4], [0, 1, 0, 1, 0], id="array-ints"),
+        pytest.param(42, [10, 42, 99], 1, id="scalar-found"),
+        pytest.param(7, [1, 2, 3], 0, id="scalar-not-found"),
+        pytest.param(["x", "y", "z"], ["a", "b"], [0, 0, 0], id="no-matches"),
+        pytest.param([1, 2, 3], [1, 2, 3, 4, 5], [1, 1, 1], id="all-matches"),
+    ],
+)
+async def test_isin(ctx, value, allowed, expected):
+    """isin() returns a UInt8 mask marking values present in the allowed set."""
+    obj = await create_object_from_value(value)
+    allowed_obj = await create_object_from_value(allowed)
+    result = await obj.isin(allowed_obj)
+    assert await result.data() == expected
 
 
-async def test_isin_array_ints(ctx):
-    """isin() on integer array: returns 1 for values in the allowed set."""
-    obj = await create_object_from_value([1, 2, 3, 4, 5])
-    allowed = await create_object_from_value([2, 4])
-    result = await obj.isin(allowed)
-    assert await result.data() == [0, 1, 0, 1, 0]
-
-
-async def test_isin_scalar(ctx):
-    """isin() on scalar Object: returns 1 if the value is in the set."""
-    obj = await create_object_from_value(42)
-    allowed = await create_object_from_value([10, 42, 99])
-    result = await obj.isin(allowed)
-    assert await result.data() == 1
-
-
-async def test_isin_scalar_not_found(ctx):
-    """isin() on scalar Object: returns 0 if the value is not in the set."""
-    obj = await create_object_from_value(7)
-    allowed = await create_object_from_value([1, 2, 3])
-    result = await obj.isin(allowed)
-    assert await result.data() == 0
-
-
-async def test_isin_no_matches(ctx):
-    """isin() returns all zeros when no values match."""
-    obj = await create_object_from_value(["x", "y", "z"])
-    allowed = await create_object_from_value(["a", "b"])
-    result = await obj.isin(allowed)
-    assert await result.data() == [0, 0, 0]
-
-
-async def test_isin_all_matches(ctx):
-    """isin() returns all ones when all values match."""
-    obj = await create_object_from_value([1, 2, 3])
-    allowed = await create_object_from_value([1, 2, 3, 4, 5])
-    result = await obj.isin(allowed)
-    assert await result.data() == [1, 1, 1]
-
-
-async def test_isin_with_python_list(ctx):
+@pytest.mark.parametrize(
+    "value, allowed, expected",
+    [
+        pytest.param(["cat", "dog", "bird"], ["cat", "bird"], [1, 0, 1], id="strings"),
+        pytest.param([10, 20, 30], [20, 30], [0, 1, 1], id="ints"),
+    ],
+)
+async def test_isin_with_python_list(ctx, value, allowed, expected):
     """isin() accepts a Python list (auto-converted to Object)."""
-    obj = await create_object_from_value(["cat", "dog", "bird"])
-    result = await obj.isin(["cat", "bird"])
-    assert await result.data() == [1, 0, 1]
-
-
-async def test_isin_with_python_list_ints(ctx):
-    """isin() accepts a Python list of ints."""
-    obj = await create_object_from_value([10, 20, 30])
-    result = await obj.isin([20, 30])
-    assert await result.data() == [0, 1, 1]
+    obj = await create_object_from_value(value)
+    result = await obj.isin(allowed)
+    assert await result.data() == expected
 
 
 async def test_isin_dict_column(ctx):

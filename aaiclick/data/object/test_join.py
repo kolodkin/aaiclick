@@ -170,14 +170,21 @@ def test_schema_key_type_compatibility(left_type, right_type, expected_result_ty
         assert schema.columns["k"].type == expected_result_type
 
 
-def test_schema_collision_without_suffixes_raises():
+@pytest.mark.parametrize(
+    "suffixes",
+    [
+        pytest.param(None, id="none"),
+        pytest.param(False, id="false-treated-as-none"),
+    ],
+)
+def test_schema_collision_without_suffixes_raises(suffixes):
     with pytest.raises(ValueError, match="column collision on \\['score'\\]"):
         build_join_schema(
             _cols(k=ColumnInfo("Int64"), score=ColumnInfo("Float64")),
             _cols(k=ColumnInfo("Int64"), score=ColumnInfo("Float64")),
             JoinKeys(left=["k"], right=["k"]),
             how="inner",
-            suffixes=None,
+            suffixes=suffixes,
         )
 
 
@@ -200,17 +207,6 @@ def test_schema_collision_renamed_by_suffixes(suffixes, expected_l, expected_r):
     assert list(schema.columns) == ["k", expected_l, expected_r]
     assert lproj == [("k", "k"), ("score", expected_l)]
     assert rproj == [("score", expected_r)]
-
-
-def test_schema_suffixes_false_treated_as_none():
-    with pytest.raises(ValueError, match="column collision"):
-        build_join_schema(
-            _cols(k=ColumnInfo("Int64"), score=ColumnInfo("Float64")),
-            _cols(k=ColumnInfo("Int64"), score=ColumnInfo("Float64")),
-            JoinKeys(left=["k"], right=["k"]),
-            how="inner",
-            suffixes=False,
-        )
 
 
 def test_schema_empty_suffix_raises():

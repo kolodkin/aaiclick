@@ -213,16 +213,17 @@ async def test_export_limit(ctx, tmp_path):
 # =============================================================================
 
 
-async def test_export_unsupported_extension(ctx, tmp_path):
+@pytest.mark.parametrize(
+    "filename",
+    [
+        pytest.param("data.xls", id="unsupported-extension"),
+        pytest.param("data", id="no-extension"),
+    ],
+)
+async def test_export_unsupported_extension_raises(ctx, tmp_path, filename):
     obj = await create_object_from_value(SAMPLE)
     with pytest.raises(ValueError, match="Unsupported export extension"):
-        await obj.export(str(tmp_path / "data.xls"))
-
-
-async def test_export_no_extension(ctx, tmp_path):
-    obj = await create_object_from_value(SAMPLE)
-    with pytest.raises(ValueError, match="Unsupported export extension"):
-        await obj.export(str(tmp_path / "data"))
+        await obj.export(str(tmp_path / filename))
 
 
 async def test_export_returns_absolute_path(ctx, tmp_path, monkeypatch):

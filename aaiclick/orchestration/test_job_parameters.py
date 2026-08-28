@@ -22,13 +22,16 @@ async def test_default_mode_is_none_when_env_unset(monkeypatch):
     assert get_default_preservation_mode() == PRESERVATION_NONE
 
 
-async def test_env_var_sets_default_mode(monkeypatch):
-    monkeypatch.setenv("AAICLICK_DEFAULT_PRESERVATION_MODE", "FULL")
-    assert get_default_preservation_mode() == PRESERVATION_FULL
-
-
-async def test_env_var_is_case_insensitive(monkeypatch):
-    monkeypatch.setenv("AAICLICK_DEFAULT_PRESERVATION_MODE", "full")
+@pytest.mark.parametrize(
+    "env_value",
+    [
+        pytest.param("FULL", id="upper-case"),
+        pytest.param("full", id="lower-case"),
+    ],
+)
+async def test_env_var_sets_default_mode(monkeypatch, env_value):
+    """The env var is parsed case-insensitively."""
+    monkeypatch.setenv("AAICLICK_DEFAULT_PRESERVATION_MODE", env_value)
     assert get_default_preservation_mode() == PRESERVATION_FULL
 
 

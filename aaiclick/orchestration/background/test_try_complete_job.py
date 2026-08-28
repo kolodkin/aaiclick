@@ -274,35 +274,28 @@ async def test_cascade_transitive_chain(bg_db):
     assert job_status == "FAILED"
 
 
-async def test_cascade_from_cancelled_upstream(bg_db):
-    """CANCELLED upstream cascades to downstream the same way FAILED does."""
+@pytest.mark.parametrize(
+    "upstream_status, expected_downstream, expected_job",
+    [
+        # CANCELLED upstream cascades to downstream the same way FAILED does, and
+        # UPSTREAM_FAILED downstream counts as a failure for the job.
+        pytest.param("CANCELLED", "UPSTREAM_FAILED", "FAILED", id="cancelled-cascades"),
+        # COMPLETED upstream is the success case — downstream stays PENDING.
+        pytest.param("COMPLETED", "PENDING", "RUNNING", id="completed-does-not-propagate"),
+    ],
+)
+async def test_cascade_from_upstream(bg_db, upstream_status, expected_downstream, expected_job):
     await insert_job(bg_db, 1)
-    await _insert_task(bg_db, task_id=101, job_id=1, status="CANCELLED")
+    await _insert_task(bg_db, task_id=101, job_id=1, status=upstream_status)
     await _insert_task(bg_db, task_id=102, job_id=1, status="PENDING")
     await _insert_dependency(bg_db, previous_id=101, previous_type="task", next_id=102, next_type="task")
 
     await _run_try_complete(bg_db, 1)
 
     status, _ = await _get_task(bg_db, 102)
-    assert status == "UPSTREAM_FAILED"
-    # CANCELLED upstream + UPSTREAM_FAILED downstream → job FAILED (UPSTREAM_FAILED counts as failure).
+    assert status == expected_downstream
     job_status, _, _ = await _get_job(bg_db, 1)
-    assert job_status == "FAILED"
-
-
-async def test_cascade_completed_upstream_does_not_propagate(bg_db):
-    """COMPLETED upstream is the success case — downstream stays PENDING."""
-    await insert_job(bg_db, 1)
-    await _insert_task(bg_db, task_id=101, job_id=1, status="COMPLETED")
-    await _insert_task(bg_db, task_id=102, job_id=1, status="PENDING")
-    await _insert_dependency(bg_db, previous_id=101, previous_type="task", next_id=102, next_type="task")
-
-    await _run_try_complete(bg_db, 1)
-
-    status, _ = await _get_task(bg_db, 102)
-    assert status == "PENDING"
-    job_status, _, _ = await _get_job(bg_db, 1)
-    assert job_status == "RUNNING"
+    assert job_status == expected_job
 
 
 async def test_cascade_group_to_task_propagates_on_first_failure(bg_db):

@@ -15,32 +15,26 @@ from aaiclick.data.scope import (
 from aaiclick.tenancy import DEFAULT_TENANT_ID
 
 
-def test_scope_of_temp():
-    assert scope_of("t_123") == "temp"
-    assert scope_of("t_999999999999") == "temp"
-
-
-def test_scope_of_temp_named():
-    assert scope_of("t_orders_123") == "temp_named"
-    assert scope_of("t_my_table_999999999999") == "temp_named"
-    assert scope_of("t_CamelCase_42") == "temp_named"
-
-
-def test_scope_of_global():
-    assert scope_of("p_foo") == "global"
-    assert scope_of("p_user_catalog") == "global"
-
-
-def test_scope_of_job():
-    assert scope_of("j_42_bar") == "job"
-    assert scope_of("j_1234567890_my_table") == "job"
-
-
-def test_scope_of_miscellaneous_prefixes_are_temp():
-    # Regex requires digits + underscore after 'j_' to qualify as job-scoped.
-    assert scope_of("j_nodigit_foo") == "temp"
-    assert scope_of("j_42nopost") == "temp"
-    assert scope_of("other_table") == "temp"
+@pytest.mark.parametrize(
+    "table, expected",
+    [
+        pytest.param("t_123", "temp", id="temp"),
+        pytest.param("t_999999999999", "temp", id="temp-long-snowid"),
+        pytest.param("t_orders_123", "temp_named", id="temp-named"),
+        pytest.param("t_my_table_999999999999", "temp_named", id="temp-named-multi-part"),
+        pytest.param("t_CamelCase_42", "temp_named", id="temp-named-camel-case"),
+        pytest.param("p_foo", "global", id="global"),
+        pytest.param("p_user_catalog", "global", id="global-multi-part"),
+        pytest.param("j_42_bar", "job", id="job"),
+        pytest.param("j_1234567890_my_table", "job", id="job-multi-part"),
+        # The regex requires digits + underscore after 'j_' to qualify as job-scoped.
+        pytest.param("j_nodigit_foo", "temp", id="job-prefix-without-digits"),
+        pytest.param("j_42nopost", "temp", id="job-prefix-without-suffix"),
+        pytest.param("other_table", "temp", id="unrecognised-prefix"),
+    ],
+)
+def test_scope_of(table, expected):
+    assert scope_of(table) == expected
 
 
 def test_is_persistent_table():
@@ -80,37 +74,37 @@ def test_make_scoped_table_name_job():
     assert make_scoped_table_name("job", "foo", job_id=42) == "j_42_foo"
 
 
-def test_make_scoped_table_name_job_requires_job_id():
-    with pytest.raises(ValueError, match="scope='job' requires a job_id"):
-        make_scoped_table_name("job", "foo")
-
-
 def test_make_scoped_table_name_temp_named():
     assert make_scoped_table_name("temp_named", "foo", snowid=42) == "t_foo_42"
 
 
-def test_make_scoped_table_name_temp_named_requires_snowid():
-    with pytest.raises(ValueError, match="scope='temp_named' requires a snowid"):
-        make_scoped_table_name("temp_named", "foo")
+@pytest.mark.parametrize(
+    "scope, match",
+    [
+        pytest.param("job", "scope='job' requires a job_id", id="job-without-job-id"),
+        pytest.param("temp_named", "scope='temp_named' requires a snowid", id="temp-named-without-snowid"),
+    ],
+)
+def test_make_scoped_table_name_missing_required_id_raises(scope, match):
+    with pytest.raises(ValueError, match=match):
+        make_scoped_table_name(scope, "foo")
 
 
-def test_name_from_table_global():
-    assert name_from_table("p_orders") == "orders"
-    assert name_from_table("p_user_catalog") == "user_catalog"
-
-
-def test_name_from_table_job():
-    assert name_from_table("j_12345_staging") == "staging"
-    assert name_from_table("j_12345_multi_part_name") == "multi_part_name"
-
-
-def test_name_from_table_temp_named():
-    assert name_from_table("t_orders_42") == "orders"
-    assert name_from_table("t_my_table_999999999999") == "my_table"
-
-
-def test_name_from_table_temp_falls_back_to_table():
-    assert name_from_table("t_9999999999") == "t_9999999999"
+@pytest.mark.parametrize(
+    "table, expected",
+    [
+        pytest.param("p_orders", "orders", id="global"),
+        pytest.param("p_user_catalog", "user_catalog", id="global-multi-part"),
+        pytest.param("j_12345_staging", "staging", id="job"),
+        pytest.param("j_12345_multi_part_name", "multi_part_name", id="job-multi-part"),
+        pytest.param("t_orders_42", "orders", id="temp-named"),
+        pytest.param("t_my_table_999999999999", "my_table", id="temp-named-multi-part"),
+        # A plain temp table carries no name, so the table itself is returned.
+        pytest.param("t_9999999999", "t_9999999999", id="temp-falls-back-to-table"),
+    ],
+)
+def test_name_from_table(table, expected):
+    assert name_from_table(table) == expected
 
 
 def test_other_tenants_get_a_prefixed_global_name():

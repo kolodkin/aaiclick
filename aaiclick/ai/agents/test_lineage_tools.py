@@ -233,49 +233,40 @@ async def test_get_schema_not_live_when_describe_fails():
     assert TARGET_TABLE in err.message
 
 
-async def test_query_table_accepts_persistent_input():
-    """A SELECT against a p_* persistent input must pass the scope check."""
+@pytest.mark.parametrize(
+    "sql, rows, columns",
+    [
+        # A SELECT against a p_* persistent input must pass the scope check.
+        pytest.param(f"SELECT id FROM {PERSISTENT_INPUT}", [(1,)], ["id"], id="persistent-input"),
+        # A keyword inside a single-quoted literal (e.g. 'INSERT') must not be rejected.
+        pytest.param(
+            f"SELECT id FROM {TARGET_TABLE} WHERE event_type = 'INSERT'",
+            [],
+            [],
+            id="keyword-in-string-literal",
+        ),
+        pytest.param(
+            f"SELECT id FROM {TARGET_TABLE} WHERE name = 'a;b'",
+            [],
+            [],
+            id="semicolon-in-string-literal",
+        ),
+        # A table-id-shaped token inside a literal must not trigger out_of_scope.
+        pytest.param(
+            f"SELECT id FROM {TARGET_TABLE} WHERE ref = 't_99999999999999999999'",
+            [],
+            [],
+            id="table-id-in-string-literal",
+        ),
+    ],
+)
+async def test_query_table_accepts_valid_select(sql, rows, columns):
     toolbox = LineageToolbox(_sample_graph())
     mock_client = MagicMock()
-    mock_client.query = AsyncMock(return_value=_mock_query_result([(1,)], ["id"]))
+    mock_client.query = AsyncMock(return_value=_mock_query_result(rows, columns))
 
     with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
-        result = await toolbox.query_table(f"SELECT id FROM {PERSISTENT_INPUT}")
-
-    assert isinstance(result, QueryResult)
-
-
-async def test_query_table_allows_keyword_in_string_literal():
-    """A keyword inside a single-quoted literal (e.g. 'INSERT') must not be rejected."""
-    toolbox = LineageToolbox(_sample_graph())
-    mock_client = MagicMock()
-    mock_client.query = AsyncMock(return_value=_mock_query_result([], []))
-
-    with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
-        result = await toolbox.query_table(f"SELECT id FROM {TARGET_TABLE} WHERE event_type = 'INSERT'")
-
-    assert isinstance(result, QueryResult)
-
-
-async def test_query_table_allows_semicolon_in_string_literal():
-    toolbox = LineageToolbox(_sample_graph())
-    mock_client = MagicMock()
-    mock_client.query = AsyncMock(return_value=_mock_query_result([], []))
-
-    with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
-        result = await toolbox.query_table(f"SELECT id FROM {TARGET_TABLE} WHERE name = 'a;b'")
-
-    assert isinstance(result, QueryResult)
-
-
-async def test_query_table_scope_check_ignores_table_id_in_string_literal():
-    """A table-id-shaped token inside a literal must not trigger out_of_scope."""
-    toolbox = LineageToolbox(_sample_graph())
-    mock_client = MagicMock()
-    mock_client.query = AsyncMock(return_value=_mock_query_result([], []))
-
-    with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
-        result = await toolbox.query_table(f"SELECT id FROM {TARGET_TABLE} WHERE ref = 't_99999999999999999999'")
+        result = await toolbox.query_table(sql)
 
     assert isinstance(result, QueryResult)
 
@@ -305,16 +296,17 @@ def test_lineage_tool_definitions_cover_every_toolbox_method():
     assert declared == {"list_graph_nodes", "get_op_sql", "get_schema", "query_table"}
 
 
-async def test_dispatch_tool_unknown_returns_error_string():
+@pytest.mark.parametrize(
+    "tool, arguments, expected",
+    [
+        pytest.param("does_not_exist", {}, "unknown tool", id="unknown-tool"),
+        pytest.param("query_table", {}, "missing required argument", id="missing-required-arg"),
+    ],
+)
+async def test_dispatch_tool_returns_error_string(tool, arguments, expected):
     toolbox = LineageToolbox(_sample_graph())
-    result = await toolbox.dispatch_tool("does_not_exist", {})
-    assert "unknown tool" in result
-
-
-async def test_dispatch_tool_missing_required_arg_returns_error_string():
-    toolbox = LineageToolbox(_sample_graph())
-    result = await toolbox.dispatch_tool("query_table", {})
-    assert "missing required argument" in result
+    result = await toolbox.dispatch_tool(tool, arguments)
+    assert expected in result
 
 
 async def test_dispatch_tool_formats_query_result_as_table():

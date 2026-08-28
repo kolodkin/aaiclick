@@ -3,14 +3,16 @@ import pytest
 from aaiclick.auth import config
 
 
-def test_auth_disabled_in_local_mode(monkeypatch):
-    monkeypatch.setattr(config, "is_local", lambda: True)
-    assert config.auth_enabled() is False
-
-
-def test_auth_enabled_in_distributed_mode(monkeypatch):
-    monkeypatch.setattr(config, "is_local", lambda: False)
-    assert config.auth_enabled() is True
+@pytest.mark.parametrize(
+    "is_local, expected",
+    [
+        pytest.param(True, False, id="local-mode-disables-auth"),
+        pytest.param(False, True, id="distributed-mode-enables-auth"),
+    ],
+)
+def test_auth_enabled(monkeypatch, is_local, expected):
+    monkeypatch.setattr(config, "is_local", lambda: is_local)
+    assert config.auth_enabled() is expected
 
 
 def test_ttls_have_defaults(monkeypatch):

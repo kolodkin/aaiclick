@@ -295,28 +295,22 @@ async def test_group_by_array_object_count(ctx):
 # =============================================================================
 
 
-async def test_group_by_invalid_key_raises(ctx):
-    """ValueError for nonexistent key."""
+@pytest.mark.parametrize(
+    "keys, match",
+    [
+        pytest.param(("nonexistent",), "not found", id="nonexistent-key"),
+        pytest.param((), "at least one key", id="no-keys"),
+    ],
+)
+async def test_group_by_invalid_keys_raises(ctx, keys, match):
     obj = await create_object_from_value(
         {
             "category": ["A", "B"],
             "amount": [10, 20],
         }
     )
-    with pytest.raises(ValueError, match="not found"):
-        obj.group_by("nonexistent")
-
-
-async def test_group_by_no_keys_raises(ctx):
-    """ValueError for empty keys."""
-    obj = await create_object_from_value(
-        {
-            "category": ["A", "B"],
-            "amount": [10, 20],
-        }
-    )
-    with pytest.raises(ValueError, match="at least one key"):
-        obj.group_by()
+    with pytest.raises(ValueError, match=match):
+        obj.group_by(*keys)
 
 
 # =============================================================================
