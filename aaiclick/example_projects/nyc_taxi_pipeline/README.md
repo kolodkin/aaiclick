@@ -5,4 +5,7 @@ Distributed computing example that loads NYC TLC Yellow Taxi trip data from Parq
 
 ```bash
 ./nyc_taxi_pipeline.sh
+
+# Job kwargs are forwarded to `run-job`
+./nyc_taxi_pipeline.sh --set limit=500000
 ```

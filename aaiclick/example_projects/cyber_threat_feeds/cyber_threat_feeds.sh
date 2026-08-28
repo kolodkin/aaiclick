@@ -1,8 +1,11 @@
 #!/bin/bash
-# Cyber Threat Feeds Pipeline example: load CISA KEV + Shodan CVEDB,
-# analyze vulnerabilities, and produce a threat intelligence report.
+# Cyber Threat Feeds Pipeline example: load CISA KEV + Shodan CVEDB + FIRST
+# EPSS, analyze vulnerabilities, and produce a threat intelligence report.
+#
+# Extra arguments are forwarded to `run-job`, so job kwargs are overridable:
 #
 # Usage: ./cyber_threat_feeds.sh
+#        ./cyber_threat_feeds.sh --set shodan_limit=1000
 
 set -e
 
@@ -18,70 +21,28 @@ mkdir -p tmp
 echo "## Cyber Threat Feeds Pipeline"
 echo
 
-# Step 1: Register the job and capture its ID
-echo "Registering job..."
-REGISTER_OUTPUT=$($PYTHON -m cyber_threat_feeds)
-echo "$REGISTER_OUTPUT"
-JOB_ID=$(echo "$REGISTER_OUTPUT" | grep -oP 'ID: \K[0-9]+')
-echo
-
-# Step 2: Start background cleanup worker
-echo "Starting background cleanup worker..."
 $PYTHON -m aaiclick background start &
 BACKGROUND_PID=$!
-echo "Background worker started (PID: $BACKGROUND_PID)"
-echo
-
-# Step 3: Start worker in background, capturing output to log file
-echo "Starting worker..."
 $PYTHON -m aaiclick execution-worker start > "$WORKER_LOG" 2>&1 &
 WORKER_PID=$!
-echo "Worker started (PID: $WORKER_PID)"
-echo
 
-# Step 4: Poll job status until completed or failed
-echo "Waiting for pipeline execution..."
-MAX_WAIT=300
-ELAPSED=0
-while [ $ELAPSED -lt $MAX_WAIT ]; do
-    sleep 5
-    ELAPSED=$((ELAPSED + 5))
-    JOB_STATUS=$($PYTHON -m aaiclick job get "$JOB_ID" 2>/dev/null | grep "Status:" | awk '{print $2}')
-    if [ "$JOB_STATUS" = "COMPLETED" ] || [ "$JOB_STATUS" = "FAILED" ]; then
-        break
-    fi
-done
-echo
+# Runs on EXIT so the worker log and report are shown for a failed run too,
+# while `set -e` still propagates run-job's exit code.
+finish() {
+    kill $WORKER_PID $BACKGROUND_PID 2>/dev/null || true
+    wait $WORKER_PID $BACKGROUND_PID 2>/dev/null || true
+    echo
+    echo "### Worker Log"
+    echo
+    cat "$WORKER_LOG"
+    echo
+    echo "### Threat Report Output"
+    echo
+    cat "$AAICLICK_REPORT_FILE" 2>/dev/null || echo "(no report produced)"
+}
+trap finish EXIT
 
-# Step 5: Show job stats
-echo "Job stats:"
-$PYTHON -m aaiclick job stats "$JOB_ID"
-echo
-
-# Step 6: Stop workers
-echo "Stopping workers..."
-kill $WORKER_PID 2>/dev/null || true
-kill $BACKGROUND_PID 2>/dev/null || true
-wait $WORKER_PID 2>/dev/null || true
-wait $BACKGROUND_PID 2>/dev/null || true
-
-# Step 7: Display worker log, then report
-echo
-echo "### Worker Log"
-echo
-cat "$WORKER_LOG"
-echo
-echo "### Threat Report Output"
-echo
-cat "$AAICLICK_REPORT_FILE"
-
-echo
-if [ "$JOB_STATUS" = "COMPLETED" ]; then
-    echo "Pipeline completed successfully."
-elif [ "$JOB_STATUS" = "FAILED" ]; then
-    echo "Pipeline FAILED."
-    exit 1
-else
-    echo "Pipeline timed out (status: ${JOB_STATUS:-unknown})."
-    exit 1
-fi
+# A dotted entrypoint needs no prior registration, and --progress blocks until
+# the job is terminal, prints the task table on every change, and exits
+# non-zero on failure — no job-id scraping, poll loop, or status branching.
+$PYTHON -m aaiclick run-job cyber_threat_feeds.cyber_threat_pipeline --progress --timeout 300 "$@"
