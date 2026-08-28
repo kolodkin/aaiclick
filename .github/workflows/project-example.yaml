@@ -42,7 +42,7 @@ jobs:
 
     services:
       clickhouse:
-        image: clickhouse/clickhouse-server:26.3
+        image: clickhouse/clickhouse-server:26.7
         env:
           CLICKHOUSE_USER: default
           CLICKHOUSE_PASSWORD: click123
@@ -57,7 +57,7 @@ jobs:
           --health-retries 5
 
       postgres:
-        image: postgres:18.3
+        image: postgres:18.6
         env:
           POSTGRES_USER: aaiclick
           POSTGRES_PASSWORD: secret

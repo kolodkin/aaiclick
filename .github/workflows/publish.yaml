@@ -46,6 +46,8 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.12.7"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -207,6 +209,8 @@ jobs:
       - &install-uv
         name: Install uv
         uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.12.7"
 
       - &create-venv
         name: Create virtual environment
