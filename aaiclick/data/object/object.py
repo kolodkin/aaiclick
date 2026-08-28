@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import re
 import sys
 from typing import Any
 
@@ -2252,6 +2253,32 @@ class GroupByQuery:
         return f"GroupByQuery(keys=[{keys_str}])"
 
 
+_SIMPLE_ORDER_TERM = re.compile(r"^\s*`?(\w+)`?(\s+(?:ASC|DESC))?\s*$", re.IGNORECASE)
+
+
+def _remap_order_by(order_by: str | None, renames: dict[str, str]) -> str | None:
+    """Rewrite a simple ORDER BY onto the View's post-rename column names.
+
+    ``copy_db`` applies the order in a wrapper query that only sees the
+    post-rename columns, while ``data()`` runs a single query where the source
+    column is still in scope. Without this, a View ordered by the pre-rename
+    spelling reads fine but fails to copy with ClickHouse Code 47.
+
+    Only plain ``col [ASC|DESC]`` terms are rewritten. Anything else — a
+    function call, arithmetic, a string literal — is returned untouched rather
+    than risk substituting inside an expression.
+    """
+    if not order_by or not renames:
+        return order_by
+    terms = []
+    for term in order_by.split(","):
+        matched = _SIMPLE_ORDER_TERM.match(term)
+        if matched is None:
+            return order_by
+        terms.append(matched)
+    return ", ".join(f"{quote_identifier(renames.get(t.group(1), t.group(1)))}{t.group(2) or ''}" for t in terms)
+
+
 class View(Object):
     """
     A view of an Object with query constraints (WHERE, LIMIT, OFFSET, ORDER BY).
@@ -2666,7 +2693,7 @@ class View(Object):
             columns=columns,
             selected_fields=self.selected_fields,
             is_single_field=self.is_single_field,
-            order_by=self.order_by,
+            order_by=_remap_order_by(self.order_by, renames),
         )
 
     async def data(

@@ -281,3 +281,48 @@ async def test_rename_rejects_alias_already_used_by_an_earlier_rename(ctx):
 
     with pytest.raises(ValueError, match="collides with a rename already applied"):
         obj.rename({"a": "x"}).rename({"c": "x"})
+
+
+async def test_copy_orders_by_pre_rename_column_name(ctx):
+    """``data()`` accepts the pre-rename spelling in ``order_by`` because the
+    source column is still in scope. ``copy()`` applies the order in a wrapper
+    query that only sees post-rename columns, so the same View raised
+    ClickHouse Code 47 — the order is now rewritten so both paths agree."""
+    obj = await create_object_from_value({"a": [3, 1, 2], "b": [30, 10, 20]})
+
+    view = obj.rename({"a": "x"}).view(order_by="a DESC", limit=2)
+    assert await view.data() == {"x": [3, 2], "b": [30, 20]}
+
+    copied = await view.copy()
+    assert sorted((await copied.data())["x"], reverse=True) == [3, 2]
+
+
+async def test_copy_keeps_post_rename_order_by_working(ctx):
+    """The post-rename spelling already worked and must keep working."""
+    obj = await create_object_from_value({"a": [3, 1, 2], "b": [30, 10, 20]})
+
+    copied = await obj.rename({"a": "x"}).view(order_by="x DESC", limit=2).copy()
+
+    assert sorted((await copied.data())["x"], reverse=True) == [3, 2]
+
+
+async def test_copy_passes_expression_order_by_through_unchanged(ctx):
+    """Only plain ``col [ASC|DESC]`` terms are rewritten — an expression is
+    left alone rather than risk substituting inside it."""
+    obj = await create_object_from_value({"a": [3, 1, 2], "b": [30, 10, 20]})
+
+    view = obj.rename({"a": "x"}).view(order_by="b * -1", limit=2)
+    assert view._get_copy_info().order_by == "b * -1"
+
+    copied = await view.copy()
+    assert sorted((await copied.data())["b"]) == [20, 30]
+
+
+async def test_copy_remaps_multi_key_order_by(ctx):
+    """Every term of a comma-separated order is rewritten."""
+    obj = await create_object_from_value({"a": [1, 1, 2], "b": [30, 10, 20]})
+
+    view = obj.rename({"a": "x", "b": "y"}).view(order_by="a ASC, b DESC", limit=3)
+
+    assert view._get_copy_info().order_by == "`x` ASC, `y` DESC"
+    assert (await (await view.copy()).data())["y"] == [30, 10, 20]
