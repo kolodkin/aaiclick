@@ -5,6 +5,45 @@ Planned work across aaiclick, ordered by priority.
 
 ---
 
+# Known Defects
+
+Shipped behavior that contradicts its own documentation. Ahead of the deferred
+work below.
+
+## `@job` Returning a List of Tasks Is Never Registered
+
+The `@job` docstring documents the dynamic-task pattern as returning a list
+(`return [extracted, transformed]`), and `register_returned_tasks` lists
+`list/tuple of Task/Group → register all, return None` among the shapes it
+handles. The dispatch does not implement it — the branch tests
+`isinstance(result, (Task, Group))`, so a list falls through to
+`else: return result` and is treated as pure data.
+
+The list then reaches `serialize_task_result`, which JSON-encodes it and raises
+`TypeError: Object of type Task is not JSON serializable` inside the
+`UPDATE tasks SET result=...` write. The child tasks are never created.
+
+The symptom depends on the runner, which is how it survived:
+
+| Path                    | Symptom                                                    |
+|-------------------------|------------------------------------------------------------|
+| `ajob_test`             | Loud `sqlalchemy.exc.StatementError` from the result write |
+| Local in-process worker | Task sits `RUNNING` forever, nothing logged, the job hangs |
+
+**Fix**: route `list`/`tuple` into `_flatten_item` — it already recurses into
+them — and keep the `else: return result` path when the flatten yields no
+Task/Group, so `return [1, 2, 3]` stays pure data.
+
+**Coverage gap**: dynamic registration is exercised only through `ajob_test`
+(`test_orchestration_dynamic.py`, `test_orchestration_reduce.py`), and
+`test_local_worker.py` has no dynamic-task case — so nothing runs this shape on
+a worker. The regression test belongs in `test_local_worker.py`.
+
+**Implementation**: `aaiclick/orchestration/execution/runner.py` — see
+`register_returned_tasks()` and `serialize_task_result()`.
+
+---
+
 # Deferred
 
 Items deferred until preconditions are met.
