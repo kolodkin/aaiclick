@@ -532,38 +532,6 @@ def serialize_task_result(result: Any, job_id: int) -> dict | None:
     return native_value_ref(_sanitize_for_json(result))
 
 
-class FlattenedItems(NamedTuple):
-    """One level of a tasks position, split into DAG nodes and everything else.
-
-    Both lists come from a single walk, so a caller can register ``tasks`` and
-    still see the ``data`` sitting alongside them — which is how a container
-    holding the wrong thing is detected."""
-
-    tasks: list
-    data: list
-
-
-def _flatten_items(items: Any) -> FlattenedItems:
-    """Split one level of a tasks position into Task/Group items (a Group also
-    contributing its member tasks) and everything else.
-
-    Deliberately does NOT recurse: a nested container lands in ``data`` so the
-    caller can reject it. Flattening it would silently discard the grouping it
-    appears to express — ``Group`` is how tasks are grouped."""
-    tasks: list = []
-    data: list = []
-
-    for item in items if isinstance(items, (list, tuple)) else [items]:
-        if isinstance(item, Task):
-            tasks.append(item)
-        elif isinstance(item, Group):
-            tasks.extend([item, *item.get_tasks()])
-        else:
-            data.append(item)
-
-    return FlattenedItems(tasks, data)
-
-
 def _contains_dag_node(item: Any) -> bool:
     """True if a Task/Group sits anywhere inside a possibly nested container."""
     if isinstance(item, (Task, Group)):
@@ -576,26 +544,36 @@ def _contains_dag_node(item: Any) -> bool:
 
 
 def _tasks_from(items: Any) -> list:
-    """Validate a tasks position and return its Task/Group items.
+    """Return the Task/Group items of a tasks position, one level deep.
+
+    A Group also contributes its member tasks. Nothing beyond that one level is
+    flattened: nesting carries no meaning in the graph, so flattening it would
+    quietly discard the grouping it appears to express — ``Group`` is how tasks
+    are grouped.
 
     Raises:
-        TypeError: if it holds anything but Tasks and Groups.
+        TypeError: if the position holds anything but Tasks and Groups.
     """
-    flat = _flatten_items(items)
-    if not flat.data:
-        return flat.tasks
+    tasks: list = []
 
-    offender = flat.data[0]
-    if _contains_dag_node(offender):
-        raise TypeError(
-            "A nested list/tuple of Tasks is not flattened. Return one flat "
-            "list of Tasks, or a Group when the tasks belong together."
-        )
-    raise TypeError(
-        f"Only Task/Group items can be returned for registration (got "
-        f"{type(offender).__name__}). Use task_result(data=..., tasks=[...]) "
-        "to return data alongside tasks."
-    )
+    for item in items if isinstance(items, (list, tuple)) else [items]:
+        if isinstance(item, Task):
+            tasks.append(item)
+        elif isinstance(item, Group):
+            tasks.extend([item, *item.get_tasks()])
+        elif _contains_dag_node(item):
+            raise TypeError(
+                "A nested list/tuple of Tasks is not flattened. Return one flat "
+                "list of Tasks, or a Group when the tasks belong together."
+            )
+        else:
+            raise TypeError(
+                f"Only Task/Group items can be returned for registration (got "
+                f"{type(item).__name__}). Use task_result(data=..., tasks=[...]) "
+                "to return data alongside tasks."
+            )
+
+    return tasks
 
 
 async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int) -> Any:
