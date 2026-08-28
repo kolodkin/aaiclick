@@ -55,9 +55,17 @@ function creates the job and its tasks.
 
 ## Dynamic tasks
 
-A task may itself return `TaskResult(tasks=[...])` to register new child tasks
-at runtime — the graph grows while the job runs. See
+A task may itself return child tasks to register them at runtime — the graph
+grows while the job runs. Return `tasks_list(a, b)` (or a plain list, `[a, b]`)
+for tasks alone, and `task_result(data=..., tasks=[...])` when the task also
+returns data. See
 [Examples: Orchestration Dynamic](../examples/orchestration_dynamic.md).
+
+!!! warning "A list carries tasks only, unnested"
+    `return [obj, group]` raises `TypeError` — use
+    `task_result(data=obj, tasks=[group])` to return data alongside tasks. So
+    does `return [[a, b], [c, d]]`: nesting means nothing to the graph, so use a
+    `Group` when tasks belong together.
 
 ## Testing jobs
 

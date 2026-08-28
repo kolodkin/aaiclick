@@ -532,32 +532,65 @@ def serialize_task_result(result: Any, job_id: int) -> dict | None:
     return native_value_ref(_sanitize_for_json(result))
 
 
-def _flatten_item(item: Any) -> list:
-    """Recursively extract Task/Group items, including Group._tasks."""
-    if isinstance(item, Task):
-        return [item]
-
-    if isinstance(item, Group):
-        return [item, *item.get_tasks()]
+def _contains_dag_node(item: Any) -> bool:
+    """True if a Task/Group sits anywhere inside a possibly nested container."""
+    if isinstance(item, (Task, Group)):
+        return True
 
     if isinstance(item, (list, tuple)):
-        result = []
-        for sub in item:
-            result.extend(_flatten_item(sub))
-        return result
+        return any(_contains_dag_node(sub) for sub in item)
 
-    return []
+    return False
+
+
+def _tasks_from(items: Any) -> list:
+    """Return the Task/Group items of a tasks position, one level deep.
+
+    A Group also contributes its member tasks. Nothing beyond that one level is
+    flattened: nesting carries no meaning in the graph, so flattening it would
+    quietly discard the grouping it appears to express — ``Group`` is how tasks
+    are grouped.
+
+    Raises:
+        TypeError: if the position holds anything but Tasks and Groups.
+    """
+    tasks: list = []
+
+    for item in items if isinstance(items, (list, tuple)) else [items]:
+        if isinstance(item, Task):
+            tasks.append(item)
+        elif isinstance(item, Group):
+            tasks.extend([item, *item.get_tasks()])
+        elif _contains_dag_node(item):
+            raise TypeError(
+                "A nested list/tuple of Tasks is not flattened. Return one flat "
+                "list of Tasks, or a Group when the tasks belong together."
+            )
+        else:
+            raise TypeError(
+                f"Only Task/Group items can be returned for registration (got "
+                f"{type(item).__name__}). Use task_result(data=..., tasks=[...]) "
+                "to return data alongside tasks."
+            )
+
+    return tasks
 
 
 async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int) -> Any:
     """Register dynamic child tasks returned from a task function.
 
-    Handles three return shapes:
+    Handles these return shapes:
     - None                          → no tasks, return None
     - TaskResult(data, tasks)       → register .tasks, return .data
-    - list/tuple of Task/Group      → register all, return None
-    - (Object, list[Group])         → register groups from [1], return [0]
+    - Task / Group                  → register it, return None
+    - flat list/tuple of Task/Group → register all, return None
     - Any other value               → pure data, return as-is
+
+    The list/tuple must be flat and hold nothing but Tasks and Groups. Mixing
+    in data is rejected — that is what ``task_result(data=..., tasks=[...])``
+    separates, and guessing which element is data would silently drop the
+    other. Nesting is rejected too: it carries no meaning in the graph, so
+    flattening it would quietly discard the grouping it appears to express.
 
     Args:
         result: The raw return value from the task function
@@ -566,16 +599,25 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
 
     Returns:
         The data portion of the result for serialization, or None.
+
+    Raises:
+        TypeError: if a returned list/tuple is nested or holds non-Task items.
     """
     if result is None:
         return None
 
     elif isinstance(result, TaskResult):
-        task_items = _flatten_item(result.tasks)
+        task_items = _tasks_from(result.tasks)
         data_result = result.data
     elif isinstance(result, (Task, Group)):
         # Job entry tasks can return a single Task or Group directly
-        task_items = _flatten_item(result)
+        task_items = _tasks_from(result)
+        data_result = None
+    elif isinstance(result, (list, tuple)):
+        if not _contains_dag_node(result):
+            # No DAG nodes anywhere — an ordinary data return like [1, 2, 3].
+            return result
+        task_items = _tasks_from(result)
         data_result = None
     else:
         return result
