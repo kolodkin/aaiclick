@@ -22,9 +22,10 @@ inputs:
     default: "pyproject.toml"
   uv-version:
     description: >-
-      uv release to install. Pinned rather than left to resolve "latest",
-      which makes every job fetch a version manifest from
-      raw.githubusercontent.com before it can install anything.
+      uv release to install, pinned so a new upstream release cannot change
+      what CI runs without a commit. Note this does not avoid setup-uv's
+      version-manifest fetch from raw.githubusercontent.com — it makes that
+      request whether or not a version is given.
     required: false
     default: "0.12.7"
 
