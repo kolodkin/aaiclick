@@ -3,6 +3,7 @@
 Usage:
     python -m aaiclick setup                    # Initialize local dev environment
     python -m aaiclick setup --ai               # Also pull the configured Ollama model
+    python -m aaiclick setup --force            # Recreate a local.db left behind by an older version
     python -m aaiclick migrate                  # Run database migrations
     python -m aaiclick migrate --help           # Show migration help
     python -m aaiclick local start              # Start REST + MCP server with execution workers (local mode)
@@ -499,8 +500,21 @@ Environment Variables:
 """
 
 
+def _confirm_local_db_reset(stale: list[str]) -> bool:
+    """Ask before deleting a local database whose schema predates this version."""
+    print(setup_api.stale_local_db_message(stale), file=sys.stderr)
+    return input("Delete and recreate it? [y/N] ").strip().lower() in {"y", "yes"}
+
+
 def _run_setup_cli(args: argparse.Namespace) -> None:
-    result = _run_sync_api(lambda: setup_api.setup(ai=args.ai))
+    force = args.force
+    # Prompt only for an interactive run: piped or --json callers fall through
+    # to setup(), which raises with the same guidance rather than blocking.
+    if not force and not args.json and sys.stdin.isatty():
+        stale = setup_api.stale_local_db()
+        if stale:
+            force = _confirm_local_db_reset(stale)
+    result = _run_sync_api(lambda: setup_api.setup(ai=args.ai, force=force))
     _render(args, result, cli_renderers.render_setup_result)
 
 
@@ -591,6 +605,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Also pull the configured Ollama model (reads AAICLICK_AI_MODEL)",
+    )
+    setup_parser.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help=(
+            "Delete and recreate the local SQLite database when its schema predates "
+            "this version (a database already up to date is left alone)"
+        ),
     )
     _add_json_flag(setup_parser)
 

@@ -19,8 +19,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from alembic import command
-from sqlalchemy import create_engine, insert, select
-from sqlalchemy.engine import Engine
+from sqlalchemy import create_engine, insert, inspect, select
+from sqlalchemy.engine import Engine, make_url
 
 from aaiclick.ai.ollama import bootstrap_ollama, get_configured_model
 from aaiclick.auth.models import Tenant
@@ -74,12 +74,116 @@ def is_setup_done() -> bool:
     return (get_root() / "setup_done").exists()
 
 
-def setup(*, ai: bool = False) -> SetupResult:
+def _sync_db_url() -> str | None:
+    """Sync SQLAlchemy URL for the local SQLite DB, or None in Postgres mode."""
+    if not is_sqlite():
+        return None
+    return get_db_url().replace("sqlite+aiosqlite", "sqlite")
+
+
+def _local_db_path() -> Path | None:
+    """Filesystem path of the local SQLite database, or None in Postgres mode."""
+    sync_url = _sync_db_url()
+    if sync_url is None:
+        return None
+    database = make_url(sync_url).database
+    return Path(database) if database else None
+
+
+def stale_local_db() -> list[str]:
+    """Model columns missing from the tables already in the local SQLite DB.
+
+    ``SQLModel.metadata.create_all`` only creates missing *tables* — it never
+    alters one that already exists. A ``local.db`` written by an older version
+    therefore gains any newly added table while its existing tables silently
+    keep their original columns. Alembic cannot migrate it either: the
+    revision chain is authored for PostgreSQL (non-batch ``create_foreign_key``,
+    ``ALTER`` of constraints) and raises ``NotImplementedError`` on SQLite.
+
+    Returns ``table.column`` names, empty when the database is current or
+    absent. ``setup`` uses this to recreate the database rather than leave it
+    half-upgraded.
+    """
+    sync_url = _sync_db_url()
+    db_path = _local_db_path()
+    if sync_url is None or db_path is None or not db_path.exists():
+        return []
+    engine = create_engine(sync_url)
+    try:
+        # One connection for the whole pass: an Inspector bound to the engine
+        # checks a connection out again for every table it reflects.
+        with engine.connect() as conn:
+            inspector = inspect(conn)
+            existing = set(inspector.get_table_names())
+            stale: list[str] = []
+            for table in SQLModel.metadata.sorted_tables:
+                if table.name not in existing:
+                    continue
+                present = {col["name"] for col in inspector.get_columns(table.name)}
+                stale.extend(f"{table.name}.{col.name}" for col in table.columns if col.name not in present)
+            return stale
+    finally:
+        engine.dispose()
+
+
+STALE_DB_REMEDY = "Re-run `aaiclick setup --force` to recreate it."
+"""Remedy appended wherever an outdated local database blocks a command."""
+
+
+def stale_local_db_message(stale: list[str], *, limit: int = 5) -> str:
+    """Explain why an outdated local database cannot be reused.
+
+    Shared by the ``Invalid`` raised below and the CLI's confirmation prompt so
+    both surfaces describe the same database the same way.
+    """
+    shown = ", ".join(stale[:limit])
+    if len(stale) > limit:
+        shown += f" and {len(stale) - limit} more"
+    return (
+        f"{_local_db_path()} was created by an older version of aaiclick and is missing "
+        f"{len(stale)} column(s) added since: {shown}. SQLite databases are not migrated "
+        "in place, so it has to be recreated. Local job/task history is lost; data "
+        "objects in chdb are untouched."
+    )
+
+
+def _reset_stale_local_db(*, force: bool) -> bool:
+    """Delete the local SQLite DB when its schema predates the current models.
+
+    Returns True when the database was removed. Raises ``Invalid`` when it is
+    stale and ``force`` is not set, so no caller continues against a
+    half-upgraded database.
+    """
+    db_path = _local_db_path()
+    if db_path is None:
+        return False
+    stale = stale_local_db()
+    if not stale:
+        return False
+    if not force:
+        raise Invalid(f"{stale_local_db_message(stale)} {STALE_DB_REMEDY}")
+
+    # -wal / -shm carry committed pages; leaving them beside a deleted DB
+    # resurrects the old schema on the next connection.
+    for suffix in ("", "-wal", "-shm"):
+        db_path.with_name(db_path.name + suffix).unlink(missing_ok=True)
+    return True
+
+
+def setup(*, ai: bool = False, force: bool = False) -> SetupResult:
     """Initialize the local dev environment.
 
     Creates the chdb data directory (when using embedded chdb), applies
     ``SQLModel.metadata.create_all`` (when using SQLite), optionally pulls
     the configured Ollama model, and writes the ``setup_done`` marker file.
+
+    Args:
+        ai: Also pull the configured Ollama model.
+        force: Delete and recreate the local SQLite database when its schema
+            predates the current models. Without it such a database raises
+            ``Invalid`` rather than being left half-upgraded. A database
+            already at the current schema is never deleted, so a routine
+            re-run with ``force`` set is not destructive.
 
     Returns a ``SetupResult`` whose ``steps`` describe each action taken —
     CLI rendering is the caller's responsibility.
@@ -105,12 +209,13 @@ def setup(*, ai: bool = False) -> SetupResult:
 
     if is_sqlite():
         db_url = get_db_url()
-        sync_url = db_url.replace("sqlite+aiosqlite", "sqlite")
-        engine = create_engine(sync_url)
+        recreated = _reset_stale_local_db(force=force)
+        engine = create_engine(_sync_db_url() or db_url)
         SQLModel.metadata.create_all(engine)
         _seed_default_tenant(engine)
         engine.dispose()
-        steps.append(SetupStep(name="sqlite", status="ok", detail=db_url))
+        detail = f"{db_url} (recreated — schema predated this version)" if recreated else db_url
+        steps.append(SetupStep(name="sqlite", status="ok", detail=detail))
     else:
         steps.append(
             SetupStep(

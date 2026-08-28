@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import re
 import sys
 from typing import Any
 
@@ -377,7 +378,8 @@ class Object:
         Args:
             columns: Column specification (default "*")
             default_order_by: Default ORDER BY clause if view doesn't have custom order_by
-            skip_order_by: If True, omit ORDER BY from the query.
+            skip_order_by: If True, omit ORDER BY from the query. Ignored when
+                LIMIT or OFFSET is set — slicing depends on the order.
             order_by/limit/offset: Per-call overrides — when not ``_UNSET``,
                 used in place of the View's stored attributes. Lets
                 ``data(order_by=..., limit=..., offset=...)`` override the
@@ -389,6 +391,13 @@ class Object:
         eff_order_by = order_by if order_by is not _UNSET else self.order_by
         eff_limit = limit if limit is not _UNSET else self.limit
         eff_offset = offset if offset is not _UNSET else self.offset
+
+        # LIMIT / OFFSET decide *which* rows survive, so a defined order has to
+        # be applied alongside them. Skipping it here slices an unordered scan,
+        # and a caller re-sorting afterwards only reorders that arbitrary
+        # subset — a silently wrong "top-N".
+        if eff_limit is not None or eff_offset is not None:
+            skip_order_by = False
 
         query = self._select_head(columns)
         where = self._build_where()
@@ -1650,7 +1659,24 @@ class Object:
                     f"Renamed column '{new_name}' reuses a name being renamed away "
                     f"(from '{old_name}'). Rename in two steps via an intermediate name."
                 )
-        return View(self, renamed_columns=columns)
+        # View.__init__ composes this with any rename already on the source, so
+        # check the composed result: two columns aliased to the same name emit
+        # ``a AS x, c AS x`` and ClickHouse rejects the ambiguous alias.
+        composed = list({**(self.renamed_columns or {}), **columns}.values())
+        if len(set(composed)) != len(composed):
+            clash = next(name for name in composed if composed.count(name) > 1)
+            raise ValueError(
+                f"Renamed column '{clash}' collides with a rename already applied to this view. "
+                "Choose a different name."
+            )
+        # selected_fields hold post-rename names, so a rename chained after a
+        # selection must be rewritten into the new spelling or it is dropped.
+        selected = self.selected_fields
+        return View(
+            self,
+            renamed_columns=columns,
+            selected_fields=None if selected is None else [columns.get(field, field) for field in selected],
+        )
 
     def explode(self, *columns: str, left: bool = False) -> View:
         """Explode Array column(s) into individual rows.
@@ -2227,6 +2253,32 @@ class GroupByQuery:
         return f"GroupByQuery(keys=[{keys_str}])"
 
 
+_SIMPLE_ORDER_TERM = re.compile(r"^\s*`?(\w+)`?(\s+(?:ASC|DESC))?\s*$", re.IGNORECASE)
+
+
+def _remap_order_by(order_by: str | None, renames: dict[str, str]) -> str | None:
+    """Rewrite a simple ORDER BY onto the View's post-rename column names.
+
+    ``copy_db`` applies the order in a wrapper query that only sees the
+    post-rename columns, while ``data()`` runs a single query where the source
+    column is still in scope. Without this, a View ordered by the pre-rename
+    spelling reads fine but fails to copy with ClickHouse Code 47.
+
+    Only plain ``col [ASC|DESC]`` terms are rewritten. Anything else — a
+    function call, arithmetic, a string literal — is returned untouched rather
+    than risk substituting inside an expression.
+    """
+    if not order_by or not renames:
+        return order_by
+    terms = []
+    for term in order_by.split(","):
+        matched = _SIMPLE_ORDER_TERM.match(term)
+        if matched is None:
+            return order_by
+        terms.append(matched)
+    return ", ".join(f"{quote_identifier(renames.get(t.group(1), t.group(1)))}{t.group(2) or ''}" for t in terms)
+
+
 class View(Object):
     """
     A view of an Object with query constraints (WHERE, LIMIT, OFFSET, ORDER BY).
@@ -2286,8 +2338,12 @@ class View(Object):
         self._computed_columns: dict[str, Computed] | None = (
             computed_columns if computed_columns is not None else (source._computed_columns if is_view else None)
         )
+        # Renames compose rather than replace, the way _where_clauses chain:
+        # a rename applied to an already-renamed View must keep the earlier
+        # mapping, or the first rename is silently dropped.
+        inherited_renames = source._renamed_columns if is_view else None
         self._renamed_columns: dict[str, str] | None = (
-            renamed_columns if renamed_columns is not None else (source._renamed_columns if is_view else None)
+            {**(inherited_renames or {}), **renamed_columns} if renamed_columns is not None else inherited_renames
         )
         self._exploded_columns: list[str] = (
             list(exploded_columns)
@@ -2593,8 +2649,10 @@ class View(Object):
     def _get_copy_info(self) -> CopyInfo:
         """Get copy info for database-level copy operations.
 
-        ORDER BY is stripped from the source query and passed separately
-        via CopyInfo.order_by — copy_db() uses it to sort during INSERT.
+        ORDER BY is passed separately via CopyInfo.order_by so copy_db() can
+        sort during INSERT — ClickHouse does not preserve a subquery's row
+        order through INSERT ... SELECT. ``_build_select`` still keeps it in
+        the subquery when LIMIT/OFFSET is present, where it selects the rows.
         """
         has_non_order_constraints = bool(
             self.where_clauses
@@ -2635,7 +2693,7 @@ class View(Object):
             columns=columns,
             selected_fields=self.selected_fields,
             is_single_field=self.is_single_field,
-            order_by=self.order_by,
+            order_by=_remap_order_by(self.order_by, renames),
         )
 
     async def data(
