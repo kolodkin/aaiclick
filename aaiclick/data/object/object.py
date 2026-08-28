@@ -1650,7 +1650,16 @@ class Object:
                     f"Renamed column '{new_name}' reuses a name being renamed away "
                     f"(from '{old_name}'). Rename in two steps via an intermediate name."
                 )
-        return View(self, renamed_columns=columns)
+        # ``selected_fields`` hold post-rename names, so a rename chained after
+        # a selection has to rewrite the selection into the new spelling —
+        # otherwise the projection still asks for the old name and the rename is
+        # silently dropped. Merge with any rename the source View already
+        # carries: passing ``columns`` alone would discard the earlier mapping.
+        merged = dict(self.renamed_columns or {})
+        merged.update(columns)
+        selected = self.selected_fields
+        reselected = [columns.get(field, field) for field in selected] if selected is not None else None
+        return View(self, renamed_columns=merged, selected_fields=reselected)
 
     def explode(self, *columns: str, left: bool = False) -> View:
         """Explode Array column(s) into individual rows.
@@ -2593,8 +2602,9 @@ class View(Object):
     def _get_copy_info(self) -> CopyInfo:
         """Get copy info for database-level copy operations.
 
-        ORDER BY is stripped from the source query and passed separately
-        via CopyInfo.order_by — copy_db() uses it to sort during INSERT.
+        ORDER BY is also passed separately via CopyInfo.order_by — copy_db()
+        uses it to sort during INSERT, because ClickHouse does not preserve a
+        subquery's row order through INSERT ... SELECT.
         """
         has_non_order_constraints = bool(
             self.where_clauses
@@ -2605,8 +2615,13 @@ class View(Object):
             or self.renamed_columns
             or self.exploded_columns
         )
+        # LIMIT / OFFSET decide *which* rows survive, so ORDER BY has to stay
+        # inside the subquery alongside them. Stripping it there limits an
+        # unordered scan and the outer ORDER BY then only reorders that
+        # arbitrary slice — a silently wrong "top-N".
+        slices_rows = self.limit is not None or self.offset is not None
         if has_non_order_constraints:
-            source_query = f"({self._build_select(skip_order_by=True)})"
+            source_query = f"({self._build_select(skip_order_by=not slices_rows)})"
         else:
             source_query = self.table
         # Apply renames so the destination schema and the INSERT/SELECT

@@ -232,3 +232,43 @@ async def test_select_columns_after_rename(ctx):
     assert set(data.keys()) == {"title", "genres"}
     assert data["title"] == ["Movie"]
     assert data["genres"] == [["Action", "Drama"]]
+
+
+async def test_rename_after_column_selection(ctx):
+    """Regression: rename() chained after a field selection must apply.
+
+    ``selected_fields`` hold post-rename names, but a rename applied *after*
+    a selection left them at their pre-rename spelling — so the rename was
+    silently ignored and ``data()`` still returned the old column name."""
+    obj = await create_object_from_value({"a": [1, 2, 3], "b": [10, 20, 30]})
+
+    data = await obj[["a", "b"]].rename({"b": "c"}).data()
+
+    assert sorted(data) == ["a", "c"]
+    assert data["c"] == [10, 20, 30]
+
+
+async def test_copy_after_rename_following_selection(ctx):
+    """Regression: the same pre-rename ``selected_fields`` made ``copy()``
+    raise ``KeyError`` on the old name — ``_get_copy_info`` keys its columns
+    by the post-rename name while the selection still asked for the old one."""
+    obj = await create_object_from_value({"a": [1, 2, 3], "b": [10, 20, 30]})
+
+    copied = await obj[["a", "b"]].rename({"b": "c"}).copy()
+
+    assert sorted(copied._schema.columns) == ["a", "c"]
+    data = await copied.data()
+    assert data["c"] == [10, 20, 30]
+
+
+async def test_rename_after_selection_keeps_earlier_rename(ctx):
+    """A rename chained after a selection must compose with the View's
+    existing renames rather than replacing them."""
+    obj = await create_object_from_value({"a": [1, 2], "b": [10, 20], "c": [100, 200]})
+
+    view = obj.rename({"a": "x"})[["x", "b"]].rename({"b": "y"})
+    data = await view.data()
+
+    assert sorted(data) == ["x", "y"]
+    assert data["x"] == [1, 2]
+    assert data["y"] == [10, 20]

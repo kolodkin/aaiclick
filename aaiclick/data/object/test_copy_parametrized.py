@@ -193,3 +193,44 @@ async def test_copy_with_name_temp_scope(ctx):
 
     assert copy.table.startswith("t_copy_named_temp_")
     assert await copy.data() == [10, 20]
+
+
+# =============================================================================
+# Ordered + Limited Copy Tests
+# =============================================================================
+
+
+async def test_copy_applies_order_by_before_limit(ctx):
+    """Regression: copy() of an ordered + limited View must materialize the
+    top-N rows, not an arbitrary N re-sorted.
+
+    ``_get_copy_info`` stripped ORDER BY from the inner subquery while
+    leaving LIMIT in place, so ClickHouse limited first and the outer
+    ORDER BY only re-sorted that arbitrary slice — a silently wrong
+    "top-N" with no error raised."""
+    obj = await create_object_from_value([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+
+    copied = await obj.view(order_by="value DESC", limit=3).copy()
+
+    assert sorted(await copied.data(), reverse=True) == [9, 8, 7]
+
+
+async def test_copy_applies_order_by_before_offset(ctx):
+    """OFFSET has the same ordering requirement as LIMIT."""
+    obj = await create_object_from_value([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+
+    copied = await obj.view(order_by="value DESC", limit=3, offset=2).copy()
+
+    assert sorted(await copied.data(), reverse=True) == [7, 6, 5]
+
+
+async def test_copy_selected_fields_applies_order_by_before_limit(ctx):
+    """The field-selection copy path needs the same inner ORDER BY —
+    this is the shape that silently truncates a "top-N by score" corpus."""
+    obj = await create_object_from_value({"title": ["a", "b", "c", "d", "e"], "votes": [1, 5, 3, 2, 4]})
+
+    view = obj[["title", "votes"]].view(order_by="votes DESC", limit=2)
+    data = await (await view.copy()).data()
+
+    assert sorted(data["votes"], reverse=True) == [5, 4]
+    assert sorted(data["title"]) == ["b", "e"]
