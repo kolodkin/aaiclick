@@ -17,7 +17,13 @@ from contextlib import asynccontextmanager, suppress
 
 from aaiclick.backend import is_local
 from aaiclick.cli_renderers import render_setup_result
-from aaiclick.internal_api.setup import is_setup_done, setup
+from aaiclick.internal_api.setup import (
+    STALE_DB_REMEDY,
+    is_setup_done,
+    setup,
+    stale_local_db,
+    stale_local_db_message,
+)
 
 from .background import BackgroundWorker
 from .execution import execution_worker_main_loop
@@ -35,6 +41,13 @@ async def local_runtime() -> AsyncIterator[None]:
         )
     if not is_setup_done():
         render_setup_result(setup())
+    else:
+        # The marker carries no schema version, so an upgrade over an existing
+        # install skips setup() entirely. Without this check the workers start
+        # against a database missing columns and fail on the first query.
+        stale = stale_local_db()
+        if stale:
+            raise RuntimeError(f"{stale_local_db_message(stale)} {STALE_DB_REMEDY}")
 
     background = BackgroundWorker()
     await background.start()
