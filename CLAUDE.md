@@ -16,7 +16,7 @@ If any workflows fail, analyze the error logs and fix issues automatically.
 
 # Testing
 
-Use the `python-testing-style` skill for test layout, async test rules, Object API alignment, and what NOT to test.
+Use the `python-testing-style` skill for test layout, async test rules, Object API alignment, what NOT to test, when to parametrize input/expected clusters, and when a redundant test is safe to delete.
 
 # Coding Guidelines
 
