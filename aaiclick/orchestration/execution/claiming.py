@@ -8,8 +8,6 @@ from ...datetime_utils import utc_now
 from ..background.handler import in_clause
 from ..models import (
     JOB_CANCELLED,
-    JOB_COMPLETED,
-    JOB_FAILED,
     JOB_RUNNING,
     TASK_CANCELLED,
     TASK_CLAIMED,
@@ -18,14 +16,13 @@ from ..models import (
     TASK_PENDING,
     TASK_PENDING_CLEANUP,
     TASK_RUNNING,
+    TERMINAL_JOB_STATUSES,
     Job,
     JobStatus,
     Task,
     TaskStatus,
 )
 from ..orch_context import get_db_handler, get_sql_session
-
-_TERMINAL_JOB_STATUSES = (JOB_COMPLETED, JOB_FAILED, JOB_CANCELLED)
 
 
 class JobNotFound(ValueError):
@@ -146,7 +143,7 @@ async def update_job_status(job_id: int, status: JobStatus, error: str | None = 
             return False
 
         job.status = status
-        if status in (JOB_COMPLETED, JOB_FAILED, JOB_CANCELLED):
+        if status in TERMINAL_JOB_STATUSES:
             job.completed_at = utc_now()
             if error:
                 job.error = error
@@ -185,7 +182,7 @@ async def cancel_job(job_id: int) -> Job:
         if job is None:
             raise JobNotFound(f"Job {job_id} not found")
 
-        if job.status in _TERMINAL_JOB_STATUSES:
+        if job.status in TERMINAL_JOB_STATUSES:
             raise JobAlreadyTerminal(f"Job {job_id} already in terminal state: {job.status}")
 
         now = utc_now()
@@ -364,7 +361,7 @@ async def clear_task(task_id: int) -> tuple[list[int], Job]:
         )
 
         job = (await session.execute(handler.lock_query(select(Job).where(Job.id == task.job_id)))).scalar_one()
-        if job.status in _TERMINAL_JOB_STATUSES:
+        if job.status in TERMINAL_JOB_STATUSES:
             job.status = JOB_RUNNING
             job.completed_at = None
             job.error = None

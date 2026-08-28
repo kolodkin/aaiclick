@@ -1,18 +1,24 @@
 """Tests for the argparse CLI: new shell/image flags and their forwarding."""
 
-from unittest.mock import MagicMock, patch
+import json
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from aaiclick.__main__ import (
     _parse_command_env,
+    _parse_set_kwargs,
     _run_data_api,
+    _run_job_wait,
     _run_register_job,
     _run_run_job,
     build_parser,
     main,
 )
+from aaiclick.cli_wait import JobWaitTimeout
+from aaiclick.orchestration.models import JobStatus
 from aaiclick.orchestration.sql_context import get_sql_session
+from aaiclick.orchestration.view_models import JobStatsView, TaskStatsView
 
 
 async def _noop_run_internal_api(awaitable):
@@ -208,3 +214,179 @@ async def test_run_data_api_provides_a_sql_session():
             return True
 
     assert await _run_data_api(_uses_sql_session())
+
+
+def test_parse_set_kwargs_coerces_json_typed_values():
+    """``--set`` has no type annotations to lean on, so values are JSON-parsed:
+    a job expecting ``int`` must not receive the string ``"300"``."""
+    assert _parse_set_kwargs(["corpus_size=300", "generate=true", "ratio=0.5", "ids=[1,2]"]) == {
+        "corpus_size": 300,
+        "generate": True,
+        "ratio": 0.5,
+        "ids": [1, 2],
+    }
+
+
+def test_parse_set_kwargs_falls_back_to_raw_string():
+    assert _parse_set_kwargs(["name=hello", "path=/tmp/x", 'quoted="hi"']) == {
+        "name": "hello",
+        "path": "/tmp/x",
+        "quoted": "hi",
+    }
+
+
+def test_parse_set_kwargs_splits_on_first_equals_only():
+    assert _parse_set_kwargs(["expr=a=b"]) == {"expr": "a=b"}
+
+
+def test_parse_set_kwargs_empty_when_unset():
+    assert _parse_set_kwargs(None) == {}
+
+
+def test_parse_set_kwargs_rejects_missing_equals():
+    with pytest.raises(ValueError, match="KEY=VALUE"):
+        _parse_set_kwargs(["bad"])
+
+
+async def test_run_run_job_set_takes_precedence_over_kwargs_json():
+    """Documented precedence: default_kwargs < --kwargs < --set."""
+    parser = build_parser()
+    args = parser.parse_args(["run-job", "j", "--kwargs", '{"corpus_size": 10, "keep": 1}', "--set", "corpus_size=300"])
+    with (
+        patch("aaiclick.__main__.internal_api.run_job") as run_job,
+        patch("aaiclick.__main__._run_internal_api", new=_noop_run_internal_api),
+        patch("aaiclick.__main__._render"),
+    ):
+        await _run_run_job(args)
+
+    assert run_job.call_args.args[0].kwargs == {"corpus_size": 300, "keep": 1}
+
+
+async def test_run_register_job_set_merges_into_default_kwargs():
+    parser = build_parser()
+    args = parser.parse_args(["register-job", "myapp.jobs.etl", "--set", "corpus_size=300"])
+    with (
+        patch("aaiclick.__main__.internal_api.register_job") as register_job,
+        patch("aaiclick.__main__._run_internal_api", new=_noop_run_internal_api),
+        patch("aaiclick.__main__._render"),
+    ):
+        await _run_register_job(args)
+
+    assert register_job.call_args.args[0].default_kwargs == {"corpus_size": 300}
+
+
+async def _passthrough_run_internal_api(coro, *, with_ch: bool = False):
+    """Stand-in for ``_run_internal_api`` that awaits instead of opening a context."""
+    return await coro
+
+
+def _stats_view(job_status: JobStatus, tasks: list[TaskStatsView] | None = None) -> JobStatsView:
+    return JobStatsView(
+        job_id=77,
+        job_name="j",
+        job_status=job_status,
+        total_tasks=len(tasks or []),
+        status_counts={},
+        tasks=tasks or [],
+    )
+
+
+async def test_job_wait_exits_nonzero_and_reports_the_failed_task(capsys):
+    """CI and ``set -e`` scripts key off the exit code; the operator keys off
+    knowing which task blew up."""
+    args = build_parser().parse_args(["job", "wait", "77"])
+    stats = _stats_view("FAILED", [TaskStatsView(id=7, entrypoint="mod.boom", status="FAILED", error="boom")])
+
+    with (
+        patch("aaiclick.__main__.cli_wait.wait_for_job", new=AsyncMock(return_value=stats)),
+        patch("aaiclick.__main__._run_internal_api", new=_passthrough_run_internal_api),
+    ):
+        with pytest.raises(SystemExit) as exc:
+            await _run_job_wait(args)
+
+    assert exc.value.code == 1
+    assert "mod.boom" in capsys.readouterr().out
+
+
+async def test_job_wait_returns_cleanly_when_job_completed():
+    args = build_parser().parse_args(["job", "wait", "77"])
+    with (
+        patch("aaiclick.__main__.cli_wait.wait_for_job", new=AsyncMock(return_value=_stats_view("COMPLETED"))),
+        patch("aaiclick.__main__._run_internal_api", new=_passthrough_run_internal_api),
+    ):
+        await _run_job_wait(args)
+
+
+async def test_job_wait_timeout_exits_nonzero(capsys):
+    args = build_parser().parse_args(["job", "wait", "77"])
+    boom = AsyncMock(side_effect=JobWaitTimeout("stuck", _stats_view("RUNNING")))
+    with (
+        patch("aaiclick.__main__.cli_wait.wait_for_job", new=boom),
+        patch("aaiclick.__main__._run_internal_api", new=_passthrough_run_internal_api),
+    ):
+        with pytest.raises(SystemExit) as exc:
+            await _run_job_wait(args)
+
+    assert exc.value.code == 1
+    assert "stuck" in capsys.readouterr().err
+
+
+async def test_run_job_does_not_block_without_progress():
+    """``run-job`` stays fire-and-forget by default."""
+    args = build_parser().parse_args(["run-job", "j"])
+    with (
+        patch("aaiclick.__main__.internal_api.run_job"),
+        patch("aaiclick.__main__._run_internal_api", new=_noop_run_internal_api),
+        patch("aaiclick.__main__._render"),
+        patch("aaiclick.__main__.cli_wait.wait_for_job") as waiter,
+    ):
+        await _run_run_job(args)
+
+    waiter.assert_not_called()
+
+
+def test_main_dispatches_job_wait_to_handler():
+    with (
+        patch("sys.argv", ["aaiclick", "job", "wait", "77"]),
+        patch("aaiclick.__main__.asyncio.run"),
+        patch("aaiclick.__main__._run_job_wait", new_callable=MagicMock) as handler,
+    ):
+        main()
+
+    handler.assert_called_once()
+    assert handler.call_args.args[0].ref == "77"
+
+
+async def test_job_wait_json_output_stays_parseable_on_failure(capsys):
+    """``--json`` must emit exactly one JSON document — a trailing human-readable
+    failure block would break ``jq`` consumers."""
+    args = build_parser().parse_args(["job", "wait", "77", "--json"])
+    stats = _stats_view("FAILED", [TaskStatsView(id=7, entrypoint="mod.boom", status="FAILED", error="boom")])
+
+    with (
+        patch("aaiclick.__main__.cli_wait.wait_for_job", new=AsyncMock(return_value=stats)),
+        patch("aaiclick.__main__._run_internal_api", new=_passthrough_run_internal_api),
+    ):
+        with pytest.raises(SystemExit):
+            await _run_job_wait(args)
+
+    json.loads(capsys.readouterr().out)
+
+
+async def test_job_wait_json_timeout_keeps_stdout_clean_and_diagnoses_on_stderr(capsys):
+    """Under --json nothing has streamed progress, so the timeout still has to
+    name the stuck task — on stderr, leaving stdout parseable."""
+    args = build_parser().parse_args(["job", "wait", "77", "--json"])
+    stuck = _stats_view("RUNNING", [TaskStatsView(id=7, entrypoint="mod.stuck", status="RUNNING")])
+    boom = AsyncMock(side_effect=JobWaitTimeout("stuck", stuck))
+
+    with (
+        patch("aaiclick.__main__.cli_wait.wait_for_job", new=boom),
+        patch("aaiclick.__main__._run_internal_api", new=_passthrough_run_internal_api),
+    ):
+        with pytest.raises(SystemExit):
+            await _run_job_wait(args)
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "mod.stuck" in captured.err
