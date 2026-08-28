@@ -74,11 +74,19 @@ def is_setup_done() -> bool:
     return (get_root() / "setup_done").exists()
 
 
-def _local_db_path() -> Path | None:
-    """Filesystem path of the local SQLite database, or None in Postgres mode."""
+def _sync_db_url() -> str | None:
+    """Sync SQLAlchemy URL for the local SQLite DB, or None in Postgres mode."""
     if not is_sqlite():
         return None
-    database = make_url(get_db_url().replace("sqlite+aiosqlite", "sqlite")).database
+    return get_db_url().replace("sqlite+aiosqlite", "sqlite")
+
+
+def _local_db_path() -> Path | None:
+    """Filesystem path of the local SQLite database, or None in Postgres mode."""
+    sync_url = _sync_db_url()
+    if sync_url is None:
+        return None
+    database = make_url(sync_url).database
     return Path(database) if database else None
 
 
@@ -96,22 +104,47 @@ def stale_local_db() -> list[str]:
     absent. ``setup`` uses this to recreate the database rather than leave it
     half-upgraded.
     """
+    sync_url = _sync_db_url()
     db_path = _local_db_path()
-    if db_path is None or not db_path.exists():
+    if sync_url is None or db_path is None or not db_path.exists():
         return []
-    engine = create_engine(f"sqlite:///{db_path}")
+    engine = create_engine(sync_url)
     try:
-        inspector = inspect(engine)
-        existing = set(inspector.get_table_names())
-        stale: list[str] = []
-        for table in SQLModel.metadata.sorted_tables:
-            if table.name not in existing:
-                continue
-            present = {col["name"] for col in inspector.get_columns(table.name)}
-            stale.extend(f"{table.name}.{col.name}" for col in table.columns if col.name not in present)
-        return stale
+        # One connection for the whole pass: an Inspector bound to the engine
+        # checks a connection out again for every table it reflects.
+        with engine.connect() as conn:
+            inspector = inspect(conn)
+            existing = set(inspector.get_table_names())
+            stale: list[str] = []
+            for table in SQLModel.metadata.sorted_tables:
+                if table.name not in existing:
+                    continue
+                present = {col["name"] for col in inspector.get_columns(table.name)}
+                stale.extend(f"{table.name}.{col.name}" for col in table.columns if col.name not in present)
+            return stale
     finally:
         engine.dispose()
+
+
+STALE_DB_REMEDY = "Re-run `aaiclick setup --force` to recreate it."
+"""Remedy appended wherever an outdated local database blocks a command."""
+
+
+def stale_local_db_message(stale: list[str], *, limit: int = 5) -> str:
+    """Explain why an outdated local database cannot be reused.
+
+    Shared by the ``Invalid`` raised below and the CLI's confirmation prompt so
+    both surfaces describe the same database the same way.
+    """
+    shown = ", ".join(stale[:limit])
+    if len(stale) > limit:
+        shown += f" and {len(stale) - limit} more"
+    return (
+        f"{_local_db_path()} was created by an older version of aaiclick and is missing "
+        f"{len(stale)} column(s) added since: {shown}. SQLite databases are not migrated "
+        "in place, so it has to be recreated. Local job/task history is lost; data "
+        "objects in chdb are untouched."
+    )
 
 
 def _reset_stale_local_db(*, force: bool) -> bool:
@@ -121,27 +154,19 @@ def _reset_stale_local_db(*, force: bool) -> bool:
     stale and ``force`` is not set, so no caller continues against a
     half-upgraded database.
     """
+    db_path = _local_db_path()
+    if db_path is None:
+        return False
     stale = stale_local_db()
     if not stale:
         return False
-
-    db_path = _local_db_path()
-    assert db_path is not None, "stale_local_db() is empty unless a local DB exists"
     if not force:
-        shown = ", ".join(stale[:5])
-        more = f" (and {len(stale) - 5} more)" if len(stale) > 5 else ""
-        raise Invalid(
-            f"{db_path} was created by an older version of aaiclick and is missing "
-            f"{len(stale)} column(s) added since: {shown}{more}. Local SQLite databases "
-            "are not migrated in place — re-run `aaiclick setup --force` to delete and "
-            "recreate it. Local job/task history is lost; data objects in chdb are untouched."
-        )
+        raise Invalid(f"{stale_local_db_message(stale)} {STALE_DB_REMEDY}")
 
     # -wal / -shm carry committed pages; leaving them beside a deleted DB
     # resurrects the old schema on the next connection.
     for suffix in ("", "-wal", "-shm"):
-        sidecar = db_path.with_name(db_path.name + suffix)
-        sidecar.unlink(missing_ok=True)
+        db_path.with_name(db_path.name + suffix).unlink(missing_ok=True)
     return True
 
 
@@ -184,9 +209,8 @@ def setup(*, ai: bool = False, force: bool = False) -> SetupResult:
 
     if is_sqlite():
         db_url = get_db_url()
-        sync_url = db_url.replace("sqlite+aiosqlite", "sqlite")
         recreated = _reset_stale_local_db(force=force)
-        engine = create_engine(sync_url)
+        engine = create_engine(_sync_db_url() or db_url)
         SQLModel.metadata.create_all(engine)
         _seed_default_tenant(engine)
         engine.dispose()

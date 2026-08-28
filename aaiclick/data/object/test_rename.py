@@ -272,3 +272,12 @@ async def test_rename_after_selection_keeps_earlier_rename(ctx):
     assert sorted(data) == ["x", "y"]
     assert data["x"] == [1, 2]
     assert data["y"] == [10, 20]
+
+
+async def test_rename_rejects_alias_already_used_by_an_earlier_rename(ctx):
+    """Composed renames must not alias two columns to the same name — that
+    emits ``a AS x, c AS x``, which ClickHouse rejects as an ambiguous alias."""
+    obj = await create_object_from_value({"a": [1, 2], "b": [10, 20], "c": [100, 200]})
+
+    with pytest.raises(ValueError, match="collides with a rename already applied"):
+        obj.rename({"a": "x"}).rename({"c": "x"})

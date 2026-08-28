@@ -502,15 +502,7 @@ Environment Variables:
 
 def _confirm_local_db_reset(stale: list[str]) -> bool:
     """Ask before deleting a local database whose schema predates this version."""
-    shown = ", ".join(stale[:3])
-    more = f" and {len(stale) - 3} more" if len(stale) > 3 else ""
-    print(
-        f"The local database schema predates this version of aaiclick — "
-        f"{len(stale)} column(s) are missing ({shown}{more}).\n"
-        "SQLite databases are not migrated in place, so it has to be recreated.\n"
-        "Local job/task history is lost; data objects in chdb are untouched.",
-        file=sys.stderr,
-    )
+    print(setup_api.stale_local_db_message(stale), file=sys.stderr)
     return input("Delete and recreate it? [y/N] ").strip().lower() in {"y", "yes"}
 
 
