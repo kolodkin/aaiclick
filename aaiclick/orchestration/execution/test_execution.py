@@ -569,6 +569,41 @@ async def test_register_returned_tasks_task_result_with_data(orch_ctx):
         assert len(children) == 2
 
 
+async def test_register_returned_tasks_plain_list(orch_ctx):
+    """A plain list of Tasks registers them and returns None data."""
+    job = await create_job("reg_list_test", "mod.func")
+    parent = create_task("mod.parent")
+    parent.job_id = job.id
+
+    c1 = create_task("mod.child1")
+    c2 = create_task("mod.child2")
+
+    data_result = await register_returned_tasks([c1, c2], parent_task_id=parent.id, job_id=job.id)
+    assert data_result is None
+
+    async with get_sql_session() as session:
+        result = await session.execute(
+            select(Task).where(Task.job_id == job.id, col(Task.entrypoint).in_(["mod.child1", "mod.child2"]))
+        )
+        assert len(result.scalars().all()) == 2
+
+
+async def test_register_returned_tasks_list_of_data(orch_ctx):
+    """A list holding no Task/Group stays pure data."""
+    result = await register_returned_tasks([1, 2, 3], parent_task_id=1, job_id=1)
+    assert result == [1, 2, 3]
+
+
+async def test_register_returned_tasks_list_mixing_tasks_and_data(orch_ctx):
+    """Mixing Tasks with data in a list is rejected rather than silently dropped."""
+    job = await create_job("reg_mixed_test", "mod.func")
+    parent = create_task("mod.parent")
+    parent.job_id = job.id
+
+    with pytest.raises(TypeError, match="task_result"):
+        await register_returned_tasks([create_task("mod.child1"), "my_data"], parent_task_id=parent.id, job_id=job.id)
+
+
 # Dynamic pipeline integration tests
 
 

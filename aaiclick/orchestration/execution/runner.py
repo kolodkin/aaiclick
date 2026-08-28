@@ -532,32 +532,51 @@ def serialize_task_result(result: Any, job_id: int) -> dict | None:
     return native_value_ref(_sanitize_for_json(result))
 
 
-def _flatten_item(item: Any) -> list:
-    """Recursively extract Task/Group items, including Group._tasks."""
+class FlattenedItems(NamedTuple):
+    """A task return value split into DAG nodes and plain data leaves.
+
+    Both lists come from one walk of the (possibly nested) return value, so a
+    caller can register ``tasks`` and still see the ``data`` sitting alongside
+    them — which is how a list mixing the two is detected."""
+
+    tasks: list
+    data: list
+
+
+def _flatten_items(item: Any) -> FlattenedItems:
+    """Recursively split a return value into Task/Group items (a Group also
+    contributing its member tasks) and everything else."""
     if isinstance(item, Task):
-        return [item]
+        return FlattenedItems([item], [])
 
     if isinstance(item, Group):
-        return [item, *item.get_tasks()]
+        return FlattenedItems([item, *item.get_tasks()], [])
 
     if isinstance(item, (list, tuple)):
-        result = []
+        tasks: list = []
+        data: list = []
         for sub in item:
-            result.extend(_flatten_item(sub))
-        return result
+            flat = _flatten_items(sub)
+            tasks.extend(flat.tasks)
+            data.extend(flat.data)
+        return FlattenedItems(tasks, data)
 
-    return []
+    return FlattenedItems([], [item])
 
 
 async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int) -> Any:
     """Register dynamic child tasks returned from a task function.
 
-    Handles three return shapes:
+    Handles these return shapes:
     - None                          → no tasks, return None
     - TaskResult(data, tasks)       → register .tasks, return .data
+    - Task / Group                  → register it, return None
     - list/tuple of Task/Group      → register all, return None
-    - (Object, list[Group])         → register groups from [1], return [0]
     - Any other value               → pure data, return as-is
+
+    A list/tuple mixing Tasks/Groups with plain values is rejected — the two
+    roles are what ``task_result(data=..., tasks=[...])`` separates, and
+    guessing which element is data would silently drop the other.
 
     Args:
         result: The raw return value from the task function
@@ -566,16 +585,32 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
 
     Returns:
         The data portion of the result for serialization, or None.
+
+    Raises:
+        TypeError: if a returned list/tuple mixes Task/Group items with data.
     """
     if result is None:
         return None
 
     elif isinstance(result, TaskResult):
-        task_items = _flatten_item(result.tasks)
+        task_items = _flatten_items(result.tasks).tasks
         data_result = result.data
     elif isinstance(result, (Task, Group)):
         # Job entry tasks can return a single Task or Group directly
-        task_items = _flatten_item(result)
+        task_items = _flatten_items(result).tasks
+        data_result = None
+    elif isinstance(result, (list, tuple)):
+        flat = _flatten_items(result)
+        if not flat.tasks:
+            # No DAG nodes inside — an ordinary data return like [1, 2, 3].
+            return result
+        if flat.data:
+            raise TypeError(
+                "A task returning a list/tuple of Task/Group items cannot also "
+                f"carry data (got {type(flat.data[0]).__name__}). Use "
+                "task_result(data=..., tasks=[...]) to return both."
+            )
+        task_items = flat.tasks
         data_result = None
     else:
         return result

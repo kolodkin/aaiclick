@@ -55,9 +55,15 @@ function creates the job and its tasks.
 
 ## Dynamic tasks
 
-A task may itself return `TaskResult(tasks=[...])` to register new child tasks
-at runtime — the graph grows while the job runs. See
+A task may itself return child tasks to register them at runtime — the graph
+grows while the job runs. Return `tasks_list(a, b)` (or a plain list, `[a, b]`)
+for tasks alone, and `task_result(data=..., tasks=[...])` when the task also
+returns data. See
 [Examples: Orchestration Dynamic](../examples/orchestration_dynamic.md).
+
+!!! warning "A list cannot carry both tasks and data"
+    `return [obj, group]` raises `TypeError` — one of the two would be
+    silently dropped. Use `task_result(data=obj, tasks=[group])`.
 
 ## Testing jobs
 
