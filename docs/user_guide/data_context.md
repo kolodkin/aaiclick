@@ -225,7 +225,7 @@ from aaiclick.orchestration.registered_jobs import run_job
 
 await run_job(
     "debug_run",
-    "myapp.pipelines.etl",
+    "myapp.pipelines.crawl",
     preservation_mode=PRESERVATION_FULL,
 )
 ```

@@ -124,16 +124,17 @@ not a prerequisite.
     from aaiclick.orchestration.registered_jobs import run_job
 
     async with orch_context():
-        job = await run_job("etl", "myapp.pipelines.etl", kwargs={"day": "2026-07-01"})
+        job = await run_job("crawl", "myapp.pipelines.crawl", kwargs={"url": "https://example.com"})
     ```
 
 === "CLI"
 
     ```bash
-    python -m aaiclick run-job etl --kwargs '{"day": "2026-07-01"}'
+    python -m aaiclick run-job crawl --kwargs '{"url": "https://example.com"}'
 
-    # Repeatable KEY=VALUE pairs; values are JSON-parsed (limit is an int).
-    python -m aaiclick run-job etl --set day=2026-07-01 --set limit=500 --set dry_run=true
+    # Repeatable KEY=VALUE pairs; values are JSON-parsed (depth is an int,
+    # force a bool, and the unparseable url stays a string).
+    python -m aaiclick run-job crawl --set url=https://example.com --set depth=3 --set force=true
     ```
 
     `--set` beats `--kwargs`, which beats the registration's `default_kwargs`.
@@ -144,10 +145,10 @@ not a prerequisite.
     ```bash
     curl -X POST http://127.0.0.1:5255/api/v0/jobs:run \
       -H "Content-Type: application/json" \
-      -d '{"name": "etl", "kwargs": {"day": "2026-07-01"}}'
+      -d '{"name": "crawl", "kwargs": {"url": "https://example.com"}}'
     ```
 
-    A dotted `name` (e.g. `"myapp.pipelines.etl"`) is used as the entrypoint
+    A dotted `name` (e.g. `"myapp.pipelines.crawl"`) is used as the entrypoint
     directly; a bare name reuses the registered job's entrypoint.
 
 All three surfaces also accept `preservation_mode` and the runner fields —
@@ -161,8 +162,8 @@ reaches a terminal status; `job wait` does the same for an already-submitted job
 by id or name:
 
 ```bash
-python -m aaiclick run-job etl --set day=2026-07-01 --progress
-python -m aaiclick job wait etl --timeout 900
+python -m aaiclick run-job crawl --set url=https://example.com --progress
+python -m aaiclick job wait crawl --timeout 900
 ```
 
 Both re-print the task table whenever the status counts change and exit
@@ -188,18 +189,18 @@ of `entrypoint`.
 
     async with orch_context():
         await register_job(
-            name="etl",
-            entrypoint="myapp.pipelines.etl",
+            name="crawl",
+            entrypoint="myapp.pipelines.crawl",
             schedule="0 8 * * *",
-            default_kwargs={"day": "today"},
+            default_kwargs={"depth": 3},
         )
     ```
 
 === "CLI"
 
     ```bash
-    python -m aaiclick register-job myapp.pipelines.etl --name etl \
-        --schedule "0 8 * * *" --kwargs '{"day": "today"}'
+    python -m aaiclick register-job myapp.pipelines.crawl --name crawl \
+        --schedule "0 8 * * *" --kwargs '{"depth": 3}'
     ```
 
 === "REST"
@@ -207,7 +208,7 @@ of `entrypoint`.
     ```bash
     curl -X POST http://127.0.0.1:5255/api/v0/registered-jobs \
       -H "Content-Type: application/json" \
-      -d '{"name": "etl", "entrypoint": "myapp.pipelines.etl", "schedule": "0 8 * * *", "default_kwargs": {"day": "today"}}'
+      -d '{"name": "crawl", "entrypoint": "myapp.pipelines.crawl", "schedule": "0 8 * * *", "default_kwargs": {"depth": 3}}'
     ```
 
 Runner defaults are set here too: `--runner subprocess|docker|kubernetes` and
@@ -226,24 +227,24 @@ Runner defaults are set here too: `--runner subprocess|docker|kubernetes` and
     )
 
     async with orch_context():
-        await enable_job("etl")
-        await disable_job("etl")
+        await enable_job("crawl")
+        await disable_job("crawl")
         registrations = await list_registered_jobs(enabled_only=True)
     ```
 
 === "CLI"
 
     ```bash
-    python -m aaiclick job enable etl
-    python -m aaiclick job disable etl
+    python -m aaiclick job enable crawl
+    python -m aaiclick job disable crawl
     python -m aaiclick registered-job list
     ```
 
 === "REST"
 
     ```bash
-    curl -X POST http://127.0.0.1:5255/api/v0/registered-jobs/etl/enable
-    curl -X POST http://127.0.0.1:5255/api/v0/registered-jobs/etl/disable
+    curl -X POST http://127.0.0.1:5255/api/v0/registered-jobs/crawl/enable
+    curl -X POST http://127.0.0.1:5255/api/v0/registered-jobs/crawl/disable
     curl http://127.0.0.1:5255/api/v0/registered-jobs
     ```
 
@@ -361,14 +362,14 @@ downstream tasks can depend on.
     from aaiclick.orchestration import get_job, list_jobs, orch_context
 
     async with orch_context():
-        jobs = await list_jobs(status="RUNNING", name_like="%etl%", limit=20)
+        jobs = await list_jobs(status="RUNNING", name_like="%crawl%", limit=20)
         job = await get_job(job_id)
     ```
 
 === "CLI"
 
     ```bash
-    python -m aaiclick job list [--status RUNNING] [--like "%etl%"] [--limit 20 --offset 40]
+    python -m aaiclick job list [--status RUNNING] [--like "%crawl%"] [--limit 20 --offset 40]
     python -m aaiclick job get <id>
     python -m aaiclick job stats <id>
     ```
