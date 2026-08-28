@@ -96,18 +96,18 @@ async def test_trim(ctx):
 # =============================================================================
 
 
-async def test_abs_array(ctx):
-    """Absolute value of numeric array."""
-    obj = await create_object_from_value([-3, -1, 0, 2, 5])
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        pytest.param([-3, -1, 0, 2, 5], [3.0, 1.0, 0.0, 2.0, 5.0], id="array"),
+        pytest.param(-42, 42.0, id="scalar"),
+    ],
+)
+async def test_abs(ctx, value, expected):
+    """Absolute value of numeric values."""
+    obj = await create_object_from_value(value)
     result = await obj.abs()
-    assert await result.data() == [3.0, 1.0, 0.0, 2.0, 5.0]
-
-
-async def test_abs_scalar(ctx):
-    """Absolute value of a scalar."""
-    obj = await create_object_from_value(-42)
-    result = await obj.abs()
-    assert await result.data() == 42.0
+    assert await result.data() == expected
 
 
 async def test_log2_array(ctx):
@@ -117,18 +117,18 @@ async def test_log2_array(ctx):
     assert await result.data() == [0.0, 1.0, 2.0, 3.0, 4.0]
 
 
-async def test_sqrt_array(ctx):
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        pytest.param([0, 1, 4, 9, 16], [0.0, 1.0, 2.0, 3.0, 4.0], id="array"),
+        pytest.param(25, 5.0, id="scalar"),
+    ],
+)
+async def test_sqrt(ctx, value, expected):
     """Square root of numeric values."""
-    obj = await create_object_from_value([0, 1, 4, 9, 16])
+    obj = await create_object_from_value(value)
     result = await obj.sqrt()
-    assert await result.data() == [0.0, 1.0, 2.0, 3.0, 4.0]
-
-
-async def test_sqrt_scalar(ctx):
-    """Square root of a scalar."""
-    obj = await create_object_from_value(25)
-    result = await obj.sqrt()
-    assert await result.data() == 5.0
+    assert await result.data() == expected
 
 
 # =============================================================================
@@ -180,27 +180,36 @@ async def test_cast_not_nullable(ctx):
     assert result["n_int"] == [42, 100]
 
 
-async def test_cast_returns_computed(ctx):
-    c = cast("col", "UInt32")
-    assert c.type == "Nullable(UInt32)"
-    assert c.expression == "toUInt32OrNull(col)"
+@pytest.mark.parametrize(
+    "to_type, nullable, expected_type, expected_expr",
+    [
+        pytest.param("UInt32", True, "Nullable(UInt32)", "toUInt32OrNull(col)", id="nullable"),
+        pytest.param("Float64", False, "Float64", "toFloat64(col)", id="not-nullable"),
+    ],
+)
+def test_cast_returns_computed(to_type, nullable, expected_type, expected_expr):
+    c = cast("col", to_type, nullable=nullable)
+    assert c.type == expected_type
+    assert c.expression == expected_expr
 
 
-async def test_cast_not_nullable_returns_computed(ctx):
-    c = cast("col", "Float64", nullable=False)
-    assert c.type == "Float64"
-    assert c.expression == "toFloat64(col)"
-
-
-async def test_split_by_char_returns_computed(ctx):
-    c = split_by_char("genres", ",")
-    assert c.type == "Array(String)"
-    assert c.expression == "splitByChar(',', genres)"
-
-
-async def test_split_by_char_element_type(ctx):
-    c = split_by_char("tags", ",", element_type="LowCardinality(String)")
-    assert c.type == "Array(LowCardinality(String))"
+@pytest.mark.parametrize(
+    "col, element_type, expected_type, expected_expr",
+    [
+        pytest.param("genres", "String", "Array(String)", "splitByChar(',', genres)", id="default"),
+        pytest.param(
+            "tags",
+            "LowCardinality(String)",
+            "Array(LowCardinality(String))",
+            "splitByChar(',', tags)",
+            id="low-cardinality",
+        ),
+    ],
+)
+def test_split_by_char_returns_computed(col, element_type, expected_type, expected_expr):
+    c = split_by_char(col, ",", element_type=element_type)
+    assert c.type == expected_type
+    assert c.expression == expected_expr
 
 
 async def test_split_by_char_explode(ctx):
@@ -209,28 +218,27 @@ async def test_split_by_char_explode(ctx):
     assert sorted(result["parts"]) == ["a", "b", "c", "d", "e"]
 
 
-async def test_with_cast_method_nullable(ctx):
-    obj = await create_object_from_value([{"n": "42"}, {"n": "bad"}, {"n": "7"}])
-    result = await obj.with_cast("n", "UInt32", nullable=True).data()
-    assert result["n_uint32"] == [42, None, 7]
-
-
-async def test_with_cast_method_non_nullable(ctx):
-    obj = await create_object_from_value([{"n": "42"}, {"n": "7"}])
-    result = await obj.with_cast("n", "UInt32").data()
-    assert result["n_uint32"] == [42, 7]
-
-
-async def test_with_cast_method_string(ctx):
-    obj = await create_object_from_value([{"n": 42}, {"n": 7}])
-    result = await obj.with_cast("n", "String").data()
-    assert result["n_string"] == ["42", "7"]
-
-
-async def test_with_cast_method_alias(ctx):
-    obj = await create_object_from_value([{"n": "10"}, {"n": "20"}])
-    result = await obj.with_cast("n", "UInt32", alias="n_int").data()
-    assert result["n_int"] == [10, 20]
+@pytest.mark.parametrize(
+    "records, to_type, nullable, alias, out_column, expected",
+    [
+        pytest.param(
+            [{"n": "42"}, {"n": "bad"}, {"n": "7"}],
+            "UInt32",
+            True,
+            None,
+            "n_uint32",
+            [42, None, 7],
+            id="nullable",
+        ),
+        pytest.param([{"n": "42"}, {"n": "7"}], "UInt32", False, None, "n_uint32", [42, 7], id="not-nullable"),
+        pytest.param([{"n": 42}, {"n": 7}], "String", False, None, "n_string", ["42", "7"], id="to-string"),
+        pytest.param([{"n": "10"}, {"n": "20"}], "UInt32", False, "n_int", "n_int", [10, 20], id="alias"),
+    ],
+)
+async def test_with_cast_method(ctx, records, to_type, nullable, alias, out_column, expected):
+    obj = await create_object_from_value(records)
+    result = await obj.with_cast("n", to_type, nullable=nullable, alias=alias).data()
+    assert result[out_column] == expected
 
 
 async def test_with_split_by_char_method(ctx):

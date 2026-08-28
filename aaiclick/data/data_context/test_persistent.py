@@ -40,13 +40,8 @@ async def test_temp_named_collisions_allowed_in_same_context():
         assert b.table.startswith("t_dup_")
 
 
-async def test_scope_global_in_bare_data_context_raises():
+@pytest.mark.parametrize("scope", [pytest.param("global", id="global"), pytest.param("job", id="job")])
+async def test_persistent_scope_in_bare_data_context_raises(scope):
     async with data_context():
         with pytest.raises(RuntimeError, match="orch_context"):
-            await create_object_from_value([1, 2, 3], name="x", scope="global")
-
-
-async def test_scope_job_in_bare_data_context_raises():
-    async with data_context():
-        with pytest.raises(RuntimeError, match="orch_context"):
-            await create_object_from_value([1, 2, 3], name="x", scope="job")
+            await create_object_from_value([1, 2, 3], name="x", scope=scope)

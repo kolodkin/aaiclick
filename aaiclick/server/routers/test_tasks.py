@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from sqlmodel import select
 
 from aaiclick.auth import security
@@ -45,14 +46,6 @@ async def test_get_task(orch_ctx, app_client):
     assert detail.entrypoint == _callable_to_string(simple_task)
 
 
-async def test_get_task_not_found_returns_404(orch_ctx, app_client):
-    response = await app_client.get(f"{API_PREFIX}/tasks/999999999")
-
-    assert response.status_code == 404
-    problem = Problem.model_validate(response.json())
-    assert problem.code is ProblemCode.NOT_FOUND
-
-
 async def test_get_task_logs(orch_ctx, app_client):
     job = await create_job("logs_route_job", simple_task)
     task = (await get_tasks_for_job(job.id))[0]
@@ -95,14 +88,6 @@ async def test_get_task_logs_accepts_tail_param(orch_ctx, app_client):
     TaskLogsView.model_validate(response.json())
 
 
-async def test_get_task_logs_not_found_returns_404(orch_ctx, app_client):
-    response = await app_client.get(f"{API_PREFIX}/tasks/999999999/logs")
-
-    assert response.status_code == 404
-    problem = Problem.model_validate(response.json())
-    assert problem.code is ProblemCode.NOT_FOUND
-
-
 async def test_clear_task(orch_ctx, app_client):
     job = await create_job("http_clear_job", simple_task)
     task = (await get_tasks_for_job(job.id))[0]
@@ -115,8 +100,16 @@ async def test_clear_task(orch_ctx, app_client):
     assert view.job.id == job.id
 
 
-async def test_clear_task_not_found_returns_404(orch_ctx, app_client):
-    response = await app_client.post(f"{API_PREFIX}/tasks/999999999/clear")
+@pytest.mark.parametrize(
+    "method, path",
+    [
+        pytest.param("GET", "/tasks/999999999", id="get-task"),
+        pytest.param("GET", "/tasks/999999999/logs", id="get-task-logs"),
+        pytest.param("POST", "/tasks/999999999/clear", id="clear-task"),
+    ],
+)
+async def test_unknown_task_returns_404(orch_ctx, app_client, method, path):
+    response = await app_client.request(method, f"{API_PREFIX}{path}")
 
     assert response.status_code == 404
     problem = Problem.model_validate(response.json())

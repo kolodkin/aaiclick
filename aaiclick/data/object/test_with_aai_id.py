@@ -32,11 +32,6 @@ async def test_aai_id_true_adds_aai_id_column(ctx):
     assert col.fieldtype == FIELDTYPE_ARRAY
 
 
-async def test_aai_id_default_off(ctx):
-    obj = await create_object_from_value([1, 2, 3])
-    assert "aai_id" not in obj.schema.columns
-
-
 async def test_aai_id_unique_per_row(ctx):
     """generateSnowflakeID() is per-row, so each row in a batch gets a unique ID."""
     obj = await create_object_from_value([10, 20, 30, 40, 50], aai_id=True)
@@ -61,12 +56,6 @@ async def test_aai_id_auto_defaults_order_by(ctx):
     assert await obj.data() == [3, 1, 2]
 
 
-async def test_aai_id_auto_default_skipped_when_column_absent(ctx):
-    """Without the aai_id column, order_by stays None (no implicit ordering)."""
-    obj = await create_object_from_value([3, 1, 2])
-    assert obj.order_by is None
-
-
 async def test_aai_id_auto_default_overridden_by_explicit_view_order(ctx):
     """Explicit view(order_by=...) wins over the aai_id fallback."""
     obj = await create_object_from_value([3, 1, 2], aai_id=True)
@@ -74,11 +63,16 @@ async def test_aai_id_auto_default_overridden_by_explicit_view_order(ctx):
 
 
 async def test_cross_table_op_works_without_explicit_order_when_aai_id_present(ctx):
-    """With aai_id on both sides, the cross-table contract is satisfied implicitly."""
+    """With aai_id on both sides, the cross-table contract is satisfied implicitly.
+
+    Inputs are chosen so positional and value-sorted pairing differ, so the
+    result also proves the propagated aai_id recovers pair-stable LHS order.
+    """
     a = await create_object_from_value([10, 20, 30], aai_id=True)
     b = await create_object_from_value([-5, 5, 0], aai_id=True)
     result = a + b  # no .view(order_by=...) wrappers needed
     assert "aai_id" in result.schema.columns
+    # Positional pairing: (10-5, 20+5, 30+0) = [5, 25, 30] in LHS order
     assert await result.data() == [5, 25, 30]
 
 
@@ -115,20 +109,6 @@ async def test_operator_result_propagates_lhs_aai_id(ctx):
 
     result_ids = [row[0] for row in (await get_ch_client().query(f"SELECT aai_id FROM {result.table}")).result_rows]
     assert sorted(result_ids) == sorted(a_ids), "result aai_ids must be the multiset of LHS aai_ids"
-
-
-async def test_operator_result_recovers_pair_order_via_aai_id(ctx):
-    """The result auto-orders by aai_id when read, recovering pair-stable LHS order.
-
-    Inputs are chosen so positional and value-sorted pairing differ; the
-    propagated aai_id lets us re-sort the result back into LHS order.
-    """
-    a = await create_object_from_value([10, 20, 30], aai_id=True)
-    b = await create_object_from_value([-5, 5, 0], aai_id=True)
-
-    result = a + b
-    # Positional pairing: (10-5, 20+5, 30+0) = [5, 25, 30] in LHS order
-    assert await result.data() == [5, 25, 30]
 
 
 async def test_operator_propagates_rhs_aai_id_when_lhs_lacks_it(ctx):

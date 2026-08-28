@@ -104,39 +104,23 @@ async def test_dict_inside_array_items_round_trip(ctx):
 # =============================================================================
 
 
-async def test_dotted_key_raises(ctx):
-    """Flat dict keys containing '.' are rejected — data() would reshape them."""
-    with pytest.raises(ValueError, match="must not contain"):
-        await create_object_from_value({"a.b": 1})
-
-
-async def test_nested_dotted_key_raises(ctx):
-    """Dotted keys are rejected at any nesting level."""
-    with pytest.raises(ValueError, match="must not contain"):
-        await create_object_from_value({"x": {"a.b": 1}})
-
-
-async def test_dotted_key_inside_array_items_raises(ctx):
-    """Dotted keys inside list-of-dicts items are rejected."""
-    with pytest.raises(ValueError, match="must not contain"):
-        await create_object_from_value([{"b": [{"c.d": 1}]}])
-
-
-async def test_empty_dict_value_raises(ctx):
-    """Empty dicts have no representable columns."""
-    with pytest.raises(ValueError, match="[Ee]mpty dict"):
-        await create_object_from_value({"x": {}})
-
-
-async def test_mismatched_nested_keys_raises(ctx):
-    """Nested dict fields must have identical key sets across records."""
-    with pytest.raises(ValueError, match="identical keys"):
-        await create_object_from_value(
-            [
-                {"m": {"a": 1}},
-                {"m": {"b": 2}},
-            ]
-        )
+@pytest.mark.parametrize(
+    "value, match",
+    [
+        # Flat dict keys containing '.' are rejected — data() would reshape them.
+        pytest.param({"a.b": 1}, "must not contain", id="dotted-key"),
+        # Dotted keys are rejected at any nesting level.
+        pytest.param({"x": {"a.b": 1}}, "must not contain", id="nested-dotted-key"),
+        pytest.param([{"b": [{"c.d": 1}]}], "must not contain", id="dotted-key-inside-array-items"),
+        # Empty dicts have no representable columns.
+        pytest.param({"x": {}}, "[Ee]mpty dict", id="empty-dict-value"),
+        # Nested dict fields must have identical key sets across records.
+        pytest.param([{"m": {"a": 1}}, {"m": {"b": 2}}], "identical keys", id="mismatched-nested-keys"),
+    ],
+)
+async def test_invalid_nested_value_raises(ctx, value, match):
+    with pytest.raises(ValueError, match=match):
+        await create_object_from_value(value)
 
 
 # =============================================================================
@@ -175,34 +159,22 @@ async def test_explicit_schema_dotted_column_round_trip(ctx):
 # =============================================================================
 
 
-async def test_extra_key_in_later_record_raises(ctx):
-    """Keys present only in later records are rejected, not silently dropped."""
-    with pytest.raises(ValueError, match="identical keys"):
-        await create_object_from_value([{"c": 1}, {"c": 2, "d": 3}])
-
-
-async def test_extra_key_in_later_list_item_raises(ctx):
-    """Keys present only in later list-of-dicts items are rejected (silent-drop fix)."""
-    with pytest.raises(ValueError, match="identical keys"):
-        await create_object_from_value({"b": [{"c": 1}, {"c": 2, "d": 3}]})
-
-
-async def test_non_dict_item_in_list_of_dicts_raises(ctx):
-    """A non-dict mixed into a list of dicts raises a clear ValueError."""
-    with pytest.raises(ValueError, match="uniform schema"):
-        await create_object_from_value({"b": [{"c": 1}, 5]})
-
-
-async def test_cross_record_type_conflict_raises(ctx):
-    """A field that changes type across records raises a clear ValueError."""
-    with pytest.raises(ValueError, match="uniform schema"):
-        await create_object_from_value([{"a": 1}, {"a": "s"}])
-
-
-async def test_none_item_in_list_of_dicts_raises(ctx):
-    """A None mixed into a list of dicts raises instead of fabricating a record."""
-    with pytest.raises(ValueError, match="identical keys"):
-        await create_object_from_value({"b": [{"c": 1}, None]})
+@pytest.mark.parametrize(
+    "value, match",
+    [
+        # Keys present only in later records are rejected, not silently dropped.
+        pytest.param([{"c": 1}, {"c": 2, "d": 3}], "identical keys", id="extra-key-in-later-record"),
+        pytest.param({"b": [{"c": 1}, {"c": 2, "d": 3}]}, "identical keys", id="extra-key-in-later-list-item"),
+        # A None mixed into a list of dicts raises instead of fabricating a record.
+        pytest.param({"b": [{"c": 1}, None]}, "identical keys", id="none-item-in-list-of-dicts"),
+        pytest.param({"b": [{"c": 1}, 5]}, "uniform schema", id="non-dict-item-in-list-of-dicts"),
+        # A field that changes type across records raises a clear ValueError.
+        pytest.param([{"a": 1}, {"a": "s"}], "uniform schema", id="cross-record-type-conflict"),
+    ],
+)
+async def test_whole_dataset_strictness_raises(ctx, value, match):
+    with pytest.raises(ValueError, match=match):
+        await create_object_from_value(value)
 
 
 async def test_all_none_value_round_trips_as_none(ctx):
@@ -215,33 +187,27 @@ async def test_all_none_value_round_trips_as_none(ctx):
     assert obj.schema.columns["a"].nullable is True
 
 
-async def test_plain_column_colliding_with_dot_prefix_raises(ctx):
-    """A column named 'x' next to 'x.y' cannot be reconstructed — raise, don't drop."""
-    schema = Schema(
-        fieldtype=FIELDTYPE_DICT,
-        columns={
-            "x": ColumnInfo("Int64"),
-            "x.y": ColumnInfo("Int64"),
-        },
-    )
+@pytest.mark.parametrize(
+    "columns, insert",
+    [
+        # A column named 'x' next to 'x.y' cannot be reconstructed — raise, don't drop.
+        pytest.param(
+            {"x": ColumnInfo("Int64"), "x.y": ColumnInfo("Int64")},
+            "(`x`, `x.y`) VALUES (1, 2)",
+            id="dot-prefix",
+        ),
+        # A column named 'x' next to 'x.*.y' is the same collision through the star path.
+        pytest.param(
+            {"x": ColumnInfo("Int64"), "x.*.y": ColumnInfo("Int64", array=True)},
+            "(`x`, `x.*.y`) VALUES (1, [2])",
+            id="star-prefix",
+        ),
+    ],
+)
+async def test_plain_column_colliding_with_prefix_raises(ctx, columns, insert):
+    schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
     obj = await create_object(schema)
-    await obj.ch_client.command(f"INSERT INTO {obj.table} (`x`, `x.y`) VALUES (1, 2)")
-
-    with pytest.raises(ValueError, match="collide"):
-        await obj.data()
-
-
-async def test_plain_column_colliding_with_star_prefix_raises(ctx):
-    """A column named 'x' next to 'x.*.y' is the same collision through the star path."""
-    schema = Schema(
-        fieldtype=FIELDTYPE_DICT,
-        columns={
-            "x": ColumnInfo("Int64"),
-            "x.*.y": ColumnInfo("Int64", array=True),
-        },
-    )
-    obj = await create_object(schema)
-    await obj.ch_client.command(f"INSERT INTO {obj.table} (`x`, `x.*.y`) VALUES (1, [2])")
+    await obj.ch_client.command(f"INSERT INTO {obj.table} {insert}")
 
     with pytest.raises(ValueError, match="collide"):
         await obj.data()

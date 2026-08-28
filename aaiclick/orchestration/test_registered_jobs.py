@@ -21,22 +21,31 @@ from .registered_jobs import (
 )
 
 
-def test_compute_next_run_daily():
-    base = datetime(2026, 4, 4, 7, 0, 0)
-    result = compute_next_run("0 8 * * *", after=base)
-    assert result == datetime(2026, 4, 4, 8, 0, 0)
-
-
-def test_compute_next_run_past_time():
-    base = datetime(2026, 4, 4, 9, 0, 0)
-    result = compute_next_run("0 8 * * *", after=base)
-    assert result == datetime(2026, 4, 5, 8, 0, 0)
-
-
-def test_compute_next_run_every_5_minutes():
-    base = datetime(2026, 4, 4, 12, 3, 0)
-    result = compute_next_run("*/5 * * * *", after=base)
-    assert result == datetime(2026, 4, 4, 12, 5, 0)
+@pytest.mark.parametrize(
+    "schedule, after, expected",
+    [
+        pytest.param(
+            "0 8 * * *",
+            datetime(2026, 4, 4, 7, 0, 0),
+            datetime(2026, 4, 4, 8, 0, 0),
+            id="daily-later-today",
+        ),
+        pytest.param(
+            "0 8 * * *",
+            datetime(2026, 4, 4, 9, 0, 0),
+            datetime(2026, 4, 5, 8, 0, 0),
+            id="daily-already-past-rolls-to-tomorrow",
+        ),
+        pytest.param(
+            "*/5 * * * *",
+            datetime(2026, 4, 4, 12, 3, 0),
+            datetime(2026, 4, 4, 12, 5, 0),
+            id="every-5-minutes",
+        ),
+    ],
+)
+def test_compute_next_run(schedule, after, expected):
+    assert compute_next_run(schedule, after=after) == expected
 
 
 async def test_register_job(orch_ctx):

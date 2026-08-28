@@ -1,64 +1,50 @@
 """Tests for count_if() — conditional counting via countIf()."""
 
+import pytest
+
 from aaiclick import create_object_from_value
 from aaiclick.data.data_context import create_object
 from aaiclick.data.models import FIELDTYPE_ARRAY, ColumnInfo, Schema
 
 
-async def test_count_if_str_basic(ctx):
-    """count_if with a str condition returns scalar Object."""
+@pytest.mark.parametrize(
+    "value, condition, expected",
+    [
+        pytest.param([1, 2, 3, 4, 5], "value > 3", 2, id="basic"),
+        pytest.param([10, 20, 30], "value > 0", 3, id="all-match"),
+        pytest.param([1, 2, 3], "value > 100", 0, id="none-match"),
+        # count_if("1") counts every row, matching count().
+        pytest.param([10, 20, 30, 40], "1", 4, id="always-true"),
+    ],
+)
+async def test_count_if_str(ctx, value, condition, expected):
+    """count_if with a str condition returns a scalar Object."""
+    obj = await create_object_from_value(value)
+    result = await obj.count_if(condition)
+    assert await result.data() == expected
+
+
+@pytest.mark.parametrize(
+    "conditions, expected",
+    [
+        pytest.param(
+            {"small": "value <= 2", "large": "value >= 4"},
+            {"small": 2, "large": 2},
+            id="basic",
+        ),
+        # A '1' condition in the dict form acts as a total count.
+        pytest.param(
+            {"total": "1", "gt3": "value > 3"},
+            {"total": 5, "gt3": 2},
+            id="total-via-always-true",
+        ),
+    ],
+)
+async def test_count_if_dict(ctx, conditions, expected):
+    """count_if with a dict returns a dict Object with one row."""
     obj = await create_object_from_value([1, 2, 3, 4, 5])
-    result = await obj.count_if("value > 3")
-    assert await result.data() == 2
-
-
-async def test_count_if_str_all_match(ctx):
-    """count_if where all rows match."""
-    obj = await create_object_from_value([10, 20, 30])
-    result = await obj.count_if("value > 0")
-    assert await result.data() == 3
-
-
-async def test_count_if_str_none_match(ctx):
-    """count_if where no rows match."""
-    obj = await create_object_from_value([1, 2, 3])
-    result = await obj.count_if("value > 100")
-    assert await result.data() == 0
-
-
-async def test_count_if_str_always_true(ctx):
-    """count_if('1') counts all rows (equivalent to count())."""
-    obj = await create_object_from_value([10, 20, 30, 40])
-    result = await obj.count_if("1")
-    assert await result.data() == 4
-
-
-async def test_count_if_dict_basic(ctx):
-    """count_if with a dict returns dict Object with one row."""
-    obj = await create_object_from_value([1, 2, 3, 4, 5])
-    result = await obj.count_if(
-        {
-            "small": "value <= 2",
-            "large": "value >= 4",
-        }
-    )
-    data = await result.data()
-    assert data["small"] == 2
-    assert data["large"] == 2
-
-
-async def test_count_if_dict_total_via_always_true(ctx):
-    """Dict form with '1' condition acts as total count."""
-    obj = await create_object_from_value([1, 2, 3, 4, 5])
-    result = await obj.count_if(
-        {
-            "total": "1",
-            "gt3": "value > 3",
-        }
-    )
-    data = await result.data()
-    assert data["total"] == 5
-    assert data["gt3"] == 2
+    result = await obj.count_if(conditions)
+    assert await result.data() == expected
 
 
 async def test_count_if_dict_on_dict_object(ctx):

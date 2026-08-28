@@ -5,6 +5,8 @@ This module tests the __getitem__ syntax for selecting columns from dict Objects
 and the copy() method for materializing Views as array Objects.
 """
 
+import pytest
+
 from aaiclick import View, create_object_from_value
 
 # =============================================================================
@@ -23,24 +25,21 @@ async def test_dict_selector_basic(ctx):
     assert view.is_single_field
 
 
-async def test_dict_selector_data(ctx):
+@pytest.mark.parametrize(
+    "field, expected",
+    [
+        pytest.param("param1", [10, 20, 30], id="first-field"),
+        pytest.param("param2", [40, 50, 60], id="second-field"),
+    ],
+)
+async def test_dict_selector_data(ctx, field, expected):
     """Test that selecting a field returns the correct data."""
     obj = await create_object_from_value({"param1": [10, 20, 30], "param2": [40, 50, 60]}, aai_id=True)
 
-    view = obj["param1"]
+    view = obj[field]
     data = await view.data()
 
-    assert data == [10, 20, 30]
-
-
-async def test_dict_selector_second_field(ctx):
-    """Test selecting the second field."""
-    obj = await create_object_from_value({"param1": [1, 2, 3], "param2": [4, 5, 6]}, aai_id=True)
-
-    view = obj["param2"]
-    data = await view.data()
-
-    assert data == [4, 5, 6]
+    assert data == expected
 
 
 async def test_dict_selector_multiple_fields(ctx):

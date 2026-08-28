@@ -152,43 +152,21 @@ async def test_records_empty_array_field(ctx):
 # =============================================================================
 
 
-async def test_records_int_array_field(ctx):
-    """Array field with int values creates Array(Int64)."""
-    obj = await create_object_from_value(
-        [
-            {"values": [1, 2, 3]},
-        ]
-    )
+@pytest.mark.parametrize(
+    "column, values, expected_type",
+    [
+        pytest.param("values", [1, 2, 3], "Int64", id="int"),
+        pytest.param("values", [1.5, 2.5, 3.5], "Float64", id="float"),
+        pytest.param("tags", ["hello", "world"], "String", id="string"),
+    ],
+)
+async def test_records_array_field_type_inference(ctx, column, values, expected_type):
+    """An array field infers Array(<element type>) from its values."""
+    obj = await create_object_from_value([{column: values}])
 
     schema = obj.schema
-    assert schema.columns["values"].type == "Int64"
-    assert schema.columns["values"].array == 1
-
-
-async def test_records_float_array_field(ctx):
-    """Array field with float values creates Array(Float64)."""
-    obj = await create_object_from_value(
-        [
-            {"values": [1.5, 2.5, 3.5]},
-        ]
-    )
-
-    schema = obj.schema
-    assert schema.columns["values"].type == "Float64"
-    assert schema.columns["values"].array == 1
-
-
-async def test_records_string_array_field(ctx):
-    """Array field with string values creates Array(String)."""
-    obj = await create_object_from_value(
-        [
-            {"tags": ["hello", "world"]},
-        ]
-    )
-
-    schema = obj.schema
-    assert schema.columns["tags"].type == "String"
-    assert schema.columns["tags"].array == 1
+    assert schema.columns[column].type == expected_type
+    assert schema.columns[column].array == 1
 
 
 # =============================================================================

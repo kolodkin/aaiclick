@@ -42,16 +42,19 @@ def test_schema_unifies_across_all_records():
     assert "d" in cols
 
 
-def test_missing_key_across_records_raises():
-    """Strict semantics: a key absent in some records is rejected."""
-    arr = infer_struct_array([{"c": 1}, {"c": 2, "d": 3}])
-    with pytest.raises(ValueError, match="identical keys"):
-        struct_array_to_columns(arr)
-
-
-def test_missing_key_inside_list_items_raises():
-    """Strictness applies inside list-of-dicts items too (silent-drop fix)."""
-    arr = infer_struct_array([{"b": [{"c": 1}, {"c": 2, "d": 3}]}])
+@pytest.mark.parametrize(
+    "records",
+    [
+        # Strict semantics: a key absent in some records is rejected.
+        pytest.param([{"c": 1}, {"c": 2, "d": 3}], id="missing-key-across-records"),
+        # Strictness applies inside list-of-dicts items too (silent-drop fix).
+        pytest.param([{"b": [{"c": 1}, {"c": 2, "d": 3}]}], id="missing-key-inside-list-items"),
+        # A dict field that is None in some records is rejected.
+        pytest.param([{"m": {"c": 1}}, {"m": None}], id="none-dict-value"),
+    ],
+)
+def test_struct_array_to_columns_non_identical_keys_raises(records):
+    arr = infer_struct_array(records)
     with pytest.raises(ValueError, match="identical keys"):
         struct_array_to_columns(arr)
 
@@ -72,31 +75,29 @@ def test_extraction_deep_mixed_nesting():
     assert cols["x.y.*.z"].to_pylist() == [[1, 2]]
 
 
-def test_non_dict_item_raises():
+@pytest.mark.parametrize(
+    "records",
+    [
+        pytest.param([{"b": [{"c": 1}, 5]}], id="non-dict-item"),
+        pytest.param([{"a": 1}, {"a": "s"}], id="type-conflict"),
+    ],
+)
+def test_infer_struct_array_non_uniform_schema_raises(records):
     with pytest.raises(ValueError, match="uniform schema"):
-        infer_struct_array([{"b": [{"c": 1}, 5]}])
+        infer_struct_array(records)
 
 
-def test_type_conflict_raises():
-    with pytest.raises(ValueError, match="uniform schema"):
-        infer_struct_array([{"a": 1}, {"a": "s"}])
-
-
-def test_dotted_field_name_raises():
-    arr = infer_struct_array([{"a.b": 1}])
-    with pytest.raises(ValueError, match="must not contain"):
-        struct_type_to_columns(arr.type)
-
-
-def test_nested_dotted_field_name_raises():
-    arr = infer_struct_array([{"x": {"a.b": 1}}])
-    with pytest.raises(ValueError, match="must not contain"):
-        struct_type_to_columns(arr.type)
-
-
-def test_empty_struct_raises():
-    arr = infer_struct_array([{"x": {}}])
-    with pytest.raises(ValueError, match="Empty dict"):
+@pytest.mark.parametrize(
+    "records, match",
+    [
+        pytest.param([{"a.b": 1}], "must not contain", id="dotted-field-name"),
+        pytest.param([{"x": {"a.b": 1}}], "must not contain", id="nested-dotted-field-name"),
+        pytest.param([{"x": {}}], "Empty dict", id="empty-struct"),
+    ],
+)
+def test_struct_type_to_columns_raises(records, match):
+    arr = infer_struct_array(records)
+    with pytest.raises(ValueError, match=match):
         struct_type_to_columns(arr.type)
 
 
@@ -106,13 +107,6 @@ def test_empty_list_falls_back_to_string_array():
     assert cols["b"].type == "String"
     assert int(cols["b"].array) == 1
     assert cols["b"].nullable is True
-
-
-def test_none_dict_value_raises():
-    """A record where a dict field is None in some records is rejected."""
-    arr = infer_struct_array([{"m": {"c": 1}}, {"m": None}])
-    with pytest.raises(ValueError, match="identical keys"):
-        struct_array_to_columns(arr)
 
 
 def test_leaf_column_info_mapping():

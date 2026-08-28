@@ -54,55 +54,32 @@ def fileserver():
 # =============================================================================
 
 
-async def test_url_invalid_scheme(ctx):
-    with pytest.raises(ValueError, match="http or https"):
-        await create_object_from_url("ftp://example.com/data.parquet", columns=["col1"])
-
-
-async def test_url_no_host(ctx):
-    with pytest.raises(ValueError, match="valid host"):
-        await create_object_from_url("http://", columns=["col1"])
-
-
-async def test_url_empty_columns(ctx):
-    with pytest.raises(ValueError, match="non-empty"):
-        await create_object_from_url("https://example.com/data.parquet", columns=[])
-
-
-async def test_url_unsupported_format(ctx):
-    with pytest.raises(ValueError, match="Unsupported format"):
-        await create_object_from_url(
+@pytest.mark.parametrize(
+    "url, kwargs, match",
+    [
+        pytest.param("ftp://example.com/data.parquet", {}, "http or https", id="invalid-scheme"),
+        pytest.param("http://", {}, "valid host", id="no-host"),
+        pytest.param("https://example.com/data.parquet", {"columns": []}, "non-empty", id="empty-columns"),
+        pytest.param(
             "https://example.com/data.parquet",
-            columns=["col1"],
-            format="InvalidFormat",
-        )
-
-
-async def test_url_invalid_limit_negative(ctx):
-    with pytest.raises(ValueError, match="positive integer"):
-        await create_object_from_url(
+            {"format": "InvalidFormat"},
+            "Unsupported format",
+            id="unsupported-format",
+        ),
+        pytest.param("https://example.com/data.parquet", {"limit": -1}, "positive integer", id="negative-limit"),
+        pytest.param("https://example.com/data.parquet", {"limit": 0}, "positive integer", id="zero-limit"),
+        pytest.param(
             "https://example.com/data.parquet",
-            columns=["col1"],
-            limit=-1,
-        )
-
-
-async def test_url_invalid_limit_zero(ctx):
-    with pytest.raises(ValueError, match="positive integer"):
-        await create_object_from_url(
-            "https://example.com/data.parquet",
-            columns=["col1"],
-            limit=0,
-        )
-
-
-async def test_url_where_with_semicolon(ctx):
-    with pytest.raises(ValueError, match="must not contain"):
-        await create_object_from_url(
-            "https://example.com/data.parquet",
-            columns=["col1"],
-            where="1=1; DROP TABLE users",
-        )
+            {"where": "1=1; DROP TABLE users"},
+            "must not contain",
+            id="where-with-semicolon",
+        ),
+    ],
+)
+async def test_url_input_validation_raises(ctx, url, kwargs, match):
+    kwargs = {"columns": ["col1"], **kwargs}
+    with pytest.raises(ValueError, match=match):
+        await create_object_from_url(url, **kwargs)
 
 
 # =============================================================================

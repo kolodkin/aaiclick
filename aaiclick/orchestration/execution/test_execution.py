@@ -327,18 +327,17 @@ async def test_deserialize_pydantic_model_round_trip(orch_ctx):
     assert recovered.ratio is None
 
 
-async def test_execute_task_sync_function(orch_ctx):
-    """Test executing a sync task function with no parameters."""
-    task = create_task("aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+@pytest.mark.parametrize(
+    "entrypoint",
+    [
+        pytest.param("aaiclick.orchestration.fixtures.sample_tasks.simple_task", id="sync"),
+        pytest.param("aaiclick.orchestration.fixtures.sample_tasks.async_task", id="async"),
+    ],
+)
+async def test_execute_task_no_parameters(orch_ctx, entrypoint):
+    """Test executing a task function with no parameters."""
+    task = create_task(entrypoint)
     task.job_id = 1  # Set a dummy job_id
-
-    await execute_task(task)  # Should not raise
-
-
-async def test_execute_task_async_function(orch_ctx):
-    """Test executing an async task function with no parameters."""
-    task = create_task("aaiclick.orchestration.fixtures.sample_tasks.async_task")
-    task.job_id = 1
 
     await execute_task(task)  # Should not raise
 

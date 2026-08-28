@@ -36,44 +36,20 @@ async def test_str_scalar_creation(ctx, value):
 # =============================================================================
 
 
-async def test_str_array_creation(ctx):
-    """Test creating a string array object."""
-    obj = await create_object_from_value(["apple", "banana", "cherry"])
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(["apple", "banana", "cherry"], id="simple"),
+        pytest.param(["single"], id="single-element"),
+        pytest.param(["a", "", "b", ""], id="empty-strings"),
+        pytest.param(["hello world", "foo bar", "test string"], id="spaces"),
+        pytest.param(["hello", "世界", "🎉"], id="unicode"),
+        # Insertion order is preserved, so an unsorted input round-trips as-is.
+        pytest.param(["z", "a", "m", "b", "y"], id="preserves-order"),
+    ],
+)
+async def test_str_array_creation(ctx, value):
+    """Test creating string array objects."""
+    obj = await create_object_from_value(value)
     data = await obj.data()
-    assert data == ["apple", "banana", "cherry"]
-
-
-async def test_str_array_single_element(ctx):
-    """Test creating a string array with single element."""
-    obj = await create_object_from_value(["single"])
-    data = await obj.data()
-    assert data == ["single"]
-
-
-async def test_str_array_with_empty_strings(ctx):
-    """Test creating a string array containing empty strings."""
-    obj = await create_object_from_value(["a", "", "b", ""])
-    data = await obj.data()
-    assert data == ["a", "", "b", ""]
-
-
-async def test_str_array_with_spaces(ctx):
-    """Test creating a string array with strings containing spaces."""
-    obj = await create_object_from_value(["hello world", "foo bar", "test string"])
-    data = await obj.data()
-    assert data == ["hello world", "foo bar", "test string"]
-
-
-async def test_str_array_unicode(ctx):
-    """Test creating a string array with unicode characters."""
-    obj = await create_object_from_value(["hello", "世界", "🎉"])
-    data = await obj.data()
-    assert data == ["hello", "世界", "🎉"]
-
-
-async def test_str_array_preserves_order(ctx):
-    """Test that string array preserves insertion order."""
-    values = ["z", "a", "m", "b", "y"]
-    obj = await create_object_from_value(values)
-    data = await obj.data()
-    assert data == values  # Order should be preserved
+    assert data == value

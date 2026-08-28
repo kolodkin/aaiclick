@@ -1,6 +1,6 @@
 ---
 name: python-testing-style
-description: Project conventions for writing pytest tests in aaiclick — file layout, flat structure, async test rules, what NOT to test, Object API alignment. TRIGGER when creating or editing `test_*.py` files, `conftest.py`, or when asked to write/review tests.
+description: Project conventions for writing pytest tests in aaiclick — file layout, flat structure, async test rules, what NOT to test, Object API alignment, when to parametrize, when a test is safe to delete. TRIGGER when creating or editing `test_*.py` files, `conftest.py`, or when asked to write, review, consolidate, parametrize, deduplicate, or remove tests.
 ---
 
 # python-testing-style
@@ -63,6 +63,52 @@ def test_data_list_single_vs_multiple():
     assert data_list("only").data == "only"
     assert data_list("a", "b").data == ["a", "b"]
 ```
+
+## Parametrize input/expected clusters
+
+When several tests drive the same call and differ only in inputs and expected values, fold them into one `@pytest.mark.parametrize`. Consolidate only when **all** of these hold:
+
+1. **One call shape** — same function or method; only literal arguments and expected values differ.
+2. **One outcome kind** — never merge tests asserting a returned value with tests asserting a raised exception. `pytest.raises` clusters parametrize separately.
+3. **Zero added logic** — no `if`, loop, `getattr`, or operator indirection introduced to absorb the variants. Needing one means don't consolidate.
+4. **Same fixtures and decorators.**
+5. **Intent survives** — every case gets a descriptive `id=`, and a docstring that explained one case becomes a comment on its param.
+
+Leave alone: different methods (`match` vs `like` — would need `getattr`), different call chains (`having` vs `or_having`), and tests whose setup bodies differ.
+
+```python
+# GOOD — one call, only literals vary, ids carry the intent
+@pytest.mark.parametrize(
+    "value, pattern, expected",
+    [
+        pytest.param(["apple", "banana"], "^a", [1, 0], id="array"),
+        pytest.param("hello", "ell", 1, id="scalar"),
+    ],
+)
+async def test_match(ctx, value, pattern, expected):
+    obj = await create_object_from_value(value)
+    assert await (await obj.match(pattern)).data() == expected
+
+# BAD — merges raises with asserts, and needs a branch to do it
+@pytest.mark.parametrize("value, expected, raises", [...])
+async def test_match(ctx, value, expected, raises):
+    if raises:
+        with pytest.raises(ValueError):
+            await create_object_from_value(value)
+    else:
+        ...
+```
+
+## Removing a redundant test
+
+Delete only when redundancy is **mechanically provable** — not because a test looks trivial:
+
+- **Exact duplicate** — identical statements, constants included. Keep the copy in the module whose docstring claims that contract.
+- **Strict subset** — a sibling asserts everything this test does, plus more. Fold any rationale the removed test documented into the survivor's docstring.
+
+Verify before committing: diff per-file `executed_lines` from `--cov-report=json` before and after, ignoring `test_*.py` entries, and require **zero production lines lost**. A green suite is not evidence on its own — a deleted test cannot fail.
+
+Looking trivial is not proof. Check first whether the test covers the negative branch of a conditional, or construction behavior that isn't free (positional args on a Pydantic model). Both read like default-value assertions and are neither.
 
 ## Warnings — `filterwarnings = ["error"]` turns warnings into failures
 

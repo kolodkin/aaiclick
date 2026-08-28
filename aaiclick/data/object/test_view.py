@@ -8,28 +8,24 @@ from aaiclick import create_object_from_value
 from aaiclick.data.models import Computed
 
 
-async def test_view_where_limit(ctx):
-    """Test creating a view with WHERE and LIMIT constraints."""
-    obj = await create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], aai_id=True)
-    view = obj.view(where="value > 5", limit=3)
-    result = await view.data()
-    assert result == [6, 7, 8]
-
-
-async def test_view_offset(ctx):
-    """Test creating a view with OFFSET constraint."""
-    obj = await create_object_from_value([10, 20, 30, 40, 50], aai_id=True)
-    view = obj.view(offset=2, limit=2)
-    result = await view.data()
-    assert result == [30, 40]
-
-
-async def test_view_order_by(ctx):
-    """Test creating a view with ORDER BY constraint."""
-    obj = await create_object_from_value([3, 1, 4, 1, 5], aai_id=True)
-    view = obj.view(order_by="value DESC", limit=3)
-    result = await view.data()
-    assert result == [5, 4, 3]
+@pytest.mark.parametrize(
+    "value, view_kwargs, expected",
+    [
+        pytest.param(
+            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            {"where": "value > 5", "limit": 3},
+            [6, 7, 8],
+            id="where-limit",
+        ),
+        pytest.param([10, 20, 30, 40, 50], {"offset": 2, "limit": 2}, [30, 40], id="offset"),
+        pytest.param([3, 1, 4, 1, 5], {"order_by": "value DESC", "limit": 3}, [5, 4, 3], id="order-by"),
+    ],
+)
+async def test_view_constraints(ctx, value, view_kwargs, expected):
+    """view() applies WHERE, LIMIT, OFFSET and ORDER BY constraints."""
+    obj = await create_object_from_value(value, aai_id=True)
+    view = obj.view(**view_kwargs)
+    assert await view.data() == expected
 
 
 async def test_view_insert_blocked(ctx):
