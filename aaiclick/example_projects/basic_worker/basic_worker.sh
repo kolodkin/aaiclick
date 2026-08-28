@@ -1,5 +1,5 @@
 #!/bin/bash
-# Basic worker example: register a job and run a worker to execute it.
+# Basic worker example: run a job on a worker and follow its progress.
 #
 # Expected output: prints every 0.5 seconds for 3 seconds (6 ticks total)
 #
@@ -12,37 +12,21 @@ cd "$SCRIPT_DIR"
 
 PYTHON="${PYTHON:-uv run python}"
 
-echo "=== Basic Worker Example ==="
+echo "## Basic Worker Example"
 echo
 
-# Step 1: Register the job
-echo "Registering job..."
-$PYTHON -m basic_worker
-echo
-
-# Step 2: Start background cleanup worker
-echo "Starting background cleanup worker..."
 $PYTHON -m aaiclick background start &
 BACKGROUND_PID=$!
-echo "Background worker started (PID: $BACKGROUND_PID)"
-echo
-
-# Step 3: Start worker in background
-echo "Starting worker..."
 $PYTHON -m aaiclick execution-worker start &
 WORKER_PID=$!
-echo "Worker started (PID: $WORKER_PID)"
-echo
+# Give the worker a chance to flush its output before the script exits.
+stop_workers() {
+    kill $WORKER_PID $BACKGROUND_PID 2>/dev/null || true
+    wait $WORKER_PID $BACKGROUND_PID 2>/dev/null || true
+}
+trap stop_workers EXIT
 
-# Step 4: Wait for task execution
-echo "Waiting 5 seconds for task execution..."
-sleep 5
-
-# Step 5: Stop workers
-echo
-echo "Stopping workers..."
-kill $WORKER_PID 2>/dev/null || true
-kill $BACKGROUND_PID 2>/dev/null || true
-
-echo
-echo "=== Example completed ==="
+# A dotted entrypoint needs no prior registration, and --progress blocks until
+# the job is terminal, prints the task table on every change, and exits
+# non-zero on failure — no job-id scraping, poll loop, or fixed sleep.
+$PYTHON -m aaiclick run-job basic_worker.periodic_print_job --progress --timeout 60
