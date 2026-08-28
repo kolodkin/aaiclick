@@ -177,6 +177,9 @@ returns, so a dotted entrypoint blocks and reports the same way.
 
 ```bash
 python -m aaiclick run-job myapp.pipelines.crawl --set depth=3 --progress
+
+# A dotted run is named after the last segment, so it is waitable by name too:
+python -m aaiclick job wait crawl
 ```
 
 !!! warning "A bare name that was never registered is not an entrypoint"
