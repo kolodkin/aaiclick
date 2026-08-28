@@ -62,10 +62,9 @@ returns data. See
 [Examples: Orchestration Dynamic](../examples/orchestration_dynamic.md).
 
 !!! warning "A list carries tasks only, unnested"
-    `return [obj, group]` raises `TypeError` — one of the two would be silently
-    dropped; use `task_result(data=obj, tasks=[group])`. So does
-    `return [[a, b], [c, d]]` — nesting means nothing to the graph, and
-    flattening it would discard the grouping it looks like it expresses. Use a
+    `return [obj, group]` raises `TypeError` — use
+    `task_result(data=obj, tasks=[group])` to return data alongside tasks. So
+    does `return [[a, b], [c, d]]`: nesting means nothing to the graph, so use a
     `Group` when tasks belong together.
 
 ## Testing jobs
