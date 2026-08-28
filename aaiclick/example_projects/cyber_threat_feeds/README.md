@@ -5,4 +5,7 @@ Multi-source cybersecurity pipeline that loads CISA KEV, Shodan CVEDB, and FIRST
 
 ```bash
 ./cyber_threat_feeds.sh
+
+# Job kwargs are forwarded to `run-job`
+./cyber_threat_feeds.sh --set shodan_limit=1000
 ```

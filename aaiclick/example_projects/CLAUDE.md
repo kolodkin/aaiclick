@@ -51,16 +51,20 @@ example_projects/<name>/
 │   └── report.py        # Report rendering (rich tables, Object.markdown(), or print)
 ├── pyproject.toml       # Project metadata and dependencies
 ├── uv.lock              # Locked dependency versions
-├── <name>.sh            # Shell runner: sets env vars, calls python -m, manages workers
+├── <name>.sh            # Shell runner: sets env vars, runs the job, manages workers
 ├── README.md            # Title, description, how to run (see README Convention above)
 └── SPEC.md              # Optional: design notes / architectural rationale
 ```
 
 - The nested `<name>/` folder is the Python package — the outer folder is the project directory
 - `__main__.py` imports and calls `main()` from `__init__.py`
-- `<name>.sh` is the user-facing entry point — `cd`s to its own directory, runs `python -m <name>`
+- `<name>.sh` is the user-facing entry point — `cd`s to its own directory, then runs the project
 - Shell scripts use `PYTHON="${PYTHON:-uv run python}"` for dual-mode support (monorepo or standalone)
-- Orchestration projects: `.sh` registers the job, starts worker, polls status, stops worker
+- Orchestration projects: `.sh` starts the workers, then runs
+  `python -m aaiclick run-job <name>.<job_func> --progress "$@"`. A dotted entrypoint needs no
+  prior registration; `--progress` blocks, prints the task table on each change, and exits
+  non-zero on failure — never hand-roll a poll loop, job-id scrape, or status branch. Forwarding
+  `"$@"` lets callers override job kwargs with `--set KEY=VALUE`
 - Each example project should have a `report.py` file containing final report printout logic
 - The `@job` function returns the terminal task directly (e.g. `return report`) — the framework auto-discovers all upstream tasks via the dependency graph; `report.py` is only responsible for the printout
 - Always prefer `Object.markdown()` for rendering tables in `report.py` — avoid custom table rendering logic
