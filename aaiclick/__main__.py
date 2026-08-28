@@ -36,6 +36,7 @@ import asyncio
 import json
 import shlex
 import sys
+from contextlib import redirect_stdout
 from contextvars import ContextVar
 from datetime import datetime
 from typing import Any, cast, get_args
@@ -49,7 +50,13 @@ from aaiclick.internal_api import tenants as tenants_api
 from aaiclick.internal_api import users as users_api
 from aaiclick.internal_api.errors import InternalApiError, NotFound
 from aaiclick.orchestration.kubernetes_config import build_kubernetes_config
-from aaiclick.orchestration.models import ExecutionWorkerStatus, JobStatus, PreservationMode, RunnerMode
+from aaiclick.orchestration.models import (
+    JOB_COMPLETED,
+    ExecutionWorkerStatus,
+    JobStatus,
+    PreservationMode,
+    RunnerMode,
+)
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.orchestration.runner_config import ENTRY_TYPES
 from aaiclick.tenancy import active_tenant
@@ -70,6 +77,26 @@ _JSON_HELP = "Emit JSON instead of a table"
 
 def _add_json_flag(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--json", action="store_true", help=_JSON_HELP)
+
+
+def _add_timeout_flag(parser: argparse.ArgumentParser, *, context: str) -> None:
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=cli_wait.DEFAULT_WAIT_TIMEOUT,
+        help=f"Seconds to wait {context} (default: {cli_wait.DEFAULT_WAIT_TIMEOUT:.0f})",
+    )
+
+
+def _add_set_flag(parser: argparse.ArgumentParser, *, verb: str) -> None:
+    parser.add_argument(
+        "--set",
+        dest="set_kwargs",
+        action="append",
+        metavar="KEY=VALUE",
+        default=None,
+        help=f"{verb} kwarg as KEY=VALUE (repeatable); JSON-typed, wins over --kwargs",
+    )
 
 
 def _print_json(model) -> None:
@@ -232,35 +259,41 @@ async def _run_run_job(args: argparse.Namespace) -> None:
     if not (args.progress and args.json):
         _render(args, view, cli_renderers.render_job_created)
     if args.progress:
-        await _wait_and_exit(view.id, args, progress=not args.json)
+        await _wait_and_exit(view.id, args)
 
 
-async def _wait_and_exit(ref: RefId, args: argparse.Namespace, *, progress: bool) -> None:
+async def _wait_and_exit(ref: RefId, args: argparse.Namespace) -> None:
     """Block until ``ref`` is terminal, report it, and exit with its status code.
 
     Only ``COMPLETED`` exits 0 — a failed, cancelled, or timed-out job must be
     visible to ``set -e`` scripts and CI steps.
     """
+    # Progress reports would corrupt the single JSON document --json promises.
+    on_change = None if args.json else cli_renderers.render_job_stats
     try:
-        stats = await _run_internal_api(cli_wait.wait_for_job(ref, timeout=args.timeout, progress=progress))
+        stats = await _run_internal_api(cli_wait.wait_for_job(ref, timeout=args.timeout, on_change=on_change))
     except cli_wait.JobWaitTimeout as exc:
         print(exc, file=sys.stderr)
+        # Progress was suppressed under --json, so nothing has named the stuck
+        # task yet. Dump it to stderr — stdout stays one parseable document.
+        if args.json:
+            with redirect_stdout(sys.stderr):
+                cli_renderers.render_job_stats(exc.stats)
         sys.exit(1)
 
     if args.json:
         _print_json(stats)
 
-    code = cli_wait.exit_code_for(stats.job_status)
-    if code:
+    if stats.job_status != JOB_COMPLETED:
         # Under --json the document above already carries every task error;
         # appending the human-readable block would make stdout unparseable.
         if not args.json:
             cli_renderers.render_job_failure(stats)
-        sys.exit(code)
+        sys.exit(1)
 
 
 async def _run_job_wait(args: argparse.Namespace) -> None:
-    await _wait_and_exit(args.ref, args, progress=not args.json)
+    await _wait_and_exit(args.ref, args)
 
 
 async def _run_register_job(args: argparse.Namespace) -> None:
@@ -735,12 +768,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Block until a job reaches a terminal status",
     )
     job_wait_parser.add_argument("ref", type=str, help="Job ID or name")
-    job_wait_parser.add_argument(
-        "--timeout",
-        type=float,
-        default=cli_wait.DEFAULT_WAIT_TIMEOUT,
-        help=f"Seconds to wait before giving up (default: {cli_wait.DEFAULT_WAIT_TIMEOUT:.0f})",
-    )
+    _add_timeout_flag(job_wait_parser, context="before giving up")
     _add_json_flag(job_wait_parser)
 
     # job enable <name>
@@ -786,14 +814,7 @@ def build_parser() -> argparse.ArgumentParser:
     register_job_parser.add_argument("--name", default=None, help="Job name (default: last segment of entrypoint)")
     register_job_parser.add_argument("--schedule", default=None, help="Cron expression (e.g. '0 8 * * *')")
     register_job_parser.add_argument("--kwargs", default=None, help="Default kwargs as JSON string")
-    register_job_parser.add_argument(
-        "--set",
-        dest="set_kwargs",
-        action="append",
-        metavar="KEY=VALUE",
-        default=None,
-        help="Default kwarg as KEY=VALUE (repeatable); JSON-typed, wins over --kwargs",
-    )
+    _add_set_flag(register_job_parser, verb="Default")
     register_job_parser.add_argument(
         "--preservation-mode",
         choices=list(get_args(PreservationMode)),
@@ -845,14 +866,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_job_parser.add_argument("name", type=str, help="Job name or entrypoint")
     run_job_parser.add_argument("--kwargs", default=None, help="Override kwargs as JSON string")
-    run_job_parser.add_argument(
-        "--set",
-        dest="set_kwargs",
-        action="append",
-        metavar="KEY=VALUE",
-        default=None,
-        help="Override kwarg as KEY=VALUE (repeatable); JSON-typed, wins over --kwargs",
-    )
+    _add_set_flag(run_job_parser, verb="Override")
     run_job_parser.add_argument(
         "--preservation-mode",
         choices=list(get_args(PreservationMode)),
@@ -923,12 +937,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Block until the job finishes, printing task progress; exits non-zero if it fails",
     )
-    run_job_parser.add_argument(
-        "--timeout",
-        type=float,
-        default=cli_wait.DEFAULT_WAIT_TIMEOUT,
-        help=f"Seconds to wait with --progress (default: {cli_wait.DEFAULT_WAIT_TIMEOUT:.0f})",
-    )
+    _add_timeout_flag(run_job_parser, context="with --progress")
     _add_json_flag(run_job_parser)
 
     # Add registered-job subcommand

@@ -319,7 +319,7 @@ async def test_job_wait_returns_cleanly_when_job_completed():
 
 async def test_job_wait_timeout_exits_nonzero(capsys):
     args = build_parser().parse_args(["job", "wait", "77"])
-    boom = AsyncMock(side_effect=JobWaitTimeout("stuck"))
+    boom = AsyncMock(side_effect=JobWaitTimeout("stuck", _stats_view("RUNNING")))
     with (
         patch("aaiclick.__main__.cli_wait.wait_for_job", new=boom),
         patch("aaiclick.__main__._run_internal_api", new=_passthrough_run_internal_api),
@@ -371,3 +371,22 @@ async def test_job_wait_json_output_stays_parseable_on_failure(capsys):
             await _run_job_wait(args)
 
     json.loads(capsys.readouterr().out)
+
+
+async def test_job_wait_json_timeout_keeps_stdout_clean_and_diagnoses_on_stderr(capsys):
+    """Under --json nothing has streamed progress, so the timeout still has to
+    name the stuck task — on stderr, leaving stdout parseable."""
+    args = build_parser().parse_args(["job", "wait", "77", "--json"])
+    stuck = _stats_view("RUNNING", [TaskStatsView(id=7, entrypoint="mod.stuck", status="RUNNING")])
+    boom = AsyncMock(side_effect=JobWaitTimeout("stuck", stuck))
+
+    with (
+        patch("aaiclick.__main__.cli_wait.wait_for_job", new=boom),
+        patch("aaiclick.__main__._run_internal_api", new=_passthrough_run_internal_api),
+    ):
+        with pytest.raises(SystemExit):
+            await _run_job_wait(args)
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "mod.stuck" in captured.err

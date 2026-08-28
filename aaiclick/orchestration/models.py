@@ -53,6 +53,10 @@ JOB_CANCELLED = "CANCELLED"
 JobStatus = Literal["PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"]
 """Job execution status."""
 
+TERMINAL_JOB_STATUSES: tuple[JobStatus, ...] = (JOB_COMPLETED, JOB_FAILED, JOB_CANCELLED)
+"""Statuses a job never leaves. One source of truth: a consumer that misses a
+newly-added terminal status waits forever on a job the domain calls finished."""
+
 
 TASK_PENDING = "PENDING"
 TASK_CLAIMED = "CLAIMED"
@@ -70,6 +74,9 @@ TaskStatus = Literal[
 ``UPSTREAM_FAILED`` is a terminal state assigned by the cascade sweep when a
 task's transitive upstream is ``FAILED``, ``CANCELLED``, or ``UPSTREAM_FAILED``.
 Job rollup treats it as a failure."""
+
+NON_SUCCESS_TASK_STATUSES: tuple[TaskStatus, ...] = (TASK_FAILED, TASK_CANCELLED, TASK_UPSTREAM_FAILED)
+"""Terminal task statuses that a job rollup counts as a failure."""
 
 
 EXECUTION_WORKER_ACTIVE = "ACTIVE"

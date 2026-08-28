@@ -229,6 +229,11 @@ All REST paths share a common `/api/v0` prefix — see
 | `data purge`               | `purge_objects(filter)`            | `POST /objects:purge`              | `purge_objects`           |
 | *(new)* task detail        | `get_task(id)`                     | `GET /tasks/{id}`                  | `get_task`                |
 
+`job wait <ref>` and `run-job --progress` have no row: they are CLI-only
+compositions over `job_stats`. Blocking a request for up to 600s is not a
+valid server shape — REST clients poll `GET /jobs/{ref}/stats` instead.
+
+
 # CLI Rendering Contract
 
 `aaiclick/__main__.py` holds argparse wiring and two renderers — nothing else:

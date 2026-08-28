@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from aaiclick.auth.view_models import MemberView, TenantView, UserView
 from aaiclick.data.view_models import ObjectDetail, ObjectView
-from aaiclick.orchestration.models import TASK_FAILED
+from aaiclick.orchestration.models import NON_SUCCESS_TASK_STATUSES, TASK_FAILED
 from aaiclick.orchestration.view_models import (
     ExecutionWorkerView,
     JobDetail,
@@ -127,11 +127,17 @@ def render_job_failure(stats: JobStatsView) -> None:
     ``render_job_stats`` clips errors to 60 characters so its table stays
     aligned; this is the end-of-wait message, where the whole error is the
     point. Points at ``task get`` for the task's full detail and logs.
+
+    Prefers directly-failed tasks: a cascade marks every downstream task
+    ``UPSTREAM_FAILED`` with one constant error, so listing those beside a real
+    failure is noise. They are the fallback when nothing failed directly (a
+    cancelled origin), so the block is never silent on a job the rollup failed.
     """
     failed = [t for t in stats.tasks if t.status == TASK_FAILED]
     if not failed:
-        return
-    print(f"\nJob '{stats.job_name}' (id={stats.job_id}) failed:")
+        failed = [t for t in stats.tasks if t.status in NON_SUCCESS_TASK_STATUSES]
+
+    print(f"\nJob '{stats.job_name}' (id={stats.job_id}) ended as {stats.job_status}:")
     for t in failed:
         print(f"\n  Task {t.id} ({t.entrypoint})")
         if t.error:
