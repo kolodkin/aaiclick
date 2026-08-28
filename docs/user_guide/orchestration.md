@@ -172,6 +172,19 @@ scripts and CI stop on a failed run. Failures print the failing task's full erro
 and its `task get` command; `--json` emits the final stats as one parseable
 document, with diagnostics on stderr.
 
+Registration is not a prerequisite: the wait follows the job id the run
+returns, so a dotted entrypoint blocks and reports the same way.
+
+```bash
+python -m aaiclick run-job myapp.pipelines.crawl --set depth=3 --progress
+```
+
+!!! warning "A bare name that was never registered is not an entrypoint"
+    With no `crawl` registration, `run-job crawl` falls back to the name itself
+    as the entrypoint and the task fails on the worker with `Invalid entrypoint
+    format: crawl. Expected 'module.function'`. `--progress` surfaces that in
+    the same command instead of leaving a failed job to discover later.
+
 **Implementation**: `aaiclick/cli_wait.py` — see `wait_for_job()`.
 
 ## Register a job
