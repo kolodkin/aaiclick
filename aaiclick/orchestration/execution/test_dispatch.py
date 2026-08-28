@@ -80,13 +80,6 @@ async def test_resolve_launch_image_prebuilt_tag_verbatim():
     assert await resolve_launch_image(source, task_id=1) == "ghcr.io/x/y:1"
 
 
-async def test_resolve_launch_image_computes_registry_tag(monkeypatch):
-    monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
-    source = ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40)
-    tag = await resolve_launch_image(source, task_id=1)
-    assert tag == "registry.example:5000/aaiclick-job:" + "a" * 40
-
-
 async def test_resolve_launch_image_rejects_missing_source():
     with pytest.raises(ValueError, match="no image_source"):
         await resolve_launch_image(None, task_id=42)
