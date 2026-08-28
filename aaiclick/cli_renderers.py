@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from aaiclick.auth.view_models import MemberView, TenantView, UserView
 from aaiclick.data.view_models import ObjectDetail, ObjectView
+from aaiclick.orchestration.models import TASK_FAILED
 from aaiclick.orchestration.view_models import (
     ExecutionWorkerView,
     JobDetail,
@@ -118,6 +119,24 @@ def render_job_cancelled(view: JobView) -> None:
 def render_job_created(view: JobView) -> None:
     """Single-line confirmation that ``internal_api.run_job`` created a job."""
     print(f"Job '{view.name}' created (id={view.id}, run_type={view.run_type})")
+
+
+def render_job_failure(stats: JobStatsView) -> None:
+    """Print the untruncated error of every failed task in a terminal job.
+
+    ``render_job_stats`` clips errors to 60 characters so its table stays
+    aligned; this is the end-of-wait message, where the whole error is the
+    point. Points at ``task get`` for the task's full detail and logs.
+    """
+    failed = [t for t in stats.tasks if t.status == TASK_FAILED]
+    if not failed:
+        return
+    print(f"\nJob '{stats.job_name}' (id={stats.job_id}) failed:")
+    for t in failed:
+        print(f"\n  Task {t.id} ({t.entrypoint})")
+        if t.error:
+            print(f"    {t.error}")
+        print(f"    Full detail: aaiclick task get {t.id}")
 
 
 def render_registered_jobs_page(page: Page[RegisteredJobView], offset: int) -> None:

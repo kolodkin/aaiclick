@@ -14,11 +14,13 @@ Usage:
     python -m aaiclick job stats <ref>          # Show job execution stats
     python -m aaiclick job cancel <ref>         # Cancel a job
     python -m aaiclick job list                 # List jobs
+    python -m aaiclick job wait <ref>           # Block until a job reaches a terminal status
     python -m aaiclick job enable <name>        # Enable a registered job
     python -m aaiclick job disable <name>       # Disable a registered job
     python -m aaiclick task get <id>            # Get task details by ID
     python -m aaiclick register-job <entrypoint> # Register a job
     python -m aaiclick run-job <name>           # Run a job immediately
+    python -m aaiclick run-job <name> --progress  # ...and block, showing task progress
     python -m aaiclick registered-job list      # List registered jobs
     python -m aaiclick data list                # List persistent objects
     python -m aaiclick data get <name>          # Show persistent object details
@@ -36,9 +38,9 @@ import shlex
 import sys
 from contextvars import ContextVar
 from datetime import datetime
-from typing import cast, get_args
+from typing import Any, cast, get_args
 
-from aaiclick import cli_renderers, internal_api
+from aaiclick import cli_renderers, cli_wait, internal_api
 from aaiclick.auth import store as auth_store
 from aaiclick.auth.models import ROLE_VIEWER, ROLES
 from aaiclick.auth.view_models import CreateTenantRequest, CreateUserRequest, UserListFilter
@@ -57,6 +59,7 @@ from aaiclick.view_models import (
     MigrationAction,
     ObjectFilter,
     PurgeObjectsRequest,
+    RefId,
     RegisteredJobFilter,
     RegisterJobRequest,
     RunJobRequest,
@@ -182,8 +185,31 @@ def _parse_command_env(pairs: list[str] | None) -> dict[str, str] | None:
     return result
 
 
+def _parse_set_kwargs(pairs: list[str] | None) -> dict[str, Any]:
+    """Parse repeated ``--set KEY=VALUE`` args into typed job kwargs.
+
+    Values are JSON-parsed so ``corpus_size=300`` arrives as an ``int`` and
+    ``generate=true`` as a ``bool``, falling back to the raw string when the
+    value is not valid JSON (``name=hello``). Splits on the first ``=`` only,
+    so ``expr=a=b`` keeps its value intact.
+    """
+    if not pairs:
+        return {}
+    result: dict[str, Any] = {}
+    for pair in pairs:
+        key, sep, value = pair.partition("=")
+        if not sep:
+            raise ValueError(f"--set expects KEY=VALUE, got {pair!r}")
+        try:
+            result[key] = json.loads(value)
+        except json.JSONDecodeError:
+            result[key] = value
+    return result
+
+
 async def _run_run_job(args: argparse.Namespace) -> None:
     kwargs: dict = json.loads(args.kwargs) if args.kwargs else {}
+    kwargs.update(_parse_set_kwargs(args.set_kwargs))
     request = RunJobRequest(
         name=args.name,
         kwargs=kwargs,
@@ -201,11 +227,47 @@ async def _run_run_job(args: argparse.Namespace) -> None:
         image=args.image,
     )
     view = await _run_internal_api(internal_api.run_job(request))
-    _render(args, view, cli_renderers.render_job_created)
+    # With --progress --json the final stats are the document callers parse;
+    # emitting the created-job view too would put two JSON objects on stdout.
+    if not (args.progress and args.json):
+        _render(args, view, cli_renderers.render_job_created)
+    if args.progress:
+        await _wait_and_exit(view.id, args, progress=not args.json)
+
+
+async def _wait_and_exit(ref: RefId, args: argparse.Namespace, *, progress: bool) -> None:
+    """Block until ``ref`` is terminal, report it, and exit with its status code.
+
+    Only ``COMPLETED`` exits 0 — a failed, cancelled, or timed-out job must be
+    visible to ``set -e`` scripts and CI steps.
+    """
+    try:
+        stats = await _run_internal_api(cli_wait.wait_for_job(ref, timeout=args.timeout, progress=progress))
+    except cli_wait.JobWaitTimeout as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
+
+    if args.json:
+        _print_json(stats)
+
+    code = cli_wait.exit_code_for(stats.job_status)
+    if code:
+        # Under --json the document above already carries every task error;
+        # appending the human-readable block would make stdout unparseable.
+        if not args.json:
+            cli_renderers.render_job_failure(stats)
+        sys.exit(code)
+
+
+async def _run_job_wait(args: argparse.Namespace) -> None:
+    await _wait_and_exit(args.ref, args, progress=not args.json)
 
 
 async def _run_register_job(args: argparse.Namespace) -> None:
     default_kwargs: dict | None = json.loads(args.kwargs) if args.kwargs else None
+    set_kwargs = _parse_set_kwargs(args.set_kwargs)
+    if set_kwargs:
+        default_kwargs = {**(default_kwargs or {}), **set_kwargs}
     kubernetes_config = build_kubernetes_config(
         namespace=args.namespace,
         service_account=args.k8s_service_account,
@@ -667,6 +729,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_json_flag(job_list_parser)
 
+    # job wait <ref>
+    job_wait_parser = job_subparsers.add_parser(
+        "wait",
+        help="Block until a job reaches a terminal status",
+    )
+    job_wait_parser.add_argument("ref", type=str, help="Job ID or name")
+    job_wait_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=cli_wait.DEFAULT_WAIT_TIMEOUT,
+        help=f"Seconds to wait before giving up (default: {cli_wait.DEFAULT_WAIT_TIMEOUT:.0f})",
+    )
+    _add_json_flag(job_wait_parser)
+
     # job enable <name>
     job_enable_parser = job_subparsers.add_parser(
         "enable",
@@ -710,6 +786,14 @@ def build_parser() -> argparse.ArgumentParser:
     register_job_parser.add_argument("--name", default=None, help="Job name (default: last segment of entrypoint)")
     register_job_parser.add_argument("--schedule", default=None, help="Cron expression (e.g. '0 8 * * *')")
     register_job_parser.add_argument("--kwargs", default=None, help="Default kwargs as JSON string")
+    register_job_parser.add_argument(
+        "--set",
+        dest="set_kwargs",
+        action="append",
+        metavar="KEY=VALUE",
+        default=None,
+        help="Default kwarg as KEY=VALUE (repeatable); JSON-typed, wins over --kwargs",
+    )
     register_job_parser.add_argument(
         "--preservation-mode",
         choices=list(get_args(PreservationMode)),
@@ -761,6 +845,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_job_parser.add_argument("name", type=str, help="Job name or entrypoint")
     run_job_parser.add_argument("--kwargs", default=None, help="Override kwargs as JSON string")
+    run_job_parser.add_argument(
+        "--set",
+        dest="set_kwargs",
+        action="append",
+        metavar="KEY=VALUE",
+        default=None,
+        help="Override kwarg as KEY=VALUE (repeatable); JSON-typed, wins over --kwargs",
+    )
     run_job_parser.add_argument(
         "--preservation-mode",
         choices=list(get_args(PreservationMode)),
@@ -825,6 +917,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--image",
         default=None,
         help="Prebuilt image to run verbatim (no build stage); mutually exclusive with --git-*",
+    )
+    run_job_parser.add_argument(
+        "--progress",
+        action="store_true",
+        help="Block until the job finishes, printing task progress; exits non-zero if it fails",
+    )
+    run_job_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=cli_wait.DEFAULT_WAIT_TIMEOUT,
+        help=f"Seconds to wait with --progress (default: {cli_wait.DEFAULT_WAIT_TIMEOUT:.0f})",
     )
     _add_json_flag(run_job_parser)
 
@@ -1173,6 +1276,9 @@ def main():
 
         elif args.job_command == "list":
             asyncio.run(_run_job_list(args))
+
+        elif args.job_command == "wait":
+            asyncio.run(_run_job_wait(args))
 
         elif args.job_command == "enable":
             asyncio.run(_run_job_enable(args))

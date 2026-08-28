@@ -131,7 +131,13 @@ not a prerequisite.
 
     ```bash
     python -m aaiclick run-job etl --kwargs '{"day": "2026-07-01"}'
+
+    # Repeatable KEY=VALUE pairs; values are JSON-parsed (limit is an int).
+    python -m aaiclick run-job etl --set day=2026-07-01 --set limit=500 --set dry_run=true
     ```
+
+    `--set` beats `--kwargs`, which beats the registration's `default_kwargs`.
+    A value that is not valid JSON stays a string.
 
 === "REST"
 
@@ -147,6 +153,25 @@ not a prerequisite.
 All three surfaces also accept `preservation_mode` and the runner fields —
 `entry_type` / `command` / `command_env` (see [Shell tasks](#shell-tasks)) and
 `image` / `git_*` / `dockerfile` (see [Image source](#image-source-docker-kubernetes)).
+
+## Wait for completion
+
+`run-job` returns as soon as the job is queued. `--progress` blocks until it
+reaches a terminal status; `job wait` does the same for an already-submitted job,
+by id or name:
+
+```bash
+python -m aaiclick run-job etl --set day=2026-07-01 --progress
+python -m aaiclick job wait etl --timeout 900
+```
+
+Both re-print the task table whenever the status counts change and exit
+**non-zero** on failure, cancellation, or timeout (default 600s), so `set -e`
+scripts and CI stop on a failed run. Failures print the failing task's full error
+and its `task get` command; `--json` emits the final stats as one parseable
+document, with diagnostics on stderr.
+
+**Implementation**: `aaiclick/cli_wait.py` — see `wait_for_job()`.
 
 ## Register a job
 
