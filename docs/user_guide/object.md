@@ -3,7 +3,7 @@ Object
 
 # Overview
 
-The `Object` class (`aaiclick/data/object.py`) wraps a ClickHouse table. Each instance corresponds to one table; operator overloading creates new tables with results.
+The `Object` class (`aaiclick/data/object/object.py`) wraps a ClickHouse table. Each instance corresponds to one table; operator overloading creates new tables with results.
 
 **Key Features:**
 - Operator overloading for arithmetic, comparison, and bitwise operations
@@ -261,7 +261,7 @@ mask = await obj["category"].isin(allowed)
 
 ## Unary Transform Operators
 
-**Implementation**: `aaiclick/data/object.py` (methods) delegates to `aaiclick/data/operators.py` — see `unary_transform()`
+**Implementation**: `aaiclick/data/object/object.py` (methods) delegates to `aaiclick/data/object/operators.py` — see `unary_transform()`
 
 Apply a ClickHouse function element-wise to the value column, returning a new Object. Object-level equivalents of [Domain Helpers](#domain-helpers) which operate on Views.
 
@@ -280,11 +280,11 @@ Apply a ClickHouse function element-wise to the value column, returning a new Ob
 
 Results are full Objects — chainable with any operator (e.g., `await (await obj.year()).unique()`).
 
-**Tests**: `aaiclick/data/test_unary_transforms.py`. For runnable examples, see `examples/transforms.py`.
+**Tests**: `aaiclick/data/object/test_unary_transforms.py`. For runnable examples, see `examples/transforms.py`.
 
 ## Group By Operations
 
-Pandas-style two-step: `obj.group_by('key').sum('col')`. See `GroupByQuery` class in `aaiclick/data/object.py`.
+Pandas-style two-step: `obj.group_by('key').sum('col')`. See `GroupByQuery` class in `aaiclick/data/object/object.py`.
 
 | Method             | Description                  | Result Column Type                     |
 |--------------------|------------------------------|----------------------------------------|
@@ -421,7 +421,7 @@ types from a sample of zero rows.
 
 ??? note "Shared insert mechanics"
 
-    Both `insert()` and `concat()` delegate to `_insert_source()` (`aaiclick/data/ingest.py`) — one `INSERT INTO ... SELECT CAST(...) FROM source` per source. Order follows argument order.
+    Both `insert()` and `concat()` delegate to `_insert_source()` (`aaiclick/data/object/ingest.py`) — one `INSERT INTO ... SELECT CAST(...) FROM source` per source. Order follows argument order.
 
 ## Row Order
 
@@ -759,6 +759,8 @@ obj.with_columns({"weight": literal(1.0, "Float64")})
 
 Supported types: `str` (quoted), `int`/`float` (bare), `bool` (`true`/`false`).
 
+**Tests**: `aaiclick/data/object/test_with_columns.py`
+
 ## Explode
 
 Flattens Array column(s) into individual rows (scalar columns duplicated). Returns a **View** — downstream operators fuse into a single query. Exploded columns change from `Array(T)` to `T`. See `aaiclick/data/examples/explode.py`.
@@ -779,29 +781,39 @@ Flattens Array column(s) into individual rows (scalar columns duplicated). Retur
 
 Named shortcuts that delegate to `with_columns()`. Each auto-names the result column; all accept `alias=` override and return a `View`.
 
-| Helper                                    | Default Alias         | Type      | Expression                            |
-|-------------------------------------------|-----------------------|-----------|---------------------------------------|
-| `with_year(col)`                          | `{col}_year`          | `UInt16`  | `toYear(col)`                         |
-| `with_month(col)`                         | `{col}_month`         | `UInt8`   | `toMonth(col)`                        |
-| `with_day_of_week(col)`                   | `{col}_dow`           | `UInt8`   | `toDayOfWeek(col)`                    |
-| `with_date_diff(unit, col_a, col_b)`      | `{col_a}_{col_b}_diff`| `Int64`   | `dateDiff('unit', col_a, col_b)`      |
-| `with_lower(col)`                         | `{col}_lower`         | `String`  | `lower(col)`                          |
-| `with_upper(col)`                         | `{col}_upper`         | `String`  | `upper(col)`                          |
-| `with_length(col)`                        | `{col}_length`        | `UInt64`  | `length(col)`                         |
-| `with_trim(col)`                          | `{col}_trimmed`       | `String`  | `trim(col)`                           |
-| `with_abs(col)`                           | `{col}_abs`           | `Float64` | `abs(col)`                            |
-| `with_log2(col)`                          | `{col}_log2`          | `Float64` | `log2(col)`                           |
-| `with_sqrt(col)`                          | `{col}_sqrt`          | `Float64` | `sqrt(col)`                           |
-| `with_bucket(col, size)`                  | `{col}_bucket`        | `Int64`   | `intDiv(col, size)`                   |
-| `with_hash_bucket(col, n)`               | `{col}_hash`          | `UInt64`  | `cityHash64(col) % n`                |
-| `with_if(cond, then, else, *, alias)`     | required `alias`      | `String`  | `if(cond, then, else)`                |
-| `with_cast(col, ch_type)`                 | `{col}_{type_lower}`  | `ch_type` | `to{Type}(col)`                       |
-| `with_split_by_char(col, sep)`            | `{col}_parts`         | `Array(String)` | `splitByChar(sep, col)`         |
-| `with_isin(col, other)`                   | `{col}_isin`          | `UInt8`   | `col IN (SELECT value FROM …)`        |
+| Helper                                       | Default Alias          | Type            | Expression                       |
+|----------------------------------------------|------------------------|-----------------|----------------------------------|
+| `with_year(col)`                             | `{col}_year`           | `UInt16`        | `toYear(col)`                    |
+| `with_month(col)`                            | `{col}_month`          | `UInt8`         | `toMonth(col)`                   |
+| `with_day_of_week(col)`                      | `{col}_dow`            | `UInt8`         | `toDayOfWeek(col)`               |
+| `with_date_diff(unit, col_a, col_b)`         | `{col_a}_{col_b}_diff` | `Int64`         | `dateDiff('unit', col_a, col_b)` |
+| `with_lower(col)`                            | `{col}_lower`          | `String`        | `lower(col)`                     |
+| `with_upper(col)`                            | `{col}_upper`          | `String`        | `upper(col)`                     |
+| `with_length(col)`                           | `{col}_length`         | `UInt64`        | `length(col)`                    |
+| `with_trim(col)`                             | `{col}_trimmed`        | `String`        | `trim(col)`                      |
+| `with_abs(col)`                              | `{col}_abs`            | `Float64`       | `abs(col)`                       |
+| `with_log2(col)`                             | `{col}_log2`           | `Float64`       | `log2(col)`                      |
+| `with_sqrt(col)`                             | `{col}_sqrt`           | `Float64`       | `sqrt(col)`                      |
+| `with_bucket(col, size)`                     | `{col}_bucket`         | `Int64`         | `intDiv(col, size)`              |
+| `with_hash_bucket(col, n)`                   | `{col}_hash`           | `UInt64`        | `cityHash64(col) % n`            |
+| `with_if(cond, then, else, *, alias)`        | required `alias`       | `String`        | `if(cond, then, else)`           |
+| `with_multi_if(branches, *, default, alias)` | required `alias`       | `String`        | `multiIf(c1, r1, …, default)`    |
+| `with_cast(col, ch_type)`                    | `{col}_{type_lower}`   | `ch_type`       | `to{Type}(col)`                  |
+| `with_split_by_char(col, sep)`               | `{col}_parts`          | `Array(String)` | `splitByChar(sep, col)`          |
+| `with_isin(col, other)`                      | `{col}_isin`           | `UInt8`         | `col IN (SELECT value FROM …)`   |
+
+`with_multi_if()` takes `(condition, result)` pairs — plain 2-tuples or `Branch` from `aaiclick.data.models` — and the earliest
+match wins. `default` is required: ClickHouse's `multiIf` has no implicit else. Both halves are raw
+SQL, so `AND` / `OR` / `NOT` / `IN` compose in a condition, and a result may be a literal, a column,
+or an expression.
+
+!!! warning "Conditions must be `UInt8`"
+    ClickHouse rejects a bare numeric column with `Illegal type Int64 of argument (condition)`.
+    Write `is_member = 1`, not `is_member`.
 
 `with_columns()` remains the public power-user interface for arbitrary expressions via `Computed(type, expression)`.
 
-**Tests**: `aaiclick/data/object/test_with_columns.py`
+**Tests**: `aaiclick/data/object/test_domain_helpers.py`
 
 ## Column Renaming: `rename()`
 
@@ -850,7 +862,7 @@ The result carries the `INSERT … SELECT` stats — `result = await obj.copy()`
     destination will interleave their rows non-deterministically. Structure
     your pipeline so a named destination has a single writer.
 
-**Tests**: `aaiclick/data/test_copy_parametrized.py`
+**Tests**: `aaiclick/data/object/test_copy_parametrized.py`
 
 # Operation Provenance (Oplog)
 

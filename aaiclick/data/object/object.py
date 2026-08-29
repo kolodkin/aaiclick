@@ -11,6 +11,7 @@ import asyncio
 import functools
 import re
 import sys
+from collections.abc import Sequence
 from typing import Any
 
 from typing_extensions import Self
@@ -43,6 +44,7 @@ from ..models import (
     GB_VAR,
     ORIENT_DICT,
     AggSpec,
+    Branch,
     ColumnInfo,
     Computed,
     CopyInfo,
@@ -1842,6 +1844,40 @@ class Object:
             type: ClickHouse result type (default 'String')
         """
         return self.with_columns({alias: Computed(type, f"if({condition}, {then_value}, {else_value})")})
+
+    def with_multi_if(
+        self,
+        branches: Sequence[Branch | tuple[str, str]],
+        *,
+        default: str,
+        alias: str,
+        type: str = "String",
+    ) -> View:
+        """N-way conditional column: ``multiIf(cond1, res1, ..., default)``.
+
+        Branches are tried in order and the earliest match wins. Conditions and
+        results are raw SQL, so ``AND`` / ``OR`` / ``NOT`` / ``IN`` compose in a
+        condition, and a result may be a literal, a column, or an expression.
+
+        Each condition must evaluate to ``UInt8`` — write ``"is_member = 1"``
+        rather than a bare numeric column, which ClickHouse rejects.
+
+        Args:
+            branches: Condition/result pairs. Plain 2-tuples are accepted and
+                converted to ``Branch``.
+            default: Value when no condition matches. Required — ``multiIf``
+                has no implicit else.
+            alias: Required — result column name.
+            type: ClickHouse result type (default ``"String"``).
+        """
+        if not branches:
+            raise ValueError("branches must be non-empty — use with_if() for a single condition")
+        args: list[str] = []
+        for branch in branches:
+            pair = Branch._make(branch)
+            args.extend((pair.condition, pair.result))
+        args.append(default)
+        return self.with_columns({alias: Computed(type, f"multiIf({', '.join(args)})")})
 
     def with_cast(
         self,

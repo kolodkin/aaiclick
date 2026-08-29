@@ -48,6 +48,7 @@ from .models import (
     ORIENT_RECORDS,
     Agg,
     AggSpec,
+    Branch,
     ColumnInfo,
     ColumnType,
     Computed,
