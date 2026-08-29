@@ -153,9 +153,6 @@ class Computed(NamedTuple):
 class Branch(NamedTuple):
     """One condition/result pair in a ``multiIf`` chain.
 
-    ``condition`` must evaluate to ``UInt8`` — write ``"flag = 1"`` rather
-    than a bare numeric column, which ClickHouse rejects.
-
     Attributes:
         condition: SQL boolean expression, e.g. ``"score >= 90"``.
         result: SQL value when the condition holds — a literal (``"'A'"``),

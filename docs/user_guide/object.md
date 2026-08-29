@@ -802,7 +802,7 @@ Named shortcuts that delegate to `with_columns()`. Each auto-names the result co
 | `with_split_by_char(col, sep)`               | `{col}_parts`          | `Array(String)` | `splitByChar(sep, col)`          |
 | `with_isin(col, other)`                      | `{col}_isin`           | `UInt8`         | `col IN (SELECT value FROM …)`   |
 
-`with_multi_if()` takes `(condition, result)` pairs — plain 2-tuples or `Branch` — and the earliest
+`with_multi_if()` takes `(condition, result)` pairs — plain 2-tuples or `Branch` from `aaiclick.data.models` — and the earliest
 match wins. `default` is required: ClickHouse's `multiIf` has no implicit else. Both halves are raw
 SQL, so `AND` / `OR` / `NOT` / `IN` compose in a condition, and a result may be a literal, a column,
 or an expression.

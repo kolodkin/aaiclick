@@ -107,10 +107,6 @@ async def example():
     print(f"score: {result['score']}")  # → [95, 72, 45, 88, 60]
     print(f"grade: {result['grade']}")  # → ['A', 'C', 'F', 'B', 'C']
 
-    tiers = await (await graded.group_by("grade").count()).data()
-    counts = dict(sorted(zip(tiers["grade"], tiers["_count"], strict=True)))
-    print(f"counts: {counts}")  # → {'A': 1, 'B': 1, 'C': 2, 'F': 1}
-
     # Both halves are SQL: boolean operators compose in conditions, and a
     # result may be a column or an expression, not just a constant.
     orders = await create_object_from_value(

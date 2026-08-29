@@ -1869,13 +1869,6 @@ class Object:
                 has no implicit else.
             alias: Required — result column name.
             type: ClickHouse result type (default ``"String"``).
-
-        Example:
-            obj.with_multi_if(
-                [("score >= 90", "'A'"), ("score >= 80", "'B'")],
-                default="'F'",
-                alias="grade",
-            )
         """
         if not branches:
             raise ValueError("branches must be non-empty — use with_if() for a single condition")
