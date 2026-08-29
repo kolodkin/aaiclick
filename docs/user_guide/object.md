@@ -779,25 +779,35 @@ Flattens Array column(s) into individual rows (scalar columns duplicated). Retur
 
 Named shortcuts that delegate to `with_columns()`. Each auto-names the result column; all accept `alias=` override and return a `View`.
 
-| Helper                                    | Default Alias         | Type      | Expression                            |
-|-------------------------------------------|-----------------------|-----------|---------------------------------------|
-| `with_year(col)`                          | `{col}_year`          | `UInt16`  | `toYear(col)`                         |
-| `with_month(col)`                         | `{col}_month`         | `UInt8`   | `toMonth(col)`                        |
-| `with_day_of_week(col)`                   | `{col}_dow`           | `UInt8`   | `toDayOfWeek(col)`                    |
-| `with_date_diff(unit, col_a, col_b)`      | `{col_a}_{col_b}_diff`| `Int64`   | `dateDiff('unit', col_a, col_b)`      |
-| `with_lower(col)`                         | `{col}_lower`         | `String`  | `lower(col)`                          |
-| `with_upper(col)`                         | `{col}_upper`         | `String`  | `upper(col)`                          |
-| `with_length(col)`                        | `{col}_length`        | `UInt64`  | `length(col)`                         |
-| `with_trim(col)`                          | `{col}_trimmed`       | `String`  | `trim(col)`                           |
-| `with_abs(col)`                           | `{col}_abs`           | `Float64` | `abs(col)`                            |
-| `with_log2(col)`                          | `{col}_log2`          | `Float64` | `log2(col)`                           |
-| `with_sqrt(col)`                          | `{col}_sqrt`          | `Float64` | `sqrt(col)`                           |
-| `with_bucket(col, size)`                  | `{col}_bucket`        | `Int64`   | `intDiv(col, size)`                   |
-| `with_hash_bucket(col, n)`               | `{col}_hash`          | `UInt64`  | `cityHash64(col) % n`                |
-| `with_if(cond, then, else, *, alias)`     | required `alias`      | `String`  | `if(cond, then, else)`                |
-| `with_cast(col, ch_type)`                 | `{col}_{type_lower}`  | `ch_type` | `to{Type}(col)`                       |
-| `with_split_by_char(col, sep)`            | `{col}_parts`         | `Array(String)` | `splitByChar(sep, col)`         |
-| `with_isin(col, other)`                   | `{col}_isin`          | `UInt8`   | `col IN (SELECT value FROM …)`        |
+| Helper                                       | Default Alias          | Type            | Expression                       |
+|----------------------------------------------|------------------------|-----------------|----------------------------------|
+| `with_year(col)`                             | `{col}_year`           | `UInt16`        | `toYear(col)`                    |
+| `with_month(col)`                            | `{col}_month`          | `UInt8`         | `toMonth(col)`                   |
+| `with_day_of_week(col)`                      | `{col}_dow`            | `UInt8`         | `toDayOfWeek(col)`               |
+| `with_date_diff(unit, col_a, col_b)`         | `{col_a}_{col_b}_diff` | `Int64`         | `dateDiff('unit', col_a, col_b)` |
+| `with_lower(col)`                            | `{col}_lower`          | `String`        | `lower(col)`                     |
+| `with_upper(col)`                            | `{col}_upper`          | `String`        | `upper(col)`                     |
+| `with_length(col)`                           | `{col}_length`         | `UInt64`        | `length(col)`                    |
+| `with_trim(col)`                             | `{col}_trimmed`        | `String`        | `trim(col)`                      |
+| `with_abs(col)`                              | `{col}_abs`            | `Float64`       | `abs(col)`                       |
+| `with_log2(col)`                             | `{col}_log2`           | `Float64`       | `log2(col)`                      |
+| `with_sqrt(col)`                             | `{col}_sqrt`           | `Float64`       | `sqrt(col)`                      |
+| `with_bucket(col, size)`                     | `{col}_bucket`         | `Int64`         | `intDiv(col, size)`              |
+| `with_hash_bucket(col, n)`                   | `{col}_hash`           | `UInt64`        | `cityHash64(col) % n`            |
+| `with_if(cond, then, else, *, alias)`        | required `alias`       | `String`        | `if(cond, then, else)`           |
+| `with_multi_if(branches, *, default, alias)` | required `alias`       | `String`        | `multiIf(c1, r1, …, default)`    |
+| `with_cast(col, ch_type)`                    | `{col}_{type_lower}`   | `ch_type`       | `to{Type}(col)`                  |
+| `with_split_by_char(col, sep)`               | `{col}_parts`          | `Array(String)` | `splitByChar(sep, col)`          |
+| `with_isin(col, other)`                      | `{col}_isin`           | `UInt8`         | `col IN (SELECT value FROM …)`   |
+
+`with_multi_if()` takes `(condition, result)` pairs — plain 2-tuples or `Branch` — and the earliest
+match wins. `default` is required: ClickHouse's `multiIf` has no implicit else. Both halves are raw
+SQL, so `AND` / `OR` / `NOT` / `IN` compose in a condition, and a result may be a literal, a column,
+or an expression.
+
+!!! warning "Conditions must be `UInt8`"
+    ClickHouse rejects a bare numeric column with `Illegal type Int64 of argument (condition)`.
+    Write `is_member = 1`, not `is_member`.
 
 `with_columns()` remains the public power-user interface for arbitrary expressions via `Computed(type, expression)`.
 
