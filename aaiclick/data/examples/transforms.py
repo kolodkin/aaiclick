@@ -92,7 +92,7 @@ async def example():
     )
     result = await view.data()
     print(f"source: {result['source']}")  # → ['survey_2024', 'survey_2024']
-    print(f"active: {result['active']}")  # → [1, 1]
+    print(f"active: {result['active']}")  # → [True, True]
     print(f"weight: {result['weight']}")  # → [1.0, 1.0]
 
     section("Example 6: with_multi_if() n-way conditional column")
