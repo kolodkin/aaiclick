@@ -250,3 +250,113 @@ def _preview_operator_schema(schema_a: Schema, schema_b: Schema, operator: str) 
         operator=operator,
     )
     return schema
+
+
+# String/regex operator key → (SQL expression template, result type). ``{pattern}``
+# and ``{replacement}`` are substituted with SQL-escaped string literals at
+# materialize time. Mirrored to ``operators.STRING_OP_EXPRESSIONS`` /
+# ``operators.STRING_OP_RESULT_TYPES`` via re-export.
+STRING_OP_EXPRESSIONS: dict[str, str] = {
+    "match": "match(a.value, {pattern})",
+    "like": "a.value LIKE {pattern}",
+    "ilike": "a.value ILIKE {pattern}",
+    "extract": "extract(a.value, {pattern})",
+    "replace": "replaceRegexpAll(a.value, {pattern}, {replacement})",
+}
+
+STRING_OP_RESULT_TYPES: dict[str, str] = {
+    "match": "UInt8",
+    "like": "UInt8",
+    "ilike": "UInt8",
+    "extract": "String",
+    "replace": "String",
+}
+
+# Element-wise operator → arrayMap lambda body. Mirrored to
+# ``operators.ARRAYMAP_EXPRESSIONS``.
+ARRAYMAP_EXPRESSIONS: dict[str, str] = {
+    # Arithmetic operators
+    "+": "x + y",
+    "-": "x - y",
+    "*": "x * y",
+    "/": "x / y",
+    "//": "intDiv(x, y)",
+    "%": "x % y",
+    "**": "power(x, y)",
+    # Comparison operators
+    "==": "toUInt8(x = y)",
+    "!=": "toUInt8(x != y)",
+    "<": "toUInt8(x < y)",
+    "<=": "toUInt8(x <= y)",
+    ">": "toUInt8(x > y)",
+    ">=": "toUInt8(x >= y)",
+    # Bitwise operators
+    "&": "bitAnd(x, y)",
+    "|": "bitOr(x, y)",
+    "^": "bitXor(x, y)",
+}
+
+# Comparison operators always yield UInt8 rather than a promoted numeric type.
+_COMPARISON_OPS = frozenset({"==", "!=", "<", "<=", ">", ">="})
+
+
+def _preview_string_op_schema(input_fieldtype: str, op_name: str) -> Schema:
+    """Sync preview of ``operators._apply_string_op_db``'s result Schema.
+
+    String/regex operators preserve the input fieldtype and replace the value
+    type with the operator's fixed result type from ``STRING_OP_RESULT_TYPES``.
+    """
+    return Schema(
+        fieldtype=input_fieldtype,
+        columns={"value": ColumnInfo(STRING_OP_RESULT_TYPES[op_name])},
+    )
+
+
+def _preview_mask_schema(input_fieldtype: str) -> Schema:
+    """Sync preview for the UInt8 mask operators — ``isin``, ``is_null``,
+    ``is_not_null``. Each preserves the input fieldtype and tests each value.
+    """
+    return Schema(fieldtype=input_fieldtype, columns={"value": ColumnInfo("UInt8")})
+
+
+def _compute_coalesce_schema(
+    *,
+    fieldtype_a: str,
+    fieldtype_b: str,
+    type_a: str,
+    nullable_a: bool,
+    nullable_b: bool,
+) -> Schema:
+    """Result Schema for ``coalesce(a, b)``.
+
+    The value type follows the first operand; the result is nullable only when
+    both operands are (a non-nullable fallback always supplies a value). Shared
+    between ``Object.coalesce`` (preview) and ``operators.coalesce_op``
+    (materialize) so the two cannot drift.
+    """
+    either_is_array = FIELDTYPE_ARRAY in (fieldtype_a, fieldtype_b)
+    return Schema(
+        fieldtype=FIELDTYPE_ARRAY if either_is_array else FIELDTYPE_SCALAR,
+        columns={"value": ColumnInfo(type_a, nullable=nullable_a and nullable_b)},
+    )
+
+
+def _compute_array_map_schema(
+    *,
+    operator: str,
+    type_a: str,
+    type_b: str,
+    nullable_a: bool,
+    nullable_b: bool,
+) -> Schema:
+    """Result Schema for ``array_map(a, b, operator)`` — always an array.
+
+    Comparison operators yield UInt8; the rest follow the arithmetic promotion
+    rules. Shared between ``Object.array_map`` (preview) and
+    ``operators.array_map_db`` (materialize).
+    """
+    value_type = "UInt8" if operator in _COMPARISON_OPS else _promote_arithmetic_type(operator, type_a, type_b)
+    return Schema(
+        fieldtype=FIELDTYPE_ARRAY,
+        columns={"value": ColumnInfo(value_type, nullable=nullable_a or nullable_b)},
+    )

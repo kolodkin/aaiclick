@@ -66,12 +66,18 @@ from . import join as join_module
 from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
 from .refs import ObjectRef, ViewRef
 from .schema_compute import (
+    ARRAYMAP_EXPRESSIONS,
+    STRING_OP_EXPRESSIONS,
     UNARY_TRANSFORMS,
+    _compute_array_map_schema,
+    _compute_coalesce_schema,
     _compute_operator_schema,
     _preview_agg_schema,
     _preview_count_if_schema,
+    _preview_mask_schema,
     _preview_nunique_schema,
     _preview_quantile_schema,
+    _preview_string_op_schema,
     _preview_unary_schema,
     _preview_unique_schema,
     _scalar_to_schema,
@@ -1354,7 +1360,32 @@ class Object:
 
     # String/Regex Operators
 
-    async def match(self, pattern: str) -> Object:
+    def _plan_mask(self, op_name: str, rhs: Object | list | None = None) -> LazyOperator:
+        """Synchronously plan a UInt8 mask operator — ``isin`` (rhs = the
+        allowed set), ``is_null`` / ``is_not_null`` (no rhs). Each preserves
+        the source fieldtype and tests every value.
+        """
+        self.checkstale()
+        fieldtype, _, _, _ = self._peek_op_metadata()
+        return LazyOperator(lhs=self, rhs=rhs, operator=op_name, schema_preview=_preview_mask_schema(fieldtype))
+
+    def _plan_string_op(self, op_name: str, **params: str) -> LazyOperator:
+        """Synchronously plan a string/regex operator from ``STRING_OP_EXPRESSIONS``.
+
+        The pattern (and replacement, for ``replace``) ride along in ``params``
+        and are SQL-escaped at materialize time by ``_apply_string_op_db``.
+        """
+        self.checkstale()
+        fieldtype, _, _, _ = self._peek_op_metadata()
+        return LazyOperator(
+            lhs=self,
+            rhs=None,
+            operator=op_name,
+            schema_preview=_preview_string_op_schema(fieldtype, op_name),
+            params=params,
+        )
+
+    def match(self, pattern: str) -> LazyOperator:
         """
         Test if string values match a RE2 regex pattern.
 
@@ -1362,18 +1393,17 @@ class Object:
             pattern: RE2 regex pattern string
 
         Returns:
-            Self: New Object with UInt8 values (1 for match, 0 for no match)
+            LazyOperator producing UInt8 values (1 for match, 0 for no match),
+            materialized on ``await``.
 
         Examples:
             >>> obj = await create_object_from_value(["apple", "banana", "avocado"])
             >>> result = await obj.match("^a")
             >>> await result.data()  # [1, 0, 1]
         """
-        self.checkstale()
-        info = self._get_query_info()
-        return await operators.match_op(info, pattern, self.ch_client)
+        return self._plan_string_op("match", pattern=pattern)
 
-    async def like(self, pattern: str) -> Object:
+    def like(self, pattern: str) -> LazyOperator:
         """
         Test if string values match a SQL LIKE pattern.
 
@@ -1383,18 +1413,17 @@ class Object:
             pattern: SQL LIKE pattern string
 
         Returns:
-            Self: New Object with UInt8 values (1 for match, 0 for no match)
+            LazyOperator producing UInt8 values (1 for match, 0 for no match),
+            materialized on ``await``.
 
         Examples:
             >>> obj = await create_object_from_value(["apple", "banana", "avocado"])
             >>> result = await obj.like("a%")
             >>> await result.data()  # [1, 0, 1]
         """
-        self.checkstale()
-        info = self._get_query_info()
-        return await operators.like_op(info, pattern, self.ch_client)
+        return self._plan_string_op("like", pattern=pattern)
 
-    async def ilike(self, pattern: str) -> Object:
+    def ilike(self, pattern: str) -> LazyOperator:
         """
         Test if string values match a SQL LIKE pattern (case-insensitive).
 
@@ -1402,45 +1431,17 @@ class Object:
             pattern: SQL LIKE pattern string (case-insensitive)
 
         Returns:
-            Self: New Object with UInt8 values (1 for match, 0 for no match)
+            LazyOperator producing UInt8 values (1 for match, 0 for no match),
+            materialized on ``await``.
 
         Examples:
             >>> obj = await create_object_from_value(["Apple", "BANANA", "avocado"])
             >>> result = await obj.ilike("a%")
             >>> await result.data()  # [1, 0, 1]
         """
-        self.checkstale()
-        info = self._get_query_info()
-        return await operators.ilike_op(info, pattern, self.ch_client)
+        return self._plan_string_op("ilike", pattern=pattern)
 
-    async def isin(self, other: Object | list) -> Object:
-        """
-        Test if values are in another Object's value set.
-
-        Generates an IN subquery: ``value IN (SELECT value FROM other_table)``.
-        Accepts an Object or a Python list (converted to Object automatically).
-
-        Args:
-            other: Object whose values define the allowed set, or a Python list.
-
-        Returns:
-            Self: New Object with UInt8 values (1 if in set, 0 otherwise)
-
-        Examples:
-            >>> obj = await create_object_from_value(["a", "b", "c", "d"])
-            >>> allowed = await create_object_from_value(["a", "c"])
-            >>> result = await obj.isin(allowed)
-            >>> await result.data()  # [1, 0, 1, 0]
-        """
-        self.checkstale()
-        if isinstance(other, list):
-            other = await create_object_from_value(other)
-        other.checkstale()
-        info = self._get_query_info()
-        other_info = other._get_query_info()
-        return await operators.isin_op(info, other_info, self.ch_client)
-
-    async def extract(self, pattern: str) -> Object:
+    def extract(self, pattern: str) -> LazyOperator:
         """
         Extract the first regex capture group match from string values.
 
@@ -1448,18 +1449,17 @@ class Object:
             pattern: RE2 regex pattern with a capture group
 
         Returns:
-            Self: New Object with String values (extracted matches, empty string if no match)
+            LazyOperator producing String values (extracted matches, empty
+            string if no match), materialized on ``await``.
 
         Examples:
             >>> obj = await create_object_from_value(["user_123", "user_456", "admin_789"])
             >>> result = await obj.extract("_(\\\\d+)")
             >>> await result.data()  # ["123", "456", "789"]
         """
-        self.checkstale()
-        info = self._get_query_info()
-        return await operators.extract_op(info, pattern, self.ch_client)
+        return self._plan_string_op("extract", pattern=pattern)
 
-    async def replace(self, pattern: str, replacement: str) -> Object:
+    def replace(self, pattern: str, replacement: str) -> LazyOperator:
         """
         Replace all regex matches in string values.
 
@@ -1470,38 +1470,60 @@ class Object:
             replacement: Replacement string (supports \\\\1, \\\\2 backreferences)
 
         Returns:
-            Self: New Object with String values (after replacement)
+            LazyOperator producing String values (after replacement),
+            materialized on ``await``.
 
         Examples:
             >>> obj = await create_object_from_value(["hello world", "foo bar"])
             >>> result = await obj.replace(" ", "_")
             >>> await result.data()  # ["hello_world", "foo_bar"]
         """
-        self.checkstale()
-        info = self._get_query_info()
-        return await operators.replace_op(info, pattern, replacement, self.ch_client)
+        return self._plan_string_op("replace", pattern=pattern, replacement=replacement)
 
-    async def is_null(self) -> Object:
+    def isin(self, other: Object | list) -> LazyOperator:
+        """
+        Test if values are in another Object's value set.
+
+        Generates an IN subquery: ``value IN (SELECT value FROM other_table)``.
+        Accepts an Object or a Python list (converted to an Object when the
+        LazyOperator materializes).
+
+        Args:
+            other: Object whose values define the allowed set, or a Python list.
+
+        Returns:
+            LazyOperator producing UInt8 values (1 if in set, 0 otherwise),
+            materialized on ``await``.
+
+        Examples:
+            >>> obj = await create_object_from_value(["a", "b", "c", "d"])
+            >>> allowed = await create_object_from_value(["a", "c"])
+            >>> result = await obj.isin(allowed)
+            >>> await result.data()  # [1, 0, 1, 0]
+        """
+        if isinstance(other, Object):
+            other.checkstale()
+        return self._plan_mask("isin", other)
+
+    def is_null(self) -> LazyOperator:
         """Check which values are NULL.
 
         Returns:
-            Self: New Object with UInt8 values (1 where NULL, 0 otherwise)
+            LazyOperator producing UInt8 values (1 where NULL, 0 otherwise),
+            materialized on ``await``.
         """
-        self.checkstale()
-        info = self._get_query_info()
-        return await operators.is_null_op(info, self.ch_client)
+        return self._plan_mask("is_null")
 
-    async def is_not_null(self) -> Object:
+    def is_not_null(self) -> LazyOperator:
         """Check which values are not NULL.
 
         Returns:
-            Self: New Object with UInt8 values (1 where not NULL, 0 otherwise)
+            LazyOperator producing UInt8 values (1 where not NULL, 0 otherwise),
+            materialized on ``await``.
         """
-        self.checkstale()
-        info = self._get_query_info()
-        return await operators.is_not_null_op(info, self.ch_client)
+        return self._plan_mask("is_not_null")
 
-    async def coalesce(self, other: Object | View) -> Object:
+    def coalesce(self, other: Object | ValueScalarType) -> LazyOperator:
         """Return first non-NULL value from self or other.
 
         In ClickHouse, NULL = NULL returns NULL (standard SQL semantics).
@@ -1511,19 +1533,26 @@ class Object:
             other: Fallback value — Object, View, or Python scalar
 
         Returns:
-            Self: New Object with coalesced values
+            LazyOperator producing the coalesced values, materialized on
+            ``await``. The result is nullable only when both operands are.
         """
         self.checkstale()
-        other = await self._ensure_object(other)
-        other.checkstale()
-        _require_explicit_order_for_cross_table(self, other)
-        info_a = self._get_query_info()
-        info_b = other._get_query_info()
-        return await operators.coalesce_op(info_a, info_b, self.ch_client)
+        if isinstance(other, Object) and not _is_unmaterialized_lazy(self) and not _is_unmaterialized_lazy(other):
+            _require_explicit_order_for_cross_table(self, other)
+        a_ft, a_t, a_n, _ = self._peek_op_metadata()
+        b_ft, _, b_n, _ = _peek_other_metadata(other)
+        schema_preview = _compute_coalesce_schema(
+            fieldtype_a=a_ft,
+            fieldtype_b=b_ft,
+            type_a=a_t,
+            nullable_a=a_n,
+            nullable_b=b_n,
+        )
+        return LazyOperator(lhs=self, rhs=other, operator="coalesce", schema_preview=schema_preview)
 
     # arrayMap Operator
 
-    async def array_map(self, other: Object | ValueScalarType, operator: str) -> Object:
+    def array_map(self, other: Object | ValueScalarType, operator: str) -> LazyOperator:
         """
         Apply an element-wise operation using ClickHouse's arrayMap function.
 
@@ -1535,10 +1564,13 @@ class Object:
             operator: Operator symbol (e.g., '+', '-', '**', '==', '&')
 
         Returns:
-            Self: New array Object with element-wise results
+            LazyOperator producing an array Object with element-wise results,
+            materialized on ``await``.
 
         Raises:
-            DB::Exception: If both operands are arrays with different sizes
+            ValueError: If the operator is not supported
+            DB::Exception: On ``await``, if both operands are arrays with
+                different sizes
 
         Examples:
             >>> a = await create_object_from_value([1, 2, 3])
@@ -1555,11 +1587,26 @@ class Object:
             >>> await a.array_map(c, '+')  # Raises DB::Exception
         """
         self.checkstale()
-        other = await self._ensure_object(other)
-        other.checkstale()
-        info_a = self._get_query_info()
-        info_b = other._get_query_info()
-        return await operators.array_map_db(info_a, info_b, operator, self.ch_client)
+        if operator not in ARRAYMAP_EXPRESSIONS:
+            raise ValueError(f"Unsupported operator for array_map: {operator!r}")
+        if isinstance(other, Object):
+            other.checkstale()
+        _, a_t, a_n, _ = self._peek_op_metadata()
+        _, b_t, b_n, _ = _peek_other_metadata(other)
+        schema_preview = _compute_array_map_schema(
+            operator=operator,
+            type_a=a_t,
+            type_b=b_t,
+            nullable_a=a_n,
+            nullable_b=b_n,
+        )
+        return LazyOperator(
+            lhs=self,
+            rhs=other,
+            operator="array_map",
+            schema_preview=schema_preview,
+            params={"operator": operator},
+        )
 
     @staticmethod
     def _validate_expression(expression: str) -> None:
@@ -2866,26 +2913,35 @@ class LazyOperator(Object):
 
     Created synchronously by ``Object`` operator methods (binary dunders
     ``__add__`` / ``__eq__`` / etc., aggregations ``.sum()`` / ``.nunique()``,
-    unary transforms ``.year()`` / ``.lower()``, …). No ClickHouse round-trip
-    happens until the LazyOperator is awaited. The result table name and
-    lifetime can be controlled via ``.as_(name, scope=...)``.
+    unary transforms ``.year()`` / ``.lower()``, string/regex matchers
+    ``.match()`` / ``.like()``, …). No ClickHouse round-trip happens until the
+    LazyOperator is awaited. The result table name and lifetime can be
+    controlled via ``.as_(name, scope=...)``.
 
     See ``docs/user_guide/object.md`` — "Lazy Operator Results".
 
     Fields:
         lhs: Left operand — Object, LazyOperator, or Python scalar.
-        rhs: Right operand — Object, LazyOperator, Python scalar, or
-            ``None`` (unary / aggregation operators have no RHS).
+        rhs: Right operand — Object, LazyOperator, Python scalar, a Python
+            list (``isin``), or ``None`` (unary / aggregation operators have
+            no RHS).
         operator: Operator symbol or name:
             - Binary: ``"+", "-", "*", "/", "//", "%", "**", "==", "!=",
-              "<", "<=", ">", ">=", "&", "|", "^"``.
+              "<", "<=", ">", ">=", "&", "|", "^"``, plus ``"isin"``,
+              ``"coalesce"``, ``"array_map"``.
             - Unary transforms (rhs=None): keys of
               ``schema_compute.UNARY_TRANSFORMS`` (``"year"``, ``"lower"``, …).
+            - String/regex (rhs=None): keys of
+              ``schema_compute.STRING_OP_EXPRESSIONS`` (``"match"``,
+              ``"like"``, ``"ilike"``, ``"extract"``, ``"replace"``).
+            - Null checks (rhs=None): ``"is_null"``, ``"is_not_null"``.
             - Aggregations (rhs=None): ``"min" / "max" / "sum" / "mean" /
               "std" / "var" / "count"``, plus ``"count_if"``,
               ``"quantile"``, ``"unique"``, ``"nunique"``.
         params: Operator-specific extra arguments — e.g. ``{"q": 0.5}`` for
-            ``quantile``, ``{"condition": ...}`` for ``count_if``.
+            ``quantile``, ``{"condition": ...}`` for ``count_if``,
+            ``{"pattern": ...}`` for the string/regex operators,
+            ``{"operator": "+"}`` for ``array_map``.
     """
 
     def __init__(
@@ -2983,17 +3039,31 @@ class LazyOperator(Object):
             result = await self._materialize_unary(lhs_obj, ch_client)
         else:
             rhs_obj.checkstale()
-            _require_explicit_order_for_cross_table(lhs_obj, rhs_obj)
-            result = await operators._apply_operator_db(
-                lhs_obj._get_query_info(),
-                rhs_obj._get_query_info(),
-                self.operator,
-                ch_client,
-                name=self._name,
-                scope=self._scope,
-            )
+            result = await self._materialize_binary(lhs_obj, rhs_obj, ch_client)
         self._materialized = result
         return result
+
+    async def _materialize_binary(self, lhs_obj: Object, rhs_obj: Object, ch_client) -> Object:
+        """Dispatch a two-operand operator to its operator fn.
+
+        ``isin`` and ``array_map`` pair rows by set membership and groupArray
+        position respectively, so neither goes through the cross-table row-order
+        contract that elementwise ops and ``coalesce`` require.
+        """
+        info_a = lhs_obj._get_query_info()
+        info_b = rhs_obj._get_query_info()
+        op = self.operator
+        if op == "isin":
+            return await operators.isin_op(info_a, info_b, ch_client, name=self._name, scope=self._scope)
+        if op == "array_map":
+            assert self.params is not None
+            return await operators.array_map_db(
+                info_a, info_b, self.params["operator"], ch_client, name=self._name, scope=self._scope
+            )
+        _require_explicit_order_for_cross_table(lhs_obj, rhs_obj)
+        if op == "coalesce":
+            return await operators.coalesce_op(info_a, info_b, ch_client, name=self._name, scope=self._scope)
+        return await operators._apply_operator_db(info_a, info_b, op, ch_client, name=self._name, scope=self._scope)
 
     async def _materialize_unary(self, lhs_obj: Object, ch_client) -> Object:
         """Dispatch a unary / aggregation operator (rhs=None) to its operator fn."""
@@ -3001,6 +3071,21 @@ class LazyOperator(Object):
         op = self.operator
         if op in UNARY_TRANSFORMS:
             return await operators.unary_transform(info, op, ch_client, name=self._name, scope=self._scope)
+        if op in STRING_OP_EXPRESSIONS:
+            assert self.params is not None
+            return await operators._apply_string_op_db(
+                info,
+                op,
+                self.params["pattern"],
+                ch_client,
+                replacement=self.params.get("replacement"),
+                name=self._name,
+                scope=self._scope,
+            )
+        if op == "is_null":
+            return await operators.is_null_op(info, ch_client, name=self._name, scope=self._scope)
+        if op == "is_not_null":
+            return await operators.is_not_null_op(info, ch_client, name=self._name, scope=self._scope)
         if op in _SIMPLE_AGGREGATIONS:
             return await operators._apply_aggregation(info, op, ch_client, name=self._name, scope=self._scope)
         if op == "count_if":
@@ -3042,9 +3127,8 @@ class LazyOperator(Object):
     async def stats(self) -> QueryStats | None:
         return await (await self._materialize()).stats()
 
-    # Copy / concat / join / insert — return new Objects or mutate, materialize first.
-    # (Phase 2 covers aggregations + unary transforms; the table-shape ops below
-    # are scheduled for a follow-up phase; until then, materialize-and-delegate.)
+    # Copy / concat / join / insert — these reshape a table rather than a value
+    # column, so they have no lazy plan of their own: materialize, then delegate.
 
     async def copy(self, *, name=None, scope=None):
         return await (await self._materialize()).copy(name=name, scope=scope)
