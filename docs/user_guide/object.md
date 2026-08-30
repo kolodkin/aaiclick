@@ -249,8 +249,7 @@ await mask.data()           # [1, 0, 1, 0]
 mask = await obj.isin(["a", "c"])
 
 # Chain with sum() to count matches
-total = await mask.sum()
-await total.data()          # 2
+await mask.sum().data()     # 2
 
 # Works on dict column selection
 obj = await create_object_from_value({"category": ["a", "b", "c"], "val": [1, 2, 3]})
