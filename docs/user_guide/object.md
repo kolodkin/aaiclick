@@ -249,8 +249,7 @@ await mask.data()           # [1, 0, 1, 0]
 mask = await obj.isin(["a", "c"])
 
 # Chain with sum() to count matches
-total = await mask.sum()
-await total.data()          # 2
+await mask.sum().data()     # 2
 
 # Works on dict column selection
 obj = await create_object_from_value({"category": ["a", "b", "c"], "val": [1, 2, 3]})
@@ -278,7 +277,7 @@ Apply a ClickHouse function element-wise to the value column, returning a new Ob
 | `.log2()`       | `log2()`            | Float64     | Math      |
 | `.sqrt()`       | `sqrt()`            | Float64     | Math      |
 
-Results are full Objects — chainable with any operator (e.g., `await (await obj.year()).unique()`).
+Results are full Objects — chainable with any operator (e.g., `await obj.year().unique()`).
 
 **Tests**: `aaiclick/data/object/test_unary_transforms.py`. For runnable examples, see `examples/transforms.py`.
 

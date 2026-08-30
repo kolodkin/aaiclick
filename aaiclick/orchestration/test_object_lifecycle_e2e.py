@@ -66,7 +66,7 @@ async def paginate_and_concat() -> Object:
         page = await create_object_from_value(batch)
         # This view creation+count was the bug trigger: View called incref (no-op
         # due to ON CONFLICT DO NOTHING), then decref on GC, leaving 0 run_refs.
-        count = await (await page["value"].count()).data()
+        count = await page["value"].count().data()
         result = page if result is None else await result.concat(page)
         if count < page_size:
             break

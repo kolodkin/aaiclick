@@ -9,9 +9,8 @@ The `DataContext` manages ClickHouse client lifecycle, Object tracking, and tabl
 ```python
 async with data_context():
     obj = await create_object_from_value([1, 2, 3])
-    result = await obj.sum()
-    print(await result.data())  # 6
-# obj and result are now stale — using them raises RuntimeError
+    print(await obj.sum().data())  # 6
+# obj is now stale — using it raises RuntimeError
 ```
 
 To wrap an entire async function, use `data_context()` as a decorator (the
