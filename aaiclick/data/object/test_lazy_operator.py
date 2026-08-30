@@ -561,28 +561,28 @@ async def test_chained_unary_then_aggregation(ctx):
     assert await chain.data() == 10.0
 
 
+async def assert_preview_matches_materialized(lazy, label=""):
+    """The core LazyOperator contract: the schema computed at plan time is the
+    schema the materialized result actually has."""
+    preview = lazy.schema
+    materialized = await lazy
+    assert preview.fieldtype == materialized.schema.fieldtype, label
+    assert set(preview.columns) == set(materialized.schema.columns), label
+    for col in preview.columns:
+        assert preview.columns[col].type == materialized.schema.columns[col].type, label
+
+
 async def test_aggregation_preview_matches_materialized(ctx):
     """Pre-materialize schema preview must match the schema of the materialized result."""
     obj = await create_object_from_value([1, 2, 3, 4, 5])
     for method in SIMPLE_AGG_METHODS:
-        lazy = getattr(obj, method)()
-        preview = lazy.schema
-        materialized = await lazy
-        assert preview.fieldtype == materialized.schema.fieldtype
-        assert set(preview.columns) == set(materialized.schema.columns)
-        for col in preview.columns:
-            assert preview.columns[col].type == materialized.schema.columns[col].type, method
+        await assert_preview_matches_materialized(getattr(obj, method)(), method)
 
 
 async def test_unary_preview_matches_materialized(ctx):
     obj = await create_object_from_value([1.0, 4.0, 9.0])
     for method in UNARY_NUMERIC_METHODS:
-        lazy = getattr(obj, method)()
-        preview = lazy.schema
-        materialized = await lazy
-        assert preview.fieldtype == materialized.schema.fieldtype
-        for col in preview.columns:
-            assert preview.columns[col].type == materialized.schema.columns[col].type, method
+        await assert_preview_matches_materialized(getattr(obj, method)(), method)
 
 
 # -----------------------------------------------------------------------------
@@ -613,12 +613,7 @@ async def test_string_op_returns_lazy_operator(ctx, method, args):
 @pytest.mark.parametrize("method, args", STRING_OP_CALLS)
 async def test_string_op_preview_matches_materialized(ctx, method, args):
     obj = await create_object_from_value(["apple", "banana"])
-    lazy = getattr(obj, method)(*args)
-    preview = lazy.schema
-    materialized = await lazy
-    assert preview.fieldtype == materialized.schema.fieldtype
-    assert set(preview.columns) == set(materialized.schema.columns)
-    assert preview.columns["value"].type == materialized.schema.columns["value"].type
+    await assert_preview_matches_materialized(getattr(obj, method)(*args), method)
 
 
 async def test_string_op_as_named(ctx):
@@ -634,11 +629,6 @@ async def test_replace_carries_replacement_through_params(ctx):
     lazy = obj.replace(" ", "_")
     assert lazy.params == {"pattern": " ", "replacement": "_"}
     assert await lazy.data() == ["hello_world", "foo_bar"]
-
-
-async def test_string_op_data_auto_materializes(ctx):
-    obj = await create_object_from_value(["apple", "banana"])
-    assert await obj.like("a%").data() == [1, 0]
 
 
 async def test_chained_unary_then_string_op(ctx):

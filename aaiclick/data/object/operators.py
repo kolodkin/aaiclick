@@ -13,16 +13,18 @@ Every value-column operator follows the same two-stage pattern:
   ``__sub__``, etc.) calls ``Object._plan_operator(other, op_symbol)`` and
   returns a ``LazyOperator``. No DB call. Reverse operators (``__radd__``,
   ``__rsub__``, etc.) use ``_plan_operator_reverse`` which swaps operand
-  order for ``scalar op object`` syntax. Aggregations, unary transforms,
-  the string/regex matchers, the null checks, ``isin``, ``coalesce`` and
-  ``array_map`` plan the same way through their own ``_plan_*`` helpers.
+  order for ``scalar op object`` syntax. Aggregations, unary transforms
+  (the null checks among them), the string/regex matchers, ``isin``,
+  ``coalesce`` and ``array_map`` plan the same way through their own
+  ``_plan_*`` helpers.
 - **Materialize (async, here):** Awaiting the ``LazyOperator`` dispatches to
   the operator function for its family — ``_apply_operator_db()`` for the
   binary dunders, ``_apply_string_op_db()`` for the string/regex matchers,
   and so on. Each builds ``QueryInfo`` for its operands and emits the
   ``CREATE TABLE`` + ``INSERT INTO ... SELECT``, forwarding the ``name`` /
-  ``scope`` that ``.as_()`` recorded. Python scalars are inlined as
-  ``(SELECT literal AS value)`` — no extra ClickHouse table.
+  ``scope`` that ``.as_()`` recorded. A Python scalar operand is converted
+  to a one-row Object by ``_resolve_operand`` first, so it gets its own
+  table.
 
 Shared schema-computation helpers (``_compute_operator_schema``,
 ``_preview_operator_schema``, ``_promote_arithmetic_type``,
@@ -113,16 +115,39 @@ from ..sql_utils import escape_sql_string, quote_identifier, quote_sql_literal
 from .emit import emit_result
 from .schema_compute import (
     AGGREGATION_FUNCTIONS,
-    ARRAYMAP_EXPRESSIONS,
-    STRING_OP_EXPRESSIONS,
-    STRING_OP_RESULT_TYPES,
+    STRING_OPS,
     UNARY_TRANSFORMS,
     _compute_array_map_schema,
     _compute_coalesce_schema,
     _compute_operator_schema,
     _determine_agg_result_type,
-    _preview_mask_schema,
+    _preview_fixed_type_schema,
 )
+
+# Operator to arrayMap lambda expression mapping (uses x, y variables). Pure SQL
+# text — unlike the schema tables it has no preview-side consumer, so it lives
+# here with the code that builds the query.
+ARRAYMAP_EXPRESSIONS: dict[str, str] = {
+    # Arithmetic operators
+    "+": "x + y",
+    "-": "x - y",
+    "*": "x * y",
+    "/": "x / y",
+    "//": "intDiv(x, y)",
+    "%": "x % y",
+    "**": "power(x, y)",
+    # Comparison operators
+    "==": "toUInt8(x = y)",
+    "!=": "toUInt8(x != y)",
+    "<": "toUInt8(x < y)",
+    "<=": "toUInt8(x <= y)",
+    ">": "toUInt8(x > y)",
+    ">=": "toUInt8(x >= y)",
+    # Bitwise operators
+    "&": "bitAnd(x, y)",
+    "|": "bitOr(x, y)",
+    "^": "bitXor(x, y)",
+}
 
 # Operator to SQL expression mapping
 OPERATOR_EXPRESSIONS = {
@@ -688,12 +713,10 @@ async def array_map_db(
         New Object instance pointing to result table (FIELDTYPE_ARRAY)
 
     Raises:
-        ValueError: If operator is not supported
+        KeyError: If operator is not in ARRAYMAP_EXPRESSIONS. ``Object.array_map``
+            rejects those at plan time, so this is a direct-caller guard only.
         DB::Exception: If array sizes don't match (from ClickHouse)
     """
-    if operator not in ARRAYMAP_EXPRESSIONS:
-        raise ValueError(f"Unsupported operator for array_map: {operator!r}")
-
     expression = ARRAYMAP_EXPRESSIONS[operator]
 
     schema = _compute_array_map_schema(
@@ -841,10 +864,8 @@ async def group_by_agg(
 # String/Regex Operators
 # Docs: https://clickhouse.com/docs/sql-reference/functions/string-search-functions
 
-# ``STRING_OP_EXPRESSIONS`` / ``STRING_OP_RESULT_TYPES`` live in
-# ``schema_compute`` so the preview path and the materialize path share one
-# source of truth. ``{pattern}`` and ``{replacement}`` in the expression
-# templates are SQL-escaped string literals (with quotes).
+# ``STRING_OPS`` lives in ``schema_compute`` so the preview path and the
+# materialize path share one source of truth.
 
 
 async def _apply_string_op_db(
@@ -862,7 +883,7 @@ async def _apply_string_op_db(
 
     Args:
         info: QueryInfo for source (string column)
-        op_name: Operation name key in STRING_OP_EXPRESSIONS
+        op_name: Operation name key in STRING_OPS
         pattern: Regex or LIKE pattern string
         ch_client: ClickHouse client instance
         replacement: Replacement string (only for 'replace' operation)
@@ -870,19 +891,15 @@ async def _apply_string_op_db(
     Returns:
         New Object instance pointing to result table
     """
-    escaped_pattern = quote_sql_literal(pattern)
-    format_args = {"pattern": escaped_pattern}
+    string_op = STRING_OPS[op_name]
+    format_args = {"pattern": quote_sql_literal(pattern)}
     if replacement is not None:
         format_args["replacement"] = quote_sql_literal(replacement)
 
-    expression = STRING_OP_EXPRESSIONS[op_name].format(**format_args)
+    expression = string_op.expression.format(**format_args)
 
-    schema = Schema(
-        fieldtype=info.fieldtype,
-        columns={"value": ColumnInfo(STRING_OP_RESULT_TYPES[op_name])},
-    )
     return await emit_result(
-        schema,
+        _preview_fixed_type_schema(info.fieldtype, string_op.result_type),
         f"SELECT {expression} AS value FROM {info.source} AS a",
         ch_client,
         name=name,
@@ -908,7 +925,7 @@ async def isin_op(
     """
     subquery = f"SELECT value FROM {other_info.source}"
     return await emit_result(
-        _preview_mask_schema(info.fieldtype),
+        _preview_fixed_type_schema(info.fieldtype, "UInt8"),
         f"SELECT toUInt8(a.value IN ({subquery})) AS value FROM {info.source} AS a",
         ch_client,
         name=name,
@@ -962,42 +979,9 @@ async def unary_transform(
     )
 
 
-# Null Operations
+# Coalesce
 # Docs: https://clickhouse.com/docs/sql-reference/functions/functions-for-nulls
-
-
-async def is_null_op(
-    info: QueryInfo,
-    ch_client,
-    *,
-    name: str | None = None,
-    scope: NamedScope | None = None,
-):
-    """Apply isNull() — returns UInt8 Object (1 for NULL, 0 otherwise)."""
-    return await emit_result(
-        _preview_mask_schema(info.fieldtype),
-        f"SELECT isNull(value) AS value FROM {info.source}",
-        ch_client,
-        name=name,
-        scope=scope,
-    )
-
-
-async def is_not_null_op(
-    info: QueryInfo,
-    ch_client,
-    *,
-    name: str | None = None,
-    scope: NamedScope | None = None,
-):
-    """Apply isNotNull() — returns UInt8 Object (1 for non-NULL, 0 otherwise)."""
-    return await emit_result(
-        _preview_mask_schema(info.fieldtype),
-        f"SELECT isNotNull(value) AS value FROM {info.source}",
-        ch_client,
-        name=name,
-        scope=scope,
-    )
+# ``is_null`` / ``is_not_null`` are plain unary transforms — see UNARY_TRANSFORMS.
 
 
 async def coalesce_op(

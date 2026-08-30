@@ -8,6 +8,8 @@ helpers — keeping them here avoids a circular import between the two.
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 from ..data_context.data_context import _infer_clickhouse_type
 from ..models import (
     AAI_ID_COLUMN,
@@ -135,6 +137,9 @@ UNARY_TRANSFORMS: dict[str, tuple[str, str]] = {
     "abs": ("abs", "Float64"),
     "log2": ("log2", "Float64"),
     "sqrt": ("sqrt", "Float64"),
+    # Null checks
+    "is_null": ("isNull", "UInt8"),
+    "is_not_null": ("isNotNull", "UInt8"),
 }
 
 
@@ -177,14 +182,13 @@ def _determine_agg_result_type(agg_func: str, source_type: str | ColumnInfo) -> 
     return "Float64"
 
 
-def _preview_unary_schema(input_fieldtype: str, transform: str) -> Schema:
-    """Sync preview of the Schema ``operators.unary_transform`` will produce.
+def _preview_fixed_type_schema(input_fieldtype: str, result_type: str) -> Schema:
+    """Sync preview for every value-wise operator with a fixed result type —
+    unary transforms, string/regex operators and ``isin``.
 
-    The unary transform preserves the input fieldtype (scalar→scalar,
-    array→array) and replaces the value type with the transform's fixed
-    result type from ``UNARY_TRANSFORMS``.
+    Each preserves the input fieldtype (scalar→scalar, array→array) and
+    replaces the value type with the operator's fixed result type.
     """
-    _, result_type = UNARY_TRANSFORMS[transform]
     return Schema(fieldtype=input_fieldtype, columns={"value": ColumnInfo(result_type)})
 
 
@@ -252,71 +256,26 @@ def _preview_operator_schema(schema_a: Schema, schema_b: Schema, operator: str) 
     return schema
 
 
-# String/regex operator key → (SQL expression template, result type). ``{pattern}``
-# and ``{replacement}`` are substituted with SQL-escaped string literals at
-# materialize time. Mirrored to ``operators.STRING_OP_EXPRESSIONS`` /
-# ``operators.STRING_OP_RESULT_TYPES`` via re-export.
-STRING_OP_EXPRESSIONS: dict[str, str] = {
-    "match": "match(a.value, {pattern})",
-    "like": "a.value LIKE {pattern}",
-    "ilike": "a.value ILIKE {pattern}",
-    "extract": "extract(a.value, {pattern})",
-    "replace": "replaceRegexpAll(a.value, {pattern}, {replacement})",
-}
+# String/regex operator key → (SQL expression template, result type) — single
+# source of truth shared between ``_preview_fixed_type_schema`` (preview) and
+# ``operators._apply_string_op_db`` (materialize). ``{pattern}`` and
+# ``{replacement}`` are substituted with SQL-escaped string literals at
+# materialize time.
+class StringOp(NamedTuple):
+    expression: str
+    result_type: str
 
-STRING_OP_RESULT_TYPES: dict[str, str] = {
-    "match": "UInt8",
-    "like": "UInt8",
-    "ilike": "UInt8",
-    "extract": "String",
-    "replace": "String",
-}
 
-# Element-wise operator → arrayMap lambda body. Mirrored to
-# ``operators.ARRAYMAP_EXPRESSIONS``.
-ARRAYMAP_EXPRESSIONS: dict[str, str] = {
-    # Arithmetic operators
-    "+": "x + y",
-    "-": "x - y",
-    "*": "x * y",
-    "/": "x / y",
-    "//": "intDiv(x, y)",
-    "%": "x % y",
-    "**": "power(x, y)",
-    # Comparison operators
-    "==": "toUInt8(x = y)",
-    "!=": "toUInt8(x != y)",
-    "<": "toUInt8(x < y)",
-    "<=": "toUInt8(x <= y)",
-    ">": "toUInt8(x > y)",
-    ">=": "toUInt8(x >= y)",
-    # Bitwise operators
-    "&": "bitAnd(x, y)",
-    "|": "bitOr(x, y)",
-    "^": "bitXor(x, y)",
+STRING_OPS: dict[str, StringOp] = {
+    "match": StringOp("match(a.value, {pattern})", "UInt8"),
+    "like": StringOp("a.value LIKE {pattern}", "UInt8"),
+    "ilike": StringOp("a.value ILIKE {pattern}", "UInt8"),
+    "extract": StringOp("extract(a.value, {pattern})", "String"),
+    "replace": StringOp("replaceRegexpAll(a.value, {pattern}, {replacement})", "String"),
 }
 
 # Comparison operators always yield UInt8 rather than a promoted numeric type.
 _COMPARISON_OPS = frozenset({"==", "!=", "<", "<=", ">", ">="})
-
-
-def _preview_string_op_schema(input_fieldtype: str, op_name: str) -> Schema:
-    """Sync preview of ``operators._apply_string_op_db``'s result Schema.
-
-    String/regex operators preserve the input fieldtype and replace the value
-    type with the operator's fixed result type from ``STRING_OP_RESULT_TYPES``.
-    """
-    return Schema(
-        fieldtype=input_fieldtype,
-        columns={"value": ColumnInfo(STRING_OP_RESULT_TYPES[op_name])},
-    )
-
-
-def _preview_mask_schema(input_fieldtype: str) -> Schema:
-    """Sync preview for the UInt8 mask operators — ``isin``, ``is_null``,
-    ``is_not_null``. Each preserves the input fieldtype and tests each value.
-    """
-    return Schema(fieldtype=input_fieldtype, columns={"value": ColumnInfo("UInt8")})
 
 
 def _compute_coalesce_schema(
