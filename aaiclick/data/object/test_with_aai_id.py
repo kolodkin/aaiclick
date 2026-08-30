@@ -191,4 +191,4 @@ async def test_aai_id_does_not_force_subquery_on_aggregation(ctx):
     assert info.order_by == "aai_id"
     assert info.aai_id_info is not None
     # Aggregation still computes the correct value.
-    assert await (await obj.sum()).data() == 60
+    assert await obj.sum().data() == 60

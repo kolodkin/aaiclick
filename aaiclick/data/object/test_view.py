@@ -202,7 +202,7 @@ async def test_view_where_getitem_count(ctx):
         aai_id=True,
     )
     high = obj.where("score >= 30")
-    count = await (await high["name"].count()).data()
+    count = await high["name"].count().data()
     assert count == 3
 
 

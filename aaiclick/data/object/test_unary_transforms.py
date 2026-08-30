@@ -152,14 +152,16 @@ async def test_chain_year_then_sum(ctx):
 async def test_chain_abs_then_sum(ctx):
     """abs() returns an Object that can be aggregated."""
     obj = await create_object_from_value([-3, -1, 2])
-    result = await (await obj.abs()).sum()
+    absolute = await obj.abs()
+    result = await absolute.sum()
     assert await result.data() == 6.0
 
 
 async def test_chain_length_then_max(ctx):
     """length() returns an Object that can be aggregated."""
     obj = await create_object_from_value(["a", "bb", "ccc", "dddd"])
-    result = await (await obj.length()).max()
+    lengths = await obj.length()
+    result = await lengths.max()
     assert await result.data() == 4
 
 

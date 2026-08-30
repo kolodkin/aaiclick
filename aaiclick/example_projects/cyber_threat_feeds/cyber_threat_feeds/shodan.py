@@ -44,7 +44,7 @@ async def load_shodan_kev_cves() -> Object:
             json_path="cves",
             json_columns=SHODAN_COLUMNS,
         )
-        count = await (await page["cve_id"].count()).data()
+        count = await page["cve_id"].count().data()
         result = page if result is None else await result.concat(page)
         if count < _PAGE_SIZE:
             break
@@ -82,21 +82,21 @@ async def _cvss_distribution(cves: Object) -> dict:
     """Compute CVSS score distribution statistics."""
     cvss = cves["cvss"]
 
-    avg_cvss = await (await cvss.mean()).data()
-    std_cvss = await (await cvss.std()).data()
-    median_cvss = await (await cvss.quantile(0.5)).data()
-    p90_cvss = await (await cvss.quantile(0.9)).data()
-    p99_cvss = await (await cvss.quantile(0.99)).data()
-    min_cvss = await (await cvss.min()).data()
-    max_cvss = await (await cvss.max()).data()
+    avg_cvss = await cvss.mean().data()
+    std_cvss = await cvss.std().data()
+    median_cvss = await cvss.quantile(0.5).data()
+    p90_cvss = await cvss.quantile(0.9).data()
+    p99_cvss = await cvss.quantile(0.99).data()
+    min_cvss = await cvss.min().data()
+    max_cvss = await cvss.max().data()
 
     # Comparison operators on Nullable(Float64) produce Float64-typed results,
     # so we use arithmetic: mean of (cvss >= threshold) gives the fraction.
     gte9 = cvss >= 9.0
-    critical_pct = (await (await gte9.mean()).data()) * 100
+    critical_pct = (await gte9.mean().data()) * 100
 
     gte7 = cvss >= 7.0
-    gte7_pct = (await (await gte7.mean()).data()) * 100
+    gte7_pct = (await gte7.mean().data()) * 100
     high_pct = gte7_pct - critical_pct
 
     return {
@@ -116,13 +116,13 @@ async def _epss_distribution(cves: Object) -> dict:
     """Compute EPSS score distribution statistics."""
     epss = cves["epss"]
 
-    avg_epss = await (await epss.mean()).data()
-    median_epss = await (await epss.quantile(0.5)).data()
-    p90_epss = await (await epss.quantile(0.9)).data()
-    p99_epss = await (await epss.quantile(0.99)).data()
+    avg_epss = await epss.mean().data()
+    median_epss = await epss.quantile(0.5).data()
+    p90_epss = await epss.quantile(0.9).data()
+    p99_epss = await epss.quantile(0.99).data()
 
     high_prob = epss > 0.5
-    high_prob_pct = (await (await high_prob.mean()).data()) * 100
+    high_prob_pct = (await high_prob.mean().data()) * 100
 
     return {
         "avg": avg_epss,

@@ -278,7 +278,7 @@ Apply a ClickHouse function element-wise to the value column, returning a new Ob
 | `.log2()`       | `log2()`            | Float64     | Math      |
 | `.sqrt()`       | `sqrt()`            | Float64     | Math      |
 
-Results are full Objects — chainable with any operator (e.g., `await (await obj.year()).unique()`).
+Results are full Objects — chainable with any operator (e.g., `await obj.year().unique()`).
 
 **Tests**: `aaiclick/data/object/test_unary_transforms.py`. For runnable examples, see `examples/transforms.py`.
 
