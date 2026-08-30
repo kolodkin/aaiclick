@@ -212,6 +212,8 @@ def test_seed_default_tenant_inserts_once():
 
     with engine.connect() as conn:
         rows = conn.execute(sa_select(Tenant.id, Tenant.slug)).all()
+    engine.dispose()
+
     assert rows == [(DEFAULT_TENANT_ID, "aaiclick")]
 
 
