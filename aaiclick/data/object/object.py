@@ -2922,10 +2922,10 @@ async def _resolve_operand(value: OperandType | None) -> Object | None:
     return await Object._ensure_object(value)
 
 
-# Operator dispatch tables for unary / aggregation LazyOperators (rhs=None).
-# Each entry maps an operator name to a coroutine factory that produces the
-# materialized result given the resolved lhs Object, the LazyOperator instance
-# (for ``params``), and forwarded ``name``/``scope``.
+# Aggregations that reduce to a scalar through ``_apply_aggregation`` — the one
+# membership test ``_materialize_unary`` needs beyond ``UNARY_TRANSFORMS`` and
+# ``STRING_OPS``. Replacing that if-chain with a name → materializer table is
+# tracked in ``docs/designs/future.md``.
 _SIMPLE_AGGREGATIONS = frozenset({"min", "max", "sum", "mean", "std", "var", "count"})
 
 # Binary operators that pair operands by something other than row position —
