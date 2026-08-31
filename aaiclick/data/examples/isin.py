@@ -39,8 +39,8 @@ async def example():
 
     tags = await create_object_from_value(["python", "java", "python", "rust", "java", "go"])
     popular = await create_object_from_value(["python", "java"])
-    mask = await tags.isin(popular)
-    count = await mask.sum()
+    # isin() returns a LazyOperator, so sum() chains straight onto it.
+    count = tags.isin(popular).sum()
     print(f"Tags:    {await tags.data()}")
     print(f"Popular: {await popular.data()}")
     print(f"Matches: {await count.data()}")  # → 4

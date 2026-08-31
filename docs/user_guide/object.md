@@ -65,7 +65,16 @@ All operators work element-wise on scalar and array data, creating new Object ta
 
 ## Lazy Operator Results (`a + b` and `a.sum()` are Plans, not Tables)
 
-Every binary operator (`+`, `-`, `*`, `/`, `//`, `%`, `**`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `&`, `|`, `^`), aggregation (`.min()` / `.max()` / `.sum()` / `.mean()` / `.std()` / `.var()` / `.count()` / `.count_if()` / `.quantile()` / `.unique()` / `.nunique()`), and unary transform (`.year()` / `.month()` / `.day_of_week()` / `.lower()` / `.upper()` / `.length()` / `.trim()` / `.abs()` / `.log2()` / `.sqrt()`) returns a `LazyOperator` — a subclass of `Object` that captures the operation plan (`lhs`, `rhs`, `operator`, precomputed result schema) without touching ClickHouse. The `CREATE TABLE` + `INSERT INTO ... SELECT` happens when the lazy is awaited.
+Every value-column operator returns a `LazyOperator` — a subclass of `Object` that captures the operation plan (`lhs`, `rhs`, `operator`, precomputed result schema) without touching ClickHouse. The `CREATE TABLE` + `INSERT INTO ... SELECT` happens when the lazy is awaited.
+
+| Family            | Methods                                                                                                                     |
+|-------------------|-----------------------------------------------------------------------------------------------------------------------------|
+| Binary            | `+`, `-`, `*`, `/`, `//`, `%`, `**`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `&`, `\|`, `^`                                        |
+| Aggregation       | `.min()`, `.max()`, `.sum()`, `.mean()`, `.std()`, `.var()`, `.count()`, `.count_if()`, `.quantile()`, `.unique()`, `.nunique()` |
+| Unary transform   | `.year()`, `.month()`, `.day_of_week()`, `.lower()`, `.upper()`, `.length()`, `.trim()`, `.abs()`, `.log2()`, `.sqrt()`      |
+| String / regex    | `.match()`, `.like()`, `.ilike()`, `.extract()`, `.replace()`                                                               |
+| Membership / null | `.isin()`, `.is_null()`, `.is_not_null()`, `.coalesce()`                                                                    |
+| Element-wise      | `.array_map()`                                                                                                              |
 
 ```python
 # 1. Build a plan — pure Python, no DB call
@@ -217,7 +226,7 @@ Reduce an array to a scalar Object.
 
 ## String/Regex Operators
 
-Pattern matching on String columns. Each method takes a `str` pattern, returns a new Object, and is chainable (e.g., `match()` → `sum()` to count matches).
+Pattern matching on String columns. Each method takes a `str` pattern and returns a [`LazyOperator`](#lazy-operator-results-a--b-and-asum-are-plans-not-tables) — chainable, and nameable with `.as_(name, scope=...)`.
 
 | Method              | ClickHouse Function          | Result Type | Description                        |
 |---------------------|------------------------------|-------------|------------------------------------|
@@ -227,7 +236,17 @@ Pattern matching on String columns. Each method takes a `str` pattern, returns a
 | `.extract(p)`       | `extract(val, p)`            | String      | Extract first capture group        |
 | `.replace(p, r)`    | `replaceRegexpAll(val, p, r)`| String      | Replace all regex matches          |
 
+```python
+obj = await create_object_from_value(["apple", "banana", "avocado"])
+
+await obj.match("^a").data()                                   # [1, 0, 1]
+hits = await obj.like("a%").as_("hits")                        # t_hits_<id>
+count = await obj.extract("(an)").match("^an$").sum().data()   # 1 — chain stays lazy
+```
+
 **Note**: ClickHouse uses RE2 regex syntax (no lookaheads/lookbehinds).
+
+**Tests**: `aaiclick/data/object/test_string_regex.py`.
 
 ## Membership Operator: `isin()`
 
@@ -237,19 +256,15 @@ UInt8 membership mask via ClickHouse `IN` subquery — all data stays in the dat
 |--------------|-------------------------------------------------|-------------|
 | `.isin(other)` | `value IN (SELECT value FROM other_table)`    | UInt8       |
 
-Accepts an `Object` or a Python `list` (auto-converted to Object).
+Returns a `LazyOperator`. Accepts an `Object` or a Python `list`.
 
 ```python
 obj = await create_object_from_value(["a", "b", "c", "d"])
 allowed = await create_object_from_value(["a", "c"])
-mask = await obj.isin(allowed)
-await mask.data()           # [1, 0, 1, 0]
+await obj.isin(allowed).data()          # [1, 0, 1, 0]
 
-# Also works with a plain Python list
-mask = await obj.isin(["a", "c"])
-
-# Chain with sum() to count matches
-await mask.sum().data()     # 2
+# Also works with a plain Python list, and chains into an aggregation
+await obj.isin(["a", "c"]).sum().data()  # 2
 
 # Works on dict column selection
 obj = await create_object_from_value({"category": ["a", "b", "c"], "val": [1, 2, 3]})

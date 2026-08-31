@@ -561,25 +561,161 @@ async def test_chained_unary_then_aggregation(ctx):
     assert await chain.data() == 10.0
 
 
+async def assert_preview_matches_materialized(lazy, label=""):
+    """The core LazyOperator contract: the schema computed at plan time is the
+    schema the materialized result actually has."""
+    preview = lazy.schema
+    materialized = await lazy
+    assert preview.fieldtype == materialized.schema.fieldtype, label
+    assert set(preview.columns) == set(materialized.schema.columns), label
+    for col in preview.columns:
+        assert preview.columns[col].type == materialized.schema.columns[col].type, label
+
+
 async def test_aggregation_preview_matches_materialized(ctx):
     """Pre-materialize schema preview must match the schema of the materialized result."""
     obj = await create_object_from_value([1, 2, 3, 4, 5])
     for method in SIMPLE_AGG_METHODS:
-        lazy = getattr(obj, method)()
-        preview = lazy.schema
-        materialized = await lazy
-        assert preview.fieldtype == materialized.schema.fieldtype
-        assert set(preview.columns) == set(materialized.schema.columns)
-        for col in preview.columns:
-            assert preview.columns[col].type == materialized.schema.columns[col].type, method
+        await assert_preview_matches_materialized(getattr(obj, method)(), method)
 
 
 async def test_unary_preview_matches_materialized(ctx):
     obj = await create_object_from_value([1.0, 4.0, 9.0])
     for method in UNARY_NUMERIC_METHODS:
-        lazy = getattr(obj, method)()
-        preview = lazy.schema
-        materialized = await lazy
-        assert preview.fieldtype == materialized.schema.fieldtype
-        for col in preview.columns:
-            assert preview.columns[col].type == materialized.schema.columns[col].type, method
+        await assert_preview_matches_materialized(getattr(obj, method)(), method)
+
+
+# -----------------------------------------------------------------------------
+# Phase 3: string/regex, null-check, isin, coalesce and array_map return LazyOperator
+# -----------------------------------------------------------------------------
+
+# (method, args) — one call each, since the methods differ in arity.
+STRING_OP_CALLS = [
+    pytest.param("match", ("^a",), id="match"),
+    pytest.param("like", ("a%",), id="like"),
+    pytest.param("ilike", ("A%",), id="ilike"),
+    pytest.param("extract", ("(a.)",), id="extract"),
+    pytest.param("replace", ("a", "z"), id="replace"),
+]
+
+
+@pytest.mark.parametrize("method, args", STRING_OP_CALLS)
+async def test_string_op_returns_lazy_operator(ctx, method, args):
+    """String/regex methods plan synchronously — no await, no DB round-trip."""
+    obj = await create_object_from_value(["apple", "banana"])
+    lazy = getattr(obj, method)(*args)
+    assert isinstance(lazy, LazyOperator)
+    assert lazy.operator == method
+    assert lazy.rhs is None
+    assert lazy._materialized is None
+
+
+@pytest.mark.parametrize("method, args", STRING_OP_CALLS)
+async def test_string_op_preview_matches_materialized(ctx, method, args):
+    obj = await create_object_from_value(["apple", "banana"])
+    await assert_preview_matches_materialized(getattr(obj, method)(*args), method)
+
+
+async def test_string_op_as_named(ctx):
+    """obj.match(p).as_('flags') names the result table."""
+    obj = await create_object_from_value(["apple", "banana", "avocado"])
+    result = await obj.match("^a").as_("flags")
+    assert result.table.startswith("t_flags_")
+    assert await result.data() == [1, 0, 1]
+
+
+async def test_replace_carries_replacement_through_params(ctx):
+    obj = await create_object_from_value(["hello world", "foo bar"])
+    lazy = obj.replace(" ", "_")
+    assert lazy.params == {"pattern": " ", "replacement": "_"}
+    assert await lazy.data() == ["hello_world", "foo_bar"]
+
+
+async def test_chained_unary_then_string_op(ctx):
+    """obj.upper().like('A%') stacks a string op on a unary transform."""
+    obj = await create_object_from_value(["apple", "banana"])
+    chain = obj.upper().like("A%")
+    assert isinstance(chain.lhs, LazyOperator)
+    assert chain.lhs.operator == "upper"
+    assert await chain.data() == [1, 0]
+
+
+async def test_chained_string_ops(ctx):
+    """extract() then match() — each stage stays lazy until the outer await."""
+    obj = await create_object_from_value(["id:123", "id:abc"])
+    chain = obj.extract("id:(.*)").match("^\\d+$")
+    assert isinstance(chain.lhs, LazyOperator)
+    assert chain.lhs._materialized is None
+    assert await chain.data() == [1, 0]
+
+
+@pytest.mark.parametrize("method", ["is_null", "is_not_null"])
+async def test_null_check_returns_lazy_operator(ctx, method):
+    obj = await create_object_from_value([1, 2, 3])
+    lazy = getattr(obj, method)()
+    assert isinstance(lazy, LazyOperator)
+    assert lazy.operator == method
+    assert lazy.rhs is None
+
+
+async def test_null_check_as_named(ctx):
+    obj = await create_object_from_value([1, 2, 3])
+    result = await obj.is_not_null().as_("present")
+    assert result.table.startswith("t_present_")
+    assert await result.data() == [1, 1, 1]
+
+
+async def test_isin_returns_lazy_operator(ctx):
+    obj = await create_object_from_value(["a", "b", "c"])
+    allowed = await create_object_from_value(["a", "c"])
+    lazy = obj.isin(allowed)
+    assert isinstance(lazy, LazyOperator)
+    assert lazy.operator == "isin"
+    assert lazy.rhs is allowed
+
+
+async def test_isin_python_list_converted_at_materialize(ctx):
+    """A Python list rides along as the rhs and becomes an Object on await."""
+    obj = await create_object_from_value(["a", "b", "c"])
+    lazy = obj.isin(["a", "c"])
+    assert lazy.rhs == ["a", "c"]
+    assert await lazy.data() == [1, 0, 1]
+
+
+async def test_isin_as_named(ctx):
+    obj = await create_object_from_value(["a", "b", "c"])
+    result = await obj.isin(["a", "c"]).as_("allowed")
+    assert result.table.startswith("t_allowed_")
+    assert await result.data() == [1, 0, 1]
+
+
+async def test_coalesce_returns_lazy_operator(ctx):
+    obj = await create_object_from_value([1, 2, 3])
+    lazy = obj.coalesce(0)
+    assert isinstance(lazy, LazyOperator)
+    assert lazy.operator == "coalesce"
+    assert lazy.rhs == 0
+
+
+async def test_coalesce_as_named(ctx):
+    obj = await create_object_from_value([1, 2, 3])
+    result = await obj.coalesce(0).as_("filled")
+    assert result.table.startswith("t_filled_")
+    assert await result.data() == [1, 2, 3]
+
+
+async def test_array_map_returns_lazy_operator(ctx):
+    a = await create_object_from_value([1, 2, 3], aai_id=True)
+    b = await create_object_from_value([10, 20, 30], aai_id=True)
+    lazy = a.array_map(b, "+")
+    assert isinstance(lazy, LazyOperator)
+    assert lazy.operator == "array_map"
+    assert lazy.params == {"operator": "+"}
+    assert await lazy.data() == [11, 22, 33]
+
+
+async def test_array_map_as_named(ctx):
+    a = await create_object_from_value([1, 2, 3], aai_id=True)
+    result = await a.array_map(10, "*").as_("scaled")
+    assert result.table.startswith("t_scaled_")
+    assert sorted(await result.data()) == [10, 20, 30]

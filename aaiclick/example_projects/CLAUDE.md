@@ -84,7 +84,7 @@ Projects can be copied out of the monorepo and run independently:
 
 ## Naming Results
 
-Prefer the single-await idiom — `await obj.sum().data()`, not `await (await obj.sum()).data()`. Aggregations / unary / binary operators return a `LazyOperator` whose `.data()` auto-materializes.
+Prefer the single-await idiom — `await obj.sum().data()`, not `await (await obj.sum()).data()`. Every value-column operator — binary, aggregation, unary transform, string/regex, `isin`, null check, `array_map` — returns a `LazyOperator` whose `.data()` auto-materializes.
 
 Name materialized results only when they cross task boundaries or you'd want to open them during lineage / oplog inspection — otherwise the default `t_<snowflake>` is fine. Use `scope="job"` so the table outlives the producing task but is cleaned up with the job; `scope="global"` is for results that should survive past the job (rare in example projects).
 
