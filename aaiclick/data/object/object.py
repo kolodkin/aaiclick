@@ -11,7 +11,7 @@ import asyncio
 import functools
 import re
 import sys
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, Union
 
 from typing_extensions import Self
@@ -26,7 +26,7 @@ from ..data_context import (
     incref,
     register_object,
 )
-from ..data_context.ch_client import execute_for_stats, export_query_to_file
+from ..data_context.ch_client import ChClient, execute_for_stats, export_query_to_file
 from ..formats import format_for_extension
 from ..models import (
     AAI_ID_COLUMN,
@@ -64,6 +64,7 @@ from ..sql_utils import escape_sql_string, quote_identifier
 from . import data_extraction, ingest, operators
 from . import join as join_module
 from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
+from .literals import literal_query_info
 from .refs import ObjectRef, ViewRef
 from .schema_compute import (
     STRING_OPS,
@@ -85,7 +86,7 @@ from .schema_compute import (
 _UNSET: Any = object()
 
 
-def _require_explicit_order_for_cross_table(a: Object, b: Object) -> None:
+def _require_explicit_order_for_cross_table(a: QueryInfo, b: QueryInfo) -> None:
     """Enforce the cross-table operator contract.
 
     Binary elementwise ops between two array Objects from different tables
@@ -93,13 +94,13 @@ def _require_explicit_order_for_cross_table(a: Object, b: Object) -> None:
     ``row_number() OVER ()`` pairs rows arbitrarily. Same-table ops and
     scalar broadcast skip the check (they have a natural alignment).
 
-    Uses the public ``.order_by`` property (``None`` on base Object, the
-    stored ``_order_by`` on View) so the helper stays symmetric and
-    doesn't reach into private attributes.
+    Takes the operands' ``QueryInfo`` — what the operator SQL consumes — so
+    the check at plan time and at materialize time (where a Python operand
+    is a literal subquery, not an Object) read the same shape.
     """
-    if a._schema.fieldtype != FIELDTYPE_ARRAY or b._schema.fieldtype != FIELDTYPE_ARRAY:
+    if a.fieldtype != FIELDTYPE_ARRAY or b.fieldtype != FIELDTYPE_ARRAY:
         return
-    if a.table == b.table:
+    if a.base_table == b.base_table:
         return
     if a.order_by is not None and b.order_by is not None:
         return
@@ -107,7 +108,7 @@ def _require_explicit_order_for_cross_table(a: Object, b: Object) -> None:
         "Binary elementwise ops on array Objects from different sources "
         "require an explicit row order. Wrap both sides with "
         ".view(order_by=...) before combining.\n"
-        f"  Got: {a!r} + {b!r}"
+        f"  Got: {a.source} + {b.source}"
     )
 
 
@@ -696,25 +697,6 @@ class Object:
         col = self._schema.columns.get("value")
         return col.fieldtype if col is not None else None
 
-    @staticmethod
-    async def _ensure_object(value: OperandType) -> Object:
-        """
-        Ensure value is an Object, converting Python scalars if needed.
-
-        Python scalars are converted to Objects via create_object_from_value,
-        so all data stays in ClickHouse with a unified code path.
-
-        Args:
-            value: An Object, a Python scalar (int, float, bool, str), or a
-                list (``isin``'s allowed-value set)
-
-        Returns:
-            Object instance (existing or newly created from scalar)
-        """
-        if not isinstance(value, Object):
-            return await create_object_from_value(value)
-        return value
-
     def _peek_op_metadata(self) -> tuple[str, str, bool, ColumnInfo | None]:
         """Return (fieldtype, value_type, nullable, aai_id_info) the operator will see.
 
@@ -738,7 +720,7 @@ class Object:
         if not isinstance(other, Object) or _is_unmaterialized_lazy(self) or _is_unmaterialized_lazy(other):
             return
         a, b = (other, self) if reverse else (self, other)
-        _require_explicit_order_for_cross_table(a, b)
+        _require_explicit_order_for_cross_table(a._get_query_info(), b._get_query_info())
 
     def _plan_operator(self, other: Object | ValueScalarType, operator: str) -> LazyOperator:
         """Synchronously plan ``self op other`` — returns a LazyOperator that
@@ -1494,8 +1476,9 @@ class Object:
         Test if values are in another Object's value set.
 
         Generates an IN subquery: ``value IN (SELECT value FROM other_table)``.
-        Accepts an Object or a Python list (converted to an Object when the
-        LazyOperator materializes).
+        Accepts an Object or a Python list. A list is inlined as SQL literals
+        when the LazyOperator materializes — no table is created for it —
+        unless it is longer than ``literals.LITERAL_LIST_MAX``.
 
         Args:
             other: Object whose values define the allowed set, or a Python list.
@@ -2905,33 +2888,127 @@ def _peek_other_metadata(value) -> tuple[str, str, bool, ColumnInfo | None]:
     return schema.fieldtype, col.type, col.nullable, None
 
 
-async def _resolve_operand(value: OperandType | None) -> Object | None:
-    """Resolve an operand to a materialized Object.
+async def _resolve_operand(value: OperandType | None) -> QueryInfo | None:
+    """Resolve an operand to the ``QueryInfo`` its operator function consumes.
 
-    - LazyOperator → materialize and unwrap.
-    - Object → return as-is.
-    - Python scalar or list → ``Object._ensure_object``.
-    - None → return ``None`` (unary / aggregation operators have no RHS).
+    - LazyOperator → materialize, then its query info.
+    - Object → its query info (after a staleness check).
+    - Python scalar or short list → a constant subquery
+      (``literals.literal_query_info``); no table is created.
+    - List too long to inline → a table via ``create_object_from_value``.
+    - None → ``None`` (unary / aggregation operators have no RHS).
     """
     if value is None:
         return None
     if isinstance(value, LazyOperator):
-        return await value._materialize()
+        value = await value._materialize()
     if isinstance(value, Object):
-        return value
-    return await Object._ensure_object(value)
+        value.checkstale()
+        return value._get_query_info()
+    info = literal_query_info(value)
+    if info is None:
+        return (await create_object_from_value(value))._get_query_info()
+    return info
 
 
-# Aggregations that reduce to a scalar through ``_apply_aggregation`` — the one
-# membership test ``_materialize_unary`` needs beyond ``UNARY_TRANSFORMS`` and
-# ``STRING_OPS``. Replacing that if-chain with a name → materializer table is
-# tracked in ``docs/designs/future.md``.
+# Aggregations that reduce to a scalar through ``_apply_aggregation``.
 _SIMPLE_AGGREGATIONS = frozenset({"min", "max", "sum", "mean", "std", "var", "count"})
 
 # Binary operators that pair operands by something other than row position —
 # ``isin`` by set membership, ``array_map`` by groupArray index — so the
 # cross-table row-order contract does not apply to them.
 _ORDER_FREE_BINARY_OPS = frozenset({"isin", "array_map"})
+
+
+# Materializers — one per operator family. Each pulls the family's extra
+# arguments from ``lazy.params`` and forwards the ``.as_()`` name / scope, so
+# the dispatch tables below can share one signature across families whose
+# operator functions take different positional arguments.
+
+_UnaryMaterializer = Callable[[QueryInfo, "LazyOperator", ChClient], Awaitable[Object]]
+_BinaryMaterializer = Callable[[QueryInfo, QueryInfo, "LazyOperator", ChClient], Awaitable[Object]]
+
+
+async def _materialize_unary_transform(info: QueryInfo, lazy: LazyOperator, ch_client: ChClient) -> Object:
+    return await operators.unary_transform(info, lazy.operator, ch_client, name=lazy._name, scope=lazy._scope)
+
+
+async def _materialize_string_op(info: QueryInfo, lazy: LazyOperator, ch_client: ChClient) -> Object:
+    return await operators._apply_string_op_db(
+        info,
+        lazy.operator,
+        lazy.params["pattern"],
+        ch_client,
+        replacement=lazy.params.get("replacement"),
+        name=lazy._name,
+        scope=lazy._scope,
+    )
+
+
+async def _materialize_aggregation(info: QueryInfo, lazy: LazyOperator, ch_client: ChClient) -> Object:
+    return await operators._apply_aggregation(info, lazy.operator, ch_client, name=lazy._name, scope=lazy._scope)
+
+
+async def _materialize_count_if(info: QueryInfo, lazy: LazyOperator, ch_client: ChClient) -> Object:
+    return await operators.count_if_agg(info, lazy.params["condition"], ch_client, name=lazy._name, scope=lazy._scope)
+
+
+async def _materialize_quantile(info: QueryInfo, lazy: LazyOperator, ch_client: ChClient) -> Object:
+    return await operators.quantile_agg(info, lazy.params["q"], ch_client, name=lazy._name, scope=lazy._scope)
+
+
+async def _materialize_unique(info: QueryInfo, lazy: LazyOperator, ch_client: ChClient) -> Object:
+    return await operators.unique_group(info, ch_client, name=lazy._name, scope=lazy._scope)
+
+
+async def _materialize_nunique(info: QueryInfo, lazy: LazyOperator, ch_client: ChClient) -> Object:
+    return await operators.nunique_agg(info, ch_client, name=lazy._name, scope=lazy._scope)
+
+
+async def _materialize_binary_dunder(
+    info_a: QueryInfo, info_b: QueryInfo, lazy: LazyOperator, ch_client: ChClient
+) -> Object:
+    return await operators._apply_operator_db(
+        info_a, info_b, lazy.operator, ch_client, name=lazy._name, scope=lazy._scope
+    )
+
+
+async def _materialize_isin(info_a: QueryInfo, info_b: QueryInfo, lazy: LazyOperator, ch_client: ChClient) -> Object:
+    return await operators.isin_op(info_a, info_b, ch_client, name=lazy._name, scope=lazy._scope)
+
+
+async def _materialize_array_map(
+    info_a: QueryInfo, info_b: QueryInfo, lazy: LazyOperator, ch_client: ChClient
+) -> Object:
+    return await operators.array_map_db(
+        info_a, info_b, lazy.params["operator"], ch_client, name=lazy._name, scope=lazy._scope
+    )
+
+
+async def _materialize_coalesce(
+    info_a: QueryInfo, info_b: QueryInfo, lazy: LazyOperator, ch_client: ChClient
+) -> Object:
+    return await operators.coalesce_op(info_a, info_b, ch_client, name=lazy._name, scope=lazy._scope)
+
+
+# Operator name → materializer. Adding an operator family is one entry here
+# plus its ``_plan_*`` helper on ``Object``.
+_UNARY_MATERIALIZERS: dict[str, _UnaryMaterializer] = {
+    **dict.fromkeys(UNARY_TRANSFORMS, _materialize_unary_transform),
+    **dict.fromkeys(STRING_OPS, _materialize_string_op),
+    **dict.fromkeys(_SIMPLE_AGGREGATIONS, _materialize_aggregation),
+    "count_if": _materialize_count_if,
+    "quantile": _materialize_quantile,
+    "unique": _materialize_unique,
+    "nunique": _materialize_nunique,
+}
+
+_BINARY_MATERIALIZERS: dict[str, _BinaryMaterializer] = {
+    **dict.fromkeys(operators.OPERATOR_EXPRESSIONS, _materialize_binary_dunder),
+    "isin": _materialize_isin,
+    "array_map": _materialize_array_map,
+    "coalesce": _materialize_coalesce,
+}
 
 
 class LazyOperator(Object):
@@ -2951,19 +3028,11 @@ class LazyOperator(Object):
         rhs: Right operand — Object, LazyOperator, Python scalar, a Python
             list (``isin``), or ``None`` (unary / aggregation operators have
             no RHS).
-        operator: Operator symbol or name:
-            - Binary: ``"+", "-", "*", "/", "//", "%", "**", "==", "!=",
-              "<", "<=", ">", ">=", "&", "|", "^"``, plus ``"isin"``,
-              ``"coalesce"``, ``"array_map"``.
-            - Unary transforms (rhs=None): keys of
-              ``schema_compute.UNARY_TRANSFORMS`` (``"year"``, ``"lower"``,
-              ``"is_null"``, …).
-            - String/regex (rhs=None): keys of ``schema_compute.STRING_OPS``
-              (``"match"``, ``"like"``, ``"ilike"``, ``"extract"``,
-              ``"replace"``).
-            - Aggregations (rhs=None): ``"min" / "max" / "sum" / "mean" /
-              "std" / "var" / "count"``, plus ``"count_if"``,
-              ``"quantile"``, ``"unique"``, ``"nunique"``.
+        operator: Operator symbol or name — a key of ``_BINARY_MATERIALIZERS``
+            (the binary dunder symbols plus ``"isin"``, ``"coalesce"``,
+            ``"array_map"``) or, when ``rhs`` is ``None``, of
+            ``_UNARY_MATERIALIZERS`` (unary transforms, string/regex
+            matchers and aggregations).
         params: Operator-specific extra arguments (``{}`` when the operator
             takes none) — e.g. ``{"q": 0.5}`` for ``quantile``,
             ``{"condition": ...}`` for ``count_if``, ``{"pattern": ...}`` for
@@ -3054,60 +3123,26 @@ class LazyOperator(Object):
         # independent upstream chains, they can materialize in parallel. ``lhs``
         # is always non-None on a LazyOperator (the planners guarantee it);
         # ``rhs`` is None for unary / aggregation operators.
-        lhs_obj, rhs_obj = await asyncio.gather(
+        lhs_info, rhs_info = await asyncio.gather(
             _resolve_operand(self.lhs),
             _resolve_operand(self.rhs),
         )
-        assert lhs_obj is not None, "LazyOperator.lhs must always resolve to an Object"
-        lhs_obj.checkstale()
+        assert lhs_info is not None, "LazyOperator.lhs must always resolve to an operand"
 
         ch_client = get_ch_client()
-        if rhs_obj is None:
-            result = await self._materialize_unary(lhs_obj, ch_client)
+        op = self.operator
+        if rhs_info is None:
+            if op not in _UNARY_MATERIALIZERS:
+                raise RuntimeError(f"LazyOperator: unknown unary operator {op!r}")
+            result = await _UNARY_MATERIALIZERS[op](lhs_info, self, ch_client)
         else:
-            rhs_obj.checkstale()
-            result = await self._materialize_binary(lhs_obj, rhs_obj, ch_client)
+            if op not in _BINARY_MATERIALIZERS:
+                raise RuntimeError(f"LazyOperator: unknown binary operator {op!r}")
+            if op not in _ORDER_FREE_BINARY_OPS:
+                _require_explicit_order_for_cross_table(lhs_info, rhs_info)
+            result = await _BINARY_MATERIALIZERS[op](lhs_info, rhs_info, self, ch_client)
         self._materialized = result
         return result
-
-    async def _materialize_binary(self, lhs_obj: Object, rhs_obj: Object, ch_client) -> Object:
-        """Dispatch a two-operand operator to its operator fn."""
-        op = self.operator
-        if op not in _ORDER_FREE_BINARY_OPS:
-            _require_explicit_order_for_cross_table(lhs_obj, rhs_obj)
-        info_a = lhs_obj._get_query_info()
-        info_b = rhs_obj._get_query_info()
-        emit = {"name": self._name, "scope": self._scope}
-        if op == "isin":
-            return await operators.isin_op(info_a, info_b, ch_client, **emit)
-        if op == "array_map":
-            return await operators.array_map_db(info_a, info_b, self.params["operator"], ch_client, **emit)
-        if op == "coalesce":
-            return await operators.coalesce_op(info_a, info_b, ch_client, **emit)
-        return await operators._apply_operator_db(info_a, info_b, op, ch_client, **emit)
-
-    async def _materialize_unary(self, lhs_obj: Object, ch_client) -> Object:
-        """Dispatch a unary / aggregation operator (rhs=None) to its operator fn."""
-        info = lhs_obj._get_query_info()
-        op = self.operator
-        emit = {"name": self._name, "scope": self._scope}
-        if op in UNARY_TRANSFORMS:
-            return await operators.unary_transform(info, op, ch_client, **emit)
-        if op in STRING_OPS:
-            return await operators._apply_string_op_db(
-                info, op, self.params["pattern"], ch_client, replacement=self.params.get("replacement"), **emit
-            )
-        if op in _SIMPLE_AGGREGATIONS:
-            return await operators._apply_aggregation(info, op, ch_client, **emit)
-        if op == "count_if":
-            return await operators.count_if_agg(info, self.params["condition"], ch_client, **emit)
-        if op == "quantile":
-            return await operators.quantile_agg(info, self.params["q"], ch_client, **emit)
-        if op == "unique":
-            return await operators.unique_group(info, ch_client, **emit)
-        if op == "nunique":
-            return await operators.nunique_agg(info, ch_client, **emit)
-        raise RuntimeError(f"LazyOperator: unknown unary operator {op!r}")
 
     def __await__(self):
         return self._materialize().__await__()

@@ -22,9 +22,9 @@ Every value-column operator follows the same two-stage pattern:
   binary dunders, ``_apply_string_op_db()`` for the string/regex matchers,
   and so on. Each builds ``QueryInfo`` for its operands and emits the
   ``CREATE TABLE`` + ``INSERT INTO ... SELECT``, forwarding the ``name`` /
-  ``scope`` that ``.as_()`` recorded. A Python scalar operand is converted
-  to a one-row Object by ``_resolve_operand`` first, so it gets its own
-  table.
+  ``scope`` that ``.as_()`` recorded. A Python scalar (or short list)
+  operand is inlined as a constant subquery by ``_resolve_operand`` — see
+  ``literals.py`` — so no table is created for it.
 
 Shared schema-computation helpers (``_compute_operator_schema``,
 ``_preview_operator_schema``, ``_promote_arithmetic_type``,
@@ -111,7 +111,7 @@ from ..models import (
     parse_ch_type,
 )
 from ..scope import NamedScope
-from ..sql_utils import escape_sql_string, quote_identifier, quote_sql_literal
+from ..sql_utils import quote_identifier, quote_sql_literal
 from .emit import emit_result
 from .schema_compute import (
     AGGREGATION_FUNCTIONS,
@@ -293,6 +293,15 @@ class _AaiIdProj(NamedTuple):
     aliased: str  # ", <alias>.aai_id AS aai_id" — table-qualified projection
 
 
+def _operand_tables(**operands: str) -> dict[str, str]:
+    """oplog kwargs naming an operator's operand tables.
+
+    A literal operand has no table (``QueryInfo.base_table`` is empty) and is
+    left out, so the lineage graph only ever references real tables.
+    """
+    return {role: table for role, table in operands.items() if table}
+
+
 def _aai_id_proj(propagate: bool, alias: str = "a") -> _AaiIdProj:
     if not propagate:
         return _AaiIdProj("(value)", "", "")
@@ -420,7 +429,9 @@ async def _apply_operator_db(
                     client=ch_client,
                 )
 
-        oplog_record_sample(result.table, operator, kwargs={"left": info_a.base_table, "right": info_b.base_table})
+        oplog_record_sample(
+            result.table, operator, kwargs=_operand_tables(left=info_a.base_table, right=info_b.base_table)
+        )
         return result
 
     # Scalar broadcasting (array⊗scalar, scalar⊗array, scalar⊗scalar):
@@ -435,7 +446,7 @@ async def _apply_operator_db(
         client=ch_client,
     )
 
-    oplog_record_sample(result.table, operator, kwargs={"left": info_a.base_table, "right": info_b.base_table})
+    oplog_record_sample(result.table, operator, kwargs=_operand_tables(left=info_a.base_table, right=info_b.base_table))
     return result
 
 
@@ -459,27 +470,19 @@ async def _apply_aggregation(
     All computation happens within ClickHouse - no data round-trips to Python.
 
     Args:
-        info: QueryInfo for the source (contains source, base_table, value_column)
+        info: QueryInfo for the source (contains source, value_type)
         agg_func: Aggregation function key (e.g., 'min', 'max', 'sum', 'mean', 'std')
         ch_client: ClickHouse client instance
 
     Returns:
         New Object instance pointing to result table (scalar type)
     """
-    # Get SQL function from aggregation mapping
     sql_func = AGGREGATION_FUNCTIONS[agg_func]
 
-    # Get value column type from source table (use base table for metadata)
-    # Use value_column to query the correct column for single-field selection
-    safe_value_column = escape_sql_string(info.value_column)
-    type_query = f"""
-    SELECT type FROM system.columns
-    WHERE table = '{info.base_table}' AND name = '{safe_value_column}'
-    """
-    type_result = await ch_client.query(type_query)
-    source_type = type_result.result_rows[0][0] if type_result.result_rows else "Float64"
-
-    value_type = _determine_agg_result_type(agg_func, source_type)
+    # ``info.value_type`` is the effective source type — post-explode scalar
+    # for ARRAY JOIN views — and the same input the sync preview used, so the
+    # result type matches ``_preview_agg_schema`` without a system.columns query.
+    value_type = _determine_agg_result_type(agg_func, info.value_type)
 
     # Build schema for result table (scalar type, never nullable)
     schema = Schema(
@@ -931,7 +934,7 @@ async def isin_op(
         name=name,
         scope=scope,
         oplog_op="isin",
-        oplog_kwargs={"source": info.base_table, "other": other_info.base_table},
+        oplog_kwargs=_operand_tables(source=info.base_table, other=other_info.base_table),
     )
 
 

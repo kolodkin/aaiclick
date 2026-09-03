@@ -579,6 +579,21 @@ async def test_aggregation_preview_matches_materialized(ctx):
         await assert_preview_matches_materialized(getattr(obj, method)(), method)
 
 
+async def test_aggregation_on_explode_view_matches_preview(ctx):
+    """sum() over an exploded array column keeps the element type.
+
+    The materializer reads the post-explode type from ``QueryInfo`` — the same
+    input the preview used — rather than the pre-explode ``Array(...)`` type
+    ``system.columns`` reports for the base table.
+    """
+    obj = await create_object_from_value([{"vals": [1, 2]}, {"vals": [3, 4]}])
+    lazy = obj.explode("vals")["vals"].sum()
+    result = await lazy
+    assert lazy.schema.columns["value"].type == "Int64"
+    assert result.schema.columns["value"].type == "Int64"
+    assert await result.data() == 10
+
+
 async def test_unary_preview_matches_materialized(ctx):
     obj = await create_object_from_value([1.0, 4.0, 9.0])
     for method in UNARY_NUMERIC_METHODS:
@@ -674,8 +689,8 @@ async def test_isin_returns_lazy_operator(ctx):
     assert lazy.rhs is allowed
 
 
-async def test_isin_python_list_converted_at_materialize(ctx):
-    """A Python list rides along as the rhs and becomes an Object on await."""
+async def test_isin_python_list_inlined_at_materialize(ctx):
+    """A Python list rides along as the rhs and is inlined as SQL literals on await."""
     obj = await create_object_from_value(["a", "b", "c"])
     lazy = obj.isin(["a", "c"])
     assert lazy.rhs == ["a", "c"]

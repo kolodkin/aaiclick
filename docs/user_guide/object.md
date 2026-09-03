@@ -61,7 +61,7 @@ See [DataContext](data_context.md) for lifecycle, schemas, and deployment modes.
 All operators work element-wise on scalar and array data, creating new Object tables. See `examples/basic_operators.py`.
 
 !!! tip "Scalar broadcast"
-    Python scalars work on either side: `obj * 2` and `2 * obj` both work.
+    Python scalars work on either side: `obj * 2` and `2 * obj` both work. The scalar is inlined into the operator SQL as a typed literal — it never gets a table of its own.
 
 ## Lazy Operator Results (`a + b` and `a.sum()` are Plans, not Tables)
 
@@ -162,7 +162,7 @@ LazyOperator(op="sum", lhs=LazyOperator(op="abs", lhs=obj, rhs=None), rhs=None)
 
 `asyncio.gather(lazy.data(), lazy.data())` races: both tasks see `_materialized is None` and both materialize. The result is two tables (the second wins the cache slot; the first is orphaned and dropped via refcount cleanup). To share a result across tasks, `await` once and share the returned `Object`.
 
-**Implementation:** `LazyOperator`, `_plan_operator`, `_plan_aggregation`, `_plan_unary_transform` in `aaiclick/data/object/object.py`; shared schema-computation helpers in `aaiclick/data/object/schema_compute.py` (`_preview_operator_schema`, `_preview_agg_schema`, `_preview_unary_schema`, …); materialization in `aaiclick/data/object/operators.py` (`_apply_operator_db`, `_apply_aggregation`, `unary_transform`, …).
+**Implementation:** `LazyOperator`, `_plan_operator`, `_plan_aggregation`, `_plan_unary_transform` and the `_UNARY_MATERIALIZERS` / `_BINARY_MATERIALIZERS` dispatch tables in `aaiclick/data/object/object.py`; shared schema-computation helpers in `aaiclick/data/object/schema_compute.py` (`_preview_operator_schema`, `_preview_agg_schema`, `_preview_unary_schema`, …); materialization in `aaiclick/data/object/operators.py` (`_apply_operator_db`, `_apply_aggregation`, `unary_transform`, …); Python operands inlined as literals by `aaiclick/data/object/literals.py`.
 
 ??? note "Arithmetic Operators"
 
@@ -270,6 +270,8 @@ await obj.isin(["a", "c"]).sum().data()  # 2
 obj = await create_object_from_value({"category": ["a", "b", "c"], "val": [1, 2, 3]})
 mask = await obj["category"].isin(allowed)
 ```
+
+A Python list is inlined as literals (`arrayJoin([...])`) rather than loaded into a table; lists longer than `LITERAL_LIST_MAX` (`aaiclick/data/object/literals.py`) fall back to a table.
 
 **Tests**: `aaiclick/data/object/test_isin.py`. For runnable examples, see `examples/isin.py`.
 
