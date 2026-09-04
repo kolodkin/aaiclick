@@ -227,6 +227,11 @@ def test_group_renders_as_a_container_around_its_members(graph_page) -> None:
     inside = {name for name in DEFAULT_STATES if _contains(frame, _box(graph_page.locator(".gnode", has_text=name)))}
     assert inside == {"transform_a", "transform_b"}
 
+    # The header must sit clear of the members, not overlap the first one.
+    head = _box(containers.first.locator(".ggroup-head"))
+    first_member_top = min(_box(graph_page.locator(".gnode", has_text=name))["y"] for name in inside)
+    assert head["y"] + head["height"] < first_member_top
+
 
 def test_group_status_is_rolled_up_from_its_members(graph_page) -> None:
     """``transform_a`` is done and ``transform_b`` is running, so the frame

@@ -28,9 +28,9 @@ real-time updates. UX (layout, modes, wireframes) lives in `docs/designs/ui.md`.
     not shipped since 2022.
 
     dagre is imported only by `layout()` in `src/lib/graphLayout.ts`. Group
-    containers use its compound mode: in left-to-right mode a cluster's label
-    size is ignored, so the container header must fit the fixed padding dagre
-    leaves above the first member.
+    containers use its compound mode, which pads a cluster symmetrically and
+    ignores label size, so `layout()` carves header room itself by shifting
+    everything below each container's top edge down by a fixed gap.
 
 # Project layout
 

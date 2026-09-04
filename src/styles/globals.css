@@ -359,10 +359,10 @@ tbody tr.clickable:hover { background: rgba(91,157,255,.12); }
   padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none;
   width: auto; font-size: inherit; color: inherit; text-align: left;
 }
-/* The layout leaves 22px between the frame's top edge and the first member,
-   so the header must fit inside that band: a 16px row with a shrunk badge. */
+/* The header sits in the room the layout carves under the frame's top edge
+   (dagre's own padding plus CONTAINER_HEADER_GAP in graphLayout.ts). */
 .ggroup {
-  box-sizing: border-box; width: 100%; height: 100%; padding: 3px 10px; overflow: hidden;
+  box-sizing: border-box; width: 100%; height: 100%; padding: 6px 10px; overflow: hidden;
   border: 1px dashed var(--border); border-radius: 12px;
   background: rgba(255, 255, 255, .025);
 }

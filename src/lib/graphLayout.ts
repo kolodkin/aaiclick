@@ -15,6 +15,9 @@ export interface LayoutEdge {
 }
 
 export const NODE_SIZE = { width: 220, height: 76 };
+// Extra vertical room under a container's top edge, so its header sits clear
+// of the first member.
+export const CONTAINER_HEADER_GAP = 16;
 
 // Identifies the graph's *shape*. Status changes leave this untouched, so a
 // 2 s poll re-colours nodes in place instead of repositioning them mid-read.
@@ -78,16 +81,25 @@ export function layout(nodes: LayoutNode[], edges: LayoutEdge[]): Layout {
 
   dagre.layout(g);
 
+  // dagre pads a cluster symmetrically and offers no per-side padding, so
+  // header room is carved afterwards: a horizontal strip of
+  // CONTAINER_HEADER_GAP is inserted just below every container's top edge and
+  // everything beneath shifts down. The shift is monotone in y, so nothing
+  // that was clear of its neighbours can come to overlap them.
+  const top = (id: string) => g.node(id).y - g.node(id).height / 2;
+  const strips = [...new Set([...containers].map(top))].sort((a, b) => a - b);
+  const shifted = (y: number) => y + CONTAINER_HEADER_GAP * strips.filter((s) => s < y).length;
+
   const positions = new Map<string, Point>();
   const sizes = new Map<string, Size>();
   for (const node of nodes) {
     const placed = g.node(node.id);
     // dagre returns node centres; React Flow positions by top-left corner.
-    positions.set(node.id, {
-      x: placed.x - placed.width / 2,
-      y: placed.y - placed.height / 2,
-    });
-    if (containers.has(node.id)) sizes.set(node.id, { width: placed.width, height: placed.height });
+    const y = shifted(placed.y - placed.height / 2);
+    positions.set(node.id, { x: placed.x - placed.width / 2, y });
+    if (containers.has(node.id)) {
+      sizes.set(node.id, { width: placed.width, height: shifted(placed.y + placed.height / 2) - y });
+    }
   }
 
   // dagre inserts virtual nodes for edges that span more than one rank and
@@ -101,7 +113,10 @@ export function layout(nodes: LayoutNode[], edges: LayoutEdge[]): Layout {
     // consumers never encode that detail.
     const routed = g.edge(edge.source, edge.target);
     if (routed?.points?.length) {
-      edgePoints.set(edgeKey(edge.source, edge.target), routed.points.slice(1, -1));
+      edgePoints.set(
+        edgeKey(edge.source, edge.target),
+        routed.points.slice(1, -1).map((p: Point) => ({ x: p.x, y: shifted(p.y) })),
+      );
     }
   }
 
