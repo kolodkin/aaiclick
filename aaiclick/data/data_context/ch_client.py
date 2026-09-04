@@ -79,6 +79,7 @@ _ch_client_var: ContextVar[ChClient | None] = ContextVar("ch_client", default=No
 # module-level chdb fallback (chdb only — the only backend that can be created
 # synchronously without a running event loop).
 _DEBUGGER_ENABLED = bool(os.environ.get("AAICLICK_DEBUGGER"))
+# Module global on purpose: a ContextVar would be invisible to the debug console too.
 _debug_ch_client: ChClient | None = None
 
 

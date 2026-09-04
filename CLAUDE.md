@@ -90,8 +90,14 @@ Use the `python-testing-style` skill for test layout, async test rules, Object A
   - Expose a `@contextmanager` that sets a token and resets it in `finally`, so
     the previous value is restored on exit; keep the `ContextVar` itself private
     (`_name`) behind getter/setter helpers.
+  - **Never read a `ContextVar` at import scope.** Call `.get()` only inside a
+    function, at runtime. A module-level `X = _var.get()` freezes whatever the
+    importing context held into a plain global, defeating the isolation.
   - This is about values that *change*. Module-level **constants** never rebound
     after import stay plain module attributes.
+  - When a site must stay a module global (a process-wide ID sequence, a
+    once-per-process latch), leave a one-line comment saying why so the
+    choice reads as deliberate.
   - Reference implementation: `aaiclick/tenancy.py` (`active_tenant` /
     `get_active_tenant_id`).
 

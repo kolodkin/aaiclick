@@ -134,28 +134,6 @@ SDK closes that gap without a second worker implementation.
   `ChClient` / `Db` / `NamedParamSql` classes are reusable starting points
   for the SDK, recoverable from git history.
 
-## ContextVar Guideline — Codebase Sweep
-
-CLAUDE.md requires runtime-mutable process state to live in a
-`contextvars.ContextVar` rather than a module global (reference:
-`aaiclick/tenancy.py`). The `global` sites below predate that guideline.
-
-Triage, not mechanical conversion — some are correctly process-wide, and a
-`ContextVar` would break them (a per-context ID sequence is no longer unique).
-Classify each site and leave a one-line comment on the ones that stay global,
-so the choice reads as deliberate.
-
-| Site                                              | State                              | Expected verdict                                        |
-|---------------------------------------------------|------------------------------------|---------------------------------------------------------|
-| `aaiclick/snowflake/snowflake_id.py`              | `_in_memory_last_ms`, `_in_memory_sequence` | Stays global — uniqueness requires one process-wide sequence |
-| `aaiclick/orchestration/oplog_backfill.py`        | `_migration_done`                  | Stays global — a once-per-process latch; per-context would re-run it |
-| `aaiclick/data/data_context/ch_client.py`         | `_debug_ch_client`                 | Candidate — a debug/test injection point that concurrent tests share |
-| `aaiclick/example_projects/chdb_benchmark/...`    | `_session`, `_sink_seq`            | Out of scope — standalone example project                |
-
-Do this when next in these modules, or if a concurrency bug implicates one.
-A lint gate would need an allowlist for the deliberate cases — ruff has no
-built-in `global` check.
-
 ## Lazy Operator — Chain Fusion
 
 Every `LazyOperator` node materializes into its own table. For single-source
