@@ -16,11 +16,10 @@ const CROWDED_NODE_COUNT = 300;
 type GraphNode = TaskNodeType | GroupNodeType;
 
 /**
- * Orders nodes so every container precedes its members — React Flow resolves
- * `parentId` against nodes it has already seen — and returns the resolved
- * parent per node. A `parent_group_id` naming a group the server did not emit
- * (it was empty, or its row is gone) is treated as no parent rather than
- * leaving the node attached to nothing.
+ * Orders nodes so every container precedes its members (React Flow resolves
+ * `parentId` against nodes already seen) and returns each node's parent. A
+ * `parent_group_id` naming a group the server did not emit — empty, or its
+ * row is gone — counts as no parent.
  */
 function nestByGroup(views: GraphNodeView[]): { ordered: GraphNodeView[]; parentOf: Map<string, string> } {
   const groups = new Map(views.filter((v) => v.kind === "group").map((v) => [String(v.id), v]));

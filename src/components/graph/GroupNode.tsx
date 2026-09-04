@@ -6,9 +6,8 @@ export type GroupNodeData = { view: GraphNodeView };
 export type GroupNodeType = Node<GroupNodeData, "group">;
 
 /**
- * A container drawn around a group's member tasks. Its size comes from the
- * layout, so the component only paints the frame and a compact header; the
- * status is the server's rollup of every task beneath the group.
+ * A frame around a group's member tasks, sized by the layout. The status is
+ * the server's rollup of every task beneath the group.
  */
 export function GroupNode({ data }: NodeProps<GroupNodeType>) {
   const { view } = data;

@@ -137,8 +137,6 @@ def test_build_graph_edges_expands_then_drops_cycles():
 @pytest.mark.parametrize(
     "statuses, expected",
     [
-        # Activity outranks outcome: an operator watching a group with one
-        # failure and one task still running sees it move, then sees it fail.
         pytest.param([TASK_FAILED, TASK_RUNNING], TASK_RUNNING, id="running-beats-failed"),
         pytest.param([TASK_PENDING, TASK_CLAIMED], TASK_RUNNING, id="claimed-counts-as-running"),
         pytest.param([TASK_COMPLETED, TASK_FAILED, TASK_UPSTREAM_FAILED], TASK_FAILED, id="failed-beats-upstream"),
@@ -146,7 +144,6 @@ def test_build_graph_edges_expands_then_drops_cycles():
         pytest.param([TASK_COMPLETED, TASK_CANCELLED], TASK_CANCELLED, id="cancelled"),
         pytest.param([TASK_COMPLETED, TASK_COMPLETED], TASK_COMPLETED, id="all-completed"),
         pytest.param([TASK_COMPLETED, TASK_PENDING], TASK_PENDING, id="partial-progress-is-pending"),
-        # A failed run awaiting ref cleanup is not terminal and not running.
         pytest.param([TASK_COMPLETED, TASK_PENDING_CLEANUP], TASK_PENDING, id="cleanup-is-pending"),
         pytest.param([], TASK_PENDING, id="empty"),
     ],

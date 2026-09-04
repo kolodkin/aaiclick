@@ -63,9 +63,8 @@ export function layout(nodes: LayoutNode[], edges: LayoutEdge[]): Layout {
   g.setDefaultEdgeLabel(() => ({}));
 
   // A container is whatever something claims as its parent. dagre sizes a
-  // cluster from its members, so a container declares no dimensions of its
-  // own — giving it some would not reserve space, and a container nothing
-  // points at is laid out as an ordinary leaf.
+  // cluster from its members — declared dimensions would not reserve space —
+  // and a container nothing points at is laid out as a leaf.
   const containers = new Set(nodes.flatMap((n) => (n.parent ? [n.parent] : [])));
   for (const node of nodes) {
     g.setNode(node.id, containers.has(node.id) ? {} : { width: NODE_SIZE.width, height: NODE_SIZE.height });
