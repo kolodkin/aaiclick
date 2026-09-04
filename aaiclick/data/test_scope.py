@@ -64,11 +64,6 @@ def test_temp_named_regex():
     assert not TEMP_NAMED_RE.match("t_1foo_42")
 
 
-def test_make_scoped_table_name_global_is_opaque():
-    """The name is not encoded — the registry maps it to the table."""
-    assert make_scoped_table_name("global", "foo", snowid=42) == "p_42"
-
-
 def test_make_scoped_table_name_job():
     assert make_scoped_table_name("job", "foo", job_id=42) == "j_42_foo"
 
@@ -82,7 +77,6 @@ def test_make_scoped_table_name_temp_named():
     [
         pytest.param("job", "scope='job' requires a job_id", id="job-without-job-id"),
         pytest.param("temp_named", "scope='temp_named' requires a snowid", id="temp-named-without-snowid"),
-        pytest.param("global", "scope='global' requires a snowid", id="global-without-snowid"),
     ],
 )
 def test_make_scoped_table_name_missing_required_id_raises(scope, match):
@@ -105,4 +99,4 @@ def test_make_scoped_table_name_missing_required_id_raises(scope, match):
     ],
 )
 def test_legacy_global_name(table, tenant_id, expected):
-    assert legacy_global_name(table, tenant_id, DEFAULT_TENANT_ID) == expected
+    assert legacy_global_name(table, tenant_id) == expected

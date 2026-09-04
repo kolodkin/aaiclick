@@ -42,10 +42,12 @@ from ..models import (
     build_order_by_clause,
 )
 from ..scope import (
+    GLOBAL_PREFIX,
     OBJECT_NAME_RE,
     SCOPE_GLOBAL,
     SCOPE_JOB,
     SCOPE_TEMP_NAMED,
+    EmbeddedNameScope,
     NamedScope,
     PersistentScope,
     make_scoped_table_name,
@@ -258,21 +260,14 @@ def _resolve_scope(name: str | None, scope: NamedScope | None) -> NamedScope | N
       (``t_<name>_<snowflake_id>``). Works in or out of orch.
     - ``scope="job"`` / ``scope="global"``: persistent — require an active
       orch_context() (the SQL ``table_registry`` row is written only by the
-      orch lifecycle handler). Bare ``data_context()`` is rejected.
-    - ``scope="job"``: additionally requires an active orch job_id (raises
-      ValueError otherwise — see scope.py).
+      orch lifecycle handler); ``_orch_lifecycle`` rejects a bare
+      ``data_context()`` when the table is allocated.
     """
     if name is None:
         if scope is not None:
             raise ValueError("scope can only be set together with name")
         return None
-
-    effective: NamedScope = scope if scope is not None else SCOPE_TEMP_NAMED
-
-    if effective in (SCOPE_JOB, SCOPE_GLOBAL):
-        _orch_lifecycle(effective)
-
-    return effective
+    return scope if scope is not None else SCOPE_TEMP_NAMED
 
 
 def _orch_lifecycle(scope: PersistentScope) -> LifecycleHandler:
@@ -288,38 +283,16 @@ def _orch_lifecycle(scope: PersistentScope) -> LifecycleHandler:
     return lifecycle
 
 
-def _build_scoped_table(name: str, scope: NamedScope) -> str:
+def _build_scoped_table(name: str, scope: EmbeddedNameScope) -> str:
     """Validate ``name`` and build the CH table name for a ``temp_named`` or ``job`` object.
 
     Global tables are opaque (``p_<snowflake>``) and resolved through the
-    registry instead — see ``_claim_global_table`` / ``_resolve_global_table``.
+    registry instead — see ``create_object`` / ``_resolve_persistent_table``.
     """
     _validate_persistent_name(name)
     if scope == SCOPE_TEMP_NAMED:
         return make_scoped_table_name(scope, name, snowid=get_snowflake_id())
-    lifecycle = get_data_lifecycle()
-    job_id = lifecycle.current_job_id() if lifecycle is not None else None
-    return make_scoped_table_name(scope, name, job_id=job_id)
-
-
-class GlobalClaim(NamedTuple):
-    """Outcome of registering a global name: the owning table, and whether this call created it."""
-
-    table: str
-    created: bool
-
-
-async def _claim_global_table(name: str, schema: Schema) -> GlobalClaim:
-    """Register ``name`` for the active tenant and return the table that owns it.
-
-    A fresh ``p_<snowflake>`` is offered; if the name is already registered
-    (an append to an existing object, or a concurrent creator won) the
-    existing table comes back instead and the snowflake is discarded.
-    """
-    _validate_persistent_name(name)
-    candidate = make_scoped_table_name(SCOPE_GLOBAL, name, snowid=get_snowflake_id())
-    table = await _orch_lifecycle(SCOPE_GLOBAL).claim_global_table(name, candidate, schema.model_dump_json())
-    return GlobalClaim(table=table, created=table == candidate)
+    return make_scoped_table_name(scope, name, job_id=_orch_lifecycle(scope).current_job_id())
 
 
 async def _resolve_persistent_table(name: str, scope: PersistentScope) -> str | None:
@@ -364,10 +337,17 @@ async def create_object(
     if effective_scope is None:
         obj = Object(schema=schema)
     elif effective_scope == SCOPE_GLOBAL:
+        # Claim the name before any DDL: a fresh p_<snowflake> is offered and
+        # the registry's UNIQUE (tenant_id, name) decides who owns the name.
+        # Losing (an append, or a concurrent creator) yields the existing
+        # table and the snowflake is discarded. This is the registry write
+        # for a global table — no queued register_table follows.
         assert name is not None
-        claim = await _claim_global_table(name, schema)
-        claimed_global = claim.created
-        obj = Object(table=claim.table, schema=schema, name=name)
+        _validate_persistent_name(name)
+        candidate = f"{GLOBAL_PREFIX}{get_snowflake_id()}"
+        table = await _orch_lifecycle(SCOPE_GLOBAL).claim_global_table(name, candidate, schema.model_dump_json())
+        claimed_global = table == candidate
+        obj = Object(table=table, schema=schema, name=name)
     else:
         assert name is not None
         obj = Object(table=_build_scoped_table(name, effective_scope), schema=schema, name=name)
@@ -424,22 +404,23 @@ async def create_object(
             await _forget_registry_rows([obj.table])
         raise
 
-    # Register table in table_registry for cleanup worker.
-    # In orch mode this records the job_id so all tables (including persistent)
-    # are scoped to their job and cleaned up when the job expires. The
-    # schema_doc carries the serialised Schema that _get_table_schema reads
-    # back — replaces the per-column ClickHouse COMMENT YAML.
-    # operation_log entries are recorded by higher-level callers (operators, ingest, etc.)
-    register_table(obj.table, schema_doc=schema.model_dump_json())
+    if effective_scope != SCOPE_GLOBAL:
+        # Register table in table_registry for cleanup worker (global tables
+        # were registered by the claim above). In orch mode this records the
+        # job_id so tables are scoped to their job and cleaned up when the job
+        # expires. The schema_doc carries the serialised Schema that
+        # _get_table_schema reads back. operation_log entries are recorded by
+        # higher-level callers (operators, ingest, etc.).
+        register_table(obj.table, schema_doc=schema.model_dump_json())
 
-    # Flush the lifecycle queue so the registry row is committed before the
-    # caller reads schema_doc (e.g. via Object.data() → _get_table_schema).
-    # The queue is async and order-sensitive for incref/decref, but registry
-    # writes are standalone and idempotent; a synchronous flush here is
-    # cheaper than forcing every read path to flush.
-    lifecycle = get_data_lifecycle()
-    if lifecycle is not None:
-        await lifecycle.flush()
+        # Flush the lifecycle queue so the registry row is committed before the
+        # caller reads schema_doc (e.g. via Object.data() → _get_table_schema).
+        # The queue is async and order-sensitive for incref/decref, but registry
+        # writes are standalone and idempotent; a synchronous flush here is
+        # cheaper than forcing every read path to flush.
+        lifecycle = get_data_lifecycle()
+        if lifecycle is not None:
+            await lifecycle.flush()
 
     return obj
 

@@ -19,6 +19,8 @@ from __future__ import annotations
 import re
 from typing import Literal
 
+from aaiclick.tenancy import DEFAULT_TENANT_ID
+
 SCOPE_TEMP = "temp"
 SCOPE_TEMP_NAMED = "temp_named"
 SCOPE_JOB = "job"
@@ -27,6 +29,7 @@ SCOPE_GLOBAL = "global"
 ObjectScope = Literal["temp", "temp_named", "job", "global"]
 NamedScope = Literal["temp_named", "job", "global"]
 PersistentScope = Literal["job", "global"]
+EmbeddedNameScope = Literal["temp_named", "job"]
 
 GLOBAL_PREFIX = "p_"
 TEMP_PREFIX = "t_"
@@ -52,25 +55,22 @@ def is_persistent_table(table_name: str) -> bool:
 
 
 def make_scoped_table_name(
-    scope: NamedScope,
+    scope: EmbeddedNameScope,
     name: str,
     job_id: int | None = None,
     snowid: int | None = None,
 ) -> str:
-    """Build the full CH table name for a scoped named object.
+    """Build the CH table name for a scope that embeds the object name.
+
+    Global tables are ``p_<snowflake>`` with the name held in
+    ``table_registry`` — they never go through here.
 
     Args:
-        scope: ``"temp_named"``, ``"job"``, or ``"global"``.
-        name: Validated object name. Encoded into ``temp_named`` and ``job``
-            table names only; a ``global`` table is ``p_<snowid>`` and the
-            name is recorded in ``table_registry`` instead.
+        scope: ``"temp_named"`` or ``"job"``.
+        name: Validated object name.
         job_id: Required when ``scope="job"``.
-        snowid: Required when ``scope="temp_named"`` or ``scope="global"``.
+        snowid: Required when ``scope="temp_named"``.
     """
-    if scope == SCOPE_GLOBAL:
-        if snowid is None:
-            raise ValueError("scope='global' requires a snowid")
-        return f"{GLOBAL_PREFIX}{snowid}"
     if scope == SCOPE_TEMP_NAMED:
         if snowid is None:
             raise ValueError("scope='temp_named' requires a snowid")
@@ -83,7 +83,7 @@ def make_scoped_table_name(
     return f"j_{job_id}_{name}"
 
 
-def legacy_global_name(table_name: str, tenant_id: int, default_tenant_id: int) -> str | None:
+def legacy_global_name(table_name: str, tenant_id: int) -> str | None:
     """Recover the object name from a pre-registry global table name.
 
     Before names moved into ``table_registry``, global tables were
@@ -94,7 +94,7 @@ def legacy_global_name(table_name: str, tenant_id: int, default_tenant_id: int) 
     if not table_name.startswith(GLOBAL_PREFIX):
         return None
     tenant_prefix = f"{GLOBAL_PREFIX}{tenant_id}_"
-    if tenant_id != default_tenant_id and table_name.startswith(tenant_prefix):
+    if tenant_id != DEFAULT_TENANT_ID and table_name.startswith(tenant_prefix):
         name = table_name[len(tenant_prefix) :]
     else:
         name = table_name[len(GLOBAL_PREFIX) :]

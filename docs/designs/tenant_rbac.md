@@ -213,7 +213,7 @@ tenant-scoped job.
 `LifecycleHandler.resolve_global_table` / `claim_global_table`; the orch
 implementation is `aaiclick/orchestration/orch_context.py` — see
 `OrchLifecycleHandler`; callers are `aaiclick/data/data_context/data_context.py`
-— see `_claim_global_table`, `_resolve_persistent_table`.
+— see `create_object`, `_resolve_persistent_table`.
 
 Creating a global object *claims* its name before any DDL: the handler
 inserts the registry row (fresh `p_<snowflake>`) with a bare

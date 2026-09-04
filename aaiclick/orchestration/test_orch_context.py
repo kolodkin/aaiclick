@@ -43,7 +43,9 @@ async def test_nested_orch_context_reuses_outer_engine():
 
 
 async def test_nested_orch_context_does_not_dispose_outer_engine():
-    with patch.object(AsyncEngine, "dispose", autospec=True) as dispose_spy:
+    # Wrap the real dispose: the outermost entry checks out a pooled
+    # connection (registry name backfill), and a bare mock would leak it.
+    with patch.object(AsyncEngine, "dispose", autospec=True, side_effect=AsyncEngine.dispose) as dispose_spy:
         async with orch_context(with_ch=False):
             async with orch_context(with_ch=False):
                 pass

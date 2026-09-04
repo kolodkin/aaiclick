@@ -101,23 +101,23 @@ class LifecycleHandler(ABC):
         return None
 
     async def resolve_global_table(self, name: str) -> str | None:
-        """Return the CH table registered under ``name`` for the active tenant.
+        """Return the CH table registered under ``name`` for the active tenant, or ``None``.
 
         ``scope="global"`` tables are named ``p_<snowflake>``, so the only
-        name → table mapping is ``table_registry.name``. ``None`` when no
-        such object exists — and always in local mode, which has no registry.
+        name → table mapping is ``table_registry.name``. Orch-only: the
+        local handler has no registry.
         """
-        return None
+        raise NotImplementedError
 
     async def claim_global_table(self, name: str, table_name: str, schema_doc: str) -> str:
-        """Register ``table_name`` under ``name`` for the active tenant.
+        """Register ``table_name`` under ``name`` for the active tenant; return the owning table.
 
-        Returns the table that ends up owning ``name``: ``table_name`` when
-        the claim wins, or the already-registered table when the name is
-        taken (an append to an existing object, or a concurrent creator that
-        got there first). Only the orch handler has a registry to claim in.
+        That is ``table_name`` when the claim wins, or the already-registered
+        table when the name is taken (an append, or a concurrent creator that
+        got there first). This *is* the registry write for a global table —
+        callers do not also ``register_table``. Orch-only.
         """
-        raise RuntimeError("scope='global' requires an active orch_context()")
+        raise NotImplementedError
 
     async def __aenter__(self):
         await self.start()
