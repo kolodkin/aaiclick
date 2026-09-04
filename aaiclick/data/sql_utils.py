@@ -1,6 +1,8 @@
 """
-aaiclick.data.sql_utils - SQL utility functions for safe identifier handling.
+aaiclick.data.sql_utils - SQL utility functions for safe identifier and literal handling.
 """
+
+from datetime import datetime, timezone
 
 
 def quote_identifier(name: str) -> str:
@@ -30,3 +32,25 @@ def quote_sql_literal(value: str) -> str:
     arbitrary user input inlined into SQL text.
     """
     return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def naive_utc(dt: datetime) -> datetime:
+    """Coerce a datetime to the storage convention — naive UTC."""
+    return dt.astimezone(timezone.utc).replace(tzinfo=None) if dt.tzinfo else dt
+
+
+def sql_literal(value: bool | int | float | str | datetime) -> str:
+    """Render a Python scalar as an untyped ClickHouse literal.
+
+    Datetimes become a naive-UTC ``'YYYY-MM-DD HH:MM:SS.ffffff'`` string;
+    wrap the result in a CAST when the column type matters.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, datetime):
+        return quote_sql_literal(naive_utc(value).strftime("%Y-%m-%d %H:%M:%S.%f"))
+    if isinstance(value, str):
+        return quote_sql_literal(value)
+    if isinstance(value, (int, float)):
+        return str(value)
+    raise TypeError(f"Unsupported literal type: {type(value).__name__}")

@@ -174,37 +174,16 @@ Do this when next in these modules, or if a concurrency bug implicates one.
 A lint gate would need an allowlist for the deliberate cases — ruff has no
 built-in `global` check.
 
-## Lazy Operator — Materialize Dispatch Table
+## Lazy Operator — Chain Fusion
 
-`LazyOperator._materialize_unary` / `_materialize_binary` pick an operator
-function with a chain of `if op == ...` branches. Replace it with one table:
-operator name → materializer taking the resolved lhs Object, the LazyOperator
-(for `params`), and `name` / `scope`.
+Every `LazyOperator` node materializes into its own table. For single-source
+families (unary transforms, aggregations, string ops) the upstream SELECT
+could instead be wrapped as a subquery, so `obj.abs().sum()` writes one table
+rather than two. Not a correctness problem; measure before acting.
 
-Adding an operator family costs three edits today — the `_plan_*` helper, a
-dispatch branch, and the `LazyOperator` docstring list — and every operator
-function grew its own `name` / `scope` keywords to fit.
-
-Deferred because `count_if`, `quantile`, `unique` and `nunique` take different
-positional arguments; the table needs one signature agreed across all of them,
-which is wider than any single family.
-
-## Lazy Operator — Avoidable ClickHouse Work
-
-Each item creates a table or round-trip the plan already has enough
-information to skip. None is a correctness problem; measure before acting.
-
-| Waste                                   | Where                                        | Fix                                                                                  |
-|-----------------------------------------|----------------------------------------------|--------------------------------------------------------------------------------------|
-| Scalar operand becomes a one-row table  | `_resolve_operand` → `Object._ensure_object` | Build a `QueryInfo` with `source="(SELECT <literal> AS value)"` instead of an Object |
-| `isin` list becomes a table             | `LazyOperator._materialize_binary`           | Emit `IN (<literals>)` below a size threshold; keep the table for large lists        |
-| Aggregation re-queries `system.columns` | `operators._apply_aggregation`               | Use `info.value_type`, already on the `QueryInfo` — `unique_group` does              |
-| Chains materialize every node           | `LazyOperator._materialize_unary`            | Wrap the upstream SELECT as a subquery for single-source families                    |
-
-Chain fusion is the largest and the one to weigh most carefully: "each node
-materializes into its own table — no fusion" is a stated invariant in
-`docs/user_guide/object.md`, and the per-node tables are what make `.as_()`
-and refcounted cleanup work.
+Weigh it carefully: "each node materializes into its own table — no fusion"
+is a stated invariant in `docs/user_guide/object.md`, and the per-node tables
+are what make `.as_()` and refcounted cleanup work.
 
 Separately, `LazyOperator` keeps `lhs` / `rhs` after `_materialized` is set,
 so holding an awaited chain pins its intermediate tables (table lifetime is
