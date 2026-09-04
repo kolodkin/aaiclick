@@ -351,3 +351,25 @@ tbody tr.clickable:hover { background: rgba(91,157,255,.12); }
 
 /* build-gate edges: dashed and dimmed so they read as a secondary overlay */
 .react-flow__edge.gedge-build .react-flow__edge-path { stroke-dasharray: 4 3; opacity: .55; }
+
+/* group containers: a frame around member tasks, sized by the layout. React
+   Flow ships its own look for the `group` node type; strip it so the frame
+   below is the only styling. */
+.react-flow__node-group {
+  padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none;
+  width: auto; font-size: inherit; color: inherit; text-align: left;
+}
+/* The header sits in the room the layout carves under the frame's top edge
+   (dagre's own padding plus CONTAINER_HEADER_GAP in graphLayout.ts). */
+.ggroup {
+  box-sizing: border-box; width: 100%; height: 100%; padding: 6px 10px; overflow: hidden;
+  border: 1px dashed var(--border); border-radius: 12px;
+  background: rgba(255, 255, 255, .025);
+}
+.ggroup-head { display: flex; align-items: center; gap: 8px; height: 16px; }
+.ggroup-name { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ggroup-head .badge { flex: none; font-size: 10px; line-height: 1.2; padding: 1px 6px; }
+.ggroup-CLAIMED, .ggroup-RUNNING { border-color: var(--blue); }
+.ggroup-COMPLETED { border-color: var(--green); }
+.ggroup-FAILED, .ggroup-UPSTREAM_FAILED { border-color: var(--red); }
+.ggroup-CANCELLED { border-color: var(--yellow); }
