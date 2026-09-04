@@ -12,7 +12,7 @@ from aaiclick.backend import is_local
 from aaiclick.orchestration.local_runtime import local_runtime
 from aaiclick.orchestration.orch_context import orch_context
 
-from .auth import AdminAuthMiddleware, require_principal, require_tenant, warn_if_open
+from .auth import PrincipalAuthMiddleware, require_principal, require_tenant, warn_if_open
 from .errors import register_exception_handlers
 from .mcp import mcp
 from .routers import auth as auth_router
@@ -86,8 +86,9 @@ app.include_router(users_router.router, prefix=API_PREFIX)
 app.include_router(tenants_router.router, prefix=API_PREFIX)
 
 # `Depends` doesn't cross the mount boundary into the FastMCP sub-app, so the
-# admin-only check runs as ASGI middleware wrapping the mount.
-app.mount(MCP_PATH, AdminAuthMiddleware(_mcp_app))
+# principal check runs as ASGI middleware wrapping the mount; per-tool RBAC
+# runs inside FastMCP (see mcp_rbac.py).
+app.mount(MCP_PATH, PrincipalAuthMiddleware(_mcp_app))
 
 
 @app.get("/health", include_in_schema=False)

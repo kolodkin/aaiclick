@@ -1,4 +1,4 @@
-"""Tests for the JWT principal-resolution layer and the admin-only /mcp guard.
+"""Tests for the principal-resolution layer and the /mcp mount guard.
 
 ``resolve_principal`` is shared by the REST dependency and the ``/mcp`` ASGI
 middleware. HTTP end-to-end coverage (login -> access -> protected route, RBAC
@@ -19,7 +19,7 @@ from aaiclick.internal_api import api_tokens, users
 from aaiclick.internal_api.errors import Forbidden, Invalid, Unauthorized
 
 from . import auth
-from .auth import AdminAuthMiddleware, warn_if_open
+from .auth import PrincipalAuthMiddleware, warn_if_open
 
 SECRET = "server-auth-test-secret-key-32-plus-bytes"
 OTHER_SECRET = "a-different-secret-also-32-plus-bytes-long"
@@ -34,10 +34,6 @@ def enabled(monkeypatch):
 
 def _bearer(token: str) -> str:
     return f"Bearer {token}"
-
-
-def _admin_token() -> str:
-    return security.encode_access_token(user_id=1, superadmin=True, tenants={}, secret=SECRET, ttl=60)
 
 
 # --- resolve_principal ---------------------------------------------------
@@ -142,7 +138,7 @@ def test_tenant_header_missing_superadmin_requires_header():
         auth.resolve_tenant(_principal(superadmin=True), None)
 
 
-# --- AdminAuthMiddleware -------------------------------------------------
+# --- PrincipalAuthMiddleware ---------------------------------------------
 
 
 async def _drive(scope, middleware_inner_flag):
@@ -157,7 +153,7 @@ async def _drive(scope, middleware_inner_flag):
     async def inner(scope, receive, send):
         middleware_inner_flag.append(True)
 
-    await AdminAuthMiddleware(inner)(scope, receive, send)
+    await PrincipalAuthMiddleware(inner)(scope, receive, send)
     return sent
 
 
@@ -169,20 +165,14 @@ async def test_mcp_middleware_rejects_missing_token(enabled):
     assert (b"www-authenticate", b"Bearer") in sent[0]["headers"]
 
 
-async def test_mcp_middleware_rejects_viewer(enabled):
+async def test_mcp_middleware_admits_any_principal_and_stores_it(enabled):
+    """Per-tool RBAC lives in mcp_rbac.py — the mount only needs a principal."""
     called: list[bool] = []
-    token = security.encode_access_token(user_id=2, superadmin=False, tenants={3: "admin"}, secret=SECRET, ttl=60)
+    token = security.encode_access_token(user_id=2, superadmin=False, tenants={3: "viewer"}, secret=SECRET, ttl=60)
     scope = {"type": "http", "headers": [(b"authorization", f"Bearer {token}".encode())]}
-    sent = await _drive(scope, called)
-    assert not called
-    assert sent[0]["status"] == 403
-
-
-async def test_mcp_middleware_delegates_on_admin(enabled):
-    called: list[bool] = []
-    scope = {"type": "http", "headers": [(b"authorization", f"Bearer {_admin_token()}".encode())]}
     await _drive(scope, called)
     assert called == [True]
+    assert scope["state"]["principal"].user_id == 2
 
 
 async def test_mcp_middleware_open_in_local_mode(monkeypatch):

@@ -208,8 +208,10 @@ def warn_if_open() -> None:
         logger.warning("local mode — auth is disabled, server is open")
 
 
-class AdminAuthMiddleware:
-    """ASGI guard for the ``/mcp`` mount: superadmin-only when auth is enabled."""
+class PrincipalAuthMiddleware:
+    """ASGI guard for the ``/mcp`` mount: any authenticated principal when auth
+    is enabled. Per-tool RBAC happens inside FastMCP (``mcp_rbac.py``), which
+    reads the principal this middleware stores on the scope."""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -220,14 +222,11 @@ class AdminAuthMiddleware:
         authorization = Headers(scope=scope).get("authorization")
         try:
             principal = await resolve_principal(authorization)
-            if not principal.superadmin:
-                raise Forbidden("superadmin required")
         except Unauthorized as exc:
             response = problem_response("Unauthorized", 401, str(exc), ProblemCode.UNAUTHORIZED, BEARER_CHALLENGE)
             await response(scope, receive, send)
             return
-        except Forbidden as exc:
-            response = problem_response("Forbidden", 403, str(exc), ProblemCode.FORBIDDEN)
-            await response(scope, receive, send)
-            return
+        # ``request.state`` is backed by ``scope["state"]`` — the FastMCP
+        # middleware and the audit middleware read it from there.
+        scope.setdefault("state", {})["principal"] = principal
         await self.app(scope, receive, send)
