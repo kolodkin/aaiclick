@@ -3,6 +3,7 @@ import { useAuth } from "./components/Auth";
 import { Header } from "./components/Header";
 import { parsePrompt, promptFromUrl, pushPromptToUrl } from "./prompt";
 import {
+  Account,
   AllGallery,
   CancelConfirm,
   Home,
@@ -14,6 +15,7 @@ import {
   RunForm,
   TaskDetail,
   Tokens,
+  Users,
 } from "./views";
 import { Login } from "./views/Login";
 
@@ -42,6 +44,10 @@ function renderRoute(prompt: string, onPrompt: (v: string) => void) {
       return <CancelConfirm refId={route.ref} onPrompt={onPrompt} />;
     case "tokens":
       return <Tokens onPrompt={onPrompt} />;
+    case "account":
+      return <Account onPrompt={onPrompt} />;
+    case "users":
+      return <Users onPrompt={onPrompt} />;
     case "unknown":
       return (
         <>

@@ -221,7 +221,10 @@ def render_execution_worker_stopped(view: ExecutionWorkerView) -> None:
 
 def render_user(view: UserView) -> None:
     """Single-line summary of one user."""
-    print(f"{view.id}  {view.username}  superadmin={view.superadmin}  disabled={view.disabled}")
+    print(
+        f"{view.id}  {view.username}  superadmin={view.superadmin}  disabled={view.disabled}  "
+        f"email={_fmt_optional(view.email)}  mfa={view.mfa_enabled}  sso={view.sso_linked}"
+    )
 
 
 def render_tenant(view: TenantView) -> None:

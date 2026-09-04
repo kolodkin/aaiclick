@@ -19,6 +19,10 @@ def _to_view(user: User) -> UserView:
         username=user.username,
         superadmin=user.superadmin,
         disabled=user.disabled,
+        email=user.email,
+        mfa_enabled=user.mfa_enabled,
+        sso_linked=user.oidc_subject is not None,
+        has_password=user.password_hash is not None,
         created_at=user.created_at,
     )
 
@@ -27,8 +31,9 @@ async def create_user(request: CreateUserRequest) -> UserView:
     try:
         user = await store.create_user(
             username=request.username,
-            password_hash=security.hash_password(request.password),
+            password_hash=security.hash_password(request.password) if request.password is not None else None,
             superadmin=request.superadmin,
+            email=request.email,
         )
     except store.UsernameTaken as exc:
         raise Conflict(str(exc)) from exc
@@ -77,4 +82,12 @@ async def set_password(user_id: int, password: str) -> UserView:
     except store.UserNotFound as exc:
         raise NotFound(str(exc)) from exc
     await store.revoke_all_for_user(user_id)
+    return _to_view(user)
+
+
+async def set_email(user_id: int, email: str | None) -> UserView:
+    try:
+        user = await store.set_email(user_id, email)
+    except store.UserNotFound as exc:
+        raise NotFound(str(exc)) from exc
     return _to_view(user)

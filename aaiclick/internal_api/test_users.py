@@ -78,3 +78,20 @@ async def test_reenabling_a_user_leaves_sessions_alone(orch_ctx):
 
     assert restored.disabled is False
     assert await auth.login(LoginRequest(username="reenabled", password="pw"), secret=SECRET)
+
+
+async def test_create_user_without_password_cannot_login(orch_ctx):
+    view = await users.create_user(CreateUserRequest(username="sso_only", email="s@example.com"))
+    assert view.has_password is False and view.email == "s@example.com"
+    with pytest.raises(Unauthorized):
+        await auth.login(LoginRequest(username="sso_only", password=""), secret=SECRET)
+
+
+async def test_enable_and_set_email(orch_ctx):
+    view = await users.create_user(CreateUserRequest(username="flip", password="pw"))
+    assert (await users.disable_user(view.id, True)).disabled is True
+    assert (await users.disable_user(view.id, False)).disabled is False
+    assert (await users.set_email(view.id, "f@example.com")).email == "f@example.com"
+    assert (await users.set_email(view.id, None)).email is None
+    with pytest.raises(NotFound):
+        await users.set_email(12345, "x@example.com")

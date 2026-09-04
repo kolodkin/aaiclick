@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 
 from aaiclick.auth.view_models import (
     CreateUserRequest,
+    SetEmailRequest,
     SetPasswordRequest,
     SetSuperadminRequest,
     UserListFilter,
@@ -35,6 +36,16 @@ async def create_user(request: CreateUserRequest) -> UserView:
     return await users_api.create_user(request)
 
 
+@router.get("/{user_id}", response_model=UserView, responses=problem_responses(404))
+async def get_user(user_id: int) -> UserView:
+    return await users_api.get_user(user_id)
+
+
+@router.put("/{user_id}/email", response_model=UserView, responses=problem_responses(404))
+async def set_email(user_id: int, request: SetEmailRequest) -> UserView:
+    return await users_api.set_email(user_id, request.email)
+
+
 @router.put("/{user_id}/superadmin", response_model=UserView, responses=problem_responses(404))
 async def set_superadmin(user_id: int, request: SetSuperadminRequest) -> UserView:
     return await users_api.set_superadmin(user_id, request.superadmin)
@@ -48,3 +59,8 @@ async def set_password(user_id: int, request: SetPasswordRequest) -> UserView:
 @router.post("/{user_id}/disable", response_model=UserView, responses=problem_responses(404))
 async def disable_user(user_id: int) -> UserView:
     return await users_api.disable_user(user_id, True)
+
+
+@router.post("/{user_id}/enable", response_model=UserView, responses=problem_responses(404))
+async def enable_user(user_id: int) -> UserView:
+    return await users_api.disable_user(user_id, False)

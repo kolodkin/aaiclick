@@ -111,6 +111,8 @@ class McpRbacMiddleware(Middleware):
         tool_name = context.message.name
         request.state.audit_action = tool_name
         tool = await context.fastmcp_context.fastmcp.get_tool(tool_name)
+        if tool is None:
+            raise ToolError(f"unknown tool {tool_name!r}")
         try:
             principal = await _principal_for(request)
             ctx = authorize_tool(principal, tool.tags, request.headers.get(TENANT_HEADER))

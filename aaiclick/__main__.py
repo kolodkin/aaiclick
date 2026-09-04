@@ -405,7 +405,9 @@ async def _run_execution_worker_stop(args: argparse.Namespace) -> None:
 async def _run_user_create(args: argparse.Namespace) -> None:
     view = await _run_internal_api(
         users_api.create_user(
-            CreateUserRequest(username=args.username, password=args.password, superadmin=args.superadmin)
+            CreateUserRequest(
+                username=args.username, password=args.password, superadmin=args.superadmin, email=args.email
+            )
         )
     )
     _render(args, view, cli_renderers.render_user)
@@ -423,6 +425,16 @@ async def _run_user_set_superadmin(args: argparse.Namespace) -> None:
 
 async def _run_user_disable(args: argparse.Namespace) -> None:
     view = await _run_internal_api(users_api.disable_user(args.user_id, True))
+    _render(args, view, cli_renderers.render_user)
+
+
+async def _run_user_enable(args: argparse.Namespace) -> None:
+    view = await _run_internal_api(users_api.disable_user(args.user_id, False))
+    _render(args, view, cli_renderers.render_user)
+
+
+async def _run_user_set_email(args: argparse.Namespace) -> None:
+    view = await _run_internal_api(users_api.set_email(args.user_id, args.email or None))
     _render(args, view, cli_renderers.render_user)
 
 
@@ -1228,7 +1240,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     user_create_parser = user_subparsers.add_parser("create", help="Create a user")
     user_create_parser.add_argument("username")
-    user_create_parser.add_argument("--password", required=True)
+    user_create_parser.add_argument(
+        "--password", default=None, help="Omit for a user who signs in via SSO or a reset link only"
+    )
+    user_create_parser.add_argument("--email", default=None)
     user_create_parser.add_argument("--superadmin", action="store_true")
     _add_json_flag(user_create_parser)
 
@@ -1247,6 +1262,15 @@ def build_parser() -> argparse.ArgumentParser:
     user_disable_parser = user_subparsers.add_parser("disable", help="Disable a user")
     user_disable_parser.add_argument("user_id", type=int)
     _add_json_flag(user_disable_parser)
+
+    user_enable_parser = user_subparsers.add_parser("enable", help="Re-enable a disabled user")
+    user_enable_parser.add_argument("user_id", type=int)
+    _add_json_flag(user_enable_parser)
+
+    user_set_email_parser = user_subparsers.add_parser("set-email", help="Set (or clear) a user's email")
+    user_set_email_parser.add_argument("user_id", type=int)
+    user_set_email_parser.add_argument("email", nargs="?", default=None, help="Omit to clear")
+    _add_json_flag(user_set_email_parser)
 
     user_passwd_parser = user_subparsers.add_parser("passwd", help="Set a user's password")
     user_passwd_parser.add_argument("user_id", type=int)
@@ -1474,6 +1498,10 @@ def main():
 
         elif args.user_command == "disable":
             asyncio.run(_run_user_disable(args))
+        elif args.user_command == "enable":
+            asyncio.run(_run_user_enable(args))
+        elif args.user_command == "set-email":
+            asyncio.run(_run_user_set_email(args))
 
         elif args.user_command == "passwd":
             asyncio.run(_run_user_passwd(args))

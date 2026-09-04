@@ -52,8 +52,12 @@ def _principal(*, superadmin=False, tenants=None, scope="write"):
         pytest.param(_principal(superadmin=True), {TAG_WRITE}, None, Invalid, id="superadmin-must-name-tenant"),
         pytest.param(_principal(tenants={7: "admin"}), {TAG_READ}, "8", Forbidden, id="other-tenant"),
         pytest.param(_principal(tenants={7: "admin"}, scope="read"), {TAG_READ}, "7", "ok", id="read-token-reads"),
-        pytest.param(_principal(tenants={7: "admin"}, scope="read"), {TAG_WRITE}, "7", Forbidden, id="read-token-no-write"),
-        pytest.param(_principal(superadmin=True, scope="read"), {TAG_SUPERADMIN}, None, Forbidden, id="read-token-no-super"),
+        pytest.param(
+            _principal(tenants={7: "admin"}, scope="read"), {TAG_WRITE}, "7", Forbidden, id="read-token-no-write"
+        ),
+        pytest.param(
+            _principal(superadmin=True, scope="read"), {TAG_SUPERADMIN}, None, Forbidden, id="read-token-no-super"
+        ),
     ],
 )
 def test_authorize_tool_matrix(enabled, principal, tags, header, expect):

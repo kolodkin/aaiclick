@@ -76,13 +76,24 @@ class UserView(BaseModel):
     username: str
     superadmin: bool
     disabled: bool
+    email: str | None
+    mfa_enabled: bool
+    sso_linked: bool
+    """The user has signed in through OIDC at least once."""
+    has_password: bool
     created_at: datetime
 
 
 class CreateUserRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(min_length=1, max_length=100)
+    password: str | None = None
+    """``None`` creates a user who can only sign in via SSO or a password-reset link."""
     superadmin: bool = False
+    email: str | None = None
+
+
+class SetEmailRequest(BaseModel):
+    email: str | None
 
 
 class SetSuperadminRequest(BaseModel):

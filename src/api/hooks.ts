@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { deleteJSON, fetchJSON, postJSON } from "./client";
+import { deleteJSON, fetchJSON, postJSON, putJSON } from "./client";
 import type {
   ApiTokenCreated,
   ApiTokenView,
+  ChangePasswordRequest,
   CreateApiTokenRequest,
+  CreateUserRequest,
   JobDetail,
   JobGraphView,
   JobView,
@@ -13,6 +15,7 @@ import type {
   RunJobRequest,
   TaskDetail,
   TaskLogs,
+  UserView,
 } from "./types";
 
 export function useJobs() {
@@ -124,4 +127,58 @@ export function useRevokeApiToken() {
     mutationFn: (id: string) => deleteJSON<void>(`/auth/tokens/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["api-tokens"] }),
   });
+}
+
+// --- account ------------------------------------------------------------
+
+export function useChangePassword() {
+  return useMutation({
+    mutationFn: (req: ChangePasswordRequest) => putJSON<void>("/auth/me/password", req),
+  });
+}
+
+// --- users (superadmin) -------------------------------------------------
+
+export function useUsers() {
+  return useQuery({
+    queryKey: ["users"],
+    queryFn: () => fetchJSON<Page<UserView>>("/users?limit=200"),
+    refetchInterval: false,
+  });
+}
+
+function useUserMutation<V>(run: (v: V) => Promise<UserView>) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: run,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["users"] }),
+  });
+}
+
+export function useCreateUser() {
+  return useUserMutation((req: CreateUserRequest) => postJSON<UserView>("/users", req));
+}
+
+export function useSetSuperadmin() {
+  return useUserMutation(({ id, superadmin }: { id: string; superadmin: boolean }) =>
+    putJSON<UserView>(`/users/${id}/superadmin`, { superadmin }),
+  );
+}
+
+export function useSetDisabled() {
+  return useUserMutation(({ id, disabled }: { id: string; disabled: boolean }) =>
+    postJSON<UserView>(`/users/${id}/${disabled ? "disable" : "enable"}`),
+  );
+}
+
+export function useSetUserPassword() {
+  return useUserMutation(({ id, password }: { id: string; password: string }) =>
+    putJSON<UserView>(`/users/${id}/password`, { password }),
+  );
+}
+
+export function useSetUserEmail() {
+  return useUserMutation(({ id, email }: { id: string; email: string | null }) =>
+    putJSON<UserView>(`/users/${id}/email`, { email }),
+  );
 }

@@ -46,3 +46,19 @@ async def test_list_users(orch_ctx, app_client, enabled):
     await users.create_user(CreateUserRequest(username="alice", password="pw"))
     res = await app_client.get(f"{API_PREFIX}/users", headers=_admin_header())
     assert res.status_code == 200 and res.json()["total"] >= 1
+
+
+async def test_get_enable_and_email_routes(orch_ctx, app_client, enabled):
+    created = await users.create_user(CreateUserRequest(username="carol", password="pw"))
+    got = await app_client.get(f"{API_PREFIX}/users/{created.id}", headers=_admin_header())
+    assert got.status_code == 200 and got.json()["username"] == "carol"
+
+    await app_client.post(f"{API_PREFIX}/users/{created.id}/disable", headers=_admin_header())
+    back = await app_client.post(f"{API_PREFIX}/users/{created.id}/enable", headers=_admin_header())
+    assert back.status_code == 200 and back.json()["disabled"] is False
+
+    mail = await app_client.put(
+        f"{API_PREFIX}/users/{created.id}/email", json={"email": "c@example.com"}, headers=_admin_header()
+    )
+    assert mail.status_code == 200 and mail.json()["email"] == "c@example.com"
+    assert (await app_client.get(f"{API_PREFIX}/users/0", headers=_admin_header())).status_code == 404

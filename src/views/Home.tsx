@@ -1,3 +1,5 @@
+import { useAuth } from "../components/Auth";
+
 interface Cmd {
   code: string;
   desc: string;
@@ -20,7 +22,12 @@ const ACTIONS: Cmd[] = [
 ];
 
 const ACCOUNT: Cmd[] = [
+  { code: "@account", desc: "Change your password, set up multi-factor auth.", cmd: "@account" },
   { code: "@tokens", desc: "API tokens for CLI / SDK / MCP clients — create, revoke.", cmd: "@tokens" },
+];
+
+const ADMIN: Cmd[] = [
+  { code: "@users", desc: "Manage users — create, superadmin, disable, reset password.", cmd: "@users" },
 ];
 
 function CmdList({ items, onPrompt }: { items: Cmd[]; onPrompt: (v: string) => void }) {
@@ -37,6 +44,7 @@ function CmdList({ items, onPrompt }: { items: Cmd[]; onPrompt: (v: string) => v
 }
 
 export function Home({ onPrompt }: { onPrompt: (v: string) => void }) {
+  const { me } = useAuth();
   return (
     <>
       <h2>aaiclick</h2>
@@ -47,6 +55,12 @@ export function Home({ onPrompt }: { onPrompt: (v: string) => void }) {
       <CmdList items={ACTIONS} onPrompt={onPrompt} />
       <div className="group-label">Account</div>
       <CmdList items={ACCOUNT} onPrompt={onPrompt} />
+      {me?.superadmin && (
+        <>
+          <div className="group-label">Administration</div>
+          <CmdList items={ADMIN} onPrompt={onPrompt} />
+        </>
+      )}
     </>
   );
 }
