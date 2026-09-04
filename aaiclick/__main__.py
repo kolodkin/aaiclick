@@ -433,6 +433,11 @@ async def _run_user_enable(args: argparse.Namespace) -> None:
     _render(args, view, cli_renderers.render_user)
 
 
+async def _run_user_reset_link(args: argparse.Namespace) -> None:
+    view = await _run_internal_api(users_api.create_password_reset(args.user_id))
+    _render(args, view, cli_renderers.render_password_reset_link)
+
+
 async def _run_user_reset_mfa(args: argparse.Namespace) -> None:
     view = await _run_internal_api(users_api.reset_mfa(args.user_id))
     _render(args, view, cli_renderers.render_user)
@@ -1272,6 +1277,10 @@ def build_parser() -> argparse.ArgumentParser:
     user_enable_parser.add_argument("user_id", type=int)
     _add_json_flag(user_enable_parser)
 
+    user_reset_link_parser = user_subparsers.add_parser("reset-link", help="Mint a one-time password-reset link")
+    user_reset_link_parser.add_argument("user_id", type=int)
+    _add_json_flag(user_reset_link_parser)
+
     user_reset_mfa_parser = user_subparsers.add_parser("reset-mfa", help="Clear a user's authenticator (lost device)")
     user_reset_mfa_parser.add_argument("user_id", type=int)
     _add_json_flag(user_reset_mfa_parser)
@@ -1513,6 +1522,8 @@ def main():
             asyncio.run(_run_user_set_email(args))
         elif args.user_command == "reset-mfa":
             asyncio.run(_run_user_reset_mfa(args))
+        elif args.user_command == "reset-link":
+            asyncio.run(_run_user_reset_link(args))
 
         elif args.user_command == "passwd":
             asyncio.run(_run_user_passwd(args))

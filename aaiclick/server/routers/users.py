@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 
 from aaiclick.auth.view_models import (
     CreateUserRequest,
+    PasswordResetLinkView,
     SetEmailRequest,
     SetPasswordRequest,
     SetSuperadminRequest,
@@ -70,3 +71,9 @@ async def enable_user(user_id: int) -> UserView:
 async def reset_mfa(user_id: int) -> UserView:
     """Lost-authenticator recovery — there are no recovery codes."""
     return await users_api.reset_mfa(user_id)
+
+
+@router.post("/{user_id}/password-reset", response_model=PasswordResetLinkView, responses=problem_responses(404))
+async def create_password_reset(user_id: int) -> PasswordResetLinkView:
+    """Mint a one-time reset link to hand to the user out of band."""
+    return await users_api.create_password_reset(user_id)

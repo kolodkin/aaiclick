@@ -14,6 +14,7 @@ import httpx
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
+from jwt.algorithms import RSAAlgorithm
 
 from aaiclick.auth import oidc, security, store
 from aaiclick.auth.view_models import CreateUserRequest, OidcCallbackRequest
@@ -60,7 +61,7 @@ class FakeProvider:
                 },
             )
         if path == "/jwks":
-            public = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(KEY.public_key()))
+            public = json.loads(RSAAlgorithm.to_jwk(KEY.public_key()))
             return httpx.Response(200, json={"keys": [{**public, "kid": KID, "use": "sig", "alg": "RS256"}]})
         if path == "/token":
             form = parse_qs(request.content.decode())

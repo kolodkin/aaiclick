@@ -19,6 +19,8 @@ from aaiclick.auth.view_models import (
     OidcCallbackRequest,
     OidcConfigView,
     OidcStartView,
+    PasswordResetRedeem,
+    PasswordResetRequest,
     RefreshRequest,
     TokenPair,
 )
@@ -73,6 +75,21 @@ async def change_password(
 ) -> None:
     """Any role may change their own password — ``/users`` is admin-only."""
     await auth_api.change_password(principal.user_id, request)
+
+
+# --- Password reset -------------------------------------------------------
+# Public: the caller has no session by definition.
+
+
+@router.post("/password-reset/request", status_code=204)
+async def request_password_reset(request: PasswordResetRequest) -> None:
+    """Always ``204`` — whether a mail went out is not disclosed."""
+    await auth_api.request_password_reset(request)
+
+
+@router.post("/password-reset", status_code=204, responses=problem_responses(401))
+async def redeem_password_reset(request: PasswordResetRedeem) -> None:
+    await auth_api.redeem_password_reset(request)
 
 
 # --- MFA ------------------------------------------------------------------

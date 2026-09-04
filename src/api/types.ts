@@ -27,6 +27,7 @@ export type UserView = S["UserView"];
 export type CreateUserRequest = S["CreateUserRequest"];
 export type ChangePasswordRequest = S["ChangePasswordRequest"];
 export type MfaSetupView = S["MfaSetupView"];
+export type PasswordResetLinkView = S["PasswordResetLinkView"];
 export type ApiTokenView = S["ApiTokenView"];
 export type ApiTokenCreated = S["ApiTokenCreated"];
 export type CreateApiTokenRequest = S["CreateApiTokenRequest"];

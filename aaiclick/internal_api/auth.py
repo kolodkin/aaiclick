@@ -8,7 +8,7 @@ import logging
 
 import httpx
 
-from aaiclick.auth import config, oidc, security, store
+from aaiclick.auth import config, mail, oidc, security, store
 from aaiclick.auth.models import User
 from aaiclick.auth.view_models import (
     ChangePasswordRequest,
@@ -20,6 +20,8 @@ from aaiclick.auth.view_models import (
     OidcCallbackRequest,
     OidcConfigView,
     OidcStartView,
+    PasswordResetRedeem,
+    PasswordResetRequest,
     RefreshRequest,
     TenantRoleView,
     TokenPair,
@@ -154,6 +156,40 @@ async def mfa_disable(user_id: int | None, request: MfaDisableRequest) -> None:
     if not _authenticates(user, request.password) or not security.verify_totp(user.totp_secret, request.code):
         raise Unauthorized("invalid password or multi-factor code")
     await store.set_totp(user.id, totp_secret=None, mfa_enabled=False)
+
+
+# --- Password reset -------------------------------------------------------
+
+
+async def request_password_reset(request: PasswordResetRequest) -> None:
+    """Self-service reset: mail a link when SMTP is configured and the user has
+    an email. Silent otherwise — the caller learns nothing about the account.
+    """
+    settings = config.smtp_settings()
+    user = await store.get_user_by_username(request.username)
+    if user is None or user.disabled or user.email is None:
+        logger.info("password reset requested for %r: no deliverable account", request.username)
+        return
+    if settings is None:
+        logger.warning("password reset requested for %r but mail is not configured", request.username)
+        return
+    link = await users.create_password_reset(user.id)
+    body = (
+        f"A password reset was requested for your aaiclick account '{user.username}'.\n\n"
+        f"Open this link to choose a new password (valid until {link.expires_at:%Y-%m-%d %H:%M} UTC):\n\n"
+        f"{link.url or link.token}\n\n"
+        "If you did not request this, ignore this message."
+    )
+    await mail.send_mail(settings, to=user.email, subject="aaiclick password reset", body=body)
+
+
+async def redeem_password_reset(request: PasswordResetRedeem) -> None:
+    """Consume a reset token and set the password; sessions are revoked like an
+    admin reset."""
+    row = await store.consume_password_reset(security.sha256_hex(request.token))
+    if row is None:
+        raise Unauthorized("unknown, expired, or already used reset token")
+    await users.set_password(row.user_id, request.new_password)
 
 
 # --- OIDC / SSO ---------------------------------------------------------

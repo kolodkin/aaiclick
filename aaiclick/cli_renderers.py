@@ -8,7 +8,14 @@ from SQLModel rows — so the JSON schema and text columns cannot drift.
 
 from __future__ import annotations
 
-from aaiclick.auth.view_models import ApiTokenCreated, ApiTokenView, MemberView, TenantView, UserView
+from aaiclick.auth.view_models import (
+    ApiTokenCreated,
+    ApiTokenView,
+    MemberView,
+    PasswordResetLinkView,
+    TenantView,
+    UserView,
+)
 from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.orchestration.models import NON_SUCCESS_TASK_STATUSES, TASK_FAILED
 from aaiclick.orchestration.view_models import (
@@ -254,6 +261,13 @@ def render_api_token_created(view: ApiTokenCreated) -> None:
     print(f"{view.id}  {view.name}  scope={view.scope}  expires={_fmt_optional(view.expires_at)}")
     print(f"token: {view.token}")
     print("Store it now — it cannot be retrieved again.")
+
+
+def render_password_reset_link(view: PasswordResetLinkView) -> None:
+    print(f"expires: {view.expires_at}")
+    print(f"token: {view.token}")
+    if view.url:
+        print(f"url: {view.url}")
 
 
 def render_api_tokens_page(page: Page[ApiTokenView]) -> None:

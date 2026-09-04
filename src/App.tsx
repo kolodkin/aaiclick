@@ -18,6 +18,7 @@ import {
   Users,
 } from "./views";
 import { Login } from "./views/Login";
+import { ResetPassword } from "./views/ResetPassword";
 
 function renderRoute(prompt: string, onPrompt: (v: string) => void) {
   const route = parsePrompt(prompt);
@@ -48,6 +49,8 @@ function renderRoute(prompt: string, onPrompt: (v: string) => void) {
       return <Account onPrompt={onPrompt} />;
     case "users":
       return <Users onPrompt={onPrompt} />;
+    case "reset":
+      return null; // handled before the login wall in App
     case "unknown":
       return (
         <>
@@ -86,6 +89,10 @@ export function App() {
   // Wait for the initial /auth/me probe; when auth is disabled the server
   // returns a synthetic admin so `me` is set and no login wall appears.
   if (!ready) return null;
+  // A reset link opens the new-password form with no session — that is the
+  // point of the link — so it is routed before the login wall.
+  const route = parsePrompt(prompt);
+  if (route.kind === "reset") return <ResetPassword token={route.token} onDone={() => onPrompt("")} />;
   if (!me) return <Login />;
 
   return (

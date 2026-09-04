@@ -7,6 +7,7 @@ import type {
   CreateApiTokenRequest,
   CreateUserRequest,
   MfaSetupView,
+  PasswordResetLinkView,
   JobDetail,
   JobGraphView,
   JobView,
@@ -190,6 +191,10 @@ export function useSetUserPassword() {
   return useUserMutation(({ id, password }: { id: string; password: string }) =>
     putJSON<UserView>(`/users/${id}/password`, { password }),
   );
+}
+
+export function useCreateResetLink() {
+  return useMutation({ mutationFn: (id: string) => postJSON<PasswordResetLinkView>(`/users/${id}/password-reset`) });
 }
 
 export function useResetUserMfa() {

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  useCreateResetLink,
   useCreateUser,
   useResetUserMfa,
   useSetDisabled,
@@ -8,7 +9,7 @@ import {
   useSetUserPassword,
   useUsers,
 } from "../api/hooks";
-import type { UserView } from "../api/types";
+import type { PasswordResetLinkView, UserView } from "../api/types";
 import { useAuth } from "../components/Auth";
 import { Chips } from "../components/Chips";
 import { Panel } from "../components/Panel";
@@ -70,8 +71,9 @@ function CreateUserForm() {
   );
 }
 
-function UserRow({ user, self }: { user: UserView; self: boolean }) {
+function UserRow({ user, self, onResetLink }: { user: UserView; self: boolean; onResetLink: (l: PasswordResetLinkView) => void }) {
   const toast = useToast();
+  const resetLink = useCreateResetLink();
   const setSuperadmin = useSetSuperadmin();
   const setDisabled = useSetDisabled();
   const setPassword = useSetUserPassword();
@@ -127,6 +129,9 @@ function UserRow({ user, self }: { user: UserView; self: boolean }) {
           <button className="btn btn-sm" onClick={onEmail}>
             Email
           </button>
+          <button className="btn btn-sm" disabled={resetLink.isPending} onClick={() => resetLink.mutate(user.id, { onSuccess: onResetLink, onError: fail("Reset link") })}>
+            Reset link
+          </button>
           {user.mfa_enabled && (
             <button className="btn btn-sm" onClick={() => resetMfa.mutate(user.id, { onSuccess: () => toast("MFA reset"), onError: fail("Reset MFA") })}>
               Reset MFA
@@ -138,15 +143,40 @@ function UserRow({ user, self }: { user: UserView; self: boolean }) {
   );
 }
 
+// A minted reset link is shown once; hand it to the user out of band.
+function ResetLinkPanel({ link, onDone }: { link: PasswordResetLinkView; onDone: () => void }) {
+  const toast = useToast();
+  const value = link.url ?? link.token;
+  return (
+    <Panel className="confirm info">
+      <h2>Password reset link</h2>
+      <p className="sub">Valid until {new Date(link.expires_at).toLocaleString()} — single use.</p>
+      <p className="mono" id="reset-link-value" style={{ overflowWrap: "anywhere" }}>
+        {value}
+      </p>
+      <div className="form-actions">
+        <button className="btn btn-primary" onClick={() => void navigator.clipboard?.writeText(value).then(() => toast("Copied"))}>
+          Copy
+        </button>
+        <button className="btn" onClick={onDone}>
+          Done
+        </button>
+      </div>
+    </Panel>
+  );
+}
+
 export function Users({ onPrompt }: { onPrompt: (v: string) => void }) {
   const { me } = useAuth();
   const { data, isLoading, isError, error } = useUsers();
+  const [link, setLink] = useState<PasswordResetLinkView | null>(null);
   return (
     <>
       <Chips chips={[{ label: "← home", cmd: "" }]} onPrompt={onPrompt} />
       <h2>Users</h2>
       <p className="sub">Instance-level accounts. Tenant memberships are managed with the CLI (`aaiclick member …`).</p>
       {!me?.superadmin && <p className="err">Requires the superadmin flag.</p>}
+      {link && <ResetLinkPanel link={link} onDone={() => setLink(null)} />}
       {me?.superadmin && <CreateUserForm />}
       {isLoading && <p className="sub">loading…</p>}
       {isError && <p className="err">{error.message}</p>}
@@ -165,7 +195,7 @@ export function Users({ onPrompt }: { onPrompt: (v: string) => void }) {
           </thead>
           <tbody>
             {data.items.map((u) => (
-              <UserRow key={u.id} user={u} self={u.id === me?.id} />
+              <UserRow key={u.id} user={u} self={u.id === me?.id} onResetLink={setLink} />
             ))}
           </tbody>
         </table>

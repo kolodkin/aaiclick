@@ -181,6 +181,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v0/auth/password-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Redeem Password Reset */
+        post: operations["redeem_password_reset_api_v0_auth_password_reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/auth/password-reset/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request Password Reset
+         * @description Always ``204`` — whether a mail went out is not disclosed.
+         */
+        post: operations["request_password_reset_api_v0_auth_password_reset_request_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v0/auth/refresh": {
         parameters: {
             query?: never;
@@ -721,6 +758,26 @@ export interface paths {
         /** Set Password */
         put: operations["set_password_api_v0_users__user_id__password_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/users/{user_id}/password-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Password Reset
+         * @description Mint a one-time reset link to hand to the user out of band.
+         */
+        post: operations["create_password_reset_api_v0_users__user_id__password_reset_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1398,6 +1455,37 @@ export interface components {
             next_cursor?: string | null;
             /** Total */
             total?: number | null;
+        };
+        /**
+         * PasswordResetLinkView
+         * @description An admin-minted reset token. ``url`` is set when ``AAICLICK_PUBLIC_URL``
+         *     is configured; either way the raw ``token`` appears here only.
+         */
+        PasswordResetLinkView: {
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Token */
+            token: string;
+            /** Url */
+            url: string | null;
+        };
+        /** PasswordResetRedeem */
+        PasswordResetRedeem: {
+            /** New Password */
+            new_password: string;
+            /** Token */
+            token: string;
+        };
+        /**
+         * PasswordResetRequest
+         * @description Self-service: ask for a reset mail. Always answered ``204``.
+         */
+        PasswordResetRequest: {
+            /** Username */
+            username: string;
         };
         /**
          * Problem
@@ -2228,6 +2316,77 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    redeem_password_reset_api_v0_auth_password_reset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordResetRedeem"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description MFA Required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    request_password_reset_api_v0_auth_password_reset_request_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordResetRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -3821,6 +3980,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserView"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_password_reset_api_v0_users__user_id__password_reset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasswordResetLinkView"];
                 };
             };
             /** @description Not Found */

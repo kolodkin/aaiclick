@@ -1,7 +1,50 @@
 import { useEffect, useState } from "react";
 import { Panel } from "../components/Panel";
 import { useAuth } from "../components/Auth";
-import { fetchOidcConfig, login, LoginError, startOidcLogin, type OidcConfig } from "../lib/auth";
+import {
+  fetchOidcConfig,
+  login,
+  LoginError,
+  requestPasswordReset,
+  startOidcLogin,
+  type OidcConfig,
+} from "../lib/auth";
+
+function ForgotPassword({ onBack }: { onBack: () => void }) {
+  const [username, setUsername] = useState("");
+  const [sent, setSent] = useState(false);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await requestPasswordReset(username);
+    setSent(true);
+  };
+  return (
+    <Panel>
+      <h2>Reset password</h2>
+      {sent ? (
+        <p className="sub">If that account has an email address on file, a reset link is on its way. Otherwise ask an administrator for a reset link.</p>
+      ) : (
+        <form onSubmit={submit}>
+          <p className="sub">Enter your username; a reset link is mailed when the server can reach you.</p>
+          <div className="field">
+            <label>Username</label>
+            <input id="forgot-username" type="text" value={username} autoFocus onChange={(e) => setUsername(e.target.value)} />
+          </div>
+          <div className="form-actions">
+            <button id="forgot-submit" className="btn btn-primary" type="submit" disabled={!username}>
+              Send reset link
+            </button>
+          </div>
+        </form>
+      )}
+      <div className="form-actions">
+        <button className="btn" type="button" onClick={onBack}>
+          Back to sign in
+        </button>
+      </div>
+    </Panel>
+  );
+}
 
 export function Login() {
   const { refresh } = useAuth();
@@ -12,6 +55,7 @@ export function Login() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [oidc, setOidc] = useState<OidcConfig | null>(null);
+  const [forgot, setForgot] = useState(false);
 
   useEffect(() => {
     void fetchOidcConfig().then(setOidc);
@@ -44,6 +88,16 @@ export function Login() {
       setBusy(false);
     }
   };
+
+  if (forgot) {
+    return (
+      <main>
+        <div className="content" id="content">
+          <ForgotPassword onBack={() => setForgot(false)} />
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main>
@@ -96,6 +150,10 @@ export function Login() {
                   Sign in with {oidc.label}
                 </button>
               )}
+              <div className="spacer" />
+              <button id="login-forgot" className="btn btn-sm" type="button" onClick={() => setForgot(true)}>
+                Forgot password?
+              </button>
             </div>
           </form>
         </Panel>

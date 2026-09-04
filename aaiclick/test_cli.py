@@ -464,3 +464,4 @@ def test_user_parser_new_commands():
     assert parser.parse_args(["user", "reset-mfa", "7"]).user_command == "reset-mfa"
     args = parser.parse_args(["user", "set-email", "7"])
     assert args.user_command == "set-email" and args.email is None
+    assert parser.parse_args(["user", "reset-link", "7"]).user_command == "reset-link"

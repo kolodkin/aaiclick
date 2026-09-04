@@ -185,3 +185,23 @@ class MfaDisableRequest(BaseModel):
 
     password: str
     code: str
+
+
+class PasswordResetLinkView(BaseModel):
+    """An admin-minted reset token. ``url`` is set when ``AAICLICK_PUBLIC_URL``
+    is configured; either way the raw ``token`` appears here only."""
+
+    token: str
+    expires_at: datetime
+    url: str | None
+
+
+class PasswordResetRequest(BaseModel):
+    """Self-service: ask for a reset mail. Always answered ``204``."""
+
+    username: str
+
+
+class PasswordResetRedeem(BaseModel):
+    token: str
+    new_password: str = Field(min_length=1)

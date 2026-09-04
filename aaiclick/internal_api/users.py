@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from sqlmodel import col
 
-from aaiclick.auth import security, store
+from aaiclick.auth import config, security, store
 from aaiclick.auth.models import User
-from aaiclick.auth.view_models import CreateUserRequest, UserListFilter, UserView
+from aaiclick.auth.view_models import CreateUserRequest, PasswordResetLinkView, UserListFilter, UserView
 from aaiclick.view_models import Page
 
 from .errors import Conflict, NotFound
@@ -102,3 +102,20 @@ async def reset_mfa(user_id: int) -> UserView:
         raise NotFound(str(exc)) from exc
     await store.revoke_all_for_user(user_id)
     return _to_view(user)
+
+
+def reset_url(token: str) -> str | None:
+    """The SPA link that opens the new-password form, when the public URL is known."""
+    base = config.public_url()
+    return f"{base}/?p=reset%20{token}" if base else None
+
+
+async def create_password_reset(user_id: int) -> PasswordResetLinkView:
+    """Mint a one-time reset token for a user (superadmin / CLI recovery path)."""
+    if await store.get_user_by_id(user_id) is None:
+        raise NotFound(f"user {user_id} not found")
+    token = security.generate_secret()
+    row = await store.create_password_reset(
+        user_id=user_id, token_hash=security.sha256_hex(token), ttl=config.password_reset_ttl()
+    )
+    return PasswordResetLinkView(token=token, expires_at=row.expires_at, url=reset_url(token))
