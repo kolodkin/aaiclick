@@ -11,9 +11,6 @@ import pytest
 
 from aaiclick import create_object_from_value
 
-DT_2024 = datetime(2024, 1, 1, tzinfo=timezone.utc)
-DT_2025 = datetime(2025, 1, 1, tzinfo=timezone.utc)
-
 
 def apply_comparison(a, b, operator: str):
     """Apply a comparison operator to two Objects, returning a LazyOperator."""
@@ -145,7 +142,11 @@ async def test_float_comparison(ctx, vals_a, vals_b, operator, expected):
         pytest.param([1, 5, 9], 5, id="int"),
         pytest.param([1.5, 5.0, 9.5], 5.0, id="float"),
         pytest.param(["a", "b", "c"], "b", id="str"),
-        pytest.param([DT_2024, DT_2024, DT_2025], datetime(2024, 6, 1, tzinfo=timezone.utc), id="datetime"),
+        pytest.param(
+            [datetime(2024, 1, 1, tzinfo=timezone.utc)] * 2 + [datetime(2025, 1, 1, tzinfo=timezone.utc)],
+            datetime(2024, 6, 1, tzinfo=timezone.utc),
+            id="datetime",
+        ),
     ],
 )
 async def test_comparison_result_is_uint8(ctx, rows, rhs):

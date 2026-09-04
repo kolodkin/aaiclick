@@ -3,7 +3,7 @@
 import pytest
 
 from aaiclick.data.data_context import data_context, get_ch_client
-from aaiclick.data.object.schema_compute import _determine_agg_result_type, _promote_arithmetic_type
+from aaiclick.data.object.schema_compute import _determine_agg_result_type, _result_value_type
 
 
 @pytest.fixture
@@ -12,7 +12,13 @@ async def ctx():
         yield
 
 
-ARITHMETIC_CASES = [
+OPERATOR_CASES = [
+    ("==", "Int64", "Int64"),
+    ("!=", "Float64", "Float64"),
+    ("<", "Int64", "Float64"),
+    ("<=", "Bool", "Bool"),
+    (">", "String", "String"),
+    (">=", "UInt8", "Int64"),
     ("+", "Bool", "Bool"),
     ("+", "Int64", "Int64"),
     ("+", "Float64", "Float64"),
@@ -41,9 +47,9 @@ ARITHMETIC_CASES = [
 ]
 
 
-@pytest.mark.parametrize("op,type_a,type_b", ARITHMETIC_CASES)
-async def test_arithmetic_type_promotion(ctx, op, type_a, type_b):
-    """Verify _promote_arithmetic_type matches ClickHouse toTypeName()."""
+@pytest.mark.parametrize("op,type_a,type_b", OPERATOR_CASES)
+async def test_operator_result_type(ctx, op, type_a, type_b):
+    """Verify _result_value_type matches ClickHouse toTypeName()."""
     ch = get_ch_client()
     if op == "**":
         expr = f"power(CAST(1, '{type_a}'), CAST(1, '{type_b}'))"
@@ -52,7 +58,7 @@ async def test_arithmetic_type_promotion(ctx, op, type_a, type_b):
     result = await ch.query(f"SELECT toTypeName({expr})")
     ch_type = result.result_rows[0][0]
 
-    our_type = _promote_arithmetic_type(op, type_a, type_b)
+    our_type = _result_value_type(op, type_a, type_b)
     assert our_type == ch_type, f"{type_a} {op} {type_b}: ours={our_type}, CH={ch_type}"
 
 

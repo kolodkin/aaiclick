@@ -11,10 +11,7 @@ from aaiclick.data.models import (
     FIELDTYPE_SCALAR,
 )
 from aaiclick.data.object import LazyOperator, operators
-from aaiclick.data.object.schema_compute import (
-    _preview_operator_schema,
-    _scalar_to_schema,
-)
+from aaiclick.data.object.schema_compute import _preview_operator_schema
 
 BINARY_OPERATORS = ["+", "-", "*", "/", "//", "%", "**", "==", "!=", "<", "<=", ">", ">=", "&", "|", "^"]
 
@@ -92,18 +89,6 @@ async def test_preview_matches_materialized_schema_array_scalar(ctx, operator):
     assert preview.fieldtype == materialized.schema.fieldtype
     for col_name in preview.columns:
         assert preview.columns[col_name].type == materialized.schema.columns[col_name].type
-
-
-def test_scalar_to_schema_python_int():
-    schema = _scalar_to_schema(7)
-    assert schema.fieldtype == FIELDTYPE_SCALAR
-    assert schema.columns["value"].type == "Int64"
-
-
-def test_scalar_to_schema_python_float():
-    schema = _scalar_to_schema(3.14)
-    assert schema.fieldtype == FIELDTYPE_SCALAR
-    assert schema.columns["value"].type == "Float64"
 
 
 # -----------------------------------------------------------------------------

@@ -11,7 +11,7 @@ import pytest
 
 from aaiclick import create_object_from_value
 from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_SCALAR
-from aaiclick.data.object.literals import LITERAL_BASE_TABLE, LITERAL_LIST_MAX, literal_query_info
+from aaiclick.data.object.literals import LITERAL_LIST_MAX, literal_query_info
 
 DT_UTC = datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc)
 DT_NAIVE = datetime(2024, 1, 15, 10, 30, 0)
@@ -46,7 +46,7 @@ def test_literal_query_info_scalar(value, expected_source, expected_type):
     assert info.source == expected_source
     assert info.fieldtype == FIELDTYPE_SCALAR
     assert info.value_type == expected_type
-    assert info.base_table == LITERAL_BASE_TABLE
+    assert info.base_table == ""
 
 
 @pytest.mark.parametrize(
@@ -89,14 +89,16 @@ async def test_isin_list_over_threshold_uses_table(ctx):
     assert await result.data() == [1, 1, 0]
 
 
-async def test_datetime_list_operand(ctx):
-    """Datetime literals round-trip through ClickHouse on the naive-UTC convention."""
-    obj = await create_object_from_value([DT_UTC, datetime(2025, 6, 20, tzinfo=timezone.utc)])
-    result = await obj.isin([DT_NAIVE])
-    assert await result.data() == [1, 0]
-
-
-async def test_bool_scalar_operand(ctx):
-    obj = await create_object_from_value([True, False, True])
-    result = await (obj == True)  # noqa: E712 — operator overload under test
-    assert await result.data() == [1, 0, 1]
+@pytest.mark.parametrize(
+    "rows, allowed, expected",
+    [
+        pytest.param([True, False, True], [True], [1, 0, 1], id="bool"),
+        # tz-aware rows match a naive literal: both sit on the naive-UTC convention
+        pytest.param([DT_UTC, datetime(2025, 6, 20, tzinfo=timezone.utc)], [DT_NAIVE], [1, 0], id="datetime"),
+    ],
+)
+async def test_literal_operand_round_trip(ctx, rows, allowed, expected):
+    """Literal types the sync tests can only spell out are accepted by ClickHouse."""
+    obj = await create_object_from_value(rows)
+    result = await obj.isin(allowed)
+    assert await result.data() == expected

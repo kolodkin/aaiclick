@@ -40,7 +40,7 @@ async def test_isin(ctx, value, allowed, expected):
     ],
 )
 async def test_isin_with_python_list(ctx, value, allowed, expected):
-    """isin() accepts a Python list (auto-converted to Object)."""
+    """isin() accepts a Python list (inlined as SQL literals)."""
     obj = await create_object_from_value(value)
     result = await obj.isin(allowed)
     assert await result.data() == expected

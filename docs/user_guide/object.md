@@ -178,7 +178,7 @@ LazyOperator(op="sum", lhs=LazyOperator(op="abs", lhs=obj, rhs=None), rhs=None)
 
 ## Arithmetic Type Promotion
 
-Arithmetic result types match ClickHouse's native promotion rules. See `_promote_arithmetic_type()` in `aaiclick/data/object/schema_compute.py`, validated by `aaiclick/data/object/test_type_promotion.py` against `SELECT toTypeName()`.
+Result types match ClickHouse's native promotion rules. See `_result_value_type()` in `aaiclick/data/object/schema_compute.py`, validated by `aaiclick/data/object/test_type_promotion.py` against `SELECT toTypeName()`.
 
 ??? note "Comparison Operators"
 

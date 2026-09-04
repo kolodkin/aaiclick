@@ -27,8 +27,8 @@ Every value-column operator follows the same two-stage pattern:
   ``literals.py`` — so no table is created for it.
 
 Shared schema-computation helpers (``_compute_operator_schema``,
-``_preview_operator_schema``, ``_promote_arithmetic_type``,
-``_scalar_to_schema``) live in the neutral ``schema_compute.py`` module so
+``_preview_operator_schema``, ``_result_value_type``) live in the neutral
+``schema_compute.py`` module so
 both ``_plan_operator`` (preview) and ``_apply_operator_db`` (materialize)
 hit the same code — no drift between preview and result schemas.
 
@@ -355,6 +355,7 @@ async def _apply_operator_db(
     aai_id_alias = aai_id_side or "a"  # "a" default is ignored when propagate=False
     proj = _aai_id_proj(aai_id_side is not None, alias=aai_id_alias)
     result = await create_object(schema, name=name, scope=scope)
+    operand_tables = _operand_tables(left=info_a.base_table, right=info_b.base_table)
 
     # Insert data based on fieldtype combinations
     if a_is_array and b_is_array:
@@ -362,7 +363,7 @@ async def _apply_operator_db(
         # the same table with identical constraints, emit a single SELECT instead
         # of the expensive INNER JOIN on row_number().
         same_table = (
-            info_a.base_table == info_b.base_table
+            info_a.same_table_as(info_b)
             and info_a.value_column != "value"
             and info_b.value_column != "value"
             and info_a.constraint_sql == info_b.constraint_sql
@@ -429,9 +430,7 @@ async def _apply_operator_db(
                     client=ch_client,
                 )
 
-        oplog_record_sample(
-            result.table, operator, kwargs=_operand_tables(left=info_a.base_table, right=info_b.base_table)
-        )
+        oplog_record_sample(result.table, operator, kwargs=operand_tables)
         return result
 
     # Scalar broadcasting (array⊗scalar, scalar⊗array, scalar⊗scalar):
@@ -446,7 +445,7 @@ async def _apply_operator_db(
         client=ch_client,
     )
 
-    oplog_record_sample(result.table, operator, kwargs=_operand_tables(left=info_a.base_table, right=info_b.base_table))
+    oplog_record_sample(result.table, operator, kwargs=operand_tables)
     return result
 
 
@@ -1015,7 +1014,7 @@ async def coalesce_op(
         # Cross-table contract enforced by Object.coalesce — both operands must
         # be Views with explicit order_by. Same-base-table coalesce is legal
         # without views (matching source rows 1:1).
-        same_table = info_a.base_table == info_b.base_table
+        same_table = info_a.same_table_as(info_b)
         assert same_table or (info_a.order_by and info_b.order_by), (
             "cross-table coalesce reached operator SQL without order_by — the "
             "contract check in Object.coalesce should have rejected it"
