@@ -7,19 +7,19 @@ from aaiclick.internal_api import audit
 
 
 async def _row(**overrides):
-    values = dict(
-        at=utc_now(),
-        user_id=1,
-        username="alice",
-        auth_kind="session",
-        tenant_id=1,
-        method="POST",
-        path="/api/v0/jobs:run",
-        action=None,
-        status=200,
-        duration_ms=12,
-        client_ip="127.0.0.1",
-    )
+    values = {
+        "at": utc_now(),
+        "user_id": 1,
+        "username": "alice",
+        "auth_kind": "session",
+        "tenant_id": 1,
+        "method": "POST",
+        "path": "/api/v0/jobs:run",
+        "action": None,
+        "status": 200,
+        "duration_ms": 12,
+        "client_ip": "127.0.0.1",
+    }
     values.update(overrides)
     return await store.insert(**values)
 
