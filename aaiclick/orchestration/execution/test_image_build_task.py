@@ -38,7 +38,21 @@ async def test_run_image_build_delegates_to_build_image_to_tag(monkeypatch):
     assert tag == "registry.example:5000/aaiclick-job:" + "a" * 40
 
 
-async def test_run_image_build_requires_registry(monkeypatch):
+async def test_run_image_build_local_mode_builds_unprefixed_tag(monkeypatch):
+    calls: list[str] = []
+
+    async def fake_build(source: ImageBuild, image_tag: str) -> None:
+        calls.append(image_tag)
+
     monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
-    with pytest.raises(RuntimeError, match="AAICLICK_REGISTRY"):
+    monkeypatch.setenv("AAICLICK_LOCAL_BUILD", "1")
+    monkeypatch.setattr(image_build_task, "build_image_to_tag", fake_build)
+    await run_image_build(git_remote="https://example.com/r.git", git_sha="a" * 40)
+    assert calls == ["aaiclick-job:" + "a" * 40]
+
+
+async def test_run_image_build_requires_a_build_mode(monkeypatch):
+    monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
+    monkeypatch.delenv("AAICLICK_LOCAL_BUILD", raising=False)
+    with pytest.raises(RuntimeError, match="AAICLICK_LOCAL_BUILD"):
         await run_image_build(git_remote="https://example.com/r.git", git_sha="a" * 40)

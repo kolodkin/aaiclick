@@ -1,5 +1,10 @@
+import pytest
+
 from aaiclick.orchestration.docker_config import (
+    BUILD_MODE_LOCAL,
+    BUILD_MODE_REGISTRY,
     compute_image_tag,
+    get_build_mode,
     image_key,
     resolve_image_source,
     resolve_runner_config,
@@ -65,3 +70,33 @@ def test_image_key_stable_and_distinguishes_fields():
     assert image_key(a) == image_key(a_again)  # git_branch is not part of identity
     assert image_key(a) != image_key(b)  # sha matters
     assert image_key(a) != image_key(c)  # dockerfile matters
+
+
+@pytest.mark.parametrize(
+    "registry, local_build, expected",
+    [
+        pytest.param("registry.example:5000", "", BUILD_MODE_REGISTRY, id="registry"),
+        pytest.param("", "1", BUILD_MODE_LOCAL, id="local"),
+        pytest.param("", "0", BUILD_MODE_LOCAL, id="local-any-value"),
+    ],
+)
+def test_get_build_mode(monkeypatch, registry, local_build, expected):
+    monkeypatch.setenv("AAICLICK_REGISTRY", registry)
+    monkeypatch.setenv("AAICLICK_LOCAL_BUILD", local_build)
+    assert get_build_mode() == expected
+
+
+@pytest.mark.parametrize(
+    "registry, local_build, match",
+    [
+        # both set: the two modes are mutually exclusive
+        pytest.param("registry.example:5000", "1", "mutually exclusive", id="both"),
+        # neither set: the error names both vars so the operator knows the choice
+        pytest.param("", "", r"AAICLICK_REGISTRY.*AAICLICK_LOCAL_BUILD", id="neither"),
+    ],
+)
+def test_get_build_mode_rejects_ambiguous_env(monkeypatch, registry, local_build, match):
+    monkeypatch.setenv("AAICLICK_REGISTRY", registry)
+    monkeypatch.setenv("AAICLICK_LOCAL_BUILD", local_build)
+    with pytest.raises(RuntimeError, match=match):
+        get_build_mode()

@@ -322,7 +322,7 @@ subprocess even inside a docker/kubernetes job:
 
 | Source     | How                                                        | When built            |
 |------------|------------------------------------------------------------|-----------------------|
-| `build`    | Your git repo, built into an image at a specific SHA       | by a `build-image` task in the job graph (with `AAICLICK_REGISTRY`), else inline at launch |
+| `build`    | Your git repo, built into an image at a specific SHA       | by a `build-image` task in the job graph |
 | `prebuilt` | `image="python:3.12"` run verbatim                         | never                 |
 
 Pass `image=` (`run_job` / `run-job --image`, or `register-job --image` for a
@@ -332,10 +332,19 @@ stamps the resolved image on the job's entry task; dynamic child tasks inherit
 their parent's image unless they declare their own
 (`create_task(image=...)` or `create_task(git_remote=..., git_sha=...)`).
 
-With `AAICLICK_REGISTRY` set, each distinct image gets one `build-image` task
-in the job that every task on that image depends on — it pulls if the
-registry already has the SHA, otherwise builds and pushes, and it appears in
-the job graph like any other task (retries, logs, UI included).
+Each distinct image gets one `build-image` task in the job that every task on
+that image depends on; it appears in the job graph like any other task
+(retries, logs, UI included). The worker running it picks one of two
+mutually exclusive build modes:
+
+| Env var                    | Mode     | What the build task does                                         |
+|----------------------------|----------|------------------------------------------------------------------|
+| `AAICLICK_REGISTRY=<host>` | registry | Pulls if the registry has the SHA, else builds and pushes; every worker pulls the tag |
+| `AAICLICK_LOCAL_BUILD=1`   | local    | Builds into the worker's own Docker daemon, no push — single-host deployments |
+
+Setting both, or neither, fails the build task with an error naming the two
+variables. Kubernetes `build` sources need registry mode: the cluster cannot
+pull from a worker's daemon.
 
 For the released `aaiclick` container images and their Docker/Kubernetes
 runtime requirements, see [Container Images](container_images.md).
@@ -476,7 +485,8 @@ the job's retention lifecycle. Fetch them via
 | `AAICLICK_CH_URL`        | `chdb://{root}/chdb_data`             | ClickHouse connection URL for data ops    |
 | `AAICLICK_DEFAULT_PRESERVATION_MODE` | unset                     | Level-3 preservation-mode default         |
 | `AAICLICK_DOCKER_BIN`    | `docker`                              | Docker CLI used by the docker runner      |
-| `AAICLICK_REGISTRY`      | unset                                 | Registry for `build` images — pushed after build, pulled as cache by docker & kubernetes runners; required for kubernetes `build` |
+| `AAICLICK_REGISTRY`      | unset                                 | Registry build mode for `build` images — pushed after build, pulled as cache by docker & kubernetes runners; required for kubernetes `build` |
+| `AAICLICK_LOCAL_BUILD`   | unset                                 | Local build mode for `build` images — kept in the worker's Docker daemon, never pushed; mutually exclusive with `AAICLICK_REGISTRY` |
 
 # Internal Design
 

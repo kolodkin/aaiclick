@@ -179,16 +179,16 @@ async def test_prebuilt_job_injects_no_build_task(orch_ctx_no_ch):
     assert job.runner == {"type": "docker"}
 
 
-async def test_build_job_injects_no_build_task_without_registry(orch_ctx_no_ch, monkeypatch):
-    """Without a registry the build is inline at launch — no build task in
-    the graph (spec: docs/designs/orchestration.md "Image source", "No registry")."""
+async def test_build_job_injects_build_task_without_registry(orch_ctx_no_ch, monkeypatch):
+    """Submission never reads the build env: the build task is in the graph
+    either way and the worker picks registry vs local when it runs."""
     monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
+    monkeypatch.delenv("AAICLICK_LOCAL_BUILD", raising=False)
     source = ImageBuild(git_remote="git@x:r.git", git_sha="c" * 40)
     job = await create_built_job(
         name="j", entrypoint="mod.fn", runner=DockerRunner(), image_source=source, entry_type="module"
     )
-    entrypoints = await _task_entrypoints(job.id)
-    assert entrypoints == ["mod.fn"]
+    assert sorted(await _task_entrypoints(job.id)) == sorted([IMAGE_BUILD_ENTRYPOINT, "mod.fn"])
 
 
 async def test_create_built_job_stamps_entry_and_injects_build_task(orch_ctx_no_ch, monkeypatch):

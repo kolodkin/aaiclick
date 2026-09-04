@@ -130,8 +130,12 @@ async def test_commit_tasks_subprocess_job_rejects_image(orch_ctx_no_ch):
         await commit_tasks(t, job.id)
 
 
-async def test_inject_noop_without_registry(orch_ctx_no_ch, monkeypatch):
+async def test_inject_needs_no_build_env(orch_ctx_no_ch, monkeypatch):
+    """Injection is unconditional: the build mode is the worker's concern
+    (``run_image_build``), so a submitting machine with neither
+    AAICLICK_REGISTRY nor AAICLICK_LOCAL_BUILD still gets a build task."""
     monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
+    monkeypatch.delenv("AAICLICK_LOCAL_BUILD", raising=False)
     job = await create_job("j", "m.entry")
     async with get_sql_session() as session:
         row = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
@@ -139,5 +143,6 @@ async def test_inject_noop_without_registry(orch_ctx_no_ch, monkeypatch):
         t = create_task("m.f")
         t.image_source = BUILD_A
         t.job_id = job.id
-        assert await inject_build_tasks(session, [t], row) == []
-        assert t.previous_dependencies == []
+        injected = await inject_build_tasks(session, [t], row)
+        assert len(injected) == 1
+        assert t.previous_dependencies[0].previous_id == injected[0].id
