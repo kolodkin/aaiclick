@@ -60,16 +60,6 @@ the same time — dagre's nested-cluster quality is its weakest area, and the
 MIT-compatible escape hatch is Graphviz WASM (`@hpcc-js/wasm-graphviz`), not
 elkjs (dual EPL-2.0 / GPL-3.0-or-later).
 
-## Inline No-Registry Build Holds the Worker Slot
-
-In registry mode, image builds are ordinary graph tasks gated by dependency
-edges — no worker ever waits on someone else's build. Without a registry the
-docker launch path builds inline (`docker_build.resolve_launch_image`),
-holding the worker slot for the cold build. Accepted: no-registry is de facto
-single-host / small-scale mode, and per-host daemon cache dedups repeats.
-**When to revisit**: only if no-registry multi-worker hosts with cold builds
-become a real workload — the likely fix is a registry, not scheduler work.
-
 ## API Auth — Beyond Username/Password + RBAC
 
 Username/password users, admin/viewer RBAC, and JWT login (access + refresh)

@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+from typing import Literal
 
 from .execution import cli
 from .models import RegisteredJob, RunnerMode
@@ -23,6 +24,10 @@ from .runner_config import (
 )
 
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+
+BUILD_MODE_REGISTRY = "registry"
+BUILD_MODE_LOCAL = "local"
+BuildMode = Literal["registry", "local"]
 
 
 class GitDetectionError(RuntimeError):
@@ -75,10 +80,31 @@ async def auto_detect_git_branch() -> str | None:
 def get_registry() -> str | None:
     """The configured image registry (``AAICLICK_REGISTRY``), or None.
 
-    The single owner of the registry-mode decision — commit-time injection,
-    tag computation, launch-time pull-vs-build, and the build task body all
-    read it here, so submission and workers agree on one semantics."""
+    Owns the tag prefix and the pull/push decisions; ``get_build_mode`` owns
+    the registry-vs-local choice a build task makes."""
     return os.environ.get("AAICLICK_REGISTRY") or None
+
+
+def get_build_mode() -> BuildMode:
+    """Which of the two mutually exclusive build modes the worker runs in.
+
+    ``AAICLICK_REGISTRY=<host>`` → ``"registry"``: the build task pushes and
+    every host pulls. ``AAICLICK_LOCAL_BUILD=<any>`` → ``"local"``: the build
+    task leaves the image in this host's daemon (single-host deployments).
+    Both or neither set is a configuration error, raised here so the build
+    task fails loudly rather than guessing."""
+    registry = get_registry() is not None
+    local = bool(os.environ.get("AAICLICK_LOCAL_BUILD"))
+    if registry and local:
+        raise RuntimeError("AAICLICK_REGISTRY and AAICLICK_LOCAL_BUILD are mutually exclusive; set exactly one")
+    if registry:
+        return BUILD_MODE_REGISTRY
+    if local:
+        return BUILD_MODE_LOCAL
+    raise RuntimeError(
+        "no image build mode configured: set AAICLICK_REGISTRY=<host> so built images are pushed "
+        "for every worker to pull, or AAICLICK_LOCAL_BUILD=1 to keep them in this host's docker daemon"
+    )
 
 
 def compute_image_tag(git_sha: str) -> str:

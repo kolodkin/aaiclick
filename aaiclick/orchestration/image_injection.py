@@ -2,10 +2,12 @@
 
 Called from every commit point (``orch_context.commit_tasks`` and
 ``factories.create_built_job``) so a committed task's ``image_source`` is
-final by the time its row lands — dispatch never resolves inheritance. In
-registry mode it injects one ordinary build task per distinct build image
-and wires ``build >> dependent`` edges; the scheduler's existing dependency
-filter is the whole coordination story (spec: docs/designs/orchestration.md "Image source").
+final by the time its row lands — dispatch never resolves inheritance. It
+injects one ordinary build task per distinct build image and wires
+``build >> dependent`` edges; the scheduler's existing dependency filter is
+the whole coordination story (spec: docs/designs/orchestration.md "Image source").
+Whether the build pushes to a registry or stays host-local is the worker's
+decision (``docker_config.get_build_mode``), so submission needs no build env.
 
 Deliberately imports neither ``factories`` nor ``orch_context`` (both reach
 this module), building ``Task`` rows directly instead.
@@ -53,7 +55,7 @@ def validate_image_sources(tasks: list[Task], runner_mode: RunnerMode) -> None:
         if isinstance(source, ImageBuild) and runner_mode == RUNNER_KUBERNETES and get_registry() is None:
             raise ValueError(
                 "kubernetes build image sources require AAICLICK_REGISTRY — "
-                "the cluster cannot pull from a worker's local docker daemon"
+                "the cluster cannot pull from a worker's local docker daemon (AAICLICK_LOCAL_BUILD)"
             )
 
 
@@ -94,13 +96,11 @@ async def inject_build_tasks(session: AsyncSession, tasks: list[Task], job: Job)
     """Ensure a build task exists per distinct build image and wire
     ``build >> dependent`` edges onto ``tasks``.
 
-    Registry mode + docker/kubernetes jobs only. Returns newly created build
-    tasks — the caller commits them alongside ``tasks``. Two concurrent
-    commits in one job can race past the lookup and double-inject; both
-    builds are pull-first so the loser is a cheap no-op (accepted, spec
-    "Races")."""
-    if get_registry() is None:
-        return []
+    Docker/kubernetes jobs only. Returns newly created build tasks — the
+    caller commits them alongside ``tasks``. Two concurrent commits in one job
+    can race past the lookup and double-inject; both builds are cache-first
+    (registry pull or local daemon) so the loser is a cheap no-op (accepted,
+    spec "Races")."""
     if job.runner_mode not in (RUNNER_DOCKER, RUNNER_KUBERNETES):
         return []
 
