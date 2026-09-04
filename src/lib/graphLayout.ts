@@ -17,7 +17,7 @@ export interface LayoutEdge {
 export const NODE_SIZE = { width: 220, height: 76 };
 // Extra vertical room under a container's top edge, so its header sits clear
 // of the first member.
-export const CONTAINER_HEADER_GAP = 16;
+export const CONTAINER_HEADER_GAP = 24;
 
 // Identifies the graph's *shape*. Status changes leave this untouched, so a
 // 2 s poll re-colours nodes in place instead of repositioning them mid-read.
