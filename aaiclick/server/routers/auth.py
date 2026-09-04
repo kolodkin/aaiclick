@@ -26,6 +26,7 @@ from aaiclick.auth.view_models import (
 )
 from aaiclick.internal_api import api_tokens as api_tokens_api
 from aaiclick.internal_api import auth as auth_api
+from aaiclick.internal_api import oidc as oidc_api
 from aaiclick.internal_api import users as users_api
 from aaiclick.internal_api.errors import Invalid
 from aaiclick.view_models import Page
@@ -121,17 +122,17 @@ async def mfa_disable(request: MfaDisableRequest, principal: Principal = Depends
 
 @router.get("/oidc/config", response_model=OidcConfigView)
 async def oidc_config() -> OidcConfigView:
-    return auth_api.oidc_config()
+    return oidc_api.oidc_config()
 
 
 @router.post("/oidc/start", response_model=OidcStartView, responses=problem_responses(409, 422))
 async def oidc_start() -> OidcStartView:
-    return await auth_api.oidc_start()
+    return await oidc_api.oidc_start()
 
 
 @router.post("/oidc/callback", response_model=TokenPair, responses=problem_responses(401, 422))
 async def oidc_callback(request: OidcCallbackRequest) -> TokenPair:
-    return await auth_api.oidc_callback(request, secret=config.require_jwt_secret())
+    return await oidc_api.oidc_callback(request, secret=config.require_jwt_secret())
 
 
 # --- API tokens ---------------------------------------------------------

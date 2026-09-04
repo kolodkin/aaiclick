@@ -152,7 +152,8 @@ aaiclick/
     store.py         insert + paged query
   internal_api/
     auth.py          login(), refresh(), logout(), change_password(), my_tenants(),
-                     OIDC start/callback, MFA setup/enable/disable, password reset
+                     MFA setup/enable/disable, password reset
+    oidc.py          OIDC config / start / callback (needs httpx — server extra)
     api_tokens.py    create_token, list_tokens, revoke_token
     users.py         create_user, list_users, get_user, set_superadmin,
                      disable_user, set_password, set_email, reset_mfa,
@@ -388,7 +389,7 @@ The header shows the signed-in username with a sign-out control.
 # OIDC / SSO
 
 
-**Implementation**: `aaiclick/auth/oidc.py`; `aaiclick/auth/config.py` — see `oidc_settings`; `aaiclick/internal_api/auth.py` — see `oidc_start`, `oidc_callback`, `_resolve_oidc_user`; `src/lib/auth.ts` — see `startOidcLogin`, `completeOidcLogin`.
+**Implementation**: `aaiclick/auth/oidc.py`; `aaiclick/auth/config.py` — see `oidc_settings`; `aaiclick/internal_api/oidc.py` — see `oidc_start`, `oidc_callback`, `_resolve_oidc_user`; `src/lib/auth.ts` — see `startOidcLogin`, `completeOidcLogin`.
 Authorization-code login against any OpenID Connect provider. The SPA drives
 the redirect; the server holds the client secret and validates the `id_token`.
 

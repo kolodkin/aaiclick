@@ -18,7 +18,8 @@ from jwt.algorithms import RSAAlgorithm
 
 from aaiclick.auth import oidc, security, store
 from aaiclick.auth.view_models import CreateUserRequest, OidcCallbackRequest
-from aaiclick.internal_api import auth, users
+from aaiclick.internal_api import oidc as oidc_api
+from aaiclick.internal_api import users
 from aaiclick.internal_api.errors import Invalid, Unauthorized
 
 SECRET = "internal-api-oidc-test-secret-key-32-plus-bytes"
@@ -88,7 +89,7 @@ def provider(monkeypatch):
 
 async def _start(provider: FakeProvider) -> str:
     """Run ``oidc_start`` and return the ``state`` the browser would echo back."""
-    view = await auth.oidc_start()
+    view = await oidc_api.oidc_start()
     query = parse_qs(urlparse(view.authorization_url).query)
     assert query["code_challenge_method"] == ["S256"] and query["redirect_uri"] == ["https://aaiclick.example.com/"]
     state = query["state"][0]
@@ -98,24 +99,24 @@ async def _start(provider: FakeProvider) -> str:
 
 def test_oidc_config_reflects_settings(monkeypatch):
     monkeypatch.delenv("AAICLICK_OIDC_ISSUER", raising=False)
-    assert auth.oidc_config().enabled is False
+    assert oidc_api.oidc_config().enabled is False
     monkeypatch.setenv("AAICLICK_OIDC_ISSUER", ISSUER)
     monkeypatch.setenv("AAICLICK_OIDC_CLIENT_ID", CLIENT_ID)
     monkeypatch.setenv("AAICLICK_OIDC_LABEL", "Okta")
-    assert auth.oidc_config() == auth.OidcConfigView(enabled=True, label="Okta")
+    assert oidc_api.oidc_config() == oidc_api.OidcConfigView(enabled=True, label="Okta")
 
 
 async def test_start_requires_configuration(orch_ctx, monkeypatch):
     monkeypatch.delenv("AAICLICK_OIDC_ISSUER", raising=False)
     with pytest.raises(Invalid):
-        await auth.oidc_start()
+        await oidc_api.oidc_start()
 
 
 async def test_callback_provisions_and_links_user(orch_ctx, provider):
     provider.claims = {"preferred_username": "sso_sam", "email": "sam@example.com"}
     state = await _start(provider)
 
-    pair = await auth.oidc_callback(OidcCallbackRequest(code="abc", state=state), secret=SECRET)
+    pair = await oidc_api.oidc_callback(OidcCallbackRequest(code="abc", state=state), secret=SECRET)
 
     claims = security.decode_access_token(pair.access_token, SECRET)
     user = await store.get_user_by_id(claims.user_id)
@@ -130,7 +131,7 @@ async def test_callback_links_existing_password_user_by_username(orch_ctx, provi
     provider.claims = {"preferred_username": "alice"}
     state = await _start(provider)
 
-    pair = await auth.oidc_callback(OidcCallbackRequest(code="abc", state=state), secret=SECRET)
+    pair = await oidc_api.oidc_callback(OidcCallbackRequest(code="abc", state=state), secret=SECRET)
 
     assert security.decode_access_token(pair.access_token, SECRET).user_id == existing.id
     linked = await store.get_user_by_id(existing.id)
@@ -140,11 +141,11 @@ async def test_callback_links_existing_password_user_by_username(orch_ctx, provi
 async def test_state_is_single_use(orch_ctx, provider):
     provider.claims = {"preferred_username": "once"}
     state = await _start(provider)
-    await auth.oidc_callback(OidcCallbackRequest(code="abc", state=state), secret=SECRET)
+    await oidc_api.oidc_callback(OidcCallbackRequest(code="abc", state=state), secret=SECRET)
     with pytest.raises(Unauthorized):
-        await auth.oidc_callback(OidcCallbackRequest(code="abc", state=state), secret=SECRET)
+        await oidc_api.oidc_callback(OidcCallbackRequest(code="abc", state=state), secret=SECRET)
     with pytest.raises(Unauthorized):
-        await auth.oidc_callback(OidcCallbackRequest(code="abc", state="never-issued"), secret=SECRET)
+        await oidc_api.oidc_callback(OidcCallbackRequest(code="abc", state="never-issued"), secret=SECRET)
 
 
 async def test_nonce_mismatch_rejected(orch_ctx, provider):
@@ -152,7 +153,7 @@ async def test_nonce_mismatch_rejected(orch_ctx, provider):
     provider.nonce_override = "replayed"
     state = await _start(provider)
     with pytest.raises(Unauthorized, match="nonce"):
-        await auth.oidc_callback(OidcCallbackRequest(code="abc", state=state), secret=SECRET)
+        await oidc_api.oidc_callback(OidcCallbackRequest(code="abc", state=state), secret=SECRET)
 
 
 async def test_auto_provision_off_rejects_unknown(orch_ctx, provider, monkeypatch):
@@ -160,7 +161,7 @@ async def test_auto_provision_off_rejects_unknown(orch_ctx, provider, monkeypatc
     provider.claims = {"preferred_username": "stranger"}
     state = await _start(provider)
     with pytest.raises(Unauthorized):
-        await auth.oidc_callback(OidcCallbackRequest(code="abc", state=state), secret=SECRET)
+        await oidc_api.oidc_callback(OidcCallbackRequest(code="abc", state=state), secret=SECRET)
     assert await store.get_user_by_username("stranger") is None
 
 
@@ -170,4 +171,4 @@ async def test_disabled_user_rejected(orch_ctx, provider):
     provider.claims = {"preferred_username": "off"}
     state = await _start(provider)
     with pytest.raises(Unauthorized):
-        await auth.oidc_callback(OidcCallbackRequest(code="abc", state=state), secret=SECRET)
+        await oidc_api.oidc_callback(OidcCallbackRequest(code="abc", state=state), secret=SECRET)
