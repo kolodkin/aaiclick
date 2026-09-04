@@ -58,8 +58,9 @@ async def test_request_mails_link_when_configured(orch_ctx, monkeypatch):
     await auth.request_password_reset(PasswordResetRequest(username="carol"))
 
     sent.assert_awaited_once()
-    body = sent.await_args.kwargs["body"]
-    assert sent.await_args.kwargs["to"] == "carol@example.com"
+    kwargs = sent.await_args.kwargs if sent.await_args else {}
+    body = kwargs["body"]
+    assert kwargs["to"] == "carol@example.com"
     token = body.split("?p=reset%20")[1].split()[0]
     await auth.redeem_password_reset(PasswordResetRedeem(token=token, new_password="mailed"))
     assert await auth.login(LoginRequest(username="carol", password="mailed"), secret=SECRET)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from aaiclick.auth import config
 from aaiclick.auth.view_models import (
@@ -38,9 +38,11 @@ router = APIRouter(prefix="/auth", tags=["auth"], dependencies=[Depends(orch_sco
 
 
 @router.post("/login", response_model=TokenPair, responses=problem_responses(401))
-async def login(request: LoginRequest) -> TokenPair:
+async def login(request: LoginRequest, http_request: Request) -> TokenPair:
     """``401 code="mfa_required"`` means the password was accepted but the
     account needs ``totp_code`` — retry with it."""
+    # Attributes the attempt in the audit log whether or not it succeeds.
+    http_request.state.audit_username = request.username
     return await auth_api.login(request, secret=config.require_jwt_secret())
 
 

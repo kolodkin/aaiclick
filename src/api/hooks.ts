@@ -3,6 +3,7 @@ import { deleteJSON, fetchJSON, postJSON, postNoContent, putJSON } from "./clien
 import type {
   ApiTokenCreated,
   ApiTokenView,
+  AuditEntryView,
   ChangePasswordRequest,
   CreateApiTokenRequest,
   CreateUserRequest,
@@ -205,4 +206,25 @@ export function useSetUserEmail() {
   return useUserMutation(({ id, email }: { id: string; email: string | null }) =>
     putJSON<UserView>(`/users/${id}/email`, { email }),
   );
+}
+
+// --- audit (superadmin) -------------------------------------------------
+
+export interface AuditQuery {
+  username?: string;
+  method?: string;
+  path?: string;
+  limit?: number;
+}
+
+export function useAudit(query: AuditQuery) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== "") params.set(key, String(value));
+  }
+  return useQuery({
+    queryKey: ["audit", params.toString()],
+    queryFn: () => fetchJSON<Page<AuditEntryView>>(`/audit?${params.toString()}`),
+    refetchInterval: false,
+  });
 }

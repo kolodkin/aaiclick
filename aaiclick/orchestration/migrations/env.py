@@ -6,6 +6,7 @@ from sqlalchemy import engine_from_config, inspect, pool
 from sqlmodel import SQLModel
 
 # Import models module to ensure all models are registered with SQLModel metadata
+import aaiclick.audit.models  # noqa: F401  # register audit_log with SQLModel.metadata
 import aaiclick.auth.models  # noqa: F401  # register users/refresh_tokens with SQLModel.metadata
 import aaiclick.orchestration.models  # noqa: F401
 

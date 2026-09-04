@@ -16,6 +16,7 @@ export type Route =
   | { kind: "tokens" }
   | { kind: "account" }
   | { kind: "users" }
+  | { kind: "audit" }
   | { kind: "reset"; token: string }
   | { kind: "unknown"; raw: string };
 
@@ -28,6 +29,7 @@ export function parsePrompt(raw: string): Route {
   if (p === "@tokens") return { kind: "tokens" };
   if (p === "@account") return { kind: "account" };
   if (p === "@users") return { kind: "users" };
+  if (p === "@audit") return { kind: "audit" };
   if (p.startsWith("reset ")) return { kind: "reset", token: p.slice(6).trim() };
   if (p === "register") return { kind: "register", name: "" };
   if (p.startsWith("register ")) return { kind: "register", name: p.slice(9).trim() };

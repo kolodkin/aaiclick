@@ -11,3 +11,4 @@ export { AllGallery } from "./AllGallery";
 export { Tokens } from "./Tokens";
 export { Account } from "./Account";
 export { Users } from "./Users";
+export { Audit } from "./Audit";

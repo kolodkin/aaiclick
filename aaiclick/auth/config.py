@@ -8,7 +8,7 @@ in distributed mode. See ``docs/designs/auth.md``.
 from __future__ import annotations
 
 import os
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 from ..backend import is_local
 
@@ -28,6 +28,7 @@ ENV_OIDC_AUTO_PROVISION = "AAICLICK_OIDC_AUTO_PROVISION"
 ENV_OIDC_LABEL = "AAICLICK_OIDC_LABEL"
 
 ENV_PASSWORD_RESET_TTL = "AAICLICK_PASSWORD_RESET_TTL"
+ENV_AUDIT_LOG = "AAICLICK_AUDIT_LOG"
 ENV_SMTP_HOST = "AAICLICK_SMTP_HOST"
 ENV_SMTP_PORT = "AAICLICK_SMTP_PORT"
 ENV_SMTP_USERNAME = "AAICLICK_SMTP_USERNAME"
@@ -43,6 +44,12 @@ DEFAULT_OIDC_USERNAME_CLAIM = "preferred_username"
 DEFAULT_OIDC_LABEL = "SSO"
 OIDC_STATE_TTL = 600
 DEFAULT_PASSWORD_RESET_TTL = 3600
+
+AUDIT_WRITES = "writes"
+AUDIT_ALL = "all"
+AUDIT_OFF = "off"
+AuditPolicy = Literal["writes", "all", "off"]
+AUDIT_POLICIES: tuple[AuditPolicy, ...] = (AUDIT_WRITES, AUDIT_ALL, AUDIT_OFF)
 DEFAULT_SMTP_PORT = 587
 """Seconds an SSO login may take between ``/auth/oidc/start`` and the callback."""
 
@@ -160,3 +167,13 @@ def smtp_settings() -> SmtpSettings | None:
         sender=sender,
         starttls=os.getenv(ENV_SMTP_STARTTLS, "1") not in ("0", "false", "no", ""),
     )
+
+
+def audit_policy() -> AuditPolicy:
+    """Which requests the audit middleware records; unknown values fall back to ``writes``."""
+    value = os.getenv(ENV_AUDIT_LOG, AUDIT_WRITES).lower()
+    if value == AUDIT_ALL:
+        return AUDIT_ALL
+    if value == AUDIT_OFF:
+        return AUDIT_OFF
+    return AUDIT_WRITES

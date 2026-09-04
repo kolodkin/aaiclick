@@ -120,5 +120,6 @@ class McpRbacMiddleware(Middleware):
             raise ToolError(f"{tool_name}: {exc}") from exc
         if ctx is None:
             return await call_next(context)
+        request.state.tenant_id = ctx.tenant_id
         with active_tenant(ctx.tenant_id):
             return await call_next(context)

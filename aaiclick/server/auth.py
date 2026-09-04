@@ -186,6 +186,7 @@ async def require_tenant(
         ctx = TenantContext(tenant_id=DEFAULT_TENANT_ID, role=ROLE_ADMIN)
     else:
         ctx = resolve_tenant(principal, request.headers.get(TENANT_HEADER))
+    request.state.tenant_id = ctx.tenant_id  # for the audit middleware
     with active_tenant(ctx.tenant_id):
         yield ctx
 

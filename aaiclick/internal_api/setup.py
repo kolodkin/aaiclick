@@ -22,6 +22,7 @@ from alembic import command
 from sqlalchemy import create_engine, insert, inspect, select
 from sqlalchemy.engine import Engine, make_url
 
+import aaiclick.audit.models  # noqa: F401  # register audit_log with SQLModel.metadata
 from aaiclick.ai.ollama import bootstrap_ollama, get_configured_model
 from aaiclick.auth.models import Tenant
 from aaiclick.backend import (

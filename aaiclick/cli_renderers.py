@@ -8,6 +8,7 @@ from SQLModel rows — so the JSON schema and text columns cannot drift.
 
 from __future__ import annotations
 
+from aaiclick.audit.view_models import AuditEntryView
 from aaiclick.auth.view_models import (
     ApiTokenCreated,
     ApiTokenView,
@@ -261,6 +262,25 @@ def render_api_token_created(view: ApiTokenCreated) -> None:
     print(f"{view.id}  {view.name}  scope={view.scope}  expires={_fmt_optional(view.expires_at)}")
     print(f"token: {view.token}")
     print("Store it now — it cannot be retrieved again.")
+
+
+def render_audit_page(page: Page[AuditEntryView], offset: int) -> None:
+    """Print audit entries as an aligned text table, newest first."""
+    if not page.items:
+        print("No audit entries found")
+        return
+
+    print(
+        f"{'At':<20} {'User':<16} {'Kind':<8} {'Tenant':<8} {'Method':<7} {'Path / action':<44} {'Status':<6} {'ms':>6}"
+    )
+    print("-" * 122)
+    for e in page.items:
+        target = f"{e.path} {e.action}" if e.action else e.path
+        print(
+            f"{e.at:%Y-%m-%d %H:%M:%S}  {_fmt_optional(e.username):<16} {e.auth_kind:<8} "
+            f"{_fmt_optional(e.tenant_id):<8} {e.method:<7} {target:<44} {e.status:<6} {e.duration_ms:>6}"
+        )
+    _print_page_footer(page, offset)
 
 
 def render_password_reset_link(view: PasswordResetLinkView) -> None:

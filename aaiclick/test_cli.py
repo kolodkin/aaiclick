@@ -465,3 +465,18 @@ def test_user_parser_new_commands():
     args = parser.parse_args(["user", "set-email", "7"])
     assert args.user_command == "set-email" and args.email is None
     assert parser.parse_args(["user", "reset-link", "7"]).user_command == "reset-link"
+
+
+def test_audit_parser_flags():
+    parser = build_parser()
+    args = parser.parse_args(
+        ["audit", "list", "--username", "alice", "--method", "POST", "--path", "/api/v0/jobs", "--since", "2026-01-01"]
+    )
+    assert args.command == "audit" and args.audit_command == "list"
+    assert (
+        args.username == "alice"
+        and args.method == "POST"
+        and args.path == "/api/v0/jobs"
+        and args.since == "2026-01-01"
+    )
+    assert args.limit == 50 and args.offset == 0 and args.user_id is None

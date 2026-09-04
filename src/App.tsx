@@ -5,6 +5,7 @@ import { parsePrompt, promptFromUrl, pushPromptToUrl } from "./prompt";
 import {
   Account,
   AllGallery,
+  Audit,
   CancelConfirm,
   Home,
   JobDetail,
@@ -49,6 +50,8 @@ function renderRoute(prompt: string, onPrompt: (v: string) => void) {
       return <Account onPrompt={onPrompt} />;
     case "users":
       return <Users onPrompt={onPrompt} />;
+    case "audit":
+      return <Audit onPrompt={onPrompt} />;
     case "reset":
       return null; // handled before the login wall in App
     case "unknown":

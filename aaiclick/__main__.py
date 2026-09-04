@@ -43,11 +43,13 @@ from datetime import datetime, timedelta
 from typing import Any, cast, get_args
 
 from aaiclick import cli_renderers, cli_wait, internal_api
+from aaiclick.audit.view_models import AuditListFilter
 from aaiclick.auth import store as auth_store
 from aaiclick.auth.models import ROLE_VIEWER, ROLES, TOKEN_SCOPE_READ, TOKEN_SCOPES
 from aaiclick.auth.view_models import CreateApiTokenRequest, CreateTenantRequest, CreateUserRequest, UserListFilter
 from aaiclick.datetime_utils import utc_now
 from aaiclick.internal_api import api_tokens as api_tokens_api
+from aaiclick.internal_api import audit as audit_api
 from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import tenants as tenants_api
 from aaiclick.internal_api import users as users_api
@@ -451,6 +453,20 @@ async def _run_user_set_email(args: argparse.Namespace) -> None:
 async def _run_user_passwd(args: argparse.Namespace) -> None:
     view = await _run_internal_api(users_api.set_password(args.user_id, args.password))
     _render(args, view, cli_renderers.render_user)
+
+
+async def _run_audit_list(args: argparse.Namespace) -> None:
+    filter = AuditListFilter(
+        user_id=args.user_id,
+        username=args.username,
+        method=args.method,
+        path=args.path,
+        since=_parse_datetime(args.since) if args.since else None,
+        limit=args.limit,
+        offset=args.offset,
+    )
+    page = await _run_internal_api(audit_api.list_audit(filter))
+    _render(args, page, lambda p: cli_renderers.render_audit_page(p, offset=args.offset))
 
 
 async def _resolve_user_id(username: str) -> int:
@@ -1295,6 +1311,20 @@ def build_parser() -> argparse.ArgumentParser:
     user_passwd_parser.add_argument("--password", required=True)
     _add_json_flag(user_passwd_parser)
 
+    # Add audit subcommand
+    audit_parser = subparsers.add_parser("audit", help="Request audit log")
+    audit_subparsers = audit_parser.add_subparsers(dest="audit_command", help="Audit commands")
+
+    audit_list_parser = audit_subparsers.add_parser("list", help="List audit entries, newest first")
+    audit_list_parser.add_argument("--user-id", type=int, default=None)
+    audit_list_parser.add_argument("--username", default=None)
+    audit_list_parser.add_argument("--method", default=None, help="HTTP method, e.g. POST")
+    audit_list_parser.add_argument("--path", default=None, help="Path prefix, e.g. /api/v0/jobs")
+    audit_list_parser.add_argument("--since", default=None, help="ISO 8601 lower bound")
+    audit_list_parser.add_argument("--limit", type=int, default=50)
+    audit_list_parser.add_argument("--offset", type=int, default=0)
+    _add_json_flag(audit_list_parser)
+
     # Add token subcommand (API tokens)
     token_parser = subparsers.add_parser("token", help="API token administration")
     token_subparsers = token_parser.add_subparsers(dest="token_command", help="Token commands")
@@ -1477,6 +1507,12 @@ def main():
             _run_k8s_init(args)
         else:
             subcommands["k8s"].print_help()
+
+    elif args.command == "audit":
+        if args.audit_command == "list":
+            asyncio.run(_run_audit_list(args))
+        else:
+            subcommands["audit"].print_help()
 
     elif args.command == "token":
         if args.token_command == "create":

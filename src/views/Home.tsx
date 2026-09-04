@@ -28,6 +28,7 @@ const ACCOUNT: Cmd[] = [
 
 const ADMIN: Cmd[] = [
   { code: "@users", desc: "Manage users — create, superadmin, disable, reset password.", cmd: "@users" },
+  { code: "@audit", desc: "Request audit log — who called what, when.", cmd: "@audit" },
 ];
 
 function CmdList({ items, onPrompt }: { items: Cmd[]; onPrompt: (v: string) => void }) {

@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/api/v0/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Audit */
+        get: operations["list_audit_api_v0_audit_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v0/auth/login": {
         parameters: {
             query?: never;
@@ -863,6 +880,36 @@ export interface components {
              */
             scope: "read" | "write";
         };
+        /** AuditEntryView */
+        AuditEntryView: {
+            /** Action */
+            action: string | null;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Auth Kind */
+            auth_kind: string;
+            /** Client Ip */
+            client_ip: string | null;
+            /** Duration Ms */
+            duration_ms: number;
+            /** Id */
+            id: string;
+            /** Method */
+            method: string;
+            /** Path */
+            path: string;
+            /** Status */
+            status: number;
+            /** Tenant Id */
+            tenant_id: string | null;
+            /** User Id */
+            user_id: string | null;
+            /** Username */
+            username: string | null;
+        };
         /**
          * ChangePasswordRequest
          * @description Self-service password change. ``current_password`` is required so a
@@ -1388,6 +1435,15 @@ export interface components {
         Page_ApiTokenView_: {
             /** Items */
             items: components["schemas"]["ApiTokenView"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Total */
+            total?: number | null;
+        };
+        /** Page[AuditEntryView] */
+        Page_AuditEntryView_: {
+            /** Items */
+            items: components["schemas"]["AuditEntryView"][];
             /** Next Cursor */
             next_cursor?: string | null;
             /** Total */
@@ -1924,6 +1980,43 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_audit_api_v0_audit_get: {
+        parameters: {
+            query?: {
+                user_id?: number | null;
+                username?: string | null;
+                method?: string | null;
+                path?: string | null;
+                since?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_AuditEntryView_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     login_api_v0_auth_login_post: {
         parameters: {
             query?: never;
