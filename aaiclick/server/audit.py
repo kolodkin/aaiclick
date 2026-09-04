@@ -1,12 +1,14 @@
 """ASGI middleware writing one ``audit_log`` row per audited request.
 
-Wraps the whole app: it sees the final status from ``http.response.start``
-and, after the response is done, reads what the request left on
-``scope["state"]`` — ``principal`` (from ``require_principal`` / the ``/mcp``
-mount), ``tenant_id`` (from ``require_tenant`` / the MCP RBAC middleware),
-``audit_action`` (the MCP tool name), and ``audit_username`` (the attempted
-login name). Insert failures are logged, never raised: auditing must not turn
-a served request into an error. See ``docs/designs/auth.md`` — Audit Log.
+Outermost on the app, so it sees the final status from ``http.response.start``
+and, after the response is done, reads what the request left on its
+``RequestAudit`` carrier (``request_state.py``). Insert failures are logged,
+never raised: auditing must not turn a served request into an error.
+See ``docs/designs/auth.md`` — Audit Log.
+
+It also opens the request's SQL context: every ``orch_scope`` dependency,
+API-token lookup, and the audit insert itself nest inside it and share one
+engine instead of each building and disposing their own.
 """
 
 from __future__ import annotations
@@ -16,12 +18,14 @@ import time
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from aaiclick.audit import store
-from aaiclick.auth import config
+from aaiclick.audit import config, store
+from aaiclick.audit.models import AuditLog
 from aaiclick.datetime_utils import utc_now
 from aaiclick.orchestration.orch_context import orch_context
+from aaiclick.snowflake import get_snowflake_id
 
-from .auth import AUTH_KIND_NONE, SAFE_METHODS, Principal
+from .auth import AUTH_KIND_NONE, SAFE_METHODS
+from .request_state import audit_state
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +40,7 @@ def should_audit(policy: config.AuditPolicy, method: str, path: str, action: str
         return True
     if path.startswith("/mcp"):
         return action is not None  # a tool call; not initialize / list / SSE
-    return method.upper() not in SAFE_METHODS
+    return method not in SAFE_METHODS
 
 
 class AuditMiddleware:
@@ -44,10 +48,10 @@ class AuditMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
+        if scope["type"] != "http" or not scope["path"].startswith(AUDITED_PREFIXES):
             await self.app(scope, receive, send)
             return
-        state: dict = scope.setdefault("state", {})
+        audit = audit_state(scope)
         started_at = utc_now()
         clock = time.monotonic()
         status = 500
@@ -58,32 +62,28 @@ class AuditMiddleware:
                 status = message["status"]
             await send(message)
 
-        try:
-            await self.app(scope, receive, send_wrapper)
-        finally:
-            duration_ms = int((time.monotonic() - clock) * 1000)
-            method, path = scope["method"], scope["path"]
-            action = state.get("audit_action")
-            if should_audit(config.audit_policy(), method, path, action):
-                await self._record(scope, state, started_at, method, path, action, status, duration_ms)
-
-    async def _record(self, scope, state, started_at, method, path, action, status, duration_ms) -> None:
-        principal: Principal | None = state.get("principal")
-        client = scope.get("client")
-        try:
-            async with orch_context(with_ch=False):
-                await store.insert(
-                    at=started_at,
-                    user_id=principal.user_id if principal else None,
-                    username=state.get("audit_username"),
-                    auth_kind=principal.kind if principal else AUTH_KIND_NONE,
-                    tenant_id=state.get("tenant_id"),
-                    method=method,
-                    path=path,
-                    action=action,
-                    status=status,
-                    duration_ms=duration_ms,
-                    client_ip=client[0] if client else None,
-                )
-        except Exception:  # noqa: BLE001 - auditing must never fail the request
-            logger.exception("audit_log insert failed for %s %s", method, path)
+        async with orch_context(with_ch=False):
+            try:
+                await self.app(scope, receive, send_wrapper)
+            finally:
+                method, path = scope["method"], scope["path"]
+                if should_audit(config.audit_policy(), method, path, audit.action):
+                    client = scope.get("client")
+                    row = AuditLog(
+                        id=get_snowflake_id(),
+                        at=started_at,
+                        user_id=audit.principal.user_id if audit.principal else None,
+                        username=audit.username,
+                        auth_kind=audit.principal.kind if audit.principal else AUTH_KIND_NONE,
+                        tenant_id=audit.tenant_id,
+                        method=method,
+                        path=path,
+                        action=audit.action,
+                        status=status,
+                        duration_ms=int((time.monotonic() - clock) * 1000),
+                        client_ip=client[0] if client else None,
+                    )
+                    try:
+                        await store.insert(row)
+                    except Exception:  # noqa: BLE001 - auditing must never fail the request
+                        logger.exception("audit_log insert failed for %s %s", method, path)

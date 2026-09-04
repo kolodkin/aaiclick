@@ -71,8 +71,6 @@ async def test_setup_and_enable_guards(orch_ctx):
     fresh = await users.create_user(CreateUserRequest(username="fresh", password="pw"))
     with pytest.raises(Invalid):
         await auth.mfa_enable(fresh.id, MfaEnableRequest(code="123456"))
-    with pytest.raises(Invalid):
-        await auth.mfa_setup(None)
 
 
 async def test_disable_needs_both_factors(orch_ctx):

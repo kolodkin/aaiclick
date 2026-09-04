@@ -5,10 +5,10 @@ to InternalApiError / Problem responses."""
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Any, cast
+from typing import Any, NamedTuple, Protocol, TypeVar, cast
 
 from sqlalchemy import CursorResult, update
-from sqlmodel import col, select
+from sqlmodel import SQLModel, col, select
 
 from ..datetime_utils import utc_now
 from ..orchestration.orch_context import get_sql_session
@@ -28,6 +28,17 @@ from .models import (
 API_TOKEN_LAST_USED_GRANULARITY = timedelta(seconds=60)
 """``last_used_at`` is refreshed at most this often — one write per minute per
 token instead of one per request."""
+
+RowT = TypeVar("RowT", bound=SQLModel)
+
+
+async def _insert(row: RowT) -> RowT:
+    """Add + commit. Sessions never expire on commit and the new rows carry no
+    server defaults, so the object is complete without a refresh."""
+    async with get_sql_session() as session:
+        session.add(row)
+        await session.commit()
+    return row
 
 
 class UsernameTaken(ValueError):
@@ -199,6 +210,12 @@ async def list_memberships_for_user(user_id: int) -> list[TenantMembership]:
         return list(result.scalars().all())
 
 
+async def tenant_roles_for_user(user_id: int) -> dict[int, Role]:
+    """Membership map ``tenant_id -> role`` — the shape the access JWT and
+    ``Principal`` carry."""
+    return {m.tenant_id: cast(Role, m.role) for m in await list_memberships_for_user(user_id)}
+
+
 async def list_user_tenants(user_id: int) -> list[tuple[TenantMembership, Tenant]]:
     """Every tenant the user belongs to, paired with the membership role.
 
@@ -302,23 +319,26 @@ async def _stamp_refresh(token_id: int, field: str) -> None:
 # --- API tokens ---------------------------------------------------------
 
 
+class ResolvedApiToken(NamedTuple):
+    token: ApiToken
+    user: User
+    tenants: dict[int, Role]
+
+
 async def create_api_token(
     *, user_id: int, name: str, prefix: str, token_hash: str, scope: TokenScope, expires_at: datetime | None
 ) -> ApiToken:
-    token = ApiToken(
-        id=get_snowflake_id(),
-        user_id=user_id,
-        name=name,
-        prefix=prefix,
-        token_hash=token_hash,
-        scope=scope,
-        expires_at=expires_at,
+    return await _insert(
+        ApiToken(
+            id=get_snowflake_id(),
+            user_id=user_id,
+            name=name,
+            prefix=prefix,
+            token_hash=token_hash,
+            scope=scope,
+            expires_at=expires_at,
+        )
     )
-    async with get_sql_session() as session:
-        session.add(token)
-        await session.commit()
-        await session.refresh(token)
-    return token
 
 
 async def list_api_tokens(user_id: int) -> list[ApiToken]:
@@ -331,25 +351,44 @@ async def list_api_tokens(user_id: int) -> list[ApiToken]:
         return list(result.scalars().all())
 
 
+def _token_active(token: ApiToken, now: datetime) -> bool:
+    return token.revoked_at is None and (token.expires_at is None or token.expires_at > now)
+
+
 async def get_active_api_token(token_hash: str) -> ApiToken | None:
     """Return the row only if it is unrevoked and unexpired."""
     async with get_sql_session() as session:
         row = (await session.execute(select(ApiToken).where(ApiToken.token_hash == token_hash))).scalar_one_or_none()
-    if row is None or row.revoked_at is not None:
-        return None
-    if row.expires_at is not None and row.expires_at <= utc_now():
-        return None
-    return row
+    return row if row is not None and _token_active(row, utc_now()) else None
 
 
-async def touch_api_token(token: ApiToken) -> None:
-    """Stamp ``last_used_at`` unless it was stamped within the granularity window."""
+async def resolve_api_token(token_hash: str) -> ResolvedApiToken | None:
+    """Everything a request needs to authenticate an API token, in one session:
+    the active token, its owner, and the owner's current memberships. Also
+    stamps ``last_used_at`` (throttled) without a further session."""
     now = utc_now()
-    if token.last_used_at is not None and now - token.last_used_at < API_TOKEN_LAST_USED_GRANULARITY:
-        return
     async with get_sql_session() as session:
-        await session.execute(update(ApiToken).where(col(ApiToken.id) == token.id).values(last_used_at=now))
-        await session.commit()
+        pair = (
+            await session.execute(
+                select(ApiToken, User)
+                .join(User, col(User.id) == col(ApiToken.user_id))
+                .where(ApiToken.token_hash == token_hash)
+            )
+        ).first()
+        if pair is None:
+            return None
+        token, user = pair
+        if not _token_active(token, now):
+            return None
+        memberships = (
+            await session.execute(select(TenantMembership).where(TenantMembership.user_id == user.id))
+        ).scalars()
+        tenants = {m.tenant_id: cast(Role, m.role) for m in memberships}
+        if token.last_used_at is None or now - token.last_used_at >= API_TOKEN_LAST_USED_GRANULARITY:
+            token.last_used_at = now
+            session.add(token)
+            await session.commit()
+    return ResolvedApiToken(token=token, user=user, tenants=tenants)
 
 
 async def revoke_api_token(token_id: int, *, user_id: int) -> bool:
@@ -360,78 +399,68 @@ async def revoke_api_token(token_id: int, *, user_id: int) -> bool:
     token.
     """
     async with get_sql_session() as session:
-        row = (
+        result = cast(
+            "CursorResult[Any]",
             await session.execute(
-                select(ApiToken).where(
-                    ApiToken.id == token_id, ApiToken.user_id == user_id, col(ApiToken.revoked_at).is_(None)
+                update(ApiToken)
+                .where(
+                    col(ApiToken.id) == token_id, col(ApiToken.user_id) == user_id, col(ApiToken.revoked_at).is_(None)
                 )
-            )
-        ).scalar_one_or_none()
-        if row is None:
-            return False
-        row.revoked_at = utc_now()
-        session.add(row)
+                .values(revoked_at=utc_now())
+            ),
+        )
         await session.commit()
-    return True
+    return result.rowcount > 0
 
 
-# --- OIDC login state ---------------------------------------------------
+# --- Single-use tokens (OIDC login state, password reset) ---------------
 
 
-async def create_oidc_state(*, state_hash: str, nonce: str, code_verifier: str, ttl: int) -> OidcState:
-    row = OidcState(
-        id=get_snowflake_id(),
-        state_hash=state_hash,
-        nonce=nonce,
-        code_verifier=code_verifier,
-        expires_at=utc_now() + timedelta(seconds=ttl),
-    )
+class _SingleUse(Protocol):
+    token_hash: str
+    expires_at: datetime
+    consumed_at: datetime | None
+
+
+SingleUseT = TypeVar("SingleUseT", bound=_SingleUse)
+
+
+async def _consume(model: type[SingleUseT], token_hash: str) -> SingleUseT | None:
+    """Mark a single-use row consumed and return it; ``None`` if missing,
+    expired, or already consumed."""
     async with get_sql_session() as session:
-        session.add(row)
-        await session.commit()
-        await session.refresh(row)
-    return row
-
-
-async def consume_oidc_state(state_hash: str) -> OidcState | None:
-    """Mark the state consumed and return it; ``None`` if missing, expired, or
-    already consumed (single use)."""
-    async with get_sql_session() as session:
-        row = (await session.execute(select(OidcState).where(OidcState.state_hash == state_hash))).scalar_one_or_none()
+        row = (await session.execute(select(model).where(model.token_hash == token_hash))).scalar_one_or_none()
         if row is None or row.consumed_at is not None or row.expires_at <= utc_now():
             return None
         row.consumed_at = utc_now()
         session.add(row)
         await session.commit()
-        await session.refresh(row)
     return row
 
 
-# --- Password reset tokens ----------------------------------------------
+async def create_oidc_state(*, token_hash: str, nonce: str, code_verifier: str, ttl: int) -> OidcState:
+    return await _insert(
+        OidcState(
+            id=get_snowflake_id(),
+            token_hash=token_hash,
+            nonce=nonce,
+            code_verifier=code_verifier,
+            expires_at=utc_now() + timedelta(seconds=ttl),
+        )
+    )
+
+
+async def consume_oidc_state(token_hash: str) -> OidcState | None:
+    return await _consume(OidcState, token_hash)
 
 
 async def create_password_reset(*, user_id: int, token_hash: str, ttl: int) -> PasswordResetToken:
-    row = PasswordResetToken(
-        id=get_snowflake_id(), user_id=user_id, token_hash=token_hash, expires_at=utc_now() + timedelta(seconds=ttl)
+    return await _insert(
+        PasswordResetToken(
+            id=get_snowflake_id(), user_id=user_id, token_hash=token_hash, expires_at=utc_now() + timedelta(seconds=ttl)
+        )
     )
-    async with get_sql_session() as session:
-        session.add(row)
-        await session.commit()
-        await session.refresh(row)
-    return row
 
 
 async def consume_password_reset(token_hash: str) -> PasswordResetToken | None:
-    """Mark the reset token consumed and return it; ``None`` if missing,
-    expired, or already used."""
-    async with get_sql_session() as session:
-        row = (
-            await session.execute(select(PasswordResetToken).where(PasswordResetToken.token_hash == token_hash))
-        ).scalar_one_or_none()
-        if row is None or row.consumed_at is not None or row.expires_at <= utc_now():
-            return None
-        row.consumed_at = utc_now()
-        session.add(row)
-        await session.commit()
-        await session.refresh(row)
-    return row
+    return await _consume(PasswordResetToken, token_hash)

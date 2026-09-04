@@ -52,6 +52,10 @@ export function parsePrompt(raw: string): Route {
   return { kind: "unknown", raw: p };
 }
 
+// Routes that render without a session — a reset link is followed by someone
+// who by definition cannot sign in yet.
+export const PUBLIC_ROUTES: ReadonlySet<Route["kind"]> = new Set(["reset"]);
+
 const PARAM = "p";
 
 export function promptFromUrl(): string {

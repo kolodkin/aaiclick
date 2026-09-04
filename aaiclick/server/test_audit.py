@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+from aaiclick.audit import config
 from aaiclick.audit.view_models import AuditListFilter
-from aaiclick.auth import config
 from aaiclick.auth.view_models import CreateUserRequest
 from aaiclick.internal_api import audit as audit_api
 from aaiclick.internal_api import users
@@ -13,14 +13,6 @@ from aaiclick.tenancy import DEFAULT_TENANT_ID
 
 from .app import API_PREFIX
 from .audit import should_audit
-
-SECRET = "server-audit-test-secret-key-at-least-32-bytes"
-
-
-@pytest.fixture
-def enabled(monkeypatch):
-    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: False)
-    monkeypatch.setenv("AAICLICK_JWT_SECRET", SECRET)
 
 
 @pytest.mark.parametrize(

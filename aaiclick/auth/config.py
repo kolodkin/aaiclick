@@ -8,7 +8,8 @@ in distributed mode. See ``docs/designs/auth.md``.
 from __future__ import annotations
 
 import os
-from typing import Literal, NamedTuple
+from typing import NamedTuple
+from urllib.parse import quote
 
 from ..backend import is_local
 
@@ -28,7 +29,6 @@ ENV_OIDC_AUTO_PROVISION = "AAICLICK_OIDC_AUTO_PROVISION"
 ENV_OIDC_LABEL = "AAICLICK_OIDC_LABEL"
 
 ENV_PASSWORD_RESET_TTL = "AAICLICK_PASSWORD_RESET_TTL"
-ENV_AUDIT_LOG = "AAICLICK_AUDIT_LOG"
 ENV_SMTP_HOST = "AAICLICK_SMTP_HOST"
 ENV_SMTP_PORT = "AAICLICK_SMTP_PORT"
 ENV_SMTP_USERNAME = "AAICLICK_SMTP_USERNAME"
@@ -43,15 +43,17 @@ DEFAULT_OIDC_SCOPES = "openid profile email"
 DEFAULT_OIDC_USERNAME_CLAIM = "preferred_username"
 DEFAULT_OIDC_LABEL = "SSO"
 OIDC_STATE_TTL = 600
-DEFAULT_PASSWORD_RESET_TTL = 3600
-
-AUDIT_WRITES = "writes"
-AUDIT_ALL = "all"
-AUDIT_OFF = "off"
-AuditPolicy = Literal["writes", "all", "off"]
-AUDIT_POLICIES: tuple[AuditPolicy, ...] = (AUDIT_WRITES, AUDIT_ALL, AUDIT_OFF)
-DEFAULT_SMTP_PORT = 587
 """Seconds an SSO login may take between ``/auth/oidc/start`` and the callback."""
+DEFAULT_PASSWORD_RESET_TTL = 3600
+DEFAULT_SMTP_PORT = 587
+
+
+def _env_flag(name: str, default: bool = True) -> bool:
+    """Boolean env var: ``0`` / ``false`` / ``no`` / empty mean off."""
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.lower() not in ("0", "false", "no", "")
 
 
 class AdminSeed(NamedTuple):
@@ -103,11 +105,13 @@ def public_url() -> str | None:
     return value.rstrip("/") if value else None
 
 
-def require_public_url() -> str:
-    value = public_url()
-    if value is None:
+def spa_url(prompt: str | None = None) -> str:
+    """A browser URL into the SPA — the site root, or a ``?p=`` prompt such as
+    ``reset <token>``. Requires ``AAICLICK_PUBLIC_URL``."""
+    base = public_url()
+    if base is None:
         raise RuntimeError(f"{ENV_PUBLIC_URL} must be set")
-    return value
+    return f"{base}/?p={quote(prompt)}" if prompt else f"{base}/"
 
 
 class OidcSettings(NamedTuple):
@@ -132,7 +136,7 @@ def oidc_settings() -> OidcSettings | None:
         client_secret=os.getenv(ENV_OIDC_CLIENT_SECRET) or None,
         scopes=os.getenv(ENV_OIDC_SCOPES) or DEFAULT_OIDC_SCOPES,
         username_claim=os.getenv(ENV_OIDC_USERNAME_CLAIM) or DEFAULT_OIDC_USERNAME_CLAIM,
-        auto_provision=os.getenv(ENV_OIDC_AUTO_PROVISION, "1") not in ("0", "false", "no", ""),
+        auto_provision=_env_flag(ENV_OIDC_AUTO_PROVISION),
         label=os.getenv(ENV_OIDC_LABEL) or DEFAULT_OIDC_LABEL,
     )
 
@@ -165,15 +169,5 @@ def smtp_settings() -> SmtpSettings | None:
         username=username,
         password=os.getenv(ENV_SMTP_PASSWORD) or None,
         sender=sender,
-        starttls=os.getenv(ENV_SMTP_STARTTLS, "1") not in ("0", "false", "no", ""),
+        starttls=_env_flag(ENV_SMTP_STARTTLS),
     )
-
-
-def audit_policy() -> AuditPolicy:
-    """Which requests the audit middleware records; unknown values fall back to ``writes``."""
-    value = os.getenv(ENV_AUDIT_LOG, AUDIT_WRITES).lower()
-    if value == AUDIT_ALL:
-        return AUDIT_ALL
-    if value == AUDIT_OFF:
-        return AUDIT_OFF
-    return AUDIT_WRITES

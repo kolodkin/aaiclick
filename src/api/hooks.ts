@@ -1,5 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { deleteJSON, fetchJSON, postJSON, postNoContent, putJSON } from "./client";
+import { useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
+import { deleteJSON, fetchJSON, postJSON, putJSON } from "./client";
 import type {
   ApiTokenCreated,
   ApiTokenView,
@@ -20,6 +20,16 @@ import type {
   TaskLogs,
   UserView,
 } from "./types";
+
+// A mutation that refreshes one query key on success — the pattern behind
+// every write in this file.
+function useInvalidating<V, R>(queryKey: QueryKey, run: (value: V) => Promise<R>) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: run,
+    onSuccess: () => qc.invalidateQueries({ queryKey }),
+  });
+}
 
 export function useJobs() {
   return useQuery({
@@ -117,19 +127,13 @@ export function useApiTokens() {
 }
 
 export function useCreateApiToken() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (req: CreateApiTokenRequest) => postJSON<ApiTokenCreated>("/auth/tokens", req),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["api-tokens"] }),
-  });
+  return useInvalidating(["api-tokens"], (req: CreateApiTokenRequest) =>
+    postJSON<ApiTokenCreated>("/auth/tokens", req),
+  );
 }
 
 export function useRevokeApiToken() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => deleteJSON<void>(`/auth/tokens/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["api-tokens"] }),
-  });
+  return useInvalidating(["api-tokens"], (id: string) => deleteJSON<void>(`/auth/tokens/${id}`));
 }
 
 // --- account ------------------------------------------------------------
@@ -145,12 +149,12 @@ export function useMfaSetup() {
 }
 
 export function useMfaEnable() {
-  return useMutation({ mutationFn: (code: string) => postNoContent("/auth/me/mfa/enable", { code }) });
+  return useMutation({ mutationFn: (code: string) => postJSON<void>("/auth/me/mfa/enable", { code }) });
 }
 
 export function useMfaDisable() {
   return useMutation({
-    mutationFn: (req: { password: string; code: string }) => postNoContent("/auth/me/mfa/disable", req),
+    mutationFn: (req: { password: string; code: string }) => postJSON<void>("/auth/me/mfa/disable", req),
   });
 }
 
@@ -165,11 +169,7 @@ export function useUsers() {
 }
 
 function useUserMutation<V>(run: (v: V) => Promise<UserView>) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: run,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["users"] }),
-  });
+  return useInvalidating(["users"], run);
 }
 
 export function useCreateUser() {
@@ -226,5 +226,8 @@ export function useAudit(query: AuditQuery) {
     queryKey: ["audit", params.toString()],
     queryFn: () => fetchJSON<Page<AuditEntryView>>(`/audit?${params.toString()}`),
     refetchInterval: false,
+    // Keep the previous page on screen while a changed filter loads, so typing
+    // does not unmount the table on every keystroke.
+    placeholderData: (previous) => previous,
   });
 }

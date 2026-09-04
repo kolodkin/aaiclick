@@ -1,9 +1,11 @@
 from datetime import timedelta
 
 from aaiclick.audit import store
+from aaiclick.audit.models import AuditLog
 from aaiclick.audit.view_models import AuditListFilter
 from aaiclick.datetime_utils import utc_now
 from aaiclick.internal_api import audit
+from aaiclick.snowflake import get_snowflake_id
 
 
 async def _row(**overrides):
@@ -21,7 +23,9 @@ async def _row(**overrides):
         "client_ip": "127.0.0.1",
     }
     values.update(overrides)
-    return await store.insert(**values)
+    row = AuditLog(id=get_snowflake_id(), **values)
+    await store.insert(row)
+    return row
 
 
 async def test_list_filters_and_orders_newest_first(orch_ctx):

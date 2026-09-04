@@ -7,6 +7,11 @@ principal) and startup logs a ``WARNING``. In distributed mode an
 registers the OpenAPI scheme. The ``/mcp`` mount keeps an ASGI middleware
 because ``Depends`` does not propagate into mounted sub-apps. See
 ``docs/designs/auth.md``.
+
+The role and scope rules are plain functions (``resolve_tenant``,
+``check_tenant_admin``, ``check_superadmin``, ``enforce_scope``) so the FastAPI
+dependencies here and the FastMCP middleware in ``mcp_rbac.py`` share one
+definition of each.
 """
 
 from __future__ import annotations
@@ -28,9 +33,9 @@ from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.tenancy import DEFAULT_TENANT_ID, active_tenant
 from aaiclick.view_models import ProblemCode
 
-from .errors import problem_response
+from .errors import BEARER_CHALLENGE, problem_response
+from .request_state import audit_state
 
-BEARER_CHALLENGE = {"WWW-Authenticate": "Bearer"}
 TENANT_HEADER = "X-Tenant-Id"
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 logger = logging.getLogger(__name__)
@@ -71,17 +76,17 @@ async def _principal_from_api_token(token: str) -> Principal:
     """Look an ``aaic_`` token up by hash and build a Principal from its owner's
     *current* flag and memberships, so revocation and demotion bind instantly."""
     async with orch_context(with_ch=False):
-        row = await store.get_active_api_token(security.sha256_hex(token))
-        if row is None:
-            raise Unauthorized("invalid api token")
-        user = await store.get_user_by_id(row.user_id)
-        if user is None or user.disabled:
-            raise Unauthorized("user is disabled")
-        memberships = await store.list_memberships_for_user(user.id)
-        await store.touch_api_token(row)
-    tenants = cast("dict[int, Role]", {m.tenant_id: m.role for m in memberships})
+        resolved = await store.resolve_api_token(security.sha256_hex(token))
+    if resolved is None:
+        raise Unauthorized("invalid api token")
+    if resolved.user.disabled:
+        raise Unauthorized("user is disabled")
     return Principal(
-        user_id=user.id, superadmin=user.superadmin, tenants=tenants, scope=row.scope, kind=AUTH_KIND_TOKEN
+        user_id=resolved.user.id,
+        superadmin=resolved.user.superadmin,
+        tenants=resolved.tenants,
+        scope=resolved.token.scope,
+        kind=AUTH_KIND_TOKEN,
     )
 
 
@@ -103,10 +108,16 @@ async def resolve_principal(authorization: str | None) -> Principal:
     return await principal_from_credential(credentials)
 
 
-def enforce_scope(principal: Principal, method: str) -> None:
-    """A ``read``-scoped token may only use safe HTTP methods."""
-    if principal.scope == TOKEN_SCOPE_READ and method.upper() not in SAFE_METHODS:
-        raise Forbidden(f"token scope 'read' cannot call {method.upper()}")
+def enforce_scope(principal: Principal, *, writes: bool) -> None:
+    """A ``read``-scoped token may only do reads — REST decides ``writes`` by HTTP
+    method, MCP by tool tag."""
+    if writes and principal.scope == TOKEN_SCOPE_READ:
+        raise Forbidden("token scope 'read' cannot perform writes")
+
+
+def check_superadmin(principal: Principal) -> None:
+    if not principal.superadmin:
+        raise Forbidden("superadmin required")
 
 
 async def require_principal(
@@ -116,8 +127,8 @@ async def require_principal(
     """FastAPI dependency → resolve the Principal or raise ``Unauthorized``.
 
     ``HTTPBearer`` already extracted and scheme-checked the credential, so the
-    token is decoded directly — no header re-parsing. The principal is stored
-    on ``request.state`` for the audit middleware.
+    token is decoded directly — no header re-parsing. The principal is recorded
+    on the request's audit carrier.
     """
     if not config.auth_enabled():
         principal = _SYNTHETIC_ADMIN
@@ -125,17 +136,26 @@ async def require_principal(
         raise Unauthorized("missing bearer token")
     else:
         principal = await principal_from_credential(creds.credentials)
-    enforce_scope(principal, request.method)
-    request.state.principal = principal
+    enforce_scope(principal, writes=request.method not in SAFE_METHODS)
+    audit_state(request.scope).principal = principal
     return principal
 
 
 async def require_session(principal: Principal = Depends(require_principal)) -> Principal:
-    """Guard for surfaces an API token must not reach (token management): a
-    leaked token must not be able to mint itself a permanent foothold."""
+    """Guard for surfaces an API token must not reach (token and MFA
+    management): a leaked token must not be able to mint itself a permanent
+    foothold or reconfigure the second factor it bypasses."""
     if principal.kind == AUTH_KIND_TOKEN:
-        raise Forbidden("api tokens cannot manage tokens — sign in with a session")
+        raise Forbidden("api tokens cannot manage credentials — sign in with a session")
     return principal
+
+
+async def require_user_id(principal: Principal = Depends(require_session)) -> int:
+    """The current user's id — account surfaces need a real user row, which
+    local mode's synthetic admin does not have (``422``)."""
+    if principal.user_id is None:
+        raise Invalid("auth is disabled — there is no current user")
+    return principal.user_id
 
 
 class TenantContext(NamedTuple):
@@ -159,10 +179,13 @@ def role_in_tenant(principal: Principal, tenant_id: int) -> Role | None:
 def resolve_tenant(principal: Principal, header_value: str | None) -> TenantContext:
     """Resolve the active tenant from the ``X-Tenant-Id`` header.
 
-    A missing header is implied only when the principal has exactly one
-    membership; superadmins (who can act in every tenant) must always name
-    one. A tenant the principal cannot act in is ``Forbidden``.
+    Local mode's synthetic principal always acts as admin of the default
+    tenant. Otherwise a missing header is implied only when the principal has
+    exactly one membership; superadmins (who can act in every tenant) must
+    always name one. A tenant the principal cannot act in is ``Forbidden``.
     """
+    if principal.kind == AUTH_KIND_NONE:
+        return TenantContext(tenant_id=DEFAULT_TENANT_ID, role=ROLE_ADMIN)
     if header_value is not None:
         try:
             tenant_id = int(header_value)
@@ -178,29 +201,29 @@ def resolve_tenant(principal: Principal, header_value: str | None) -> TenantCont
     raise Invalid(f"{TENANT_HEADER} header required")
 
 
+def check_tenant_admin(ctx: TenantContext) -> None:
+    if ctx.role != ROLE_ADMIN:
+        raise Forbidden("tenant admin role required")
+
+
 async def require_tenant(
     request: Request, principal: Principal = Depends(require_principal)
 ) -> AsyncIterator[TenantContext]:
     """Resolve the active tenant and pin the tenancy contextvar for the request."""
-    if not config.auth_enabled():
-        ctx = TenantContext(tenant_id=DEFAULT_TENANT_ID, role=ROLE_ADMIN)
-    else:
-        ctx = resolve_tenant(principal, request.headers.get(TENANT_HEADER))
-    request.state.tenant_id = ctx.tenant_id  # for the audit middleware
+    ctx = resolve_tenant(principal, request.headers.get(TENANT_HEADER))
+    audit_state(request.scope).tenant_id = ctx.tenant_id
     with active_tenant(ctx.tenant_id):
         yield ctx
 
 
 async def require_admin(ctx: TenantContext = Depends(require_tenant)) -> TenantContext:
     """Tenant-admin guard for mutating tenant-scoped routes."""
-    if ctx.role != ROLE_ADMIN:
-        raise Forbidden("tenant admin role required")
+    check_tenant_admin(ctx)
     return ctx
 
 
 async def require_superadmin(principal: Principal = Depends(require_principal)) -> Principal:
-    if not principal.superadmin:
-        raise Forbidden("superadmin required")
+    check_superadmin(principal)
     return principal
 
 
@@ -212,7 +235,7 @@ def warn_if_open() -> None:
 class PrincipalAuthMiddleware:
     """ASGI guard for the ``/mcp`` mount: any authenticated principal when auth
     is enabled. Per-tool RBAC happens inside FastMCP (``mcp_rbac.py``), which
-    reads the principal this middleware stores on the scope."""
+    reads the principal this middleware records on the request."""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -227,7 +250,5 @@ class PrincipalAuthMiddleware:
             response = problem_response("Unauthorized", 401, str(exc), ProblemCode.UNAUTHORIZED, BEARER_CHALLENGE)
             await response(scope, receive, send)
             return
-        # ``request.state`` is backed by ``scope["state"]`` — the FastMCP
-        # middleware and the audit middleware read it from there.
-        scope.setdefault("state", {})["principal"] = principal
+        audit_state(scope).principal = principal
         await self.app(scope, receive, send)

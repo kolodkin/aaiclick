@@ -1,6 +1,7 @@
 // Module-level token store. `fetchJSON`/`postJSON` are plain functions outside
 // React, so the access token lives in a module singleton; the refresh token
 // persists in localStorage so a page reload can re-establish a session.
+import { parseError } from "../api/problem";
 import type { MeView } from "../api/types";
 
 // Local base + POST helper. We deliberately do NOT route through client.ts's
@@ -63,30 +64,19 @@ interface TokenPair {
   expires_in: number;
 }
 
-// Carries the Problem code so the form can tell "needs an MFA code" from
-// "wrong credentials".
-export class LoginError extends Error {
-  code: string | null;
-  constructor(code: string | null) {
-    super("login failed");
-    this.code = code;
-  }
-}
-
-export async function login(username: string, password: string, totpCode?: string): Promise<void> {
-  const res = await postAuth("/auth/login", { username, password, totp_code: totpCode ?? null });
-  if (!res.ok) {
-    let code: string | null = null;
-    try {
-      code = ((await res.json()) as { code?: string }).code ?? null;
-    } catch {
-      code = null;
-    }
-    throw new LoginError(code);
-  }
+// Store a freshly minted pair. The access token stays in memory; the refresh
+// token persists so a reload can re-establish the session.
+async function storePair(res: Response): Promise<void> {
+  if (!res.ok) throw await parseError(res);
   const pair = (await res.json()) as TokenPair;
   setAccessToken(pair.access_token);
   setRefreshToken(pair.refresh_token);
+}
+
+// Throws `ApiError`; `error.code === "mfa_required"` means the password was
+// accepted and the account needs a second factor.
+export async function login(username: string, password: string, totpCode?: string): Promise<void> {
+  await storePair(await postAuth("/auth/login", { username, password, totp_code: totpCode ?? null }));
 }
 
 export interface OidcConfig {
@@ -94,10 +84,14 @@ export interface OidcConfig {
   label: string;
 }
 
-export async function fetchOidcConfig(): Promise<OidcConfig> {
-  const res = await fetch(`${API}/auth/oidc/config`);
-  if (!res.ok) return { enabled: false, label: "SSO" };
-  return (await res.json()) as OidcConfig;
+// Server-side configuration: fetched once per page load, not per login screen.
+let oidcConfig: Promise<OidcConfig> | null = null;
+
+export function fetchOidcConfig(): Promise<OidcConfig> {
+  oidcConfig ??= fetch(`${API}/auth/oidc/config`)
+    .then((res) => (res.ok ? (res.json() as Promise<OidcConfig>) : { enabled: false, label: "SSO" }))
+    .catch(() => ({ enabled: false, label: "SSO" }));
+  return oidcConfig;
 }
 
 // Ask the server for the provider URL (it records the login state), then
@@ -111,31 +105,25 @@ export async function startOidcLogin(): Promise<void> {
 
 // The provider redirects back to the site root with ?code=&state=. Trade
 // them for a session, then strip the parameters so a reload cannot replay.
-export async function completeOidcLogin(code: string, state: string): Promise<boolean> {
+export async function completeOidcLogin(code: string, state: string): Promise<void> {
   const res = await postAuth("/auth/oidc/callback", { code, state });
   const url = new URL(window.location.href);
   url.searchParams.delete("code");
   url.searchParams.delete("state");
   window.history.replaceState({}, "", url);
-  if (!res.ok) return false;
-  const pair = (await res.json()) as TokenPair;
-  setAccessToken(pair.access_token);
-  setRefreshToken(pair.refresh_token);
-  return true;
+  await storePair(res);
 }
 
 export async function tryRefresh(): Promise<boolean> {
   const rt = getRefreshToken();
   if (!rt) return false;
-  const res = await postAuth("/auth/refresh", { refresh_token: rt });
-  if (!res.ok) {
+  try {
+    await storePair(await postAuth("/auth/refresh", { refresh_token: rt }));
+    return true;
+  } catch {
     clearSession();
     return false;
   }
-  const pair = (await res.json()) as TokenPair;
-  setAccessToken(pair.access_token);
-  setRefreshToken(pair.refresh_token);
-  return true;
 }
 
 export async function logout(): Promise<void> {
@@ -171,7 +159,7 @@ export async function requestPasswordReset(username: string): Promise<void> {
   await postAuth("/auth/password-reset/request", { username });
 }
 
-export async function redeemPasswordReset(token: string, newPassword: string): Promise<boolean> {
+export async function redeemPasswordReset(token: string, newPassword: string): Promise<void> {
   const res = await postAuth("/auth/password-reset", { token, new_password: newPassword });
-  return res.ok;
+  if (!res.ok) throw await parseError(res);
 }

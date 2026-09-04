@@ -13,6 +13,7 @@ from aaiclick.auth.view_models import (
     UserListFilter,
     UserView,
 )
+from aaiclick.internal_api import password_reset as reset_api
 from aaiclick.internal_api import users as users_api
 from aaiclick.view_models import Page
 
@@ -76,4 +77,4 @@ async def reset_mfa(user_id: int) -> UserView:
 @router.post("/{user_id}/password-reset", response_model=PasswordResetLinkView, responses=problem_responses(404))
 async def create_password_reset(user_id: int) -> PasswordResetLinkView:
     """Mint a one-time reset link to hand to the user out of band."""
-    return await users_api.create_password_reset(user_id)
+    return await reset_api.create(user_id)

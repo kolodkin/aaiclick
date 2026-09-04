@@ -1,14 +1,8 @@
 import { useEffect, useState } from "react";
 import { Panel } from "../components/Panel";
 import { useAuth } from "../components/Auth";
-import {
-  fetchOidcConfig,
-  login,
-  LoginError,
-  requestPasswordReset,
-  startOidcLogin,
-  type OidcConfig,
-} from "../lib/auth";
+import { ApiError } from "../api/problem";
+import { fetchOidcConfig, login, requestPasswordReset, startOidcLogin, type OidcConfig } from "../lib/auth";
 
 function ForgotPassword({ onBack }: { onBack: () => void }) {
   const [username, setUsername] = useState("");
@@ -79,7 +73,7 @@ export function Login() {
       await login(username, password, needsCode ? totp : undefined);
       await refresh();
     } catch (err) {
-      if (err instanceof LoginError && err.code === "mfa_required") {
+      if (err instanceof ApiError && err.code === "mfa_required") {
         setNeedsCode(true);
       } else {
         setError(needsCode ? "Invalid username, password, or code" : "Invalid username or password");
@@ -89,19 +83,12 @@ export function Login() {
     }
   };
 
-  if (forgot) {
-    return (
-      <main>
-        <div className="content" id="content">
-          <ForgotPassword onBack={() => setForgot(false)} />
-        </div>
-      </main>
-    );
-  }
-
   return (
     <main>
       <div className="content" id="content">
+        {forgot ? (
+          <ForgotPassword onBack={() => setForgot(false)} />
+        ) : (
         <Panel>
           <h2>Sign in</h2>
           <p className="sub">Enter your aaiclick credentials.</p>
@@ -157,6 +144,7 @@ export function Login() {
             </div>
           </form>
         </Panel>
+        )}
       </div>
     </main>
   );

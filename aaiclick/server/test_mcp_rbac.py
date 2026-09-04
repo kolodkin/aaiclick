@@ -21,17 +21,11 @@ from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.tenancy import DEFAULT_TENANT_ID
 
 from .auth import Principal, PrincipalAuthMiddleware
+from .conftest import TEST_JWT_SECRET
 from .mcp import mcp
 from .mcp_rbac import TAG_READ, TAG_SUPERADMIN, TAG_WRITE, authorize_tool
 
-SECRET = "mcp-rbac-test-secret-key-at-least-32-bytes"
 MCP_HEADERS = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
-
-
-@pytest.fixture
-def enabled(monkeypatch):
-    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: False)
-    monkeypatch.setenv("AAICLICK_JWT_SECRET", SECRET)
 
 
 def _principal(*, superadmin=False, tenants=None, scope="write"):
@@ -72,10 +66,14 @@ def test_authorize_tool_matrix(enabled, principal, tags, header, expect):
             authorize_tool(principal, tags, header)
 
 
-def test_authorize_tool_local_mode_uses_default_tenant(monkeypatch):
-    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
-    ctx = authorize_tool(_principal(), {TAG_WRITE}, None)
+def test_authorize_tool_local_mode_uses_default_tenant():
+    """Local mode's synthetic principal (kind "none") acts as admin of the
+    default tenant without naming one — the same rule ``resolve_tenant`` applies
+    to the REST routes."""
+    synthetic = Principal(user_id=None, superadmin=True, tenants={}, kind="none")
+    ctx = authorize_tool(synthetic, {TAG_WRITE}, None)
     assert ctx is not None and ctx.tenant_id == DEFAULT_TENANT_ID and ctx.role == "admin"
+    assert authorize_tool(synthetic, {TAG_SUPERADMIN}, None) is None
 
 
 async def test_every_tool_has_exactly_one_rbac_tag():
@@ -103,7 +101,9 @@ async def _mcp_http() -> AsyncIterator[httpx.AsyncClient]:
 
 
 def _token(*, superadmin=False, tenants=None) -> str:
-    return security.encode_access_token(user_id=3, superadmin=superadmin, tenants=tenants or {}, secret=SECRET, ttl=60)
+    return security.encode_access_token(
+        user_id=3, superadmin=superadmin, tenants=tenants or {}, secret=TEST_JWT_SECRET, ttl=60
+    )
 
 
 async def _rpc(client: httpx.AsyncClient, method: str, params: dict[str, Any], headers: dict[str, str]) -> Any:

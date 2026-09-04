@@ -43,14 +43,14 @@ def upgrade() -> None:
     op.create_table(
         "oidc_states",
         sa.Column("id", sa.BigInteger(), nullable=False),
-        sa.Column("state_hash", sa.String(), nullable=False),
+        sa.Column("token_hash", sa.String(), nullable=False),
         sa.Column("nonce", sa.String(), nullable=False),
         sa.Column("code_verifier", sa.String(), nullable=False),
         sa.Column("expires_at", sa.DateTime(), nullable=False),
         sa.Column("consumed_at", sa.DateTime(), nullable=True),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index(op.f("ix_oidc_states_state_hash"), "oidc_states", ["state_hash"], unique=True)
+    op.create_index(op.f("ix_oidc_states_token_hash"), "oidc_states", ["token_hash"], unique=True)
     op.create_table(
         "api_tokens",
         sa.Column("id", sa.BigInteger(), nullable=False),
@@ -111,7 +111,7 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_api_tokens_user_id"), table_name="api_tokens")
     op.drop_index(op.f("ix_api_tokens_token_hash"), table_name="api_tokens")
     op.drop_table("api_tokens")
-    op.drop_index(op.f("ix_oidc_states_state_hash"), table_name="oidc_states")
+    op.drop_index(op.f("ix_oidc_states_token_hash"), table_name="oidc_states")
     op.drop_table("oidc_states")
     op.drop_index(op.f("ix_audit_log_user_id"), table_name="audit_log")
     op.drop_index(op.f("ix_audit_log_path"), table_name="audit_log")

@@ -55,14 +55,15 @@ async def test_revoke_other_users_token_is_not_found(orch_ctx):
     assert await store.get_active_api_token(security.sha256_hex(created.token)) is not None
 
 
-async def test_touch_throttles_last_used(orch_ctx):
+async def test_resolve_stamps_last_used_once_per_window(orch_ctx):
     user = await _user()
     created = await api_tokens.create_token(user.id, CreateApiTokenRequest(name="ci"))
-    row = await store.get_active_api_token(security.sha256_hex(created.token))
-    assert row is not None and row.last_used_at is None
-    await store.touch_api_token(row)
-    stamped = await store.get_active_api_token(security.sha256_hex(created.token))
-    assert stamped is not None and stamped.last_used_at is not None
-    await store.touch_api_token(stamped)  # within the window: no second write
-    again = await store.get_active_api_token(security.sha256_hex(created.token))
-    assert again is not None and again.last_used_at == stamped.last_used_at
+    token_hash = security.sha256_hex(created.token)
+
+    first = await store.resolve_api_token(token_hash)
+    assert first is not None and first.user.id == user.id and first.tenants == {}
+    assert first.token.last_used_at is not None
+
+    second = await store.resolve_api_token(token_hash)  # within the window: no second write
+    assert second is not None and second.token.last_used_at == first.token.last_used_at
+    assert await store.resolve_api_token("nope") is None

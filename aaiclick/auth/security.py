@@ -50,7 +50,7 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 
 def generate_secret() -> str:
-    """Opaque URL-safe secret for refresh tokens."""
+    """Opaque URL-safe secret — refresh tokens, reset tokens, OIDC state and nonce."""
     return secrets.token_urlsafe(32)
 
 
@@ -61,7 +61,7 @@ def sha256_hex(value: str) -> str:
 def generate_api_token() -> str:
     """Opaque API token. The fixed prefix lets the resolver route it without a
     JWT parse attempt and lets secret scanners recognise it."""
-    return API_TOKEN_PREFIX + secrets.token_urlsafe(32)
+    return API_TOKEN_PREFIX + generate_secret()
 
 
 def is_api_token(credential: str) -> bool:

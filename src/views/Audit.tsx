@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useDeferredValue, useState } from "react";
 import { useAudit } from "../api/hooks";
 import { useAuth } from "../components/Auth";
 import { Chips } from "../components/Chips";
@@ -15,7 +15,10 @@ export function Audit({ onPrompt }: { onPrompt: (v: string) => void }) {
   const [username, setUsername] = useState("");
   const [method, setMethod] = useState("");
   const [path, setPath] = useState("");
-  const { data, isLoading, isError, error } = useAudit({ username, method, path, limit: 200 });
+  // Deferred: each keystroke would otherwise fire a COUNT + SELECT over a
+  // table that grows with every request the server handles.
+  const query = useDeferredValue({ username, method, path, limit: 200 });
+  const { data, isLoading, isError, error } = useAudit(query);
 
   return (
     <>

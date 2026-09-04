@@ -50,6 +50,7 @@ from aaiclick.auth.view_models import CreateApiTokenRequest, CreateTenantRequest
 from aaiclick.datetime_utils import utc_now
 from aaiclick.internal_api import api_tokens as api_tokens_api
 from aaiclick.internal_api import audit as audit_api
+from aaiclick.internal_api import password_reset as reset_api
 from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import tenants as tenants_api
 from aaiclick.internal_api import users as users_api
@@ -436,7 +437,7 @@ async def _run_user_enable(args: argparse.Namespace) -> None:
 
 
 async def _run_user_reset_link(args: argparse.Namespace) -> None:
-    view = await _run_internal_api(users_api.create_password_reset(args.user_id))
+    view = await _run_internal_api(reset_api.create(args.user_id))
     _render(args, view, cli_renderers.render_password_reset_link)
 
 

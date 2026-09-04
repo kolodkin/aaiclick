@@ -10,7 +10,7 @@ from aaiclick.auth.view_models import (
     PasswordResetRequest,
     RefreshRequest,
 )
-from aaiclick.internal_api import auth, users
+from aaiclick.internal_api import auth, password_reset, users
 from aaiclick.internal_api.errors import NotFound, Unauthorized
 
 SECRET = "internal-api-reset-test-secret-key-32-plus-bytes"
@@ -21,30 +21,30 @@ async def test_admin_link_redeems_once_and_revokes_sessions(orch_ctx, monkeypatc
     view = await users.create_user(CreateUserRequest(username="alice", password="old"))
     pair = await auth.login(LoginRequest(username="alice", password="old"), secret=SECRET)
 
-    link = await users.create_password_reset(view.id)
+    link = await password_reset.create(view.id)
     assert link.url == f"https://aaiclick.example.com/?p=reset%20{link.token}"
 
-    await auth.redeem_password_reset(PasswordResetRedeem(token=link.token, new_password="new"))
+    await password_reset.redeem(PasswordResetRedeem(token=link.token, new_password="new"))
     assert await auth.login(LoginRequest(username="alice", password="new"), secret=SECRET)
     with pytest.raises(Unauthorized):
         await auth.login(LoginRequest(username="alice", password="old"), secret=SECRET)
     with pytest.raises(Unauthorized):  # sessions ended
         await auth.refresh(RefreshRequest(refresh_token=pair.refresh_token), secret=SECRET)
     with pytest.raises(Unauthorized):  # single use
-        await auth.redeem_password_reset(PasswordResetRedeem(token=link.token, new_password="again"))
+        await password_reset.redeem(PasswordResetRedeem(token=link.token, new_password="again"))
 
 
 async def test_link_without_public_url_and_unknown_user(orch_ctx, monkeypatch):
     monkeypatch.delenv("AAICLICK_PUBLIC_URL", raising=False)
     view = await users.create_user(CreateUserRequest(username="bob", password="pw"))
-    assert (await users.create_password_reset(view.id)).url is None
+    assert (await password_reset.create(view.id)).url is None
     with pytest.raises(NotFound):
-        await users.create_password_reset(12345)
+        await password_reset.create(12345)
 
 
 async def test_bad_token_rejected(orch_ctx):
     with pytest.raises(Unauthorized):
-        await auth.redeem_password_reset(PasswordResetRedeem(token="nope", new_password="x"))
+        await password_reset.redeem(PasswordResetRedeem(token="nope", new_password="x"))
 
 
 async def test_request_mails_link_when_configured(orch_ctx, monkeypatch):
@@ -55,14 +55,14 @@ async def test_request_mails_link_when_configured(orch_ctx, monkeypatch):
     monkeypatch.setattr(mail, "send_mail", sent)
     await users.create_user(CreateUserRequest(username="carol", password="pw", email="carol@example.com"))
 
-    await auth.request_password_reset(PasswordResetRequest(username="carol"))
+    await password_reset.request(PasswordResetRequest(username="carol"))
 
     sent.assert_awaited_once()
     kwargs = sent.await_args.kwargs if sent.await_args else {}
     body = kwargs["body"]
     assert kwargs["to"] == "carol@example.com"
     token = body.split("?p=reset%20")[1].split()[0]
-    await auth.redeem_password_reset(PasswordResetRedeem(token=token, new_password="mailed"))
+    await password_reset.redeem(PasswordResetRedeem(token=token, new_password="mailed"))
     assert await auth.login(LoginRequest(username="carol", password="mailed"), secret=SECRET)
 
 
@@ -85,6 +85,6 @@ async def test_request_is_silent_when_undeliverable(orch_ctx, monkeypatch, smtp,
     if username != "ghost":
         await users.create_user(CreateUserRequest(username=username, password="pw", email=email))
 
-    await auth.request_password_reset(PasswordResetRequest(username=username))
+    await password_reset.request(PasswordResetRequest(username=username))
 
     sent.assert_not_awaited()

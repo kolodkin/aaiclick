@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from sqlmodel import col
 
-from aaiclick.auth import config, security, store
+from aaiclick.auth import security, store
 from aaiclick.auth.models import User
-from aaiclick.auth.view_models import CreateUserRequest, PasswordResetLinkView, UserListFilter, UserView
+from aaiclick.auth.view_models import CreateUserRequest, UserListFilter, UserView
 from aaiclick.view_models import Page
 
 from .errors import Conflict, NotFound
 from .pagination import paginate
+
+
+async def _hash(password: str) -> str:
+    """bcrypt on a worker thread — it costs ~100 ms and must not stall the loop."""
+    return await asyncio.to_thread(security.hash_password, password)
 
 
 def _to_view(user: User) -> UserView:
@@ -31,7 +38,7 @@ async def create_user(request: CreateUserRequest) -> UserView:
     try:
         user = await store.create_user(
             username=request.username,
-            password_hash=security.hash_password(request.password) if request.password is not None else None,
+            password_hash=await _hash(request.password) if request.password is not None else None,
             superadmin=request.superadmin,
             email=request.email,
         )
@@ -78,7 +85,7 @@ async def set_password(user_id: int, password: str) -> UserView:
     """Admin password reset — also ends the user's sessions, so resetting a
     suspected-compromised account actually locks the other party out."""
     try:
-        user = await store.set_password_hash(user_id, security.hash_password(password))
+        user = await store.set_password_hash(user_id, await _hash(password))
     except store.UserNotFound as exc:
         raise NotFound(str(exc)) from exc
     await store.revoke_all_for_user(user_id)
@@ -102,20 +109,3 @@ async def reset_mfa(user_id: int) -> UserView:
         raise NotFound(str(exc)) from exc
     await store.revoke_all_for_user(user_id)
     return _to_view(user)
-
-
-def reset_url(token: str) -> str | None:
-    """The SPA link that opens the new-password form, when the public URL is known."""
-    base = config.public_url()
-    return f"{base}/?p=reset%20{token}" if base else None
-
-
-async def create_password_reset(user_id: int) -> PasswordResetLinkView:
-    """Mint a one-time reset token for a user (superadmin / CLI recovery path)."""
-    if await store.get_user_by_id(user_id) is None:
-        raise NotFound(f"user {user_id} not found")
-    token = security.generate_secret()
-    row = await store.create_password_reset(
-        user_id=user_id, token_hash=security.sha256_hex(token), ttl=config.password_reset_ttl()
-    )
-    return PasswordResetLinkView(token=token, expires_at=row.expires_at, url=reset_url(token))

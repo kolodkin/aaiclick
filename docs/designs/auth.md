@@ -104,7 +104,7 @@ inert (10-minute TTL).
 | Column          | Type                        | Notes                          |
 |-----------------|-----------------------------|--------------------------------|
 | `id`            | `BigInteger` PK (snowflake) |                                |
-| `state_hash`    | `String`, unique, indexed   | `sha256(state)`                |
+| `token_hash`    | `String`, unique, indexed   | `sha256(state)`                |
 | `nonce`         | `String`                    | Echoed in the `id_token`       |
 | `code_verifier` | `String`                    | PKCE verifier                  |
 | `expires_at`    | `datetime`                  |                                |

@@ -1,20 +1,10 @@
-import pytest
-
 from aaiclick.auth import security
 from aaiclick.auth.view_models import CreateUserRequest, MfaEnableRequest
 from aaiclick.internal_api import auth as auth_api
 from aaiclick.internal_api import users
 from aaiclick.server.app import API_PREFIX
 
-SECRET = "router-auth-test-secret-key-32-plus-bytes"
-
-
-@pytest.fixture
-def enabled(monkeypatch):
-    # Force distributed mode (auth on) + a signing secret, independent of the
-    # local/dist test matrix the suite happens to run under.
-    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: False)
-    monkeypatch.setenv("AAICLICK_JWT_SECRET", SECRET)
+from ..conftest import login
 
 
 async def test_login_then_access_protected(orch_ctx, app_client, enabled):
@@ -79,15 +69,10 @@ async def test_protected_route_requires_token_when_enabled(orch_ctx, anon_client
     assert res.headers["www-authenticate"] == "Bearer"
 
 
-async def _login(app_client, username: str) -> dict[str, str]:
-    res = await app_client.post(f"{API_PREFIX}/auth/login", json={"username": username, "password": "pw"})
-    return {"Authorization": f"Bearer {res.json()['access_token']}"}
-
-
 async def test_api_token_lifecycle(orch_ctx, app_client, enabled):
     """Session mints a token → the token authenticates → revoke → 401."""
     await users.create_user(CreateUserRequest(username="alice", password="pw", superadmin=True))
-    session = await _login(app_client, "alice")
+    session = await login(app_client, "alice")
 
     created = await app_client.post(f"{API_PREFIX}/auth/tokens", json={"name": "ci", "scope": "write"}, headers=session)
     assert created.status_code == 201
@@ -108,7 +93,7 @@ async def test_api_token_lifecycle(orch_ctx, app_client, enabled):
 
 async def test_read_token_cannot_write_or_manage_tokens(orch_ctx, app_client, enabled):
     await users.create_user(CreateUserRequest(username="alice", password="pw", superadmin=True))
-    session = await _login(app_client, "alice")
+    session = await login(app_client, "alice")
     created = await app_client.post(f"{API_PREFIX}/auth/tokens", json={"name": "ro"}, headers=session)
     token_header = {"Authorization": f"Bearer {created.json()['token']}", "X-Tenant-Id": "1"}
 

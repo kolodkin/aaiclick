@@ -3,6 +3,7 @@ import { useApiTokens, useCreateApiToken, useRevokeApiToken } from "../api/hooks
 import type { ApiTokenCreated } from "../api/types";
 import { Chips } from "../components/Chips";
 import { Panel } from "../components/Panel";
+import { SecretPanel } from "../components/SecretPanel";
 import { useToast } from "../components/Toast";
 import { relativeTime } from "../lib/format";
 
@@ -12,32 +13,6 @@ function expiresAt(days: string): string | null {
   const n = Number(days);
   if (!days.trim() || !Number.isFinite(n) || n <= 0) return null;
   return new Date(Date.now() + n * 86_400_000).toISOString();
-}
-
-// The raw secret is shown exactly once, right after minting. It never comes
-// back from the list endpoint, so the panel stays until the user dismisses it.
-function NewToken({ token, onDone }: { token: ApiTokenCreated; onDone: () => void }) {
-  const toast = useToast();
-  const copy = () => {
-    void navigator.clipboard?.writeText(token.token).then(() => toast("Token copied"));
-  };
-  return (
-    <Panel className="confirm info">
-      <h2>Token created</h2>
-      <p className="sub">Copy it now — it cannot be retrieved again.</p>
-      <p className="mono" id="new-token-secret" style={{ overflowWrap: "anywhere" }}>
-        {token.token}
-      </p>
-      <div className="form-actions">
-        <button className="btn btn-primary" onClick={copy}>
-          Copy
-        </button>
-        <button className="btn" onClick={onDone}>
-          Done
-        </button>
-      </div>
-    </Panel>
-  );
 }
 
 export function Tokens({ onPrompt }: { onPrompt: (v: string) => void }) {
@@ -71,7 +46,14 @@ export function Tokens({ onPrompt }: { onPrompt: (v: string) => void }) {
         Long-lived bearer credentials for unattended clients. Send one as <code className="mono">Authorization: Bearer aaic_…</code>.
       </p>
       {isError && <p className="err">{error.message}</p>}
-      {created && <NewToken token={created} onDone={() => setCreated(null)} />}
+      {created && (
+        <SecretPanel
+          title="Token created"
+          hint="Copy it now — it cannot be retrieved again."
+          value={created.token}
+          onDone={() => setCreated(null)}
+        />
+      )}
       <Panel>
         <h2>New token</h2>
         <div className="field">

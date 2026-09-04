@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "./components/Auth";
 import { Header } from "./components/Header";
-import { parsePrompt, promptFromUrl, pushPromptToUrl } from "./prompt";
+import { parsePrompt, promptFromUrl, PUBLIC_ROUTES, pushPromptToUrl, type Route } from "./prompt";
 import {
   Account,
   AllGallery,
@@ -21,8 +21,7 @@ import {
 import { Login } from "./views/Login";
 import { ResetPassword } from "./views/ResetPassword";
 
-function renderRoute(prompt: string, onPrompt: (v: string) => void) {
-  const route = parsePrompt(prompt);
+function renderRoute(route: Route, onPrompt: (v: string) => void) {
   switch (route.kind) {
     case "home":
       return <Home onPrompt={onPrompt} />;
@@ -53,7 +52,7 @@ function renderRoute(prompt: string, onPrompt: (v: string) => void) {
     case "audit":
       return <Audit onPrompt={onPrompt} />;
     case "reset":
-      return null; // handled before the login wall in App
+      return <ResetPassword token={route.token} onDone={() => onPrompt("")} />;
     case "unknown":
       return (
         <>
@@ -92,18 +91,16 @@ export function App() {
   // Wait for the initial /auth/me probe; when auth is disabled the server
   // returns a synthetic admin so `me` is set and no login wall appears.
   if (!ready) return null;
-  // A reset link opens the new-password form with no session — that is the
-  // point of the link — so it is routed before the login wall.
   const route = parsePrompt(prompt);
-  if (route.kind === "reset") return <ResetPassword token={route.token} onDone={() => onPrompt("")} />;
-  if (!me) return <Login />;
+  if (!me && !PUBLIC_ROUTES.has(route.kind)) return <Login />;
+  if (!me) return renderRoute(route, onPrompt);
 
   return (
     <>
       <Header prompt={prompt} onPrompt={onPrompt} />
       <main>
         <div className="content" id="content">
-          {renderRoute(prompt, onPrompt)}
+          {renderRoute(route, onPrompt)}
         </div>
       </main>
     </>

@@ -2,9 +2,9 @@
 
 Each tool in ``server/mcp.py`` carries one tag — ``read``, ``write``, or
 ``superadmin``. This FastMCP middleware resolves the caller from the current
-HTTP request (the principal the mount middleware stored on the ASGI scope,
-plus the ``X-Tenant-Id`` header), applies the same tenant-resolution and
-role rules as the REST dependencies, pins the tenancy contextvar around the
+HTTP request (the principal the mount middleware recorded, plus the
+``X-Tenant-Id`` header), applies the same tenant / role / scope rules as the
+REST dependencies (``server/auth.py``), pins the tenancy contextvar around the
 call, and hides tools the caller may not invoke from ``tools/list``.
 See ``docs/designs/auth.md`` — MCP Surface.
 
@@ -23,12 +23,20 @@ from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from fastmcp.tools.base import Tool, ToolResult
 from starlette.requests import Request
 
-from aaiclick.auth import config
-from aaiclick.auth.models import ROLE_ADMIN, TOKEN_SCOPE_WRITE
 from aaiclick.internal_api.errors import Forbidden, Invalid, Unauthorized
-from aaiclick.tenancy import DEFAULT_TENANT_ID, active_tenant
+from aaiclick.tenancy import active_tenant
 
-from .auth import TENANT_HEADER, Principal, TenantContext, resolve_principal, resolve_tenant
+from .auth import (
+    TENANT_HEADER,
+    Principal,
+    TenantContext,
+    check_superadmin,
+    check_tenant_admin,
+    enforce_scope,
+    resolve_principal,
+    resolve_tenant,
+)
+from .request_state import audit_state
 
 TAG_READ = "read"
 TAG_WRITE = "write"
@@ -42,20 +50,13 @@ def authorize_tool(principal: Principal, tags: set[str], tenant_header: str | No
     ``superadmin`` tools (which are instance-level). Raises ``Forbidden`` /
     ``Invalid`` exactly like the REST guards.
     """
+    enforce_scope(principal, writes=TAG_READ not in tags)
     if TAG_SUPERADMIN in tags:
-        if not principal.superadmin:
-            raise Forbidden("superadmin required")
-        if principal.scope != TOKEN_SCOPE_WRITE:
-            raise Forbidden("token scope 'read' cannot call this tool")
+        check_superadmin(principal)
         return None
-    if not config.auth_enabled():
-        return TenantContext(tenant_id=DEFAULT_TENANT_ID, role=ROLE_ADMIN)
     ctx = resolve_tenant(principal, tenant_header)
     if TAG_WRITE in tags:
-        if ctx.role != ROLE_ADMIN:
-            raise Forbidden("tenant admin role required")
-        if principal.scope != TOKEN_SCOPE_WRITE:
-            raise Forbidden("token scope 'read' cannot call this tool")
+        check_tenant_admin(ctx)
     return ctx
 
 
@@ -69,7 +70,7 @@ def _current_request() -> Request | None:
 async def _principal_for(request: Request) -> Principal:
     """The principal the mount middleware resolved, or resolve it here when the
     MCP app runs standalone (``mcp.run()`` without the FastAPI mount)."""
-    stored = getattr(request.state, "principal", None)
+    stored = audit_state(request.scope).principal
     if stored is not None:
         return stored
     return await resolve_principal(request.headers.get("authorization"))
@@ -109,7 +110,8 @@ class McpRbacMiddleware(Middleware):
         if request is None or context.fastmcp_context is None:
             return await call_next(context)
         tool_name = context.message.name
-        request.state.audit_action = tool_name
+        audit = audit_state(request.scope)
+        audit.action = tool_name
         tool = await context.fastmcp_context.fastmcp.get_tool(tool_name)
         if tool is None:
             raise ToolError(f"unknown tool {tool_name!r}")
@@ -120,6 +122,6 @@ class McpRbacMiddleware(Middleware):
             raise ToolError(f"{tool_name}: {exc}") from exc
         if ctx is None:
             return await call_next(context)
-        request.state.tenant_id = ctx.tenant_id
+        audit.tenant_id = ctx.tenant_id
         with active_tenant(ctx.tenant_id):
             return await call_next(context)

@@ -18,10 +18,14 @@ export function ResetPassword({ token, onDone }: { token: string; onDone: () => 
     }
     setBusy(true);
     setError(null);
-    const ok = await redeemPasswordReset(token, password);
-    setBusy(false);
-    if (ok) setDone(true);
-    else setError("This reset link is invalid, expired, or already used");
+    try {
+      await redeemPasswordReset(token, password);
+      setDone(true);
+    } catch {
+      setError("This reset link is invalid, expired, or already used");
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (

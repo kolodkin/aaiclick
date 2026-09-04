@@ -24,25 +24,25 @@ def oidc_config() -> OidcConfigView:
     return OidcConfigView(enabled=True, label=settings.label)
 
 
-def _require_oidc() -> tuple[config.OidcSettings, str]:
+def _require_oidc() -> config.OidcSettings:
     settings = config.oidc_settings()
     if settings is None:
         raise Invalid("OIDC login is not configured")
-    return settings, config.require_public_url() + "/"
+    return settings
 
 
 async def oidc_start() -> OidcStartView:
     """Begin an SSO login: persist state / nonce / PKCE verifier, return the
     provider URL for the browser to visit."""
-    settings, redirect_uri = _require_oidc()
-    state, nonce, pkce = oidc.generate_state(), oidc.generate_nonce(), oidc.generate_pkce()
+    settings, redirect_uri = _require_oidc(), config.spa_url()
+    state, nonce, pkce = security.generate_secret(), security.generate_secret(), oidc.generate_pkce()
     async with oidc.http_client() as client:
         try:
             metadata = await oidc.discover(client, settings.issuer)
         except (oidc.OidcError, httpx.HTTPError) as exc:
             raise Conflict(f"OIDC provider unavailable: {exc}") from exc
     await store.create_oidc_state(
-        state_hash=security.sha256_hex(state), nonce=nonce, code_verifier=pkce.verifier, ttl=config.OIDC_STATE_TTL
+        token_hash=security.sha256_hex(state), nonce=nonce, code_verifier=pkce.verifier, ttl=config.OIDC_STATE_TTL
     )
     return OidcStartView(
         authorization_url=oidc.authorization_url(
@@ -81,7 +81,7 @@ async def _resolve_oidc_user(settings: config.OidcSettings, identity: oidc.Ident
 async def oidc_callback(request: OidcCallbackRequest, *, secret: str) -> TokenPair:
     """Complete an SSO login: consume the state, exchange the code, validate
     the ``id_token``, resolve the user, and mint the regular token pair."""
-    settings, redirect_uri = _require_oidc()
+    settings, redirect_uri = _require_oidc(), config.spa_url()
     state = await store.consume_oidc_state(security.sha256_hex(request.state))
     if state is None:
         raise Unauthorized("unknown or expired login state")

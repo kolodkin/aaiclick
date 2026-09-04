@@ -17,19 +17,14 @@ from aaiclick.auth import security, store
 from aaiclick.auth.view_models import CreateApiTokenRequest, CreateUserRequest
 from aaiclick.internal_api import api_tokens, users
 from aaiclick.internal_api.errors import Forbidden, Invalid, Unauthorized
+from aaiclick.tenancy import DEFAULT_TENANT_ID
 
 from . import auth
 from .auth import PrincipalAuthMiddleware, warn_if_open
+from .conftest import TEST_JWT_SECRET
+from .request_state import audit_state
 
-SECRET = "server-auth-test-secret-key-32-plus-bytes"
 OTHER_SECRET = "a-different-secret-also-32-plus-bytes-long"
-
-
-@pytest.fixture
-def enabled(monkeypatch):
-    # Auth is mode-derived: force distributed mode (auth on) + a signing secret.
-    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: False)
-    monkeypatch.setenv("AAICLICK_JWT_SECRET", SECRET)
 
 
 def _bearer(token: str) -> str:
@@ -51,7 +46,9 @@ async def test_enabled_missing_token_unauthorized(enabled):
 
 
 async def test_enabled_valid_jwt(enabled):
-    token = security.encode_access_token(user_id=7, superadmin=False, tenants={3: "viewer"}, secret=SECRET, ttl=60)
+    token = security.encode_access_token(
+        user_id=7, superadmin=False, tenants={3: "viewer"}, secret=TEST_JWT_SECRET, ttl=60
+    )
     principal = await auth.resolve_principal(authorization=_bearer(token))
     assert principal.user_id == 7 and principal.superadmin is False
     assert principal.tenants == {3: "viewer"}
@@ -86,12 +83,17 @@ async def test_unknown_api_token_unauthorized(enabled, orch_ctx):
         await auth.resolve_principal(authorization=_bearer("aaic_not-a-real-token"))
 
 
-def test_read_scope_blocks_unsafe_methods():
+def test_read_scope_blocks_writes():
     read_only = auth.Principal(user_id=1, superadmin=True, tenants={}, scope="read", kind="token")
-    auth.enforce_scope(read_only, "GET")
+    auth.enforce_scope(read_only, writes=False)
     with pytest.raises(Forbidden):
-        auth.enforce_scope(read_only, "POST")
-    auth.enforce_scope(read_only._replace(scope="write"), "DELETE")
+        auth.enforce_scope(read_only, writes=True)
+    auth.enforce_scope(read_only._replace(scope="write"), writes=True)
+
+
+def test_resolve_tenant_local_mode_defaults():
+    synthetic = auth.Principal(user_id=None, superadmin=True, tenants={}, kind="none")
+    assert auth.resolve_tenant(synthetic, None) == auth.TenantContext(tenant_id=DEFAULT_TENANT_ID, role="admin")
 
 
 # --- resolve_tenant ------------------------------------------------------
@@ -168,11 +170,14 @@ async def test_mcp_middleware_rejects_missing_token(enabled):
 async def test_mcp_middleware_admits_any_principal_and_stores_it(enabled):
     """Per-tool RBAC lives in mcp_rbac.py — the mount only needs a principal."""
     called: list[bool] = []
-    token = security.encode_access_token(user_id=2, superadmin=False, tenants={3: "viewer"}, secret=SECRET, ttl=60)
+    token = security.encode_access_token(
+        user_id=2, superadmin=False, tenants={3: "viewer"}, secret=TEST_JWT_SECRET, ttl=60
+    )
     scope = {"type": "http", "headers": [(b"authorization", f"Bearer {token}".encode())]}
     await _drive(scope, called)
     assert called == [True]
-    assert scope["state"]["principal"].user_id == 2
+    recorded = audit_state(scope).principal
+    assert recorded is not None and recorded.user_id == 2
 
 
 async def test_mcp_middleware_open_in_local_mode(monkeypatch):

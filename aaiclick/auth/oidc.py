@@ -52,14 +52,6 @@ def generate_pkce() -> Pkce:
     return Pkce(verifier=verifier, challenge=base64.urlsafe_b64encode(digest).rstrip(b"=").decode())
 
 
-def generate_state() -> str:
-    return secrets.token_urlsafe(32)
-
-
-def generate_nonce() -> str:
-    return secrets.token_urlsafe(32)
-
-
 async def discover(client: httpx.AsyncClient, issuer: str) -> ProviderMetadata:
     response = await client.get(issuer + DISCOVERY_PATH)
     if response.status_code != 200:

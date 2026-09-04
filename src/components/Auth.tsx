@@ -50,7 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
     const state = params.get("state");
-    const bootstrap = code && state ? completeOidcLogin(code, state).then(() => refresh()) : refresh();
+    const bootstrap = code && state ? completeOidcLogin(code, state).catch(() => undefined).then(() => refresh()) : refresh();
     void bootstrap.finally(() => setReady(true));
   }, [refresh]);
 

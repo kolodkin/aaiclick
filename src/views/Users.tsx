@@ -13,6 +13,7 @@ import type { PasswordResetLinkView, UserView } from "../api/types";
 import { useAuth } from "../components/Auth";
 import { Chips } from "../components/Chips";
 import { Panel } from "../components/Panel";
+import { SecretPanel } from "../components/SecretPanel";
 import { useToast } from "../components/Toast";
 import { relativeTime } from "../lib/format";
 
@@ -71,23 +72,24 @@ function CreateUserForm() {
   );
 }
 
-function UserRow({ user, self, onResetLink }: { user: UserView; self: boolean; onResetLink: (l: PasswordResetLinkView) => void }) {
-  const toast = useToast();
-  const resetLink = useCreateResetLink();
-  const setSuperadmin = useSetSuperadmin();
-  const setDisabled = useSetDisabled();
-  const setPassword = useSetUserPassword();
-  const setEmail = useSetUserEmail();
-  const resetMfa = useResetUserMfa();
-  const fail = (what: string) => (e: Error) => toast(`${what} failed: ${e.message}`);
+interface RowActions {
+  setSuperadmin: (id: string, superadmin: boolean) => void;
+  setDisabled: (id: string, disabled: boolean) => void;
+  setPassword: (id: string, password: string) => void;
+  setEmail: (id: string, email: string | null) => void;
+  resetMfa: (id: string) => void;
+  resetLink: (id: string) => void;
+  busy: boolean;
+}
 
+function UserRow({ user, self, actions }: { user: UserView; self: boolean; actions: RowActions }) {
   const onPassword = () => {
     const password = window.prompt(`New password for ${user.username}:`);
-    if (password) setPassword.mutate({ id: user.id, password }, { onSuccess: () => toast("Password set"), onError: fail("Set password") });
+    if (password) actions.setPassword(user.id, password);
   };
   const onEmail = () => {
     const email = window.prompt(`Email for ${user.username} (blank to clear):`, user.email ?? "");
-    if (email !== null) setEmail.mutate({ id: user.id, email: email || null }, { onError: fail("Set email") });
+    if (email !== null) actions.setEmail(user.id, email || null);
   };
 
   return (
@@ -97,9 +99,9 @@ function UserRow({ user, self, onResetLink }: { user: UserView; self: boolean; o
       <td>
         <button
           className={`toggle ${user.superadmin ? "on" : "off"}`}
-          disabled={self || setSuperadmin.isPending}
+          disabled={self || actions.busy}
           title={self ? "You cannot change your own superadmin flag" : undefined}
-          onClick={() => setSuperadmin.mutate({ id: user.id, superadmin: !user.superadmin }, { onError: fail("Superadmin") })}
+          onClick={() => actions.setSuperadmin(user.id, !user.superadmin)}
         >
           <span className="switch" />
           {user.superadmin ? "superadmin" : "user"}
@@ -108,9 +110,9 @@ function UserRow({ user, self, onResetLink }: { user: UserView; self: boolean; o
       <td>
         <button
           className={`toggle ${user.disabled ? "off" : "on"}`}
-          disabled={self || setDisabled.isPending}
+          disabled={self || actions.busy}
           title={self ? "You cannot disable yourself" : undefined}
-          onClick={() => setDisabled.mutate({ id: user.id, disabled: !user.disabled }, { onError: fail("Disable") })}
+          onClick={() => actions.setDisabled(user.id, !user.disabled)}
         >
           <span className="switch" />
           {user.disabled ? "disabled" : "enabled"}
@@ -129,11 +131,11 @@ function UserRow({ user, self, onResetLink }: { user: UserView; self: boolean; o
           <button className="btn btn-sm" onClick={onEmail}>
             Email
           </button>
-          <button className="btn btn-sm" disabled={resetLink.isPending} onClick={() => resetLink.mutate(user.id, { onSuccess: onResetLink, onError: fail("Reset link") })}>
+          <button className="btn btn-sm" disabled={actions.busy} onClick={() => actions.resetLink(user.id)}>
             Reset link
           </button>
           {user.mfa_enabled && (
-            <button className="btn btn-sm" onClick={() => resetMfa.mutate(user.id, { onSuccess: () => toast("MFA reset"), onError: fail("Reset MFA") })}>
+            <button className="btn btn-sm" onClick={() => actions.resetMfa(user.id)}>
               Reset MFA
             </button>
           )}
@@ -143,40 +145,47 @@ function UserRow({ user, self, onResetLink }: { user: UserView; self: boolean; o
   );
 }
 
-// A minted reset link is shown once; hand it to the user out of band.
-function ResetLinkPanel({ link, onDone }: { link: PasswordResetLinkView; onDone: () => void }) {
-  const toast = useToast();
-  const value = link.url ?? link.token;
-  return (
-    <Panel className="confirm info">
-      <h2>Password reset link</h2>
-      <p className="sub">Valid until {new Date(link.expires_at).toLocaleString()} — single use.</p>
-      <p className="mono" id="reset-link-value" style={{ overflowWrap: "anywhere" }}>
-        {value}
-      </p>
-      <div className="form-actions">
-        <button className="btn btn-primary" onClick={() => void navigator.clipboard?.writeText(value).then(() => toast("Copied"))}>
-          Copy
-        </button>
-        <button className="btn" onClick={onDone}>
-          Done
-        </button>
-      </div>
-    </Panel>
-  );
-}
-
 export function Users({ onPrompt }: { onPrompt: (v: string) => void }) {
   const { me } = useAuth();
   const { data, isLoading, isError, error } = useUsers();
+  const toast = useToast();
   const [link, setLink] = useState<PasswordResetLinkView | null>(null);
+
+  // One mutation instance each, not one per row: the table renders up to 200
+  // rows and every hook adds a subscription that re-renders on any change.
+  const setSuperadmin = useSetSuperadmin();
+  const setDisabled = useSetDisabled();
+  const setPassword = useSetUserPassword();
+  const setEmail = useSetUserEmail();
+  const resetMfa = useResetUserMfa();
+  const resetLink = useCreateResetLink();
+  const fail = (what: string) => (e: Error) => toast(`${what} failed: ${e.message}`);
+
+  const actions: RowActions = {
+    setSuperadmin: (id, superadmin) => setSuperadmin.mutate({ id, superadmin }, { onError: fail("Superadmin") }),
+    setDisabled: (id, disabled) => setDisabled.mutate({ id, disabled }, { onError: fail("Disable") }),
+    setPassword: (id, password) =>
+      setPassword.mutate({ id, password }, { onSuccess: () => toast("Password set"), onError: fail("Set password") }),
+    setEmail: (id, email) => setEmail.mutate({ id, email }, { onError: fail("Set email") }),
+    resetMfa: (id) => resetMfa.mutate(id, { onSuccess: () => toast("MFA reset"), onError: fail("Reset MFA") }),
+    resetLink: (id) => resetLink.mutate(id, { onSuccess: setLink, onError: fail("Reset link") }),
+    busy: setSuperadmin.isPending || setDisabled.isPending || resetLink.isPending,
+  };
+
   return (
     <>
       <Chips chips={[{ label: "← home", cmd: "" }]} onPrompt={onPrompt} />
       <h2>Users</h2>
       <p className="sub">Instance-level accounts. Tenant memberships are managed with the CLI (`aaiclick member …`).</p>
       {!me?.superadmin && <p className="err">Requires the superadmin flag.</p>}
-      {link && <ResetLinkPanel link={link} onDone={() => setLink(null)} />}
+      {link && (
+        <SecretPanel
+          title="Password reset link"
+          hint={`Valid until ${new Date(link.expires_at).toLocaleString()} — single use.`}
+          value={link.url ?? link.token}
+          onDone={() => setLink(null)}
+        />
+      )}
       {me?.superadmin && <CreateUserForm />}
       {isLoading && <p className="sub">loading…</p>}
       {isError && <p className="err">{error.message}</p>}
@@ -195,7 +204,7 @@ export function Users({ onPrompt }: { onPrompt: (v: string) => void }) {
           </thead>
           <tbody>
             {data.items.map((u) => (
-              <UserRow key={u.id} user={u} self={u.id === me?.id} onResetLink={setLink} />
+              <UserRow key={u.id} user={u} self={u.id === me?.id} actions={actions} />
             ))}
           </tbody>
         </table>

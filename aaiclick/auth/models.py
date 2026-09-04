@@ -95,7 +95,8 @@ class OidcState(SQLModel, table=True):
     __tablename__: ClassVar[str] = "oidc_states"
 
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
-    state_hash: str = Field(sa_column=Column(String, nullable=False, unique=True, index=True))
+    token_hash: str = Field(sa_column=Column(String, nullable=False, unique=True, index=True))
+    """``sha256(state)`` — the OAuth ``state`` parameter is the single-use secret."""
     nonce: str = Field(sa_column=Column(String, nullable=False))
     code_verifier: str = Field(sa_column=Column(String, nullable=False))
     expires_at: datetime
