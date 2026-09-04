@@ -2,14 +2,44 @@ import { useMemo, useState } from "react";
 import { Background, Controls, MarkerType, ReactFlow, type Edge } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useJobGraph } from "../../api/hooks";
+import type { GraphNodeView } from "../../api/types";
 import { Chips } from "../Chips";
 import { edgeKey, layout, structuralKey } from "../../lib/graphLayout";
+import { GroupNode, type GroupNodeType } from "./GroupNode";
 import { RoutedEdge } from "./RoutedEdge";
 import { TaskNode, type BuildGate, type TaskNodeType } from "./TaskNode";
 
-const NODE_TYPES = { task: TaskNode };
+const NODE_TYPES = { task: TaskNode, group: GroupNode };
 const EDGE_TYPES = { routed: RoutedEdge };
 const CROWDED_NODE_COUNT = 300;
+
+type GraphNode = TaskNodeType | GroupNodeType;
+
+/**
+ * Orders nodes so every container precedes its members — React Flow resolves
+ * `parentId` against nodes it has already seen — and returns the resolved
+ * parent per node. A `parent_group_id` naming a group the server did not emit
+ * (it was empty, or its row is gone) is treated as no parent rather than
+ * leaving the node attached to nothing.
+ */
+function nestByGroup(views: GraphNodeView[]): { ordered: GraphNodeView[]; parentOf: Map<string, string> } {
+  const groups = new Map(views.filter((v) => v.kind === "group").map((v) => [String(v.id), v]));
+  const parentOf = new Map<string, string>();
+  for (const view of views) {
+    const parent = view.parent_group_id == null ? undefined : String(view.parent_group_id);
+    if (parent !== undefined && groups.has(parent)) parentOf.set(String(view.id), parent);
+  }
+  const depth = (id: string): number => {
+    let d = 0;
+    for (let p = parentOf.get(id); p !== undefined; p = parentOf.get(p)) d++;
+    return d;
+  };
+  const ordered = [...views].sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind === "group" ? -1 : 1;
+    return a.kind === "group" ? depth(String(a.id)) - depth(String(b.id)) : 0;
+  });
+  return { ordered, parentOf };
+}
 
 export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: string) => void }) {
   const { data, isLoading, isError } = useJobGraph(refId);
@@ -17,6 +47,7 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
 
   const rawNodes = useMemo(() => data?.nodes ?? [], [data]);
   const allEdges = useMemo(() => data?.edges ?? [], [data]);
+  const taskCount = useMemo(() => rawNodes.filter((n) => n.kind === "task").length, [rawNodes]);
 
   // The server classifies edges (`kind`, `attaches_build`) — which edges a
   // build gates, and which one keeps it attached to the pipeline, is graph
@@ -46,7 +77,11 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
     return gates;
   }, [allEdges, rawNodes]);
 
-  const layoutNodes = useMemo(() => rawNodes.map((n) => ({ id: String(n.id) })), [rawNodes]);
+  const { ordered, parentOf } = useMemo(() => nestByGroup(rawNodes), [rawNodes]);
+  const layoutNodes = useMemo(
+    () => ordered.map((n) => ({ id: String(n.id), parent: parentOf.get(String(n.id)) })),
+    [ordered, parentOf],
+  );
   // Layout always sees *every* edge, including the collapsed build ones. dagre
   // then reserves space and computes waypoints for them, so revealing them
   // routes around nodes rather than through — and because the input never
@@ -62,17 +97,40 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
   // re-run dagre on every 2 s poll and shuffle nodes while an operator reads
   // them. Status changes must re-colour in place, never reposition.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const { positions, edgePoints } = useMemo(() => layout(layoutNodes, layoutEdges), [key]);
+  const { positions, sizes, edgePoints } = useMemo(() => layout(layoutNodes, layoutEdges), [key]);
 
-  const nodes: TaskNodeType[] = useMemo(
+  const nodes: GraphNode[] = useMemo(
     () =>
-      rawNodes.map((view) => ({
-        id: String(view.id),
-        type: "task" as const,
-        position: positions.get(String(view.id)) ?? { x: 0, y: 0 },
-        data: { view, buildGate: buildGates.get(String(view.id)), onPrompt },
-      })),
-    [rawNodes, positions, buildGates, onPrompt],
+      ordered.map((view) => {
+        const id = String(view.id);
+        const parentId = parentOf.get(id);
+        const absolute = positions.get(id) ?? { x: 0, y: 0 };
+        // The layout is absolute; React Flow places a child relative to its
+        // parent's top-left corner.
+        const origin = (parentId && positions.get(parentId)) || { x: 0, y: 0 };
+        const position = { x: absolute.x - origin.x, y: absolute.y - origin.y };
+        const nesting = parentId ? { parentId, extent: "parent" as const } : {};
+        if (view.kind === "group") {
+          const size = sizes.get(id);
+          return {
+            id,
+            type: "group" as const,
+            position,
+            ...nesting,
+            style: size && { width: size.width, height: size.height },
+            selectable: false,
+            data: { view },
+          };
+        }
+        return {
+          id,
+          type: "task" as const,
+          position,
+          ...nesting,
+          data: { view, buildGate: buildGates.get(id), onPrompt },
+        };
+      }),
+    [ordered, parentOf, positions, sizes, buildGates, onPrompt],
   );
 
   const edges: Edge[] = useMemo(() => {
@@ -103,7 +161,7 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
 
   if (isLoading) return <p className="sub">loading graph…</p>;
   if (isError) return <p className="err">Could not load the job graph.</p>;
-  if (rawNodes.length === 0) return <p className="sub">No tasks yet.</p>;
+  if (taskCount === 0) return <p className="sub">No tasks yet.</p>;
 
   return (
     <>
@@ -112,8 +170,8 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
           {data.dropped_cycle_edges} circular dependency edge(s) hidden to keep the graph renderable.
         </div>
       )}
-      {rawNodes.length > CROWDED_NODE_COUNT && (
-        <div className="sub">{rawNodes.length} tasks — the table view may be easier to scan.</div>
+      {taskCount > CROWDED_NODE_COUNT && (
+        <div className="sub">{taskCount} tasks — the table view may be easier to scan.</div>
       )}
       {extraBuildEdges.length > 0 && (
         <Chips
@@ -133,7 +191,9 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
           edges={edges}
           nodeTypes={NODE_TYPES}
           edgeTypes={EDGE_TYPES}
-          onNodeClick={(_event, node) => onPrompt(`@task ${node.id}`)}
+          onNodeClick={(_event, node) => {
+            if (node.type === "task") onPrompt(`@task ${node.id}`);
+          }}
           onlyRenderVisibleElements
           fitView
           // Cap zoom at 1:1 — fitView's default maxZoom of 2 blows a

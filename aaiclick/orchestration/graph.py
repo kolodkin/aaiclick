@@ -4,18 +4,31 @@ Imports no SQLModel: callers pass plain ids, so these functions stay
 unit-testable without a database and the ``view_models`` → ``orchestration``
 import boundary stays one-directional.
 
-v1 renders tasks only, so a dependency touching a ``Group`` is rewritten onto
+Edges are task-to-task, so a dependency touching a ``Group`` is rewritten onto
 member tasks. Expanding to *every* member would be quadratic and would
 misrepresent ordering — a task deep inside a group would appear to depend
-directly on an upstream node it never individually waits on.
+directly on an upstream node it never individually waits on. Groups themselves
+reach the client as container nodes with a status rolled up from their members.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from typing import NamedTuple
 
-from .models import DEPENDENCY_GROUP, DEPENDENCY_TASK, DependencyType
+from .models import (
+    DEPENDENCY_GROUP,
+    DEPENDENCY_TASK,
+    TASK_CANCELLED,
+    TASK_CLAIMED,
+    TASK_COMPLETED,
+    TASK_FAILED,
+    TASK_PENDING,
+    TASK_RUNNING,
+    TASK_UPSTREAM_FAILED,
+    DependencyType,
+    TaskStatus,
+)
 
 _WHITE, _GREY, _BLACK = 0, 1, 2
 
@@ -53,6 +66,25 @@ def group_member_tasks(
         tasks |= group_members.get(current, set())
         stack.extend(group_children.get(current, set()))
     return tasks
+
+
+def rollup_status(statuses: Iterable[TaskStatus]) -> TaskStatus:
+    """Summarise member task statuses into one status for a group container.
+
+    Activity outranks outcome — a group with a failure and a task still running
+    reads as running, then fails once it settles — and among outcomes the worse
+    wins. ``PENDING_CLEANUP`` and a mix of finished and unstarted members both
+    read as pending: neither is running, neither is done.
+    """
+    seen = set(statuses)
+    if seen & {TASK_RUNNING, TASK_CLAIMED}:
+        return TASK_RUNNING
+    for outcome in (TASK_FAILED, TASK_UPSTREAM_FAILED, TASK_CANCELLED):
+        if outcome in seen:
+            return outcome
+    if seen and seen <= {TASK_COMPLETED}:
+        return TASK_COMPLETED
+    return TASK_PENDING
 
 
 class _Endpoints(NamedTuple):

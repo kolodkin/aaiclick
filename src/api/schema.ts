@@ -680,7 +680,9 @@ export interface components {
         };
         /**
          * GraphNodeView
-         * @description A node in the job graph. v1 emits only ``"task"`` nodes.
+         * @description A node in the job graph: a task, or a group container drawn around its
+         *     member tasks. A group's ``status`` and timing are rolled up from every task
+         *     beneath it; its ``entrypoint`` is empty and ``attempt`` is ``0``.
          */
         GraphNodeView: {
             /** Attempt */

@@ -5,6 +5,8 @@ import dagre from "@dagrejs/dagre";
 
 export interface LayoutNode {
   id: string;
+  /** Container this node sits inside. Containers are `LayoutNode`s too. */
+  parent?: string;
 }
 
 export interface LayoutEdge {
@@ -19,7 +21,7 @@ export const NODE_SIZE = { width: 220, height: 76 };
 // Only structural change — dynamic tasks registering at runtime — re-lays out.
 export function structuralKey(nodes: LayoutNode[], edges: LayoutEdge[]): string {
   const n = nodes
-    .map((x) => x.id)
+    .map((x) => `${x.id}@${x.parent ?? ""}`)
     .sort()
     .join(",");
   const e = edges
@@ -34,8 +36,16 @@ export interface Point {
   y: number;
 }
 
+export interface Size {
+  width: number;
+  height: number;
+}
+
 export interface Layout {
+  /** Top-left corner of every node in absolute canvas coordinates. */
   positions: Map<string, Point>;
+  /** Computed extent of each container; leaves are always `NODE_SIZE`. */
+  sizes: Map<string, Size>;
   /**
    * Waypoints per `source>target`, strictly *between* the endpoints, in render
    * order, to be connected as a polyline. Excluding the endpoints keeps this
@@ -50,12 +60,20 @@ export function edgeKey(source: string, target: string): string {
 }
 
 export function layout(nodes: LayoutNode[], edges: LayoutEdge[]): Layout {
-  const g = new dagre.graphlib.Graph();
+  const g = new dagre.graphlib.Graph({ compound: true });
   g.setGraph({ rankdir: "LR", nodesep: 24, ranksep: 72 });
   g.setDefaultEdgeLabel(() => ({}));
 
+  // A container is whatever something claims as its parent. dagre sizes a
+  // cluster from its members, so a container declares no dimensions of its
+  // own — giving it some would not reserve space, and a container nothing
+  // points at is laid out as an ordinary leaf.
+  const containers = new Set(nodes.flatMap((n) => (n.parent ? [n.parent] : [])));
   for (const node of nodes) {
-    g.setNode(node.id, { width: NODE_SIZE.width, height: NODE_SIZE.height });
+    g.setNode(node.id, containers.has(node.id) ? {} : { width: NODE_SIZE.width, height: NODE_SIZE.height });
+  }
+  for (const node of nodes) {
+    if (node.parent && containers.has(node.parent)) g.setParent(node.id, node.parent);
   }
   for (const edge of edges) {
     g.setEdge(edge.source, edge.target);
@@ -64,13 +82,15 @@ export function layout(nodes: LayoutNode[], edges: LayoutEdge[]): Layout {
   dagre.layout(g);
 
   const positions = new Map<string, Point>();
+  const sizes = new Map<string, Size>();
   for (const node of nodes) {
     const placed = g.node(node.id);
     // dagre returns node centres; React Flow positions by top-left corner.
     positions.set(node.id, {
-      x: placed.x - NODE_SIZE.width / 2,
-      y: placed.y - NODE_SIZE.height / 2,
+      x: placed.x - placed.width / 2,
+      y: placed.y - placed.height / 2,
     });
+    if (containers.has(node.id)) sizes.set(node.id, { width: placed.width, height: placed.height });
   }
 
   // dagre inserts virtual nodes for edges that span more than one rank and
@@ -88,5 +108,5 @@ export function layout(nodes: LayoutNode[], edges: LayoutEdge[]): Layout {
     }
   }
 
-  return { positions, edgePoints };
+  return { positions, sizes, edgePoints };
 }

@@ -201,6 +201,60 @@ def test_clicking_a_node_navigates_to_the_task(graph_page) -> None:
     assert graph_page.input_value("#prompt").startswith("@task ")
 
 
+def _box(locator) -> dict[str, float]:
+    box = locator.bounding_box()
+    assert box is not None
+    return box
+
+
+def _contains(outer: dict[str, float], inner: dict[str, float]) -> bool:
+    return (
+        outer["x"] <= inner["x"]
+        and outer["y"] <= inner["y"]
+        and inner["x"] + inner["width"] <= outer["x"] + outer["width"]
+        and inner["y"] + inner["height"] <= outer["y"] + outer["height"]
+    )
+
+
+def test_group_renders_as_a_container_around_its_members(graph_page) -> None:
+    """The ``transforms`` group is drawn as one frame enclosing exactly its two
+    member tasks, with the rest of the pipeline outside it."""
+    containers = graph_page.locator("[data-testid='group-node']")
+    assert containers.count() == 1
+    frame = _box(containers.first)
+    assert "transforms" in containers.first.inner_text()
+
+    inside = {name for name in DEFAULT_STATES if _contains(frame, _box(graph_page.locator(".gnode", has_text=name)))}
+    assert inside == {"transform_a", "transform_b"}
+
+
+def test_group_status_is_rolled_up_from_its_members(graph_page) -> None:
+    """``transform_a`` is done and ``transform_b`` is running, so the frame
+    reads RUNNING: activity outranks outcome."""
+    assert graph_page.locator(".ggroup-RUNNING").count() == 1
+    assert "RUNNING" in graph_page.locator("[data-testid='group-node']").first.inner_text()
+
+
+def test_group_status_settles_once_members_finish(page, base_url: str) -> None:
+    all_green = {name: TaskState(TASK_COMPLETED, None, 0, 30) for name in DEFAULT_STATES}
+    job_id = _seed("graph_ui_group_done", states=all_green, job_status=JOB_COMPLETED)
+
+    open_graph(page, base_url, job_id)
+    page.wait_for_selector(".ggroup-COMPLETED", timeout=15000)
+
+    assert page.locator(".ggroup-RUNNING").count() == 0
+
+
+def test_clicking_a_group_does_not_navigate(graph_page) -> None:
+    """Only tasks have a detail view; the frame is a visual grouping."""
+    before = graph_page.input_value("#prompt")
+
+    graph_page.locator("[data-testid='group-node']").first.click(position={"x": 4, "y": 4})
+    graph_page.wait_for_timeout(300)
+
+    assert graph_page.input_value("#prompt") == before
+
+
 def test_toggle_switches_between_table_and_graph(page, base_url: str, seeded_job_id: int) -> None:
     """The Table/Graph chips move the prompt between the two views."""
     open_page(page, f"{base_url}/?p=@job {seeded_job_id}")

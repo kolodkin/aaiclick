@@ -103,13 +103,21 @@ A Table/Graph toggle switches the body between the tasks table and the
 dependency graph. The prompt carries the mode — `@job <name> graph` — so the
 view stays shareable as a URL.
 
-Nodes are task-level: the server resolves `Group` dependencies onto member
-tasks, so the client receives plain task nodes and task-to-task edges. Node
-colour follows task status, and an image-build task and its outgoing edges are
-styled distinctly.
+Edges are task-level: the server resolves `Group` dependencies onto member
+tasks, so the client receives task-to-task edges only. Node colour follows task
+status, and an image-build task and its outgoing edges are styled distinctly.
+
+Groups render as nested containers around their members: `"group"` nodes with
+a status rolled up server-side from every task beneath them (activity outranks
+outcome — see `rollup_status`) and timing spanning the earliest member start
+to the latest finish. Empty groups are omitted. Containers are dagre clusters
+drawn as React Flow subflows; clicking one does nothing, since only tasks have
+a detail view.
 
 **Implementation**: `src/components/graph/JobGraph.tsx` — see `JobGraph`;
-`aaiclick/orchestration/graph.py` — see `build_graph_edges`;
+`src/components/graph/GroupNode.tsx` — see `GroupNode`;
+`aaiclick/orchestration/graph.py` — see `build_graph_edges`, `rollup_status`;
+`aaiclick/orchestration/view_models.py` — see `build_job_graph_view`;
 `aaiclick/server/routers/jobs.py` — see `job_graph`.
 
 Task statuses use the same color scheme as job statuses, plus:

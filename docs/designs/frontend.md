@@ -28,7 +28,10 @@ real-time updates. UX (layout, modes, wireframes) lives in `docs/designs/ui.md`.
     not shipped since 2022.
 
     The engine sits behind `layout()` in `src/lib/graphLayout.ts`, the only
-    module importing it, so replacing it is a one-file change. If nested-cluster
+    module importing it, so replacing it is a one-file change. Group containers
+    use dagre's compound mode, its weakest area: in left-to-right mode a
+    cluster's label size is ignored, so the container header must fit the
+    fixed padding dagre leaves above the first member. If nested-cluster
     quality disappoints, the MIT-compatible escape hatch is Graphviz WASM
     (`@hpcc-js/wasm-graphviz`) — **not** elkjs, which is dual EPL-2.0 /
     GPL-3.0-or-later and cannot ship inside this MIT wheel.
