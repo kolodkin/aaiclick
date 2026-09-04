@@ -66,11 +66,20 @@ async def test_query_table_rejects_ddl_keywords_inside_select():
     "table",
     [
         pytest.param("t_99999999999999999999", id="temp"),
+        pytest.param("t_orders_99999999999999999999", id="temp-named"),
+        pytest.param("j_42_payroll", id="job"),
         # Global tables are opaque ``p_<snowflake>`` — digits must still count as a table ref.
         pytest.param("p_99999999999999999999", id="global-opaque"),
+        pytest.param("p_legacy_name", id="global-legacy"),
     ],
 )
 async def test_query_table_rejects_out_of_scope_table(table):
+    """Every scope shape in aaiclick/data/scope.py must be visible to the guard.
+
+    A shape the reference regex does not match is not merely unreported — it
+    skips the scope check entirely and the SELECT runs against ClickHouse,
+    which holds every tenant's tables in one database.
+    """
     toolbox = LineageToolbox(_sample_graph())
     err = await toolbox.query_table(f"SELECT * FROM {table}")
     assert isinstance(err, ToolError)
