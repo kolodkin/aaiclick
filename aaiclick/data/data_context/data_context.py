@@ -13,7 +13,7 @@ import weakref
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import TYPE_CHECKING, cast
 
 import pyarrow as pa
@@ -52,7 +52,7 @@ from ..scope import (
     make_scoped_table_name,
     name_from_table,
 )
-from ..sql_utils import quote_identifier
+from ..sql_utils import naive_utc, quote_identifier
 from .arrow_ingest import (
     arrow_table_for_insert,
     infer_struct_array,
@@ -769,11 +769,6 @@ async def delete_persistent_objects(
     return [name_from_table(n) for n in names]
 
 
-def _naive_utc(dt: datetime) -> datetime:
-    """Coerce to the storage convention — naive UTC (see ``datetime_utils``)."""
-    return dt.astimezone(timezone.utc).replace(tzinfo=None) if dt.tzinfo else dt
-
-
 async def list_persistent_tables(
     after: datetime | None = None,
     before: datetime | None = None,
@@ -799,9 +794,9 @@ async def list_persistent_tables(
         col(TableRegistry.table_name).startswith(GLOBAL_PREFIX, autoescape=True),
     ]
     if after is not None:
-        predicates.append(col(TableRegistry.created_at) >= _naive_utc(after))
+        predicates.append(col(TableRegistry.created_at) >= naive_utc(after))
     if before is not None:
-        predicates.append(col(TableRegistry.created_at) < _naive_utc(before))
+        predicates.append(col(TableRegistry.created_at) < naive_utc(before))
     async with get_sql_session() as session:
         result = await session.execute(select(TableRegistry.table_name).where(*predicates))
     return [row[0] for row in result.all()]
