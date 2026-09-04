@@ -433,6 +433,11 @@ async def _run_user_enable(args: argparse.Namespace) -> None:
     _render(args, view, cli_renderers.render_user)
 
 
+async def _run_user_reset_mfa(args: argparse.Namespace) -> None:
+    view = await _run_internal_api(users_api.reset_mfa(args.user_id))
+    _render(args, view, cli_renderers.render_user)
+
+
 async def _run_user_set_email(args: argparse.Namespace) -> None:
     view = await _run_internal_api(users_api.set_email(args.user_id, args.email or None))
     _render(args, view, cli_renderers.render_user)
@@ -1267,6 +1272,10 @@ def build_parser() -> argparse.ArgumentParser:
     user_enable_parser.add_argument("user_id", type=int)
     _add_json_flag(user_enable_parser)
 
+    user_reset_mfa_parser = user_subparsers.add_parser("reset-mfa", help="Clear a user's authenticator (lost device)")
+    user_reset_mfa_parser.add_argument("user_id", type=int)
+    _add_json_flag(user_reset_mfa_parser)
+
     user_set_email_parser = user_subparsers.add_parser("set-email", help="Set (or clear) a user's email")
     user_set_email_parser.add_argument("user_id", type=int)
     user_set_email_parser.add_argument("email", nargs="?", default=None, help="Omit to clear")
@@ -1502,6 +1511,8 @@ def main():
             asyncio.run(_run_user_enable(args))
         elif args.user_command == "set-email":
             asyncio.run(_run_user_set_email(args))
+        elif args.user_command == "reset-mfa":
+            asyncio.run(_run_user_reset_mfa(args))
 
         elif args.user_command == "passwd":
             asyncio.run(_run_user_passwd(args))

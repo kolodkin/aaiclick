@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { deleteJSON, fetchJSON, postJSON, putJSON } from "./client";
+import { deleteJSON, fetchJSON, postJSON, postNoContent, putJSON } from "./client";
 import type {
   ApiTokenCreated,
   ApiTokenView,
   ChangePasswordRequest,
   CreateApiTokenRequest,
   CreateUserRequest,
+  MfaSetupView,
   JobDetail,
   JobGraphView,
   JobView,
@@ -137,6 +138,20 @@ export function useChangePassword() {
   });
 }
 
+export function useMfaSetup() {
+  return useMutation({ mutationFn: () => postJSON<MfaSetupView>("/auth/me/mfa/setup") });
+}
+
+export function useMfaEnable() {
+  return useMutation({ mutationFn: (code: string) => postNoContent("/auth/me/mfa/enable", { code }) });
+}
+
+export function useMfaDisable() {
+  return useMutation({
+    mutationFn: (req: { password: string; code: string }) => postNoContent("/auth/me/mfa/disable", req),
+  });
+}
+
 // --- users (superadmin) -------------------------------------------------
 
 export function useUsers() {
@@ -175,6 +190,10 @@ export function useSetUserPassword() {
   return useUserMutation(({ id, password }: { id: string; password: string }) =>
     putJSON<UserView>(`/users/${id}/password`, { password }),
   );
+}
+
+export function useResetUserMfa() {
+  return useUserMutation((id: string) => postJSON<UserView>(`/users/${id}/mfa/reset`));
 }
 
 export function useSetUserEmail() {

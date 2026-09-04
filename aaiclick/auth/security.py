@@ -5,10 +5,15 @@ No DB, no contextvars, no env reads — callers pass secrets/TTLs explicitly.
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import hmac
 import secrets
+import struct
+import time
 from datetime import datetime, timedelta, timezone
 from typing import NamedTuple
+from urllib.parse import quote
 
 import bcrypt
 import jwt
@@ -17,6 +22,12 @@ TOKEN_TYPE_ACCESS = "access"
 API_TOKEN_PREFIX = "aaic_"
 API_TOKEN_DISPLAY_CHARS = 12
 """How many leading characters of an API token are kept for display."""
+
+TOTP_STEP_SECONDS = 30
+TOTP_DIGITS = 6
+TOTP_DRIFT_STEPS = 1
+"""Accept codes from this many steps either side of now — clock skew tolerance."""
+TOTP_ISSUER = "aaiclick"
 
 
 class TokenError(Exception):
@@ -90,3 +101,38 @@ def decode_access_token(token: str, secret: str) -> AccessClaims:
         )
     except (KeyError, ValueError) as exc:
         raise TokenError("malformed claims") from exc
+
+
+# --- TOTP (RFC 6238 over HOTP / RFC 4226) ---------------------------------
+# Standard-library only: HMAC-SHA1, 30 s steps, 6 digits — what every
+# authenticator app expects from an ``otpauth://`` URI.
+
+
+def generate_totp_secret() -> str:
+    """Base32 seed (160 bits), the format authenticator apps accept by hand."""
+    return base64.b32encode(secrets.token_bytes(20)).decode()
+
+
+def totp_code(secret: str, at: float | None = None) -> str:
+    counter = int((time.time() if at is None else at) // TOTP_STEP_SECONDS)
+    key = base64.b32decode(secret, casefold=True)
+    digest = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    number = struct.unpack(">I", digest[offset : offset + 4])[0] & 0x7FFFFFFF
+    return str(number % (10**TOTP_DIGITS)).zfill(TOTP_DIGITS)
+
+
+def verify_totp(secret: str, code: str, at: float | None = None) -> bool:
+    """Constant-time check of ``code`` against the current step ± drift."""
+    now = time.time() if at is None else at
+    candidate = code.strip().replace(" ", "")
+    return any(
+        hmac.compare_digest(totp_code(secret, now + step * TOTP_STEP_SECONDS), candidate)
+        for step in range(-TOTP_DRIFT_STEPS, TOTP_DRIFT_STEPS + 1)
+    )
+
+
+def totp_uri(secret: str, username: str, issuer: str = TOTP_ISSUER) -> str:
+    """``otpauth://`` URI for authenticator apps (rendered as a QR code or typed)."""
+    label = quote(f"{issuer}:{username}")
+    return f"otpauth://totp/{label}?secret={secret}&issuer={quote(issuer)}&algorithm=SHA1&digits={TOTP_DIGITS}&period={TOTP_STEP_SECONDS}"

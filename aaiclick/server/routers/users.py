@@ -64,3 +64,9 @@ async def disable_user(user_id: int) -> UserView:
 @router.post("/{user_id}/enable", response_model=UserView, responses=problem_responses(404))
 async def enable_user(user_id: int) -> UserView:
     return await users_api.disable_user(user_id, False)
+
+
+@router.post("/{user_id}/mfa/reset", response_model=UserView, responses=problem_responses(404))
+async def reset_mfa(user_id: int) -> UserView:
+    """Lost-authenticator recovery — there are no recovery codes."""
+    return await users_api.reset_mfa(user_id)

@@ -63,3 +63,25 @@ def test_api_token_format():
     assert not security.is_api_token("eyJhbGciOi")
     assert security.api_token_display_prefix(token) == token[:12]
     assert security.generate_api_token() != token
+
+
+def test_totp_matches_rfc6238_vector():
+    """RFC 6238 Appendix B, SHA-1, 8 digits truncated to our 6: at T=59 the
+    code is 94287082 → last six digits 287082."""
+    secret = security.base64.b32encode(b"12345678901234567890").decode()
+    assert security.totp_code(secret, at=59) == "287082"
+
+
+def test_verify_totp_accepts_drift_and_rejects_stale():
+    secret = security.generate_totp_secret()
+    now = 1_700_000_000.0
+    code = security.totp_code(secret, at=now)
+    assert security.verify_totp(secret, code, at=now)
+    assert security.verify_totp(secret, f"{code[:3]} {code[3:]}", at=now + 30)  # one step later, spaces ok
+    assert not security.verify_totp(secret, code, at=now + 120)
+    assert not security.verify_totp(secret, "000000" if code != "000000" else "111111", at=now)
+
+
+def test_totp_uri_shape():
+    uri = security.totp_uri("ABC234", "al ice")
+    assert uri.startswith("otpauth://totp/aaiclick%3Aal%20ice?secret=ABC234&issuer=aaiclick")

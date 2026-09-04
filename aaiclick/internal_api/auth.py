@@ -14,6 +14,9 @@ from aaiclick.auth.view_models import (
     ChangePasswordRequest,
     LoginRequest,
     LogoutRequest,
+    MfaDisableRequest,
+    MfaEnableRequest,
+    MfaSetupView,
     OidcCallbackRequest,
     OidcConfigView,
     OidcStartView,
@@ -23,7 +26,7 @@ from aaiclick.auth.view_models import (
 )
 
 from . import users
-from .errors import Conflict, Invalid, Unauthorized
+from .errors import Conflict, Invalid, MfaRequired, Unauthorized
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +68,11 @@ async def login(request: LoginRequest, *, secret: str) -> TokenPair:
     user = await store.get_user_by_username(request.username)
     if user is None or not _authenticates(user, request.password):
         raise Unauthorized("invalid username or password")
+    if user.mfa_enabled and user.totp_secret is not None:
+        if request.totp_code is None:
+            raise MfaRequired("multi-factor code required")
+        if not security.verify_totp(user.totp_secret, request.totp_code):
+            raise Unauthorized("invalid multi-factor code")
     return await _mint_pair(user=user, secret=secret)
 
 
@@ -99,6 +107,53 @@ async def logout(request: LogoutRequest) -> None:
     row = await store.get_active_refresh(security.sha256_hex(request.refresh_token))
     if row is not None:
         await store.revoke_refresh(row.id)
+
+
+# --- MFA ------------------------------------------------------------------
+
+
+async def _require_current_user(user_id: int | None) -> User:
+    if user_id is None:
+        raise Invalid("auth is disabled — there is no current user")
+    user = await store.get_user_by_id(user_id)
+    if user is None:
+        raise Unauthorized("user not found")
+    return user
+
+
+async def mfa_setup(user_id: int | None) -> MfaSetupView:
+    """Issue a fresh pending secret. Re-running replaces an unconfirmed one;
+    an enabled account must disable MFA first so a stolen session cannot
+    silently swap the authenticator."""
+    user = await _require_current_user(user_id)
+    if user.mfa_enabled:
+        raise Conflict("MFA is already enabled — disable it before setting up a new authenticator")
+    secret = security.generate_totp_secret()
+    await store.set_totp(user.id, totp_secret=secret, mfa_enabled=False)
+    return MfaSetupView(secret=secret, otpauth_uri=security.totp_uri(secret, user.username))
+
+
+async def mfa_enable(user_id: int | None, request: MfaEnableRequest) -> None:
+    """Confirm the pending secret with a live code, then end the user's other
+    sessions so every open client re-authenticates with the second factor."""
+    user = await _require_current_user(user_id)
+    if user.totp_secret is None:
+        raise Invalid("run MFA setup first")
+    if user.mfa_enabled:
+        raise Conflict("MFA is already enabled")
+    if not security.verify_totp(user.totp_secret, request.code):
+        raise Unauthorized("invalid multi-factor code")
+    await store.set_totp(user.id, totp_secret=user.totp_secret, mfa_enabled=True)
+    await store.revoke_all_for_user(user.id)
+
+
+async def mfa_disable(user_id: int | None, request: MfaDisableRequest) -> None:
+    user = await _require_current_user(user_id)
+    if not user.mfa_enabled or user.totp_secret is None:
+        raise Conflict("MFA is not enabled")
+    if not _authenticates(user, request.password) or not security.verify_totp(user.totp_secret, request.code):
+        raise Unauthorized("invalid password or multi-factor code")
+    await store.set_totp(user.id, totp_secret=None, mfa_enabled=False)
 
 
 # --- OIDC / SSO ---------------------------------------------------------

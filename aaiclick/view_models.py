@@ -71,6 +71,7 @@ class ProblemCode(str, Enum):
     CONFLICT = "conflict"
     INVALID = "invalid"
     UNAUTHORIZED = "unauthorized"
+    MFA_REQUIRED = "mfa_required"
     FORBIDDEN = "forbidden"
     EXECUTION_WORKER_SPAWN_FAILED = "execution_worker_spawn_failed"
 

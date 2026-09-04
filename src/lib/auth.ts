@@ -63,9 +63,27 @@ interface TokenPair {
   expires_in: number;
 }
 
-export async function login(username: string, password: string): Promise<void> {
-  const res = await postAuth("/auth/login", { username, password });
-  if (!res.ok) throw new Error("login failed");
+// Carries the Problem code so the form can tell "needs an MFA code" from
+// "wrong credentials".
+export class LoginError extends Error {
+  code: string | null;
+  constructor(code: string | null) {
+    super("login failed");
+    this.code = code;
+  }
+}
+
+export async function login(username: string, password: string, totpCode?: string): Promise<void> {
+  const res = await postAuth("/auth/login", { username, password, totp_code: totpCode ?? null });
+  if (!res.ok) {
+    let code: string | null = null;
+    try {
+      code = ((await res.json()) as { code?: string }).code ?? null;
+    } catch {
+      code = null;
+    }
+    throw new LoginError(code);
+  }
   const pair = (await res.json()) as TokenPair;
   setAccessToken(pair.access_token);
   setRefreshToken(pair.refresh_token);

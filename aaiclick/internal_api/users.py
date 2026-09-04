@@ -91,3 +91,14 @@ async def set_email(user_id: int, email: str | None) -> UserView:
     except store.UserNotFound as exc:
         raise NotFound(str(exc)) from exc
     return _to_view(user)
+
+
+async def reset_mfa(user_id: int) -> UserView:
+    """Superadmin recovery for a lost authenticator: clear the secret and flag,
+    and end the user's sessions so the account is re-verified on next login."""
+    try:
+        user = await store.set_totp(user_id, totp_secret=None, mfa_enabled=False)
+    except store.UserNotFound as exc:
+        raise NotFound(str(exc)) from exc
+    await store.revoke_all_for_user(user_id)
+    return _to_view(user)

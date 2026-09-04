@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   useCreateUser,
+  useResetUserMfa,
   useSetDisabled,
   useSetSuperadmin,
   useSetUserEmail,
@@ -75,6 +76,7 @@ function UserRow({ user, self }: { user: UserView; self: boolean }) {
   const setDisabled = useSetDisabled();
   const setPassword = useSetUserPassword();
   const setEmail = useSetUserEmail();
+  const resetMfa = useResetUserMfa();
   const fail = (what: string) => (e: Error) => toast(`${what} failed: ${e.message}`);
 
   const onPassword = () => {
@@ -125,6 +127,11 @@ function UserRow({ user, self }: { user: UserView; self: boolean }) {
           <button className="btn btn-sm" onClick={onEmail}>
             Email
           </button>
+          {user.mfa_enabled && (
+            <button className="btn btn-sm" onClick={() => resetMfa.mutate(user.id, { onSuccess: () => toast("MFA reset"), onError: fail("Reset MFA") })}>
+              Reset MFA
+            </button>
+          )}
         </div>
       </td>
     </tr>

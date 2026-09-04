@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { Panel } from "../components/Panel";
 import { useAuth } from "../components/Auth";
-import { fetchOidcConfig, login, startOidcLogin, type OidcConfig } from "../lib/auth";
+import { fetchOidcConfig, login, LoginError, startOidcLogin, type OidcConfig } from "../lib/auth";
 
 export function Login() {
   const { refresh } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [totp, setTotp] = useState("");
+  const [needsCode, setNeedsCode] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [oidc, setOidc] = useState<OidcConfig | null>(null);
@@ -30,10 +32,14 @@ export function Login() {
     setBusy(true);
     setError(null);
     try {
-      await login(username, password);
+      await login(username, password, needsCode ? totp : undefined);
       await refresh();
-    } catch {
-      setError("Invalid username or password");
+    } catch (err) {
+      if (err instanceof LoginError && err.code === "mfa_required") {
+        setNeedsCode(true);
+      } else {
+        setError(needsCode ? "Invalid username, password, or code" : "Invalid username or password");
+      }
     } finally {
       setBusy(false);
     }
@@ -65,6 +71,21 @@ export function Login() {
                 onChange={(e) => setPassword(e.target.value)}
               />
             </div>
+            {needsCode && (
+              <div className="field">
+                <label>
+                  Authenticator code <span className="help">— six digits from your app</span>
+                </label>
+                <input
+                  id="login-totp"
+                  type="text"
+                  value={totp}
+                  autoFocus
+                  autoComplete="one-time-code"
+                  onChange={(e) => setTotp(e.target.value)}
+                />
+              </div>
+            )}
             {error && <p className="err">{error}</p>}
             <div className="form-actions">
               <button id="login-submit" className="btn btn-primary" type="submit" disabled={busy}>

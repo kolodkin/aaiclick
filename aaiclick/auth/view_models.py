@@ -13,6 +13,8 @@ from .models import Role, TokenScope
 class LoginRequest(BaseModel):
     username: str
     password: str
+    totp_code: str | None = None
+    """Required once the account has MFA enabled (``401 code="mfa_required"`` otherwise)."""
 
 
 class RefreshRequest(BaseModel):
@@ -68,6 +70,7 @@ class MeView(BaseModel):
     id: SnowflakeId | None
     username: str | None
     superadmin: bool
+    mfa_enabled: bool = False
     tenants: list[TenantRoleView]
 
 
@@ -163,3 +166,22 @@ class OidcStartView(BaseModel):
 class OidcCallbackRequest(BaseModel):
     code: str
     state: str
+
+
+class MfaSetupView(BaseModel):
+    """A pending TOTP secret; MFA turns on only after ``/auth/me/mfa/enable``
+    proves the authenticator has it."""
+
+    secret: str
+    otpauth_uri: str
+
+
+class MfaEnableRequest(BaseModel):
+    code: str
+
+
+class MfaDisableRequest(BaseModel):
+    """Both factors are needed to turn MFA off."""
+
+    password: str
+    code: str

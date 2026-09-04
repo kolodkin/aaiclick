@@ -454,3 +454,13 @@ def test_token_parser_flags():
     assert args.scope == "read" and args.expires_days is None
     args = parser.parse_args(["token", "revoke", "alice", "42"])
     assert args.token_command == "revoke" and args.token_id == 42
+
+
+def test_user_parser_new_commands():
+    parser = build_parser()
+    args = parser.parse_args(["user", "create", "sso_only", "--email", "s@example.com"])
+    assert args.password is None and args.email == "s@example.com"
+    assert parser.parse_args(["user", "enable", "7"]).user_command == "enable"
+    assert parser.parse_args(["user", "reset-mfa", "7"]).user_command == "reset-mfa"
+    args = parser.parse_args(["user", "set-email", "7"])
+    assert args.user_command == "set-email" and args.email is None

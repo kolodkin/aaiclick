@@ -13,6 +13,9 @@ from aaiclick.auth.view_models import (
     LoginRequest,
     LogoutRequest,
     MeView,
+    MfaDisableRequest,
+    MfaEnableRequest,
+    MfaSetupView,
     OidcCallbackRequest,
     OidcConfigView,
     OidcStartView,
@@ -34,6 +37,8 @@ router = APIRouter(prefix="/auth", tags=["auth"], dependencies=[Depends(orch_sco
 
 @router.post("/login", response_model=TokenPair, responses=problem_responses(401))
 async def login(request: LoginRequest) -> TokenPair:
+    """``401 code="mfa_required"`` means the password was accepted but the
+    account needs ``totp_code`` — retry with it."""
     return await auth_api.login(request, secret=config.require_jwt_secret())
 
 
@@ -56,6 +61,7 @@ async def me(principal: Principal = Depends(require_principal)) -> MeView:
         id=user.id,
         username=user.username,
         superadmin=principal.superadmin,
+        mfa_enabled=user.mfa_enabled,
         tenants=await auth_api.my_tenants(principal.user_id),
     )
 
@@ -67,6 +73,26 @@ async def change_password(
 ) -> None:
     """Any role may change their own password — ``/users`` is admin-only."""
     await auth_api.change_password(principal.user_id, request)
+
+
+# --- MFA ------------------------------------------------------------------
+# Session-only: an API token bypasses MFA by design, so it must not be able
+# to reconfigure it either.
+
+
+@router.post("/me/mfa/setup", response_model=MfaSetupView, responses=problem_responses(403, 409, 422))
+async def mfa_setup(principal: Principal = Depends(require_session)) -> MfaSetupView:
+    return await auth_api.mfa_setup(principal.user_id)
+
+
+@router.post("/me/mfa/enable", status_code=204, responses=problem_responses(401, 403, 409, 422))
+async def mfa_enable(request: MfaEnableRequest, principal: Principal = Depends(require_session)) -> None:
+    await auth_api.mfa_enable(principal.user_id, request)
+
+
+@router.post("/me/mfa/disable", status_code=204, responses=problem_responses(401, 403, 409, 422))
+async def mfa_disable(request: MfaDisableRequest, principal: Principal = Depends(require_session)) -> None:
+    await auth_api.mfa_disable(principal.user_id, request)
 
 
 # --- OIDC / SSO ---------------------------------------------------------

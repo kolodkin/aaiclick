@@ -1,6 +1,8 @@
 import pytest
 
-from aaiclick.auth.view_models import CreateUserRequest
+from aaiclick.auth import security
+from aaiclick.auth.view_models import CreateUserRequest, MfaEnableRequest
+from aaiclick.internal_api import auth as auth_api
 from aaiclick.internal_api import users
 from aaiclick.server.app import API_PREFIX
 
@@ -132,3 +134,17 @@ async def test_oidc_config_is_public(orch_ctx, anon_client, enabled, monkeypatch
     assert res.status_code == 200 and res.json()["enabled"] is False
     res = await anon_client.post(f"{API_PREFIX}/auth/oidc/start")
     assert res.status_code == 422 and res.json()["code"] == "invalid"
+
+
+async def test_login_mfa_required_problem_code(orch_ctx, app_client, enabled):
+    view = await users.create_user(CreateUserRequest(username="mfa", password="pw"))
+    setup = await auth_api.mfa_setup(view.id)
+    await auth_api.mfa_enable(view.id, MfaEnableRequest(code=security.totp_code(setup.secret)))
+
+    res = await app_client.post(f"{API_PREFIX}/auth/login", json={"username": "mfa", "password": "pw"})
+    assert res.status_code == 401 and res.json()["code"] == "mfa_required"
+    ok = await app_client.post(
+        f"{API_PREFIX}/auth/login",
+        json={"username": "mfa", "password": "pw", "totp_code": security.totp_code(setup.secret)},
+    )
+    assert ok.status_code == 200

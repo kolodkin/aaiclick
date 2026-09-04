@@ -13,6 +13,7 @@ from aaiclick.internal_api.errors import (
     Forbidden,
     InternalApiError,
     Invalid,
+    MfaRequired,
     NotFound,
     Unauthorized,
 )
@@ -24,6 +25,7 @@ _PROBLEM_MAP: dict[type[InternalApiError], tuple[str, int, ProblemCode]] = {
     ExecutionWorkerSpawnFailed: ("ExecutionWorker Spawn Failed", 503, ProblemCode.EXECUTION_WORKER_SPAWN_FAILED),
     Invalid: ("Invalid Request", 422, ProblemCode.INVALID),
     Unauthorized: ("Unauthorized", 401, ProblemCode.UNAUTHORIZED),
+    MfaRequired: ("MFA Required", 401, ProblemCode.MFA_REQUIRED),
     Forbidden: ("Forbidden", 403, ProblemCode.FORBIDDEN),
 }
 
@@ -31,6 +33,7 @@ _PROBLEM_MAP: dict[type[InternalApiError], tuple[str, int, ProblemCode]] = {
 # clients know to retry with a bearer token (RFC 7235).
 _HEADERS: dict[type[InternalApiError], dict[str, str]] = {
     Unauthorized: {"WWW-Authenticate": "Bearer"},
+    MfaRequired: {"WWW-Authenticate": "Bearer"},
 }
 
 
