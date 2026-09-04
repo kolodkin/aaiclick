@@ -14,7 +14,7 @@ from datetime import datetime
 from enum import Enum, auto
 from typing import ClassVar
 
-from sqlalchemy import BigInteger, Column, DateTime, String, Text
+from sqlalchemy import BigInteger, Column, DateTime, String, Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 from ...datetime_utils import utc_now
@@ -128,14 +128,22 @@ class TableRegistry(SQLModel, table=True):
     owning job TTL-expires or (for orphans with ``job_id IS NULL``) when
     the orphan TTL expires.
 
+    ``name`` is the user-visible object name and is set only on
+    ``scope="global"`` rows — the ClickHouse table name is opaque
+    (``p_<snowflake>``), so this column is the sole name → table mapping
+    and ``UNIQUE (tenant_id, name)`` is what keeps names per-tenant
+    unique. Job- and temp-scoped rows leave it ``NULL``.
+
     Previously lived in ClickHouse as an append-only MergeTree table.
     Moved to SQL because every consumer is a keyed lookup or owner join
     during background cleanup — not append-only audit.
     """
 
     __tablename__: ClassVar[str] = "table_registry"
+    __table_args__ = (UniqueConstraint("tenant_id", "name"),)
 
     table_name: str = Field(sa_column=Column(String, primary_key=True))
+    name: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     tenant_id: int = Field(
         default=DEFAULT_TENANT_ID,
         sa_column=Column(BigInteger, nullable=False, index=True, server_default=str(DEFAULT_TENANT_ID)),
