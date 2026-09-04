@@ -147,3 +147,19 @@ class CreateApiTokenRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     scope: TokenScope = "read"
     expires_at: datetime | None = None
+
+
+class OidcConfigView(BaseModel):
+    """Whether SSO is configured, so the login screen can offer the button."""
+
+    enabled: bool
+    label: str
+
+
+class OidcStartView(BaseModel):
+    authorization_url: str
+
+
+class OidcCallbackRequest(BaseModel):
+    code: str
+    state: str

@@ -15,8 +15,8 @@ let accessToken: string | null = null;
 function postAuth(path: string, body: unknown): Promise<Response> {
   return fetch(`${API}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    headers: body === undefined ? {} : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
 }
 
@@ -69,6 +69,41 @@ export async function login(username: string, password: string): Promise<void> {
   const pair = (await res.json()) as TokenPair;
   setAccessToken(pair.access_token);
   setRefreshToken(pair.refresh_token);
+}
+
+export interface OidcConfig {
+  enabled: boolean;
+  label: string;
+}
+
+export async function fetchOidcConfig(): Promise<OidcConfig> {
+  const res = await fetch(`${API}/auth/oidc/config`);
+  if (!res.ok) return { enabled: false, label: "SSO" };
+  return (await res.json()) as OidcConfig;
+}
+
+// Ask the server for the provider URL (it records the login state), then
+// leave the SPA for the identity provider.
+export async function startOidcLogin(): Promise<void> {
+  const res = await postAuth("/auth/oidc/start", undefined);
+  if (!res.ok) throw new Error("SSO start failed");
+  const { authorization_url } = (await res.json()) as { authorization_url: string };
+  window.location.assign(authorization_url);
+}
+
+// The provider redirects back to the site root with ?code=&state=. Trade
+// them for a session, then strip the parameters so a reload cannot replay.
+export async function completeOidcLogin(code: string, state: string): Promise<boolean> {
+  const res = await postAuth("/auth/oidc/callback", { code, state });
+  const url = new URL(window.location.href);
+  url.searchParams.delete("code");
+  url.searchParams.delete("state");
+  window.history.replaceState({}, "", url);
+  if (!res.ok) return false;
+  const pair = (await res.json()) as TokenPair;
+  setAccessToken(pair.access_token);
+  setRefreshToken(pair.refresh_token);
+  return true;
 }
 
 export async function tryRefresh(): Promise<boolean> {

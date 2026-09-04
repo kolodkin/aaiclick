@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Panel } from "../components/Panel";
 import { useAuth } from "../components/Auth";
-import { login } from "../lib/auth";
+import { fetchOidcConfig, login, startOidcLogin, type OidcConfig } from "../lib/auth";
 
 export function Login() {
   const { refresh } = useAuth();
@@ -9,6 +9,21 @@ export function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [oidc, setOidc] = useState<OidcConfig | null>(null);
+
+  useEffect(() => {
+    void fetchOidcConfig().then(setOidc);
+  }, []);
+
+  const sso = async () => {
+    setBusy(true);
+    try {
+      await startOidcLogin();
+    } catch {
+      setError("SSO is not available right now");
+      setBusy(false);
+    }
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,6 +70,11 @@ export function Login() {
               <button id="login-submit" className="btn btn-primary" type="submit" disabled={busy}>
                 {busy ? "Signing in…" : "Sign in"}
               </button>
+              {oidc?.enabled && (
+                <button id="login-sso" className="btn" type="button" disabled={busy} onClick={() => void sso()}>
+                  Sign in with {oidc.label}
+                </button>
+              )}
             </div>
           </form>
         </Panel>

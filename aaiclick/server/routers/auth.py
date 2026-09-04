@@ -13,6 +13,9 @@ from aaiclick.auth.view_models import (
     LoginRequest,
     LogoutRequest,
     MeView,
+    OidcCallbackRequest,
+    OidcConfigView,
+    OidcStartView,
     RefreshRequest,
     TokenPair,
 )
@@ -64,6 +67,26 @@ async def change_password(
 ) -> None:
     """Any role may change their own password — ``/users`` is admin-only."""
     await auth_api.change_password(principal.user_id, request)
+
+
+# --- OIDC / SSO ---------------------------------------------------------
+# Public: the browser has no session yet. ``/start`` is a POST because it
+# writes a login-state row.
+
+
+@router.get("/oidc/config", response_model=OidcConfigView)
+async def oidc_config() -> OidcConfigView:
+    return auth_api.oidc_config()
+
+
+@router.post("/oidc/start", response_model=OidcStartView, responses=problem_responses(409, 422))
+async def oidc_start() -> OidcStartView:
+    return await auth_api.oidc_start()
+
+
+@router.post("/oidc/callback", response_model=TokenPair, responses=problem_responses(401, 422))
+async def oidc_callback(request: OidcCallbackRequest) -> TokenPair:
+    return await auth_api.oidc_callback(request, secret=config.require_jwt_secret())
 
 
 # --- API tokens ---------------------------------------------------------

@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { clearSession, fetchMe, logout as doLogout, type MeView } from "../lib/auth";
+import { clearSession, completeOidcLogin, fetchMe, logout as doLogout, type MeView } from "../lib/auth";
 
 interface AuthState {
   me: MeView | null;
@@ -45,7 +45,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    void refresh().finally(() => setReady(true));
+    // An SSO redirect lands on the site root with ?code=&state=; finish that
+    // exchange before the session probe so the first render is signed in.
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    const state = params.get("state");
+    const bootstrap = code && state ? completeOidcLogin(code, state).then(() => refresh()) : refresh();
+    void bootstrap.finally(() => setReady(true));
   }, [refresh]);
 
   // The API client dispatches this when a request fails auth even after a
