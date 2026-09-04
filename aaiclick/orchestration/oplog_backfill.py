@@ -9,7 +9,7 @@ Lives in the orchestration layer (not oplog) so the oplog module does not
 have to import from orchestration — that would create an import cycle
 via ``aaiclick.orchestration`` package init. The CH copy runs from
 ``orch_context.task_scope`` right after ``init_oplog_tables``; the name
-backfill runs once per owned engine on ``orch_context`` entry.
+backfill runs on ``orch_context`` entry. Both latch once per process.
 """
 
 from __future__ import annotations
@@ -27,8 +27,9 @@ from .sql_context import get_sql_session
 
 logger = logging.getLogger(__name__)
 
-# Module global on purpose: a once-per-process latch, not per-context state.
+# Module globals on purpose: once-per-process latches, not per-context state.
 _migration_done = False
+_names_backfilled = False
 
 
 async def migrate_table_registry_to_sql(ch_client: ChClient) -> None:
@@ -120,12 +121,15 @@ async def backfill_registry_names() -> None:
     ``open_object`` and listing. Parse the name back out once, keeping the
     physical table untouched — nothing in ClickHouse has to be renamed.
 
-    Idempotent: only rows still missing a name are considered, so after the
-    first pass it is one empty ``SELECT``. Rows that do not parse (an opaque
+    Latched per process after one successful pass, so ``orch_context``
+    entry pays the scan once. Rows that do not parse (an opaque
     ``p_<snowflake>`` without a name) are left alone. Best effort — a
     database that predates ``table_registry`` (``aaiclick migrate`` not yet
-    run) is logged, not fatal.
+    run) is logged, not fatal, and not latched.
     """
+    global _names_backfilled
+    if _names_backfilled:
+        return
     try:
         async with get_sql_session() as session:
             result = await session.execute(
@@ -139,14 +143,15 @@ async def backfill_registry_names() -> None:
                 for table_name, tenant_id in result.all()
                 if (name := legacy_global_name(table_name, tenant_id)) is not None
             ]
-            if not updates:
-                return
-            await session.execute(
-                text("UPDATE table_registry SET name = :name WHERE table_name = :table_name"),
-                updates,
-            )
-            await session.commit()
+            if updates:
+                await session.execute(
+                    text("UPDATE table_registry SET name = :name WHERE table_name = :table_name"),
+                    updates,
+                )
+                await session.commit()
     except Exception:
         logger.debug("Skipping table_registry name backfill", exc_info=True)
         return
-    logger.info("Backfilled %d legacy table_registry names", len(updates))
+    _names_backfilled = True
+    if updates:
+        logger.info("Backfilled %d legacy table_registry names", len(updates))

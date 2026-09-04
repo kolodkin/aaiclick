@@ -1,11 +1,19 @@
 """``backfill_registry_names`` — legacy ``p_<name>`` rows gain a registry name."""
 
+import pytest
 from sqlalchemy import text
 
 from aaiclick.data.data_context import list_persistent_objects
+from aaiclick.orchestration import oplog_backfill
 from aaiclick.orchestration.oplog_backfill import backfill_registry_names
 from aaiclick.orchestration.sql_context import get_sql_session
 from aaiclick.tenancy import DEFAULT_TENANT_ID, active_tenant
+
+
+@pytest.fixture(autouse=True)
+def unlatched(monkeypatch):
+    """The orch fixture already ran (and latched) the backfill; re-arm it."""
+    monkeypatch.setattr(oplog_backfill, "_names_backfilled", False)
 
 
 async def _insert_legacy_row(table_name: str, tenant_id: int) -> None:

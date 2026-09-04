@@ -463,10 +463,7 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
         ch_token = _ch_client_var.set(ch_client)
 
     try:
-        if outer_engine is None:
-            # Once per engine we own (a worker's lifetime, one CLI command) —
-            # nested entries reuse the outer pass.
-            await backfill_registry_names()
+        await backfill_registry_names()
         yield
     finally:
         _sql_engine_var.reset(sql_token)

@@ -282,9 +282,9 @@ through `_run_data_api` (`aaiclick/__main__.py`), which delegates to
 
 Global tables used to be `p_<name>` (default tenant) or
 `p_<tenant_id>_<name>`; their registry rows have `name IS NULL`, which would
-hide them from every name-based path. `orch_context()` runs a one-time backfill
-per owned SQL engine that parses the name back out. The ClickHouse table keeps
-its old physical name — nothing is renamed.
+hide them from every name-based path. `orch_context()` entry runs a backfill,
+latched once per process, that parses the name back out. The ClickHouse table
+keeps its old physical name — nothing is renamed.
 
 ## Name length budget
 
