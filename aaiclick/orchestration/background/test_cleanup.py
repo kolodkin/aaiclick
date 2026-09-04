@@ -188,10 +188,10 @@ async def test_cleanup_skips_persistent_and_job_scoped_tables(bg_db):
 
 
 async def test_delete_job_data_exempts_persistent_tables(bg_db):
-    """``_delete_job_data`` drops ``t_*`` and ``j_*`` but never ``p_*``."""
+    """``_delete_job_data`` drops ``t_*`` and ``j_*`` but never a named global."""
     job_id = 555
     await _insert_job(bg_db, job_id, "NONE")
-    await insert_table_registry(bg_db, "p_user_catalog", job_id=job_id)
+    await insert_table_registry(bg_db, "p_user_catalog", job_id=job_id, name="user_catalog")
     await insert_table_registry(bg_db, "j_555_intermediate", job_id=job_id)
     await insert_table_registry(bg_db, "t_scratch", job_id=job_id)
 

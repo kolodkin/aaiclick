@@ -7,14 +7,13 @@ within its scope, automatically cleaning up tables when the context exits.
 
 from __future__ import annotations
 
-import re
 import warnings
 import weakref
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from datetime import datetime
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, NamedTuple, cast
 
 import pyarrow as pa
 from sqlalchemy import delete as sql_delete
@@ -43,14 +42,13 @@ from ..models import (
     build_order_by_clause,
 )
 from ..scope import (
-    GLOBAL_PREFIX,
+    OBJECT_NAME_RE,
     SCOPE_GLOBAL,
     SCOPE_JOB,
     SCOPE_TEMP_NAMED,
     NamedScope,
     PersistentScope,
     make_scoped_table_name,
-    name_from_table,
 )
 from ..sql_utils import naive_utc, quote_identifier
 from .arrow_ingest import (
@@ -61,7 +59,7 @@ from .arrow_ingest import (
     struct_type_to_columns,
 )
 from .ch_client import _ch_client_var, create_ch_client, get_ch_client
-from .lifecycle import LocalLifecycleHandler, _lifecycle_var, get_data_lifecycle, register_table
+from .lifecycle import LifecycleHandler, LocalLifecycleHandler, _lifecycle_var, get_data_lifecycle, register_table
 
 if TYPE_CHECKING:
     from ..object import Object
@@ -227,10 +225,11 @@ def get_engine_clause(engine: EngineType, order_by: str = "tuple()") -> str:
     return f"ENGINE = {engine} ORDER BY {order_by}"
 
 
-_VALID_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
-
-# Stays clear of ClickHouse's table-name ceiling after any scope prefix —
-# see docs/designs/tenant_rbac.md, "Name length budget".
+# ``job`` / ``temp_named`` names are embedded in the CH table name, so the
+# cap keeps them clear of ClickHouse's table-name ceiling after the prefix —
+# see docs/designs/tenant_rbac.md, "Name length budget". Global names live
+# only in the registry but share the rule so a name valid in one scope is
+# valid in every scope.
 MAX_PERSISTENT_NAME_LEN = 128
 
 
@@ -241,7 +240,7 @@ def _validate_persistent_name(name: str) -> None:
         ValueError: If name doesn't match [a-zA-Z_][a-zA-Z0-9_]* or exceeds
             ``MAX_PERSISTENT_NAME_LEN`` characters.
     """
-    if not _VALID_NAME_RE.match(name):
+    if not OBJECT_NAME_RE.match(name):
         raise ValueError(f"Invalid persistent name '{name}': must match [a-zA-Z_][a-zA-Z0-9_]*")
     if len(name) > MAX_PERSISTENT_NAME_LEN:
         raise ValueError(
@@ -271,28 +270,64 @@ def _resolve_scope(name: str | None, scope: NamedScope | None) -> NamedScope | N
     effective: NamedScope = scope if scope is not None else SCOPE_TEMP_NAMED
 
     if effective in (SCOPE_JOB, SCOPE_GLOBAL):
-        lifecycle = get_data_lifecycle()
-        if lifecycle is None or isinstance(lifecycle, LocalLifecycleHandler):
-            raise RuntimeError(
-                f"scope={effective!r} requires an active orch_context() — bare "
-                "data_context() only supports temp / temp_named objects. "
-                "Wrap your code in 'async with orch_context(): async with task_scope(...):' "
-                "or omit scope= to get a 'temp_named' table."
-            )
+        _orch_lifecycle(effective)
 
     return effective
 
 
+def _orch_lifecycle(scope: PersistentScope) -> LifecycleHandler:
+    """Return the active orch lifecycle handler, or raise for bare ``data_context()``."""
+    lifecycle = get_data_lifecycle()
+    if lifecycle is None or isinstance(lifecycle, LocalLifecycleHandler):
+        raise RuntimeError(
+            f"scope={scope!r} requires an active orch_context() — bare "
+            "data_context() only supports temp / temp_named objects. "
+            "Wrap your code in 'async with orch_context(): async with task_scope(...):' "
+            "or omit scope= to get a 'temp_named' table."
+        )
+    return lifecycle
+
+
 def _build_scoped_table(name: str, scope: NamedScope) -> str:
-    """Validate ``name`` and build the full CH table name for a scoped object."""
+    """Validate ``name`` and build the CH table name for a ``temp_named`` or ``job`` object.
+
+    Global tables are opaque (``p_<snowflake>``) and resolved through the
+    registry instead — see ``_claim_global_table`` / ``_resolve_global_table``.
+    """
     _validate_persistent_name(name)
     if scope == SCOPE_TEMP_NAMED:
         return make_scoped_table_name(scope, name, snowid=get_snowflake_id())
-    job_id: int | None = None
+    lifecycle = get_data_lifecycle()
+    job_id = lifecycle.current_job_id() if lifecycle is not None else None
+    return make_scoped_table_name(scope, name, job_id=job_id)
+
+
+class GlobalClaim(NamedTuple):
+    """Outcome of registering a global name: the owning table, and whether this call created it."""
+
+    table: str
+    created: bool
+
+
+async def _claim_global_table(name: str, schema: Schema) -> GlobalClaim:
+    """Register ``name`` for the active tenant and return the table that owns it.
+
+    A fresh ``p_<snowflake>`` is offered; if the name is already registered
+    (an append to an existing object, or a concurrent creator won) the
+    existing table comes back instead and the snowflake is discarded.
+    """
+    _validate_persistent_name(name)
+    candidate = make_scoped_table_name(SCOPE_GLOBAL, name, snowid=get_snowflake_id())
+    table = await _orch_lifecycle(SCOPE_GLOBAL).claim_global_table(name, candidate, schema.model_dump_json())
+    return GlobalClaim(table=table, created=table == candidate)
+
+
+async def _resolve_persistent_table(name: str, scope: PersistentScope) -> str | None:
+    """Return the CH table behind ``name`` in ``scope``, or ``None`` when no global object has that name."""
     if scope == SCOPE_JOB:
-        lifecycle = get_data_lifecycle()
-        job_id = lifecycle.current_job_id() if lifecycle is not None else None
-    return make_scoped_table_name(scope, name, job_id=job_id, tenant_id=get_active_tenant_id())
+        return _build_scoped_table(name, scope)
+    _validate_persistent_name(name)
+    return await _orch_lifecycle(scope).resolve_global_table(name)
 
 
 async def create_object(
@@ -314,8 +349,10 @@ async def create_object(
               ``"temp_named"`` → ``t_<name>_<snowflake>`` (default; dies with
               the context, like an unnamed temp). ``"job"`` → ``j_<job_id>_<name>``
               (lives only as long as the active orch job; raises if no job is
-              active). ``"global"`` → ``p_<name>`` (user-managed, removed only
-              by ``delete_persistent_object()``).
+              active). ``"global"`` → ``p_<snowflake>`` registered under
+              ``name`` (user-managed, removed only by
+              ``delete_persistent_object()``). Creating a global name that
+              already exists reuses its table.
 
     Returns:
         Object: New Object instance with created table
@@ -323,12 +360,17 @@ async def create_object(
     from ..object import Object
 
     effective_scope = _resolve_scope(name, scope)
-    if effective_scope is not None:
-        assert name is not None
-        table_name = _build_scoped_table(name, effective_scope)
-        obj = Object(table=table_name, schema=schema)
-    else:
+    claimed_global = False
+    if effective_scope is None:
         obj = Object(schema=schema)
+    elif effective_scope == SCOPE_GLOBAL:
+        assert name is not None
+        claim = await _claim_global_table(name, schema)
+        claimed_global = claim.created
+        obj = Object(table=claim.table, schema=schema, name=name)
+    else:
+        assert name is not None
+        obj = Object(table=_build_scoped_table(name, effective_scope), schema=schema, name=name)
 
     # Fieldtype metadata for these columns lives in table_registry.schema_doc
     # (written by register_table below) rather than ClickHouse COMMENTs.
@@ -373,7 +415,14 @@ async def create_object(
     if not obj.persistent:
         obj._register()  # Write-ahead incref: register before CREATE TABLE
     register_object(obj)  # Object lifecycle: track for stale marking on exit
-    await get_ch_client().command(create_query)
+    try:
+        await get_ch_client().command(create_query)
+    except Exception:
+        # Release the name so a retry does not inherit a row whose table
+        # never materialised (and whose schema_doc may not match).
+        if claimed_global:
+            await _forget_registry_rows([obj.table])
+        raise
 
     # Register table in table_registry for cleanup worker.
     # In orch mode this records the job_id so all tables (including persistent)
@@ -524,8 +573,9 @@ async def create_object_from_value(
               ``"temp_named"`` → ``t_<name>_<snowflake>`` (default; dies with
               the context). ``"job"`` → ``j_<job_id>_<name>`` (lives only as
               long as the active orch job; raises when called from pure
-              ``data_context()``). ``"global"`` → ``p_<name>`` (user-managed,
-              removed only by ``delete_persistent_object()``).
+              ``data_context()``). ``"global"`` → ``p_<snowflake>`` registered
+              under ``name`` (user-managed, removed only by
+              ``delete_persistent_object()``); an existing name appends.
         aai_id: When ``True``, add an ``aai_id`` column (``UInt64`` with
               ``DEFAULT generateSnowflakeID()``). Each row gets a unique,
               monotonically-increasing 64-bit Snowflake assigned per-row by
@@ -671,23 +721,26 @@ async def open_object(name: str, scope: PersistentScope = SCOPE_JOB) -> Object:
     """Open an existing persistent Object by name.
 
     Args:
-        name: Persistent name (without prefix).
-        scope: Persistence tier the object was created with — ``"global"`` →
-               looks up ``p_<name>``; ``"job"`` → looks up
-               ``j_<job_id>_<name>`` using the active orch job. ``"temp_named"``
-               is not openable — temp tables disappear with their context.
+        name: Persistent object name.
+        scope: Persistence tier the object was created with — ``"global"``
+               resolves the table through ``table_registry`` for the active
+               tenant; ``"job"`` looks up ``j_<job_id>_<name>`` using the
+               active orch job. ``"temp_named"`` is not openable — temp
+               tables disappear with their context.
 
     Returns:
         Object with schema loaded from ClickHouse.
 
     Raises:
         ValueError: If name is invalid.
-        ObjectNotFoundError: If the table does not exist.
+        ObjectNotFoundError: If the object does not exist.
     """
     from ..object import Object
     from ..object.ingest import _get_table_schema
 
-    table_name = _build_scoped_table(name, scope)
+    table_name = await _resolve_persistent_table(name, scope)
+    if table_name is None:
+        raise ObjectNotFoundError(f"Persistent object '{name}' does not exist")
     ch = get_ch_client()
 
     result = await ch.command(f"EXISTS TABLE {table_name}")
@@ -696,23 +749,26 @@ async def open_object(name: str, scope: PersistentScope = SCOPE_JOB) -> Object:
 
     fieldtype, columns = await _get_table_schema(table_name, ch)
     schema = Schema(fieldtype=fieldtype, columns=columns)
-    obj = Object(table=table_name, schema=schema)
+    obj = Object(table=table_name, schema=schema, name=name)
     register_object(obj)
     return obj
 
 
 async def delete_persistent_object(name: str, scope: PersistentScope = SCOPE_JOB) -> None:
-    """Drop a persistent table by name.
+    """Drop a persistent object by name. A missing object is not an error.
 
     Args:
-        name: Persistent name (without prefix).
-        scope: Tier the object was created with — ``"global"`` drops
-               ``p_<name>``; ``"job"`` drops ``j_<job_id>_<name>``.
+        name: Persistent object name.
+        scope: Tier the object was created with — ``"global"`` resolves the
+               table through ``table_registry``; ``"job"`` drops
+               ``j_<job_id>_<name>``.
 
     Raises:
         ValueError: If name is invalid.
     """
-    table_name = _build_scoped_table(name, scope)
+    table_name = await _resolve_persistent_table(name, scope)
+    if table_name is None:
+        return
     await get_ch_client().command(f"DROP TABLE IF EXISTS {table_name}")
     await _forget_registry_rows([table_name])
 
@@ -721,12 +777,12 @@ async def _forget_registry_rows(table_names: list[str]) -> None:
     """Delete ``table_registry`` rows for dropped tables.
 
     Without this a re-created object would hit the registry's
-    ``ON CONFLICT (table_name) DO NOTHING`` and keep a stale schema_doc,
-    and registry-backed listing would keep showing the dropped object.
+    ``ON CONFLICT DO NOTHING`` and keep a stale schema_doc, and
+    registry-backed listing would keep showing the dropped object.
     """
     if not table_names:
         return
-    # Circular dep: see list_persistent_tables.
+    # Circular dep: see list_persistent_entries.
     from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
     from aaiclick.orchestration.sql_context import get_sql_session
 
@@ -741,7 +797,7 @@ async def delete_persistent_objects(
 ) -> list[str]:
     """Drop the active tenant's persistent tables, filtered by creation time.
 
-    Candidates come from ``table_registry`` (see ``list_persistent_tables``),
+    Candidates come from ``table_registry`` (see ``list_persistent_entries``),
     so the purge cannot reach another tenant's tables and the time window is
     evaluated against the registry's ``created_at`` — not ClickHouse's
     ``metadata_modification_time``, which chdb reports as the epoch.
@@ -751,7 +807,7 @@ async def delete_persistent_objects(
         before: Drop tables created before this time (exclusive).
 
     Returns:
-        List of deleted persistent names (without prefix).
+        List of deleted persistent object names.
 
     Raises:
         ValueError: If neither ``after`` nor ``before`` is specified.
@@ -762,26 +818,33 @@ async def delete_persistent_objects(
             "to prevent accidental deletion of all persistent objects"
         )
     ch = get_ch_client()
-    names = await list_persistent_tables(after=after, before=before)
-    for table_name in names:
-        await ch.command(f"DROP TABLE IF EXISTS {table_name}")
-    await _forget_registry_rows(names)
-    return [name_from_table(n) for n in names]
+    entries = await list_persistent_entries(after=after, before=before)
+    for entry in entries:
+        await ch.command(f"DROP TABLE IF EXISTS {entry.table}")
+    await _forget_registry_rows([entry.table for entry in entries])
+    return [entry.name for entry in entries]
 
 
-async def list_persistent_tables(
+class PersistentEntry(NamedTuple):
+    """A global-scope object as registered: user-visible name and its CH table."""
+
+    name: str
+    table: str
+
+
+async def list_persistent_entries(
     after: datetime | None = None,
     before: datetime | None = None,
-) -> list[str]:
-    """List the active tenant's persistent CH table names (``p_*``).
+) -> list[PersistentEntry]:
+    """List the active tenant's global-scope objects, sorted by name.
 
-    Reads SQL ``table_registry`` rather than scanning ``system.tables``:
-    ownership lives in SQL, and a ClickHouse scan cannot tell one tenant's
-    tables from another's without re-parsing every prefix.
+    Reads SQL ``table_registry``: the name → table mapping exists nowhere
+    else, and ownership lives there too. Global rows are the ones carrying
+    a ``name``.
 
     Args:
-        after: Only tables registered at or after this time (inclusive).
-        before: Only tables registered before this time (exclusive).
+        after: Only objects registered at or after this time (inclusive).
+        before: Only objects registered before this time (exclusive).
     """
     # Circular dep: orchestration imports the data package at import time,
     # so the registry model and SQL session are resolved at call time
@@ -791,17 +854,19 @@ async def list_persistent_tables(
 
     predicates = [
         TableRegistry.tenant_id == get_active_tenant_id(),
-        col(TableRegistry.table_name).startswith(GLOBAL_PREFIX, autoescape=True),
+        col(TableRegistry.name).is_not(None),
     ]
     if after is not None:
         predicates.append(col(TableRegistry.created_at) >= naive_utc(after))
     if before is not None:
         predicates.append(col(TableRegistry.created_at) < naive_utc(before))
     async with get_sql_session() as session:
-        result = await session.execute(select(TableRegistry.table_name).where(*predicates))
-    return [row[0] for row in result.all()]
+        result = await session.execute(
+            select(TableRegistry.name, TableRegistry.table_name).where(*predicates).order_by(TableRegistry.name)
+        )
+    return [PersistentEntry(name=row[0], table=row[1]) for row in result.all()]
 
 
 async def list_persistent_objects() -> list[str]:
-    """List the active tenant's persistent object names (without prefix)."""
-    return [name_from_table(t) for t in await list_persistent_tables()]
+    """List the active tenant's persistent object names."""
+    return [entry.name for entry in await list_persistent_entries()]

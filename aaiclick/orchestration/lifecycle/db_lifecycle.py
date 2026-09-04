@@ -57,6 +57,7 @@ class OplogTablePayload:
     run_id: int | None = None
     schema_doc: str | None = None
     tenant_id: int = DEFAULT_TENANT_ID
+    name: str | None = None
 
 
 @dataclass

@@ -6,17 +6,18 @@ Four scopes share one table-name prefix convention:
 - ``"temp"``       → ``t_<snowflake_id>``         — lifetime: context/task
 - ``"temp_named"`` → ``t_<name>_<snowflake_id>``  — lifetime: context/task (named)
 - ``"job"``        → ``j_<job_id>_<name>``        — lifetime: owning job's TTL
-- ``"global"``     → ``p_<name>``                 — lifetime: forever (user-managed)
+- ``"global"``     → ``p_<snowflake_id>``         — lifetime: forever (user-managed)
 
-Prefix matching is cheap and works both in Python and in SQL cleanup queries.
+The prefix only encodes the *scope*; it is cheap to match both in Python and
+in SQL cleanup queries. A global object's user-visible name is not part of
+its table name — it lives in SQL ``table_registry.name`` (unique per tenant),
+which is the sole name → table mapping.
 """
 
 from __future__ import annotations
 
 import re
 from typing import Literal
-
-from aaiclick.tenancy import DEFAULT_TENANT_ID
 
 SCOPE_TEMP = "temp"
 SCOPE_TEMP_NAMED = "temp_named"
@@ -30,10 +31,8 @@ PersistentScope = Literal["job", "global"]
 GLOBAL_PREFIX = "p_"
 TEMP_PREFIX = "t_"
 JOB_SCOPED_RE = re.compile(r"^j_\d+_")
-# Unambiguous because persistent names may not start with a digit
-# (_validate_persistent_name), so no default-tenant object matches this.
-GLOBAL_TENANT_RE = re.compile(rf"^{GLOBAL_PREFIX}\d+_")
 TEMP_NAMED_RE = re.compile(r"^t_[a-zA-Z_][a-zA-Z0-9_]*_\d+$")
+OBJECT_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 
 def scope_of(table_name: str) -> ObjectScope:
@@ -52,47 +51,26 @@ def is_persistent_table(table_name: str) -> bool:
     return scope_of(table_name) in (SCOPE_JOB, SCOPE_GLOBAL)
 
 
-def name_from_table(table_name: str) -> str:
-    """Strip the scope prefix to recover the user-visible name.
-
-    - ``p_<name>``                → ``<name>``
-    - ``j_<job_id>_<name>``       → ``<name>``
-    - ``t_<name>_<snowflake>``    → ``<name>``
-    - ``t_<snowflake>`` (unnamed) → the table name itself
-    """
-    scope = scope_of(table_name)
-    if scope == SCOPE_GLOBAL:
-        match = GLOBAL_TENANT_RE.match(table_name)
-        return table_name[match.end() if match else len(GLOBAL_PREFIX) :]
-    if scope == SCOPE_JOB:
-        return table_name.split("_", 2)[2]
-    if scope == SCOPE_TEMP_NAMED:
-        return table_name[len(TEMP_PREFIX) :].rsplit("_", 1)[0]
-    return table_name
-
-
 def make_scoped_table_name(
     scope: NamedScope,
     name: str,
     job_id: int | None = None,
     snowid: int | None = None,
-    tenant_id: int = DEFAULT_TENANT_ID,
 ) -> str:
     """Build the full CH table name for a scoped named object.
 
     Args:
         scope: ``"temp_named"``, ``"job"``, or ``"global"``.
-        name: Validated persistent name (without prefix).
+        name: Validated object name. Encoded into ``temp_named`` and ``job``
+            table names only; a ``global`` table is ``p_<snowid>`` and the
+            name is recorded in ``table_registry`` instead.
         job_id: Required when ``scope="job"``.
-        snowid: Required when ``scope="temp_named"``.
-        tenant_id: Owning tenant. Only ``scope="global"`` encodes it; the
-            default tenant keeps the bare ``p_<name>`` form. Job- and
-            temp-scoped tables reach their tenant through the owning job.
+        snowid: Required when ``scope="temp_named"`` or ``scope="global"``.
     """
     if scope == SCOPE_GLOBAL:
-        if tenant_id == DEFAULT_TENANT_ID:
-            return f"{GLOBAL_PREFIX}{name}"
-        return f"{GLOBAL_PREFIX}{tenant_id}_{name}"
+        if snowid is None:
+            raise ValueError("scope='global' requires a snowid")
+        return f"{GLOBAL_PREFIX}{snowid}"
     if scope == SCOPE_TEMP_NAMED:
         if snowid is None:
             raise ValueError("scope='temp_named' requires a snowid")
@@ -103,3 +81,21 @@ def make_scoped_table_name(
             "must run inside orch_context()/task_scope(). Use scope='global' outside orch."
         )
     return f"j_{job_id}_{name}"
+
+
+def legacy_global_name(table_name: str, tenant_id: int, default_tenant_id: int) -> str | None:
+    """Recover the object name from a pre-registry global table name.
+
+    Before names moved into ``table_registry``, global tables were
+    ``p_<name>`` for the default tenant and ``p_<tenant_id>_<name>``
+    otherwise. Returns ``None`` for anything that does not parse as such
+    a table — including today's opaque ``p_<snowflake>`` names.
+    """
+    if not table_name.startswith(GLOBAL_PREFIX):
+        return None
+    tenant_prefix = f"{GLOBAL_PREFIX}{tenant_id}_"
+    if tenant_id != default_tenant_id and table_name.startswith(tenant_prefix):
+        name = table_name[len(tenant_prefix) :]
+    else:
+        name = table_name[len(GLOBAL_PREFIX) :]
+    return name if OBJECT_NAME_RE.match(name) else None

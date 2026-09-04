@@ -370,7 +370,8 @@ async def test_join_with_name_global_scope(ctx):
 
     joined = await left.join(right, on="id", name="join_named_global", scope="global")
     try:
-        assert joined.table == "p_join_named_global"
+        assert joined.scope == "global"
+        assert joined.name == "join_named_global"
         rows = await joined.data(orient="records")
         by_id = {r["id"]: (r["v"], r["w"]) for r in rows}
         assert by_id == {1: (10, 100), 2: (20, 200)}

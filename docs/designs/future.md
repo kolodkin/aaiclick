@@ -85,24 +85,6 @@ Phases 1 (backend core) and 2 (object tenancy) are implemented —
 - **Phase 3 — SPA**: tenant switcher sending `X-Tenant-Id`, membership admin
   UI, superadmin-gated controls.
 
-## Opaque Object Table Names
-
-Persistent objects encode both the user-visible name and (from Phase 2 above)
-the tenant into the ClickHouse table name, so `aaiclick/data/scope.py` parses
-names back out of tables and object names must satisfy an identifier regex plus
-a length cap that shrinks as the tenant id grows.
-
-Decoupling the two removes all of it: store `p_<snowflake>` in ClickHouse and
-keep the human name only in `table_registry` under a `UNIQUE (tenant_id, name)`
-constraint. Prefix parsing disappears (`name_from_table` and every `p_`-prefix
-scan retire), listing becomes a plain SQL query, per-tenant name uniqueness is
-enforced by the database rather than by string layout, and the name-length
-budget stops depending on the tenant id's digit count.
-
-**When to revisit**: when object naming rules or prefix parsing become a
-recurring source of friction. The cost is renaming every existing `p_*` table
-plus a compatibility path for objects opened by name.
-
 ## CLI Lineage AI Commands
 
 A CLI surface for AI lineage (e.g. `aaiclick explain <table>` /

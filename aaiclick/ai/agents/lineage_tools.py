@@ -80,7 +80,7 @@ DEFAULT_ROW_LIMIT = 100
 ROW_LIMIT_CEILING = 1000
 DEFAULT_MAX_EXECUTION_TIME = 30
 
-_TABLE_REF_RE = re.compile(r"\bt_\d{16,20}\b|\bp_[A-Za-z_][A-Za-z0-9_]*\b")
+_TABLE_REF_RE = re.compile(r"\bt_\d{16,20}\b|\bp_[A-Za-z0-9_]+\b")
 _STATEMENT_START_RE = re.compile(r"^\s*(?:WITH\b|SELECT\b)", re.IGNORECASE)
 _FORBIDDEN_KEYWORDS_RE = re.compile(
     r"\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER|CREATE|RENAME|ATTACH|"

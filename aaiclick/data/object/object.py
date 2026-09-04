@@ -132,6 +132,7 @@ class Object:
         table: str | None = None,
         schema: Schema | None = None,
         order_by: list[str] | None = None,
+        name: str | None = None,
     ):
         """
         Initialize an Object.
@@ -143,8 +144,11 @@ class Object:
             order_by: Optional list of column names for the table ORDER BY clause.
                       Empty input yields ``tuple()`` (ClickHouse no-sort form).
                       Example: ``order_by=['date']`` → ``ORDER BY (date)``
+            name: User-visible name for named objects (``temp_named``, ``job``,
+                  ``global``). ``None`` for unnamed temps and derived results.
         """
         table_name = table if table is not None else f"t_{get_snowflake_id()}"
+        self._name = name
         if schema is None:
             schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={})
         replace_kw: dict = {"table": table_name}
@@ -168,13 +172,18 @@ class Object:
         return self._stats
 
     @property
+    def name(self) -> str | None:
+        """User-visible name this object was created or opened under, if any."""
+        return self._name
+
+    @property
     def scope(self) -> ObjectScope:
         """Scope implied by the table-name prefix.
 
         - ``"temp"``       — ``t_<id>`` tables dropped at context/task exit
         - ``"temp_named"`` — ``t_<name>_<id>`` tables dropped at context/task exit
         - ``"job"``        — ``j_<job_id>_<name>`` tables dropped at job TTL
-        - ``"global"``     — ``p_<name>`` tables persist until the user deletes them
+        - ``"global"``     — ``p_<snowflake>`` tables persist until the user deletes them
         """
         return scope_of(self.table)
 
@@ -183,7 +192,7 @@ class Object:
         """True when the underlying table survives context/task exit.
 
         Covers both job-scoped (``j_<job_id>_<name>``) and user-managed global
-        (``p_<name>``) tables — equivalent to ``obj.scope != "temp"``.
+        (``p_<snowflake>``) tables — equivalent to ``obj.scope != "temp"``.
         """
         return is_persistent_table(self.table)
 

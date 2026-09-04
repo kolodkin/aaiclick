@@ -290,19 +290,17 @@ class BackgroundWorker:
     async def _delete_job_data(self, job_id: int) -> None:
         """Delete all CH and SQL data for a single job.
 
-        User-managed ``p_*`` tables are exempt from the CH drop list: they
-        outlive any single job and are only removed via
-        ``delete_persistent_object()``. Job-scoped ``j_<id>_*`` tables and
-        unnamed ``t_*`` tables belonging to this job are dropped normally.
+        User-managed global tables (the registry rows carrying a ``name``)
+        are exempt from the CH drop list: they outlive any single job and
+        are only removed via ``delete_persistent_object()``. Job-scoped
+        ``j_<id>_*`` tables and unnamed ``t_*`` tables belonging to this job
+        are dropped normally.
         """
         async with AsyncSession(self._engine) as session:
             # 1. Find all CH tables belonging to this job from table_registry,
-            #    excluding user-managed globals (``p_*``).
+            #    excluding user-managed globals.
             result = await session.execute(
-                text(
-                    "SELECT DISTINCT table_name FROM table_registry "
-                    "WHERE job_id = :job_id AND table_name NOT LIKE 'p\\_%' ESCAPE '\\'"
-                ),
+                text("SELECT DISTINCT table_name FROM table_registry WHERE job_id = :job_id AND name IS NULL"),
                 {"job_id": job_id},
             )
             table_names = [row[0] for row in result.fetchall()]
