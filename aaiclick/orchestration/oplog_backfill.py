@@ -18,6 +18,8 @@ from .sql_context import get_sql_session
 
 logger = logging.getLogger(__name__)
 
+# Deliberately a module global, not a ContextVar: a once-per-process latch.
+# A per-context flag would re-run the CH round-trip in every new task context.
 _migration_done = False
 
 

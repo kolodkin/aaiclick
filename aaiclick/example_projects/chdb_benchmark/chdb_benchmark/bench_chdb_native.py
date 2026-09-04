@@ -18,6 +18,8 @@ from .config import FILTER_THRESHOLD
 NAME = "chdb"
 VERSION = chdb.__version__
 
+# Module globals are fine here: a standalone, single-threaded benchmark script
+# with no concurrent callers to isolate from.
 _session = None
 _sink_seq = 0
 

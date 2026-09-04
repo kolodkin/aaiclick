@@ -44,6 +44,8 @@ _BUFFER_SIZE = 100
 # Process-wide state for in-memory generation (chdb mode). Shared across
 # every SnowflakeGenerator instance and every thread so the (timestamp,
 # sequence) pair stays monotonic for the lifetime of the process.
+# Deliberately a module global, not a ContextVar: a per-context sequence
+# would hand out duplicate IDs across concurrent contexts.
 _IN_MEMORY_MACHINE_ID = os.getpid() & ((1 << MACHINE_ID_BITS) - 1)
 _in_memory_lock = threading.Lock()
 _in_memory_last_ms = 0
