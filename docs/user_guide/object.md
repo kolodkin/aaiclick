@@ -191,7 +191,7 @@ Arithmetic result types match ClickHouse's native promotion rules. See `_promote
     | `>`             | Greater Than          | `>`                   | `__gt__`      |
     | `>=`            | Greater Than or Equal | `>=`                  | `__ge__`      |
 
-    Comparison operators don't need explicit reverse methods — Python swaps `<`/`>` and `<=`/`>=` automatically (e.g., `5 < obj` becomes `obj > 5`).
+    Comparison operators don't need explicit reverse methods — Python swaps `<`/`>` and `<=`/`>=` automatically (e.g., `5 < obj` becomes `obj > 5`). The result column is always `UInt8` (0/1), as in ClickHouse, whatever the operand type.
 
 ??? note "Bitwise Operators"
 

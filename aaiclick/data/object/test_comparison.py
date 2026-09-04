@@ -5,9 +5,14 @@ Tests element-wise Object-Object comparison for scalar and array Objects.
 Scalar-broadcast comparisons are covered in test_arithmetic_broadcast.py.
 """
 
+from datetime import datetime, timezone
+
 import pytest
 
 from aaiclick import create_object_from_value
+
+DT_2024 = datetime(2024, 1, 1, tzinfo=timezone.utc)
+DT_2025 = datetime(2025, 1, 1, tzinfo=timezone.utc)
 
 
 def apply_comparison(a, b, operator: str):
@@ -127,3 +132,28 @@ async def test_float_comparison(ctx, vals_a, vals_b, operator, expected):
     obj_b = await create_object_from_value(vals_b, aai_id=True)
     result = apply_comparison(obj_a, obj_b, operator)
     assert await result.data() == expected
+
+
+# =============================================================================
+# Result type — comparisons yield UInt8 (0/1) whatever the operand type
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    "rows, rhs",
+    [
+        pytest.param([1, 5, 9], 5, id="int"),
+        pytest.param([1.5, 5.0, 9.5], 5.0, id="float"),
+        pytest.param(["a", "b", "c"], "b", id="str"),
+        pytest.param([DT_2024, DT_2024, DT_2025], datetime(2024, 6, 1, tzinfo=timezone.utc), id="datetime"),
+    ],
+)
+async def test_comparison_result_is_uint8(ctx, rows, rhs):
+    """The result column is UInt8, as in ClickHouse — not the operand type
+    (which would store the 0/1 flags as '0'/'1' strings or epoch datetimes)."""
+    obj = await create_object_from_value(rows)
+    lazy = obj > rhs
+    result = await lazy
+    assert lazy.schema.columns["value"].type == "UInt8"
+    assert result.schema.columns["value"].type == "UInt8"
+    assert await result.data() == [0, 0, 1]

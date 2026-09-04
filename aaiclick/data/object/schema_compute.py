@@ -27,6 +27,9 @@ from ..models import (
 # Division and power always return Float64 in ClickHouse.
 _FLOAT_RESULT_OPS = frozenset({"/", "**"})
 
+# Comparison operators always yield UInt8 rather than a promoted numeric type.
+_COMPARISON_OPS = frozenset({"==", "!=", "<", "<=", ">", ">="})
+
 # Small unsigned types (Bool, UInt8) promote to wider types in ClickHouse.
 # Subtraction always produces signed result.
 _SMALL_UNSIGNED = frozenset({"Bool", "UInt8"})
@@ -95,7 +98,7 @@ def _compute_operator_schema(
     a_is_array = fieldtype_a == FIELDTYPE_ARRAY
     b_is_array = fieldtype_b == FIELDTYPE_ARRAY
     fieldtype = FIELDTYPE_ARRAY if (a_is_array or b_is_array) else FIELDTYPE_SCALAR
-    value_type = _promote_arithmetic_type(operator, type_a, type_b)
+    value_type = "UInt8" if operator in _COMPARISON_OPS else _promote_arithmetic_type(operator, type_a, type_b)
     result_nullable = nullable_a or nullable_b
 
     result_columns: dict[str, ColumnInfo] = {
@@ -273,9 +276,6 @@ STRING_OPS: dict[str, StringOp] = {
     "extract": StringOp("extract(a.value, {pattern})", "String"),
     "replace": StringOp("replaceRegexpAll(a.value, {pattern}, {replacement})", "String"),
 }
-
-# Comparison operators always yield UInt8 rather than a promoted numeric type.
-_COMPARISON_OPS = frozenset({"==", "!=", "<", "<=", ">", ">="})
 
 
 def _compute_coalesce_schema(
