@@ -1,6 +1,6 @@
-// The ONLY module permitted to import a layout engine. Everything else works
-// through `layout()` and `structuralKey()`, so replacing dagre is a one-file
-// change — see docs/designs/frontend.md for the engine rationale.
+// The only module that imports dagre. Everything else works through
+// `layout()` and `structuralKey()` — see docs/designs/frontend.md for the
+// engine rationale.
 import dagre from "@dagrejs/dagre";
 
 export interface LayoutNode {
@@ -48,9 +48,7 @@ export interface Layout {
   sizes: Map<string, Size>;
   /**
    * Waypoints per `source>target`, strictly *between* the endpoints, in render
-   * order, to be connected as a polyline. Excluding the endpoints keeps this
-   * engine-neutral: a replacement engine must satisfy this contract rather
-   * than the consumer inferring dagre's own endpoint convention.
+   * order, to be connected as a polyline.
    */
   edgePoints: Map<string, Point[]>;
 }
