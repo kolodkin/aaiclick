@@ -62,12 +62,29 @@ async def test_query_table_rejects_ddl_keywords_inside_select():
     assert err.kind == "not_select"
 
 
-async def test_query_table_rejects_out_of_scope_table():
+@pytest.mark.parametrize(
+    "table",
+    [
+        pytest.param("t_99999999999999999999", id="temp"),
+        pytest.param("t_orders_99999999999999999999", id="temp-named"),
+        pytest.param("j_42_payroll", id="job-scoped"),
+        pytest.param("p_other_tenant_sales", id="global"),
+        pytest.param("p_7_sales", id="global-tenant-scoped"),
+    ],
+)
+async def test_query_table_rejects_out_of_scope_table(table):
+    """Every scoped-table shape aaiclick creates must be visible to the scope guard.
+
+    ClickHouse keeps all tenants' tables in one database, so a shape the
+    reference regex misses is an unchecked read outside the graph and outside
+    the tenant. Job ids are handed to the agent by ``list_graph_nodes``, which
+    makes ``j_<job_id>_<name>`` guessable.
+    """
     toolbox = LineageToolbox(_sample_graph())
-    err = await toolbox.query_table("SELECT * FROM t_99999999999999999999")
+    err = await toolbox.query_table(f"SELECT * FROM {table}")
     assert isinstance(err, ToolError)
     assert err.kind == "out_of_scope"
-    assert "t_99999999999999999999" in err.message
+    assert table in err.message
 
 
 async def test_query_table_happy_path_wraps_limit():
