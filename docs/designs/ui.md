@@ -127,3 +127,19 @@ Task statuses use the same color scheme as job statuses, plus:
 **Main section**: log viewer filling the remaining screen with vertical scroll. Logs poll every 2 s in v0; real-time SSE is deferred. Lines come from the ClickHouse `task_logs` stream for the task's latest run, so they resolve regardless of which host ran the task. Returns `available=false` when the task has not run yet or its latest run captured no output. Lines are colored by `level` (`lvl-*` classes) and an opt-in "Show timestamps" toggle reveals each line's `created_at`.
 
 **Implementation**: `src/views/TaskDetail.tsx` — see `TaskDetail` component; `src/components/LogViewer.tsx` — see `LogViewer`; `aaiclick/server/routers/tasks.py` — see `get_task_logs`; `aaiclick/internal_api/tasks.py` — see `get_task_logs`.
+
+## Account & Administration
+
+Prompt-driven like the rest of the UI; flows and the role matrix are in
+`docs/designs/auth.md` — SPA.
+
+| Prompt          | View                                          | Implementation                 |
+|-----------------|-----------------------------------------------|--------------------------------|
+| `@account`      | Change password, MFA setup / disable          | `src/views/Account.tsx`        |
+| `@tokens`       | List / create / revoke the caller's API tokens | `src/views/Tokens.tsx`        |
+| `@users`        | Superadmin user table                         | `src/views/Users.tsx`          |
+| `@audit`        | Superadmin audit-log table with filters       | `src/views/Audit.tsx`          |
+| `reset <token>` | New-password form from a reset link (no session) | `src/views/ResetPassword.tsx` |
+
+`src/components/Header.tsx` shows the signed-in username (opens `@account`)
+and sign-out; `src/views/Login.tsx` adds the SSO button and the MFA code field.

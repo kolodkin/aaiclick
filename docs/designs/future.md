@@ -60,23 +60,6 @@ the same time — dagre's nested-cluster quality is its weakest area, and the
 MIT-compatible escape hatch is Graphviz WASM (`@hpcc-js/wasm-graphviz`), not
 elkjs (dual EPL-2.0 / GPL-3.0-or-later).
 
-## API Auth — Beyond Username/Password + RBAC
-
-Username/password users, admin/viewer RBAC, and JWT login (access + refresh)
-ship today (`docs/designs/auth.md`). Follow-ups, once more callers / finer control are
-needed:
-
-- **Long-lived API tokens / PATs with scopes** — user-minted, named, expiring
-  tokens with per-token `read` / `write` scopes for unattended CLI / SDK / MCP
-  clients (currently they log in with username/password and ride the refresh
-  flow). Includes a token-management UI + CLI.
-- **Per-tool MCP RBAC** — the `/mcp` mount is admin-only today; expose
-  read-only tools to `viewer` once per-tool gating is worth the complexity.
-- **Admin user-management UI** — admins manage users via REST + CLI today.
-- **OAuth 2.0 / OIDC / SSO**, **MFA**, **password-reset flow** — delegated /
-  hardened identity for enterprise deployments.
-- **Per-request audit log** — who called what, when.
-
 ## Tenant RBAC — Remaining Phases
 
 Phases 1 (backend core) and 2 (object tenancy) are implemented —

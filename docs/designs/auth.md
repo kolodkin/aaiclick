@@ -20,9 +20,8 @@ and any programmatic HTTP / MCP client share one login flow; the CLI runs
 - **Mode-derived enforcement**: auth is a hardcoded convention, not a flag —
   **disabled in local mode** (single-process chdb + SQLite; the server is open,
   zero-config) and **enforced in distributed mode**.
-- **Optional hardening**, each switched on by configuration alone: OIDC / SSO
-  login, TOTP multi-factor auth, a password-reset flow, and a per-request audit
-  log — see the sections below.
+- **Optional hardening**, each configuration-driven: OIDC / SSO login, TOTP
+  multi-factor auth, a password-reset flow, and a per-request audit log.
 
 # Configuration
 
@@ -48,9 +47,10 @@ OIDC, SMTP, and password-reset variables are listed in their own sections.
 
 # Data Model
 
-Two SQLModel tables in `aaiclick/auth/models.py`. IDs are snowflake
-`BigInteger` PKs; `role` is a plain `String` column typed with the `Role`
-`Literal` and validated in code (no DB CHECK — see CLAUDE.md, "Prefer Literal").
+SQLModel tables in `aaiclick/auth/models.py` (`audit_log` in
+`aaiclick/audit/models.py`). IDs are snowflake `BigInteger` PKs; `role` and
+`scope` are plain `String` columns typed with `Literal`s and validated in code
+(no DB CHECK — see CLAUDE.md, "Prefer Literal").
 
 ## `users`
 
@@ -282,8 +282,10 @@ Matrix / Active Tenant Resolution.
 
 # API Tokens
 
+
+**Implementation**: `aaiclick/auth/models.py` — see `ApiToken`; `aaiclick/internal_api/api_tokens.py`; `aaiclick/server/auth.py` — see `principal_from_credential`, `enforce_scope`, `require_session`; `aaiclick/server/routers/auth.py` — see `create_token`; `src/views/Tokens.tsx`.
 Long-lived credentials for unattended clients (CI, SDK scripts, MCP agents)
-that should not hold a user's password or ride the refresh flow.
+that should hold neither a password nor a refresh token.
 
 - **Format**: `aaic_` + 43 URL-safe random characters. The prefix lets the
   resolver route the credential without a JWT parse attempt, and lets secret
@@ -314,6 +316,8 @@ CLI (in-process, superadmin-equivalent): `aaiclick token create <username>
 
 # MCP Surface
 
+
+**Implementation**: `aaiclick/server/mcp_rbac.py` — see `authorize_tool`, `McpRbacMiddleware`; `aaiclick/server/auth.py` — see `PrincipalAuthMiddleware`; tool tags in `aaiclick/server/mcp.py`.
 The `/mcp` mount admits **any authenticated principal**; each tool is gated
 individually by a tag, and `tools/list` only shows what the caller may call.
 
@@ -383,9 +387,10 @@ The header shows the signed-in username with a sign-out control.
 
 # OIDC / SSO
 
-Authorization-code login against any OpenID Connect provider, switched on by
-configuration. The SPA drives the redirect; the server holds the client secret
-and validates the `id_token`.
+
+**Implementation**: `aaiclick/auth/oidc.py`; `aaiclick/auth/config.py` — see `oidc_settings`; `aaiclick/internal_api/auth.py` — see `oidc_start`, `oidc_callback`, `_resolve_oidc_user`; `src/lib/auth.ts` — see `startOidcLogin`, `completeOidcLogin`.
+Authorization-code login against any OpenID Connect provider. The SPA drives
+the redirect; the server holds the client secret and validates the `id_token`.
 
 | Variable                        | Purpose                                                   | Default               |
 |---------------------------------|-----------------------------------------------------------|-----------------------|
@@ -425,6 +430,8 @@ login stays available alongside SSO for users that have a password.
 
 # Multi-Factor Auth
 
+
+**Implementation**: `aaiclick/auth/security.py` — see `totp_code`, `verify_totp`, `totp_uri`; `aaiclick/internal_api/auth.py` — see `login`, `mfa_setup`, `mfa_enable`, `mfa_disable`; `aaiclick/internal_api/users.py` — see `reset_mfa`; `aaiclick/internal_api/errors.py` — see `MfaRequired`; `src/views/Account.tsx` — see `MfaPanel`.
 TOTP (RFC 6238: SHA-1, 30 s step, 6 digits, ±1 step drift), implemented on the
 standard library in `aaiclick/auth/security.py` — no new dependency. Any
 authenticator app works from the `otpauth://` URI or the base32 secret.
@@ -444,6 +451,8 @@ the recovery path, matching the CLI-first admin model.
 
 # Password Reset
 
+
+**Implementation**: `aaiclick/internal_api/users.py` — see `create_password_reset`; `aaiclick/internal_api/auth.py` — see `request_password_reset`, `redeem_password_reset`; `aaiclick/auth/mail.py`; `src/views/ResetPassword.tsx`.
 A reset token is a one-time secret bound to a user with a short TTL
 (`AAICLICK_PASSWORD_RESET_TTL`, default 3600 s). Consuming it sets the password
 and revokes the user's sessions, like an admin reset.
@@ -476,6 +485,8 @@ request path stays async.
 
 # Audit Log
 
+
+**Implementation**: `aaiclick/audit/` (model, store, view models); `aaiclick/server/audit.py` — see `should_audit`, `AuditMiddleware`; `aaiclick/internal_api/audit.py`; `aaiclick/server/routers/audit.py`; `src/views/Audit.tsx`.
 Who called what, when — one row per HTTP request under `/api/v0/` or `/mcp`,
 written by an ASGI middleware after the response is produced. `/health`,
 docs, and static assets are never logged.
@@ -510,7 +521,7 @@ newest-first with `user_id`, `path` prefix, `method`, and `since` filters;
 
 The auth tables (`users`, `refresh_tokens`, `api_tokens`, `oidc_states`,
 `password_reset_tokens`, `tenants`, `tenant_memberships`) and `audit_log`
-are created by Alembic revisions
+are created by Alembic revisions (this expansion: `ff9242208cc6`)
 (`aaiclick/auth/models.py` is imported in `migrations/env.py` so autogenerate
 sees them). Local/dev (`aaiclick setup`) builds the tables from
 `SQLModel.metadata`, so the revision is only required for Postgres-backed

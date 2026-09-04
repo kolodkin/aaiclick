@@ -461,7 +461,8 @@ parallel `AAICLICK_SERVER_*` namespace.
 
 # Configuration
 
-The server reuses the CLI's existing env vars and adds a single auth knob:
+The server reuses the CLI's existing env vars and adds the auth knobs
+documented in `docs/designs/auth.md` — Configuration:
 
 | Variable               | Purpose                                              | Status                 |
 |------------------------|------------------------------------------------------|------------------------|
@@ -474,37 +475,41 @@ The server reuses the CLI's existing env vars and adds a single auth knob:
 # Authentication
 
 **Design**: `docs/designs/auth.md`. **Implementation**: `aaiclick/server/auth.py`
-(principal resolution + RBAC), `aaiclick/auth/` (models, security, store),
-`aaiclick/internal_api/auth.py` (login/refresh/logout), wired in
-`aaiclick/server/app.py`.
+(principal resolution + RBAC), `aaiclick/auth/` (models, security, store,
+oidc, mail), `aaiclick/internal_api/auth.py` (login / refresh / logout, MFA,
+OIDC, password reset), wired in `aaiclick/server/app.py`.
 
-Username/password users with two roles (`admin` / `viewer`),
-authenticated by a short-lived access JWT + rotating refresh token. The CLI
-runs `internal_api` in-process and never crosses this HTTP-transport layer.
+Username/password users with per-tenant roles (`admin` / `viewer`) plus an
+instance `superadmin` flag, authenticated by a short-lived access JWT +
+rotating refresh token, or by a scoped long-lived API token. The CLI runs
+`internal_api` in-process and never crosses this HTTP-transport layer.
 
 - **Gating**: mode-derived, not a flag — open in local mode (synthetic admin +
   startup `WARNING`), enforced in distributed mode (requires
   `AAICLICK_JWT_SECRET`, else the server refuses to start).
-- **Login**: `POST /api/v0/auth/login` `{username, password}` → access +
-  refresh tokens; `POST /auth/refresh` rotates; `POST /auth/logout` revokes;
-  `GET /auth/me` returns the current principal.
-- **Enforcement**: `HTTPBearer` extracts the access JWT; `require_principal`
-  guards every `/api/v0/*` router and `require_admin` guards every mutating
-  endpoint and all of `/users`. Reads need only a valid principal.
-- **MCP**: the `/mcp` mount is admin-only via an ASGI middleware (`Depends`
-  does not propagate into mounted sub-apps).
+- **Login**: `POST /api/v0/auth/login` `{username, password[, totp_code]}` →
+  access + refresh tokens; `POST /auth/refresh` rotates; `POST /auth/logout`
+  revokes; `GET /auth/me` returns the current principal. OIDC / SSO, MFA, and
+  password reset are optional, configuration-driven extensions — see
+  `docs/designs/auth.md`.
+- **Enforcement**: `HTTPBearer` extracts the credential (access JWT or
+  `aaic_` API token); `require_principal` guards every `/api/v0/*` router,
+  `require_tenant` resolves `X-Tenant-Id`, `require_admin` guards mutating
+  tenant routes, `require_superadmin` guards `/users`, `/tenants`, `/audit`,
+  and worker control. `read`-scoped tokens are limited to safe methods.
+- **MCP**: the `/mcp` mount requires any principal (ASGI middleware — `Depends`
+  does not propagate into mounted sub-apps); each tool is gated by its
+  `read` / `write` / `superadmin` tag in `aaiclick/server/mcp_rbac.py`.
+- **Audit**: `aaiclick/server/audit.py` records requests to `audit_log`
+  per `AAICLICK_AUDIT_LOG`.
 
 Open paths (never 401): `GET /health`, `/api/v0/openapi.json`, `/docs`,
-`/redoc`, and `/api/v0/auth/login|refresh`.
+`/redoc`, `/api/v0/auth/login|refresh`, `/api/v0/auth/oidc/*`, and
+`/api/v0/auth/password-reset*`.
 
-The error envelope is the standard `Problem` (`code="unauthorized"` / 401 with
-`WWW-Authenticate: Bearer`, or `code="forbidden"` / 403).
-
-## Future
-
-Per-tool MCP RBAC, a user-management UI, long-lived API tokens / PATs with
-scopes, OAuth 2.0 / OIDC, and a per-request audit log are tracked in
-`docs/designs/future.md`.
+The error envelope is the standard `Problem` (`code="unauthorized"` or
+`code="mfa_required"` / 401 with `WWW-Authenticate: Bearer`, or
+`code="forbidden"` / 403).
 
 # Non-Goals
 
