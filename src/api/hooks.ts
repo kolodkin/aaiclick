@@ -1,6 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchJSON, postJSON } from "./client";
+import { deleteJSON, fetchJSON, postJSON } from "./client";
 import type {
+  ApiTokenCreated,
+  ApiTokenView,
+  CreateApiTokenRequest,
   JobDetail,
   JobGraphView,
   JobView,
@@ -94,5 +97,31 @@ export function useToggleRegisteredJob() {
     mutationFn: ({ name, enabled }: { name: string; enabled: boolean }) =>
       postJSON<RegisteredJobView>(`/registered-jobs/${encodeURIComponent(name)}/${enabled ? "enable" : "disable"}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["registered-jobs"] }),
+  });
+}
+
+// --- API tokens ---------------------------------------------------------
+
+export function useApiTokens() {
+  return useQuery({
+    queryKey: ["api-tokens"],
+    queryFn: () => fetchJSON<Page<ApiTokenView>>("/auth/tokens"),
+    refetchInterval: false,
+  });
+}
+
+export function useCreateApiToken() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: CreateApiTokenRequest) => postJSON<ApiTokenCreated>("/auth/tokens", req),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["api-tokens"] }),
+  });
+}
+
+export function useRevokeApiToken() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteJSON<void>(`/auth/tokens/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["api-tokens"] }),
   });
 }

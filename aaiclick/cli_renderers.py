@@ -8,7 +8,7 @@ from SQLModel rows — so the JSON schema and text columns cannot drift.
 
 from __future__ import annotations
 
-from aaiclick.auth.view_models import MemberView, TenantView, UserView
+from aaiclick.auth.view_models import ApiTokenCreated, ApiTokenView, MemberView, TenantView, UserView
 from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.orchestration.models import NON_SUCCESS_TASK_STATUSES, TASK_FAILED
 from aaiclick.orchestration.view_models import (
@@ -244,6 +244,28 @@ def render_tenants_page(page: Page[TenantView]) -> None:
 def render_member(view: MemberView) -> None:
     """Single-line summary of one tenant member."""
     print(f"{view.user_id}  {view.username}  role={view.role}")
+
+
+def render_api_token_created(view: ApiTokenCreated) -> None:
+    """Show the freshly minted secret — the only time it is ever displayed."""
+    print(f"{view.id}  {view.name}  scope={view.scope}  expires={_fmt_optional(view.expires_at)}")
+    print(f"token: {view.token}")
+    print("Store it now — it cannot be retrieved again.")
+
+
+def render_api_tokens_page(page: Page[ApiTokenView]) -> None:
+    """Print a user's API tokens as an aligned text table."""
+    if not page.items:
+        print("No api tokens found")
+        return
+
+    print(f"{'ID':<20} {'Name':<20} {'Prefix':<14} {'Scope':<6} {'Expires':<26} {'Last used':<26} {'Revoked':<26}")
+    print("-" * 142)
+    for t in page.items:
+        print(
+            f"{t.id:<20} {t.name:<20} {t.prefix:<14} {t.scope:<6} {_fmt_optional(t.expires_at):<26} "
+            f"{_fmt_optional(t.last_used_at):<26} {_fmt_optional(t.revoked_at):<26}"
+        )
 
 
 def render_users_page(page: Page[UserView], offset: int) -> None:

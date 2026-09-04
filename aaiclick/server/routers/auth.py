@@ -1,4 +1,4 @@
-"""Auth routes: login, refresh, logout, me."""
+"""Auth routes: login, refresh, logout, me, and the caller's API tokens."""
 
 from __future__ import annotations
 
@@ -6,17 +6,23 @@ from fastapi import APIRouter, Depends
 
 from aaiclick.auth import config
 from aaiclick.auth.view_models import (
+    ApiTokenCreated,
+    ApiTokenView,
     ChangePasswordRequest,
+    CreateApiTokenRequest,
     LoginRequest,
     LogoutRequest,
     MeView,
     RefreshRequest,
     TokenPair,
 )
+from aaiclick.internal_api import api_tokens as api_tokens_api
 from aaiclick.internal_api import auth as auth_api
 from aaiclick.internal_api import users as users_api
+from aaiclick.internal_api.errors import Invalid
+from aaiclick.view_models import Page
 
-from ..auth import Principal, require_principal
+from ..auth import Principal, require_principal, require_session
 from ..deps import orch_scope
 from ..errors import problem_responses
 
@@ -58,3 +64,32 @@ async def change_password(
 ) -> None:
     """Any role may change their own password — ``/users`` is admin-only."""
     await auth_api.change_password(principal.user_id, request)
+
+
+# --- API tokens ---------------------------------------------------------
+# Session-only (``require_session``): an API token cannot mint or revoke
+# tokens. Local mode has no user row, so the routes answer 422 there.
+
+
+def _require_user_id(principal: Principal) -> int:
+    if principal.user_id is None:
+        raise Invalid("auth is disabled — there is no current user to own api tokens")
+    return principal.user_id
+
+
+@router.get("/tokens", response_model=Page[ApiTokenView], responses=problem_responses(403, 422))
+async def list_tokens(principal: Principal = Depends(require_session)) -> Page[ApiTokenView]:
+    return await api_tokens_api.list_tokens(_require_user_id(principal))
+
+
+@router.post("/tokens", response_model=ApiTokenCreated, status_code=201, responses=problem_responses(403, 422))
+async def create_token(
+    request: CreateApiTokenRequest, principal: Principal = Depends(require_session)
+) -> ApiTokenCreated:
+    """The raw ``token`` appears in this response and nowhere else."""
+    return await api_tokens_api.create_token(_require_user_id(principal), request)
+
+
+@router.delete("/tokens/{token_id}", status_code=204, responses=problem_responses(403, 404, 422))
+async def revoke_token(token_id: int, principal: Principal = Depends(require_session)) -> None:
+    await api_tokens_api.revoke_token(_require_user_id(principal), token_id)

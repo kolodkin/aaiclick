@@ -39,13 +39,15 @@ import shlex
 import sys
 from contextlib import redirect_stdout
 from contextvars import ContextVar
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, cast, get_args
 
 from aaiclick import cli_renderers, cli_wait, internal_api
 from aaiclick.auth import store as auth_store
-from aaiclick.auth.models import ROLE_VIEWER, ROLES
-from aaiclick.auth.view_models import CreateTenantRequest, CreateUserRequest, UserListFilter
+from aaiclick.auth.models import ROLE_VIEWER, ROLES, TOKEN_SCOPE_READ, TOKEN_SCOPES
+from aaiclick.auth.view_models import CreateApiTokenRequest, CreateTenantRequest, CreateUserRequest, UserListFilter
+from aaiclick.datetime_utils import utc_now
+from aaiclick.internal_api import api_tokens as api_tokens_api
 from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import tenants as tenants_api
 from aaiclick.internal_api import users as users_api
@@ -429,6 +431,41 @@ async def _run_user_passwd(args: argparse.Namespace) -> None:
     _render(args, view, cli_renderers.render_user)
 
 
+async def _resolve_user_id(username: str) -> int:
+    user = await auth_store.get_user_by_username(username)
+    if user is None:
+        raise NotFound(f"user '{username}' not found")
+    return user.id
+
+
+async def _run_token_create(args: argparse.Namespace) -> None:
+    async def do():
+        user_id = await _resolve_user_id(args.username)
+        expires_at = utc_now() + timedelta(days=args.expires_days) if args.expires_days else None
+        return await api_tokens_api.create_token(
+            user_id, CreateApiTokenRequest(name=args.name, scope=args.scope, expires_at=expires_at)
+        )
+
+    view = await _run_internal_api(do())
+    _render(args, view, cli_renderers.render_api_token_created)
+
+
+async def _run_token_list(args: argparse.Namespace) -> None:
+    async def do():
+        return await api_tokens_api.list_tokens(await _resolve_user_id(args.username))
+
+    page = await _run_internal_api(do())
+    _render(args, page, cli_renderers.render_api_tokens_page)
+
+
+async def _run_token_revoke(args: argparse.Namespace) -> None:
+    async def do():
+        await api_tokens_api.revoke_token(await _resolve_user_id(args.username), args.token_id)
+
+    await _run_internal_api(do())
+    print(f"revoked api token {args.token_id}")
+
+
 async def _run_tenant_create(args: argparse.Namespace) -> None:
     request = CreateTenantRequest(slug=args.slug, name=args.name or args.slug)
     view = await _run_internal_api(tenants_api.create_tenant(request))
@@ -442,11 +479,7 @@ async def _run_tenant_list(args: argparse.Namespace) -> None:
 
 async def _resolve_member(args: argparse.Namespace) -> tuple[int, int]:
     """Resolve ``--tenant`` slug and ``--username`` to their ids."""
-    tenant_id = await _resolve_tenant_id(args.tenant)
-    user = await auth_store.get_user_by_username(args.username)
-    if user is None:
-        raise NotFound(f"user '{args.username}' not found")
-    return tenant_id, user.id
+    return await _resolve_tenant_id(args.tenant), await _resolve_user_id(args.username)
 
 
 async def _run_member_set(args: argparse.Namespace) -> None:
@@ -1220,6 +1253,25 @@ def build_parser() -> argparse.ArgumentParser:
     user_passwd_parser.add_argument("--password", required=True)
     _add_json_flag(user_passwd_parser)
 
+    # Add token subcommand (API tokens)
+    token_parser = subparsers.add_parser("token", help="API token administration")
+    token_subparsers = token_parser.add_subparsers(dest="token_command", help="Token commands")
+
+    token_create_parser = token_subparsers.add_parser("create", help="Mint an API token for a user")
+    token_create_parser.add_argument("username")
+    token_create_parser.add_argument("--name", required=True, help="Label shown in token lists")
+    token_create_parser.add_argument("--scope", choices=list(TOKEN_SCOPES), default=TOKEN_SCOPE_READ)
+    token_create_parser.add_argument("--expires-days", type=int, default=None, help="Lifetime in days (default: never)")
+    _add_json_flag(token_create_parser)
+
+    token_list_parser = token_subparsers.add_parser("list", help="List a user's API tokens")
+    token_list_parser.add_argument("username")
+    _add_json_flag(token_list_parser)
+
+    token_revoke_parser = token_subparsers.add_parser("revoke", help="Revoke one of a user's API tokens")
+    token_revoke_parser.add_argument("username")
+    token_revoke_parser.add_argument("token_id", type=int)
+
     # Add tenant subcommand (administration)
     tenant_parser = subparsers.add_parser("tenant", help="Tenant administration")
     tenant_subparsers = tenant_parser.add_subparsers(dest="tenant_command", help="Tenant commands")
@@ -1383,6 +1435,16 @@ def main():
             _run_k8s_init(args)
         else:
             subcommands["k8s"].print_help()
+
+    elif args.command == "token":
+        if args.token_command == "create":
+            asyncio.run(_run_token_create(args))
+        elif args.token_command == "list":
+            asyncio.run(_run_token_list(args))
+        elif args.token_command == "revoke":
+            asyncio.run(_run_token_revoke(args))
+        else:
+            subcommands["token"].print_help()
 
     elif args.command == "tenant":
         if args.tenant_command == "create":

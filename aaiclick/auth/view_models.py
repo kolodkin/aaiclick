@@ -6,7 +6,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from .models import Role
+from ..log_models import SnowflakeId
+from .models import Role, TokenScope
 
 
 class LoginRequest(BaseModel):
@@ -30,7 +31,7 @@ class TokenPair(BaseModel):
 
 
 class TenantView(BaseModel):
-    id: int
+    id: SnowflakeId
     slug: str
     name: str
     created_at: datetime
@@ -44,7 +45,7 @@ class CreateTenantRequest(BaseModel):
 
 
 class MemberView(BaseModel):
-    user_id: int
+    user_id: SnowflakeId
     username: str
     role: Role
 
@@ -54,7 +55,7 @@ class SetMemberRequest(BaseModel):
 
 
 class TenantRoleView(BaseModel):
-    tenant_id: int
+    tenant_id: SnowflakeId
     slug: str
     name: str
     role: Role
@@ -64,14 +65,14 @@ class MeView(BaseModel):
     """Current principal. ``id``/``username`` are ``None`` in local mode
     (auth disabled — the synthetic superadmin has no user row)."""
 
-    id: int | None
+    id: SnowflakeId | None
     username: str | None
     superadmin: bool
     tenants: list[TenantRoleView]
 
 
 class UserView(BaseModel):
-    id: int
+    id: SnowflakeId
     username: str
     superadmin: bool
     disabled: bool
@@ -110,3 +111,28 @@ class TenantListFilter(BaseModel):
     limit: int = 50
     offset: int = 0
     cursor: str | None = None
+
+
+class ApiTokenView(BaseModel):
+    """A token as listed — never carries the secret."""
+
+    id: SnowflakeId
+    name: str
+    prefix: str
+    scope: TokenScope
+    expires_at: datetime | None
+    last_used_at: datetime | None
+    revoked_at: datetime | None
+    created_at: datetime
+
+
+class ApiTokenCreated(ApiTokenView):
+    """Create response: the only time the raw ``token`` is ever returned."""
+
+    token: str
+
+
+class CreateApiTokenRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    scope: TokenScope = "read"
+    expires_at: datetime | None = None

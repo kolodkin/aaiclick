@@ -14,6 +14,9 @@ import bcrypt
 import jwt
 
 TOKEN_TYPE_ACCESS = "access"
+API_TOKEN_PREFIX = "aaic_"
+API_TOKEN_DISPLAY_CHARS = 12
+"""How many leading characters of an API token are kept for display."""
 
 
 class TokenError(Exception):
@@ -42,6 +45,20 @@ def generate_secret() -> str:
 
 def sha256_hex(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
+
+
+def generate_api_token() -> str:
+    """Opaque API token. The fixed prefix lets the resolver route it without a
+    JWT parse attempt and lets secret scanners recognise it."""
+    return API_TOKEN_PREFIX + secrets.token_urlsafe(32)
+
+
+def is_api_token(credential: str) -> bool:
+    return credential.startswith(API_TOKEN_PREFIX)
+
+
+def api_token_display_prefix(token: str) -> str:
+    return token[:API_TOKEN_DISPLAY_CHARS]
 
 
 def encode_access_token(*, user_id: int, superadmin: bool, tenants: dict[int, str], secret: str, ttl: int) -> str:

@@ -46,7 +46,9 @@ async def my_tenants(user_id: int) -> list[TenantRoleView]:
 def _authenticates(user: User, password: str) -> bool:
     """Whether ``password`` admits this user — the one definition of the rule,
     so login and the self-service password change cannot drift apart."""
-    return not user.disabled and security.verify_password(password, user.password_hash)
+    if user.disabled or user.password_hash is None:  # SSO-only users have no password
+        return False
+    return security.verify_password(password, user.password_hash)
 
 
 async def login(request: LoginRequest, *, secret: str) -> TokenPair:

@@ -75,3 +75,52 @@ async def test_protected_route_requires_token_when_enabled(orch_ctx, anon_client
     res = await anon_client.get(f"{API_PREFIX}/execution-workers")
     assert res.status_code == 401
     assert res.headers["www-authenticate"] == "Bearer"
+
+
+async def _login(app_client, username: str) -> dict[str, str]:
+    res = await app_client.post(f"{API_PREFIX}/auth/login", json={"username": username, "password": "pw"})
+    return {"Authorization": f"Bearer {res.json()['access_token']}"}
+
+
+async def test_api_token_lifecycle(orch_ctx, app_client, enabled):
+    """Session mints a token → the token authenticates → revoke → 401."""
+    await users.create_user(CreateUserRequest(username="alice", password="pw", superadmin=True))
+    session = await _login(app_client, "alice")
+
+    created = await app_client.post(f"{API_PREFIX}/auth/tokens", json={"name": "ci", "scope": "write"}, headers=session)
+    assert created.status_code == 201
+    body = created.json()
+    assert body["token"].startswith("aaic_") and body["scope"] == "write"
+    token_header = {"Authorization": f"Bearer {body['token']}"}
+
+    me = await app_client.get(f"{API_PREFIX}/auth/me", headers=token_header)
+    assert me.status_code == 200 and me.json()["username"] == "alice"
+
+    listed = await app_client.get(f"{API_PREFIX}/auth/tokens", headers=session)
+    assert listed.status_code == 200 and listed.json()["total"] == 1 and "token" not in listed.json()["items"][0]
+
+    gone = await app_client.delete(f"{API_PREFIX}/auth/tokens/{body['id']}", headers=session)
+    assert gone.status_code == 204
+    assert (await app_client.get(f"{API_PREFIX}/auth/me", headers=token_header)).status_code == 401
+
+
+async def test_read_token_cannot_write_or_manage_tokens(orch_ctx, app_client, enabled):
+    await users.create_user(CreateUserRequest(username="alice", password="pw", superadmin=True))
+    session = await _login(app_client, "alice")
+    created = await app_client.post(f"{API_PREFIX}/auth/tokens", json={"name": "ro"}, headers=session)
+    token_header = {"Authorization": f"Bearer {created.json()['token']}", "X-Tenant-Id": "1"}
+
+    assert (await app_client.get(f"{API_PREFIX}/jobs", headers=token_header)).status_code == 200
+    denied = await app_client.post(
+        f"{API_PREFIX}/users", json={"username": "x", "password": "pw"}, headers=token_header
+    )
+    assert denied.status_code == 403 and denied.json()["code"] == "forbidden"
+    # Even a write token may not touch token management — the scope check
+    # happens first for this read token, so use the listing to prove it.
+    assert (await app_client.get(f"{API_PREFIX}/auth/tokens", headers=token_header)).status_code == 403
+
+
+async def test_token_routes_422_in_local_mode(orch_ctx, app_client, monkeypatch):
+    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
+    res = await app_client.get(f"{API_PREFIX}/auth/tokens")
+    assert res.status_code == 422 and res.json()["code"] == "invalid"

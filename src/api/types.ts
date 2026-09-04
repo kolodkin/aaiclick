@@ -23,6 +23,9 @@ export type GraphEdgeView = S["GraphEdgeView"];
 export type Problem = S["Problem"];
 export type RunJobRequest = S["RunJobRequest"];
 export type RegisterJobRequest = S["RegisterJobRequest"];
+export type ApiTokenView = S["ApiTokenView"];
+export type ApiTokenCreated = S["ApiTokenCreated"];
+export type CreateApiTokenRequest = S["CreateApiTokenRequest"];
 
 // FastAPI emits a concrete schema per instantiation (`Page_JobView_`, …); keep
 // a hand-written generic so call sites stay `Page<JobView>`.

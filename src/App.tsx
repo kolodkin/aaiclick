@@ -13,6 +13,7 @@ import {
   RunConfirm,
   RunForm,
   TaskDetail,
+  Tokens,
 } from "./views";
 import { Login } from "./views/Login";
 
@@ -39,6 +40,8 @@ function renderRoute(prompt: string, onPrompt: (v: string) => void) {
       return <RunForm name={route.name} onPrompt={onPrompt} />;
     case "cancel-confirm":
       return <CancelConfirm refId={route.ref} onPrompt={onPrompt} />;
+    case "tokens":
+      return <Tokens onPrompt={onPrompt} />;
     case "unknown":
       return (
         <>

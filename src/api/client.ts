@@ -63,3 +63,28 @@ export async function postJSON<T>(path: string, body?: unknown): Promise<T> {
   if (!res.ok) throw await parseError(res);
   return (await res.json()) as T;
 }
+
+// Mutations that answer 204 (no body) or a JSON body — `T` is `void` for the
+// former. Shared by PUT / DELETE / body-less POST call sites.
+async function send<T>(path: string, method: string, body?: unknown): Promise<T> {
+  const res = await request(path, {
+    method,
+    headers: body === undefined ? {} : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!res.ok) throw await parseError(res);
+  if (res.status === 204) return undefined as T;
+  return (await res.json()) as T;
+}
+
+export function putJSON<T>(path: string, body?: unknown): Promise<T> {
+  return send<T>(path, "PUT", body);
+}
+
+export function deleteJSON<T>(path: string, body?: unknown): Promise<T> {
+  return send<T>(path, "DELETE", body);
+}
+
+export function postNoContent(path: string, body?: unknown): Promise<void> {
+  return send<void>(path, "POST", body);
+}

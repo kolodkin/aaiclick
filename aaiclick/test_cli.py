@@ -443,3 +443,14 @@ def test_setup_does_not_prompt_when_not_a_tty(monkeypatch):
     _run_setup_main()
 
     assert calls == [False]
+
+
+def test_token_parser_flags():
+    parser = build_parser()
+    args = parser.parse_args(["token", "create", "alice", "--name", "ci", "--scope", "write", "--expires-days", "30"])
+    assert args.command == "token" and args.token_command == "create"
+    assert args.username == "alice" and args.name == "ci" and args.scope == "write" and args.expires_days == 30
+    args = parser.parse_args(["token", "create", "alice", "--name", "ro"])
+    assert args.scope == "read" and args.expires_days is None
+    args = parser.parse_args(["token", "revoke", "alice", "42"])
+    assert args.token_command == "revoke" and args.token_id == 42

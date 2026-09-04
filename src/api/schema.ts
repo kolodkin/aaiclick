@@ -92,6 +92,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v0/auth/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Tokens */
+        get: operations["list_tokens_api_v0_auth_tokens_get"];
+        put?: never;
+        /**
+         * Create Token
+         * @description The raw ``token`` appears in this response and nowhere else.
+         */
+        post: operations["create_token_api_v0_auth_tokens_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/auth/tokens/{token_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke Token */
+        delete: operations["revoke_token_api_v0_auth_tokens__token_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v0/execution-workers": {
         parameters: {
             query?: never;
@@ -534,6 +572,64 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
+         * ApiTokenCreated
+         * @description Create response: the only time the raw ``token`` is ever returned.
+         */
+        ApiTokenCreated: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Expires At */
+            expires_at: string | null;
+            /** Id */
+            id: string;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Name */
+            name: string;
+            /** Prefix */
+            prefix: string;
+            /** Revoked At */
+            revoked_at: string | null;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "read" | "write";
+            /** Token */
+            token: string;
+        };
+        /**
+         * ApiTokenView
+         * @description A token as listed — never carries the secret.
+         */
+        ApiTokenView: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Expires At */
+            expires_at: string | null;
+            /** Id */
+            id: string;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Name */
+            name: string;
+            /** Prefix */
+            prefix: string;
+            /** Revoked At */
+            revoked_at: string | null;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "read" | "write";
+        };
+        /**
          * ChangePasswordRequest
          * @description Self-service password change. ``current_password`` is required so a
          *     stolen access token cannot take over the account on its own.
@@ -600,6 +696,19 @@ export interface components {
             nullable: boolean;
             /** Type */
             type: string;
+        };
+        /** CreateApiTokenRequest */
+        CreateApiTokenRequest: {
+            /** Expires At */
+            expires_at?: string | null;
+            /** Name */
+            name: string;
+            /**
+             * Scope
+             * @default read
+             * @enum {string}
+             */
+            scope: "read" | "write";
         };
         /** CreateTenantRequest */
         CreateTenantRequest: {
@@ -907,7 +1016,7 @@ export interface components {
          */
         MeView: {
             /** Id */
-            id: number | null;
+            id: string | null;
             /** Superadmin */
             superadmin: boolean;
             /** Tenants */
@@ -923,7 +1032,7 @@ export interface components {
              */
             role: "admin" | "viewer";
             /** User Id */
-            user_id: number;
+            user_id: string;
             /** Username */
             username: string;
         };
@@ -983,6 +1092,15 @@ export interface components {
             size_bytes?: number | null;
             /** Table */
             table: string;
+        };
+        /** Page[ApiTokenView] */
+        Page_ApiTokenView_: {
+            /** Items */
+            items: components["schemas"]["ApiTokenView"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Total */
+            total?: number | null;
         };
         /** Page[ExecutionWorkerView] */
         Page_ExecutionWorkerView_: {
@@ -1403,7 +1521,7 @@ export interface components {
             /** Slug */
             slug: string;
             /** Tenant Id */
-            tenant_id: number;
+            tenant_id: string;
         };
         /** TenantView */
         TenantView: {
@@ -1413,7 +1531,7 @@ export interface components {
              */
             created_at: string;
             /** Id */
-            id: number;
+            id: string;
             /** Name */
             name: string;
             /** Slug */
@@ -1443,7 +1561,7 @@ export interface components {
             /** Disabled */
             disabled: boolean;
             /** Id */
-            id: number;
+            id: string;
             /** Superadmin */
             superadmin: boolean;
             /** Username */
@@ -1642,6 +1760,133 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_tokens_api_v0_auth_tokens_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_ApiTokenView_"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_token_api_v0_auth_tokens_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateApiTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiTokenCreated"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    revoke_token_api_v0_auth_tokens__token_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
                 };
             };
         };

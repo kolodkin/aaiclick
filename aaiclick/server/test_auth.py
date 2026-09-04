@@ -13,7 +13,9 @@ from unittest.mock import patch
 import jwt
 import pytest
 
-from aaiclick.auth import security
+from aaiclick.auth import security, store
+from aaiclick.auth.view_models import CreateApiTokenRequest, CreateUserRequest
+from aaiclick.internal_api import api_tokens, users
 from aaiclick.internal_api.errors import Forbidden, Invalid, Unauthorized
 
 from . import auth
@@ -41,28 +43,59 @@ def _admin_token() -> str:
 # --- resolve_principal ---------------------------------------------------
 
 
-def test_local_mode_returns_synthetic_admin(monkeypatch):
+async def test_local_mode_returns_synthetic_admin(monkeypatch):
     monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
-    principal = auth.resolve_principal(authorization=None)
-    assert principal.superadmin is True
+    principal = await auth.resolve_principal(authorization=None)
+    assert principal.superadmin is True and principal.kind == "none"
 
 
-def test_enabled_missing_token_unauthorized(enabled):
+async def test_enabled_missing_token_unauthorized(enabled):
     with pytest.raises(Unauthorized):
-        auth.resolve_principal(authorization=None)
+        await auth.resolve_principal(authorization=None)
 
 
-def test_enabled_valid_jwt(enabled):
+async def test_enabled_valid_jwt(enabled):
     token = security.encode_access_token(user_id=7, superadmin=False, tenants={3: "viewer"}, secret=SECRET, ttl=60)
-    principal = auth.resolve_principal(authorization=_bearer(token))
+    principal = await auth.resolve_principal(authorization=_bearer(token))
     assert principal.user_id == 7 and principal.superadmin is False
     assert principal.tenants == {3: "viewer"}
+    assert principal.kind == "session" and principal.scope == "write"
 
 
-def test_enabled_bad_signature_unauthorized(enabled):
+async def test_enabled_bad_signature_unauthorized(enabled):
     token = jwt.encode({"sub": "1", "type": "access"}, OTHER_SECRET, algorithm="HS256")
     with pytest.raises(Unauthorized):
-        auth.resolve_principal(authorization=_bearer(token))
+        await auth.resolve_principal(authorization=_bearer(token))
+
+
+async def test_api_token_resolves_live_owner_state(enabled, orch_ctx):
+    """An ``aaic_`` credential is looked up in the DB and carries the owner's
+    current flag, memberships, and the token's scope."""
+    user = await users.create_user(CreateUserRequest(username="bot", password="pw"))
+    tenant = await store.create_tenant(slug="acme", name="Acme")
+    await store.set_membership(tenant_id=tenant.id, user_id=user.id, role="viewer")
+    created = await api_tokens.create_token(user.id, CreateApiTokenRequest(name="ci", scope="read"))
+
+    principal = await auth.resolve_principal(authorization=_bearer(created.token))
+    assert principal.user_id == user.id and principal.kind == "token" and principal.scope == "read"
+    assert principal.tenants == {tenant.id: "viewer"}
+
+    await users.disable_user(user.id, True)
+    with pytest.raises(Unauthorized):
+        await auth.resolve_principal(authorization=_bearer(created.token))
+
+
+async def test_unknown_api_token_unauthorized(enabled, orch_ctx):
+    with pytest.raises(Unauthorized):
+        await auth.resolve_principal(authorization=_bearer("aaic_not-a-real-token"))
+
+
+def test_read_scope_blocks_unsafe_methods():
+    read_only = auth.Principal(user_id=1, superadmin=True, tenants={}, scope="read", kind="token")
+    auth.enforce_scope(read_only, "GET")
+    with pytest.raises(Forbidden):
+        auth.enforce_scope(read_only, "POST")
+    auth.enforce_scope(read_only._replace(scope="write"), "DELETE")
 
 
 # --- resolve_tenant ------------------------------------------------------

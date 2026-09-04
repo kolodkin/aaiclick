@@ -13,6 +13,7 @@ export type Route =
   | { kind: "run-confirm"; name: string }
   | { kind: "run-form"; name: string }
   | { kind: "cancel-confirm"; ref: string }
+  | { kind: "tokens" }
   | { kind: "unknown"; raw: string };
 
 export function parsePrompt(raw: string): Route {
@@ -21,6 +22,7 @@ export function parsePrompt(raw: string): Route {
   if (p === "@all") return { kind: "all" };
   if (p === "@jobs") return { kind: "jobs" };
   if (p === "@registered") return { kind: "registered" };
+  if (p === "@tokens") return { kind: "tokens" };
   if (p === "register") return { kind: "register", name: "" };
   if (p.startsWith("register ")) return { kind: "register", name: p.slice(9).trim() };
   if (p.startsWith("@job ")) {

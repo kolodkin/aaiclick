@@ -19,6 +19,10 @@ const ACTIONS: Cmd[] = [
   { code: "enable / disable <name>", desc: "Toggle a registered job on/off via @registered.", cmd: "@registered" },
 ];
 
+const ACCOUNT: Cmd[] = [
+  { code: "@tokens", desc: "API tokens for CLI / SDK / MCP clients — create, revoke.", cmd: "@tokens" },
+];
+
 function CmdList({ items, onPrompt }: { items: Cmd[]; onPrompt: (v: string) => void }) {
   return (
     <div className="cmd-list">
@@ -41,6 +45,8 @@ export function Home({ onPrompt }: { onPrompt: (v: string) => void }) {
       <CmdList items={NAVIGATE} onPrompt={onPrompt} />
       <div className="group-label">Actions</div>
       <CmdList items={ACTIONS} onPrompt={onPrompt} />
+      <div className="group-label">Account</div>
+      <CmdList items={ACCOUNT} onPrompt={onPrompt} />
     </>
   );
 }

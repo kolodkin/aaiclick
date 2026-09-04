@@ -55,3 +55,11 @@ def test_decode_rejects_wrong_type():
     bad = jwt.encode({"sub": "1", "type": "refresh"}, SECRET, algorithm="HS256")
     with pytest.raises(security.TokenError):
         security.decode_access_token(bad, SECRET)
+
+
+def test_api_token_format():
+    token = security.generate_api_token()
+    assert security.is_api_token(token)
+    assert not security.is_api_token("eyJhbGciOi")
+    assert security.api_token_display_prefix(token) == token[:12]
+    assert security.generate_api_token() != token
