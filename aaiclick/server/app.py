@@ -14,6 +14,8 @@ from aaiclick.orchestration.orch_context import orch_context
 
 from .auth import AdminAuthMiddleware, require_principal, require_tenant, warn_if_open
 from .errors import register_exception_handlers
+from .events import live_events
+from .events import router as events_router
 from .mcp import mcp
 from .routers import auth as auth_router
 from .routers import execution_workers, jobs, objects, registered_jobs, tasks
@@ -47,7 +49,7 @@ async def _seed_admin() -> None:
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     warn_if_open()
     await _seed_admin()
-    async with _mcp_app.lifespan(app):
+    async with _mcp_app.lifespan(app), live_events(app):
         if is_local():
             async with local_runtime():
                 yield
@@ -74,6 +76,7 @@ for router in (
     registered_jobs.router,
     tasks.router,
     objects.router,
+    events_router,
 ):
     app.include_router(router, prefix=API_PREFIX, dependencies=[Depends(require_tenant)])
 app.include_router(execution_workers.router, prefix=API_PREFIX, dependencies=[Depends(require_principal)])

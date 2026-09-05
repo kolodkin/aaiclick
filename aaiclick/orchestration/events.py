@@ -21,7 +21,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncGenerator, Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Protocol, cast
@@ -82,7 +82,7 @@ class EventBus:
         for queue in list(self._queues):
             _offer(queue, False)
 
-    async def subscribe(self) -> AsyncIterator[None]:
+    async def subscribe(self) -> AsyncGenerator[None, None]:
         """Yield once per pending signal until the bus closes."""
         queue: asyncio.Queue[bool] = asyncio.Queue(maxsize=1)
         self._queues.add(queue)
