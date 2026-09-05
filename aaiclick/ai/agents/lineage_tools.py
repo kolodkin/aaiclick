@@ -80,7 +80,8 @@ DEFAULT_ROW_LIMIT = 100
 ROW_LIMIT_CEILING = 1000
 DEFAULT_MAX_EXECUTION_TIME = 30
 
-_TABLE_REF_RE = re.compile(r"\bt_\d{16,20}\b|\bp_[A-Za-z_][A-Za-z0-9_]*\b")
+# Every aaiclick table shape: t_<id>, t_<name>_<id>, j_<job_id>_<name>, p_<tenant_id>_<name>.
+_TABLE_REF_RE = re.compile(r"\b[tjp]_[A-Za-z0-9_]+\b")
 _STATEMENT_START_RE = re.compile(r"^\s*(?:WITH\b|SELECT\b)", re.IGNORECASE)
 _FORBIDDEN_KEYWORDS_RE = re.compile(
     r"\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER|CREATE|RENAME|ATTACH|"
@@ -170,7 +171,7 @@ def validate_select_safety(sql: str, *, scan: str | None = None) -> ToolError | 
 
 
 def validate_scope(sql: str, scope_tables: set[str], *, scan: str | None = None) -> ToolError | None:
-    """Reject when ``sql`` references any ``t_*`` / ``p_*`` table outside ``scope_tables``."""
+    """Reject when ``sql`` references any ``t_*`` / ``j_*`` / ``p_*`` table outside ``scope_tables``."""
     if scan is None:
         scan = normalize_sql_for_scan(sql)
     referenced = set(_TABLE_REF_RE.findall(scan))

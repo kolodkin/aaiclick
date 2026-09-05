@@ -64,10 +64,9 @@ def test_temp_named_regex():
 
 
 def test_make_scoped_table_name_global():
-    assert make_scoped_table_name("global", "foo") == "p_foo"
-    # Backward compatibility: the default tenant keeps the bare form, so
-    # existing deployments never need a table rename.
-    assert make_scoped_table_name("global", "foo", tenant_id=DEFAULT_TENANT_ID) == "p_foo"
+    """Every tenant, the default one included, gets the tenant-prefixed form."""
+    assert make_scoped_table_name("global", "foo") == f"p_{DEFAULT_TENANT_ID}_foo"
+    assert make_scoped_table_name("global", "foo", tenant_id=7) == "p_7_foo"
 
 
 def test_make_scoped_table_name_job():
@@ -93,8 +92,9 @@ def test_make_scoped_table_name_missing_required_id_raises(scope, match):
 @pytest.mark.parametrize(
     "table, expected",
     [
-        pytest.param("p_orders", "orders", id="global"),
-        pytest.param("p_user_catalog", "user_catalog", id="global-multi-part"),
+        pytest.param("p_7_orders", "orders", id="global"),
+        pytest.param("p_7_user_catalog", "user_catalog", id="global-multi-part"),
+        pytest.param("p_7__5_x", "_5_x", id="global-leading-underscore-name"),
         pytest.param("j_12345_staging", "staging", id="job"),
         pytest.param("j_12345_multi_part_name", "multi_part_name", id="job-multi-part"),
         pytest.param("t_orders_42", "orders", id="temp-named"),
@@ -113,13 +113,6 @@ def test_other_tenants_get_a_prefixed_global_name():
     assert table == "p_7_sales"
     assert scope_of(table) == "global"
     assert name_from_table(table) == "sales"
-
-
-def test_leading_underscore_name_does_not_look_tenant_prefixed():
-    """``_5_x`` is a legal name; ``p__5_x`` must not strip as a tenant prefix."""
-    table = make_scoped_table_name("global", "_5_x", tenant_id=DEFAULT_TENANT_ID)
-    assert table == "p__5_x"
-    assert name_from_table(table) == "_5_x"
 
 
 def test_job_and_temp_names_never_take_a_tenant_prefix():
