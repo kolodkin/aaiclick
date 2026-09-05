@@ -282,7 +282,7 @@ async def test_ai_lineage_commands_run_with_clickhouse_attached():
 
 def test_load_lineage_ai_exits_with_install_hint_without_ai_extra(capsys):
     with (
-        patch("aaiclick.__main__.importlib.import_module", side_effect=ImportError("No module named 'litellm'")),
+        patch("aaiclick.ai.importing.importlib.import_module", side_effect=ImportError("No module named 'litellm'")),
         pytest.raises(SystemExit) as exc_info,
     ):
         _load_lineage_ai()

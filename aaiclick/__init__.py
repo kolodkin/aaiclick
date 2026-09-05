@@ -20,6 +20,7 @@ except Exception:
 # Field type and orientation constants
 # Value type aliases
 # Persistent object management
+from .ai.importing import import_ai_module
 from .data import (
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
@@ -72,8 +73,5 @@ async def explain(target_table: str, question: str | None = None) -> str:
     Note:
         Requires ``pip install "aaiclick[ai]"``.
     """
-    try:
-        from aaiclick.ai.agents.lineage_agent import explain_lineage
-    except ImportError as err:
-        raise ImportError("AI features require the aaiclick[ai] extra. Install with: pip install aaiclick[ai]") from err
-    return await explain_lineage(target_table, question)
+    lineage_agent = import_ai_module("aaiclick.ai.agents.lineage_agent")
+    return await lineage_agent.explain_lineage(target_table, question)

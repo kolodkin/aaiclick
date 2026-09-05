@@ -36,7 +36,6 @@ Usage:
 
 import argparse
 import asyncio
-import importlib
 import json
 import shlex
 import sys
@@ -46,6 +45,7 @@ from datetime import datetime
 from typing import Any, cast, get_args
 
 from aaiclick import cli_renderers, cli_wait, internal_api
+from aaiclick.ai.importing import import_ai_module
 from aaiclick.auth import store as auth_store
 from aaiclick.auth.models import ROLE_VIEWER, ROLES
 from aaiclick.auth.view_models import CreateTenantRequest, CreateUserRequest, UserListFilter
@@ -388,9 +388,6 @@ async def _run_data_purge(args: argparse.Namespace) -> None:
     _render(args, result, cli_renderers.render_objects_purged)
 
 
-_AI_EXTRA_HINT = "AI commands require the aaiclick[ai] extra. Install with: pip install aaiclick[ai]"
-
-
 def _load_lineage_ai():
     """Import ``internal_api.lineage_ai`` on demand, exiting 1 without the ``ai`` extra.
 
@@ -399,9 +396,9 @@ def _load_lineage_ai():
     optional dependency.
     """
     try:
-        return importlib.import_module("aaiclick.internal_api.lineage_ai")
-    except ImportError:
-        print(_AI_EXTRA_HINT, file=sys.stderr)
+        return import_ai_module("aaiclick.internal_api.lineage_ai")
+    except ImportError as exc:
+        print(exc, file=sys.stderr)
         sys.exit(1)
 
 

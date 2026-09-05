@@ -210,13 +210,11 @@ exit 1 with an install hint.
 
 # Graceful Degradation
 
-```python
-# aaiclick core — surfaced in aaiclick/__init__.py
+Modules that pull in litellm are imported on first use through
+`import_ai_module()`, which turns a missing extra into one `ImportError`
+carrying the install hint. `aaiclick.explain()` raises it; the CLI prints it
+and exits 1.
 
-async def explain(target_table: str, question: str | None = None) -> str:
-    try:
-        from aaiclick.ai.agents.lineage_agent import explain_lineage
-    except ImportError:
-        raise ImportError("AI features require aaiclick[ai]: pip install aaiclick[ai]")
-    return await explain_lineage(target_table, question)
-```
+**Implementation**: `aaiclick/ai/importing.py` — see `import_ai_module()`;
+callers in `aaiclick/__init__.py` (`explain()`) and `aaiclick/__main__.py`
+(`_load_lineage_ai()`).
