@@ -9,41 +9,22 @@ Planned work across aaiclick, ordered by priority.
 
 Items deferred until preconditions are met.
 
-## SSE `/events` Endpoint + LISTEN/NOTIFY Fanout
+## Event Fanout — Beyond Postgres LISTEN/NOTIFY
 
-v0 uses 2 s `refetchInterval` polling. The designed real-time path is:
-
-1. `GET /api/v0/events` → `text/event-stream` (one connection per UI session).
-2. Workers emit `NOTIFY job_events` in the same commit as every status write.
-3. FastAPI holds one `LISTEN` connection per backend and forwards
-   notifications onto an in-process pub/sub bus.
-4. The SSE endpoint subscribes and streams typed events (`job.updated`,
-   `task.updated`, `task.log`) to the browser.
-5. The browser calls `queryClient.invalidateQueries(...)` and lets REST
-   fetch authoritative state — events are signals, not payloads.
-
-**SQLite local mode**: poll + snapshot diff every 2 s (same latency as current
-polling, but avoids N×M HTTP requests from N browser tabs). SQLite pairs with
-chdb, and local mode is single-process — cross-host fanout doesn't arise there.
-
-**Multi-host is already covered**: Postgres delivers each `NOTIFY` to every
-connection that has issued `LISTEN`, so N API hosts just hold N `LISTEN`
-connections — no extra broker. `NOTIFY` in the same commit as the status
-write guarantees a refetching client sees the committed state. Escape
-hatches, should the feeder ever measurably hurt:
+`GET /api/v0/events` streams change signals fed by `pg_notify` on every
+job/task commit (`docs/designs/frontend.md` — Live updates). Escape hatches,
+should the feeder ever measurably hurt:
 
 - **Redis Pub/Sub** — only if listener count or notification volume becomes a
-  real cost (dozens of hosts, very high event rates), or payloads outgrow
-  Postgres's ~8 KB `NOTIFY` limit; events are signals, not payloads, so they
-  stay tiny.
-- **ClickHouse tail** — each API host polls `operation_log` (or a dedicated
-  events table) past a watermark: N pollers instead of N×M browser polls, no
-  touch on the SQL commit path. But latency is poll-bound and the CH insert
-  is unordered relative to the SQL commit, so a client can refetch before the
-  status write is visible. chdb is in-process single-session — not a bus.
-
-**When to revisit**: when polling overhead is measurable (many tabs or many
-concurrent jobs), or when sub-2 s latency matters for operators.
+  real cost (dozens of hosts, very high event rates). Signals carry no
+  payload, so Postgres's ~8 KB `NOTIFY` limit never bites.
+- **ClickHouse tail** — each API host polls `operation_log` past a watermark:
+  N pollers, no touch on the SQL commit path. But latency is poll-bound and
+  the CH insert is unordered relative to the SQL commit, so a client can
+  refetch before the status write is visible.
+- **Typed per-job events with tenant filtering** — every view is job-scoped
+  and refetches the same few queries, so the coarse signal costs nothing
+  today; widen the payload only if a view needs to ignore other jobs' churn.
 
 ## API Auth — Beyond Username/Password + RBAC
 

@@ -11,8 +11,8 @@ real-time updates. UX (layout, modes, wireframes) lives in `docs/designs/ui.md`.
 | UI framework | React 19 + TypeScript        | Largest ecosystem, first-class TanStack Query    |
 | Styling      | TailwindCSS 4                | Utility-first, no design-system overhead         |
 | Build        | Vite 6                       | Fast HMR, native ESM, zero-config TS             |
-| Data fetch   | TanStack Query 5             | Caching, retries, `refetchInterval` polling      |
-| Real-time    | REST polling (v0)            | 2 s `refetchInterval`; SSE deferred (see below)  |
+| Data fetch   | TanStack Query 5             | Caching, retries, invalidation                   |
+| Real-time    | SSE `/api/v0/events`         | Change signals; 2 s polling only as fallback     |
 | Client state | None (URL is the state)      | The prompt drives navigation; no Redux/Zustand   |
 | Graph        | React Flow 12 + dagre 3      | Layered DAG view of job tasks (both MIT)         |
 
@@ -79,8 +79,9 @@ no CORS.
 
 # Data layer
 
-REST is the sole source of truth in v0. Every hook polls every 2 seconds
-via TanStack Query's `refetchInterval`.
+REST is the sole source of truth. Hooks refetch when the server signals a
+change over `/api/v0/events` (see Live updates), and fall back to a 2 s
+`refetchInterval` only while that stream is down.
 
 - **Typed REST client**: `src/api/client.ts` — `fetchJSON` / `postJSON` + `ApiError`.
 - **TypeScript types**: `npm run gen-types` generates `src/api/schema.ts` from the server's OpenAPI
@@ -143,40 +144,50 @@ When the server adds a model, run `npm run gen-types` and add one re-export
 line. **CI runs `gen-types` and fails on any diff**, so the types can't fall
 behind the server.
 
-# Real-time (v0 — REST polling)
+# Live updates
 
-v0 uses `refetchInterval: 2000` on every query. No SSE endpoint exists yet;
-design and fanout spec are tracked in `docs/designs/future.md`.
+One SSE connection per UI session carries a single event kind, `changed`,
+with no payload. The client invalidates its whole React Query cache on each
+frame and REST supplies authoritative state — events are signals, not data.
 
-## SSE design (future)
+- **Stream**: `GET /api/v0/events` → `text/event-stream`, opened through the
+  same `fetch` chokepoint as every request (`EventSource` cannot send the
+  bearer or `X-Tenant-Id` headers). Reconnects with capped backoff and
+  invalidates on every (re)connect to catch up.
+- **Fallback**: the QueryClient default `refetchInterval` is a function that
+  returns `false` while the stream is connected and `2000` otherwise, so a
+  proxy that buffers SSE degrades to polling rather than a frozen UI.
+- **Task logs**: lines reach ClickHouse from the task process on its own
+  flush cadence, never through a SQL commit, so no signal marks a new line.
+  `useTaskLogs(id, live)` polls at 2 s while the task is non-terminal; the
+  terminal status write's signal triggers the last refetch.
 
-One SSE connection per UI session. The server emits typed events; the
-client invalidates React Query caches and lets REST refetch authoritative state.
+**Implementation**: `src/api/events.ts` — see `useLiveUpdates`,
+`isLiveConnected`; `src/main.tsx` — the `refetchInterval` default;
+`aaiclick/server/events.py` — see `event_frames`, `live_events`.
 
-- **Endpoint**: `GET /api/v0/events` → `text/event-stream`
-- **Client dispatch**: a single `useServerEvents()` hook owns the `EventSource`.
-  `job.updated` / `task.updated` → `queryClient.invalidateQueries(...)`;
-  `task.log` → forwarded to the active `TaskDetail` log buffer.
-- **Reconnect**: `EventSource` reconnects natively.
-
-## Server-side fanout (future)
+## Server-side fanout
 
 ```
-worker child ─▶ DB commit ─▶ feeder ─▶ in-process bus ─▶ SSE endpoint ─▶ client
-                              ▲
-                              ├── Postgres: LISTEN/NOTIFY
-                              └── SQLite:   poll every 2 s
+status write ─▶ Session commit hook ─▶ Postgres NOTIFY ─▶ LISTEN (per API host) ─▶ EventBus ─▶ /events
+                                    └▶ SQLite: EventBus directly (same process) ─▶ /events
 ```
 
-| Backend                | Feeder                        | Latency    |
-|------------------------|-------------------------------|------------|
-| Postgres (distributed) | `LISTEN job_events`           | sub-second |
-| SQLite (local)         | poll, diff snapshot every 2 s | up to 2 s  |
+Detection hooks the SQLAlchemy `Session` rather than each write site: any
+transaction that inserts, updates or deletes `jobs`, `tasks` or `groups`
+(ORM flush, Core DML or raw `text()`) is flagged and, on commit, issues
+`pg_notify` inside the same transaction — so a client that refetches on the
+signal always sees the committed row. Local mode runs the workers inside the
+server process, so there the commit publishes straight onto the in-process
+bus with no polling at all.
 
-The Postgres feeder is inherently multi-host: Postgres delivers each `NOTIFY`
-to every connection that has issued `LISTEN`, so N API hosts just hold N
-`LISTEN` connections — horizontal scaling needs no extra broker (escape
-hatches in `docs/designs/future.md`).
+Each stream forwards at most one frame per 500 ms; a burst of commits
+collapses into a single refetch round and an idle UI costs nothing. Postgres
+delivers each `NOTIFY` to every `LISTEN` connection, so N API hosts hold N
+connections — no broker (escape hatches in `docs/designs/future.md`).
+
+**Implementation**: `aaiclick/orchestration/events.py` — see `EventBus`,
+`listen_postgres` and the `Session` listeners.
 
 # Testing
 

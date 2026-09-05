@@ -390,6 +390,15 @@ workers.
 `Forbidden` ships in v0 so the error-mapping table is stable; no route
 raises it until scopes land.
 
+## Live updates — `GET /api/v0/events`
+
+A `text/event-stream` of `changed` events (no payload) fed by Postgres
+`LISTEN`/`NOTIFY` in distributed mode and an in-process bus in local mode.
+Requires a principal and a tenant like every other resource route; the
+signal itself carries nothing tenant-specific. Design and client behaviour:
+`docs/designs/frontend.md` — Live updates. **Implementation**:
+`aaiclick/server/events.py` — see `stream_events`, `live_events`.
+
 # MCP Surface
 
 `aaiclick/server/mcp.py` exposes a module-level `mcp = FastMCP("aaiclick")`
