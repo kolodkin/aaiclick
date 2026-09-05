@@ -228,10 +228,17 @@ All REST paths share a common `/api/v0` prefix — see
 | `data delete <name>`       | `delete_object(name)`              | `DELETE /objects/{name}`           | `delete_object`           |
 | `data purge`               | `purge_objects(filter)`            | `POST /objects:purge`              | `purge_objects`           |
 | *(new)* task detail        | `get_task(id)`                     | `GET /tasks/{id}`                  | `get_task`                |
+| `explain <table> [q]`      | `lineage_ai.explain_lineage(...)`  | —                                  | —                         |
+| `debug <table> "<q>"`      | `lineage_ai.debug_result(...)`     | —                                  | —                         |
 
 `job wait <ref>` and `run-job --progress` have no row: they are CLI-only
 compositions over `job_stats`. Blocking a request for up to 600s is not a
 valid server shape — REST clients poll `GET /jobs/{ref}/stats` instead.
+
+`explain` / `debug` need the `ai` extra, so their wrappers live in
+`internal_api.lineage_ai`, imported on demand by the CLI and never from
+`internal_api.__init__`. REST and MCP expose only the AI-independent
+primitives in `internal_api.lineage`; the calling agent composes them itself.
 
 
 # CLI Rendering Contract

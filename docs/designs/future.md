@@ -88,17 +88,6 @@ budget stops depending on the tenant id's digit count.
 recurring source of friction. The cost is renaming every existing `p_*` table
 plus a compatibility path for objects opened by name.
 
-## CLI Lineage AI Commands
-
-A CLI surface for AI lineage (e.g. `aaiclick explain <table>` /
-`aaiclick debug <table> "<question>"`). When it lands, add thin
-`internal_api` wrappers over `ai.agents.lineage_agent.explain_lineage` and
-`ai.agents.debug_agent.debug_result`, kept separate from
-`internal_api.lineage` so callers without the `ai` extra can still import
-the primitives (a previous unwired version, `internal_api/lineage_ai.py`,
-was removed as dead code). MCP intentionally exposes only the
-AI-independent primitives (`server/mcp.py`).
-
 ## Java Task SDK — Shim Jar (`jvm` Entry Type)
 
 **Decision**: Java payloads run through the existing shell/container path,
