@@ -12,6 +12,7 @@ from aaiclick.data.data_context.ch_client import get_ch_client
 from aaiclick.oplog.oplog_api import oplog_record, oplog_record_sample
 from aaiclick.orchestration.orch_context import task_scope
 from aaiclick.orchestration.sql_context import get_sql_session
+from aaiclick.tenancy import DEFAULT_TENANT_ID
 
 
 async def test_oplog_writes_on_operation(orch_ctx):
@@ -52,7 +53,7 @@ async def test_job_scoped_named_object(orch_ctx):
 
 
 async def test_global_scope_overrides_job_default(orch_ctx):
-    """scope='global' in orch preserves the ``p_<name>`` behavior."""
+    """scope='global' in orch preserves the ``p_<tenant_id>_<name>`` behavior."""
     async with task_scope(task_id=8, job_id=1234, run_id=800):
         obj = await create_object_from_value(
             [1, 2, 3],
@@ -60,7 +61,7 @@ async def test_global_scope_overrides_job_default(orch_ctx):
             scope="global",
         )
         try:
-            assert obj.table == "p_cross_job_catalog"
+            assert obj.table == f"p_{DEFAULT_TENANT_ID}_cross_job_catalog"
             assert obj.scope == "global"
         finally:
             ch = get_ch_client()

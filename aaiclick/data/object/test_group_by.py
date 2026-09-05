@@ -9,6 +9,7 @@ import pytest
 
 from aaiclick import create_object_from_value, delete_persistent_object
 from aaiclick.data.models import GB_GROUP_ARRAY_DISTINCT, Agg
+from aaiclick.tenancy import DEFAULT_TENANT_ID
 
 THRESHOLD = 1e-5
 
@@ -808,7 +809,7 @@ async def test_group_by_sum_with_name_global_scope(ctx):
 
     result = await obj.group_by("category").sum("amount", name="gb_sum_named_global", scope="global")
     try:
-        assert result.table == "p_gb_sum_named_global"
+        assert result.table == f"p_{DEFAULT_TENANT_ID}_gb_sum_named_global"
         data = await result.data()
         by_cat = dict(zip(data["category"], data["amount"], strict=True))
         assert by_cat == {"A": 30, "B": 30}

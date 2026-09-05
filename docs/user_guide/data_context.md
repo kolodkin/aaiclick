@@ -83,13 +83,15 @@ Every Object belongs to one of four scopes, identified by the table-name prefix:
 | `temp`       | `t_<id>`                | Dropped at `data_context()` / `task_scope` exit   | Unnamed objects                                             |
 | `temp_named` | `t_<name>_<id>`         | Dropped at `data_context()` / `task_scope` exit   | `create_object_from_value(..., name="x")` (default)         |
 | `job`        | `j_<job_id>_<name>`     | Dropped when the owning job's TTL expires         | `create_object_from_value(..., name="x", scope="job")`      |
-| `global`     | `p_<name>`              | Forever; only `delete_persistent_object()` drops  | `create_object_from_value(..., name="x", scope="global")`   |
+| `global`     | `p_<tenant_id>_<name>`  | Forever; only `delete_persistent_object()` drops  | `create_object_from_value(..., name="x", scope="global")`   |
 
 **Default when `name` is set, no `scope=`**: `"temp_named"` everywhere — the table dies with the context, but the user-supplied `name` shows up in the table name (`t_<name>_<snowflake>`) for easier debugging in `system.tables`. Two callers passing `name="staging"` get two distinct tables — the snowflake disambiguates.
 
 Persistent scopes (`"job"`, `"global"`) require an active `orch_context()` because they write a `table_registry` row that only the orch lifecycle handler maintains.
 
 ```python
+from aaiclick.tenancy import DEFAULT_TENANT_ID
+
 # Bare data_context — name= produces a temp_named table.
 async with data_context():
     staging = await create_object_from_value([1, 2, 3], name="staging")
@@ -110,7 +112,7 @@ async with task_scope(task_id=1, job_id=42, run_id=100):
         name="cross_job_catalog",
         scope="global",
     )
-    assert shared.table == "p_cross_job_catalog"
+    assert shared.table == f"p_{DEFAULT_TENANT_ID}_cross_job_catalog"
 ```
 
 `p_*` tables are **exempt** from job-TTL cleanup — the background worker never drops them, even for expired jobs. `j_<id>_*` tables are dropped only when the job itself expires (`AAICLICK_JOB_TTL_DAYS`), not by per-task refcount cleanup.

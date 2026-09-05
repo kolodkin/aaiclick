@@ -12,6 +12,7 @@ from aaiclick.data.models import (
 )
 from aaiclick.data.object import LazyOperator, operators
 from aaiclick.data.object.schema_compute import _preview_operator_schema
+from aaiclick.tenancy import DEFAULT_TENANT_ID
 
 BINARY_OPERATORS = ["+", "-", "*", "/", "//", "%", "**", "==", "!=", "<", "<=", ">", ">=", "&", "|", "^"]
 
@@ -295,7 +296,7 @@ async def test_public_as_scope_global(ctx):
         obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
         obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
         result = await (obj_a + obj_b).as_("yearly_avg", scope="global")
-        assert result.table == "p_yearly_avg"
+        assert result.table == f"p_{DEFAULT_TENANT_ID}_yearly_avg"
         assert result.persistent is True
         assert await result.data() == [5, 7, 9]
     finally:

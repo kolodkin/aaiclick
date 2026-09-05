@@ -62,12 +62,22 @@ async def test_query_table_rejects_ddl_keywords_inside_select():
     assert err.kind == "not_select"
 
 
-async def test_query_table_rejects_out_of_scope_table():
+@pytest.mark.parametrize(
+    "table",
+    [
+        pytest.param("t_99999999999999999999", id="temp"),
+        pytest.param("t_stage_99999999999999999999", id="temp-named"),
+        pytest.param("j_99999999999999999999_stage", id="job"),
+        pytest.param("p_99999999999999999999_stage", id="global"),
+    ],
+)
+async def test_query_table_rejects_out_of_scope_table(table):
+    """Every table shape aaiclick creates must be visible to the scope guard."""
     toolbox = LineageToolbox(_sample_graph())
-    err = await toolbox.query_table("SELECT * FROM t_99999999999999999999")
+    err = await toolbox.query_table(f"SELECT * FROM {table}")
     assert isinstance(err, ToolError)
     assert err.kind == "out_of_scope"
-    assert "t_99999999999999999999" in err.message
+    assert table in err.message
 
 
 async def test_query_table_happy_path_wraps_limit():

@@ -95,7 +95,7 @@ daily_total = await orders.sum().as_("daily_total")             # t_daily_total_
 
 # 5. Persist beyond the current context
 daily = await (sales + bonuses).as_("daily", scope="job")       # j_<job_id>_daily
-yearly = await orders.sum().as_("yearly", scope="global")       # p_yearly
+yearly = await orders.sum().as_("yearly", scope="global")       # p_<tenant_id>_yearly
 ```
 
 `await` is only needed when the caller wants the materialized `Object` back — to read `.table`, hand it to an eager API, etc. Reading rows (`.data()`, `.markdown()`, `.export()`, `.result()`) or chaining further operators (`(a + b) + c`, `obj.abs().sum()`) doesn't require an explicit `await` of the intermediate — the lazy passes through.
@@ -108,7 +108,7 @@ Names the result table and chooses its lifetime. Returns a new `LazyOperator` (t
 |---|---|---|
 | `"temp_named"` (default) | `t_<name>_<snowflake>` | Drops with the context |
 | `"job"` | `j_<job_id>_<name>` | Lives until the active orch job expires |
-| `"global"` | `p_<name>` | Persists; remove with `delete_persistent_object(name, scope="global")` |
+| `"global"` | `p_<tenant_id>_<name>` | Persists; remove with `delete_persistent_object(name, scope="global")` |
 
 ### `name` / `scope` on always-materializing ops
 
@@ -125,7 +125,7 @@ enriched = await a.join(b, on="user_id", name="enriched", scope="job")
 # → j_<job_id>_enriched
 
 totals = await orders.group_by("category").sum("amount", name="totals", scope="global")
-# → p_totals
+# → p_<tenant_id>_totals
 ```
 
 `LazyOperator`'s overrides forward `name` / `scope` to the materialized
