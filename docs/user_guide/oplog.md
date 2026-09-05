@@ -19,7 +19,7 @@ All inputs named via `kwargs` (e.g. `{"left": ..., "right": ...}` for binary ops
 
 **Implementation**: `aaiclick/orchestration/lifecycle/db_lifecycle.py` — see `TableRegistry`
 
-Ownership metadata for every ClickHouse data table: `table_name` (PK) → `(tenant_id, name, job_id, task_id, run_id, created_at, schema_doc)`. `name` is set only for `scope="global"` rows — their table name is an opaque `p_<snowflake>`, so this column (unique per tenant) is the name → table mapping. Written once at creation: global rows synchronously via `claim_global_table`, everything else by the lifecycle handler's queued `OPLOG_TABLE` op; deleted by `BackgroundWorker._cleanup_unreferenced_tables()` when the table is dropped, and by `_cleanup_expired_jobs()` / `_cleanup_orphaned_resources()` for TTL'd rows.
+Ownership metadata for every ClickHouse data table: `table_name` (PK) → `(tenant_id, name, job_id, task_id, run_id, created_at, schema_doc)`. `name` is set only for global rows (their table is an opaque `p_<snowflake>`) and, unique per tenant, is the name → table mapping. Written once at creation — global rows synchronously via `claim_global_table`, the rest by the lifecycle handler's queued `OPLOG_TABLE` op; deleted by `BackgroundWorker._cleanup_unreferenced_tables()` when the table is dropped, and by `_cleanup_expired_jobs()` / `_cleanup_orphaned_resources()` for TTL'd rows.
 
 Previously lived in ClickHouse as an append-only MergeTree table. Moved to SQL because every consumer is a keyed lookup or owner join during background cleanup — not append-only audit.
 

@@ -74,12 +74,8 @@ async def test_query_table_rejects_ddl_keywords_inside_select():
     ],
 )
 async def test_query_table_rejects_out_of_scope_table(table):
-    """Every scope shape in aaiclick/data/scope.py must be visible to the guard.
-
-    A shape the reference regex does not match is not merely unreported — it
-    skips the scope check entirely and the SELECT runs against ClickHouse,
-    which holds every tenant's tables in one database.
-    """
+    """Every scope shape must be visible to the guard: a shape the regex misses
+    skips the scope check and the SELECT runs against ClickHouse."""
     toolbox = LineageToolbox(_sample_graph())
     err = await toolbox.query_table(f"SELECT * FROM {table}")
     assert isinstance(err, ToolError)

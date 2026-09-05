@@ -113,19 +113,13 @@ async def migrate_table_registry_to_sql(ch_client: ChClient) -> None:
 
 
 async def backfill_registry_names() -> None:
-    """Populate ``table_registry.name`` for legacy global rows.
+    """Populate ``table_registry.name`` for legacy ``p_<name>`` / ``p_<tenant_id>_<name>`` rows.
 
-    Global tables used to be named ``p_<name>`` / ``p_<tenant_id>_<name>``;
-    the name now lives only in the registry. Rows from before that change
-    have ``name IS NULL``, which would make their objects invisible to
-    ``open_object`` and listing. Parse the name back out once, keeping the
-    physical table untouched — nothing in ClickHouse has to be renamed.
-
-    Latched per process after one successful pass, so ``orch_context``
-    entry pays the scan once. Rows that do not parse (an opaque
-    ``p_<snowflake>`` without a name) are left alone. Best effort — a
-    database that predates ``table_registry`` (``aaiclick migrate`` not yet
-    run) is logged, not fatal, and not latched.
+    Such rows have ``name IS NULL`` and would be invisible to every
+    name-based path; the physical table is left untouched. Latched per
+    process after one successful pass. Best effort — a database predating
+    ``table_registry`` (``aaiclick migrate`` not yet run) is logged, not
+    latched.
     """
     global _names_backfilled
     if _names_backfilled:

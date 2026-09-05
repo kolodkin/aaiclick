@@ -129,11 +129,10 @@ class TableRegistry(SQLModel, table=True):
     owning job TTL-expires or (for orphans with ``job_id IS NULL``) when
     the orphan TTL expires.
 
-    ``name`` is the user-visible object name and is set only on
-    ``scope="global"`` rows — the ClickHouse table name is opaque
-    (``p_<snowflake>``), so this column is the sole name → table mapping
-    and ``UNIQUE (tenant_id, name)`` is what keeps names per-tenant
-    unique. Job- and temp-scoped rows leave it ``NULL``.
+    ``name`` is set only on ``scope="global"`` rows: their table name is an
+    opaque ``p_<snowflake>``, so this column is the only name → table mapping
+    and ``UNIQUE (tenant_id, name)`` keeps names per-tenant unique. Other rows
+    leave it ``NULL``.
 
     Previously lived in ClickHouse as an append-only MergeTree table.
     Moved to SQL because every consumer is a keyed lookup or owner join

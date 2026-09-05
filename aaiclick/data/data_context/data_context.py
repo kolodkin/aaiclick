@@ -227,11 +227,9 @@ def get_engine_clause(engine: EngineType, order_by: str = "tuple()") -> str:
     return f"ENGINE = {engine} ORDER BY {order_by}"
 
 
-# ``job`` / ``temp_named`` names are embedded in the CH table name, so the
-# cap keeps them clear of ClickHouse's table-name ceiling after the prefix —
-# see docs/designs/tenant_rbac.md, "Name length budget". Global names live
-# only in the registry but share the rule so a name valid in one scope is
-# valid in every scope.
+# ``job`` / ``temp_named`` embed the name in the CH table name, so the cap keeps
+# them under ClickHouse's ceiling (docs/designs/tenant_rbac.md, "Name length
+# budget"). Global names share the rule so one name is valid in every scope.
 MAX_PERSISTENT_NAME_LEN = 128
 
 
@@ -337,11 +335,9 @@ async def create_object(
     if effective_scope is None:
         obj = Object(schema=schema)
     elif effective_scope == SCOPE_GLOBAL:
-        # Claim the name before any DDL: a fresh p_<snowflake> is offered and
-        # the registry's UNIQUE (tenant_id, name) decides who owns the name.
-        # Losing (an append, or a concurrent creator) yields the existing
-        # table and the snowflake is discarded. This is the registry write
-        # for a global table — no queued register_table follows.
+        # Claim the name before any DDL: UNIQUE (tenant_id, name) decides who
+        # owns it; losing (an append, or a concurrent creator) yields the
+        # existing table. This is the registry write — no register_table follows.
         assert name is not None
         _validate_persistent_name(name)
         candidate = f"{GLOBAL_PREFIX}{get_snowflake_id()}"
@@ -405,12 +401,10 @@ async def create_object(
         raise
 
     if effective_scope != SCOPE_GLOBAL:
-        # Register table in table_registry for cleanup worker (global tables
-        # were registered by the claim above). In orch mode this records the
-        # job_id so tables are scoped to their job and cleaned up when the job
-        # expires. The schema_doc carries the serialised Schema that
-        # _get_table_schema reads back. operation_log entries are recorded by
-        # higher-level callers (operators, ingest, etc.).
+        # Register non-global tables (the claim above registered global ones).
+        # In orch mode this records the job_id so the table is dropped with its
+        # job; schema_doc is what _get_table_schema reads back. operation_log
+        # entries are recorded by higher-level callers (operators, ingest, etc.).
         register_table(obj.table, schema_doc=schema.model_dump_json())
 
         # Flush the lifecycle queue so the registry row is committed before the
@@ -819,9 +813,8 @@ async def list_persistent_entries(
 ) -> list[PersistentEntry]:
     """List the active tenant's global-scope objects, sorted by name.
 
-    Reads SQL ``table_registry``: the name → table mapping exists nowhere
-    else, and ownership lives there too. Global rows are the ones carrying
-    a ``name``.
+    Reads ``table_registry`` — the only name → table mapping; global rows
+    are those carrying a ``name``.
 
     Args:
         after: Only objects registered at or after this time (inclusive).

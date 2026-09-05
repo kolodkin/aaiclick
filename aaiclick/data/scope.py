@@ -8,10 +8,9 @@ Four scopes share one table-name prefix convention:
 - ``"job"``        → ``j_<job_id>_<name>``        — lifetime: owning job's TTL
 - ``"global"``     → ``p_<snowflake_id>``         — lifetime: forever (user-managed)
 
-The prefix only encodes the *scope*; it is cheap to match both in Python and
-in SQL cleanup queries. A global object's user-visible name is not part of
-its table name — it lives in SQL ``table_registry.name`` (unique per tenant),
-which is the sole name → table mapping.
+The prefix encodes only the *scope* and is cheap to match in Python and SQL.
+A global object's name lives in ``table_registry.name`` (unique per tenant),
+not in its table name.
 """
 
 from __future__ import annotations
@@ -86,10 +85,9 @@ def make_scoped_table_name(
 def legacy_global_name(table_name: str, tenant_id: int) -> str | None:
     """Recover the object name from a pre-registry global table name.
 
-    Before names moved into ``table_registry``, global tables were
-    ``p_<name>`` for the default tenant and ``p_<tenant_id>_<name>``
-    otherwise. Returns ``None`` for anything that does not parse as such
-    a table — including today's opaque ``p_<snowflake>`` names.
+    Legacy global tables were ``p_<name>`` (default tenant) or
+    ``p_<tenant_id>_<name>``. ``None`` for anything else, including today's
+    opaque ``p_<snowflake>`` names.
     """
     if not table_name.startswith(GLOBAL_PREFIX):
         return None

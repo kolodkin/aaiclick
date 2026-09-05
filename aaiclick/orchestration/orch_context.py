@@ -209,10 +209,9 @@ class OrchLifecycleHandler(LifecycleHandler):
             return await self._lookup_global_table(session, name)
 
     async def claim_global_table(self, name: str, table_name: str, schema_doc: str) -> str:
-        """Synchronous (not queued) so the caller knows which table to
-        ``CREATE`` before it runs the DDL. The insert's ``ON CONFLICT DO
-        NOTHING`` makes ``UNIQUE (tenant_id, name)`` the arbiter between
-        concurrent creators; the re-read returns whichever row won."""
+        """Synchronous (not queued): the caller needs the table before running
+        DDL. ``ON CONFLICT DO NOTHING`` lets ``UNIQUE (tenant_id, name)``
+        arbitrate concurrent creators; the re-read returns the winner."""
         payload = OplogTablePayload(
             table_name,
             self._task_id,

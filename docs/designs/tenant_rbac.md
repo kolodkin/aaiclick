@@ -219,11 +219,10 @@ Creating a global object *claims* its name before any DDL: the handler
 inserts the registry row (fresh `p_<snowflake>`) with a bare
 `ON CONFLICT DO NOTHING`, then re-reads `(tenant_id, name)`. The insert is
 synchronous — not the queued `register_table` path — because the caller needs
-the table to `CREATE`. The unique constraint picks the owner; a loser (a
-concurrent creator, or an append to an existing name) gets the winner's table
-and its `CREATE TABLE IF NOT EXISTS` no-ops. A failed `CREATE` deletes a
-freshly claimed row so a retry does not inherit a table that never
-materialised.
+the table to `CREATE`. A loser (a concurrent creator, or an append to an
+existing name) gets the winner's table and its `CREATE TABLE IF NOT EXISTS`
+no-ops. A failed `CREATE` deletes a freshly claimed row so a retry does not
+inherit a table that never materialised.
 
 `open_object`, `delete_persistent_object`, listing and purge resolve through
 the same column, filtered by the active tenant.

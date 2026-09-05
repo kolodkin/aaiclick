@@ -80,10 +80,8 @@ DEFAULT_ROW_LIMIT = 100
 ROW_LIMIT_CEILING = 1000
 DEFAULT_MAX_EXECUTION_TIME = 30
 
-# Every scope prefix aaiclick creates (see aaiclick/data/scope.py): a shape
-# this misses is invisible to validate_scope and reaches ClickHouse unchecked,
-# so the pattern must stay wider than the table names rather than exact. The
-# cost is a false rejection when a user column is named like ``p_value``.
+# Must cover every scope prefix (aaiclick/data/scope.py): a shape this misses
+# skips validate_scope entirely. Cost: a false rejection on columns like p_value.
 _TABLE_REF_RE = re.compile(r"\b[tjp]_[A-Za-z0-9_]+\b")
 _STATEMENT_START_RE = re.compile(r"^\s*(?:WITH\b|SELECT\b)", re.IGNORECASE)
 _FORBIDDEN_KEYWORDS_RE = re.compile(
