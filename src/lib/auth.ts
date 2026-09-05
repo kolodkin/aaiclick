@@ -8,8 +8,10 @@ import type { MeView } from "../api/types";
 // keep the prefix local to avoid an import cycle with client.ts.
 const API = "/api/v0";
 const REFRESH_KEY = "aaiclick.refresh";
-// Mirrors DEFAULT_TENANT_ID in aaiclick/tenancy.py.
-const DEFAULT_TENANT_ID = 1;
+// Mirrors DEFAULT_TENANT_ID in aaiclick/tenancy.py. Tenant ids are 64-bit and
+// travel as strings (see SnowflakeId in aaiclick/log_models.py) because a JS
+// number loses precision above 2^53.
+const DEFAULT_TENANT_ID = "4611686018427387904";
 let accessToken: string | null = null;
 
 function postAuth(path: string, body: unknown): Promise<Response> {
@@ -33,7 +35,7 @@ let currentMe: MeView | null = null;
 // default tenant for superadmins / local mode (docs/designs/tenant_rbac.md).
 export function getActiveTenantId(): string | null {
   if (currentMe === null) return null;
-  return String(currentMe.tenants[0]?.tenant_id ?? DEFAULT_TENANT_ID);
+  return currentMe.tenants[0]?.tenant_id ?? DEFAULT_TENANT_ID;
 }
 
 function setAccessToken(token: string | null): void {

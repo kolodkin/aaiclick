@@ -49,7 +49,7 @@ def _stub_session(page, role: str) -> None:
         "id": 1,
         "username": f"{role}_user",
         "superadmin": role == "admin",
-        "tenants": [{"tenant_id": 1, "slug": "aaiclick", "name": "aaiclick", "role": role}],
+        "tenants": [{"tenant_id": "4611686018427387904", "slug": "aaiclick", "name": "aaiclick", "role": role}],
     }
     page.route(
         "**/api/v0/auth/me",

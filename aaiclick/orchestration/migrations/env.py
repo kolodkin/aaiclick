@@ -132,6 +132,8 @@ def run_migrations_online() -> None:
             connection=connection,
             target_metadata=target_metadata,
             include_name=include_name,
+            # Autogenerate ignores server_default changes without this.
+            compare_server_default=True,
         )
 
         with context.begin_transaction():
