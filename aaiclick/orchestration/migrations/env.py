@@ -2,7 +2,7 @@ import os
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import engine_from_config, inspect, pool
+from sqlalchemy import JSON, engine_from_config, inspect, pool
 from sqlmodel import SQLModel
 
 # Import models module to ensure all models are registered with SQLModel metadata
@@ -20,6 +20,15 @@ if config.config_file_name is not None:
 
 # Set SQLModel metadata as the target for autogenerate
 target_metadata = SQLModel.metadata
+
+
+def _compare_server_default(context, inspected_column, metadata_column, inspected_default, metadata_default, rendered):
+    """Skip JSON columns: Postgres has no ``json = json`` operator, so alembic's
+    ``SELECT a = b`` default comparison errors on them. ``None`` keeps the
+    dialect comparison for every other column."""
+    if isinstance(metadata_column.type, JSON):
+        return False
+    return None
 
 
 def _make_include_name(connection):
@@ -133,7 +142,7 @@ def run_migrations_online() -> None:
             target_metadata=target_metadata,
             include_name=include_name,
             # Autogenerate ignores server_default changes without this.
-            compare_server_default=True,
+            compare_server_default=_compare_server_default,
         )
 
         with context.begin_transaction():
