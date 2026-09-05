@@ -23,6 +23,7 @@ from aaiclick.oplog.models import get_column_types, init_oplog_tables
 from aaiclick.tenancy import get_active_tenant_id
 
 from ..snowflake import get_snowflake_id
+from . import events  # noqa: F401 — registers the Session listeners that publish UI change signals
 from .env import get_db_url
 from .execution.db_handler import _db_handler_var, create_db_handler, get_db_handler  # noqa: F401
 from .execution.execution_worker_context import get_current_task_info
