@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
-import aaiclick
 import aaiclick.internal_api as internal_api_package
 from aaiclick.internal_api import lineage_ai
 from aaiclick.view_models import LineageAnswer
@@ -43,18 +42,6 @@ async def test_debug_result_wraps_agent_answer_and_forwards_max_iterations():
 
     assert result == LineageAnswer(target_table="p_revenue", question="Why?", answer="because")
     mock_debug.assert_awaited_once_with("p_revenue", question="Why?", max_iterations=3)
-
-
-async def test_root_explain_delegates_to_lineage_ai_wrapper():
-    """``aaiclick.explain()`` is the Python-API twin of the CLI verb: same wrapper, same view model."""
-    expected = LineageAnswer(target_table="p_revenue", question="Why?", answer="steps")
-    mock_explain = AsyncMock(return_value=expected)
-
-    with patch("aaiclick.internal_api.lineage_ai.explain_lineage", new=mock_explain):
-        result = await aaiclick.explain("p_revenue", "Why?")
-
-    assert result is expected
-    mock_explain.assert_awaited_once_with("p_revenue", question="Why?")
 
 
 def test_lineage_ai_is_not_exported_from_internal_api_package():

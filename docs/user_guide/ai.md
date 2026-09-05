@@ -212,9 +212,8 @@ exit 1 with an install hint.
 
 Modules that pull in litellm are imported on first use through
 `import_ai_module()`, which turns a missing extra into one `ImportError`
-carrying the install hint. `aaiclick.explain()` raises it; the CLI prints it
-and exits 1.
+carrying the install hint; the CLI prints it and exits 1. Programmatic
+callers import `aaiclick.internal_api.lineage_ai` directly.
 
 **Implementation**: `aaiclick/ai/importing.py` — see `import_ai_module()`;
-callers in `aaiclick/__init__.py` (`explain()`) and `aaiclick/__main__.py`
-(`_load_lineage_ai()`).
+called from `aaiclick/__main__.py` (`_load_lineage_ai()`).
