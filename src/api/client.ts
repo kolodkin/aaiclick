@@ -63,3 +63,9 @@ export async function postJSON<T>(path: string, body?: unknown): Promise<T> {
   if (!res.ok) throw await parseError(res);
   return (await res.json()) as T;
 }
+
+// Open a long-lived response (server-sent events) through the same auth
+// chokepoint. The caller reads `res.body`; `signal` aborts the connection.
+export function openStream(path: string, signal: AbortSignal): Promise<Response> {
+  return request(path, { signal, headers: { Accept: "text/event-stream" } });
+}

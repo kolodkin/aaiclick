@@ -37,8 +37,8 @@ const LogLines = memo(function LogLines({
   );
 });
 
-export function LogViewer({ taskId }: { taskId: string }) {
-  const { data, isLoading, isError } = useTaskLogs(taskId);
+export function LogViewer({ taskId, live }: { taskId: string; live: boolean }) {
+  const { data, isLoading, isError } = useTaskLogs(taskId, live);
   const [showTimestamps, setShowTimestamps] = useState(false);
 
   if (isLoading) return <div className="logs">loading logs…</div>;

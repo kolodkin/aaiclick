@@ -43,11 +43,16 @@ export function useTask(id: string) {
   });
 }
 
-export function useTaskLogs(id: string) {
+// Logs reach ClickHouse from the task process on its own flush cadence, not
+// through a SQL commit, so no /events signal marks a new line. A running task
+// keeps the old 2 s poll; once it is terminal the `changed` signal for that
+// final status write triggers the last refetch.
+export function useTaskLogs(id: string, live: boolean) {
   return useQuery({
     queryKey: ["task-logs", id],
     queryFn: () => fetchJSON<TaskLogs>(`/tasks/${id}/logs`),
     enabled: id.length > 0,
+    refetchInterval: live ? 2000 : undefined,
   });
 }
 

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { LiveUpdates } from "./api/events";
 import { useAuth } from "./components/Auth";
 import { Header } from "./components/Header";
 import { parsePrompt, promptFromUrl, pushPromptToUrl } from "./prompt";
@@ -81,6 +82,7 @@ export function App() {
 
   return (
     <>
+      <LiveUpdates />
       <Header prompt={prompt} onPrompt={onPrompt} />
       <main>
         <div className="content" id="content">

@@ -5,6 +5,7 @@ import { MetaGrid } from "../components/MetaGrid";
 import { StatusBadge } from "../components/StatusBadge";
 import { Truncated } from "../components/Truncated";
 import { durationBetween, relativeTime } from "../lib/format";
+import { isTerminalTask } from "../lib/status";
 
 export function TaskDetail({ id, onPrompt }: { id: string; onPrompt: (v: string) => void }) {
   const { data: task, isLoading, isError } = useTask(id);
@@ -45,7 +46,7 @@ export function TaskDetail({ id, onPrompt }: { id: string; onPrompt: (v: string)
         />
         {task.error && <div className="err">{task.error}</div>}
       </div>
-      <LogViewer taskId={task.id} />
+      <LogViewer taskId={task.id} live={!isTerminalTask(task.status)} />
     </>
   );
 }
