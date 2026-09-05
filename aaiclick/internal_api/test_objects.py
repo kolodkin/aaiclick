@@ -70,13 +70,13 @@ async def test_list_objects_rejects_non_global_scope():
 
 
 async def test_get_object_returns_detail_with_schema():
-    await create_object_from_value([10, 20], name="detail_target", scope="global")
+    created = await create_object_from_value([10, 20], name="detail_target", scope="global")
 
     detail = await objects.get_object("detail_target")
 
     assert isinstance(detail, ObjectDetail)
     assert detail.name == "detail_target"
-    assert detail.table == "p_detail_target"
+    assert detail.table == created.table
     assert detail.scope == "global"
     col_names = list(detail.table_schema.columns)
     assert "value" in col_names
@@ -116,7 +116,7 @@ async def test_list_objects_is_tenant_scoped():
     with active_tenant(7):
         page = await objects.list_objects()
         assert [item.name for item in page.items] == ["seven"]
-        # Metadata must resolve through the tenant-prefixed table name.
+        # Metadata must resolve through the registered table name.
         assert page.items[0].row_count == 1
 
 
@@ -131,7 +131,7 @@ async def test_get_object_across_tenants_is_not_found():
 
 
 async def test_object_detail_carries_row_count_for_a_non_default_tenant():
-    """Metadata lookup must use the tenant-prefixed table name."""
+    """Metadata lookup must use the registered table name."""
     with active_tenant(7):
         await create_object_from_value([1, 2, 3], name="seven", scope="global")
         detail = await objects.get_object("seven")

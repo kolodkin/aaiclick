@@ -289,13 +289,14 @@ async def test_public_as_named_temp(ctx):
 async def test_public_as_scope_global(ctx):
     from aaiclick import delete_persistent_object
 
-    # Pre-clean: a previous failed run could have left p_yearly_avg behind.
+    # Pre-clean: a previous failed run could have left yearly_avg behind.
     await delete_persistent_object("yearly_avg", scope="global")
     try:
         obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
         obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
         result = await (obj_a + obj_b).as_("yearly_avg", scope="global")
-        assert result.table == "p_yearly_avg"
+        assert result.scope == "global"
+        assert result.name == "yearly_avg"
         assert result.persistent is True
         assert await result.data() == [5, 7, 9]
     finally:

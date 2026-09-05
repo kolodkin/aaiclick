@@ -179,7 +179,8 @@ async def test_copy_with_name_global_scope(ctx):
 
     copy = await obj.copy(name="copy_named_global", scope="global")
     try:
-        assert copy.table == "p_copy_named_global"
+        assert copy.scope == "global"
+        assert copy.name == "copy_named_global"
         assert await copy.data() == [1, 2, 3]
     finally:
         await delete_persistent_object("copy_named_global", scope="global")

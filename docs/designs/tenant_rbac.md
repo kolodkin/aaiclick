@@ -199,42 +199,39 @@ on first startup, unchanged otherwise.
 
 # Object Tenancy (Phase 2)
 
-Persistent objects are namespaced twice: the ClickHouse table name carries the
-tenant, so two tenants can hold the same object name, and a SQL
-`table_registry` row records which tenant owns it. Neither layer is sufficient
-alone.
+A global object's ClickHouse table is an opaque `p_<snowflake>`; its name and
+owner live in SQL `table_registry` (`name`, `tenant_id`) under
+`UNIQUE (tenant_id, name)`. The prefix still encodes the *scope*
+(`aaiclick/data/scope.py` — see `scope_of`), so no registry read is needed to
+tell temp / job / global apart. Job-scoped (`j_<job_id>_<name>`) and temp
+(`t_*`) tables keep embedding the name — they are reachable only through their
+tenant-scoped job.
 
-## Physical namespace — tenant-prefixed table names
+## Name resolution — `table_registry.name`
 
-**Implementation**: `aaiclick/data/scope.py` — see `make_scoped_table_name`,
-`name_from_table`; the active tenant is applied in
-`aaiclick/data/data_context/data_context.py` — see `_build_scoped_table`.
+**Implementation**: `aaiclick/data/data_context/lifecycle.py` — see
+`LifecycleHandler.resolve_global_table` / `claim_global_table`; the orch
+implementation is `aaiclick/orchestration/orch_context.py` — see
+`OrchLifecycleHandler`; callers are `aaiclick/data/data_context/data_context.py`
+— see `create_object`, `_resolve_persistent_table`.
 
-- Default tenant keeps bare `p_<name>` — full backward compatibility.
-- Other tenants use `p_<tenant_id>_<name>`.
+Creating a global object *claims* its name before any DDL: the handler
+inserts the registry row (fresh `p_<snowflake>`) with a bare
+`ON CONFLICT DO NOTHING`, then re-reads `(tenant_id, name)`. The insert is
+synchronous — not the queued `register_table` path — because the caller needs
+the table to `CREATE`. A loser (a concurrent creator, or an append to an
+existing name) gets the winner's table and its `CREATE TABLE IF NOT EXISTS`
+no-ops. A failed `CREATE` deletes a freshly claimed row so a retry does not
+inherit a table that never materialised.
 
-Job-scoped (`j_*`) and temp (`t_*`) tables are unchanged — they are reachable
-only through their tenant-scoped job, and the tenant prefix never stacks onto
-them.
+`open_object`, `delete_persistent_object`, listing and purge resolve through
+the same column, filtered by the active tenant.
 
-The prefix parses unambiguously because `_validate_persistent_name`
-(`aaiclick/data/data_context/data_context.py`) rejects a leading digit, so no
-default-tenant object can produce a `p_<digits>_` prefix. A test pins that
-coupling (`aaiclick/data/test_scope.py` — see
-`test_leading_underscore_name_does_not_look_tenant_prefixed`), so relaxing the
-name regex cannot silently introduce a collision.
-
-!!! important "Design decision: the prefix, not the registry, prevents cross-tenant writes"
-    Persistent creates use `CREATE TABLE IF NOT EXISTS` (see `create_object`)
-    and the registry insert is `ON CONFLICT (table_name) DO NOTHING` (see
-    `DBLifecycleHandler._write_table_registry_row`). On a shared physical name,
-    a second tenant creating an already-taken name would write silently into
-    the first tenant's table while the registry kept attributing it to the
-    original owner. Tenant-unique names remove the case, which is why the
-    physical namespace stays tenant-prefixed even with registry ownership in
-    place — any future change that drops the prefix (see `docs/designs/future.md`,
-    "Opaque Object Table Names") must re-establish per-tenant uniqueness by
-    other means first.
+!!! important "Design decision: the registry, not the table name, prevents cross-tenant writes"
+    Two tenants may hold the same name in one physical namespace only because
+    `UNIQUE (tenant_id, name)` decides ownership before DDL runs. Registering
+    the row after the `CREATE`, or dropping the constraint, reopens the
+    silent-append case the claim step closes.
 
 ## Ownership — `table_registry.tenant_id`
 
@@ -252,10 +249,10 @@ handler stamps the active tenant on every row it registers
 
 | Surface                     | Behaviour                                                                |
 |-----------------------------|-------------------------------------------------------------------------|
-| `open_object()`             | `_get_table_schema` filters by the active tenant — a cross-tenant open raises `ObjectNotFoundError`, surfacing as `404`, never `403` |
-| `list_persistent_objects()` | Reads `table_registry` filtered by the active tenant instead of scanning `system.tables` |
+| `open_object()`             | Resolves `name` → table for the active tenant; a cross-tenant open raises `ObjectNotFoundError`, surfacing as `404`, never `403` |
+| `list_persistent_objects()` | Reads the registry rows carrying a `name`, filtered by the active tenant |
 | `delete_persistent_objects()` | Purge candidates come from the tenant-filtered listing; drops clear their registry rows (see `_forget_registry_rows`) |
-| Background cleanup          | `j_*` / `t_*` rows carry the tenant too, giving the worker tenant visibility for free |
+| Background cleanup          | Job TTL expiry drops the job's rows whose `name IS NULL`; named (global) tables outlive the job |
 
 Global-scope creation already requires an orch context — `_resolve_scope`
 rejects `scope="global"` under a bare `data_context()` — so every persistent
@@ -276,18 +273,30 @@ through `_run_data_api` (`aaiclick/__main__.py`), which delegates to
     <name>` report every object as missing while `aaiclick data list` still
     listed it.
 
+## Legacy table names
+
+**Implementation**: `aaiclick/orchestration/oplog_backfill.py` — see
+`backfill_registry_names`; parsing in `aaiclick/data/scope.py` — see
+`legacy_global_name`.
+
+Global tables used to be `p_<name>` (default tenant) or
+`p_<tenant_id>_<name>`; their registry rows have `name IS NULL`, which would
+hide them from every name-based path. `orch_context()` entry runs a backfill,
+latched once per process, that parses the name back out. The ClickHouse table
+keeps its old physical name — nothing is renamed.
+
 ## Name length budget
 
 ClickHouse caps table names near `213 - len(database)` characters (measured
-against chdb: 242 in `default`, 205 in a database named `aaiclick`), regardless
-of the data directory path. A snowflake renders as 19 digits, so
-`p_<tenant_id>_` costs 22 characters — the same as the `j_<job_id>_` and
-`t_<name>_<snowid>` prefixes already in use — leaving 183+ for the name.
+against chdb: 242 in `default`, 205 in a database named `aaiclick`). A snowflake
+renders as 19 digits, so the `j_<job_id>_` and `t_<name>_<snowid>` forms cost
+22 characters of prefix, leaving 183+ for the name. Global tables are a fixed
+`p_<snowflake>` and never approach the ceiling.
 
 `_validate_persistent_name` (`aaiclick/data/data_context/data_context.py` —
-see `MAX_PERSISTENT_NAME_LEN`) caps names at 128 characters, so an over-long
-name raises `ValueError` at the API boundary instead of failing deep in
-ClickHouse with `ARGUMENT_OUT_OF_BOUND` — or, past 251 characters, an
+see `MAX_PERSISTENT_NAME_LEN`) caps names at 128 characters for every scope,
+so an over-long name raises `ValueError` at the API boundary instead of
+`ARGUMENT_OUT_OF_BOUND` deep in ClickHouse — or, past 251 characters, an
 unhandled `std::filesystem::filesystem_error`.
 
 # SPA (Phase 3)
@@ -325,4 +334,7 @@ code, so the revision is only required for Postgres-backed deployments.
 
 Phase 2's revision `1da307dfbd95` adds `table_registry.tenant_id` with
 `server_default='1'`, so rows for tables that predate the column backfill to
-the default tenant — matching the bare `p_<name>` prefix they already carry.
+the default tenant — matching the bare `p_<name>` prefix they carried at
+the time. Revision `c58aa62bafc1` adds `table_registry.name` and its unique
+constraint; the names of those legacy rows are recovered at runtime (see
+"Legacy table names" above).

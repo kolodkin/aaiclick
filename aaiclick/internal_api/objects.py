@@ -6,8 +6,8 @@ the ClickHouse client via the contextvar getter. Registry-backed paths
 only orch provides. Returns pydantic view models.
 
 Scope support is intentionally narrow in this migration: all operations
-target the ``global`` persistence tier (``p_*`` tables), matching what the
-CLI exposed before the migration. Job-scoped listing / filtering is left
+target the ``global`` persistence tier, matching what the CLI exposed
+before the migration. Job-scoped listing / filtering is left
 to a follow-up once an active orch job is plumbed through.
 """
 
@@ -20,11 +20,11 @@ from aaiclick.data.data_context import (
     delete_persistent_object,
     delete_persistent_objects,
     get_ch_client,
-    list_persistent_tables,
+    list_persistent_entries,
     open_object,
 )
 from aaiclick.data.object.adapters import object_to_detail
-from aaiclick.data.scope import SCOPE_GLOBAL, name_from_table
+from aaiclick.data.scope import SCOPE_GLOBAL
 from aaiclick.data.view_models import (
     ObjectDetail,
     ObjectView,
@@ -62,31 +62,31 @@ async def _fetch_table_metadata(tables: list[str]) -> dict[str, dict[str, Any]]:
 async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
     """Return a page of persistent objects ordered by name.
 
-    Currently lists global-scope persistent objects only (``p_*`` tables).
-    ``filter.scope`` is accepted for forward-compatibility; only ``None`` and
-    ``"global"`` succeed today — anything else raises ``Invalid``.
+    Currently lists global-scope persistent objects only. ``filter.scope``
+    is accepted for forward-compatibility; only ``None`` and ``"global"``
+    succeed today — anything else raises ``Invalid``.
     """
     filter = filter or ObjectFilter()
     if filter.scope not in (None, SCOPE_GLOBAL):
         raise Invalid(f"scope={filter.scope!r} not yet supported (global only)")
 
-    pairs = sorted((name_from_table(t), t) for t in await list_persistent_tables())
+    entries = await list_persistent_entries()
     if filter.prefix:
-        pairs = [(n, t) for n, t in pairs if n.startswith(filter.prefix)]
+        entries = [e for e in entries if e.name.startswith(filter.prefix)]
 
-    total = len(pairs)
-    paged = pairs[: filter.limit]
-    metadata = await _fetch_table_metadata([t for _, t in paged])
+    total = len(entries)
+    paged = entries[: filter.limit]
+    metadata = await _fetch_table_metadata([e.table for e in paged])
 
     items = [
         ObjectView(
-            name=name,
-            table=table,
+            name=entry.name,
+            table=entry.table,
             scope=SCOPE_GLOBAL,
             persistent=True,
-            **metadata.get(table, {}),
+            **metadata.get(entry.table, {}),
         )
-        for name, table in paged
+        for entry in paged
     ]
     return Page[ObjectView](items=items, total=total)
 

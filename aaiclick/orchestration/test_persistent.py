@@ -3,7 +3,8 @@
 Covers both persistence tiers:
 
 - ``scope="job"`` → ``j_<job_id>_<name>``
-- ``scope="global"`` → ``p_<name>`` (user-managed, survives the job)
+- ``scope="global"`` → ``p_<snowflake>`` registered under ``name`` in
+  ``table_registry`` (user-managed, survives the job)
 
 Plus the regex validation of names, the ``open``/``delete`` round trip,
 and the API-misuse paths (``scope`` without ``name``, ``delete_persistent_objects``
@@ -14,6 +15,7 @@ covered alongside the unnamed-temp default in
 ``aaiclick/data/data_context/test_persistent.py``.
 """
 
+import re
 from datetime import datetime
 
 import pytest
@@ -53,15 +55,24 @@ async def test_scope_job_explicit(orch_ctx):
 
 
 async def test_scope_global_explicit(orch_ctx):
-    """``scope='global'`` yields ``p_<name>`` and survives until explicit delete."""
+    """``scope='global'`` yields an opaque ``p_<snowflake>`` that survives until explicit delete."""
     obj = await create_object_from_value([10, 20, 30], name="explicit_global", scope="global")
     try:
-        assert obj.table == "p_explicit_global"
+        assert re.fullmatch(r"p_\d+", obj.table)
+        assert obj.name == "explicit_global"
         assert obj.scope == "global"
         assert obj.persistent is True
         assert await obj.data() == [10, 20, 30]
     finally:
         await delete_persistent_object("explicit_global", scope="global")
+
+
+async def test_recreating_a_global_name_appends_to_its_table(orch_ctx):
+    """A second create under an existing name resolves to the same table and appends."""
+    first = await create_object_from_value([1, 2], name="append_target", scope="global")
+    second = await create_object_from_value([3], name="append_target", scope="global")
+    assert second.table == first.table
+    assert sorted(await (await open_object("append_target", scope="global")).data()) == [1, 2, 3]
 
 
 async def test_open_object_round_trip_global(orch_ctx):
@@ -73,7 +84,7 @@ async def test_open_object_round_trip_global(orch_ctx):
     )
     try:
         opened = await open_object("open_round_trip", scope="global")
-        assert opened.table == "p_open_round_trip"
+        assert opened.name == "open_round_trip"
         assert opened.persistent is True
         data = await opened.data()
         assert data["x"] == [1, 2, 3]
@@ -128,12 +139,8 @@ async def test_unnamed_object_is_temp_in_orch_context(orch_ctx):
 
 
 async def test_persistent_name_validation():
-    """Rejecting a leading digit is load-bearing beyond tidiness.
-
-    Tenant-prefixed object naming (``p_<tenant_id>_<name>``, see
-    ``docs/designs/tenant_rbac.md``) is only unambiguous while no
-    default-tenant object can produce a ``p_<digits>_`` prefix.
-    """
+    """Names must be identifiers: ``job`` / ``temp_named`` embed them in
+    the CH table name, and one rule covers every scope."""
     with pytest.raises(ValueError, match="Invalid persistent name"):
         _validate_persistent_name("123bad")
     with pytest.raises(ValueError, match="Invalid persistent name"):

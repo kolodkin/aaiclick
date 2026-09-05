@@ -12,7 +12,7 @@ Tracked in `docs/designs/future.md` (High Priority).
 
 # Problem
 
-`p_<name>` and `j_<job_id>_<name>` tables permit append-on-existing
+Global (`p_*`) and `j_<job_id>_<name>` tables permit append-on-existing
 semantics: two workers calling `create_object_from_value(..., name="foo")`
 or `insert_objects_db(...)` against the same destination both write into
 the same ClickHouse table.
@@ -135,7 +135,7 @@ cross-process concurrency exists to serialize.
 |----------------------------------|-----------------------------------|------|
 | `insert_objects_db`              | append rows to existing shared table | yes  |
 | `concat_objects_db`              | merge sources into existing shared table | yes  |
-| `create_object_from_value(name=)` (append path) | `p_<name>` already exists | yes  |
+| `create_object_from_value(name=)` (append path) | global `name` already registered | yes  |
 | `copy_db`                        | create + populate new destination | no — user-owned flow |
 | Operator materializations        | `t_<snowflake_id>`                | no — unique per call |
 | Reads, pure DDL                  | n/a                                | no   |

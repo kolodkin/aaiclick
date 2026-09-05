@@ -1,9 +1,15 @@
-"""One-time migration of CH ``table_registry`` rows into SQL.
+"""One-time backfills of SQL ``table_registry``.
+
+- ``migrate_table_registry_to_sql`` copies CH ``table_registry`` rows into
+  SQL (the registry used to live in ClickHouse).
+- ``backfill_registry_names`` recovers ``name`` for global rows registered
+  before names moved out of the table name.
 
 Lives in the orchestration layer (not oplog) so the oplog module does not
 have to import from orchestration — that would create an import cycle
-via ``aaiclick.orchestration`` package init. The backfill is triggered
-from ``orch_context.task_scope`` right after ``init_oplog_tables``.
+via ``aaiclick.orchestration`` package init. The CH copy runs from
+``orch_context.task_scope`` right after ``init_oplog_tables``; the name
+backfill runs on ``orch_context`` entry. Both latch once per process.
 """
 
 from __future__ import annotations
@@ -11,15 +17,19 @@ from __future__ import annotations
 import logging
 
 from sqlalchemy import text
+from sqlmodel import col, select
 
 from aaiclick.data.data_context import ChClient
+from aaiclick.data.scope import GLOBAL_PREFIX, legacy_global_name
 
+from .lifecycle.db_lifecycle import TableRegistry
 from .sql_context import get_sql_session
 
 logger = logging.getLogger(__name__)
 
-# Module global on purpose: a once-per-process latch, not per-context state.
+# Module globals on purpose: once-per-process latches, not per-context state.
 _migration_done = False
+_names_backfilled = False
 
 
 async def migrate_table_registry_to_sql(ch_client: ChClient) -> None:
@@ -100,3 +110,42 @@ async def migrate_table_registry_to_sql(ch_client: ChClient) -> None:
         logger.debug("Failed to drop CH table_registry after backfill", exc_info=True)
 
     _migration_done = True
+
+
+async def backfill_registry_names() -> None:
+    """Populate ``table_registry.name`` for legacy ``p_<name>`` / ``p_<tenant_id>_<name>`` rows.
+
+    Such rows have ``name IS NULL`` and would be invisible to every
+    name-based path; the physical table is left untouched. Latched per
+    process after one successful pass. Best effort — a database predating
+    ``table_registry`` (``aaiclick migrate`` not yet run) is logged, not
+    latched.
+    """
+    global _names_backfilled
+    if _names_backfilled:
+        return
+    try:
+        async with get_sql_session() as session:
+            result = await session.execute(
+                select(TableRegistry.table_name, TableRegistry.tenant_id).where(
+                    col(TableRegistry.name).is_(None),
+                    col(TableRegistry.table_name).startswith(GLOBAL_PREFIX, autoescape=True),
+                )
+            )
+            updates = [
+                {"table_name": table_name, "name": name}
+                for table_name, tenant_id in result.all()
+                if (name := legacy_global_name(table_name, tenant_id)) is not None
+            ]
+            if updates:
+                await session.execute(
+                    text("UPDATE table_registry SET name = :name WHERE table_name = :table_name"),
+                    updates,
+                )
+                await session.commit()
+    except Exception:
+        logger.debug("Skipping table_registry name backfill", exc_info=True)
+        return
+    _names_backfilled = True
+    if updates:
+        logger.info("Backfilled %d legacy table_registry names", len(updates))

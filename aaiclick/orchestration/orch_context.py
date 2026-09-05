@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlmodel import select
 
 from aaiclick.backend import is_postgres
@@ -27,9 +27,9 @@ from .env import get_db_url
 from .execution.db_handler import _db_handler_var, create_db_handler, get_db_handler  # noqa: F401
 from .execution.execution_worker_context import get_current_task_info
 from .image_injection import inject_build_tasks, stamp_inherited_image, validate_image_sources
-from .lifecycle.db_lifecycle import DBLifecycleMessage, DBLifecycleOp, OplogPayload, OplogTablePayload
+from .lifecycle.db_lifecycle import DBLifecycleMessage, DBLifecycleOp, OplogPayload, OplogTablePayload, TableRegistry
 from .models import Group, Job, Task, TasksType
-from .oplog_backfill import migrate_table_registry_to_sql
+from .oplog_backfill import backfill_registry_names, migrate_table_registry_to_sql
 from .sql_context import _sql_engine_var, get_sql_session
 from .task_registry import _task_registry_var, get_task_registry
 
@@ -204,6 +204,31 @@ class OrchLifecycleHandler(LifecycleHandler):
     def current_job_id(self) -> int | None:
         return self._job_id
 
+    async def resolve_global_table(self, name: str) -> str | None:
+        async with get_sql_session() as session:
+            return await self._lookup_global_table(session, name)
+
+    async def claim_global_table(self, name: str, table_name: str, schema_doc: str) -> str:
+        """Synchronous (not queued): the caller needs the table before running
+        DDL. ``ON CONFLICT DO NOTHING`` lets ``UNIQUE (tenant_id, name)``
+        arbitrate concurrent creators; the re-read returns the winner."""
+        payload = OplogTablePayload(
+            table_name,
+            self._task_id,
+            self._job_id,
+            self._run_id,
+            schema_doc=schema_doc,
+            tenant_id=get_active_tenant_id(),
+            name=name,
+        )
+        async with get_sql_session() as session:
+            await self._insert_table_registry_row(session, payload)
+            await session.commit()
+            resolved = await self._lookup_global_table(session, name)
+        if resolved is None:
+            raise RuntimeError(f"Failed to register global object {name!r} in table_registry")
+        return resolved
+
     # -- Internal --
 
     async def _write_oplog_row(self, p: OplogPayload) -> None:
@@ -234,34 +259,49 @@ class OrchLifecycleHandler(LifecycleHandler):
         except Exception:
             logger.error("Failed to write oplog for %s", p.result_table, exc_info=True)
 
-    async def _write_table_registry_row(self, p: OplogTablePayload) -> None:
-        """Insert a single table_registry row to SQL. Best effort.
+    @staticmethod
+    async def _lookup_global_table(session: AsyncSession, name: str) -> str | None:
+        result = await session.execute(
+            select(TableRegistry.table_name).where(
+                TableRegistry.tenant_id == get_active_tenant_id(),
+                TableRegistry.name == name,
+            )
+        )
+        row = result.one_or_none()
+        return row[0] if row is not None else None
 
-        Idempotent via ON CONFLICT DO NOTHING — a re-register of the same
-        table_name keeps the original owner (first-writer-wins).
-        """
+    @staticmethod
+    async def _insert_table_registry_row(session: AsyncSession, p: OplogTablePayload) -> None:
+        """Idempotent via a bare ON CONFLICT DO NOTHING — a re-register of the
+        same table_name, or a second claim of an already-registered
+        ``(tenant_id, name)``, keeps the original row (first-writer-wins)."""
         # Strip tzinfo: TableRegistry.created_at and operation_log timestamps are
         # mapped to naive SQL/CH columns; asyncpg rejects aware datetimes there.
         now = datetime.now(timezone.utc).replace(tzinfo=None)
+        await session.execute(
+            text(
+                "INSERT INTO table_registry "
+                "(table_name, name, tenant_id, job_id, task_id, run_id, created_at, schema_doc) "
+                "VALUES (:table_name, :name, :tenant_id, :job_id, :task_id, :run_id, :created_at, :schema_doc) "
+                "ON CONFLICT DO NOTHING"
+            ),
+            {
+                "table_name": p.table_name,
+                "name": p.name,
+                "tenant_id": p.tenant_id,
+                "job_id": p.job_id,
+                "task_id": p.task_id,
+                "run_id": p.run_id,
+                "created_at": now,
+                "schema_doc": p.schema_doc,
+            },
+        )
+
+    async def _write_table_registry_row(self, p: OplogTablePayload) -> None:
+        """Insert a single table_registry row to SQL. Best effort."""
         try:
             async with get_sql_session() as session:
-                await session.execute(
-                    text(
-                        "INSERT INTO table_registry "
-                        "(table_name, tenant_id, job_id, task_id, run_id, created_at, schema_doc) "
-                        "VALUES (:table_name, :tenant_id, :job_id, :task_id, :run_id, :created_at, :schema_doc) "
-                        "ON CONFLICT (table_name) DO NOTHING"
-                    ),
-                    {
-                        "table_name": p.table_name,
-                        "tenant_id": p.tenant_id,
-                        "job_id": p.job_id,
-                        "task_id": p.task_id,
-                        "run_id": p.run_id,
-                        "created_at": now,
-                        "schema_doc": p.schema_doc,
-                    },
-                )
+                await self._insert_table_registry_row(session, p)
                 await session.commit()
         except Exception:
             logger.error("Failed to write table registry for %s", p.table_name, exc_info=True)
@@ -422,6 +462,7 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
         ch_token = _ch_client_var.set(ch_client)
 
     try:
+        await backfill_registry_names()
         yield
     finally:
         _sql_engine_var.reset(sql_token)

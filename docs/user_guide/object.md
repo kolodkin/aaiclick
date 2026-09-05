@@ -108,7 +108,7 @@ Names the result table and chooses its lifetime. Returns a new `LazyOperator` (t
 |---|---|---|
 | `"temp_named"` (default) | `t_<name>_<snowflake>` | Drops with the context |
 | `"job"` | `j_<job_id>_<name>` | Lives until the active orch job expires |
-| `"global"` | `p_<name>` | Persists; remove with `delete_persistent_object(name, scope="global")` |
+| `"global"` | `p_<snowflake>` (name kept in `table_registry`) | Persists; remove with `delete_persistent_object(name, scope="global")` |
 
 ### `name` / `scope` on always-materializing ops
 

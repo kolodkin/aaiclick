@@ -62,12 +62,25 @@ async def test_query_table_rejects_ddl_keywords_inside_select():
     assert err.kind == "not_select"
 
 
-async def test_query_table_rejects_out_of_scope_table():
+@pytest.mark.parametrize(
+    "table",
+    [
+        pytest.param("t_99999999999999999999", id="temp"),
+        pytest.param("t_orders_99999999999999999999", id="temp-named"),
+        pytest.param("j_42_payroll", id="job"),
+        # Global tables are opaque ``p_<snowflake>`` — digits must still count as a table ref.
+        pytest.param("p_99999999999999999999", id="global-opaque"),
+        pytest.param("p_legacy_name", id="global-legacy"),
+    ],
+)
+async def test_query_table_rejects_out_of_scope_table(table):
+    """Every scope shape must be visible to the guard: a shape the regex misses
+    skips the scope check and the SELECT runs against ClickHouse."""
     toolbox = LineageToolbox(_sample_graph())
-    err = await toolbox.query_table("SELECT * FROM t_99999999999999999999")
+    err = await toolbox.query_table(f"SELECT * FROM {table}")
     assert isinstance(err, ToolError)
     assert err.kind == "out_of_scope"
-    assert "t_99999999999999999999" in err.message
+    assert table in err.message
 
 
 async def test_query_table_happy_path_wraps_limit():

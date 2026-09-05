@@ -100,6 +100,22 @@ class LifecycleHandler(ABC):
         """
         return None
 
+    async def resolve_global_table(self, name: str) -> str | None:
+        """Return the CH table registered under ``name`` for the active tenant, or ``None``.
+
+        ``p_<snowflake>`` tables are reachable only through ``table_registry.name``. Orch-only.
+        """
+        raise NotImplementedError
+
+    async def claim_global_table(self, name: str, table_name: str, schema_doc: str) -> str:
+        """Register ``table_name`` under ``name`` for the active tenant; return the owning table.
+
+        ``table_name`` when the claim wins, else the table already holding the
+        name (an append, or a concurrent creator). This is the registry write
+        for a global table — callers do not also ``register_table``. Orch-only.
+        """
+        raise NotImplementedError
+
     async def __aenter__(self):
         await self.start()
         return self
