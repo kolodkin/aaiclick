@@ -14,10 +14,9 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 
-# 1 << 62: the same 19-digit width as every snowflake tenant id, so global
-# object tables (p_<tenant_id>_<name>) line up with j_<job_id>_<name>, yet a
-# value no generator can mint — its snowflake timestamp field decodes to
-# November 2004, and ids are stamped with the current wall-clock time.
+# 1 << 62: 19 digits like every snowflake tenant id, so p_<tenant_id>_<name>
+# matches the width of j_<job_id>_<name>, yet unmintable — its snowflake
+# timestamp field decodes to November 2004.
 DEFAULT_TENANT_ID = 1 << 62
 DEFAULT_TENANT_SLUG = "aaiclick"
 

@@ -8,9 +8,8 @@ import type { MeView } from "../api/types";
 // keep the prefix local to avoid an import cycle with client.ts.
 const API = "/api/v0";
 const REFRESH_KEY = "aaiclick.refresh";
-// Mirrors DEFAULT_TENANT_ID in aaiclick/tenancy.py. Tenant ids are 64-bit and
-// travel as strings (see SnowflakeId in aaiclick/log_models.py) because a JS
-// number loses precision above 2^53.
+// Mirrors DEFAULT_TENANT_ID in aaiclick/tenancy.py. A string, like every
+// tenant id on the wire: a JS number loses precision above 2^53.
 const DEFAULT_TENANT_ID = "4611686018427387904";
 let accessToken: string | null = null;
 
