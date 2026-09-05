@@ -80,10 +80,7 @@ inherits its `tenant_id`; a manual run stamps the caller's active tenant).
 
 A default tenant (slug `aaiclick`, fixed id `DEFAULT_TENANT_ID` in
 `aaiclick/tenancy.py`) is seeded by the migration and by `aaiclick setup`.
-The migration backfills every existing `registered_jobs` / `jobs` row into
-it, maps existing `admin` users to `superadmin=true`, and gives existing
-`viewer` users a `viewer` membership in it. Local mode runs entirely in this
-tenant.
+Local mode runs entirely in this tenant.
 
 The id is `1 << 62` (`4611686018427387904`): 19 digits like every snowflake
 tenant id, so global tables share one width (see "Name length budget"), yet
@@ -317,14 +314,11 @@ SQLite, no infrastructure); router tests assert HTTP plumbing only.
 `39cd0baa9f90` (tenant rbac).
 
 One Alembic revision (via the `generate-migration` skill): create
-`tenants` / `tenant_memberships`, seed the default tenant, add
-`tenant_id` to `registered_jobs` / `jobs` backfilled to the default tenant,
-and convert `users.role` → `users.superadmin` (admin → `true`; viewer →
-`false` + default-tenant `viewer` membership). Local/dev (`aaiclick setup`)
-builds tables from `SQLModel.metadata` and seeds the default tenant in
-code, so the revision is only required for Postgres-backed deployments.
+`tenants` / `tenant_memberships`, seed the default tenant, add `tenant_id`
+to `registered_jobs` / `jobs`, and replace `users.role` with
+`users.superadmin`. Local/dev (`aaiclick setup`) builds tables from
+`SQLModel.metadata` and seeds the default tenant in code, so the revision is
+only required for Postgres-backed deployments.
 
-Phase 2's revision `1da307dfbd95` adds `table_registry.tenant_id` with
-`server_default='1'`, the default tenant id at the time. Revision `d6723953a1bb`
-moves every `tenant_id` `server_default` to `1 << 62` with no data migration:
-rows stamped `1` by earlier revisions keep it.
+Phase 2's revision `1da307dfbd95` adds `table_registry.tenant_id`; revision
+`d6723953a1bb` sets every `tenant_id` `server_default` to `1 << 62`.
