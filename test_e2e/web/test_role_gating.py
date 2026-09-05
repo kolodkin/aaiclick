@@ -22,6 +22,8 @@ from pathlib import Path
 import pytest
 from helpers import open_page
 
+from aaiclick.tenancy import DEFAULT_TENANT_ID
+
 STATIC = Path(__file__).resolve().parents[2] / "aaiclick" / "server" / "static" / "index.html"
 
 pytest.importorskip("playwright.sync_api")
@@ -49,7 +51,7 @@ def _stub_session(page, role: str) -> None:
         "id": 1,
         "username": f"{role}_user",
         "superadmin": role == "admin",
-        "tenants": [{"tenant_id": "4611686018427387904", "slug": "aaiclick", "name": "aaiclick", "role": role}],
+        "tenants": [{"tenant_id": str(DEFAULT_TENANT_ID), "slug": "aaiclick", "name": "aaiclick", "role": role}],
     }
     page.route(
         "**/api/v0/auth/me",

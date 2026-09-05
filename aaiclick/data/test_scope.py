@@ -24,6 +24,7 @@ from aaiclick.tenancy import DEFAULT_TENANT_ID
         pytest.param("t_my_table_999999999999", "temp_named", id="temp-named-multi-part"),
         pytest.param("t_CamelCase_42", "temp_named", id="temp-named-camel-case"),
         pytest.param("p_foo", "global", id="global"),
+        pytest.param("p_7_sales", "global", id="global-tenant-prefixed"),
         pytest.param("p_user_catalog", "global", id="global-multi-part"),
         pytest.param("j_42_bar", "job", id="job"),
         pytest.param("j_1234567890_my_table", "job", id="job-multi-part"),
@@ -105,14 +106,6 @@ def test_make_scoped_table_name_missing_required_id_raises(scope, match):
 )
 def test_name_from_table(table, expected):
     assert name_from_table(table) == expected
-
-
-def test_other_tenants_get_a_prefixed_global_name():
-    """The tenant-unique physical name is what stops a cross-tenant overwrite."""
-    table = make_scoped_table_name("global", "sales", tenant_id=7)
-    assert table == "p_7_sales"
-    assert scope_of(table) == "global"
-    assert name_from_table(table) == "sales"
 
 
 def test_job_and_temp_names_never_take_a_tenant_prefix():

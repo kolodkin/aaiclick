@@ -3,7 +3,7 @@
 Covers both persistence tiers:
 
 - ``scope="job"`` → ``j_<job_id>_<name>``
-- ``scope="global"`` → ``p_<name>`` (user-managed, survives the job)
+- ``scope="global"`` → ``p_<tenant_id>_<name>`` (user-managed, survives the job)
 
 Plus the regex validation of names, the ``open``/``delete`` round trip,
 and the API-misuse paths (``scope`` without ``name``, ``delete_persistent_objects``
@@ -53,7 +53,7 @@ async def test_scope_job_explicit(orch_ctx):
 
 
 async def test_scope_global_explicit(orch_ctx):
-    """``scope='global'`` yields ``p_<name>`` and survives until explicit delete."""
+    """``scope='global'`` yields ``p_<tenant_id>_<name>`` and survives until explicit delete."""
     obj = await create_object_from_value([10, 20, 30], name="explicit_global", scope="global")
     try:
         assert obj.table == f"p_{DEFAULT_TENANT_ID}_explicit_global"

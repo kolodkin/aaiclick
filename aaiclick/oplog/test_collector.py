@@ -53,7 +53,7 @@ async def test_job_scoped_named_object(orch_ctx):
 
 
 async def test_global_scope_overrides_job_default(orch_ctx):
-    """scope='global' in orch preserves the ``p_<name>`` behavior."""
+    """scope='global' in orch preserves the ``p_<tenant_id>_<name>`` behavior."""
     async with task_scope(task_id=8, job_id=1234, run_id=800):
         obj = await create_object_from_value(
             [1, 2, 3],

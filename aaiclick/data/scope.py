@@ -29,9 +29,12 @@ PersistentScope = Literal["job", "global"]
 
 GLOBAL_PREFIX = "p_"
 TEMP_PREFIX = "t_"
-JOB_SCOPED_RE = re.compile(r"^j_\d+_")
-GLOBAL_TENANT_RE = re.compile(rf"^{GLOBAL_PREFIX}\d+_")
-TEMP_NAMED_RE = re.compile(r"^t_[a-zA-Z_][a-zA-Z0-9_]*_\d+$")
+JOB_PREFIX = "j_"
+JOB_SCOPED_RE = re.compile(rf"^{JOB_PREFIX}\d+_")
+TEMP_NAMED_RE = re.compile(rf"^{TEMP_PREFIX}[a-zA-Z_][a-zA-Z0-9_]*_\d+$")
+# Any table reference aaiclick can create, in any scope; the lineage scope
+# guard scans SQL with it.
+TABLE_REF_RE = re.compile(rf"\b(?:{TEMP_PREFIX}|{JOB_PREFIX}|{GLOBAL_PREFIX})[A-Za-z0-9_]+\b")
 
 
 def scope_of(table_name: str) -> ObjectScope:
@@ -59,9 +62,7 @@ def name_from_table(table_name: str) -> str:
     - ``t_<snowflake>`` (unnamed) → the table name itself
     """
     scope = scope_of(table_name)
-    if scope == SCOPE_GLOBAL:
-        return GLOBAL_TENANT_RE.sub("", table_name, count=1)
-    if scope == SCOPE_JOB:
+    if scope in (SCOPE_GLOBAL, SCOPE_JOB):
         return table_name.split("_", 2)[2]
     if scope == SCOPE_TEMP_NAMED:
         return table_name[len(TEMP_PREFIX) :].rsplit("_", 1)[0]
@@ -97,4 +98,4 @@ def make_scoped_table_name(
             "scope='job' requires a job_id; create_object_from_value(scope='job') "
             "must run inside orch_context()/task_scope(). Use scope='global' outside orch."
         )
-    return f"j_{job_id}_{name}"
+    return f"{JOB_PREFIX}{job_id}_{name}"

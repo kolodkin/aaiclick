@@ -22,13 +22,11 @@ if config.config_file_name is not None:
 target_metadata = SQLModel.metadata
 
 
-def _compare_server_default(context, inspected_column, metadata_column, inspected_default, metadata_default, rendered):
+def _compare_server_default(_context, _inspected_column, metadata_column, *_):
     """Skip JSON columns: Postgres has no ``json = json`` operator, so alembic's
     ``SELECT a = b`` default comparison errors on them. ``None`` keeps the
     dialect comparison for every other column."""
-    if isinstance(metadata_column.type, JSON):
-        return False
-    return None
+    return False if isinstance(metadata_column.type, JSON) else None
 
 
 def _make_include_name(connection):

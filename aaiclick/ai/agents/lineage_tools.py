@@ -18,6 +18,7 @@ from typing import Any, Literal, NamedTuple
 from pydantic import BaseModel, Field
 
 from aaiclick.data.data_context import get_ch_client
+from aaiclick.data.scope import TABLE_REF_RE
 from aaiclick.data.sql_utils import escape_sql_string, quote_identifier
 from aaiclick.oplog.lineage import OplogGraph
 
@@ -80,8 +81,6 @@ DEFAULT_ROW_LIMIT = 100
 ROW_LIMIT_CEILING = 1000
 DEFAULT_MAX_EXECUTION_TIME = 30
 
-# Every aaiclick table shape: t_<id>, t_<name>_<id>, j_<job_id>_<name>, p_<tenant_id>_<name>.
-_TABLE_REF_RE = re.compile(r"\b[tjp]_[A-Za-z0-9_]+\b")
 _STATEMENT_START_RE = re.compile(r"^\s*(?:WITH\b|SELECT\b)", re.IGNORECASE)
 _FORBIDDEN_KEYWORDS_RE = re.compile(
     r"\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER|CREATE|RENAME|ATTACH|"
@@ -174,7 +173,7 @@ def validate_scope(sql: str, scope_tables: set[str], *, scan: str | None = None)
     """Reject when ``sql`` references any ``t_*`` / ``j_*`` / ``p_*`` table outside ``scope_tables``."""
     if scan is None:
         scan = normalize_sql_for_scan(sql)
-    referenced = set(_TABLE_REF_RE.findall(scan))
+    referenced = set(TABLE_REF_RE.findall(scan))
     unknown = referenced - scope_tables
     if unknown:
         sample = ", ".join(sorted(unknown)[:3])
