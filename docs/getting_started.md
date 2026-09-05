@@ -16,7 +16,9 @@ Getting Started
         SQLite databases are not migrated in place. When `local.db` predates the
         installed version, `setup` stops and names the missing columns — re-run
         with `--force` to recreate it. Local job/task history is lost; data
-        objects in chdb are untouched.
+        objects in chdb are untouched. That check compares columns, not
+        values: a `local.db` created before the default tenant id moved to
+        `1 << 62` still seeds tenant `1` and needs `setup --force` too.
 
 === "Distributed (ClickHouse + PostgreSQL)"
 
