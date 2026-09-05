@@ -227,9 +227,11 @@ def get_engine_clause(engine: EngineType, order_by: str = "tuple()") -> str:
     return f"ENGINE = {engine} ORDER BY {order_by}"
 
 
-# ``job`` / ``temp_named`` embed the name in the CH table name, so the cap keeps
-# them under ClickHouse's ceiling (docs/designs/tenant_rbac.md, "Name length
-# budget"). Global names share the rule so one name is valid in every scope.
+# Only global tables are opaque (p_<snowflake>). Job and temp_named tables
+# still embed the name — j_<job_id>_<name>, t_<name>_<snowflake> — so the cap
+# keeps those under ClickHouse's table-name ceiling (docs/designs/tenant_rbac.md,
+# "Name length budget"). Global names share the rule so a name valid in one
+# scope is valid in every scope.
 MAX_PERSISTENT_NAME_LEN = 128
 
 
