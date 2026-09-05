@@ -68,6 +68,20 @@ Phases 1 (backend core) and 2 (object tenancy) are implemented —
 - **Phase 3 — SPA**: tenant switcher sending `X-Tenant-Id`, membership admin
   UI, superadmin-gated controls.
 
+## Password Reset by Email
+
+A superadmin mints reset links today and hands them over out of band
+(`docs/designs/auth.md` — Password Reset). A self-service "email me a link"
+flow needs an SMTP sender plus a public request endpoint that always answers
+`204`, so it never discloses whether an account exists. `users.email` is
+already populated — set through the API / CLI, or from the OIDC `email` claim
+— so the missing pieces are the sender, its configuration, and the endpoint.
+An earlier `aaiclick/auth/mail.py` (`smtplib` on a worker thread via
+`asyncio.to_thread`) was removed as unused; it is recoverable from git history.
+
+**When to revisit**: when deployments have a reachable SMTP server, or when
+operators mint links often enough for it to hurt.
+
 ## Opaque Object Table Names
 
 Persistent objects encode both the user-visible name and (from Phase 2 above)

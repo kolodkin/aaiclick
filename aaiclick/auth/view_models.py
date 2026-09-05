@@ -196,12 +196,6 @@ class PasswordResetLinkView(BaseModel):
     url: str | None
 
 
-class PasswordResetRequest(BaseModel):
-    """Self-service: ask for a reset mail. Always answered ``204``."""
-
-    username: str
-
-
 class PasswordResetRedeem(BaseModel):
     token: str
     new_password: str = Field(min_length=1)

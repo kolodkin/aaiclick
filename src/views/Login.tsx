@@ -2,35 +2,18 @@ import { useEffect, useState } from "react";
 import { Panel } from "../components/Panel";
 import { useAuth } from "../components/Auth";
 import { ApiError } from "../api/problem";
-import { fetchOidcConfig, login, requestPasswordReset, startOidcLogin, type OidcConfig } from "../lib/auth";
+import { fetchOidcConfig, login, startOidcLogin, type OidcConfig } from "../lib/auth";
 
+// Reset links are minted by a superadmin and handed over out of band — there
+// is no self-service email flow (see docs/designs/future.md).
 function ForgotPassword({ onBack }: { onBack: () => void }) {
-  const [username, setUsername] = useState("");
-  const [sent, setSent] = useState(false);
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await requestPasswordReset(username);
-    setSent(true);
-  };
   return (
     <Panel>
       <h2>Reset password</h2>
-      {sent ? (
-        <p className="sub">If that account has an email address on file, a reset link is on its way. Otherwise ask an administrator for a reset link.</p>
-      ) : (
-        <form onSubmit={submit}>
-          <p className="sub">Enter your username; a reset link is mailed when the server can reach you.</p>
-          <div className="field">
-            <label>Username</label>
-            <input id="forgot-username" type="text" value={username} autoFocus onChange={(e) => setUsername(e.target.value)} />
-          </div>
-          <div className="form-actions">
-            <button id="forgot-submit" className="btn btn-primary" type="submit" disabled={!username}>
-              Send reset link
-            </button>
-          </div>
-        </form>
-      )}
+      <p className="sub">
+        Ask an administrator for a reset link. They can mint a one-time link for your account that opens a
+        new-password form.
+      </p>
       <div className="form-actions">
         <button className="btn" type="button" onClick={onBack}>
           Back to sign in

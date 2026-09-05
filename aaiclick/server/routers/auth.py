@@ -20,7 +20,6 @@ from aaiclick.auth.view_models import (
     OidcConfigView,
     OidcStartView,
     PasswordResetRedeem,
-    PasswordResetRequest,
     RefreshRequest,
     TokenPair,
 )
@@ -79,13 +78,8 @@ async def change_password(request: ChangePasswordRequest, user_id: int = Depends
 
 
 # --- Password reset -------------------------------------------------------
-# Public: the caller has no session by definition.
-
-
-@router.post("/password-reset/request", status_code=204)
-async def request_password_reset(request: PasswordResetRequest) -> None:
-    """Always ``204`` — whether a mail went out is not disclosed."""
-    await reset_api.request(request)
+# Public: the caller redeeming a link has no session by definition. Minting a
+# link is superadmin-only and lives on /users.
 
 
 @router.post("/password-reset", status_code=204, responses=problem_responses(401))

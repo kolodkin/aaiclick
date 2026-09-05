@@ -35,10 +35,10 @@ var. These variables tune the enforced (distributed) case:
 | `AAICLICK_JWT_REFRESH_TTL` | Refresh-token lifetime, seconds.                               | `1209600` (14 d)|
 | `AAICLICK_ADMIN_USERNAME`  | Seed-superadmin username (inserted on startup when no users exist). | `superadmin`   |
 | `AAICLICK_ADMIN_PASSWORD`  | Seed-admin password.                                           | unset          |
-| `AAICLICK_PUBLIC_URL`      | Browser-facing origin (`https://aaiclick.example.com`). Needed by OIDC (redirect URI) and password-reset mail (link). | unset |
+| `AAICLICK_PUBLIC_URL`      | Browser-facing origin (`https://aaiclick.example.com`). Needed by OIDC (redirect URI) and password-reset links. | unset |
 | `AAICLICK_AUDIT_LOG`       | `writes` / `all` / `off` — see [Audit Log](#audit-log).        | `writes`       |
 
-OIDC, SMTP, and password-reset variables are listed in their own sections.
+OIDC and password-reset variables are listed in their own sections.
 
 !!! warning "Distributed without a secret is a hard error"
     In distributed mode with `AAICLICK_JWT_SECRET` unset, the server refuses to
@@ -61,7 +61,7 @@ SQLModel tables in `aaiclick/auth/models.py` (`audit_log` in
 | `password_hash` | `String \| None`                | bcrypt; `None` for SSO-only users |
 | `superadmin`    | `Boolean`, default `false`      | Instance-level operator |
 | `disabled`      | `Boolean`, default `false`      | Disabled → cannot log in |
-| `email`         | `String \| None`                | Password-reset mail target; filled from the OIDC `email` claim |
+| `email`         | `String \| None`                | Contact address; filled from the OIDC `email` claim            |
 | `oidc_subject`  | `String \| None`, unique, indexed | `"<issuer>|<sub>"` for SSO-linked users |
 | `totp_secret`   | `String \| None`                | Base32 TOTP seed; set by MFA setup, live once `mfa_enabled` |
 | `mfa_enabled`   | `Boolean`, default `false`      | Login demands a TOTP code |
@@ -139,12 +139,11 @@ aaiclick/
                      Role + TokenScope literals + constants
     security.py      bcrypt hash/verify; secret gen + sha256; JWT encode/decode;
                      API-token format; TOTP (pure functions, no DB, no contextvars)
-    config.py        env getters (enabled, secret, TTLs, admin seed, public URL,
-                     OIDC, SMTP, reset TTL, audit policy)
+    config.py        env getters (enabled, secret, TTLs, admin seed, public
+                     URL, OIDC, reset TTL)
     store.py         raw DB CRUD over users / refresh_tokens / api_tokens /
                      oidc_states / password_reset_tokens; revoke_all_for_user
     oidc.py          discovery, PKCE, code exchange, id_token validation (httpx)
-    mail.py          SMTP sender for password-reset mail
     view_models.py   LoginRequest, TokenPair, MeView, UserView, ApiTokenView,
                      OidcStartView, MfaSetupView, PasswordReset*, ...
   audit/
@@ -452,37 +451,30 @@ the recovery path, matching the CLI-first admin model.
 
 # Password Reset
 
+**Implementation**: `aaiclick/internal_api/password_reset.py` — see `create`, `redeem`; `src/views/ResetPassword.tsx`.
 
-**Implementation**: `aaiclick/internal_api/users.py` — see `create_password_reset`; `aaiclick/internal_api/auth.py` — see `request_password_reset`, `redeem_password_reset`; `aaiclick/auth/mail.py`; `src/views/ResetPassword.tsx`.
 A reset token is a one-time secret bound to a user with a short TTL
 (`AAICLICK_PASSWORD_RESET_TTL`, default 3600 s). Consuming it sets the password
 and revokes the user's sessions, like an admin reset.
 
-- **Admin-minted**: `POST /users/{id}/password-reset` (superadmin) →
+- **Mint**: `POST /users/{id}/password-reset` (superadmin) →
   `PasswordResetLinkView {token, expires_at, url}` — the operator hands the
-  link over out of band. Always available; needs no mail server. CLI:
-  `aaiclick user reset-link <user_id>`.
-- **Self-service**: `POST /auth/password-reset/request {username}` (public)
-  always answers `204`. When SMTP is configured and the user has an `email`,
-  a mail with the link is sent; otherwise nothing happens beyond a log line.
-  No user-enumeration signal either way.
+  link over out of band. CLI: `aaiclick user reset-link <user_id>`.
 - **Redeem**: `POST /auth/password-reset {token, new_password}` (public) →
   `204`, or `401` for an unknown / expired / consumed token.
 
 The link is `AAICLICK_PUBLIC_URL/?p=reset%20<token>`, which the SPA routes to
-the new-password form.
+the new-password form; without that variable only the raw `token` is returned.
 
-| Variable                   | Purpose                              | Default |
-|----------------------------|--------------------------------------|---------|
-| `AAICLICK_SMTP_HOST`       | Enables mail when set                | unset   |
-| `AAICLICK_SMTP_PORT`       |                                      | `587`   |
-| `AAICLICK_SMTP_USERNAME`   | Optional login                       | unset   |
-| `AAICLICK_SMTP_PASSWORD`   |                                      | unset   |
-| `AAICLICK_SMTP_FROM`       | Sender address                       | `AAICLICK_SMTP_USERNAME` |
-| `AAICLICK_SMTP_STARTTLS`   | `1` → `STARTTLS` before login        | `1`     |
+There is no self-service "email me a link" flow — mail delivery is not
+implemented (`docs/designs/future.md`). The SPA's **Forgot password?** link
+tells the user to ask an administrator.
 
-Mail is sent through `smtplib` on a worker thread (`asyncio.to_thread`), so the
-request path stays async.
+!!! warning "Superadmin lockout has no in-app recovery"
+    Minting a link needs a superadmin, so a deployment whose only superadmin
+    loses their password must recover through the CLI on a host with database
+    access (`aaiclick user passwd <user_id>`). Keep a second superadmin, or
+    keep that step in the runbook.
 
 # Audit Log
 

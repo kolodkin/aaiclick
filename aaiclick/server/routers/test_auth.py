@@ -138,10 +138,6 @@ async def test_login_mfa_required_problem_code(orch_ctx, app_client, enabled):
 async def test_password_reset_routes(orch_ctx, enabled, anon_client, app_client):
     """``enabled`` precedes ``app_client`` so the fixture mints its admin header."""
     view = await users.create_user(CreateUserRequest(username="reset_me", password="old"))
-    # Self-service request is public and always 204.
-    assert (
-        await anon_client.post(f"{API_PREFIX}/auth/password-reset/request", json={"username": "nobody"})
-    ).status_code == 204
     # Superadmin mints a link; anonymous redeems it.
     link = await app_client.post(f"{API_PREFIX}/users/{view.id}/password-reset")
     assert link.status_code == 200 and link.json()["token"]

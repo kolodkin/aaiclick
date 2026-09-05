@@ -155,10 +155,6 @@ export async function fetchMe(): Promise<MeView | null> {
   return currentMe;
 }
 
-export async function requestPasswordReset(username: string): Promise<void> {
-  await postAuth("/auth/password-reset/request", { username });
-}
-
 export async function redeemPasswordReset(token: string, newPassword: string): Promise<void> {
   const res = await postAuth("/auth/password-reset", { token, new_password: newPassword });
   if (!res.ok) throw await parseError(res);

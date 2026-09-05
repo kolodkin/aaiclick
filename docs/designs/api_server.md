@@ -476,7 +476,7 @@ documented in `docs/designs/auth.md` — Configuration:
 
 **Design**: `docs/designs/auth.md`. **Implementation**: `aaiclick/server/auth.py`
 (principal resolution + RBAC), `aaiclick/auth/` (models, security, store,
-oidc, mail), `aaiclick/internal_api/auth.py` (login / refresh / logout, MFA,
+oidc), `aaiclick/internal_api/auth.py` (login / refresh / logout, MFA,
 password reset), `aaiclick/internal_api/oidc.py` (SSO), wired in `aaiclick/server/app.py`.
 
 Username/password users with per-tenant roles (`admin` / `viewer`) plus an

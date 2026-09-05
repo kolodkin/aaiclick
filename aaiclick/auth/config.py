@@ -29,12 +29,6 @@ ENV_OIDC_AUTO_PROVISION = "AAICLICK_OIDC_AUTO_PROVISION"
 ENV_OIDC_LABEL = "AAICLICK_OIDC_LABEL"
 
 ENV_PASSWORD_RESET_TTL = "AAICLICK_PASSWORD_RESET_TTL"
-ENV_SMTP_HOST = "AAICLICK_SMTP_HOST"
-ENV_SMTP_PORT = "AAICLICK_SMTP_PORT"
-ENV_SMTP_USERNAME = "AAICLICK_SMTP_USERNAME"
-ENV_SMTP_PASSWORD = "AAICLICK_SMTP_PASSWORD"
-ENV_SMTP_FROM = "AAICLICK_SMTP_FROM"
-ENV_SMTP_STARTTLS = "AAICLICK_SMTP_STARTTLS"
 
 DEFAULT_ACCESS_TTL = 1800
 DEFAULT_REFRESH_TTL = 1209600
@@ -45,7 +39,6 @@ DEFAULT_OIDC_LABEL = "SSO"
 OIDC_STATE_TTL = 600
 """Seconds an SSO login may take between ``/auth/oidc/start`` and the callback."""
 DEFAULT_PASSWORD_RESET_TTL = 3600
-DEFAULT_SMTP_PORT = 587
 
 
 def _env_flag(name: str, default: bool = True) -> bool:
@@ -143,31 +136,3 @@ def oidc_settings() -> OidcSettings | None:
 
 def password_reset_ttl() -> int:
     return int(os.getenv(ENV_PASSWORD_RESET_TTL, DEFAULT_PASSWORD_RESET_TTL))
-
-
-class SmtpSettings(NamedTuple):
-    host: str
-    port: int
-    username: str | None
-    password: str | None
-    sender: str
-    starttls: bool
-
-
-def smtp_settings() -> SmtpSettings | None:
-    """Mail configuration, or ``None`` when no host is set (mail disabled)."""
-    host = os.getenv(ENV_SMTP_HOST)
-    if not host:
-        return None
-    username = os.getenv(ENV_SMTP_USERNAME) or None
-    sender = os.getenv(ENV_SMTP_FROM) or username
-    if sender is None:
-        raise RuntimeError(f"{ENV_SMTP_FROM} (or {ENV_SMTP_USERNAME}) must be set with {ENV_SMTP_HOST}")
-    return SmtpSettings(
-        host=host,
-        port=int(os.getenv(ENV_SMTP_PORT, DEFAULT_SMTP_PORT)),
-        username=username,
-        password=os.getenv(ENV_SMTP_PASSWORD) or None,
-        sender=sender,
-        starttls=_env_flag(ENV_SMTP_STARTTLS),
-    )
