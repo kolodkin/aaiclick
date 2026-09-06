@@ -126,6 +126,21 @@ SDK closes that gap without a second worker implementation.
   `ChClient` / `Db` / `NamedParamSql` classes are reusable starting points
   for the SDK, recoverable from git history.
 
+## Viewer Follow-ups
+
+See `viewer.md` for the shipped design.
+
+- **Object names in user SQL**: rewrite bare object names inside a scope to
+  their table names before validation, using the same tokenizer as
+  `validate_scope`. Deferred because a column and an object can share a name.
+- **Viewer token**: mint a longer-lived read-only token for the viewer tab
+  instead of handing over the access JWT; the tab cannot refresh today.
+- **Persisted declared queries**: a `queries_doc` column beside
+  `table_registry.schema_doc`, written at object creation, so declarations
+  travel with the object instead of a construction-time hook.
+- **Workspaces and git sync** in the viewer (`Views(workspaces=..., git=...)`)
+  over aaiclick storage.
+
 ## Lazy Operator — Chain Fusion
 
 Every `LazyOperator` node materializes into its own table. For single-source
