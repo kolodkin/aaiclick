@@ -23,7 +23,7 @@ below implements that contract.
 ```python
 views = build_views()                      # aaiclick/viewer/mount.py
 app.include_router(
-    build_router(views, api_dependencies=[Depends(viewer_scope)]),
+    build_router(views, api_dependencies=[Depends(require_tenant)]),
     prefix="/viewer",
 )
 ```
@@ -32,8 +32,11 @@ app.include_router(
   `/mcp` server, so there is one MCP endpoint:
 
 ```python
-register_tools(mcp, views, scope=lambda: orch_context(with_ch=True))
+register_tools(mcp, views)
 ```
+
+Backends open their own `orch_context(with_ch=True)` per call (see
+[Backends](#backends)), so neither binding site passes a context.
 
 The SPA gets a `@data` prompt mode that opens `/viewer/` in a new tab with the
 auth handoff described under [Auth](#auth). No data UI is built in aaiclick's
@@ -63,10 +66,15 @@ object can share a name.
 # Backends
 
 `aaiclick/viewer/views.py` is a fourth renderer over `internal_api`, like the
-CLI, REST, and MCP. It never reads `table_registry` directly.
+CLI, REST, and MCP. It never reads `table_registry` directly. Every method is
+wrapped with `@in_orch_context` (`aaiclick/viewer/context.py`), which opens
+`orch_context(with_ch=True)` around the call: under the REST router it nests
+into the request's context, under an MCP tool it is the only context, exactly
+as the tools in `aaiclick/server/mcp.py` do today.
 
 ```python
 class ObjectExplorer:                                   # ExplorerBackend
+    @in_orch_context
     async def session(self, ctx) -> SessionInfo:
         return SessionInfo(connected=True, name="aaiclick", type="aaiclick",
                            noun="objects", default_scope="persistent")
@@ -152,17 +160,10 @@ models module import to `aaiclick/orchestration/migrations/env.py`.
 
 # Auth
 
-The plugin router carries no auth. `viewer_scope` in `aaiclick/viewer/mount.py`
-composes the dependencies the objects router already uses:
-
-```python
-async def viewer_scope(_: TenantContext = Depends(require_tenant)) -> AsyncIterator[None]:
-    async with orch_context(with_ch=True):
-        yield
-```
-
-`require_tenant` already pins the tenancy ContextVar, so every `internal_api`
-call and `get_ch_client()` inside the backends is tenant-scoped.
+The plugin router carries no auth. aaiclick attaches `require_tenant`, which
+resolves the Bearer token and `X-Tenant-Id` and pins the tenancy ContextVar,
+so every `internal_api` call and `get_ch_client()` inside the backends is
+tenant-scoped.
 
 Any tenant member can browse, run, and save; nothing in the viewer deletes
 data. Static assets need no credentials because `api_dependencies` apply to
@@ -186,9 +187,8 @@ like aaiclick's own tools, act on the default tenant.
 # Local and Distributed Modes
 
 - Local (`python -m aaiclick local start`): the API server, workers, and the
-  viewer share one process, so the chdb session lock is not an issue.
-  `viewer_scope` opens `orch_context(with_ch=True)` and nests into the
-  runtime's outer context.
+  viewer share one process, so the chdb session lock is not an issue; the
+  backends' `orch_context` nests into the runtime's outer context.
 - Distributed: the API server process opens ClickHouse over
   `clickhouse-connect`; the viewer runs inside the same uvicorn process as the
   REST API. Remote-push channels are per-process, so live push works only
