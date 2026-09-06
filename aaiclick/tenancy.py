@@ -14,7 +14,10 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 
-DEFAULT_TENANT_ID = 1
+# 1 << 62: 19 digits like every snowflake tenant id, so p_<tenant_id>_<name>
+# matches the width of j_<job_id>_<name>, yet unmintable — its snowflake
+# timestamp field decodes to November 2004.
+DEFAULT_TENANT_ID = 1 << 62
 DEFAULT_TENANT_SLUG = "aaiclick"
 
 _active_tenant_id: ContextVar[int] = ContextVar("active_tenant_id", default=DEFAULT_TENANT_ID)
