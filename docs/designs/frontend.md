@@ -150,44 +150,52 @@ One SSE connection per UI session carries a single event kind, `changed`,
 with no payload. The client invalidates its whole React Query cache on each
 frame and REST supplies authoritative state — events are signals, not data.
 
-- **Stream**: `GET /api/v0/events` → `text/event-stream`, opened through the
-  same `fetch` chokepoint as every request (`EventSource` cannot send the
-  bearer or `X-Tenant-Id` headers). Reconnects with capped backoff and
-  invalidates on every (re)connect to catch up.
-- **Fallback**: the QueryClient default `refetchInterval` is a function that
-  returns `false` while the stream is connected and `2000` otherwise, so a
-  proxy that buffers SSE degrades to polling rather than a frozen UI.
-- **Task logs**: lines reach ClickHouse from the task process on its own
-  flush cadence, never through a SQL commit, so no signal marks a new line.
-  `useTaskLogs(id, live)` polls at 2 s while the task is non-terminal; the
-  terminal status write's signal triggers the last refetch.
-
-**Implementation**: `src/api/events.ts` — see `useLiveUpdates`,
-`isLiveConnected`; `src/main.tsx` — the `refetchInterval` default;
-`aaiclick/server/events.py` — see `event_frames`, `live_events`.
-
-## Server-side fanout
+## Layers
 
 ```
-status write ─▶ Session commit hook ─▶ Postgres NOTIFY ─▶ LISTEN (per API host) ─▶ EventBus ─▶ /events
-                                    └▶ SQLite: EventBus directly (same process) ─▶ /events
+DB commit ─▶ change signal ─▶ EventBus ─▶ SSE frame ─▶ browser ─▶ query invalidation ─▶ REST refetch
 ```
 
-Detection hooks the SQLAlchemy `Session` rather than each write site: any
-transaction that inserts, updates or deletes `jobs`, `tasks` or `groups`
-(ORM flush, Core DML or raw `text()`) is flagged and, on commit, issues
-`pg_notify` inside the same transaction — so a client that refetches on the
-signal always sees the committed row. Local mode runs the workers inside the
-server process, so there the commit publishes straight onto the in-process
-bus with no polling at all.
+Each hop has its own protocol and one handler that speaks it. Nothing on the
+path carries job or tenant data; only the final REST refetch does.
 
-Each stream forwards at most one frame per 500 ms; a burst of commits
-collapses into a single refetch round and an idle UI costs nothing. Postgres
-delivers each `NOTIFY` to every `LISTEN` connection, so N API hosts hold N
-connections — no broker (escape hatches in `docs/designs/future.md`).
+| Layer            | Protocol                                                          | Producer → consumer                                   | Handler                                                                                                                         |
+|------------------|-------------------------------------------------------------------|-------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------|
+| 1. DB commit     | SQLAlchemy `Session` events                                       | any writer of `jobs` / `tasks` / `groups` → session   | `aaiclick/orchestration/events.py` — `_flag_statement_writes`, `_flag_orm_writes`, `_notify_postgres`, `_publish_local`         |
+| 2. Change signal | Postgres: `NOTIFY aaiclick_events` in the same transaction        | committing process → every `LISTEN` connection        | `listen_postgres` (one autocommit connection per API host; `SELECT 1` ping, backoff reconnect, resync signal on connect)        |
+|                  | SQLite: direct call after commit (same process)                   | committing session → context bus                      | `_publish_local` → `get_event_bus().publish()`                                                                                  |
+| 3. EventBus      | in-process pub/sub, depth-1 queue per subscriber                  | listener / commit hook → each open stream             | `EventBus.publish`, `EventBus.subscribe`, `EventBus.close`                                                                      |
+| 4. SSE transport | HTTP `text/event-stream`: `event: changed\ndata: {}`, `: keepalive` comment every 15 s, ≤ 1 frame / 500 ms | `GET /api/v0/events` → browser | `aaiclick/server/events.py` — `event_frames`, `stream_events`; `live_events` owns the bus and listener for the lifespan  |
+| 5. Browser       | `fetch` + `ReadableStream`, bearer and `X-Tenant-Id` headers      | response body → frame parser                          | `src/api/client.ts` — `openStream`; `src/api/events.ts` — `readFrames`, `useLiveUpdates` (backoff 1 s → 30 s)                  |
+| 6. Query cache   | TanStack Query invalidation                                       | `changed` / (re)connect → every active query          | `useLiveUpdates` → `queryClient.invalidateQueries()`; `src/main.tsx` — `refetchInterval` falls back to 2 s while disconnected   |
+| 7. REST refetch  | existing JSON endpoints                                           | hooks → `/jobs`, `/jobs/{ref}`, `/tasks/{id}`, …      | `src/api/hooks.ts` (unchanged)                                                                                                  |
 
-**Implementation**: `aaiclick/orchestration/events.py` — see `EventBus`,
-`listen_postgres` and the `Session` listeners.
+**Layer 1 — why a session hook.** Roughly twenty call sites mutate the
+watched tables, many through raw SQL. Hooking the `Session` catches ORM
+flushes (`before_flush`), Core DML like `update(Task)` and raw `text()`
+statements (`do_orm_execute`) in one place, and covers sites not written
+yet. The flag lives in `session.info`; `after_rollback` discards it.
+
+**Layer 2 — why NOTIFY inside the transaction.** `before_commit` flushes,
+then runs `pg_notify` before the commit, so Postgres delivers the signal only
+if the write commits and a client that refetches on it always sees the
+committed row. Postgres fans each `NOTIFY` out to every `LISTEN` connection,
+so N API hosts hold N connections — no broker. Local mode runs the workers
+inside the server process, so SQLite skips the network hop entirely.
+
+**Layer 4 — why no `EventSource`.** The browser API cannot send the bearer
+or `X-Tenant-Id` headers, so the stream is read through the same `fetch`
+chokepoint as every other request, including its silent 401 refresh.
+
+**Fallback.** `isLiveConnected()` feeds the QueryClient default
+`refetchInterval`, which returns `false` while the stream is up and `2000`
+otherwise; a proxy that buffers SSE degrades to polling rather than a frozen
+UI. Every (re)connect invalidates once to catch up on anything missed.
+
+**Task logs.** Lines reach ClickHouse from the task process on its own flush
+cadence, never through a SQL commit, so no signal marks a new line.
+`useTaskLogs(id, live)` polls at 2 s while the task is non-terminal; the
+terminal status write's signal triggers the last refetch.
 
 # Testing
 
