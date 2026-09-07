@@ -170,6 +170,21 @@ path carries job or tenant data; only the final REST refetch does.
 | 6. Query cache   | TanStack Query invalidation                                                     | `changed` / (re)connect → every active query        | `useLiveUpdates` → `queryClient.invalidateQueries()`; `src/main.tsx` — `refetchInterval` falls back to 2 s while disconnected |
 | 7. REST refetch  | existing JSON endpoints                                                         | hooks → `/jobs`, `/jobs/{ref}`, `/tasks/{id}`, …    | `src/api/hooks.ts` (unchanged)                                                                                                |
 
+## Local mode vs distributed mode
+
+The mode is decided once per commit by `is_postgres()` (layer 1 → 2) and
+once per server start by `live_events`, which launches the `LISTEN` task
+only in distributed mode. Layers 3 → 7 are identical in both.
+
+|                      | Local (chdb + SQLite)                                                                      | Distributed (ClickHouse + Postgres)                                                                     |
+|----------------------|--------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------|
+| Processes            | API server, execution worker and background worker share one process (`local_runtime`)     | API hosts, execution workers and the background worker are separate processes, often separate hosts     |
+| Commit hook          | `after_commit` → `get_event_bus().publish()` — a direct call, nothing leaves the process   | `before_commit` → `SELECT pg_notify('aaiclick_events', '')` inside the committing transaction          |
+| Who feeds the bus    | the committing session itself                                                              | `listen_postgres`: one autocommit `LISTEN` connection per API host, forwarding each `NOTIFY`            |
+| Writers seen         | only this process — by design, since the chdb file lock already forbids a second one       | every writer anywhere; Postgres fans each `NOTIFY` out to all listeners                                 |
+| Failure mode         | none: no network hop                                                                       | listener reconnects with backoff and publishes a resync signal; the browser also invalidates on connect |
+| Extra configuration  | none                                                                                       | none: the listener reuses `AAICLICK_SQL_URL`                                                            |
+
 **Layer 1 — why a session hook.** Roughly twenty call sites mutate the
 watched tables, many through raw SQL. Hooking the `Session` catches ORM
 flushes (`before_flush`), Core DML like `update(Task)` and raw `text()`
