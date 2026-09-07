@@ -21,6 +21,7 @@ from sqlalchemy.pool import NullPool
 
 from ..env import get_db_url
 from .bus import EventBus
+from .state import STATE_IDLE, STATE_LISTENING, STATE_RECONNECTING, TransportState
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,13 @@ async def _wait_or_timeout(stop: asyncio.Event, timeout: float) -> bool:
 
 
 class PostgresTransport:
+    def __init__(self) -> None:
+        self._state: TransportState = STATE_IDLE
+
+    @property
+    def state(self) -> TransportState:
+        return self._state
+
     def before_commit(self, session: Session) -> None:
         session.execute(text("SELECT pg_notify(:channel, '')"), {"channel": EVENTS_CHANNEL})
 
@@ -59,8 +67,8 @@ class PostgresTransport:
         Holds one dedicated autocommit connection (a ``LISTEN`` session must
         not sit inside a long-open transaction) and pings it every
         :data:`PING_INTERVAL` so a dead link is noticed. Reconnects with
-        capped backoff and publishes one signal on every (re)connect so
-        streams that lived through a gap resync.
+        capped backoff; notifications sent during the gap are lost, so each
+        reconnect publishes one signal for open streams to resync on.
         """
         engine = create_async_engine(get_db_url(), poolclass=NullPool)
         backoff = RECONNECT_MIN
@@ -72,14 +80,18 @@ class PostgresTransport:
                         raw = await conn.get_raw_connection()
                         driver = cast(_Listenable, raw.driver_connection)
                         await driver.add_listener(EVENTS_CHANNEL, lambda *_: bus.publish())
-                        bus.publish()
+                        if self._state == STATE_RECONNECTING:
+                            bus.publish()
+                        self._state = STATE_LISTENING
                         backoff = RECONNECT_MIN
                         while not await _wait_or_timeout(stop, PING_INTERVAL):
                             await conn.execute(text("SELECT 1"))
                 except Exception:
-                    logger.warning("Postgres event listener lost; reconnecting in %.0fs", backoff, exc_info=True)
+                    self._state = STATE_RECONNECTING
+                    logger.warning("Postgres event listener lost; reconnecting in %.1fs", backoff, exc_info=True)
                     if await _wait_or_timeout(stop, backoff):
                         return
                     backoff = min(backoff * 2, RECONNECT_MAX)
         finally:
+            self._state = STATE_IDLE
             await engine.dispose()

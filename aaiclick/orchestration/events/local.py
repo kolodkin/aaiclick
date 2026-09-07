@@ -13,9 +13,15 @@ import asyncio
 from sqlalchemy.orm import Session
 
 from .bus import EventBus, get_event_bus
+from .state import STATE_LISTENING, TransportState
 
 
 class LocalTransport:
+    @property
+    def state(self) -> TransportState:
+        # A direct call can neither connect nor drop: always listening.
+        return STATE_LISTENING
+
     def before_commit(self, session: Session) -> None:
         return None
 
@@ -23,5 +29,4 @@ class LocalTransport:
         get_event_bus().publish()
 
     async def feed(self, bus: EventBus, *, stop: asyncio.Event) -> None:
-        bus.publish()
         await stop.wait()

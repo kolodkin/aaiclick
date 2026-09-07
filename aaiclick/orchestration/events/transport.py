@@ -18,9 +18,15 @@ from aaiclick.backend import is_postgres
 from .bus import EventBus
 from .local import LocalTransport
 from .postgres import PostgresTransport
+from .state import TransportState
 
 
 class SignalTransport(Protocol):
+    @property
+    def state(self) -> TransportState:
+        """Whether ``feed`` is currently delivering signals."""
+        ...
+
     def before_commit(self, session: Session) -> None:
         """Runs inside the flagged transaction, before it commits."""
         ...
@@ -32,8 +38,9 @@ class SignalTransport(Protocol):
     async def feed(self, bus: EventBus, *, stop: asyncio.Event) -> None:
         """Server-side receiver: deliver signals onto ``bus`` until ``stop``.
 
-        Publishes one signal as soon as it is ready so subscribers (and the
-        server lifespan) resync without knowing which backend is active.
+        ``state`` reports ``"listening"`` while signals flow. A transport
+        that can lose signals in transit publishes one on recovery so open
+        streams resync.
         """
         ...
 

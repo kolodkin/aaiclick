@@ -15,4 +15,5 @@ Importing this package registers the session listeners.
 from . import hooks  # noqa: F401 — registers the Session listeners
 from .bus import EventBus, event_bus, get_event_bus
 from .hooks import WATCHED_TABLES, statement_touches_watched
+from .state import STATE_IDLE, STATE_LISTENING, STATE_RECONNECTING, TransportState
 from .transport import SignalTransport, get_transport

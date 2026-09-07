@@ -9,9 +9,17 @@ from sqlalchemy import text
 
 from aaiclick.backend import is_postgres
 
-from .events import EventBus, SignalTransport, event_bus, get_event_bus, get_transport, statement_touches_watched
+from .events import (
+    STATE_LISTENING,
+    EventBus,
+    SignalTransport,
+    event_bus,
+    get_event_bus,
+    get_transport,
+    statement_touches_watched,
+)
+from .events import postgres as postgres_transport
 from .events.local import LocalTransport
-from .events.postgres import PostgresTransport
 from .execution.claiming import cancel_job, update_task_status
 from .execution.execution_worker import _set_pending_cleanup, register_execution_worker
 from .factories import create_job
@@ -102,21 +110,14 @@ def test_statement_touches_watched(sql, expected):
     assert statement_touches_watched(sql) is expected
 
 
-async def _first_signal(bus: EventBus) -> None:
-    async for _ in bus.subscribe():
-        return
+async def _wait_listening(transport: SignalTransport, timeout: float = 10.0) -> None:
+    """Poll until the transport reports it is listening."""
 
+    async def poll() -> None:
+        while transport.state != STATE_LISTENING:
+            await asyncio.sleep(0.01)
 
-async def _start_feed(transport: SignalTransport, bus: EventBus, stop: asyncio.Event) -> asyncio.Task[None]:
-    """Start ``transport.feed`` and return once its ready signal has arrived.
-
-    Subscribes *before* the feed task runs: a signal with no subscriber is
-    dropped, and the local transport publishes on its very first step."""
-    ready = asyncio.create_task(_first_signal(bus))
-    await asyncio.sleep(0)
-    feed = asyncio.create_task(transport.feed(bus, stop=stop))
-    await asyncio.wait_for(ready, 10)
-    return feed
+    await asyncio.wait_for(poll(), timeout)
 
 
 # Long enough for a Postgres NOTIFY to travel through the listener connection.
@@ -147,31 +148,45 @@ async def recording(bus: EventBus) -> AsyncIterator[list[None]]:
 
 
 def test_get_transport_matches_backend():
-    expected = PostgresTransport if is_postgres() else LocalTransport
+    expected = postgres_transport.PostgresTransport if is_postgres() else LocalTransport
     assert isinstance(get_transport(), expected)
 
 
-async def test_local_transport_feed_announces_then_stops():
-    """Every transport publishes one resync signal when its feed starts, so
-    the server and this module's fixture can wait for readiness the same way."""
+@pytest.mark.skipif(not is_postgres(), reason="needs a LISTEN connection to sever")
+async def test_postgres_feed_resyncs_after_reconnect(orch_ctx, monkeypatch):
+    """Notifications sent while the LISTEN connection is down are lost, so a
+    reconnect must publish one signal for open streams to catch up on."""
+    monkeypatch.setattr(postgres_transport, "PING_INTERVAL", 0.1)
+    monkeypatch.setattr(postgres_transport, "RECONNECT_MIN", 0.1)
+    transport = postgres_transport.PostgresTransport()
     bus = EventBus()
     stop = asyncio.Event()
-    feed = await _start_feed(LocalTransport(), bus, stop)
+    feed = asyncio.create_task(transport.feed(bus, stop=stop))
+    await _wait_listening(transport)
+    async with recording(bus) as signals:
+        async with get_sql_session() as session:
+            await session.execute(
+                text(
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                    "WHERE datname = current_database() AND pid <> pg_backend_pid()"
+                )
+            )
+        await _wait_listening(transport)
+        await asyncio.sleep(SETTLE)
     stop.set()
-    await asyncio.wait_for(feed, 5)
+    await feed
+    assert len(signals) == 1
 
 
 @pytest.fixture
 async def live_bus() -> AsyncIterator[EventBus]:
-    """A scoped bus fed by the active backend's transport.
-
-    The feed announces itself with one signal once ready — the fixture waits
-    for it so a test's own write is never mistaken for that resync.
-    """
+    """A scoped bus fed by the active backend's transport, once it is listening."""
     bus = EventBus()
     stop = asyncio.Event()
+    transport = get_transport()
     with event_bus(bus):
-        feed = await _start_feed(get_transport(), bus, stop)
+        feed = asyncio.create_task(transport.feed(bus, stop=stop))
+        await _wait_listening(transport)
         yield bus
     stop.set()
     await feed
