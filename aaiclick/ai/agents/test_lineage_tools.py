@@ -5,6 +5,7 @@ query validation, row-limit truncation, and graph classification.
 
 from __future__ import annotations
 
+from typing import get_args
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -16,6 +17,14 @@ from aaiclick.ai.agents.lineage_tools import (
     QueryResult,
     TableSchema,
     ToolError,
+)
+from aaiclick.data.scope import (
+    SCOPE_GLOBAL,
+    SCOPE_JOB,
+    SCOPE_TEMP_NAMED,
+    ObjectScope,
+    make_scoped_table_name,
+    scope_of,
 )
 from aaiclick.oplog.lineage import OplogEdge, OplogGraph
 from aaiclick.testing import make_oplog_node
@@ -62,29 +71,46 @@ async def test_query_table_rejects_ddl_keywords_inside_select():
     assert err.kind == "not_select"
 
 
-@pytest.mark.parametrize(
-    "table",
-    [
-        pytest.param("t_99999999999999999999", id="temp"),
-        pytest.param("t_orders_99999999999999999999", id="temp-named"),
-        pytest.param("j_8888888888888888888_payroll", id="job-scoped"),
-        pytest.param("p_other_tenant_sales", id="global"),
-        pytest.param("p_7777777777777777777_sales", id="global-tenant-scoped"),
-    ],
-)
+# Built through the real producers so the cases track aaiclick/data/scope.py
+# rather than restating its output as literals. The ids belong to a table, a job
+# and a tenant that are all outside the graph under test.
+OTHER_SNOWFLAKE_ID = 7502577539063427072
+OTHER_JOB_ID = 7502577539063427073
+OTHER_TENANT_ID = 7502577539063427074
+OUT_OF_SCOPE_TABLES: dict[str, str] = {
+    # The unnamed-temp form has no factory; aaiclick/data/object/object.py builds it.
+    "temp": f"t_{OTHER_SNOWFLAKE_ID}",
+    "temp-named": make_scoped_table_name(SCOPE_TEMP_NAMED, "orders", snowid=OTHER_SNOWFLAKE_ID),
+    "job": make_scoped_table_name(SCOPE_JOB, "payroll", job_id=OTHER_JOB_ID),
+    "global": make_scoped_table_name(SCOPE_GLOBAL, "sales"),
+    "global-tenant-scoped": make_scoped_table_name(SCOPE_GLOBAL, "sales", tenant_id=OTHER_TENANT_ID),
+}
+
+
+@pytest.mark.parametrize("table", OUT_OF_SCOPE_TABLES.values(), ids=list(OUT_OF_SCOPE_TABLES))
 async def test_query_table_rejects_out_of_scope_table(table):
     """Every scoped-table shape aaiclick creates must be visible to the scope guard.
 
-    ClickHouse keeps all tenants' tables in one database, so a shape the
-    reference regex misses is an unchecked read outside the graph and outside
-    the tenant. ``list_graph_nodes`` hands the agent real job ids, so it does
-    not have to guess one to name a ``j_<job_id>_<name>`` table.
+    ClickHouse keeps all tenants' tables in one database, so a shape
+    ``_TABLE_REF_RE`` fails to match is an unchecked read outside the graph and
+    outside the tenant — the guard subtracts what it matched from the in-scope
+    set, so an unmatched reference is never tested against anything.
     """
     toolbox = LineageToolbox(_sample_graph())
     err = await toolbox.query_table(f"SELECT * FROM {table}")
     assert isinstance(err, ToolError)
     assert err.kind == "out_of_scope"
     assert table in err.message
+
+
+def test_out_of_scope_cases_cover_every_scope():
+    """A new object scope must arrive with a case above, or the guard silently misses it.
+
+    ``_TABLE_REF_RE`` is tight enough to ignore a shape it was never taught, so
+    the cases are only as good as their coverage of ``ObjectScope``.
+    """
+    covered = {scope_of(table) for table in OUT_OF_SCOPE_TABLES.values()}
+    assert covered == set(get_args(ObjectScope))
 
 
 async def test_query_table_happy_path_wraps_limit():
@@ -274,6 +300,14 @@ async def test_get_schema_not_live_when_describe_fails():
             [],
             [],
             id="table-id-in-string-literal",
+        ),
+        # A column merely sharing a scope prefix is not a table reference: no
+        # scoped shape ends in a bare word, so t_start / j_id stay queryable.
+        pytest.param(
+            f"SELECT t_start, j_id FROM {TARGET_TABLE}",
+            [(1, 2)],
+            ["t_start", "j_id"],
+            id="column-named-like-a-scope-prefix",
         ),
     ],
 )
