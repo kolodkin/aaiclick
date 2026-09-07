@@ -161,10 +161,10 @@ path carries job or tenant data; only the final REST refetch does.
 
 | Layer            | Protocol                                                                        | Producer → consumer                                 | Handler                                                                                                                       |
 |------------------|---------------------------------------------------------------------------------|-----------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------|
-| 1. DB commit     | SQLAlchemy `Session` events                                                     | any writer of `jobs` / `tasks` / `groups` → session | `aaiclick/orchestration/events.py` — `_flag_statement_writes`, `_flag_orm_writes`, `_notify_postgres`, `_publish_local`       |
-| 2. Change signal | Postgres: `NOTIFY aaiclick_events` in the same transaction                      | committing process → every `LISTEN` connection      | `listen_postgres` (one autocommit connection per API host; `SELECT 1` ping, backoff reconnect, resync signal on connect)      |
+| 1. DB commit     | SQLAlchemy `Session` events                                                     | any writer of `jobs` / `tasks` / `groups` → session | `events/hooks.py` — flags the session, then calls the transport on either side of the commit                                  |
+| 2. Change signal | Postgres: `NOTIFY aaiclick_events` in the same transaction                      | committing process → every `LISTEN` connection      | `events/postgres.py` — `PostgresTransport.before_commit` notifies; `feed` holds one `LISTEN` connection per API host          |
 |------------------|---------------------------------------------------------------------------------|-----------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------|
-| 3. EventBus      | in-process pub/sub, depth-1 queue per subscriber                                | listener / commit hook → each open stream           | `EventBus.publish`, `EventBus.subscribe`, `EventBus.close`                                                                    |
+| 3. EventBus      | in-process pub/sub, depth-1 queue per subscriber                                | transport → each open stream                        | `events/bus.py` — `EventBus.publish`, `EventBus.subscribe`, `EventBus.close`                                                  |
 | 4. SSE transport | `text/event-stream`: `event: changed`, `: keepalive` / 15 s, ≤ 1 frame / 500 ms | `GET /api/v0/events` → browser                      | `aaiclick/server/events.py` — `event_frames`, `stream_events`; `live_events` owns bus + listener per lifespan                 |
 | 5. Browser       | `fetch` + `ReadableStream`, bearer and `X-Tenant-Id` headers                    | response body → frame parser                        | `src/api/client.ts` — `openStream`; `src/api/events.ts` — `readFrames`, `useLiveUpdates` (backoff 1 s → 30 s)                 |
 | 6. Query cache   | TanStack Query invalidation                                                     | `changed` / (re)connect → every active query        | `useLiveUpdates` → `queryClient.invalidateQueries()`; `src/main.tsx` — `refetchInterval` falls back to 2 s while disconnected |
@@ -172,15 +172,19 @@ path carries job or tenant data; only the final REST refetch does.
 
 ## Local mode vs distributed mode
 
-The mode is decided once per commit by `is_postgres()` (layer 1 → 2) and
-once per server start by `live_events`, which launches the `LISTEN` task
-only in distributed mode. Layers 3 → 7 are identical in both.
+Layer 2 is the only backend-specific layer. It sits behind the
+`SignalTransport` protocol (`aaiclick/orchestration/events/transport.py`):
+`before_commit` / `after_commit` on the writer side and `feed` on the server
+side. `get_transport()` picks the implementation from `AAICLICK_SQL_URL`, so
+neither the session hooks nor `live_events` branch on the backend. Layers
+3 → 7 are identical in both modes.
 
 |                      | Local (chdb + SQLite)                                                                      | Distributed (ClickHouse + Postgres)                                                                     |
 |----------------------|--------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------|
 | Processes            | API server, execution worker and background worker share one process (`local_runtime`)     | API hosts, execution workers and the background worker are separate processes, often separate hosts     |
+| Transport            | `LocalTransport` (`events/local.py`)                                                       | `PostgresTransport` (`events/postgres.py`)                                                              |
 | Commit hook          | `after_commit` → `get_event_bus().publish()` — a direct call, nothing leaves the process   | `before_commit` → `SELECT pg_notify('aaiclick_events', '')` inside the committing transaction          |
-| Who feeds the bus    | the committing session itself                                                              | `listen_postgres`: one autocommit `LISTEN` connection per API host, forwarding each `NOTIFY`            |
+| Who feeds the bus    | the committing session itself                                                              | `PostgresTransport.feed`: one autocommit `LISTEN` connection per API host, forwarding each `NOTIFY`     |
 | Writers seen         | only this process — by design, since the chdb file lock already forbids a second one       | every writer anywhere; Postgres fans each `NOTIFY` out to all listeners                                 |
 | Failure mode         | none: no network hop                                                                       | listener reconnects with backoff and publishes a resync signal; the browser also invalidates on connect |
 | Extra configuration  | none                                                                                       | none: the listener reuses `AAICLICK_SQL_URL`                                                            |

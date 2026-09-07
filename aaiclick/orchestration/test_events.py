@@ -9,7 +9,9 @@ from sqlalchemy import text
 
 from aaiclick.backend import is_postgres
 
-from .events import EventBus, event_bus, get_event_bus, listen_postgres, statement_touches_watched
+from .events import EventBus, SignalTransport, event_bus, get_event_bus, get_transport, statement_touches_watched
+from .events.local import LocalTransport
+from .events.postgres import PostgresTransport
 from .execution.claiming import cancel_job, update_task_status
 from .execution.execution_worker import _set_pending_cleanup, register_execution_worker
 from .factories import create_job
@@ -105,6 +107,18 @@ async def _first_signal(bus: EventBus) -> None:
         return
 
 
+async def _start_feed(transport: SignalTransport, bus: EventBus, stop: asyncio.Event) -> asyncio.Task[None]:
+    """Start ``transport.feed`` and return once its ready signal has arrived.
+
+    Subscribes *before* the feed task runs: a signal with no subscriber is
+    dropped, and the local transport publishes on its very first step."""
+    ready = asyncio.create_task(_first_signal(bus))
+    await asyncio.sleep(0)
+    feed = asyncio.create_task(transport.feed(bus, stop=stop))
+    await asyncio.wait_for(ready, 10)
+    return feed
+
+
 # Long enough for a Postgres NOTIFY to travel through the listener connection.
 SETTLE = 0.3
 
@@ -132,25 +146,35 @@ async def recording(bus: EventBus) -> AsyncIterator[list[None]]:
         await asyncio.wait_for(consumer, 5)
 
 
+def test_get_transport_matches_backend():
+    expected = PostgresTransport if is_postgres() else LocalTransport
+    assert isinstance(get_transport(), expected)
+
+
+async def test_local_transport_feed_announces_then_stops():
+    """Every transport publishes one resync signal when its feed starts, so
+    the server and this module's fixture can wait for readiness the same way."""
+    bus = EventBus()
+    stop = asyncio.Event()
+    feed = await _start_feed(LocalTransport(), bus, stop)
+    stop.set()
+    await asyncio.wait_for(feed, 5)
+
+
 @pytest.fixture
 async def live_bus() -> AsyncIterator[EventBus]:
-    """A scoped bus that receives commit signals for the active backend.
+    """A scoped bus fed by the active backend's transport.
 
-    SQLite publishes in-process; Postgres needs the ``LISTEN`` loop, which
-    announces itself with one signal once connected — the fixture waits for it
-    so a test's own write is never mistaken for that resync.
+    The feed announces itself with one signal once ready — the fixture waits
+    for it so a test's own write is never mistaken for that resync.
     """
     bus = EventBus()
     stop = asyncio.Event()
-    listener: asyncio.Task[None] | None = None
     with event_bus(bus):
-        if is_postgres():
-            listener = asyncio.create_task(listen_postgres(bus, stop=stop))
-            await asyncio.wait_for(_first_signal(bus), 10)
+        feed = await _start_feed(get_transport(), bus, stop)
         yield bus
     stop.set()
-    if listener is not None:
-        await listener
+    await feed
 
 
 async def test_task_status_write_publishes_one_signal(orch_ctx, live_bus):

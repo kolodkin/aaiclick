@@ -3,8 +3,8 @@
 The stream carries one event kind, ``changed``, with no payload: the browser
 invalidates its query cache and refetches through REST. Signals come from
 :mod:`aaiclick.orchestration.events` — an in-process bus in local mode, fed
-by Postgres ``LISTEN`` in distributed mode (:func:`live_events` starts that
-listener with the app). Each stream forwards at most one frame per
+by Postgres ``LISTEN`` in distributed mode (:func:`live_events` runs the
+backend's transport feed with the app). Each stream forwards at most one frame per
 :data:`MIN_FRAME_INTERVAL`; a burst of commits collapses into a single
 refetch round, and an idle UI costs nothing.
 """
@@ -18,8 +18,7 @@ from contextlib import asynccontextmanager
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.responses import StreamingResponse
 
-from aaiclick.backend import is_postgres
-from aaiclick.orchestration.events import EventBus, event_bus, listen_postgres
+from aaiclick.orchestration.events import EventBus, event_bus, get_transport
 
 MIN_FRAME_INTERVAL = 0.5
 KEEPALIVE_INTERVAL = 15.0
@@ -80,19 +79,18 @@ async def live_events(app: FastAPI) -> AsyncIterator[None]:
 
     The bus sits on ``app.state`` (request handlers do not inherit the
     lifespan's contextvars) and is also entered as the context bus so
-    local-mode workers started inside this block publish to it. In Postgres
-    mode a ``LISTEN`` task forwards notifications. Closing the bus on exit
+    local-mode workers started inside this block publish to it. The active
+    backend's transport feeds it for the lifespan. Closing the bus on exit
     ends every open stream so shutdown does not wait on them.
     """
     bus = EventBus()
     app.state.event_bus = bus
     stop = asyncio.Event()
-    listener = asyncio.create_task(listen_postgres(bus, stop=stop)) if is_postgres() else None
+    feed = asyncio.create_task(get_transport().feed(bus, stop=stop))
     try:
         with event_bus(bus):
             yield
     finally:
         stop.set()
-        if listener is not None:
-            await listener
+        await feed
         bus.close()
