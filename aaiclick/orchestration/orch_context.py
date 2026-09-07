@@ -23,8 +23,8 @@ from aaiclick.oplog.models import get_column_types, init_oplog_tables
 from aaiclick.tenancy import get_active_tenant_id
 
 from ..snowflake import get_snowflake_id
-from . import events  # noqa: F401 — registers the Session listeners that publish UI change signals
 from .env import get_db_url
+from .events import register_session_hooks
 from .execution.db_handler import _db_handler_var, create_db_handler, get_db_handler  # noqa: F401
 from .execution.execution_worker_context import get_current_task_info
 from .image_injection import inject_build_tasks, stamp_inherited_image, validate_image_sources
@@ -385,6 +385,7 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
 
     Per-task state (lifecycle handler, objects, oplog) is managed by task_scope().
     """
+    register_session_hooks()
     if is_postgres():
         try:
             import asyncpg  # noqa: F401

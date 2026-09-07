@@ -193,7 +193,10 @@ neither the session hooks nor `live_events` branch on the backend. Layers
 watched tables, many through raw SQL. Hooking the `Session` catches ORM
 flushes (`before_flush`), Core DML like `update(Task)` and raw `text()`
 statements (`do_orm_execute`) in one place, and covers sites not written
-yet. The flag lives in `session.info`; `after_rollback` discards it.
+yet. The flag lives in `session.info`; `after_rollback` discards it. The
+listeners are process-global, so `register_session_hooks()` (idempotent) is
+called explicitly from the two entry points every writer passes through:
+`orch_context()` and `BackgroundWorker.start()`.
 
 **Layer 2 — why NOTIFY inside the transaction.** `before_commit` flushes,
 then runs `pg_notify` before the commit, so Postgres delivers the signal only

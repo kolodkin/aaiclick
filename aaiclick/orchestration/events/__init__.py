@@ -8,12 +8,9 @@ in the single local-mode process, :mod:`.postgres` rides ``NOTIFY`` /
 invalidates its query cache on each signal and REST supplies authoritative
 state, so a burst of writes collapses into one pending signal per
 subscriber and nothing tenant-specific ever crosses the channel.
-
-Importing this package registers the session listeners.
 """
 
-from . import hooks  # noqa: F401 — registers the Session listeners
 from .bus import EventBus, event_bus, get_event_bus
-from .hooks import WATCHED_TABLES, statement_touches_watched
+from .hooks import WATCHED_TABLES, register_session_hooks, statement_touches_watched, unregister_session_hooks
 from .state import STATE_IDLE, STATE_LISTENING, STATE_RECONNECTING, TransportState
 from .transport import SignalTransport, get_transport

@@ -16,7 +16,9 @@ from .events import (
     event_bus,
     get_event_bus,
     get_transport,
+    register_session_hooks,
     statement_touches_watched,
+    unregister_session_hooks,
 )
 from .events import postgres as postgres_transport
 from .events.local import LocalTransport
@@ -145,6 +147,26 @@ async def recording(bus: EventBus) -> AsyncIterator[list[None]]:
     finally:
         bus.close()
         await asyncio.wait_for(consumer, 5)
+
+
+def test_register_session_hooks_is_idempotent():
+    register_session_hooks()
+    register_session_hooks()
+    unregister_session_hooks()
+    unregister_session_hooks()
+    register_session_hooks()
+
+
+async def test_unregistered_hooks_publish_nothing(orch_ctx, live_bus):
+    job = await create_job("events_unregistered", SAMPLE_TASK)
+    await asyncio.sleep(SETTLE)
+    unregister_session_hooks()
+    try:
+        async with recording(live_bus) as signals:
+            await cancel_job(job.id)
+    finally:
+        register_session_hooks()
+    assert signals == []
 
 
 def test_get_transport_matches_backend():

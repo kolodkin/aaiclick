@@ -4,7 +4,11 @@ Detection hooks the SQLAlchemy ``Session`` rather than each write site:
 roughly twenty call sites mutate these tables, many through raw SQL, and a
 hook covers the ones not written yet. A flagged transaction hands off to the
 active :class:`~.transport.SignalTransport` on either side of its commit.
-Importing this module registers the listeners.
+
+The listeners are process-global (SQLAlchemy listens on the ``Session``
+class), so :func:`register_session_hooks` is idempotent and is called from
+the two entry points every writer passes through: ``orch_context()`` and
+``BackgroundWorker.start()``.
 """
 
 from __future__ import annotations
@@ -46,20 +50,17 @@ def _statement_writes_watched(statement: object) -> bool:
     return False
 
 
-@event.listens_for(Session, "do_orm_execute")
 def _flag_statement_writes(state: ORMExecuteState) -> None:
     if _statement_writes_watched(state.statement):
         state.session.info[_DIRTY_KEY] = True
 
 
-@event.listens_for(Session, "before_flush")
 def _flag_orm_writes(session: Session, flush_context: UOWTransaction, instances: object) -> None:
     pending = (*session.new, *session.dirty, *session.deleted)
     if any(isinstance(obj, _WATCHED_MODELS) for obj in pending):
         session.info[_DIRTY_KEY] = True
 
 
-@event.listens_for(Session, "before_commit")
 def _before_commit(session: Session) -> None:
     # Flush first so ORM writes still pending in this commit set the flag.
     session.flush()
@@ -67,12 +68,33 @@ def _before_commit(session: Session) -> None:
         get_transport().before_commit(session)
 
 
-@event.listens_for(Session, "after_commit")
 def _after_commit(session: Session) -> None:
     if session.info.pop(_DIRTY_KEY, False):
         get_transport().after_commit(session)
 
 
-@event.listens_for(Session, "after_rollback")
 def _discard_flag(session: Session) -> None:
     session.info.pop(_DIRTY_KEY, None)
+
+
+_LISTENERS = (
+    ("do_orm_execute", _flag_statement_writes),
+    ("before_flush", _flag_orm_writes),
+    ("before_commit", _before_commit),
+    ("after_commit", _after_commit),
+    ("after_rollback", _discard_flag),
+)
+
+
+def register_session_hooks() -> None:
+    """Attach the listeners to every ``Session`` in this process. Idempotent."""
+    for name, fn in _LISTENERS:
+        if not event.contains(Session, name, fn):
+            event.listen(Session, name, fn)
+
+
+def unregister_session_hooks() -> None:
+    """Detach the listeners (test isolation). Idempotent."""
+    for name, fn in _LISTENERS:
+        if event.contains(Session, name, fn):
+            event.remove(Session, name, fn)
