@@ -67,9 +67,9 @@ async def test_query_table_rejects_ddl_keywords_inside_select():
     [
         pytest.param("t_99999999999999999999", id="temp"),
         pytest.param("t_orders_99999999999999999999", id="temp-named"),
-        pytest.param("j_42_payroll", id="job-scoped"),
+        pytest.param("j_8888888888888888888_payroll", id="job-scoped"),
         pytest.param("p_other_tenant_sales", id="global"),
-        pytest.param("p_7_sales", id="global-tenant-scoped"),
+        pytest.param("p_7777777777777777777_sales", id="global-tenant-scoped"),
     ],
 )
 async def test_query_table_rejects_out_of_scope_table(table):
@@ -77,8 +77,8 @@ async def test_query_table_rejects_out_of_scope_table(table):
 
     ClickHouse keeps all tenants' tables in one database, so a shape the
     reference regex misses is an unchecked read outside the graph and outside
-    the tenant. Job ids are handed to the agent by ``list_graph_nodes``, which
-    makes ``j_<job_id>_<name>`` guessable.
+    the tenant. ``list_graph_nodes`` hands the agent real job ids, so it does
+    not have to guess one to name a ``j_<job_id>_<name>`` table.
     """
     toolbox = LineageToolbox(_sample_graph())
     err = await toolbox.query_table(f"SELECT * FROM {table}")

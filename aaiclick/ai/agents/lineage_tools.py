@@ -80,10 +80,13 @@ DEFAULT_ROW_LIMIT = 100
 ROW_LIMIT_CEILING = 1000
 DEFAULT_MAX_EXECUTION_TIME = 30
 
-# Matches every scoped-table shape aaiclick creates (see aaiclick/data/scope.py):
-# t_<snowflake>, t_<name>_<snowflake>, j_<job_id>_<name>, p_<name>, p_<tenant>_<name>.
-# Deliberately broad — an unrecognized reference would pass the scope guard
-# unchecked, so a column named t_start being rejected is the safe direction.
+# Every scoped-table shape aaiclick creates (see aaiclick/data/scope.py):
+# t_<snowflake_id>, t_<name>_<snowflake_id>, j_<job_id>_<name>, p_<name>,
+# p_<tenant_id>_<name> — job_id and tenant_id are themselves snowflake ids.
+# Deliberately broad: validate_scope subtracts these matches from the in-scope
+# set, so a shape the pattern misses is never checked at all. Over-matching only
+# costs a rejected query (a column named t_start reads as an out-of-scope table);
+# under-matching reads a table outside the graph and outside the tenant.
 _TABLE_REF_RE = re.compile(r"\b[tjp]_[A-Za-z0-9_]+\b")
 _STATEMENT_START_RE = re.compile(r"^\s*(?:WITH\b|SELECT\b)", re.IGNORECASE)
 _FORBIDDEN_KEYWORDS_RE = re.compile(
