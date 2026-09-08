@@ -40,7 +40,7 @@ async def query_table(
 ) -> QueryResult:
     """Run a sandboxed read-only ``SELECT`` against tables in ``scope_tables``.
 
-    Rejects DDL/DML, multi-statement input, and any ``t_*`` / ``p_*`` token
+    Rejects DDL/DML, multi-statement input, and any ``t_*`` / ``j_*`` / ``p_*`` token
     referencing a table outside ``scope_tables``. Auto-injects ``LIMIT`` and
     pins ``max_execution_time``. Callers should populate ``scope_tables``
     from a prior ``oplog_subgraph()`` (use ``OplogGraph.tables``).

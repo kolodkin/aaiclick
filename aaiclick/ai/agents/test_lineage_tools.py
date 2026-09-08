@@ -72,18 +72,16 @@ async def test_query_table_rejects_ddl_keywords_inside_select():
 
 
 # Built through the real producers so the cases track aaiclick/data/scope.py
-# rather than restating its output as literals. The ids belong to a table, a job
-# and a tenant that are all outside the graph under test.
-OTHER_SNOWFLAKE_ID = 7502577539063427072
-OTHER_JOB_ID = 7502577539063427073
-OTHER_TENANT_ID = 7502577539063427074
+# rather than restating its output as literals. One snowflake id serves as the
+# table, job and tenant id — all three are outside the graph under test.
+OUT_OF_SCOPE_ID = 7502577539063427072
 OUT_OF_SCOPE_TABLES: dict[str, str] = {
     # The unnamed-temp form has no factory; aaiclick/data/object/object.py builds it.
-    "temp": f"t_{OTHER_SNOWFLAKE_ID}",
-    "temp-named": make_scoped_table_name(SCOPE_TEMP_NAMED, "orders", snowid=OTHER_SNOWFLAKE_ID),
-    "job": make_scoped_table_name(SCOPE_JOB, "payroll", job_id=OTHER_JOB_ID),
+    "temp": f"t_{OUT_OF_SCOPE_ID}",
+    "temp-named": make_scoped_table_name(SCOPE_TEMP_NAMED, "orders", snowid=OUT_OF_SCOPE_ID),
+    "job": make_scoped_table_name(SCOPE_JOB, "payroll", job_id=OUT_OF_SCOPE_ID),
     "global": make_scoped_table_name(SCOPE_GLOBAL, "sales"),
-    "global-tenant-scoped": make_scoped_table_name(SCOPE_GLOBAL, "sales", tenant_id=OTHER_TENANT_ID),
+    "global-tenant-scoped": make_scoped_table_name(SCOPE_GLOBAL, "sales", tenant_id=OUT_OF_SCOPE_ID),
 }
 
 

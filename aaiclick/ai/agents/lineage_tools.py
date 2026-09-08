@@ -80,20 +80,13 @@ DEFAULT_ROW_LIMIT = 100
 ROW_LIMIT_CEILING = 1000
 DEFAULT_MAX_EXECUTION_TIME = 30
 
-# Every scoped-table shape aaiclick creates, mirroring aaiclick/data/scope.py:
-#   t_<snowflake_id>           unnamed temp (aaiclick/data/object/object.py)
-#   t_<name>_<snowflake_id>    temp_named
-#   j_<job_id>_<name>          job-scoped
-#   p_<name> / p_<tenant_id>_<name>    global — job_id and tenant_id are
-# snowflake ids, so every id run is digits. <name> is the persistent-name
-# grammar enforced by data_context._validate_persistent_name.
-#
-# validate_scope subtracts these matches from the in-scope set, so a shape the
-# pattern fails to match is never checked at all. That makes the pattern's
-# coupling to scope.py load-bearing: test_lineage_tools asserts its cases cover
-# every ObjectScope, so a new scope cannot land without a case here.
+# One branch per table-name prefix; the shapes come from aaiclick/data/scope.py
+# (see its module docstring). job_id and tenant_id are snowflake ids, so every
+# id run is digits; <name> is the grammar data_context._validate_persistent_name
+# enforces. validate_scope only checks what this matches, so a shape it misses
+# is an unchecked read — test_out_of_scope_cases_cover_every_scope pins coverage.
 _TABLE_NAME = r"[A-Za-z_][A-Za-z0-9_]*"
-_TABLE_REF_RE = re.compile(rf"\b(?:t_\d+|t_{_TABLE_NAME}_\d+|j_\d+_{_TABLE_NAME}|p_(?:\d+_)?{_TABLE_NAME})\b")
+_TABLE_REF_RE = re.compile(rf"\b(?:t_(?:{_TABLE_NAME}_)?\d+|j_\d+_{_TABLE_NAME}|p_(?:\d+_)?{_TABLE_NAME})\b")
 _STATEMENT_START_RE = re.compile(r"^\s*(?:WITH\b|SELECT\b)", re.IGNORECASE)
 _FORBIDDEN_KEYWORDS_RE = re.compile(
     r"\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER|CREATE|RENAME|ATTACH|"
