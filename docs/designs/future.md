@@ -26,6 +26,24 @@ should the feeder ever measurably hurt:
   and refetches the same few queries, so the coarse signal costs nothing
   today; widen the payload only if a view needs to ignore other jobs' churn.
 
+## Change Signals — Consumers Beyond the UI
+
+The signal (`aaiclick/orchestration/events`) is "a job, task or group row
+committed", not a UI concept; the SSE stream is merely its first subscriber.
+Next in line:
+
+- **`cli_wait.wait_for_job`** — polls job stats on a fixed interval today.
+  It could run the active transport's `feed` and block on
+  `EventBus.subscribe()` instead, re-reading stats only when a signal lands:
+  sub-second reaction, zero idle queries. Keep a slow poll as the fallback,
+  as the browser does. Local mode is the harder case: the CLI is a separate
+  process from a running local server, and `LocalTransport` only sees
+  commits in its own process, so a wait on a job the server is running
+  would need the Postgres transport or the SSE stream over HTTP.
+- **MCP / SDK waiters** — the same subscribe-then-refetch loop serves any
+  in-process caller that blocks on a job; external tools in distributed
+  mode can `LISTEN aaiclick_events` on Postgres directly.
+
 ## API Auth — Beyond Username/Password + RBAC
 
 Username/password users, admin/viewer RBAC, and JWT login (access + refresh)
