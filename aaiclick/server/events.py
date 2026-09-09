@@ -18,7 +18,7 @@ from contextlib import asynccontextmanager
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.responses import StreamingResponse
 
-from aaiclick.orchestration.events import EventBus, event_bus, get_transport
+from aaiclick.orchestration.events import EventBus, event_bus, get_transport, signal_transport
 
 MIN_FRAME_INTERVAL = 0.5
 KEEPALIVE_INTERVAL = 15.0
@@ -79,18 +79,20 @@ async def live_events(app: FastAPI) -> AsyncIterator[None]:
 
     The bus sits on ``app.state`` (request handlers do not inherit the
     lifespan's contextvars) and is also entered as the context bus so
-    local-mode workers started inside this block publish to it. The active
-    backend's transport feeds it for the lifespan. Closing the bus on exit
+    local-mode workers started inside this block publish to it. The
+    backend's transport is scoped the same way and feeds the bus for the
+    lifespan. Closing the bus on exit
     ends every open stream so shutdown does not wait on them.
     """
     bus = EventBus()
     app.state.event_bus = bus
+    transport = get_transport()
     stop = asyncio.Event()
-    feed = asyncio.create_task(get_transport().feed(bus, stop=stop))
-    try:
-        with event_bus(bus):
+    with event_bus(bus), signal_transport(transport):
+        feed = asyncio.create_task(transport.feed(bus, stop=stop))
+        try:
             yield
-    finally:
-        stop.set()
-        await feed
-        bus.close()
+        finally:
+            stop.set()
+            await feed
+            bus.close()

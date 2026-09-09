@@ -12,7 +12,6 @@ import asyncio
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from functools import cache
 from typing import Protocol
 
 from sqlalchemy.orm import Session
@@ -48,38 +47,36 @@ class SignalTransport(Protocol):
         ...
 
 
-_LOCAL = LocalTransport()
-
-
-@cache
-def _postgres() -> SignalTransport:
-    """One process-wide Postgres transport, built on first use.
-
-    The module imports asyncpg at top level, which only the ``distributed``
-    extra installs, so it is loaded here rather than at package import: a
-    local-mode install never touches it.
-    """
-    from .postgres import PostgresTransport  # Optional dep: asyncpg is absent in local-mode installs.
-
-    return PostgresTransport()
-
-
-def _backend_transport() -> SignalTransport:
-    return _postgres() if is_postgres() else _LOCAL
-
-
 _transport_var: ContextVar[SignalTransport | None] = ContextVar("signal_transport", default=None)
 
 
+def _backend_transport() -> SignalTransport:
+    """A transport for the active SQL backend (``AAICLICK_SQL_URL``).
+
+    The Postgres module imports asyncpg at top level, which only the
+    ``distributed`` extra installs, so it is loaded here rather than at
+    package import: a local-mode install never touches it.
+    """
+    if is_postgres():
+        from .postgres import PostgresTransport  # Optional dep: asyncpg is absent in local-mode installs.
+
+        return PostgresTransport()
+    return LocalTransport()
+
+
 def get_transport() -> SignalTransport:
-    """The transport in effect: a :func:`signal_transport` override, else the
-    one for the active SQL backend (``AAICLICK_SQL_URL``)."""
+    """The transport in effect: the one scoped by :func:`signal_transport`,
+    else a fresh one for the active backend.
+
+    The commit hooks need no instance state, so an unscoped caller gets a
+    throwaway. A process that runs ``feed`` scopes its instance so
+    everything inside sees that instance's ``state``.
+    """
     return _transport_var.get() or _backend_transport()
 
 
 @contextmanager
 def signal_transport(transport: SignalTransport) -> Iterator[None]:
-    """Scope a transport to the calling context (tests inject a recording one)."""
     token = _transport_var.set(transport)
     try:
         yield

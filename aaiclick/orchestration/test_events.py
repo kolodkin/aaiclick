@@ -197,11 +197,11 @@ class RecordingTransport:
 
 
 def test_signal_transport_override_swaps_and_restores():
-    default = get_transport()
+    default = type(get_transport())
     fake = RecordingTransport()
     with signal_transport(fake):
         assert get_transport() is fake
-    assert get_transport() is default
+    assert isinstance(get_transport(), default)
 
 
 async def test_hooks_call_transport_on_either_side_of_commit(orch_ctx):
@@ -232,7 +232,7 @@ async def live_bus() -> AsyncIterator[EventBus]:
     bus = EventBus()
     stop = asyncio.Event()
     transport = get_transport()
-    with event_bus(bus):
+    with event_bus(bus), signal_transport(transport):
         feed = asyncio.create_task(transport.feed(bus, stop=stop))
         await _wait_listening(transport)
         yield bus
