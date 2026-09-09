@@ -171,6 +171,19 @@ def validate_select_safety(sql: str, *, scan: str | None = None) -> ToolError | 
     return None
 
 
+def _explain_statement(sql: str) -> str:
+    """Statement whose rows are ``sql``'s AST dump.
+
+    Wrapped in a ``SELECT`` on purpose. Drivers append their read format to
+    every query (clickhouse-connect sends ``\\n FORMAT Native``), and on a bare
+    ``EXPLAIN AST`` that clause binds to the explained query instead of the
+    EXPLAIN — ClickHouse then answers in its default format while the driver
+    decodes Native, and the format name shows up in the AST as an identifier.
+    The wrapper keeps any appended clause outside the EXPLAIN.
+    """
+    return f"SELECT * FROM (EXPLAIN AST {sql})"
+
+
 def _table_expressions(ast_lines: Iterable[str]) -> list[str]:
     """Return the first child of every ``TableExpression`` node in an ``EXPLAIN AST`` dump.
 
@@ -210,7 +223,7 @@ async def validate_scope(sql: str, scope_tables: set[str]) -> ToolError | None:
     """
     ch_client = get_ch_client()
     try:
-        result = await ch_client.query(f"EXPLAIN AST {sql}")
+        result = await ch_client.query(_explain_statement(sql))
     except Exception as exc:
         logger.debug("EXPLAIN AST failed for agent SQL", exc_info=True)
         return ToolError("invalid_argument", f"Could not parse SQL: {exc}")
