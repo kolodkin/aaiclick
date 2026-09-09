@@ -51,16 +51,32 @@ rules) land in QueryView with its e2e coverage before aaiclick picks them up.
 Objects are shown under a scope. Scope keys are strings so they fit in the
 prompt, the URL, saved queries, and CLI flags.
 
-| Scope        | Tables listed                                        | Query allowlist                          |
-|--------------|------------------------------------------------------|------------------------------------------|
-| `persistent` | tenant's `p_*` rows in `table_registry`              | the persistent tables                    |
-| `job:<id>`   | `table_registry` rows with that `job_id`             | that job's tables plus the persistent ones |
+| Scope             | Tables listed                                   | Query allowlist                            |
+|-------------------|-------------------------------------------------|--------------------------------------------|
+| `persistent`      | tenant's `p_*` rows in `table_registry`         | the persistent tables                      |
+| `job:<id\|name>`  | `table_registry` rows with the resolved `job_id` | that job's tables plus the persistent ones |
 
 `ScopeRef` (`aaiclick/viewer/view_models.py`) parses and formats the key:
-`kind: Literal["persistent", "job"]`, `job_id: int | None`. Temp tables and
-the oplog internal tables never appear. Display names come from
-`name_from_table` in `aaiclick/data/scope.py`; row counts, sizes, and creation
-times from `_fetch_table_metadata` in `aaiclick/internal_api/objects.py`.
+`kind: Literal["persistent", "job"]`, `job: RefId | None`. A job scope resolves
+through `resolve_job` like `get_job` does: an id names one run, a name the
+latest run with that name. Saved queries and dashboards store the key as
+given, so `job:nightly_etl` follows each new run while `job:123` stays
+pinned; responses carry the resolved id for display (`nightly_etl #123`).
+Temp tables and the oplog internal tables never appear. Display names come
+from `name_from_table` in `aaiclick/data/scope.py`; row counts, sizes, and
+creation times from `_fetch_table_metadata` in
+`aaiclick/internal_api/objects.py`.
+
+## Identity and tenancy
+
+Every surface identifies an object as `(scope, name)`; the tenant is never a
+parameter. REST resolves it from `X-Tenant-Id` through `require_tenant`,
+which pins `active_tenant`; MCP and CLI act on the default tenant; inside
+`internal_api` everything reads `get_active_tenant_id()`. The API maps the
+pair to a table with `make_scoped_table_name`, so a persistent `orders` is
+`p_orders` for the default tenant and `p_7_orders` otherwise, and a job
+object is `j_<job_id>_<name>` with the job checked against the active
+tenant. Callers never pass or see a tenant id.
 
 SQL in the query mode uses real table names; the browse query is generated
 (`SELECT * FROM j_42_result`). Rewriting bare object names is in `future.md`.
@@ -69,9 +85,10 @@ SQL in the query mode uses real table names; the browse query is generated
 
 ## Prerequisites
 
-- `ObjectFilter` gains `job_id: int | None`; `objects_api.list_objects`
-  accepts `scope="job"` with a `job_id` and returns that job's registry rows
-  (tenant checked through the job). Today it rejects every scope but global.
+- `ObjectFilter` gains `job: RefId | None`; `objects_api.list_objects`
+  accepts `scope="job"` with a job id or name and returns that job's registry
+  rows (tenant checked through the job). Today it rejects every scope but
+  global.
 - `ChClient` gains `query_text(sql, fmt, settings) -> str` returning
   ClickHouse's own output for a named format, implemented by both the chdb and
   clickhouse-connect clients. Results use `JSONCompact` with
