@@ -20,7 +20,6 @@ from .events import (
     statement_touches_watched,
     unregister_session_hooks,
 )
-from .events import postgres as postgres_transport
 from .events.local import LocalTransport
 from .execution.claiming import cancel_job, update_task_status
 from .execution.execution_worker import _set_pending_cleanup, register_execution_worker
@@ -169,35 +168,9 @@ async def test_unregistered_hooks_publish_nothing(orch_ctx, live_bus):
     assert signals == []
 
 
-def test_get_transport_matches_backend():
-    expected = postgres_transport.PostgresTransport if is_postgres() else LocalTransport
-    assert isinstance(get_transport(), expected)
-
-
-@pytest.mark.skipif(not is_postgres(), reason="needs a LISTEN connection to sever")
-async def test_postgres_feed_resyncs_after_reconnect(orch_ctx, monkeypatch):
-    """Notifications sent while the LISTEN connection is down are lost, so a
-    reconnect must publish one signal for open streams to catch up on."""
-    monkeypatch.setattr(postgres_transport, "PING_INTERVAL", 0.1)
-    monkeypatch.setattr(postgres_transport, "RECONNECT_MIN", 0.1)
-    transport = postgres_transport.PostgresTransport()
-    bus = EventBus()
-    stop = asyncio.Event()
-    feed = asyncio.create_task(transport.feed(bus, stop=stop))
-    await _wait_listening(transport)
-    async with recording(bus) as signals:
-        async with get_sql_session() as session:
-            await session.execute(
-                text(
-                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                    "WHERE datname = current_database() AND pid <> pg_backend_pid()"
-                )
-            )
-        await _wait_listening(transport)
-        await asyncio.sleep(SETTLE)
-    stop.set()
-    await feed
-    assert len(signals) == 1
+@pytest.mark.skipif(is_postgres(), reason="Postgres selection is covered in test_events_postgres.py")
+def test_get_transport_is_local():
+    assert isinstance(get_transport(), LocalTransport)
 
 
 @pytest.fixture

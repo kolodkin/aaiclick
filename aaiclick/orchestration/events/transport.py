@@ -9,6 +9,7 @@ the commit so a subscriber that refetches immediately sees the row.
 from __future__ import annotations
 
 import asyncio
+from functools import cache
 from typing import Protocol
 
 from sqlalchemy.orm import Session
@@ -17,7 +18,6 @@ from aaiclick.backend import is_postgres
 
 from .bus import EventBus
 from .local import LocalTransport
-from .postgres import PostgresTransport
 from .state import TransportState
 
 
@@ -46,9 +46,21 @@ class SignalTransport(Protocol):
 
 
 _LOCAL = LocalTransport()
-_POSTGRES = PostgresTransport()
+
+
+@cache
+def _postgres() -> SignalTransport:
+    """One process-wide Postgres transport, built on first use.
+
+    The module imports asyncpg at top level, which only the ``distributed``
+    extra installs, so it is loaded here rather than at package import: a
+    local-mode install never touches it.
+    """
+    from .postgres import PostgresTransport  # Optional dep: asyncpg is absent in local-mode installs.
+
+    return PostgresTransport()
 
 
 def get_transport() -> SignalTransport:
     """The transport for the active SQL backend (``AAICLICK_SQL_URL``)."""
-    return _POSTGRES if is_postgres() else _LOCAL
+    return _postgres() if is_postgres() else _LOCAL

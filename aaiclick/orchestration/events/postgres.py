@@ -5,19 +5,23 @@ the signal only if the write commits and a client that refetches on it
 always sees the committed row. Postgres fans each ``NOTIFY`` out to every
 connection that has issued ``LISTEN``, so N API hosts hold N connections
 and no broker is needed.
+
+The sender side goes through the writer's SQLAlchemy session because it must
+share that transaction. The receiver side talks to asyncpg directly: a
+``LISTEN`` connection is a driver feature, and SQLAlchemy would only be
+unwrapped to reach it. This module is imported only when the backend is
+Postgres (see ``transport.get_transport``), so asyncpg is a hard import here.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
-from typing import Protocol, cast
 
+import asyncpg
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
-from sqlalchemy.pool import NullPool
 
 from ..env import get_db_url
 from .bus import EventBus
@@ -31,11 +35,9 @@ RECONNECT_MIN = 1.0
 RECONNECT_MAX = 30.0
 
 
-# The asyncpg surface used below, so the module needs no asyncpg import (the
-# ``distributed`` extra is optional; SQLAlchemy hands back the driver
-# connection untyped).
-class _Listenable(Protocol):
-    async def add_listener(self, channel: str, callback: Callable[[object, int, str, str], object]) -> None: ...
+def _dsn() -> str:
+    """``AAICLICK_SQL_URL`` without the SQLAlchemy driver suffix, for asyncpg."""
+    return make_url(get_db_url()).set(drivername="postgresql").render_as_string(hide_password=False)
 
 
 async def _wait_or_timeout(stop: asyncio.Event, timeout: float) -> bool:
@@ -65,35 +67,34 @@ class PostgresTransport:
     async def feed(self, bus: EventBus, *, stop: asyncio.Event) -> None:
         """Forward ``NOTIFY`` on :data:`EVENTS_CHANNEL` to ``bus`` until ``stop`` is set.
 
-        Supervisor: one :meth:`_listen` per connection lifetime, a backoff
-        wait between failures, and the engine disposed on the way out.
+        Supervisor: one :meth:`_listen` per connection lifetime and a backoff
+        wait between failures.
         """
-        engine = create_async_engine(get_db_url(), poolclass=NullPool)
         try:
             while not stop.is_set():
                 try:
-                    await self._listen(engine, bus, stop)
+                    await self._listen(bus, stop)
                 except Exception:
                     if await self._back_off(stop):
                         return
         finally:
             self._state = STATE_IDLE
-            await engine.dispose()
 
-    async def _listen(self, engine: AsyncEngine, bus: EventBus, stop: asyncio.Event) -> None:
+    async def _listen(self, bus: EventBus, stop: asyncio.Event) -> None:
         """Hold one ``LISTEN`` connection until ``stop``; raise on any failure.
 
-        Autocommit, because a ``LISTEN`` session must not sit inside a
-        long-open transaction. The asyncpg listener publishes on every
-        notification; the loop only keeps the link alive.
+        asyncpg connections are autocommit outside an explicit transaction,
+        which is what a long-lived ``LISTEN`` session needs. The listener
+        callback publishes on every notification; the loop only keeps the
+        link alive.
         """
-        async with engine.connect() as conn:
-            await conn.execution_options(isolation_level="AUTOCOMMIT")
-            raw = await conn.get_raw_connection()
-            driver = cast(_Listenable, raw.driver_connection)
-            await driver.add_listener(EVENTS_CHANNEL, lambda *_: bus.publish())
+        conn = await asyncpg.connect(_dsn())
+        try:
+            await conn.add_listener(EVENTS_CHANNEL, lambda *_: bus.publish())
             self._connected(bus)
             await self._keep_alive(conn, stop)
+        finally:
+            conn.terminate()
 
     def _connected(self, bus: EventBus) -> None:
         """Mark listening; after a gap, publish once so open streams resync,
@@ -103,11 +104,11 @@ class PostgresTransport:
         self._state = STATE_LISTENING
         self._backoff = RECONNECT_MIN
 
-    async def _keep_alive(self, conn: AsyncConnection, stop: asyncio.Event) -> None:
+    async def _keep_alive(self, conn: asyncpg.Connection, stop: asyncio.Event) -> None:
         """Ping every :data:`PING_INTERVAL` so a dead socket surfaces as an
         exception instead of a silent wait; return when ``stop`` is set."""
         while not await _wait_or_timeout(stop, PING_INTERVAL):
-            await conn.execute(text("SELECT 1"))
+            await conn.execute("SELECT 1")
 
     async def _back_off(self, stop: asyncio.Event) -> bool:
         """Wait out the current backoff, doubling it up to :data:`RECONNECT_MAX`.
