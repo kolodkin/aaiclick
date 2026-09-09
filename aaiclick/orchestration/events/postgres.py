@@ -15,7 +15,7 @@ from collections.abc import Callable
 from typing import Protocol, cast
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
@@ -50,6 +50,7 @@ async def _wait_or_timeout(stop: asyncio.Event, timeout: float) -> bool:
 class PostgresTransport:
     def __init__(self) -> None:
         self._state: TransportState = STATE_IDLE
+        self._backoff = RECONNECT_MIN
 
     @property
     def state(self) -> TransportState:
@@ -64,34 +65,55 @@ class PostgresTransport:
     async def feed(self, bus: EventBus, *, stop: asyncio.Event) -> None:
         """Forward ``NOTIFY`` on :data:`EVENTS_CHANNEL` to ``bus`` until ``stop`` is set.
 
-        Holds one dedicated autocommit connection (a ``LISTEN`` session must
-        not sit inside a long-open transaction) and pings it every
-        :data:`PING_INTERVAL` so a dead link is noticed. Reconnects with
-        capped backoff; notifications sent during the gap are lost, so each
-        reconnect publishes one signal for open streams to resync on.
+        Supervisor: one :meth:`_listen` per connection lifetime, a backoff
+        wait between failures, and the engine disposed on the way out.
         """
         engine = create_async_engine(get_db_url(), poolclass=NullPool)
-        backoff = RECONNECT_MIN
         try:
             while not stop.is_set():
                 try:
-                    async with engine.connect() as conn:
-                        await conn.execution_options(isolation_level="AUTOCOMMIT")
-                        raw = await conn.get_raw_connection()
-                        driver = cast(_Listenable, raw.driver_connection)
-                        await driver.add_listener(EVENTS_CHANNEL, lambda *_: bus.publish())
-                        if self._state == STATE_RECONNECTING:
-                            bus.publish()
-                        self._state = STATE_LISTENING
-                        backoff = RECONNECT_MIN
-                        while not await _wait_or_timeout(stop, PING_INTERVAL):
-                            await conn.execute(text("SELECT 1"))
+                    await self._listen(engine, bus, stop)
                 except Exception:
-                    self._state = STATE_RECONNECTING
-                    logger.warning("Postgres event listener lost; reconnecting in %.1fs", backoff, exc_info=True)
-                    if await _wait_or_timeout(stop, backoff):
+                    if await self._back_off(stop):
                         return
-                    backoff = min(backoff * 2, RECONNECT_MAX)
         finally:
             self._state = STATE_IDLE
             await engine.dispose()
+
+    async def _listen(self, engine: AsyncEngine, bus: EventBus, stop: asyncio.Event) -> None:
+        """Hold one ``LISTEN`` connection until ``stop``; raise on any failure.
+
+        Autocommit, because a ``LISTEN`` session must not sit inside a
+        long-open transaction. The asyncpg listener publishes on every
+        notification; the loop only keeps the link alive.
+        """
+        async with engine.connect() as conn:
+            await conn.execution_options(isolation_level="AUTOCOMMIT")
+            raw = await conn.get_raw_connection()
+            driver = cast(_Listenable, raw.driver_connection)
+            await driver.add_listener(EVENTS_CHANNEL, lambda *_: bus.publish())
+            self._connected(bus)
+            await self._keep_alive(conn, stop)
+
+    def _connected(self, bus: EventBus) -> None:
+        """Mark listening; after a gap, publish once so open streams resync,
+        since notifications sent while the link was down are lost."""
+        if self._state == STATE_RECONNECTING:
+            bus.publish()
+        self._state = STATE_LISTENING
+        self._backoff = RECONNECT_MIN
+
+    async def _keep_alive(self, conn: AsyncConnection, stop: asyncio.Event) -> None:
+        """Ping every :data:`PING_INTERVAL` so a dead socket surfaces as an
+        exception instead of a silent wait; return when ``stop`` is set."""
+        while not await _wait_or_timeout(stop, PING_INTERVAL):
+            await conn.execute(text("SELECT 1"))
+
+    async def _back_off(self, stop: asyncio.Event) -> bool:
+        """Wait out the current backoff, doubling it up to :data:`RECONNECT_MAX`.
+        True if ``stop`` was set during the wait."""
+        self._state = STATE_RECONNECTING
+        logger.warning("Postgres event listener lost; reconnecting in %.1fs", self._backoff, exc_info=True)
+        stopped = await _wait_or_timeout(stop, self._backoff)
+        self._backoff = min(self._backoff * 2, RECONNECT_MAX)
+        return stopped
