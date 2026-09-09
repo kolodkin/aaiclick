@@ -39,11 +39,14 @@ SQL in the query mode uses real table names; the browse query is generated
 - `ObjectFilter` gains `job_id: int | None`; `objects_api.list_objects`
   accepts `scope="job"` with a `job_id` and returns that job's registry rows
   (tenant checked through the job). Today it rejects every scope but global.
-- `ChClient` gains `query_text(sql, fmt) -> str` returning ClickHouse's own
-  `TabSeparatedWithNames` / `CSVWithNames` output, implemented by both the
-  chdb and clickhouse-connect clients. The kernel parses that text
-  (`parseTsv`, complex-cell literals) exactly as it does for QueryView, so no
-  value formatting is reimplemented in aaiclick.
+- `ChClient` gains `query_text(sql, fmt, settings) -> str` returning
+  ClickHouse's own output for a named format, implemented by both the chdb and
+  clickhouse-connect clients. Results use `JSONCompact` with
+  `output_format_json_quote_64bit_integers`, `_quote_decimals`,
+  `_quote_denormals`, and `_named_tuples_as_objects` on, the same settings
+  QueryView's ClickHouse driver sends, so the kernel renders `{meta, data}`
+  unchanged and aaiclick formats no values. CSV download uses
+  `CSVWithNames`.
 
 ## Internal API
 
@@ -52,8 +55,8 @@ SQL in the query mode uses real table names; the browse query is generated
 
 | Function                                     | Returns             | Notes                                                                 |
 |----------------------------------------------|---------------------|-----------------------------------------------------------------------|
-| `run_query(ViewerQueryRequest)`              | `ViewerQueryResult` | `validate_select_safety` + `validate_scope` (allowlist above), then a pagination wrapper: `SELECT * FROM (<sql>) [ORDER BY …] LIMIT n OFFSET m`, `n ≤ 1000`, `max_execution_time` 30 s |
-| `describe_query(ViewerDescribeRequest)`      | `TableSchema`       | same validation, then `DESCRIBE (<sql>)`                              |
+| `run_query(ViewerQueryRequest)`              | `ViewerQueryResult` | `validate_select_safety` + `validate_scope` (allowlist above), then a pagination wrapper: `SELECT * FROM (<sql>) [ORDER BY …] LIMIT n OFFSET m`, `n ≤ 1000`, `max_execution_time` 30 s; `fmt="json"` returns `meta` + `data`, `fmt="csv"` returns `text` |
+| `describe_query(ViewerDescribeRequest)`      | `TableSchema`       | same validation, then `DESCRIBE (<sql>)`; serves the Fields picker only, since `meta` already carries types for rendering |
 | `list_saved_queries(SavedQueryFilter)`       | `Page[SavedQuery]`  | filter by `scope` and `table`; a saved query with `scope=None` matches every scope |
 | `save_query(SavedQueryIn)`                   | `SavedQuery`        | upsert on `(tenant, name)`; validates `cell_view` YAML shape and `order_by` / `fields` |
 | `delete_saved_query(name)`                   | `Deleted`           |                                                                       |
@@ -64,8 +67,9 @@ SQL in the query mode uses real table names; the browse query is generated
 
 Request and response models live in `aaiclick/viewer/view_models.py`.
 `ViewerQueryRequest`: `scope`, `sql`, `limit`, `offset`, `order_by:
-list[OrderBy]`, `fmt: Literal["tsv", "csv"]`. `ViewerQueryResult`: `text`,
-`truncated`. `OrderBy` is a `NamedTuple(name, dir)`.
+list[OrderBy]`, `fmt: Literal["json", "csv"]`. `ViewerQueryResult`: `meta:
+list[ColumnSchema]` and `data: list[list[Any]]` for JSON, `text` for CSV.
+`OrderBy` is a `NamedTuple(name, dir)`.
 
 Code-declared queries need no separate mechanism: job code calls
 `viewer_api.save_query` through the same `internal_api`, so a registered job
