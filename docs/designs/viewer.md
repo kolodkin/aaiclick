@@ -116,9 +116,11 @@ no `DESCRIBE` step. Free-form SQL across several objects is in `future.md`.
   accepts `scope="job"` with a job id or name and returns that job's registry
   rows (tenant checked through the job). Today it rejects every scope but
   global.
-- `View` exposes its SELECT text (`View.select_sql`), which today is built
-  only inside `data()` / `result()`, so the viewer can run a view through
-  `query_text` in ClickHouse's own output format.
+- `Object.select_sql()` returns the SELECT an object reads itself with,
+  composed from the existing `_select_head` hook plus the view clauses, so
+  `View` and `LazyOperator` inherit it and `data()` / `result()` build on it.
+  The viewer runs that text through `query_text` in ClickHouse's own output
+  format.
 - `ChClient` gains `query_text(sql, fmt, settings) -> str` returning
   ClickHouse's own output for a named format, implemented by both the chdb and
   clickhouse-connect clients. Results use `JSONCompact` with
@@ -238,7 +240,7 @@ process over clickhouse-connect; nothing in the viewer is per-process.
 
 # Rollout
 
-1. Backend: `ObjectFilter.job`, job-scope listing, `View.select_sql`,
+1. Backend: `ObjectFilter.job`, job-scope listing, `Object.select_sql`,
    `ChClient.query_text`, `viewer` models and migration,
    `internal_api/viewer.py`, REST, MCP, CLI.
 2. Frontend: kernel copy and alias, `@data`.
