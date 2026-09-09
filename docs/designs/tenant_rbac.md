@@ -78,11 +78,13 @@ inherits its `tenant_id`; a manual run stamps the caller's active tenant).
 
 ## Default tenant
 
-A default tenant (slug `aaiclick`, fixed id `1`) is seeded by the migration and by
-`aaiclick setup`. The migration backfills every existing `registered_jobs`
-/ `jobs` row into it, maps existing `admin` users to `superadmin=true`, and
-gives existing `viewer` users a `viewer` membership in it. Local mode runs
-entirely in this tenant.
+A default tenant (slug `aaiclick`, fixed id `DEFAULT_TENANT_ID` in
+`aaiclick/tenancy.py`) is seeded by the migration and by `aaiclick setup`.
+Local mode runs entirely in this tenant.
+
+The id is `1 << 62` (`4611686018427387904`): 19 digits like every snowflake
+tenant id, so global tables share one width (see "Name length budget"), yet
+unmintable — its snowflake timestamp field decodes to November 2004.
 
 # Access Tokens
 
@@ -210,19 +212,16 @@ alone.
 `name_from_table`; the active tenant is applied in
 `aaiclick/data/data_context/data_context.py` — see `_build_scoped_table`.
 
-- Default tenant keeps bare `p_<name>` — full backward compatibility.
-- Other tenants use `p_<tenant_id>_<name>`.
+Every global object is `p_<tenant_id>_<name>` — one form, no default-tenant
+exception, so `name_from_table` strips the prefix unambiguously.
 
 Job-scoped (`j_*`) and temp (`t_*`) tables are unchanged — they are reachable
 only through their tenant-scoped job, and the tenant prefix never stacks onto
 them.
 
-The prefix parses unambiguously because `_validate_persistent_name`
-(`aaiclick/data/data_context/data_context.py`) rejects a leading digit, so no
-default-tenant object can produce a `p_<digits>_` prefix. A test pins that
-coupling (`aaiclick/data/test_scope.py` — see
-`test_leading_underscore_name_does_not_look_tenant_prefixed`), so relaxing the
-name regex cannot silently introduce a collision.
+Opaque `p_<snowflake>` names, with the human name only in `table_registry`,
+were rejected: unreadable in `system.tables`, and a different shape from
+`j_<job_id>_<name>`.
 
 !!! important "Design decision: the prefix, not the registry, prevents cross-tenant writes"
     Persistent creates use `CREATE TABLE IF NOT EXISTS` (see `create_object`)
@@ -232,9 +231,8 @@ name regex cannot silently introduce a collision.
     the first tenant's table while the registry kept attributing it to the
     original owner. Tenant-unique names remove the case, which is why the
     physical namespace stays tenant-prefixed even with registry ownership in
-    place — any future change that drops the prefix (see `docs/designs/future.md`,
-    "Opaque Object Table Names") must re-establish per-tenant uniqueness by
-    other means first.
+    place — any future change that drops the prefix must re-establish
+    per-tenant uniqueness by other means first.
 
 ## Ownership — `table_registry.tenant_id`
 
@@ -280,9 +278,9 @@ through `_run_data_api` (`aaiclick/__main__.py`), which delegates to
 
 ClickHouse caps table names near `213 - len(database)` characters (measured
 against chdb: 242 in `default`, 205 in a database named `aaiclick`), regardless
-of the data directory path. A snowflake renders as 19 digits, so
-`p_<tenant_id>_` costs 22 characters — the same as the `j_<job_id>_` and
-`t_<name>_<snowid>` prefixes already in use — leaving 183+ for the name.
+of the data directory path. Every tenant id renders as 19 digits, so
+`p_<tenant_id>_`, `j_<job_id>_`, and `t_<name>_<snowid>` all cost 22
+characters — leaving 183+ for the name, so the 128-character cap below fits.
 
 `_validate_persistent_name` (`aaiclick/data/data_context/data_context.py` —
 see `MAX_PERSISTENT_NAME_LEN`) caps names at 128 characters, so an over-long
@@ -316,13 +314,11 @@ SQLite, no infrastructure); router tests assert HTTP plumbing only.
 `39cd0baa9f90` (tenant rbac).
 
 One Alembic revision (via the `generate-migration` skill): create
-`tenants` / `tenant_memberships`, seed the default tenant, add
-`tenant_id` to `registered_jobs` / `jobs` backfilled to the default tenant,
-and convert `users.role` → `users.superadmin` (admin → `true`; viewer →
-`false` + default-tenant `viewer` membership). Local/dev (`aaiclick setup`)
-builds tables from `SQLModel.metadata` and seeds the default tenant in
-code, so the revision is only required for Postgres-backed deployments.
+`tenants` / `tenant_memberships`, seed the default tenant, add `tenant_id`
+to `registered_jobs` / `jobs`, and replace `users.role` with
+`users.superadmin`. Local/dev (`aaiclick setup`) builds tables from
+`SQLModel.metadata` and seeds the default tenant in code, so the revision is
+only required for Postgres-backed deployments.
 
-Phase 2's revision `1da307dfbd95` adds `table_registry.tenant_id` with
-`server_default='1'`, so rows for tables that predate the column backfill to
-the default tenant — matching the bare `p_<name>` prefix they already carry.
+Phase 2's revision `1da307dfbd95` adds `table_registry.tenant_id`; revision
+`d6723953a1bb` sets every `tenant_id` `server_default` to `1 << 62`.

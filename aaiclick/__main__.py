@@ -27,6 +27,8 @@ Usage:
     python -m aaiclick data get <name>          # Show persistent object details
     python -m aaiclick data delete <name>       # Delete persistent object
     python -m aaiclick data purge --after ISO   # Delete persistent objects by time
+    python -m aaiclick explain <table>          # AI: explain how a table was produced (needs aaiclick[ai])
+    python -m aaiclick debug <table> "<question>"  # AI: debug a result with live-query tools (needs aaiclick[ai])
     python -m aaiclick docker init              # Scaffold a starter Dockerfile
     python -m aaiclick compose init             # Scaffold a docker-runner compose stack
     python -m aaiclick k8s init                 # Scaffold a helm chart
@@ -43,6 +45,7 @@ from datetime import datetime
 from typing import Any, cast, get_args
 
 from aaiclick import cli_renderers, cli_wait, internal_api
+from aaiclick.ai.importing import import_ai_module
 from aaiclick.auth import store as auth_store
 from aaiclick.auth.models import ROLE_VIEWER, ROLES
 from aaiclick.auth.view_models import CreateTenantRequest, CreateUserRequest, UserListFilter
@@ -383,6 +386,34 @@ async def _run_data_purge(args: argparse.Namespace) -> None:
     )
     result = await _run_data_api(internal_api.purge_objects(request))
     _render(args, result, cli_renderers.render_objects_purged)
+
+
+def _load_lineage_ai():
+    """Import ``internal_api.lineage_ai`` on demand, exiting 1 without the ``ai`` extra.
+
+    The module pulls in litellm, so it is loaded per command rather than at
+    the top of this file — the rest of the CLI must keep working without the
+    optional dependency.
+    """
+    try:
+        return import_ai_module("aaiclick.internal_api.lineage_ai")
+    except ImportError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
+
+
+async def _run_explain(args: argparse.Namespace) -> None:
+    lineage_ai = _load_lineage_ai()
+    answer = await _run_data_api(lineage_ai.explain_lineage(args.table, question=args.question))
+    _render(args, answer, cli_renderers.render_lineage_answer)
+
+
+async def _run_debug(args: argparse.Namespace) -> None:
+    lineage_ai = _load_lineage_ai()
+    answer = await _run_data_api(
+        lineage_ai.debug_result(args.table, question=args.question, max_iterations=args.max_iterations)
+    )
+    _render(args, answer, cli_renderers.render_lineage_answer)
 
 
 async def _run_execution_worker_list(args: argparse.Namespace) -> None:
@@ -1073,6 +1104,35 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_json_flag(data_purge_parser)
 
+    # explain <table> [question]
+    explain_parser = subparsers.add_parser(
+        "explain",
+        help="AI: explain how a table was produced from its lineage (requires aaiclick[ai])",
+    )
+    explain_parser.add_argument("table", type=str, help="Target ClickHouse table name")
+    explain_parser.add_argument(
+        "question",
+        nargs="?",
+        default=None,
+        help="Question to answer instead of the default 'how was this produced?'",
+    )
+    _add_json_flag(explain_parser)
+
+    # debug <table> <question>
+    debug_parser = subparsers.add_parser(
+        "debug",
+        help="AI: answer a 'why' question about a table using live-query tools (requires aaiclick[ai])",
+    )
+    debug_parser.add_argument("table", type=str, help="Target ClickHouse table name")
+    debug_parser.add_argument("question", type=str, help='Question, e.g. "Why is this value negative?"')
+    debug_parser.add_argument(
+        "--max-iterations",
+        type=int,
+        default=10,
+        help="Maximum tool-call rounds before the agent is asked for a final answer (default: 10)",
+    )
+    _add_json_flag(debug_parser)
+
     # Add background subcommand
     background_parser = subparsers.add_parser(
         "background",
@@ -1356,6 +1416,12 @@ def main():
 
         else:
             subcommands["data"].print_help()
+
+    elif args.command == "explain":
+        asyncio.run(_run_explain(args))
+
+    elif args.command == "debug":
+        asyncio.run(_run_debug(args))
 
     elif args.command == "background":
         from aaiclick.orchestration.cli import start_background

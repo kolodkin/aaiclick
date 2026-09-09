@@ -210,6 +210,18 @@ class ObjectDeleted(BaseModel):
     name: str
 
 
+class LineageAnswer(BaseModel):
+    """Response from ``internal_api.lineage_ai`` — the agent's free-text answer.
+
+    ``question`` is ``None`` when ``explain_lineage`` ran with its default
+    prompt.
+    """
+
+    target_table: str
+    question: str | None = None
+    answer: str
+
+
 SetupStepStatus = Literal["ok", "skipped", "failed"]
 
 

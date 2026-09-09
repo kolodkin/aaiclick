@@ -34,6 +34,9 @@ For AI features (lineage tracing, debug agents):
 pip install "aaiclick[ai]"
 # or all extras:
 pip install "aaiclick[all]"
+
+python -m aaiclick explain p_revenue                         # how was this table produced?
+python -m aaiclick debug p_revenue "Why is total negative?"  # answer a "why" question with live queries
 ```
 
 ## Orchestration

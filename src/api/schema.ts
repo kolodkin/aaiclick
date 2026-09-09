@@ -1405,7 +1405,7 @@ export interface components {
             /** Slug */
             slug: string;
             /** Tenant Id */
-            tenant_id: number;
+            tenant_id: string;
         };
         /** TenantView */
         TenantView: {
@@ -1415,7 +1415,7 @@ export interface components {
              */
             created_at: string;
             /** Id */
-            id: number;
+            id: string;
             /** Name */
             name: string;
             /** Slug */

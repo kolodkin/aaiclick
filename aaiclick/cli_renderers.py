@@ -27,6 +27,7 @@ from aaiclick.view_models import (
     OLLAMA_NOT_OLLAMA,
     OLLAMA_PULLED,
     OLLAMA_SERVER_UNREACHABLE,
+    LineageAnswer,
     MigrationResult,
     ObjectDeleted,
     OllamaBootstrapResult,
@@ -289,6 +290,11 @@ def render_object_detail(detail: ObjectDetail) -> None:
 def render_object_deleted(view: ObjectDeleted) -> None:
     """Single-line confirmation that ``internal_api.delete_object`` succeeded."""
     print(f"Deleted persistent object '{view.name}'")
+
+
+def render_lineage_answer(view: LineageAnswer) -> None:
+    """Print the agent's answer from ``internal_api.lineage_ai`` as-is."""
+    print(view.answer)
 
 
 def render_objects_purged(result: PurgeObjectsResult) -> None:

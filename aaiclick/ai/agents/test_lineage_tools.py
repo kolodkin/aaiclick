@@ -99,7 +99,7 @@ OUT_OF_SCOPE_TABLES: dict[str, str] = {
     "temp-named": make_scoped_table_name(SCOPE_TEMP_NAMED, "orders", snowid=OUT_OF_SCOPE_ID),
     "job": make_scoped_table_name(SCOPE_JOB, "payroll", job_id=OUT_OF_SCOPE_ID),
     "global": make_scoped_table_name(SCOPE_GLOBAL, "sales"),
-    "global-tenant-scoped": make_scoped_table_name(SCOPE_GLOBAL, "sales", tenant_id=OUT_OF_SCOPE_ID),
+    "global-other-tenant": make_scoped_table_name(SCOPE_GLOBAL, "sales", tenant_id=OUT_OF_SCOPE_ID),
 }
 
 
