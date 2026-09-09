@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from aaiclick.backend import is_postgres
 
@@ -17,10 +18,12 @@ from .events import (
     get_event_bus,
     get_transport,
     register_session_hooks,
+    signal_transport,
     statement_touches_watched,
     unregister_session_hooks,
 )
 from .events.local import LocalTransport
+from .events.state import TransportState
 from .execution.claiming import cancel_job, update_task_status
 from .execution.execution_worker import _set_pending_cleanup, register_execution_worker
 from .factories import create_job
@@ -171,6 +174,56 @@ async def test_unregistered_hooks_publish_nothing(orch_ctx, live_bus):
 @pytest.mark.skipif(is_postgres(), reason="Postgres selection is covered in test_events_postgres.py")
 def test_get_transport_is_local():
     assert isinstance(get_transport(), LocalTransport)
+
+
+class RecordingTransport:
+    """Stand-in that records which commit hooks fired, in order."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    @property
+    def state(self) -> TransportState:
+        return STATE_LISTENING
+
+    def before_commit(self, session: Session) -> None:
+        self.calls.append("before")
+
+    def after_commit(self, session: Session) -> None:
+        self.calls.append("after")
+
+    async def feed(self, bus: EventBus, *, stop: asyncio.Event) -> None:
+        await stop.wait()
+
+
+def test_signal_transport_override_swaps_and_restores():
+    default = get_transport()
+    fake = RecordingTransport()
+    with signal_transport(fake):
+        assert get_transport() is fake
+    assert get_transport() is default
+
+
+async def test_hooks_call_transport_on_either_side_of_commit(orch_ctx):
+    """One flagged commit reaches the transport exactly once before and once after."""
+    job = await create_job("events_fake_transport", SAMPLE_TASK)
+    fake = RecordingTransport()
+    with signal_transport(fake):
+        await cancel_job(job.id)
+    assert fake.calls == ["before", "after"]
+
+
+async def test_hooks_skip_transport_on_rollback(orch_ctx):
+    job = await create_job("events_fake_rollback", SAMPLE_TASK)
+    fake = RecordingTransport()
+    with signal_transport(fake):
+        async with get_sql_session() as session:
+            await session.execute(
+                text("UPDATE tasks SET status = :status WHERE job_id = :job_id"),
+                {"status": TASK_RUNNING, "job_id": job.id},
+            )
+            await session.rollback()
+    assert fake.calls == []
 
 
 @pytest.fixture

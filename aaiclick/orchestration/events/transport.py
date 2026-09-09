@@ -9,6 +9,9 @@ the commit so a subscriber that refetches immediately sees the row.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import cache
 from typing import Protocol
 
@@ -61,6 +64,24 @@ def _postgres() -> SignalTransport:
     return PostgresTransport()
 
 
-def get_transport() -> SignalTransport:
-    """The transport for the active SQL backend (``AAICLICK_SQL_URL``)."""
+def _backend_transport() -> SignalTransport:
     return _postgres() if is_postgres() else _LOCAL
+
+
+_transport_var: ContextVar[SignalTransport | None] = ContextVar("signal_transport", default=None)
+
+
+def get_transport() -> SignalTransport:
+    """The transport in effect: a :func:`signal_transport` override, else the
+    one for the active SQL backend (``AAICLICK_SQL_URL``)."""
+    return _transport_var.get() or _backend_transport()
+
+
+@contextmanager
+def signal_transport(transport: SignalTransport) -> Iterator[None]:
+    """Scope a transport to the calling context (tests inject a recording one)."""
+    token = _transport_var.set(transport)
+    try:
+        yield
+    finally:
+        _transport_var.reset(token)

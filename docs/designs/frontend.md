@@ -175,7 +175,9 @@ path carries job or tenant data; only the final REST refetch does.
 Layer 2 is the only backend-specific layer. It sits behind the
 `SignalTransport` protocol (`aaiclick/orchestration/events/transport.py`):
 `before_commit` / `after_commit` on the writer side, `feed` on the server
-side, and a `state` property (`idle` / `listening` / `reconnecting`). `get_transport()` picks the implementation from `AAICLICK_SQL_URL`, so
+side, and a `state` property (`idle` / `listening` / `reconnecting`).
+`signal_transport()` scopes an override to the calling context, the same
+way `event_bus()` does for the bus, so tests inject a recording transport. `get_transport()` picks the implementation from `AAICLICK_SQL_URL`, so
 neither the session hooks nor `live_events` branch on the backend. Layers
 3 → 7 are identical in both modes.
 
