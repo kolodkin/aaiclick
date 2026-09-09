@@ -4,14 +4,47 @@ Viewer: Objects, Query, and Dashboard Modes
 aaiclick has no UI for the rows of an Object. This design adds three
 prompt-driven modes to the existing SPA (`@data`, `@query`, `@dashboard`) and
 the `internal_api` verbs behind them, exposed through REST, MCP, and CLI like
-every other command. The rendering kernel is copied from QueryView's
-`frontend/src/core` (React 19, Tailwind 4, no backend coupling), so cell
-views, complex-type cells, query params, field pickers, and the dashboard
-sandbox arrive tested rather than rewritten.
+every other command. The rendering kernel comes from QueryView; everything
+else is aaiclick's own.
 
-Earlier iterations explored embedding QueryView as a Python plugin; that was
-dropped because once aaiclick owns catalog, storage, auth, and MCP, the only
-reusable part is the frontend kernel.
+# QueryView Coupling
+
+The only shared code is QueryView's frontend kernel, `frontend/src/core`
+(React 19, Tailwind 4, `js-yaml`): result rows, cell views, complex-type
+cells, query params, field pickers, and the dashboard sandbox. There is no
+Python dependency and no runtime coupling. Earlier iterations explored
+embedding QueryView as a Python plugin; once aaiclick owns catalog, storage,
+auth, and MCP, the kernel is all that is left to reuse.
+
+## What is copied
+
+`src/queryview-core/` is a verbatim copy of `frontend/src/core` at the
+QueryView commit recorded in its `README.md`, imported through the alias
+`@qv/core` (tsconfig `paths` + Vite `resolve.alias`). The folder is never
+edited in aaiclick: a needed change goes to QueryView first (its lint rules
+keep the kernel free of routing, fetching, and app state), then the copy is
+refreshed. Its own vitest tests run with the rest of the SPA.
+
+## The contract the kernel expects
+
+| Input                 | Shape                                                     | aaiclick source                                   |
+|-----------------------|-----------------------------------------------------------|---------------------------------------------------|
+| result rows           | `{meta: [{name, type}], data: [[…]]}` — ClickHouse `JSONCompact` with 64-bit integers, decimals, and denormals quoted and named tuples as objects | `viewer.run_query` passes ClickHouse's output through |
+| column types          | `meta[].type`, ClickHouse type strings                    | same response                                     |
+| cell views            | raw YAML (`link` / `custom`, `params:` block)             | `viewer_queries.cell_view`, validated server-side |
+| presentation          | `order_by: [{name, dir}]`, `fields: [col]`                | `viewer_queries.order_by` / `fields`              |
+| dashboard results     | `{query: {column: values}}` for `window.queries`          | `viewer.run_dashboard`                            |
+| CSV download          | text from a separate request                              | `viewer.run_query(fmt="csv")`                     |
+
+These are QueryView's `/api/db/query`, predefined-query, and `/api/runqueries`
+shapes; keeping them identical is what lets the copy stay verbatim.
+
+## Keeping in sync
+
+Bump the copy when QueryView's `core/index.ts` surface changes: copy the
+folder, update the commit in `README.md`, run `npm run check` and vitest.
+Behavioural changes to the kernel (new cell-view types, new complex-type
+rules) land in QueryView with its e2e coverage before aaiclick picks them up.
 
 # Scope Model
 
@@ -106,15 +139,6 @@ kernel in the browser; the server validates shape only.
   list|get|save|delete|run`, rendered from the same view models.
 
 # Frontend
-
-## Kernel copy
-
-`src/queryview-core/` is a verbatim copy of QueryView's `frontend/src/core`
-at the commit recorded in its `README.md`, imported through the alias
-`@qv/core` (tsconfig `paths` + Vite `resolve.alias`). `js-yaml` joins the
-dependencies. The folder is not edited in aaiclick; a needed change goes to
-QueryView first and the copy is refreshed. Its tests run under vitest with
-the rest of the SPA.
 
 ## Modes
 
