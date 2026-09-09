@@ -78,8 +78,28 @@ pair to a table with `make_scoped_table_name`, so a persistent `orders` is
 object is `j_<job_id>_<name>` with the job checked against the active
 tenant. Callers never pass or see a tenant id.
 
-SQL in the query mode uses real table names; the browse query is generated
-(`SELECT * FROM j_42_result`). Rewriting bare object names is in `future.md`.
+## Object names in SQL
+
+SQL is written in aaiclick terms: `SELECT * FROM orders` names the object
+`orders` in the current scope, never a ClickHouse table. `run_query` and
+`describe_query` bind the names before execution by prepending a CTE per
+object the query mentions:
+
+```sql
+WITH orders AS (SELECT * FROM p_7_orders), result AS (SELECT * FROM j_123_result)
+SELECT * FROM (<user sql>) LIMIT 100 OFFSET 0
+```
+
+This needs no SQL rewriting. ClickHouse resolves a CTE name only in table
+positions, so a column that shares an object's name stays a column; a CTE is
+visible inside the pagination wrapper and inside the user's own `WITH`; unused
+CTEs are ignored; `DESCRIBE` works over the same text. Which CTEs to prepend
+comes from the identifier scan `normalize_sql_for_scan` already provides,
+intersected with the scope's object names. Any raw `p_`, `j_`, or `t_`
+identifier is rejected with "use object names", and ClickHouse's
+`UNKNOWN_TABLE` for an unbound name is reported as "no object named X in
+scope". The allowlist is therefore the scope itself: a job scope binds that
+job's objects plus the persistent ones, never another job's.
 
 # Backend
 
@@ -105,9 +125,9 @@ SQL in the query mode uses real table names; the browse query is generated
 
 | Function                                     | Returns             | Notes                                                                 |
 |----------------------------------------------|---------------------|-----------------------------------------------------------------------|
-| `run_query(ViewerQueryRequest)`              | `ViewerQueryResult` | `validate_select_safety` + `validate_scope` (allowlist above), then a pagination wrapper: `SELECT * FROM (<sql>) [ORDER BY …] LIMIT n OFFSET m`, `n ≤ 1000`, `max_execution_time` 30 s; `fmt="json"` returns `meta` + `data`, `fmt="csv"` returns `text` |
-| `describe_query(ViewerDescribeRequest)`      | `TableSchema`       | same validation, then `DESCRIBE (<sql>)`; serves the Fields picker only, since `meta` already carries types for rendering |
-| `list_saved_queries(SavedQueryFilter)`       | `Page[SavedQuery]`  | filter by `scope` and `table`; a saved query with `scope=None` matches every scope |
+| `run_query(ViewerQueryRequest)`              | `ViewerQueryResult` | `validate_select_safety`, reject raw table prefixes, bind object names as CTEs (above), then a pagination wrapper: `SELECT * FROM (<sql>) [ORDER BY …] LIMIT n OFFSET m`, `n ≤ 1000`, `max_execution_time` 30 s; `fmt="json"` returns `meta` + `data`, `fmt="csv"` returns `text` |
+| `describe_query(ViewerDescribeRequest)`      | `TableSchema`       | same validation and binding, then `DESCRIBE (<sql>)`; serves the Fields picker only, since `meta` already carries types for rendering |
+| `list_saved_queries(SavedQueryFilter)`       | `Page[SavedQuery]`  | filter by `scope` and `object`; a saved query with `scope=None` matches every scope |
 | `save_query(SavedQueryIn)`                   | `SavedQuery`        | upsert on `(tenant, name)`; validates `cell_view` YAML shape and `order_by` / `fields` |
 | `delete_saved_query(name)`                   | `Deleted`           |                                                                       |
 | `list_dashboards()` / `get_dashboard(name)`  | `Page[DashboardSummary]` / `Dashboard` |                                                    |
@@ -132,7 +152,7 @@ existing Alembic chain (`generate-migration` skill).
 
 | Table               | Columns                                                                                                 | Unique              |
 |---------------------|---------------------------------------------------------------------------------------------------------|---------------------|
-| `viewer_queries`    | `id`, `tenant_id`, `name`, `scope`, `table_key`, `sql`, `cell_view`, `order_by`, `fields`, `updated_at` | `(tenant_id, name)` |
+| `viewer_queries`    | `id`, `tenant_id`, `name`, `scope`, `object`, `sql`, `cell_view`, `order_by`, `fields`, `updated_at` | `(tenant_id, name)` |
 | `viewer_dashboards` | `id`, `tenant_id`, `name`, `scope`, `html`, `queries`, `updated_at`                                     | `(tenant_id, name)` |
 
 `tenant_id` is a plain `BigInteger` without FK, per
@@ -170,7 +190,9 @@ Prompt forms follow `docs/designs/ui.md`; `src/prompt.ts` gains the routes.
 | `@dashboard [name]`                 | dashboard | dashboard picker, Save, sandboxed frame                                              |
 
 Clicking an object in `@data` sets the prompt to `@data … <object>`; its
-"Query" button sets `@query [job <ref>]` with the browse SQL prefilled.
+"Query" button sets `@query [job <ref>]` with `SELECT * FROM <object>`
+prefilled. Object rows in `@data` come from the same `run_query` with that
+SQL, so the objects view never handles table names either.
 
 New files: `src/views/Data.tsx`, `src/views/Query.tsx`,
 `src/views/Dashboard.tsx`; `src/components/ScopeTree.tsx`,
@@ -191,8 +213,10 @@ process over clickhouse-connect; nothing in the viewer is per-process.
 # Testing
 
 - `aaiclick/internal_api/test_viewer.py` (chdb): persistent and job objects
-  created through the Object API; `run_query` paginates and orders, rejects
-  DDL and a foreign table, allows a persistent join from a job scope;
+  created through the Object API; `run_query` binds object names, paginates
+  and orders, rejects DDL and raw table names, reports an unknown object by
+  name, allows a persistent join from a job scope and refuses another job's
+  object;
   `describe_query`; saved query and dashboard round-trips with tenant
   isolation; `run_dashboard` column orientation.
 - `aaiclick/server/test_viewer_api.py`: router with auth, 401 without a

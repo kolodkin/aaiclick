@@ -130,9 +130,6 @@ SDK closes that gap without a second worker implementation.
 
 See `viewer.md` for the shipped design.
 
-- **Object names in user SQL**: rewrite bare object names inside a scope to
-  their table names before validation, using the same tokenizer as
-  `validate_scope`. Deferred because a column and an object can share a name.
 - **Agent push to the browser**: QueryView's remote channel (an agent pushes a
   query or dashboard into a live tab) has no aaiclick equivalent yet; it
   needs the SSE endpoint planned above.
