@@ -35,7 +35,7 @@ async def test_oplog_subgraph_returns_graph_and_passes_kwargs():
     mock_subgraph.assert_awaited_once_with("result", direction="forward", max_depth=3)
 
 
-async def test_query_table_runs_validated_select():
+async def test_query_table_runs_validated_select(orch_ctx):
     qr = QueryResult(columns=["id"], rows=[[1], [2]], truncated=False)
     mock_run = AsyncMock(return_value=qr)
 
@@ -57,7 +57,7 @@ async def test_query_table_runs_validated_select():
         pytest.param("SELECT * FROM p_secret", id="out-of-scope"),
     ],
 )
-async def test_query_table_raises_invalid(sql):
+async def test_query_table_raises_invalid(orch_ctx, sql):
     with pytest.raises(Invalid):
         await lineage_api.query_table(sql, scope_tables=["p_revenue"])
 

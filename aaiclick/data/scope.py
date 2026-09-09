@@ -32,9 +32,6 @@ TEMP_PREFIX = "t_"
 JOB_PREFIX = "j_"
 JOB_SCOPED_RE = re.compile(rf"^{JOB_PREFIX}\d+_")
 TEMP_NAMED_RE = re.compile(rf"^{TEMP_PREFIX}[a-zA-Z_][a-zA-Z0-9_]*_\d+$")
-# Any table reference aaiclick can create, in any scope; the lineage scope
-# guard scans SQL with it.
-TABLE_REF_RE = re.compile(rf"\b(?:{TEMP_PREFIX}|{JOB_PREFIX}|{GLOBAL_PREFIX})[A-Za-z0-9_]+\b")
 
 
 def scope_of(table_name: str) -> ObjectScope:

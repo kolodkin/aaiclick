@@ -137,8 +137,12 @@ Tier 1 tools are implemented in `aaiclick/ai/agents/lineage_tools.py`
 implemented.
 
 All tools are scoped to the job being debugged. `query_table` cannot
-reach tables outside the lineage graph of the current job, preventing
-accidental cross-job queries.
+reach tables outside the lineage graph of the current job. ClickHouse
+parses the SQL (`EXPLAIN AST`) and the check reads table position off the
+parse tree, so it is positive: anything in table position that is not a
+table of the graph is rejected, table functions included.
+
+**Implementation**: aaiclick/ai/agents/lineage_tools.py (`validate_scope`)
 
 ```python
 async def query_table(
@@ -174,7 +178,12 @@ async def request_full_replay(reason: str) -> ReplayHandle:
 Safety rails on `query_table`:
 
 - Read-only — parser rejects anything that is not `SELECT`
-- Scoped — the FROM clause must reference a table known to the graph
+- Scoped — every table position must name a table known to the graph;
+  table functions (`merge`, `remote`, `url`, `file`, `cluster`) are
+  rejected because they name their targets in string literals. Write a
+  CTE as a subquery in `FROM` instead — a CTE name is not in the graph
+- Read-only in the engine — `readonly=2` / `allow_ddl=0` are set on the
+  query, so the keyword regex is a first line rather than the only one
 - Bounded — `row_limit` defaulted low, ceiling enforced by ClickHouse
   `max_result_rows`
 - Cheap — `max_execution_time` set to keep accidental table scans from
