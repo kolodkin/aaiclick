@@ -130,6 +130,13 @@ SDK closes that gap without a second worker implementation.
 
 See `viewer.md` for the shipped design.
 
+- **Free-form SQL across objects**: a `query_sql` verb taking `scope`,
+  `sql`, and an explicit `objects: {alias: name}` map. The server binds each
+  alias as a CTE (`WITH orders AS (SELECT * FROM p_7_orders) …`) before the
+  pagination wrapper; verified on chdb that a CTE resolves inside the
+  wrapper and a user's own `WITH`, that a column sharing the alias stays a
+  column, and that unused CTEs are ignored. Raw `p_`/`j_`/`t_` identifiers
+  are rejected. Deferred until single-object queries prove insufficient.
 - **Agent push to the browser**: QueryView's remote channel (an agent pushes a
   query or dashboard into a live tab) has no aaiclick equivalent yet; it
   needs the SSE endpoint planned above.

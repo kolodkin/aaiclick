@@ -29,12 +29,12 @@ refreshed. Its own vitest tests run with the rest of the SPA.
 
 | Input                 | Shape                                                     | aaiclick source                                   |
 |-----------------------|-----------------------------------------------------------|---------------------------------------------------|
-| result rows           | `{meta: [{name, type}], data: [[…]]}` — ClickHouse `JSONCompact` with 64-bit integers, decimals, and denormals quoted and named tuples as objects | `viewer.run_query` passes ClickHouse's output through |
+| result rows           | `{meta: [{name, type}], data: [[…]]}` — ClickHouse `JSONCompact` with 64-bit integers, decimals, and denormals quoted and named tuples as objects | `viewer.query_object` passes ClickHouse's output through |
 | column types          | `meta[].type`, ClickHouse type strings                    | same response                                     |
-| cell views            | raw YAML (`link` / `custom`, `params:` block)             | `viewer_queries.cell_view`, validated server-side |
+| cell views            | raw YAML (`link` / `custom`, `params:` block); `{name}` params substitute into the `where` expression | `viewer_queries.cell_view`, validated server-side |
 | presentation          | `order_by: [{name, dir}]`, `fields: [col]`                | `viewer_queries.order_by` / `fields`              |
 | dashboard results     | `{query: {column: values}}` for `window.queries`          | `viewer.run_dashboard`                            |
-| CSV download          | text from a separate request                              | `viewer.run_query(fmt="csv")`                     |
+| CSV download          | text from a separate request                              | `viewer.query_object(fmt="csv")`                  |
 
 These are QueryView's `/api/db/query`, predefined-query, and `/api/runqueries`
 shapes; keeping them identical is what lets the copy stay verbatim.
@@ -78,34 +78,35 @@ pair to a table with `make_scoped_table_name`, so a persistent `orders` is
 object is `j_<job_id>_<name>` with the job checked against the active
 tenant. Callers never pass or see a tenant id.
 
-## Object names in SQL
+## Queries name an object, not a table
 
-SQL is written in aaiclick terms: `SELECT * FROM orders` names the object
-`orders` in the current scope, never a ClickHouse table. The server does the
-translation, in one place: `bind_objects(scope, sql)` in
-`aaiclick/internal_api/viewer.py` asks `objects_api.list_objects` for the
-scope's objects, which reads `table_registry` for the active tenant and so
-already carries each object's table (`orders → p_7_orders`, `result →
-j_123_result`) exactly as `open_object` resolves it today. The frontend only
-sends `(scope, sql)`; ClickHouse only resolves the CTE names the server
-prepends. `run_query` and `describe_query` bind the names before execution by
-prepending a CTE per object the query mentions:
+The query API takes an object and constraints, never SQL with a `FROM`:
 
-```sql
-WITH orders AS (SELECT * FROM p_7_orders), result AS (SELECT * FROM j_123_result)
-SELECT * FROM (<user sql>) LIMIT 100 OFFSET 0
+```python
+class ObjectQueryRequest(BaseModel):
+    scope: str                       # "persistent" | "job:<id|name>"
+    object: str
+    fields: list[str] | None = None  # None = every column
+    where: str | None = None         # SQL boolean expression over the object's columns
+    order_by: list[OrderBy] = []
+    limit: int = 100                 # ≤ 1000
+    offset: int = 0
+    fmt: Literal["json", "csv"] = "json"
 ```
 
-This needs no SQL rewriting. ClickHouse resolves a CTE name only in table
-positions, so a column that shares an object's name stays a column; a CTE is
-visible inside the pagination wrapper and inside the user's own `WITH`; unused
-CTEs are ignored; `DESCRIBE` works over the same text. Which CTEs to prepend
-comes from the identifier scan `normalize_sql_for_scan` already provides,
-intersected with the scope's object names. Any raw `p_`, `j_`, or `t_`
-identifier is rejected with "use object names", and ClickHouse's
-`UNKNOWN_TABLE` for an unbound name is reported as "no object named X in
-scope". The allowlist is therefore the scope itself: a job scope binds that
-job's objects plus the persistent ones, never another job's.
+`query_object` resolves the object with `open_object(name, scope)` and builds
+the query with the Object API — `obj.view(where=…, order_by=…, limit=…,
+offset=…)` plus the field selection — so the SELECT and its table name are
+produced inside `aaiclick/data`, the same way every other consumer queries an
+Object. The viewer, the SPA, MCP, and the CLI never see a table name. The
+`where` expression is the one free-text input: it is checked with the
+`validate_select_safety` rules (single expression, no statement separators,
+no DDL/DML keywords) and rejected if it mentions a raw `p_`, `j_`, or `t_`
+identifier, so it cannot reach another object. An unknown object is
+`NotFound`, as in `get_object`.
+
+Columns come from the object's registered schema (`get_object`), so there is
+no `DESCRIBE` step. Free-form SQL across several objects is in `future.md`.
 
 # Backend
 
@@ -115,6 +116,9 @@ job's objects plus the persistent ones, never another job's.
   accepts `scope="job"` with a job id or name and returns that job's registry
   rows (tenant checked through the job). Today it rejects every scope but
   global.
+- `View` exposes its SELECT text (`View.select_sql`), which today is built
+  only inside `data()` / `result()`, so the viewer can run a view through
+  `query_text` in ClickHouse's own output format.
 - `ChClient` gains `query_text(sql, fmt, settings) -> str` returning
   ClickHouse's own output for a named format, implemented by both the chdb and
   clickhouse-connect clients. Results use `JSONCompact` with
@@ -131,21 +135,20 @@ job's objects plus the persistent ones, never another job's.
 
 | Function                                     | Returns             | Notes                                                                 |
 |----------------------------------------------|---------------------|-----------------------------------------------------------------------|
-| `run_query(ViewerQueryRequest)`              | `ViewerQueryResult` | `validate_select_safety`, reject raw table prefixes, bind object names as CTEs (above), then a pagination wrapper: `SELECT * FROM (<sql>) [ORDER BY …] LIMIT n OFFSET m`, `n ≤ 1000`, `max_execution_time` 30 s; `fmt="json"` returns `meta` + `data`, `fmt="csv"` returns `text` |
-| `describe_query(ViewerDescribeRequest)`      | `TableSchema`       | same validation and binding, then `DESCRIBE (<sql>)`; serves the Fields picker only, since `meta` already carries types for rendering |
+| `query_object(ObjectQueryRequest)`           | `ObjectQueryResult` | validate `where`, then `open_object(...).view(...)` with `fields`, `limit ≤ 1000`, `max_execution_time` 30 s; `fmt="json"` returns `meta` + `data`, `fmt="csv"` returns `text` |
 | `list_saved_queries(SavedQueryFilter)`       | `Page[SavedQuery]`  | filter by `scope` and `object`; a saved query with `scope=None` matches every scope |
-| `save_query(SavedQueryIn)`                   | `SavedQuery`        | upsert on `(tenant, name)`; validates `cell_view` YAML shape and `order_by` / `fields` |
+| `save_query(SavedQueryIn)`                   | `SavedQuery`        | upsert on `(tenant, name)`; validates `where`, `cell_view` YAML shape, and `order_by` / `fields` |
 | `delete_saved_query(name)`                   | `Deleted`           |                                                                       |
 | `list_dashboards()` / `get_dashboard(name)`  | `Page[DashboardSummary]` / `Dashboard` |                                                    |
-| `save_dashboard(DashboardIn)`                | `Dashboard`         | upsert on `(tenant, name)`; `queries` is `dict[name, sql]`            |
+| `save_dashboard(DashboardIn)`                | `Dashboard`         | upsert on `(tenant, name)`; `queries` is `dict[panel, ObjectQuery]`   |
 | `delete_dashboard(name)`                     | `Deleted`           |                                                                       |
-| `run_dashboard(name)`                        | `DashboardResults`  | runs each query under the dashboard's scope; column-oriented `{query: {column: values}}`, the `window.queries` contract of the kernel's `DashboardFrame` |
+| `run_dashboard(name)`                        | `DashboardResults`  | runs each panel's object query under the dashboard's scope; column-oriented `{query: {column: values}}`, the `window.queries` contract of the kernel's `DashboardFrame` |
 
 Request and response models live in `aaiclick/viewer/view_models.py`.
-`ViewerQueryRequest`: `scope`, `sql`, `limit`, `offset`, `order_by:
-list[OrderBy]`, `fmt: Literal["json", "csv"]`. `ViewerQueryResult`: `meta:
-list[ColumnSchema]` and `data: list[list[Any]]` for JSON, `text` for CSV.
-`OrderBy` is a `NamedTuple(name, dir)`.
+`ObjectQueryResult`: `meta: list[ColumnSchema]` and `data: list[list[Any]]`
+for JSON, `text` for CSV. `OrderBy` is a `NamedTuple(name, dir)`. A saved
+query is an `ObjectQueryRequest` minus paging, plus `name` and `cell_view`;
+a dashboard panel is the same minus `cell_view`.
 
 Code-declared queries need no separate mechanism: job code calls
 `viewer_api.save_query` through the same `internal_api`, so a registered job
@@ -158,28 +161,30 @@ existing Alembic chain (`generate-migration` skill).
 
 | Table               | Columns                                                                                                 | Unique              |
 |---------------------|---------------------------------------------------------------------------------------------------------|---------------------|
-| `viewer_queries`    | `id`, `tenant_id`, `name`, `scope`, `object`, `sql`, `cell_view`, `order_by`, `fields`, `updated_at` | `(tenant_id, name)` |
+| `viewer_queries`    | `id`, `tenant_id`, `name`, `scope`, `object`, `where`, `fields`, `order_by`, `cell_view`, `updated_at` | `(tenant_id, name)` |
 | `viewer_dashboards` | `id`, `tenant_id`, `name`, `scope`, `html`, `queries`, `updated_at`                                     | `(tenant_id, name)` |
 
 `tenant_id` is a plain `BigInteger` without FK, per
 `aaiclick/orchestration/models.py`. `cell_view` is raw YAML and `order_by` /
 `fields` / `queries` are JSON text, stored verbatim and interpreted by the
-kernel in the browser; the server validates shape only.
+kernel in the browser; the server validates shape, and `where` with the
+expression rules above.
 
 ## Surfaces
 
 - **REST** `aaiclick/server/routers/viewer.py`, prefix `/viewer`, with the
   objects router's dependencies (`orch_scope_with_ch`, tenant): `POST /query`,
-  `POST /describe`, `GET|PUT|DELETE /queries[/{name}]`, `GET|PUT|DELETE
-  /dashboards[/{name}]`, `POST /dashboards/{name}:run`. Any tenant member may
+  `GET|PUT|DELETE /queries[/{name}]`, `GET|PUT|DELETE /dashboards[/{name}]`,
+  `POST /dashboards/{name}:run`. Any tenant member may
   read, run, and save; nothing here drops data.
-- **MCP** `aaiclick/server/mcp.py`: `run_query`, `describe_query`,
-  `list_saved_queries`, `save_query`, `list_dashboards`, `save_dashboard`,
-  `run_dashboard`, each opening `orch_context(with_ch=True)` like the
-  existing tools. The lineage-scoped `query_table` stays as is.
-- **CLI** `python -m aaiclick data query <sql> [--scope job:<id>] [--limit]`,
-  `data describe <sql>`, `view queries list|save|delete`, `view dashboards
-  list|get|save|delete|run`, rendered from the same view models.
+- **MCP** `aaiclick/server/mcp.py`: `query_object`, `list_saved_queries`,
+  `save_query`, `list_dashboards`, `save_dashboard`, `run_dashboard`, each
+  opening `orch_context(with_ch=True)` like the existing tools. The
+  lineage-scoped `query_table` stays as is.
+- **CLI** `python -m aaiclick data query <object> [--scope job:<ref>]
+  [--where EXPR] [--fields a,b] [--order-by col:desc] [--limit N]`, `view
+  queries list|save|delete`, `view dashboards list|get|save|delete|run`,
+  rendered from the same view models.
 
 # Frontend
 
@@ -192,20 +197,20 @@ Prompt forms follow `docs/designs/ui.md`; `src/prompt.ts` gains the routes.
 | `@data`                             | objects   | scope tree (Persistent, Jobs with search) and the objects of the selected scope      |
 | `@data job <ref>`                   | objects   | same, with the job scope selected                                                    |
 | `@data [job <ref>] <object>`        | objects   | object header (scope, job, rows, size, created) and its first page of rows           |
-| `@query [job <ref>]`                | query     | SQL editor, limit/offset, Fields and Order by, cell-view modal, params, saved-query dropdown, CSV download |
+| `@query [job <ref>] [<object>]`     | query     | object picker, `where` expression, limit/offset, Fields and Order by, cell-view modal, params, saved-query dropdown, CSV download |
 | `@dashboard [name]`                 | dashboard | dashboard picker, Save, sandboxed frame                                              |
 
 Clicking an object in `@data` sets the prompt to `@data … <object>`; its
-"Query" button sets `@query [job <ref>]` with `SELECT * FROM <object>`
-prefilled. Object rows in `@data` come from the same `run_query` with that
-SQL, so the objects view never handles table names either.
+"Query" button sets `@query [job <ref>] <object>`. Object rows in `@data`
+come from the same `query_object` with no constraints, so both modes share
+one hook and one result shape.
 
 New files: `src/views/Data.tsx`, `src/views/Query.tsx`,
 `src/views/Dashboard.tsx`; `src/components/ScopeTree.tsx`,
 `src/components/ObjectsTable.tsx`, `src/components/QueryPanel.tsx`; hooks in
-`src/api/hooks.ts` (`useObjects`, `useRunQuery`, `useDescribe`,
+`src/api/hooks.ts` (`useObjects`, `useObject`, `useQueryObject`,
 `useSavedQueries`, `useSaveQuery`, `useDashboards`, `useDashboard`,
-`useRunDashboard`). Types come from `npm run gen-types` and one re-export
+`useRunDashboard`). The Fields picker is fed from `useObject`'s schema. Types come from `npm run gen-types` and one re-export
 line each in `src/api/types.ts`. Job nodes in the scope tree reuse
 `useJobs` with the name filter.
 
@@ -219,12 +224,11 @@ process over clickhouse-connect; nothing in the viewer is per-process.
 # Testing
 
 - `aaiclick/internal_api/test_viewer.py` (chdb): persistent and job objects
-  created through the Object API; `run_query` binds object names, paginates
-  and orders, rejects DDL and raw table names, reports an unknown object by
-  name, allows a persistent join from a job scope and refuses another job's
-  object;
-  `describe_query`; saved query and dashboard round-trips with tenant
-  isolation; `run_dashboard` column orientation.
+  created through the Object API; `query_object` selects fields, filters,
+  orders, and pages, rejects a `where` with DDL, a statement separator, or a
+  raw table name, reports an unknown object, and refuses another job's
+  object; saved query and dashboard round-trips with tenant isolation;
+  `run_dashboard` column orientation.
 - `aaiclick/server/test_viewer_api.py`: router with auth, 401 without a
   token, tenant scoping, `422` on a bad cell view.
 - Vitest: the kernel's own tests plus `prompt.test.ts` cases for the new
@@ -234,8 +238,9 @@ process over clickhouse-connect; nothing in the viewer is per-process.
 
 # Rollout
 
-1. Backend: `ObjectFilter.job_id`, job-scope listing, `ChClient.query_text`,
-   `viewer` models and migration, `internal_api/viewer.py`, REST, MCP, CLI.
+1. Backend: `ObjectFilter.job`, job-scope listing, `View.select_sql`,
+   `ChClient.query_text`, `viewer` models and migration,
+   `internal_api/viewer.py`, REST, MCP, CLI.
 2. Frontend: kernel copy and alias, `@data`.
 3. `@query` with saved queries.
 4. `@dashboard`, docs (`ui.md`, `api_server.md` command table).
