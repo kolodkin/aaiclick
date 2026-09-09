@@ -81,9 +81,15 @@ tenant. Callers never pass or see a tenant id.
 ## Object names in SQL
 
 SQL is written in aaiclick terms: `SELECT * FROM orders` names the object
-`orders` in the current scope, never a ClickHouse table. `run_query` and
-`describe_query` bind the names before execution by prepending a CTE per
-object the query mentions:
+`orders` in the current scope, never a ClickHouse table. The server does the
+translation, in one place: `bind_objects(scope, sql)` in
+`aaiclick/internal_api/viewer.py` asks `objects_api.list_objects` for the
+scope's objects, which reads `table_registry` for the active tenant and so
+already carries each object's table (`orders → p_7_orders`, `result →
+j_123_result`) exactly as `open_object` resolves it today. The frontend only
+sends `(scope, sql)`; ClickHouse only resolves the CTE names the server
+prepends. `run_query` and `describe_query` bind the names before execution by
+prepending a CTE per object the query mentions:
 
 ```sql
 WITH orders AS (SELECT * FROM p_7_orders), result AS (SELECT * FROM j_123_result)
