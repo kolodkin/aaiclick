@@ -40,6 +40,19 @@ async def _finish(request: asyncio.Task[httpx.Response], bus: EventBus) -> httpx
     return await asyncio.wait_for(request, 5)
 
 
+async def test_event_frames_cancel_finalizes_subscription_cleanly():
+    """A client disconnect cancels the stream mid-wait; the subscription must
+    unwind without ``aclose(): asynchronous generator is already running``."""
+    bus = EventBus()
+    frames = events.event_frames(bus)
+    consumer = asyncio.create_task(anext(frames))
+    await asyncio.sleep(0.05)
+    consumer.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await consumer
+    assert not bus._queues
+
+
 @pytest.mark.skipif(not config.auth_enabled(), reason="auth is open in local mode")
 async def test_events_requires_principal(anon_client):
     response = await anon_client.get(EVENTS_URL)
