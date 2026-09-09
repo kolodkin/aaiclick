@@ -48,7 +48,7 @@ async def query_table(
     scan = normalize_sql_for_scan(sql)
     if err := validate_select_safety(sql, scan=scan):
         raise Invalid(err.message)
-    if err := validate_scope(sql, set(scope_tables), scan=scan):
+    if err := await validate_scope(sql, set(scope_tables)):
         raise Invalid(err.message)
     return await run_select(sql, row_limit, scan=scan)
 
