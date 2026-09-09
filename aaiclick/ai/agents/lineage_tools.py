@@ -2,8 +2,9 @@
 aaiclick.ai.agents.lineage_tools - Tier 1 agent tools scoped to a lineage graph.
 
 All tools operate on a single ``OplogGraph`` — the backward lineage of the
-target table being debugged. Scope enforcement prevents accidental
-cross-job queries; ``query_table`` is read-only and row-limited.
+target table being debugged. ``query_table`` is read-only and row-limited,
+and every table it reads must be one the graph contains — ClickHouse parses
+the SQL and the scope check reads table position off the parse tree.
 
 See ``docs/designs/lineage.md`` for the design.
 """
@@ -13,12 +14,12 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Iterable
 from typing import Any, Literal, NamedTuple
 
 from pydantic import BaseModel, Field
 
 from aaiclick.data.data_context import get_ch_client
-from aaiclick.data.scope import TABLE_REF_RE
 from aaiclick.data.sql_utils import escape_sql_string, quote_identifier
 from aaiclick.oplog.lineage import OplogGraph
 
@@ -81,6 +82,9 @@ DEFAULT_ROW_LIMIT = 100
 ROW_LIMIT_CEILING = 1000
 DEFAULT_MAX_EXECUTION_TIME = 30
 
+_AST_TABLE_IDENTIFIER = "TableIdentifier "
+_AST_FUNCTION = "Function "
+_AST_SUBQUERY = "Subquery"
 _STATEMENT_START_RE = re.compile(r"^\s*(?:WITH\b|SELECT\b)", re.IGNORECASE)
 _FORBIDDEN_KEYWORDS_RE = re.compile(
     r"\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER|CREATE|RENAME|ATTACH|"
@@ -104,10 +108,8 @@ def _strip_comments(sql: str) -> str:
 def _strip_literals(sql: str) -> str:
     """Replace single-quoted string literals with empty ``''`` placeholders.
 
-    Used before keyword / semicolon / scope / LIMIT regex passes so that
-    a legitimate ``WHERE event = 'INSERT'`` doesn't trip the forbidden-
-    keyword guard, and ``WHERE name = 't_12345678901234567890'`` doesn't
-    trip the scope check.
+    Used before the keyword / semicolon / LIMIT regex passes so a legitimate
+    ``WHERE event = 'INSERT'`` doesn't trip the forbidden-keyword guard.
     """
     return _STRING_LITERAL_RE.sub("''", sql)
 
@@ -145,9 +147,9 @@ def _classify_nodes(graph: OplogGraph) -> dict[str, NodeKind]:
 def normalize_sql_for_scan(sql: str) -> str:
     """Strip comments and literals so SQL safety/scope regex passes don't trip on them.
 
-    Callers running multiple validation passes on the same SQL should compute this
-    once and thread it through ``validate_select_safety(scan=...)`` /
-    ``validate_scope(scan=...)`` / ``run_select(scan=...)``.
+    Callers running multiple passes on the same SQL should compute this once and
+    thread it through ``validate_select_safety(scan=...)`` / ``run_select(scan=...)``.
+    ``validate_scope`` does not use it — it works from the parse tree.
     """
     return _strip_literals(_strip_comments(sql))
 
@@ -169,15 +171,83 @@ def validate_select_safety(sql: str, *, scan: str | None = None) -> ToolError | 
     return None
 
 
-def validate_scope(sql: str, scope_tables: set[str], *, scan: str | None = None) -> ToolError | None:
-    """Reject when ``sql`` references any ``t_*`` / ``j_*`` / ``p_*`` table outside ``scope_tables``."""
-    if scan is None:
-        scan = normalize_sql_for_scan(sql)
-    referenced = set(TABLE_REF_RE.findall(scan))
-    unknown = referenced - scope_tables
+def _explain_statement(sql: str) -> str:
+    """Statement whose rows are ``sql``'s AST dump.
+
+    Wrapped in a ``SELECT`` on purpose. Drivers append their read format to
+    every query (clickhouse-connect sends ``\\n FORMAT Native``), and on a bare
+    ``EXPLAIN AST`` that clause binds to the explained query instead of the
+    EXPLAIN — ClickHouse then answers in its default format while the driver
+    decodes Native, and the format name shows up in the AST as an identifier.
+    The wrapper keeps any appended clause outside the EXPLAIN.
+    """
+    return f"SELECT * FROM (EXPLAIN AST {sql})"
+
+
+def _table_expressions(ast_lines: Iterable[str]) -> list[str]:
+    """Return the first child of every ``TableExpression`` node in an ``EXPLAIN AST`` dump.
+
+    The dump is an indented tree, one node per row. A ``TableExpression`` is
+    what sits in table position, and its single child says which kind it is:
+    ``TableIdentifier <name>``, ``Subquery``, or ``Function <name>`` for a
+    table function.
+    """
+    rows = [(len(line) - len(line.lstrip(" ")), line.strip()) for line in ast_lines]
+    children = []
+    for index, (indent, text) in enumerate(rows):
+        if not text.startswith("TableExpression"):
+            continue
+        for child_indent, child_text in rows[index + 1 :]:
+            if child_indent <= indent:
+                break
+            children.append(child_text)
+            break
+    return children
+
+
+async def validate_scope(sql: str, scope_tables: set[str]) -> ToolError | None:
+    """Reject unless every table ``sql`` reads is in ``scope_tables``.
+
+    ClickHouse parses the SQL (``EXPLAIN AST``) and this reads the table
+    positions off the tree, so the check is positive: anything in table
+    position that is not a known in-scope table is rejected, including table
+    functions such as ``merge`` / ``remote`` / ``url`` / ``file``, which name
+    their targets in string literals rather than as identifiers.
+
+    Parsing with the engine that will run the query is deliberate — a
+    second-guessing parser that disagreed with ClickHouse would be a bypass.
+
+    A CTE name is a table identifier no graph contains, so ``WITH`` queries are
+    rejected. The tool description tells the model to write the CTE as a
+    subquery in ``FROM``, which parses to a ``Subquery`` and is allowed.
+    """
+    ch_client = get_ch_client()
+    try:
+        result = await ch_client.query(_explain_statement(sql))
+    except Exception as exc:
+        logger.debug("EXPLAIN AST failed for agent SQL", exc_info=True)
+        return ToolError("invalid_argument", f"Could not parse SQL: {exc}")
+
+    unknown: set[str] = set()
+    functions: set[str] = set()
+    for child in _table_expressions(str(row[0]) for row in result.result_rows):
+        if child.startswith(_AST_TABLE_IDENTIFIER):
+            # Trailing " (alias a)" / " (children N)" are printer annotations.
+            name = child[len(_AST_TABLE_IDENTIFIER) :].split(" (")[0]
+            if name not in scope_tables:
+                unknown.add(name)
+        elif child.startswith(_AST_FUNCTION):
+            functions.add(child[len(_AST_FUNCTION) :].split(" (")[0])
+        elif not child.startswith(_AST_SUBQUERY):
+            # Fail closed: an unrecognized table expression is not provably in scope.
+            unknown.add(child.split(" (")[0])
+
+    if functions:
+        listed = ", ".join(sorted(functions))
+        return ToolError("out_of_scope", f"Table functions are not permitted: {listed}.")
     if unknown:
-        sample = ", ".join(sorted(unknown)[:3])
-        return ToolError("out_of_scope", f"Tables not in scope: {sample}.")
+        listed = ", ".join(sorted(unknown)[:3])
+        return ToolError("out_of_scope", f"Tables not in scope: {listed}.")
     return None
 
 
@@ -194,6 +264,11 @@ async def run_select(sql: str, row_limit: int = DEFAULT_ROW_LIMIT, *, scan: str 
         settings={
             "max_execution_time": DEFAULT_MAX_EXECUTION_TIME,
             "max_result_rows": ROW_LIMIT_CEILING + 1,
+            # Enforce read-only in the engine, so validate_select_safety's
+            # keyword regex is a first line rather than the only one. Level 2
+            # rather than 1 because 1 also forbids the settings set alongside it.
+            "readonly": 2,
+            "allow_ddl": 0,
         },
     )
 
@@ -237,8 +312,8 @@ class LineageToolbox:
     """Scoped Tier 1 tool surface.
 
     Instantiate once per debug session with the backward lineage graph of
-    the target table. All queries are rejected if they reference tables
-    outside ``graph.tables``.
+    the target table. A query is rejected unless every table it reads is in
+    ``graph.tables``; table functions are rejected outright.
     """
 
     def __init__(self, graph: OplogGraph):
@@ -263,7 +338,7 @@ class LineageToolbox:
         scan = normalize_sql_for_scan(sql)
         if err := validate_select_safety(sql, scan=scan):
             return err
-        if err := validate_scope(sql, self._tables, scan=scan):
+        if err := await validate_scope(sql, self._tables):
             return err._replace(message=err.message + " Use list_graph_nodes() to see what's in scope.")
         return await run_select(sql, row_limit, scan=scan)
 
@@ -417,9 +492,10 @@ LINEAGE_TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "function": {
             "name": "query_table",
             "description": (
-                "Execute a read-only SELECT (or WITH ... SELECT) against tables in "
-                "the current lineage graph. Rejects non-SELECT and out-of-scope "
-                "tables. Automatically LIMITs results when no LIMIT is given."
+                "Execute a read-only SELECT against tables in the current lineage "
+                "graph. Rejects non-SELECT, out-of-scope tables, and table functions; "
+                "write a CTE as a subquery in FROM instead. Automatically LIMITs "
+                "results when no LIMIT is given."
             ),
             "parameters": {
                 "type": "object",
