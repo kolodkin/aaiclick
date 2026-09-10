@@ -35,3 +35,4 @@ from .registered_jobs import (
     register_job,
 )
 from .tasks import get_task
+from .viewer import query_object
