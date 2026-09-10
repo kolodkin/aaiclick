@@ -9,6 +9,9 @@ const NAVIGATE: Cmd[] = [
   { code: "@registered", desc: "Registered jobs — run, register, enable/disable.", cmd: "@registered" },
   { code: "@job <name>", desc: "Job detail — header + tasks table.", cmd: "@job nyc_taxi_pipeline" },
   { code: "@task <id>", desc: "Task detail — status bar + live logs.", cmd: "@task 1" },
+  { code: "@data [job <ref>] [<object>]", desc: "Objects of a scope — persistent or one job — and their rows.", cmd: "@data" },
+  { code: "@query [job <ref>] [<object>]", desc: "Filter, order, page, and save a query over one object.", cmd: "@query" },
+  { code: "@dashboard [name]", desc: "Render a saved dashboard over object queries.", cmd: "@dashboard" },
   { code: "@all", desc: "Every screen on one page.", cmd: "@all" },
 ];
 
