@@ -183,6 +183,7 @@ class ObjectFilter(BaseModel):
 
     prefix: str | None = None
     scope: ObjectScope | None = None
+    job: RefId | None = None  # required with scope="job": id, or name → latest run
     limit: int = 50
     cursor: str | None = None
 

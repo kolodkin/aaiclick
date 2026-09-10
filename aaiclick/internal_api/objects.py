@@ -5,10 +5,9 @@ the ClickHouse client via the contextvar getter. Registry-backed paths
 (``get_object`` -> ``open_object``) additionally need the SQL session that
 only orch provides. Returns pydantic view models.
 
-Scope support is intentionally narrow in this migration: all operations
-target the ``global`` persistence tier (``p_*`` tables), matching what the
-CLI exposed before the migration. Job-scoped listing / filtering is left
-to a follow-up once an active orch job is plumbed through.
+``list_objects`` covers the ``global`` tier (``p_*`` tables) and, given
+``ObjectFilter.job``, one job's ``j_<id>_*`` tables. The other operations
+target the ``global`` tier only.
 """
 
 from __future__ import annotations
@@ -20,11 +19,12 @@ from aaiclick.data.data_context import (
     delete_persistent_object,
     delete_persistent_objects,
     get_ch_client,
+    list_job_tables,
     list_persistent_tables,
     open_object,
 )
 from aaiclick.data.object.adapters import object_to_detail
-from aaiclick.data.scope import SCOPE_GLOBAL, name_from_table
+from aaiclick.data.scope import SCOPE_GLOBAL, SCOPE_JOB, ObjectScope, name_from_table
 from aaiclick.data.view_models import (
     ObjectDetail,
     ObjectView,
@@ -37,6 +37,7 @@ from aaiclick.view_models import (
     PurgeObjectsResult,
 )
 
+from . import jobs as jobs_api
 from .errors import Invalid, NotFound
 
 
@@ -62,15 +63,25 @@ async def _fetch_table_metadata(tables: list[str]) -> dict[str, dict[str, Any]]:
 async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
     """Return a page of persistent objects ordered by name.
 
-    Currently lists global-scope persistent objects only (``p_*`` tables).
-    ``filter.scope`` is accepted for forward-compatibility; only ``None`` and
-    ``"global"`` succeed today — anything else raises ``Invalid``.
+    ``scope=None`` / ``"global"`` lists the tenant's ``p_*`` tables;
+    ``scope="job"`` needs ``filter.job`` (id, or name → latest run) and lists
+    that job's ``j_<id>_*`` tables. Any other scope raises ``Invalid``.
     """
     filter = filter or ObjectFilter()
-    if filter.scope not in (None, SCOPE_GLOBAL):
-        raise Invalid(f"scope={filter.scope!r} not yet supported (global only)")
+    scope: ObjectScope
+    if filter.scope == SCOPE_JOB:
+        if filter.job is None:
+            raise Invalid("scope='job' requires job (id or name)")
+        job = await jobs_api.resolve_job(filter.job)
+        tables = await list_job_tables(job.id)
+        scope = SCOPE_JOB
+    elif filter.scope in (None, SCOPE_GLOBAL):
+        tables = await list_persistent_tables()
+        scope = SCOPE_GLOBAL
+    else:
+        raise Invalid(f"scope={filter.scope!r} not supported (global or job)")
 
-    pairs = sorted((name_from_table(t), t) for t in await list_persistent_tables())
+    pairs = sorted((name_from_table(t), t) for t in tables)
     if filter.prefix:
         pairs = [(n, t) for n, t in pairs if n.startswith(filter.prefix)]
 
@@ -82,7 +93,7 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
         ObjectView(
             name=name,
             table=table,
-            scope=SCOPE_GLOBAL,
+            scope=scope,
             persistent=True,
             **metadata.get(table, {}),
         )

@@ -70,6 +70,17 @@ async def _resolve_job(ref: RefId, session: AsyncSession | None = None) -> Job |
         ).scalar_one_or_none()
 
 
+async def resolve_job(ref: RefId) -> Job:
+    """The job for ``ref``: a numeric id, or the most recent job with that name.
+
+    Raises ``NotFound`` when no job of the active tenant matches.
+    """
+    job = await _resolve_job(ref)
+    if job is None:
+        raise NotFound(f"Job not found: {ref}")
+    return job
+
+
 async def list_jobs(filter: JobListFilter | None = None) -> Page[JobView]:
     """Return a page of jobs ordered by ``created_at`` descending.
 

@@ -181,3 +181,11 @@ async def test_get_job_cross_tenant_is_not_found(orch_ctx):
         await jobs.get_job(job.id)
     with active_tenant(2):
         assert (await jobs.get_job(job.id)).id == job.id
+
+
+async def test_resolve_job_by_id_and_name_and_missing(orch_ctx):
+    job = await create_job("rj", _SAMPLE_TASK)
+    assert (await jobs.resolve_job(job.id)).id == job.id
+    assert (await jobs.resolve_job("rj")).id == job.id
+    with pytest.raises(errors.NotFound):
+        await jobs.resolve_job("no_such_job")
