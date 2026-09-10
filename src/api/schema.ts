@@ -529,6 +529,111 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v0/viewer/dashboards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Dashboards */
+        get: operations["list_dashboards_api_v0_viewer_dashboards_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/viewer/dashboards/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Dashboard */
+        get: operations["get_dashboard_api_v0_viewer_dashboards__name__get"];
+        /** Save Dashboard */
+        put: operations["save_dashboard_api_v0_viewer_dashboards__name__put"];
+        post?: never;
+        /** Delete Dashboard */
+        delete: operations["delete_dashboard_api_v0_viewer_dashboards__name__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/viewer/dashboards/{name}:run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run Dashboard */
+        post: operations["run_dashboard_api_v0_viewer_dashboards__name__run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/viewer/queries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Saved Queries */
+        get: operations["list_saved_queries_api_v0_viewer_queries_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/viewer/queries/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Save Query */
+        put: operations["save_query_api_v0_viewer_queries__name__put"];
+        post?: never;
+        /** Delete Saved Query */
+        delete: operations["delete_saved_query_api_v0_viewer_queries__name__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/viewer/query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Query Object */
+        post: operations["query_object_api_v0_viewer_query_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -601,6 +706,16 @@ export interface components {
             /** Type */
             type: string;
         };
+        /**
+         * ColumnSchema
+         * @description Column inside a ``TableSchema``.
+         */
+        ColumnSchema: {
+            /** Name */
+            name: string;
+            /** Type */
+            type: string;
+        };
         /** CreateTenantRequest */
         CreateTenantRequest: {
             /** Name */
@@ -619,6 +734,79 @@ export interface components {
             superadmin: boolean;
             /** Username */
             username: string;
+        };
+        /** Dashboard */
+        Dashboard: {
+            /** Html */
+            html: string;
+            /** Name */
+            name: string;
+            /** Queries */
+            queries: {
+                [key: string]: components["schemas"]["ObjectQuery"];
+            };
+            /**
+             * Scope
+             * @default persistent
+             */
+            scope: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** DashboardBody */
+        DashboardBody: {
+            /** Html */
+            html: string;
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+            /** Queries */
+            queries: {
+                [key: string]: components["schemas"]["ObjectQuery"];
+            };
+            /**
+             * Scope
+             * @default persistent
+             */
+            scope: string;
+        };
+        /**
+         * DashboardResults
+         * @description Column-oriented results per panel — the ``window.queries`` contract.
+         */
+        DashboardResults: {
+            /** Meta */
+            meta: {
+                [key: string]: components["schemas"]["ColumnSchema"][];
+            };
+            /** Results */
+            results: {
+                [key: string]: {
+                    [key: string]: unknown[];
+                };
+            };
+        };
+        /** DashboardSummary */
+        DashboardSummary: {
+            /** Name */
+            name: string;
+            /** Scope */
+            scope: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** Deleted */
+        Deleted: {
+            /** Name */
+            name: string;
         };
         /**
          * ExecutionWorkerView
@@ -964,6 +1152,69 @@ export interface components {
             table_schema: components["schemas"]["Schema"];
         };
         /**
+         * ObjectQuery
+         * @description What to read from one object: the part of a request that is saved.
+         */
+        ObjectQuery: {
+            /** Fields */
+            fields?: string[] | null;
+            /** Object */
+            object: string;
+            /** Order By */
+            order_by?: components["schemas"]["OrderBy"][];
+            /**
+             * Scope
+             * @default persistent
+             */
+            scope: string;
+            /** Where */
+            where?: string | null;
+        };
+        /** ObjectQueryRequest */
+        ObjectQueryRequest: {
+            /** Fields */
+            fields?: string[] | null;
+            /**
+             * Fmt
+             * @default json
+             * @enum {string}
+             */
+            fmt: "json" | "csv";
+            /**
+             * Limit
+             * @default 100
+             */
+            limit: number;
+            /** Object */
+            object: string;
+            /**
+             * Offset
+             * @default 0
+             */
+            offset: number;
+            /** Order By */
+            order_by?: components["schemas"]["OrderBy"][];
+            /**
+             * Scope
+             * @default persistent
+             */
+            scope: string;
+            /** Where */
+            where?: string | null;
+        };
+        /**
+         * ObjectQueryResult
+         * @description ``meta`` + ``data`` for ``fmt="json"`` (ClickHouse JSONCompact), ``text`` for CSV.
+         */
+        ObjectQueryResult: {
+            /** Data */
+            data?: unknown[][];
+            /** Meta */
+            meta?: components["schemas"]["ColumnSchema"][];
+            /** Text */
+            text?: string | null;
+        };
+        /**
          * ObjectView
          * @description Compact object representation used by list endpoints.
          */
@@ -985,6 +1236,19 @@ export interface components {
             size_bytes?: number | null;
             /** Table */
             table: string;
+        };
+        OrderBy: [
+            string,
+            "ASC" | "DESC"
+        ];
+        /** Page[DashboardSummary] */
+        Page_DashboardSummary_: {
+            /** Items */
+            items: components["schemas"]["DashboardSummary"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Total */
+            total?: number | null;
         };
         /** Page[ExecutionWorkerView] */
         Page_ExecutionWorkerView_: {
@@ -1026,6 +1290,15 @@ export interface components {
         Page_RegisteredJobView_: {
             /** Items */
             items: components["schemas"]["RegisteredJobView"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Total */
+            total?: number | null;
+        };
+        /** Page[SavedQuery] */
+        Page_SavedQuery_: {
+            /** Items */
+            items: components["schemas"]["SavedQuery"][];
             /** Next Cursor */
             next_cursor?: string | null;
             /** Total */
@@ -1215,6 +1488,54 @@ export interface components {
             preservation_mode?: ("NONE" | "FULL") | null;
             /** Service Account */
             service_account?: string | null;
+        };
+        /** SavedQuery */
+        SavedQuery: {
+            /** Cell View */
+            cell_view?: string | null;
+            /** Fields */
+            fields?: string[] | null;
+            /** Name */
+            name: string;
+            /** Object */
+            object: string;
+            /** Order By */
+            order_by?: components["schemas"]["OrderBy"][];
+            /**
+             * Scope
+             * @default persistent
+             */
+            scope: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Where */
+            where?: string | null;
+        };
+        /** SavedQueryBody */
+        SavedQueryBody: {
+            /** Cell View */
+            cell_view?: string | null;
+            /** Fields */
+            fields?: string[] | null;
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+            /** Object */
+            object: string;
+            /** Order By */
+            order_by?: components["schemas"]["OrderBy"][];
+            /**
+             * Scope
+             * @default persistent
+             */
+            scope: string | null;
+            /** Where */
+            where?: string | null;
         };
         /**
          * Schema
@@ -2052,6 +2373,7 @@ export interface operations {
             query?: {
                 prefix?: string | null;
                 scope?: ("temp" | "temp_named" | "job" | "global") | null;
+                job?: number | string | null;
                 limit?: number;
                 cursor?: string | null;
             };
@@ -2966,6 +3288,331 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_dashboards_api_v0_viewer_dashboards_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_DashboardSummary_"];
+                };
+            };
+        };
+    };
+    get_dashboard_api_v0_viewer_dashboards__name__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dashboard"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_dashboard_api_v0_viewer_dashboards__name__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DashboardBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dashboard"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    delete_dashboard_api_v0_viewer_dashboards__name__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Deleted"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_dashboard_api_v0_viewer_dashboards__name__run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardResults"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_saved_queries_api_v0_viewer_queries_get: {
+        parameters: {
+            query?: {
+                scope?: string | null;
+                object?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_SavedQuery_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_query_api_v0_viewer_queries__name__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SavedQueryBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedQuery"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    delete_saved_query_api_v0_viewer_queries__name__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Deleted"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    query_object_api_v0_viewer_query_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ObjectQueryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectQueryResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
                 };
             };
         };

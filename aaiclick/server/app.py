@@ -16,7 +16,7 @@ from .auth import AdminAuthMiddleware, require_principal, require_tenant, warn_i
 from .errors import register_exception_handlers
 from .mcp import mcp
 from .routers import auth as auth_router
-from .routers import execution_workers, jobs, objects, registered_jobs, tasks
+from .routers import execution_workers, jobs, objects, registered_jobs, tasks, viewer
 from .routers import tenants as tenants_router
 from .routers import users as users_router
 
@@ -74,6 +74,7 @@ for router in (
     registered_jobs.router,
     tasks.router,
     objects.router,
+    viewer.router,
 ):
     app.include_router(router, prefix=API_PREFIX, dependencies=[Depends(require_tenant)])
 app.include_router(execution_workers.router, prefix=API_PREFIX, dependencies=[Depends(require_principal)])
