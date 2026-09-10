@@ -35,6 +35,14 @@ from aaiclick.view_models import (
     PurgeObjectsResult,
     SetupResult,
 )
+from aaiclick.viewer.view_models import (
+    Dashboard,
+    DashboardResults,
+    DashboardSummary,
+    Deleted,
+    ObjectQueryResult,
+    SavedQuery,
+)
 
 
 def _fmt_ms(ms: int | None) -> str:
@@ -364,3 +372,69 @@ def render_migration_result(result: MigrationResult) -> None:
         print(f"Database downgraded to {result.revision}")
     for v in result.ch_versions:
         print(f"ClickHouse {v.version}: {'applied' if v.applied else 'pending'}")
+
+
+def render_query_result(result: ObjectQueryResult) -> None:
+    """Print a query page as an aligned text table, or the CSV text verbatim."""
+    if result.text is not None:
+        print(result.text)
+        return
+    names = [c.name for c in result.meta]
+    if not names:
+        print("No columns")
+        return
+    widths = [max([len(n)] + [len(str(row[i])) for row in result.data]) for i, n in enumerate(names)]
+    print("  ".join(n.ljust(widths[i]) for i, n in enumerate(names)))
+    print("  ".join("-" * w for w in widths))
+    for row in result.data:
+        print("  ".join(str(v).ljust(widths[i]) for i, v in enumerate(row)))
+    print(f"\nRows: {len(result.data)}")
+
+
+def render_saved_queries_page(page: Page[SavedQuery]) -> None:
+    if not page.items:
+        print("No saved queries")
+        return
+    print(f"{'Name':<30} {'Scope':<20} {'Object':<30} Where")
+    print("-" * 100)
+    for q in page.items:
+        print(f"{q.name:<30} {q.scope or '*':<20} {q.object:<30} {q.where or ''}")
+
+
+def render_saved_query(q: SavedQuery) -> None:
+    print(f"Name:     {q.name}")
+    print(f"Scope:    {q.scope or '*'}")
+    print(f"Object:   {q.object}")
+    print(f"Fields:   {', '.join(q.fields) if q.fields else '*'}")
+    print(f"Where:    {q.where or ''}")
+    print(f"Order by: {', '.join(f'{o.name} {o.dir}' for o in q.order_by)}")
+    print(f"Updated:  {q.updated_at}")
+
+
+def render_dashboards_page(page: Page[DashboardSummary]) -> None:
+    if not page.items:
+        print("No dashboards")
+        return
+    print(f"{'Name':<30} {'Scope':<20} Updated")
+    print("-" * 70)
+    for d in page.items:
+        print(f"{d.name:<30} {d.scope:<20} {d.updated_at}")
+
+
+def render_dashboard(d: Dashboard) -> None:
+    print(f"Name:    {d.name}")
+    print(f"Scope:   {d.scope}")
+    print("Panels:")
+    for panel, q in d.queries.items():
+        print(f"  {panel}: {q.object}" + (f" where {q.where}" if q.where else ""))
+    print(f"HTML:    {len(d.html)} chars")
+
+
+def render_dashboard_results(r: DashboardResults) -> None:
+    for panel, columns in r.results.items():
+        rows = len(next(iter(columns.values()), []))
+        print(f"{panel}: {rows} row(s), columns {', '.join(columns)}")
+
+
+def render_deleted(view: Deleted) -> None:
+    print(f"Deleted '{view.name}'")

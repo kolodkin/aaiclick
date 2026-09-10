@@ -27,6 +27,9 @@ Usage:
     python -m aaiclick data get <name>          # Show persistent object details
     python -m aaiclick data delete <name>       # Delete persistent object
     python -m aaiclick data purge --after ISO   # Delete persistent objects by time
+    python -m aaiclick data query <object> [--scope job:<ref>] [--where EXPR]   # Read rows of an object
+    python -m aaiclick view queries list|save|delete                            # Saved viewer queries
+    python -m aaiclick view dashboards list|get|save|delete|run                 # Dashboards
     python -m aaiclick explain <table>          # AI: explain how a table was produced (needs aaiclick[ai])
     python -m aaiclick debug <table> "<question>"  # AI: debug a result with live-query tools (needs aaiclick[ai])
     python -m aaiclick docker init              # Scaffold a starter Dockerfile
@@ -42,6 +45,7 @@ import sys
 from contextlib import redirect_stdout
 from contextvars import ContextVar
 from datetime import datetime
+from pathlib import Path
 from typing import Any, cast, get_args
 
 from aaiclick import cli_renderers, cli_wait, internal_api
@@ -75,6 +79,7 @@ from aaiclick.view_models import (
     RegisterJobRequest,
     RunJobRequest,
 )
+from aaiclick.viewer.view_models import DashboardIn, ObjectQueryRequest, OrderBy, SavedQueryFilter, SavedQueryIn
 
 _JSON_HELP = "Emit JSON instead of a table"
 
@@ -386,6 +391,81 @@ async def _run_data_purge(args: argparse.Namespace) -> None:
     )
     result = await _run_data_api(internal_api.purge_objects(request))
     _render(args, result, cli_renderers.render_objects_purged)
+
+
+def _parse_order_by(raw: str | None) -> list[OrderBy]:
+    """``col:desc,other`` → ``[OrderBy("col", "DESC"), OrderBy("other", "ASC")]``."""
+    if not raw:
+        return []
+    out = []
+    for part in raw.split(","):
+        name, _, direction = part.strip().partition(":")
+        out.append(OrderBy(name, "DESC" if direction.lower() == "desc" else "ASC"))
+    return out
+
+
+def _parse_fields(raw: str | None) -> list[str] | None:
+    return [f.strip() for f in raw.split(",")] if raw else None
+
+
+async def _run_data_query(args: argparse.Namespace) -> None:
+    request = ObjectQueryRequest(
+        scope=args.scope,
+        object=args.object,
+        fields=_parse_fields(args.fields),
+        where=args.where,
+        order_by=_parse_order_by(args.order_by),
+        limit=args.limit,
+        offset=args.offset,
+        fmt="csv" if args.csv else "json",
+    )
+    result = await _run_data_api(internal_api.query_object(request))
+    _render(args, result, cli_renderers.render_query_result)
+
+
+async def _run_view_queries_list(args: argparse.Namespace) -> None:
+    page = await _run_data_api(internal_api.list_saved_queries(SavedQueryFilter(scope=args.scope, object=args.object)))
+    _render(args, page, cli_renderers.render_saved_queries_page)
+
+
+async def _run_view_queries_save(args: argparse.Namespace) -> None:
+    cell_view = Path(args.cell_view).read_text() if args.cell_view else None
+    query = SavedQueryIn(
+        name=args.name,
+        scope=args.scope,
+        object=args.object,
+        where=args.where,
+        fields=_parse_fields(args.fields),
+        order_by=_parse_order_by(args.order_by),
+        cell_view=cell_view,
+    )
+    _render(args, await _run_data_api(internal_api.save_query(query)), cli_renderers.render_saved_query)
+
+
+async def _run_view_queries_delete(args: argparse.Namespace) -> None:
+    _render(args, await _run_data_api(internal_api.delete_saved_query(args.name)), cli_renderers.render_deleted)
+
+
+async def _run_view_dashboards_list(args: argparse.Namespace) -> None:
+    _render(args, await _run_data_api(internal_api.list_dashboards()), cli_renderers.render_dashboards_page)
+
+
+async def _run_view_dashboards_get(args: argparse.Namespace) -> None:
+    _render(args, await _run_data_api(internal_api.get_dashboard(args.name)), cli_renderers.render_dashboard)
+
+
+async def _run_view_dashboards_save(args: argparse.Namespace) -> None:
+    doc = json.loads(Path(args.file).read_text())  # {"scope"?, "html", "queries": {panel: {...}}}
+    dashboard = DashboardIn(name=args.name, **doc)
+    _render(args, await _run_data_api(internal_api.save_dashboard(dashboard)), cli_renderers.render_dashboard)
+
+
+async def _run_view_dashboards_delete(args: argparse.Namespace) -> None:
+    _render(args, await _run_data_api(internal_api.delete_dashboard(args.name)), cli_renderers.render_deleted)
+
+
+async def _run_view_dashboards_run(args: argparse.Namespace) -> None:
+    _render(args, await _run_data_api(internal_api.run_dashboard(args.name)), cli_renderers.render_dashboard_results)
 
 
 def _load_lineage_ai():
@@ -1104,6 +1184,59 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_json_flag(data_purge_parser)
 
+    # data query <object> [--scope] [--where] [--fields] [--order-by] [--limit] [--offset] [--csv]
+    data_query_parser = data_subparsers.add_parser("query", help="Read rows of an object")
+    data_query_parser.add_argument("object", type=str, help="Object name within the scope")
+    data_query_parser.add_argument("--scope", default="persistent", help="persistent (default) or job:<id|name>")
+    data_query_parser.add_argument("--where", default=None, help="SQL boolean expression over the object's columns")
+    data_query_parser.add_argument("--fields", default=None, help="Comma-separated columns (default: all)")
+    data_query_parser.add_argument("--order-by", dest="order_by", default=None, help="col[:asc|desc],...")
+    data_query_parser.add_argument("--limit", type=int, default=100, help="Rows per page (max 1000)")
+    data_query_parser.add_argument("--offset", type=int, default=0, help="Row offset")
+    data_query_parser.add_argument("--csv", action="store_true", help="Print CSV instead of a table")
+    _add_json_flag(data_query_parser)
+
+    # view queries ... / view dashboards ...
+    view_parser = subparsers.add_parser("view", help="Saved viewer queries and dashboards")
+    view_subparsers = view_parser.add_subparsers(dest="view_command", help="View commands")
+
+    vq = view_subparsers.add_parser("queries", help="Saved queries")
+    vq_sub = vq.add_subparsers(dest="queries_command")
+    p = vq_sub.add_parser("list", help="List saved queries")
+    p.add_argument("--scope", default=None)
+    p.add_argument("--object", default=None)
+    _add_json_flag(p)
+    p = vq_sub.add_parser("save", help="Create or replace a saved query")
+    p.add_argument("name")
+    p.add_argument("object")
+    p.add_argument("--scope", default="persistent")
+    p.add_argument("--where", default=None)
+    p.add_argument("--fields", default=None)
+    p.add_argument("--order-by", dest="order_by", default=None)
+    p.add_argument("--cell-view", dest="cell_view", default=None, help="Path to a cell_view YAML file")
+    _add_json_flag(p)
+    p = vq_sub.add_parser("delete", help="Delete a saved query")
+    p.add_argument("name")
+    _add_json_flag(p)
+
+    vd = view_subparsers.add_parser("dashboards", help="Dashboards")
+    vd_sub = vd.add_subparsers(dest="dashboards_command")
+    p = vd_sub.add_parser("list", help="List dashboards")
+    _add_json_flag(p)
+    p = vd_sub.add_parser("get", help="Show a dashboard")
+    p.add_argument("name")
+    _add_json_flag(p)
+    p = vd_sub.add_parser("save", help="Create or replace a dashboard from a JSON file")
+    p.add_argument("name")
+    p.add_argument("--file", required=True, help='JSON: {"scope"?, "html", "queries": {panel: {object, ...}}}')
+    _add_json_flag(p)
+    p = vd_sub.add_parser("delete", help="Delete a dashboard")
+    p.add_argument("name")
+    _add_json_flag(p)
+    p = vd_sub.add_parser("run", help="Run a dashboard's panel queries")
+    p.add_argument("name")
+    _add_json_flag(p)
+
     # explain <table> [question]
     explain_parser = subparsers.add_parser(
         "explain",
@@ -1414,8 +1547,29 @@ def main():
         elif args.data_command == "purge":
             asyncio.run(_run_data_purge(args))
 
+        elif args.data_command == "query":
+            asyncio.run(_run_data_query(args))
+
         else:
             subcommands["data"].print_help()
+
+    elif args.command == "view":
+        view_handlers: dict[tuple[str | None, str | None], Any] = {
+            ("queries", "list"): _run_view_queries_list,
+            ("queries", "save"): _run_view_queries_save,
+            ("queries", "delete"): _run_view_queries_delete,
+            ("dashboards", "list"): _run_view_dashboards_list,
+            ("dashboards", "get"): _run_view_dashboards_get,
+            ("dashboards", "save"): _run_view_dashboards_save,
+            ("dashboards", "delete"): _run_view_dashboards_delete,
+            ("dashboards", "run"): _run_view_dashboards_run,
+        }
+        key = (args.view_command, getattr(args, "queries_command", None) or getattr(args, "dashboards_command", None))
+        view_handler = view_handlers.get(key)
+        if view_handler is None:
+            subcommands["view"].print_help()
+        else:
+            asyncio.run(view_handler(args))
 
     elif args.command == "explain":
         asyncio.run(_run_explain(args))
