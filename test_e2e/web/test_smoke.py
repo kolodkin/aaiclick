@@ -45,24 +45,26 @@ _local_only = pytest.mark.skipif(
 
 
 @_spa_built
-def test_home_loads(page, base_url: str) -> None:
+def test_home_loads(page, base_url: str, shot) -> None:
     """Root URL renders the SPA shell (header + content area)."""
     open_page(page, f"{base_url}/")
     # The header prompt input is present.
     page.wait_for_selector("#prompt")
+    shot("home")
 
 
 @_spa_built
-def test_jobs_view_loads(page, base_url: str) -> None:
+def test_jobs_view_loads(page, base_url: str, shot) -> None:
     """Navigating to /?p=@jobs shows the jobs view."""
     open_page(page, f"{base_url}/?p=@jobs")
     # The prompt input is populated with the value from the URL.
     prompt_val = page.input_value("#prompt")
     assert prompt_val == "@jobs"
+    shot("jobs-view")
 
 
 @_spa_built
-def test_prompt_updates_url(page, base_url: str) -> None:
+def test_prompt_updates_url(page, base_url: str, shot) -> None:
     """Typing into the prompt input updates the URL query parameter."""
     page.goto(f"{base_url}/")
     login_if_needed(page)
@@ -70,6 +72,7 @@ def test_prompt_updates_url(page, base_url: str) -> None:
     page.fill("#prompt", "@registered")
     # After typing, the URL should contain ?p=@registered.
     page.wait_for_url(lambda url: "p=%40registered" in url or "p=@registered" in url)
+    shot("prompt-registered")
 
 
 def _run_task_and_wait(page, base_url: str, entrypoint: str) -> str:
@@ -96,7 +99,7 @@ def _run_task_and_wait(page, base_url: str, entrypoint: str) -> str:
 
 @_spa_built
 @_local_only
-def test_task_view_shows_logs(page, base_url: str) -> None:
+def test_task_view_shows_logs(page, base_url: str, shot) -> None:
     """The task view renders captured logs (local mode only).
 
     Runs a job that prints to stdout/stderr, opens ``@task <id>``, and asserts
@@ -114,6 +117,7 @@ def test_task_view_shows_logs(page, base_url: str) -> None:
     logs = page.locator("div.logs")
     logs.get_by_text("This is stdout").wait_for(timeout=15000)
     logs.get_by_text("Error message").wait_for(timeout=15000)
+    shot("task-logs")
 
     # Stream provenance: stderr lines carry the src-stderr marker, stdout lines don't.
     assert logs.locator(".src-stderr", has_text="Error message").count() == 1
@@ -122,7 +126,7 @@ def test_task_view_shows_logs(page, base_url: str) -> None:
 
 @_spa_built
 @_local_only
-def test_task_view_colors_logs_by_level(page, base_url: str) -> None:
+def test_task_view_colors_logs_by_level(page, base_url: str, shot) -> None:
     """The task view colors lines by level and shows timestamps only when toggled."""
     task_id = _run_task_and_wait(page, base_url, "aaiclick.orchestration.fixtures.sample_tasks.task_with_log_levels")
 
@@ -136,13 +140,15 @@ def test_task_view_colors_logs_by_level(page, base_url: str) -> None:
     assert error_color
 
     assert logs.locator(".ts").count() == 0
+    shot("task-logs-levels")
     page.get_by_label("Show timestamps").check()
     logs.locator(".ts").first.wait_for(timeout=5000)
+    shot("task-logs-timestamps")
 
 
 @_spa_built
 @_local_only
-def test_job_graph_view_renders_nodes(page, base_url: str) -> None:
+def test_job_graph_view_renders_nodes(page, base_url: str, shot) -> None:
     """`@job <ref> graph` renders a React Flow canvas with a node per task."""
     api = f"{base_url}/api/v0"
     entrypoint = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
@@ -166,11 +172,12 @@ def test_job_graph_view_renders_nodes(page, base_url: str) -> None:
     page.wait_for_selector("[data-testid='job-graph']", timeout=15000)
     page.locator(".gnode").first.wait_for(timeout=15000)
     assert page.locator(".gnode").count() >= 1
+    shot("job-graph-simple")
 
 
 @_spa_built
 @_local_only
-def test_task_view_meta_cells_do_not_overflow(page, base_url: str) -> None:
+def test_task_view_meta_cells_do_not_overflow(page, base_url: str, shot) -> None:
     """Long values wrap inside their grid cell instead of overlapping the next.
 
     Grid items default to ``min-width: auto`` and refuse to shrink below their
@@ -181,6 +188,7 @@ def test_task_view_meta_cells_do_not_overflow(page, base_url: str) -> None:
 
     open_page(page, f"{base_url}/?p=@task {task_id}")
     page.wait_for_selector(".meta div")
+    shot("task-meta")
 
     overflowing = page.eval_on_selector_all(
         ".meta div",
@@ -192,7 +200,7 @@ def test_task_view_meta_cells_do_not_overflow(page, base_url: str) -> None:
 
 @_spa_built
 @_local_only
-def test_task_view_truncates_long_entrypoint_from_the_start(page, base_url: str) -> None:
+def test_task_view_truncates_long_entrypoint_from_the_start(page, base_url: str, shot) -> None:
     """An over-long entrypoint stays on one line, keeps its tail, and expands.
 
     The elision is done in CSS so it fits the column exactly; the assertions
@@ -215,9 +223,11 @@ def test_task_view_truncates_long_entrypoint_from_the_start(page, base_url: str)
     # The toggle is a real, visible control — not just a dotted underline.
     assert toggle.is_visible()
     assert toggle.inner_text() == "show full"
+    shot("task-entrypoint-collapsed")
 
     toggle.click()
     page.wait_for_selector(".meta .truncated.is-expanded")
+    shot("task-entrypoint-expanded")
 
     assert toggle.inner_text() == "show less"
     assert value.bounding_box()["height"] > collapsed_height

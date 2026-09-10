@@ -233,8 +233,11 @@ terminal status write's signal triggers the last refetch.
 **Implementation**: `test_e2e/web/test_smoke.py` — golden-path smoke
 (home load, `@jobs` view, URL sync, job graph render); `test_e2e/web/conftest.py` — server
 fixture (uvicorn on a free port) + Playwright fixtures (`base_url`,
-`browser`, `page`). Playwright is an optional dep — tests skip cleanly
+`browser`, `page`, `shot`). Playwright is an optional dep — tests skip cleanly
 when the package is absent.
+
+`shot("name")` saves a numbered full-page PNG to `test-results/shots/`
+(reset per run, gitignored).
 
 **Why Playwright Python**: an e2e test exercises the browser, FastAPI,
 orchestrator, and DB together. `test_e2e/web/` shares the pytest harness

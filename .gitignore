@@ -238,3 +238,6 @@ vite.config.d.ts
 
 # Un-ignore src/lib/ (the `lib/` rule above would otherwise exclude it)
 !src/lib/
+
+# Playwright e2e screenshots (test_e2e/web `shot` fixture)
+test-results/
