@@ -204,17 +204,16 @@ called explicitly from the two entry points every writer passes through:
 
 **Layer 2 — why the two commit hooks.**
 
-- **Distributed mode (Postgres)** — `before_commit` flushes, then runs
-  `pg_notify` inside the transaction. `pg_notify` only queues the
-  notification; Postgres releases it as part of the commit, so a rolled-back
-  write sends nothing and a committed write can never go unannounced.
-  Notifying *after* the commit is not an option through the session:
-  SQLAlchemy refuses SQL in `after_commit` (the session is in the `committed`
-  state), and the workaround, a second pooled connection in that hook,
-  measured about 0.4 ms slower per write and deadlocks on a single-connection
-  pool because the session still holds its own connection when
-  `after_commit` fires. Postgres fans each `NOTIFY` out to every `LISTEN`
-  connection, so N API hosts hold N connections — no broker.
+- **Distributed mode (Postgres)** — `before_commit` runs `pg_notify` inside
+  the transaction.
+    - `pg_notify` only queues; Postgres releases at commit. Rollback sends
+      nothing, a committed write is never left unannounced.
+    - `after_commit` cannot emit SQL through the session (SQLAlchemy: session
+      is in the `committed` state).
+    - The workaround, a second pooled connection in `after_commit`, is about
+      0.4 ms slower per write and deadlocks on a single-connection pool.
+    - One `NOTIFY` reaches every `LISTEN` connection: N API hosts, N
+      connections, no broker.
 - **Local mode (SQLite)** — `after_commit` publishes straight onto the
   in-process bus. The workers run inside the server process, so a direct
   call reaches the streams with no network hop; it must run after the
