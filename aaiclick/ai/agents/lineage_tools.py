@@ -27,6 +27,7 @@ NodeKind = Literal["input", "intermediate", "target"]
 
 ToolErrorKind = Literal[
     "not_select",
+    "not_expression",
     "out_of_scope",
     "not_found",
     "not_live",
@@ -91,6 +92,9 @@ _FORBIDDEN_KEYWORDS_RE = re.compile(
 # injection. max_result_rows still caps the overall result, so the
 # worst case is an unbounded outer query truncated at the ceiling.
 _LIMIT_RE = re.compile(r"\bLIMIT\b\s+\d+", re.IGNORECASE)
+# A WHERE expression has no table position unless it opens a subquery; refusing
+# these keywords is what keeps an object-scoped query inside its object.
+_SUBQUERY_KEYWORDS_RE = re.compile(r"\b(SELECT|FROM|JOIN|UNION|WITH)\b", re.IGNORECASE)
 _COMMENT_RE = re.compile(r"--[^\n]*|/\*.*?\*/", re.DOTALL)
 _SEMICOLON_RE = re.compile(r";\s*\S")
 # Single-quoted SQL string literal with '' or \' escape handling.
@@ -166,6 +170,19 @@ def validate_select_safety(sql: str, *, scan: str | None = None) -> ToolError | 
         return ToolError("not_select", "Only SELECT (or WITH … SELECT) is permitted.")
     if _FORBIDDEN_KEYWORDS_RE.search(scan):
         return ToolError("not_select", "DDL/DML keywords are rejected; only SELECT is permitted.")
+    return None
+
+
+def validate_where_expression(expr: str) -> ToolError | None:
+    """Reject anything that is not a single boolean expression: statement
+    separators, DDL/DML keywords, and any subquery keyword."""
+    scan = normalize_sql_for_scan(expr)
+    if ";" in scan:
+        return ToolError("not_expression", "Only a single expression is allowed.")
+    if _FORBIDDEN_KEYWORDS_RE.search(scan):
+        return ToolError("not_expression", "DDL/DML keywords are rejected in a where expression.")
+    if _SUBQUERY_KEYWORDS_RE.search(scan):
+        return ToolError("not_expression", "Subqueries are not allowed in a where expression.")
     return None
 
 
