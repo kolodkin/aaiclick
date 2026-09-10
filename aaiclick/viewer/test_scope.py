@@ -2,20 +2,19 @@ from __future__ import annotations
 
 import pytest
 
-from aaiclick.viewer.scope import ScopeRef, parse_scope, scope_key
+from aaiclick.viewer.scope import ScopeRef, parse_scope
 
 
 @pytest.mark.parametrize(
     "key, expected",
     [
-        pytest.param("persistent", ScopeRef("persistent", None), id="persistent"),
-        pytest.param("job:123", ScopeRef("job", 123), id="job-id"),
-        pytest.param("job:nightly_etl", ScopeRef("job", "nightly_etl"), id="job-name"),
+        pytest.param("persistent", ScopeRef(None), id="persistent"),
+        pytest.param("job:123", ScopeRef("123"), id="job-id"),
+        pytest.param("job:nightly_etl", ScopeRef("nightly_etl"), id="job-name"),
     ],
 )
 def test_parse_scope(key, expected):
     assert parse_scope(key) == expected
-    assert scope_key(expected) == key
 
 
 @pytest.mark.parametrize("key", ["", "global", "job:", "job", "task:1"])

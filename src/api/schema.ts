@@ -708,7 +708,7 @@ export interface components {
         };
         /**
          * ColumnSchema
-         * @description Column inside a ``TableSchema``.
+         * @description One result column: its name and ClickHouse type string.
          */
         ColumnSchema: {
             /** Name */
@@ -803,7 +803,10 @@ export interface components {
              */
             updated_at: string;
         };
-        /** Deleted */
+        /**
+         * Deleted
+         * @description Response from a delete-by-name verb: the name that was removed.
+         */
         Deleted: {
             /** Name */
             name: string;
@@ -1118,14 +1121,6 @@ export interface components {
             username: string;
         };
         /**
-         * ObjectDeleted
-         * @description Response from ``internal_api.delete_object`` — name of the dropped table.
-         */
-        ObjectDeleted: {
-            /** Name */
-            name: string;
-        };
-        /**
          * ObjectDetail
          * @description Full object representation used by ``GET /objects/{name}``.
          */
@@ -1153,7 +1148,7 @@ export interface components {
         };
         /**
          * ObjectQuery
-         * @description What to read from one object: the part of a request that is saved.
+         * @description What to read from one object — a dashboard panel, or the saved part of a request.
          */
         ObjectQuery: {
             /** Fields */
@@ -1162,11 +1157,6 @@ export interface components {
             object: string;
             /** Order By */
             order_by?: components["schemas"]["OrderBy"][];
-            /**
-             * Scope
-             * @default persistent
-             */
-            scope: string;
             /** Where */
             where?: string | null;
         };
@@ -2405,7 +2395,9 @@ export interface operations {
     };
     get_object_api_v0_objects__name__get: {
         parameters: {
-            query?: never;
+            query?: {
+                job?: string | null;
+            };
             header?: never;
             path: {
                 name: string;
@@ -2460,7 +2452,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ObjectDeleted"];
+                    "application/json": components["schemas"]["Deleted"];
                 };
             };
             /** @description Forbidden */

@@ -1,6 +1,6 @@
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { columnNames, columnTypes, renderCell, ResultsTable } from "@qv/core";
-import { useObjects, useQueryObject } from "../api/hooks";
+import { useObjectRows, useObjects } from "../api/hooks";
 import type { ObjectView } from "../api/types";
 import { Chips } from "../components/Chips";
 import { MetaGrid } from "../components/MetaGrid";
@@ -8,8 +8,6 @@ import { ObjectsTable } from "../components/ObjectsTable";
 import { ScopeTree } from "../components/ScopeTree";
 import { relativeTime } from "../lib/format";
 import { dataPrompt, formatBytes, queryPrompt, rowsFromResult, scopeKey, scopeLabel } from "../lib/viewer";
-
-const PREVIEW_LIMIT = 100;
 
 export function Data({
   job,
@@ -63,12 +61,7 @@ function ObjectPreview({
   view: ObjectView | undefined;
   onPrompt: (v: string) => void;
 }) {
-  const query = useQueryObject();
-  const { mutate } = query;
-  useEffect(() => {
-    mutate({ scope, object: name, limit: PREVIEW_LIMIT, offset: 0, fmt: "json" });
-  }, [mutate, scope, name]);
-
+  const query = useObjectRows(scope, name);
   const rows = useMemo(() => (query.data ? rowsFromResult(query.data) : null), [query.data]);
   const columns = rows ? columnNames(rows) : [];
   const colTypes = rows ? columnTypes(rows) : {};

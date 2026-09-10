@@ -779,55 +779,50 @@ async def delete_persistent_objects(
     return [name_from_table(n) for n in names]
 
 
-async def list_persistent_tables(
-    after: datetime | None = None,
-    before: datetime | None = None,
-) -> list[str]:
-    """List the active tenant's persistent CH table names (``p_*``).
-
-    Reads SQL ``table_registry`` rather than scanning ``system.tables``:
-    ownership lives in SQL, and a ClickHouse scan cannot tell one tenant's
-    tables from another's without re-parsing every prefix.
-
-    Args:
-        after: Only tables registered at or after this time (inclusive).
-        before: Only tables registered before this time (exclusive).
-    """
+async def _registered_tables(*predicates) -> list[str]:
+    """The active tenant's CH table names in SQL ``table_registry`` matching
+    ``predicates`` — ownership lives in SQL, and a ClickHouse scan cannot tell
+    one tenant's tables from another's without re-parsing every prefix."""
     # Circular dep: orchestration imports the data package at import time,
     # so the registry model and SQL session are resolved at call time
     # (same pattern as aaiclick/data/object/ingest.py::_get_table_schema).
     from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
     from aaiclick.orchestration.sql_context import get_sql_session
 
-    predicates = [
-        TableRegistry.tenant_id == get_active_tenant_id(),
-        col(TableRegistry.table_name).startswith(GLOBAL_PREFIX, autoescape=True),
-    ]
+    async with get_sql_session() as session:
+        result = await session.execute(
+            select(TableRegistry.table_name).where(TableRegistry.tenant_id == get_active_tenant_id(), *predicates)
+        )
+    return sorted(row[0] for row in result.all())
+
+
+async def list_persistent_tables(
+    after: datetime | None = None,
+    before: datetime | None = None,
+) -> list[str]:
+    """List the active tenant's persistent CH table names (``p_*``).
+
+    Args:
+        after: Only tables registered at or after this time (inclusive).
+        before: Only tables registered before this time (exclusive).
+    """
+    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry  # Circular dep: see _registered_tables.
+
+    predicates = [col(TableRegistry.table_name).startswith(GLOBAL_PREFIX, autoescape=True)]
     if after is not None:
         predicates.append(col(TableRegistry.created_at) >= naive_utc(after))
     if before is not None:
         predicates.append(col(TableRegistry.created_at) < naive_utc(before))
-    async with get_sql_session() as session:
-        result = await session.execute(select(TableRegistry.table_name).where(*predicates))
-    return [row[0] for row in result.all()]
+    return await _registered_tables(*predicates)
 
 
 async def list_job_tables(job_id: int) -> list[str]:
     """List the active tenant's CH table names registered under ``job_id``."""
-    # Circular dep: orchestration imports the data package at import time
-    # (same pattern as list_persistent_tables).
-    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
-    from aaiclick.orchestration.sql_context import get_sql_session
+    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry  # Circular dep: see _registered_tables.
 
-    async with get_sql_session() as session:
-        result = await session.execute(
-            select(TableRegistry.table_name).where(
-                TableRegistry.tenant_id == get_active_tenant_id(),
-                TableRegistry.job_id == job_id,
-                col(TableRegistry.table_name).startswith(JOB_PREFIX, autoescape=True),
-            )
-        )
-    return sorted(row[0] for row in result.all())
+    return await _registered_tables(
+        TableRegistry.job_id == job_id, col(TableRegistry.table_name).startswith(JOB_PREFIX, autoescape=True)
+    )
 
 
 async def list_persistent_objects() -> list[str]:

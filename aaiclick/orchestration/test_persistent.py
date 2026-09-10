@@ -212,9 +212,17 @@ async def test_delete_clears_the_registry_row(orch_ctx):
     assert "short_lived" not in await list_persistent_objects()
 
 
+def _current_job_id() -> int:
+    lifecycle = get_data_lifecycle()
+    assert lifecycle is not None
+    job_id = lifecycle.current_job_id()
+    assert job_id is not None
+    return job_id
+
+
 async def test_open_object_with_explicit_job_id(orch_ctx):
-    obj = await create_object_from_value([1, 2], name="jscoped", scope="job")
-    job_id = int(obj.table.split("_")[1])
+    await create_object_from_value([1, 2], name="jscoped", scope="job")
+    job_id = _current_job_id()
 
     reopened = await open_object("jscoped", scope="job", job_id=job_id)
 
@@ -229,9 +237,9 @@ async def test_open_object_other_job_id_is_not_found(orch_ctx):
 
 
 async def test_list_job_tables_returns_only_that_job(orch_ctx):
-    obj = await create_object_from_value([1], name="jt_a", scope="job")
+    await create_object_from_value([1], name="jt_a", scope="job")
     await create_object_from_value([2], name="jt_p", scope="global")
-    job_id = int(obj.table.split("_")[1])
+    job_id = _current_job_id()
 
     assert await list_job_tables(job_id) == [f"j_{job_id}_jt_a"]
     assert await list_job_tables(1) == []

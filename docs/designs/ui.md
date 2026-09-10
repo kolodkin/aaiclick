@@ -160,7 +160,7 @@ views, straight from `POST /viewer/query` (see `docs/designs/viewer.md`).
 
 The scope tree plus an object picker; with an object chosen, the query
 panel: a `where` expression, limit / offset paging, the kernel's field and
-order-by pickers (fed from the object's schema), static `params:` dropdowns,
+order-by pickers (fed from `GET /objects/{name}[?job=…]`), static `params:` dropdowns,
 the cell-view YAML modal, a saved-query dropdown (Save / Delete), and CSV
 download. Saved queries persist through `PUT /viewer/queries/{name}`.
 
@@ -174,7 +174,7 @@ download. Saved queries persist through `PUT /viewer/queries/{name}`.
 
 **Prompt**: `@dashboard`, `@dashboard <name>`
 
-A dashboard picker, Refresh and Save buttons, and the dashboard's HTML in a
+A dashboard picker, a Refresh button, and the dashboard's HTML in a
 sandboxed iframe with the panel results exposed as `window.queries`
 (`POST /viewer/dashboards/{name}:run`). Authoring stays with agents and the
 CLI (`view dashboards save`).

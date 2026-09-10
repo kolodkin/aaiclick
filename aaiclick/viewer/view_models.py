@@ -7,7 +7,7 @@ from typing import Any, Literal, NamedTuple
 
 from pydantic import BaseModel, Field
 
-from aaiclick.ai.agents.lineage_tools import ColumnSchema
+from aaiclick.data.view_models import ColumnSchema
 
 ORDER_ASC = "ASC"
 ORDER_DESC = "DESC"
@@ -26,9 +26,8 @@ class OrderBy(NamedTuple):
 
 
 class ObjectQuery(BaseModel):
-    """What to read from one object: the part of a request that is saved."""
+    """What to read from one object — a dashboard panel, or the saved part of a request."""
 
-    scope: str = "persistent"  # "persistent" | "job:<id|name>"
     object: str
     fields: list[str] | None = None  # None = every column
     where: str | None = None  # SQL boolean expression over the object's columns
@@ -36,6 +35,7 @@ class ObjectQuery(BaseModel):
 
 
 class ObjectQueryRequest(ObjectQuery):
+    scope: str = "persistent"  # "persistent" | "job:<id|name>"
     limit: int = Field(default=100, ge=1, le=MAX_LIMIT)
     offset: int = Field(default=0, ge=0)
     fmt: QueryFormat = FMT_JSON
@@ -51,7 +51,7 @@ class ObjectQueryResult(BaseModel):
 
 class SavedQueryIn(ObjectQuery):
     name: str
-    scope: str | None = "persistent"  # None = the query is offered under every scope
+    scope: str | None = "persistent"  # "persistent" | "job:<id|name>"; None = offered under every scope
     cell_view: str | None = None  # raw YAML, see aaiclick/viewer/cell_view.py
 
 
@@ -69,7 +69,7 @@ class DashboardIn(BaseModel):
     name: str
     scope: str = "persistent"
     html: str
-    queries: dict[str, ObjectQuery]  # panel name → query
+    queries: dict[str, ObjectQuery]  # panel name → query, run under the dashboard's scope
 
 
 class Dashboard(DashboardIn):
@@ -87,7 +87,3 @@ class DashboardResults(BaseModel):
 
     results: dict[str, dict[str, list[Any]]]
     meta: dict[str, list[ColumnSchema]]
-
-
-class Deleted(BaseModel):
-    name: str

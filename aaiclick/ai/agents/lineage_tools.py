@@ -18,7 +18,14 @@ from typing import Any, Literal, NamedTuple
 from pydantic import BaseModel, Field
 
 from aaiclick.data.data_context import get_ch_client
-from aaiclick.data.sql_utils import escape_sql_string, quote_identifier
+from aaiclick.data.data_context.ch_client import DEFAULT_MAX_EXECUTION_TIME
+from aaiclick.data.sql_utils import (
+    FORBIDDEN_KEYWORDS_RE,
+    escape_sql_string,
+    normalize_sql_for_scan,
+    quote_identifier,
+)
+from aaiclick.data.view_models import ColumnSchema
 from aaiclick.oplog.lineage import OplogGraph
 
 logger = logging.getLogger(__name__)
@@ -27,7 +34,6 @@ NodeKind = Literal["input", "intermediate", "target"]
 
 ToolErrorKind = Literal[
     "not_select",
-    "not_expression",
     "out_of_scope",
     "not_found",
     "not_live",
@@ -51,13 +57,6 @@ class GraphNode(BaseModel):
     job_id: int | None = None
 
 
-class ColumnSchema(BaseModel):
-    """Column inside a ``TableSchema``."""
-
-    name: str
-    type: str
-
-
 class TableSchema(BaseModel):
     """Table schema returned by ``get_schema`` / ``get_table_schema``."""
 
@@ -79,41 +78,14 @@ class QueryResult(BaseModel):
 
 DEFAULT_ROW_LIMIT = 100
 ROW_LIMIT_CEILING = 1000
-DEFAULT_MAX_EXECUTION_TIME = 30
 
 _TABLE_REF_RE = re.compile(r"\bt_\d{16,20}\b|\bp_[A-Za-z_][A-Za-z0-9_]*\b")
 _STATEMENT_START_RE = re.compile(r"^\s*(?:WITH\b|SELECT\b)", re.IGNORECASE)
-_FORBIDDEN_KEYWORDS_RE = re.compile(
-    r"\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER|CREATE|RENAME|ATTACH|"
-    r"DETACH|OPTIMIZE|GRANT|REVOKE|USE|SET|SYSTEM|KILL|REPLACE|EXCHANGE)\b",
-    re.IGNORECASE,
-)
 # Any LIMIT anywhere (including in a subquery) suppresses outer-LIMIT
 # injection. max_result_rows still caps the overall result, so the
 # worst case is an unbounded outer query truncated at the ceiling.
 _LIMIT_RE = re.compile(r"\bLIMIT\b\s+\d+", re.IGNORECASE)
-# A WHERE expression has no table position unless it opens a subquery; refusing
-# these keywords is what keeps an object-scoped query inside its object.
-_SUBQUERY_KEYWORDS_RE = re.compile(r"\b(SELECT|FROM|JOIN|UNION|WITH)\b", re.IGNORECASE)
-_COMMENT_RE = re.compile(r"--[^\n]*|/\*.*?\*/", re.DOTALL)
 _SEMICOLON_RE = re.compile(r";\s*\S")
-# Single-quoted SQL string literal with '' or \' escape handling.
-_STRING_LITERAL_RE = re.compile(r"'(?:\\.|''|[^'\\])*'", re.DOTALL)
-
-
-def _strip_comments(sql: str) -> str:
-    return _COMMENT_RE.sub(" ", sql)
-
-
-def _strip_literals(sql: str) -> str:
-    """Replace single-quoted string literals with empty ``''`` placeholders.
-
-    Used before keyword / semicolon / scope / LIMIT regex passes so that
-    a legitimate ``WHERE event = 'INSERT'`` doesn't trip the forbidden-
-    keyword guard, and ``WHERE name = 't_12345678901234567890'`` doesn't
-    trip the scope check.
-    """
-    return _STRING_LITERAL_RE.sub("''", sql)
 
 
 def _target_tables(graph: OplogGraph) -> set[str]:
@@ -146,16 +118,6 @@ def _classify_nodes(graph: OplogGraph) -> dict[str, NodeKind]:
     return kinds
 
 
-def normalize_sql_for_scan(sql: str) -> str:
-    """Strip comments and literals so SQL safety/scope regex passes don't trip on them.
-
-    Callers running multiple validation passes on the same SQL should compute this
-    once and thread it through ``validate_select_safety(scan=...)`` /
-    ``validate_scope(scan=...)`` / ``run_select(scan=...)``.
-    """
-    return _strip_literals(_strip_comments(sql))
-
-
 def validate_select_safety(sql: str, *, scan: str | None = None) -> ToolError | None:
     """Reject anything that isn't a single read-only ``SELECT`` (or ``WITH … SELECT``).
 
@@ -168,21 +130,8 @@ def validate_select_safety(sql: str, *, scan: str | None = None) -> ToolError | 
         return ToolError("not_select", "Only a single SELECT statement is allowed.")
     if not _STATEMENT_START_RE.match(scan):
         return ToolError("not_select", "Only SELECT (or WITH … SELECT) is permitted.")
-    if _FORBIDDEN_KEYWORDS_RE.search(scan):
+    if FORBIDDEN_KEYWORDS_RE.search(scan):
         return ToolError("not_select", "DDL/DML keywords are rejected; only SELECT is permitted.")
-    return None
-
-
-def validate_where_expression(expr: str) -> ToolError | None:
-    """Reject anything that is not a single boolean expression: statement
-    separators, DDL/DML keywords, and any subquery keyword."""
-    scan = normalize_sql_for_scan(expr)
-    if ";" in scan:
-        return ToolError("not_expression", "Only a single expression is allowed.")
-    if _FORBIDDEN_KEYWORDS_RE.search(scan):
-        return ToolError("not_expression", "DDL/DML keywords are rejected in a where expression.")
-    if _SUBQUERY_KEYWORDS_RE.search(scan):
-        return ToolError("not_expression", "Subqueries are not allowed in a where expression.")
     return None
 
 

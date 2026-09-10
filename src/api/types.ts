@@ -35,7 +35,6 @@ export type SavedQuery = S["SavedQuery"];
 export type SavedQueryBody = S["SavedQueryBody"];
 export type DashboardSummary = S["DashboardSummary"];
 export type Dashboard = S["Dashboard"];
-export type DashboardBody = S["DashboardBody"];
 export type DashboardResults = S["DashboardResults"];
 export type Deleted = S["Deleted"];
 

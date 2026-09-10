@@ -20,16 +20,14 @@ export function scopeLabel(scope: string): string {
   return job ? `Job ${job}` : "Persistent";
 }
 
-// The `@data` / `@query` prompt for a scope and optional object.
-export function dataPrompt(scope: string, object?: string): string {
+// `<verb> [job <ref>] [<object>]` — the `@data` / `@query` prompt for a scope.
+function scopedPrompt(verb: "@data" | "@query", scope: string, object?: string): string {
   const job = jobOfScope(scope);
-  return ["@data", job ? `job ${job}` : "", object ?? ""].filter(Boolean).join(" ");
+  return [verb, job ? `job ${job}` : "", object ?? ""].filter(Boolean).join(" ");
 }
 
-export function queryPrompt(scope: string, object?: string): string {
-  const job = jobOfScope(scope);
-  return ["@query", job ? `job ${job}` : "", object ?? ""].filter(Boolean).join(" ");
-}
+export const dataPrompt = (scope: string, object?: string) => scopedPrompt("@data", scope, object);
+export const queryPrompt = (scope: string, object?: string) => scopedPrompt("@query", scope, object);
 
 // The backend serialises OrderBy as a [name, dir] pair; the kernel wants objects.
 export function orderColsToPairs(cols: OrderCol[]): OrderByPair[] {

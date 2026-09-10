@@ -152,8 +152,13 @@ async def test_list_objects_job_scope_by_ref():
     page = await objects.list_objects(ObjectFilter(scope="job", job=job.id))
     assert [(o.name, o.scope, o.table) for o in page.items] == [("result", "job", f"j_{job.id}_result")]
 
-    by_name = await objects.list_objects(ObjectFilter(scope="job", job="objs_job"))
+    by_name = await objects.list_objects(ObjectFilter(job="objs_job"))
     assert [o.name for o in by_name.items] == ["result"]
+
+    detail = await objects.get_object("result", job="objs_job")
+    assert detail.table == f"j_{job.id}_result"
+    with pytest.raises(errors.NotFound):
+        await objects.get_object("persist", job=job.id)
 
 
 async def test_list_objects_job_scope_requires_job():

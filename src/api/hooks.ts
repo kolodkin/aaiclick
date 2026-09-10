@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { deleteJSON, fetchJSON, postJSON, putJSON } from "./client";
+import { jobOfScope } from "../lib/viewer";
 import type {
   Dashboard,
-  DashboardBody,
   DashboardResults,
   DashboardSummary,
   Deleted,
@@ -23,10 +23,12 @@ import type {
   TaskLogs,
 } from "./types";
 
-export function useJobs() {
+// `poll: false` for callers that only need names (the viewer's scope tree).
+export function useJobs({ poll = true }: { poll?: boolean } = {}) {
   return useQuery({
     queryKey: ["jobs"],
     queryFn: () => fetchJSON<Page<JobView>>("/jobs"),
+    refetchInterval: poll ? undefined : false,
   });
 }
 
@@ -110,29 +112,42 @@ export function useToggleRegisteredJob() {
 
 // --- viewer ---------------------------------------------------------------
 
-function objectsPath(scope: string): string {
-  const job = scope.startsWith("job:") ? scope.slice(4) : null;
-  return job ? `/objects?scope=job&job=${encodeURIComponent(job)}` : "/objects";
+function jobParam(scope: string): string {
+  const job = jobOfScope(scope);
+  return job ? `?job=${encodeURIComponent(job)}` : "";
 }
 
 export function useObjects(scope: string) {
   return useQuery({
     queryKey: ["objects", scope],
-    queryFn: () => fetchJSON<Page<ObjectView>>(objectsPath(scope)),
+    queryFn: () => fetchJSON<Page<ObjectView>>(`/objects${jobParam(scope)}`),
+    refetchInterval: false,
   });
 }
 
-export function useObject(name: string) {
+export function useObject(scope: string, name: string) {
   return useQuery({
-    queryKey: ["object", name],
-    queryFn: () => fetchJSON<ObjectDetail>(`/objects/${encodeURIComponent(name)}`),
+    queryKey: ["object", scope, name],
+    queryFn: () => fetchJSON<ObjectDetail>(`/objects/${encodeURIComponent(name)}${jobParam(scope)}`),
     enabled: name.length > 0,
     refetchInterval: false,
   });
 }
 
-// A query is a mutation: it runs on demand (Execute, paging, params) rather
-// than polling, and its result is per-panel state.
+const PREVIEW_LIMIT = 100;
+
+// The first page of an object's rows — a POST-backed read, cached per object.
+export function useObjectRows(scope: string, object: string) {
+  return useQuery({
+    queryKey: ["object-rows", scope, object],
+    queryFn: () =>
+      postJSON<ObjectQueryResult>("/viewer/query", { scope, object, limit: PREVIEW_LIMIT, offset: 0, fmt: "json" }),
+    refetchInterval: false,
+  });
+}
+
+// The query panel runs on demand (Execute, paging, params): a mutation whose
+// result is panel state.
 export function useQueryObject() {
   return useMutation({
     mutationFn: (req: ObjectQueryRequest) => postJSON<ObjectQueryResult>("/viewer/query", req),
@@ -189,17 +204,5 @@ export function useRunDashboard(name: string) {
     queryFn: () => postJSON<DashboardResults>(`/viewer/dashboards/${encodeURIComponent(name)}:run`),
     enabled: name.length > 0,
     refetchInterval: false,
-  });
-}
-
-export function useSaveDashboard() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ name, body }: { name: string; body: DashboardBody }) =>
-      putJSON<Dashboard>(`/viewer/dashboards/${encodeURIComponent(name)}`, body),
-    onSuccess: (_d, { name }) => {
-      qc.invalidateQueries({ queryKey: ["dashboards"] });
-      qc.invalidateQueries({ queryKey: ["dashboard", name] });
-    },
   });
 }

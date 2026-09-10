@@ -10,12 +10,12 @@ from pathlib import Path
 
 import pytest
 from helpers import open_page
-from playwright.sync_api import expect
 
 from aaiclick.backend import is_local
 
 STATIC = Path(__file__).resolve().parents[2] / "aaiclick" / "server" / "static" / "index.html"
 pytest.importorskip("playwright.sync_api")
+from playwright.sync_api import expect  # noqa: E402  (must follow the playwright guard)
 
 _spa_built = pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
 _local_only = pytest.mark.skipif(not is_local(), reason="the viewer seed runs through chdb (local mode)")

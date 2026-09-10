@@ -56,9 +56,9 @@ one run, a name the latest run with that name. Saved queries and dashboards
 store the key as given, so `job:nightly_etl` follows each new run while
 `job:123` stays pinned. Temp and oplog tables never appear.
 
-**Implementation**: `aaiclick/viewer/scope.py` — see `parse_scope`,
-`scope_key`; `aaiclick/internal_api/viewer.py` — see `resolve_scope`,
-`open_scoped`.
+**Implementation**: `aaiclick/viewer/scope.py` — see `parse_scope`;
+`aaiclick/internal_api/objects.py` — see `open_scoped` (also behind
+`get_object(name, job)` and `list_objects(ObjectFilter(job=…))`).
 
 Every surface identifies an object as `(scope, name)`; the tenant is never a
 parameter (REST: `X-Tenant-Id` via `require_tenant`; MCP and CLI: the default
@@ -74,10 +74,10 @@ resolves the object with `open_object(name, scope)` and builds the SELECT
 with the Object API (`obj.view(...)` + `select_sql(columns=...)`), so the
 table name is produced inside `aaiclick/data` like for every other consumer;
 the SPA, MCP, and CLI never see one. The `where` expression is the one
-free-text input: `validate_where_expression`
-(`aaiclick/ai/agents/lineage_tools.py`) rejects statement separators, DDL/DML
-keywords, and `SELECT` / `FROM` / `JOIN` / `UNION` / `WITH`, so it has no
-table position and cannot reach another object. Columns come from the
+free-text input: `validate_where_expression` (`aaiclick/data/sql_utils.py`,
+shared with the lineage agent's SQL guards) rejects statement separators,
+DDL/DML keywords, and `SELECT` / `FROM` / `JOIN` / `UNION` / `WITH`, so it has
+no table position and cannot reach another object. Columns come from the
 object's registered schema, so there is no `DESCRIBE` step. Free-form SQL
 across objects is in `future.md`.
 
@@ -86,17 +86,17 @@ across objects is in `future.md`.
 The viewer builds on three additions to `aaiclick/data` and
 `aaiclick/internal_api`:
 
-- `list_objects(scope="job", job=…)` (`aaiclick/internal_api/objects.py`),
-  `open_object(job_id=)` and `list_job_tables`
-  (`aaiclick/data/data_context/data_context.py`) for callers outside a task.
+- `list_objects(ObjectFilter(job=…))` and `get_object(name, job=…)`
+  (`aaiclick/internal_api/objects.py`); `open_object(job_id=)` and
+  `list_job_tables` (`aaiclick/data/data_context/data_context.py`) for callers
+  outside a task.
 - `Object.select_sql()` (`aaiclick/data/object/object.py`): the SELECT an
   object reads itself with; `View` and `LazyOperator` inherit it.
-- `query_text(sql, fmt, settings)` (`aaiclick/data/data_context/ch_client.py`):
-  ClickHouse's own output for a named format on chdb and clickhouse-connect.
-  `JSONCompact` with the `output_format_json_*` quoting settings QueryView's
-  driver sends (`JSON_SETTINGS` in `aaiclick/internal_api/viewer.py`) means
-  the kernel renders `{meta, data}` unchanged and aaiclick formats no values;
-  CSV uses `CSVWithNames`.
+- `query_text(sql, fmt, settings)` (`aaiclick/data/data_context/ch_client.py`,
+  over the clients' shared `raw_query`): ClickHouse's own output for a named
+  format. `JSONCompact` with `JSON_COMPACT_SETTINGS` (the `output_format_json_*`
+  quoting QueryView's driver sends) means the kernel renders `{meta, data}`
+  unchanged and aaiclick formats no values; CSV uses `CSVWithNames`.
 
 ## Internal API
 
@@ -112,11 +112,11 @@ The viewer builds on three additions to `aaiclick/data` and
 | `list_dashboards()` / `get_dashboard(name)` | `Page[DashboardSummary]` / `Dashboard` |                                                                                         |
 | `save_dashboard(DashboardIn)`               | `Dashboard`                            | upsert on `(tenant, name)`; `queries` is `dict[panel, ObjectQuery]`                      |
 | `delete_dashboard(name)`                    | `Deleted`                              |                                                                                         |
-| `run_dashboard(name)`                       | `DashboardResults`                     | runs every panel under the dashboard's scope; column-oriented, the `window.queries` contract |
+| `run_dashboard(name)`                       | `DashboardResults`                     | runs the panels concurrently under the dashboard's scope; column-oriented, the `window.queries` contract |
 
-Models: `aaiclick/viewer/view_models.py`. A saved query is an
-`ObjectQueryRequest` minus paging plus `name` and `cell_view`; a dashboard
-panel is the same minus `cell_view`. Code-declared queries need no separate
+Models: `aaiclick/viewer/view_models.py`. `ObjectQuery` (object, fields,
+where, order_by) is a dashboard panel; a saved query adds `name`, `scope`, and
+`cell_view`; a request adds `scope`, paging, and `fmt`. Code-declared queries need no separate
 mechanism: job code calls `save_query` through the same `internal_api`.
 
 ## Storage
@@ -147,13 +147,12 @@ and `where` with the rules above.
 
 Modes, prompts, and per-view implementation references: `docs/designs/ui.md`.
 Hooks: `src/api/hooks.ts` (`useObjects`, `useObject`, `useQueryObject`,
-`useSavedQueries`, `useSaveQuery`, `useDeleteSavedQuery`, `useDashboards`,
-`useDashboard`, `useRunDashboard`, `useSaveDashboard`); routes:
+`useObjectRows`, `useSavedQueries`, `useSaveQuery`, `useDeleteSavedQuery`,
+`useDashboards`, `useDashboard`, `useRunDashboard`); routes:
 `src/prompt.ts` (`parseScoped`). Object rows in `@data` come from the same
 `query_object` with no constraints, so `@data` and `@query` share one hook
-and one result shape. The Fields picker is fed from `useObject`'s schema
-(persistent scope only) and only static `params:` options render — both
-limits are in `future.md`.
+and one result shape. The Fields picker is fed from `useObject`'s schema;
+only static `params:` options render (`future.md`).
 
 Local mode (`python -m aaiclick local start`) runs the API and workers in one
 process, so the viewer's ClickHouse access nests into the runtime context and

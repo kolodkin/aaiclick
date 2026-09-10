@@ -147,12 +147,8 @@ See `viewer.md` for the shipped design.
 - **`options_sql` params**: the kernel's `params:` block accepts a query
   whose first column feeds a dropdown; aaiclick has no free-SQL endpoint, so
   `QueryPanel` renders static `options` only.
-- **Typed Fields picker for job-scoped objects**: `GET /objects/{name}` is
-  persistent-only, so `@query job <ref> <object>` shows every column without
-  a picker until object detail takes a scope.
-- **Dashboard authoring in the UI**: `@dashboard` picks, runs, and re-saves;
-  HTML and panel queries are written through MCP, REST, or `view dashboards
-  save`.
+- **Dashboard authoring in the UI**: `@dashboard` picks and runs; HTML and
+  panel queries are written through MCP, REST, or `view dashboards save`.
 
 ## Lazy Operator — Chain Fusion
 

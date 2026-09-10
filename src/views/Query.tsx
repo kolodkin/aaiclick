@@ -16,10 +16,7 @@ export function Query({
 }) {
   const scope = scopeKey(job);
   const objects = useObjects(scope);
-  // The Fields picker needs column types; `GET /objects/{name}` serves the
-  // persistent scope only. A job-scoped object gets no picker and every
-  // result column shows (see docs/designs/future.md).
-  const detail = useObject(job ? "" : (object ?? ""));
+  const detail = useObject(scope, object ?? "");
   const fields = useMemo(
     () => (detail.data ? fieldsFromSchema(detail.data.table_schema.columns) : []),
     [detail.data],
@@ -56,8 +53,11 @@ export function Query({
               ))}
             </select>
           </div>
-          {/* Keyed so a different object remounts the panel with fresh state. */}
-          {object && <QueryPanel key={`${scope}/${object}`} scope={scope} object={object} fields={fields} />}
+          {/* Mounted once the schema is known (so its state seeds from the real
+              field list) and keyed so another object remounts it fresh. */}
+          {object && !detail.isPending && (
+            <QueryPanel key={`${scope}/${object}`} scope={scope} object={object} fields={fields} />
+          )}
         </div>
       </div>
     </>

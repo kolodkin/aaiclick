@@ -369,19 +369,19 @@ def _parse_datetime(value: str) -> datetime:
 
 
 async def _run_data_list(args: argparse.Namespace) -> None:
-    filter = ObjectFilter(prefix=args.prefix, limit=args.limit)
+    filter = ObjectFilter(prefix=args.prefix, job=args.job, limit=args.limit)
     page = await _run_data_api(internal_api.list_objects(filter))
     _render(args, page, cli_renderers.render_objects_page)
 
 
 async def _run_data_get(args: argparse.Namespace) -> None:
-    detail = await _run_data_api(internal_api.get_object(args.name))
+    detail = await _run_data_api(internal_api.get_object(args.name, args.job))
     _render(args, detail, cli_renderers.render_object_detail)
 
 
 async def _run_data_delete(args: argparse.Namespace) -> None:
     view = await _run_data_api(internal_api.delete_object(args.name))
-    _render(args, view, cli_renderers.render_object_deleted)
+    _render(args, view, cli_renderers.render_deleted)
 
 
 async def _run_data_purge(args: argparse.Namespace) -> None:
@@ -1149,6 +1149,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=50,
         help="Maximum results (default: 50)",
     )
+    data_list_parser.add_argument("--job", default=None, help="List one job's objects (id or name)")
     _add_json_flag(data_list_parser)
 
     # data get <name>
@@ -1157,6 +1158,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show persistent object details",
     )
     data_get_parser.add_argument("name", type=str, help="Persistent object name")
+    data_get_parser.add_argument("--job", default=None, help="The object's job (id or name); default: global tier")
     _add_json_flag(data_get_parser)
 
     # data delete <name>
@@ -1201,12 +1203,14 @@ def build_parser() -> argparse.ArgumentParser:
     view_subparsers = view_parser.add_subparsers(dest="view_command", help="View commands")
 
     vq = view_subparsers.add_parser("queries", help="Saved queries")
-    vq_sub = vq.add_subparsers(dest="queries_command")
+    vq_sub = vq.add_subparsers(dest="view_verb")
     p = vq_sub.add_parser("list", help="List saved queries")
+    p.set_defaults(handler=_run_view_queries_list)
     p.add_argument("--scope", default=None)
     p.add_argument("--object", default=None)
     _add_json_flag(p)
     p = vq_sub.add_parser("save", help="Create or replace a saved query")
+    p.set_defaults(handler=_run_view_queries_save)
     p.add_argument("name")
     p.add_argument("object")
     p.add_argument("--scope", default="persistent")
@@ -1216,24 +1220,30 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--cell-view", dest="cell_view", default=None, help="Path to a cell_view YAML file")
     _add_json_flag(p)
     p = vq_sub.add_parser("delete", help="Delete a saved query")
+    p.set_defaults(handler=_run_view_queries_delete)
     p.add_argument("name")
     _add_json_flag(p)
 
     vd = view_subparsers.add_parser("dashboards", help="Dashboards")
-    vd_sub = vd.add_subparsers(dest="dashboards_command")
+    vd_sub = vd.add_subparsers(dest="view_verb")
     p = vd_sub.add_parser("list", help="List dashboards")
+    p.set_defaults(handler=_run_view_dashboards_list)
     _add_json_flag(p)
     p = vd_sub.add_parser("get", help="Show a dashboard")
+    p.set_defaults(handler=_run_view_dashboards_get)
     p.add_argument("name")
     _add_json_flag(p)
     p = vd_sub.add_parser("save", help="Create or replace a dashboard from a JSON file")
+    p.set_defaults(handler=_run_view_dashboards_save)
     p.add_argument("name")
     p.add_argument("--file", required=True, help='JSON: {"scope"?, "html", "queries": {panel: {object, ...}}}')
     _add_json_flag(p)
     p = vd_sub.add_parser("delete", help="Delete a dashboard")
+    p.set_defaults(handler=_run_view_dashboards_delete)
     p.add_argument("name")
     _add_json_flag(p)
     p = vd_sub.add_parser("run", help="Run a dashboard's panel queries")
+    p.set_defaults(handler=_run_view_dashboards_run)
     p.add_argument("name")
     _add_json_flag(p)
 
@@ -1554,18 +1564,8 @@ def main():
             subcommands["data"].print_help()
 
     elif args.command == "view":
-        view_handlers: dict[tuple[str | None, str | None], Any] = {
-            ("queries", "list"): _run_view_queries_list,
-            ("queries", "save"): _run_view_queries_save,
-            ("queries", "delete"): _run_view_queries_delete,
-            ("dashboards", "list"): _run_view_dashboards_list,
-            ("dashboards", "get"): _run_view_dashboards_get,
-            ("dashboards", "save"): _run_view_dashboards_save,
-            ("dashboards", "delete"): _run_view_dashboards_delete,
-            ("dashboards", "run"): _run_view_dashboards_run,
-        }
-        key = (args.view_command, getattr(args, "queries_command", None) or getattr(args, "dashboards_command", None))
-        view_handler = view_handlers.get(key)
+        # Each leaf parser carries its handler via set_defaults (see build_parser).
+        view_handler = getattr(args, "handler", None)
         if view_handler is None:
             subcommands["view"].print_help()
         else:

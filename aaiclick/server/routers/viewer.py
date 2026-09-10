@@ -3,13 +3,12 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from aaiclick.internal_api import viewer as viewer_api
-from aaiclick.view_models import Page
+from aaiclick.view_models import Deleted, Page
 from aaiclick.viewer.view_models import (
     Dashboard,
     DashboardIn,
     DashboardResults,
     DashboardSummary,
-    Deleted,
     ObjectQueryRequest,
     ObjectQueryResult,
     SavedQuery,

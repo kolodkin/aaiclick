@@ -27,9 +27,9 @@ from aaiclick.view_models import (
     OLLAMA_NOT_OLLAMA,
     OLLAMA_PULLED,
     OLLAMA_SERVER_UNREACHABLE,
+    Deleted,
     LineageAnswer,
     MigrationResult,
-    ObjectDeleted,
     OllamaBootstrapResult,
     Page,
     PurgeObjectsResult,
@@ -39,7 +39,6 @@ from aaiclick.viewer.view_models import (
     Dashboard,
     DashboardResults,
     DashboardSummary,
-    Deleted,
     ObjectQueryResult,
     SavedQuery,
 )
@@ -295,7 +294,7 @@ def render_object_detail(detail: ObjectDetail) -> None:
         print(f"  {name}: {info.type}")
 
 
-def render_object_deleted(view: ObjectDeleted) -> None:
+def render_deleted(view: Deleted) -> None:
     """Single-line confirmation that ``internal_api.delete_object`` succeeded."""
     print(f"Deleted persistent object '{view.name}'")
 
@@ -434,7 +433,3 @@ def render_dashboard_results(r: DashboardResults) -> None:
     for panel, columns in r.results.items():
         rows = len(next(iter(columns.values()), []))
         print(f"{panel}: {rows} row(s), columns {', '.join(columns)}")
-
-
-def render_deleted(view: Deleted) -> None:
-    print(f"Deleted '{view.name}'")

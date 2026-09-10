@@ -65,12 +65,6 @@ export function QueryPanel({ scope, object, fields }: { scope: string; object: s
   const paramDefs = useMemo(() => staticParams(cellView), [cellView]);
   const colTypes = useMemo(() => (rows ? columnTypes(rows) : {}), [rows]);
 
-  // The schema arrives after mount for a persistent object: default to every
-  // column visible once it does, unless a saved query already narrowed it.
-  useEffect(() => {
-    setVisibleCols((prev) => (prev.length ? prev : fields.map((f) => f.name)));
-  }, [fields]);
-
   // Seed each param to its first option, keeping a still-valid pick.
   useEffect(() => {
     setParamValues((prev) => {
@@ -80,14 +74,20 @@ export function QueryPanel({ scope, object, fields }: { scope: string; object: s
     });
   }, [paramDefs]);
 
-  function request(nextOffset: number, params = paramValues): ObjectQueryRequest {
+  // The saved shape of the pickers: an empty selection means "all" (null) on the wire.
+  function presentation() {
     const { fields: f, order_by } = presentationForSave(orderBy, visibleCols);
+    return { fields: f, order_by: orderColsToPairs(order_by ?? []) };
+  }
+
+  const isSaved = (name: string) => saved.data?.items.some((s) => s.name === name) ?? false;
+
+  function request(nextOffset: number, params = paramValues): ObjectQueryRequest {
     return {
       scope,
       object,
       where: where.trim() ? applyParams(where, paramDefs, params) : null,
-      fields: f,
-      order_by: orderColsToPairs(order_by ?? []),
+      ...presentation(),
       limit,
       offset: nextOffset,
       fmt: "json",
@@ -144,8 +144,7 @@ export function QueryPanel({ scope, object, fields }: { scope: string; object: s
           scope,
           object,
           where: where.trim() || null,
-          fields: presentationForSave(orderBy, visibleCols).fields,
-          order_by: orderColsToPairs(orderBy),
+          ...presentation(),
           cell_view: cellViewValue || null,
         },
       },
@@ -162,7 +161,7 @@ export function QueryPanel({ scope, object, fields }: { scope: string; object: s
 
   function deleteSaved() {
     const name = selectedName.trim();
-    if (!name || !saved.data?.items.some((s) => s.name === name)) return;
+    if (!name || !isSaved(name)) return;
     remove.mutate(name, {
       onSuccess: () => {
         setSelectedName("");
@@ -187,9 +186,7 @@ export function QueryPanel({ scope, object, fields }: { scope: string; object: s
         >
           <option value="">Saved queries…</option>
           <option value={NEW_NAME}>+ New name…</option>
-          {selectedName !== "" && !saved.data?.items.some((s) => s.name === selectedName) && (
-            <option value={selectedName}>{selectedName}</option>
-          )}
+          {selectedName !== "" && !isSaved(selectedName) && <option value={selectedName}>{selectedName}</option>}
           {saved.data?.items.map((s) => (
             <option key={s.name} value={s.name}>
               {s.name}

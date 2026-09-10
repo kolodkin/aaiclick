@@ -5,7 +5,7 @@ import { PERSISTENT, scopeKey } from "../lib/viewer";
 // Left-hand scope selector: Persistent, then the jobs (newest first) with a
 // name filter. Job nodes reuse the jobs list; a click sets the scope key.
 export function ScopeTree({ scope, onScope }: { scope: string; onScope: (scope: string) => void }) {
-  const { data } = useJobs();
+  const { data } = useJobs({ poll: false });
   const [filter, setFilter] = useState("");
   const jobs = (data?.items ?? []).filter((j) => j.name.includes(filter));
   return (

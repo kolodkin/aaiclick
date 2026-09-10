@@ -1,12 +1,11 @@
 import { DashboardFrame } from "@qv/core";
-import { useDashboard, useDashboards, useRunDashboard, useSaveDashboard } from "../api/hooks";
+import { useDashboard, useDashboards, useRunDashboard } from "../api/hooks";
 import { Chips } from "../components/Chips";
 
 export function Dashboard({ name, onPrompt }: { name: string | null; onPrompt: (v: string) => void }) {
   const list = useDashboards();
   const dashboard = useDashboard(name ?? "");
   const results = useRunDashboard(name ?? "");
-  const save = useSaveDashboard();
 
   return (
     <>
@@ -43,18 +42,6 @@ export function Dashboard({ name, onPrompt }: { name: string | null; onPrompt: (
           onClick={() => results.refetch()}
         >
           Refresh
-        </button>
-        <button
-          type="button"
-          className="btn btn-sm"
-          data-testid="dashboard-save"
-          disabled={!dashboard.data || save.isPending}
-          onClick={() => {
-            const d = dashboard.data;
-            if (d) save.mutate({ name: d.name, body: { name: d.name, scope: d.scope, html: d.html, queries: d.queries } });
-          }}
-        >
-          Save
         </button>
       </div>
       {!name && (

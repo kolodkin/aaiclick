@@ -60,6 +60,16 @@ class ChClient(Protocol):
         column_oriented: bool = False,
         column_type_names: Sequence[str] | None = None,
     ) -> None: ...
+    async def raw_query(
+        self,
+        query: str,
+        parameters: dict | None = None,
+        settings: dict | None = None,
+        fmt: str | None = None,
+    ) -> bytes:
+        """ClickHouse's own output for ``query`` in format ``fmt``, as bytes."""
+        ...
+
     async def insert_arrow(self, table: str, arrow_table: pa.Table) -> None:
         """Insert an arrow table; column names come from the arrow schema.
 
@@ -154,19 +164,24 @@ async def export_query_to_file(query: str, path: str, fmt: str) -> str:
     return abs_path
 
 
-async def query_text(sql: str, fmt: str, settings: dict | None = None) -> str:
-    """Run ``sql`` and return ClickHouse's own output in format ``fmt`` as text.
+DEFAULT_MAX_EXECUTION_TIME = 30
+JSON_COMPACT = "JSONCompact"
+CSV_WITH_NAMES = "CSVWithNames"
+# Lossless JSONCompact: 64-bit integers, decimals, and denormals arrive quoted
+# and named tuples as objects — the settings QueryView's driver sends, so the
+# kernel renders {meta, data} unchanged.
+JSON_COMPACT_SETTINGS = {
+    "output_format_json_quote_64bit_integers": 1,
+    "output_format_json_quote_decimals": 1,
+    "output_format_json_quote_denormals": 1,
+    "output_format_json_named_tuples_as_objects": 1,
+}
 
-    Lets a caller hand ClickHouse's ``JSONCompact`` or ``CSVWithNames`` output
-    through unchanged instead of re-serialising Python values. Mirrors
-    ``export_query_to_file``: chdb has the method on its adapter, while the
-    clickhouse-connect client exposes ``raw_query``.
-    """
-    client = get_ch_client()
-    if is_chdb():
-        return await client.query_text(sql, fmt, settings)  # type: ignore[attr-defined]
-    raw = await client.raw_query(sql, fmt=fmt, settings=settings)  # type: ignore[attr-defined]
-    return raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else str(raw)
+
+async def query_text(sql: str, fmt: str, settings: dict | None = None) -> str:
+    """Run ``sql`` and return ClickHouse's own output in format ``fmt`` as text,
+    so ``JSONCompact`` / ``CSVWithNames`` pass through without re-serialising."""
+    return (await get_ch_client().raw_query(sql, settings=settings, fmt=fmt)).decode("utf-8")
 
 
 async def create_ch_client() -> ChClient:

@@ -52,11 +52,11 @@ from aaiclick.orchestration.view_models import (
     TaskDetail,
 )
 from aaiclick.view_models import (
+    Deleted,
     ExecutionWorkerFilter,
     JobListFilter,
     MigrationAction,
     MigrationResult,
-    ObjectDeleted,
     ObjectFilter,
     OllamaBootstrapResult,
     Page,
@@ -74,7 +74,6 @@ from aaiclick.viewer.view_models import (
     DashboardIn,
     DashboardResults,
     DashboardSummary,
-    Deleted,
     ObjectQueryRequest,
     ObjectQueryResult,
     SavedQuery,
@@ -228,14 +227,14 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
 
 
 @mcp.tool
-async def get_object(name: str) -> ObjectDetail:
-    """Return full object detail including its schema."""
+async def get_object(name: str, job: RefId | None = None) -> ObjectDetail:
+    """Return full object detail including its schema; ``job`` selects that job's object."""
     async with orch_context(with_ch=True):
-        return await objects_api.get_object(name)
+        return await objects_api.get_object(name, job)
 
 
 @mcp.tool
-async def delete_object(name: str) -> ObjectDeleted:
+async def delete_object(name: str) -> Deleted:
     """Drop a global-scope persistent object by name (idempotent)."""
     async with orch_context(with_ch=True):
         return await objects_api.delete_object(name)
