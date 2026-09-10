@@ -9,7 +9,8 @@ from aaiclick.internal_api import errors, viewer
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.orch_context import task_scope
 from aaiclick.snowflake import get_snowflake_id
-from aaiclick.viewer.view_models import ObjectQueryRequest, OrderBy
+from aaiclick.tenancy import active_tenant
+from aaiclick.viewer.view_models import ObjectQueryRequest, OrderBy, SavedQueryFilter, SavedQueryIn
 
 pytestmark = pytest.mark.usefixtures("orch_ctx")
 
@@ -88,3 +89,49 @@ async def test_query_object_unknown_object_and_job():
         await viewer.query_object(ObjectQueryRequest(object="missing"))
     with pytest.raises(errors.NotFound):
         await viewer.query_object(ObjectQueryRequest(scope="job:no_such", object="x"))
+
+
+async def test_save_query_round_trip_and_upsert():
+    await _seed_orders()
+    saved = await viewer.save_query(
+        SavedQueryIn(
+            name="big",
+            object="orders",
+            where="amount > 15",
+            fields=["name"],
+            order_by=[OrderBy("amount", "DESC")],
+            cell_view="name:\n  type: link\n  value: https://x/{cell}\n",
+        )
+    )
+    assert saved.where == "amount > 15" and saved.order_by == [OrderBy("amount", "DESC")]
+
+    again = await viewer.save_query(SavedQueryIn(name="big", object="orders", where="amount > 25"))
+    page = await viewer.list_saved_queries()
+    assert [q.name for q in page.items] == ["big"] and page.items[0].where == "amount > 25"
+    assert again.updated_at >= saved.updated_at
+
+
+async def test_list_saved_queries_filters_scope_and_object():
+    await viewer.save_query(SavedQueryIn(name="any", scope=None, object="orders"))
+    await viewer.save_query(SavedQueryIn(name="job_only", scope="job:etl", object="result"))
+    names = lambda page: sorted(q.name for q in page.items)  # noqa: E731
+    assert names(await viewer.list_saved_queries(SavedQueryFilter(scope="job:etl"))) == ["any", "job_only"]
+    assert names(await viewer.list_saved_queries(SavedQueryFilter(scope="persistent"))) == ["any"]
+    assert names(await viewer.list_saved_queries(SavedQueryFilter(object="result"))) == ["job_only"]
+
+
+async def test_save_query_validates_where_and_cell_view():
+    with pytest.raises(errors.Invalid):
+        await viewer.save_query(SavedQueryIn(name="x", object="orders", where="id IN (SELECT 1)"))
+    with pytest.raises(errors.Invalid):
+        await viewer.save_query(SavedQueryIn(name="x", object="orders", cell_view="col: [unclosed"))
+
+
+async def test_saved_queries_are_tenant_scoped():
+    await viewer.save_query(SavedQueryIn(name="mine", object="orders"))
+    with active_tenant(2):
+        assert (await viewer.list_saved_queries()).items == []
+        with pytest.raises(errors.NotFound):
+            await viewer.delete_saved_query("mine")
+    assert (await viewer.delete_saved_query("mine")).name == "mine"
+    assert (await viewer.list_saved_queries()).items == []

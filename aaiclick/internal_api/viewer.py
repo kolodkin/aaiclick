@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 from typing import NamedTuple
 
+from sqlmodel import col, select
+
 from aaiclick.ai.agents.lineage_tools import (
     DEFAULT_MAX_EXECUTION_TIME,
     ColumnSchema,
@@ -21,12 +23,23 @@ from aaiclick.data.models import AAI_ID_COLUMN
 from aaiclick.data.object import Object
 from aaiclick.data.scope import SCOPE_GLOBAL, SCOPE_JOB
 from aaiclick.data.sql_utils import quote_identifier
+from aaiclick.datetime_utils import utc_now
+from aaiclick.orchestration.sql_context import get_sql_session
+from aaiclick.snowflake import get_snowflake_id
+from aaiclick.tenancy import get_active_tenant_id
+from aaiclick.view_models import Page
+from aaiclick.viewer.cell_view import cell_view_error
+from aaiclick.viewer.models import SavedQueryRow
 from aaiclick.viewer.scope import SCOPE_JOB_KIND, SCOPE_PERSISTENT, ScopeKind, parse_scope
 from aaiclick.viewer.view_models import (
     FMT_CSV,
+    Deleted,
     ObjectQueryRequest,
     ObjectQueryResult,
     OrderBy,
+    SavedQuery,
+    SavedQueryFilter,
+    SavedQueryIn,
 )
 
 from . import jobs as jobs_api
@@ -115,3 +128,97 @@ async def query_object(request: ObjectQueryRequest) -> ObjectQueryResult:
         meta=[ColumnSchema(name=str(m["name"]), type=str(m["type"])) for m in doc["meta"]],
         data=[list(row) for row in doc["data"]],
     )
+
+
+def _row_to_saved_query(row: SavedQueryRow) -> SavedQuery:
+    return SavedQuery(
+        name=row.name,
+        scope=row.scope,
+        object=row.object,
+        fields=json.loads(row.fields) if row.fields else None,
+        where=row.where,
+        order_by=[OrderBy._make(o) for o in json.loads(row.order_by)] if row.order_by else [],
+        cell_view=row.cell_view,
+        updated_at=row.updated_at,
+    )
+
+
+def _apply_saved_query(row: SavedQueryRow, query: SavedQueryIn) -> None:
+    row.scope = query.scope
+    row.object = query.object
+    row.where = query.where
+    row.fields = json.dumps(query.fields) if query.fields is not None else None
+    row.order_by = json.dumps([list(OrderBy._make(o)) for o in query.order_by]) if query.order_by else None
+    row.cell_view = query.cell_view or None
+    row.updated_at = utc_now()
+
+
+def _validate_saved_query(query: SavedQueryIn) -> None:
+    if not query.name.strip():
+        raise Invalid("name required")
+    if query.scope is not None:
+        try:
+            parse_scope(query.scope)
+        except ValueError as exc:
+            raise Invalid(str(exc)) from exc
+    if query.where is not None and (err := validate_where_expression(query.where)):
+        raise Invalid(err.message)
+    if err := cell_view_error(query.cell_view):
+        raise Invalid(err)
+
+
+async def list_saved_queries(filter: SavedQueryFilter | None = None) -> Page[SavedQuery]:
+    """Saved queries of the active tenant. ``scope`` matches that scope plus
+    queries saved without one; ``object`` matches exactly."""
+    filter = filter or SavedQueryFilter()
+    predicates = [SavedQueryRow.tenant_id == get_active_tenant_id()]
+    if filter.scope is not None:
+        predicates.append((col(SavedQueryRow.scope) == filter.scope) | (col(SavedQueryRow.scope).is_(None)))
+    if filter.object is not None:
+        predicates.append(SavedQueryRow.object == filter.object)
+    async with get_sql_session() as session:
+        rows = (
+            (
+                await session.execute(
+                    select(SavedQueryRow).where(*predicates).order_by(col(SavedQueryRow.name)).limit(filter.limit)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    return Page[SavedQuery](items=[_row_to_saved_query(r) for r in rows], total=len(rows))
+
+
+async def save_query(query: SavedQueryIn) -> SavedQuery:
+    """Upsert a saved query by ``(tenant, name)``."""
+    _validate_saved_query(query)
+    tenant_id = get_active_tenant_id()
+    async with get_sql_session() as session:
+        row = (
+            await session.execute(
+                select(SavedQueryRow).where(SavedQueryRow.tenant_id == tenant_id, SavedQueryRow.name == query.name)
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            row = SavedQueryRow(id=get_snowflake_id(), tenant_id=tenant_id, name=query.name, object=query.object)
+            session.add(row)
+        _apply_saved_query(row, query)
+        await session.commit()
+        await session.refresh(row)
+        return _row_to_saved_query(row)
+
+
+async def delete_saved_query(name: str) -> Deleted:
+    async with get_sql_session() as session:
+        row = (
+            await session.execute(
+                select(SavedQueryRow).where(
+                    SavedQueryRow.tenant_id == get_active_tenant_id(), SavedQueryRow.name == name
+                )
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            raise NotFound(f"Saved query not found: {name}")
+        await session.delete(row)
+        await session.commit()
+    return Deleted(name=name)
