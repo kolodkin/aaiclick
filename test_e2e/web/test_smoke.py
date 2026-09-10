@@ -222,3 +222,38 @@ def test_task_view_truncates_long_entrypoint_from_the_start(page, base_url: str)
     assert toggle.inner_text() == "show less"
     assert value.bounding_box()["height"] > collapsed_height
     assert value.inner_text() == entrypoint
+
+
+@_spa_built
+@_local_only
+def test_jobs_view_updates_live_without_polling(page, base_url: str) -> None:
+    """A status change reaches the jobs list over ``/events``, not a poll.
+
+    The request log is the evidence: over an idle window longer than the 2 s
+    polling fallback the page must fetch ``/jobs`` zero times, and it must
+    hold exactly one ``/events`` stream. Only then is a job submitted whose
+    name no other test uses — its row appearing at the top as ``COMPLETED``
+    shows the stream delivered. (Rows carry no id and the list is capped, so
+    the name is the discriminator.)
+    """
+    requests: list[str] = []
+    page.on("request", lambda req: requests.append(req.url))
+    open_page(page, f"{base_url}/?p=@jobs")
+    page.wait_for_selector("table")
+    assert page.locator("tbody tr", has_text="async_task").count() == 0
+
+    seen = len(requests)
+    page.wait_for_timeout(2500)
+    idle = [u for u in requests[seen:] if "/api/v0/jobs" in u]
+    assert idle == [], f"jobs list polled while the stream was up: {idle}"
+    streams = [u for u in requests if u.endswith("/api/v0/events")]
+    assert len(streams) == 1, f"expected one open /events stream, saw {streams}"
+
+    resp = page.request.post(
+        f"{base_url}/api/v0/jobs:run",
+        data={"name": "aaiclick.orchestration.fixtures.sample_tasks.async_task"},
+    )
+    assert resp.ok, resp.text()
+    newest = page.locator("tbody tr").first
+    newest.get_by_text("async_task", exact=True).wait_for(timeout=5000)
+    newest.get_by_text("COMPLETED", exact=True).wait_for(timeout=5000)
