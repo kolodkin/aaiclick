@@ -24,6 +24,7 @@ from aaiclick.data.data_context import (
     delete_persistent_object,
     delete_persistent_objects,
     get_data_lifecycle,
+    list_job_tables,
     list_persistent_objects,
     open_object,
 )
@@ -209,3 +210,28 @@ async def test_delete_clears_the_registry_row(orch_ctx):
     await create_object_from_value([1], name="short_lived", scope="global")
     await delete_persistent_object("short_lived", scope="global")
     assert "short_lived" not in await list_persistent_objects()
+
+
+async def test_open_object_with_explicit_job_id(orch_ctx):
+    obj = await create_object_from_value([1, 2], name="jscoped", scope="job")
+    job_id = int(obj.table.split("_")[1])
+
+    reopened = await open_object("jscoped", scope="job", job_id=job_id)
+
+    assert reopened.table == f"j_{job_id}_jscoped"
+    assert await reopened.data() == [1, 2]
+
+
+async def test_open_object_other_job_id_is_not_found(orch_ctx):
+    await create_object_from_value([1], name="jscoped2", scope="job")
+    with pytest.raises(ObjectNotFoundError):
+        await open_object("jscoped2", scope="job", job_id=1)
+
+
+async def test_list_job_tables_returns_only_that_job(orch_ctx):
+    obj = await create_object_from_value([1], name="jt_a", scope="job")
+    await create_object_from_value([2], name="jt_p", scope="global")
+    job_id = int(obj.table.split("_")[1])
+
+    assert await list_job_tables(job_id) == [f"j_{job_id}_jt_a"]
+    assert await list_job_tables(1) == []

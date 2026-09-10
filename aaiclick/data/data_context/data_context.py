@@ -44,6 +44,7 @@ from ..models import (
 )
 from ..scope import (
     GLOBAL_PREFIX,
+    JOB_PREFIX,
     SCOPE_GLOBAL,
     SCOPE_JOB,
     SCOPE_TEMP_NAMED,
@@ -283,13 +284,17 @@ def _resolve_scope(name: str | None, scope: NamedScope | None) -> NamedScope | N
     return effective
 
 
-def _build_scoped_table(name: str, scope: NamedScope) -> str:
-    """Validate ``name`` and build the full CH table name for a scoped object."""
+def _build_scoped_table(name: str, scope: NamedScope, *, job_id: int | None = None) -> str:
+    """Validate ``name`` and build the full CH table name for a scoped object.
+
+    ``job_id`` overrides the ambient job (from ``task_scope``) for
+    ``scope="job"``; callers outside a task, such as the viewer, pass it
+    explicitly.
+    """
     _validate_persistent_name(name)
     if scope == SCOPE_TEMP_NAMED:
         return make_scoped_table_name(scope, name, snowid=get_snowflake_id())
-    job_id: int | None = None
-    if scope == SCOPE_JOB:
+    if scope == SCOPE_JOB and job_id is None:
         lifecycle = get_data_lifecycle()
         job_id = lifecycle.current_job_id() if lifecycle is not None else None
     return make_scoped_table_name(scope, name, job_id=job_id, tenant_id=get_active_tenant_id())
@@ -667,15 +672,17 @@ class ObjectNotFoundError(RuntimeError):
     """
 
 
-async def open_object(name: str, scope: PersistentScope = SCOPE_JOB) -> Object:
+async def open_object(name: str, scope: PersistentScope = SCOPE_JOB, *, job_id: int | None = None) -> Object:
     """Open an existing persistent Object by name.
 
     Args:
         name: Persistent name (without prefix).
         scope: Persistence tier the object was created with — ``"global"`` →
                looks up ``p_<name>``; ``"job"`` → looks up
-               ``j_<job_id>_<name>`` using the active orch job. ``"temp_named"``
-               is not openable — temp tables disappear with their context.
+               ``j_<job_id>_<name>``. ``"temp_named"`` is not openable —
+               temp tables disappear with their context.
+        job_id: The owning job for ``scope="job"``. Defaults to the active
+               orch job; pass it explicitly outside a task (REST, MCP, CLI).
 
     Returns:
         Object with schema loaded from ClickHouse.
@@ -687,14 +694,17 @@ async def open_object(name: str, scope: PersistentScope = SCOPE_JOB) -> Object:
     from ..object import Object
     from ..object.ingest import _get_table_schema
 
-    table_name = _build_scoped_table(name, scope)
+    table_name = _build_scoped_table(name, scope, job_id=job_id)
     ch = get_ch_client()
 
     result = await ch.command(f"EXISTS TABLE {table_name}")
     if not result:
         raise ObjectNotFoundError(f"Persistent object '{name}' does not exist (table {table_name})")
 
-    fieldtype, columns = await _get_table_schema(table_name, ch)
+    try:
+        fieldtype, columns = await _get_table_schema(table_name, ch)
+    except LookupError as exc:
+        raise ObjectNotFoundError(f"Persistent object '{name}' does not exist (table {table_name})") from exc
     schema = Schema(fieldtype=fieldtype, columns=columns)
     obj = Object(table=table_name, schema=schema)
     register_object(obj)
@@ -800,6 +810,24 @@ async def list_persistent_tables(
     async with get_sql_session() as session:
         result = await session.execute(select(TableRegistry.table_name).where(*predicates))
     return [row[0] for row in result.all()]
+
+
+async def list_job_tables(job_id: int) -> list[str]:
+    """List the active tenant's CH table names registered under ``job_id``."""
+    # Circular dep: orchestration imports the data package at import time
+    # (same pattern as list_persistent_tables).
+    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
+    from aaiclick.orchestration.sql_context import get_sql_session
+
+    async with get_sql_session() as session:
+        result = await session.execute(
+            select(TableRegistry.table_name).where(
+                TableRegistry.tenant_id == get_active_tenant_id(),
+                TableRegistry.job_id == job_id,
+                col(TableRegistry.table_name).startswith(JOB_PREFIX, autoescape=True),
+            )
+        )
+    return sorted(row[0] for row in result.all())
 
 
 async def list_persistent_objects() -> list[str]:

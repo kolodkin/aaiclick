@@ -28,6 +28,7 @@ NamedScope = Literal["temp_named", "job", "global"]
 PersistentScope = Literal["job", "global"]
 
 GLOBAL_PREFIX = "p_"
+JOB_PREFIX = "j_"
 TEMP_PREFIX = "t_"
 JOB_SCOPED_RE = re.compile(r"^j_\d+_")
 # Unambiguous because persistent names may not start with a digit
@@ -102,4 +103,4 @@ def make_scoped_table_name(
             "scope='job' requires a job_id; create_object_from_value(scope='job') "
             "must run inside orch_context()/task_scope(). Use scope='global' outside orch."
         )
-    return f"j_{job_id}_{name}"
+    return f"{JOB_PREFIX}{job_id}_{name}"
