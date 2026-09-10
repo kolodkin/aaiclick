@@ -36,6 +36,7 @@ See [DataContext](data_context.md) for lifecycle, schemas, and deployment modes.
 | `.group_by(keys).any(col)`                       | Group By         | Arbitrary non-NULL value per group            | [Group By Operations](#group-by-operations)                          |
 | `.group_by(keys).group_array_distinct(col)`      | Group By         | Distinct values → Array per group             | [Group By Operations](#group-by-operations)                          |
 | `.view(where, limit, offset, order_by)`          | Views            | Read-only View with optional filters          | [Views](#views)                                                      |
+| `.select_sql(columns, order_by, limit, offset)`  | Views            | The SELECT text the object reads with; Views include their constraints | [Views](#views)                                     |
 | `.where(cond)` / `.or_where(cond)`               | Views            | Fluent WHERE chaining (AND / OR)              | [Chained WHERE Clauses](#chained-where-clauses)                      |
 | `obj[key]` / `obj[[keys]]`                       | Views            | Select column(s) from dict Object → View      | [Column Selection](#column-selection)                                |
 | `.with_columns({name: Computed(type, expr)})`    | Views            | Add SQL expression columns → View             | [Computed Column Expansion](#computed-column-expansion-with_columns) |
