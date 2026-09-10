@@ -44,16 +44,6 @@ Next in line:
   in-process caller that blocks on a job; external tools in distributed
   mode can `LISTEN aaiclick_events` on Postgres directly.
 
-## Web E2E — Inline Screenshots
-
-`test_e2e/web/` asserts on the DOM only; no test calls `page.screenshot()`.
-Add one at each visual checkpoint (jobs list, job detail table and graph,
-task detail with logs, login, viewer role gating), written under
-`test-results/<test-name>/` so a screenshot report can be assembled from a
-normal run without forcing pytest-playwright's `--screenshot on`, which only
-captures the final state and misses the intermediate views the tests drive.
-Screenshots also give a reviewable visual diff when the UI changes.
-
 ## API Auth — Beyond Username/Password + RBAC
 
 Username/password users, admin/viewer RBAC, and JWT login (access + refresh)

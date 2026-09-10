@@ -203,11 +203,17 @@ called explicitly from the two entry points every writer passes through:
 `orch_context()` and `BackgroundWorker.start()`.
 
 **Layer 2 — why NOTIFY inside the transaction.** `before_commit` flushes,
-then runs `pg_notify` before the commit, so Postgres delivers the signal only
-if the write commits and a client that refetches on it always sees the
-committed row. Postgres fans each `NOTIFY` out to every `LISTEN` connection,
-so N API hosts hold N connections — no broker. Local mode runs the workers
-inside the server process, so SQLite skips the network hop entirely.
+then runs `pg_notify` before the commit. `pg_notify` only queues the
+notification; Postgres releases it to listeners as part of the commit, so a
+rolled-back write sends nothing and a committed write can never go
+unannounced. Notifying *after* the commit is not an option through the
+session: SQLAlchemy refuses SQL in `after_commit` (the session is in the
+`committed` state). The workaround, a second pooled connection in that hook,
+measured about 0.4 ms slower per write and deadlocks on a single-connection
+pool because the session still holds its own connection when `after_commit`
+fires. Postgres fans each `NOTIFY` out to every `LISTEN` connection, so N API
+hosts hold N connections — no broker. Local mode runs the workers inside the
+server process, so SQLite skips the network hop entirely.
 
 **Layer 4 — why no `EventSource`.** The browser API cannot send the bearer
 or `X-Tenant-Id` headers, so the stream is read through the same `fetch`
