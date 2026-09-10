@@ -10,7 +10,14 @@ from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.orch_context import task_scope
 from aaiclick.snowflake import get_snowflake_id
 from aaiclick.tenancy import active_tenant
-from aaiclick.viewer.view_models import ObjectQueryRequest, OrderBy, SavedQueryFilter, SavedQueryIn
+from aaiclick.viewer.view_models import (
+    DashboardIn,
+    ObjectQuery,
+    ObjectQueryRequest,
+    OrderBy,
+    SavedQueryFilter,
+    SavedQueryIn,
+)
 
 pytestmark = pytest.mark.usefixtures("orch_ctx")
 
@@ -135,3 +142,36 @@ async def test_saved_queries_are_tenant_scoped():
             await viewer.delete_saved_query("mine")
     assert (await viewer.delete_saved_query("mine")).name == "mine"
     assert (await viewer.list_saved_queries()).items == []
+
+
+async def test_dashboard_round_trip_and_run():
+    await _seed_orders()
+    dash = await viewer.save_dashboard(
+        DashboardIn(
+            name="sales",
+            html="<h1>x</h1>",
+            queries={
+                "top": ObjectQuery(object="orders", fields=["name", "amount"], order_by=[OrderBy("amount", "DESC")])
+            },
+        )
+    )
+    assert dash.queries["top"].fields == ["name", "amount"]
+    assert [d.name for d in (await viewer.list_dashboards()).items] == ["sales"]
+    assert (await viewer.get_dashboard("sales")).html == "<h1>x</h1>"
+
+    results = await viewer.run_dashboard("sales")
+    assert results.results == {"top": {"name": ["c", "b", "a"], "amount": ["30", "20", "10"]}}
+    assert [c.name for c in results.meta["top"]] == ["name", "amount"]
+
+    assert (await viewer.delete_dashboard("sales")).name == "sales"
+    with pytest.raises(errors.NotFound):
+        await viewer.get_dashboard("sales")
+
+
+async def test_save_dashboard_validates_panels():
+    with pytest.raises(errors.Invalid):
+        await viewer.save_dashboard(DashboardIn(name="bad", html="<p/>", queries={}))
+    with pytest.raises(errors.Invalid):
+        await viewer.save_dashboard(
+            DashboardIn(name="bad", html="<p/>", queries={"p": ObjectQuery(object="orders", where="x IN (SELECT 1)")})
+        )

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from typing import NamedTuple
 
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
 from aaiclick.ai.agents.lineage_tools import (
@@ -29,11 +30,17 @@ from aaiclick.snowflake import get_snowflake_id
 from aaiclick.tenancy import get_active_tenant_id
 from aaiclick.view_models import Page
 from aaiclick.viewer.cell_view import cell_view_error
-from aaiclick.viewer.models import SavedQueryRow
+from aaiclick.viewer.models import DashboardRow, SavedQueryRow
 from aaiclick.viewer.scope import SCOPE_JOB_KIND, SCOPE_PERSISTENT, ScopeKind, parse_scope
 from aaiclick.viewer.view_models import (
     FMT_CSV,
+    MAX_LIMIT,
+    Dashboard,
+    DashboardIn,
+    DashboardResults,
+    DashboardSummary,
     Deleted,
+    ObjectQuery,
     ObjectQueryRequest,
     ObjectQueryResult,
     OrderBy,
@@ -222,3 +229,111 @@ async def delete_saved_query(name: str) -> Deleted:
         await session.delete(row)
         await session.commit()
     return Deleted(name=name)
+
+
+def _row_to_dashboard(row: DashboardRow) -> Dashboard:
+    queries = {panel: ObjectQuery.model_validate(q) for panel, q in json.loads(row.queries).items()}
+    return Dashboard(name=row.name, scope=row.scope, html=row.html, queries=queries, updated_at=row.updated_at)
+
+
+def _validate_dashboard(dashboard: DashboardIn) -> None:
+    if not dashboard.name.strip():
+        raise Invalid("name required")
+    if not dashboard.html.strip():
+        raise Invalid("html required")
+    if not dashboard.queries:
+        raise Invalid("at least one panel query required")
+    try:
+        parse_scope(dashboard.scope)
+    except ValueError as exc:
+        raise Invalid(str(exc)) from exc
+    for panel, query in dashboard.queries.items():
+        if query.where is not None and (err := validate_where_expression(query.where)):
+            raise Invalid(f"{panel}: {err.message}")
+
+
+async def list_dashboards() -> Page[DashboardSummary]:
+    async with get_sql_session() as session:
+        rows = (
+            (
+                await session.execute(
+                    select(DashboardRow)
+                    .where(DashboardRow.tenant_id == get_active_tenant_id())
+                    .order_by(col(DashboardRow.name))
+                )
+            )
+            .scalars()
+            .all()
+        )
+    return Page[DashboardSummary](
+        items=[DashboardSummary(name=r.name, scope=r.scope, updated_at=r.updated_at) for r in rows], total=len(rows)
+    )
+
+
+async def _dashboard_row(session: AsyncSession, name: str) -> DashboardRow:
+    row = (
+        await session.execute(
+            select(DashboardRow).where(DashboardRow.tenant_id == get_active_tenant_id(), DashboardRow.name == name)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise NotFound(f"Dashboard not found: {name}")
+    return row
+
+
+async def get_dashboard(name: str) -> Dashboard:
+    async with get_sql_session() as session:
+        return _row_to_dashboard(await _dashboard_row(session, name))
+
+
+async def save_dashboard(dashboard: DashboardIn) -> Dashboard:
+    """Upsert a dashboard by ``(tenant, name)``."""
+    _validate_dashboard(dashboard)
+    tenant_id = get_active_tenant_id()
+    async with get_sql_session() as session:
+        row = (
+            await session.execute(
+                select(DashboardRow).where(DashboardRow.tenant_id == tenant_id, DashboardRow.name == dashboard.name)
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            row = DashboardRow(
+                id=get_snowflake_id(),
+                tenant_id=tenant_id,
+                name=dashboard.name,
+                scope=dashboard.scope,
+                html="",
+                queries="{}",
+            )
+            session.add(row)
+        row.scope = dashboard.scope
+        row.html = dashboard.html
+        row.queries = json.dumps({panel: q.model_dump(mode="json") for panel, q in dashboard.queries.items()})
+        row.updated_at = utc_now()
+        await session.commit()
+        await session.refresh(row)
+        return _row_to_dashboard(row)
+
+
+async def delete_dashboard(name: str) -> Deleted:
+    async with get_sql_session() as session:
+        row = await _dashboard_row(session, name)
+        await session.delete(row)
+        await session.commit()
+    return Deleted(name=name)
+
+
+async def run_dashboard(name: str) -> DashboardResults:
+    """Run every panel query under the dashboard's scope; column-oriented results."""
+    dashboard = await get_dashboard(name)
+    results: dict[str, dict[str, list]] = {}
+    meta: dict[str, list[ColumnSchema]] = {}
+    for panel, query in dashboard.queries.items():
+        # A panel always runs under the dashboard's scope.
+        page = await query_object(
+            ObjectQueryRequest(**{**query.model_dump(), "scope": dashboard.scope, "limit": MAX_LIMIT})
+        )
+        names = [c.name for c in page.meta]
+        results[panel] = {n: [row[i] for row in page.data] for i, n in enumerate(names)}
+        meta[panel] = page.meta
+    return DashboardResults(results=results, meta=meta)

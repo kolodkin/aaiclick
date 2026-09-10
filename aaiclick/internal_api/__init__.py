@@ -35,4 +35,14 @@ from .registered_jobs import (
     register_job,
 )
 from .tasks import get_task
-from .viewer import delete_saved_query, list_saved_queries, query_object, save_query
+from .viewer import (
+    delete_dashboard,
+    delete_saved_query,
+    get_dashboard,
+    list_dashboards,
+    list_saved_queries,
+    query_object,
+    run_dashboard,
+    save_dashboard,
+    save_query,
+)
