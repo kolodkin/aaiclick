@@ -142,6 +142,15 @@ See `viewer.md` for the shipped design.
   needs the SSE endpoint planned above.
 - **Workspaces, git sync, and YAML export** for saved queries and dashboards,
   as QueryView has.
+- **`options_sql` params**: the kernel's `params:` block accepts a query
+  whose first column feeds a dropdown; aaiclick has no free-SQL endpoint, so
+  `QueryPanel` renders static `options` only.
+- **Typed Fields picker for job-scoped objects**: `GET /objects/{name}` is
+  persistent-only, so `@query job <ref> <object>` shows every column without
+  a picker until object detail takes a scope.
+- **Dashboard authoring in the UI**: `@dashboard` picks, runs, and re-saves;
+  HTML and panel queries are written through MCP, REST, or `view dashboards
+  save`.
 
 ## Lazy Operator — Chain Fusion
 

@@ -49,7 +49,10 @@ src/                            ← SPA TypeScript source
     hooks.ts                    ← useJobs, useJob, useTask, useTaskLogs, …
   views/                        ← one file per UI mode
   components/                   ← StatusBadge, ProgressBar, LogViewer, …
+  lib/viewer.ts                 ← scope keys, OrderBy pair ↔ kernel OrderCol, result adapters
+  queryview-core/               ← verbatim QueryView kernel, imported as @qv/core (docs/designs/viewer.md)
   styles/globals.css            ← Tailwind import + ported mockup theme
+  styles/queryview-core.css     ← the glass-* classes the kernel's markup uses
 
 aaiclick/
   server/
@@ -68,6 +71,7 @@ and `node_modules/`.
 | `npm run dev`   | Vite dev server at `:5173` with HMR; proxies `/api/*` to FastAPI      |
 | `npm run build` | Type-checks then bundles to `aaiclick/server/static/`                 |
 | `npm run check` | `tsc --noEmit` only (CI gate)                                         |
+| `npm test`      | `vitest run` — the kernel's tests, `prompt.test.ts`, `lib/viewer.test.ts` |
 
 In production, FastAPI mounts `aaiclick/server/static/` and serves
 `index.html` for unknown routes (SPA fallback). One process, one port,
@@ -105,6 +109,11 @@ via TanStack Query's `refetchInterval`.
 | `useRunJob`       | `POST /api/v0/jobs:run`          | `aaiclick/server/routers/jobs.py`        |
 | `useCancelJob`    | `POST /api/v0/jobs/{ref}/cancel` | `aaiclick/server/routers/jobs.py`        |
 | `useRegisterJob`  | `POST /api/v0/registered-jobs`   | `aaiclick/server/routers/registered_jobs.py` |
+| `useObjects`      | `GET /api/v0/objects`            | `aaiclick/server/routers/objects.py`     |
+| `useObject`       | `GET /api/v0/objects/{name}`     | `aaiclick/server/routers/objects.py`     |
+| `useQueryObject`  | `POST /api/v0/viewer/query`      | `aaiclick/server/routers/viewer.py`      |
+| `useSavedQueries` / `useSaveQuery` / `useDeleteSavedQuery` | `/api/v0/viewer/queries[/{name}]` | `aaiclick/server/routers/viewer.py` |
+| `useDashboards` / `useDashboard` / `useRunDashboard` / `useSaveDashboard` | `/api/v0/viewer/dashboards[/{name}[:run]]` | `aaiclick/server/routers/viewer.py` |
 
 **Implementation**: `aaiclick/server/routers/tasks.py` — see `get_task_logs`;
 `aaiclick/internal_api/tasks.py` — see `get_task_logs` (reads the CH
@@ -183,6 +192,7 @@ hatches in `docs/designs/future.md`).
 | Layer                | Tool                | Where                                          |
 |----------------------|---------------------|------------------------------------------------|
 | Static type check    | `tsc --noEmit`      | `npm run check` — CI gate for every frontend task |
+| Unit tests           | vitest              | `npm test` — kernel tests, `src/prompt.test.ts`, `src/lib/viewer.test.ts` |
 | End-to-end (browser) | Playwright (Python) | `test_e2e/web/test_smoke.py`, pytest           |
 
 **Implementation**: `test_e2e/web/test_smoke.py` — golden-path smoke

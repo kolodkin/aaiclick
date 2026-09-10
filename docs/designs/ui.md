@@ -36,6 +36,9 @@ Clicking interactive elements updates the prompt, which drives what is displayed
 @jobs           ──────▶  Jobs list
 @job <name>     ──────▶  Job detail (tasks table)
 @task <id>      ──────▶  Task detail (status + logs)
+@data …         ──────▶  Objects of a scope and their rows
+@query …        ──────▶  Query panel over one object
+@dashboard …    ──────▶  Saved dashboard in a sandbox
 ```
 
 ```
@@ -135,3 +138,46 @@ Task statuses use the same color scheme as job statuses, plus:
 **Main section**: log viewer filling the remaining screen with vertical scroll. Logs poll every 2 s in v0; real-time SSE is deferred. Lines come from the ClickHouse `task_logs` stream for the task's latest run, so they resolve regardless of which host ran the task. Returns `available=false` when the task has not run yet or its latest run captured no output. Lines are colored by `level` (`lvl-*` classes) and an opt-in "Show timestamps" toggle reveals each line's `created_at`.
 
 **Implementation**: `src/views/TaskDetail.tsx` — see `TaskDetail` component; `src/components/LogViewer.tsx` — see `LogViewer`; `aaiclick/server/routers/tasks.py` — see `get_task_logs`; `aaiclick/internal_api/tasks.py` — see `get_task_logs`.
+
+## Data (`@data [job <ref>] [<object>]`)
+
+**Prompt**: `@data`, `@data job <ref>`, `@data [job <ref>] <object>`
+
+Left: a scope tree — Persistent, then the jobs (newest first, name filter).
+Right: the objects of the selected scope (name, rows, size, created, a
+Query button), or, with an object named, its header and first page of rows.
+Rows render through the QueryView kernel's `ResultsTable` and default cell
+views, straight from `POST /viewer/query` (see `docs/designs/viewer.md`).
+
+**Implementation**: `src/views/Data.tsx` — see `Data`, `ObjectPreview`;
+`src/components/ScopeTree.tsx` — see `ScopeTree`;
+`src/components/ObjectsTable.tsx` — see `ObjectsTable`;
+`src/queryview-core/results/ResultsTable.tsx`.
+
+## Query (`@query [job <ref>] [<object>]`)
+
+**Prompt**: `@query`, `@query job <ref>`, `@query [job <ref>] <object>`
+
+The scope tree plus an object picker; with an object chosen, the query
+panel: a `where` expression, limit / offset paging, the kernel's field and
+order-by pickers (fed from the object's schema), static `params:` dropdowns,
+the cell-view YAML modal, a saved-query dropdown (Save / Delete), and CSV
+download. Saved queries persist through `PUT /viewer/queries/{name}`.
+
+**Implementation**: `src/views/Query.tsx` — see `Query`;
+`src/components/QueryPanel.tsx` — see `QueryPanel`;
+`src/queryview-core/presentation/FieldPickers.tsx`,
+`src/queryview-core/cells/CellViewModal.tsx`; `src/lib/viewer.ts` — see
+`orderColsToPairs`, `fieldsFromSchema`.
+
+## Dashboard (`@dashboard [name]`)
+
+**Prompt**: `@dashboard`, `@dashboard <name>`
+
+A dashboard picker, Refresh and Save buttons, and the dashboard's HTML in a
+sandboxed iframe with the panel results exposed as `window.queries`
+(`POST /viewer/dashboards/{name}:run`). Authoring stays with agents and the
+CLI (`view dashboards save`).
+
+**Implementation**: `src/views/Dashboard.tsx` — see `Dashboard`;
+`src/queryview-core/dashboard/DashboardFrame.tsx`.

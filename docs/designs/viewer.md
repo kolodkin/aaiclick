@@ -19,8 +19,9 @@ auth, and MCP, the kernel is all that is left to reuse.
 ## What is copied
 
 `src/queryview-core/` is a verbatim copy of `frontend/src/core` at the
-QueryView commit recorded in its `README.md`, imported through the alias
-`@qv/core` (tsconfig `paths` + Vite `resolve.alias`). The folder is never
+QueryView commit recorded in `src/queryview-core/README.md`, imported through
+the alias `@qv/core` (tsconfig `paths` + Vite and vitest `resolve.alias`); its
+`glass-*` classes are ported to `src/styles/queryview-core.css`. The folder is never
 edited in aaiclick: a needed change goes to QueryView first (its lint rules
 keep the kernel free of routing, fetching, and app state), then the copy is
 refreshed. Its own vitest tests run with the rest of the SPA.
@@ -217,14 +218,22 @@ Clicking an object in `@data` sets the prompt to `@data … <object>`; its
 come from the same `query_object` with no constraints, so both modes share
 one hook and one result shape.
 
-New files: `src/views/Data.tsx`, `src/views/Query.tsx`,
+**Implementation**: `src/views/Data.tsx`, `src/views/Query.tsx`,
 `src/views/Dashboard.tsx`; `src/components/ScopeTree.tsx`,
-`src/components/ObjectsTable.tsx`, `src/components/QueryPanel.tsx`; hooks in
+`src/components/ObjectsTable.tsx`, `src/components/QueryPanel.tsx`;
 `src/api/hooks.ts` (`useObjects`, `useObject`, `useQueryObject`,
-`useSavedQueries`, `useSaveQuery`, `useDashboards`, `useDashboard`,
-`useRunDashboard`). The Fields picker is fed from `useObject`'s schema. Types come from `npm run gen-types` and one re-export
-line each in `src/api/types.ts`. Job nodes in the scope tree reuse
-`useJobs` with the name filter.
+`useSavedQueries`, `useSaveQuery`, `useDeleteSavedQuery`, `useDashboards`,
+`useDashboard`, `useRunDashboard`, `useSaveDashboard`); `src/prompt.ts`
+(`parseScoped`).
+
+The wire format is aaiclick's: `OrderBy` is a `[name, dir]` pair and the
+result is `ObjectQueryResult`; `src/lib/viewer.ts` (`orderColsToPairs`,
+`pairsToOrderCols`, `rowsFromResult`, `fieldsFromSchema`) converts to the
+kernel's `OrderCol` / `QueryRows` / `Field`. The Fields picker is fed from
+`useObject`'s schema (persistent scope; job-scoped objects show every column
+— `future.md`). Only static `params:` options are supported — `options_sql`
+needs free SQL (`future.md`). Job nodes in the scope tree reuse `useJobs`
+with the name filter.
 
 # Local and Distributed Modes
 
@@ -241,18 +250,18 @@ process over clickhouse-connect; nothing in the viewer is per-process.
   raw table name, reports an unknown object, and refuses another job's
   object; saved query and dashboard round-trips with tenant isolation;
   `run_dashboard` column orientation.
-- `aaiclick/server/test_viewer_api.py`: router with auth, 401 without a
-  token, tenant scoping, `422` on a bad cell view.
-- Vitest: the kernel's own tests plus `prompt.test.ts` cases for the new
-  routes.
-- Playwright (`test_e2e/web/`): `@data` lists a seeded object, `@query` runs
-  and pages, `@dashboard` renders a saved dashboard.
+- `aaiclick/server/routers/test_viewer.py`: routes, 404 / 422 problems, 401
+  without a token in distributed mode.
+- Vitest (`npm test`): the kernel's own tests, `src/prompt.test.ts` for the
+  new routes, `src/lib/viewer.test.ts` for the adapters.
+- Playwright (`test_e2e/web/test_viewer.py`, seeded by `seed.py` before the
+  server starts): `@data` previews the seeded object, `@query` runs and
+  pages, `@dashboard` renders the saved dashboard.
 
 # Rollout
 
 1. Backend: `ObjectFilter.job`, job-scope listing, `Object.select_sql`,
    `query_text`, `viewer` models and migration, `internal_api/viewer.py`,
    REST, MCP, CLI — landed; see the implementation references above.
-2. Frontend: kernel copy and alias, `@data`.
-3. `@query` with saved queries.
-4. `@dashboard`, docs (`ui.md`, `api_server.md` command table).
+2. Frontend: kernel copy and alias, `@data`, `@query`, `@dashboard` —
+   landed; see the implementation references above and `ui.md`.
