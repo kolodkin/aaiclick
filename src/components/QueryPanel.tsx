@@ -17,9 +17,9 @@ import {
   type ParamDef,
   type QueryRows,
 } from "@qv/core";
-import { useDeleteSavedQuery, useQueryObject, useSavedQueries, useSaveQuery } from "../api/hooks";
+import { useDeleteSavedQuery, useQueryObject, useQueryObjectCsv, useSavedQueries, useSaveQuery } from "../api/hooks";
 import type { ObjectQueryRequest, SavedQuery } from "../api/types";
-import { orderColsToPairs, pairsToOrderCols, rowsFromResult } from "../lib/viewer";
+import { orderColsToPairs, pairsToOrderCols } from "../lib/viewer";
 import { useToast } from "./Toast";
 
 const NEW_NAME = "::new::";
@@ -45,6 +45,7 @@ function staticParams(cellView: string): ParamDef[] {
 export function QueryPanel({ scope, object, fields }: { scope: string; object: string; fields: Field[] }) {
   const toast = useToast();
   const run = useQueryObject();
+  const runCsv = useQueryObjectCsv();
   const saved = useSavedQueries(scope, object);
   const save = useSaveQuery();
   const remove = useDeleteSavedQuery();
@@ -98,7 +99,7 @@ export function QueryPanel({ scope, object, fields }: { scope: string; object: s
     setError(null);
     run.mutate(request(nextOffset, params), {
       onSuccess: (data) => {
-        setRows(rowsFromResult(data));
+        setRows(data);
         setOffset(nextOffset);
       },
       onError: (e) => setError(e.message),
@@ -106,13 +107,10 @@ export function QueryPanel({ scope, object, fields }: { scope: string; object: s
   }
 
   function downloadCsv() {
-    run.mutate(
-      { ...request(offset), fmt: "csv" },
-      {
-        onSuccess: (data) => downloadText(`${object}.csv`, data.text ?? ""),
-        onError: (e) => setError(e.message),
-      },
-    );
+    runCsv.mutate(request(offset), {
+      onSuccess: (text) => downloadText(`${object}.csv`, text),
+      onError: (e) => setError(e.message),
+    });
   }
 
   function applySaved(q: SavedQuery) {
@@ -173,7 +171,7 @@ export function QueryPanel({ scope, object, fields }: { scope: string; object: s
 
   const columns = rows ? columnNames(rows) : [];
   const shownIdx = shownColumnIndices(columns, fields, visibleCols);
-  const busy = run.isPending || save.isPending;
+  const busy = run.isPending || runCsv.isPending || save.isPending;
 
   return (
     <section className="panel viewer-panel" data-testid="query-panel">

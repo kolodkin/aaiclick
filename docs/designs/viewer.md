@@ -28,7 +28,7 @@ fetching, and app state), then the copy is refreshed and `npm run check` /
 
 | Input             | Shape                                                                                                             | aaiclick source                                      |
 |-------------------|-------------------------------------------------------------------------------------------------------------------|------------------------------------------------------|
-| result rows       | `{meta: [{name, type}], data: [[…]]}` — ClickHouse `JSONCompact`, 64-bit integers / decimals / denormals quoted, named tuples as objects | `viewer.query_object` passes ClickHouse's output through |
+| result rows       | `{meta: [{name, type}], data: [[…]]}` — ClickHouse `JSONCompact`, 64-bit integers / decimals / denormals quoted, named tuples as objects | `POST /viewer/query` returns ClickHouse's output verbatim |
 | column types      | `meta[].type`, ClickHouse type strings                                                                            | same response                                        |
 | cell views        | raw YAML (`link` / `custom`, `params:` block); `{name}` params substitute into the `where` expression             | `viewer_queries.cell_view`, validated server-side    |
 | presentation      | `order_by: [{name, dir}]`, `fields: [col]`                                                                        | `viewer_queries.order_by` / `fields`                 |
@@ -36,10 +36,9 @@ fetching, and app state), then the copy is refreshed and `npm run check` /
 | CSV download      | text from a separate request                                                                                      | `viewer.query_object(fmt="csv")`                     |
 
 These are QueryView's `/api/db/query`, predefined-query, and `/api/runqueries`
-shapes; keeping them identical is what lets the copy stay verbatim. One
+shapes; keeping them identical is what lets the copy stay verbatim. The one
 adapter, `src/lib/viewer.ts`, converts aaiclick's wire `OrderBy` pair
-(`[name, dir]`) and `ObjectQueryResult` to the kernel's `OrderCol` /
-`QueryRows` / `Field`.
+(`[name, dir]`) to the kernel's `OrderCol` and the object schema to `Field`.
 
 # Scope Model
 
@@ -105,7 +104,8 @@ The viewer builds on three additions to `aaiclick/data` and
 
 | Function                                    | Returns                                | Notes                                                                                   |
 |---------------------------------------------|----------------------------------------|-----------------------------------------------------------------------------------------|
-| `query_object(ObjectQueryRequest)`          | `ObjectQueryResult`                    | `limit ≤ 1000`, `max_execution_time` 30 s; `fmt="json"` fills `meta` + `data`, `"csv"` fills `text` |
+| `query_object(ObjectQueryRequest)`          | `ObjectQueryResult`                    | `limit ≤ 1000`, `max_execution_time` 30 s; `fmt="json"` fills `meta` + `data`, `"csv"` fills `text` (MCP, CLI) |
+| `query_object_text(ObjectQueryRequest)`     | `str`                                  | the same page as ClickHouse's own `JSONCompact` / `CSVWithNames` text — what REST returns verbatim (`application/json` / `text/csv`) |
 | `list_saved_queries(SavedQueryFilter)`      | `Page[SavedQuery]`                     | by `scope` and `object`; a query saved with `scope=None` matches every scope            |
 | `save_query(SavedQueryIn)`                  | `SavedQuery`                           | upsert on `(tenant, name)`; validates `where` and the `cell_view` YAML shape            |
 | `delete_saved_query(name)`                  | `Deleted`                              |                                                                                         |
@@ -131,7 +131,8 @@ and `where` with the rules above.
 ## Surfaces
 
 - **REST** `aaiclick/server/routers/viewer.py`, prefix `/viewer`, the objects
-  router's dependencies (`orch_scope_with_ch`, tenant): `POST /query`,
+  router's dependencies (`orch_scope_with_ch`, tenant): `POST /query` (raw
+  ClickHouse text, no parse / re-serialise on the server),
   `GET|PUT|DELETE /queries[/{name}]`, `GET|PUT|DELETE /dashboards[/{name}]`,
   `POST /dashboards/{name}:run`. Any tenant member may read, run, and save;
   nothing here drops data.

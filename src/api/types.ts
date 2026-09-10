@@ -30,7 +30,6 @@ export type ColumnInfo = S["ColumnInfo"];
 export type ColumnSchema = S["ColumnSchema"];
 export type OrderByPair = S["OrderBy"];
 export type ObjectQueryRequest = S["ObjectQueryRequest"];
-export type ObjectQueryResult = S["ObjectQueryResult"];
 export type SavedQuery = S["SavedQuery"];
 export type SavedQueryBody = S["SavedQueryBody"];
 export type DashboardSummary = S["DashboardSummary"];

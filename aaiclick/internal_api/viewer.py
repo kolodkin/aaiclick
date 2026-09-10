@@ -95,26 +95,40 @@ def _order_clause(obj: Object, order_by: list[OrderBy]) -> str | None:
     return ", ".join(parts)
 
 
-async def _run_query(
-    job: str | None, query: ObjectQuery, limit: int, offset: int, fmt: QueryFormat
-) -> ObjectQueryResult:
-    """Read one page of ``query.object`` (of ``job``, or persistent) as JSONCompact or CSV."""
+async def _query_text(job: str | None, query: ObjectQuery, limit: int, offset: int, fmt: QueryFormat) -> str:
+    """One page of ``query.object`` (of ``job``, or persistent) as ClickHouse's own
+    ``JSONCompact`` or ``CSVWithNames`` text."""
     _check_where(query.where)
     obj = await objects_api.open_scoped(query.object, job)
     view = obj.view(where=query.where, order_by=_order_clause(obj, query.order_by), limit=limit, offset=offset)
     sql = view.select_sql(columns=_projection(obj, query.fields))
     if fmt == FMT_CSV:
-        return ObjectQueryResult(text=await query_text(sql, CSV_WITH_NAMES))
-    settings = {**JSON_COMPACT_SETTINGS, "max_execution_time": DEFAULT_MAX_EXECUTION_TIME}
-    doc = json.loads(await query_text(sql, JSON_COMPACT, settings))
+        return await query_text(sql, CSV_WITH_NAMES)
+    return await query_text(
+        sql, JSON_COMPACT, {**JSON_COMPACT_SETTINGS, "max_execution_time": DEFAULT_MAX_EXECUTION_TIME}
+    )
+
+
+async def _run_query(job: str | None, query: ObjectQuery, limit: int, offset: int) -> ObjectQueryResult:
+    """``_query_text`` parsed into ``meta`` + ``data`` (ClickHouse's ``rows`` / ``statistics`` dropped)."""
+    doc = json.loads(await _query_text(job, query, limit, offset, "json"))
     return ObjectQueryResult(
         meta=[ColumnSchema(name=str(m["name"]), type=str(m["type"])) for m in doc["meta"]], data=doc["data"]
     )
 
 
+async def query_object_text(request: ObjectQueryRequest) -> str:
+    """One page of an object as ClickHouse's own output text — what the REST
+    route returns verbatim, so the SPA's kernel reads ``{meta, data}`` without a
+    server-side parse and re-serialisation."""
+    return await _query_text(_scope_job(request.scope), request, request.limit, request.offset, request.fmt)
+
+
 async def query_object(request: ObjectQueryRequest) -> ObjectQueryResult:
-    """Read one page of an object as ClickHouse JSONCompact (or CSV text)."""
-    return await _run_query(_scope_job(request.scope), request, request.limit, request.offset, request.fmt)
+    """One page of an object as ``meta`` + ``data`` (``fmt="json"``) or ``text`` (``fmt="csv"``)."""
+    if request.fmt == FMT_CSV:
+        return ObjectQueryResult(text=await query_object_text(request))
+    return await _run_query(_scope_job(request.scope), request, request.limit, request.offset)
 
 
 async def _find_row(session: AsyncSession, model: type[RowT], name: str) -> RowT | None:
@@ -269,7 +283,7 @@ async def run_dashboard(name: str) -> DashboardResults:
     pages = dict(
         zip(
             panels,
-            await asyncio.gather(*(_run_query(job, dashboard.queries[p], MAX_LIMIT, 0, "json") for p in panels)),
+            await asyncio.gather(*(_run_query(job, dashboard.queries[p], MAX_LIMIT, 0) for p in panels)),
             strict=True,
         )
     )

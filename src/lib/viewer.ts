@@ -1,6 +1,6 @@
 // Adapters between aaiclick's wire format and the queryview-core kernel.
-import type { Field, OrderCol, QueryRows } from "@qv/core";
-import type { ColumnInfo, ObjectQueryResult, OrderByPair } from "../api/types";
+import type { Field, OrderCol } from "@qv/core";
+import type { ColumnInfo, OrderByPair } from "../api/types";
 
 export const PERSISTENT = "persistent";
 export const AAI_ID = "aai_id";
@@ -36,11 +36,6 @@ export function orderColsToPairs(cols: OrderCol[]): OrderByPair[] {
 
 export function pairsToOrderCols(pairs: OrderByPair[] | null | undefined): OrderCol[] {
   return (pairs ?? []).map(([name, dir]) => ({ name, dir }));
-}
-
-// ObjectQueryResult carries the kernel's {meta, data} contract unchanged.
-export function rowsFromResult(result: ObjectQueryResult): QueryRows {
-  return { meta: result.meta ?? [], data: (result.data ?? []) as QueryRows["data"] };
 }
 
 // The Fields picker's input, from the object's registered schema (aai_id hidden,

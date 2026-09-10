@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 
 from aaiclick.internal_api import viewer as viewer_api
 from aaiclick.view_models import Deleted, Page
 from aaiclick.viewer.view_models import (
+    FMT_CSV,
     Dashboard,
     DashboardIn,
     DashboardResults,
     DashboardSummary,
     ObjectQueryRequest,
-    ObjectQueryResult,
     SavedQuery,
     SavedQueryFilter,
     SavedQueryIn,
@@ -30,9 +30,20 @@ class DashboardBody(DashboardIn):
     name: str = ""  # taken from the path
 
 
-@router.post("/query", response_model=ObjectQueryResult, responses=problem_responses(404, 422))
-async def query_object(request: ObjectQueryRequest) -> ObjectQueryResult:
-    return await viewer_api.query_object(request)
+@router.post(
+    "/query",
+    responses={
+        200: {
+            "description": "ClickHouse's own output, verbatim: `JSONCompact` (`{meta, data, rows, statistics}`) "
+            "for `fmt=json`, `CSVWithNames` for `fmt=csv`.",
+            "content": {"application/json": {}, "text/csv": {}},
+        },
+        **problem_responses(404, 422),
+    },
+)
+async def query_object(request: ObjectQueryRequest) -> Response:
+    media_type = "text/csv" if request.fmt == FMT_CSV else "application/json"
+    return Response(content=await viewer_api.query_object_text(request), media_type=media_type)
 
 
 @router.get("/queries", response_model=Page[SavedQuery])

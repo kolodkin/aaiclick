@@ -58,6 +58,16 @@ async function sendJSON<T>(method: string, path: string, body?: unknown): Promis
   return (await res.json()) as T;
 }
 
+export async function postText(path: string, body: unknown): Promise<string> {
+  const res = await request(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw await parseError(res);
+  return res.text();
+}
+
 export const fetchJSON = <T>(path: string) => sendJSON<T>("GET", path);
 export const postJSON = <T>(path: string, body?: unknown) => sendJSON<T>("POST", path, body);
 export const putJSON = <T>(path: string, body: unknown) => sendJSON<T>("PUT", path, body);

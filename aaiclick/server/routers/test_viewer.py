@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.view_models import Page, Problem, ProblemCode
-from aaiclick.viewer.view_models import Dashboard, DashboardResults, ObjectQueryResult, SavedQuery
+from aaiclick.viewer.view_models import Dashboard, DashboardResults, SavedQuery
 
 from ..app import API_PREFIX
 
@@ -12,9 +12,13 @@ V = f"{API_PREFIX}/viewer"
 async def test_query_object_route(orch_ctx, app_client):
     await create_object_from_value({"id": [1, 2], "name": ["a", "b"]}, name="http_orders", scope="global")
     response = await app_client.post(f"{V}/query", json={"object": "http_orders", "order_by": [["id", "ASC"]]})
-    assert response.status_code == 200
-    result = ObjectQueryResult.model_validate(response.json())
-    assert [c.name for c in result.meta] == ["id", "name"] and result.data == [["1", "a"], ["2", "b"]]
+    assert response.status_code == 200 and response.headers["content-type"].startswith("application/json")
+    body = response.json()  # ClickHouse's JSONCompact, verbatim
+    assert [c["name"] for c in body["meta"]] == ["id", "name"] and body["data"] == [["1", "a"], ["2", "b"]]
+    assert body["rows"] == 2 and "statistics" in body
+
+    csv = await app_client.post(f"{V}/query", json={"object": "http_orders", "fields": ["id"], "fmt": "csv"})
+    assert csv.headers["content-type"].startswith("text/csv") and csv.text.splitlines() == ['"id"', "1", "2"]
 
 
 async def test_query_object_route_errors(orch_ctx, app_client):

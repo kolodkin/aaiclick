@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { columnNames, columnTypes, renderCell, ResultsTable } from "@qv/core";
 import { useObjectRows, useObjects } from "../api/hooks";
 import type { ObjectView } from "../api/types";
@@ -7,7 +6,7 @@ import { MetaGrid } from "../components/MetaGrid";
 import { ObjectsTable } from "../components/ObjectsTable";
 import { ScopeTree } from "../components/ScopeTree";
 import { relativeTime } from "../lib/format";
-import { dataPrompt, formatBytes, queryPrompt, rowsFromResult, scopeKey, scopeLabel } from "../lib/viewer";
+import { dataPrompt, formatBytes, queryPrompt, scopeKey, scopeLabel } from "../lib/viewer";
 
 export function Data({
   job,
@@ -62,7 +61,7 @@ function ObjectPreview({
   onPrompt: (v: string) => void;
 }) {
   const query = useObjectRows(scope, name);
-  const rows = useMemo(() => (query.data ? rowsFromResult(query.data) : null), [query.data]);
+  const rows = query.data ?? null;
   const columns = rows ? columnNames(rows) : [];
   const colTypes = rows ? columnTypes(rows) : {};
 

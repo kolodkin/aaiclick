@@ -4,7 +4,6 @@ import {
   formatBytes,
   orderColsToPairs,
   pairsToOrderCols,
-  rowsFromResult,
   scopeKey,
   scopeLabel,
 } from "./viewer";
@@ -33,12 +32,7 @@ describe("order by adapters", () => {
   });
 });
 
-describe("rows and fields", () => {
-  test("rowsFromResult keeps meta and data", () => {
-    const rows = rowsFromResult({ meta: [{ name: "n", type: "Int64" }], data: [["1"]], text: null });
-    expect(rows.meta).toEqual([{ name: "n", type: "Int64" }]);
-    expect(rows.data).toEqual([["1"]]);
-  });
+describe("fields", () => {
   test("fieldsFromSchema drops aai_id and keeps order", () => {
     const fields = fieldsFromSchema({
       aai_id: { type: "UInt64" },

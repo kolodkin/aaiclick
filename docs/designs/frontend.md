@@ -111,7 +111,7 @@ via TanStack Query's `refetchInterval`.
 | `useRegisterJob`  | `POST /api/v0/registered-jobs`   | `aaiclick/server/routers/registered_jobs.py` |
 | `useObjects`      | `GET /api/v0/objects`            | `aaiclick/server/routers/objects.py`     |
 | `useObject`       | `GET /api/v0/objects/{name}[?job=…]` | `aaiclick/server/routers/objects.py` |
-| `useObjectRows`   | `POST /api/v0/viewer/query`      | `aaiclick/server/routers/viewer.py`      |
+| `useObjectRows` / `useQueryObject` / `useQueryObjectCsv` | `POST /api/v0/viewer/query` (raw JSONCompact or CSV) | `aaiclick/server/routers/viewer.py` |
 | `useQueryObject`  | `POST /api/v0/viewer/query`      | `aaiclick/server/routers/viewer.py`      |
 | `useSavedQueries` / `useSaveQuery` / `useDeleteSavedQuery` | `/api/v0/viewer/queries[/{name}]` | `aaiclick/server/routers/viewer.py` |
 | `useDashboards` / `useDashboard` / `useRunDashboard` | `/api/v0/viewer/dashboards[/{name}[:run]]` | `aaiclick/server/routers/viewer.py` |

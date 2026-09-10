@@ -1193,18 +1193,6 @@ export interface components {
             where?: string | null;
         };
         /**
-         * ObjectQueryResult
-         * @description ``meta`` + ``data`` for ``fmt="json"`` (ClickHouse JSONCompact), ``text`` for CSV.
-         */
-        ObjectQueryResult: {
-            /** Data */
-            data?: unknown[][];
-            /** Meta */
-            meta?: components["schemas"]["ColumnSchema"][];
-            /** Text */
-            text?: string | null;
-        };
-        /**
          * ObjectView
          * @description Compact object representation used by list endpoints.
          */
@@ -3580,13 +3568,14 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
+            /** @description ClickHouse's own output, verbatim: `JSONCompact` (`{meta, data, rows, statistics}`) for `fmt=json`, `CSVWithNames` for `fmt=csv`. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ObjectQueryResult"];
+                    "application/json": unknown;
+                    "text/csv": unknown;
                 };
             };
             /** @description Not Found */
