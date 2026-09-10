@@ -39,6 +39,7 @@ from aaiclick.internal_api import objects as objects_api
 from aaiclick.internal_api import registered_jobs as rj_api
 from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import tasks as tasks_api
+from aaiclick.internal_api import viewer as viewer_api
 from aaiclick.oplog.lineage import LineageDirection, OplogGraph
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.orchestration.view_models import (
@@ -67,6 +68,18 @@ from aaiclick.view_models import (
     RunJobRequest,
     SetupResult,
     StartExecutionWorkerRequest,
+)
+from aaiclick.viewer.view_models import (
+    Dashboard,
+    DashboardIn,
+    DashboardResults,
+    DashboardSummary,
+    Deleted,
+    ObjectQueryRequest,
+    ObjectQueryResult,
+    SavedQuery,
+    SavedQueryFilter,
+    SavedQueryIn,
 )
 
 
@@ -295,3 +308,70 @@ def bootstrap_ollama(
 ) -> OllamaBootstrapResult:
     """Ensure an Ollama model is pulled on the configured server."""
     return setup_api.bootstrap_ollama(model, base_url=base_url)
+
+
+# --- viewer: object queries, saved queries, dashboards ------------------
+
+
+@mcp.tool
+async def query_object(request: ObjectQueryRequest) -> ObjectQueryResult:
+    """Read one page of an object by ``(scope, object)`` with optional
+    ``fields`` / ``where`` / ``order_by``; JSONCompact ``meta`` + ``data``."""
+    async with orch_context(with_ch=True):
+        return await viewer_api.query_object(request)
+
+
+@mcp.tool
+async def list_saved_queries(filter: SavedQueryFilter | None = None) -> Page[SavedQuery]:
+    """Saved viewer queries, optionally for one scope or object."""
+    async with orch_context(with_ch=True):
+        return await viewer_api.list_saved_queries(filter)
+
+
+@mcp.tool
+async def save_query(query: SavedQueryIn) -> SavedQuery:
+    """Create or replace a saved viewer query by name."""
+    async with orch_context(with_ch=True):
+        return await viewer_api.save_query(query)
+
+
+@mcp.tool
+async def delete_saved_query(name: str) -> Deleted:
+    """Delete a saved viewer query by name."""
+    async with orch_context(with_ch=True):
+        return await viewer_api.delete_saved_query(name)
+
+
+@mcp.tool
+async def list_dashboards() -> Page[DashboardSummary]:
+    """Dashboards of the active tenant."""
+    async with orch_context(with_ch=True):
+        return await viewer_api.list_dashboards()
+
+
+@mcp.tool
+async def get_dashboard(name: str) -> Dashboard:
+    """A dashboard's HTML and panel queries."""
+    async with orch_context(with_ch=True):
+        return await viewer_api.get_dashboard(name)
+
+
+@mcp.tool
+async def save_dashboard(dashboard: DashboardIn) -> Dashboard:
+    """Create or replace a dashboard: HTML plus named object queries."""
+    async with orch_context(with_ch=True):
+        return await viewer_api.save_dashboard(dashboard)
+
+
+@mcp.tool
+async def delete_dashboard(name: str) -> Deleted:
+    """Delete a dashboard by name."""
+    async with orch_context(with_ch=True):
+        return await viewer_api.delete_dashboard(name)
+
+
+@mcp.tool
+async def run_dashboard(name: str) -> DashboardResults:
+    """Run every panel query of a dashboard; column-oriented results."""
+    async with orch_context(with_ch=True):
+        return await viewer_api.run_dashboard(name)
