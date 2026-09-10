@@ -214,6 +214,7 @@ Use the `generate-migration` skill. Never hand-write migration files.
 2. **Plan and Implement with superpowers**: Use the `superpowers:writing-plans` and `superpowers:executing-plans` skills to break the feature into phases and execute them:
    - Write comprehensive tests for each phase
    - Commit working code frequently
+   - **Always execute plans inline** (`superpowers:executing-plans` in the current session). Do not offer the subagent-driven option or ask which execution mode to use.
 
 3. **Update Documentation to Reference Implementation**:
    - **Add implementation references**: Point to actual code files and line numbers
