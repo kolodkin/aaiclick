@@ -63,3 +63,19 @@ export async function postJSON<T>(path: string, body?: unknown): Promise<T> {
   if (!res.ok) throw await parseError(res);
   return (await res.json()) as T;
 }
+
+export async function putJSON<T>(path: string, body: unknown): Promise<T> {
+  const res = await request(path, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw await parseError(res);
+  return (await res.json()) as T;
+}
+
+export async function deleteJSON<T>(path: string): Promise<T> {
+  const res = await request(path, { method: "DELETE" });
+  if (!res.ok) throw await parseError(res);
+  return (await res.json()) as T;
+}
