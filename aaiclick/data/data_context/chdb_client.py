@@ -150,6 +150,13 @@ class ChdbClient:
                     return text
         return ChdbCommandSummary(result)
 
+    async def query_text(self, query: str, fmt: str, settings: dict | None = None) -> str:
+        """Run ``query`` and return ClickHouse's own output in format ``fmt``
+        (``JSONCompact``, ``CSVWithNames``, …) as text."""
+        result = self._session.query(_with_settings(query, settings), fmt)
+        raw = result.bytes()
+        return raw.decode("utf-8") if raw else ""
+
     async def query(
         self,
         query: str,

@@ -154,6 +154,21 @@ async def export_query_to_file(query: str, path: str, fmt: str) -> str:
     return abs_path
 
 
+async def query_text(sql: str, fmt: str, settings: dict | None = None) -> str:
+    """Run ``sql`` and return ClickHouse's own output in format ``fmt`` as text.
+
+    Lets a caller hand ClickHouse's ``JSONCompact`` or ``CSVWithNames`` output
+    through unchanged instead of re-serialising Python values. Mirrors
+    ``export_query_to_file``: chdb has the method on its adapter, while the
+    clickhouse-connect client exposes ``raw_query``.
+    """
+    client = get_ch_client()
+    if is_chdb():
+        return await client.query_text(sql, fmt, settings)  # type: ignore[attr-defined]
+    raw = await client.raw_query(sql, fmt=fmt, settings=settings)  # type: ignore[attr-defined]
+    return raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else str(raw)
+
+
 async def create_ch_client() -> ChClient:
     """Create a ClickHouse client from AAICLICK_CH_URL."""
     if is_chdb():
