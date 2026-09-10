@@ -130,18 +130,20 @@ SDK closes that gap without a second worker implementation.
 
 See `viewer.md` for the shipped design.
 
-- **Free-form SQL across objects**: a `query_sql` verb taking `scope`,
-  `sql`, and an explicit `objects: {alias: name}` map. The server binds each
-  alias as a CTE (`WITH orders AS (SELECT * FROM p_7_orders) …`) before the
-  pagination wrapper; verified on chdb that a CTE resolves inside the
-  wrapper and a user's own `WITH`, that a column sharing the alias stays a
-  column, and that unused CTEs are ignored. Raw `p_`/`j_`/`t_` identifiers
-  are rejected. Deferred until single-object queries prove insufficient.
+- **SQL over several objects at once** (joins, unions): today `query_object`
+  reads one object with a `where` filter. A `query_sql` verb would take
+  `scope`, a SQL text, and a map of the object names it uses
+  (`{"o": "orders", "c": "customers"}`); the user writes `SELECT … FROM o
+  JOIN c ON …` and the server prepends one CTE per entry (`WITH o AS (SELECT *
+  FROM p_7_orders), c AS (…)`), so the SQL still never names a table and the
+  tenant / scope rules stay server-side. Verified on chdb that such CTEs
+  resolve inside the pagination wrapper and alongside the user's own `WITH`.
+  Deferred until single-object queries prove insufficient.
 - **Agent push to the browser**: QueryView's remote channel (an agent pushes a
   query or dashboard into a live tab) has no aaiclick equivalent yet; it
   needs the SSE endpoint planned above.
-- **Workspaces, git sync, and YAML export** for saved queries and dashboards,
-  as QueryView has.
+- **Git sync and YAML export** for saved queries and dashboards, as QueryView
+  has (QueryView's workspaces map to tenants here, so nothing else is needed).
 - **`options_sql` params**: the kernel's `params:` block accepts a query
   whose first column feeds a dropdown; aaiclick has no free-SQL endpoint, so
   `QueryPanel` renders static `options` only.
