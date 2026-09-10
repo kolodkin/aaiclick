@@ -80,8 +80,9 @@ def _open_registered(page, base_url: str, role: str) -> None:
 
 
 @_spa_built
-def test_viewer_sees_mutating_controls_disabled(page, base_url: str) -> None:
+def test_viewer_sees_mutating_controls_disabled(page, base_url: str, shot) -> None:
     _open_registered(page, base_url, "viewer")
+    shot("registered-viewer")
 
     for name in ("+ Register new job", "Run", "Run…"):
         button = page.get_by_role("button", name=name, exact=True).first
@@ -93,10 +94,11 @@ def test_viewer_sees_mutating_controls_disabled(page, base_url: str) -> None:
 
 
 @_spa_built
-def test_admin_sees_mutating_controls_enabled(page, base_url: str) -> None:
+def test_admin_sees_mutating_controls_enabled(page, base_url: str, shot) -> None:
     """The gate must not leak onto admins — this is what would catch an
     inverted condition that disables the controls for everyone."""
     _open_registered(page, base_url, "admin")
+    shot("registered-admin")
 
     for name in ("+ Register new job", "Run", "Run…"):
         button = page.get_by_role("button", name=name, exact=True).first
