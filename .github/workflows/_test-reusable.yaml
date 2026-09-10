@@ -318,16 +318,6 @@ jobs:
           command: uv run pytest test_e2e/web/ -v
           report-name: "Pytest Results (UI e2e dist)"
 
-      - name: Upload UI screenshots
-        # The `shot` fixture in test_e2e/web/conftest.py saves full-page PNGs
-        # here; keep them on failure too, that is when they matter most.
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: ui-e2e-screenshots
-          path: test-results/shots/
-          if-no-files-found: ignore
-
   examples:
     runs-on: ubuntu-latest
     timeout-minutes: 60

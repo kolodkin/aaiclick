@@ -192,7 +192,7 @@ fixture (uvicorn on a free port) + Playwright fixtures (`base_url`,
 when the package is absent.
 
 `shot("name")` saves a numbered full-page PNG to `test-results/shots/`
-(reset per run, gitignored); CI uploads it as the `ui-e2e-screenshots` artifact.
+(reset per run, gitignored).
 
 **Why Playwright Python**: an e2e test exercises the browser, FastAPI,
 orchestrator, and DB together. `test_e2e/web/` shares the pytest harness

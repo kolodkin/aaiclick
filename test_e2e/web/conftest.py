@@ -6,7 +6,7 @@ guard with ``pytest.importorskip`` and skip automatically when the
 package is absent.
 
 ``shot`` saves full-page screenshots under ``test-results/shots/`` at the
-repo root — where the ``/screenshots`` skill looks and CI uploads from.
+repo root, where the ``/screenshots`` skill looks.
 
 The suite sits under ``test_e2e/web/`` which is excluded from the
 default ``pytest`` testpaths; it only runs when the path is passed
