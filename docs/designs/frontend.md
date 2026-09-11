@@ -265,10 +265,22 @@ ClickHouse but not yet reachable from the UI — see `future.md`.
 | End-to-end (browser) | Playwright (Python) | `test_e2e/web/test_smoke.py`, pytest           |
 
 **Implementation**: `test_e2e/web/test_smoke.py` — golden-path smoke
-(home load, `@jobs` view, URL sync, job graph render); `test_e2e/web/conftest.py` — server
-fixture (uvicorn on a free port) + Playwright fixtures (`base_url`,
-`browser`, `page`, `shot`). Playwright is an optional dep — tests skip cleanly
-when the package is absent.
+(home load, `@jobs` view, URL sync, job graph render) and the live-update
+tests; `test_e2e/web/conftest.py` — `base_url` starts the server on a free
+port under a per-session `AAICLICK_LOCAL_ROOT`, plus the execution and
+background workers as separate processes in distributed mode (local mode
+runs them inside the server); Playwright fixtures (`browser`, `page`,
+`shot`). Playwright is an optional dep — tests skip cleanly when the package
+is absent.
+
+**One test body, both modes.** Tests create jobs in-process through the
+orchestration API (`helpers.submit_job`, the same pattern as `seed.py`),
+never through REST: no credentials are needed under distributed-mode auth,
+and whichever worker the mode runs executes the job. The live-update tests
+therefore run against both transports — `LocalTransport` locally, Postgres
+`LISTEN`/`NOTIFY` in the `UI e2e dist` job — and the distributed run is the
+only place the full chain `pg_notify` → SSE frame → browser DOM is exercised
+end to end.
 
 `shot("name")` saves a numbered full-page PNG to `test-results/shots/`
 (reset per run, gitignored).
@@ -280,9 +292,8 @@ with `test_e2e/docker/` rather than running a parallel Node runner.
 !!! warning "E2E suites don't run in default `pytest`"
     `test_e2e/<suite>/` is excluded from the default `pytest` testpaths
     and only runs when the path is passed explicitly or in a dedicated
-    CI workflow. The `test-ui-e2e-dist` job in
-    `.github/workflows/_test-reusable.yaml` runs `test_smoke.py` on every
+    CI workflow. The `UI e2e dist` job in
+    `.github/workflows/_test-reusable.yaml` runs `test_e2e/web/` on every
     PR against the distributed (Postgres + ClickHouse) backend.
 
-Deferred work (SSE endpoint, cross-host logs, Vitest, OpenAPI codegen, auth)
-is tracked in `docs/designs/future.md`.
+Deferred work (Vitest, OpenAPI codegen) is tracked in `docs/designs/future.md`.

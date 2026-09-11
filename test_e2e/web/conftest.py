@@ -23,9 +23,11 @@ import sys
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 import pytest
+
+from aaiclick.backend import is_local
 
 SHOTS = Path(__file__).resolve().parents[2] / "test-results" / "shots"
 
@@ -36,39 +38,60 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+def _launch(root: Path, name: str, args: list[str], env: dict[str, str]) -> tuple[subprocess.Popen, BinaryIO]:
+    """Start one ``python -m`` process with stderr captured to ``<root>/<name>.log``.
+
+    A file, not a PIPE: nothing drains a pipe during the run, so a chatty
+    failure fills its 64 KB buffer and blocks the process's event loop inside
+    logging — a clean error becomes a hang on the next navigation.
+    """
+    log_file = (root / f"{name}.log").open("wb")
+    proc = subprocess.Popen([sys.executable, "-m", *args], stdout=subprocess.DEVNULL, stderr=log_file, env=env)
+    return proc, log_file
+
+
+def _stop(proc: subprocess.Popen, log_file: BinaryIO) -> None:
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+    log_file.close()
+
+
 @pytest.fixture(scope="session")
 def base_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    """Start the FastAPI server and yield its base URL.
+    """Start the server — plus both workers in distributed mode — and yield its URL.
 
-    Uses the default chdb + SQLite backend, rooted at a per-session temp dir
-    via ``AAICLICK_LOCAL_ROOT`` so the suite never reads or writes the
-    developer's ``~/.aaiclick``: assertions about *which* jobs exist are only
-    honest if a previous run's rows are not still in the list.
+    Rooted at a per-session temp dir via ``AAICLICK_LOCAL_ROOT`` so the suite
+    never reads or writes the developer's ``~/.aaiclick``: assertions about
+    *which* jobs exist are only honest if a previous run's rows are not still
+    in the list.
 
-    The server process is killed after the session.
+    Local mode runs the execution and background workers inside the server
+    (``local_runtime``). Distributed mode does not — they are separate
+    processes in production — so they are launched here too. That is what
+    lets a job a test creates actually run, and the same test body then holds
+    in both modes.
     """
     port = _free_port()
     root = tmp_path_factory.mktemp("aaiclick-root")
-    # Stderr to a file, not a PIPE: nothing drains the pipe during the run, so
-    # a chatty failure fills its 64 KB buffer and blocks the server's event
-    # loop inside logging — a clean error becomes a hang on the next navigation.
-    log_path = root / "server.log"
-    log_file = log_path.open("wb")
-    proc = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "uvicorn",
-            "aaiclick.server.app:app",
-            "--port",
-            str(port),
-            "--log-level",
-            "warning",
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=log_file,
-        env={**os.environ, "AAICLICK_LOCAL_ROOT": str(root)},
-    )
+    # The test process must point at the same root: tests create jobs
+    # in-process (helpers.submit_job), and in local mode that is a SQLite file
+    # under this directory — a different root is a different database.
+    mp = pytest.MonkeyPatch()
+    mp.setenv("AAICLICK_LOCAL_ROOT", str(root))
+    env = dict(os.environ)
+    server_args = ["uvicorn", "aaiclick.server.app:app", "--port", str(port), "--log-level", "warning"]
+    procs = [_launch(root, "server", server_args, env)]
+    if not is_local():
+        procs.append(_launch(root, "execution-worker", ["aaiclick", "execution-worker", "start"], env))
+        # Job rows reach COMPLETED on this worker's poll; the default 10 s
+        # would dominate every test that waits for one.
+        procs.append(_launch(root, "background", ["aaiclick", "background", "start", "--poll-interval", "1"], env))
+    server, _ = procs[0]
+    server_log = root / "server.log"
 
     url = f"http://127.0.0.1:{port}"
 
@@ -77,8 +100,8 @@ def base_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     # window is generous.
     deadline = time.monotonic() + 120
     while time.monotonic() < deadline:
-        if proc.poll() is not None:
-            pytest.fail(f"Server exited early (code={proc.returncode}):\n{log_path.read_text(errors='replace')}")
+        if server.poll() is not None:
+            pytest.fail(f"Server exited early (code={server.returncode}):\n{server_log.read_text(errors='replace')}")
         try:
             s = socket.create_connection(("127.0.0.1", port), timeout=0.5)
             s.close()
@@ -86,19 +109,15 @@ def base_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
         except OSError:
             time.sleep(0.25)
     else:
-        proc.kill()
-        proc.wait()
-        pytest.fail(f"Server did not come up in time:\n{log_path.read_text(errors='replace')}")
+        for proc, log_file in procs:
+            _stop(proc, log_file)
+        pytest.fail(f"Server did not come up in time:\n{server_log.read_text(errors='replace')}")
 
     yield url
 
-    proc.terminate()
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait()
-    log_file.close()
+    for proc, log_file in reversed(procs):
+        _stop(proc, log_file)
+    mp.undo()
 
 
 @pytest.fixture(scope="session")

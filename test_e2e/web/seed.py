@@ -1,8 +1,9 @@
 """Seed a job whose graph exercises every task status and topology shape.
 
-The web e2e server runs as a subprocess against the default local SQLite
-database, so this module writes to the same database in-process and the
-server reads the result back through ``GET /jobs/{ref}/graph``.
+The web e2e server runs as a subprocess against whichever backend
+``AAICLICK_SQL_URL`` names, so this module writes to that same database
+in-process and the server reads the result back through
+``GET /jobs/{ref}/graph``.
 
 Shape (9 tasks, 16 edges), chosen so one fixture proves layout, edge routing,
 and every status colour at once::
@@ -29,11 +30,12 @@ source/sink logic in ``aaiclick.orchestration.graph``, exercised end to end.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import NamedTuple
 
 from sqlmodel import select
 
+from aaiclick.datetime_utils import utc_now
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.models import (
     JOB_RUNNING,
@@ -57,8 +59,10 @@ ENTRYPOINT = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
 
 # Anchored near "now" rather than a fixed date: a RUNNING task has no
 # completion time, so the UI measures its duration against the current clock —
-# a fixed past base would render an absurd "5096h 11m".
-_BASE = datetime.now(timezone.utc) - timedelta(seconds=90)
+# a fixed past base would render an absurd "5096h 11m". Naive UTC, as the app
+# writes everywhere: the columns are TIMESTAMP WITHOUT TIME ZONE, and asyncpg
+# rejects an aware datetime for them where SQLite quietly accepted one.
+_BASE = utc_now() - timedelta(seconds=90)
 
 
 def _offset(seconds: int | None) -> datetime | None:

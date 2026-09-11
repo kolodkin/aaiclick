@@ -20,13 +20,11 @@ runs when the path is passed explicitly or in a dedicated CI workflow."""
 from __future__ import annotations
 
 import re
-import time
+import uuid
 from pathlib import Path
 
 import pytest
-from helpers import login_if_needed, open_page
-
-from aaiclick.backend import is_local
+from helpers import TaskRow, job_tasks, login_if_needed, open_page, run_in_process, submit_job, wait_for_task
 
 # Guard 1: the SPA build must exist.
 STATIC = Path(__file__).resolve().parents[2] / "aaiclick" / "server" / "static" / "index.html"
@@ -35,10 +33,10 @@ STATIC = Path(__file__).resolve().parents[2] / "aaiclick" / "server" / "static" 
 # reason that appears in the pytest output — do not raise ImportError here.
 pytest.importorskip("playwright.sync_api")
 
+from seed import seed_graph_job  # noqa: E402  (must follow the playwright guard)
+
 _spa_built = pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
-# Several tests drive /jobs:run unauthenticated and rely on the in-process
-# worker that local_runtime starts; the distributed e2e job enforces auth (401)
-# and runs no worker, so the job would never execute.
+
 # The fallback poll interval the app uses while the stream is down, read from
 # the source instead of duplicated: raising it there must not leave the
 # live-update tests below passing against too short an idle window. A miss
@@ -47,11 +45,6 @@ _spa_built = pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing;
 _MAIN_TSX = Path(__file__).resolve().parents[2] / "src" / "main.tsx"
 _FALLBACK_MATCH = re.search(r"isLiveConnected\(\)\s*\?\s*false\s*:\s*(\d+)", _MAIN_TSX.read_text())
 POLL_FALLBACK_MS = int(_FALLBACK_MATCH.group(1)) if _FALLBACK_MATCH else 5000
-
-_local_only = pytest.mark.skipif(
-    not is_local(),
-    reason="needs auth-off + an in-process worker (local_runtime), both local-mode only",
-)
 
 
 @_spa_built
@@ -85,30 +78,17 @@ def test_prompt_updates_url(page, base_url: str, shot) -> None:
     shot("prompt-registered")
 
 
-def _run_task_and_wait(page, base_url: str, entrypoint: str) -> str:
-    """Submit a job for ``entrypoint``, wait for it to complete, return task id.
+def _run_task_and_wait(entrypoint: str) -> str:
+    """Create a job for ``entrypoint``, wait for its task to complete, return the task id.
 
-    Uses Playwright's API request context (same origin, auth off in local mode).
-    The id comes back as a JSON *string* — snowflakes exceed JS's safe-integer
-    range — and is carried verbatim into the ``@task`` routes below.
+    In-process, like every job the suite creates: no REST call, so no auth in
+    either mode, and whichever worker the mode runs executes it.
     """
-    api = f"{base_url}/api/v0"
-    resp = page.request.post(f"{api}/jobs:run", data={"name": entrypoint})
-    assert resp.ok, resp.text()
-    job_id = resp.json()["id"]
-
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        detail = page.request.get(f"{api}/jobs/{job_id}").json()
-        tasks = detail.get("tasks") or []
-        if tasks and tasks[0]["status"] == "COMPLETED":
-            return tasks[0]["id"]
-        time.sleep(0.5)
-    raise AssertionError("task did not reach COMPLETED within 30 s")
+    job_id = submit_job(entrypoint.rsplit(".", 1)[-1], entrypoint)
+    return wait_for_task(job_id, "COMPLETED").id
 
 
 @_spa_built
-@_local_only
 def test_task_view_shows_logs(page, base_url: str, shot) -> None:
     """The task view renders captured logs (local mode only).
 
@@ -120,7 +100,7 @@ def test_task_view_shows_logs(page, base_url: str, shot) -> None:
     Local-mode only: it drives ``/jobs:run`` unauthenticated and relies on the
     in-process worker that ``local_runtime`` starts — the distributed e2e job
     enforces auth (401) and runs no worker, so the job would never execute."""
-    task_id = _run_task_and_wait(page, base_url, "aaiclick.orchestration.fixtures.sample_tasks.task_with_output")
+    task_id = _run_task_and_wait("aaiclick.orchestration.fixtures.sample_tasks.task_with_output")
 
     open_page(page, f"{base_url}/?p=@task {task_id}")
 
@@ -135,10 +115,9 @@ def test_task_view_shows_logs(page, base_url: str, shot) -> None:
 
 
 @_spa_built
-@_local_only
 def test_task_view_colors_logs_by_level(page, base_url: str, shot) -> None:
     """The task view colors lines by level and shows timestamps only when toggled."""
-    task_id = _run_task_and_wait(page, base_url, "aaiclick.orchestration.fixtures.sample_tasks.task_with_log_levels")
+    task_id = _run_task_and_wait("aaiclick.orchestration.fixtures.sample_tasks.task_with_log_levels")
 
     open_page(page, f"{base_url}/?p=@task {task_id}")
 
@@ -157,25 +136,13 @@ def test_task_view_colors_logs_by_level(page, base_url: str, shot) -> None:
 
 
 @_spa_built
-@_local_only
 def test_job_graph_view_renders_nodes(page, base_url: str, shot) -> None:
     """`@job <ref> graph` renders a React Flow canvas with a node per task."""
-    api = f"{base_url}/api/v0"
     entrypoint = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
-    resp = page.request.post(f"{api}/jobs:run", data={"name": entrypoint})
-    assert resp.ok, resp.text()
-    job_id = resp.json()["id"]
-
-    # The graph endpoint is authoritative — poll it before driving the browser
+    job_id = submit_job("simple_task", entrypoint)
+    # The task row is authoritative — wait for it before driving the browser
     # so a render failure is not confused with the job not having started.
-    graph = None
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        graph = page.request.get(f"{api}/jobs/{job_id}/graph").json()
-        if graph.get("nodes"):
-            break
-        time.sleep(0.5)
-    assert graph and graph["nodes"], "graph endpoint returned no nodes"
+    wait_for_task(job_id)
 
     open_page(page, f"{base_url}/?p=@job {job_id} graph")
 
@@ -186,7 +153,6 @@ def test_job_graph_view_renders_nodes(page, base_url: str, shot) -> None:
 
 
 @_spa_built
-@_local_only
 def test_task_view_meta_cells_do_not_overflow(page, base_url: str, shot) -> None:
     """Long values wrap inside their grid cell instead of overlapping the next.
 
@@ -194,7 +160,7 @@ def test_task_view_meta_cells_do_not_overflow(page, base_url: str, shot) -> None
     content, so an unbreakable entrypoint or snowflake id used to spill across
     the neighbouring column and render two values on top of each other.
     """
-    task_id = _run_task_and_wait(page, base_url, "aaiclick.orchestration.fixtures.sample_tasks.task_with_output")
+    task_id = _run_task_and_wait("aaiclick.orchestration.fixtures.sample_tasks.task_with_output")
 
     open_page(page, f"{base_url}/?p=@task {task_id}")
     page.wait_for_selector(".meta div")
@@ -209,7 +175,6 @@ def test_task_view_meta_cells_do_not_overflow(page, base_url: str, shot) -> None
 
 
 @_spa_built
-@_local_only
 def test_task_view_truncates_long_entrypoint_from_the_start(page, base_url: str, shot) -> None:
     """An over-long entrypoint stays on one line, keeps its tail, and expands.
 
@@ -217,7 +182,7 @@ def test_task_view_truncates_long_entrypoint_from_the_start(page, base_url: str,
     therefore check rendered geometry, not a character count.
     """
     entrypoint = "aaiclick.orchestration.fixtures.sample_tasks.task_with_output"
-    task_id = _run_task_and_wait(page, base_url, entrypoint)
+    task_id = _run_task_and_wait(entrypoint)
 
     open_page(page, f"{base_url}/?p=@task {task_id}")
 
@@ -245,16 +210,17 @@ def test_task_view_truncates_long_entrypoint_from_the_start(page, base_url: str,
 
 
 @_spa_built
-@_local_only
 def test_jobs_view_updates_live_without_polling(page, base_url: str, shot) -> None:
     """A status change reaches the jobs list over ``/events``, not a poll.
 
     The request log is the evidence: over an idle window longer than the 2 s
     polling fallback the page must fetch ``/jobs`` zero times, and it must
-    hold exactly one ``/events`` stream. Only then is a job submitted whose
-    name no other test uses — its row appearing at the top as ``COMPLETED``
-    shows the stream delivered. (Rows carry no id and the list is capped, so
-    the name is the discriminator.)
+    hold exactly one ``/events`` stream. Only then is a job created under a
+    name unique to this run — its row appearing at the top as ``COMPLETED``
+    shows the stream delivered. Rows carry no id and the list is capped, so
+    the name is the discriminator; unique rather than merely unused by other
+    tests because only local mode's SQLite root is per-session — distributed
+    mode's Postgres outlives the run, and a previous run's row would be there.
 
     The view's own liveness badge is asserted alongside: a streamed page looks
     exactly like a polled one, so the badge is what makes the ``sse-*``
@@ -264,7 +230,6 @@ def test_jobs_view_updates_live_without_polling(page, base_url: str, shot) -> No
     page.on("request", lambda req: requests.append(req.url))
     open_page(page, f"{base_url}/?p=@jobs")
     page.wait_for_selector("table")
-    assert page.locator("tbody tr", has_text="async_task").count() == 0
 
     seen = len(requests)
     idle_window = POLL_FALLBACK_MS + 500
@@ -278,13 +243,10 @@ def test_jobs_view_updates_live_without_polling(page, base_url: str, shot) -> No
     assert "live" in page.get_by_test_id("live-status").inner_text()
     shot("sse-idle-no-polling")
 
-    resp = page.request.post(
-        f"{base_url}/api/v0/jobs:run",
-        data={"name": "aaiclick.orchestration.fixtures.sample_tasks.async_task"},
-    )
-    assert resp.ok, resp.text()
+    job_name = f"async_task_{uuid.uuid4().hex[:8]}"
+    submit_job(job_name, "aaiclick.orchestration.fixtures.sample_tasks.async_task")
     newest = page.locator("tbody tr").first
-    newest.get_by_text("async_task", exact=True).wait_for(timeout=5000)
+    newest.get_by_text(job_name, exact=True).wait_for(timeout=5000)
     shot("sse-row-arrived")
     # No timer-driven fetch of /jobs happened in the idle window above, so
     # /events is the only path the row and its status could have taken.
@@ -297,7 +259,7 @@ SLOW_TASK = "aaiclick.orchestration.fixtures.sample_tasks.slow_task"
 SLOW_TASK_STEPS = 20
 
 
-def _submit_slow_job(page, base_url: str) -> tuple[str, dict]:
+def _submit_slow_job() -> tuple[str, TaskRow]:
     """Start ``slow_task`` and return ``(job_id, task)`` once it has a task.
 
     The task runs for a few seconds, so the caller has a window in which the
@@ -305,22 +267,11 @@ def _submit_slow_job(page, base_url: str) -> tuple[str, dict]:
     enough that page load plus the first assertions land well inside its
     lifetime; the tests wait for the real end, not this number.
     """
-    api = f"{base_url}/api/v0"
-    resp = page.request.post(f"{api}/jobs:run", data={"name": SLOW_TASK, "kwargs": {"seconds": 4}})
-    assert resp.ok, resp.text()
-    job_id = resp.json()["id"]
-
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        tasks = page.request.get(f"{api}/jobs/{job_id}").json().get("tasks") or []
-        if tasks:
-            return job_id, tasks[0]
-        time.sleep(0.05)
-    raise AssertionError("job produced no task within 30 s")
+    job_id = submit_job("slow_task", SLOW_TASK, {"seconds": 4})
+    return job_id, wait_for_task(job_id)
 
 
 @_spa_built
-@_local_only
 def test_job_graph_updates_live_without_polling(page, base_url: str, shot) -> None:
     """A node's status changes on screen while the graph endpoint is not polled.
 
@@ -330,7 +281,7 @@ def test_job_graph_updates_live_without_polling(page, base_url: str, shot) -> No
     and the node is required to reach ``COMPLETED`` anyway — which it can only
     do if the invalidation came from ``/events``.
     """
-    job_id, _ = _submit_slow_job(page, base_url)
+    job_id, _ = _submit_slow_job()
 
     requests: list[str] = []
     page.on("request", lambda req: requests.append(req.url))
@@ -360,7 +311,6 @@ def test_job_graph_updates_live_without_polling(page, base_url: str, shot) -> No
 
 
 @_spa_built
-@_local_only
 def test_task_view_separates_streamed_status_from_polled_logs(page, base_url: str, shot) -> None:
     """The task record streams; its logs poll — and the view labels each.
 
@@ -370,8 +320,8 @@ def test_task_view_separates_streamed_status_from_polled_logs(page, base_url: st
     own 2 s timer. Asserting both in one test keeps the distinction from
     quietly regressing into "everything polls" or "everything streams".
     """
-    _, task = _submit_slow_job(page, base_url)
-    task_id = task["id"]
+    _, task = _submit_slow_job()
+    task_id = task.id
 
     requests: list[str] = []
     page.on("request", lambda req: requests.append(req.url))
@@ -410,20 +360,23 @@ def test_task_view_separates_streamed_status_from_polled_logs(page, base_url: st
 
 
 @_spa_built
-@_local_only
 def test_task_view_says_a_queued_task_has_not_started(page, base_url: str, shot) -> None:
     """A task that has not run yet says so instead of "no logs captured".
 
     The three empty log states mean different things — nothing yet, nothing
     flushed, nothing at all — and only the last is a final answer. A queued
     task also has nothing to poll for, so the panel shows no polling badge.
-    """
-    _, task = _submit_slow_job(page, base_url)
 
-    open_page(page, f"{base_url}/?p=@task {task['id']}")
+    Uses the seeded demo graph: ``report`` waits on a task seeded as RUNNING
+    with no process behind it, so no worker in either mode ever claims it and
+    there is no race to catch it queued.
+    """
+    job_id = str(run_in_process(lambda: seed_graph_job("smoke_queued")))
+    report = next(t for t in job_tasks(job_id) if t.name == "report")
+
+    open_page(page, f"{base_url}/?p=@task {report.id}")
     panel = page.locator(".logs")
     panel.wait_for(timeout=15000)
-    if "has not started" not in panel.inner_text():
-        pytest.skip("task started before the page rendered")
+    assert "has not started" in panel.inner_text()
     assert page.get_by_test_id("live-status").count() == 1, "a queued task's logs must not claim to be polling"
     shot("task-logs-not-started")
