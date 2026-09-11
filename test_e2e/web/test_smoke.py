@@ -19,6 +19,7 @@ runs when the path is passed explicitly or in a dedicated CI workflow."""
 
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 
@@ -38,6 +39,14 @@ _spa_built = pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing;
 # Several tests drive /jobs:run unauthenticated and rely on the in-process
 # worker that local_runtime starts; the distributed e2e job enforces auth (401)
 # and runs no worker, so the job would never execute.
+# The fallback poll interval the app uses while the stream is down, read from
+# the source instead of duplicated: raising it there must not leave the
+# live-update test below passing against too short an idle window.
+_MAIN_TSX = Path(__file__).resolve().parents[2] / "src" / "main.tsx"
+_FALLBACK_MATCH = re.search(r"isLiveConnected\(\)\s*\?\s*false\s*:\s*(\d+)", _MAIN_TSX.read_text())
+assert _FALLBACK_MATCH, f"could not find the refetchInterval fallback in {_MAIN_TSX}"
+POLL_FALLBACK_MS = int(_FALLBACK_MATCH.group(1))
+
 _local_only = pytest.mark.skipif(
     not is_local(),
     reason="needs auth-off + an in-process worker (local_runtime), both local-mode only",
@@ -234,6 +243,30 @@ def test_task_view_truncates_long_entrypoint_from_the_start(page, base_url: str,
     assert value.inner_text() == entrypoint
 
 
+def _shot_with_evidence(page, shot, name: str, lines: list[str]) -> None:
+    """Screenshot with the test's own measurements overlaid.
+
+    A live-updated page is pixel-identical to a polled one, so a bare frame
+    proves nothing about *how* it updated. This draws the numbers the
+    assertions just checked into the frame, making the screenshot
+    self-documenting for a PR reviewer."""
+    page.evaluate(
+        """(lines) => {
+            const el = document.createElement("div");
+            el.id = "e2e-evidence";
+            el.style.cssText =
+                "position:fixed;top:0;right:0;z-index:9999;background:#0b1020;color:#7ee787;" +
+                "font:12px/1.6 ui-monospace,monospace;padding:10px 14px;white-space:pre;" +
+                "border:1px solid #7ee787;border-radius:0 0 0 8px";
+            el.textContent = lines.join("\\n");
+            document.body.appendChild(el);
+        }""",
+        lines,
+    )
+    shot(name)
+    page.evaluate('() => document.getElementById("e2e-evidence")?.remove()')
+
+
 @_spa_built
 @_local_only
 def test_jobs_view_updates_live_without_polling(page, base_url: str, shot) -> None:
@@ -245,6 +278,9 @@ def test_jobs_view_updates_live_without_polling(page, base_url: str, shot) -> No
     name no other test uses — its row appearing at the top as ``COMPLETED``
     shows the stream delivered. (Rows carry no id and the list is capped, so
     the name is the discriminator.)
+
+    The ``sse-*`` screenshots carry these measurements as an overlay, since a
+    streamed page looks exactly like a polled one.
     """
     requests: list[str] = []
     page.on("request", lambda req: requests.append(req.url))
@@ -253,12 +289,24 @@ def test_jobs_view_updates_live_without_polling(page, base_url: str, shot) -> No
     assert page.locator("tbody tr", has_text="async_task").count() == 0
 
     seen = len(requests)
-    page.wait_for_timeout(2500)
+    idle_window = POLL_FALLBACK_MS + 500
+    page.wait_for_timeout(idle_window)
     idle = [u for u in requests[seen:] if "/api/v0/jobs" in u]
     assert idle == [], f"jobs list polled while the stream was up: {idle}"
     streams = [u for u in requests if u.endswith("/api/v0/events")]
     assert len(streams) == 1, f"expected one open /events stream, saw {streams}"
+    _shot_with_evidence(
+        page,
+        shot,
+        "sse-idle-no-polling",
+        [
+            f"idle {idle_window} ms  (> the {POLL_FALLBACK_MS} ms fallback)",
+            f"GET /jobs      x{len(idle)}   <- polling is off",
+            f"GET /events    x{len(streams)}   <- one open stream",
+        ],
+    )
 
+    submitted = time.monotonic()
     resp = page.request.post(
         f"{base_url}/api/v0/jobs:run",
         data={"name": "aaiclick.orchestration.fixtures.sample_tasks.async_task"},
@@ -266,5 +314,18 @@ def test_jobs_view_updates_live_without_polling(page, base_url: str, shot) -> No
     assert resp.ok, resp.text()
     newest = page.locator("tbody tr").first
     newest.get_by_text("async_task", exact=True).wait_for(timeout=5000)
+    arrived = time.monotonic() - submitted
+    shot("sse-row-arrived")
     newest.get_by_text("COMPLETED", exact=True).wait_for(timeout=5000)
-    shot("jobs-live-update")
+    settled = time.monotonic() - submitted
+    _shot_with_evidence(
+        page,
+        shot,
+        "sse-row-completed",
+        [
+            "polling is off (previous shot) so /events is the only path in;",
+            "these are how promptly it delivered:",
+            f"  row appeared   {arrived * 1000:.0f} ms after submit",
+            f"  row COMPLETED  {settled * 1000:.0f} ms after submit",
+        ],
+    )
