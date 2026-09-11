@@ -112,8 +112,13 @@ export function useLiveUpdates(): void {
         } catch {
           // Network error or abort — fall through to the reconnect wait.
         }
-        setConnected(false);
+        // Abort check first: a superseded loop (effect re-run, StrictMode's
+        // dev double-mount) must not write the shared flag on its way out.
+        // Its late `false` would otherwise land after the replacement loop's
+        // `true` and strand the UI on polling with a live stream open. The
+        // cleanup below still records the disconnect for the teardown case.
         if (signal.aborted) return;
+        setConnected(false);
         await sleep(backoff, signal);
         backoff = Math.min(backoff * 2, RECONNECT_MAX_MS);
       }
