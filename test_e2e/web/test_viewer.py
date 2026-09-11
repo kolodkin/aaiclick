@@ -14,8 +14,9 @@ from helpers import open_page
 from aaiclick.backend import is_local
 
 STATIC = Path(__file__).resolve().parents[2] / "aaiclick" / "server" / "static" / "index.html"
-pytest.importorskip("playwright.sync_api")
-from playwright.sync_api import expect  # noqa: E402  (must follow the playwright guard)
+# Playwright is installed only for the e2e job, so its API is reached through
+# the guard's return value — importing the package would break the lint job.
+playwright_api = pytest.importorskip("playwright.sync_api")
 
 _spa_built = pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
 _local_only = pytest.mark.skipif(not is_local(), reason="the viewer seed runs through chdb (local mode)")
@@ -57,4 +58,4 @@ def test_dashboard_renders_saved_dashboard(page, base_url: str) -> None:
     # The frame is sandboxed without allow-same-origin, so its document is not
     # reachable from the page; assert through Playwright's frame locator.
     title = page.frame_locator("[data-testid='dashboard-frame']").locator("#title")
-    expect(title).to_have_text("rows:3", timeout=15000)
+    playwright_api.expect(title).to_have_text("rows:3", timeout=15000)
