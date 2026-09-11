@@ -12,7 +12,7 @@ refetch round, and an idle UI costs nothing.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, Depends, FastAPI, Request
@@ -32,7 +32,9 @@ def current_bus(request: Request) -> EventBus:
     return request.app.state.event_bus
 
 
-async def event_frames(bus: EventBus) -> AsyncIterator[str]:
+# AsyncGenerator, not AsyncIterator: a disconnecting client closes the
+# stream with aclose(), which only the generator protocol carries.
+async def event_frames(bus: EventBus) -> AsyncGenerator[str, None]:
     """SSE frames for one subscriber: ``changed`` per signal, keepalive
     comments while idle, end when the bus closes.
 
