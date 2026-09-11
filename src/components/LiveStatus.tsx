@@ -9,6 +9,7 @@
 // the one place that decides it. Freshness must be that query's own
 // `dataUpdatedAt`; a borrowed one would lie.
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { isLiveConnected, refreshMode, subscribeLive } from "../api/events";
 import { relativeTime } from "../lib/format";
 
@@ -27,6 +28,7 @@ function tickDelay(ageMs: number): number {
 export function LiveStatus({ updatedAt, queryKey }: { updatedAt: number; queryKey: string }) {
   const streamUp = useSyncExternalStore(subscribeLive, isLiveConnected);
   const [now, setNow] = useState(() => Date.now());
+  const qc = useQueryClient();
 
   useEffect(() => {
     // Nothing fetched yet: the label is fixed, so there is nothing to tick.
@@ -44,6 +46,22 @@ export function LiveStatus({ updatedAt, queryKey }: { updatedAt: number; queryKe
     <span className="live-status" data-testid="live-status" data-mode={state}>
       <span className={state === "live" ? "live-dot on" : "live-dot"} aria-hidden="true" />
       {LABELS[state]} · updated {updatedAt ? relativeTime(updatedAt, now) : "never"}
+      {/* Nothing refreshes a manual query on its own, so the only thing that
+          can act on a stale age is the reader — put the control where the age
+          is. Prefix match: compound keys (["object", scope, name]) refresh
+          with their list. */}
+      {state === "manual" && (
+        <button
+          type="button"
+          className="live-refresh"
+          data-testid="live-refresh"
+          title="Refresh"
+          aria-label="Refresh"
+          onClick={() => void qc.invalidateQueries({ queryKey: [queryKey] })}
+        >
+          ↻
+        </button>
+      )}
     </span>
   );
 }

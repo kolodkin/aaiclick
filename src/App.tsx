@@ -6,9 +6,12 @@ import { parsePrompt, promptFromUrl, pushPromptToUrl } from "./prompt";
 import {
   AllGallery,
   CancelConfirm,
+  Dashboard,
+  Data,
   Home,
   JobDetail,
   Jobs,
+  Query,
   Registered,
   RegisterForm,
   RunConfirm,
@@ -40,6 +43,12 @@ function renderRoute(prompt: string, onPrompt: (v: string) => void) {
       return <RunForm name={route.name} onPrompt={onPrompt} />;
     case "cancel-confirm":
       return <CancelConfirm refId={route.ref} onPrompt={onPrompt} />;
+    case "data":
+      return <Data job={route.job} object={route.object} onPrompt={onPrompt} />;
+    case "query":
+      return <Query job={route.job} object={route.object} onPrompt={onPrompt} />;
+    case "dashboard":
+      return <Dashboard name={route.name} onPrompt={onPrompt} />;
     case "unknown":
       return (
         <>

@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./queryview-core.css";
 
 /* ---- ported from docs/ui/index.html <style> ---- */
 :root {
@@ -94,6 +95,11 @@ h2 { font-size: 18px; margin: 0 0 4px; }
   background: var(--gray); box-shadow: 0 0 0 2px var(--gray-bg);
 }
 .live-dot.on { background: var(--green); box-shadow: 0 0 0 2px var(--green-bg); }
+.live-refresh {
+  background: none; border: 0; padding: 0 0 0 6px; cursor: pointer;
+  color: inherit; font: inherit; line-height: 1;
+}
+.live-refresh:hover { color: var(--fg); }
 
 /* command chips */
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; align-items: center; }
@@ -383,3 +389,21 @@ tbody tr.clickable:hover { background: rgba(91,157,255,.12); }
 .ggroup-COMPLETED { border-color: var(--green); }
 .ggroup-FAILED, .ggroup-UPSTREAM_FAILED { border-color: var(--red); }
 .ggroup-CANCELLED { border-color: var(--yellow); }
+
+/* ---- viewer (@data / @query) ---- */
+.viewer-layout { display: grid; grid-template-columns: 220px 1fr; gap: 18px; align-items: start; }
+.viewer-main { min-width: 0; }
+.viewer-panel { max-width: none; }
+.scope-tree { background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--hi), var(--shadow); padding: 10px; font-size: 13px; }
+.scope-group { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+  font-weight: 700; margin: 12px 6px 6px; }
+.scope-node { padding: 6px 8px; border-radius: 8px; cursor: pointer; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.scope-node:hover { background: rgba(91,157,255,.12); }
+.scope-node.is-active { background: var(--accent-soft); color: var(--accent); }
+.scope-node .sub-inline { color: var(--muted); font-size: 11px; }
+.scope-filter { width: 100%; margin: 0 0 6px; padding: 5px 8px; border: 1px solid var(--border);
+  border-radius: 8px; background: rgba(255,255,255,.05); color: var(--text); font-size: 12px; }
+.scope-filter:focus { outline: none; border-color: var(--accent); }

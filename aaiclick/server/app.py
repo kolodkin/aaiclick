@@ -18,7 +18,7 @@ from .events import live_events
 from .events import router as events_router
 from .mcp import mcp
 from .routers import auth as auth_router
-from .routers import execution_workers, jobs, objects, registered_jobs, tasks
+from .routers import execution_workers, jobs, objects, registered_jobs, tasks, viewer
 from .routers import tenants as tenants_router
 from .routers import users as users_router
 
@@ -77,6 +77,7 @@ for router in (
     tasks.router,
     objects.router,
     events_router,
+    viewer.router,
 ):
     app.include_router(router, prefix=API_PREFIX, dependencies=[Depends(require_tenant)])
 app.include_router(execution_workers.router, prefix=API_PREFIX, dependencies=[Depends(require_principal)])

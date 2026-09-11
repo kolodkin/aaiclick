@@ -29,6 +29,7 @@ import pytest
 
 from aaiclick.backend import is_local
 
+SEED = Path(__file__).with_name("seed.py")
 SHOTS = Path(__file__).resolve().parents[2] / "test-results" / "shots"
 
 
@@ -83,6 +84,13 @@ def base_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     mp = pytest.MonkeyPatch()
     mp.setenv("AAICLICK_LOCAL_ROOT", str(root))
     env = dict(os.environ)
+
+    # Viewer fixtures need ClickHouse tables, and chdb's session is a
+    # per-process singleton holding the data-directory lock — so the seed runs
+    # in its own process and must finish before the server takes the lock.
+    # After the root is set, so it seeds the database the server will serve.
+    if is_local():
+        subprocess.run([sys.executable, str(SEED), "viewer"], check=True, env=env)
     server_args = ["uvicorn", "aaiclick.server.app:app", "--port", str(port), "--log-level", "warning"]
     procs = [_launch(root, "server", server_args, env)]
     if not is_local():

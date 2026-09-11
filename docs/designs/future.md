@@ -129,6 +129,30 @@ SDK closes that gap without a second worker implementation.
   `ChClient` / `Db` / `NamedParamSql` classes are reusable starting points
   for the SDK, recoverable from git history.
 
+## Viewer Follow-ups
+
+See `viewer.md` for the shipped design.
+
+- **SQL over several objects at once** (joins, unions): today `query_object`
+  reads one object with a `where` filter. A `query_sql` verb would take
+  `scope`, a SQL text, and a map of the object names it uses
+  (`{"o": "orders", "c": "customers"}`); the user writes `SELECT … FROM o
+  JOIN c ON …` and the server prepends one CTE per entry (`WITH o AS (SELECT *
+  FROM p_7_orders), c AS (…)`), so the SQL still never names a table and the
+  tenant / scope rules stay server-side. Verified on chdb that such CTEs
+  resolve inside the pagination wrapper and alongside the user's own `WITH`.
+  Deferred until single-object queries prove insufficient.
+- **Agent push to the browser**: QueryView's remote channel (an agent pushes a
+  query or dashboard into a live tab) has no aaiclick equivalent yet; it
+  needs the SSE endpoint planned above.
+- **Git sync and YAML export** for saved queries and dashboards, as QueryView
+  has (QueryView's workspaces map to tenants here, so nothing else is needed).
+- **`options_sql` params**: the kernel's `params:` block accepts a query
+  whose first column feeds a dropdown; aaiclick has no free-SQL endpoint, so
+  `QueryPanel` renders static `options` only.
+- **Dashboard authoring in the UI**: `@dashboard` picks and runs; HTML and
+  panel queries are written through MCP, REST, or `view dashboards save`.
+
 ## Lazy Operator — Chain Fusion
 
 Every `LazyOperator` node materializes into its own table. For single-source

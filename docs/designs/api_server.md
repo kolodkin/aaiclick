@@ -138,7 +138,9 @@ the numeric string and coerce it back to `int`. The generated SPA types
 | `JobListFilter`        | `status`, `name`, `since`, `limit`, `cursor`                 |
 | `RegisteredJobFilter`  | `enabled`, `name`, `limit`, `cursor`                         |
 | `ExecutionWorkerFilter`         | `status`, `limit`                                            |
-| `ObjectFilter`         | `prefix`, `scope`, `limit`, `cursor`                         |
+| `ObjectFilter`         | `prefix`, `scope`, `job`, `limit`, `cursor`                  |
+
+Viewer request models (`ObjectQueryRequest`, `SavedQueryIn`, `DashboardIn`, their filters and results) live in `aaiclick/viewer/view_models.py`; see `docs/designs/viewer.md`.
 
 ## Orchestration (`aaiclick/orchestration/view_models.py`)
 
@@ -227,6 +229,15 @@ All REST paths share a common `/api/v0` prefix — see
 | `data get <name>`          | `get_object(name)`                 | `GET /objects/{name}`              | `get_object`              |
 | `data delete <name>`       | `delete_object(name)`              | `DELETE /objects/{name}`           | `delete_object`           |
 | `data purge`               | `purge_objects(filter)`            | `POST /objects:purge`              | `purge_objects`           |
+| `data query <object>`      | `query_object(request)`            | `POST /viewer/query`               | `query_object`            |
+| `view queries list`        | `list_saved_queries(filter)`       | `GET /viewer/queries`              | `list_saved_queries`      |
+| `view queries save`        | `save_query(query)`                | `PUT /viewer/queries/{name}`       | `save_query`              |
+| `view queries delete`      | `delete_saved_query(name)`         | `DELETE /viewer/queries/{name}`    | `delete_saved_query`      |
+| `view dashboards list`     | `list_dashboards()`                | `GET /viewer/dashboards`           | `list_dashboards`         |
+| `view dashboards get`      | `get_dashboard(name)`              | `GET /viewer/dashboards/{name}`    | `get_dashboard`           |
+| `view dashboards save`     | `save_dashboard(dashboard)`        | `PUT /viewer/dashboards/{name}`    | `save_dashboard`          |
+| `view dashboards delete`   | `delete_dashboard(name)`           | `DELETE /viewer/dashboards/{name}` | `delete_dashboard`        |
+| `view dashboards run`      | `run_dashboard(name)`              | `POST /viewer/dashboards/{name}:run` | `run_dashboard`         |
 | *(new)* task detail        | `get_task(id)`                     | `GET /tasks/{id}`                  | `get_task`                |
 | `explain <table> [q]`      | `lineage_ai.explain_lineage(...)`  | —                                  | —                         |
 | `debug <table> "<q>"`      | `lineage_ai.debug_result(...)`     | —                                  | —                         |

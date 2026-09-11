@@ -88,6 +88,9 @@ jobs:
       - name: Type-check the SPA
         run: npm run check
 
+      - name: Run SPA unit tests
+        run: npm test
+
   test-local:
     needs: lint
     runs-on: ubuntu-latest

@@ -49,7 +49,10 @@ src/                            ← SPA TypeScript source
     hooks.ts                    ← useJobs, useJob, useTask, useTaskLogs, …
   views/                        ← one file per UI mode
   components/                   ← StatusBadge, ProgressBar, LogViewer, …
+  lib/viewer.ts                 ← scope keys, OrderBy pair ↔ kernel OrderCol, result adapters
+  queryview-core/               ← verbatim QueryView kernel, imported as @qv/core (docs/designs/viewer.md)
   styles/globals.css            ← Tailwind import + ported mockup theme
+  styles/queryview-core.css     ← the glass-* classes the kernel's markup uses
 
 aaiclick/
   server/
@@ -68,6 +71,7 @@ and `node_modules/`.
 | `npm run dev`   | Vite dev server at `:5173` with HMR; proxies `/api/*` to FastAPI      |
 | `npm run build` | Type-checks then bundles to `aaiclick/server/static/`                 |
 | `npm run check` | `tsc --noEmit` only (CI gate)                                         |
+| `npm test`      | `vitest run` — the kernel's tests, `prompt.test.ts`, `lib/viewer.test.ts` |
 
 In production, FastAPI mounts `aaiclick/server/static/` and serves
 `index.html` for unknown routes (SPA fallback). One process, one port,
@@ -106,6 +110,12 @@ change over `/api/v0/events` (see Live updates), and fall back to a 2 s
 | `useRunJob`       | `POST /api/v0/jobs:run`          | `aaiclick/server/routers/jobs.py`        |
 | `useCancelJob`    | `POST /api/v0/jobs/{ref}/cancel` | `aaiclick/server/routers/jobs.py`        |
 | `useRegisterJob`  | `POST /api/v0/registered-jobs`   | `aaiclick/server/routers/registered_jobs.py` |
+| `useObjects`      | `GET /api/v0/objects`            | `aaiclick/server/routers/objects.py`     |
+| `useObject`       | `GET /api/v0/objects/{name}[?job=…]` | `aaiclick/server/routers/objects.py` |
+| `useObjectRows` / `useQueryObject` / `useQueryObjectCsv` | `POST /api/v0/viewer/query` (raw JSONCompact or CSV) | `aaiclick/server/routers/viewer.py` |
+| `useQueryObject`  | `POST /api/v0/viewer/query`      | `aaiclick/server/routers/viewer.py`      |
+| `useSavedQueries` / `useSaveQuery` / `useDeleteSavedQuery` | `/api/v0/viewer/queries[/{name}]` | `aaiclick/server/routers/viewer.py` |
+| `useDashboards` / `useDashboard` / `useRunDashboard` | `/api/v0/viewer/dashboards[/{name}[:run]]` | `aaiclick/server/routers/viewer.py` |
 
 **Implementation**: `aaiclick/server/routers/tasks.py` — see `get_task_logs`;
 `aaiclick/internal_api/tasks.py` — see `get_task_logs` (reads the CH
@@ -242,7 +252,33 @@ A badge reports one query: the call site names the key, and `refreshMode`
 (`src/api/events.ts`) answers with the cadence, derived from `LIVE_KEYS` rather
 than restated — so no caller can claim a mode its query does not run in, and a
 key dropped from the stream cannot leave a badge still saying "live". Freshness
-is that query's own `dataUpdatedAt`; a borrowed one would lie.
+is that query's own `dataUpdatedAt`; a borrowed one would lie. Every query the
+UI has, and each view's one badge for the query backing what is on screen:
+
+| View / panel                      | Query key                         | Kept current by                                 | Badge    |
+|-----------------------------------|-----------------------------------|-------------------------------------------------|----------|
+| Jobs list                         | `["jobs"]`                        | `/events`                                       | `stream` |
+| Job detail — header + tasks table | `["job", ref]`                    | `/events`                                       | `stream` |
+| Job detail — graph                | `["job-graph", ref]`              | `/events`                                       | `stream` |
+| Task detail — record              | `["task", id]`                    | `/events`                                       | `stream` |
+| Task detail — logs                | `["task-logs", id]`               | own 2 s timer, once the task has started        | `poll`   |
+| Registered jobs                   | `["registered-jobs"]`             | its own register / enable / disable mutations   | `manual` |
+| Data, Query                       | `["objects", …]`, `["object", …]` | the reader, through the badge's refresh control | `manual` |
+| Dashboard                         | `["dashboard-results", name]`     | its own Refresh button                          | —        |
+
+The first four are `LIVE_KEYS` in `src/api/events.ts` — the only keys a
+`changed` frame invalidates. While the stream is down they fall back to the 2 s
+`refetchInterval` and their badge says `polling`; the rest are unaffected by the
+stream either way and never claim otherwise. In graph view the job-detail header
+suppresses its own badge, since `JobGraph` renders one for `["job-graph"]` a
+line below.
+
+**Manual is not stale-by-accident.** A `manual` badge carries a refresh
+control, because nothing else will move that data: the object views read
+what jobs have written, so they go stale with no event to say so. Putting
+the control next to the age means the reader who notices the staleness has
+the fix in the same place. It invalidates by key *prefix*, so a compound key
+(`["object", scope, name]`) refreshes along with its list.
 
 **Task logs.** Lines reach ClickHouse from the task process on its own flush
 cadence, never through a SQL commit, so no signal marks a new line. The policy
@@ -252,9 +288,8 @@ all and the panel says so — the status change that starts it arrives over
 `/events` and switches polling on. Going terminal stops the timer and
 triggers one final fetch — this key is not in `LIVE_KEYS`, so nothing else
 would ever collect what the task wrote since the last poll. A finished task's
-logs are immutable, so its
-query opts out with `false` rather than `undefined`, which would inherit the
-stream's 2 s fallback. Earlier attempts of a retried task are kept in
+logs are immutable, so its query opts out with `false` rather than
+`undefined`, which would inherit the stream's 2 s fallback. Earlier attempts of a retried task are kept in
 ClickHouse but not yet reachable from the UI — see `future.md`.
 
 # Testing
@@ -262,6 +297,7 @@ ClickHouse but not yet reachable from the UI — see `future.md`.
 | Layer                | Tool                | Where                                          |
 |----------------------|---------------------|------------------------------------------------|
 | Static type check    | `tsc --noEmit`      | `npm run check` — CI gate for every frontend task |
+| Unit tests           | vitest              | `npm test` — kernel tests, `src/prompt.test.ts`, `src/lib/viewer.test.ts` |
 | End-to-end (browser) | Playwright (Python) | `test_e2e/web/test_smoke.py`, pytest           |
 
 **Implementation**: `test_e2e/web/test_smoke.py` — golden-path smoke

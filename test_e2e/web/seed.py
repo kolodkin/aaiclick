@@ -29,13 +29,18 @@ source/sink logic in ``aaiclick.orchestration.graph``, exercised end to end.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import NamedTuple
 
 from sqlmodel import select
 
+from aaiclick import create_object_from_value
 from aaiclick.datetime_utils import utc_now
+from aaiclick.internal_api import objects as objects_api
+from aaiclick.internal_api import setup as setup_api
+from aaiclick.internal_api import viewer as viewer_api
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.models import (
     JOB_RUNNING,
@@ -52,8 +57,9 @@ from aaiclick.orchestration.models import (
     Task,
     TaskStatus,
 )
-from aaiclick.orchestration.orch_context import commit_tasks, get_sql_session, orch_context
+from aaiclick.orchestration.orch_context import commit_tasks, get_sql_session, orch_context, task_scope
 from aaiclick.snowflake import get_snowflake_id
+from aaiclick.viewer.view_models import DashboardIn, ObjectQuery
 
 ENTRYPOINT = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
 
@@ -177,3 +183,38 @@ async def seed_graph_job(
     merged = {**DEFAULT_STATES, **(states or {})}
     async with orch_context(with_ch=False):
         return await _build(job_name, merged, job_status)
+
+
+async def seed_viewer_objects() -> None:
+    """A persistent ``orders`` object and a dashboard over it, for the viewer e2e.
+
+    Persistent scopes need the orch lifecycle handler plus a task scope (as the
+    ``orch_ctx`` test fixture provides). ``with_ch=True`` opens chdb, whose
+    session is a per-process singleton that holds the data-directory lock for
+    the life of the process — so this runs in its own short-lived process
+    (``python seed.py viewer``) that exits before the e2e server starts.
+    """
+    seed_id = get_snowflake_id()
+    async with orch_context(with_ch=True), task_scope(task_id=seed_id, job_id=seed_id, run_id=seed_id):
+        # The local database survives between runs: drop a previous seed so the
+        # row count the tests assert on stays exact.
+        await objects_api.delete_object("orders")
+        await create_object_from_value(
+            {"id": [1, 2, 3], "name": ["a", "b", "c"], "amount": [10, 20, 30]}, name="orders", scope="global"
+        )
+        await viewer_api.save_dashboard(
+            DashboardIn(
+                name="sales",
+                html=(
+                    "<h1 id='title'>Sales</h1>"
+                    "<script>document.getElementById('title').textContent = 'rows:' + window.queries.top.name.length</script>"
+                ),
+                queries={"top": ObjectQuery(object="orders", fields=["name", "amount"])},
+            )
+        )
+
+
+if __name__ == "__main__":
+    # `python seed.py viewer`: create the local schema, seed, exit (releasing chdb).
+    setup_api.setup()
+    asyncio.run(seed_viewer_objects())

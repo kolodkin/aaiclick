@@ -17,6 +17,13 @@ from .models import Schema
 from .scope import ObjectScope
 
 
+class ColumnSchema(BaseModel):
+    """One result column: its name and ClickHouse type string."""
+
+    name: str
+    type: str
+
+
 class ObjectView(BaseModel):
     """Compact object representation used by list endpoints."""
 
