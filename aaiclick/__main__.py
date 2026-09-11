@@ -443,7 +443,9 @@ async def _run_view_queries_save(args: argparse.Namespace) -> None:
 
 
 async def _run_view_queries_delete(args: argparse.Namespace) -> None:
-    _render(args, await _run_data_api(internal_api.delete_saved_query(args.name)), cli_renderers.render_deleted)
+    _render(
+        args, await _run_data_api(internal_api.delete_saved_query(args.name)), cli_renderers.render_saved_query_deleted
+    )
 
 
 async def _run_view_dashboards_list(args: argparse.Namespace) -> None:
@@ -461,7 +463,7 @@ async def _run_view_dashboards_save(args: argparse.Namespace) -> None:
 
 
 async def _run_view_dashboards_delete(args: argparse.Namespace) -> None:
-    _render(args, await _run_data_api(internal_api.delete_dashboard(args.name)), cli_renderers.render_deleted)
+    _render(args, await _run_data_api(internal_api.delete_dashboard(args.name)), cli_renderers.render_dashboard_deleted)
 
 
 async def _run_view_dashboards_run(args: argparse.Namespace) -> None:

@@ -59,9 +59,11 @@ store the key as given, so `job:nightly_etl` follows each new run while
 `aaiclick/internal_api/objects.py` — see `open_scoped` (also behind
 `get_object(name, job)` and `list_objects(ObjectFilter(job=…))`).
 
-Every surface identifies an object as `(scope, name)`; the tenant is never a
-parameter (REST: `X-Tenant-Id` via `require_tenant`; MCP and CLI: the default
-tenant). `make_scoped_table_name` maps the pair to `p_<tenant_id>_<name>` or
+Every surface identifies an object as `(scope, name)` — the tenant is never one
+of the two. Each resolves it once, outside the verb: REST from `X-Tenant-Id`
+via `require_tenant`, the CLI from the global `--tenant <slug>` flag applied in
+`_run_internal_api`, MCP from the default tenant (it has no tenant selector).
+`make_scoped_table_name` then maps the pair to `p_<tenant_id>_<name>` or
 `j_<job_id>_<name>`, with the job checked against the active tenant.
 
 ## Queries name an object, not a table

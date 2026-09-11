@@ -53,4 +53,4 @@ async def test_view_queries_save_list_delete(capsys):
     await cli._run_view_queries_list(argparse.Namespace(scope=None, object=None, json=False))
     assert "q1" in capsys.readouterr().out
     await cli._run_view_queries_delete(argparse.Namespace(name="q1", json=False))
-    assert "q1" in capsys.readouterr().out
+    assert capsys.readouterr().out.strip() == "Deleted saved query 'q1'"
