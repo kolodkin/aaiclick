@@ -46,27 +46,25 @@ Next in line:
 
 ## Task Logs — Per-Attempt History in the Log Panel
 
-The log panel shows only the latest attempt: `get_task_logs`
-(`aaiclick/internal_api/tasks.py:53`) reads `task.run_ids[-1]`. Every earlier
-attempt's output is already in ClickHouse — `task_logs` tags each line with
-`run_id`, and `Task.run_ids` / `Task.run_statuses` keep the ordered list of
-attempts with how each ended — so a retried task's failed runs are retained
-and simply unreachable from the UI. That is exactly the output you most want
-after a flaky task finally passes.
+`get_task_logs` (`aaiclick/internal_api/tasks.py`) reads `task.run_ids[-1]`, so
+the panel shows only the latest attempt. Earlier attempts are already in
+ClickHouse — `task_logs` tags each line with `run_id`, and `Task.run_ids` /
+`Task.run_statuses` hold the ordered attempts and how each ended — so a retried
+task's failed runs are retained but unreachable. That is exactly the output you
+want after a flaky task finally passes.
 
 Shape, following Airflow's per-try log selector:
 
-- `GET /tasks/{id}/logs` takes an optional `attempt` (1-based, defaulting to
-  the last), resolving it through `run_ids`.
-- `TaskLogsView` carries the attempt list with each one's status, so the
-  panel can render a selector per attempt without a second request.
-- `LogViewer` gains that selector, shown only when `run_ids` has more than
-  one entry. Live polling stays on the latest attempt; older ones are
-  immutable and need none.
+- `GET /tasks/{id}/logs` takes an optional 1-based `attempt`, resolved through
+  `run_ids`; defaults to the last.
+- `TaskLogsView` carries the attempts and their statuses, so the selector costs
+  no second request.
+- `LogViewer` shows the selector only when `run_ids` has more than one entry.
+  Polling stays on the latest attempt; older ones are immutable.
 
 !!! note "Pending input"
-    The user will supply Airflow screenshots as the reference for the
-    selector's layout and wording. Do not settle the UI details before then.
+    Airflow screenshots to follow as the reference for layout and wording — do
+    not settle the UI details before then.
 
 ## API Auth — Beyond Username/Password + RBAC
 

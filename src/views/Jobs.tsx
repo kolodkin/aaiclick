@@ -9,7 +9,7 @@ export function Jobs({ onPrompt }: { onPrompt: (v: string) => void }) {
     <>
       <h2>Jobs</h2>
       <p className="sub">
-        Sorted by created_at, newest first · <LiveStatus updatedAt={dataUpdatedAt} />
+        Sorted by created_at, newest first · <LiveStatus updatedAt={dataUpdatedAt} queryKey="jobs" />
       </p>
       <Chips
         chips={[

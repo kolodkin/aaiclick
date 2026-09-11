@@ -20,6 +20,7 @@ from aaiclick.cli_renderers import render_setup_result
 from aaiclick.internal_api.setup import (
     STALE_DB_REMEDY,
     is_setup_done,
+    missing_local_tables,
     setup,
     stale_local_db,
     stale_local_db_message,
@@ -39,7 +40,11 @@ async def local_runtime() -> AsyncIterator[None]:
             "In distributed mode, run `worker start` and `background start` "
             "as separate processes."
         )
-    if not is_setup_done():
+    # The marker can outlive the database it vouches for — an interrupted setup
+    # or a wiped data dir leaves it beside an empty local.db. Re-running setup()
+    # is idempotent (``create_all`` adds only missing tables), so treat that as
+    # not-set-up rather than starting workers that fail on "no such table".
+    if not is_setup_done() or missing_local_tables():
         render_setup_result(setup())
     else:
         # The marker carries no schema version, so an upgrade over an existing

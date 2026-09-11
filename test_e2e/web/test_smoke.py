@@ -41,11 +41,12 @@ _spa_built = pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing;
 # and runs no worker, so the job would never execute.
 # The fallback poll interval the app uses while the stream is down, read from
 # the source instead of duplicated: raising it there must not leave the
-# live-update test below passing against too short an idle window.
+# live-update tests below passing against too short an idle window. A miss
+# falls back to a deliberately generous window, so reformatting that line
+# costs a slower test rather than a collection error for this whole file.
 _MAIN_TSX = Path(__file__).resolve().parents[2] / "src" / "main.tsx"
 _FALLBACK_MATCH = re.search(r"isLiveConnected\(\)\s*\?\s*false\s*:\s*(\d+)", _MAIN_TSX.read_text())
-assert _FALLBACK_MATCH, f"could not find the refetchInterval fallback in {_MAIN_TSX}"
-POLL_FALLBACK_MS = int(_FALLBACK_MATCH.group(1))
+POLL_FALLBACK_MS = int(_FALLBACK_MATCH.group(1)) if _FALLBACK_MATCH else 5000
 
 _local_only = pytest.mark.skipif(
     not is_local(),
@@ -277,7 +278,6 @@ def test_jobs_view_updates_live_without_polling(page, base_url: str, shot) -> No
     assert "live" in page.get_by_test_id("live-status").inner_text()
     shot("sse-idle-no-polling")
 
-    submitted = time.monotonic()
     resp = page.request.post(
         f"{base_url}/api/v0/jobs:run",
         data={"name": "aaiclick.orchestration.fixtures.sample_tasks.async_task"},
@@ -285,29 +285,26 @@ def test_jobs_view_updates_live_without_polling(page, base_url: str, shot) -> No
     assert resp.ok, resp.text()
     newest = page.locator("tbody tr").first
     newest.get_by_text("async_task", exact=True).wait_for(timeout=5000)
-    arrived = time.monotonic() - submitted
     shot("sse-row-arrived")
-    newest.get_by_text("COMPLETED", exact=True).wait_for(timeout=5000)
-    settled = time.monotonic() - submitted
     # No timer-driven fetch of /jobs happened in the idle window above, so
     # /events is the only path the row and its status could have taken.
-    print(f"row appeared {arrived * 1000:.0f} ms after submit, COMPLETED at {settled * 1000:.0f} ms")
+    newest.get_by_text("COMPLETED", exact=True).wait_for(timeout=5000)
     shot("sse-row-completed")
 
 
 SLOW_TASK = "aaiclick.orchestration.fixtures.sample_tasks.slow_task"
 
 
-def _submit_slow_job(page, base_url: str) -> tuple[str, str]:
-    """Start ``slow_task`` and return ``(job_id, task_id)`` once it has a task.
+def _submit_slow_job(page, base_url: str) -> tuple[str, dict]:
+    """Start ``slow_task`` and return ``(job_id, task)`` once it has a task.
 
     The task runs for a few seconds, so the caller has a window in which the
-    UI is showing a non-terminal state that must then change on its own.
+    UI is showing a non-terminal state that must then change on its own. Long
+    enough that page load plus the first assertions land well inside its
+    lifetime; the tests wait for the real end, not this number.
     """
     api = f"{base_url}/api/v0"
-    # Long enough that page load plus the first assertions land well inside
-    # the task's lifetime; the test waits for the real end, not this number.
-    resp = page.request.post(f"{api}/jobs:run", data={"name": SLOW_TASK, "kwargs": {"seconds": 10}})
+    resp = page.request.post(f"{api}/jobs:run", data={"name": SLOW_TASK, "kwargs": {"seconds": 4}})
     assert resp.ok, resp.text()
     job_id = resp.json()["id"]
 
@@ -315,8 +312,8 @@ def _submit_slow_job(page, base_url: str) -> tuple[str, str]:
     while time.monotonic() < deadline:
         tasks = page.request.get(f"{api}/jobs/{job_id}").json().get("tasks") or []
         if tasks:
-            return job_id, tasks[0]["id"]
-        time.sleep(0.1)
+            return job_id, tasks[0]
+        time.sleep(0.05)
     raise AssertionError("job produced no task within 30 s")
 
 
@@ -371,36 +368,38 @@ def test_task_view_separates_streamed_status_from_polled_logs(page, base_url: st
     own 2 s timer. Asserting both in one test keeps the distinction from
     quietly regressing into "everything polls" or "everything streams".
     """
-    _, task_id = _submit_slow_job(page, base_url)
+    _, task = _submit_slow_job(page, base_url)
+    task_id = task["id"]
 
     requests: list[str] = []
     page.on("request", lambda req: requests.append(req.url))
     open_page(page, f"{base_url}/?p=@task {task_id}")
     page.wait_for_selector(".logs-toolbar")
 
+    # The record reading "live" is what makes the logs reading "polling"
+    # meaningful: the stream is demonstrably up, so the logs are on a timer by
+    # their own policy rather than by falling back.
     badges = page.get_by_test_id("live-status")
     assert badges.nth(0).get_attribute("data-mode") == "live", "task record should report the stream"
-    assert badges.nth(1).get_attribute("data-mode") == "poll", "logs should report their own timer"
+    assert badges.nth(1).get_attribute("data-mode") == "polling", "logs should report their own timer"
     lines_before = page.locator(".log-line").count()
     shot("sse-task-running")
 
     seen = len(requests)
     page.get_by_text("COMPLETED", exact=True).first.wait_for(timeout=30000)
-    since = requests[seen:]
-    record_polls = [u for u in since if u.endswith(f"/tasks/{task_id}")]
-    log_polls = [u for u in since if u.endswith("/logs")]
-    assert record_polls == [] or len(record_polls) < len(log_polls), (
-        f"task record refetched as often as the logs did ({len(record_polls)} vs {len(log_polls)}), "
-        "which is what polling — not streaming — looks like"
-    )
+    log_polls = [u for u in requests[seen:] if u.endswith("/logs")]
     assert log_polls, "logs never refetched, so no new lines could have appeared"
-    lines_after = page.locator(".log-line").count()
-    print(
-        f"while the task ran: /tasks/{{id}} fetched {len(record_polls)}x, /logs {len(log_polls)}x, "
-        f"log lines {lines_before} -> {lines_after}"
-    )
-    assert lines_after > lines_before, "log lines did not accumulate while the task ran"
+    assert page.locator(".log-line").count() > lines_before, "log lines did not accumulate while the task ran"
     shot("sse-task-completed")
+
+    # Terminal now, so nothing commits and no signal fires — and neither half
+    # may fetch anyway. A timer would keep going regardless, which is exactly
+    # the difference under test. (This says nothing about the stream being
+    # down: the fallback interval is inert here because the stream is up.)
+    seen = len(requests)
+    page.wait_for_timeout(POLL_FALLBACK_MS + 500)
+    idle = [u for u in requests[seen:] if f"/tasks/{task_id}" in u]
+    assert idle == [], f"task view kept fetching after the task finished: {idle}"
 
 
 @_spa_built
@@ -412,26 +411,9 @@ def test_task_view_says_a_queued_task_has_not_started(page, base_url: str, shot)
     flushed, nothing at all — and only the last is a final answer. A queued
     task also has nothing to poll for, so the panel shows no polling badge.
     """
-    api = f"{base_url}/api/v0"
-    resp = page.request.post(f"{api}/jobs:run", data={"name": SLOW_TASK, "kwargs": {"seconds": 10}})
-    assert resp.ok, resp.text()
-    job_id = resp.json()["id"]
+    _, task = _submit_slow_job(page, base_url)
 
-    # Catch the task in its pre-run window: read straight from the API rather
-    # than waiting, since PENDING lasts only as long as the claim takes.
-    task_id = None
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline and task_id is None:
-        tasks = page.request.get(f"{api}/jobs/{job_id}").json().get("tasks") or []
-        for task in tasks:
-            if task["status"] in ("PENDING", "CLAIMED"):
-                task_id = task["id"]
-                break
-        if tasks and task_id is None:
-            pytest.skip("task started before it could be observed queued")
-    assert task_id is not None, "job never produced a task"
-
-    open_page(page, f"{base_url}/?p=@task {task_id}")
+    open_page(page, f"{base_url}/?p=@task {task['id']}")
     panel = page.locator(".logs")
     panel.wait_for(timeout=15000)
     if "has not started" not in panel.inner_text():

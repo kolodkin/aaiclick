@@ -224,51 +224,35 @@ chokepoint as every other request, including its silent 401 refresh.
 
 **Fallback.** `isLiveConnected()` feeds the QueryClient default
 `refetchInterval`, which returns `false` while the stream is up and `2000`
-otherwise; a proxy that buffers SSE degrades to polling rather than a frozen
-UI. The interval function is re-read only when a query settles, so the
-invalidation on every (re)connect does double duty: it catches up on
-anything missed *and* forces the mode switch to take effect at once instead
-of after one more 2 s tick.
+otherwise, so a proxy that buffers SSE degrades to polling rather than a
+frozen UI. The interval function is re-read only when a query settles, so the
+invalidation on every (re)connect does double duty: it catches up on anything
+missed *and* applies the mode switch at once rather than a tick later.
 
 **Showing it.** `LiveStatus` (`src/components/LiveStatus.tsx`) renders the
 refresh mode plus `updated Ns ago`. Both halves are needed: the mode makes a
-dead stream visible instead of letting it degrade silently, and the
-timestamp distinguishes a stream that is connected but delivering nothing
-from an idle one. `connected` is a plain module variable read from a
-non-React closure, so the component subscribes through
-`useSyncExternalStore` (`subscribeLive`). The `Ns ago` timer re-renders
-only — it issues no requests.
+dead stream visible instead of letting it degrade silently, and the timestamp
+distinguishes a stream that is connected but delivering nothing from an idle
+one. `connected` is a plain module variable read from a non-React closure, so
+the component subscribes through `useSyncExternalStore` (`subscribeLive`). The
+age text re-renders on a timer matched to its own resolution — one render per
+visible change, and no requests.
 
-One badge reports exactly one query, and takes that query's own
-`dataUpdatedAt` and mode — a badge borrowing a neighbour's timestamp is a
-badge that can lie. Every query the UI has is listed below; each view shows
-one badge, for the query backing what is on screen.
-
-| View / panel                      | Query key             | Kept current by                               | Badge    |
-|-----------------------------------|-----------------------|-----------------------------------------------|----------|
-| Jobs list                         | `["jobs"]`            | `/events`                                     | `stream` |
-| Job detail — header + tasks table | `["job", ref]`        | `/events`                                     | `stream` |
-| Job detail — graph                | `["job-graph", ref]`  | `/events`                                     | `stream` |
-| Task detail — record              | `["task", id]`        | `/events`                                     | `stream` |
-| Task detail — logs                | `["task-logs", id]`   | own 2 s timer, once the task has started      | `poll`   |
-| Registered jobs                   | `["registered-jobs"]` | its own register / enable / disable mutations | `manual` |
-
-The first four are `LIVE_KEYS` in `src/api/events.ts` — the keys a jobs /
-tasks / groups commit can change, and the only ones a `changed` frame
-invalidates. While the stream is down they fall back to the 2 s
-`refetchInterval`, and their badge says `polling`; the other two are
-unaffected by the stream either way and never claim otherwise. In graph view
-the job-detail header suppresses its own badge, since `JobGraph` renders one
-for `["job-graph"]` a line below.
+A badge reports one query: the call site names the key, and `refreshMode`
+(`src/api/events.ts`) answers with the cadence, derived from `LIVE_KEYS` rather
+than restated — so no caller can claim a mode its query does not run in, and a
+key dropped from the stream cannot leave a badge still saying "live". Freshness
+is that query's own `dataUpdatedAt`; a borrowed one would lie.
 
 **Task logs.** Lines reach ClickHouse from the task process on its own flush
-cadence, never through a SQL commit, so no signal marks a new line. The
-panel therefore polls at 2 s — but only once the task has actually started:
-a `PENDING` / `CLAIMED` task cannot have produced output, so it says so and
-polls nothing, and the status change that starts it arrives over `/events`
-and switches polling on. The terminal status write's signal triggers the
-last refetch. Earlier attempts of a retried task are kept in ClickHouse but
-not yet reachable from the UI — see `future.md`.
+cadence, never through a SQL commit, so no signal marks a new line. The policy
+lives in `useTaskLogs`: poll at 2 s only while the task is running. A
+`PENDING` / `CLAIMED` task cannot have produced output, so it is not fetched at
+all and the panel says so — the status change that starts it arrives over
+`/events` and switches polling on. A finished task's logs are immutable, so its
+query opts out with `false` rather than `undefined`, which would inherit the
+stream's 2 s fallback. Earlier attempts of a retried task are kept in
+ClickHouse but not yet reachable from the UI — see `future.md`.
 
 # Testing
 

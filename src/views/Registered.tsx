@@ -19,7 +19,7 @@ export function Registered({ onPrompt }: { onPrompt: (v: string) => void }) {
       <h2>Registered jobs</h2>
       <p className="sub">
         Run on demand, or on a cron schedule via the background scheduler. ·{" "}
-        <LiveStatus updatedAt={dataUpdatedAt} mode="manual" />
+        <LiveStatus updatedAt={dataUpdatedAt} queryKey="registered-jobs" />
       </p>
       {isLoading && <p className="sub">loading…</p>}
       {isError && <p className="err">failed to load registered jobs</p>}

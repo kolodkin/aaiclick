@@ -31,6 +31,8 @@ export function JobDetail({
       </>
     );
 
+  // Named once: the badge above and the body below must not drift apart.
+  const graphView = view === "graph";
   const cancellable = job.status === "RUNNING" || job.status === "PENDING";
   const onCancel = () => onPrompt(`cancel ${job.name}`);
 
@@ -49,13 +51,10 @@ export function JobDetail({
             </AdminButton>
           )}
         </div>
-        {/* One badge per view, reporting the query that backs what is on
-            screen. In graph view that is JobGraph's own ["job-graph"] query,
-            which renders its own — two badges a tick apart read as
-            duplication, and the graph's is the one that matters there. */}
-        {view === "table" && (
+        {/* Graph view gets its badge from JobGraph, for its own query. */}
+        {!graphView && (
           <p className="sub">
-            <LiveStatus updatedAt={dataUpdatedAt} />
+            <LiveStatus updatedAt={dataUpdatedAt} queryKey="job" />
           </p>
         )}
         <MetaGrid
@@ -76,7 +75,7 @@ export function JobDetail({
         ]}
         onPrompt={onPrompt}
       />
-      {view === "graph" ? (
+      {graphView ? (
         <JobGraph refId={job.name} onPrompt={onPrompt} />
       ) : (
         <TasksTable tasks={job.tasks ?? []} onPrompt={onPrompt} />

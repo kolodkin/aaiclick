@@ -45,7 +45,7 @@ def task_with_log_levels():
     log.error("error line")
 
 
-async def slow_task(seconds: float = 3.0, steps: int = 6):
+async def slow_task(seconds: float, steps: int = 20):
     """Stay RUNNING for a few seconds, emitting a log line per step.
 
     Every other task here finishes in milliseconds, which shows the UI one

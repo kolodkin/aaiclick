@@ -42,20 +42,16 @@ def base_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
 
     Uses the default chdb + SQLite backend, rooted at a per-session temp dir
     via ``AAICLICK_LOCAL_ROOT`` so the suite never reads or writes the
-    developer's ``~/.aaiclick``. That keeps assertions about *which* jobs
-    exist honest — a previous run's rows would otherwise still be in the
-    list — and makes the run immune to a half-initialised local install
-    (a ``setup_done`` marker beside an empty ``local.db`` skips bootstrap
-    and every query then fails with "no such table").
+    developer's ``~/.aaiclick``: assertions about *which* jobs exist are only
+    honest if a previous run's rows are not still in the list.
 
     The server process is killed after the session.
     """
     port = _free_port()
     root = tmp_path_factory.mktemp("aaiclick-root")
-    # Server stderr goes to a file, not a PIPE: nothing reads the pipe during
-    # the run, so a chatty failure fills the 64 KB buffer and blocks the
-    # server's event loop inside logging — turning a clean error into a
-    # mystery hang on the next navigation.
+    # Stderr to a file, not a PIPE: nothing drains the pipe during the run, so
+    # a chatty failure fills its 64 KB buffer and blocks the server's event
+    # loop inside logging — a clean error becomes a hang on the next navigation.
     log_path = root / "server.log"
     log_file = log_path.open("wb")
     proc = subprocess.Popen(

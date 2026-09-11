@@ -126,6 +126,30 @@ def stale_local_db() -> list[str]:
         engine.dispose()
 
 
+def missing_local_tables() -> list[str]:
+    """Model tables absent from an existing local SQLite DB.
+
+    ``is_setup_done`` only checks for a marker file, and :func:`stale_local_db`
+    compares columns of tables that *exist* — it skips missing ones, so it
+    reports a database with no tables at all as current. A marker left beside
+    an empty or truncated ``local.db`` (an interrupted setup, a wiped data dir)
+    therefore looked set up, and every query failed with "no such table".
+
+    Returns table names, empty when the database is current or absent.
+    """
+    sync_url = _sync_db_url()
+    db_path = _local_db_path()
+    if sync_url is None or db_path is None or not db_path.exists():
+        return []
+    engine = create_engine(sync_url)
+    try:
+        with engine.connect() as conn:
+            existing = set(inspect(conn).get_table_names())
+        return [t.name for t in SQLModel.metadata.sorted_tables if t.name not in existing]
+    finally:
+        engine.dispose()
+
+
 STALE_DB_REMEDY = "Re-run `aaiclick setup --force` to recreate it."
 """Remedy appended wherever an outdated local database blocks a command."""
 

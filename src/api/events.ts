@@ -30,8 +30,27 @@ function invalidateLive(qc: QueryClient): void {
   for (const queryKey of LIVE_KEYS) void qc.invalidateQueries({ queryKey });
 }
 
+// How a query is kept current — what the freshness badge reports.
+export type RefreshMode = "stream" | "poll" | "manual";
+
+// The keys that opt out of the stream, and what drives them instead. Every
+// other answer comes from LIVE_KEYS above rather than being restated, so a key
+// dropped from the stream cannot leave a badge still claiming "live".
+const OPT_OUT_MODES: Record<string, RefreshMode> = {
+  "task-logs": "poll",
+  "registered-jobs": "manual",
+};
+
+export function refreshMode(key: string): RefreshMode {
+  return LIVE_KEYS.some(([live]) => live === key) ? "stream" : (OPT_OUT_MODES[key] ?? "manual");
+}
+
 let connected = false;
 const liveListeners = new Set<() => void>();
+
+function notifyLive(): void {
+  for (const listener of liveListeners) listener();
+}
 
 export function isLiveConnected(): boolean {
   return connected;
@@ -89,7 +108,7 @@ export function useLiveUpdates(): void {
     const setConnected = (value: boolean) => {
       if (connected === value) return;
       connected = value;
-      for (const listener of liveListeners) listener();
+      notifyLive();
       // Refetch now: on connect to catch up, on disconnect so the fallback
       // interval gets re-evaluated when that fetch settles.
       invalidateLive(qc);
@@ -127,7 +146,11 @@ export function useLiveUpdates(): void {
 
     return () => {
       controller.abort();
-      setConnected(false);
+      // Record the disconnect without invalidating: this runs as the tree is
+      // torn down (logout swaps in the login screen), where a refetch round
+      // would fire with a token that is already gone.
+      connected = false;
+      notifyLive();
     };
   }, [qc]);
 }

@@ -34,7 +34,7 @@ export function TaskDetail({ id, onPrompt }: { id: string; onPrompt: (v: string)
           <span className="mono">{task.name}</span> <StatusBadge status={task.status} />
         </h2>
         <p className="sub">
-          <LiveStatus updatedAt={dataUpdatedAt} />
+          <LiveStatus updatedAt={dataUpdatedAt} queryKey="task" />
         </p>
         <MetaGrid
           items={[

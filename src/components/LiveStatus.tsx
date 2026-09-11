@@ -1,53 +1,49 @@
-// Inline freshness for any auto-refreshing view: how this view's data is
-// kept current, and how current it actually is.
+// Inline freshness for an auto-refreshing view: how its data is kept current,
+// and how current it actually is.
 //
 // Both halves matter. The mode makes a dead stream visible instead of letting
-// it degrade silently to the polling fallback, and the timestamp shows
-// whether anything is arriving at all — a stream that is connected but not
-// delivering looks identical to an idle one without it.
+// it degrade silently to polling; the timestamp separates a stream that is
+// connected but delivering nothing from an idle one.
 //
-// Each instance reports one query, so pass that query's own `dataUpdatedAt`
-// and the mode that query actually runs in. A badge that borrows a
-// neighbouring query's timestamp is a badge that can lie.
+// Each instance reports one query — name it, and the cadence is looked up from
+// the one place that decides it. Freshness must be that query's own
+// `dataUpdatedAt`; a borrowed one would lie.
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { isLiveConnected, subscribeLive } from "../api/events";
+import { isLiveConnected, refreshMode, subscribeLive } from "../api/events";
+import { relativeTime } from "../lib/format";
 
-// Re-render cadence for the "Ns ago" text. A display timer only — it issues
-// no requests, so it does not reintroduce the polling this replaces.
-const TICK_MS = 1000;
+type BadgeState = "live" | "polling" | "manual";
 
-// How the query behind this badge is refreshed:
-//   stream — invalidated by /events, falling back to polling while it is down
-//   poll   — always on its own timer, regardless of the stream (task logs)
-//   manual — only refetched by its own mutations (registered jobs)
-export type RefreshMode = "stream" | "poll" | "manual";
+const LABELS: Record<BadgeState, string> = { live: "live", polling: "polling", manual: "on change" };
 
-function sinceLabel(updatedAt: number, now: number): string {
-  if (!updatedAt) return "never";
-  const seconds = Math.max(0, Math.round((now - updatedAt) / 1000));
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  return minutes < 60 ? `${minutes}m ago` : `${Math.floor(minutes / 60)}h ago`;
+// Re-render cadence for the age text — a display timer only, it issues no
+// requests. Matched to the label's own resolution so it fires once per visible
+// change rather than 60 times per minute once the age is counted in minutes.
+function tickDelay(ageMs: number): number {
+  if (ageMs < 60_000) return 1000;
+  return ageMs < 3_600_000 ? 60_000 : 3_600_000;
 }
 
-export function LiveStatus({ updatedAt, mode = "stream" }: { updatedAt: number; mode?: RefreshMode }) {
+export function LiveStatus({ updatedAt, queryKey }: { updatedAt: number; queryKey: string }) {
   const streamUp = useSyncExternalStore(subscribeLive, isLiveConnected);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), TICK_MS);
-    return () => clearInterval(timer);
-  }, []);
+    // Nothing fetched yet: the label is fixed, so there is nothing to tick.
+    if (!updatedAt) return;
+    const timer = setTimeout(() => setNow(Date.now()), tickDelay(Math.max(0, now - updatedAt)));
+    return () => clearTimeout(timer);
+  }, [updatedAt, now]);
 
-  // Only a stream-backed query goes dark when the stream does; the other two
-  // modes are unaffected by it and must not claim otherwise.
-  const live = mode === "stream" && streamUp;
-  const label = mode === "manual" ? "on change" : live ? "live" : "polling";
+  const mode = refreshMode(queryKey);
+  // Only a stream-backed query goes dark when the stream does; the other modes
+  // are unaffected by it and must not claim otherwise.
+  const state: BadgeState = mode === "manual" ? "manual" : mode === "stream" && streamUp ? "live" : "polling";
 
   return (
-    <span className="live-status" data-testid="live-status" data-mode={live ? "live" : mode}>
-      <span className={live ? "live-dot on" : "live-dot"} aria-hidden="true" />
-      {label} · updated {sinceLabel(updatedAt, now)}
+    <span className="live-status" data-testid="live-status" data-mode={state}>
+      <span className={state === "live" ? "live-dot on" : "live-dot"} aria-hidden="true" />
+      {LABELS[state]} · updated {updatedAt ? relativeTime(updatedAt, now) : "never"}
     </span>
   );
 }

@@ -1,9 +1,8 @@
 import { memo, useState } from "react";
-import type { LogLine } from "../api/types";
+import type { LogLine, TaskStatus } from "../api/types";
 import { useTaskLogs } from "../api/hooks";
 import { LiveStatus } from "./LiveStatus";
 import { isTaskStarted, isTerminalTask } from "../lib/status";
-import type { TaskStatus } from "../api/types";
 
 // Render a captured created_at (ISO string) as HH:MM:SS.mmm for the inline
 // timestamp prefix. Kept tiny and dependency-free; the value is informational.
@@ -41,26 +40,24 @@ const LogLines = memo(function LogLines({
 });
 
 export function LogViewer({ taskId, status }: { taskId: string; status: TaskStatus }) {
-  // A task that has not started cannot produce output, so there is nothing to
-  // poll for yet; the status change that starts it arrives over /events and
-  // re-renders this with polling switched on.
   const started = isTaskStarted(status);
   const live = started && !isTerminalTask(status);
-  const { data, isLoading, isError, dataUpdatedAt } = useTaskLogs(taskId, live);
+  const { data, isLoading, isError, dataUpdatedAt } = useTaskLogs(taskId, status);
   const [showTimestamps, setShowTimestamps] = useState(false);
 
   if (isLoading) return <div className="logs">loading logs…</div>;
   if (isError) return <div className="logs">failed to load logs</div>;
   const lines = data?.lines ?? [];
   const empty = !data || !data.available || lines.length === 0;
-  // Three different empty states, and conflating them misleads: a queued task
-  // has produced nothing *yet*, a running one may simply not have flushed, and
-  // only a finished one can be said to have captured nothing.
-  if (!started) return <div className="logs sub">Task has not started — no output until it runs.</div>;
-  // A running task with nothing captured yet is still being polled, so the
-  // toolbar stays: "(no logs captured)" on its own reads as a final answer
-  // when it is really "none so far".
-  if (empty && !live) return <div className="logs">(no logs captured for this task)</div>;
+  // Only a finished task can be said to have captured nothing; a queued one has
+  // produced nothing *yet*, and a running one may simply not have flushed —
+  // which keeps its toolbar below, since it is still being polled.
+  const notice = !started
+    ? "Task has not started — no output until it runs."
+    : empty && !live
+      ? "(no logs captured for this task)"
+      : null;
+  if (notice) return <div className="logs sub">{notice}</div>;
   return (
     <div className="logs">
       <div className="logs-toolbar">
@@ -77,7 +74,7 @@ export function LogViewer({ taskId, status }: { taskId: string; status: TaskStat
             rather than letting the task's "live" badge above imply otherwise.
             Once the task is terminal nothing more arrives, so the badge goes
             away instead of ticking up an age that will never reset. */}
-        {live && <LiveStatus updatedAt={dataUpdatedAt} mode="poll" />}
+        {live && <LiveStatus updatedAt={dataUpdatedAt} queryKey="task-logs" />}
       </div>
       {empty ? (
         <div className="sub">waiting for output…</div>
