@@ -16,6 +16,14 @@ from aaiclick.ai.agents.lineage_tools import (
     QueryResult,
     TableSchema,
     ToolError,
+    run_select,
+)
+from aaiclick.data.data_context import get_ch_client
+from aaiclick.data.scope import (
+    SCOPE_GLOBAL,
+    SCOPE_JOB,
+    SCOPE_TEMP_NAMED,
+    make_scoped_table_name,
 )
 from aaiclick.oplog.lineage import OplogEdge, OplogGraph
 from aaiclick.testing import make_oplog_node
@@ -47,6 +55,25 @@ def _mock_query_result(rows, column_names=None):
     return result
 
 
+def _ch_client_with_real_parser(rows, column_names=None):
+    """Client double whose ``EXPLAIN`` goes to real ClickHouse; data queries return ``rows``.
+
+    ``validate_scope`` asks ClickHouse to parse the SQL, so a fully faked
+    client would turn the scope check into a no-op and the test would be
+    asserting on the fake. Only the data round trip is canned.
+    """
+    real_query = get_ch_client().query
+    client = MagicMock()
+
+    async def query(sql, **kwargs):
+        if sql.lstrip().upper().startswith("EXPLAIN "):
+            return await real_query(sql, **kwargs)
+        return _mock_query_result(rows, column_names)
+
+    client.query = AsyncMock(side_effect=query)
+    return client
+
+
 async def test_query_table_rejects_non_select():
     toolbox = LineageToolbox(_sample_graph())
     err = await toolbox.query_table(f"INSERT INTO {TARGET_TABLE} VALUES (1)")
@@ -62,18 +89,100 @@ async def test_query_table_rejects_ddl_keywords_inside_select():
     assert err.kind == "not_select"
 
 
-async def test_query_table_rejects_out_of_scope_table():
+# The four scope shapes, built through their real producers. The guard reads
+# table position from the parse tree rather than matching names, so these are
+# regression cases for the shape-blind hole rather than the mechanism itself.
+OUT_OF_SCOPE_ID = 7502577539063427072
+OUT_OF_SCOPE_TABLES: dict[str, str] = {
+    # The unnamed-temp form has no factory; aaiclick/data/object/object.py builds it.
+    "temp": f"t_{OUT_OF_SCOPE_ID}",
+    "temp-named": make_scoped_table_name(SCOPE_TEMP_NAMED, "orders", snowid=OUT_OF_SCOPE_ID),
+    "job": make_scoped_table_name(SCOPE_JOB, "payroll", job_id=OUT_OF_SCOPE_ID),
+    "global": make_scoped_table_name(SCOPE_GLOBAL, "sales"),
+    "global-other-tenant": make_scoped_table_name(SCOPE_GLOBAL, "sales", tenant_id=OUT_OF_SCOPE_ID),
+}
+
+
+@pytest.mark.parametrize("table", OUT_OF_SCOPE_TABLES.values(), ids=list(OUT_OF_SCOPE_TABLES))
+async def test_query_table_rejects_out_of_scope_table(orch_ctx, table):
+    """Every scoped-table shape aaiclick creates is rejected when out of graph.
+
+    ClickHouse keeps all tenants' tables in one database, so reaching one of
+    these is a read outside the graph and outside the tenant.
+    """
     toolbox = LineageToolbox(_sample_graph())
-    err = await toolbox.query_table("SELECT * FROM t_99999999999999999999")
+    err = await toolbox.query_table(f"SELECT * FROM {table}")
     assert isinstance(err, ToolError)
     assert err.kind == "out_of_scope"
-    assert "t_99999999999999999999" in err.message
+    assert table in err.message
 
 
-async def test_query_table_happy_path_wraps_limit():
+@pytest.mark.parametrize(
+    "sql, function",
+    [
+        # Reads every tenant's persistent tables in one call.
+        pytest.param("SELECT * FROM merge(currentDatabase(), '^p_')", "merge", id="merge"),
+        pytest.param("SELECT * FROM remote('h:9000', 'default', 'p_sales')", "remote", id="remote"),
+        pytest.param("SELECT * FROM url('http://x/y', CSV, 'a String')", "url", id="url"),
+        pytest.param("SELECT * FROM file('/etc/passwd', 'LineAsString')", "file", id="file"),
+        pytest.param("SELECT * FROM cluster('c', currentDatabase(), 'p_sales')", "cluster", id="cluster"),
+    ],
+)
+async def test_query_table_rejects_table_functions(orch_ctx, sql, function):
+    """A table function names its target in a string literal, not as an identifier.
+
+    Nothing in table position is an identifier at all, so a guard that looks
+    for table names sees an empty query. ``merge`` and ``cluster`` reach every
+    tenant in the database; ``url`` and ``file`` reach outside it entirely.
+    """
     toolbox = LineageToolbox(_sample_graph())
-    mock_client = MagicMock()
-    mock_client.query = AsyncMock(return_value=_mock_query_result([(1, "a"), (2, "b")], ["id", "name"]))
+    err = await toolbox.query_table(sql)
+    assert isinstance(err, ToolError)
+    assert err.kind == "out_of_scope"
+    assert function in err.message
+
+
+@pytest.mark.parametrize(
+    "sql, expected",
+    [
+        # Right table, but a database qualifier we cannot prove refers to ours.
+        pytest.param(f"SELECT * FROM default.{PERSISTENT_INPUT}", f"default.{PERSISTENT_INPUT}", id="qualified"),
+        # A CTE name is a table identifier that no graph contains.
+        pytest.param(f"WITH c AS (SELECT 1) SELECT * FROM c JOIN {TARGET_TABLE} USING (x)", "c", id="cte"),
+    ],
+)
+async def test_query_table_rejects_non_graph_table_identifiers(orch_ctx, sql, expected):
+    """Anything in table position must be a table of this graph, whatever it is."""
+    toolbox = LineageToolbox(_sample_graph())
+    err = await toolbox.query_table(sql)
+    assert isinstance(err, ToolError)
+    assert err.kind == "out_of_scope"
+    assert expected in err.message
+
+
+async def test_query_table_rejects_system_tables(orch_ctx):
+    """``system.*`` never reaches the scope check — SYSTEM is a forbidden keyword.
+
+    Recorded because the scope check would also reject it: the two guards
+    overlap here, and only the outer one reports the reason.
+    """
+    toolbox = LineageToolbox(_sample_graph())
+    err = await toolbox.query_table("SELECT * FROM system.tables")
+    assert isinstance(err, ToolError)
+    assert err.kind == "not_select"
+
+
+async def test_query_table_reports_unparseable_sql(orch_ctx):
+    """SQL ClickHouse cannot parse is rejected, not passed along unchecked."""
+    toolbox = LineageToolbox(_sample_graph())
+    err = await toolbox.query_table(f"SELECT * FROM {TARGET_TABLE} WHERE (")
+    assert isinstance(err, ToolError)
+    assert err.kind == "invalid_argument"
+
+
+async def test_query_table_happy_path_wraps_limit(orch_ctx):
+    toolbox = LineageToolbox(_sample_graph())
+    mock_client = _ch_client_with_real_parser([(1, "a"), (2, "b")], ["id", "name"])
 
     with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
         result = await toolbox.query_table(f"SELECT id, name FROM {TARGET_TABLE}")
@@ -86,12 +195,11 @@ async def test_query_table_happy_path_wraps_limit():
     assert "LIMIT 101" in called_sql  # default row_limit=100 → LIMIT 101
 
 
-async def test_query_table_truncation_flag():
+async def test_query_table_truncation_flag(orch_ctx):
     """More rows than row_limit returns truncated=True and trims to row_limit."""
     toolbox = LineageToolbox(_sample_graph())
     rows = [(i,) for i in range(6)]  # 6 rows returned
-    mock_client = MagicMock()
-    mock_client.query = AsyncMock(return_value=_mock_query_result(rows, ["id"]))
+    mock_client = _ch_client_with_real_parser(rows, ["id"])
 
     with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
         result = await toolbox.query_table(f"SELECT id FROM {TARGET_TABLE}", row_limit=5)
@@ -101,13 +209,12 @@ async def test_query_table_truncation_flag():
     assert len(result.rows) == 5
 
 
-async def test_query_table_coerces_string_row_limit():
+async def test_query_table_coerces_string_row_limit(orch_ctx):
     """Llama-3.1 sometimes emits row_limit as a JSON string. Coerce to int
     instead of crashing in run_select's ``min(row_limit, ROW_LIMIT_CEILING)``.
     """
     toolbox = LineageToolbox(_sample_graph())
-    mock_client = MagicMock()
-    mock_client.query = AsyncMock(return_value=_mock_query_result([(1,)], ["id"]))
+    mock_client = _ch_client_with_real_parser([(1,)], ["id"])
 
     with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
         result = await toolbox.query_table(f"SELECT id FROM {TARGET_TABLE}", row_limit="5")
@@ -124,10 +231,9 @@ async def test_query_table_rejects_non_numeric_row_limit():
     assert err.kind == "invalid_argument"
 
 
-async def test_query_table_respects_existing_limit():
+async def test_query_table_respects_existing_limit(orch_ctx):
     toolbox = LineageToolbox(_sample_graph())
-    mock_client = MagicMock()
-    mock_client.query = AsyncMock(return_value=_mock_query_result([(1,)], ["id"]))
+    mock_client = _ch_client_with_real_parser([(1,)], ["id"])
 
     with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
         await toolbox.query_table(f"SELECT id FROM {TARGET_TABLE} LIMIT 3")
@@ -138,11 +244,10 @@ async def test_query_table_respects_existing_limit():
     assert "LIMIT 3" in called_sql
 
 
-async def test_query_table_pins_execution_settings():
+async def test_query_table_pins_execution_settings(orch_ctx):
     """Every query carries max_execution_time and max_result_rows to prevent runaway scans."""
     toolbox = LineageToolbox(_sample_graph())
-    mock_client = MagicMock()
-    mock_client.query = AsyncMock(return_value=_mock_query_result([], []))
+    mock_client = _ch_client_with_real_parser([], [])
 
     with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
         await toolbox.query_table(f"SELECT 1 FROM {TARGET_TABLE}")
@@ -150,6 +255,17 @@ async def test_query_table_pins_execution_settings():
     settings = mock_client.query.call_args.kwargs["settings"]
     assert "max_execution_time" in settings
     assert "max_result_rows" in settings
+
+
+async def test_run_select_is_refused_write_access_by_clickhouse(orch_ctx):
+    """ClickHouse refuses the write itself, so the keyword guard is not the only gate.
+
+    ``run_select`` is reached only after ``validate_select_safety``; this pins
+    the layer beneath it, so a bypass of that regex still cannot write. The
+    statement carries its own LIMIT so no ``LIMIT`` injection masks the result.
+    """
+    with pytest.raises(Exception, match="[Rr]eadonly"):
+        await run_select("CREATE TABLE t_written ENGINE=Memory AS SELECT 1 LIMIT 1")
 
 
 async def test_get_op_sql_returns_template():
@@ -258,12 +374,27 @@ async def test_get_schema_not_live_when_describe_fails():
             [],
             id="table-id-in-string-literal",
         ),
+        # Columns are not table positions, so a scope-prefixed column name is
+        # simply a column — p_value included, which no name pattern could allow.
+        pytest.param(
+            f"SELECT t_start, j_id, p_value FROM {TARGET_TABLE}",
+            [(1, 2, 3)],
+            ["t_start", "j_id", "p_value"],
+            id="columns-named-like-scoped-tables",
+        ),
+        # A derived table parses to a Subquery in table position, so it is the
+        # rewrite the out-of-scope message points a rejected CTE at.
+        pytest.param(
+            f"SELECT * FROM (SELECT id FROM {TARGET_TABLE}) AS s",
+            [(1,)],
+            ["id"],
+            id="derived-table-subquery",
+        ),
     ],
 )
-async def test_query_table_accepts_valid_select(sql, rows, columns):
+async def test_query_table_accepts_valid_select(orch_ctx, sql, rows, columns):
     toolbox = LineageToolbox(_sample_graph())
-    mock_client = MagicMock()
-    mock_client.query = AsyncMock(return_value=_mock_query_result(rows, columns))
+    mock_client = _ch_client_with_real_parser(rows, columns)
 
     with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
         result = await toolbox.query_table(sql)
@@ -309,10 +440,9 @@ async def test_dispatch_tool_returns_error_string(tool, arguments, expected):
     assert expected in result
 
 
-async def test_dispatch_tool_formats_query_result_as_table():
+async def test_dispatch_tool_formats_query_result_as_table(orch_ctx):
     toolbox = LineageToolbox(_sample_graph())
-    mock_client = MagicMock()
-    mock_client.query = AsyncMock(return_value=_mock_query_result([(1, "a"), (2, "b")], ["id", "name"]))
+    mock_client = _ch_client_with_real_parser([(1, "a"), (2, "b")], ["id", "name"])
 
     with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
         result = await toolbox.dispatch_tool("query_table", {"sql": f"SELECT id, name FROM {TARGET_TABLE}"})

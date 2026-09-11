@@ -94,12 +94,13 @@ def graph_page(page, base_url: str, seeded_job_id: int):
     return open_graph(page, base_url, seeded_job_id)
 
 
-def test_graph_renders_every_task_and_edge(graph_page) -> None:
+def test_graph_renders_every_task_and_edge(graph_page, shot) -> None:
     """All 9 seeded tasks reach the canvas, with the pipeline edges drawn.
 
     The build's 8 dependencies collapse into badges, except the one into the
     pipeline root which is kept so the build is not left floating.
     """
+    shot("graph-seeded")
     assert graph_page.locator(".gnode").count() == _NODE_COUNT
     assert graph_page.locator(".react-flow__edge").count() == _PIPELINE_EDGE_COUNT + _ROOT_BUILD_EDGE_COUNT
 
@@ -126,7 +127,7 @@ def test_build_dependencies_render_as_badges_not_edges(graph_page) -> None:
     assert build_node.locator("[data-testid='build-gate']").count() == 0
 
 
-def test_build_badge_reflects_build_status(page, base_url: str) -> None:
+def test_build_badge_reflects_build_status(page, base_url: str, shot) -> None:
     """The badge is coloured by the build's own status, so a stalled or failed
     build is visible from any task it blocks."""
     job_id = _seed("graph_ui_building", states={"build_image": TaskState(TASK_RUNNING, None, 0, None)})
@@ -137,13 +138,14 @@ def test_build_badge_reflects_build_status(page, base_url: str) -> None:
         arg=_BUILD_GATED_COUNT,
         timeout=15000,
     )
+    shot("graph-build-running")
 
     assert page.locator(".gnode-buildgate-RUNNING").count() == _BUILD_GATED_COUNT
     # Collapsed by default regardless of build state.
     assert page.locator(".react-flow__edge.gedge-build").count() == 0
 
 
-def test_build_edges_toggle_reveals_every_dependency(graph_page) -> None:
+def test_build_edges_toggle_reveals_every_dependency(graph_page, shot) -> None:
     """The full fan is available on demand, and toggling it must not move a
     node — layout is computed from every edge, drawn or not."""
     toggle = graph_page.locator("[data-testid='build-edges-toggle']")
@@ -158,6 +160,7 @@ def test_build_edges_toggle_reveals_every_dependency(graph_page) -> None:
         arg=_COLLAPSED_BUILD_EDGE_COUNT,
         timeout=15000,
     )
+    shot("graph-build-edges-expanded")
 
     assert graph_page.locator(".react-flow__edge").count() == _PIPELINE_EDGE_COUNT + _BUILD_GATED_COUNT
     assert graph_page.locator(".gnode").first.bounding_box() == before
@@ -240,12 +243,13 @@ def test_group_status_is_rolled_up_from_its_members(graph_page) -> None:
     assert "RUNNING" in graph_page.locator("[data-testid='group-node']").first.inner_text()
 
 
-def test_group_status_settles_once_members_finish(page, base_url: str) -> None:
+def test_group_status_settles_once_members_finish(page, base_url: str, shot) -> None:
     all_green = {name: TaskState(TASK_COMPLETED, None, 0, 30) for name in DEFAULT_STATES}
     job_id = _seed("graph_ui_group_done", states=all_green, job_status=JOB_COMPLETED)
 
     open_graph(page, base_url, job_id)
     page.wait_for_selector(".ggroup-COMPLETED", timeout=15000)
+    shot("graph-all-completed")
 
     assert page.locator(".ggroup-RUNNING").count() == 0
 
@@ -260,14 +264,16 @@ def test_clicking_a_group_does_not_navigate(graph_page) -> None:
     assert graph_page.input_value("#prompt") == before
 
 
-def test_toggle_switches_between_table_and_graph(page, base_url: str, seeded_job_id: int) -> None:
+def test_toggle_switches_between_table_and_graph(page, base_url: str, seeded_job_id: int, shot) -> None:
     """The Table/Graph chips move the prompt between the two views."""
     open_page(page, f"{base_url}/?p=@job {seeded_job_id}")
     page.wait_for_selector("table")
     assert page.locator("[data-testid='job-graph']").count() == 0
+    shot("job-table")
 
     page.get_by_text("Graph", exact=True).click()
     page.wait_for_selector("[data-testid='job-graph']", timeout=15000)
+    shot("job-graph-toggled")
 
     assert page.input_value("#prompt").endswith(" graph")
 

@@ -22,6 +22,8 @@ from pathlib import Path
 import pytest
 from helpers import open_page
 
+from aaiclick.tenancy import DEFAULT_TENANT_ID
+
 STATIC = Path(__file__).resolve().parents[2] / "aaiclick" / "server" / "static" / "index.html"
 
 pytest.importorskip("playwright.sync_api")
@@ -49,7 +51,7 @@ def _stub_session(page, role: str) -> None:
         "id": 1,
         "username": f"{role}_user",
         "superadmin": role == "admin",
-        "tenants": [{"tenant_id": 1, "slug": "aaiclick", "name": "aaiclick", "role": role}],
+        "tenants": [{"tenant_id": str(DEFAULT_TENANT_ID), "slug": "aaiclick", "name": "aaiclick", "role": role}],
     }
     page.route(
         "**/api/v0/auth/me",
@@ -78,8 +80,9 @@ def _open_registered(page, base_url: str, role: str) -> None:
 
 
 @_spa_built
-def test_viewer_sees_mutating_controls_disabled(page, base_url: str) -> None:
+def test_viewer_sees_mutating_controls_disabled(page, base_url: str, shot) -> None:
     _open_registered(page, base_url, "viewer")
+    shot("registered-viewer")
 
     for name in ("+ Register new job", "Run", "Run…"):
         button = page.get_by_role("button", name=name, exact=True).first
@@ -91,10 +94,11 @@ def test_viewer_sees_mutating_controls_disabled(page, base_url: str) -> None:
 
 
 @_spa_built
-def test_admin_sees_mutating_controls_enabled(page, base_url: str) -> None:
+def test_admin_sees_mutating_controls_enabled(page, base_url: str, shot) -> None:
     """The gate must not leak onto admins — this is what would catch an
     inverted condition that disables the controls for everyone."""
     _open_registered(page, base_url, "admin")
+    shot("registered-admin")
 
     for name in ("+ Register new job", "Run", "Run…"):
         button = page.get_by_role("button", name=name, exact=True).first

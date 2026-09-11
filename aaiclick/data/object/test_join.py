@@ -9,6 +9,7 @@ from aaiclick.data.object.join import (
     build_join_schema,
     resolve_join_keys,
 )
+from aaiclick.tenancy import DEFAULT_TENANT_ID
 
 # =============================================================================
 # Phase 1: resolve_join_keys
@@ -370,7 +371,7 @@ async def test_join_with_name_global_scope(ctx):
 
     joined = await left.join(right, on="id", name="join_named_global", scope="global")
     try:
-        assert joined.table == "p_join_named_global"
+        assert joined.table == f"p_{DEFAULT_TENANT_ID}_join_named_global"
         rows = await joined.data(orient="records")
         by_id = {r["id"]: (r["v"], r["w"]) for r in rows}
         assert by_id == {1: (10, 100), 2: (20, 200)}

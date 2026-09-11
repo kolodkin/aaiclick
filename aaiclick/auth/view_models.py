@@ -6,6 +6,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from ..log_models import SnowflakeId
 from .models import Role
 
 
@@ -30,7 +31,7 @@ class TokenPair(BaseModel):
 
 
 class TenantView(BaseModel):
-    id: int
+    id: SnowflakeId
     slug: str
     name: str
     created_at: datetime
@@ -54,7 +55,7 @@ class SetMemberRequest(BaseModel):
 
 
 class TenantRoleView(BaseModel):
-    tenant_id: int
+    tenant_id: SnowflakeId
     slug: str
     name: str
     role: Role

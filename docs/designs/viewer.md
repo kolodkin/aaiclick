@@ -61,9 +61,8 @@ store the key as given, so `job:nightly_etl` follows each new run while
 
 Every surface identifies an object as `(scope, name)`; the tenant is never a
 parameter (REST: `X-Tenant-Id` via `require_tenant`; MCP and CLI: the default
-tenant). `make_scoped_table_name` maps the pair to `p_<name>` /
-`p_<tenant>_<name>` / `j_<job_id>_<name>`, with the job checked against the
-active tenant.
+tenant). `make_scoped_table_name` maps the pair to `p_<tenant_id>_<name>` or
+`j_<job_id>_<name>`, with the job checked against the active tenant.
 
 ## Queries name an object, not a table
 

@@ -319,7 +319,7 @@ async def create_object(
               ``"temp_named"`` → ``t_<name>_<snowflake>`` (default; dies with
               the context, like an unnamed temp). ``"job"`` → ``j_<job_id>_<name>``
               (lives only as long as the active orch job; raises if no job is
-              active). ``"global"`` → ``p_<name>`` (user-managed, removed only
+              active). ``"global"`` → ``p_<tenant_id>_<name>`` (user-managed, removed only
               by ``delete_persistent_object()``).
 
     Returns:
@@ -529,7 +529,7 @@ async def create_object_from_value(
               ``"temp_named"`` → ``t_<name>_<snowflake>`` (default; dies with
               the context). ``"job"`` → ``j_<job_id>_<name>`` (lives only as
               long as the active orch job; raises when called from pure
-              ``data_context()``). ``"global"`` → ``p_<name>`` (user-managed,
+              ``data_context()``). ``"global"`` → ``p_<tenant_id>_<name>`` (user-managed,
               removed only by ``delete_persistent_object()``).
         aai_id: When ``True``, add an ``aai_id`` column (``UInt64`` with
               ``DEFAULT generateSnowflakeID()``). Each row gets a unique,
@@ -678,7 +678,7 @@ async def open_object(name: str, scope: PersistentScope = SCOPE_JOB, *, job_id: 
     Args:
         name: Persistent name (without prefix).
         scope: Persistence tier the object was created with — ``"global"`` →
-               looks up ``p_<name>``; ``"job"`` → looks up
+               looks up ``p_<tenant_id>_<name>``; ``"job"`` → looks up
                ``j_<job_id>_<name>``. ``"temp_named"`` is not openable —
                temp tables disappear with their context.
         job_id: The owning job for ``scope="job"``. Defaults to the active
@@ -717,7 +717,7 @@ async def delete_persistent_object(name: str, scope: PersistentScope = SCOPE_JOB
     Args:
         name: Persistent name (without prefix).
         scope: Tier the object was created with — ``"global"`` drops
-               ``p_<name>``; ``"job"`` drops ``j_<job_id>_<name>``.
+               ``p_<tenant_id>_<name>``; ``"job"`` drops ``j_<job_id>_<name>``.
 
     Raises:
         ValueError: If name is invalid.

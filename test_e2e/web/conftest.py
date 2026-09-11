@@ -5,17 +5,22 @@ string fixture plus Playwright fixtures. Playwright is optional — tests
 guard with ``pytest.importorskip`` and skip automatically when the
 package is absent.
 
+``shot`` saves full-page screenshots under ``test-results/shots/`` at the
+repo root, where the ``/screenshots`` skill looks.
+
 The suite sits under ``test_e2e/web/`` which is excluded from the
 default ``pytest`` testpaths; it only runs when the path is passed
 explicitly (or in a dedicated CI workflow)."""
 
 from __future__ import annotations
 
+import itertools
+import shutil
 import socket
 import subprocess
 import sys
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +29,7 @@ import pytest
 from aaiclick.backend import is_local
 
 SEED = Path(__file__).with_name("seed.py")
+SHOTS = Path(__file__).resolve().parents[2] / "test-results" / "shots"
 
 
 def _free_port() -> int:
@@ -115,3 +121,31 @@ def page(browser: Any) -> Iterator[Any]:
     pg = browser.new_page()
     yield pg
     pg.close()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _shots_dir() -> None:
+    """Start each run with an empty ``test-results/shots/`` so the directory
+    only ever holds this run's screenshots."""
+    shutil.rmtree(SHOTS, ignore_errors=True)
+    SHOTS.mkdir(parents=True, exist_ok=True)
+
+
+@pytest.fixture(scope="session")
+def _shot_counter() -> Iterator[int]:
+    return itertools.count(1)
+
+
+@pytest.fixture()
+def shot(page: Any, _shot_counter: Iterator[int]) -> Callable[[str], Path]:
+    """Save a curated full-page screenshot to ``test-results/shots/NN-<name>.png``.
+
+    The NN prefix is a run-wide counter, so filenames sort in the order the
+    screenshots were taken."""
+
+    def _shot(name: str) -> Path:
+        path = SHOTS / f"{next(_shot_counter):02d}-{name}.png"
+        page.screenshot(path=str(path), full_page=True)
+        return path
+
+    return _shot

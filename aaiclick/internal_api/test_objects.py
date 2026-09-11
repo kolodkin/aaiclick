@@ -12,7 +12,7 @@ from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.orch_context import task_scope
 from aaiclick.snowflake import get_snowflake_id
-from aaiclick.tenancy import active_tenant
+from aaiclick.tenancy import DEFAULT_TENANT_ID, active_tenant
 from aaiclick.view_models import ObjectFilter, Page, PurgeObjectsRequest
 
 from . import errors, objects
@@ -81,7 +81,7 @@ async def test_get_object_returns_detail_with_schema():
 
     assert isinstance(detail, ObjectDetail)
     assert detail.name == "detail_target"
-    assert detail.table == "p_detail_target"
+    assert detail.table == f"p_{DEFAULT_TENANT_ID}_detail_target"
     assert detail.scope == "global"
     col_names = list(detail.table_schema.columns)
     assert "value" in col_names
