@@ -60,11 +60,19 @@ store the key as given, so `job:nightly_etl` follows each new run while
 `get_object(name, job)` and `list_objects(ObjectFilter(job=…))`).
 
 Every surface identifies an object as `(scope, name)` — the tenant is never one
-of the two. Each resolves it once, outside the verb: REST from `X-Tenant-Id`
-via `require_tenant`, the CLI from the global `--tenant <slug>` flag applied in
-`_run_internal_api`, MCP from the default tenant (it has no tenant selector).
-`make_scoped_table_name` then maps the pair to `p_<tenant_id>_<name>` or
-`j_<job_id>_<name>`, with the job checked against the active tenant.
+of the two. Each resolves it once, outside the verb:
+
+| Surface | Active tenant                                                                    |
+|---------|----------------------------------------------------------------------------------|
+| REST    | `X-Tenant-Id`, through `require_tenant`                                          |
+| CLI     | the default tenant, or the global `--tenant <slug>` flag (`_run_internal_api`)   |
+| MCP     | the default tenant — there is no tenant selector                                 |
+
+The CLI reaches the database directly and authenticates no one, so it is the
+operator's panel: it acts as the default tenant, and `--tenant` steps into
+another without a permission check. `make_scoped_table_name` then maps the pair
+to `p_<tenant_id>_<name>` or `j_<job_id>_<name>`, with the job checked against
+the active tenant.
 
 ## Queries name an object, not a table
 
