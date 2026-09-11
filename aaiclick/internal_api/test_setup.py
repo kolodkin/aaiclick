@@ -305,6 +305,51 @@ def test_setup_force_recreates_stale_local_db(local_db):
     engine.dispose()
 
 
+def _old_default_tenant_db(path):
+    """A current-schema database whose default tenant predates the id move."""
+    engine = _current_sqlite_db(path, job_name="old-job")
+    with engine.begin() as conn:
+        conn.execute(sa_text("DELETE FROM tenants"))
+        conn.execute(
+            sa_text("INSERT INTO tenants (id, slug, name, created_at) VALUES (1, 'aaiclick', 'aaiclick', '2024-01-01')")
+        )
+    engine.dispose()
+
+
+def test_stale_local_db_reason_flags_an_old_default_tenant(local_db):
+    """The schema is current, so only the seeded tenant marks it outdated."""
+    _old_default_tenant_db(local_db)
+
+    assert setup.stale_local_db() == []
+    reason = setup.stale_local_db_reason()
+    assert reason is not None and str(DEFAULT_TENANT_ID) in reason
+
+
+def test_setup_refuses_an_old_default_tenant_without_force(local_db):
+    """Regression: ``_seed_default_tenant`` looks the row up by id, so against
+    a pre-move database it inserted a second row and died on the ``slug``
+    unique constraint. It now refuses with the flag that recreates it."""
+    _old_default_tenant_db(local_db)
+
+    with pytest.raises(errors.Invalid, match="--force"):
+        setup.setup()
+
+    assert local_db.exists()
+
+
+def test_setup_force_recreates_an_old_default_tenant(local_db):
+    """``--force`` rebuilds the database around the current default tenant."""
+    _old_default_tenant_db(local_db)
+
+    setup.setup(force=True)
+
+    assert setup.stale_local_db_reason() is None
+    engine = sa_create_engine(f"sqlite:///{local_db}")
+    with engine.connect() as conn:
+        assert conn.execute(sa_select(Tenant.id, Tenant.slug)).all() == [(DEFAULT_TENANT_ID, "aaiclick")]
+    engine.dispose()
+
+
 def test_setup_force_keeps_a_current_database(local_db):
     """``--force`` only deletes on a schema collision — an up-to-date
     database keeps its rows so a routine re-run is never destructive."""

@@ -126,6 +126,49 @@ def stale_local_db() -> list[str]:
         engine.dispose()
 
 
+def _old_default_tenant() -> int | None:
+    """The id of a default-tenant row that predates the current
+    ``DEFAULT_TENANT_ID``, or ``None`` when there is none.
+
+    The id moved once (to ``1 << 62``), and ``_seed_default_tenant`` looks the
+    row up by id — so against an older database it inserts a second row and
+    trips the ``slug`` unique constraint. Detecting it here lets ``--force``
+    recreate the database instead, the same remedy a missing column gets.
+    """
+    sync_url = _sync_db_url()
+    db_path = _local_db_path()
+    if sync_url is None or db_path is None or not db_path.exists():
+        return None
+    engine = create_engine(sync_url)
+    try:
+        with engine.connect() as conn:
+            if "tenants" not in inspect(conn).get_table_names():
+                return None
+            found = conn.execute(select(Tenant.id).where(Tenant.slug == DEFAULT_TENANT_SLUG)).scalar()
+        return found if found is not None and found != DEFAULT_TENANT_ID else None
+    finally:
+        engine.dispose()
+
+
+def stale_local_db_reason() -> str | None:
+    """Why the local SQLite database cannot be reused, or ``None`` when it can.
+
+    One entry point for every caller that has to decide whether to continue
+    against the database it found: missing columns, or a default tenant from
+    before the id moved.
+    """
+    if stale := stale_local_db():
+        return stale_local_db_message(stale)
+    if (old_id := _old_default_tenant()) is not None:
+        return (
+            f"{_local_db_path()} was created by an older version of aaiclick: its default "
+            f"tenant is {old_id}, not {DEFAULT_TENANT_ID}. SQLite databases are not migrated "
+            "in place, so it has to be recreated. Local job/task history is lost; data "
+            "objects in chdb are untouched."
+        )
+    return None
+
+
 STALE_DB_REMEDY = "Re-run `aaiclick setup --force` to recreate it."
 """Remedy appended wherever an outdated local database blocks a command."""
 
@@ -150,18 +193,19 @@ def stale_local_db_message(stale: list[str], *, limit: int = 5) -> str:
 def _reset_stale_local_db(*, force: bool) -> bool:
     """Delete the local SQLite DB when its schema predates the current models.
 
-    Returns True when the database was removed. Raises ``Invalid`` when it is
-    stale and ``force`` is not set, so no caller continues against a
-    half-upgraded database.
+    Stale means either shape or seeded content is behind the models — see
+    ``stale_local_db_reason``. Returns True when the database was removed.
+    Raises ``Invalid`` when it is stale and ``force`` is not set, so no caller
+    continues against a half-upgraded database.
     """
     db_path = _local_db_path()
     if db_path is None:
         return False
-    stale = stale_local_db()
-    if not stale:
+    reason = stale_local_db_reason()
+    if reason is None:
         return False
     if not force:
-        raise Invalid(f"{stale_local_db_message(stale)} {STALE_DB_REMEDY}")
+        raise Invalid(f"{reason} {STALE_DB_REMEDY}")
 
     # -wal / -shm carry committed pages; leaving them beside a deleted DB
     # resurrects the old schema on the next connection.

@@ -159,6 +159,10 @@ async def _run_internal_api(coro, *, with_ch: bool = False):
             with active_tenant(await _resolve_tenant_id(slug)):
                 return await coro
     except InternalApiError as exc:
+        # An unknown --tenant fails before `coro` is ever awaited; closing it
+        # keeps the error clean instead of trailing a "was never awaited"
+        # RuntimeWarning. Closing a coroutine that already ran is a no-op.
+        coro.close()
         print(exc, file=sys.stderr)
         sys.exit(1)
 
@@ -613,9 +617,9 @@ Environment Variables:
 """
 
 
-def _confirm_local_db_reset(stale: list[str]) -> bool:
-    """Ask before deleting a local database whose schema predates this version."""
-    print(setup_api.stale_local_db_message(stale), file=sys.stderr)
+def _confirm_local_db_reset(reason: str) -> bool:
+    """Ask before deleting a local database that predates this version."""
+    print(reason, file=sys.stderr)
     return input("Delete and recreate it? [y/N] ").strip().lower() in {"y", "yes"}
 
 
@@ -624,9 +628,9 @@ def _run_setup_cli(args: argparse.Namespace) -> None:
     # Prompt only for an interactive run: piped or --json callers fall through
     # to setup(), which raises with the same guidance rather than blocking.
     if not force and not args.json and sys.stdin.isatty():
-        stale = setup_api.stale_local_db()
-        if stale:
-            force = _confirm_local_db_reset(stale)
+        reason = setup_api.stale_local_db_reason()
+        if reason:
+            force = _confirm_local_db_reset(reason)
     result = _run_sync_api(lambda: setup_api.setup(ai=args.ai, force=force))
     _render(args, result, cli_renderers.render_setup_result)
 

@@ -1,6 +1,7 @@
 """Tests for the argparse CLI: new shell/image flags and their forwarding."""
 
 import json
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -19,9 +20,16 @@ from aaiclick.__main__ import (
     main,
 )
 from aaiclick.cli_wait import JobWaitTimeout
+from aaiclick.internal_api.errors import NotFound
 from aaiclick.orchestration.models import JobStatus
 from aaiclick.orchestration.sql_context import get_sql_session
 from aaiclick.orchestration.view_models import JobStatsView, TaskStatsView
+
+
+@asynccontextmanager
+async def _null_async_context():
+    """Stand in for ``orch_context`` — the tenant lookup fails before it matters."""
+    yield
 
 
 async def _noop_run_internal_api(awaitable):
@@ -513,6 +521,29 @@ async def test_job_wait_json_timeout_keeps_stdout_clean_and_diagnoses_on_stderr(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "mod.stuck" in captured.err
+
+
+async def test_unknown_tenant_exits_without_leaving_the_command_unawaited(monkeypatch, capsys):
+    """A bad ``--tenant`` resolves before the command runs, so the coroutine it
+    was handed is closed rather than garbage-collected with a "was never
+    awaited" RuntimeWarning trailing the error."""
+    import aaiclick.__main__ as cli
+
+    async def command():
+        raise AssertionError("must not run under an unresolvable tenant")
+
+    coro = command()
+    monkeypatch.setattr(cli, "orch_context", lambda **_kw: _null_async_context())
+    monkeypatch.setattr(cli, "_resolve_tenant_id", AsyncMock(side_effect=NotFound("tenant 'nope' not found")))
+    cli._tenant_slug.set("nope")
+    try:
+        with pytest.raises(SystemExit):
+            await cli._run_internal_api(coro)
+    finally:
+        cli._tenant_slug.set(None)
+
+    assert coro.cr_frame is None, "the unrun command was left open"
+    assert "tenant 'nope' not found" in capsys.readouterr().err
 
 
 def _stub_setup_cli(monkeypatch, *, isatty: bool) -> list[bool]:
