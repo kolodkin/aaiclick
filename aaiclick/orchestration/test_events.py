@@ -19,9 +19,9 @@ from .events import (
     get_transport,
     register_session_hooks,
     signal_transport,
-    statement_touches_watched,
     unregister_session_hooks,
 )
+from .events.hooks import statement_touches_watched
 from .events.local import LocalTransport
 from .events.state import TransportState
 from .execution.claiming import cancel_job, update_task_status
@@ -34,60 +34,57 @@ from .orch_context import get_sql_session
 SAMPLE_TASK = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
 
 
-async def _drain(bus: EventBus, timeout: float = 5.0) -> int:
-    """Close ``bus`` and count the signals a fresh subscriber still receives."""
-    bus.close()
+# Long enough for a Postgres NOTIFY to travel through the listener connection.
+SETTLE = 0.3
 
-    async def count() -> int:
-        return len([signal async for signal in bus.subscribe()])
 
-    return await asyncio.wait_for(count(), timeout)
+@asynccontextmanager
+async def recording(bus: EventBus) -> AsyncIterator[list[None]]:
+    """Subscribe before the block runs; on exit settle, close the bus and
+    hand back every signal the block produced.
+
+    A signal published with no subscriber is dropped, so the subscription must
+    already exist when the write under test commits."""
+    signals: list[None] = []
+
+    async def consume() -> None:
+        with bus.subscription() as sub:
+            async for signal in sub:
+                signals.append(signal)
+
+    consumer = asyncio.create_task(consume())
+    await asyncio.sleep(0)
+    try:
+        yield signals
+        await asyncio.sleep(SETTLE)
+    finally:
+        bus.close()
+        await asyncio.wait_for(consumer, 5)
 
 
 async def test_subscriber_receives_published_signal():
     bus = EventBus()
-    received = []
-
-    async def consume() -> None:
-        async for _ in bus.subscribe():
-            received.append(True)
-            return
-
-    consumer = asyncio.create_task(consume())
-    await asyncio.sleep(0)
-    bus.publish()
-    await asyncio.wait_for(consumer, timeout=5)
-    assert received == [True]
+    async with recording(bus) as signals:
+        bus.publish()
+    assert len(signals) == 1
 
 
 async def test_burst_collapses_into_one_pending_signal():
     bus = EventBus()
-    signals = []
-
-    async def consume() -> None:
-        async for _ in bus.subscribe():
-            signals.append(True)
-
-    consumer = asyncio.create_task(consume())
-    await asyncio.sleep(0)
-    for _ in range(10):
-        bus.publish()
-    await asyncio.sleep(0.05)
-    bus.close()
-    await asyncio.wait_for(consumer, timeout=5)
+    async with recording(bus) as signals:
+        for _ in range(10):
+            bus.publish()
     assert len(signals) == 1
 
 
-async def test_close_ends_subscription_without_signal():
+@pytest.mark.parametrize("publish_after_close", [False, True], ids=["close-only", "publish-after-close"])
+async def test_closed_bus_yields_no_signal(publish_after_close):
     bus = EventBus()
-    assert await _drain(bus) == 0
-
-
-async def test_publish_after_close_is_ignored():
-    bus = EventBus()
-    bus.close()
-    bus.publish()
-    assert await _drain(bus) == 0
+    async with recording(bus) as signals:
+        bus.close()
+        if publish_after_close:
+            bus.publish()
+    assert signals == []
 
 
 def test_event_bus_context_swaps_and_restores():
@@ -122,33 +119,6 @@ async def _wait_listening(transport: SignalTransport, timeout: float = 10.0) -> 
             await asyncio.sleep(0.01)
 
     await asyncio.wait_for(poll(), timeout)
-
-
-# Long enough for a Postgres NOTIFY to travel through the listener connection.
-SETTLE = 0.3
-
-
-@asynccontextmanager
-async def recording(bus: EventBus) -> AsyncIterator[list[None]]:
-    """Subscribe before the block runs; on exit settle, close the bus and
-    hand back every signal the block's commits produced.
-
-    A signal published with no subscriber is dropped, so the subscription
-    must already exist when the write under test commits."""
-    signals: list[None] = []
-
-    async def consume() -> None:
-        async for signal in bus.subscribe():
-            signals.append(signal)
-
-    consumer = asyncio.create_task(consume())
-    await asyncio.sleep(0)
-    try:
-        yield signals
-        await asyncio.sleep(SETTLE)
-    finally:
-        bus.close()
-        await asyncio.wait_for(consumer, 5)
 
 
 def test_register_session_hooks_is_idempotent():

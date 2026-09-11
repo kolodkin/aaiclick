@@ -58,7 +58,7 @@ def _backend_transport() -> SignalTransport:
     package import: a local-mode install never touches it.
     """
     if is_postgres():
-        from .postgres import PostgresTransport  # Optional dep: asyncpg is absent in local-mode installs.
+        from .postgres import PostgresTransport
 
         return PostgresTransport()
     return LocalTransport()

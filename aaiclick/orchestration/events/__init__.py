@@ -10,7 +10,7 @@ state, so a burst of writes collapses into one pending signal per
 subscriber and nothing tenant-specific ever crosses the channel.
 """
 
-from .bus import EventBus, event_bus, get_event_bus
-from .hooks import WATCHED_TABLES, register_session_hooks, statement_touches_watched, unregister_session_hooks
-from .state import STATE_IDLE, STATE_LISTENING, STATE_RECONNECTING, TransportState
+from .bus import EventBus, Subscription, event_bus, get_event_bus
+from .hooks import register_session_hooks, unregister_session_hooks
+from .state import STATE_LISTENING
 from .transport import SignalTransport, get_transport, signal_transport

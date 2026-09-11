@@ -11,11 +11,24 @@
 // polling, so a proxy that buffers SSE degrades to the pre-SSE behaviour
 // rather than a frozen UI.
 import { useEffect } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { openStream } from "./client";
 
 const RECONNECT_MIN_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
+
+// The query keys a jobs/tasks/groups commit can change. Listed rather than
+// invalidating everything, because two keys deliberately opt out of the
+// stream: ["task-logs"] is written outside the SQL commit (so it polls while a
+// task runs) and ["registered-jobs"] changes only through its own mutations.
+// An untargeted invalidateQueries() refetches both on every signal — up to
+// twice a second on a busy job, which is more traffic than the polling this
+// replaces.
+const LIVE_KEYS = [["jobs"], ["job"], ["job-graph"], ["task"]];
+
+function invalidateLive(qc: QueryClient): void {
+  for (const queryKey of LIVE_KEYS) void qc.invalidateQueries({ queryKey });
+}
 
 let connected = false;
 
@@ -69,7 +82,7 @@ export function useLiveUpdates(): void {
       connected = value;
       // Refetch now: on connect to catch up, on disconnect so the fallback
       // interval gets re-evaluated when that fetch settles.
-      void qc.invalidateQueries();
+      invalidateLive(qc);
     };
 
     const run = async () => {
@@ -84,7 +97,7 @@ export function useLiveUpdates(): void {
           setConnected(true);
           backoff = RECONNECT_MIN_MS;
           await readFrames(res.body, (name) => {
-            if (name === "changed") void qc.invalidateQueries();
+            if (name === "changed") invalidateLive(qc);
           });
         } catch {
           // Network error or abort — fall through to the reconnect wait.

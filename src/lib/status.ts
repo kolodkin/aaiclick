@@ -1,6 +1,7 @@
 import type { TaskStatus } from "../api/types";
 
-// Mirrors TERMINAL_TASK_STATUSES in aaiclick/orchestration/models.py.
+// Mirrors TASK_COMPLETED + NON_SUCCESS_TASK_STATUSES in
+// aaiclick/orchestration/models.py.
 const TERMINAL_TASK: ReadonlySet<TaskStatus> = new Set<TaskStatus>([
   "COMPLETED",
   "FAILED",

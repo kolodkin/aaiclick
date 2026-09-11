@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.responses import StreamingResponse
@@ -36,32 +36,22 @@ async def event_frames(bus: EventBus) -> AsyncIterator[str]:
     """SSE frames for one subscriber: ``changed`` per signal, keepalive
     comments while idle, end when the bus closes.
 
-    The pending ``anext`` is kept across keepalive timeouts — cancelling it
-    (as ``wait_for`` would) closes the subscription generator. On exit
-    (client disconnect cancels this generator) that task is cancelled *and
-    awaited* before ``aclose``: the generator counts as running until the
-    cancelled ``anext`` has unwound, and closing it earlier raises.
+    A client disconnect cancels this generator mid-wait. That needs no
+    unwinding protocol: the subscription is a queue, so abandoning a pending
+    ``wait`` leaves any queued signal for the next waiter, and the ``with``
+    block drops the subscriber on the way out.
     """
-    subscription = bus.subscribe()
-    pending = asyncio.ensure_future(anext(subscription))
-    try:
+    with bus.subscription() as sub:
         while True:
-            done, _ = await asyncio.wait({pending}, timeout=KEEPALIVE_INTERVAL)
-            if not done:
+            try:
+                live = await asyncio.wait_for(sub.wait(), KEEPALIVE_INTERVAL)
+            except asyncio.TimeoutError:
                 yield KEEPALIVE_FRAME
                 continue
-            try:
-                pending.result()
-            except StopAsyncIteration:
+            if not live:
                 return
             yield CHANGED_FRAME
             await asyncio.sleep(MIN_FRAME_INTERVAL)
-            pending = asyncio.ensure_future(anext(subscription))
-    finally:
-        pending.cancel()
-        with suppress(asyncio.CancelledError, StopAsyncIteration):
-            await pending
-        await subscription.aclose()
 
 
 @router.get(

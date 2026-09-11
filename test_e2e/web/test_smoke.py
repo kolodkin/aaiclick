@@ -236,7 +236,7 @@ def test_task_view_truncates_long_entrypoint_from_the_start(page, base_url: str,
 
 @_spa_built
 @_local_only
-def test_jobs_view_updates_live_without_polling(page, base_url: str) -> None:
+def test_jobs_view_updates_live_without_polling(page, base_url: str, shot) -> None:
     """A status change reaches the jobs list over ``/events``, not a poll.
 
     The request log is the evidence: over an idle window longer than the 2 s
@@ -267,3 +267,4 @@ def test_jobs_view_updates_live_without_polling(page, base_url: str) -> None:
     newest = page.locator("tbody tr").first
     newest.get_by_text("async_task", exact=True).wait_for(timeout=5000)
     newest.get_by_text("COMPLETED", exact=True).wait_for(timeout=5000)
+    shot("jobs-live-update")
