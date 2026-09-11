@@ -163,7 +163,6 @@ path carries job or tenant data; only the final REST refetch does.
 |------------------|---------------------------------------------------------------------------------|-----------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------|
 | 1. DB commit     | SQLAlchemy `Session` events                                                     | any writer of `jobs` / `tasks` / `groups` → session | `events/hooks.py` — flags the session, then calls the transport on either side of the commit                                            |
 | 2. Change signal | Postgres: `NOTIFY aaiclick_events` in the same transaction                      | committing process → every `LISTEN` connection      | `events/postgres.py` — `PostgresTransport.before_commit` notifies; `feed` holds one `LISTEN` connection per API host, `state` tracks it |
-|------------------|---------------------------------------------------------------------------------|-----------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------|
 | 3. EventBus      | in-process pub/sub, depth-1 queue per subscriber                                | transport → each open stream                        | `events/bus.py` — `EventBus.publish` / `close`, `EventBus.subscription()` → `Subscription.wait()`                                       |
 | 4. SSE transport | `text/event-stream`: `event: changed`, `: keepalive` / 15 s, ≤ 1 frame / 500 ms | `GET /api/v0/events` → browser                      | `aaiclick/server/events.py` — `event_frames`, `stream_events`; `live_events` owns bus + listener per lifespan                           |
 | 5. Browser       | `fetch` + `ReadableStream`, bearer and `X-Tenant-Id` headers                    | response body → frame parser                        | `src/api/client.ts` — `openStream`; `src/api/events.ts` — `readFrames`, `useLiveUpdates` (backoff 1 s → 30 s)                           |
@@ -183,7 +182,7 @@ throwaway, which is fine because the hooks need no instance state. `get_transpor
 neither the session hooks nor `live_events` branch on the backend. Layers
 3 → 7 are identical in both modes.
 
-|---------------------|------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------|
+| Aspect              | Local mode (chdb + SQLite)                                                               | Distributed mode (Postgres)                                                                                |
 |---------------------|------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------|
 | Processes           | API server, execution worker and background worker share one process (`local_runtime`)   | API hosts, execution workers and the background worker are separate processes, often separate hosts        |
 | Transport           | `LocalTransport` (`events/local.py`)                                                     | `PostgresTransport` (`events/postgres.py`)                                                                 |
@@ -226,7 +225,22 @@ chokepoint as every other request, including its silent 401 refresh.
 **Fallback.** `isLiveConnected()` feeds the QueryClient default
 `refetchInterval`, which returns `false` while the stream is up and `2000`
 otherwise; a proxy that buffers SSE degrades to polling rather than a frozen
-UI. Every (re)connect invalidates once to catch up on anything missed.
+UI. The interval function is re-read only when a query settles, so the
+invalidation on every (re)connect does double duty: it catches up on
+anything missed *and* forces the mode switch to take effect at once instead
+of after one more 2 s tick.
+
+**Showing it.** `LiveStatus` (`src/components/LiveStatus.tsx`) renders
+`live` / `polling` plus `updated Ns ago` inline in the subtitle of the jobs
+list and the job detail view. Both halves are needed: the mode makes a dead
+stream visible instead of letting it degrade silently, and the timestamp
+distinguishes a stream that is connected but delivering nothing from an
+idle one. `connected` is a plain module variable read from a non-React
+closure, so the component subscribes through `useSyncExternalStore`
+(`subscribeLive`). The `Ns ago` timer re-renders only — it issues no
+requests. The task view is deliberately left out: its record is
+stream-driven but the logs below it are not (see **Task logs**), so one
+badge could not tell the truth about both.
 
 **Task logs.** Lines reach ClickHouse from the task process on its own flush
 cadence, never through a SQL commit, so no signal marks a new line.

@@ -1,6 +1,7 @@
 import { useJob } from "../api/hooks";
 import { AdminButton } from "../components/AdminButton";
 import { Chips } from "../components/Chips";
+import { LiveStatus } from "../components/LiveStatus";
 import { JobGraph } from "../components/graph/JobGraph";
 import { MetaGrid } from "../components/MetaGrid";
 import { ProgressBar } from "../components/ProgressBar";
@@ -18,7 +19,7 @@ export function JobDetail({
   view: JobViewMode;
   onPrompt: (v: string) => void;
 }) {
-  const { data: job, isLoading, isError } = useJob(name);
+  const { data: job, isLoading, isError, dataUpdatedAt } = useJob(name);
 
   if (isLoading) return <p className="sub">loading…</p>;
   if (isError || !job)
@@ -48,6 +49,9 @@ export function JobDetail({
             </AdminButton>
           )}
         </div>
+        <p className="sub">
+          <LiveStatus updatedAt={dataUpdatedAt} />
+        </p>
         <MetaGrid
           items={[
             { k: "Created", v: relativeTime(job.created_at) },

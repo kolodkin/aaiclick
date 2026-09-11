@@ -31,9 +31,18 @@ function invalidateLive(qc: QueryClient): void {
 }
 
 let connected = false;
+const liveListeners = new Set<() => void>();
 
 export function isLiveConnected(): boolean {
   return connected;
+}
+
+// useSyncExternalStore store contract: `connected` is a plain module variable
+// (main.tsx reads it from a non-React refetchInterval closure), so React needs
+// a subscription to learn when it flips.
+export function subscribeLive(onChange: () => void): () => void {
+  liveListeners.add(onChange);
+  return () => liveListeners.delete(onChange);
 }
 
 // Split the decoded byte stream into SSE frames (blank-line delimited) and
@@ -80,6 +89,7 @@ export function useLiveUpdates(): void {
     const setConnected = (value: boolean) => {
       if (connected === value) return;
       connected = value;
+      for (const listener of liveListeners) listener();
       // Refetch now: on connect to catch up, on disconnect so the fallback
       // interval gets re-evaluated when that fetch settles.
       invalidateLive(qc);
@@ -112,7 +122,7 @@ export function useLiveUpdates(): void {
 
     return () => {
       controller.abort();
-      connected = false;
+      setConnected(false);
     };
   }, [qc]);
 }

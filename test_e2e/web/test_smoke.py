@@ -243,30 +243,6 @@ def test_task_view_truncates_long_entrypoint_from_the_start(page, base_url: str,
     assert value.inner_text() == entrypoint
 
 
-def _shot_with_evidence(page, shot, name: str, lines: list[str]) -> None:
-    """Screenshot with the test's own measurements overlaid.
-
-    A live-updated page is pixel-identical to a polled one, so a bare frame
-    proves nothing about *how* it updated. This draws the numbers the
-    assertions just checked into the frame, making the screenshot
-    self-documenting for a PR reviewer."""
-    page.evaluate(
-        """(lines) => {
-            const el = document.createElement("div");
-            el.id = "e2e-evidence";
-            el.style.cssText =
-                "position:fixed;top:0;right:0;z-index:9999;background:#0b1020;color:#7ee787;" +
-                "font:12px/1.6 ui-monospace,monospace;padding:10px 14px;white-space:pre;" +
-                "border:1px solid #7ee787;border-radius:0 0 0 8px";
-            el.textContent = lines.join("\\n");
-            document.body.appendChild(el);
-        }""",
-        lines,
-    )
-    shot(name)
-    page.evaluate('() => document.getElementById("e2e-evidence")?.remove()')
-
-
 @_spa_built
 @_local_only
 def test_jobs_view_updates_live_without_polling(page, base_url: str, shot) -> None:
@@ -279,8 +255,9 @@ def test_jobs_view_updates_live_without_polling(page, base_url: str, shot) -> No
     shows the stream delivered. (Rows carry no id and the list is capped, so
     the name is the discriminator.)
 
-    The ``sse-*`` screenshots carry these measurements as an overlay, since a
-    streamed page looks exactly like a polled one.
+    The view's own liveness badge is asserted alongside: a streamed page looks
+    exactly like a polled one, so the badge is what makes the ``sse-*``
+    screenshots readable evidence.
     """
     requests: list[str] = []
     page.on("request", lambda req: requests.append(req.url))
@@ -295,16 +272,10 @@ def test_jobs_view_updates_live_without_polling(page, base_url: str, shot) -> No
     assert idle == [], f"jobs list polled while the stream was up: {idle}"
     streams = [u for u in requests if u.endswith("/api/v0/events")]
     assert len(streams) == 1, f"expected one open /events stream, saw {streams}"
-    _shot_with_evidence(
-        page,
-        shot,
-        "sse-idle-no-polling",
-        [
-            f"idle {idle_window} ms  (> the {POLL_FALLBACK_MS} ms fallback)",
-            f"GET /jobs      x{len(idle)}   <- polling is off",
-            f"GET /events    x{len(streams)}   <- one open stream",
-        ],
-    )
+    # The view reports it too, so a silent fallback to polling is visible to an
+    # operator instead of looking identical to a working stream.
+    assert "live" in page.get_by_test_id("live-status").inner_text()
+    shot("sse-idle-no-polling")
 
     submitted = time.monotonic()
     resp = page.request.post(
@@ -318,14 +289,7 @@ def test_jobs_view_updates_live_without_polling(page, base_url: str, shot) -> No
     shot("sse-row-arrived")
     newest.get_by_text("COMPLETED", exact=True).wait_for(timeout=5000)
     settled = time.monotonic() - submitted
-    _shot_with_evidence(
-        page,
-        shot,
-        "sse-row-completed",
-        [
-            "polling is off (previous shot) so /events is the only path in;",
-            "these are how promptly it delivered:",
-            f"  row appeared   {arrived * 1000:.0f} ms after submit",
-            f"  row COMPLETED  {settled * 1000:.0f} ms after submit",
-        ],
-    )
+    # No timer-driven fetch of /jobs happened in the idle window above, so
+    # /events is the only path the row and its status could have taken.
+    print(f"row appeared {arrived * 1000:.0f} ms after submit, COMPLETED at {settled * 1000:.0f} ms")
+    shot("sse-row-completed")
