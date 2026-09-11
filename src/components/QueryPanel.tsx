@@ -83,7 +83,8 @@ export function QueryPanel({ scope, object, fields }: { scope: string; object: s
 
   const isSaved = (name: string) => saved.data?.items.some((s) => s.name === name) ?? false;
 
-  function request(nextOffset: number, params = paramValues): ObjectQueryRequest {
+  // The format belongs to the hook that sends it, not to the request.
+  function request(nextOffset: number, params = paramValues): Omit<ObjectQueryRequest, "fmt"> {
     return {
       scope,
       object,
@@ -91,7 +92,6 @@ export function QueryPanel({ scope, object, fields }: { scope: string; object: s
       ...presentation(),
       limit,
       offset: nextOffset,
-      fmt: "json",
     };
   }
 

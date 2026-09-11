@@ -19,7 +19,7 @@ from aaiclick.data.data_context.ch_client import (
     DEFAULT_MAX_EXECUTION_TIME,
     JSON_COMPACT,
     JSON_COMPACT_SETTINGS,
-    query_text,
+    query_bytes,
 )
 from aaiclick.data.models import AAI_ID_COLUMN
 from aaiclick.data.object import Object
@@ -44,7 +44,6 @@ from aaiclick.viewer.view_models import (
     ObjectQueryRequest,
     ObjectQueryResult,
     OrderBy,
-    QueryFormat,
     SavedQuery,
     SavedQueryFilter,
     SavedQueryIn,
@@ -95,40 +94,35 @@ def _order_clause(obj: Object, order_by: list[OrderBy]) -> str | None:
     return ", ".join(parts)
 
 
-async def _query_text(job: str | None, query: ObjectQuery, limit: int, offset: int, fmt: QueryFormat) -> str:
-    """One page of ``query.object`` (of ``job``, or persistent) as ClickHouse's own
-    ``JSONCompact`` or ``CSVWithNames`` text."""
-    _check_where(query.where)
-    obj = await objects_api.open_scoped(query.object, job)
-    view = obj.view(where=query.where, order_by=_order_clause(obj, query.order_by), limit=limit, offset=offset)
-    sql = view.select_sql(columns=_projection(obj, query.fields))
-    if fmt == FMT_CSV:
-        return await query_text(sql, CSV_WITH_NAMES)
-    return await query_text(
-        sql, JSON_COMPACT, {**JSON_COMPACT_SETTINGS, "max_execution_time": DEFAULT_MAX_EXECUTION_TIME}
+async def query_object_bytes(request: ObjectQueryRequest) -> bytes:
+    """One page of an object as ClickHouse sent it — ``JSONCompact`` or
+    ``CSVWithNames``. The REST route returns these bytes verbatim, so the SPA's
+    kernel reads ``{meta, data}`` with no parse or re-serialise in between."""
+    _check_where(request.where)
+    obj = await objects_api.open_scoped(request.object, _scope_job(request.scope))
+    view = obj.view(
+        where=request.where,
+        order_by=_order_clause(obj, request.order_by),
+        limit=request.limit,
+        offset=request.offset,
     )
-
-
-async def _run_query(job: str | None, query: ObjectQuery, limit: int, offset: int) -> ObjectQueryResult:
-    """``_query_text`` parsed into ``meta`` + ``data`` (ClickHouse's ``rows`` / ``statistics`` dropped)."""
-    doc = json.loads(await _query_text(job, query, limit, offset, "json"))
-    return ObjectQueryResult(
-        meta=[ColumnSchema(name=str(m["name"]), type=str(m["type"])) for m in doc["meta"]], data=doc["data"]
-    )
-
-
-async def query_object_text(request: ObjectQueryRequest) -> str:
-    """One page of an object as ClickHouse's own output text — what the REST
-    route returns verbatim, so the SPA's kernel reads ``{meta, data}`` without a
-    server-side parse and re-serialisation."""
-    return await _query_text(_scope_job(request.scope), request, request.limit, request.offset, request.fmt)
+    sql = view.select_sql(columns=_projection(obj, request.fields))
+    if request.fmt == FMT_CSV:
+        return await query_bytes(sql, CSV_WITH_NAMES)
+    settings = {**JSON_COMPACT_SETTINGS, "max_execution_time": DEFAULT_MAX_EXECUTION_TIME}
+    return await query_bytes(sql, JSON_COMPACT, settings)
 
 
 async def query_object(request: ObjectQueryRequest) -> ObjectQueryResult:
-    """One page of an object as ``meta`` + ``data`` (``fmt="json"``) or ``text`` (``fmt="csv"``)."""
+    """The same page typed for MCP and the CLI: ``meta`` + ``data`` for
+    ``fmt="json"``, ``text`` for ``fmt="csv"``."""
+    raw = await query_object_bytes(request)
     if request.fmt == FMT_CSV:
-        return ObjectQueryResult(text=await query_object_text(request))
-    return await _run_query(_scope_job(request.scope), request, request.limit, request.offset)
+        return ObjectQueryResult(text=raw.decode("utf-8"))
+    doc = json.loads(raw)
+    return ObjectQueryResult(
+        meta=[ColumnSchema(name=str(m["name"]), type=str(m["type"])) for m in doc["meta"]], data=doc["data"]
+    )
 
 
 async def _find_row(session: AsyncSession, model: type[RowT], name: str) -> RowT | None:
@@ -278,15 +272,12 @@ async def delete_dashboard(name: str) -> Deleted:
 async def run_dashboard(name: str) -> DashboardResults:
     """Run every panel query under the dashboard's scope; column-oriented results."""
     dashboard = await get_dashboard(name)
-    job = _scope_job(dashboard.scope)
     panels = list(dashboard.queries)
-    pages = dict(
-        zip(
-            panels,
-            await asyncio.gather(*(_run_query(job, dashboard.queries[p], MAX_LIMIT, 0) for p in panels)),
-            strict=True,
-        )
-    )
+    requests = [
+        ObjectQueryRequest(**{**dashboard.queries[p].model_dump(), "scope": dashboard.scope, "limit": MAX_LIMIT})
+        for p in panels
+    ]
+    pages = dict(zip(panels, await asyncio.gather(*(query_object(r) for r in requests)), strict=True))
     results = {
         panel: {c.name: [row[i] for row in page.data] for i, c in enumerate(page.meta)} for panel, page in pages.items()
     }

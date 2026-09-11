@@ -43,7 +43,7 @@ class DashboardBody(DashboardIn):
 )
 async def query_object(request: ObjectQueryRequest) -> Response:
     media_type = "text/csv" if request.fmt == FMT_CSV else "application/json"
-    return Response(content=await viewer_api.query_object_text(request), media_type=media_type)
+    return Response(content=await viewer_api.query_object_bytes(request), media_type=media_type)
 
 
 @router.get("/queries", response_model=Page[SavedQuery])

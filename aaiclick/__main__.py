@@ -42,7 +42,7 @@ import asyncio
 import json
 import shlex
 import sys
-from contextlib import redirect_stdout
+from contextlib import closing, redirect_stdout
 from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
@@ -152,19 +152,20 @@ async def _run_internal_api(coro, *, with_ch: bool = False):
             subcommands, unnecessary for the orchestration ones.
     """
     slug = _tenant_slug.get()
-    try:
-        async with orch_context(with_ch=with_ch):
-            if slug is None:
-                return await coro
-            with active_tenant(await _resolve_tenant_id(slug)):
-                return await coro
-    except InternalApiError as exc:
-        # An unknown --tenant fails before `coro` is ever awaited; closing it
-        # keeps the error clean instead of trailing a "was never awaited"
-        # RuntimeWarning. Closing a coroutine that already ran is a no-op.
-        coro.close()
-        print(exc, file=sys.stderr)
-        sys.exit(1)
+    # We own `coro`, so close it however we leave: an unknown --tenant, a
+    # missing extra, or a locked chdb all raise before it is ever awaited, and
+    # an unclosed coroutine trails a "was never awaited" RuntimeWarning over
+    # the error. Closing one that already ran is a no-op.
+    with closing(coro):
+        try:
+            async with orch_context(with_ch=with_ch):
+                if slug is None:
+                    return await coro
+                with active_tenant(await _resolve_tenant_id(slug)):
+                    return await coro
+        except InternalApiError as exc:
+            print(exc, file=sys.stderr)
+            sys.exit(1)
 
 
 async def _run_data_api(coro):
@@ -447,9 +448,8 @@ async def _run_view_queries_save(args: argparse.Namespace) -> None:
 
 
 async def _run_view_queries_delete(args: argparse.Namespace) -> None:
-    _render(
-        args, await _run_data_api(internal_api.delete_saved_query(args.name)), cli_renderers.render_saved_query_deleted
-    )
+    deleted = await _run_data_api(internal_api.delete_saved_query(args.name))
+    _render(args, deleted, lambda v: cli_renderers.render_deleted(v, "saved query"))
 
 
 async def _run_view_dashboards_list(args: argparse.Namespace) -> None:
@@ -467,7 +467,8 @@ async def _run_view_dashboards_save(args: argparse.Namespace) -> None:
 
 
 async def _run_view_dashboards_delete(args: argparse.Namespace) -> None:
-    _render(args, await _run_data_api(internal_api.delete_dashboard(args.name)), cli_renderers.render_dashboard_deleted)
+    deleted = await _run_data_api(internal_api.delete_dashboard(args.name))
+    _render(args, deleted, lambda v: cli_renderers.render_deleted(v, "dashboard"))
 
 
 async def _run_view_dashboards_run(args: argparse.Namespace) -> None:

@@ -294,23 +294,9 @@ def render_object_detail(detail: ObjectDetail) -> None:
         print(f"  {name}: {info.type}")
 
 
-def _render_deleted(view: Deleted, noun: str) -> None:
+def render_deleted(view: Deleted, noun: str = "persistent object") -> None:
+    """Single-line confirmation that a delete-by-name verb succeeded."""
     print(f"Deleted {noun} '{view.name}'")
-
-
-def render_deleted(view: Deleted) -> None:
-    """Single-line confirmation that ``internal_api.delete_object`` succeeded."""
-    _render_deleted(view, "persistent object")
-
-
-def render_saved_query_deleted(view: Deleted) -> None:
-    """The same shape as ``render_deleted``, named for what was removed."""
-    _render_deleted(view, "saved query")
-
-
-def render_dashboard_deleted(view: Deleted) -> None:
-    """The same shape as ``render_deleted``, named for what was removed."""
-    _render_deleted(view, "dashboard")
 
 
 def render_lineage_answer(view: LineageAnswer) -> None:

@@ -138,13 +138,14 @@ const PREVIEW_LIMIT = 100;
 
 // `POST /viewer/query` returns ClickHouse's JSONCompact verbatim — the kernel's
 // `QueryRows` shape (`meta`, `data`) plus `rows` / `statistics`.
-const queryRows = (req: ObjectQueryRequest) => postJSON<QueryRows>("/viewer/query", { ...req, fmt: "json" });
+const queryRows = (req: Omit<ObjectQueryRequest, "fmt">) =>
+  postJSON<QueryRows>("/viewer/query", { ...req, fmt: "json" });
 
 // The first page of an object's rows — a POST-backed read, cached per object.
 export function useObjectRows(scope: string, object: string) {
   return useQuery({
     queryKey: ["object-rows", scope, object],
-    queryFn: () => queryRows({ scope, object, limit: PREVIEW_LIMIT, offset: 0, fmt: "json" }),
+    queryFn: () => queryRows({ scope, object, limit: PREVIEW_LIMIT, offset: 0 }),
     refetchInterval: false,
   });
 }
@@ -158,7 +159,7 @@ export function useQueryObject() {
 // The same page as `CSVWithNames` text, for download.
 export function useQueryObjectCsv() {
   return useMutation({
-    mutationFn: (req: ObjectQueryRequest) => postText("/viewer/query", { ...req, fmt: "csv" }),
+    mutationFn: (req: Omit<ObjectQueryRequest, "fmt">) => postText("/viewer/query", { ...req, fmt: "csv" }),
   });
 }
 

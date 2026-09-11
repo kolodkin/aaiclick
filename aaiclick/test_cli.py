@@ -1,7 +1,7 @@
 """Tests for the argparse CLI: new shell/image flags and their forwarding."""
 
 import json
-from contextlib import asynccontextmanager
+from contextlib import nullcontext
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -24,12 +24,6 @@ from aaiclick.internal_api.errors import NotFound
 from aaiclick.orchestration.models import JobStatus
 from aaiclick.orchestration.sql_context import get_sql_session
 from aaiclick.orchestration.view_models import JobStatsView, TaskStatsView
-
-
-@asynccontextmanager
-async def _null_async_context():
-    """Stand in for ``orch_context`` — the tenant lookup fails before it matters."""
-    yield
 
 
 async def _noop_run_internal_api(awaitable):
@@ -533,7 +527,7 @@ async def test_unknown_tenant_exits_without_leaving_the_command_unawaited(monkey
         raise AssertionError("must not run under an unresolvable tenant")
 
     coro = command()
-    monkeypatch.setattr(cli, "orch_context", lambda **_kw: _null_async_context())
+    monkeypatch.setattr(cli, "orch_context", lambda **_kw: nullcontext())
     monkeypatch.setattr(cli, "_resolve_tenant_id", AsyncMock(side_effect=NotFound("tenant 'nope' not found")))
     cli._tenant_slug.set("nope")
     try:
@@ -549,8 +543,7 @@ async def test_unknown_tenant_exits_without_leaving_the_command_unawaited(monkey
 def _stub_setup_cli(monkeypatch, *, isatty: bool) -> list[bool]:
     """Stub the setup CLI's collaborators; returns the ``force`` values forwarded."""
     calls: list[bool] = []
-    monkeypatch.setattr("aaiclick.__main__.setup_api.stale_local_db", lambda: ["jobs.tenant_id"])
-    monkeypatch.setattr("aaiclick.__main__.setup_api.stale_local_db_message", lambda stale: f"stale: {stale}")
+    monkeypatch.setattr("aaiclick.__main__.setup_api.stale_local_db_reason", lambda: "stale: jobs.tenant_id")
     monkeypatch.setattr("sys.stdin.isatty", lambda: isatty)
     monkeypatch.setattr("aaiclick.__main__.setup_api.setup", lambda *, ai, force: calls.append(force))
     monkeypatch.setattr("aaiclick.__main__._render", lambda *a, **k: None)

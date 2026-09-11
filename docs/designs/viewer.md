@@ -68,11 +68,11 @@ of the two. Each resolves it once, outside the verb:
 | CLI     | the default tenant, or the global `--tenant <slug>` flag (`_run_internal_api`)   |
 | MCP     | the default tenant — there is no tenant selector                                 |
 
-The CLI reaches the database directly and authenticates no one, so it is the
-operator's panel: it acts as the default tenant, and `--tenant` steps into
-another without a permission check. `make_scoped_table_name` then maps the pair
-to `p_<tenant_id>_<name>` or `j_<job_id>_<name>`, with the job checked against
-the active tenant.
+The CLI reaches the database directly and authenticates no one, so `--tenant`
+steps into another tenant rather than requesting access to it — it is the
+operator's panel. `make_scoped_table_name` maps the pair to
+`p_<tenant_id>_<name>` or `j_<job_id>_<name>`, the job checked against the
+active tenant.
 
 ## Queries name an object, not a table
 
@@ -100,9 +100,9 @@ The viewer builds on three additions to `aaiclick/data` and
   outside a task.
 - `Object.select_sql()` (`aaiclick/data/object/object.py`): the SELECT an
   object reads itself with; `View` and `LazyOperator` inherit it.
-- `query_text(sql, fmt, settings)` (`aaiclick/data/data_context/ch_client.py`,
-  over the clients' shared `raw_query`): ClickHouse's own output for a named
-  format. `JSONCompact` with `JSON_COMPACT_SETTINGS` (the `output_format_json_*`
+- `query_bytes(sql, fmt, settings)` (`aaiclick/data/data_context/ch_client.py`,
+  over the clients' shared `raw_query`, with `query_text` decoding it):
+  ClickHouse's own output for a named format. `JSONCompact` with `JSON_COMPACT_SETTINGS` (the `output_format_json_*`
   quoting QueryView's driver sends) means the kernel renders `{meta, data}`
   unchanged and aaiclick formats no values; CSV uses `CSVWithNames`.
 
@@ -114,7 +114,7 @@ The viewer builds on three additions to `aaiclick/data` and
 | Function                                    | Returns                                | Notes                                                                                   |
 |---------------------------------------------|----------------------------------------|-----------------------------------------------------------------------------------------|
 | `query_object(ObjectQueryRequest)`          | `ObjectQueryResult`                    | `limit ≤ 1000`, `max_execution_time` 30 s; `fmt="json"` fills `meta` + `data`, `"csv"` fills `text` (MCP, CLI) |
-| `query_object_text(ObjectQueryRequest)`     | `str`                                  | the same page as ClickHouse's own `JSONCompact` / `CSVWithNames` text — what REST returns verbatim (`application/json` / `text/csv`) |
+| `query_object_bytes(ObjectQueryRequest)`    | `bytes`                                | the same page as ClickHouse sent it — what REST returns verbatim (`application/json` / `text/csv`), no decode or re-encode |
 | `list_saved_queries(SavedQueryFilter)`      | `Page[SavedQuery]`                     | by `scope` and `object`; a query saved with `scope=None` matches every scope            |
 | `save_query(SavedQueryIn)`                  | `SavedQuery`                           | upsert on `(tenant, name)`; validates `where` and the `cell_view` YAML shape            |
 | `delete_saved_query(name)`                  | `Deleted`                              |                                                                                         |
@@ -123,10 +123,11 @@ The viewer builds on three additions to `aaiclick/data` and
 | `delete_dashboard(name)`                    | `Deleted`                              |                                                                                         |
 | `run_dashboard(name)`                       | `DashboardResults`                     | runs the panels concurrently under the dashboard's scope; column-oriented, the `window.queries` contract |
 
-Models: `aaiclick/viewer/view_models.py`. `ObjectQuery` (object, fields,
-where, order_by) is a dashboard panel; a saved query adds `name`, `scope`, and
-`cell_view`; a request adds `scope`, paging, and `fmt`. Code-declared queries need no separate
-mechanism: job code calls `save_query` through the same `internal_api`.
+Models: `aaiclick/viewer/view_models.py`. `ObjectQuery` (object, fields, where,
+order_by) is a dashboard panel; a saved query adds `name`, `scope`, and
+`cell_view`; a request adds `scope`, paging, and `fmt`. Code-declared queries
+need no separate mechanism: job code calls `save_query` through the same
+`internal_api`.
 
 ## Storage
 

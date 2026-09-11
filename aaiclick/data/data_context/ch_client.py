@@ -178,10 +178,16 @@ JSON_COMPACT_SETTINGS = {
 }
 
 
+async def query_bytes(sql: str, fmt: str, settings: dict | None = None) -> bytes:
+    """ClickHouse's own output for ``sql`` in format ``fmt``, exactly as it sent
+    it — so ``JSONCompact`` / ``CSVWithNames`` can reach a response body without
+    a decode/encode round trip."""
+    return await get_ch_client().raw_query(sql, settings=settings, fmt=fmt)
+
+
 async def query_text(sql: str, fmt: str, settings: dict | None = None) -> str:
-    """Run ``sql`` and return ClickHouse's own output in format ``fmt`` as text,
-    so ``JSONCompact`` / ``CSVWithNames`` pass through without re-serialising."""
-    return (await get_ch_client().raw_query(sql, settings=settings, fmt=fmt)).decode("utf-8")
+    """``query_bytes`` decoded, for callers that work with the text itself."""
+    return (await query_bytes(sql, fmt, settings)).decode("utf-8")
 
 
 async def create_ch_client() -> ChClient:

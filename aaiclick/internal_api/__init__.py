@@ -42,7 +42,7 @@ from .viewer import (
     list_dashboards,
     list_saved_queries,
     query_object,
-    query_object_text,
+    query_object_bytes,
     run_dashboard,
     save_dashboard,
     save_query,
