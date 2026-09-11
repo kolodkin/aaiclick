@@ -241,17 +241,25 @@ only — it issues no requests.
 
 One badge reports exactly one query, and takes that query's own
 `dataUpdatedAt` and mode — a badge borrowing a neighbour's timestamp is a
-badge that can lie. Views therefore carry one badge each, for the query
-backing what is on screen:
+badge that can lie. Every query the UI has is listed below; each view shows
+one badge, for the query backing what is on screen.
 
-| View | Query | Mode |
-|---------------------|--------------------|----------------------------------------------|
-| Jobs list | `["jobs"]` | `stream` |
-| Job detail (table) | `["job", ref]` | `stream` — also covers the tasks table, which has no query of its own |
-| Job detail (graph) | `["job-graph", ref]` | `stream` — rendered by `JobGraph`, so the header's is suppressed there |
-| Task detail | `["task", id]` | `stream` |
-| Task logs | `["task-logs", id]` | `poll` while running, hidden once terminal |
-| Registered jobs | `["registered-jobs"]` | `manual` |
+| View / panel                      | Query key             | Kept current by                               | Badge    |
+|-----------------------------------|-----------------------|-----------------------------------------------|----------|
+| Jobs list                         | `["jobs"]`            | `/events`                                     | `stream` |
+| Job detail — header + tasks table | `["job", ref]`        | `/events`                                     | `stream` |
+| Job detail — graph                | `["job-graph", ref]`  | `/events`                                     | `stream` |
+| Task detail — record              | `["task", id]`        | `/events`                                     | `stream` |
+| Task detail — logs                | `["task-logs", id]`   | own 2 s timer, once the task has started      | `poll`   |
+| Registered jobs                   | `["registered-jobs"]` | its own register / enable / disable mutations | `manual` |
+
+The first four are `LIVE_KEYS` in `src/api/events.ts` — the keys a jobs /
+tasks / groups commit can change, and the only ones a `changed` frame
+invalidates. While the stream is down they fall back to the 2 s
+`refetchInterval`, and their badge says `polling`; the other two are
+unaffected by the stream either way and never claim otherwise. In graph view
+the job-detail header suppresses its own badge, since `JobGraph` renders one
+for `["job-graph"]` a line below.
 
 **Task logs.** Lines reach ClickHouse from the task process on its own flush
 cadence, never through a SQL commit, so no signal marks a new line. The
