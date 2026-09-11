@@ -74,9 +74,10 @@ def _before_commit(session: Session) -> None:
     session.flush()
     if not session.info.get(_DIRTY_KEY):
         return
-    # Resolved once and carried to ``after_commit``: both sides of one commit
-    # belong to the same transport, and resolving re-reads the backend URL.
-    transport = get_transport()
+    # Resolved from this session — the process-wide backend is not necessarily
+    # this transaction's — and carried to ``after_commit``, so both sides of one
+    # commit belong to the same transport.
+    transport = get_transport(session)
     session.info[_TRANSPORT_KEY] = transport
     transport.before_commit(session)
 

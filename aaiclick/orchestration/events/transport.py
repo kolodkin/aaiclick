@@ -50,29 +50,43 @@ class SignalTransport(Protocol):
 _transport_var: ContextVar[SignalTransport | None] = ContextVar("signal_transport", default=None)
 
 
-def _backend_transport() -> SignalTransport:
-    """A transport for the active SQL backend (``AAICLICK_SQL_URL``).
+def _uses_postgres(session: Session | None) -> bool:
+    """Whether the notify must be SQL, from the session that will run it.
+
+    The configured backend (``AAICLICK_SQL_URL``) describes the process, not
+    every session in it: a test binds its own SQLite engine while the env var
+    points at Postgres, and ``pg_notify`` against SQLite is a hard error. Ask
+    the committing session instead. With no session — the server-side ``feed``,
+    which has no transaction — the configured backend is the right answer.
+    """
+    if session is None:
+        return is_postgres()
+    return session.get_bind().dialect.name == "postgresql"
+
+
+def _backend_transport(session: Session | None) -> SignalTransport:
+    """A transport for ``session``'s backend.
 
     The Postgres module imports asyncpg at top level, which only the
     ``distributed`` extra installs, so it is loaded here rather than at
     package import: a local-mode install never touches it.
     """
-    if is_postgres():
+    if _uses_postgres(session):
         from .postgres import PostgresTransport
 
         return PostgresTransport()
     return LocalTransport()
 
 
-def get_transport() -> SignalTransport:
+def get_transport(session: Session | None = None) -> SignalTransport:
     """The transport in effect: the one scoped by :func:`signal_transport`,
-    else a fresh one for the active backend.
+    else a fresh one for ``session``'s backend.
 
     The commit hooks need no instance state, so an unscoped caller gets a
     throwaway. A process that runs ``feed`` scopes its instance so
     everything inside sees that instance's ``state``.
     """
-    return _transport_var.get() or _backend_transport()
+    return _transport_var.get() or _backend_transport(session)
 
 
 @contextmanager

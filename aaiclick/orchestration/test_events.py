@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
 from aaiclick.backend import is_postgres
@@ -21,6 +21,7 @@ from .events import (
     signal_transport,
     unregister_session_hooks,
 )
+from .events import transport as transport_module
 from .events.hooks import statement_touches_watched
 from .events.local import LocalTransport
 from .events.state import TransportState
@@ -144,6 +145,21 @@ async def test_unregistered_hooks_publish_nothing(orch_ctx, live_bus):
 @pytest.mark.skipif(is_postgres(), reason="Postgres selection is covered in test_events_postgres.py")
 def test_get_transport_is_local():
     assert isinstance(get_transport(), LocalTransport)
+
+
+def test_transport_follows_the_session_not_the_configured_backend(monkeypatch):
+    """``AAICLICK_SQL_URL`` describes the process, not every session in it.
+
+    Test harnesses bind their own SQLite engine while the env var names
+    Postgres; picking the transport from the env var then runs ``pg_notify``
+    against SQLite, which is a hard error rather than a no-op."""
+    monkeypatch.setattr(transport_module, "is_postgres", lambda: True)
+    engine = create_engine("sqlite://")
+    try:
+        with Session(engine) as session:
+            assert isinstance(get_transport(session), LocalTransport)
+    finally:
+        engine.dispose()
 
 
 class RecordingTransport:
