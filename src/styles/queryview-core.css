@@ -1,0 +1,149 @@
+/* Component classes used by the queryview-core kernel's markup. Copied from
+   QueryView's frontend/src/index.css (@layer components) — refresh together
+   with src/queryview-core. */
+
+@layer components {
+  /* Frosted card. The inset top highlight gives the "lit edge" of liquid glass. */
+  .glass-panel {
+    border-radius: 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.025);
+    backdrop-filter: blur(22px) saturate(170%);
+    -webkit-backdrop-filter: blur(22px) saturate(170%);
+    box-shadow:
+      0 16px 40px -16px rgba(0, 0, 0, 0.7),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.16);
+  }
+
+  /* Floating popover: nearly opaque so its contents stay legible and clickable
+     over whatever it overlaps (e.g. the dashboard iframe). */
+  .glass-popover {
+    border-radius: 0.9rem;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(18, 22, 38, 0.94);
+    backdrop-filter: blur(26px) saturate(160%);
+    -webkit-backdrop-filter: blur(26px) saturate(160%);
+    box-shadow:
+      0 20px 50px -20px rgba(0, 0, 0, 0.8),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.16);
+  }
+
+  .glass-chip {
+    border-radius: 9999px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.12);
+    color: #e2e8f0;
+  }
+
+  .glass-input {
+    border-radius: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+    color: #e2e8f0;
+    outline: none;
+    transition:
+      border-color 0.15s ease,
+      background-color 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+  .glass-input::placeholder {
+    color: rgba(148, 163, 184, 0.7); /* slate-400 */
+  }
+  .glass-input:focus {
+    border-color: rgba(129, 140, 248, 0.7); /* indigo-400 */
+    background: rgba(255, 255, 255, 0.07);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.3);
+  }
+
+  .glass-btn {
+    border-radius: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.05);
+    color: #e2e8f0;
+    transition:
+      background-color 0.15s ease,
+      border-color 0.15s ease,
+      transform 0.1s ease;
+  }
+  .glass-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.22);
+  }
+  .glass-btn:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+  .glass-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .glass-btn-primary {
+    border-radius: 0.75rem;
+    border: 1px solid rgba(129, 140, 248, 0.5);
+    color: #fff;
+    background-image: linear-gradient(
+      180deg,
+      rgba(129, 140, 248, 0.95),
+      rgba(79, 70, 229, 0.95)
+    );
+    box-shadow:
+      0 10px 26px -10px rgba(79, 70, 229, 0.75),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.28);
+    transition:
+      filter 0.15s ease,
+      transform 0.1s ease;
+  }
+  .glass-btn-primary:hover:not(:disabled) {
+    filter: brightness(1.1);
+  }
+  .glass-btn-primary:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+  .glass-btn-primary:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  /* Toggle buttons (size, db option, field, order-by). */
+  .glass-toggle {
+    border-radius: 0.6rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.04);
+    color: #cbd5e1; /* slate-300 */
+    transition:
+      background-color 0.15s ease,
+      border-color 0.15s ease,
+      color 0.15s ease;
+  }
+  .glass-toggle:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.09);
+    border-color: rgba(255, 255, 255, 0.22);
+    color: #e2e8f0;
+  }
+  .glass-toggle:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  /* Filled accent active state. */
+  .glass-toggle.is-active {
+    border-color: rgba(129, 140, 248, 0.6);
+    color: #fff;
+    background-image: linear-gradient(
+      180deg,
+      rgba(129, 140, 248, 0.9),
+      rgba(79, 70, 229, 0.9)
+    );
+    box-shadow:
+      0 8px 20px -10px rgba(79, 70, 229, 0.7),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.25);
+  }
+  /* Quieter active state (order-by add buttons). */
+  .glass-toggle.is-active-soft {
+    border-color: rgba(129, 140, 248, 0.55);
+    color: #c7d2fe; /* indigo-200 */
+    background: rgba(99, 102, 241, 0.16);
+  }
+}

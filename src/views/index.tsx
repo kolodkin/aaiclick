@@ -8,3 +8,6 @@ export { RunForm } from "./RunForm";
 export { RegisterForm } from "./RegisterForm";
 export { CancelConfirm } from "./CancelConfirm";
 export { AllGallery } from "./AllGallery";
+export { Data } from "./Data";
+export { Query } from "./Query";
+export { Dashboard } from "./Dashboard";

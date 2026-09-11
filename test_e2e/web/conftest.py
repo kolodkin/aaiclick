@@ -26,6 +26,9 @@ from typing import Any
 
 import pytest
 
+from aaiclick.backend import is_local
+
+SEED = Path(__file__).with_name("seed.py")
 SHOTS = Path(__file__).resolve().parents[2] / "test-results" / "shots"
 
 
@@ -42,6 +45,12 @@ def base_url() -> Iterator[str]:
     Uses the default chdb + SQLite backend (AAICLICK_LOCAL_ROOT unchanged).
     The server process is killed after the session.
     """
+    # Viewer fixtures need ClickHouse tables, and chdb's session is a
+    # per-process singleton holding the data-directory lock — so the seed runs
+    # in its own process and must finish before the server takes the lock.
+    if is_local():
+        subprocess.run([sys.executable, str(SEED), "viewer"], check=True)
+
     port = _free_port()
     proc = subprocess.Popen(
         [

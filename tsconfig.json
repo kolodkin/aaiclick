@@ -14,7 +14,8 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "paths": { "@qv/core": ["./src/queryview-core/index.ts"] }
   },
   "include": ["src"],
   "references": [{ "path": "./tsconfig.node.json" }]

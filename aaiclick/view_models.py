@@ -183,6 +183,7 @@ class ObjectFilter(BaseModel):
 
     prefix: str | None = None
     scope: ObjectScope | None = None
+    job: RefId | None = None  # list one job's objects: id, or name → latest run
     limit: int = 50
     cursor: str | None = None
 
@@ -204,8 +205,8 @@ class PurgeObjectsResult(BaseModel):
     deleted: list[str]
 
 
-class ObjectDeleted(BaseModel):
-    """Response from ``internal_api.delete_object`` — name of the dropped table."""
+class Deleted(BaseModel):
+    """Response from a delete-by-name verb: the name that was removed."""
 
     name: str
 

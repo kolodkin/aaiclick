@@ -27,6 +27,9 @@ Usage:
     python -m aaiclick data get <name>          # Show persistent object details
     python -m aaiclick data delete <name>       # Delete persistent object
     python -m aaiclick data purge --after ISO   # Delete persistent objects by time
+    python -m aaiclick data query <object> [--scope job:<ref>] [--where EXPR]   # Read rows of an object
+    python -m aaiclick view queries list|save|delete                            # Saved viewer queries
+    python -m aaiclick view dashboards list|get|save|delete|run                 # Dashboards
     python -m aaiclick explain <table>          # AI: explain how a table was produced (needs aaiclick[ai])
     python -m aaiclick debug <table> "<question>"  # AI: debug a result with live-query tools (needs aaiclick[ai])
     python -m aaiclick docker init              # Scaffold a starter Dockerfile
@@ -39,9 +42,10 @@ import asyncio
 import json
 import shlex
 import sys
-from contextlib import redirect_stdout
+from contextlib import closing, redirect_stdout
 from contextvars import ContextVar
 from datetime import datetime
+from pathlib import Path
 from typing import Any, cast, get_args
 
 from aaiclick import cli_renderers, cli_wait, internal_api
@@ -75,6 +79,7 @@ from aaiclick.view_models import (
     RegisterJobRequest,
     RunJobRequest,
 )
+from aaiclick.viewer.view_models import DashboardIn, ObjectQueryRequest, OrderBy, SavedQueryFilter, SavedQueryIn
 
 _JSON_HELP = "Emit JSON instead of a table"
 
@@ -147,15 +152,20 @@ async def _run_internal_api(coro, *, with_ch: bool = False):
             subcommands, unnecessary for the orchestration ones.
     """
     slug = _tenant_slug.get()
-    try:
-        async with orch_context(with_ch=with_ch):
-            if slug is None:
-                return await coro
-            with active_tenant(await _resolve_tenant_id(slug)):
-                return await coro
-    except InternalApiError as exc:
-        print(exc, file=sys.stderr)
-        sys.exit(1)
+    # We own `coro`, so close it however we leave: an unknown --tenant, a
+    # missing extra, or a locked chdb all raise before it is ever awaited, and
+    # an unclosed coroutine trails a "was never awaited" RuntimeWarning over
+    # the error. Closing one that already ran is a no-op.
+    with closing(coro):
+        try:
+            async with orch_context(with_ch=with_ch):
+                if slug is None:
+                    return await coro
+                with active_tenant(await _resolve_tenant_id(slug)):
+                    return await coro
+        except InternalApiError as exc:
+            print(exc, file=sys.stderr)
+            sys.exit(1)
 
 
 async def _run_data_api(coro):
@@ -364,19 +374,19 @@ def _parse_datetime(value: str) -> datetime:
 
 
 async def _run_data_list(args: argparse.Namespace) -> None:
-    filter = ObjectFilter(prefix=args.prefix, limit=args.limit)
+    filter = ObjectFilter(prefix=args.prefix, job=args.job, limit=args.limit)
     page = await _run_data_api(internal_api.list_objects(filter))
     _render(args, page, cli_renderers.render_objects_page)
 
 
 async def _run_data_get(args: argparse.Namespace) -> None:
-    detail = await _run_data_api(internal_api.get_object(args.name))
+    detail = await _run_data_api(internal_api.get_object(args.name, args.job))
     _render(args, detail, cli_renderers.render_object_detail)
 
 
 async def _run_data_delete(args: argparse.Namespace) -> None:
     view = await _run_data_api(internal_api.delete_object(args.name))
-    _render(args, view, cli_renderers.render_object_deleted)
+    _render(args, view, cli_renderers.render_deleted)
 
 
 async def _run_data_purge(args: argparse.Namespace) -> None:
@@ -386,6 +396,83 @@ async def _run_data_purge(args: argparse.Namespace) -> None:
     )
     result = await _run_data_api(internal_api.purge_objects(request))
     _render(args, result, cli_renderers.render_objects_purged)
+
+
+def _parse_order_by(raw: str | None) -> list[OrderBy]:
+    """``col:desc,other`` → ``[OrderBy("col", "DESC"), OrderBy("other", "ASC")]``."""
+    if not raw:
+        return []
+    out = []
+    for part in raw.split(","):
+        name, _, direction = part.strip().partition(":")
+        out.append(OrderBy(name, "DESC" if direction.lower() == "desc" else "ASC"))
+    return out
+
+
+def _parse_fields(raw: str | None) -> list[str] | None:
+    return [f.strip() for f in raw.split(",")] if raw else None
+
+
+async def _run_data_query(args: argparse.Namespace) -> None:
+    request = ObjectQueryRequest(
+        scope=args.scope,
+        object=args.object,
+        fields=_parse_fields(args.fields),
+        where=args.where,
+        order_by=_parse_order_by(args.order_by),
+        limit=args.limit,
+        offset=args.offset,
+        fmt="csv" if args.csv else "json",
+    )
+    result = await _run_data_api(internal_api.query_object(request))
+    _render(args, result, cli_renderers.render_query_result)
+
+
+async def _run_view_queries_list(args: argparse.Namespace) -> None:
+    page = await _run_data_api(internal_api.list_saved_queries(SavedQueryFilter(scope=args.scope, object=args.object)))
+    _render(args, page, cli_renderers.render_saved_queries_page)
+
+
+async def _run_view_queries_save(args: argparse.Namespace) -> None:
+    cell_view = Path(args.cell_view).read_text() if args.cell_view else None
+    query = SavedQueryIn(
+        name=args.name,
+        scope=args.scope,
+        object=args.object,
+        where=args.where,
+        fields=_parse_fields(args.fields),
+        order_by=_parse_order_by(args.order_by),
+        cell_view=cell_view,
+    )
+    _render(args, await _run_data_api(internal_api.save_query(query)), cli_renderers.render_saved_query)
+
+
+async def _run_view_queries_delete(args: argparse.Namespace) -> None:
+    deleted = await _run_data_api(internal_api.delete_saved_query(args.name))
+    _render(args, deleted, lambda v: cli_renderers.render_deleted(v, "saved query"))
+
+
+async def _run_view_dashboards_list(args: argparse.Namespace) -> None:
+    _render(args, await _run_data_api(internal_api.list_dashboards()), cli_renderers.render_dashboards_page)
+
+
+async def _run_view_dashboards_get(args: argparse.Namespace) -> None:
+    _render(args, await _run_data_api(internal_api.get_dashboard(args.name)), cli_renderers.render_dashboard)
+
+
+async def _run_view_dashboards_save(args: argparse.Namespace) -> None:
+    doc = json.loads(Path(args.file).read_text())  # {"scope"?, "html", "queries": {panel: {...}}}
+    dashboard = DashboardIn(name=args.name, **doc)
+    _render(args, await _run_data_api(internal_api.save_dashboard(dashboard)), cli_renderers.render_dashboard)
+
+
+async def _run_view_dashboards_delete(args: argparse.Namespace) -> None:
+    deleted = await _run_data_api(internal_api.delete_dashboard(args.name))
+    _render(args, deleted, lambda v: cli_renderers.render_deleted(v, "dashboard"))
+
+
+async def _run_view_dashboards_run(args: argparse.Namespace) -> None:
+    _render(args, await _run_data_api(internal_api.run_dashboard(args.name)), cli_renderers.render_dashboard_results)
 
 
 def _load_lineage_ai():
@@ -531,9 +618,9 @@ Environment Variables:
 """
 
 
-def _confirm_local_db_reset(stale: list[str]) -> bool:
-    """Ask before deleting a local database whose schema predates this version."""
-    print(setup_api.stale_local_db_message(stale), file=sys.stderr)
+def _confirm_local_db_reset(reason: str) -> bool:
+    """Ask before deleting a local database that predates this version."""
+    print(reason, file=sys.stderr)
     return input("Delete and recreate it? [y/N] ").strip().lower() in {"y", "yes"}
 
 
@@ -542,9 +629,9 @@ def _run_setup_cli(args: argparse.Namespace) -> None:
     # Prompt only for an interactive run: piped or --json callers fall through
     # to setup(), which raises with the same guidance rather than blocking.
     if not force and not args.json and sys.stdin.isatty():
-        stale = setup_api.stale_local_db()
-        if stale:
-            force = _confirm_local_db_reset(stale)
+        reason = setup_api.stale_local_db_reason()
+        if reason:
+            force = _confirm_local_db_reset(reason)
     result = _run_sync_api(lambda: setup_api.setup(ai=args.ai, force=force))
     _render(args, result, cli_renderers.render_setup_result)
 
@@ -1069,6 +1156,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=50,
         help="Maximum results (default: 50)",
     )
+    data_list_parser.add_argument("--job", default=None, help="List one job's objects (id or name)")
     _add_json_flag(data_list_parser)
 
     # data get <name>
@@ -1077,6 +1165,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show persistent object details",
     )
     data_get_parser.add_argument("name", type=str, help="Persistent object name")
+    data_get_parser.add_argument("--job", default=None, help="The object's job (id or name); default: global tier")
     _add_json_flag(data_get_parser)
 
     # data delete <name>
@@ -1103,6 +1192,67 @@ def build_parser() -> argparse.ArgumentParser:
         help="Delete tables created before this time (ISO 8601)",
     )
     _add_json_flag(data_purge_parser)
+
+    # data query <object> [--scope] [--where] [--fields] [--order-by] [--limit] [--offset] [--csv]
+    data_query_parser = data_subparsers.add_parser("query", help="Read rows of an object")
+    data_query_parser.add_argument("object", type=str, help="Object name within the scope")
+    data_query_parser.add_argument("--scope", default="persistent", help="persistent (default) or job:<id|name>")
+    data_query_parser.add_argument("--where", default=None, help="SQL boolean expression over the object's columns")
+    data_query_parser.add_argument("--fields", default=None, help="Comma-separated columns (default: all)")
+    data_query_parser.add_argument("--order-by", dest="order_by", default=None, help="col[:asc|desc],...")
+    data_query_parser.add_argument("--limit", type=int, default=100, help="Rows per page (max 1000)")
+    data_query_parser.add_argument("--offset", type=int, default=0, help="Row offset")
+    data_query_parser.add_argument("--csv", action="store_true", help="Print CSV instead of a table")
+    _add_json_flag(data_query_parser)
+
+    # view queries ... / view dashboards ...
+    view_parser = subparsers.add_parser("view", help="Saved viewer queries and dashboards")
+    view_subparsers = view_parser.add_subparsers(dest="view_command", help="View commands")
+
+    vq = view_subparsers.add_parser("queries", help="Saved queries")
+    vq_sub = vq.add_subparsers(dest="view_verb")
+    p = vq_sub.add_parser("list", help="List saved queries")
+    p.set_defaults(handler=_run_view_queries_list)
+    p.add_argument("--scope", default=None)
+    p.add_argument("--object", default=None)
+    _add_json_flag(p)
+    p = vq_sub.add_parser("save", help="Create or replace a saved query")
+    p.set_defaults(handler=_run_view_queries_save)
+    p.add_argument("name")
+    p.add_argument("object")
+    p.add_argument("--scope", default="persistent")
+    p.add_argument("--where", default=None)
+    p.add_argument("--fields", default=None)
+    p.add_argument("--order-by", dest="order_by", default=None)
+    p.add_argument("--cell-view", dest="cell_view", default=None, help="Path to a cell_view YAML file")
+    _add_json_flag(p)
+    p = vq_sub.add_parser("delete", help="Delete a saved query")
+    p.set_defaults(handler=_run_view_queries_delete)
+    p.add_argument("name")
+    _add_json_flag(p)
+
+    vd = view_subparsers.add_parser("dashboards", help="Dashboards")
+    vd_sub = vd.add_subparsers(dest="view_verb")
+    p = vd_sub.add_parser("list", help="List dashboards")
+    p.set_defaults(handler=_run_view_dashboards_list)
+    _add_json_flag(p)
+    p = vd_sub.add_parser("get", help="Show a dashboard")
+    p.set_defaults(handler=_run_view_dashboards_get)
+    p.add_argument("name")
+    _add_json_flag(p)
+    p = vd_sub.add_parser("save", help="Create or replace a dashboard from a JSON file")
+    p.set_defaults(handler=_run_view_dashboards_save)
+    p.add_argument("name")
+    p.add_argument("--file", required=True, help='JSON: {"scope"?, "html", "queries": {panel: {object, ...}}}')
+    _add_json_flag(p)
+    p = vd_sub.add_parser("delete", help="Delete a dashboard")
+    p.set_defaults(handler=_run_view_dashboards_delete)
+    p.add_argument("name")
+    _add_json_flag(p)
+    p = vd_sub.add_parser("run", help="Run a dashboard's panel queries")
+    p.set_defaults(handler=_run_view_dashboards_run)
+    p.add_argument("name")
+    _add_json_flag(p)
 
     # explain <table> [question]
     explain_parser = subparsers.add_parser(
@@ -1414,8 +1564,19 @@ def main():
         elif args.data_command == "purge":
             asyncio.run(_run_data_purge(args))
 
+        elif args.data_command == "query":
+            asyncio.run(_run_data_query(args))
+
         else:
             subcommands["data"].print_help()
+
+    elif args.command == "view":
+        # Each leaf parser carries its handler via set_defaults (see build_parser).
+        view_handler = getattr(args, "handler", None)
+        if view_handler is None:
+            subcommands["view"].print_help()
+        else:
+            asyncio.run(view_handler(args))
 
     elif args.command == "explain":
         asyncio.run(_run_explain(args))

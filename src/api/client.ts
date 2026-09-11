@@ -48,18 +48,27 @@ async function request(path: string, init: RequestInit = {}): Promise<Response> 
   return res;
 }
 
-export async function fetchJSON<T>(path: string): Promise<T> {
-  const res = await request(path);
-  if (!res.ok) throw await parseError(res);
-  return (await res.json()) as T;
-}
-
-export async function postJSON<T>(path: string, body?: unknown): Promise<T> {
+// The one place a verb's request shape and error handling live; callers below
+// only choose how to decode the body.
+async function send(method: string, path: string, body?: unknown): Promise<Response> {
   const res = await request(path, {
-    method: "POST",
+    method,
     headers: body === undefined ? {} : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!res.ok) throw await parseError(res);
-  return (await res.json()) as T;
+  return res;
 }
+
+async function sendJSON<T>(method: string, path: string, body?: unknown): Promise<T> {
+  return (await (await send(method, path, body)).json()) as T;
+}
+
+export async function postText(path: string, body: unknown): Promise<string> {
+  return (await send("POST", path, body)).text();
+}
+
+export const fetchJSON = <T>(path: string) => sendJSON<T>("GET", path);
+export const postJSON = <T>(path: string, body?: unknown) => sendJSON<T>("POST", path, body);
+export const putJSON = <T>(path: string, body: unknown) => sendJSON<T>("PUT", path, body);
+export const deleteJSON = <T>(path: string) => sendJSON<T>("DELETE", path);

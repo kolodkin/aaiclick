@@ -9,10 +9,15 @@ from aaiclick.data.data_context import (
     list_persistent_objects,
 )
 from aaiclick.data.view_models import ObjectDetail, ObjectView
+from aaiclick.orchestration.factories import create_job
+from aaiclick.orchestration.orch_context import task_scope
+from aaiclick.snowflake import get_snowflake_id
 from aaiclick.tenancy import DEFAULT_TENANT_ID, active_tenant
 from aaiclick.view_models import ObjectFilter, Page, PurgeObjectsRequest
 
 from . import errors, objects
+
+_SAMPLE_TASK = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
 
 # orch supplies the registry read path; its per-test reset drops every CH
 # table and SQL row — all tenants included — so no extra sweep is needed.
@@ -136,3 +141,26 @@ async def test_object_detail_carries_row_count_for_a_non_default_tenant():
         await create_object_from_value([1, 2, 3], name="seven", scope="global")
         detail = await objects.get_object("seven")
         assert detail.row_count == 3
+
+
+async def test_list_objects_job_scope_by_ref():
+    job = await create_job("objs_job", _SAMPLE_TASK)
+    async with task_scope(task_id=get_snowflake_id(), job_id=job.id, run_id=get_snowflake_id()):
+        await create_object_from_value([1, 2], name="result", scope="job")
+    await create_object_from_value([3], name="persist", scope="global")
+
+    page = await objects.list_objects(ObjectFilter(scope="job", job=job.id))
+    assert [(o.name, o.scope, o.table) for o in page.items] == [("result", "job", f"j_{job.id}_result")]
+
+    by_name = await objects.list_objects(ObjectFilter(job="objs_job"))
+    assert [o.name for o in by_name.items] == ["result"]
+
+    detail = await objects.get_object("result", job="objs_job")
+    assert detail.table == f"j_{job.id}_result"
+    with pytest.raises(errors.NotFound):
+        await objects.get_object("persist", job=job.id)
+
+
+async def test_list_objects_job_scope_requires_job():
+    with pytest.raises(errors.Invalid):
+        await objects.list_objects(ObjectFilter(scope="job"))

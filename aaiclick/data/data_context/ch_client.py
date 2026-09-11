@@ -60,6 +60,16 @@ class ChClient(Protocol):
         column_oriented: bool = False,
         column_type_names: Sequence[str] | None = None,
     ) -> None: ...
+    async def raw_query(
+        self,
+        query: str,
+        parameters: dict | None = None,
+        settings: dict | None = None,
+        fmt: str | None = None,
+    ) -> bytes:
+        """ClickHouse's own output for ``query`` in format ``fmt``, as bytes."""
+        ...
+
     async def insert_arrow(self, table: str, arrow_table: pa.Table) -> None:
         """Insert an arrow table; column names come from the arrow schema.
 
@@ -152,6 +162,32 @@ async def export_query_to_file(query: str, path: str, fmt: str) -> str:
             async for chunk in stream:
                 f.write(chunk)
     return abs_path
+
+
+DEFAULT_MAX_EXECUTION_TIME = 30
+JSON_COMPACT = "JSONCompact"
+CSV_WITH_NAMES = "CSVWithNames"
+# Lossless JSONCompact: 64-bit integers, decimals, and denormals arrive quoted
+# and named tuples as objects — the settings QueryView's driver sends, so the
+# kernel renders {meta, data} unchanged.
+JSON_COMPACT_SETTINGS = {
+    "output_format_json_quote_64bit_integers": 1,
+    "output_format_json_quote_decimals": 1,
+    "output_format_json_quote_denormals": 1,
+    "output_format_json_named_tuples_as_objects": 1,
+}
+
+
+async def query_bytes(sql: str, fmt: str, settings: dict | None = None) -> bytes:
+    """ClickHouse's own output for ``sql`` in format ``fmt``, exactly as it sent
+    it — so ``JSONCompact`` / ``CSVWithNames`` can reach a response body without
+    a decode/encode round trip."""
+    return await get_ch_client().raw_query(sql, settings=settings, fmt=fmt)
+
+
+async def query_text(sql: str, fmt: str, settings: dict | None = None) -> str:
+    """``query_bytes`` decoded, for callers that work with the text itself."""
+    return (await query_bytes(sql, fmt, settings)).decode("utf-8")
 
 
 async def create_ch_client() -> ChClient:
