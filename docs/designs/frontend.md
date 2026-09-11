@@ -249,7 +249,10 @@ cadence, never through a SQL commit, so no signal marks a new line. The policy
 lives in `useTaskLogs`: poll at 2 s only while the task is running. A
 `PENDING` / `CLAIMED` task cannot have produced output, so it is not fetched at
 all and the panel says so — the status change that starts it arrives over
-`/events` and switches polling on. A finished task's logs are immutable, so its
+`/events` and switches polling on. Going terminal stops the timer and
+triggers one final fetch — this key is not in `LIVE_KEYS`, so nothing else
+would ever collect what the task wrote since the last poll. A finished task's
+logs are immutable, so its
 query opts out with `false` rather than `undefined`, which would inherit the
 stream's 2 s fallback. Earlier attempts of a retried task are kept in
 ClickHouse but not yet reachable from the UI — see `future.md`.

@@ -293,6 +293,8 @@ def test_jobs_view_updates_live_without_polling(page, base_url: str, shot) -> No
 
 
 SLOW_TASK = "aaiclick.orchestration.fixtures.sample_tasks.slow_task"
+# Mirrors the `steps` default in that fixture: the last line it logs.
+SLOW_TASK_STEPS = 20
 
 
 def _submit_slow_job(page, base_url: str) -> tuple[str, dict]:
@@ -390,6 +392,11 @@ def test_task_view_separates_streamed_status_from_polled_logs(page, base_url: st
     log_polls = [u for u in requests[seen:] if u.endswith("/logs")]
     assert log_polls, "logs never refetched, so no new lines could have appeared"
     assert page.locator(".log-line").count() > lines_before, "log lines did not accumulate while the task ran"
+    # Going terminal stops the timer, so the lines written since the last poll
+    # need one final fetch. Nothing else would collect them — this key is not
+    # in LIVE_KEYS, so no `changed` frame touches it — and the panel would sit
+    # a poll interval short of the truth for good.
+    page.get_by_text(f"step {SLOW_TASK_STEPS} of {SLOW_TASK_STEPS}").wait_for(timeout=10000)
     shot("sse-task-completed")
 
     # Terminal now, so nothing commits and no signal fires — and neither half
