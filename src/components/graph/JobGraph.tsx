@@ -4,6 +4,7 @@ import "@xyflow/react/dist/style.css";
 import { useJobGraph } from "../../api/hooks";
 import type { GraphNodeView } from "../../api/types";
 import { Chips } from "../Chips";
+import { LiveStatus } from "../LiveStatus";
 import { edgeKey, layout, structuralKey } from "../../lib/graphLayout";
 import { GroupNode, type GroupNodeType } from "./GroupNode";
 import { RoutedEdge } from "./RoutedEdge";
@@ -41,7 +42,7 @@ function nestByGroup(views: GraphNodeView[]): { ordered: GraphNodeView[]; parent
 }
 
 export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: string) => void }) {
-  const { data, isLoading, isError } = useJobGraph(refId);
+  const { data, isLoading, isError, dataUpdatedAt } = useJobGraph(refId);
   const [showBuildEdges, setShowBuildEdges] = useState(false);
 
   const rawNodes = useMemo(() => data?.nodes ?? [], [data]);
@@ -164,6 +165,9 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
 
   return (
     <>
+      <p className="sub">
+        <LiveStatus updatedAt={dataUpdatedAt} />
+      </p>
       {data && data.dropped_cycle_edges > 0 && (
         <div className="err">
           {data.dropped_cycle_edges} circular dependency edge(s) hidden to keep the graph renderable.

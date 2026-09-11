@@ -230,22 +230,37 @@ invalidation on every (re)connect does double duty: it catches up on
 anything missed *and* forces the mode switch to take effect at once instead
 of after one more 2 s tick.
 
-**Showing it.** `LiveStatus` (`src/components/LiveStatus.tsx`) renders
-`live` / `polling` plus `updated Ns ago` inline in the subtitle of the jobs
-list and the job detail view. Both halves are needed: the mode makes a dead
-stream visible instead of letting it degrade silently, and the timestamp
-distinguishes a stream that is connected but delivering nothing from an
-idle one. `connected` is a plain module variable read from a non-React
-closure, so the component subscribes through `useSyncExternalStore`
-(`subscribeLive`). The `Ns ago` timer re-renders only — it issues no
-requests. The task view is deliberately left out: its record is
-stream-driven but the logs below it are not (see **Task logs**), so one
-badge could not tell the truth about both.
+**Showing it.** `LiveStatus` (`src/components/LiveStatus.tsx`) renders the
+refresh mode plus `updated Ns ago`. Both halves are needed: the mode makes a
+dead stream visible instead of letting it degrade silently, and the
+timestamp distinguishes a stream that is connected but delivering nothing
+from an idle one. `connected` is a plain module variable read from a
+non-React closure, so the component subscribes through
+`useSyncExternalStore` (`subscribeLive`). The `Ns ago` timer re-renders
+only — it issues no requests.
+
+One badge reports exactly one query, and takes that query's own
+`dataUpdatedAt` and mode — a badge borrowing a neighbour's timestamp is a
+badge that can lie. Views therefore carry one badge each, for the query
+backing what is on screen:
+
+| View | Query | Mode |
+|---------------------|--------------------|----------------------------------------------|
+| Jobs list | `["jobs"]` | `stream` |
+| Job detail (table) | `["job", ref]` | `stream` — also covers the tasks table, which has no query of its own |
+| Job detail (graph) | `["job-graph", ref]` | `stream` — rendered by `JobGraph`, so the header's is suppressed there |
+| Task detail | `["task", id]` | `stream` |
+| Task logs | `["task-logs", id]` | `poll` while running, hidden once terminal |
+| Registered jobs | `["registered-jobs"]` | `manual` |
 
 **Task logs.** Lines reach ClickHouse from the task process on its own flush
-cadence, never through a SQL commit, so no signal marks a new line.
-`useTaskLogs(id, live)` polls at 2 s while the task is non-terminal; the
-terminal status write's signal triggers the last refetch.
+cadence, never through a SQL commit, so no signal marks a new line. The
+panel therefore polls at 2 s — but only once the task has actually started:
+a `PENDING` / `CLAIMED` task cannot have produced output, so it says so and
+polls nothing, and the status change that starts it arrives over `/events`
+and switches polling on. The terminal status write's signal triggers the
+last refetch. Earlier attempts of a retried task are kept in ClickHouse but
+not yet reachable from the UI — see `future.md`.
 
 # Testing
 

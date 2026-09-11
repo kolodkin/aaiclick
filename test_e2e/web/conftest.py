@@ -15,6 +15,7 @@ explicitly (or in a dedicated CI workflow)."""
 from __future__ import annotations
 
 import itertools
+import os
 import shutil
 import socket
 import subprocess
@@ -36,13 +37,27 @@ def _free_port() -> int:
 
 
 @pytest.fixture(scope="session")
-def base_url() -> Iterator[str]:
+def base_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     """Start the FastAPI server and yield its base URL.
 
-    Uses the default chdb + SQLite backend (AAICLICK_LOCAL_ROOT unchanged).
+    Uses the default chdb + SQLite backend, rooted at a per-session temp dir
+    via ``AAICLICK_LOCAL_ROOT`` so the suite never reads or writes the
+    developer's ``~/.aaiclick``. That keeps assertions about *which* jobs
+    exist honest — a previous run's rows would otherwise still be in the
+    list — and makes the run immune to a half-initialised local install
+    (a ``setup_done`` marker beside an empty ``local.db`` skips bootstrap
+    and every query then fails with "no such table").
+
     The server process is killed after the session.
     """
     port = _free_port()
+    root = tmp_path_factory.mktemp("aaiclick-root")
+    # Server stderr goes to a file, not a PIPE: nothing reads the pipe during
+    # the run, so a chatty failure fills the 64 KB buffer and blocks the
+    # server's event loop inside logging — turning a clean error into a
+    # mystery hang on the next navigation.
+    log_path = root / "server.log"
+    log_file = log_path.open("wb")
     proc = subprocess.Popen(
         [
             sys.executable,
@@ -55,18 +70,19 @@ def base_url() -> Iterator[str]:
             "warning",
         ],
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
+        stderr=log_file,
+        env={**os.environ, "AAICLICK_LOCAL_ROOT": str(root)},
     )
 
     url = f"http://127.0.0.1:{port}"
 
-    # Poll until the server accepts connections (up to 30 s — chdb's
-    # cold start can take a few seconds on slow CI containers).
-    deadline = time.monotonic() + 30
+    # Poll until the server accepts connections. A fresh root means first
+    # boot also runs setup() — schema creation plus a chdb cold start — so the
+    # window is generous.
+    deadline = time.monotonic() + 120
     while time.monotonic() < deadline:
         if proc.poll() is not None:
-            stderr = proc.stderr.read().decode("utf-8", "replace") if proc.stderr else ""
-            pytest.fail(f"Server exited early (code={proc.returncode}):\n{stderr}")
+            pytest.fail(f"Server exited early (code={proc.returncode}):\n{log_path.read_text(errors='replace')}")
         try:
             s = socket.create_connection(("127.0.0.1", port), timeout=0.5)
             s.close()
@@ -76,7 +92,7 @@ def base_url() -> Iterator[str]:
     else:
         proc.kill()
         proc.wait()
-        pytest.fail("Server did not come up within 30 s")
+        pytest.fail(f"Server did not come up in time:\n{log_path.read_text(errors='replace')}")
 
     yield url
 
@@ -86,8 +102,7 @@ def base_url() -> Iterator[str]:
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.wait()
-    if proc.stderr is not None:
-        proc.stderr.close()
+    log_file.close()
 
 
 @pytest.fixture(scope="session")

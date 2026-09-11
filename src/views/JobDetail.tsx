@@ -49,9 +49,15 @@ export function JobDetail({
             </AdminButton>
           )}
         </div>
-        <p className="sub">
-          <LiveStatus updatedAt={dataUpdatedAt} />
-        </p>
+        {/* One badge per view, reporting the query that backs what is on
+            screen. In graph view that is JobGraph's own ["job-graph"] query,
+            which renders its own — two badges a tick apart read as
+            duplication, and the graph's is the one that matters there. */}
+        {view === "table" && (
+          <p className="sub">
+            <LiveStatus updatedAt={dataUpdatedAt} />
+          </p>
+        )}
         <MetaGrid
           items={[
             { k: "Created", v: relativeTime(job.created_at) },

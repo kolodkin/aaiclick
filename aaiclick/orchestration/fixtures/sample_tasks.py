@@ -1,5 +1,6 @@
 """Sample task functions for orchestration tests."""
 
+import asyncio
 import logging
 import sys
 from pathlib import Path
@@ -42,6 +43,24 @@ def task_with_log_levels():
     log.info("info line")
     log.warning("warning line")
     log.error("error line")
+
+
+async def slow_task(seconds: float = 3.0, steps: int = 6):
+    """Stay RUNNING for a few seconds, emitting a log line per step.
+
+    Every other task here finishes in milliseconds, which shows the UI one
+    final state and nothing to update. This one lives long enough for a
+    browser test to watch a status badge flip and log lines accumulate — the
+    two live-update paths the operator UI actually has, and they are not the
+    same path: status changes ride the ``/events`` stream, log lines do not.
+
+    Sleeps with ``asyncio.sleep`` so an in-process execution worker keeps
+    serving requests (and the SSE stream) while this runs.
+    """
+    log = logging.getLogger("sample")
+    for step in range(1, steps + 1):
+        log.info("step %d of %d", step, steps)
+        await asyncio.sleep(seconds / steps)
 
 
 def flaky_task(counter_file: str):

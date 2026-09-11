@@ -293,3 +293,148 @@ def test_jobs_view_updates_live_without_polling(page, base_url: str, shot) -> No
     # /events is the only path the row and its status could have taken.
     print(f"row appeared {arrived * 1000:.0f} ms after submit, COMPLETED at {settled * 1000:.0f} ms")
     shot("sse-row-completed")
+
+
+SLOW_TASK = "aaiclick.orchestration.fixtures.sample_tasks.slow_task"
+
+
+def _submit_slow_job(page, base_url: str) -> tuple[str, str]:
+    """Start ``slow_task`` and return ``(job_id, task_id)`` once it has a task.
+
+    The task runs for a few seconds, so the caller has a window in which the
+    UI is showing a non-terminal state that must then change on its own.
+    """
+    api = f"{base_url}/api/v0"
+    # Long enough that page load plus the first assertions land well inside
+    # the task's lifetime; the test waits for the real end, not this number.
+    resp = page.request.post(f"{api}/jobs:run", data={"name": SLOW_TASK, "kwargs": {"seconds": 10}})
+    assert resp.ok, resp.text()
+    job_id = resp.json()["id"]
+
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        tasks = page.request.get(f"{api}/jobs/{job_id}").json().get("tasks") or []
+        if tasks:
+            return job_id, tasks[0]["id"]
+        time.sleep(0.1)
+    raise AssertionError("job produced no task within 30 s")
+
+
+@_spa_built
+@_local_only
+def test_job_graph_updates_live_without_polling(page, base_url: str, shot) -> None:
+    """A node's status changes on screen while the graph endpoint is not polled.
+
+    The jobs-list test proves a *row* arrives over the stream; this proves the
+    same for a view with its own query. The graph is opened while its only
+    task is still running, the request log is watched for ``/graph`` fetches,
+    and the node is required to reach ``COMPLETED`` anyway — which it can only
+    do if the invalidation came from ``/events``.
+    """
+    job_id, _ = _submit_slow_job(page, base_url)
+
+    requests: list[str] = []
+    page.on("request", lambda req: requests.append(req.url))
+    open_page(page, f"{base_url}/?p=@job {job_id} graph")
+    page.wait_for_selector("[data-testid='job-graph']", timeout=15000)
+    node = page.locator(".gnode").first
+    node.wait_for(timeout=15000)
+
+    status = page.get_by_test_id("live-status")
+    assert status.get_attribute("data-mode") == "live"
+    before = node.inner_text()
+    assert "COMPLETED" not in before, f"task already finished before the graph opened: {before}"
+    shot("sse-graph-running")
+
+    seen = len(requests)
+    node.get_by_text("COMPLETED", exact=True).wait_for(timeout=30000)
+    graph_fetches = [u for u in requests[seen:] if "/graph" in u]
+    assert graph_fetches, "the graph never refetched, so nothing could have changed on screen"
+    # One refetch per change signal is expected; a *timer* would keep firing
+    # after the task finished, so the proof is the absence of polling in the
+    # idle window below rather than the count here.
+    seen = len(requests)
+    page.wait_for_timeout(POLL_FALLBACK_MS + 500)
+    idle = [u for u in requests[seen:] if "/graph" in u]
+    assert idle == [], f"graph polled while the stream was up: {idle}"
+    shot("sse-graph-completed")
+
+
+@_spa_built
+@_local_only
+def test_task_view_separates_streamed_status_from_polled_logs(page, base_url: str, shot) -> None:
+    """The task record streams; its logs poll — and the view labels each.
+
+    Both halves update on screen while the task runs, by different means:
+    ``/tasks/{id}`` is invalidated by ``/events`` and must not be polled,
+    while ``/tasks/{id}/logs`` has no commit to hang a signal on and keeps its
+    own 2 s timer. Asserting both in one test keeps the distinction from
+    quietly regressing into "everything polls" or "everything streams".
+    """
+    _, task_id = _submit_slow_job(page, base_url)
+
+    requests: list[str] = []
+    page.on("request", lambda req: requests.append(req.url))
+    open_page(page, f"{base_url}/?p=@task {task_id}")
+    page.wait_for_selector(".logs-toolbar")
+
+    badges = page.get_by_test_id("live-status")
+    assert badges.nth(0).get_attribute("data-mode") == "live", "task record should report the stream"
+    assert badges.nth(1).get_attribute("data-mode") == "poll", "logs should report their own timer"
+    lines_before = page.locator(".log-line").count()
+    shot("sse-task-running")
+
+    seen = len(requests)
+    page.get_by_text("COMPLETED", exact=True).first.wait_for(timeout=30000)
+    since = requests[seen:]
+    record_polls = [u for u in since if u.endswith(f"/tasks/{task_id}")]
+    log_polls = [u for u in since if u.endswith("/logs")]
+    assert record_polls == [] or len(record_polls) < len(log_polls), (
+        f"task record refetched as often as the logs did ({len(record_polls)} vs {len(log_polls)}), "
+        "which is what polling — not streaming — looks like"
+    )
+    assert log_polls, "logs never refetched, so no new lines could have appeared"
+    lines_after = page.locator(".log-line").count()
+    print(
+        f"while the task ran: /tasks/{{id}} fetched {len(record_polls)}x, /logs {len(log_polls)}x, "
+        f"log lines {lines_before} -> {lines_after}"
+    )
+    assert lines_after > lines_before, "log lines did not accumulate while the task ran"
+    shot("sse-task-completed")
+
+
+@_spa_built
+@_local_only
+def test_task_view_says_a_queued_task_has_not_started(page, base_url: str, shot) -> None:
+    """A task that has not run yet says so instead of "no logs captured".
+
+    The three empty log states mean different things — nothing yet, nothing
+    flushed, nothing at all — and only the last is a final answer. A queued
+    task also has nothing to poll for, so the panel shows no polling badge.
+    """
+    api = f"{base_url}/api/v0"
+    resp = page.request.post(f"{api}/jobs:run", data={"name": SLOW_TASK, "kwargs": {"seconds": 10}})
+    assert resp.ok, resp.text()
+    job_id = resp.json()["id"]
+
+    # Catch the task in its pre-run window: read straight from the API rather
+    # than waiting, since PENDING lasts only as long as the claim takes.
+    task_id = None
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline and task_id is None:
+        tasks = page.request.get(f"{api}/jobs/{job_id}").json().get("tasks") or []
+        for task in tasks:
+            if task["status"] in ("PENDING", "CLAIMED"):
+                task_id = task["id"]
+                break
+        if tasks and task_id is None:
+            pytest.skip("task started before it could be observed queued")
+    assert task_id is not None, "job never produced a task"
+
+    open_page(page, f"{base_url}/?p=@task {task_id}")
+    panel = page.locator(".logs")
+    panel.wait_for(timeout=15000)
+    if "has not started" not in panel.inner_text():
+        pytest.skip("task started before the page rendered")
+    assert page.get_by_test_id("live-status").count() == 1, "a queued task's logs must not claim to be polling"
+    shot("task-logs-not-started")
