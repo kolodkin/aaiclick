@@ -27,7 +27,7 @@ from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from aaiclick.auth import config, security, store
-from aaiclick.auth.models import ROLE_ADMIN, SCOPE_READ, SCOPE_WRITE, Role, ScopeLevel
+from aaiclick.auth.models import ROLE_ADMIN, SCOPE_READ, Role, ScopeLevel
 from aaiclick.internal_api.errors import Forbidden, Invalid, Unauthorized
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.tenancy import DEFAULT_TENANT_ID, active_tenant
@@ -54,9 +54,11 @@ class Principal(NamedTuple):
     superadmin: bool
     tenants: dict[int, Role]
     """Membership map ``tenant_id -> role`` — from the access JWT, or read live for an API token."""
-    scope: ScopeLevel = SCOPE_WRITE
-    """API-token scope; sessions always carry ``write``."""
+    scope: ScopeLevel | None = None
+    """API-token level; ``None`` means unscoped — a session or local mode, bounded by role alone."""
     kind: AuthKind = AUTH_KIND_SESSION
+    tenant_id: int | None = None
+    """The tenant a tenant-scoped token is bound to; ``None`` for every other principal."""
 
 
 _SYNTHETIC_ADMIN = Principal(user_id=None, superadmin=True, tenants={}, kind=AUTH_KIND_NONE)
@@ -91,6 +93,7 @@ async def _principal_from_api_token(token: str) -> Principal:
         tenants=tenants,
         scope=resolved.token.scope,
         kind=AUTH_KIND_TOKEN,
+        tenant_id=resolved.token.tenant_id,
     )
 
 
@@ -184,12 +187,20 @@ def resolve_tenant(principal: Principal, header_value: str | None) -> TenantCont
     """Resolve the active tenant from the ``X-Tenant-Id`` header.
 
     Local mode's synthetic principal always acts as admin of the default
-    tenant. Otherwise a missing header is implied only when the principal has
-    exactly one membership; superadmins (who can act in every tenant) must
-    always name one. A tenant the principal cannot act in is ``Forbidden``.
+    tenant, and a tenant-bound API token always acts in the tenant it names.
+    Otherwise a missing header is implied only when the principal has exactly
+    one membership; superadmins (who can act in every tenant) must always name
+    one. A tenant the principal cannot act in is ``Forbidden``.
     """
     if principal.kind == AUTH_KIND_NONE:
         return TenantContext(tenant_id=DEFAULT_TENANT_ID, role=ROLE_ADMIN)
+    if principal.tenant_id is not None:
+        if header_value is not None and header_value != str(principal.tenant_id):
+            raise Invalid(f"{TENANT_HEADER} does not match the tenant this token is bound to")
+        role = role_in_tenant(principal, principal.tenant_id)
+        if role is None:
+            raise Forbidden(f"no access to tenant {principal.tenant_id}")
+        return TenantContext(tenant_id=principal.tenant_id, role=role)
     if header_value is not None:
         try:
             tenant_id = int(header_value)

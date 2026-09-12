@@ -52,7 +52,7 @@ async def test_enabled_valid_jwt(enabled):
     principal = await auth.resolve_principal(authorization=_bearer(token))
     assert principal.user_id == 7 and principal.superadmin is False
     assert principal.tenants == {3: "viewer"}
-    assert principal.kind == "session" and principal.scope == "write"
+    assert principal.kind == "session" and principal.scope is None
 
 
 async def test_enabled_bad_signature_unauthorized(enabled):
@@ -204,3 +204,38 @@ def test_warn_if_open_silent_in_distributed_mode(monkeypatch):
     with patch.object(auth.logger, "warning") as warning:
         warn_if_open()
     warning.assert_not_called()
+
+
+# --- tenant-bound API tokens ---------------------------------------------
+
+
+def _bound(level="admin", tenant_id=7, role="admin"):
+    return auth.Principal(
+        user_id=5, superadmin=False, tenants={tenant_id: role}, scope=level, kind="token", tenant_id=tenant_id
+    )
+
+
+def test_bound_token_ignores_a_missing_header():
+    ctx = auth.resolve_tenant(_bound(), None)
+    assert ctx == auth.TenantContext(tenant_id=7, role="admin")
+
+
+def test_bound_token_rejects_a_mismatched_header():
+    """A client naming a different tenant has a bug — surface it, don't ignore it."""
+    with pytest.raises(Invalid, match="bound"):
+        auth.resolve_tenant(_bound(), "8")
+
+
+def test_bound_token_accepts_a_matching_header():
+    assert auth.resolve_tenant(_bound(), "7").tenant_id == 7
+
+
+def test_bound_token_forbidden_once_membership_is_gone():
+    stripped = _bound()._replace(tenants={})
+    with pytest.raises(Forbidden):
+        auth.resolve_tenant(stripped, None)
+
+
+def test_session_principal_is_unscoped():
+    session = auth.Principal(user_id=1, superadmin=True, tenants={}, kind="session")
+    assert session.scope is None and session.tenant_id is None
