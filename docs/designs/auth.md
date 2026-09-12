@@ -14,8 +14,9 @@ and any programmatic HTTP / MCP client share one login flow; the CLI runs
   `docs/designs/tenant_rbac.md`). No per-resource ACLs or custom roles.
 - **Sessions**: password login → short-lived access JWT + rotating refresh
   token. One credential header everywhere: `Authorization: Bearer <access-jwt>`.
-- **API tokens**: user-minted, named, optionally expiring bearer tokens with a
-  `read` / `write` scope for unattended CLI / SDK / MCP clients — see
+- **API tokens**: user-minted, named, optionally expiring bearer tokens on an
+  ordered `read` < `write` < `admin` < `superadmin` ladder, bound to one tenant
+  below `superadmin`, for unattended CLI / SDK / MCP clients — see
   [API Tokens](#api-tokens).
 - **Mode-derived enforcement**: auth is a hardcoded convention, not a flag —
   **disabled in local mode** (single-process chdb + SQLite; the server is open,
@@ -50,7 +51,8 @@ OIDC and password-reset variables are listed in their own sections.
 SQLModel tables in `aaiclick/auth/models.py` (`audit_log` in
 `aaiclick/audit/models.py`). IDs are snowflake `BigInteger` PKs; `role` and
 `scope` are plain `String` columns typed with `Literal`s and validated in code
-(no DB CHECK — see CLAUDE.md, "Prefer Literal").
+(no DB CHECK — see CLAUDE.md, "Prefer Literal"), so widening the scope set is a
+one-line code change rather than a hand-written constraint migration.
 
 ## `users`
 
@@ -90,7 +92,8 @@ never pass the password login.
 | `name`         | `String`                              | Free-text label (`"ci-deploy"`)         |
 | `prefix`       | `String`                              | First 12 chars of the secret, for display |
 | `token_hash`   | `String`, unique, indexed             | `sha256(secret)`                        |
-| `scope`        | `String`                              | `TokenScope` literal: `read` / `write`  |
+| `scope`        | `String`                              | `ScopeLevel` literal — see [The scope ladder](#the-scope-ladder) |
+| `tenant_id`    | `BigInteger \| None`, indexed         | The tenant the token acts in; `None` only for `superadmin`. A plain column, not a DB FK — matching `jobs` and `table_registry` |
 | `expires_at`   | `datetime \| None`                    | `None` → never expires                  |
 | `last_used_at` | `datetime \| None`                    | Refreshed at most once a minute         |
 | `revoked_at`   | `datetime \| None`                    |                                         |
@@ -136,7 +139,7 @@ aaiclick/
   auth/
     models.py        users / refresh_tokens / api_tokens / oidc_states /
                      password_reset_tokens / tenants / tenant_memberships;
-                     Role + TokenScope literals + constants
+                     Role + ScopeLevel literals + constants + scope_admits
     security.py      bcrypt hash/verify; secret gen + sha256; JWT encode/decode;
                      API-token format; TOTP (pure functions, no DB, no contextvars)
     config.py        env getters (enabled, secret, TTLs, admin seed, public
@@ -283,7 +286,7 @@ Matrix / Active Tenant Resolution.
 # API Tokens
 
 
-**Implementation**: `aaiclick/auth/models.py` — see `ApiToken`; `aaiclick/internal_api/api_tokens.py`; `aaiclick/server/auth.py` — see `principal_from_credential`, `enforce_scope`, `require_session`; `aaiclick/server/routers/auth.py` — see `create_token`; `src/views/Tokens.tsx`.
+**Implementation**: `aaiclick/auth/models.py` — see `ApiToken`, `ScopeLevel`, `scope_admits`; `aaiclick/internal_api/api_tokens.py` — see `_mint_ceiling`, `create_token`; `aaiclick/server/auth.py` — see `principal_from_credential`, `enforce_scope`, `resolve_tenant`, `require_session`; `aaiclick/server/routers/auth.py` — see `create_token`; `src/views/Tokens.tsx`.
 Long-lived credentials for unattended clients (CI, SDK scripts, MCP agents)
 that should hold neither a password nor a refresh token.
 
@@ -291,10 +294,6 @@ that should hold neither a password nor a refresh token.
   resolver route the credential without a JWT parse attempt, and lets secret
   scanners recognise it. Only `sha256(secret)` is stored; the raw secret is
   returned exactly once, in the create response.
-- **Scope**: `TokenScope = Literal["read", "write"]` (`TOKEN_SCOPE_READ` /
-  `TOKEN_SCOPE_WRITE`). `read` may call safe HTTP methods and `read`-tagged MCP
-  tools only; `write` inherits the owner's full roles. A token never exceeds
-  its owner: tenant membership and `superadmin` are read live at resolution.
 - **Expiry**: optional `expires_at`; `None` never expires. The SPA form defaults
   to 90 days.
 - **Ownership**: tokens belong to the user who minted them. Disabling the user
@@ -304,38 +303,89 @@ that should hold neither a password nor a refresh token.
 - **MFA**: not applied to tokens — that is the point of them. Minting one
   requires a session, which MFA already protected.
 
+## The scope ladder
+
+A token carries one of four ordered levels, and admits its own level plus
+every level beneath it. `read` is the default at every mint site.
+
+| Level        | Admits, plus everything below                                                                     | REST guard it mirrors                  |
+|--------------|---------------------------------------------------------------------------------------------------|----------------------------------------|
+| `read`       | every read                                                                                        | safe method                            |
+| `write`      | member-level mutations — saved queries, dashboards                                                | mutating method under `require_tenant` |
+| `admin`      | tenant mutations — run / cancel jobs, register, clear tasks, delete / purge objects, memberships   | `require_admin`                        |
+| `superadmin` | instance operations — setup, migrate, worker start / stop, users, tenants                         | `require_superadmin`                   |
+
+The first three name a tenant at mint (`api_tokens.tenant_id`) and act only
+there, so `X-Tenant-Id` no longer selects one: the header may be omitted, and
+one naming a different tenant is `422` rather than quietly ignored.
+`superadmin` names none, and selects a tenant with the header exactly as a
+superadmin session does.
+
+A caller may mint at or below their own role **in the tenant they name**:
+
+| Owner's role in the named tenant | May mint up to |
+|----------------------------------|----------------|
+| tenant admin                     | `admin`        |
+| member (viewer)                  | `write`        |
+| not a member                     | nothing (404)  |
+
+A superadmin may mint any level in any tenant, and is the only one who may mint
+an untenanted `superadmin` token. Above the ceiling is `422` naming the
+caller's own level; a tenant the caller cannot act in reads as missing (404),
+never as forbidden, so tokens cannot probe for tenants.
+
+!!! important "The level is a ceiling, not a grant"
+    Binding answers *where*, not *how much*. Effective authority is the lesser
+    of the token's level and the owner's live role in that tenant, which
+    `resolve_api_token` reads on every request. Skip that lookup and treat a
+    bound token as self-describing, and someone demoted from admin to viewer
+    keeps an `admin` token until a human remembers to revoke it. A superadmin
+    reads as tenant admin everywhere (`role_in_tenant`), so a token they bind
+    works without an explicit membership — and stops the moment the flag is
+    cleared.
+
 | Route                          | Guard                          | Purpose                                         |
 |--------------------------------|--------------------------------|-------------------------------------------------|
 | `GET /auth/tokens`             | session                        | The caller's tokens (`ApiTokenView`, no secret)  |
-| `POST /auth/tokens`            | session                        | `{name, scope, expires_at}` → `ApiTokenCreated` (includes `token`, once) |
+| `POST /auth/tokens`            | session                        | `{name, scope, tenant_id, expires_at}` → `ApiTokenCreated` (includes `token`, once) |
 | `DELETE /auth/tokens/{id}`     | session                        | Revoke (`204`; another user's token is `404`)   |
 
 CLI (in-process, superadmin-equivalent): `aaiclick token create <username>
---name <n> [--scope read|write] [--expires-days N]`, `token list <username>`,
-`token revoke <id>`. The SPA exposes the same at `@tokens`.
+--name <n> [--scope read|write|admin|superadmin] [--expires-days N]`, taking
+its tenant from the top-level `--tenant` flag; `token list <username>`,
+`token revoke <id>`. The SPA exposes the same at `@tokens`, offering only the
+levels the signed-in user may mint.
 
 # MCP Surface
 
 
-**Implementation**: `aaiclick/server/mcp_rbac.py` — see `authorize_tool`, `McpRbacMiddleware`; `aaiclick/server/auth.py` — see `PrincipalAuthMiddleware`; tool tags in `aaiclick/server/mcp.py`.
-The `/mcp` mount admits **any authenticated principal**; each tool is gated
-individually by a tag, and `tools/list` only shows what the caller may call.
+**Implementation**: `aaiclick/server/mcp_rbac.py` — see `required_level`, `authorize_tool`, `McpRbacMiddleware`; `aaiclick/server/auth.py` — see `PrincipalAuthMiddleware`; tool tags in `aaiclick/server/mcp.py`.
+The `/mcp` mount takes **API tokens only** once auth is enabled — a session JWT
+there is `401`. The surface is for unattended clients, an API token is their
+credential, and the restriction is what gives every MCP principal a real level
+to gate on. Each tool's tag *is* the level it needs on
+[the scope ladder](#the-scope-ladder), and `tools/list` only shows what the
+caller may call.
 
-| Tag          | Tools                                                                                         | Who may call                                  |
+| Tag          | Tools                                                                                         | Needs                                         |
 |--------------|-----------------------------------------------------------------------------------------------|-----------------------------------------------|
-| `read`       | `list_jobs`, `get_job`, `job_stats`, `list_registered_jobs`, `get_task`, `list_execution_workers`, `list_objects`, `get_object`, `oplog_subgraph`, `query_table`, `get_table_schema` | Any member of the active tenant (viewer+); `read` tokens |
-| `write`      | `cancel_job`, `run_job`, `register_job`, `enable_job`, `disable_job`, `clear_task`, `delete_object`, `purge_objects` | Tenant admin with `write` scope           |
-| `superadmin` | `start_execution_worker`, `stop_execution_worker`, `setup`, `migrate`, `bootstrap_ollama`      | Superadmin with `write` scope                 |
+| `read`       | `list_jobs`, `get_job`, `job_stats`, `list_registered_jobs`, `get_task`, `list_execution_workers`, `list_objects`, `get_object`, `oplog_subgraph`, `query_table`, `get_table_schema`, `query_object`, `list_saved_queries`, `list_dashboards`, `get_dashboard`, `run_dashboard` | `read`; any member of the token's tenant |
+| `write`      | `save_query`, `delete_saved_query`, `save_dashboard`, `delete_dashboard`                       | `write`; any member of the token's tenant     |
+| `admin`      | `cancel_job`, `run_job`, `register_job`, `enable_job`, `disable_job`, `clear_task`, `delete_object`, `purge_objects` | `admin`; tenant admin                   |
+| `superadmin` | `start_execution_worker`, `stop_execution_worker`, `setup`, `migrate`, `bootstrap_ollama`      | `superadmin`; the instance flag               |
+
+`required_level` takes the highest tag present, so a mistagged tool fails
+closed rather than open.
 
 Because FastAPI's `Depends` does not reach mounted sub-apps, the mount is
-wrapped in an ASGI middleware that resolves the principal (JWT or API token),
-rejects anonymous calls with a `401` `Problem`, and stores the principal on
-the ASGI scope. A FastMCP middleware then runs on every `tools/call` and
-`tools/list`: it reads the principal and the `X-Tenant-Id` header from the
-current HTTP request, resolves the active tenant exactly like the REST
-`require_tenant` (single membership implied, superadmins must name one), pins
-the tenancy contextvar around the tool call, and applies the table above.
-Denials surface as tool errors. `superadmin` tools never need a tenant.
+wrapped in an ASGI middleware that checks the credential is an API token,
+resolves the principal, rejects anonymous calls with a `401` `Problem`, and
+stores the principal on the ASGI scope. A FastMCP middleware then runs on every
+`tools/call` and `tools/list`: it reads the principal and the `X-Tenant-Id`
+header from the current HTTP request, resolves the active tenant exactly like
+the REST `require_tenant`, pins the tenancy contextvar around the tool call,
+and applies the table above. Denials surface as tool errors. `superadmin` tools
+never need a tenant.
 
 In local mode (auth disabled) and for in-process clients (`fastmcp.Client(mcp)`,
 no HTTP request) the synthetic superadmin applies and every tool is open.

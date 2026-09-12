@@ -156,11 +156,13 @@ see `new_job_row` (a scheduled run inherits its registration's tenant).
 | Start / stop execution workers                      | ❌     | ❌           | ✅         |
 | Tenant CRUD (`/tenants`)                            | ❌     | ❌           | ✅         |
 | User management (`/users`)                          | ❌     | ❌           | ✅         |
-| MCP surface (`/mcp`), gated per tool                | ✅ read | ✅ + write   | ✅ all     |
+| MCP surface (`/mcp`), gated per tool                | ✅ read + write | ✅ + admin | ✅ all |
 
 Worker start/stop stays superadmin because workers execute every tenant's
-tasks. `/mcp` admits any principal and gates each tool by its own tag, pinning
-the active tenant around the call — `docs/designs/auth.md` — MCP Surface.
+tasks. `/mcp` takes API tokens only and gates each tool on the level its tag
+names, pinning the active tenant around the call. The effective authority is
+the lesser of the token's level and the role in this table, so the `/mcp` row
+reads the same as the rows above it — `docs/designs/auth.md` — MCP Surface.
 
 # API Surface
 
