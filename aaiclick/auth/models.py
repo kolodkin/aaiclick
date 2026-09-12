@@ -16,10 +16,18 @@ ROLE_VIEWER = "viewer"
 Role = Literal["admin", "viewer"]
 ROLES: tuple[Role, ...] = (ROLE_ADMIN, ROLE_VIEWER)
 
-TOKEN_SCOPE_READ = "read"
-TOKEN_SCOPE_WRITE = "write"
-TokenScope = Literal["read", "write"]
-TOKEN_SCOPES: tuple[TokenScope, ...] = (TOKEN_SCOPE_READ, TOKEN_SCOPE_WRITE)
+SCOPE_READ = "read"
+SCOPE_WRITE = "write"
+SCOPE_ADMIN = "admin"
+SCOPE_SUPERADMIN = "superadmin"
+ScopeLevel = Literal["read", "write", "admin", "superadmin"]
+SCOPE_LEVELS: tuple[ScopeLevel, ...] = (SCOPE_READ, SCOPE_WRITE, SCOPE_ADMIN, SCOPE_SUPERADMIN)
+"""Ordered low to high — the index is the comparison in ``scope_admits``."""
+
+
+def scope_admits(held: ScopeLevel, required: ScopeLevel) -> bool:
+    """Whether a token holding ``held`` may perform a ``required``-level operation."""
+    return SCOPE_LEVELS.index(held) >= SCOPE_LEVELS.index(required)
 
 
 class User(SQLModel, table=True):
@@ -82,7 +90,7 @@ class ApiToken(SQLModel, table=True):
     prefix: str = Field(sa_column=Column(String, nullable=False))
     """Leading characters of the secret, so a user can tell tokens apart in a list."""
     token_hash: str = Field(sa_column=Column(String, nullable=False, unique=True, index=True))
-    scope: TokenScope = Field(sa_column=Column(String, nullable=False))
+    scope: ScopeLevel = Field(sa_column=Column(String, nullable=False))
     expires_at: datetime | None = Field(default=None)
     last_used_at: datetime | None = Field(default=None)
     revoked_at: datetime | None = Field(default=None)

@@ -19,9 +19,9 @@ from .models import (
     PasswordResetToken,
     RefreshToken,
     Role,
+    ScopeLevel,
     Tenant,
     TenantMembership,
-    TokenScope,
     User,
 )
 
@@ -326,7 +326,7 @@ class ResolvedApiToken(NamedTuple):
 
 
 async def create_api_token(
-    *, user_id: int, name: str, prefix: str, token_hash: str, scope: TokenScope, expires_at: datetime | None
+    *, user_id: int, name: str, prefix: str, token_hash: str, scope: ScopeLevel, expires_at: datetime | None
 ) -> ApiToken:
     return await _insert(
         ApiToken(

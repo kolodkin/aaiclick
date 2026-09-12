@@ -7,7 +7,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from ..log_models import SnowflakeId
-from .models import Role, TokenScope
+from .models import Role, ScopeLevel
 
 
 class LoginRequest(BaseModel):
@@ -133,7 +133,7 @@ class ApiTokenView(BaseModel):
     id: SnowflakeId
     name: str
     prefix: str
-    scope: TokenScope
+    scope: ScopeLevel
     expires_at: datetime | None
     last_used_at: datetime | None
     revoked_at: datetime | None
@@ -148,7 +148,7 @@ class ApiTokenCreated(ApiTokenView):
 
 class CreateApiTokenRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    scope: TokenScope = "read"
+    scope: ScopeLevel = "read"
     expires_at: datetime | None = None
 
 

@@ -52,7 +52,7 @@ from aaiclick import cli_renderers, cli_wait, internal_api
 from aaiclick.ai.importing import import_ai_module
 from aaiclick.audit.view_models import AuditListFilter
 from aaiclick.auth import store as auth_store
-from aaiclick.auth.models import ROLE_VIEWER, ROLES, TOKEN_SCOPE_READ, TOKEN_SCOPES
+from aaiclick.auth.models import ROLE_VIEWER, ROLES, SCOPE_LEVELS, SCOPE_READ
 from aaiclick.auth.view_models import CreateApiTokenRequest, CreateTenantRequest, CreateUserRequest, UserListFilter
 from aaiclick.datetime_utils import utc_now
 from aaiclick.internal_api import api_tokens as api_tokens_api
@@ -1543,7 +1543,7 @@ def build_parser() -> argparse.ArgumentParser:
     token_create_parser = token_subparsers.add_parser("create", help="Mint an API token for a user")
     token_create_parser.add_argument("username")
     token_create_parser.add_argument("--name", required=True, help="Label shown in token lists")
-    token_create_parser.add_argument("--scope", choices=list(TOKEN_SCOPES), default=TOKEN_SCOPE_READ)
+    token_create_parser.add_argument("--scope", choices=list(SCOPE_LEVELS), default=SCOPE_READ)
     token_create_parser.add_argument("--expires-days", type=int, default=None, help="Lifetime in days (default: never)")
     _add_json_flag(token_create_parser)
 

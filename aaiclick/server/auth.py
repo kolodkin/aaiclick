@@ -27,7 +27,7 @@ from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from aaiclick.auth import config, security, store
-from aaiclick.auth.models import ROLE_ADMIN, TOKEN_SCOPE_READ, TOKEN_SCOPE_WRITE, Role, TokenScope
+from aaiclick.auth.models import ROLE_ADMIN, SCOPE_READ, SCOPE_WRITE, Role, ScopeLevel
 from aaiclick.internal_api.errors import Forbidden, Invalid, Unauthorized
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.tenancy import DEFAULT_TENANT_ID, active_tenant
@@ -54,7 +54,7 @@ class Principal(NamedTuple):
     superadmin: bool
     tenants: dict[int, Role]
     """Membership map ``tenant_id -> role`` — from the access JWT, or read live for an API token."""
-    scope: TokenScope = TOKEN_SCOPE_WRITE
+    scope: ScopeLevel = SCOPE_WRITE
     """API-token scope; sessions always carry ``write``."""
     kind: AuthKind = AUTH_KIND_SESSION
 
@@ -111,7 +111,7 @@ async def resolve_principal(authorization: str | None) -> Principal:
 def enforce_scope(principal: Principal, *, writes: bool) -> None:
     """A ``read``-scoped token may only do reads — REST decides ``writes`` by HTTP
     method, MCP by tool tag."""
-    if writes and principal.scope == TOKEN_SCOPE_READ:
+    if writes and principal.scope == SCOPE_READ:
         raise Forbidden("token scope 'read' cannot perform writes")
 
 
