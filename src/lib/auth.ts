@@ -38,6 +38,26 @@ export function getActiveTenantId(): string | null {
   return currentMe.tenants[0]?.tenant_id ?? DEFAULT_TENANT_ID;
 }
 
+export type ScopeLevel = "read" | "write" | "admin" | "superadmin";
+
+// Ordered low to high; the index is the comparison, as in aaiclick/auth/models.py.
+export const SCOPE_LEVELS: ScopeLevel[] = ["read", "write", "admin", "superadmin"];
+
+// The highest level this user may mint in the tenant they are acting in, mirroring
+// _mint_ceiling in aaiclick/internal_api/api_tokens.py. The server is the authority —
+// this only keeps the form from offering a level it would refuse.
+export function getMintCeiling(): ScopeLevel {
+  if (currentMe === null) return "read";
+  if (currentMe.superadmin) return "superadmin";
+  const active = getActiveTenantId();
+  const membership = currentMe.tenants.find((t) => t.tenant_id === active);
+  return membership?.role === "admin" ? "admin" : "write";
+}
+
+export function mintableScopes(): ScopeLevel[] {
+  return SCOPE_LEVELS.slice(0, SCOPE_LEVELS.indexOf(getMintCeiling()) + 1);
+}
+
 function setAccessToken(token: string | null): void {
   accessToken = token;
 }

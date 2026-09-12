@@ -52,7 +52,7 @@ from aaiclick import cli_renderers, cli_wait, internal_api
 from aaiclick.ai.importing import import_ai_module
 from aaiclick.audit.view_models import AuditListFilter
 from aaiclick.auth import store as auth_store
-from aaiclick.auth.models import ROLE_VIEWER, ROLES, SCOPE_LEVELS, SCOPE_READ
+from aaiclick.auth.models import ROLE_VIEWER, ROLES, SCOPE_LEVELS, SCOPE_READ, SCOPE_SUPERADMIN
 from aaiclick.auth.view_models import CreateApiTokenRequest, CreateTenantRequest, CreateUserRequest, UserListFilter
 from aaiclick.datetime_utils import utc_now
 from aaiclick.internal_api import api_tokens as api_tokens_api
@@ -72,7 +72,7 @@ from aaiclick.orchestration.models import (
 )
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.orchestration.runner_config import ENTRY_TYPES
-from aaiclick.tenancy import active_tenant
+from aaiclick.tenancy import active_tenant, get_active_tenant_id
 from aaiclick.view_models import (
     ExecutionWorkerFilter,
     JobListFilter,
@@ -599,8 +599,13 @@ async def _run_token_create(args: argparse.Namespace) -> None:
     async def do():
         user_id = await _resolve_user_id(args.username)
         expires_at = utc_now() + timedelta(days=args.expires_days) if args.expires_days else None
+        # Below superadmin a token is bound to one tenant. _run_internal_api has
+        # already entered the tenant the top-level --tenant flag names, so the
+        # contextvar is the answer — and the default tenant when it is absent.
+        tenant_id = None if args.scope == SCOPE_SUPERADMIN else get_active_tenant_id()
         return await api_tokens_api.create_token(
-            user_id, CreateApiTokenRequest(name=args.name, scope=args.scope, expires_at=expires_at)
+            user_id,
+            CreateApiTokenRequest(name=args.name, scope=args.scope, tenant_id=tenant_id, expires_at=expires_at),
         )
 
     view = await _run_internal_api(do())

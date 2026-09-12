@@ -150,7 +150,7 @@ class ApiTokenCreated(ApiTokenView):
 class CreateApiTokenRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     scope: ScopeLevel = SCOPE_READ
-    tenant_id: int | None = None
+    tenant_id: SnowflakeId | None = None
     """Required below ``superadmin``; ignored (and stored ``None``) at that level."""
     expires_at: datetime | None = None
 

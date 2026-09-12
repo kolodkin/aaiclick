@@ -627,3 +627,11 @@ def test_audit_parser_flags():
         and args.since == "2026-01-01"
     )
     assert args.limit == 50 and args.offset == 0 and args.user_id is None
+
+
+def test_token_parser_accepts_every_scope():
+    parser = build_parser()
+    for level in ("read", "write", "admin", "superadmin"):
+        args = parser.parse_args(["token", "create", "alice", "--name", "ci", "--scope", level])
+        assert args.scope == level
+    assert parser.parse_args(["token", "create", "alice", "--name", "ci"]).scope == "read"

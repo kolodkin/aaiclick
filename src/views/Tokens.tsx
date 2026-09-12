@@ -5,9 +5,17 @@ import { Chips } from "../components/Chips";
 import { Panel } from "../components/Panel";
 import { SecretPanel } from "../components/SecretPanel";
 import { useToast } from "../components/Toast";
+import { getActiveTenantId, mintableScopes, type ScopeLevel } from "../lib/auth";
 import { relativeTime } from "../lib/format";
 
 const DEFAULT_EXPIRY_DAYS = "90";
+
+const SCOPE_HELP: Record<ScopeLevel, string> = {
+  read: "every read",
+  write: "saved queries and dashboards",
+  admin: "run and cancel jobs, register, delete objects, memberships",
+  superadmin: "instance operations — setup, migrate, workers, users, tenants",
+};
 
 function expiresAt(days: string): string | null {
   const n = Number(days);
@@ -21,13 +29,20 @@ export function Tokens({ onPrompt }: { onPrompt: (v: string) => void }) {
   const revoke = useRevokeApiToken();
   const toast = useToast();
   const [name, setName] = useState("");
-  const [scope, setScope] = useState<"read" | "write">("read");
+  const [scope, setScope] = useState<ScopeLevel>("read");
+  const offered = mintableScopes();
   const [days, setDays] = useState(DEFAULT_EXPIRY_DAYS);
   const [created, setCreated] = useState<ApiTokenCreated | null>(null);
 
   const onCreate = () => {
     create.mutate(
-      { name, scope, expires_at: expiresAt(days) },
+      {
+        name,
+        scope,
+        // Below superadmin a token is bound to the tenant it is minted in.
+        tenant_id: scope === "superadmin" ? null : getActiveTenantId(),
+        expires_at: expiresAt(days),
+      },
       {
         onSuccess: (t) => {
           setCreated(t);
@@ -64,11 +79,14 @@ export function Tokens({ onPrompt }: { onPrompt: (v: string) => void }) {
         </div>
         <div className="field">
           <label>
-            Scope <span className="help">— read: GET only; write: everything your roles allow</span>
+            Scope <span className="help">— {SCOPE_HELP[scope]}</span>
           </label>
-          <select id="token-scope" value={scope} onChange={(e) => setScope(e.target.value as "read" | "write")}>
-            <option value="read">read</option>
-            <option value="write">write</option>
+          <select id="token-scope" value={scope} onChange={(e) => setScope(e.target.value as ScopeLevel)}>
+            {offered.map((level) => (
+              <option key={level} value={level}>
+                {level}
+              </option>
+            ))}
           </select>
         </div>
         <div className="field">
@@ -91,6 +109,7 @@ export function Tokens({ onPrompt }: { onPrompt: (v: string) => void }) {
               <th>Name</th>
               <th>Prefix</th>
               <th>Scope</th>
+              <th>Tenant</th>
               <th>Expires</th>
               <th>Last used</th>
               <th>Status</th>
@@ -105,6 +124,7 @@ export function Tokens({ onPrompt }: { onPrompt: (v: string) => void }) {
                 <td>
                   <span className="badge b-PENDING">{t.scope}</span>
                 </td>
+                <td className="mono">{t.tenant_id ?? "—"}</td>
                 <td>{t.expires_at ? new Date(t.expires_at).toLocaleDateString() : "never"}</td>
                 <td>{relativeTime(t.last_used_at)}</td>
                 <td>{t.revoked_at ? <span className="badge b-CANCELLED">revoked</span> : <span className="badge b-COMPLETED">active</span>}</td>
@@ -126,7 +146,7 @@ export function Tokens({ onPrompt }: { onPrompt: (v: string) => void }) {
             ))}
             {data.items.length === 0 && (
               <tr>
-                <td colSpan={7} className="sub">
+                <td colSpan={8} className="sub">
                   No tokens yet.
                 </td>
               </tr>

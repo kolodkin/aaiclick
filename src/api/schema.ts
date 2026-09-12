@@ -953,7 +953,9 @@ export interface components {
              * Scope
              * @enum {string}
              */
-            scope: "read" | "write";
+            scope: "read" | "write" | "admin" | "superadmin";
+            /** Tenant Id */
+            tenant_id: string | null;
             /** Token */
             token: string;
         };
@@ -983,7 +985,9 @@ export interface components {
              * Scope
              * @enum {string}
              */
-            scope: "read" | "write";
+            scope: "read" | "write" | "admin" | "superadmin";
+            /** Tenant Id */
+            tenant_id: string | null;
         };
         /** AuditEntryView */
         AuditEntryView: {
@@ -1104,7 +1108,9 @@ export interface components {
              * @default read
              * @enum {string}
              */
-            scope: "read" | "write";
+            scope: "read" | "write" | "admin" | "superadmin";
+            /** Tenant Id */
+            tenant_id?: string | null;
         };
         /** CreateTenantRequest */
         CreateTenantRequest: {

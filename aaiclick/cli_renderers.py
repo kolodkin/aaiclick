@@ -267,7 +267,10 @@ def render_member(view: MemberView) -> None:
 
 def render_api_token_created(view: ApiTokenCreated) -> None:
     """Show the freshly minted secret — the only time it is ever displayed."""
-    print(f"{view.id}  {view.name}  scope={view.scope}  expires={_fmt_optional(view.expires_at)}")
+    print(
+        f"{view.id}  {view.name}  scope={view.scope}  "
+        f"tenant={_fmt_optional(view.tenant_id)}  expires={_fmt_optional(view.expires_at)}"
+    )
     print(f"token: {view.token}")
     print("Store it now — it cannot be retrieved again.")
 
@@ -304,12 +307,16 @@ def render_api_tokens_page(page: Page[ApiTokenView]) -> None:
         print("No api tokens found")
         return
 
-    print(f"{'ID':<20} {'Name':<20} {'Prefix':<14} {'Scope':<6} {'Expires':<26} {'Last used':<26} {'Revoked':<26}")
-    print("-" * 142)
+    print(
+        f"{'ID':<20} {'Name':<20} {'Prefix':<14} {'Scope':<11} {'Tenant':<20} "
+        f"{'Expires':<26} {'Last used':<26} {'Revoked':<26}"
+    )
+    print("-" * 168)
     for t in page.items:
         print(
-            f"{t.id:<20} {t.name:<20} {t.prefix:<14} {t.scope:<6} {_fmt_optional(t.expires_at):<26} "
-            f"{_fmt_optional(t.last_used_at):<26} {_fmt_optional(t.revoked_at):<26}"
+            f"{t.id:<20} {t.name:<20} {t.prefix:<14} {t.scope:<11} {_fmt_optional(t.tenant_id):<20} "
+            f"{_fmt_optional(t.expires_at):<26} {_fmt_optional(t.last_used_at):<26} "
+            f"{_fmt_optional(t.revoked_at):<26}"
         )
 
 
