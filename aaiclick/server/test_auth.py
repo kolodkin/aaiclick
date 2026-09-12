@@ -191,10 +191,9 @@ async def test_mcp_mount_admits_an_api_token_and_stores_it(orch_ctx, enabled):
     """Per-tool RBAC lives in mcp_rbac.py — the mount only needs a principal."""
     called: list[bool] = []
     user = await users.create_user(CreateUserRequest(username="m", password="pw"))
-    await store.set_membership(tenant_id=DEFAULT_TENANT_ID, user_id=user.id, role="viewer")
-    created = await api_tokens.create_token(
-        user.id, CreateApiTokenRequest(name="m", scope="read", tenant_id=DEFAULT_TENANT_ID)
-    )
+    tenant = await store.create_tenant(slug="home", name="Home")
+    await store.set_membership(tenant_id=tenant.id, user_id=user.id, role="viewer")
+    created = await api_tokens.create_token(user.id, CreateApiTokenRequest(name="m", scope="read", tenant_id=tenant.id))
     scope = {"type": "http", "headers": [(b"authorization", f"Bearer {created.token}".encode())]}
     await _drive(scope, called)
     assert called == [True]

@@ -16,13 +16,27 @@ from aaiclick.auth.view_models import ApiTokenCreated, CreateApiTokenRequest, Cr
 from aaiclick.datetime_utils import utc_now
 from aaiclick.internal_api import api_tokens, users
 from aaiclick.internal_api.errors import Invalid, NotFound
-from aaiclick.tenancy import DEFAULT_TENANT_ID
+
+HOME_SLUG = "home"
+"""A real tenant these tests mint into.
+
+Not ``DEFAULT_TENANT_ID``: that constant is the data plane's fallback and has
+no ``tenants`` row, so a membership naming it violates the
+``tenant_memberships`` foreign key under Postgres.
+"""
+
+
+async def _home() -> int:
+    tenant = await store.get_tenant_by_slug(HOME_SLUG)
+    if tenant is None:
+        tenant = await store.create_tenant(slug=HOME_SLUG, name="Home")
+    return tenant.id
 
 
 async def _user(username="alice"):
-    """A plain member of the default tenant — enough to mint up to ``write``."""
+    """A plain member of the home tenant — enough to mint up to ``write``."""
     view = await users.create_user(CreateUserRequest(username=username, password="pw"))
-    await store.set_membership(tenant_id=DEFAULT_TENANT_ID, user_id=view.id, role=ROLE_VIEWER)
+    await store.set_membership(tenant_id=await _home(), user_id=view.id, role=ROLE_VIEWER)
     return view
 
 
@@ -35,7 +49,7 @@ async def _member(username: str, tenant_id: int, role: Role):
 async def test_create_returns_secret_once_and_list_hides_it(orch_ctx):
     user = await _user()
     created = await api_tokens.create_token(
-        user.id, CreateApiTokenRequest(name="ci", scope="write", tenant_id=DEFAULT_TENANT_ID)
+        user.id, CreateApiTokenRequest(name="ci", scope="write", tenant_id=await _home())
     )
     assert isinstance(created, ApiTokenCreated)
     assert security.is_api_token(created.token)
@@ -48,7 +62,7 @@ async def test_create_returns_secret_once_and_list_hides_it(orch_ctx):
 
 async def test_created_token_resolves_by_hash(orch_ctx):
     user = await _user()
-    created = await api_tokens.create_token(user.id, CreateApiTokenRequest(name="ci", tenant_id=DEFAULT_TENANT_ID))
+    created = await api_tokens.create_token(user.id, CreateApiTokenRequest(name="ci", tenant_id=await _home()))
     row = await store.get_active_api_token(security.sha256_hex(created.token))
     assert row is not None and row.user_id == user.id and row.scope == "read"
 
@@ -58,11 +72,11 @@ async def test_expiry_validated_and_revoke_deactivates(orch_ctx):
     with pytest.raises(Invalid):
         await api_tokens.create_token(
             user.id,
-            CreateApiTokenRequest(name="old", tenant_id=DEFAULT_TENANT_ID, expires_at=utc_now() - timedelta(seconds=1)),
+            CreateApiTokenRequest(name="old", tenant_id=await _home(), expires_at=utc_now() - timedelta(seconds=1)),
         )
     created = await api_tokens.create_token(
         user.id,
-        CreateApiTokenRequest(name="soon", tenant_id=DEFAULT_TENANT_ID, expires_at=utc_now() + timedelta(seconds=1)),
+        CreateApiTokenRequest(name="soon", tenant_id=await _home(), expires_at=utc_now() + timedelta(seconds=1)),
     )
     assert await store.get_active_api_token(security.sha256_hex(created.token)) is not None
     await api_tokens.revoke_token(user.id, created.id)
@@ -72,7 +86,7 @@ async def test_expiry_validated_and_revoke_deactivates(orch_ctx):
 async def test_revoke_other_users_token_is_not_found(orch_ctx):
     alice = await _user("alice")
     bob = await _user("bob")
-    created = await api_tokens.create_token(alice.id, CreateApiTokenRequest(name="ci", tenant_id=DEFAULT_TENANT_ID))
+    created = await api_tokens.create_token(alice.id, CreateApiTokenRequest(name="ci", tenant_id=await _home()))
     with pytest.raises(NotFound):
         await api_tokens.revoke_token(bob.id, created.id)
     assert await store.get_active_api_token(security.sha256_hex(created.token)) is not None

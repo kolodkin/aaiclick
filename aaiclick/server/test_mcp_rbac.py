@@ -21,7 +21,7 @@ from aaiclick.internal_api import api_tokens, users
 from aaiclick.internal_api.errors import Forbidden, Invalid
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
-from aaiclick.tenancy import DEFAULT_TENANT_ID
+from aaiclick.tenancy import DEFAULT_TENANT_ID, active_tenant
 
 from .auth import Principal, PrincipalAuthMiddleware
 from .mcp import mcp
@@ -114,18 +114,32 @@ async def _mcp_http() -> AsyncIterator[httpx.AsyncClient]:
             yield client
 
 
+HOME_SLUG = "home"
+"""A real tenant the HTTP tests bind tokens to.
+
+Not ``DEFAULT_TENANT_ID``: that constant is the data plane's fallback and has
+no ``tenants`` row, so a membership naming it violates the
+``tenant_memberships`` foreign key under Postgres.
+"""
+
+
+async def _home() -> int:
+    tenant = await store.get_tenant_by_slug(HOME_SLUG)
+    if tenant is None:
+        tenant = await store.create_tenant(slug=HOME_SLUG, name="Home")
+    return tenant.id
+
+
 async def _api_token(scope: str, *, superadmin: bool = False, role: str = ROLE_ADMIN) -> str:
     """Mint a real token — the mount takes API tokens only, never a session JWT."""
     user = await users.create_user(
         CreateUserRequest(username=f"t_{scope}_{superadmin}", password="pw", superadmin=superadmin)
     )
-    if not superadmin:
-        await store.set_membership(tenant_id=DEFAULT_TENANT_ID, user_id=user.id, role=role)
+    tenant_id = None if scope == SCOPE_SUPERADMIN else await _home()
+    if not superadmin and tenant_id is not None:
+        await store.set_membership(tenant_id=tenant_id, user_id=user.id, role=role)
     created = await api_tokens.create_token(
-        user.id,
-        CreateApiTokenRequest(
-            name=scope, scope=scope, tenant_id=None if scope == SCOPE_SUPERADMIN else DEFAULT_TENANT_ID
-        ),
+        user.id, CreateApiTokenRequest(name=scope, scope=scope, tenant_id=tenant_id)
     )
     return created.token
 
@@ -151,8 +165,9 @@ async def test_tools_list_is_filtered_by_role(orch_ctx, enabled):
 
 
 async def test_viewer_can_read_but_not_write(orch_ctx, enabled):
-    job = await create_job("mcp_rbac_job", simple_task)
     viewer = {"Authorization": f"Bearer {await _api_token(SCOPE_WRITE, role=ROLE_VIEWER)}"}
+    with active_tenant(await _home()):
+        job = await create_job("mcp_rbac_job", simple_task)
     async with _mcp_http() as client:
         ok = await _rpc(client, "tools/call", {"name": "get_job", "arguments": {"ref": job.id}}, viewer)
         assert ok["result"]["structuredContent"]["name"] == "mcp_rbac_job"
