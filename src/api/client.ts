@@ -72,3 +72,9 @@ export const fetchJSON = <T>(path: string) => sendJSON<T>("GET", path);
 export const postJSON = <T>(path: string, body?: unknown) => sendJSON<T>("POST", path, body);
 export const putJSON = <T>(path: string, body: unknown) => sendJSON<T>("PUT", path, body);
 export const deleteJSON = <T>(path: string) => sendJSON<T>("DELETE", path);
+
+// Open a long-lived response (server-sent events) through the same auth
+// chokepoint. The caller reads `res.body`; `signal` aborts the connection.
+export function openStream(path: string, signal: AbortSignal): Promise<Response> {
+  return request(path, { signal, headers: { Accept: "text/event-stream" } });
+}

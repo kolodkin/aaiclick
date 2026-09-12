@@ -34,6 +34,7 @@ from aaiclick.snowflake import get_snowflake_id
 
 from ...datetime_utils import utc_now
 from ..env import get_db_url
+from ..events import register_session_hooks
 from ..models import JOB_CANCELLED, JOB_COMPLETED, JOB_FAILED, PRESERVATION_FULL
 from .handler import BackgroundHandler, create_background_handler, in_clause, try_complete_job
 
@@ -89,6 +90,7 @@ class BackgroundWorker:
         self._handler: BackgroundHandler = create_background_handler()
 
     async def start(self) -> None:
+        register_session_hooks()
         if is_chdb():
             from aaiclick.data.data_context.chdb_client import create_chdb_client
 

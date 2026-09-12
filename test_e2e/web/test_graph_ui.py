@@ -11,14 +11,11 @@ suite only runs when its path is passed explicitly or in a dedicated workflow.
 
 from __future__ import annotations
 
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-from helpers import open_page
+from helpers import job_graph, open_page, run_in_process
 
-from aaiclick.backend import is_local
 from aaiclick.orchestration.models import JOB_COMPLETED, TASK_COMPLETED, TASK_RUNNING
 
 STATIC = Path(__file__).resolve().parents[2] / "aaiclick" / "server" / "static" / "index.html"
@@ -49,31 +46,17 @@ _BUILD_GATED_COUNT = 8
 _ROOT_BUILD_EDGE_COUNT = 1
 _COLLAPSED_BUILD_EDGE_COUNT = _BUILD_GATED_COUNT - _ROOT_BUILD_EDGE_COUNT
 
-pytestmark = [
-    pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`"),
-    pytest.mark.skipif(
-        not is_local(),
-        reason="seeds the local SQLite database directly; the distributed e2e job "
-        "runs against remote Postgres and enforces auth",
-    ),
-]
+pytestmark = pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing; run `npm run build`")
 
 
 @pytest.fixture(scope="module")
 def seeded_job_id() -> int:
-    """Seed the demo graph once per module and return its job id.
-
-    Runs on its own thread: ``pytest-asyncio`` is in auto mode so a loop is
-    already running here, and Playwright's sync API cannot be driven from
-    inside one either. A dedicated thread gives the seeding a clean loop and
-    leaves the test thread loop-free.
-    """
+    """Seed the demo graph once per module and return its job id."""
     return _seed("graph_ui_demo")
 
 
 def _seed(name: str, **kwargs) -> int:
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(lambda: asyncio.run(seed_graph_job(name, **kwargs))).result()
+    return run_in_process(lambda: seed_graph_job(name, **kwargs))
 
 
 def open_graph(page, base_url: str, job_id: int, node_count: int = _NODE_COUNT):
@@ -174,7 +157,7 @@ def test_build_edges_toggle_reveals_every_dependency(graph_page, shot) -> None:
 
 def test_clicking_build_badge_opens_the_build_task(graph_page, seeded_job_id: int) -> None:
     """The badge is the way into the build's own detail and logs."""
-    graph = graph_page.request.get(f"{graph_page.url.split('/?')[0]}/api/v0/jobs/{seeded_job_id}/graph").json()
+    graph = job_graph(str(seeded_job_id))
     build_id = next(n["id"] for n in graph["nodes"] if n["is_image_build"])
 
     graph_page.locator("[data-testid='build-gate']").first.click()
@@ -186,7 +169,7 @@ def test_clicking_build_badge_opens_the_build_task(graph_page, seeded_job_id: in
 def test_graph_expands_group_to_source_and_sink_only(graph_page, seeded_job_id: int) -> None:
     """``extract >> group`` reaches only the group's source task, and
     ``group >> report`` leaves only from its sink — not from every member."""
-    graph = graph_page.request.get(f"{graph_page.url.split('/?')[0]}/api/v0/jobs/{seeded_job_id}/graph").json()
+    graph = job_graph(str(seeded_job_id))
     by_id = {n["id"]: n["name"] for n in graph["nodes"]}
     edges = {(by_id[e["source_id"]], by_id[e["target_id"]]) for e in graph["edges"]}
 

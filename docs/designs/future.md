@@ -9,41 +9,62 @@ Planned work across aaiclick, ordered by priority.
 
 Items deferred until preconditions are met.
 
-## SSE `/events` Endpoint + LISTEN/NOTIFY Fanout
+## Event Fanout — Beyond Postgres LISTEN/NOTIFY
 
-v0 uses 2 s `refetchInterval` polling. The designed real-time path is:
-
-1. `GET /api/v0/events` → `text/event-stream` (one connection per UI session).
-2. Workers emit `NOTIFY job_events` in the same commit as every status write.
-3. FastAPI holds one `LISTEN` connection per backend and forwards
-   notifications onto an in-process pub/sub bus.
-4. The SSE endpoint subscribes and streams typed events (`job.updated`,
-   `task.updated`, `task.log`) to the browser.
-5. The browser calls `queryClient.invalidateQueries(...)` and lets REST
-   fetch authoritative state — events are signals, not payloads.
-
-**SQLite local mode**: poll + snapshot diff every 2 s (same latency as current
-polling, but avoids N×M HTTP requests from N browser tabs). SQLite pairs with
-chdb, and local mode is single-process — cross-host fanout doesn't arise there.
-
-**Multi-host is already covered**: Postgres delivers each `NOTIFY` to every
-connection that has issued `LISTEN`, so N API hosts just hold N `LISTEN`
-connections — no extra broker. `NOTIFY` in the same commit as the status
-write guarantees a refetching client sees the committed state. Escape
-hatches, should the feeder ever measurably hurt:
+`GET /api/v0/events` streams change signals fed by `pg_notify` on every
+job/task commit (`docs/designs/frontend.md` — Live updates). Escape hatches,
+should the feeder ever measurably hurt:
 
 - **Redis Pub/Sub** — only if listener count or notification volume becomes a
-  real cost (dozens of hosts, very high event rates), or payloads outgrow
-  Postgres's ~8 KB `NOTIFY` limit; events are signals, not payloads, so they
-  stay tiny.
-- **ClickHouse tail** — each API host polls `operation_log` (or a dedicated
-  events table) past a watermark: N pollers instead of N×M browser polls, no
-  touch on the SQL commit path. But latency is poll-bound and the CH insert
-  is unordered relative to the SQL commit, so a client can refetch before the
-  status write is visible. chdb is in-process single-session — not a bus.
+  real cost (dozens of hosts, very high event rates). Signals carry no
+  payload, so Postgres's ~8 KB `NOTIFY` limit never bites.
+- **ClickHouse tail** — each API host polls `operation_log` past a watermark:
+  N pollers, no touch on the SQL commit path. But latency is poll-bound and
+  the CH insert is unordered relative to the SQL commit, so a client can
+  refetch before the status write is visible.
+- **Typed per-job events with tenant filtering** — every view is job-scoped
+  and refetches the same few queries, so the coarse signal costs nothing
+  today; widen the payload only if a view needs to ignore other jobs' churn.
 
-**When to revisit**: when polling overhead is measurable (many tabs or many
-concurrent jobs), or when sub-2 s latency matters for operators.
+## Change Signals — Consumers Beyond the UI
+
+The signal (`aaiclick/orchestration/events`) is "a job, task or group row
+committed", not a UI concept; the SSE stream is merely its first subscriber.
+Next in line:
+
+- **`cli_wait.wait_for_job`** — polls job stats on a fixed interval today.
+  It could run the active transport's `feed` and block on
+  `EventBus.subscribe()` instead, re-reading stats only when a signal lands:
+  sub-second reaction, zero idle queries. Keep a slow poll as the fallback,
+  as the browser does. Local mode is the harder case: the CLI is a separate
+  process from a running local server, and `LocalTransport` only sees
+  commits in its own process, so a wait on a job the server is running
+  would need the Postgres transport or the SSE stream over HTTP.
+- **MCP / SDK waiters** — the same subscribe-then-refetch loop serves any
+  in-process caller that blocks on a job; external tools in distributed
+  mode can `LISTEN aaiclick_events` on Postgres directly.
+
+## Task Logs — Per-Attempt History in the Log Panel
+
+`get_task_logs` (`aaiclick/internal_api/tasks.py`) reads `task.run_ids[-1]`, so
+the panel shows only the latest attempt. Earlier attempts are already in
+ClickHouse — `task_logs` tags each line with `run_id`, and `Task.run_ids` /
+`Task.run_statuses` hold the ordered attempts and how each ended — so a retried
+task's failed runs are retained but unreachable. That is exactly the output you
+want after a flaky task finally passes.
+
+Shape, following Airflow's per-try log selector:
+
+- `GET /tasks/{id}/logs` takes an optional 1-based `attempt`, resolved through
+  `run_ids`; defaults to the last.
+- `TaskLogsView` carries the attempts and their statuses, so the selector costs
+  no second request.
+- `LogViewer` shows the selector only when `run_ids` has more than one entry.
+  Polling stays on the latest attempt; older ones are immutable.
+
+!!! note "Pending input"
+    Airflow screenshots to follow as the reference for layout and wording — do
+    not settle the UI details before then.
 
 ## API Auth — Beyond Username/Password + RBAC
 

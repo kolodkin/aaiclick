@@ -2,6 +2,7 @@ import { columnNames, columnTypes, renderCell, ResultsTable } from "@qv/core";
 import { useObjectRows, useObjects } from "../api/hooks";
 import type { ObjectView } from "../api/types";
 import { Chips } from "../components/Chips";
+import { LiveStatus } from "../components/LiveStatus";
 import { MetaGrid } from "../components/MetaGrid";
 import { ObjectsTable } from "../components/ObjectsTable";
 import { ScopeTree } from "../components/ScopeTree";
@@ -24,7 +25,10 @@ export function Data({
   return (
     <>
       <h2>Data</h2>
-      <p className="sub">Objects of the selected scope · click a row to preview</p>
+      <p className="sub">
+        Objects of the selected scope · click a row to preview ·{" "}
+        <LiveStatus updatedAt={objects.dataUpdatedAt} queryKey="objects" />
+      </p>
       <Chips
         chips={[
           { label: "← home", cmd: "" },

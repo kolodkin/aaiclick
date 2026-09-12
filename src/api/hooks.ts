@@ -1,6 +1,8 @@
+import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { QueryRows } from "@qv/core";
 import { deleteJSON, fetchJSON, postJSON, postText, putJSON } from "./client";
+import { isTaskStarted, isTerminalTask } from "../lib/status";
 import { jobOfScope } from "../lib/viewer";
 import type {
   Dashboard,
@@ -21,6 +23,7 @@ import type {
   SavedQueryBody,
   TaskDetail,
   TaskLogs,
+  TaskStatus,
 } from "./types";
 
 // `poll: false` for callers that only need names (the viewer's scope tree).
@@ -56,12 +59,33 @@ export function useTask(id: string) {
   });
 }
 
-export function useTaskLogs(id: string) {
-  return useQuery({
+// Logs reach ClickHouse from the task process on its own flush cadence, not
+// through a SQL commit, so no /events signal marks a new line — a running task
+// keeps the 2 s poll, and the `changed` signal for the final status write
+// triggers the last refetch. A task that has not started cannot have produced
+// output, so it is not fetched at all. `false`, not `undefined`: an unset
+// interval inherits the QueryClient default and would poll a finished task's
+// immutable logs every 2 s whenever the stream is down.
+export function useTaskLogs(id: string, status: TaskStatus) {
+  const started = isTaskStarted(status);
+  const terminal = isTerminalTask(status);
+  const qc = useQueryClient();
+  const query = useQuery({
     queryKey: ["task-logs", id],
     queryFn: () => fetchJSON<TaskLogs>(`/tasks/${id}/logs`),
-    enabled: id.length > 0,
+    enabled: id.length > 0 && started,
+    refetchInterval: started && !terminal ? 2000 : false,
   });
+
+  // Going terminal stops the timer, but whatever the task wrote since the last
+  // poll is not on screen yet — and this key is not in LIVE_KEYS, so no
+  // `changed` frame will ever fetch it. Without this the panel stays up to one
+  // poll interval short of the truth, permanently.
+  useEffect(() => {
+    if (started && terminal) void qc.invalidateQueries({ queryKey: ["task-logs", id] });
+  }, [started, terminal, id, qc]);
+
+  return query;
 }
 
 // Registered jobs change only via register/enable/disable mutations, all of

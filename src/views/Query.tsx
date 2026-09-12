@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useObject, useObjects } from "../api/hooks";
 import { Chips } from "../components/Chips";
+import { LiveStatus } from "../components/LiveStatus";
 import { QueryPanel } from "../components/QueryPanel";
 import { ScopeTree } from "../components/ScopeTree";
 import { dataPrompt, fieldsFromSchema, queryPrompt, scopeKey, scopeLabel } from "../lib/viewer";
@@ -25,7 +26,10 @@ export function Query({
   return (
     <>
       <h2>Query</h2>
-      <p className="sub">Filter, order, and page through one object · save as a named query</p>
+      <p className="sub">
+        Filter, order, and page through one object · save as a named query ·{" "}
+        <LiveStatus updatedAt={objects.dataUpdatedAt} queryKey="objects" />
+      </p>
       <Chips
         chips={[
           { label: "← home", cmd: "" },

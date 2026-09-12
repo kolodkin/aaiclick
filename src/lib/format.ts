@@ -6,10 +6,12 @@ function formatSeconds(secs: number): string {
   return `${hours}h ${String(mins % 60).padStart(2, "0")}m`;
 }
 
-export function relativeTime(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const then = new Date(iso).getTime();
-  const secs = Math.max(0, Math.round((Date.now() - then) / 1000));
+// `at` is an ISO string or epoch ms; `now` lets a caller that re-renders on a
+// timer pass the clock reading that render used instead of reading it again.
+export function relativeTime(at: string | number | null | undefined, now: number = Date.now()): string {
+  if (!at) return "—";
+  const then = typeof at === "number" ? at : new Date(at).getTime();
+  const secs = Math.max(0, Math.round((now - then) / 1000));
   if (secs < 60) return `${secs}s ago`;
   const mins = Math.round(secs / 60);
   if (mins < 60) return `${mins}m ago`;

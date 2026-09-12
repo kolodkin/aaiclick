@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import NamedTuple
 
 from alembic import command
 from sqlalchemy import create_engine, insert, inspect, select
@@ -111,17 +112,86 @@ def _local_db_connection() -> Iterator[Connection | None]:
         engine.dispose()
 
 
-def _missing_columns(conn: Connection) -> list[str]:
-    """``table.column`` for every model column absent from an existing table."""
+class _Shape(NamedTuple):
+    """One table as the database materialises it, reduced to comparable values."""
+
+    columns: dict[str, tuple[str, bool]]
+    indexes: dict[str, tuple[tuple[str, ...], bool]]
+    unique: dict[str, tuple[str, ...]]
+    foreign_keys: dict[tuple[str, ...], tuple[str, tuple[str, ...]]]
+
+
+def _shape(conn: Connection) -> dict[str, _Shape]:
+    """Reflect every table into the comparable form above."""
     inspector = inspect(conn)
-    existing = set(inspector.get_table_names())
-    missing: list[str] = []
-    for table in SQLModel.metadata.sorted_tables:
-        if table.name not in existing:
-            continue
-        present = {col["name"] for col in inspector.get_columns(table.name)}
-        missing.extend(f"{table.name}.{col.name}" for col in table.columns if col.name not in present)
-    return missing
+    return {
+        table: _Shape(
+            columns={c["name"]: (str(c["type"]), bool(c["nullable"])) for c in inspector.get_columns(table)},
+            indexes={
+                i["name"]: (tuple(i["column_names"]), bool(i.get("unique")))
+                for i in inspector.get_indexes(table)
+                if i["name"]
+            },
+            unique={u["name"]: tuple(u["column_names"]) for u in inspector.get_unique_constraints(table) if u["name"]},
+            foreign_keys={
+                tuple(f["constrained_columns"]): (f["referred_table"], tuple(f["referred_columns"]))
+                for f in inspector.get_foreign_keys(table)
+            },
+        )
+        for table in inspector.get_table_names()
+    }
+
+
+def _reference_shape() -> dict[str, _Shape]:
+    """The shape ``setup`` would produce, from a throwaway database built now.
+
+    Compared against a *database* rather than against ``SQLModel.metadata``
+    because only the database says what the models actually materialise —
+    column types as SQLite renders them, indexes, unique constraints, foreign
+    keys. Both sides come from the same ``create_all`` on the same dialect, so
+    reflection quirks appear on both and cancel; a metadata-to-reflection
+    comparison has to special-case each of them instead.
+
+    In memory rather than in a temp directory: same dialect and same DDL, four
+    times quicker, and nothing to clean up if the caller raises.
+    """
+    engine = create_engine("sqlite://")
+    try:
+        SQLModel.metadata.create_all(engine)
+        with engine.connect() as conn:
+            return _shape(conn)
+    finally:
+        engine.dispose()
+
+
+class LocalDbDrift(NamedTuple):
+    """How a local database differs from the one ``setup`` would build now.
+
+    Split because the two halves have different remedies: ``create_all`` adds a
+    missing table without touching anything else, while a table that exists in
+    the wrong shape can only be fixed by recreating the database — SQLite
+    cannot ``ALTER`` its way there, which is why the revision chain is
+    PostgreSQL-only (see "One migration chain, not two" in
+    ``docs/designs/orchestration.md``).
+    """
+
+    missing_tables: list[str]
+    mismatched: list[str]
+
+
+def _drift(conn: Connection) -> LocalDbDrift:
+    reference, actual = _reference_shape(), _shape(conn)
+    missing_tables = sorted(set(reference) - set(actual))
+    mismatched: list[str] = []
+    for table in sorted(set(reference) & set(actual)):
+        want, got = reference[table], actual[table]
+        mismatched.extend(f"{table}.{name}" for name in want.columns if name not in got.columns)
+        mismatched.extend(f"{table}.{name} (index)" for name in want.indexes if name not in got.indexes)
+        mismatched.extend(f"{table}.{name} (unique)" for name in want.unique if name not in got.unique)
+        mismatched.extend(
+            f"{table}.{'+'.join(cols)} (foreign key)" for cols in want.foreign_keys if cols not in got.foreign_keys
+        )
+    return LocalDbDrift(missing_tables, mismatched)
 
 
 def _old_default_tenant(conn: Connection) -> int | None:
@@ -141,20 +211,19 @@ def _old_default_tenant(conn: Connection) -> int | None:
 
 
 def stale_local_db() -> list[str]:
-    """Model columns missing from the tables already in the local SQLite DB.
+    """Everything an existing local table lacks, against a reference build.
 
     ``SQLModel.metadata.create_all`` only creates missing *tables* — it never
     alters one that already exists. A ``local.db`` written by an older version
     therefore gains any newly added table while its existing tables silently
-    keep their original columns. Alembic cannot migrate it either: the
-    revision chain is authored for PostgreSQL (non-batch ``create_foreign_key``,
-    ``ALTER`` of constraints) and raises ``NotImplementedError`` on SQLite.
+    keep their original columns.
 
-    Returns ``table.column`` names, empty when the database is current or
-    absent.
+    Returns ``table.column`` names, plus ``(index)`` / ``(unique)`` /
+    ``(foreign key)`` entries for the rest; empty when the database is current
+    or absent.
     """
     with _local_db_connection() as conn:
-        return [] if conn is None else _missing_columns(conn)
+        return [] if conn is None else _drift(conn).mismatched
 
 
 _RECREATE_TAIL = (
@@ -173,18 +242,34 @@ def stale_local_db_reason(*, limit: int = 5) -> str | None:
     with _local_db_connection() as conn:
         if conn is None:
             return None
-        columns = _missing_columns(conn)
+        mismatched = _drift(conn).mismatched
         detail = None
-        if columns:
-            shown = ", ".join(columns[:limit])
-            if len(columns) > limit:
-                shown += f" and {len(columns) - limit} more"
-            detail = f"is missing {len(columns)} column(s) added since: {shown}"
+        if mismatched:
+            shown = ", ".join(mismatched[:limit])
+            if len(mismatched) > limit:
+                shown += f" and {len(mismatched) - limit} more"
+            detail = f"is missing {len(mismatched)} item(s) added since: {shown}"
         elif (old_id := _old_default_tenant(conn)) is not None:
             detail = f"carries default tenant {old_id}, not {DEFAULT_TENANT_ID}"
     if detail is None:
         return None
     return f"{_local_db_path()} was created by an older version of aaiclick: it {detail}. {_RECREATE_TAIL}"
+
+
+def missing_local_tables() -> list[str]:
+    """Model tables absent from an existing local SQLite DB.
+
+    Separate from :func:`stale_local_db` because the remedy differs: these are
+    added by a plain ``create_all``, whereas a table in the wrong shape needs
+    the database recreated. ``is_setup_done`` only checks for a marker file, so
+    a marker left beside an empty or truncated ``local.db`` (an interrupted
+    setup, a wiped data dir) looked set up and every query failed with "no such
+    table".
+
+    Returns table names, empty when the database is current or absent.
+    """
+    with _local_db_connection() as conn:
+        return [] if conn is None else _drift(conn).missing_tables
 
 
 STALE_DB_REMEDY = "Re-run `aaiclick setup --force` to recreate it."

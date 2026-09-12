@@ -87,6 +87,20 @@ main { flex: 1 1 auto; overflow: auto; padding: 22px; }
 h2 { font-size: 18px; margin: 0 0 4px; }
 .sub { color: var(--muted); margin: 0 0 18px; }
 
+/* liveness for auto-refreshing views: transport mode + data age */
+.live-status { white-space: nowrap; }
+.live-dot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  margin-right: 5px; vertical-align: baseline;
+  background: var(--gray); box-shadow: 0 0 0 2px var(--gray-bg);
+}
+.live-dot.on { background: var(--green); box-shadow: 0 0 0 2px var(--green-bg); }
+.live-refresh {
+  background: none; border: 0; padding: 0 0 0 6px; cursor: pointer;
+  color: inherit; font: inherit; line-height: 1;
+}
+.live-refresh:hover { color: var(--fg); }
+
 /* command chips */
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; align-items: center; }
 .chip {
@@ -214,7 +228,8 @@ tbody tr.clickable:hover { background: rgba(91,157,255,.12); }
   max-height: 52vh; border: 1px solid var(--border);
   box-shadow: var(--hi), var(--shadow);
 }
-.logs .logs-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; color: #6b7480; font-size: 11px; cursor: pointer; }
+.logs .logs-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; color: #6b7480; font-size: 11px; }
+.logs .logs-toolbar label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .logs .ts { color: #6b7480; }
 .logs .lvl-DEBUG { color: #6b7480; }
 .logs .lvl-INFO { color: #79c0ff; }

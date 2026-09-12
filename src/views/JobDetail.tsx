@@ -1,6 +1,7 @@
 import { useJob } from "../api/hooks";
 import { AdminButton } from "../components/AdminButton";
 import { Chips } from "../components/Chips";
+import { LiveStatus } from "../components/LiveStatus";
 import { JobGraph } from "../components/graph/JobGraph";
 import { MetaGrid } from "../components/MetaGrid";
 import { ProgressBar } from "../components/ProgressBar";
@@ -18,7 +19,7 @@ export function JobDetail({
   view: JobViewMode;
   onPrompt: (v: string) => void;
 }) {
-  const { data: job, isLoading, isError } = useJob(name);
+  const { data: job, isLoading, isError, dataUpdatedAt } = useJob(name);
 
   if (isLoading) return <p className="sub">loading…</p>;
   if (isError || !job)
@@ -30,6 +31,8 @@ export function JobDetail({
       </>
     );
 
+  // Named once: the badge above and the body below must not drift apart.
+  const graphView = view === "graph";
   const cancellable = job.status === "RUNNING" || job.status === "PENDING";
   const onCancel = () => onPrompt(`cancel ${job.name}`);
 
@@ -48,6 +51,12 @@ export function JobDetail({
             </AdminButton>
           )}
         </div>
+        {/* Graph view gets its badge from JobGraph, for its own query. */}
+        {!graphView && (
+          <p className="sub">
+            <LiveStatus updatedAt={dataUpdatedAt} queryKey="job" />
+          </p>
+        )}
         <MetaGrid
           items={[
             { k: "Created", v: relativeTime(job.created_at) },
@@ -66,7 +75,7 @@ export function JobDetail({
         ]}
         onPrompt={onPrompt}
       />
-      {view === "graph" ? (
+      {graphView ? (
         <JobGraph refId={job.name} onPrompt={onPrompt} />
       ) : (
         <TasksTable tasks={job.tasks ?? []} onPrompt={onPrompt} />
