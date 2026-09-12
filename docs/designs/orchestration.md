@@ -91,11 +91,21 @@ for a local database that exists to be thrown away. Local SQLite is built by
 (`aaiclick setup --force`).
 
 The cost lands on one question — *is this database current?* — which has no
-`alembic_version` row to read locally. `setup` answers it by comparing the
-database's shape to the models instead: `stale_local_db_reason` for columns a
-table is missing, `missing_local_tables` for tables absent entirely. Shape
-inspection cannot see what the models do not express (an index, a
-constraint), which is the accepted limit of keeping one chain.
+`alembic_version` row to read locally. `setup` answers it by building a
+throwaway in-memory database from the same `create_all` and diffing the real
+one against it, so the comparison covers everything the models materialise:
+tables, columns and their types, indexes, unique constraints, foreign keys.
+The two halves have different remedies — `missing_local_tables` is added by a
+plain `create_all`, while `stale_local_db_reason` (a table in the wrong shape,
+or a default tenant predating the id move) means recreating the database,
+since SQLite cannot `ALTER` its way there.
+
+What this still cannot see is anything a revision would do that `create_all`
+would not — a backfill, a data repair. That is the accepted limit of keeping
+one chain: local databases are recreated, so there is nothing to backfill.
+
+**Implementation**: `aaiclick/internal_api/setup.py` — see `_reference_shape`,
+`_drift`, `stale_local_db_reason`, `missing_local_tables`.
 
 ## Distributed runner subtypes
 

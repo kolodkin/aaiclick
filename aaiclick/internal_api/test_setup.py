@@ -269,6 +269,33 @@ def test_stale_local_db_empty_for_current_schema(local_db):
     assert setup.stale_local_db() == []
 
 
+def test_stale_local_db_sees_a_dropped_index(local_db):
+    """Drift the models express but a column comparison cannot see.
+
+    The check builds a reference database and diffs against it, so indexes,
+    unique constraints and foreign keys count too — a database whose columns
+    all match is not necessarily the one ``setup`` would build.
+    """
+    engine = _current_sqlite_db(local_db)
+    with engine.begin() as conn:
+        conn.execute(sa_text("DROP INDEX ix_jobs_tenant_id"))
+    engine.dispose()
+
+    assert "jobs.ix_jobs_tenant_id (index)" in setup.stale_local_db()
+
+
+def test_missing_local_tables_is_separate_from_shape_drift(local_db):
+    """A dropped table is reported apart from a wrong-shaped one, because
+    ``create_all`` can add it back without recreating the database."""
+    engine = _current_sqlite_db(local_db)
+    with engine.begin() as conn:
+        conn.execute(sa_text("DROP TABLE groups"))
+    engine.dispose()
+
+    assert setup.missing_local_tables() == ["groups"]
+    assert setup.stale_local_db() == []
+
+
 def test_stale_local_db_empty_when_absent(local_db):
     """A first run has no database to compare against."""
     assert setup.stale_local_db() == []
