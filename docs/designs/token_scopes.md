@@ -2,8 +2,10 @@ Token Scopes
 ---
 
 API tokens carry one of four ordered scopes — `read`, `write`, `admin`,
-`superadmin` — and a token may be minted only at or below its owner's own
-level. The scope is the single gate on the `/mcp` surface and the token half of
+`superadmin`. The three tenant-scoped levels are **bound to one tenant** at
+mint; `superadmin` is instance-wide because its operations cross tenants. A
+token may be minted only at or below its owner's own level in the tenant it
+names. The scope is the single gate on the `/mcp` surface and the token half of
 the gate on REST. Identity, token format, and storage are unchanged:
 `docs/designs/auth.md` — API Tokens.
 
@@ -37,6 +39,11 @@ credential may do, the tenant role still says who the caller is.
 Ordering is the whole mechanism: a token admits its own level and every level
 beneath it. `read` is the default at every mint site.
 
+The first three name a tenant and act only there. `superadmin` names none — its
+operations are instance-level, and for the tenant-scoped tools it reaches it
+selects a tenant with `X-Tenant-Id`, exactly as a superadmin session does
+today.
+
 # Data Model
 
 `ScopeLevel = Literal["read", "write", "admin", "superadmin"]` replaces
@@ -45,29 +52,34 @@ ordered `SCOPE_LEVELS` tuple whose index *is* the comparison. One helper,
 `scope_admits(held, required) -> bool`, is the only place the ordering is read.
 
 `api_tokens.scope` stays a plain `String` column typed with the literal, so
-widening the set is this code change and nothing else — the reason CLAUDE.md
-keeps closed string sets out of DB CHECK constraints. Existing `read` and
-`write` rows stay valid, so there is no migration.
+widening the set is a code change and nothing else — the reason CLAUDE.md keeps
+closed string sets out of DB CHECK constraints. Existing `read` and `write`
+rows keep their meaning.
+
+Binding does need schema: `api_tokens.tenant_id`, a nullable `BigInteger`
+(plain column, not a DB FK — matching `jobs` and `table_registry`), null exactly
+when the scope is `superadmin`. That is one Alembic revision, generated through
+the `generate-migration` workflow. Existing rows backfill to the default tenant,
+which is where their owners already act.
 
 # Minting
 
-A caller may mint at or below their own effective level:
+A `read` / `write` / `admin` mint names a tenant, and the caller may mint at or
+below their own role **in that tenant**:
 
-| Owner is                          | May mint up to |
-|-----------------------------------|----------------|
-| `superadmin`                      | `superadmin`   |
-| tenant admin in any tenant        | `admin`        |
-| member of any tenant              | `write`        |
-| no membership                     | `read`         |
+| Owner's role in the named tenant | May mint up to |
+|----------------------------------|----------------|
+| tenant admin                     | `admin`        |
+| member (viewer)                  | `write`        |
+| not a member                     | nothing (404)  |
 
-Above that ceiling is `Invalid` (422) naming the caller's own level. Minting
-still requires a session, so a token can never mint a token
+A superadmin may mint any level in any tenant, and is the only one who may mint
+an untenanted `superadmin` token. Above the ceiling is `Invalid` (422) naming
+the caller's own level; a tenant the caller cannot act in reads as missing
+(404), never as forbidden, so tokens cannot probe for tenants.
+
+Minting still requires a session, so a token can never mint a token
 (`docs/designs/auth.md` — API Tokens).
-
-The ceiling reads "in any tenant" rather than "in the active tenant" because
-the live per-tenant check below already caps what a token delivers. Its job
-here is to keep a token's stated power honest: a viewer holding an `admin`
-token that grants admin nowhere is a worse outcome than a refusal at mint.
 
 # Enforcement
 
@@ -98,36 +110,47 @@ principal, everything open.
 
 ## Tenancy
 
-A single scalar cannot say "admin in tenant A, viewer in tenant B", so the
-scope is a **ceiling rather than a grant**: effective authority is the lesser
-of the token's scope and the owner's live authority in the active tenant, with
-`X-Tenant-Id` still selecting that tenant. A role reads onto the ladder the
-same way the mint ceiling does — `superadmin` flag → `superadmin`, tenant
-admin → `admin`, member → `write` — so the two are comparable.
+A tenant-scoped token names its tenant, so `X-Tenant-Id` no longer selects one
+for it: the header may be omitted, and one naming a *different* tenant is
+`Invalid` (422) rather than quietly ignored — a client sending it has a bug
+worth surfacing. `superadmin` tokens carry no tenant and still select with the
+header, exactly as a superadmin session does.
 
-!!! important "Design decision: a ceiling, not a grant"
-    Binding a token to one tenant at mint — the fine-grained-PAT shape — would
-    let the token answer the question alone, at the cost of a token per tenant
-    and, more seriously, of freezing authority into it. API tokens resolve the
-    owner's flag and memberships live on every request precisely so demotion
-    binds immediately (`docs/designs/auth.md` — Principal Resolution). Freeze
-    that and a demoted user keeps `admin` until somebody revokes the token.
-    The ceiling keeps instant demotion while still bounding a leak.
+This also shrinks resolution: `resolve_api_token` reads one membership — the
+token's own tenant — instead of the owner's whole membership map.
+
+Binding answers *where*, not *how much*. The level stays a **ceiling rather
+than a grant**: effective authority is the lesser of the token's level and the
+owner's live role in that tenant, where a role reads onto the ladder as
+tenant admin → `admin`, member → `write`. A superadmin reads as tenant admin
+everywhere (`role_in_tenant`), so a bound token they mint keeps working without
+an explicit membership — and stops the moment the flag is cleared.
+
+!!! important "Design decision: binding does not make the level a grant"
+    It is tempting to treat a bound token as self-describing and skip the role
+    lookup entirely. API tokens resolve the owner's flag and membership live on
+    every request precisely so a demotion binds immediately
+    (`docs/designs/auth.md` — Principal Resolution). Drop that and someone
+    demoted from admin to viewer keeps an `admin` token until a human
+    remembers to revoke it. The check costs nothing extra — it rides the query
+    `resolve_api_token` already makes.
 
 # Surfaces
 
-`--scope` gains the two new values in `aaiclick token create`; the SPA's
-`@tokens` form offers the levels the signed-in user may mint and explains each
-in a line. `ApiTokenView.scope` widens with the literal, so the generated SPA
-types follow from `npm run gen-types`.
+`aaiclick token create` gains the two new `--scope` values and takes its tenant
+from the existing top-level `--tenant` flag, so no new CLI concept appears. The
+SPA's `@tokens` form offers the levels the signed-in user may mint in the tenant
+they are acting in, one line of explanation each. `ApiTokenView` grows `tenant_id`
+and widens `scope`, so the generated SPA types follow from `npm run gen-types`.
 
 # Delivery Phases
 
-| Phase | Deliverable                                                                 |
-|-------|-----------------------------------------------------------------------------|
-| 1     | `ScopeLevel` + `scope_admits`, mint ceiling, REST enforcement, docs          |
-| 2     | MCP tool re-tagging, API-token-only `/mcp`                                   |
-| 3     | CLI and SPA scope pickers                                                    |
+| Phase | Deliverable                                                                          |
+|-------|--------------------------------------------------------------------------------------|
+| 1     | `ScopeLevel` + `scope_admits`, `api_tokens.tenant_id` + migration, mint ceiling, resolution |
+| 2     | REST enforcement off guard + method, retiring the `SAFE_METHODS` heuristic            |
+| 3     | MCP tool re-tagging, API-token-only `/mcp`                                            |
+| 4     | CLI and SPA scope pickers                                                             |
 
 Each phase is one commit. Business-logic tests live in
 `aaiclick/internal_api/test_api_tokens.py` and `aaiclick/auth/`; the ladder
