@@ -265,9 +265,15 @@ def warn_if_open() -> None:
 
 
 class PrincipalAuthMiddleware:
-    """ASGI guard for the ``/mcp`` mount: any authenticated principal when auth
-    is enabled. Per-tool RBAC happens inside FastMCP (``mcp_rbac.py``), which
-    reads the principal this middleware records on the request."""
+    """ASGI guard for the ``/mcp`` mount: an API token, and only an API token,
+    when auth is enabled.
+
+    The surface is for unattended clients, an API token is their credential,
+    and the restriction is what gives every MCP principal a real scope to gate
+    on — a session JWT carries none. Per-tool RBAC happens inside FastMCP
+    (``mcp_rbac.py``), which reads the principal this middleware records on the
+    request.
+    """
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -277,6 +283,12 @@ class PrincipalAuthMiddleware:
         # app's lifespan runs at the root, not through the mount.
         authorization = Headers(scope=scope).get("authorization")
         try:
+            if config.auth_enabled():
+                scheme, credentials = get_authorization_scheme_param(authorization)
+                if scheme.lower() != "bearer" or not credentials:
+                    raise Unauthorized("missing bearer token")
+                if not security.is_api_token(credentials):
+                    raise Unauthorized("/mcp requires an API token, not a session")
             principal = await resolve_principal(authorization)
         except Unauthorized as exc:
             response = problem_response("Unauthorized", 401, str(exc), ProblemCode.UNAUTHORIZED, BEARER_CHALLENGE)

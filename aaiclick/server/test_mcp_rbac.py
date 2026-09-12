@@ -14,14 +14,16 @@ from typing import Any
 import httpx
 import pytest
 
-from aaiclick.auth import security
+from aaiclick.auth import store
+from aaiclick.auth.models import ROLE_ADMIN, ROLE_VIEWER, SCOPE_SUPERADMIN, SCOPE_WRITE
+from aaiclick.auth.view_models import CreateApiTokenRequest, CreateUserRequest
+from aaiclick.internal_api import api_tokens, users
 from aaiclick.internal_api.errors import Forbidden, Invalid
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.tenancy import DEFAULT_TENANT_ID
 
 from .auth import Principal, PrincipalAuthMiddleware
-from .conftest import TEST_JWT_SECRET
 from .mcp import mcp
 from .mcp_rbac import TAG_ADMIN, TAG_READ, TAG_SUPERADMIN, TAG_WRITE, authorize_tool
 
@@ -112,10 +114,20 @@ async def _mcp_http() -> AsyncIterator[httpx.AsyncClient]:
             yield client
 
 
-def _token(*, superadmin=False, tenants=None) -> str:
-    return security.encode_access_token(
-        user_id=3, superadmin=superadmin, tenants=tenants or {}, secret=TEST_JWT_SECRET, ttl=60
+async def _api_token(scope: str, *, superadmin: bool = False, role: str = ROLE_ADMIN) -> str:
+    """Mint a real token — the mount takes API tokens only, never a session JWT."""
+    user = await users.create_user(
+        CreateUserRequest(username=f"t_{scope}_{superadmin}", password="pw", superadmin=superadmin)
     )
+    if not superadmin:
+        await store.set_membership(tenant_id=DEFAULT_TENANT_ID, user_id=user.id, role=role)
+    created = await api_tokens.create_token(
+        user.id,
+        CreateApiTokenRequest(
+            name=scope, scope=scope, tenant_id=None if scope == SCOPE_SUPERADMIN else DEFAULT_TENANT_ID
+        ),
+    )
+    return created.token
 
 
 async def _rpc(client: httpx.AsyncClient, method: str, params: dict[str, Any], headers: dict[str, str]) -> Any:
@@ -125,8 +137,8 @@ async def _rpc(client: httpx.AsyncClient, method: str, params: dict[str, Any], h
 
 
 async def test_tools_list_is_filtered_by_role(orch_ctx, enabled):
-    viewer = {"Authorization": f"Bearer {_token(tenants={DEFAULT_TENANT_ID: 'viewer'})}"}
-    superadmin = {"Authorization": f"Bearer {_token(superadmin=True)}"}
+    viewer = {"Authorization": f"Bearer {await _api_token(SCOPE_WRITE, role=ROLE_VIEWER)}"}
+    superadmin = {"Authorization": f"Bearer {await _api_token(SCOPE_SUPERADMIN, superadmin=True)}"}
     async with _mcp_http() as client:
         body = await _rpc(client, "tools/list", {}, viewer)
         names = {t["name"] for t in body["result"]["tools"]}
@@ -140,14 +152,14 @@ async def test_tools_list_is_filtered_by_role(orch_ctx, enabled):
 
 async def test_viewer_can_read_but_not_write(orch_ctx, enabled):
     job = await create_job("mcp_rbac_job", simple_task)
-    viewer = {"Authorization": f"Bearer {_token(tenants={DEFAULT_TENANT_ID: 'viewer'})}"}
+    viewer = {"Authorization": f"Bearer {await _api_token(SCOPE_WRITE, role=ROLE_VIEWER)}"}
     async with _mcp_http() as client:
         ok = await _rpc(client, "tools/call", {"name": "get_job", "arguments": {"ref": job.id}}, viewer)
         assert ok["result"]["structuredContent"]["name"] == "mcp_rbac_job"
 
         denied = await _rpc(client, "tools/call", {"name": "cancel_job", "arguments": {"ref": job.id}}, viewer)
         assert denied["result"]["isError"] is True
-        assert "tenant admin" in denied["result"]["content"][0]["text"]
+        assert "cannot perform 'admin'" in denied["result"]["content"][0]["text"]
 
 
 async def test_anonymous_gets_401_problem(orch_ctx, enabled):

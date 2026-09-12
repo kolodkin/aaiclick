@@ -187,17 +187,29 @@ async def test_mcp_middleware_rejects_missing_token(enabled):
     assert (b"www-authenticate", b"Bearer") in sent[0]["headers"]
 
 
-async def test_mcp_middleware_admits_any_principal_and_stores_it(enabled):
+async def test_mcp_mount_admits_an_api_token_and_stores_it(orch_ctx, enabled):
     """Per-tool RBAC lives in mcp_rbac.py — the mount only needs a principal."""
     called: list[bool] = []
-    token = security.encode_access_token(
-        user_id=2, superadmin=False, tenants={3: "viewer"}, secret=TEST_JWT_SECRET, ttl=60
+    user = await users.create_user(CreateUserRequest(username="m", password="pw"))
+    await store.set_membership(tenant_id=DEFAULT_TENANT_ID, user_id=user.id, role="viewer")
+    created = await api_tokens.create_token(
+        user.id, CreateApiTokenRequest(name="m", scope="read", tenant_id=DEFAULT_TENANT_ID)
     )
-    scope = {"type": "http", "headers": [(b"authorization", f"Bearer {token}".encode())]}
+    scope = {"type": "http", "headers": [(b"authorization", f"Bearer {created.token}".encode())]}
     await _drive(scope, called)
     assert called == [True]
     recorded = audit_state(scope).principal
-    assert recorded is not None and recorded.user_id == 2
+    assert recorded is not None and recorded.user_id == user.id
+
+
+async def test_mcp_mount_refuses_a_session_jwt(enabled):
+    """MCP is the machine door; a session JWT belongs on REST."""
+    called: list[bool] = []
+    token = security.encode_access_token(user_id=2, superadmin=True, tenants={}, secret=TEST_JWT_SECRET, ttl=60)
+    scope = {"type": "http", "headers": [(b"authorization", f"Bearer {token}".encode())]}
+    sent = await _drive(scope, called)
+    assert not called
+    assert sent[0]["status"] == 401
 
 
 async def test_mcp_middleware_open_in_local_mode(monkeypatch):
