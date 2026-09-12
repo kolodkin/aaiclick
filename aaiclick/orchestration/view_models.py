@@ -14,7 +14,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from ..log_models import LogLine, SnowflakeId
-from .graph import DependencyRow, build_graph_edges
+from .graph import DependencyRow, build_graph_edges, group_member_tasks, rollup_status
 from .models import (
     TASK_COMPLETED,
     Dependency,
@@ -99,7 +99,9 @@ GraphNodeKind = Literal["task", "group"]
 
 
 class GraphNodeView(BaseModel):
-    """A node in the job graph. v1 emits only ``"task"`` nodes."""
+    """A node in the job graph: a task, or a group container drawn around its
+    member tasks. A group's ``status`` and timing are rolled up from every task
+    beneath it; its ``entrypoint`` is empty and ``attempt`` is ``0``."""
 
     id: SnowflakeId
     kind: GraphNodeKind
@@ -298,6 +300,24 @@ def task_to_graph_node(task: Task) -> GraphNodeView:
     )
 
 
+def group_to_graph_node(group: Group, members: list[Task]) -> GraphNodeView:
+    """A container node summarising ``members`` (every task beneath ``group``)."""
+    started = [t.started_at for t in members if t.started_at is not None]
+    completed = [t.completed_at for t in members if t.completed_at is not None]
+    return GraphNodeView(
+        id=group.id,
+        kind=GRAPH_NODE_GROUP,
+        name=group.name,
+        parent_group_id=group.parent_group_id,
+        status=rollup_status(t.status for t in members),
+        entrypoint="",
+        attempt=0,
+        started_at=min(started) if started else None,
+        # The group is finished only once its last member is.
+        completed_at=max(completed) if len(completed) == len(members) else None,
+    )
+
+
 def build_job_graph_view(
     job: Job,
     tasks: list[Task],
@@ -327,9 +347,18 @@ def build_job_graph_view(
     # A task is a pipeline root when nothing but a build precedes it.
     has_dependency_predecessor = {e.target_id for e in kept if e.source_id not in build_ids}
 
+    tasks_by_id = {t.id: t for t in tasks}
+    group_nodes = []
+    for group in groups:
+        members = [tasks_by_id[i] for i in group_member_tasks(group.id, group_members, group_children)]
+        # A group with nothing beneath it has nothing to contain.
+        if members:
+            group_nodes.append(group_to_graph_node(group, members))
+
     return JobGraphView(
         job_id=job.id,
-        nodes=[task_to_graph_node(t) for t in tasks],
+        # Containers first: React Flow requires a parent to precede its children.
+        nodes=[*group_nodes, *(task_to_graph_node(t) for t in tasks)],
         edges=[
             GraphEdgeView(
                 source_id=e.source_id,

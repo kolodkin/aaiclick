@@ -11,6 +11,7 @@ from aaiclick.internal_api import audit as audit_api
 from aaiclick.internal_api import users
 from aaiclick.tenancy import DEFAULT_TENANT_ID
 
+from . import audit as audit_mw
 from .app import API_PREFIX
 from .audit import should_audit
 
@@ -27,12 +28,23 @@ from .audit import should_audit
         pytest.param("all", "POST", "/mcp/", None, True, id="all-logs-mcp"),
         pytest.param("all", "GET", "/health", None, False, id="never-health"),
         pytest.param("all", "GET", "/api/v0/docs", None, False, id="never-docs"),
+        pytest.param("all", "GET", "/api/v0/events", None, False, id="never-sse-stream"),
         pytest.param("all", "GET", "/assets/x.js", None, False, id="never-static"),
         pytest.param("off", "POST", "/api/v0/auth/login", None, False, id="off"),
     ],
 )
 def test_should_audit(policy, method, path, action, expected):
     assert should_audit(policy, method, path, action) is expected
+
+
+def test_auditable_path_excludes_streams_and_docs():
+    """Gating happens before the SQL context opens, so a long-lived SSE stream
+    never pins an engine for the life of the connection."""
+    assert audit_mw.auditable_path("/api/v0/jobs") is True
+    assert audit_mw.auditable_path("/mcp/") is True
+    assert audit_mw.auditable_path("/api/v0/events") is False
+    assert audit_mw.auditable_path("/api/v0/openapi.json") is False
+    assert audit_mw.auditable_path("/health") is False
 
 
 def test_audit_policy_env(monkeypatch):

@@ -3,7 +3,7 @@
 Covers both persistence tiers:
 
 - ``scope="job"`` → ``j_<job_id>_<name>``
-- ``scope="global"`` → ``p_<name>`` (user-managed, survives the job)
+- ``scope="global"`` → ``p_<tenant_id>_<name>`` (user-managed, survives the job)
 
 Plus the regex validation of names, the ``open``/``delete`` round trip,
 and the API-misuse paths (``scope`` without ``name``, ``delete_persistent_objects``
@@ -24,11 +24,12 @@ from aaiclick.data.data_context import (
     delete_persistent_object,
     delete_persistent_objects,
     get_data_lifecycle,
+    list_job_tables,
     list_persistent_objects,
     open_object,
 )
 from aaiclick.data.data_context.data_context import MAX_PERSISTENT_NAME_LEN, _validate_persistent_name
-from aaiclick.tenancy import active_tenant
+from aaiclick.tenancy import DEFAULT_TENANT_ID, active_tenant
 
 
 async def test_scope_default_is_temp_named_when_name_set(orch_ctx):
@@ -53,10 +54,10 @@ async def test_scope_job_explicit(orch_ctx):
 
 
 async def test_scope_global_explicit(orch_ctx):
-    """``scope='global'`` yields ``p_<name>`` and survives until explicit delete."""
+    """``scope='global'`` yields ``p_<tenant_id>_<name>`` and survives until explicit delete."""
     obj = await create_object_from_value([10, 20, 30], name="explicit_global", scope="global")
     try:
-        assert obj.table == "p_explicit_global"
+        assert obj.table == f"p_{DEFAULT_TENANT_ID}_explicit_global"
         assert obj.scope == "global"
         assert obj.persistent is True
         assert await obj.data() == [10, 20, 30]
@@ -73,7 +74,7 @@ async def test_open_object_round_trip_global(orch_ctx):
     )
     try:
         opened = await open_object("open_round_trip", scope="global")
-        assert opened.table == "p_open_round_trip"
+        assert opened.table == f"p_{DEFAULT_TENANT_ID}_open_round_trip"
         assert opened.persistent is True
         data = await opened.data()
         assert data["x"] == [1, 2, 3]
@@ -128,12 +129,7 @@ async def test_unnamed_object_is_temp_in_orch_context(orch_ctx):
 
 
 async def test_persistent_name_validation():
-    """Rejecting a leading digit is load-bearing beyond tidiness.
-
-    Tenant-prefixed object naming (``p_<tenant_id>_<name>``, see
-    ``docs/designs/tenant_rbac.md``) is only unambiguous while no
-    default-tenant object can produce a ``p_<digits>_`` prefix.
-    """
+    """Names become ClickHouse identifiers, so they must match the identifier regex."""
     with pytest.raises(ValueError, match="Invalid persistent name"):
         _validate_persistent_name("123bad")
     with pytest.raises(ValueError, match="Invalid persistent name"):
@@ -209,3 +205,36 @@ async def test_delete_clears_the_registry_row(orch_ctx):
     await create_object_from_value([1], name="short_lived", scope="global")
     await delete_persistent_object("short_lived", scope="global")
     assert "short_lived" not in await list_persistent_objects()
+
+
+def _current_job_id() -> int:
+    lifecycle = get_data_lifecycle()
+    assert lifecycle is not None
+    job_id = lifecycle.current_job_id()
+    assert job_id is not None
+    return job_id
+
+
+async def test_open_object_with_explicit_job_id(orch_ctx):
+    await create_object_from_value([1, 2], name="jscoped", scope="job")
+    job_id = _current_job_id()
+
+    reopened = await open_object("jscoped", scope="job", job_id=job_id)
+
+    assert reopened.table == f"j_{job_id}_jscoped"
+    assert await reopened.data() == [1, 2]
+
+
+async def test_open_object_other_job_id_is_not_found(orch_ctx):
+    await create_object_from_value([1], name="jscoped2", scope="job")
+    with pytest.raises(ObjectNotFoundError):
+        await open_object("jscoped2", scope="job", job_id=1)
+
+
+async def test_list_job_tables_returns_only_that_job(orch_ctx):
+    await create_object_from_value([1], name="jt_a", scope="job")
+    await create_object_from_value([2], name="jt_p", scope="global")
+    job_id = _current_job_id()
+
+    assert await list_job_tables(job_id) == [f"j_{job_id}_jt_a"]
+    assert await list_job_tables(1) == []

@@ -8,6 +8,7 @@ import pytest
 
 from aaiclick import create_object_from_value, delete_persistent_object
 from aaiclick.data.models import Computed
+from aaiclick.tenancy import DEFAULT_TENANT_ID
 
 THRESHOLD = 1e-5
 
@@ -332,7 +333,7 @@ async def test_concat_with_name_global_scope(ctx):
 
     result = await a.concat(b, name="concat_named_global", scope="global")
     try:
-        assert result.table == "p_concat_named_global"
+        assert result.table == f"p_{DEFAULT_TENANT_ID}_concat_named_global"
         assert await result.data() == [1, 2, 3, 4]
     finally:
         await delete_persistent_object("concat_named_global", scope="global")

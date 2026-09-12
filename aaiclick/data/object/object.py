@@ -418,6 +418,23 @@ class Object:
             query += f" OFFSET {eff_offset}"
         return query
 
+    def select_sql(
+        self,
+        columns: str = "*",
+        *,
+        order_by: Any = _UNSET,
+        limit: Any = _UNSET,
+        offset: Any = _UNSET,
+    ) -> str:
+        """The SELECT this object reads itself with.
+
+        ``columns`` is the projection (default ``*``); ``order_by`` / ``limit``
+        / ``offset`` override the View's stored values for this call only.
+        ``View`` and ``LazyOperator`` inherit it; ``data()`` and ``result()``
+        read through the same text.
+        """
+        return self._build_select(columns, default_order_by=None, order_by=order_by, limit=limit, offset=offset)
+
     def _get_query_info(self) -> QueryInfo:
         """
         Get query information for operator operations.
@@ -500,16 +517,16 @@ class Object:
     async def result(self):
         """Query and return the raw ClickHouse query result for this object.
 
-        Returns the low-level result object from the ClickHouse client.
-        Prefer `.data()` for normal use — it returns
-        typed Python values and supports orient modes. The concrete type depends
-        on the backend (clickhouse_connect `QueryResult` or the chdb equivalent).
+        Honors View constraints (WHERE / ORDER BY / LIMIT / OFFSET). Prefer
+        `.data()` for normal use — it returns typed Python values and
+        supports orient modes. The concrete type depends on the backend
+        (clickhouse_connect `QueryResult` or the chdb equivalent).
 
         Raises:
             RuntimeError: If the object is stale (already deleted).
         """
         self.checkstale()
-        return await self.ch_client.query(f"SELECT * FROM {self.table}")
+        return await self.ch_client.query(self.select_sql())
 
     async def data(
         self,

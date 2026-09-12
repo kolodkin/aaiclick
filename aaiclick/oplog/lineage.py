@@ -121,7 +121,7 @@ class OplogGraph(BaseModel):
 
         Handles every identifier shape that LLMs emit when describing
         lineage: full table names (`t_<id>`, `j_<job_id>_<name>`,
-        `p_<name>`, or any custom string in `labels`) and the bare
+        `p_<tenant_id>_<name>`, or any custom string in `labels`) and the bare
         snowflake form of `t_<id>` keys. Longer keys are tried first
         so a shorter substring cannot pre-empt a longer match.
         Unregistered tokens are left unchanged.

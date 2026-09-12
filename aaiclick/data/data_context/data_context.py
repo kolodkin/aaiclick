@@ -44,6 +44,7 @@ from ..models import (
 )
 from ..scope import (
     GLOBAL_PREFIX,
+    JOB_PREFIX,
     SCOPE_GLOBAL,
     SCOPE_JOB,
     SCOPE_TEMP_NAMED,
@@ -283,13 +284,17 @@ def _resolve_scope(name: str | None, scope: NamedScope | None) -> NamedScope | N
     return effective
 
 
-def _build_scoped_table(name: str, scope: NamedScope) -> str:
-    """Validate ``name`` and build the full CH table name for a scoped object."""
+def _build_scoped_table(name: str, scope: NamedScope, *, job_id: int | None = None) -> str:
+    """Validate ``name`` and build the full CH table name for a scoped object.
+
+    ``job_id`` overrides the ambient job (from ``task_scope``) for
+    ``scope="job"``; callers outside a task, such as the viewer, pass it
+    explicitly.
+    """
     _validate_persistent_name(name)
     if scope == SCOPE_TEMP_NAMED:
         return make_scoped_table_name(scope, name, snowid=get_snowflake_id())
-    job_id: int | None = None
-    if scope == SCOPE_JOB:
+    if scope == SCOPE_JOB and job_id is None:
         lifecycle = get_data_lifecycle()
         job_id = lifecycle.current_job_id() if lifecycle is not None else None
     return make_scoped_table_name(scope, name, job_id=job_id, tenant_id=get_active_tenant_id())
@@ -314,7 +319,7 @@ async def create_object(
               ``"temp_named"`` → ``t_<name>_<snowflake>`` (default; dies with
               the context, like an unnamed temp). ``"job"`` → ``j_<job_id>_<name>``
               (lives only as long as the active orch job; raises if no job is
-              active). ``"global"`` → ``p_<name>`` (user-managed, removed only
+              active). ``"global"`` → ``p_<tenant_id>_<name>`` (user-managed, removed only
               by ``delete_persistent_object()``).
 
     Returns:
@@ -524,7 +529,7 @@ async def create_object_from_value(
               ``"temp_named"`` → ``t_<name>_<snowflake>`` (default; dies with
               the context). ``"job"`` → ``j_<job_id>_<name>`` (lives only as
               long as the active orch job; raises when called from pure
-              ``data_context()``). ``"global"`` → ``p_<name>`` (user-managed,
+              ``data_context()``). ``"global"`` → ``p_<tenant_id>_<name>`` (user-managed,
               removed only by ``delete_persistent_object()``).
         aai_id: When ``True``, add an ``aai_id`` column (``UInt64`` with
               ``DEFAULT generateSnowflakeID()``). Each row gets a unique,
@@ -667,15 +672,17 @@ class ObjectNotFoundError(RuntimeError):
     """
 
 
-async def open_object(name: str, scope: PersistentScope = SCOPE_JOB) -> Object:
+async def open_object(name: str, scope: PersistentScope = SCOPE_JOB, *, job_id: int | None = None) -> Object:
     """Open an existing persistent Object by name.
 
     Args:
         name: Persistent name (without prefix).
         scope: Persistence tier the object was created with — ``"global"`` →
-               looks up ``p_<name>``; ``"job"`` → looks up
-               ``j_<job_id>_<name>`` using the active orch job. ``"temp_named"``
-               is not openable — temp tables disappear with their context.
+               looks up ``p_<tenant_id>_<name>``; ``"job"`` → looks up
+               ``j_<job_id>_<name>``. ``"temp_named"`` is not openable —
+               temp tables disappear with their context.
+        job_id: The owning job for ``scope="job"``. Defaults to the active
+               orch job; pass it explicitly outside a task (REST, MCP, CLI).
 
     Returns:
         Object with schema loaded from ClickHouse.
@@ -687,14 +694,17 @@ async def open_object(name: str, scope: PersistentScope = SCOPE_JOB) -> Object:
     from ..object import Object
     from ..object.ingest import _get_table_schema
 
-    table_name = _build_scoped_table(name, scope)
+    table_name = _build_scoped_table(name, scope, job_id=job_id)
     ch = get_ch_client()
 
     result = await ch.command(f"EXISTS TABLE {table_name}")
     if not result:
         raise ObjectNotFoundError(f"Persistent object '{name}' does not exist (table {table_name})")
 
-    fieldtype, columns = await _get_table_schema(table_name, ch)
+    try:
+        fieldtype, columns = await _get_table_schema(table_name, ch)
+    except LookupError as exc:
+        raise ObjectNotFoundError(f"Persistent object '{name}' does not exist (table {table_name})") from exc
     schema = Schema(fieldtype=fieldtype, columns=columns)
     obj = Object(table=table_name, schema=schema)
     register_object(obj)
@@ -707,7 +717,7 @@ async def delete_persistent_object(name: str, scope: PersistentScope = SCOPE_JOB
     Args:
         name: Persistent name (without prefix).
         scope: Tier the object was created with — ``"global"`` drops
-               ``p_<name>``; ``"job"`` drops ``j_<job_id>_<name>``.
+               ``p_<tenant_id>_<name>``; ``"job"`` drops ``j_<job_id>_<name>``.
 
     Raises:
         ValueError: If name is invalid.
@@ -769,37 +779,50 @@ async def delete_persistent_objects(
     return [name_from_table(n) for n in names]
 
 
-async def list_persistent_tables(
-    after: datetime | None = None,
-    before: datetime | None = None,
-) -> list[str]:
-    """List the active tenant's persistent CH table names (``p_*``).
-
-    Reads SQL ``table_registry`` rather than scanning ``system.tables``:
-    ownership lives in SQL, and a ClickHouse scan cannot tell one tenant's
-    tables from another's without re-parsing every prefix.
-
-    Args:
-        after: Only tables registered at or after this time (inclusive).
-        before: Only tables registered before this time (exclusive).
-    """
+async def _registered_tables(*predicates) -> list[str]:
+    """The active tenant's CH table names in SQL ``table_registry`` matching
+    ``predicates`` — ownership lives in SQL, and a ClickHouse scan cannot tell
+    one tenant's tables from another's without re-parsing every prefix."""
     # Circular dep: orchestration imports the data package at import time,
     # so the registry model and SQL session are resolved at call time
     # (same pattern as aaiclick/data/object/ingest.py::_get_table_schema).
     from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
     from aaiclick.orchestration.sql_context import get_sql_session
 
-    predicates = [
-        TableRegistry.tenant_id == get_active_tenant_id(),
-        col(TableRegistry.table_name).startswith(GLOBAL_PREFIX, autoescape=True),
-    ]
+    async with get_sql_session() as session:
+        result = await session.execute(
+            select(TableRegistry.table_name).where(TableRegistry.tenant_id == get_active_tenant_id(), *predicates)
+        )
+    return sorted(row[0] for row in result.all())
+
+
+async def list_persistent_tables(
+    after: datetime | None = None,
+    before: datetime | None = None,
+) -> list[str]:
+    """List the active tenant's persistent CH table names (``p_*``).
+
+    Args:
+        after: Only tables registered at or after this time (inclusive).
+        before: Only tables registered before this time (exclusive).
+    """
+    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry  # Circular dep: see _registered_tables.
+
+    predicates = [col(TableRegistry.table_name).startswith(GLOBAL_PREFIX, autoescape=True)]
     if after is not None:
         predicates.append(col(TableRegistry.created_at) >= naive_utc(after))
     if before is not None:
         predicates.append(col(TableRegistry.created_at) < naive_utc(before))
-    async with get_sql_session() as session:
-        result = await session.execute(select(TableRegistry.table_name).where(*predicates))
-    return [row[0] for row in result.all()]
+    return await _registered_tables(*predicates)
+
+
+async def list_job_tables(job_id: int) -> list[str]:
+    """List the active tenant's CH table names registered under ``job_id``."""
+    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry  # Circular dep: see _registered_tables.
+
+    return await _registered_tables(
+        TableRegistry.job_id == job_id, col(TableRegistry.table_name).startswith(JOB_PREFIX, autoescape=True)
+    )
 
 
 async def list_persistent_objects() -> list[str]:

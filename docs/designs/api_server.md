@@ -138,7 +138,9 @@ the numeric string and coerce it back to `int`. The generated SPA types
 | `JobListFilter`        | `status`, `name`, `since`, `limit`, `cursor`                 |
 | `RegisteredJobFilter`  | `enabled`, `name`, `limit`, `cursor`                         |
 | `ExecutionWorkerFilter`         | `status`, `limit`                                            |
-| `ObjectFilter`         | `prefix`, `scope`, `limit`, `cursor`                         |
+| `ObjectFilter`         | `prefix`, `scope`, `job`, `limit`, `cursor`                  |
+
+Viewer request models (`ObjectQueryRequest`, `SavedQueryIn`, `DashboardIn`, their filters and results) live in `aaiclick/viewer/view_models.py`; see `docs/designs/viewer.md`.
 
 ## Orchestration (`aaiclick/orchestration/view_models.py`)
 
@@ -227,11 +229,27 @@ All REST paths share a common `/api/v0` prefix — see
 | `data get <name>`          | `get_object(name)`                 | `GET /objects/{name}`              | `get_object`              |
 | `data delete <name>`       | `delete_object(name)`              | `DELETE /objects/{name}`           | `delete_object`           |
 | `data purge`               | `purge_objects(filter)`            | `POST /objects:purge`              | `purge_objects`           |
+| `data query <object>`      | `query_object(request)`            | `POST /viewer/query`               | `query_object`            |
+| `view queries list`        | `list_saved_queries(filter)`       | `GET /viewer/queries`              | `list_saved_queries`      |
+| `view queries save`        | `save_query(query)`                | `PUT /viewer/queries/{name}`       | `save_query`              |
+| `view queries delete`      | `delete_saved_query(name)`         | `DELETE /viewer/queries/{name}`    | `delete_saved_query`      |
+| `view dashboards list`     | `list_dashboards()`                | `GET /viewer/dashboards`           | `list_dashboards`         |
+| `view dashboards get`      | `get_dashboard(name)`              | `GET /viewer/dashboards/{name}`    | `get_dashboard`           |
+| `view dashboards save`     | `save_dashboard(dashboard)`        | `PUT /viewer/dashboards/{name}`    | `save_dashboard`          |
+| `view dashboards delete`   | `delete_dashboard(name)`           | `DELETE /viewer/dashboards/{name}` | `delete_dashboard`        |
+| `view dashboards run`      | `run_dashboard(name)`              | `POST /viewer/dashboards/{name}:run` | `run_dashboard`         |
 | *(new)* task detail        | `get_task(id)`                     | `GET /tasks/{id}`                  | `get_task`                |
+| `explain <table> [q]`      | `lineage_ai.explain_lineage(...)`  | —                                  | —                         |
+| `debug <table> "<q>"`      | `lineage_ai.debug_result(...)`     | —                                  | —                         |
 
 `job wait <ref>` and `run-job --progress` have no row: they are CLI-only
 compositions over `job_stats`. Blocking a request for up to 600s is not a
 valid server shape — REST clients poll `GET /jobs/{ref}/stats` instead.
+
+`explain` / `debug` need the `ai` extra, so their wrappers live in
+`internal_api.lineage_ai`, imported on demand by the CLI and never from
+`internal_api.__init__`. REST and MCP expose only the AI-independent
+primitives in `internal_api.lineage`; the calling agent composes them itself.
 
 
 # CLI Rendering Contract
@@ -382,6 +400,15 @@ workers.
 
 `Forbidden` ships in v0 so the error-mapping table is stable; no route
 raises it until scopes land.
+
+## Live updates — `GET /api/v0/events`
+
+A `text/event-stream` of `changed` events (no payload) fed by Postgres
+`LISTEN`/`NOTIFY` in distributed mode and an in-process bus in local mode.
+Requires a principal and a tenant like every other resource route; the
+signal itself carries nothing tenant-specific. Design and client behaviour:
+`docs/designs/frontend.md` — Live updates. **Implementation**:
+`aaiclick/server/events.py` — see `stream_events`, `live_events`.
 
 # MCP Surface
 

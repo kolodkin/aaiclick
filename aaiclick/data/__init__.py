@@ -21,6 +21,7 @@ from .data_context import (
     get_data_lifecycle,
     get_engine,
     incref,
+    list_job_tables,
     list_persistent_objects,
     open_object,
     register_object,

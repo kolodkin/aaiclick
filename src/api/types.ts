@@ -33,6 +33,19 @@ export type ApiTokenView = S["ApiTokenView"];
 export type ApiTokenCreated = S["ApiTokenCreated"];
 export type CreateApiTokenRequest = S["CreateApiTokenRequest"];
 
+export type ObjectView = S["ObjectView"];
+export type ObjectDetail = S["ObjectDetail"];
+export type ColumnInfo = S["ColumnInfo"];
+export type ColumnSchema = S["ColumnSchema"];
+export type OrderByPair = S["OrderBy"];
+export type ObjectQueryRequest = S["ObjectQueryRequest"];
+export type SavedQuery = S["SavedQuery"];
+export type SavedQueryBody = S["SavedQueryBody"];
+export type DashboardSummary = S["DashboardSummary"];
+export type Dashboard = S["Dashboard"];
+export type DashboardResults = S["DashboardResults"];
+export type Deleted = S["Deleted"];
+
 // FastAPI emits a concrete schema per instantiation (`Page_JobView_`, …); keep
 // a hand-written generic so call sites stay `Page<JobView>`.
 export interface Page<T> {

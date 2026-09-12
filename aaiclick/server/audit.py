@@ -30,11 +30,27 @@ from .request_state import audit_state
 logger = logging.getLogger(__name__)
 
 AUDITED_PREFIXES = ("/api/v0/", "/mcp")
-UNAUDITED_PATHS = frozenset({"/api/v0/docs", "/api/v0/redoc", "/api/v0/openapi.json"})
+UNAUDITED_PATHS = frozenset(
+    {
+        "/api/v0/docs",
+        "/api/v0/redoc",
+        "/api/v0/openapi.json",
+        # A long-lived SSE stream: one row on disconnect would say nothing, and
+        # wrapping it would pin this request's SQL engine open for the life of
+        # the connection — one pool per open browser tab.
+        "/api/v0/events",
+    }
+)
+
+
+def auditable_path(path: str) -> bool:
+    """Whether the middleware engages at all — checked before the SQL context
+    is opened, not just before the row is written."""
+    return path.startswith(AUDITED_PREFIXES) and path not in UNAUDITED_PATHS
 
 
 def should_audit(policy: config.AuditPolicy, method: str, path: str, action: str | None) -> bool:
-    if policy == config.AUDIT_OFF or path in UNAUDITED_PATHS or not path.startswith(AUDITED_PREFIXES):
+    if policy == config.AUDIT_OFF or not auditable_path(path):
         return False
     if policy == config.AUDIT_ALL:
         return True
@@ -48,7 +64,7 @@ class AuditMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or not scope["path"].startswith(AUDITED_PREFIXES):
+        if scope["type"] != "http" or not auditable_path(scope["path"]):
             await self.app(scope, receive, send)
             return
         audit = audit_state(scope)

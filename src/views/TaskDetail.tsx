@@ -1,5 +1,6 @@
 import { useTask } from "../api/hooks";
 import { Chips } from "../components/Chips";
+import { LiveStatus } from "../components/LiveStatus";
 import { LogViewer } from "../components/LogViewer";
 import { MetaGrid } from "../components/MetaGrid";
 import { StatusBadge } from "../components/StatusBadge";
@@ -7,7 +8,7 @@ import { Truncated } from "../components/Truncated";
 import { durationBetween, relativeTime } from "../lib/format";
 
 export function TaskDetail({ id, onPrompt }: { id: string; onPrompt: (v: string) => void }) {
-  const { data: task, isLoading, isError } = useTask(id);
+  const { data: task, isLoading, isError, dataUpdatedAt } = useTask(id);
 
   if (isLoading) return <p className="sub">loading…</p>;
   if (isError || !task)
@@ -32,6 +33,9 @@ export function TaskDetail({ id, onPrompt }: { id: string; onPrompt: (v: string)
         <h2>
           <span className="mono">{task.name}</span> <StatusBadge status={task.status} />
         </h2>
+        <p className="sub">
+          <LiveStatus updatedAt={dataUpdatedAt} queryKey="task" />
+        </p>
         <MetaGrid
           items={[
             { k: "Task ID", v: `#${task.id}`, mono: true },
@@ -45,7 +49,7 @@ export function TaskDetail({ id, onPrompt }: { id: string; onPrompt: (v: string)
         />
         {task.error && <div className="err">{task.error}</div>}
       </div>
-      <LogViewer taskId={task.id} />
+      <LogViewer taskId={task.id} status={task.status} />
     </>
   );
 }

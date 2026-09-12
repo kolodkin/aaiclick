@@ -90,8 +90,14 @@ Use the `python-testing-style` skill for test layout, async test rules, Object A
   - Expose a `@contextmanager` that sets a token and resets it in `finally`, so
     the previous value is restored on exit; keep the `ContextVar` itself private
     (`_name`) behind getter/setter helpers.
+  - **Never read a `ContextVar` at import scope.** Call `.get()` only inside a
+    function, at runtime. A module-level `X = _var.get()` freezes whatever the
+    importing context held into a plain global, defeating the isolation.
   - This is about values that *change*. Module-level **constants** never rebound
     after import stay plain module attributes.
+  - When a site must stay a module global (a process-wide ID sequence, a
+    once-per-process latch), leave a one-line comment saying why so the
+    choice reads as deliberate.
   - Reference implementation: `aaiclick/tenancy.py` (`active_tenant` /
     `get_active_tenant_id`).
 
@@ -208,6 +214,7 @@ Use the `generate-migration` skill. Never hand-write migration files.
 2. **Plan and Implement with superpowers**: Use the `superpowers:writing-plans` and `superpowers:executing-plans` skills to break the feature into phases and execute them:
    - Write comprehensive tests for each phase
    - Commit working code frequently
+   - **Always execute plans inline** (`superpowers:executing-plans` in the current session). Do not offer the subagent-driven option or ask which execution mode to use.
 
 3. **Update Documentation to Reference Implementation**:
    - **Add implementation references**: Point to actual code files and line numbers

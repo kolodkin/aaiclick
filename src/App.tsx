@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { LiveUpdates } from "./api/events";
 import { useAuth } from "./components/Auth";
 import { Header } from "./components/Header";
 import { parsePrompt, promptFromUrl, PUBLIC_ROUTES, pushPromptToUrl, type Route } from "./prompt";
@@ -7,9 +8,12 @@ import {
   AllGallery,
   Audit,
   CancelConfirm,
+  Dashboard,
+  Data,
   Home,
   JobDetail,
   Jobs,
+  Query,
   Registered,
   RegisterForm,
   RunConfirm,
@@ -53,6 +57,12 @@ function renderRoute(route: Route, onPrompt: (v: string) => void) {
       return <Audit onPrompt={onPrompt} />;
     case "reset":
       return <ResetPassword token={route.token} onDone={() => onPrompt("")} />;
+    case "data":
+      return <Data job={route.job} object={route.object} onPrompt={onPrompt} />;
+    case "query":
+      return <Query job={route.job} object={route.object} onPrompt={onPrompt} />;
+    case "dashboard":
+      return <Dashboard name={route.name} onPrompt={onPrompt} />;
     case "unknown":
       return (
         <>
@@ -97,6 +107,7 @@ export function App() {
 
   return (
     <>
+      <LiveUpdates />
       <Header prompt={prompt} onPrompt={onPrompt} />
       <main>
         <div className="content" id="content">

@@ -40,7 +40,7 @@ async def query_table(
 ) -> QueryResult:
     """Run a sandboxed read-only ``SELECT`` against tables in ``scope_tables``.
 
-    Rejects DDL/DML, multi-statement input, and any ``t_*`` / ``p_*`` token
+    Rejects DDL/DML, multi-statement input, and any ``t_*`` / ``j_*`` / ``p_*`` token
     referencing a table outside ``scope_tables``. Auto-injects ``LIMIT`` and
     pins ``max_execution_time``. Callers should populate ``scope_tables``
     from a prior ``oplog_subgraph()`` (use ``OplogGraph.tables``).
@@ -48,7 +48,7 @@ async def query_table(
     scan = normalize_sql_for_scan(sql)
     if err := validate_select_safety(sql, scan=scan):
         raise Invalid(err.message)
-    if err := validate_scope(sql, set(scope_tables), scan=scan):
+    if err := await validate_scope(sql, set(scope_tables)):
         raise Invalid(err.message)
     return await run_select(sql, row_limit, scan=scan)
 

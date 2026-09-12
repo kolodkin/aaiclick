@@ -122,7 +122,8 @@ async def test_tools_list_is_filtered_by_role(orch_ctx, enabled):
 
         body = await _rpc(client, "tools/list", {}, superadmin)
         names = {t["name"] for t in body["result"]["tools"]}
-        assert {"list_jobs", "run_job", "setup"} <= names and len(names) == 24
+        assert {"list_jobs", "run_job", "setup"} <= names
+        assert len(names) == len(await mcp.list_tools(run_middleware=False))
 
 
 async def test_viewer_can_read_but_not_write(orch_ctx, enabled):

@@ -1,13 +1,16 @@
 import { useJobs } from "../api/hooks";
 import { Chips } from "../components/Chips";
+import { LiveStatus } from "../components/LiveStatus";
 import { JobsTable } from "../components/JobsTable";
 
 export function Jobs({ onPrompt }: { onPrompt: (v: string) => void }) {
-  const { data, isLoading, isError } = useJobs();
+  const { data, isLoading, isError, dataUpdatedAt } = useJobs();
   return (
     <>
       <h2>Jobs</h2>
-      <p className="sub">Sorted by created_at, newest first · auto-refreshes</p>
+      <p className="sub">
+        Sorted by created_at, newest first · <LiveStatus updatedAt={dataUpdatedAt} queryKey="jobs" />
+      </p>
       <Chips
         chips={[
           { label: "← home", cmd: "" },

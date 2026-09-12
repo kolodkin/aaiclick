@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./queryview-core.css";
 
 /* ---- ported from docs/ui/index.html <style> ---- */
 :root {
@@ -88,6 +89,20 @@ main { flex: 1 1 auto; overflow: auto; padding: 22px; }
 
 h2 { font-size: 18px; margin: 0 0 4px; }
 .sub { color: var(--muted); margin: 0 0 18px; }
+
+/* liveness for auto-refreshing views: transport mode + data age */
+.live-status { white-space: nowrap; }
+.live-dot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  margin-right: 5px; vertical-align: baseline;
+  background: var(--gray); box-shadow: 0 0 0 2px var(--gray-bg);
+}
+.live-dot.on { background: var(--green); box-shadow: 0 0 0 2px var(--green-bg); }
+.live-refresh {
+  background: none; border: 0; padding: 0 0 0 6px; cursor: pointer;
+  color: inherit; font: inherit; line-height: 1;
+}
+.live-refresh:hover { color: var(--fg); }
 
 /* command chips */
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; align-items: center; }
@@ -216,7 +231,8 @@ tbody tr.clickable:hover { background: rgba(91,157,255,.12); }
   max-height: 52vh; border: 1px solid var(--border);
   box-shadow: var(--hi), var(--shadow);
 }
-.logs .logs-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; color: #6b7480; font-size: 11px; cursor: pointer; }
+.logs .logs-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; color: #6b7480; font-size: 11px; }
+.logs .logs-toolbar label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .logs .ts { color: #6b7480; }
 .logs .lvl-DEBUG { color: #6b7480; }
 .logs .lvl-INFO { color: #79c0ff; }
@@ -354,3 +370,43 @@ tbody tr.clickable:hover { background: rgba(91,157,255,.12); }
 
 /* build-gate edges: dashed and dimmed so they read as a secondary overlay */
 .react-flow__edge.gedge-build .react-flow__edge-path { stroke-dasharray: 4 3; opacity: .55; }
+
+/* group containers: a frame around member tasks, sized by the layout. React
+   Flow ships its own look for the `group` node type; strip it so the frame
+   below is the only styling. */
+.react-flow__node-group {
+  padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none;
+  width: auto; font-size: inherit; color: inherit; text-align: left;
+}
+/* The header sits in the room the layout carves under the frame's top edge
+   (dagre's own padding plus CONTAINER_HEADER_GAP in graphLayout.ts). */
+.ggroup {
+  box-sizing: border-box; width: 100%; height: 100%; padding: 6px 10px; overflow: hidden;
+  border: 1px dashed var(--border); border-radius: 12px;
+  background: rgba(255, 255, 255, .025);
+}
+.ggroup-head { display: flex; align-items: center; gap: 8px; height: 16px; }
+.ggroup-name { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ggroup-head .badge { flex: none; font-size: 10px; line-height: 1.2; padding: 1px 6px; }
+.ggroup-CLAIMED, .ggroup-RUNNING { border-color: var(--blue); }
+.ggroup-COMPLETED { border-color: var(--green); }
+.ggroup-FAILED, .ggroup-UPSTREAM_FAILED { border-color: var(--red); }
+.ggroup-CANCELLED { border-color: var(--yellow); }
+
+/* ---- viewer (@data / @query) ---- */
+.viewer-layout { display: grid; grid-template-columns: 220px 1fr; gap: 18px; align-items: start; }
+.viewer-main { min-width: 0; }
+.viewer-panel { max-width: none; }
+.scope-tree { background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--hi), var(--shadow); padding: 10px; font-size: 13px; }
+.scope-group { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+  font-weight: 700; margin: 12px 6px 6px; }
+.scope-node { padding: 6px 8px; border-radius: 8px; cursor: pointer; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.scope-node:hover { background: rgba(91,157,255,.12); }
+.scope-node.is-active { background: var(--accent-soft); color: var(--accent); }
+.scope-node .sub-inline { color: var(--muted); font-size: 11px; }
+.scope-filter { width: 100%; margin: 0 0 6px; padding: 5px 8px; border: 1px solid var(--border);
+  border-radius: 8px; background: rgba(255,255,255,.05); color: var(--text); font-size: 12px; }
+.scope-filter:focus { outline: none; border-color: var(--accent); }

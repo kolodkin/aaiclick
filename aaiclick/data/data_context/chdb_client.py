@@ -150,6 +150,19 @@ class ChdbClient:
                     return text
         return ChdbCommandSummary(result)
 
+    async def raw_query(
+        self,
+        query: str,
+        parameters: dict | None = None,
+        settings: dict | None = None,
+        fmt: str | None = None,
+    ) -> bytes:
+        """ClickHouse's own output in format ``fmt``, mirroring AsyncClient.raw_query()."""
+        result = self._session.query(
+            _with_settings(query, settings), fmt or "TabSeparated", params=_serialize_parameters(parameters)
+        )
+        return result.bytes() or b""
+
     async def query(
         self,
         query: str,

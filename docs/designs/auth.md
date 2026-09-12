@@ -479,10 +479,17 @@ tells the user to ask an administrator.
 # Audit Log
 
 
-**Implementation**: `aaiclick/audit/` (model, store, view models); `aaiclick/server/audit.py` — see `should_audit`, `AuditMiddleware`; `aaiclick/internal_api/audit.py`; `aaiclick/server/routers/audit.py`; `src/views/Audit.tsx`.
+**Implementation**: `aaiclick/audit/` (model, store, view models); `aaiclick/server/audit.py` — see `auditable_path`, `should_audit`, `AuditMiddleware`; `aaiclick/internal_api/audit.py`; `aaiclick/server/routers/audit.py`; `src/views/Audit.tsx`.
+
 Who called what, when — one row per HTTP request under `/api/v0/` or `/mcp`,
 written by an ASGI middleware after the response is produced. `/health`,
 docs, and static assets are never logged.
+
+`auditable_path` decides that *before* the middleware opens the request's SQL
+context, which also excludes the SSE stream (`GET /api/v0/events`,
+`docs/designs/frontend.md`): a row written when a client disconnects would say
+nothing, and wrapping the stream would pin one SQL engine open for the life of
+every open browser tab.
 
 | Column        | Type                        | Notes                                              |
 |---------------|-----------------------------|----------------------------------------------------|

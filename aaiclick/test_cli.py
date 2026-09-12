@@ -1,14 +1,18 @@
 """Tests for the argparse CLI: new shell/image flags and their forwarding."""
 
 import json
+from contextlib import nullcontext
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from aaiclick.__main__ import (
+    _load_lineage_ai,
     _parse_command_env,
     _parse_set_kwargs,
     _run_data_api,
+    _run_debug,
+    _run_explain,
     _run_job_wait,
     _run_register_job,
     _run_run_job,
@@ -16,6 +20,7 @@ from aaiclick.__main__ import (
     main,
 )
 from aaiclick.cli_wait import JobWaitTimeout
+from aaiclick.internal_api.errors import NotFound
 from aaiclick.orchestration.models import JobStatus
 from aaiclick.orchestration.sql_context import get_sql_session
 from aaiclick.orchestration.view_models import JobStatsView, TaskStatsView
@@ -166,6 +171,126 @@ def test_main_dispatches_run_job_to_handler():
     assert dispatched_args.command == "run-job"
     assert dispatched_args.name == "myjob"
     assert dispatched_args.git_sha == "b" * 40
+
+
+@pytest.mark.parametrize(
+    "argv, expected",
+    [
+        pytest.param(
+            ["explain", "p_revenue"],
+            {"command": "explain", "table": "p_revenue", "question": None, "json": False},
+            id="explain-default-question",
+        ),
+        pytest.param(
+            ["explain", "p_revenue", "Which join fed this?", "--json"],
+            {"command": "explain", "table": "p_revenue", "question": "Which join fed this?", "json": True},
+            id="explain-custom-question",
+        ),
+        pytest.param(
+            ["debug", "p_revenue", "Why is total negative?"],
+            {"command": "debug", "table": "p_revenue", "question": "Why is total negative?", "max_iterations": 10},
+            id="debug-default-iterations",
+        ),
+        pytest.param(
+            ["debug", "p_revenue", "Why?", "--max-iterations", "3", "--json"],
+            {"command": "debug", "table": "p_revenue", "question": "Why?", "max_iterations": 3, "json": True},
+            id="debug-flags",
+        ),
+    ],
+)
+def test_ai_lineage_parsers(argv, expected):
+    args = build_parser().parse_args(argv)
+    assert {key: getattr(args, key) for key in expected} == expected
+
+
+def test_debug_parser_requires_question():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["debug", "p_revenue"])
+
+
+@pytest.mark.parametrize(
+    "argv, handler_name",
+    [
+        pytest.param(["explain", "p_revenue"], "_run_explain", id="explain"),
+        pytest.param(["debug", "p_revenue", "Why?"], "_run_debug", id="debug"),
+    ],
+)
+def test_main_dispatches_ai_lineage_commands(argv, handler_name):
+    with (
+        patch("sys.argv", ["aaiclick", *argv]),
+        patch("aaiclick.__main__.asyncio.run"),
+        patch(f"aaiclick.__main__.{handler_name}", new_callable=MagicMock) as handler,
+    ):
+        main()
+
+    handler.assert_called_once()
+    assert handler.call_args.args[0].table == "p_revenue"
+
+
+def _fake_lineage_ai() -> MagicMock:
+    """Stand-in for ``internal_api.lineage_ai`` so these tests need no ``ai`` extra."""
+    module = MagicMock()
+    module.explain_lineage = AsyncMock(return_value="explain-answer")
+    module.debug_result = AsyncMock(return_value="debug-answer")
+    return module
+
+
+async def test_run_explain_forwards_question_and_renders(capsys):
+    args = build_parser().parse_args(["explain", "p_revenue", "Which join fed this?"])
+    lineage_ai = _fake_lineage_ai()
+    with (
+        patch("aaiclick.__main__._load_lineage_ai", return_value=lineage_ai),
+        patch("aaiclick.__main__._run_internal_api", new=_passthrough_run_internal_api),
+        patch("aaiclick.__main__._render") as render,
+    ):
+        await _run_explain(args)
+
+    lineage_ai.explain_lineage.assert_awaited_once_with("p_revenue", question="Which join fed this?")
+    assert render.call_args.args[1] == "explain-answer"
+
+
+async def test_run_debug_forwards_max_iterations():
+    args = build_parser().parse_args(["debug", "p_revenue", "Why?", "--max-iterations", "3"])
+    lineage_ai = _fake_lineage_ai()
+    with (
+        patch("aaiclick.__main__._load_lineage_ai", return_value=lineage_ai),
+        patch("aaiclick.__main__._run_internal_api", new=_passthrough_run_internal_api),
+        patch("aaiclick.__main__._render") as render,
+    ):
+        await _run_debug(args)
+
+    lineage_ai.debug_result.assert_awaited_once_with("p_revenue", question="Why?", max_iterations=3)
+    assert render.call_args.args[1] == "debug-answer"
+
+
+async def test_ai_lineage_commands_run_with_clickhouse_attached():
+    """The oplog graph and the debug agent's live queries read ClickHouse."""
+    args = build_parser().parse_args(["explain", "p_revenue"])
+    seen_with_ch: list[bool] = []
+
+    async def recording_run_internal_api(coro, *, with_ch: bool = False):
+        seen_with_ch.append(with_ch)
+        return await coro
+
+    with (
+        patch("aaiclick.__main__._load_lineage_ai", return_value=_fake_lineage_ai()),
+        patch("aaiclick.__main__._run_internal_api", new=recording_run_internal_api),
+        patch("aaiclick.__main__._render"),
+    ):
+        await _run_explain(args)
+
+    assert seen_with_ch == [True]
+
+
+def test_load_lineage_ai_exits_with_install_hint_without_ai_extra(capsys):
+    with (
+        patch("aaiclick.ai.importing.importlib.import_module", side_effect=ImportError("No module named 'litellm'")),
+        pytest.raises(SystemExit) as exc_info,
+    ):
+        _load_lineage_ai()
+
+    assert exc_info.value.code == 1
+    assert "pip install aaiclick[ai]" in capsys.readouterr().err
 
 
 def test_tenant_parser():
@@ -392,11 +517,33 @@ async def test_job_wait_json_timeout_keeps_stdout_clean_and_diagnoses_on_stderr(
     assert "mod.stuck" in captured.err
 
 
+async def test_unknown_tenant_exits_without_leaving_the_command_unawaited(monkeypatch, capsys):
+    """A bad ``--tenant`` resolves before the command runs, so the coroutine it
+    was handed is closed rather than garbage-collected with a "was never
+    awaited" RuntimeWarning trailing the error."""
+    import aaiclick.__main__ as cli
+
+    async def command():
+        raise AssertionError("must not run under an unresolvable tenant")
+
+    coro = command()
+    monkeypatch.setattr(cli, "orch_context", lambda **_kw: nullcontext())
+    monkeypatch.setattr(cli, "_resolve_tenant_id", AsyncMock(side_effect=NotFound("tenant 'nope' not found")))
+    cli._tenant_slug.set("nope")
+    try:
+        with pytest.raises(SystemExit):
+            await cli._run_internal_api(coro)
+    finally:
+        cli._tenant_slug.set(None)
+
+    assert coro.cr_frame is None, "the unrun command was left open"
+    assert "tenant 'nope' not found" in capsys.readouterr().err
+
+
 def _stub_setup_cli(monkeypatch, *, isatty: bool) -> list[bool]:
     """Stub the setup CLI's collaborators; returns the ``force`` values forwarded."""
     calls: list[bool] = []
-    monkeypatch.setattr("aaiclick.__main__.setup_api.stale_local_db", lambda: ["jobs.tenant_id"])
-    monkeypatch.setattr("aaiclick.__main__.setup_api.stale_local_db_message", lambda stale: f"stale: {stale}")
+    monkeypatch.setattr("aaiclick.__main__.setup_api.stale_local_db_reason", lambda: "stale: jobs.tenant_id")
     monkeypatch.setattr("sys.stdin.isatty", lambda: isatty)
     monkeypatch.setattr("aaiclick.__main__.setup_api.setup", lambda *, ai, force: calls.append(force))
     monkeypatch.setattr("aaiclick.__main__._render", lambda *a, **k: None)

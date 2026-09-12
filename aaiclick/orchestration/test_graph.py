@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from .graph import (
     DependencyRow,
     GraphEdge,
@@ -9,8 +11,20 @@ from .graph import (
     drop_cycle_edges,
     expand_dependencies,
     group_member_tasks,
+    rollup_status,
 )
-from .models import DEPENDENCY_GROUP, DEPENDENCY_TASK
+from .models import (
+    DEPENDENCY_GROUP,
+    DEPENDENCY_TASK,
+    TASK_CANCELLED,
+    TASK_CLAIMED,
+    TASK_COMPLETED,
+    TASK_FAILED,
+    TASK_PENDING,
+    TASK_PENDING_CLEANUP,
+    TASK_RUNNING,
+    TASK_UPSTREAM_FAILED,
+)
 
 
 def _task_dep(previous_id: int, next_id: int) -> DependencyRow:
@@ -118,3 +132,21 @@ def test_build_graph_edges_expands_then_drops_cycles():
 
     assert dropped == 1
     assert len(edges) == 1
+
+
+@pytest.mark.parametrize(
+    "statuses, expected",
+    [
+        pytest.param([TASK_FAILED, TASK_RUNNING], TASK_RUNNING, id="running-beats-failed"),
+        pytest.param([TASK_PENDING, TASK_CLAIMED], TASK_RUNNING, id="claimed-counts-as-running"),
+        pytest.param([TASK_COMPLETED, TASK_FAILED, TASK_UPSTREAM_FAILED], TASK_FAILED, id="failed-beats-upstream"),
+        pytest.param([TASK_COMPLETED, TASK_UPSTREAM_FAILED, TASK_CANCELLED], TASK_UPSTREAM_FAILED, id="upstream"),
+        pytest.param([TASK_COMPLETED, TASK_CANCELLED], TASK_CANCELLED, id="cancelled"),
+        pytest.param([TASK_COMPLETED, TASK_COMPLETED], TASK_COMPLETED, id="all-completed"),
+        pytest.param([TASK_COMPLETED, TASK_PENDING], TASK_PENDING, id="partial-progress-is-pending"),
+        pytest.param([TASK_COMPLETED, TASK_PENDING_CLEANUP], TASK_PENDING, id="cleanup-is-pending"),
+        pytest.param([], TASK_PENDING, id="empty"),
+    ],
+)
+def test_rollup_status(statuses, expected):
+    assert rollup_status(statuses) == expected

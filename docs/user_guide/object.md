@@ -36,6 +36,7 @@ See [DataContext](data_context.md) for lifecycle, schemas, and deployment modes.
 | `.group_by(keys).any(col)`                       | Group By         | Arbitrary non-NULL value per group            | [Group By Operations](#group-by-operations)                          |
 | `.group_by(keys).group_array_distinct(col)`      | Group By         | Distinct values → Array per group             | [Group By Operations](#group-by-operations)                          |
 | `.view(where, limit, offset, order_by)`          | Views            | Read-only View with optional filters          | [Views](#views)                                                      |
+| `.select_sql(columns, order_by, limit, offset)`  | Views            | The SELECT text the object reads with; Views include their constraints | [Views](#views)                                     |
 | `.where(cond)` / `.or_where(cond)`               | Views            | Fluent WHERE chaining (AND / OR)              | [Chained WHERE Clauses](#chained-where-clauses)                      |
 | `obj[key]` / `obj[[keys]]`                       | Views            | Select column(s) from dict Object → View      | [Column Selection](#column-selection)                                |
 | `.with_columns({name: Computed(type, expr)})`    | Views            | Add SQL expression columns → View             | [Computed Column Expansion](#computed-column-expansion-with_columns) |
@@ -95,7 +96,7 @@ daily_total = await orders.sum().as_("daily_total")             # t_daily_total_
 
 # 5. Persist beyond the current context
 daily = await (sales + bonuses).as_("daily", scope="job")       # j_<job_id>_daily
-yearly = await orders.sum().as_("yearly", scope="global")       # p_yearly
+yearly = await orders.sum().as_("yearly", scope="global")       # p_<tenant_id>_yearly
 ```
 
 `await` is only needed when the caller wants the materialized `Object` back — to read `.table`, hand it to an eager API, etc. Reading rows (`.data()`, `.markdown()`, `.export()`, `.result()`) or chaining further operators (`(a + b) + c`, `obj.abs().sum()`) doesn't require an explicit `await` of the intermediate — the lazy passes through.
@@ -108,7 +109,7 @@ Names the result table and chooses its lifetime. Returns a new `LazyOperator` (t
 |---|---|---|
 | `"temp_named"` (default) | `t_<name>_<snowflake>` | Drops with the context |
 | `"job"` | `j_<job_id>_<name>` | Lives until the active orch job expires |
-| `"global"` | `p_<name>` | Persists; remove with `delete_persistent_object(name, scope="global")` |
+| `"global"` | `p_<tenant_id>_<name>` | Persists; remove with `delete_persistent_object(name, scope="global")` |
 
 ### `name` / `scope` on always-materializing ops
 
@@ -125,7 +126,7 @@ enriched = await a.join(b, on="user_id", name="enriched", scope="job")
 # → j_<job_id>_enriched
 
 totals = await orders.group_by("category").sum("amount", name="totals", scope="global")
-# → p_totals
+# → p_<tenant_id>_totals
 ```
 
 `LazyOperator`'s overrides forward `name` / `scope` to the materialized

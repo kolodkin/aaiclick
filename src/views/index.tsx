@@ -12,3 +12,6 @@ export { Tokens } from "./Tokens";
 export { Account } from "./Account";
 export { Users } from "./Users";
 export { Audit } from "./Audit";
+export { Data } from "./Data";
+export { Query } from "./Query";
+export { Dashboard } from "./Dashboard";

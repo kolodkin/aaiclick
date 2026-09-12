@@ -7,7 +7,10 @@ the same shape that aaiclick's ``view.copy()`` emits. This is the baseline:
 aaiclick wraps chdb, so it should be equal or slower than this.
 """
 
+from collections.abc import Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
+from itertools import count
 
 import chdb
 import pyarrow as pa
@@ -18,43 +21,48 @@ from .config import FILTER_THRESHOLD
 NAME = "chdb"
 VERSION = chdb.__version__
 
-_session = None
-_sink_seq = 0
+_session_var: ContextVar[Session] = ContextVar("bench_chdb_session")
+_sink_seq_var: ContextVar[Iterator[int]] = ContextVar("bench_chdb_sink_seq")
 
 _COLUMNS_DDL = (
     "id Int64, category LowCardinality(String), subcategory LowCardinality(String), amount Float64, quantity Int64"
 )
 
 
+def _get_session() -> Session:
+    """The chdb session opened by the enclosing :func:`context`."""
+    return _session_var.get()
+
+
 @contextmanager
-def context():
+def context() -> Iterator[None]:
     """Open a fresh chdb session. Called once per benchmark operation."""
-    global _session, _sink_seq
-    _session = Session()
-    _sink_seq = 0
-    _session.query("CREATE DATABASE IF NOT EXISTS bench ENGINE = Atomic")
+    session = Session()
+    session_token = _session_var.set(session)
+    seq_token = _sink_seq_var.set(count())
+    session.query("CREATE DATABASE IF NOT EXISTS bench ENGINE = Atomic")
     try:
         yield
     finally:
-        _session.cleanup()
-        _session.close()
-        _session = None
+        _sink_seq_var.reset(seq_token)
+        _session_var.reset(session_token)
+        session.cleanup()
+        session.close()
 
 
 def convert(data):
     """Load the Python dict into ``bench.data`` via PyArrow zero-copy."""
-    _session.query("DROP TABLE IF EXISTS bench.data")
-    _session.query(f"CREATE TABLE bench.data ({_COLUMNS_DDL}) ENGINE = Memory")
+    session = _get_session()
+    session.query("DROP TABLE IF EXISTS bench.data")
+    session.query(f"CREATE TABLE bench.data ({_COLUMNS_DDL}) ENGINE = Memory")
     arrow_table = pa.table(data)  # noqa: F841 — referenced by SQL below
-    _session.query("INSERT INTO bench.data SELECT * FROM Python(arrow_table)")
-    return _session
+    session.query("INSERT INTO bench.data SELECT * FROM Python(arrow_table)")
+    return session
 
 
 def _materialize(s, create_ddl, select_sql):
     """Two-step CREATE + INSERT materialize — mirrors aaiclick's ``copy_db``."""
-    global _sink_seq
-    name = f"bench.sink_{_sink_seq}"
-    _sink_seq += 1
+    name = f"bench.sink_{next(_sink_seq_var.get())}"
     s.query(f"CREATE TABLE {name} ({create_ddl}) ENGINE = Memory")
     s.query(f"INSERT INTO {name} {select_sql}")
 

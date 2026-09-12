@@ -16,11 +16,14 @@ re-exported here so the CLI / REST / MCP surfaces keep one import path.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from typing import NamedTuple
 
 from alembic import command
 from sqlalchemy import create_engine, insert, inspect, select
-from sqlalchemy.engine import Engine, make_url
+from sqlalchemy.engine import Connection, Engine, make_url
 
 import aaiclick.audit.models  # noqa: F401  # register audit_log with SQLModel.metadata
 from aaiclick.ai.ollama import bootstrap_ollama, get_configured_model
@@ -91,78 +94,205 @@ def _local_db_path() -> Path | None:
     return Path(database) if database else None
 
 
-def stale_local_db() -> list[str]:
-    """Model columns missing from the tables already in the local SQLite DB.
-
-    ``SQLModel.metadata.create_all`` only creates missing *tables* — it never
-    alters one that already exists. A ``local.db`` written by an older version
-    therefore gains any newly added table while its existing tables silently
-    keep their original columns. Alembic cannot migrate it either: the
-    revision chain is authored for PostgreSQL (non-batch ``create_foreign_key``,
-    ``ALTER`` of constraints) and raises ``NotImplementedError`` on SQLite.
-
-    Returns ``table.column`` names, empty when the database is current or
-    absent. ``setup`` uses this to recreate the database rather than leave it
-    half-upgraded.
-    """
-    sync_url = _sync_db_url()
-    db_path = _local_db_path()
+@contextmanager
+def _local_db_connection() -> Iterator[Connection | None]:
+    """A connection to the local SQLite database, or ``None`` when there is
+    none to inspect (Postgres mode, or a first run). One place owns the engine,
+    so a caller asking several questions pays for a single open."""
+    sync_url, db_path = _sync_db_url(), _local_db_path()
     if sync_url is None or db_path is None or not db_path.exists():
-        return []
+        yield None
+        return
     engine = create_engine(sync_url)
     try:
         # One connection for the whole pass: an Inspector bound to the engine
         # checks a connection out again for every table it reflects.
         with engine.connect() as conn:
-            inspector = inspect(conn)
-            existing = set(inspector.get_table_names())
-            stale: list[str] = []
-            for table in SQLModel.metadata.sorted_tables:
-                if table.name not in existing:
-                    continue
-                present = {col["name"] for col in inspector.get_columns(table.name)}
-                stale.extend(f"{table.name}.{col.name}" for col in table.columns if col.name not in present)
-            return stale
+            yield conn
     finally:
         engine.dispose()
+
+
+class _Shape(NamedTuple):
+    """One table as the database materialises it, reduced to comparable values."""
+
+    columns: dict[str, tuple[str, bool]]
+    indexes: dict[str, tuple[tuple[str, ...], bool]]
+    unique: dict[str, tuple[str, ...]]
+    foreign_keys: dict[tuple[str, ...], tuple[str, tuple[str, ...]]]
+
+
+def _shape(conn: Connection) -> dict[str, _Shape]:
+    """Reflect every table into the comparable form above."""
+    inspector = inspect(conn)
+    return {
+        table: _Shape(
+            columns={c["name"]: (str(c["type"]), bool(c["nullable"])) for c in inspector.get_columns(table)},
+            indexes={
+                i["name"]: (tuple(i["column_names"]), bool(i.get("unique")))
+                for i in inspector.get_indexes(table)
+                if i["name"]
+            },
+            unique={u["name"]: tuple(u["column_names"]) for u in inspector.get_unique_constraints(table) if u["name"]},
+            foreign_keys={
+                tuple(f["constrained_columns"]): (f["referred_table"], tuple(f["referred_columns"]))
+                for f in inspector.get_foreign_keys(table)
+            },
+        )
+        for table in inspector.get_table_names()
+    }
+
+
+def _reference_shape() -> dict[str, _Shape]:
+    """The shape ``setup`` would produce, from a throwaway database built now.
+
+    Compared against a *database* rather than against ``SQLModel.metadata``
+    because only the database says what the models actually materialise —
+    column types as SQLite renders them, indexes, unique constraints, foreign
+    keys. Both sides come from the same ``create_all`` on the same dialect, so
+    reflection quirks appear on both and cancel; a metadata-to-reflection
+    comparison has to special-case each of them instead.
+
+    In memory rather than in a temp directory: same dialect and same DDL, four
+    times quicker, and nothing to clean up if the caller raises.
+    """
+    engine = create_engine("sqlite://")
+    try:
+        SQLModel.metadata.create_all(engine)
+        with engine.connect() as conn:
+            return _shape(conn)
+    finally:
+        engine.dispose()
+
+
+class LocalDbDrift(NamedTuple):
+    """How a local database differs from the one ``setup`` would build now.
+
+    Split because the two halves have different remedies: ``create_all`` adds a
+    missing table without touching anything else, while a table that exists in
+    the wrong shape can only be fixed by recreating the database — SQLite
+    cannot ``ALTER`` its way there, which is why the revision chain is
+    PostgreSQL-only (see "One migration chain, not two" in
+    ``docs/designs/orchestration.md``).
+    """
+
+    missing_tables: list[str]
+    mismatched: list[str]
+
+
+def _drift(conn: Connection) -> LocalDbDrift:
+    reference, actual = _reference_shape(), _shape(conn)
+    missing_tables = sorted(set(reference) - set(actual))
+    mismatched: list[str] = []
+    for table in sorted(set(reference) & set(actual)):
+        want, got = reference[table], actual[table]
+        mismatched.extend(f"{table}.{name}" for name in want.columns if name not in got.columns)
+        mismatched.extend(f"{table}.{name} (index)" for name in want.indexes if name not in got.indexes)
+        mismatched.extend(f"{table}.{name} (unique)" for name in want.unique if name not in got.unique)
+        mismatched.extend(
+            f"{table}.{'+'.join(cols)} (foreign key)" for cols in want.foreign_keys if cols not in got.foreign_keys
+        )
+    return LocalDbDrift(missing_tables, mismatched)
+
+
+def _old_default_tenant(conn: Connection) -> int | None:
+    """The id of a default-tenant row predating the current ``DEFAULT_TENANT_ID``.
+
+    The id moved once (to ``1 << 62``), and ``_seed_default_tenant`` looks the
+    row up by id — so against an older database it inserts a second row and
+    trips the ``slug`` unique constraint. The id is not just a key: it is
+    written into every ``tenant_id`` column and into ClickHouse table names
+    (``p_<tenant_id>_<name>``), so the remedy is to recreate, not to re-point
+    the row.
+    """
+    if "tenants" not in inspect(conn).get_table_names():
+        return None
+    found = conn.execute(select(Tenant.id).where(Tenant.slug == DEFAULT_TENANT_SLUG)).scalar()
+    return found if found is not None and found != DEFAULT_TENANT_ID else None
+
+
+def stale_local_db() -> list[str]:
+    """Everything an existing local table lacks, against a reference build.
+
+    ``SQLModel.metadata.create_all`` only creates missing *tables* — it never
+    alters one that already exists. A ``local.db`` written by an older version
+    therefore gains any newly added table while its existing tables silently
+    keep their original columns.
+
+    Returns ``table.column`` names, plus ``(index)`` / ``(unique)`` /
+    ``(foreign key)`` entries for the rest; empty when the database is current
+    or absent.
+    """
+    with _local_db_connection() as conn:
+        return [] if conn is None else _drift(conn).mismatched
+
+
+_RECREATE_TAIL = (
+    "SQLite databases are not migrated in place, so it has to be recreated. "
+    "Local job/task history is lost; data objects in chdb are untouched."
+)
+
+
+def stale_local_db_reason(*, limit: int = 5) -> str | None:
+    """Why the local SQLite database cannot be reused, or ``None`` when it can.
+
+    The one question every caller asks before continuing against the database
+    it found — shape (missing columns) and seeded content (a default tenant
+    from before the id moved) answered over a single connection.
+    """
+    with _local_db_connection() as conn:
+        if conn is None:
+            return None
+        mismatched = _drift(conn).mismatched
+        detail = None
+        if mismatched:
+            shown = ", ".join(mismatched[:limit])
+            if len(mismatched) > limit:
+                shown += f" and {len(mismatched) - limit} more"
+            detail = f"is missing {len(mismatched)} item(s) added since: {shown}"
+        elif (old_id := _old_default_tenant(conn)) is not None:
+            detail = f"carries default tenant {old_id}, not {DEFAULT_TENANT_ID}"
+    if detail is None:
+        return None
+    return f"{_local_db_path()} was created by an older version of aaiclick: it {detail}. {_RECREATE_TAIL}"
+
+
+def missing_local_tables() -> list[str]:
+    """Model tables absent from an existing local SQLite DB.
+
+    Separate from :func:`stale_local_db` because the remedy differs: these are
+    added by a plain ``create_all``, whereas a table in the wrong shape needs
+    the database recreated. ``is_setup_done`` only checks for a marker file, so
+    a marker left beside an empty or truncated ``local.db`` (an interrupted
+    setup, a wiped data dir) looked set up and every query failed with "no such
+    table".
+
+    Returns table names, empty when the database is current or absent.
+    """
+    with _local_db_connection() as conn:
+        return [] if conn is None else _drift(conn).missing_tables
 
 
 STALE_DB_REMEDY = "Re-run `aaiclick setup --force` to recreate it."
 """Remedy appended wherever an outdated local database blocks a command."""
 
 
-def stale_local_db_message(stale: list[str], *, limit: int = 5) -> str:
-    """Explain why an outdated local database cannot be reused.
-
-    Shared by the ``Invalid`` raised below and the CLI's confirmation prompt so
-    both surfaces describe the same database the same way.
-    """
-    shown = ", ".join(stale[:limit])
-    if len(stale) > limit:
-        shown += f" and {len(stale) - limit} more"
-    return (
-        f"{_local_db_path()} was created by an older version of aaiclick and is missing "
-        f"{len(stale)} column(s) added since: {shown}. SQLite databases are not migrated "
-        "in place, so it has to be recreated. Local job/task history is lost; data "
-        "objects in chdb are untouched."
-    )
-
-
 def _reset_stale_local_db(*, force: bool) -> bool:
     """Delete the local SQLite DB when its schema predates the current models.
 
-    Returns True when the database was removed. Raises ``Invalid`` when it is
-    stale and ``force`` is not set, so no caller continues against a
-    half-upgraded database.
+    Stale means either shape or seeded content is behind the models — see
+    ``stale_local_db_reason``. Returns True when the database was removed.
+    Raises ``Invalid`` when it is stale and ``force`` is not set, so no caller
+    continues against a half-upgraded database.
     """
     db_path = _local_db_path()
     if db_path is None:
         return False
-    stale = stale_local_db()
-    if not stale:
+    reason = stale_local_db_reason()
+    if reason is None:
         return False
     if not force:
-        raise Invalid(f"{stale_local_db_message(stale)} {STALE_DB_REMEDY}")
+        raise Invalid(f"{reason} {STALE_DB_REMEDY}")
 
     # -wal / -shm carry committed pages; leaving them beside a deleted DB
     # resurrects the old schema on the next connection.

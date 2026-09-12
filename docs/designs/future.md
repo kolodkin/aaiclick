@@ -9,56 +9,62 @@ Planned work across aaiclick, ordered by priority.
 
 Items deferred until preconditions are met.
 
-## SSE `/events` Endpoint + LISTEN/NOTIFY Fanout
+## Event Fanout — Beyond Postgres LISTEN/NOTIFY
 
-v0 uses 2 s `refetchInterval` polling. The designed real-time path is:
-
-1. `GET /api/v0/events` → `text/event-stream` (one connection per UI session).
-2. Workers emit `NOTIFY job_events` in the same commit as every status write.
-3. FastAPI holds one `LISTEN` connection per backend and forwards
-   notifications onto an in-process pub/sub bus.
-4. The SSE endpoint subscribes and streams typed events (`job.updated`,
-   `task.updated`, `task.log`) to the browser.
-5. The browser calls `queryClient.invalidateQueries(...)` and lets REST
-   fetch authoritative state — events are signals, not payloads.
-
-**SQLite local mode**: poll + snapshot diff every 2 s (same latency as current
-polling, but avoids N×M HTTP requests from N browser tabs). SQLite pairs with
-chdb, and local mode is single-process — cross-host fanout doesn't arise there.
-
-**Multi-host is already covered**: Postgres delivers each `NOTIFY` to every
-connection that has issued `LISTEN`, so N API hosts just hold N `LISTEN`
-connections — no extra broker. `NOTIFY` in the same commit as the status
-write guarantees a refetching client sees the committed state. Escape
-hatches, should the feeder ever measurably hurt:
+`GET /api/v0/events` streams change signals fed by `pg_notify` on every
+job/task commit (`docs/designs/frontend.md` — Live updates). Escape hatches,
+should the feeder ever measurably hurt:
 
 - **Redis Pub/Sub** — only if listener count or notification volume becomes a
-  real cost (dozens of hosts, very high event rates), or payloads outgrow
-  Postgres's ~8 KB `NOTIFY` limit; events are signals, not payloads, so they
-  stay tiny.
-- **ClickHouse tail** — each API host polls `operation_log` (or a dedicated
-  events table) past a watermark: N pollers instead of N×M browser polls, no
-  touch on the SQL commit path. But latency is poll-bound and the CH insert
-  is unordered relative to the SQL commit, so a client can refetch before the
-  status write is visible. chdb is in-process single-session — not a bus.
+  real cost (dozens of hosts, very high event rates). Signals carry no
+  payload, so Postgres's ~8 KB `NOTIFY` limit never bites.
+- **ClickHouse tail** — each API host polls `operation_log` past a watermark:
+  N pollers, no touch on the SQL commit path. But latency is poll-bound and
+  the CH insert is unordered relative to the SQL commit, so a client can
+  refetch before the status write is visible.
+- **Typed per-job events with tenant filtering** — every view is job-scoped
+  and refetches the same few queries, so the coarse signal costs nothing
+  today; widen the payload only if a view needs to ignore other jobs' churn.
 
-**When to revisit**: when polling overhead is measurable (many tabs or many
-concurrent jobs), or when sub-2 s latency matters for operators.
+## Change Signals — Consumers Beyond the UI
 
-## Job Graph View — Group Containers
+The signal (`aaiclick/orchestration/events`) is "a job, task or group row
+committed", not a UI concept; the SSE stream is merely its first subscriber.
+Next in line:
 
-The job graph view (`docs/designs/ui.md`) renders tasks only. Groups
-are honoured semantically — dependencies touching a group are expanded onto its
-source / sink tasks — but are not drawn. Containers would render as React Flow
-subflows (`parentId` + `extent`) with a status rolled up from member tasks.
-The endpoint already accommodates this: `GraphNodeView.kind` gains `"group"`
-and `parent_group_id` is populated today.
+- **`cli_wait.wait_for_job`** — polls job stats on a fixed interval today.
+  It could run the active transport's `feed` and block on
+  `EventBus.subscribe()` instead, re-reading stats only when a signal lands:
+  sub-second reaction, zero idle queries. Keep a slow poll as the fallback,
+  as the browser does. Local mode is the harder case: the CLI is a separate
+  process from a running local server, and `LocalTransport` only sees
+  commits in its own process, so a wait on a job the server is running
+  would need the Postgres transport or the SSE stream over HTTP.
+- **MCP / SDK waiters** — the same subscribe-then-refetch loop serves any
+  in-process caller that blocks on a job; external tools in distributed
+  mode can `LISTEN aaiclick_events` on Postgres directly.
 
-**When to revisit**: when jobs routinely use nested groups and the flattened
-view loses structure operators need. Expect to reassess the layout engine at
-the same time — dagre's nested-cluster quality is its weakest area, and the
-MIT-compatible escape hatch is Graphviz WASM (`@hpcc-js/wasm-graphviz`), not
-elkjs (dual EPL-2.0 / GPL-3.0-or-later).
+## Task Logs — Per-Attempt History in the Log Panel
+
+`get_task_logs` (`aaiclick/internal_api/tasks.py`) reads `task.run_ids[-1]`, so
+the panel shows only the latest attempt. Earlier attempts are already in
+ClickHouse — `task_logs` tags each line with `run_id`, and `Task.run_ids` /
+`Task.run_statuses` hold the ordered attempts and how each ended — so a retried
+task's failed runs are retained but unreachable. That is exactly the output you
+want after a flaky task finally passes.
+
+Shape, following Airflow's per-try log selector:
+
+- `GET /tasks/{id}/logs` takes an optional 1-based `attempt`, resolved through
+  `run_ids`; defaults to the last.
+- `TaskLogsView` carries the attempts and their statuses, so the selector costs
+  no second request.
+- `LogViewer` shows the selector only when `run_ids` has more than one entry.
+  Polling stays on the latest attempt; older ones are immutable.
+
+!!! note "Pending input"
+    Airflow screenshots to follow as the reference for layout and wording — do
+    not settle the UI details before then.
 
 ## Tenant RBAC — Remaining Phases
 
@@ -81,35 +87,6 @@ An earlier `aaiclick/auth/mail.py` (`smtplib` on a worker thread via
 
 **When to revisit**: when deployments have a reachable SMTP server, or when
 operators mint links often enough for it to hurt.
-
-## Opaque Object Table Names
-
-Persistent objects encode both the user-visible name and (from Phase 2 above)
-the tenant into the ClickHouse table name, so `aaiclick/data/scope.py` parses
-names back out of tables and object names must satisfy an identifier regex plus
-a length cap that shrinks as the tenant id grows.
-
-Decoupling the two removes all of it: store `p_<snowflake>` in ClickHouse and
-keep the human name only in `table_registry` under a `UNIQUE (tenant_id, name)`
-constraint. Prefix parsing disappears (`name_from_table` and every `p_`-prefix
-scan retire), listing becomes a plain SQL query, per-tenant name uniqueness is
-enforced by the database rather than by string layout, and the name-length
-budget stops depending on the tenant id's digit count.
-
-**When to revisit**: when object naming rules or prefix parsing become a
-recurring source of friction. The cost is renaming every existing `p_*` table
-plus a compatibility path for objects opened by name.
-
-## CLI Lineage AI Commands
-
-A CLI surface for AI lineage (e.g. `aaiclick explain <table>` /
-`aaiclick debug <table> "<question>"`). When it lands, add thin
-`internal_api` wrappers over `ai.agents.lineage_agent.explain_lineage` and
-`ai.agents.debug_agent.debug_result`, kept separate from
-`internal_api.lineage` so callers without the `ai` extra can still import
-the primitives (a previous unwired version, `internal_api/lineage_ai.py`,
-was removed as dead code). MCP intentionally exposes only the
-AI-independent primitives (`server/mcp.py`).
 
 ## Java Task SDK — Shim Jar (`jvm` Entry Type)
 
@@ -149,27 +126,29 @@ SDK closes that gap without a second worker implementation.
   `ChClient` / `Db` / `NamedParamSql` classes are reusable starting points
   for the SDK, recoverable from git history.
 
-## ContextVar Guideline — Codebase Sweep
+## Viewer Follow-ups
 
-CLAUDE.md requires runtime-mutable process state to live in a
-`contextvars.ContextVar` rather than a module global (reference:
-`aaiclick/tenancy.py`). The `global` sites below predate that guideline.
+See `viewer.md` for the shipped design.
 
-Triage, not mechanical conversion — some are correctly process-wide, and a
-`ContextVar` would break them (a per-context ID sequence is no longer unique).
-Classify each site and leave a one-line comment on the ones that stay global,
-so the choice reads as deliberate.
-
-| Site                                              | State                              | Expected verdict                                        |
-|---------------------------------------------------|------------------------------------|---------------------------------------------------------|
-| `aaiclick/snowflake/snowflake_id.py`              | `_in_memory_last_ms`, `_in_memory_sequence` | Stays global — uniqueness requires one process-wide sequence |
-| `aaiclick/orchestration/oplog_backfill.py`        | `_migration_done`                  | Stays global — a once-per-process latch; per-context would re-run it |
-| `aaiclick/data/data_context/ch_client.py`         | `_debug_ch_client`                 | Candidate — a debug/test injection point that concurrent tests share |
-| `aaiclick/example_projects/chdb_benchmark/...`    | `_session`, `_sink_seq`            | Out of scope — standalone example project                |
-
-Do this when next in these modules, or if a concurrency bug implicates one.
-A lint gate would need an allowlist for the deliberate cases — ruff has no
-built-in `global` check.
+- **SQL over several objects at once** (joins, unions): today `query_object`
+  reads one object with a `where` filter. A `query_sql` verb would take
+  `scope`, a SQL text, and a map of the object names it uses
+  (`{"o": "orders", "c": "customers"}`); the user writes `SELECT … FROM o
+  JOIN c ON …` and the server prepends one CTE per entry (`WITH o AS (SELECT *
+  FROM p_7_orders), c AS (…)`), so the SQL still never names a table and the
+  tenant / scope rules stay server-side. Verified on chdb that such CTEs
+  resolve inside the pagination wrapper and alongside the user's own `WITH`.
+  Deferred until single-object queries prove insufficient.
+- **Agent push to the browser**: QueryView's remote channel (an agent pushes a
+  query or dashboard into a live tab) has no aaiclick equivalent yet; it
+  needs the SSE endpoint planned above.
+- **Git sync and YAML export** for saved queries and dashboards, as QueryView
+  has (QueryView's workspaces map to tenants here, so nothing else is needed).
+- **`options_sql` params**: the kernel's `params:` block accepts a query
+  whose first column feeds a dropdown; aaiclick has no free-SQL endpoint, so
+  `QueryPanel` renders static `options` only.
+- **Dashboard authoring in the UI**: `@dashboard` picks and runs; HTML and
+  panel queries are written through MCP, REST, or `view dashboards save`.
 
 ## Lazy Operator — Chain Fusion
 
