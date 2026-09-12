@@ -93,7 +93,7 @@ never pass the password login.
 | `prefix`       | `String`                              | First 12 chars of the secret, for display |
 | `token_hash`   | `String`, unique, indexed             | `sha256(secret)`                        |
 | `scope`        | `String`                              | `ScopeLevel` literal — see [The scope ladder](#the-scope-ladder) |
-| `tenant_id`    | `BigInteger \| None`, indexed         | The tenant the token acts in; `None` only for `superadmin`. A plain column, not a DB FK — matching `jobs` and `table_registry` |
+| `tenant_id`    | `BigInteger \| None`, indexed         | The tenant the token acts in; `None` for `superadmin` (and for the pre-ladder rows the ladder migration revoked). A plain column, not a DB FK — matching `jobs` and `table_registry` |
 | `expires_at`   | `datetime \| None`                    | `None` → never expires                  |
 | `last_used_at` | `datetime \| None`                    | Refreshed at most once a minute         |
 | `revoked_at`   | `datetime \| None`                    |                                         |

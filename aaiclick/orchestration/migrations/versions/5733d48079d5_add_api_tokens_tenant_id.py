@@ -7,11 +7,10 @@ Create Date: 2026-09-12 20:12:55.343163
 """
 
 from collections.abc import Sequence
+from datetime import datetime, timezone
 
 import sqlalchemy as sa
 from alembic import op
-
-from aaiclick.tenancy import DEFAULT_TENANT_ID
 
 # revision identifiers, used by Alembic.
 revision: str = "5733d48079d5"
@@ -26,11 +25,17 @@ def upgrade() -> None:
     op.add_column("api_tokens", sa.Column("tenant_id", sa.BigInteger(), nullable=True))
     op.create_index(op.f("ix_api_tokens_tenant_id"), "api_tokens", ["tenant_id"], unique=False)
     # ### end Alembic commands ###
-    # Tokens minted before the ladder acted in the default tenant, which is
-    # where their owners already act. Superadmin tokens stay untenanted, but
-    # no row can hold that scope yet — the level did not exist.
+    # A pre-ladder token names no tenant, and there is none to give it:
+    # DEFAULT_TENANT_ID has no `tenants` row, so nobody holds a membership
+    # there and resolution would find no role. Such a token cannot authorize
+    # anything, so revoke it rather than leave it looking active while 403-ing
+    # on every call. Operators re-mint against a real tenant.
     op.execute(
-        f"UPDATE api_tokens SET tenant_id = {DEFAULT_TENANT_ID} WHERE tenant_id IS NULL AND scope <> 'superadmin'"
+        sa.text("UPDATE api_tokens SET revoked_at = :now WHERE revoked_at IS NULL").bindparams(
+            # Naive UTC, matching datetime_utils.utc_now — CURRENT_TIMESTAMP
+            # would resolve against the server timezone on Postgres.
+            now=datetime.now(timezone.utc).replace(tzinfo=None)
+        )
     )
 
 

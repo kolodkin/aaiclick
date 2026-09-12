@@ -92,7 +92,8 @@ class ApiToken(SQLModel, table=True):
     token_hash: str = Field(sa_column=Column(String, nullable=False, unique=True, index=True))
     scope: ScopeLevel = Field(sa_column=Column(String, nullable=False))
     tenant_id: int | None = Field(sa_column=Column(BigInteger, nullable=True, index=True), default=None)
-    """The tenant this token acts in; ``None`` only for ``superadmin`` scope.
+    """The tenant this token acts in; ``None`` for ``superadmin`` scope, and for
+    the pre-ladder rows the ladder migration revoked.
 
     A plain column, not a DB FK — matching ``jobs`` and ``table_registry``,
     where the reference is enforced at the API boundary.
