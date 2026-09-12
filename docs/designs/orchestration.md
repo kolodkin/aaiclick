@@ -75,11 +75,27 @@ Two deployment modes, controlled by two independent environment variables:
 | **`AAICLICK_CH_URL`**  | `chdb:///~/.aaiclick/chdb_data`           | `clickhouse://user:pass@host:8123/database`         |
 | **`AAICLICK_SQL_URL`** | `sqlite+aiosqlite:///~/.aaiclick/local.db` | `postgresql+asyncpg://user:pass@host:5432/database` |
 | **Setup**           | `python -m aaiclick setup`                   | Provision servers + `python -m aaiclick migrate upgrade head` |
+| **Schema**          | `create_all`, no revision chain              | Alembic revision chain                              |
 | **Task claiming**   | Sequential SELECT + UPDATE                   | Atomic CTE with `FOR UPDATE SKIP LOCKED`            |
 | **Table lifecycle** | `LocalLifecycleHandler` (background thread)  | `OrchLifecycleHandler` (SQL refcounts)              |
 | **Detection**       | `is_chdb()` / `is_sqlite()` return `True`    | Both return `False`                                 |
 
 **Implementation**: `aaiclick/backend.py` — see `get_ch_url()`, `get_db_url()`, `is_chdb()`, `is_sqlite()`
+
+**One migration chain, not two.** The Alembic revisions target PostgreSQL
+alone — they use plain `ALTER` of constraints, which SQLite cannot execute
+without alembic's batch (copy-and-move) mode. That is deliberate: supporting
+both backends would mean every revision written, reviewed and tested twice,
+for a local database that exists to be thrown away. Local SQLite is built by
+`create_all` and is recreated rather than migrated when it falls behind
+(`aaiclick setup --force`).
+
+The cost lands on one question — *is this database current?* — which has no
+`alembic_version` row to read locally. `setup` answers it by comparing the
+database's shape to the models instead: `stale_local_db_reason` for columns a
+table is missing, `missing_local_tables` for tables absent entirely. Shape
+inspection cannot see what the models do not express (an index, a
+constraint), which is the accepted limit of keeping one chain.
 
 ## Distributed runner subtypes
 

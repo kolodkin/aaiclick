@@ -197,11 +197,12 @@ def missing_local_tables() -> list[str]:
     interrupted setup, a wiped data dir) therefore looked set up, and every
     query failed with "no such table".
 
-    Shape inspection rather than an ``alembic_version`` lookup because local
-    mode is outside migration versioning: ``setup`` builds the database with
-    ``create_all``, and the revision chain cannot run on SQLite (non-batch
-    ``ALTER`` of constraints). See "Local SQLite — Bring Into Alembic's
-    Versioning Scope" in ``docs/designs/future.md``.
+    Shape inspection rather than an ``alembic_version`` lookup by design: the
+    revision chain targets PostgreSQL alone, so a local database is built by
+    ``create_all`` and recreated rather than migrated when it falls behind.
+    Supporting both backends would mean writing and testing every revision
+    twice for a database meant to be thrown away. See "One migration chain,
+    not two" in ``docs/designs/orchestration.md``.
 
     Returns table names, empty when the database is current or absent.
     """
