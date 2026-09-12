@@ -187,6 +187,14 @@ async def set_membership(*, tenant_id: int, user_id: int, role: Role) -> TenantM
     return row
 
 
+async def get_membership(*, tenant_id: int, user_id: int) -> TenantMembership | None:
+    async with get_sql_session() as session:
+        result = await session.execute(
+            select(TenantMembership).where(TenantMembership.tenant_id == tenant_id, TenantMembership.user_id == user_id)
+        )
+        return result.scalar_one_or_none()
+
+
 async def remove_membership(*, tenant_id: int, user_id: int) -> bool:
     """Remove a user from a tenant; True if a row was deleted."""
     async with get_sql_session() as session:
@@ -322,11 +330,19 @@ async def _stamp_refresh(token_id: int, field: str) -> None:
 class ResolvedApiToken(NamedTuple):
     token: ApiToken
     user: User
-    tenants: dict[int, Role]
+    role: Role | None
+    """The owner's live role in the token's tenant; ``None`` when untenanted or no longer a member."""
 
 
 async def create_api_token(
-    *, user_id: int, name: str, prefix: str, token_hash: str, scope: ScopeLevel, expires_at: datetime | None
+    *,
+    user_id: int,
+    name: str,
+    prefix: str,
+    token_hash: str,
+    scope: ScopeLevel,
+    tenant_id: int | None,
+    expires_at: datetime | None,
 ) -> ApiToken:
     return await _insert(
         ApiToken(
@@ -336,6 +352,7 @@ async def create_api_token(
             prefix=prefix,
             token_hash=token_hash,
             scope=scope,
+            tenant_id=tenant_id,
             expires_at=expires_at,
         )
     )
@@ -364,8 +381,8 @@ async def get_active_api_token(token_hash: str) -> ApiToken | None:
 
 async def resolve_api_token(token_hash: str) -> ResolvedApiToken | None:
     """Everything a request needs to authenticate an API token, in one session:
-    the active token, its owner, and the owner's current memberships. Also
-    stamps ``last_used_at`` (throttled) without a further session."""
+    the active token, its owner, and the owner's live role in the token's own
+    tenant. Also stamps ``last_used_at`` (throttled) without a further session."""
     now = utc_now()
     async with get_sql_session() as session:
         pair = (
@@ -380,15 +397,22 @@ async def resolve_api_token(token_hash: str) -> ResolvedApiToken | None:
         token, user = pair
         if not _token_active(token, now):
             return None
-        memberships = (
-            await session.execute(select(TenantMembership).where(TenantMembership.user_id == user.id))
-        ).scalars()
-        tenants = {m.tenant_id: cast(Role, m.role) for m in memberships}
+        role: Role | None = None
+        if token.tenant_id is not None:
+            membership = (
+                await session.execute(
+                    select(TenantMembership).where(
+                        TenantMembership.user_id == user.id,
+                        TenantMembership.tenant_id == token.tenant_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            role = cast(Role, membership.role) if membership is not None else None
         if token.last_used_at is None or now - token.last_used_at >= API_TOKEN_LAST_USED_GRANULARITY:
             token.last_used_at = now
             session.add(token)
             await session.commit()
-    return ResolvedApiToken(token=token, user=user, tenants=tenants)
+    return ResolvedApiToken(token=token, user=user, role=role)
 
 
 async def revoke_api_token(token_id: int, *, user_id: int) -> bool:

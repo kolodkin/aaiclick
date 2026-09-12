@@ -3,11 +3,11 @@ from sqlmodel import select
 
 from aaiclick.auth.models import (
     SCOPE_ADMIN,
-    ApiToken,
     SCOPE_LEVELS,
     SCOPE_READ,
     SCOPE_SUPERADMIN,
     SCOPE_WRITE,
+    ApiToken,
     RefreshToken,
     User,
     scope_admits,

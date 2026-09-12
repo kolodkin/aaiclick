@@ -7,7 +7,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from ..log_models import SnowflakeId
-from .models import Role, ScopeLevel
+from .models import SCOPE_READ, Role, ScopeLevel
 
 
 class LoginRequest(BaseModel):
@@ -134,6 +134,7 @@ class ApiTokenView(BaseModel):
     name: str
     prefix: str
     scope: ScopeLevel
+    tenant_id: SnowflakeId | None
     expires_at: datetime | None
     last_used_at: datetime | None
     revoked_at: datetime | None
@@ -148,7 +149,9 @@ class ApiTokenCreated(ApiTokenView):
 
 class CreateApiTokenRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    scope: ScopeLevel = "read"
+    scope: ScopeLevel = SCOPE_READ
+    tenant_id: int | None = None
+    """Required below ``superadmin``; ignored (and stored ``None``) at that level."""
     expires_at: datetime | None = None
 
 

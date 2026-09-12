@@ -63,11 +63,13 @@ async def test_enabled_bad_signature_unauthorized(enabled):
 
 async def test_api_token_resolves_live_owner_state(enabled, orch_ctx):
     """An ``aaic_`` credential is looked up in the DB and carries the owner's
-    current flag, memberships, and the token's scope."""
+    current flag, live role in the token's tenant, and the token's scope."""
     user = await users.create_user(CreateUserRequest(username="bot", password="pw"))
     tenant = await store.create_tenant(slug="acme", name="Acme")
     await store.set_membership(tenant_id=tenant.id, user_id=user.id, role="viewer")
-    created = await api_tokens.create_token(user.id, CreateApiTokenRequest(name="ci", scope="read"))
+    created = await api_tokens.create_token(
+        user.id, CreateApiTokenRequest(name="ci", scope="read", tenant_id=tenant.id)
+    )
 
     principal = await auth.resolve_principal(authorization=_bearer(created.token))
     assert principal.user_id == user.id and principal.kind == "token" and principal.scope == "read"

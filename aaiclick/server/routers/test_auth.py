@@ -3,6 +3,7 @@ from aaiclick.auth.view_models import CreateUserRequest, MfaEnableRequest
 from aaiclick.internal_api import auth as auth_api
 from aaiclick.internal_api import users
 from aaiclick.server.app import API_PREFIX
+from aaiclick.tenancy import DEFAULT_TENANT_ID
 
 from ..conftest import login
 
@@ -74,7 +75,11 @@ async def test_api_token_lifecycle(orch_ctx, app_client, enabled):
     await users.create_user(CreateUserRequest(username="alice", password="pw", superadmin=True))
     session = await login(app_client, "alice")
 
-    created = await app_client.post(f"{API_PREFIX}/auth/tokens", json={"name": "ci", "scope": "write"}, headers=session)
+    created = await app_client.post(
+        f"{API_PREFIX}/auth/tokens",
+        json={"name": "ci", "scope": "write", "tenant_id": DEFAULT_TENANT_ID},
+        headers=session,
+    )
     assert created.status_code == 201
     body = created.json()
     assert body["token"].startswith("aaic_") and body["scope"] == "write"
@@ -94,8 +99,13 @@ async def test_api_token_lifecycle(orch_ctx, app_client, enabled):
 async def test_read_token_cannot_write_or_manage_tokens(orch_ctx, app_client, enabled):
     await users.create_user(CreateUserRequest(username="alice", password="pw", superadmin=True))
     session = await login(app_client, "alice")
-    created = await app_client.post(f"{API_PREFIX}/auth/tokens", json={"name": "ro"}, headers=session)
-    token_header = {"Authorization": f"Bearer {created.json()['token']}", "X-Tenant-Id": "1"}
+    created = await app_client.post(
+        f"{API_PREFIX}/auth/tokens", json={"name": "ro", "tenant_id": DEFAULT_TENANT_ID}, headers=session
+    )
+    token_header = {
+        "Authorization": f"Bearer {created.json()['token']}",
+        "X-Tenant-Id": str(DEFAULT_TENANT_ID),
+    }
 
     assert (await app_client.get(f"{API_PREFIX}/jobs", headers=token_header)).status_code == 200
     denied = await app_client.post(
