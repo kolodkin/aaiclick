@@ -66,6 +66,35 @@ Shape, following Airflow's per-try log selector:
     Airflow screenshots to follow as the reference for layout and wording — do
     not settle the UI details before then.
 
+## Local SQLite — Bring Into Alembic's Versioning Scope
+
+Local mode sits outside migration versioning. `setup()` builds the database
+with `SQLModel.metadata.create_all`, so `local.db` carries no `alembic_version`
+row, and the revision chain cannot run against it anyway: the revisions use
+non-batch `op.alter_column`, `op.drop_constraint` and `op.create_foreign_key`,
+which raise `NotImplementedError: No support for ALTER of constraints in SQLite
+dialect` a few revisions in.
+
+The cost is that "is this database current?" has to be answered by inspecting
+its shape instead of reading a version — `stale_local_db_reason` compares
+columns, and `missing_local_tables` covers the tables it skips. Both are custom
+code standing in for one `alembic_version` lookup, and neither can see a change
+the models do not express (an index, a constraint).
+
+The fix is `render_as_batch=True` in the online `context.configure`
+(`aaiclick/orchestration/migrations/env.py`), which makes alembic emit SQLite's
+copy-and-move strategy for the operations above:
+
+- Verify every revision runs on SQLite, not just the ones autogenerate emits.
+- Stamp existing local databases, which have no version row, at the revision
+  matching their shape before the first upgrade.
+- `setup()` then becomes `command.upgrade(head)` for both backends, and
+  `stale_local_db_reason` / `missing_local_tables` / `STALE_DB_REMEDY` — the
+  "recreate it by hand" path — all go away.
+
+Worth doing when local installs start needing to survive an upgrade rather
+than be recreated.
+
 ## API Auth — Beyond Username/Password + RBAC
 
 Username/password users, admin/viewer RBAC, and JWT login (access + refresh)

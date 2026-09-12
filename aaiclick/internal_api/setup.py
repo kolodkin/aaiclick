@@ -190,11 +190,18 @@ def stale_local_db_reason(*, limit: int = 5) -> str | None:
 def missing_local_tables() -> list[str]:
     """Model tables absent from an existing local SQLite DB.
 
-    ``is_setup_done`` only checks for a marker file, and :func:`stale_local_db`
-    compares columns of tables that *exist* — it skips missing ones, so it
-    reports a database with no tables at all as current. A marker left beside
-    an empty or truncated ``local.db`` (an interrupted setup, a wiped data dir)
-    therefore looked set up, and every query failed with "no such table".
+    ``is_setup_done`` only checks for a marker file, and
+    :func:`stale_local_db_reason` compares columns of tables that *exist* — it
+    skips missing ones, so it reports a database with no tables at all as
+    current. A marker left beside an empty or truncated ``local.db`` (an
+    interrupted setup, a wiped data dir) therefore looked set up, and every
+    query failed with "no such table".
+
+    Shape inspection rather than an ``alembic_version`` lookup because local
+    mode is outside migration versioning: ``setup`` builds the database with
+    ``create_all``, and the revision chain cannot run on SQLite (non-batch
+    ``ALTER`` of constraints). See "Local SQLite — Bring Into Alembic's
+    Versioning Scope" in ``docs/designs/future.md``.
 
     Returns table names, empty when the database is current or absent.
     """
