@@ -17,7 +17,7 @@ Execution workers remain shared infrastructure.
   — the existing `Role` literal (`admin` | `viewer`) reused per tenant.
 - **Superadmin**: boolean on `users`. Superadmins manage tenants and users,
   act as `admin` in every tenant, and exclusively control shared
-  infrastructure (execution workers, `/mcp`).
+  infrastructure (execution workers, and the superadmin-tagged `/mcp` tools).
 - **Isolation level**: metadata-level. One SQL database, one ClickHouse
   database; every query filters by the active tenant. Tenants are trusted
   teams sharing a deployment, not hostile parties.
@@ -156,11 +156,11 @@ see `new_job_row` (a scheduled run inherits its registration's tenant).
 | Start / stop execution workers                      | ❌     | ❌           | ✅         |
 | Tenant CRUD (`/tenants`)                            | ❌     | ❌           | ✅         |
 | User management (`/users`)                          | ❌     | ❌           | ✅         |
-| MCP surface (`/mcp`)                                | ❌     | ❌           | ✅         |
+| MCP surface (`/mcp`), gated per tool                | ✅ read | ✅ + write   | ✅ all     |
 
-Worker start/stop and `/mcp` move from "admin" to superadmin because both
-reach across tenants (workers execute every tenant's tasks; MCP tools are
-not tenant-filtered in phase 1).
+Worker start/stop stays superadmin because workers execute every tenant's
+tasks. `/mcp` admits any principal and gates each tool by its own tag, pinning
+the active tenant around the call — `docs/designs/auth.md` — MCP Surface.
 
 # API Surface
 
