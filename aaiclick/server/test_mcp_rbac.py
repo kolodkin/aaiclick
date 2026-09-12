@@ -23,13 +23,13 @@ from aaiclick.tenancy import DEFAULT_TENANT_ID
 from .auth import Principal, PrincipalAuthMiddleware
 from .conftest import TEST_JWT_SECRET
 from .mcp import mcp
-from .mcp_rbac import TAG_READ, TAG_SUPERADMIN, TAG_WRITE, authorize_tool
+from .mcp_rbac import TAG_ADMIN, TAG_READ, TAG_SUPERADMIN, TAG_WRITE, authorize_tool
 
 MCP_HEADERS = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
 
 
-def _principal(*, superadmin=False, tenants=None, scope="write"):
-    return Principal(user_id=5, superadmin=superadmin, tenants=tenants or {}, scope=scope, kind="session")
+def _principal(*, superadmin=False, tenants=None, scope="superadmin"):
+    return Principal(user_id=5, superadmin=superadmin, tenants=tenants or {}, scope=scope, kind="token")
 
 
 # --- authorize_tool ------------------------------------------------------
@@ -38,20 +38,32 @@ def _principal(*, superadmin=False, tenants=None, scope="write"):
 @pytest.mark.parametrize(
     "principal, tags, header, expect",
     [
-        pytest.param(_principal(tenants={7: "viewer"}), {TAG_READ}, "7", "ok", id="viewer-reads"),
-        pytest.param(_principal(tenants={7: "viewer"}), {TAG_WRITE}, "7", Forbidden, id="viewer-cannot-write"),
-        pytest.param(_principal(tenants={7: "admin"}), {TAG_WRITE}, "7", "ok", id="admin-writes"),
-        pytest.param(_principal(tenants={7: "admin"}), {TAG_SUPERADMIN}, "7", Forbidden, id="admin-not-superadmin"),
-        pytest.param(_principal(superadmin=True), {TAG_SUPERADMIN}, None, "ok", id="superadmin-no-tenant-needed"),
-        pytest.param(_principal(superadmin=True), {TAG_WRITE}, None, Invalid, id="superadmin-must-name-tenant"),
-        pytest.param(_principal(tenants={7: "admin"}), {TAG_READ}, "8", Forbidden, id="other-tenant"),
-        pytest.param(_principal(tenants={7: "admin"}, scope="read"), {TAG_READ}, "7", "ok", id="read-token-reads"),
+        pytest.param(_principal(tenants={7: "viewer"}, scope="read"), {TAG_READ}, "7", "ok", id="read-token-reads"),
         pytest.param(
-            _principal(tenants={7: "admin"}, scope="read"), {TAG_WRITE}, "7", Forbidden, id="read-token-no-write"
+            _principal(tenants={7: "viewer"}, scope="read"), {TAG_WRITE}, "7", Forbidden, id="read-token-no-write"
+        ),
+        pytest.param(_principal(tenants={7: "viewer"}, scope="write"), {TAG_WRITE}, "7", "ok", id="member-writes"),
+        pytest.param(
+            _principal(tenants={7: "viewer"}, scope="write"), {TAG_ADMIN}, "7", Forbidden, id="write-token-no-admin"
+        ),
+        pytest.param(_principal(tenants={7: "admin"}, scope="admin"), {TAG_ADMIN}, "7", "ok", id="admin-token-admins"),
+        pytest.param(
+            _principal(tenants={7: "viewer"}, scope="admin"), {TAG_ADMIN}, "7", Forbidden, id="ceiling-caps-below-token"
         ),
         pytest.param(
-            _principal(superadmin=True, scope="read"), {TAG_SUPERADMIN}, None, Forbidden, id="read-token-no-super"
+            _principal(superadmin=True, scope="superadmin"), {TAG_SUPERADMIN}, None, "ok", id="superadmin-instance"
         ),
+        pytest.param(
+            _principal(tenants={7: "admin"}, scope="admin"), {TAG_SUPERADMIN}, "7", Forbidden, id="admin-not-superadmin"
+        ),
+        pytest.param(
+            _principal(superadmin=True, scope="superadmin"),
+            {TAG_WRITE},
+            None,
+            Invalid,
+            id="superadmin-must-name-tenant",
+        ),
+        pytest.param(_principal(tenants={7: "admin"}, scope="admin"), {TAG_READ}, "8", Forbidden, id="other-tenant"),
     ],
 )
 def test_authorize_tool_matrix(enabled, principal, tags, header, expect):
@@ -71,14 +83,14 @@ def test_authorize_tool_local_mode_uses_default_tenant():
     default tenant without naming one — the same rule ``resolve_tenant`` applies
     to the REST routes."""
     synthetic = Principal(user_id=None, superadmin=True, tenants={}, kind="none")
-    ctx = authorize_tool(synthetic, {TAG_WRITE}, None)
+    ctx = authorize_tool(synthetic, {TAG_ADMIN}, None)
     assert ctx is not None and ctx.tenant_id == DEFAULT_TENANT_ID and ctx.role == "admin"
     assert authorize_tool(synthetic, {TAG_SUPERADMIN}, None) is None
 
 
 async def test_every_tool_has_exactly_one_rbac_tag():
     tools = await mcp.list_tools(run_middleware=False)
-    assert tools and all(len(t.tags & {TAG_READ, TAG_WRITE, TAG_SUPERADMIN}) == 1 for t in tools)
+    assert tools and all(len(t.tags & {TAG_READ, TAG_WRITE, TAG_ADMIN, TAG_SUPERADMIN}) == 1 for t in tools)
 
 
 # --- through the HTTP mount ---------------------------------------------

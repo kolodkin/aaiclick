@@ -27,7 +27,16 @@ from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from aaiclick.auth import config, security, store
-from aaiclick.auth.models import ROLE_ADMIN, SCOPE_READ, Role, ScopeLevel
+from aaiclick.auth.models import (
+    ROLE_ADMIN,
+    SCOPE_ADMIN,
+    SCOPE_READ,
+    SCOPE_SUPERADMIN,
+    SCOPE_WRITE,
+    Role,
+    ScopeLevel,
+    scope_admits,
+)
 from aaiclick.internal_api.errors import Forbidden, Invalid, Unauthorized
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.tenancy import DEFAULT_TENANT_ID, active_tenant
@@ -115,11 +124,15 @@ async def resolve_principal(authorization: str | None) -> Principal:
     return await principal_from_credential(credentials)
 
 
-def enforce_scope(principal: Principal, *, writes: bool) -> None:
-    """A ``read``-scoped token may only do reads — REST decides ``writes`` by HTTP
-    method, MCP by tool tag."""
-    if writes and principal.scope == SCOPE_READ:
-        raise Forbidden("token scope 'read' cannot perform writes")
+def enforce_scope(principal: Principal, required: ScopeLevel) -> None:
+    """Gate a principal's token level against the level an operation needs.
+
+    REST reads ``required`` off the route's guard and method, MCP off the
+    tool's tag, so both surfaces answer the question the same way. An unscoped
+    principal (a session, or local mode) is bounded by role alone.
+    """
+    if principal.scope is not None and not scope_admits(principal.scope, required):
+        raise Forbidden(f"token scope '{principal.scope}' cannot perform '{required}' operations")
 
 
 def check_superadmin(principal: Principal) -> None:
@@ -143,7 +156,7 @@ async def require_principal(
         raise Unauthorized("missing bearer token")
     else:
         principal = await principal_from_credential(creds.credentials)
-    enforce_scope(principal, writes=request.method not in SAFE_METHODS)
+    enforce_scope(principal, SCOPE_READ if request.method in SAFE_METHODS else SCOPE_WRITE)
     audit_state(request.scope).principal = principal
     return principal
 
@@ -231,13 +244,17 @@ async def require_tenant(
         yield ctx
 
 
-async def require_admin(ctx: TenantContext = Depends(require_tenant)) -> TenantContext:
+async def require_admin(
+    ctx: TenantContext = Depends(require_tenant), principal: Principal = Depends(require_principal)
+) -> TenantContext:
     """Tenant-admin guard for mutating tenant-scoped routes."""
+    enforce_scope(principal, SCOPE_ADMIN)
     check_tenant_admin(ctx)
     return ctx
 
 
 async def require_superadmin(principal: Principal = Depends(require_principal)) -> Principal:
+    enforce_scope(principal, SCOPE_SUPERADMIN)
     check_superadmin(principal)
     return principal
 

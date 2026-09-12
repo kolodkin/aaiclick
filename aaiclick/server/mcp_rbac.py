@@ -1,7 +1,8 @@
 """Per-tool RBAC for the ``/mcp`` mount.
 
-Each tool in ``server/mcp.py`` carries one tag — ``read``, ``write``, or
-``superadmin``. This FastMCP middleware resolves the caller from the current
+Each tool in ``server/mcp.py`` carries one tag — ``read``, ``write``,
+``admin``, or ``superadmin`` — naming the level on the scope ladder it needs.
+This FastMCP middleware resolves the caller from the current
 HTTP request (the principal the mount middleware recorded, plus the
 ``X-Tenant-Id`` header), applies the same tenant / role / scope rules as the
 REST dependencies (``server/auth.py``), pins the tenancy contextvar around the
@@ -23,6 +24,7 @@ from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from fastmcp.tools.base import Tool, ToolResult
 from starlette.requests import Request
 
+from aaiclick.auth.models import SCOPE_ADMIN, SCOPE_READ, SCOPE_SUPERADMIN, SCOPE_WRITE, ScopeLevel
 from aaiclick.internal_api.errors import Forbidden, Invalid, Unauthorized
 from aaiclick.tenancy import active_tenant
 
@@ -40,22 +42,39 @@ from .request_state import audit_state
 
 TAG_READ = "read"
 TAG_WRITE = "write"
+TAG_ADMIN = "admin"
 TAG_SUPERADMIN = "superadmin"
+
+_TAG_LEVELS: tuple[tuple[str, ScopeLevel], ...] = (
+    (TAG_SUPERADMIN, SCOPE_SUPERADMIN),
+    (TAG_ADMIN, SCOPE_ADMIN),
+    (TAG_WRITE, SCOPE_WRITE),
+    (TAG_READ, SCOPE_READ),
+)
+
+
+def required_level(tags: set[str]) -> ScopeLevel:
+    """The level a tool's tag demands. The highest tag present wins, so a
+    mistagged tool fails closed rather than open."""
+    for tag, level in _TAG_LEVELS:
+        if tag in tags:
+            return level
+    return SCOPE_SUPERADMIN
 
 
 def authorize_tool(principal: Principal, tags: set[str], tenant_header: str | None) -> TenantContext | None:
     """Decide whether ``principal`` may call a tool with ``tags``.
 
-    Returns the tenant to act in for ``read`` / ``write`` tools, ``None`` for
-    ``superadmin`` tools (which are instance-level). Raises ``Forbidden`` /
-    ``Invalid`` exactly like the REST guards.
+    Returns the tenant to act in, or ``None`` for instance-level tools. Raises
+    ``Forbidden`` / ``Invalid`` exactly like the REST guards.
     """
-    enforce_scope(principal, writes=TAG_READ not in tags)
-    if TAG_SUPERADMIN in tags:
+    required = required_level(tags)
+    enforce_scope(principal, required)
+    if required == SCOPE_SUPERADMIN:
         check_superadmin(principal)
         return None
     ctx = resolve_tenant(principal, tenant_header)
-    if TAG_WRITE in tags:
+    if required == SCOPE_ADMIN:
         check_tenant_admin(ctx)
     return ctx
 

@@ -85,12 +85,30 @@ async def test_unknown_api_token_unauthorized(enabled, orch_ctx):
         await auth.resolve_principal(authorization=_bearer("aaic_not-a-real-token"))
 
 
-def test_read_scope_blocks_writes():
-    read_only = auth.Principal(user_id=1, superadmin=True, tenants={}, scope="read", kind="token")
-    auth.enforce_scope(read_only, writes=False)
-    with pytest.raises(Forbidden):
-        auth.enforce_scope(read_only, writes=True)
-    auth.enforce_scope(read_only._replace(scope="write"), writes=True)
+@pytest.mark.parametrize(
+    "held, required, allowed",
+    [
+        pytest.param("read", "read", True, id="read-reads"),
+        pytest.param("read", "write", False, id="read-cannot-write"),
+        pytest.param("write", "admin", False, id="write-cannot-admin"),
+        pytest.param("admin", "write", True, id="admin-can-write"),
+        pytest.param("admin", "superadmin", False, id="admin-cannot-superadmin"),
+        pytest.param("superadmin", "superadmin", True, id="superadmin-can"),
+    ],
+)
+def test_enforce_scope_walks_the_ladder(held, required, allowed):
+    principal = auth.Principal(user_id=1, superadmin=True, tenants={}, scope=held, kind="token")
+    if allowed:
+        auth.enforce_scope(principal, required)
+    else:
+        with pytest.raises(Forbidden):
+            auth.enforce_scope(principal, required)
+
+
+def test_unscoped_principal_is_never_blocked_by_the_ladder():
+    """A session is bounded by its user's role, not by a scope."""
+    session = auth.Principal(user_id=1, superadmin=True, tenants={}, kind="session")
+    auth.enforce_scope(session, "superadmin")
 
 
 def test_resolve_tenant_local_mode_defaults():

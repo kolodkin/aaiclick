@@ -17,9 +17,11 @@ inside ``local_runtime()``'s outer context — all consistent.
 ``setup`` / ``migrate`` / ``bootstrap_ollama`` are infrastructure
 commands and run without an orchestration context, matching the CLI.
 
-Every tool carries exactly one RBAC tag — ``read`` (any tenant member),
-``write`` (tenant admin), or ``superadmin`` — enforced per call and used
-to filter ``tools/list`` by ``McpRbacMiddleware`` (``server/mcp_rbac.py``).
+Every tool carries exactly one RBAC tag naming the level on the scope
+ladder it needs — ``read``, ``write`` (member-level saves), ``admin``
+(tenant mutations), or ``superadmin`` (instance operations) — enforced per
+call and used to filter ``tools/list`` by ``McpRbacMiddleware``
+(``server/mcp_rbac.py``).
 
 Mounted on the FastAPI app in ``aaiclick.server.app``; the module-level
 ``mcp`` instance is also usable standalone (``mcp.run()``) or from
@@ -85,7 +87,7 @@ from aaiclick.viewer.view_models import (
     SavedQueryIn,
 )
 
-from .mcp_rbac import TAG_READ, TAG_SUPERADMIN, TAG_WRITE, McpRbacMiddleware
+from .mcp_rbac import TAG_ADMIN, TAG_READ, TAG_SUPERADMIN, TAG_WRITE, McpRbacMiddleware
 
 
 @asynccontextmanager
@@ -135,14 +137,14 @@ async def job_stats(ref: RefId) -> JobStatsView:
         return await jobs_api.job_stats(ref)
 
 
-@mcp.tool(tags={TAG_WRITE})
+@mcp.tool(tags={TAG_ADMIN})
 async def cancel_job(ref: RefId) -> JobView:
     """Cancel a job and its non-terminal tasks."""
     async with orch_context(with_ch=False):
         return await jobs_api.cancel_job(ref)
 
 
-@mcp.tool(tags={TAG_WRITE})
+@mcp.tool(tags={TAG_ADMIN})
 async def run_job(request: RunJobRequest) -> JobView:
     """Run a job immediately, auto-registering if needed."""
     async with orch_context(with_ch=True):
@@ -161,21 +163,21 @@ async def list_registered_jobs(
         return await rj_api.list_registered_jobs(filter)
 
 
-@mcp.tool(tags={TAG_WRITE})
+@mcp.tool(tags={TAG_ADMIN})
 async def register_job(request: RegisterJobRequest) -> RegisteredJobView:
     """Register a new job in the catalog."""
     async with orch_context(with_ch=False):
         return await rj_api.register_job(request)
 
 
-@mcp.tool(tags={TAG_WRITE})
+@mcp.tool(tags={TAG_ADMIN})
 async def enable_job(name: str) -> RegisteredJobView:
     """Enable a registered job and recompute its next fire time."""
     async with orch_context(with_ch=False):
         return await rj_api.enable_job(name)
 
 
-@mcp.tool(tags={TAG_WRITE})
+@mcp.tool(tags={TAG_ADMIN})
 async def disable_job(name: str) -> RegisteredJobView:
     """Disable a registered job and clear its next fire time."""
     async with orch_context(with_ch=False):
@@ -192,7 +194,7 @@ async def get_task(task_id: int) -> TaskDetail:
         return await tasks_api.get_task(task_id)
 
 
-@mcp.tool(tags={TAG_WRITE})
+@mcp.tool(tags={TAG_ADMIN})
 async def clear_task(task_id: int) -> ClearTaskView:
     """Reset a task and all its downstream tasks to PENDING for re-run."""
     async with orch_context(with_ch=False):
@@ -240,14 +242,14 @@ async def get_object(name: str, job: RefId | None = None) -> ObjectDetail:
         return await objects_api.get_object(name, job)
 
 
-@mcp.tool(tags={TAG_WRITE})
+@mcp.tool(tags={TAG_ADMIN})
 async def delete_object(name: str) -> Deleted:
     """Drop a global-scope persistent object by name (idempotent)."""
     async with orch_context(with_ch=True):
         return await objects_api.delete_object(name)
 
 
-@mcp.tool(tags={TAG_WRITE})
+@mcp.tool(tags={TAG_ADMIN})
 async def purge_objects(request: PurgeObjectsRequest) -> PurgeObjectsResult:
     """Drop global-scope persistent objects filtered by creation time."""
     async with orch_context(with_ch=True):

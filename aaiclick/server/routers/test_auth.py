@@ -1,5 +1,7 @@
 from aaiclick.auth import security
-from aaiclick.auth.view_models import CreateUserRequest, MfaEnableRequest
+from aaiclick.auth.models import SCOPE_WRITE
+from aaiclick.auth.view_models import CreateApiTokenRequest, CreateUserRequest, MfaEnableRequest
+from aaiclick.internal_api import api_tokens as api_tokens_api
 from aaiclick.internal_api import auth as auth_api
 from aaiclick.internal_api import users
 from aaiclick.server.app import API_PREFIX
@@ -159,3 +161,15 @@ async def test_password_reset_routes(orch_ctx, enabled, anon_client, app_client)
         f"{API_PREFIX}/auth/password-reset", json={"token": link.json()["token"], "new_password": "x"}
     )
     assert again.status_code == 401
+
+
+async def test_write_token_cannot_reach_an_admin_route(orch_ctx, app_client, enabled):
+    """The ladder, not the HTTP verb, is what separates write from admin."""
+    user = await users.create_user(CreateUserRequest(username="w", password="pw", superadmin=True))
+    created = await api_tokens_api.create_token(
+        user.id, CreateApiTokenRequest(name="w", scope=SCOPE_WRITE, tenant_id=DEFAULT_TENANT_ID)
+    )
+    headers = {"Authorization": f"Bearer {created.token}"}
+    assert (await app_client.get(f"{API_PREFIX}/jobs", headers=headers)).status_code == 200
+    denied = await app_client.post(f"{API_PREFIX}/jobs/1/cancel", headers=headers)
+    assert denied.status_code == 403 and denied.json()["code"] == "forbidden"
