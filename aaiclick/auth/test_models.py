@@ -3,6 +3,7 @@ from sqlmodel import select
 
 from aaiclick.auth.models import (
     SCOPE_ADMIN,
+    ApiToken,
     SCOPE_LEVELS,
     SCOPE_READ,
     SCOPE_SUPERADMIN,
@@ -14,6 +15,7 @@ from aaiclick.auth.models import (
 from aaiclick.datetime_utils import utc_now
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.snowflake import get_snowflake_id
+from aaiclick.tenancy import DEFAULT_TENANT_ID
 
 
 async def test_user_round_trips(orch_ctx):
@@ -62,3 +64,25 @@ def test_scope_admits(held, required, expected):
 def test_scope_levels_are_ordered_low_to_high():
     """The tuple order *is* the comparison — a reordering silently changes every gate."""
     assert SCOPE_LEVELS == (SCOPE_READ, SCOPE_WRITE, SCOPE_ADMIN, SCOPE_SUPERADMIN)
+
+
+async def test_api_token_carries_its_tenant(orch_ctx):
+    uid = get_snowflake_id()
+    async with get_sql_session() as session:
+        session.add(User(id=uid, username="tok", password_hash="x"))
+        await session.flush()
+        session.add(
+            ApiToken(
+                id=get_snowflake_id(),
+                user_id=uid,
+                name="ci",
+                prefix="aaic_abc",
+                token_hash="h",
+                scope=SCOPE_ADMIN,
+                tenant_id=DEFAULT_TENANT_ID,
+            )
+        )
+        await session.commit()
+    async with get_sql_session() as session:
+        row = (await session.execute(select(ApiToken).where(ApiToken.user_id == uid))).scalar_one()
+        assert row.tenant_id == DEFAULT_TENANT_ID and row.scope == SCOPE_ADMIN

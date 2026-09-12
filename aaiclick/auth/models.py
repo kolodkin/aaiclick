@@ -91,6 +91,12 @@ class ApiToken(SQLModel, table=True):
     """Leading characters of the secret, so a user can tell tokens apart in a list."""
     token_hash: str = Field(sa_column=Column(String, nullable=False, unique=True, index=True))
     scope: ScopeLevel = Field(sa_column=Column(String, nullable=False))
+    tenant_id: int | None = Field(sa_column=Column(BigInteger, nullable=True, index=True), default=None)
+    """The tenant this token acts in; ``None`` only for ``superadmin`` scope.
+
+    A plain column, not a DB FK — matching ``jobs`` and ``table_registry``,
+    where the reference is enforced at the API boundary.
+    """
     expires_at: datetime | None = Field(default=None)
     last_used_at: datetime | None = Field(default=None)
     revoked_at: datetime | None = Field(default=None)
