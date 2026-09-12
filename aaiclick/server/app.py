@@ -12,11 +12,13 @@ from aaiclick.backend import is_local
 from aaiclick.orchestration.local_runtime import local_runtime
 from aaiclick.orchestration.orch_context import orch_context
 
-from .auth import AdminAuthMiddleware, require_principal, require_tenant, warn_if_open
+from .audit import AuditMiddleware
+from .auth import PrincipalAuthMiddleware, require_principal, require_tenant, warn_if_open
 from .errors import register_exception_handlers
 from .events import live_events
 from .events import router as events_router
 from .mcp import mcp
+from .routers import audit as audit_router
 from .routers import auth as auth_router
 from .routers import execution_workers, jobs, objects, registered_jobs, tasks, viewer
 from .routers import tenants as tenants_router
@@ -68,6 +70,8 @@ app = FastAPI(
 )
 
 register_exception_handlers(app)
+# Outermost so it sees the final status of every request, including the /mcp mount.
+app.add_middleware(AuditMiddleware)
 
 # Tenant-scoped routers resolve the active tenant (X-Tenant-Id) per request;
 # execution workers are shared infrastructure and only need a principal.
@@ -82,16 +86,18 @@ for router in (
     app.include_router(router, prefix=API_PREFIX, dependencies=[Depends(require_tenant)])
 app.include_router(execution_workers.router, prefix=API_PREFIX, dependencies=[Depends(require_principal)])
 
-# `/auth` is public (login/refresh mint the credential); `/users` and
-# `/tenants` declare their own guards per route (`require_superadmin`,
+# `/auth` is public (login/refresh mint the credential); `/users`, `/tenants`,
+# and `/audit` declare their own guards per route (`require_superadmin`,
 # `require_principal`). None takes the blanket dependency above.
 app.include_router(auth_router.router, prefix=API_PREFIX)
 app.include_router(users_router.router, prefix=API_PREFIX)
 app.include_router(tenants_router.router, prefix=API_PREFIX)
+app.include_router(audit_router.router, prefix=API_PREFIX)
 
 # `Depends` doesn't cross the mount boundary into the FastMCP sub-app, so the
-# admin-only check runs as ASGI middleware wrapping the mount.
-app.mount(MCP_PATH, AdminAuthMiddleware(_mcp_app))
+# principal check runs as ASGI middleware wrapping the mount; per-tool RBAC
+# runs inside FastMCP (see mcp_rbac.py).
+app.mount(MCP_PATH, PrincipalAuthMiddleware(_mcp_app))
 
 
 @app.get("/health", include_in_schema=False)

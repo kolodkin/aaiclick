@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from sqlmodel import col
 
 from aaiclick.auth import security, store
@@ -13,12 +15,21 @@ from .errors import Conflict, NotFound
 from .pagination import paginate
 
 
+async def _hash(password: str) -> str:
+    """bcrypt on a worker thread — it costs ~100 ms and must not stall the loop."""
+    return await asyncio.to_thread(security.hash_password, password)
+
+
 def _to_view(user: User) -> UserView:
     return UserView(
         id=user.id,
         username=user.username,
         superadmin=user.superadmin,
         disabled=user.disabled,
+        email=user.email,
+        mfa_enabled=user.mfa_enabled,
+        sso_linked=user.oidc_subject is not None,
+        has_password=user.password_hash is not None,
         created_at=user.created_at,
     )
 
@@ -27,8 +38,9 @@ async def create_user(request: CreateUserRequest) -> UserView:
     try:
         user = await store.create_user(
             username=request.username,
-            password_hash=security.hash_password(request.password),
+            password_hash=await _hash(request.password) if request.password is not None else None,
             superadmin=request.superadmin,
+            email=request.email,
         )
     except store.UsernameTaken as exc:
         raise Conflict(str(exc)) from exc
@@ -73,7 +85,26 @@ async def set_password(user_id: int, password: str) -> UserView:
     """Admin password reset — also ends the user's sessions, so resetting a
     suspected-compromised account actually locks the other party out."""
     try:
-        user = await store.set_password_hash(user_id, security.hash_password(password))
+        user = await store.set_password_hash(user_id, await _hash(password))
+    except store.UserNotFound as exc:
+        raise NotFound(str(exc)) from exc
+    await store.revoke_all_for_user(user_id)
+    return _to_view(user)
+
+
+async def set_email(user_id: int, email: str | None) -> UserView:
+    try:
+        user = await store.set_email(user_id, email)
+    except store.UserNotFound as exc:
+        raise NotFound(str(exc)) from exc
+    return _to_view(user)
+
+
+async def reset_mfa(user_id: int) -> UserView:
+    """Superadmin recovery for a lost authenticator: clear the secret and flag,
+    and end the user's sessions so the account is re-verified on next login."""
+    try:
+        user = await store.set_totp(user_id, totp_secret=None, mfa_enabled=False)
     except store.UserNotFound as exc:
         raise NotFound(str(exc)) from exc
     await store.revoke_all_for_user(user_id)

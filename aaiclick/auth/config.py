@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from typing import NamedTuple
+from urllib.parse import quote
 
 from ..backend import is_local
 
@@ -17,10 +18,35 @@ ENV_ACCESS_TTL = "AAICLICK_JWT_ACCESS_TTL"
 ENV_REFRESH_TTL = "AAICLICK_JWT_REFRESH_TTL"
 ENV_ADMIN_USERNAME = "AAICLICK_ADMIN_USERNAME"
 ENV_ADMIN_PASSWORD = "AAICLICK_ADMIN_PASSWORD"
+ENV_PUBLIC_URL = "AAICLICK_PUBLIC_URL"
+
+ENV_OIDC_ISSUER = "AAICLICK_OIDC_ISSUER"
+ENV_OIDC_CLIENT_ID = "AAICLICK_OIDC_CLIENT_ID"
+ENV_OIDC_CLIENT_SECRET = "AAICLICK_OIDC_CLIENT_SECRET"
+ENV_OIDC_SCOPES = "AAICLICK_OIDC_SCOPES"
+ENV_OIDC_USERNAME_CLAIM = "AAICLICK_OIDC_USERNAME_CLAIM"
+ENV_OIDC_AUTO_PROVISION = "AAICLICK_OIDC_AUTO_PROVISION"
+ENV_OIDC_LABEL = "AAICLICK_OIDC_LABEL"
+
+ENV_PASSWORD_RESET_TTL = "AAICLICK_PASSWORD_RESET_TTL"
 
 DEFAULT_ACCESS_TTL = 1800
 DEFAULT_REFRESH_TTL = 1209600
 DEFAULT_ADMIN_USERNAME = "superadmin"
+DEFAULT_OIDC_SCOPES = "openid profile email"
+DEFAULT_OIDC_USERNAME_CLAIM = "preferred_username"
+DEFAULT_OIDC_LABEL = "SSO"
+OIDC_STATE_TTL = 600
+"""Seconds an SSO login may take between ``/auth/oidc/start`` and the callback."""
+DEFAULT_PASSWORD_RESET_TTL = 3600
+
+
+def _env_flag(name: str, default: bool = True) -> bool:
+    """Boolean env var: ``0`` / ``false`` / ``no`` / empty mean off."""
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.lower() not in ("0", "false", "no", "")
 
 
 class AdminSeed(NamedTuple):
@@ -64,3 +90,49 @@ def admin_seed() -> AdminSeed | None:
     if password:
         return AdminSeed(username, password)
     return None
+
+
+def public_url() -> str | None:
+    """Browser-facing origin, without a trailing slash."""
+    value = os.getenv(ENV_PUBLIC_URL)
+    return value.rstrip("/") if value else None
+
+
+def spa_url(prompt: str | None = None) -> str:
+    """A browser URL into the SPA — the site root, or a ``?p=`` prompt such as
+    ``reset <token>``. Requires ``AAICLICK_PUBLIC_URL``."""
+    base = public_url()
+    if base is None:
+        raise RuntimeError(f"{ENV_PUBLIC_URL} must be set")
+    return f"{base}/?p={quote(prompt)}" if prompt else f"{base}/"
+
+
+class OidcSettings(NamedTuple):
+    issuer: str
+    client_id: str
+    client_secret: str | None
+    scopes: str
+    username_claim: str
+    auto_provision: bool
+    label: str
+
+
+def oidc_settings() -> OidcSettings | None:
+    """SSO configuration, or ``None`` when the issuer / client id are unset."""
+    issuer = os.getenv(ENV_OIDC_ISSUER)
+    client_id = os.getenv(ENV_OIDC_CLIENT_ID)
+    if not issuer or not client_id:
+        return None
+    return OidcSettings(
+        issuer=issuer.rstrip("/"),
+        client_id=client_id,
+        client_secret=os.getenv(ENV_OIDC_CLIENT_SECRET) or None,
+        scopes=os.getenv(ENV_OIDC_SCOPES) or DEFAULT_OIDC_SCOPES,
+        username_claim=os.getenv(ENV_OIDC_USERNAME_CLAIM) or DEFAULT_OIDC_USERNAME_CLAIM,
+        auto_provision=_env_flag(ENV_OIDC_AUTO_PROVISION),
+        label=os.getenv(ENV_OIDC_LABEL) or DEFAULT_OIDC_LABEL,
+    )
+
+
+def password_reset_ttl() -> int:
+    return int(os.getenv(ENV_PASSWORD_RESET_TTL, DEFAULT_PASSWORD_RESET_TTL))

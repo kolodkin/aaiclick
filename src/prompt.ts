@@ -13,6 +13,11 @@ export type Route =
   | { kind: "run-confirm"; name: string }
   | { kind: "run-form"; name: string }
   | { kind: "cancel-confirm"; ref: string }
+  | { kind: "tokens" }
+  | { kind: "account" }
+  | { kind: "users" }
+  | { kind: "audit" }
+  | { kind: "reset"; token: string }
   | { kind: "data"; job: string | null; object: string | null }
   | { kind: "query"; job: string | null; object: string | null }
   | { kind: "dashboard"; name: string | null }
@@ -35,6 +40,11 @@ export function parsePrompt(raw: string): Route {
   if (p === "@all") return { kind: "all" };
   if (p === "@jobs") return { kind: "jobs" };
   if (p === "@registered") return { kind: "registered" };
+  if (p === "@tokens") return { kind: "tokens" };
+  if (p === "@account") return { kind: "account" };
+  if (p === "@users") return { kind: "users" };
+  if (p === "@audit") return { kind: "audit" };
+  if (p.startsWith("reset ")) return { kind: "reset", token: p.slice(6).trim() };
   if (p === "register") return { kind: "register", name: "" };
   if (p.startsWith("register ")) return { kind: "register", name: p.slice(9).trim() };
   if (p === "@data" || p.startsWith("@data ")) return { kind: "data", ...parseScoped(p.slice(5)) };
@@ -59,6 +69,10 @@ export function parsePrompt(raw: string): Route {
   if (p.startsWith("cancel ")) return { kind: "cancel-confirm", ref: p.slice(7).trim() };
   return { kind: "unknown", raw: p };
 }
+
+// Routes that render without a session — a reset link is followed by someone
+// who by definition cannot sign in yet.
+export const PUBLIC_ROUTES: ReadonlySet<Route["kind"]> = new Set(["reset"]);
 
 const PARAM = "p";
 

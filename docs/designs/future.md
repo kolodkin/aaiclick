@@ -66,23 +66,6 @@ Shape, following Airflow's per-try log selector:
     Airflow screenshots to follow as the reference for layout and wording — do
     not settle the UI details before then.
 
-## API Auth — Beyond Username/Password + RBAC
-
-Username/password users, admin/viewer RBAC, and JWT login (access + refresh)
-ship today (`docs/designs/auth.md`). Follow-ups, once more callers / finer control are
-needed:
-
-- **Long-lived API tokens / PATs with scopes** — user-minted, named, expiring
-  tokens with per-token `read` / `write` scopes for unattended CLI / SDK / MCP
-  clients (currently they log in with username/password and ride the refresh
-  flow). Includes a token-management UI + CLI.
-- **Per-tool MCP RBAC** — the `/mcp` mount is admin-only today; expose
-  read-only tools to `viewer` once per-tool gating is worth the complexity.
-- **Admin user-management UI** — admins manage users via REST + CLI today.
-- **OAuth 2.0 / OIDC / SSO**, **MFA**, **password-reset flow** — delegated /
-  hardened identity for enterprise deployments.
-- **Per-request audit log** — who called what, when.
-
 ## Tenant RBAC — Remaining Phases
 
 Phases 1 (backend core) and 2 (object tenancy) are implemented —
@@ -90,6 +73,38 @@ Phases 1 (backend core) and 2 (object tenancy) are implemented —
 
 - **Phase 3 — SPA**: tenant switcher sending `X-Tenant-Id`, membership admin
   UI, superadmin-gated controls.
+
+## Password Reset by Email
+
+A superadmin mints reset links today and hands them over out of band
+(`docs/designs/auth.md` — Password Reset). A self-service "email me a link"
+flow needs an SMTP sender plus a public request endpoint that always answers
+`204`, so it never discloses whether an account exists. `users.email` is
+already populated — set through the API / CLI, or from the OIDC `email` claim
+— so the missing pieces are the sender, its configuration, and the endpoint.
+An earlier `aaiclick/auth/mail.py` (`smtplib` on a worker thread via
+`asyncio.to_thread`) was removed as unused; it is recoverable from git history.
+
+**When to revisit**: when deployments have a reachable SMTP server, or when
+operators mint links often enough for it to hurt.
+
+## Foreign-Key Enforcement in the Local Test Backend
+
+SQLite defaults `PRAGMA foreign_keys` to `0`, and SQLAlchemy does not turn it
+on, so every `REFERENCES` clause in the local test schema is declared and never
+checked. Postgres enforces them always. The local half of the CI matrix is
+therefore structurally unable to catch a referential-integrity bug, and half of
+the 16 jobs are local — the scope-ladder branch shipped a test helper that
+inserted a membership for a tenant with no `tenants` row, which 2595 local
+tests passed straight over and only `Internal API dist` rejected.
+
+The fix is a `connect` event listener on the test engine issuing
+`PRAGMA foreign_keys=ON`. The cost is unknown until tried: turning enforcement
+on may surface existing violations in suites that have been quietly relying on
+the laxity, and each one wants fixing rather than suppressing.
+
+**When to revisit**: next time a foreign-key bug reaches `dist` after passing
+`local`, or alongside any work already touching the shared test fixtures.
 
 ## Java Task SDK — Shim Jar (`jvm` Entry Type)
 

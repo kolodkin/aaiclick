@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/api/v0/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Audit */
+        get: operations["list_audit_api_v0_audit_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v0/auth/login": {
         parameters: {
             query?: never;
@@ -13,7 +30,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Login */
+        /**
+         * Login
+         * @description ``401 code="mfa_required"`` means the password was accepted but the
+         *     account needs ``totp_code`` — retry with it.
+         */
         post: operations["login_api_v0_auth_login_post"];
         delete?: never;
         options?: never;
@@ -55,6 +76,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v0/auth/me/mfa/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mfa Disable */
+        post: operations["mfa_disable_api_v0_auth_me_mfa_disable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/auth/me/mfa/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mfa Enable */
+        post: operations["mfa_enable_api_v0_auth_me_mfa_enable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/auth/me/mfa/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mfa Setup */
+        post: operations["mfa_setup_api_v0_auth_me_mfa_setup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v0/auth/me/password": {
         parameters: {
             query?: never;
@@ -75,6 +147,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v0/auth/oidc/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Oidc Callback */
+        post: operations["oidc_callback_api_v0_auth_oidc_callback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/auth/oidc/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Oidc Config */
+        get: operations["oidc_config_api_v0_auth_oidc_config_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/auth/oidc/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Oidc Start */
+        post: operations["oidc_start_api_v0_auth_oidc_start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/auth/password-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Redeem Password Reset */
+        post: operations["redeem_password_reset_api_v0_auth_password_reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v0/auth/refresh": {
         parameters: {
             query?: never;
@@ -87,6 +227,44 @@ export interface paths {
         /** Refresh */
         post: operations["refresh_api_v0_auth_refresh_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/auth/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Tokens */
+        get: operations["list_tokens_api_v0_auth_tokens_get"];
+        put?: never;
+        /**
+         * Create Token
+         * @description The raw ``token`` appears in this response and nowhere else.
+         */
+        post: operations["create_token_api_v0_auth_tokens_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/auth/tokens/{token_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke Token */
+        delete: operations["revoke_token_api_v0_auth_tokens__token_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -498,6 +676,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v0/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get User */
+        get: operations["get_user_api_v0_users__user_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v0/users/{user_id}/disable": {
         parameters: {
             query?: never;
@@ -515,6 +710,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v0/users/{user_id}/email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Email */
+        put: operations["set_email_api_v0_users__user_id__email_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/users/{user_id}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enable User */
+        post: operations["enable_user_api_v0_users__user_id__enable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/users/{user_id}/mfa/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset Mfa
+         * @description Lost-authenticator recovery — there are no recovery codes.
+         */
+        post: operations["reset_mfa_api_v0_users__user_id__mfa_reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v0/users/{user_id}/password": {
         parameters: {
             query?: never;
@@ -526,6 +775,26 @@ export interface paths {
         /** Set Password */
         put: operations["set_password_api_v0_users__user_id__password_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/users/{user_id}/password-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Password Reset
+         * @description Mint a one-time reset link to hand to the user out of band.
+         */
+        post: operations["create_password_reset_api_v0_users__user_id__password_reset_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -659,6 +928,98 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
+         * ApiTokenCreated
+         * @description Create response: the only time the raw ``token`` is ever returned.
+         */
+        ApiTokenCreated: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Expires At */
+            expires_at: string | null;
+            /** Id */
+            id: string;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Name */
+            name: string;
+            /** Prefix */
+            prefix: string;
+            /** Revoked At */
+            revoked_at: string | null;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "read" | "write" | "admin" | "superadmin";
+            /** Tenant Id */
+            tenant_id: string | null;
+            /** Token */
+            token: string;
+        };
+        /**
+         * ApiTokenView
+         * @description A token as listed — never carries the secret.
+         */
+        ApiTokenView: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Expires At */
+            expires_at: string | null;
+            /** Id */
+            id: string;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Name */
+            name: string;
+            /** Prefix */
+            prefix: string;
+            /** Revoked At */
+            revoked_at: string | null;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "read" | "write" | "admin" | "superadmin";
+            /** Tenant Id */
+            tenant_id: string | null;
+        };
+        /** AuditEntryView */
+        AuditEntryView: {
+            /** Action */
+            action: string | null;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Auth Kind */
+            auth_kind: string;
+            /** Client Ip */
+            client_ip: string | null;
+            /** Duration Ms */
+            duration_ms: number;
+            /** Id */
+            id: string;
+            /** Method */
+            method: string;
+            /** Path */
+            path: string;
+            /** Status */
+            status: number;
+            /** Tenant Id */
+            tenant_id: string | null;
+            /** User Id */
+            user_id: string | null;
+            /** Username */
+            username: string | null;
+        };
+        /**
          * ChangePasswordRequest
          * @description Self-service password change. ``current_password`` is required so a
          *     stolen access token cannot take over the account on its own.
@@ -736,6 +1097,21 @@ export interface components {
             /** Type */
             type: string;
         };
+        /** CreateApiTokenRequest */
+        CreateApiTokenRequest: {
+            /** Expires At */
+            expires_at?: string | null;
+            /** Name */
+            name: string;
+            /**
+             * Scope
+             * @default read
+             * @enum {string}
+             */
+            scope: "read" | "write" | "admin" | "superadmin";
+            /** Tenant Id */
+            tenant_id?: string | null;
+        };
         /** CreateTenantRequest */
         CreateTenantRequest: {
             /** Name */
@@ -745,8 +1121,10 @@ export interface components {
         };
         /** CreateUserRequest */
         CreateUserRequest: {
+            /** Email */
+            email?: string | null;
             /** Password */
-            password: string;
+            password?: string | null;
             /**
              * Superadmin
              * @default false
@@ -1105,6 +1483,8 @@ export interface components {
         LoginRequest: {
             /** Password */
             password: string;
+            /** Totp Code */
+            totp_code?: string | null;
             /** Username */
             username: string;
         };
@@ -1120,7 +1500,12 @@ export interface components {
          */
         MeView: {
             /** Id */
-            id: number | null;
+            id: string | null;
+            /**
+             * Mfa Enabled
+             * @default false
+             */
+            mfa_enabled: boolean;
             /** Superadmin */
             superadmin: boolean;
             /** Tenants */
@@ -1136,9 +1521,35 @@ export interface components {
              */
             role: "admin" | "viewer";
             /** User Id */
-            user_id: number;
+            user_id: string;
             /** Username */
             username: string;
+        };
+        /**
+         * MfaDisableRequest
+         * @description Both factors are needed to turn MFA off.
+         */
+        MfaDisableRequest: {
+            /** Code */
+            code: string;
+            /** Password */
+            password: string;
+        };
+        /** MfaEnableRequest */
+        MfaEnableRequest: {
+            /** Code */
+            code: string;
+        };
+        /**
+         * MfaSetupView
+         * @description A pending TOTP secret; MFA turns on only after ``/auth/me/mfa/enable``
+         *     proves the authenticator has it.
+         */
+        MfaSetupView: {
+            /** Otpauth Uri */
+            otpauth_uri: string;
+            /** Secret */
+            secret: string;
         };
         /**
          * ObjectDetail
@@ -1235,10 +1646,50 @@ export interface components {
             /** Table */
             table: string;
         };
+        /** OidcCallbackRequest */
+        OidcCallbackRequest: {
+            /** Code */
+            code: string;
+            /** State */
+            state: string;
+        };
+        /**
+         * OidcConfigView
+         * @description Whether SSO is configured, so the login screen can offer the button.
+         */
+        OidcConfigView: {
+            /** Enabled */
+            enabled: boolean;
+            /** Label */
+            label: string;
+        };
+        /** OidcStartView */
+        OidcStartView: {
+            /** Authorization Url */
+            authorization_url: string;
+        };
         OrderBy: [
             string,
             "ASC" | "DESC"
         ];
+        /** Page[ApiTokenView] */
+        Page_ApiTokenView_: {
+            /** Items */
+            items: components["schemas"]["ApiTokenView"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Total */
+            total?: number | null;
+        };
+        /** Page[AuditEntryView] */
+        Page_AuditEntryView_: {
+            /** Items */
+            items: components["schemas"]["AuditEntryView"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Total */
+            total?: number | null;
+        };
         /** Page[DashboardSummary] */
         Page_DashboardSummary_: {
             /** Items */
@@ -1321,6 +1772,29 @@ export interface components {
             total?: number | null;
         };
         /**
+         * PasswordResetLinkView
+         * @description An admin-minted reset token. ``url`` is set when ``AAICLICK_PUBLIC_URL``
+         *     is configured; either way the raw ``token`` appears here only.
+         */
+        PasswordResetLinkView: {
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Token */
+            token: string;
+            /** Url */
+            url: string | null;
+        };
+        /** PasswordResetRedeem */
+        PasswordResetRedeem: {
+            /** New Password */
+            new_password: string;
+            /** Token */
+            token: string;
+        };
+        /**
          * Problem
          * @description RFC 7807-style error payload used by the REST surface.
          */
@@ -1338,7 +1812,7 @@ export interface components {
          * @description Stable machine-readable code attached to every ``Problem`` response.
          * @enum {string}
          */
-        ProblemCode: "not_found" | "conflict" | "invalid" | "unauthorized" | "forbidden" | "execution_worker_spawn_failed";
+        ProblemCode: "not_found" | "conflict" | "invalid" | "unauthorized" | "mfa_required" | "forbidden" | "execution_worker_spawn_failed";
         /**
          * PurgeObjectsRequest
          * @description Inputs for ``internal_api.purge_objects``.
@@ -1563,6 +2037,11 @@ export interface components {
             /** Table */
             table?: string | null;
         };
+        /** SetEmailRequest */
+        SetEmailRequest: {
+            /** Email */
+            email: string | null;
+        };
         /** SetMemberRequest */
         SetMemberRequest: {
             /**
@@ -1763,8 +2242,16 @@ export interface components {
             created_at: string;
             /** Disabled */
             disabled: boolean;
+            /** Email */
+            email: string | null;
+            /** Has Password */
+            has_password: boolean;
             /** Id */
-            id: number;
+            id: string;
+            /** Mfa Enabled */
+            mfa_enabled: boolean;
+            /** Sso Linked */
+            sso_linked: boolean;
             /** Superadmin */
             superadmin: boolean;
             /** Username */
@@ -1792,6 +2279,43 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_audit_api_v0_audit_get: {
+        parameters: {
+            query?: {
+                user_id?: number | null;
+                username?: string | null;
+                method?: string | null;
+                path?: string | null;
+                since?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_AuditEntryView_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     login_api_v0_auth_login_post: {
         parameters: {
             query?: never;
@@ -1814,7 +2338,7 @@ export interface operations {
                     "application/json": components["schemas"]["TokenPair"];
                 };
             };
-            /** @description Unauthorized */
+            /** @description MFA Required */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -1885,6 +2409,169 @@ export interface operations {
             };
         };
     };
+    mfa_disable_api_v0_auth_me_mfa_disable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MfaDisableRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description MFA Required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    mfa_enable_api_v0_auth_me_mfa_enable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MfaEnableRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description MFA Required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    mfa_setup_api_v0_auth_me_mfa_setup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MfaSetupView"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     change_password_api_v0_auth_me_password_put: {
         parameters: {
             query?: never;
@@ -1905,7 +2592,58 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Unauthorized */
+            /** @description MFA Required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    oidc_callback_api_v0_auth_oidc_callback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OidcCallbackRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenPair"];
+                };
+            };
+            /** @description MFA Required */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -1921,6 +2659,104 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    oidc_config_api_v0_auth_oidc_config_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OidcConfigView"];
+                };
+            };
+        };
+    };
+    oidc_start_api_v0_auth_oidc_start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OidcStartView"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    redeem_password_reset_api_v0_auth_password_reset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordResetRedeem"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description MFA Required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1947,7 +2783,7 @@ export interface operations {
                     "application/json": components["schemas"]["TokenPair"];
                 };
             };
-            /** @description Unauthorized */
+            /** @description MFA Required */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -1963,6 +2799,133 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_tokens_api_v0_auth_tokens_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_ApiTokenView_"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_token_api_v0_auth_tokens_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateApiTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiTokenCreated"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    revoke_token_api_v0_auth_tokens__token_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -3182,7 +4145,171 @@ export interface operations {
             };
         };
     };
+    get_user_api_v0_users__user_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserView"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     disable_user_api_v0_users__user_id__disable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserView"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_email_api_v0_users__user_id__email_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetEmailRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserView"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enable_user_api_v0_users__user_id__enable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserView"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_mfa_api_v0_users__user_id__mfa_reset_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -3244,6 +4371,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserView"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_password_reset_api_v0_users__user_id__password_reset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasswordResetLinkView"];
                 };
             };
             /** @description Not Found */

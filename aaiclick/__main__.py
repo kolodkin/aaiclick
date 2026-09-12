@@ -44,15 +44,20 @@ import shlex
 import sys
 from contextlib import closing, redirect_stdout
 from contextvars import ContextVar
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, cast, get_args
 
 from aaiclick import cli_renderers, cli_wait, internal_api
 from aaiclick.ai.importing import import_ai_module
+from aaiclick.audit.view_models import AuditListFilter
 from aaiclick.auth import store as auth_store
-from aaiclick.auth.models import ROLE_VIEWER, ROLES
-from aaiclick.auth.view_models import CreateTenantRequest, CreateUserRequest, UserListFilter
+from aaiclick.auth.models import ROLE_VIEWER, ROLES, SCOPE_LEVELS, SCOPE_READ, SCOPE_SUPERADMIN
+from aaiclick.auth.view_models import CreateApiTokenRequest, CreateTenantRequest, CreateUserRequest, UserListFilter
+from aaiclick.datetime_utils import utc_now
+from aaiclick.internal_api import api_tokens as api_tokens_api
+from aaiclick.internal_api import audit as audit_api
+from aaiclick.internal_api import password_reset as reset_api
 from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import tenants as tenants_api
 from aaiclick.internal_api import users as users_api
@@ -67,7 +72,7 @@ from aaiclick.orchestration.models import (
 )
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.orchestration.runner_config import ENTRY_TYPES
-from aaiclick.tenancy import active_tenant
+from aaiclick.tenancy import active_tenant, get_active_tenant_id
 from aaiclick.view_models import (
     ExecutionWorkerFilter,
     JobListFilter,
@@ -521,7 +526,9 @@ async def _run_execution_worker_stop(args: argparse.Namespace) -> None:
 async def _run_user_create(args: argparse.Namespace) -> None:
     view = await _run_internal_api(
         users_api.create_user(
-            CreateUserRequest(username=args.username, password=args.password, superadmin=args.superadmin)
+            CreateUserRequest(
+                username=args.username, password=args.password, superadmin=args.superadmin, email=args.email
+            )
         )
     )
     _render(args, view, cli_renderers.render_user)
@@ -542,9 +549,83 @@ async def _run_user_disable(args: argparse.Namespace) -> None:
     _render(args, view, cli_renderers.render_user)
 
 
+async def _run_user_enable(args: argparse.Namespace) -> None:
+    view = await _run_internal_api(users_api.disable_user(args.user_id, False))
+    _render(args, view, cli_renderers.render_user)
+
+
+async def _run_user_reset_link(args: argparse.Namespace) -> None:
+    view = await _run_internal_api(reset_api.create(args.user_id))
+    _render(args, view, cli_renderers.render_password_reset_link)
+
+
+async def _run_user_reset_mfa(args: argparse.Namespace) -> None:
+    view = await _run_internal_api(users_api.reset_mfa(args.user_id))
+    _render(args, view, cli_renderers.render_user)
+
+
+async def _run_user_set_email(args: argparse.Namespace) -> None:
+    view = await _run_internal_api(users_api.set_email(args.user_id, args.email or None))
+    _render(args, view, cli_renderers.render_user)
+
+
 async def _run_user_passwd(args: argparse.Namespace) -> None:
     view = await _run_internal_api(users_api.set_password(args.user_id, args.password))
     _render(args, view, cli_renderers.render_user)
+
+
+async def _run_audit_list(args: argparse.Namespace) -> None:
+    filter = AuditListFilter(
+        user_id=args.user_id,
+        username=args.username,
+        method=args.method,
+        path=args.path,
+        since=_parse_datetime(args.since) if args.since else None,
+        limit=args.limit,
+        offset=args.offset,
+    )
+    page = await _run_internal_api(audit_api.list_audit(filter))
+    _render(args, page, lambda p: cli_renderers.render_audit_page(p, offset=args.offset))
+
+
+async def _resolve_user_id(username: str) -> int:
+    user = await auth_store.get_user_by_username(username)
+    if user is None:
+        raise NotFound(f"user '{username}' not found")
+    return user.id
+
+
+async def _run_token_create(args: argparse.Namespace) -> None:
+    async def do():
+        user_id = await _resolve_user_id(args.username)
+        expires_at = utc_now() + timedelta(days=args.expires_days) if args.expires_days else None
+        # Below superadmin a token is bound to one tenant. _run_internal_api has
+        # already entered the tenant the top-level --tenant flag names, so the
+        # contextvar is the answer — and the default tenant when it is absent.
+        tenant_id = None if args.scope == SCOPE_SUPERADMIN else get_active_tenant_id()
+        return await api_tokens_api.create_token(
+            user_id,
+            CreateApiTokenRequest(name=args.name, scope=args.scope, tenant_id=tenant_id, expires_at=expires_at),
+        )
+
+    view = await _run_internal_api(do())
+    _render(args, view, cli_renderers.render_api_token_created)
+
+
+async def _run_token_list(args: argparse.Namespace) -> None:
+    async def do():
+        return await api_tokens_api.list_tokens(await _resolve_user_id(args.username))
+
+    page = await _run_internal_api(do())
+    _render(args, page, cli_renderers.render_api_tokens_page)
+
+
+async def _run_token_revoke(args: argparse.Namespace) -> None:
+    async def do():
+        await api_tokens_api.revoke_token(await _resolve_user_id(args.username), args.token_id)
+
+    await _run_internal_api(do())
+    print(f"revoked api token {args.token_id}")
 
 
 async def _run_tenant_create(args: argparse.Namespace) -> None:
@@ -560,11 +641,7 @@ async def _run_tenant_list(args: argparse.Namespace) -> None:
 
 async def _resolve_member(args: argparse.Namespace) -> tuple[int, int]:
     """Resolve ``--tenant`` slug and ``--username`` to their ids."""
-    tenant_id = await _resolve_tenant_id(args.tenant)
-    user = await auth_store.get_user_by_username(args.username)
-    if user is None:
-        raise NotFound(f"user '{args.username}' not found")
-    return tenant_id, user.id
+    return await _resolve_tenant_id(args.tenant), await _resolve_user_id(args.username)
 
 
 async def _run_member_set(args: argparse.Namespace) -> None:
@@ -1405,7 +1482,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     user_create_parser = user_subparsers.add_parser("create", help="Create a user")
     user_create_parser.add_argument("username")
-    user_create_parser.add_argument("--password", required=True)
+    user_create_parser.add_argument(
+        "--password", default=None, help="Omit for a user who signs in via SSO or a reset link only"
+    )
+    user_create_parser.add_argument("--email", default=None)
     user_create_parser.add_argument("--superadmin", action="store_true")
     _add_json_flag(user_create_parser)
 
@@ -1425,10 +1505,60 @@ def build_parser() -> argparse.ArgumentParser:
     user_disable_parser.add_argument("user_id", type=int)
     _add_json_flag(user_disable_parser)
 
+    user_enable_parser = user_subparsers.add_parser("enable", help="Re-enable a disabled user")
+    user_enable_parser.add_argument("user_id", type=int)
+    _add_json_flag(user_enable_parser)
+
+    user_reset_link_parser = user_subparsers.add_parser("reset-link", help="Mint a one-time password-reset link")
+    user_reset_link_parser.add_argument("user_id", type=int)
+    _add_json_flag(user_reset_link_parser)
+
+    user_reset_mfa_parser = user_subparsers.add_parser("reset-mfa", help="Clear a user's authenticator (lost device)")
+    user_reset_mfa_parser.add_argument("user_id", type=int)
+    _add_json_flag(user_reset_mfa_parser)
+
+    user_set_email_parser = user_subparsers.add_parser("set-email", help="Set (or clear) a user's email")
+    user_set_email_parser.add_argument("user_id", type=int)
+    user_set_email_parser.add_argument("email", nargs="?", default=None, help="Omit to clear")
+    _add_json_flag(user_set_email_parser)
+
     user_passwd_parser = user_subparsers.add_parser("passwd", help="Set a user's password")
     user_passwd_parser.add_argument("user_id", type=int)
     user_passwd_parser.add_argument("--password", required=True)
     _add_json_flag(user_passwd_parser)
+
+    # Add audit subcommand
+    audit_parser = subparsers.add_parser("audit", help="Request audit log")
+    audit_subparsers = audit_parser.add_subparsers(dest="audit_command", help="Audit commands")
+
+    audit_list_parser = audit_subparsers.add_parser("list", help="List audit entries, newest first")
+    audit_list_parser.add_argument("--user-id", type=int, default=None)
+    audit_list_parser.add_argument("--username", default=None)
+    audit_list_parser.add_argument("--method", default=None, help="HTTP method, e.g. POST")
+    audit_list_parser.add_argument("--path", default=None, help="Path prefix, e.g. /api/v0/jobs")
+    audit_list_parser.add_argument("--since", default=None, help="ISO 8601 lower bound")
+    audit_list_parser.add_argument("--limit", type=int, default=50)
+    audit_list_parser.add_argument("--offset", type=int, default=0)
+    _add_json_flag(audit_list_parser)
+
+    # Add token subcommand (API tokens)
+    token_parser = subparsers.add_parser("token", help="API token administration")
+    token_subparsers = token_parser.add_subparsers(dest="token_command", help="Token commands")
+
+    token_create_parser = token_subparsers.add_parser("create", help="Mint an API token for a user")
+    token_create_parser.add_argument("username")
+    token_create_parser.add_argument("--name", required=True, help="Label shown in token lists")
+    token_create_parser.add_argument("--scope", choices=list(SCOPE_LEVELS), default=SCOPE_READ)
+    token_create_parser.add_argument("--expires-days", type=int, default=None, help="Lifetime in days (default: never)")
+    _add_json_flag(token_create_parser)
+
+    token_list_parser = token_subparsers.add_parser("list", help="List a user's API tokens")
+    token_list_parser.add_argument("username")
+    _add_json_flag(token_list_parser)
+
+    token_revoke_parser = token_subparsers.add_parser("revoke", help="Revoke one of a user's API tokens")
+    token_revoke_parser.add_argument("username")
+    token_revoke_parser.add_argument("token_id", type=int)
 
     # Add tenant subcommand (administration)
     tenant_parser = subparsers.add_parser("tenant", help="Tenant administration")
@@ -1611,6 +1741,22 @@ def main():
         else:
             subcommands["k8s"].print_help()
 
+    elif args.command == "audit":
+        if args.audit_command == "list":
+            asyncio.run(_run_audit_list(args))
+        else:
+            subcommands["audit"].print_help()
+
+    elif args.command == "token":
+        if args.token_command == "create":
+            asyncio.run(_run_token_create(args))
+        elif args.token_command == "list":
+            asyncio.run(_run_token_list(args))
+        elif args.token_command == "revoke":
+            asyncio.run(_run_token_revoke(args))
+        else:
+            subcommands["token"].print_help()
+
     elif args.command == "tenant":
         if args.tenant_command == "create":
             asyncio.run(_run_tenant_create(args))
@@ -1639,6 +1785,14 @@ def main():
 
         elif args.user_command == "disable":
             asyncio.run(_run_user_disable(args))
+        elif args.user_command == "enable":
+            asyncio.run(_run_user_enable(args))
+        elif args.user_command == "set-email":
+            asyncio.run(_run_user_set_email(args))
+        elif args.user_command == "reset-mfa":
+            asyncio.run(_run_user_reset_mfa(args))
+        elif args.user_command == "reset-link":
+            asyncio.run(_run_user_reset_link(args))
 
         elif args.user_command == "passwd":
             asyncio.run(_run_user_passwd(args))

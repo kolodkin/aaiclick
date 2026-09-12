@@ -8,7 +8,15 @@ from SQLModel rows — so the JSON schema and text columns cannot drift.
 
 from __future__ import annotations
 
-from aaiclick.auth.view_models import MemberView, TenantView, UserView
+from aaiclick.audit.view_models import AuditEntryView
+from aaiclick.auth.view_models import (
+    ApiTokenCreated,
+    ApiTokenView,
+    MemberView,
+    PasswordResetLinkView,
+    TenantView,
+    UserView,
+)
 from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.orchestration.models import NON_SUCCESS_TASK_STATUSES, TASK_FAILED
 from aaiclick.orchestration.view_models import (
@@ -229,7 +237,10 @@ def render_execution_worker_stopped(view: ExecutionWorkerView) -> None:
 
 def render_user(view: UserView) -> None:
     """Single-line summary of one user."""
-    print(f"{view.id}  {view.username}  superadmin={view.superadmin}  disabled={view.disabled}")
+    print(
+        f"{view.id}  {view.username}  superadmin={view.superadmin}  disabled={view.disabled}  "
+        f"email={_fmt_optional(view.email)}  mfa={view.mfa_enabled}  sso={view.sso_linked}"
+    )
 
 
 def render_tenant(view: TenantView) -> None:
@@ -252,6 +263,61 @@ def render_tenants_page(page: Page[TenantView]) -> None:
 def render_member(view: MemberView) -> None:
     """Single-line summary of one tenant member."""
     print(f"{view.user_id}  {view.username}  role={view.role}")
+
+
+def render_api_token_created(view: ApiTokenCreated) -> None:
+    """Show the freshly minted secret — the only time it is ever displayed."""
+    print(
+        f"{view.id}  {view.name}  scope={view.scope}  "
+        f"tenant={_fmt_optional(view.tenant_id)}  expires={_fmt_optional(view.expires_at)}"
+    )
+    print(f"token: {view.token}")
+    print("Store it now — it cannot be retrieved again.")
+
+
+def render_audit_page(page: Page[AuditEntryView], offset: int) -> None:
+    """Print audit entries as an aligned text table, newest first."""
+    if not page.items:
+        print("No audit entries found")
+        return
+
+    print(
+        f"{'At':<20} {'User':<16} {'Kind':<8} {'Tenant':<8} {'Method':<7} {'Path / action':<44} {'Status':<6} {'ms':>6}"
+    )
+    print("-" * 122)
+    for e in page.items:
+        target = f"{e.path} {e.action}" if e.action else e.path
+        print(
+            f"{e.at:%Y-%m-%d %H:%M:%S}  {_fmt_optional(e.username):<16} {e.auth_kind:<8} "
+            f"{_fmt_optional(e.tenant_id):<8} {e.method:<7} {target:<44} {e.status:<6} {e.duration_ms:>6}"
+        )
+    _print_page_footer(page, offset)
+
+
+def render_password_reset_link(view: PasswordResetLinkView) -> None:
+    print(f"expires: {view.expires_at}")
+    print(f"token: {view.token}")
+    if view.url:
+        print(f"url: {view.url}")
+
+
+def render_api_tokens_page(page: Page[ApiTokenView]) -> None:
+    """Print a user's API tokens as an aligned text table."""
+    if not page.items:
+        print("No api tokens found")
+        return
+
+    print(
+        f"{'ID':<20} {'Name':<20} {'Prefix':<14} {'Scope':<11} {'Tenant':<20} "
+        f"{'Expires':<26} {'Last used':<26} {'Revoked':<26}"
+    )
+    print("-" * 168)
+    for t in page.items:
+        print(
+            f"{t.id:<20} {t.name:<20} {t.prefix:<14} {t.scope:<11} {_fmt_optional(t.tenant_id):<20} "
+            f"{_fmt_optional(t.expires_at):<26} {_fmt_optional(t.last_used_at):<26} "
+            f"{_fmt_optional(t.revoked_at):<26}"
+        )
 
 
 def render_users_page(page: Page[UserView], offset: int) -> None:

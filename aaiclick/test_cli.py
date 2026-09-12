@@ -590,3 +590,48 @@ def test_setup_does_not_prompt_when_not_a_tty(monkeypatch):
     _run_setup_main()
 
     assert calls == [False]
+
+
+def test_token_parser_flags():
+    parser = build_parser()
+    args = parser.parse_args(["token", "create", "alice", "--name", "ci", "--scope", "write", "--expires-days", "30"])
+    assert args.command == "token" and args.token_command == "create"
+    assert args.username == "alice" and args.name == "ci" and args.scope == "write" and args.expires_days == 30
+    args = parser.parse_args(["token", "create", "alice", "--name", "ro"])
+    assert args.scope == "read" and args.expires_days is None
+    args = parser.parse_args(["token", "revoke", "alice", "42"])
+    assert args.token_command == "revoke" and args.token_id == 42
+
+
+def test_user_parser_new_commands():
+    parser = build_parser()
+    args = parser.parse_args(["user", "create", "sso_only", "--email", "s@example.com"])
+    assert args.password is None and args.email == "s@example.com"
+    assert parser.parse_args(["user", "enable", "7"]).user_command == "enable"
+    assert parser.parse_args(["user", "reset-mfa", "7"]).user_command == "reset-mfa"
+    args = parser.parse_args(["user", "set-email", "7"])
+    assert args.user_command == "set-email" and args.email is None
+    assert parser.parse_args(["user", "reset-link", "7"]).user_command == "reset-link"
+
+
+def test_audit_parser_flags():
+    parser = build_parser()
+    args = parser.parse_args(
+        ["audit", "list", "--username", "alice", "--method", "POST", "--path", "/api/v0/jobs", "--since", "2026-01-01"]
+    )
+    assert args.command == "audit" and args.audit_command == "list"
+    assert (
+        args.username == "alice"
+        and args.method == "POST"
+        and args.path == "/api/v0/jobs"
+        and args.since == "2026-01-01"
+    )
+    assert args.limit == 50 and args.offset == 0 and args.user_id is None
+
+
+def test_token_parser_accepts_every_scope():
+    parser = build_parser()
+    for level in ("read", "write", "admin", "superadmin"):
+        args = parser.parse_args(["token", "create", "alice", "--name", "ci", "--scope", level])
+        assert args.scope == level
+    assert parser.parse_args(["token", "create", "alice", "--name", "ci"]).scope == "read"

@@ -1,3 +1,5 @@
+import { useAuth } from "../components/Auth";
+
 interface Cmd {
   code: string;
   desc: string;
@@ -22,6 +24,16 @@ const ACTIONS: Cmd[] = [
   { code: "enable / disable <name>", desc: "Toggle a registered job on/off via @registered.", cmd: "@registered" },
 ];
 
+const ACCOUNT: Cmd[] = [
+  { code: "@account", desc: "Change your password, set up multi-factor auth.", cmd: "@account" },
+  { code: "@tokens", desc: "API tokens for CLI / SDK / MCP clients — create, revoke.", cmd: "@tokens" },
+];
+
+const ADMIN: Cmd[] = [
+  { code: "@users", desc: "Manage users — create, superadmin, disable, reset password.", cmd: "@users" },
+  { code: "@audit", desc: "Request audit log — who called what, when.", cmd: "@audit" },
+];
+
 function CmdList({ items, onPrompt }: { items: Cmd[]; onPrompt: (v: string) => void }) {
   return (
     <div className="cmd-list">
@@ -36,6 +48,7 @@ function CmdList({ items, onPrompt }: { items: Cmd[]; onPrompt: (v: string) => v
 }
 
 export function Home({ onPrompt }: { onPrompt: (v: string) => void }) {
+  const { me } = useAuth();
   return (
     <>
       <h2>aaiclick</h2>
@@ -44,6 +57,14 @@ export function Home({ onPrompt }: { onPrompt: (v: string) => void }) {
       <CmdList items={NAVIGATE} onPrompt={onPrompt} />
       <div className="group-label">Actions</div>
       <CmdList items={ACTIONS} onPrompt={onPrompt} />
+      <div className="group-label">Account</div>
+      <CmdList items={ACCOUNT} onPrompt={onPrompt} />
+      {me?.superadmin && (
+        <>
+          <div className="group-label">Administration</div>
+          <CmdList items={ADMIN} onPrompt={onPrompt} />
+        </>
+      )}
     </>
   );
 }

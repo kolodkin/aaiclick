@@ -1,24 +1,13 @@
-import pytest
-
-from aaiclick.auth import security
 from aaiclick.auth.view_models import CreateTenantRequest, CreateUserRequest
 from aaiclick.internal_api import tenants as tenants_api
 from aaiclick.internal_api import users as users_api
 
 from ..app import API_PREFIX
-
-SECRET = "router-tenants-test-secret-key-32-plus-bytes"
-
-
-@pytest.fixture
-def enabled(monkeypatch):
-    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: False)
-    monkeypatch.setenv("AAICLICK_JWT_SECRET", SECRET)
+from ..conftest import bearer
 
 
 def _header(*, superadmin=False, tenants=None):
-    token = security.encode_access_token(user_id=1, superadmin=superadmin, tenants=tenants or {}, secret=SECRET, ttl=60)
-    return {"Authorization": f"Bearer {token}"}
+    return bearer(1, superadmin=superadmin, tenants=tenants)
 
 
 async def test_create_and_get_tenant_local_mode(orch_ctx, app_client):

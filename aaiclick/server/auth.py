@@ -1,18 +1,24 @@
 """Auth for the REST surface and the ``/mcp`` mount.
 
 In local mode auth is disabled: every request is allowed (a synthetic admin
-principal) and startup logs a ``WARNING``. In distributed mode the
-``Authorization: Bearer`` access JWT is required; ``HTTPBearer`` (with
-``auto_error=False``) extracts it and registers the OpenAPI scheme. The
-``/mcp`` mount keeps an ASGI middleware (admin-only) because ``Depends`` does
-not propagate into mounted sub-apps. See ``docs/designs/auth.md``.
+principal) and startup logs a ``WARNING``. In distributed mode an
+``Authorization: Bearer`` credential is required — either an access JWT or an
+``aaic_`` API token; ``HTTPBearer`` (with ``auto_error=False``) extracts it and
+registers the OpenAPI scheme. The ``/mcp`` mount keeps an ASGI middleware
+because ``Depends`` does not propagate into mounted sub-apps. See
+``docs/designs/auth.md``.
+
+The role and scope rules are plain functions (``resolve_tenant``,
+``check_tenant_admin``, ``check_superadmin``, ``enforce_scope``) so the FastAPI
+dependencies here and the FastMCP middleware in ``mcp_rbac.py`` share one
+definition of each.
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
-from typing import NamedTuple, cast
+from typing import Literal, NamedTuple, cast
 
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -20,29 +26,51 @@ from fastapi.security.utils import get_authorization_scheme_param
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from aaiclick.auth import config, security
-from aaiclick.auth.models import ROLE_ADMIN, Role
+from aaiclick.auth import config, security, store
+from aaiclick.auth.models import (
+    ROLE_ADMIN,
+    SCOPE_ADMIN,
+    SCOPE_READ,
+    SCOPE_SUPERADMIN,
+    SCOPE_WRITE,
+    Role,
+    ScopeLevel,
+    scope_admits,
+)
 from aaiclick.internal_api.errors import Forbidden, Invalid, Unauthorized
+from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.tenancy import DEFAULT_TENANT_ID, active_tenant
 from aaiclick.view_models import ProblemCode
 
-from .errors import problem_response
+from .errors import BEARER_CHALLENGE, problem_response
+from .request_state import audit_state
 
-BEARER_CHALLENGE = {"WWW-Authenticate": "Bearer"}
 TENANT_HEADER = "X-Tenant-Id"
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 logger = logging.getLogger(__name__)
 
 _bearer_scheme = HTTPBearer(auto_error=False)
+
+AUTH_KIND_NONE = "none"
+AUTH_KIND_SESSION = "session"
+AUTH_KIND_TOKEN = "token"
+AuthKind = Literal["none", "session", "token"]
+"""How the principal authenticated: local mode, an access JWT, or an API token."""
 
 
 class Principal(NamedTuple):
     user_id: int | None
     superadmin: bool
     tenants: dict[int, Role]
-    """Membership map ``tenant_id -> role`` from the access JWT."""
+    """Membership map ``tenant_id -> role`` — from the access JWT, or read live for an API token."""
+    scope: ScopeLevel | None = None
+    """API-token level; ``None`` means unscoped — a session or local mode, bounded by role alone."""
+    kind: AuthKind = AUTH_KIND_SESSION
+    tenant_id: int | None = None
+    """The tenant a tenant-scoped token is bound to; ``None`` for every other principal."""
 
 
-_SYNTHETIC_ADMIN = Principal(user_id=None, superadmin=True, tenants={})
+_SYNTHETIC_ADMIN = Principal(user_id=None, superadmin=True, tenants={}, kind=AUTH_KIND_NONE)
 
 
 def _principal_from_token(token: str) -> Principal:
@@ -55,7 +83,37 @@ def _principal_from_token(token: str) -> Principal:
     return Principal(user_id=claims.user_id, superadmin=claims.superadmin, tenants=tenants)
 
 
-def resolve_principal(authorization: str | None) -> Principal:
+async def _principal_from_api_token(token: str) -> Principal:
+    """Look an ``aaic_`` token up by hash and build a Principal from its owner's
+    *current* flag and live role in the token's tenant, so revocation and
+    demotion bind instantly."""
+    async with orch_context(with_ch=False):
+        resolved = await store.resolve_api_token(security.sha256_hex(token))
+    if resolved is None:
+        raise Unauthorized("invalid api token")
+    if resolved.user.disabled:
+        raise Unauthorized("user is disabled")
+    tenants: dict[int, Role] = {}
+    if resolved.token.tenant_id is not None and resolved.role is not None:
+        tenants[resolved.token.tenant_id] = resolved.role
+    return Principal(
+        user_id=resolved.user.id,
+        superadmin=resolved.user.superadmin,
+        tenants=tenants,
+        scope=resolved.token.scope,
+        kind=AUTH_KIND_TOKEN,
+        tenant_id=resolved.token.tenant_id,
+    )
+
+
+async def principal_from_credential(credential: str) -> Principal:
+    """Resolve a bare bearer credential — API token by prefix, else access JWT."""
+    if security.is_api_token(credential):
+        return await _principal_from_api_token(credential)
+    return _principal_from_token(credential)
+
+
+async def resolve_principal(authorization: str | None) -> Principal:
     """Resolve from a raw ``Authorization`` header value (used by the /mcp middleware,
     which has no access to FastAPI's dependency injection)."""
     if not config.auth_enabled():
@@ -63,22 +121,61 @@ def resolve_principal(authorization: str | None) -> Principal:
     scheme, credentials = get_authorization_scheme_param(authorization)
     if scheme.lower() != "bearer" or not credentials:
         raise Unauthorized("missing bearer token")
-    return _principal_from_token(credentials)
+    return await principal_from_credential(credentials)
+
+
+def enforce_scope(principal: Principal, required: ScopeLevel) -> None:
+    """Gate a principal's token level against the level an operation needs.
+
+    REST reads ``required`` off the route's guard and method, MCP off the
+    tool's tag, so both surfaces answer the question the same way. An unscoped
+    principal (a session, or local mode) is bounded by role alone.
+    """
+    if principal.scope is not None and not scope_admits(principal.scope, required):
+        raise Forbidden(f"token scope '{principal.scope}' cannot perform '{required}' operations")
+
+
+def check_superadmin(principal: Principal) -> None:
+    if not principal.superadmin:
+        raise Forbidden("superadmin required")
 
 
 async def require_principal(
+    request: Request,
     creds: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
 ) -> Principal:
     """FastAPI dependency → resolve the Principal or raise ``Unauthorized``.
 
     ``HTTPBearer`` already extracted and scheme-checked the credential, so the
-    token is decoded directly — no header re-parsing.
+    token is decoded directly — no header re-parsing. The principal is recorded
+    on the request's audit carrier.
     """
     if not config.auth_enabled():
-        return _SYNTHETIC_ADMIN
-    if creds is None or not creds.credentials:
+        principal = _SYNTHETIC_ADMIN
+    elif creds is None or not creds.credentials:
         raise Unauthorized("missing bearer token")
-    return _principal_from_token(creds.credentials)
+    else:
+        principal = await principal_from_credential(creds.credentials)
+    enforce_scope(principal, SCOPE_READ if request.method in SAFE_METHODS else SCOPE_WRITE)
+    audit_state(request.scope).principal = principal
+    return principal
+
+
+async def require_session(principal: Principal = Depends(require_principal)) -> Principal:
+    """Guard for surfaces an API token must not reach (token and MFA
+    management): a leaked token must not be able to mint itself a permanent
+    foothold or reconfigure the second factor it bypasses."""
+    if principal.kind == AUTH_KIND_TOKEN:
+        raise Forbidden("api tokens cannot manage credentials — sign in with a session")
+    return principal
+
+
+async def require_user_id(principal: Principal = Depends(require_session)) -> int:
+    """The current user's id — account surfaces need a real user row, which
+    local mode's synthetic admin does not have (``422``)."""
+    if principal.user_id is None:
+        raise Invalid("auth is disabled — there is no current user")
+    return principal.user_id
 
 
 class TenantContext(NamedTuple):
@@ -102,10 +199,21 @@ def role_in_tenant(principal: Principal, tenant_id: int) -> Role | None:
 def resolve_tenant(principal: Principal, header_value: str | None) -> TenantContext:
     """Resolve the active tenant from the ``X-Tenant-Id`` header.
 
-    A missing header is implied only when the principal has exactly one
-    membership; superadmins (who can act in every tenant) must always name
+    Local mode's synthetic principal always acts as admin of the default
+    tenant, and a tenant-bound API token always acts in the tenant it names.
+    Otherwise a missing header is implied only when the principal has exactly
+    one membership; superadmins (who can act in every tenant) must always name
     one. A tenant the principal cannot act in is ``Forbidden``.
     """
+    if principal.kind == AUTH_KIND_NONE:
+        return TenantContext(tenant_id=DEFAULT_TENANT_ID, role=ROLE_ADMIN)
+    if principal.tenant_id is not None:
+        if header_value is not None and header_value != str(principal.tenant_id):
+            raise Invalid(f"{TENANT_HEADER} does not match the tenant this token is bound to")
+        role = role_in_tenant(principal, principal.tenant_id)
+        if role is None:
+            raise Forbidden(f"no access to tenant {principal.tenant_id}")
+        return TenantContext(tenant_id=principal.tenant_id, role=role)
     if header_value is not None:
         try:
             tenant_id = int(header_value)
@@ -121,28 +229,33 @@ def resolve_tenant(principal: Principal, header_value: str | None) -> TenantCont
     raise Invalid(f"{TENANT_HEADER} header required")
 
 
+def check_tenant_admin(ctx: TenantContext) -> None:
+    if ctx.role != ROLE_ADMIN:
+        raise Forbidden("tenant admin role required")
+
+
 async def require_tenant(
     request: Request, principal: Principal = Depends(require_principal)
 ) -> AsyncIterator[TenantContext]:
     """Resolve the active tenant and pin the tenancy contextvar for the request."""
-    if not config.auth_enabled():
-        ctx = TenantContext(tenant_id=DEFAULT_TENANT_ID, role=ROLE_ADMIN)
-    else:
-        ctx = resolve_tenant(principal, request.headers.get(TENANT_HEADER))
+    ctx = resolve_tenant(principal, request.headers.get(TENANT_HEADER))
+    audit_state(request.scope).tenant_id = ctx.tenant_id
     with active_tenant(ctx.tenant_id):
         yield ctx
 
 
-async def require_admin(ctx: TenantContext = Depends(require_tenant)) -> TenantContext:
+async def require_admin(
+    ctx: TenantContext = Depends(require_tenant), principal: Principal = Depends(require_principal)
+) -> TenantContext:
     """Tenant-admin guard for mutating tenant-scoped routes."""
-    if ctx.role != ROLE_ADMIN:
-        raise Forbidden("tenant admin role required")
+    enforce_scope(principal, SCOPE_ADMIN)
+    check_tenant_admin(ctx)
     return ctx
 
 
 async def require_superadmin(principal: Principal = Depends(require_principal)) -> Principal:
-    if not principal.superadmin:
-        raise Forbidden("superadmin required")
+    enforce_scope(principal, SCOPE_SUPERADMIN)
+    check_superadmin(principal)
     return principal
 
 
@@ -151,8 +264,16 @@ def warn_if_open() -> None:
         logger.warning("local mode — auth is disabled, server is open")
 
 
-class AdminAuthMiddleware:
-    """ASGI guard for the ``/mcp`` mount: superadmin-only when auth is enabled."""
+class PrincipalAuthMiddleware:
+    """ASGI guard for the ``/mcp`` mount: an API token, and only an API token,
+    when auth is enabled.
+
+    The surface is for unattended clients, an API token is their credential,
+    and the restriction is what gives every MCP principal a real scope to gate
+    on — a session JWT carries none. Per-tool RBAC happens inside FastMCP
+    (``mcp_rbac.py``), which reads the principal this middleware records on the
+    request.
+    """
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -162,15 +283,16 @@ class AdminAuthMiddleware:
         # app's lifespan runs at the root, not through the mount.
         authorization = Headers(scope=scope).get("authorization")
         try:
-            principal = resolve_principal(authorization)
-            if not principal.superadmin:
-                raise Forbidden("superadmin required")
+            if config.auth_enabled():
+                scheme, credentials = get_authorization_scheme_param(authorization)
+                if scheme.lower() != "bearer" or not credentials:
+                    raise Unauthorized("missing bearer token")
+                if not security.is_api_token(credentials):
+                    raise Unauthorized("/mcp requires an API token, not a session")
+            principal = await resolve_principal(authorization)
         except Unauthorized as exc:
             response = problem_response("Unauthorized", 401, str(exc), ProblemCode.UNAUTHORIZED, BEARER_CHALLENGE)
             await response(scope, receive, send)
             return
-        except Forbidden as exc:
-            response = problem_response("Forbidden", 403, str(exc), ProblemCode.FORBIDDEN)
-            await response(scope, receive, send)
-            return
+        audit_state(scope).principal = principal
         await self.app(scope, receive, send)

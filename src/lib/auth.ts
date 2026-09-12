@@ -1,6 +1,7 @@
 // Module-level token store. `fetchJSON`/`postJSON` are plain functions outside
 // React, so the access token lives in a module singleton; the refresh token
 // persists in localStorage so a page reload can re-establish a session.
+import { parseError } from "../api/problem";
 import type { MeView } from "../api/types";
 
 // Local base + POST helper. We deliberately do NOT route through client.ts's
@@ -16,8 +17,8 @@ let accessToken: string | null = null;
 function postAuth(path: string, body: unknown): Promise<Response> {
   return fetch(`${API}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    headers: body === undefined ? {} : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
 }
 
@@ -35,6 +36,26 @@ let currentMe: MeView | null = null;
 export function getActiveTenantId(): string | null {
   if (currentMe === null) return null;
   return currentMe.tenants[0]?.tenant_id ?? DEFAULT_TENANT_ID;
+}
+
+export type ScopeLevel = "read" | "write" | "admin" | "superadmin";
+
+// Ordered low to high; the index is the comparison, as in aaiclick/auth/models.py.
+export const SCOPE_LEVELS: ScopeLevel[] = ["read", "write", "admin", "superadmin"];
+
+// The highest level this user may mint in the tenant they are acting in, mirroring
+// _mint_ceiling in aaiclick/internal_api/api_tokens.py. The server is the authority —
+// this only keeps the form from offering a level it would refuse.
+export function getMintCeiling(): ScopeLevel {
+  if (currentMe === null) return "read";
+  if (currentMe.superadmin) return "superadmin";
+  const active = getActiveTenantId();
+  const membership = currentMe.tenants.find((t) => t.tenant_id === active);
+  return membership?.role === "admin" ? "admin" : "write";
+}
+
+export function mintableScopes(): ScopeLevel[] {
+  return SCOPE_LEVELS.slice(0, SCOPE_LEVELS.indexOf(getMintCeiling()) + 1);
 }
 
 function setAccessToken(token: string | null): void {
@@ -64,26 +85,66 @@ interface TokenPair {
   expires_in: number;
 }
 
-export async function login(username: string, password: string): Promise<void> {
-  const res = await postAuth("/auth/login", { username, password });
-  if (!res.ok) throw new Error("login failed");
+// Store a freshly minted pair. The access token stays in memory; the refresh
+// token persists so a reload can re-establish the session.
+async function storePair(res: Response): Promise<void> {
+  if (!res.ok) throw await parseError(res);
   const pair = (await res.json()) as TokenPair;
   setAccessToken(pair.access_token);
   setRefreshToken(pair.refresh_token);
 }
 
+// Throws `ApiError`; `error.code === "mfa_required"` means the password was
+// accepted and the account needs a second factor.
+export async function login(username: string, password: string, totpCode?: string): Promise<void> {
+  await storePair(await postAuth("/auth/login", { username, password, totp_code: totpCode ?? null }));
+}
+
+export interface OidcConfig {
+  enabled: boolean;
+  label: string;
+}
+
+// Server-side configuration: fetched once per page load, not per login screen.
+let oidcConfig: Promise<OidcConfig> | null = null;
+
+export function fetchOidcConfig(): Promise<OidcConfig> {
+  oidcConfig ??= fetch(`${API}/auth/oidc/config`)
+    .then((res) => (res.ok ? (res.json() as Promise<OidcConfig>) : { enabled: false, label: "SSO" }))
+    .catch(() => ({ enabled: false, label: "SSO" }));
+  return oidcConfig;
+}
+
+// Ask the server for the provider URL (it records the login state), then
+// leave the SPA for the identity provider.
+export async function startOidcLogin(): Promise<void> {
+  const res = await postAuth("/auth/oidc/start", undefined);
+  if (!res.ok) throw new Error("SSO start failed");
+  const { authorization_url } = (await res.json()) as { authorization_url: string };
+  window.location.assign(authorization_url);
+}
+
+// The provider redirects back to the site root with ?code=&state=. Trade
+// them for a session, then strip the parameters so a reload cannot replay.
+export async function completeOidcLogin(code: string, state: string): Promise<void> {
+  const res = await postAuth("/auth/oidc/callback", { code, state });
+  const url = new URL(window.location.href);
+  url.searchParams.delete("code");
+  url.searchParams.delete("state");
+  window.history.replaceState({}, "", url);
+  await storePair(res);
+}
+
 export async function tryRefresh(): Promise<boolean> {
   const rt = getRefreshToken();
   if (!rt) return false;
-  const res = await postAuth("/auth/refresh", { refresh_token: rt });
-  if (!res.ok) {
+  try {
+    await storePair(await postAuth("/auth/refresh", { refresh_token: rt }));
+    return true;
+  } catch {
     clearSession();
     return false;
   }
-  const pair = (await res.json()) as TokenPair;
-  setAccessToken(pair.access_token);
-  setRefreshToken(pair.refresh_token);
-  return true;
 }
 
 export async function logout(): Promise<void> {
@@ -113,4 +174,9 @@ export async function fetchMe(): Promise<MeView | null> {
   }
   currentMe = (await res.json()) as MeView;
   return currentMe;
+}
+
+export async function redeemPasswordReset(token: string, newPassword: string): Promise<void> {
+  const res = await postAuth("/auth/password-reset", { token, new_password: newPassword });
+  if (!res.ok) throw await parseError(res);
 }

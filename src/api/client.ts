@@ -1,28 +1,9 @@
 import { clearSession, getAccessToken, getActiveTenantId, tryRefresh } from "../lib/auth";
-import type { Problem } from "./types";
+import { ApiError, parseError } from "./problem";
 
 export const API = "/api/v0";
 
-export class ApiError extends Error {
-  status: number;
-  problem: Problem | null;
-  constructor(status: number, problem: Problem | null, message: string) {
-    super(message);
-    this.status = status;
-    this.problem = problem;
-  }
-}
-
-async function parseError(res: Response): Promise<ApiError> {
-  let problem: Problem | null = null;
-  try {
-    problem = (await res.json()) as Problem;
-  } catch {
-    problem = null;
-  }
-  const detail = problem?.detail ?? problem?.title ?? res.statusText;
-  return new ApiError(res.status, problem, detail);
-}
+export { ApiError };
 
 function authHeaders(extra?: HeadersInit): Record<string, string> {
   const headers: Record<string, string> = { ...(extra as Record<string, string>) };
@@ -60,8 +41,11 @@ async function send(method: string, path: string, body?: unknown): Promise<Respo
   return res;
 }
 
+// `T` is `void` at the call sites whose route answers 204 (no body to decode).
 async function sendJSON<T>(method: string, path: string, body?: unknown): Promise<T> {
-  return (await (await send(method, path, body)).json()) as T;
+  const res = await send(method, path, body);
+  if (res.status === 204) return undefined as T;
+  return (await res.json()) as T;
 }
 
 export async function postText(path: string, body: unknown): Promise<string> {

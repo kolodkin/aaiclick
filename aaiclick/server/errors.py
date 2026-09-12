@@ -13,6 +13,7 @@ from aaiclick.internal_api.errors import (
     Forbidden,
     InternalApiError,
     Invalid,
+    MfaRequired,
     NotFound,
     Unauthorized,
 )
@@ -24,20 +25,20 @@ _PROBLEM_MAP: dict[type[InternalApiError], tuple[str, int, ProblemCode]] = {
     ExecutionWorkerSpawnFailed: ("ExecutionWorker Spawn Failed", 503, ProblemCode.EXECUTION_WORKER_SPAWN_FAILED),
     Invalid: ("Invalid Request", 422, ProblemCode.INVALID),
     Unauthorized: ("Unauthorized", 401, ProblemCode.UNAUTHORIZED),
+    MfaRequired: ("MFA Required", 401, ProblemCode.MFA_REQUIRED),
     Forbidden: ("Forbidden", 403, ProblemCode.FORBIDDEN),
 }
 
-# Extra response headers per error type. 401s must advertise the scheme so
+BEARER_CHALLENGE = {"WWW-Authenticate": "Bearer"}
+# Extra response headers by status: every 401 must advertise the scheme so
 # clients know to retry with a bearer token (RFC 7235).
-_HEADERS: dict[type[InternalApiError], dict[str, str]] = {
-    Unauthorized: {"WWW-Authenticate": "Bearer"},
-}
+_HEADERS_BY_STATUS: dict[int, dict[str, str]] = {401: BEARER_CHALLENGE}
 
 
 def register_exception_handlers(app: FastAPI) -> None:
     # Takes `app` as a parameter — `app.py` imports this module, so `from .app import app` would cycle.
     for exc_type, (title, status, code) in _PROBLEM_MAP.items():
-        _register(app, exc_type, title, status, code, _HEADERS.get(exc_type))
+        _register(app, exc_type, title, status, code, _HEADERS_BY_STATUS.get(status))
 
 
 def problem_response(
