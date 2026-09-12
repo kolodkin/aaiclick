@@ -11,6 +11,11 @@
   /* Text/icon colour for anything filled with --accent. White on lemon is
      1.1:1; the icon's near-black is 16.4:1. */
   --accent-ink: #191919;
+  /* Same hue as --accent at roughly half the saturation, for accent text that
+     repeats down a page (table links, row toggles, chip labels). Full lemon is
+     100% saturated, which vibrates against the dark ground once it appears on
+     every row; --accent stays for the wordmark, fills, borders and focus. */
+  --accent-text: #E0E29C;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
   /* liquid-glass surfaces */
@@ -116,7 +121,7 @@ h2 { font-size: 18px; margin: 0 0 4px; }
   -webkit-backdrop-filter: var(--glass-blur);
   box-shadow: var(--hi);
   cursor: pointer;
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .chip:hover { background: var(--accent-soft); border-color: var(--accent); }
 .spacer { flex: 1; }
@@ -135,7 +140,7 @@ h2 { font-size: 18px; margin: 0 0 4px; }
   cursor: pointer; transition: border-color .15s, background .15s, transform .15s;
 }
 .cmd:hover { border-color: var(--accent); background: var(--panel-strong); transform: translateY(-1px); }
-.cmd code { font: 13px var(--mono); color: var(--accent); }
+.cmd code { font: 13px var(--mono); color: var(--accent-text); }
 .cmd .desc { color: var(--muted); }
 
 /* tables */
@@ -152,7 +157,7 @@ tbody td { padding: 11px 14px; border-bottom: 1px solid var(--border); vertical-
 tbody tr:last-child td { border-bottom: none; }
 tbody tr.clickable { cursor: pointer; transition: background .12s; }
 tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
-.name-link { color: var(--accent); font-weight: 600; }
+.name-link { color: var(--accent-text); font-weight: 600; }
 .mono { font-family: var(--mono); font-size: 13px; }
 
 /* badges */
@@ -282,7 +287,7 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
 .screen { margin: 0 0 30px; }
 .screen-label { font: 12px var(--mono); color: var(--muted); font-weight: 700; margin: 0 0 8px 2px;
   text-transform: uppercase; letter-spacing: .04em; }
-.screen-label .sl-cmd { color: var(--accent); }
+.screen-label .sl-cmd { color: var(--accent-text); }
 .frame { border: 1px solid var(--border); border-radius: 16px; overflow: hidden;
   box-shadow: var(--hi), var(--shadow); background: rgba(255,255,255,.03);
   backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); }
@@ -346,7 +351,7 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
 .truncated.is-expanded { overflow-wrap: anywhere; }
 .truncated-toggle {
   display: inline-block; margin-top: 2px; padding: 0; border: 0; background: none;
-  font: 11px inherit; color: var(--accent); cursor: pointer; text-decoration: underline;
+  font: 11px inherit; color: var(--accent-text); cursor: pointer; text-decoration: underline;
 }
 .truncated-toggle:hover { filter: brightness(1.2); }
 .truncated-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
