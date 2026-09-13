@@ -1291,7 +1291,7 @@ export interface components {
             /** Email */
             email?: string | null;
             /** Role */
-            role?: ("admin" | "viewer") | null;
+            role?: ("viewer" | "member" | "admin" | "superadmin") | null;
             /**
              * Superadmin
              * @default false
@@ -1518,7 +1518,7 @@ export interface components {
              * Role
              * @enum {string}
              */
-            role: "admin" | "viewer";
+            role: "viewer" | "member" | "admin" | "superadmin";
             /** User Id */
             user_id: string;
             /** Username */
@@ -2025,7 +2025,7 @@ export interface components {
              * Role
              * @enum {string}
              */
-            role: "admin" | "viewer";
+            role: "viewer" | "member" | "admin" | "superadmin";
         };
         /** SetPasswordRequest */
         SetPasswordRequest: {
@@ -2176,7 +2176,7 @@ export interface components {
              * Role
              * @enum {string}
              */
-            role: "admin" | "viewer";
+            role: "viewer" | "member" | "admin" | "superadmin";
             /** Slug */
             slug: string;
             /** Tenant Id */

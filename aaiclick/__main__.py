@@ -52,7 +52,7 @@ from aaiclick import cli_renderers, cli_wait, internal_api
 from aaiclick.ai.importing import import_ai_module
 from aaiclick.audit.view_models import AuditListFilter
 from aaiclick.auth import store as auth_store
-from aaiclick.auth.models import ROLE_VIEWER, ROLES, SCOPE_LEVELS, SCOPE_READ, SCOPE_SUPERADMIN
+from aaiclick.auth.models import ROLE_VIEWER, SCOPE_LEVELS, SCOPE_READ, SCOPE_SUPERADMIN, TENANT_ROLES
 from aaiclick.auth.view_models import (
     CreateApiTokenRequest,
     CreateTenantRequest,
@@ -1520,7 +1520,7 @@ def build_parser() -> argparse.ArgumentParser:
     user_invite_parser.add_argument("username")
     user_invite_parser.add_argument("--email", default=None)
     user_invite_parser.add_argument(
-        "--role", choices=list(ROLES), default=ROLE_VIEWER, help="Role in --tenant (ignored with --superadmin)"
+        "--role", choices=list(TENANT_ROLES), default=ROLE_VIEWER, help="Role in --tenant (ignored with --superadmin)"
     )
     user_invite_parser.add_argument(
         "--superadmin", action="store_true", help="Invite an instance superadmin instead, with no tenant"
@@ -1618,7 +1618,7 @@ def build_parser() -> argparse.ArgumentParser:
         member_set_parser = member_subparsers.add_parser(member_cmd, help=member_help)
         member_set_parser.add_argument("--tenant", required=True, help="Tenant slug")
         member_set_parser.add_argument("--username", required=True)
-        member_set_parser.add_argument("--role", choices=list(ROLES), default=ROLE_VIEWER)
+        member_set_parser.add_argument("--role", choices=list(TENANT_ROLES), default=ROLE_VIEWER)
         _add_json_flag(member_set_parser)
 
     member_remove_parser = member_subparsers.add_parser("remove", help="Remove a user from a tenant")

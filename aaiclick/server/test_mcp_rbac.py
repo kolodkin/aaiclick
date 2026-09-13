@@ -15,7 +15,7 @@ import httpx
 import pytest
 
 from aaiclick.auth import store
-from aaiclick.auth.models import ROLE_ADMIN, ROLE_VIEWER, SCOPE_SUPERADMIN, SCOPE_WRITE
+from aaiclick.auth.models import ROLE_ADMIN, ROLE_MEMBER, SCOPE_SUPERADMIN, SCOPE_WRITE
 from aaiclick.auth.view_models import CreateApiTokenRequest, CreateUserRequest
 from aaiclick.internal_api import api_tokens, users
 from aaiclick.internal_api.errors import Forbidden, Invalid
@@ -44,13 +44,19 @@ def _principal(*, superadmin=False, tenants=None, scope="superadmin"):
         pytest.param(
             _principal(tenants={7: "viewer"}, scope="read"), {TAG_WRITE}, "7", Forbidden, id="read-token-no-write"
         ),
-        pytest.param(_principal(tenants={7: "viewer"}, scope="write"), {TAG_WRITE}, "7", "ok", id="member-writes"),
+        pytest.param(_principal(tenants={7: "member"}, scope="write"), {TAG_WRITE}, "7", "ok", id="member-writes"),
         pytest.param(
-            _principal(tenants={7: "viewer"}, scope="write"), {TAG_ADMIN}, "7", Forbidden, id="write-token-no-admin"
+            _principal(tenants={7: "member"}, scope="write"), {TAG_ADMIN}, "7", Forbidden, id="write-token-no-admin"
         ),
         pytest.param(_principal(tenants={7: "admin"}, scope="admin"), {TAG_ADMIN}, "7", "ok", id="admin-token-admins"),
         pytest.param(
-            _principal(tenants={7: "viewer"}, scope="admin"), {TAG_ADMIN}, "7", Forbidden, id="ceiling-caps-below-token"
+            # A token stands on its own scope: the mint ceiling capped it, and a
+            # later demotion does not shrink it — revoking does.
+            _principal(tenants={7: "member"}, scope="admin"),
+            {TAG_ADMIN},
+            "7",
+            "ok",
+            id="token-scope-stands-alone",
         ),
         pytest.param(
             _principal(superadmin=True, scope="superadmin"), {TAG_SUPERADMIN}, None, "ok", id="superadmin-instance"
@@ -151,7 +157,7 @@ async def _rpc(client: httpx.AsyncClient, method: str, params: dict[str, Any], h
 
 
 async def test_tools_list_is_filtered_by_role(orch_ctx, enabled):
-    viewer = {"Authorization": f"Bearer {await _api_token(SCOPE_WRITE, role=ROLE_VIEWER)}"}
+    viewer = {"Authorization": f"Bearer {await _api_token(SCOPE_WRITE, role=ROLE_MEMBER)}"}
     superadmin = {"Authorization": f"Bearer {await _api_token(SCOPE_SUPERADMIN, superadmin=True)}"}
     async with _mcp_http() as client:
         body = await _rpc(client, "tools/list", {}, viewer)
@@ -164,17 +170,18 @@ async def test_tools_list_is_filtered_by_role(orch_ctx, enabled):
         assert len(names) == len(await mcp.list_tools(run_middleware=False))
 
 
-async def test_viewer_can_read_but_not_write(orch_ctx, enabled):
-    viewer = {"Authorization": f"Bearer {await _api_token(SCOPE_WRITE, role=ROLE_VIEWER)}"}
+async def test_member_can_read_but_not_admin(orch_ctx, enabled):
+    """A member reads and makes their own writes; tenant mutations need admin."""
+    member = {"Authorization": f"Bearer {await _api_token(SCOPE_WRITE, role=ROLE_MEMBER)}"}
     with active_tenant(await _home()):
         job = await create_job("mcp_rbac_job", simple_task)
     async with _mcp_http() as client:
-        ok = await _rpc(client, "tools/call", {"name": "get_job", "arguments": {"ref": job.id}}, viewer)
+        ok = await _rpc(client, "tools/call", {"name": "get_job", "arguments": {"ref": job.id}}, member)
         assert ok["result"]["structuredContent"]["name"] == "mcp_rbac_job"
 
-        denied = await _rpc(client, "tools/call", {"name": "cancel_job", "arguments": {"ref": job.id}}, viewer)
+        denied = await _rpc(client, "tools/call", {"name": "cancel_job", "arguments": {"ref": job.id}}, member)
         assert denied["result"]["isError"] is True
-        assert "cannot perform 'admin'" in denied["result"]["content"][0]["text"]
+        assert "'admin' scope required" in denied["result"]["content"][0]["text"]
 
 
 async def test_anonymous_gets_401_problem(orch_ctx, enabled):

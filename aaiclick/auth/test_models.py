@@ -2,11 +2,17 @@ import pytest
 from sqlmodel import select
 
 from aaiclick.auth.models import (
+    ROLE_ADMIN,
+    ROLE_MEMBER,
+    ROLE_SCOPES,
+    ROLE_SUPERADMIN,
+    ROLE_VIEWER,
     SCOPE_ADMIN,
     SCOPE_LEVELS,
     SCOPE_READ,
     SCOPE_SUPERADMIN,
     SCOPE_WRITE,
+    TENANT_ROLES,
     ApiToken,
     RefreshToken,
     User,
@@ -86,3 +92,23 @@ async def test_api_token_carries_its_tenant(orch_ctx):
     async with get_sql_session() as session:
         row = (await session.execute(select(ApiToken).where(ApiToken.user_id == uid))).scalar_one()
         assert row.tenant_id == DEFAULT_TENANT_ID and row.scope == SCOPE_ADMIN
+
+
+@pytest.mark.parametrize(
+    "role, scope",
+    [
+        pytest.param(ROLE_VIEWER, SCOPE_READ, id="viewer-reads"),
+        pytest.param(ROLE_MEMBER, SCOPE_WRITE, id="member-writes"),
+        pytest.param(ROLE_ADMIN, SCOPE_ADMIN, id="admin-admins"),
+        pytest.param(ROLE_SUPERADMIN, SCOPE_SUPERADMIN, id="superadmin-instance"),
+    ],
+)
+def test_every_role_maps_to_one_scope(role, scope):
+    """The single bridge between the vocabularies — authorization compares scopes."""
+    assert ROLE_SCOPES[role] == scope
+
+
+def test_superadmin_is_never_a_tenant_membership():
+    """It is the instance flag on ``users``, so it names no tenant."""
+    assert TENANT_ROLES == (ROLE_VIEWER, ROLE_MEMBER, ROLE_ADMIN)
+    assert ROLE_SUPERADMIN not in TENANT_ROLES

@@ -5,6 +5,7 @@ import pytest
 from aaiclick.auth import security, store
 from aaiclick.auth.models import (
     ROLE_ADMIN,
+    ROLE_MEMBER,
     ROLE_VIEWER,
     SCOPE_ADMIN,
     SCOPE_READ,
@@ -34,9 +35,9 @@ async def _home() -> int:
 
 
 async def _user(username="alice"):
-    """A plain member of the home tenant — enough to mint up to ``write``."""
+    """A member of the home tenant — enough to mint up to ``write``."""
     view = await users.create_user(CreateUserRequest(username=username, password="pw"))
-    await store.set_membership(tenant_id=await _home(), user_id=view.id, role=ROLE_VIEWER)
+    await store.set_membership(tenant_id=await _home(), user_id=view.id, role=ROLE_MEMBER)
     return view
 
 
@@ -127,16 +128,31 @@ async def test_resolve_role_is_none_once_membership_is_gone(orch_ctx):
 
 async def test_member_may_mint_up_to_write(orch_ctx):
     tenant = await store.create_tenant(slug="acme", name="Acme")
-    viewer = await _member("v", tenant.id, ROLE_VIEWER)
+    member = await _member("m", tenant.id, ROLE_MEMBER)
 
     ok = await api_tokens.create_token(
-        viewer.id, CreateApiTokenRequest(name="ok", scope=SCOPE_WRITE, tenant_id=tenant.id)
+        member.id, CreateApiTokenRequest(name="ok", scope=SCOPE_WRITE, tenant_id=tenant.id)
     )
     assert ok.scope == SCOPE_WRITE and ok.tenant_id == tenant.id
 
     with pytest.raises(Invalid, match="write"):
         await api_tokens.create_token(
-            viewer.id, CreateApiTokenRequest(name="no", scope=SCOPE_ADMIN, tenant_id=tenant.id)
+            member.id, CreateApiTokenRequest(name="no", scope=SCOPE_ADMIN, tenant_id=tenant.id)
+        )
+
+
+async def test_viewer_may_mint_only_read(orch_ctx):
+    """A viewer reads and nothing else, so that is the most they can delegate."""
+    tenant = await store.create_tenant(slug="acme", name="Acme")
+    viewer = await _member("v", tenant.id, ROLE_VIEWER)
+
+    ok = await api_tokens.create_token(
+        viewer.id, CreateApiTokenRequest(name="ok", scope=SCOPE_READ, tenant_id=tenant.id)
+    )
+    assert ok.scope == SCOPE_READ
+    with pytest.raises(Invalid, match="read"):
+        await api_tokens.create_token(
+            viewer.id, CreateApiTokenRequest(name="no", scope=SCOPE_WRITE, tenant_id=tenant.id)
         )
 
 

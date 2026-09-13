@@ -8,7 +8,7 @@ imports ``users``, so composing the two there would close an import cycle.
 from __future__ import annotations
 
 from aaiclick.auth import store
-from aaiclick.auth.models import ROLE_ADMIN
+from aaiclick.auth.models import ROLE_SCOPES, SCOPE_ADMIN, scope_admits
 from aaiclick.auth.view_models import CreateUserRequest, InviteUserRequest, InviteView
 
 from . import password_reset, users
@@ -47,8 +47,13 @@ async def _check_ceiling(inviter_id: int | None, request: InviteUserRequest) -> 
         # Missing, never forbidden — an inviter must not be able to probe for
         # tenants they have no part in.
         raise NotFound(f"tenant {request.tenant_id} not found")
-    if membership.role != ROLE_ADMIN:
+    # Inviting delegates authority, so it is capped like every other gate: the
+    # granted role's scope may not exceed the inviter's own.
+    if not scope_admits(ROLE_SCOPES[membership.role], SCOPE_ADMIN):
         raise Forbidden("tenant admin role required to invite")
+    assert request.role is not None  # _check_shape ran first
+    if not scope_admits(ROLE_SCOPES[membership.role], ROLE_SCOPES[request.role]):
+        raise Forbidden(f"cannot invite '{request.role}' — your role here is '{membership.role}'")
 
 
 async def invite(inviter_id: int | None, request: InviteUserRequest) -> InviteView:

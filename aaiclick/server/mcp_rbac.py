@@ -32,8 +32,8 @@ from .auth import (
     TENANT_HEADER,
     Principal,
     TenantContext,
+    check_scope,
     check_superadmin,
-    check_tenant_admin,
     enforce_scope,
     resolve_principal,
     resolve_tenant,
@@ -69,13 +69,13 @@ def authorize_tool(principal: Principal, tags: set[str], tenant_header: str | No
     ``Forbidden`` / ``Invalid`` exactly like the REST guards.
     """
     required = required_level(tags)
-    enforce_scope(principal, required)
     if required == SCOPE_SUPERADMIN:
         check_superadmin(principal)
+        enforce_scope(principal, required)
         return None
     ctx = resolve_tenant(principal, tenant_header)
-    if required == SCOPE_ADMIN:
-        check_tenant_admin(ctx)
+    # The same gate the REST routes use, so a tool and its REST twin agree.
+    check_scope(principal, ctx.role, required)
     return ctx
 
 

@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 from aaiclick.auth import store
-from aaiclick.auth.models import ROLE_ADMIN, ROLE_VIEWER
+from aaiclick.auth.models import ROLE_ADMIN, ROLE_MEMBER, ROLE_VIEWER
 from aaiclick.auth.view_models import (
     CreateUserRequest,
     InviteUserRequest,
@@ -103,6 +103,15 @@ async def test_tenant_admin_invites_both_roles_in_their_own_tenant(orch_ctx):
         invite = await invites.invite(admin.id, InviteUserRequest(username=f"peer{i}", tenant_id=tenant.id, role=role))
         membership = await store.get_membership(tenant_id=tenant.id, user_id=invite.user.id)
         assert membership is not None and membership.role == role
+
+
+async def test_tenant_admin_invites_a_member(orch_ctx):
+    """The middle rung: member reads and makes its own writes."""
+    tenant = await _tenant()
+    admin = await _member("admin", tenant.id, ROLE_ADMIN)
+    invite = await invites.invite(admin.id, InviteUserRequest(username="hire", tenant_id=tenant.id, role=ROLE_MEMBER))
+    membership = await store.get_membership(tenant_id=tenant.id, user_id=invite.user.id)
+    assert membership is not None and membership.role == ROLE_MEMBER
 
 
 async def test_tenant_admin_cannot_invite_into_another_tenant(orch_ctx):

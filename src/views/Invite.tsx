@@ -8,10 +8,11 @@ import { SecretPanel } from "../components/SecretPanel";
 import { useToast } from "../components/Toast";
 import { getActiveTenantId } from "../lib/auth";
 
-type Grant = "viewer" | "admin" | "superadmin";
+type Grant = "viewer" | "member" | "admin" | "superadmin";
 
 const GRANT_HELP: Record<Grant, string> = {
-  viewer: "reads, plus saved queries and dashboards",
+  viewer: "reads, and nothing else",
+  member: "reads, plus their own saved queries and dashboards",
   admin: "everything in this tenant — jobs, objects, memberships",
   superadmin: "the whole instance, every tenant",
 };
@@ -27,7 +28,9 @@ export function Invite({ onPrompt }: { onPrompt: (v: string) => void }) {
 
   // A tenant admin may grant at most `admin`, and only where they already act;
   // the server enforces this, the picker just avoids offering a certain 403.
-  const grants: Grant[] = me?.superadmin ? ["viewer", "admin", "superadmin"] : ["viewer", "admin"];
+  const grants: Grant[] = me?.superadmin
+    ? ["viewer", "member", "admin", "superadmin"]
+    : ["viewer", "member", "admin"];
 
   const submit = () =>
     invite.mutate(

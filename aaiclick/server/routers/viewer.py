@@ -16,6 +16,7 @@ from aaiclick.viewer.view_models import (
     SavedQueryIn,
 )
 
+from ..auth import require_write
 from ..deps import orch_scope_with_ch
 from ..errors import problem_responses
 
@@ -51,12 +52,22 @@ async def list_saved_queries(filter: SavedQueryFilter = Depends()) -> Page[Saved
     return await viewer_api.list_saved_queries(filter)
 
 
-@router.put("/queries/{name}", response_model=SavedQuery, responses=problem_responses(422))
+@router.put(
+    "/queries/{name}",
+    response_model=SavedQuery,
+    responses=problem_responses(422),
+    dependencies=[Depends(require_write)],
+)
 async def save_query(name: str, body: SavedQueryBody) -> SavedQuery:
     return await viewer_api.save_query(SavedQueryIn(**{**body.model_dump(), "name": name}))
 
 
-@router.delete("/queries/{name}", response_model=Deleted, responses=problem_responses(404))
+@router.delete(
+    "/queries/{name}",
+    response_model=Deleted,
+    responses=problem_responses(404),
+    dependencies=[Depends(require_write)],
+)
 async def delete_saved_query(name: str) -> Deleted:
     return await viewer_api.delete_saved_query(name)
 
@@ -71,12 +82,22 @@ async def get_dashboard(name: str) -> Dashboard:
     return await viewer_api.get_dashboard(name)
 
 
-@router.put("/dashboards/{name}", response_model=Dashboard, responses=problem_responses(422))
+@router.put(
+    "/dashboards/{name}",
+    response_model=Dashboard,
+    responses=problem_responses(422),
+    dependencies=[Depends(require_write)],
+)
 async def save_dashboard(name: str, body: DashboardBody) -> Dashboard:
     return await viewer_api.save_dashboard(DashboardIn(**{**body.model_dump(), "name": name}))
 
 
-@router.delete("/dashboards/{name}", response_model=Deleted, responses=problem_responses(404))
+@router.delete(
+    "/dashboards/{name}",
+    response_model=Deleted,
+    responses=problem_responses(404),
+    dependencies=[Depends(require_write)],
+)
 async def delete_dashboard(name: str) -> Deleted:
     return await viewer_api.delete_dashboard(name)
 

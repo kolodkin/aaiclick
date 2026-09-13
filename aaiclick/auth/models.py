@@ -11,10 +11,18 @@ from sqlmodel import Field, SQLModel
 
 from ..datetime_utils import utc_now
 
-ROLE_ADMIN = "admin"
 ROLE_VIEWER = "viewer"
-Role = Literal["admin", "viewer"]
-ROLES: tuple[Role, ...] = (ROLE_ADMIN, ROLE_VIEWER)
+ROLE_MEMBER = "member"
+ROLE_ADMIN = "admin"
+ROLE_SUPERADMIN = "superadmin"
+Role = Literal["viewer", "member", "admin", "superadmin"]
+
+TENANT_ROLES: tuple[Role, ...] = (ROLE_VIEWER, ROLE_MEMBER, ROLE_ADMIN)
+"""The roles a ``tenant_memberships`` row may hold.
+
+``superadmin`` is instance-wide — the flag on ``users`` — so it names no tenant
+and is never stored as a membership.
+"""
 
 SCOPE_READ = "read"
 SCOPE_WRITE = "write"
@@ -28,6 +36,20 @@ SCOPE_LEVELS: tuple[ScopeLevel, ...] = (SCOPE_READ, SCOPE_WRITE, SCOPE_ADMIN, SC
 def scope_admits(held: ScopeLevel, required: ScopeLevel) -> bool:
     """Whether a token holding ``held`` may perform a ``required``-level operation."""
     return SCOPE_LEVELS.index(held) >= SCOPE_LEVELS.index(required)
+
+
+ROLE_SCOPES: dict[Role, ScopeLevel] = {
+    ROLE_VIEWER: SCOPE_READ,
+    ROLE_MEMBER: SCOPE_WRITE,
+    ROLE_ADMIN: SCOPE_ADMIN,
+    ROLE_SUPERADMIN: SCOPE_SUPERADMIN,
+}
+"""The one bridge between the two vocabularies.
+
+A role says *who someone is* in a tenant; a scope says *how much a credential
+may do*. Authorization compares scopes only — this map is where a role becomes
+one, so there is a single ordered ladder to gate on rather than two.
+"""
 
 
 class User(SQLModel, table=True):

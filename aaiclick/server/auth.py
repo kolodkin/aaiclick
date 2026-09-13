@@ -9,7 +9,7 @@ because ``Depends`` does not propagate into mounted sub-apps. See
 ``docs/designs/auth.md``.
 
 The role and scope rules are plain functions (``resolve_tenant``,
-``check_tenant_admin``, ``check_superadmin``, ``enforce_scope``) so the FastAPI
+``check_scope``, ``check_superadmin``, ``enforce_scope``) so the FastAPI
 dependencies here and the FastMCP middleware in ``mcp_rbac.py`` share one
 definition of each.
 """
@@ -17,7 +17,7 @@ definition of each.
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Literal, NamedTuple, cast
 
 from fastapi import Depends, Request
@@ -29,6 +29,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from aaiclick.auth import config, security, store
 from aaiclick.auth.models import (
     ROLE_ADMIN,
+    ROLE_SCOPES,
     SCOPE_ADMIN,
     SCOPE_READ,
     SCOPE_SUPERADMIN,
@@ -229,9 +230,25 @@ def resolve_tenant(principal: Principal, header_value: str | None) -> TenantCont
     raise Invalid(f"{TENANT_HEADER} header required")
 
 
-def check_tenant_admin(ctx: TenantContext) -> None:
-    if ctx.role != ROLE_ADMIN:
-        raise Forbidden("tenant admin role required")
+def effective_scope(principal: Principal, role: Role) -> ScopeLevel:
+    """How much this request may do, by the path it authenticated on.
+
+    A session resolves through its user's role in the active tenant. A token
+    carries its own scope and stands on it, like a GitHub PAT: the mint ceiling
+    already capped it at what its owner could delegate, and from then on it is
+    the token's authority. Demoting the owner does not shrink an outstanding
+    token — revoke it. Losing the tenant does still stop it: ``resolve_tenant``
+    needs a live membership before this is ever reached.
+    """
+    return principal.scope if principal.scope is not None else ROLE_SCOPES[role]
+
+
+def check_scope(principal: Principal, role: Role, required: ScopeLevel) -> None:
+    """The single authorization gate: compare effective scope against the level
+    an operation needs."""
+    held = effective_scope(principal, role)
+    if not scope_admits(held, required):
+        raise Forbidden(f"'{required}' scope required — this request carries '{held}'")
 
 
 async def require_tenant(
@@ -244,13 +261,27 @@ async def require_tenant(
         yield ctx
 
 
-async def require_admin(
-    ctx: TenantContext = Depends(require_tenant), principal: Principal = Depends(require_principal)
-) -> TenantContext:
-    """Tenant-admin guard for mutating tenant-scoped routes."""
-    enforce_scope(principal, SCOPE_ADMIN)
-    check_tenant_admin(ctx)
-    return ctx
+def require_scope(required: ScopeLevel) -> Callable[..., Awaitable[TenantContext]]:
+    """Tenant-scoped route guard, declared by the level the route needs.
+
+    Routes gate on scope, never on role: ``Depends(require_scope(SCOPE_ADMIN))``
+    reads as the capability it protects, and one comparison covers sessions and
+    tokens alike.
+    """
+
+    async def guard(
+        ctx: TenantContext = Depends(require_tenant), principal: Principal = Depends(require_principal)
+    ) -> TenantContext:
+        check_scope(principal, ctx.role, required)
+        return ctx
+
+    return guard
+
+
+require_write = require_scope(SCOPE_WRITE)
+"""A member's own mutations — saved queries, dashboards."""
+require_admin = require_scope(SCOPE_ADMIN)
+"""Tenant mutations — jobs, objects, tasks, memberships."""
 
 
 async def require_superadmin(principal: Principal = Depends(require_principal)) -> Principal:

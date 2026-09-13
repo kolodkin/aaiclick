@@ -10,8 +10,9 @@ and any programmatic HTTP / MCP client share one login flow; the CLI runs
 
 - **Users**: username + password, stored in the orchestration SQL database,
   plus an instance-level `superadmin` flag.
-- **Roles**: per-tenant memberships carrying `admin` or `viewer` (see
-  `docs/designs/tenant_rbac.md`). No per-resource ACLs or custom roles.
+- **Roles**: per-tenant memberships carrying `viewer`, `member` or `admin`
+  (see `docs/designs/tenant_rbac.md`). No per-resource ACLs or custom roles.
+  Every gate compares **scopes**, never roles — `ROLE_SCOPES` is the bridge.
 - **Sessions**: password login → short-lived access JWT + rotating refresh
   token. One credential header everywhere: `Authorization: Bearer <access-jwt>`.
 - **API tokens**: user-minted, named, optionally expiring bearer tokens on an
@@ -112,10 +113,11 @@ password login until a reset link sets it.
 
 See [Audit Log](#audit-log).
 
-`Role = Literal["admin", "viewer"]` lives in `aaiclick/auth/models.py` with
-module constants `ROLE_ADMIN` / `ROLE_VIEWER`; it is the per-tenant membership
-role. The `tenants` / `tenant_memberships` tables live in the same module —
-see `docs/designs/tenant_rbac.md` — Data Model.
+`Role = Literal["viewer", "member", "admin", "superadmin"]` lives in
+`aaiclick/auth/models.py`. `TENANT_ROLES` is the storable subset — `superadmin`
+is the instance flag on `users`, so it never appears in a membership row. The
+`tenants` / `tenant_memberships` tables live in the same module — see
+`docs/designs/tenant_rbac.md` — Data Model.
 
 # Module Layout
 
@@ -211,8 +213,8 @@ current principal (`tenants` lists each membership with slug, name, and role).
 ## Change own password
 
 `PUT /api/v0/auth/me/password` `{current_password, new_password}` → `204`. Open
-to **any** role — `/users` is admin-only, so without this a viewer could never
-rotate their own credential. `current_password` is required so a stolen access
+to **any** role — `/users` is superadmin-only, so without this a viewer could
+never rotate their own credential. `current_password` is required so a stolen access
 token alone cannot seize the account, and a mismatch is `401`. Local mode has no
 current user (the synthetic admin's `user_id` is `None`), so the route answers
 `422` there.
@@ -257,14 +259,15 @@ rather than FastAPI's bare `HTTPException`), then resolves a
 `require_principal` also stores the resolved principal on `request.state` so
 the audit middleware can attribute the request after the fact, and enforces
 the token scope: a `read`-scoped principal calling any non-safe HTTP method
-(`POST` / `PUT` / `PATCH` / `DELETE`) is `403`. Role checks are unchanged, so a
-`write` token is bounded by its owner's roles.
+(`POST` / `PUT` / `PATCH` / `DELETE`) is `403`.
 
 Tenant-scoped routers additionally resolve the active tenant via
-`require_tenant` (the `X-Tenant-Id` header); `require_admin` means *tenant
-admin* and `require_superadmin` guards instance-level surfaces. The role
+`require_tenant` (the `X-Tenant-Id` header), then gate on scope:
+`require_scope(SCOPE_WRITE)` (aliased `require_write`) for a member's own
+mutations, `require_scope(SCOPE_ADMIN)` (aliased `require_admin`) for tenant
+mutations, and `require_superadmin` for instance-level surfaces. The role
 matrix and resolution rules live in `docs/designs/tenant_rbac.md` — Role
-Matrix / Active Tenant Resolution.
+Matrix / One currency: scope.
 
 # API Tokens
 
@@ -294,7 +297,7 @@ every level beneath it. `read` is the default at every mint site.
 | Level        | Admits, plus everything below                                                                     | REST guard it mirrors                  |
 |--------------|---------------------------------------------------------------------------------------------------|----------------------------------------|
 | `read`       | every read                                                                                        | safe method                            |
-| `write`      | member-level mutations — saved queries, dashboards                                                | mutating method under `require_tenant` |
+| `write`      | a member's own mutations — saved queries, dashboards                                              | `require_write`                        |
 | `admin`      | tenant mutations — run / cancel jobs, register, clear tasks, delete / purge objects, memberships   | `require_admin`                        |
 | `superadmin` | instance operations — setup, migrate, worker start / stop, users, tenants                         | `require_superadmin`                   |
 
@@ -309,23 +312,26 @@ A caller may mint at or below their own role **in the tenant they name**:
 | Owner's role in the named tenant | May mint up to |
 |----------------------------------|----------------|
 | tenant admin                     | `admin`        |
-| member (viewer)                  | `write`        |
+| member                           | `write`        |
+| viewer                           | `read`         |
 | not a member                     | nothing (404)  |
+
+That is `ROLE_SCOPES` applied to the minter's own role — you delegate what you
+hold, never more.
 
 A superadmin may mint any level in any tenant, and is the only one who may mint
 an untenanted `superadmin` token. Above the ceiling is `422` naming the
 caller's own level; a tenant the caller cannot act in reads as missing (404),
 never as forbidden, so tokens cannot probe for tenants.
 
-!!! important "The level is a ceiling, not a grant"
-    Binding answers *where*, not *how much*. Effective authority is the lesser
-    of the token's level and the owner's live role in that tenant, which
-    `resolve_api_token` reads on every request. Skip that lookup and treat a
-    bound token as self-describing, and someone demoted from admin to viewer
-    keeps an `admin` token until a human remembers to revoke it. A superadmin
-    reads as tenant admin everywhere (`role_in_tenant`), so a token they bind
-    works without an explicit membership — and stops the moment the flag is
-    cleared.
+!!! important "A token stands on its own scope"
+    The ceiling applies **at mint**, not on every request. Once issued, the
+    token's scope is its authority — a GitHub PAT, not a live projection of its
+    owner. Demote the owner from admin to viewer and an outstanding `admin`
+    token keeps working: **revoke it** to take it away. What does still stop it
+    is losing the tenant, since `resolve_tenant` needs a live membership before
+    the scope is ever consulted, and being disabled, which `resolve_api_token`
+    checks.
 
 | Route                          | Guard                          | Purpose                                         |
 |--------------------------------|--------------------------------|-------------------------------------------------|
@@ -469,8 +475,9 @@ or **tenant-level** (`tenant_id` + `role`) — never both, never neither.
 
 | Inviter          | May invite                                            |
 |------------------|-------------------------------------------------------|
-| viewer (member)  | nothing (`403`)                                       |
-| tenant admin     | `admin` or `viewer`, **their own tenant only**        |
+| viewer           | nothing (`403`)                                       |
+| member           | nothing (`403`)                                       |
+| tenant admin     | `viewer`, `member` or `admin`, **their own tenant only** |
 | superadmin       | any role in any tenant, plus untenanted superadmins   |
 
 A tenant the inviter is not a member of reads as `404`, never `403`, so an
@@ -483,7 +490,7 @@ token cannot mint an invite. An account is exactly the permanent foothold a
 leaked token must not be able to create for itself — the same reason token
 management is session-only.
 
-`aaiclick user invite <username> [--role admin|viewer] [--email]
+`aaiclick user invite <username> [--role viewer|member|admin] [--email]
 [--superadmin]` is the CLI form, taking its tenant from the global `--tenant`
 flag; the in-process CLI is superadmin-equivalent and caps against nothing. The
 SPA offers `@invite`, showing only the grants the signed-in user may make.

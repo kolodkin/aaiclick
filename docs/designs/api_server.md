@@ -521,9 +521,12 @@ rotating refresh token, or by a scoped long-lived API token. The CLI runs
   `docs/designs/auth.md`.
 - **Enforcement**: `HTTPBearer` extracts the credential (access JWT or
   `aaic_` API token); `require_principal` guards every `/api/v0/*` router,
-  `require_tenant` resolves `X-Tenant-Id`, `require_admin` guards mutating
-  tenant routes, `require_superadmin` guards `/users`, `/tenants`, `/audit`,
-  and worker control. `read`-scoped tokens are limited to safe methods.
+  `require_tenant` resolves `X-Tenant-Id`, then `require_scope(...)` gates on
+  the level a route needs (`require_write` for a member's own mutations,
+  `require_admin` for tenant mutations), and `require_superadmin` guards
+  `/users`, `/tenants`, `/audit`, and worker control. Authorization always
+  compares scopes: a session resolves one through its role, a token carries
+  its own.
 - **MCP**: the `/mcp` mount requires any principal (ASGI middleware — `Depends`
   does not propagate into mounted sub-apps); each tool is gated by its
   `read` / `write` / `superadmin` tag in `aaiclick/server/mcp_rbac.py`.

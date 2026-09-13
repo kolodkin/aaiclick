@@ -6,10 +6,14 @@ from __future__ import annotations
 from aaiclick.auth import security, store
 from aaiclick.auth.models import (
     ROLE_ADMIN,
+    ROLE_MEMBER,
+    ROLE_VIEWER,
     SCOPE_ADMIN,
+    SCOPE_READ,
     SCOPE_SUPERADMIN,
     SCOPE_WRITE,
     ApiToken,
+    Role,
     ScopeLevel,
     scope_admits,
 )
@@ -34,6 +38,13 @@ def _to_view(token: ApiToken) -> ApiTokenView:
     )
 
 
+_ROLE_CEILINGS: dict[Role, ScopeLevel] = {
+    ROLE_VIEWER: SCOPE_READ,
+    ROLE_MEMBER: SCOPE_WRITE,
+    ROLE_ADMIN: SCOPE_ADMIN,
+}
+
+
 async def _mint_ceiling(user_id: int, tenant_id: int | None) -> ScopeLevel:
     """The highest level this caller may mint. A superadmin is unbounded; anyone
     else is capped by their role in the tenant they named."""
@@ -50,7 +61,8 @@ async def _mint_ceiling(user_id: int, tenant_id: int | None) -> ScopeLevel:
         # tenants. Membership is the only check: a tenant that does not exist
         # has no members either, and the default tenant is implicit (no row).
         raise NotFound(f"tenant {tenant_id} not found")
-    return SCOPE_ADMIN if membership.role == ROLE_ADMIN else SCOPE_WRITE
+    # Each role mints up to the scope that matches what it may itself do.
+    return _ROLE_CEILINGS[membership.role]
 
 
 async def create_token(user_id: int, request: CreateApiTokenRequest) -> ApiTokenCreated:
