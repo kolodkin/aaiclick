@@ -307,22 +307,11 @@ one naming a different tenant is `422` rather than quietly ignored.
 `superadmin` names none, and selects a tenant with the header exactly as a
 superadmin session does.
 
-A caller may mint at or below their own role **in the tenant they name**:
-
-| Owner's role in the named tenant | May mint up to |
-|----------------------------------|----------------|
-| tenant admin                     | `admin`        |
-| member                           | `write`        |
-| viewer                           | `read`         |
-| not a member                     | nothing (404)  |
-
-That is `ROLE_SCOPES` applied to the minter's own role — you delegate what you
-hold, never more.
-
-A superadmin may mint any level in any tenant, and is the only one who may mint
-an untenanted `superadmin` token. Above the ceiling is `422` naming the
-caller's own level; a tenant the caller cannot act in reads as missing (404),
-never as forbidden, so tokens cannot probe for tenants.
+A caller mints at or below `ROLE_SCOPES[their role in the named tenant]` — you
+delegate what you hold, never more. A superadmin mints any level in any tenant,
+and alone may mint an untenanted `superadmin` token. Above the ceiling is `422`
+naming the caller's own level; a tenant they cannot act in reads as missing
+(404), never forbidden, so tokens cannot probe for tenants.
 
 !!! important "A token stands on its own scope"
     The ceiling applies **at mint**, not on every request. Once issued, the
@@ -457,6 +446,19 @@ and revokes the user's sessions, like an admin reset.
 - **Redeem**: `POST /auth/password-reset {token, new_password}` (public) →
   `204`, or `401` for an unknown / expired / consumed token.
 
+The link is `AAICLICK_PUBLIC_URL/?p=reset%20<token>`, which the SPA routes to
+the new-password form; without that variable only the raw `token` is returned.
+
+There is no self-service "email me a link" flow — mail delivery is not
+implemented (`docs/designs/future.md`). The SPA's **Forgot password?** link
+tells the user to ask an administrator.
+
+!!! warning "Superadmin lockout has no in-app recovery"
+    Minting a link needs a superadmin, so a deployment whose only superadmin
+    loses their password must recover through the CLI on a host with database
+    access (`aaiclick user passwd <user_id>`). Keep a second superadmin, or
+    keep that step in the runbook.
+
 ## Invites
 
 **Implementation**: `aaiclick/internal_api/invites.py` — see `invite`,
@@ -473,16 +475,10 @@ open door.
 An invite is either **instance-level** (`superadmin: true`, naming no tenant)
 or **tenant-level** (`tenant_id` + `role`) — never both, never neither.
 
-| Inviter          | May invite                                            |
-|------------------|-------------------------------------------------------|
-| viewer           | nothing (`403`)                                       |
-| member           | nothing (`403`)                                       |
-| tenant admin     | `viewer`, `member` or `admin`, **their own tenant only** |
-| superadmin       | any role in any tenant, plus untenanted superadmins   |
-
-A tenant the inviter is not a member of reads as `404`, never `403`, so an
-invite cannot be used to probe for tenants — the same rule the token mint
-ceiling follows. The full picture, alongside token scopes, is
+Only a tenant admin may invite, into their own tenant only; a superadmin may
+invite any role anywhere, plus untenanted superadmins. A tenant the inviter is
+not a member of reads as `404`, never `403`, so an invite cannot probe for
+tenants — the same rule the mint ceiling follows. Both ceilings side by side:
 `docs/designs/tenant_rbac.md` — Delegation ceilings.
 
 Inviting needs a **session**: the route guards on `require_session`, so an API
@@ -500,19 +496,6 @@ SPA offers `@invite`, showing only the grants the signed-in user may make.
     two there would close an import cycle — `invites.py` imports both instead.
     The router is separate because `/users` is superadmin-only at the router
     level, and a tenant admin may invite into their own tenant.
-
-The link is `AAICLICK_PUBLIC_URL/?p=reset%20<token>`, which the SPA routes to
-the new-password form; without that variable only the raw `token` is returned.
-
-There is no self-service "email me a link" flow — mail delivery is not
-implemented (`docs/designs/future.md`). The SPA's **Forgot password?** link
-tells the user to ask an administrator.
-
-!!! warning "Superadmin lockout has no in-app recovery"
-    Minting a link needs a superadmin, so a deployment whose only superadmin
-    loses their password must recover through the CLI on a host with database
-    access (`aaiclick user passwd <user_id>`). Keep a second superadmin, or
-    keep that step in the runbook.
 
 # Audit Log
 

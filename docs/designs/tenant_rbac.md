@@ -201,9 +201,8 @@ token:    token -> scope
                                     required scope of the route
 ```
 
-`ROLE_SCOPES` in `aaiclick/auth/models.py` is the single bridge — `viewer` is
-`read`, `member` is `write`, `admin` is `admin`, and the instance `superadmin`
-flag is `superadmin`. Roles stay the way people are described; scopes are what
+`ROLE_SCOPES` in `aaiclick/auth/models.py` is the single bridge — the last row
+of the matrix above. Roles stay the way people are described; scopes are what
 every gate compares, so REST routes, MCP tools and the CLI answer the same
 question the same way.
 
