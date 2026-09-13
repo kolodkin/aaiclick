@@ -12,6 +12,7 @@ from aaiclick.audit.view_models import AuditEntryView
 from aaiclick.auth.view_models import (
     ApiTokenCreated,
     ApiTokenView,
+    InviteView,
     MemberView,
     PasswordResetLinkView,
     TenantView,
@@ -292,6 +293,12 @@ def render_audit_page(page: Page[AuditEntryView], offset: int) -> None:
             f"{_fmt_optional(e.tenant_id):<8} {e.method:<7} {target:<44} {e.status:<6} {e.duration_ms:>6}"
         )
     _print_page_footer(page, offset)
+
+
+def render_invite(view: InviteView) -> None:
+    """The new user, then the link that lets them in."""
+    render_user(view.user)
+    render_password_reset_link(view.link)
 
 
 def render_password_reset_link(view: PasswordResetLinkView) -> None:

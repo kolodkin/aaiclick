@@ -10,6 +10,7 @@ export { CancelConfirm } from "./CancelConfirm";
 export { AllGallery } from "./AllGallery";
 export { Tokens } from "./Tokens";
 export { Account } from "./Account";
+export { Invite } from "./Invite";
 export { Users } from "./Users";
 export { Audit } from "./Audit";
 export { Data } from "./Data";

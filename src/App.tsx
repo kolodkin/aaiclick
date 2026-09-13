@@ -20,6 +20,7 @@ import {
   RunForm,
   TaskDetail,
   Tokens,
+  Invite,
   Users,
 } from "./views";
 import { Login } from "./views/Login";
@@ -53,6 +54,8 @@ function renderRoute(route: Route, onPrompt: (v: string) => void) {
       return <Account onPrompt={onPrompt} />;
     case "users":
       return <Users onPrompt={onPrompt} />;
+    case "invite":
+      return <Invite onPrompt={onPrompt} />;
     case "audit":
       return <Audit onPrompt={onPrompt} />;
     case "reset":

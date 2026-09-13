@@ -11,6 +11,8 @@ import type {
   ChangePasswordRequest,
   CreateApiTokenRequest,
   CreateUserRequest,
+  InviteUserRequest,
+  InviteView,
   Dashboard,
   DashboardResults,
   DashboardSummary,
@@ -317,6 +319,12 @@ function useUserMutation<V>(run: (v: V) => Promise<UserView>) {
 
 export function useCreateUser() {
   return useUserMutation((req: CreateUserRequest) => postJSON<UserView>("/users", req));
+}
+
+export function useInviteUser() {
+  // Invalidates ["users"] like the other user mutations, but returns an
+  // InviteView rather than a UserView — the caller needs the minted link.
+  return useInvalidating(["users"], (req: InviteUserRequest) => postJSON<InviteView>("/users/invite", req));
 }
 
 export function useSetSuperadmin() {

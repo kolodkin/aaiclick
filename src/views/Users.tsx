@@ -49,7 +49,7 @@ function CreateUserForm() {
       </div>
       <div className="field">
         <label>
-          Password <span className="help">— leave blank to onboard with a reset link instead</span>
+          Password <span className="help">— leave blank, then mint a reset link; or use `@invite`</span>
         </label>
         <input id="user-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
       </div>
@@ -180,8 +180,8 @@ export function Users({ onPrompt }: { onPrompt: (v: string) => void }) {
       {!me?.superadmin && <p className="err">Requires the superadmin flag.</p>}
       {link && (
         <SecretPanel
-          title="Password reset link"
-          hint={`Valid until ${new Date(link.expires_at).toLocaleString()} — single use.`}
+          title="One-time link"
+          hint={`Valid until ${new Date(link.expires_at).toLocaleString()} — single use. Hand it over out of band.`}
           value={link.url ?? link.token}
           onDone={() => setLink(null)}
         />

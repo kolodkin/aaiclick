@@ -21,6 +21,7 @@ from .mcp import mcp
 from .routers import audit as audit_router
 from .routers import auth as auth_router
 from .routers import execution_workers, jobs, objects, registered_jobs, tasks, viewer
+from .routers import invites as invites_router
 from .routers import tenants as tenants_router
 from .routers import users as users_router
 
@@ -91,6 +92,7 @@ app.include_router(execution_workers.router, prefix=API_PREFIX, dependencies=[De
 # `require_principal`). None takes the blanket dependency above.
 app.include_router(auth_router.router, prefix=API_PREFIX)
 app.include_router(users_router.router, prefix=API_PREFIX)
+app.include_router(invites_router.router, prefix=API_PREFIX)
 app.include_router(tenants_router.router, prefix=API_PREFIX)
 app.include_router(audit_router.router, prefix=API_PREFIX)
 

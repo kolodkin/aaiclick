@@ -280,6 +280,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v0/invites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Invite User
+         * @description Create a passwordless user, grant their tenant role, and mint their link.
+         */
+        post: operations["invite_user_api_v0_invites_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v0/jobs": {
         parameters: {
             query?: never;
@@ -1259,6 +1279,36 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * InviteUserRequest
+         * @description Create a user who sets their own password by redeeming the link.
+         *
+         *     Either an instance invite (``superadmin=True``, no tenant) or a tenant
+         *     invite (``tenant_id`` + ``role``) — never both.
+         */
+        InviteUserRequest: {
+            /** Email */
+            email?: string | null;
+            /** Role */
+            role?: ("admin" | "viewer") | null;
+            /**
+             * Superadmin
+             * @default false
+             */
+            superadmin: boolean;
+            /** Tenant Id */
+            tenant_id?: string | null;
+            /** Username */
+            username: string;
+        };
+        /**
+         * InviteView
+         * @description The new user and the one-time link that lets them in.
+         */
+        InviteView: {
+            link: components["schemas"]["PasswordResetLinkView"];
+            user: components["schemas"]["UserView"];
         };
         /**
          * JobDetail
@@ -2912,6 +2962,66 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    invite_user_api_v0_invites_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InviteUserRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteView"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
                 };
             };
         };

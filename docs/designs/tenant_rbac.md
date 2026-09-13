@@ -151,12 +151,34 @@ see `new_job_row` (a scheduled run inherits its registration's tenant).
 | `/auth/*`, change own password                      | ✅     | ✅           | ✅         |
 | Run / cancel jobs, register / enable / disable jobs | ❌     | ✅           | ✅         |
 | Clear tasks, delete / purge objects                 | ❌     | ✅           | ✅         |
+| Save / delete saved queries and dashboards          | ✅     | ✅           | ✅         |
 | Manage memberships of the active tenant             | ❌     | ✅           | ✅         |
 | List execution workers                              | ✅     | ✅           | ✅         |
 | Start / stop execution workers                      | ❌     | ❌           | ✅         |
 | Tenant CRUD (`/tenants`)                            | ❌     | ❌           | ✅         |
 | User management (`/users`)                          | ❌     | ❌           | ✅         |
+| Invite a user (`/invites`)                          | ❌     | ✅ own tenant | ✅ anywhere |
+| Mint an API token (`/auth/tokens`)                  | ✅ to `write` | ✅ to `admin` | ✅ to `superadmin` |
 | MCP surface (`/mcp`), gated per tool                | ✅ read + write | ✅ + admin | ✅ all |
+
+## Delegation ceilings
+
+The last two rows are *delegation* — handing authority to someone else — so
+each is capped at the granter's own level. Neither can be used to climb.
+
+| Granter          | May invite                                            | May mint a token at      |
+|------------------|-------------------------------------------------------|--------------------------|
+| viewer (member)  | nothing (`403`)                                       | `read`, `write`          |
+| tenant admin     | `admin` or `viewer`, **their own tenant only**        | `read` … `admin`         |
+| superadmin       | any role in any tenant, plus untenanted superadmins   | `read` … `superadmin`    |
+
+A tenant the granter is not a member of reads as `404`, never `403`, so
+neither surface can be used to probe for tenants. Both need a **session**: an
+API token can mint neither a token nor an invite, so a leaked one cannot turn
+itself into a permanent foothold.
+
+**Implementation**: `aaiclick/internal_api/invites.py` — see `_check_ceiling`;
+`aaiclick/internal_api/api_tokens.py` — see `_mint_ceiling`.
 
 Worker start/stop stays superadmin because workers execute every tenant's
 tasks. `/mcp` takes API tokens only and gates each tool on the level its tag

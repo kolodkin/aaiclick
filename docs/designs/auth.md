@@ -376,7 +376,7 @@ no HTTP request) the synthetic superadmin applies and every tool is open.
 # CLI & Admin Bootstrap
 
 - **CLI**: `aaiclick user create <username> [--password] [--email] [--superadmin]`,
-  `list`, `set-superadmin`, `disable`, `enable`, `passwd`, `set-email`,
+  `invite`, `list`, `set-superadmin`, `disable`, `enable`, `passwd`, `set-email`,
   `reset-mfa`, `reset-link` — thin renderers over `internal_api.users`,
   running in-process. `aaiclick token ...` and `aaiclick audit list` likewise.
   Tenant and membership commands: `docs/designs/tenant_rbac.md` — CLI.
@@ -450,6 +450,49 @@ and revokes the user's sessions, like an admin reset.
   link over out of band. CLI: `aaiclick user reset-link <user_id>`.
 - **Redeem**: `POST /auth/password-reset {token, new_password}` (public) →
   `204`, or `401` for an unknown / expired / consumed token.
+
+## Invites
+
+**Implementation**: `aaiclick/internal_api/invites.py` — see `invite`,
+`_check_shape`, `_check_ceiling`; `aaiclick/server/routers/invites.py`;
+`src/views/Invite.tsx`.
+
+Onboarding is a reset link by another name: create the user with no password,
+grant their tenant role, and mint their link — `POST /invites` →
+`InviteView {user, link}` does all three in one call. The account grants
+nothing until the link is redeemed, since `login` refuses any user whose
+`password_hash` is `None`, so an invite left unredeemed is inert rather than an
+open door.
+
+An invite is either **instance-level** (`superadmin: true`, naming no tenant)
+or **tenant-level** (`tenant_id` + `role`) — never both, never neither.
+
+| Inviter          | May invite                                            |
+|------------------|-------------------------------------------------------|
+| viewer (member)  | nothing (`403`)                                       |
+| tenant admin     | `admin` or `viewer`, **their own tenant only**        |
+| superadmin       | any role in any tenant, plus untenanted superadmins   |
+
+A tenant the inviter is not a member of reads as `404`, never `403`, so an
+invite cannot be used to probe for tenants — the same rule the token mint
+ceiling follows. The full picture, alongside token scopes, is
+`docs/designs/tenant_rbac.md` — Delegation ceilings.
+
+Inviting needs a **session**: the route guards on `require_session`, so an API
+token cannot mint an invite. An account is exactly the permanent foothold a
+leaked token must not be able to create for itself — the same reason token
+management is session-only.
+
+`aaiclick user invite <username> [--role admin|viewer] [--email]
+[--superadmin]` is the CLI form, taking its tenant from the global `--tenant`
+flag; the in-process CLI is superadmin-equivalent and caps against nothing. The
+SPA offers `@invite`, showing only the grants the signed-in user may make.
+
+!!! note "Its own module and its own router"
+    `internal_api/password_reset.py` already imports `users`, so composing the
+    two there would close an import cycle — `invites.py` imports both instead.
+    The router is separate because `/users` is superadmin-only at the router
+    level, and a tenant admin may invite into their own tenant.
 
 The link is `AAICLICK_PUBLIC_URL/?p=reset%20<token>`, which the SPA routes to
 the new-password form; without that variable only the raw `token` is returned.

@@ -181,6 +181,27 @@ class PasswordResetLinkView(BaseModel):
     url: str | None
 
 
+class InviteUserRequest(BaseModel):
+    """Create a user who sets their own password by redeeming the link.
+
+    Either an instance invite (``superadmin=True``, no tenant) or a tenant
+    invite (``tenant_id`` + ``role``) — never both.
+    """
+
+    username: str = Field(min_length=1, max_length=100)
+    superadmin: bool = False
+    tenant_id: SnowflakeId | None = None
+    role: Role | None = None
+    email: str | None = None
+
+
+class InviteView(BaseModel):
+    """The new user and the one-time link that lets them in."""
+
+    user: UserView
+    link: PasswordResetLinkView
+
+
 class PasswordResetRedeem(BaseModel):
     token: str
     new_password: str = Field(min_length=1)

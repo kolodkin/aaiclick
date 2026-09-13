@@ -635,3 +635,14 @@ def test_token_parser_accepts_every_scope():
         args = parser.parse_args(["token", "create", "alice", "--name", "ci", "--scope", level])
         assert args.scope == level
     assert parser.parse_args(["token", "create", "alice", "--name", "ci"]).scope == "read"
+
+
+def test_user_invite_parser():
+    parser = build_parser()
+    args = parser.parse_args(["user", "invite", "alice", "--email", "a@example.com", "--superadmin"])
+    assert args.user_command == "invite" and args.username == "alice"
+    assert args.email == "a@example.com" and args.superadmin is True
+
+    default = parser.parse_args(["user", "invite", "bob"])
+    assert default.superadmin is False and default.role == "viewer"
+    assert parser.parse_args(["user", "invite", "bob", "--role", "admin"]).role == "admin"

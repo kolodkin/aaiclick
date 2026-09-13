@@ -53,10 +53,17 @@ from aaiclick.ai.importing import import_ai_module
 from aaiclick.audit.view_models import AuditListFilter
 from aaiclick.auth import store as auth_store
 from aaiclick.auth.models import ROLE_VIEWER, ROLES, SCOPE_LEVELS, SCOPE_READ, SCOPE_SUPERADMIN
-from aaiclick.auth.view_models import CreateApiTokenRequest, CreateTenantRequest, CreateUserRequest, UserListFilter
+from aaiclick.auth.view_models import (
+    CreateApiTokenRequest,
+    CreateTenantRequest,
+    CreateUserRequest,
+    InviteUserRequest,
+    UserListFilter,
+)
 from aaiclick.datetime_utils import utc_now
 from aaiclick.internal_api import api_tokens as api_tokens_api
 from aaiclick.internal_api import audit as audit_api
+from aaiclick.internal_api import invites as invites_api
 from aaiclick.internal_api import password_reset as reset_api
 from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import tenants as tenants_api
@@ -532,6 +539,24 @@ async def _run_user_create(args: argparse.Namespace) -> None:
         )
     )
     _render(args, view, cli_renderers.render_user)
+
+
+async def _run_user_invite(args: argparse.Namespace) -> None:
+    view = await _run_internal_api(
+        invites_api.invite(
+            # The in-process CLI is superadmin-equivalent, like local mode's
+            # synthetic principal — there is no inviter to cap against.
+            None,
+            InviteUserRequest(
+                username=args.username,
+                superadmin=args.superadmin,
+                tenant_id=None if args.superadmin else get_active_tenant_id(),
+                role=None if args.superadmin else args.role,
+                email=args.email,
+            ),
+        )
+    )
+    _render(args, view, cli_renderers.render_invite)
 
 
 async def _run_user_list(args: argparse.Namespace) -> None:
@@ -1489,6 +1514,19 @@ def build_parser() -> argparse.ArgumentParser:
     user_create_parser.add_argument("--superadmin", action="store_true")
     _add_json_flag(user_create_parser)
 
+    user_invite_parser = user_subparsers.add_parser(
+        "invite", help="Create a user with no password and mint their one-time link"
+    )
+    user_invite_parser.add_argument("username")
+    user_invite_parser.add_argument("--email", default=None)
+    user_invite_parser.add_argument(
+        "--role", choices=list(ROLES), default=ROLE_VIEWER, help="Role in --tenant (ignored with --superadmin)"
+    )
+    user_invite_parser.add_argument(
+        "--superadmin", action="store_true", help="Invite an instance superadmin instead, with no tenant"
+    )
+    _add_json_flag(user_invite_parser)
+
     user_list_parser = user_subparsers.add_parser("list", help="List users")
     user_list_parser.add_argument("--limit", type=int, default=50)
     user_list_parser.add_argument("--offset", type=int, default=0)
@@ -1776,6 +1814,9 @@ def main():
     elif args.command == "user":
         if args.user_command == "create":
             asyncio.run(_run_user_create(args))
+
+        elif args.user_command == "invite":
+            asyncio.run(_run_user_invite(args))
 
         elif args.user_command == "list":
             asyncio.run(_run_user_list(args))
