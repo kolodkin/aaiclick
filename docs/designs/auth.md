@@ -55,6 +55,13 @@ SQLModel tables in `aaiclick/auth/models.py` (`audit_log` in
 (no DB CHECK — see CLAUDE.md, "Prefer Literal"), so widening the scope set is a
 one-line code change rather than a hand-written constraint migration.
 
+Two role literals live there. `Role` is every rung; `TenantRole`
+(`viewer` | `member` | `admin`) is what a membership may hold, and is the type
+of `tenant_memberships.role` and of the membership and invite request models —
+see [Superadmin](#superadmin) for why the flag is absent from it. The `tenants`
+/ `tenant_memberships` tables are in the same module — `docs/designs/tenant_rbac.md`
+— Data Model.
+
 ## `users`
 
 | Column          | Type                            | Notes                  |
@@ -112,16 +119,6 @@ password login until a reset link sets it.
 ## `audit_log`
 
 See [Audit Log](#audit-log).
-
-`aaiclick/auth/models.py` carries two literals: `Role` is every rung, and
-`TenantRole` (`viewer` | `member` | `admin`) is what a membership may hold.
-`superadmin` is a property of the *user* — the flag on `users`, instance-wide
-and naming no tenant — so it is absent from `TenantRole`, and the
-`tenant_memberships.role` column plus the membership and invite request models
-all take the narrow type. The boundary rejects it (`422`) rather than writing a
-row that would resolve to instance scope. The
-`tenants` / `tenant_memberships` tables live in the same module — see
-`docs/designs/tenant_rbac.md` — Data Model.
 
 # Module Layout
 
@@ -272,6 +269,53 @@ mutations, `require_scope(SCOPE_ADMIN)` (aliased `require_admin`) for tenant
 mutations, and `require_superadmin` for instance-level surfaces. The role
 matrix and resolution rules live in `docs/designs/tenant_rbac.md` — Role
 Matrix / One currency: scope.
+
+# Superadmin
+
+**Implementation**: `aaiclick/auth/models.py` — see `User.superadmin`, `Role` vs
+`TenantRole`; `aaiclick/server/auth.py` — see `role_in_tenant`,
+`check_superadmin`, `_SYNTHETIC_ADMIN`.
+
+The one authority that is a property of the **user**, not of a membership:
+`users.superadmin`, a `Boolean` column. It is instance-wide, spanning every
+tenant, so it names none — which is exactly why it cannot be a membership row,
+where authority is an edge between a user and one tenant.
+
+That is enforced by the type, not by convention. `Role` carries every rung;
+`TenantRole` (`viewer` | `member` | `admin`) is what `tenant_memberships.role`,
+`SetMemberRequest` and `InviteUserRequest` accept, so `{"role": "superadmin"}`
+is `422` at the boundary rather than a row that resolves to instance scope.
+
+## The three special treatments
+
+| Where | What happens | Why |
+|-------|--------------|-----|
+| Tenant routes | `role_in_tenant` returns `admin` for a superadmin in **any** tenant, with no membership row | One place encodes "acts as tenant admin everywhere", so header- and path-scoped routes agree |
+| Instance routes | `check_superadmin` reads the **live** flag off the principal | `require_superadmin` guards `/users`, `/tenants`, `/audit`, worker control |
+| Delegation | The mint and invite ceilings return early, unbounded | A superadmin may mint any scope in any tenant, and invite any role anywhere |
+
+!!! important "The flag is not `superadmin` *scope* for a session"
+    `role_in_tenant` synthesises `admin`, so a superadmin **session** acting in
+    a tenant resolves to `SCOPE_ADMIN` — `effective_scope` never reads the flag.
+    `superadmin` scope exists only on an API token. The flag and the scope are
+    checked by different gates, which is why `require_superadmin` calls both
+    `enforce_scope` and `check_superadmin`: a `superadmin`-scoped token whose
+    owner has since lost the flag passes the first and is refused by the second.
+
+## Tokens, local mode, bootstrap
+
+A `superadmin` token is the only untenanted one — `api_tokens.tenant_id` is
+`NULL` — and selects a tenant with `X-Tenant-Id`, exactly as a superadmin
+session does. Only a superadmin may mint one.
+
+Local mode has no credential, so `_SYNTHETIC_ADMIN` stands in: `superadmin=True`
+with `user_id=None`. That is why account routes needing a real user row answer
+`422` there.
+
+The first superadmin comes from `AAICLICK_ADMIN_USERNAME` /
+`AAICLICK_ADMIN_PASSWORD`, seeded during server startup when the `users` table
+is empty, or from the CLI. Losing the last one has no in-app recovery — see
+[Password Reset](#password-reset).
 
 # API Tokens
 

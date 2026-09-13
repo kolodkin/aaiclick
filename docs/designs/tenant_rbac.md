@@ -17,9 +17,14 @@ Execution workers remain shared infrastructure.
   `TenantRole` — `viewer` (reads), `member` (adds their own saved queries and
   dashboards), or `admin` (runs the tenant). `superadmin` is deliberately not
   one: it is a property of the user, not of a membership.
-- **Superadmin**: boolean on `users`. Superadmins manage tenants and users,
-  act as `admin` in every tenant, and exclusively control shared
-  infrastructure (execution workers, and the superadmin-tagged `/mcp` tools).
+- **Superadmin**: boolean on `users` — a property of the *user*, not an edge.
+  Authority is otherwise an edge between a user and one tenant; this one spans
+  every tenant, so it names none and cannot be a membership row. `TenantRole`
+  excludes it, so the boundary refuses `{"role": "superadmin"}` rather than
+  writing a row that would resolve to instance scope. Superadmins manage
+  tenants and users, act as `admin` in every tenant without a membership, and
+  exclusively control shared infrastructure (execution workers, and the
+  superadmin-tagged `/mcp` tools) — `docs/designs/auth.md` — Superadmin.
 - **Isolation level**: metadata-level. One SQL database, one ClickHouse
   database; every query filters by the active tenant. Tenants are trusted
   teams sharing a deployment, not hostile parties.
