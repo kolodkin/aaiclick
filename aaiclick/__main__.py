@@ -1483,7 +1483,7 @@ def build_parser() -> argparse.ArgumentParser:
     user_create_parser = user_subparsers.add_parser("create", help="Create a user")
     user_create_parser.add_argument("username")
     user_create_parser.add_argument(
-        "--password", default=None, help="Omit for a user who signs in via SSO or a reset link only"
+        "--password", default=None, help="Omit to onboard the user with a reset link instead"
     )
     user_create_parser.add_argument("--email", default=None)
     user_create_parser.add_argument("--superadmin", action="store_true")

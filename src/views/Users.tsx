@@ -49,7 +49,7 @@ function CreateUserForm() {
       </div>
       <div className="field">
         <label>
-          Password <span className="help">— leave blank for SSO-only, or mint a reset link afterwards</span>
+          Password <span className="help">— leave blank to onboard with a reset link instead</span>
         </label>
         <input id="user-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
       </div>

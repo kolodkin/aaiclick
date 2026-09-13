@@ -52,7 +52,7 @@ async def _authenticates(user: User, password: str) -> bool:
     """Whether ``password`` admits this user — the one definition of the rule,
     so login, MFA disable, and the password change cannot drift apart. bcrypt
     runs on a worker thread so the event loop keeps serving."""
-    if user.disabled or user.password_hash is None:  # SSO-only users have no password
+    if user.disabled or user.password_hash is None:  # never set, or awaiting a reset link
         return False
     return await asyncio.to_thread(security.verify_password, password, user.password_hash)
 

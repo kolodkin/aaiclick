@@ -88,7 +88,7 @@ class UserView(BaseModel):
 class CreateUserRequest(BaseModel):
     username: str = Field(min_length=1, max_length=100)
     password: str | None = None
-    """``None`` creates a user who can only sign in via SSO or a password-reset link."""
+    """``None`` creates a user who can only sign in after redeeming a reset link."""
     superadmin: bool = False
     email: str | None = None
 

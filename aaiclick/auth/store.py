@@ -424,7 +424,7 @@ async def revoke_api_token(token_id: int, *, user_id: int) -> bool:
     return result.rowcount > 0
 
 
-# --- Single-use tokens (OIDC login state, password reset) ---------------
+# --- Single-use tokens (password reset) ---------------------------------
 
 
 class _SingleUse(Protocol):

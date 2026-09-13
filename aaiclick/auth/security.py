@@ -50,7 +50,7 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 
 def generate_secret() -> str:
-    """Opaque URL-safe secret — refresh tokens, reset tokens, OIDC state and nonce."""
+    """Opaque URL-safe secret — refresh tokens and password-reset tokens."""
     return secrets.token_urlsafe(32)
 
 
