@@ -324,7 +324,7 @@ export function useCreateUser() {
 export function useInviteUser() {
   // Invalidates ["users"] like the other user mutations, but returns an
   // InviteView rather than a UserView — the caller needs the minted link.
-  return useInvalidating(["users"], (req: InviteUserRequest) => postJSON<InviteView>("/users/invite", req));
+  return useInvalidating(["users"], (req: InviteUserRequest) => postJSON<InviteView>("/invites", req));
 }
 
 export function useSetSuperadmin() {

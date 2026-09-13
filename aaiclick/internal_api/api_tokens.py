@@ -5,15 +5,9 @@ from __future__ import annotations
 
 from aaiclick.auth import security, store
 from aaiclick.auth.models import (
-    ROLE_ADMIN,
-    ROLE_MEMBER,
-    ROLE_VIEWER,
-    SCOPE_ADMIN,
-    SCOPE_READ,
+    ROLE_SCOPES,
     SCOPE_SUPERADMIN,
-    SCOPE_WRITE,
     ApiToken,
-    Role,
     ScopeLevel,
     scope_admits,
 )
@@ -38,11 +32,7 @@ def _to_view(token: ApiToken) -> ApiTokenView:
     )
 
 
-_ROLE_CEILINGS: dict[Role, ScopeLevel] = {
-    ROLE_VIEWER: SCOPE_READ,
-    ROLE_MEMBER: SCOPE_WRITE,
-    ROLE_ADMIN: SCOPE_ADMIN,
-}
+_TENANT_REQUIRED = "a tenant is required below superadmin scope"
 
 
 async def _mint_ceiling(user_id: int, tenant_id: int | None) -> ScopeLevel:
@@ -54,15 +44,15 @@ async def _mint_ceiling(user_id: int, tenant_id: int | None) -> ScopeLevel:
     if user.superadmin:
         return SCOPE_SUPERADMIN
     if tenant_id is None:
-        raise Invalid("a tenant is required below superadmin scope")
+        raise Invalid(_TENANT_REQUIRED)
     membership = await store.get_membership(tenant_id=tenant_id, user_id=user_id)
     if membership is None:
         # Missing, never forbidden — a caller must not be able to probe for
         # tenants. Membership is the only check: a tenant that does not exist
         # has no members either, and the default tenant is implicit (no row).
         raise NotFound(f"tenant {tenant_id} not found")
-    # Each role mints up to the scope that matches what it may itself do.
-    return _ROLE_CEILINGS[membership.role]
+    # You delegate what you hold: the scope your own role resolves to.
+    return ROLE_SCOPES[membership.role]
 
 
 async def create_token(user_id: int, request: CreateApiTokenRequest) -> ApiTokenCreated:
@@ -73,7 +63,7 @@ async def create_token(user_id: int, request: CreateApiTokenRequest) -> ApiToken
     if not scope_admits(ceiling, request.scope):
         raise Invalid(f"cannot mint scope '{request.scope}' — your level here is '{ceiling}'")
     if request.scope != SCOPE_SUPERADMIN and request.tenant_id is None:
-        raise Invalid("a tenant is required below superadmin scope")
+        raise Invalid(_TENANT_REQUIRED)
     tenant_id = None if request.scope == SCOPE_SUPERADMIN else request.tenant_id
     secret = security.generate_api_token()
     row = await store.create_api_token(

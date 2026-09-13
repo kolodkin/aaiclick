@@ -5,7 +5,8 @@ import { Chips } from "../components/Chips";
 import { Panel } from "../components/Panel";
 import { SecretPanel } from "../components/SecretPanel";
 import { useToast } from "../components/Toast";
-import { getActiveTenantId, mintableScopes, type ScopeLevel } from "../lib/auth";
+import { getActiveTenantId, mintableScopes } from "../lib/auth";
+import type { ScopeLevel } from "../api/types";
 import { relativeTime } from "../lib/format";
 
 const DEFAULT_EXPIRY_DAYS = "90";

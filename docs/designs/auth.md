@@ -134,7 +134,7 @@ aaiclick/
     store.py         raw DB CRUD over users / refresh_tokens / api_tokens /
                      password_reset_tokens; revoke_all_for_user
     view_models.py   LoginRequest, TokenPair, MeView, UserView, ApiTokenView,
-                     OidcStartView, MfaSetupView, PasswordReset*, ...
+                     InviteView, MfaSetupView, PasswordReset*, ...
   audit/
     models.py        audit_log table
     store.py         insert + paged query

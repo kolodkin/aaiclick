@@ -2,7 +2,7 @@
 // React, so the access token lives in a module singleton; the refresh token
 // persists in localStorage so a page reload can re-establish a session.
 import { parseError } from "../api/problem";
-import type { MeView } from "../api/types";
+import type { MeView, Role, ScopeLevel } from "../api/types";
 
 // Local base + POST helper. We deliberately do NOT route through client.ts's
 // `request` (it would recurse: this module IS the 401-refresh path), and we
@@ -38,24 +38,40 @@ export function getActiveTenantId(): string | null {
   return currentMe.tenants[0]?.tenant_id ?? DEFAULT_TENANT_ID;
 }
 
-export type ScopeLevel = "read" | "write" | "admin" | "superadmin";
-
 // Ordered low to high; the index is the comparison, as in aaiclick/auth/models.py.
 export const SCOPE_LEVELS: ScopeLevel[] = ["read", "write", "admin", "superadmin"];
 
-// The highest level this user may mint in the tenant they are acting in, mirroring
-// _mint_ceiling in aaiclick/internal_api/api_tokens.py. The server is the authority —
-// this only keeps the form from offering a level it would refuse.
-export function getMintCeiling(): ScopeLevel {
-  if (currentMe === null) return "read";
+// The role -> scope bridge, mirroring ROLE_SCOPES in aaiclick/auth/models.py.
+const ROLE_SCOPES: Record<Role, ScopeLevel> = {
+  viewer: "read",
+  member: "write",
+  admin: "admin",
+  superadmin: "superadmin",
+};
+
+// The signed-in user's role in the tenant they are acting in, or null when they
+// are not a member of it.
+export function activeRole(): Role | null {
+  if (currentMe === null) return null;
   if (currentMe.superadmin) return "superadmin";
   const active = getActiveTenantId();
-  const membership = currentMe.tenants.find((t) => t.tenant_id === active);
-  return membership?.role === "admin" ? "admin" : "write";
+  return currentMe.tenants.find((t) => t.tenant_id === active)?.role ?? null;
 }
 
+// The highest scope this user may delegate, mirroring _mint_ceiling. The server
+// is the authority — this only keeps a form from offering a certain refusal.
 export function mintableScopes(): ScopeLevel[] {
-  return SCOPE_LEVELS.slice(0, SCOPE_LEVELS.indexOf(getMintCeiling()) + 1);
+  const role = activeRole();
+  if (role === null) return [];
+  return SCOPE_LEVELS.slice(0, SCOPE_LEVELS.indexOf(ROLE_SCOPES[role]) + 1);
+}
+
+// Only a tenant admin may invite, and never above their own role.
+export function invitableRoles(): Role[] {
+  const role = activeRole();
+  if (role === "superadmin") return ["viewer", "member", "admin", "superadmin"];
+  if (role === "admin") return ["viewer", "member", "admin"];
+  return [];
 }
 
 function setAccessToken(token: string | null): void {

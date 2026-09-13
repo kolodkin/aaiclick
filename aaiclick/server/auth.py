@@ -38,7 +38,7 @@ from aaiclick.auth.models import (
     ScopeLevel,
     scope_admits,
 )
-from aaiclick.internal_api.errors import Forbidden, Invalid, Unauthorized
+from aaiclick.internal_api.errors import Forbidden, Invalid, NotFound, Unauthorized
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.tenancy import DEFAULT_TENANT_ID, active_tenant
 from aaiclick.view_models import ProblemCode
@@ -195,6 +195,22 @@ def role_in_tenant(principal: Principal, tenant_id: int) -> Role | None:
     if role is None and principal.superadmin:
         return ROLE_ADMIN
     return role
+
+
+def check_tenant_scope(principal: Principal, tenant_id: int, required: ScopeLevel) -> None:
+    """Gate a route that names its tenant in the path rather than the header.
+
+    Same ladder as ``check_scope``, plus the token binding that ``resolve_tenant``
+    enforces on the header path — without it a token bound to one tenant could
+    reach another by URL. A tenant the caller cannot act in reads as missing, so
+    the path cannot be used to probe for tenants.
+    """
+    if principal.tenant_id is not None and principal.tenant_id != tenant_id:
+        raise NotFound(f"tenant {tenant_id} not found")
+    role = role_in_tenant(principal, tenant_id)
+    if role is None:
+        raise NotFound(f"tenant {tenant_id} not found")
+    check_scope(principal, role, required)
 
 
 def resolve_tenant(principal: Principal, header_value: str | None) -> TenantContext:

@@ -161,3 +161,12 @@ async def test_the_cli_is_unrestricted(orch_ctx):
     invite = await invites.invite(None, InviteUserRequest(username="cli", tenant_id=tenant.id, role=ROLE_ADMIN))
     assert invite.user.username == "cli"
     assert (await invites.invite(None, InviteUserRequest(username="cliroot", superadmin=True))).user.superadmin
+
+
+async def test_a_bogus_tenant_leaves_no_orphan_user(orch_ctx):
+    """The tenant is checked before the account exists, or a failed invite
+    strands a user row with no membership."""
+    root = await _root()
+    with pytest.raises(NotFound):
+        await invites.invite(root.id, InviteUserRequest(username="ghost", tenant_id=999, role=ROLE_VIEWER))
+    assert await store.get_user_by_username("ghost") is None

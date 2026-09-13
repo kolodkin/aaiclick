@@ -24,7 +24,14 @@ from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from fastmcp.tools.base import Tool, ToolResult
 from starlette.requests import Request
 
-from aaiclick.auth.models import SCOPE_ADMIN, SCOPE_READ, SCOPE_SUPERADMIN, SCOPE_WRITE, ScopeLevel
+from aaiclick.auth.models import (
+    SCOPE_ADMIN,
+    SCOPE_LEVELS,
+    SCOPE_READ,
+    SCOPE_SUPERADMIN,
+    SCOPE_WRITE,
+    ScopeLevel,
+)
 from aaiclick.internal_api.errors import Forbidden, Invalid, Unauthorized
 from aaiclick.tenancy import active_tenant
 
@@ -40,26 +47,21 @@ from .auth import (
 )
 from .request_state import audit_state
 
-TAG_READ = "read"
-TAG_WRITE = "write"
-TAG_ADMIN = "admin"
-TAG_SUPERADMIN = "superadmin"
-
-_TAG_LEVELS: tuple[tuple[str, ScopeLevel], ...] = (
-    (TAG_SUPERADMIN, SCOPE_SUPERADMIN),
-    (TAG_ADMIN, SCOPE_ADMIN),
-    (TAG_WRITE, SCOPE_WRITE),
-    (TAG_READ, SCOPE_READ),
-)
+# A tool's tag *is* the scope it needs; these are aliases so ``mcp.py`` reads in
+# the tag vocabulary while the ladder stays defined in one place.
+TAG_READ = SCOPE_READ
+TAG_WRITE = SCOPE_WRITE
+TAG_ADMIN = SCOPE_ADMIN
+TAG_SUPERADMIN = SCOPE_SUPERADMIN
 
 
 def required_level(tags: set[str]) -> ScopeLevel:
-    """The level a tool's tag demands. The highest tag present wins, so a
-    mistagged tool fails closed rather than open."""
-    for tag, level in _TAG_LEVELS:
-        if tag in tags:
+    """The level a tool's tag demands. The highest tag present wins, and an
+    untagged tool falls back to the top rung, so a mistagged tool fails closed."""
+    for level in reversed(SCOPE_LEVELS):
+        if level in tags:
             return level
-    return SCOPE_SUPERADMIN
+    return SCOPE_LEVELS[-1]
 
 
 def authorize_tool(principal: Principal, tags: set[str], tenant_header: str | None) -> TenantContext | None:

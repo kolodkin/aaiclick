@@ -29,14 +29,6 @@ DEFAULT_ADMIN_USERNAME = "superadmin"
 DEFAULT_PASSWORD_RESET_TTL = 3600
 
 
-def _env_flag(name: str, default: bool = True) -> bool:
-    """Boolean env var: ``0`` / ``false`` / ``no`` / empty mean off."""
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.lower() not in ("0", "false", "no", "")
-
-
 class AdminSeed(NamedTuple):
     username: str
     password: str

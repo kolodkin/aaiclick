@@ -1,16 +1,13 @@
 import { useState } from "react";
 import { useInviteUser } from "../api/hooks";
-import type { PasswordResetLinkView } from "../api/types";
-import { useAuth } from "../components/Auth";
+import type { PasswordResetLinkView, Role } from "../api/types";
 import { Chips } from "../components/Chips";
 import { Panel } from "../components/Panel";
 import { SecretPanel } from "../components/SecretPanel";
 import { useToast } from "../components/Toast";
-import { getActiveTenantId } from "../lib/auth";
+import { getActiveTenantId, invitableRoles } from "../lib/auth";
 
-type Grant = "viewer" | "member" | "admin" | "superadmin";
-
-const GRANT_HELP: Record<Grant, string> = {
+const GRANT_HELP: Record<Role, string> = {
   viewer: "reads, and nothing else",
   member: "reads, plus their own saved queries and dashboards",
   admin: "everything in this tenant — jobs, objects, memberships",
@@ -18,19 +15,16 @@ const GRANT_HELP: Record<Grant, string> = {
 };
 
 export function Invite({ onPrompt }: { onPrompt: (v: string) => void }) {
-  const { me } = useAuth();
   const invite = useInviteUser();
   const toast = useToast();
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
-  const [grant, setGrant] = useState<Grant>("viewer");
+  const [grant, setGrant] = useState<Role>("viewer");
   const [link, setLink] = useState<PasswordResetLinkView | null>(null);
 
-  // A tenant admin may grant at most `admin`, and only where they already act;
-  // the server enforces this, the picker just avoids offering a certain 403.
-  const grants: Grant[] = me?.superadmin
-    ? ["viewer", "member", "admin", "superadmin"]
-    : ["viewer", "member", "admin"];
+  // Only a tenant admin may invite, and never above their own role; the server
+  // enforces it, the picker just avoids offering a certain 403.
+  const grants = invitableRoles();
 
   const submit = () =>
     invite.mutate(
@@ -85,7 +79,7 @@ export function Invite({ onPrompt }: { onPrompt: (v: string) => void }) {
           <label>
             Grants <span className="help">— {GRANT_HELP[grant]}</span>
           </label>
-          <select id="invite-grant" value={grant} onChange={(e) => setGrant(e.target.value as Grant)}>
+          <select id="invite-grant" value={grant} onChange={(e) => setGrant(e.target.value as Role)}>
             {grants.map((g) => (
               <option key={g} value={g}>
                 {g}

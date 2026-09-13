@@ -65,6 +65,10 @@ async def invite(inviter_id: int | None, request: InviteUserRequest) -> InviteVi
     """
     _check_shape(request)
     await _check_ceiling(inviter_id, request)
+    if request.tenant_id is not None and await store.get_tenant_by_id(request.tenant_id) is None:
+        # Before the account exists: a membership that fails the foreign key
+        # afterwards would strand a user row nobody asked for.
+        raise NotFound(f"tenant {request.tenant_id} not found")
     user = await users.create_user(
         CreateUserRequest(username=request.username, superadmin=request.superadmin, email=request.email)
     )
