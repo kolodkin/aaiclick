@@ -119,7 +119,7 @@ function UserRow({ user, self, actions }: { user: UserView; self: boolean; actio
         </button>
       </td>
       <td>
-        {user.mfa_enabled && <span className="badge b-COMPLETED">mfa</span>} {user.sso_linked && <span className="badge b-RUNNING">sso</span>}{" "}
+        {user.mfa_enabled && <span className="badge b-COMPLETED">mfa</span>}{" "}
         {!user.has_password && <span className="badge b-PENDING">no password</span>}
       </td>
       <td>{relativeTime(user.created_at)}</td>

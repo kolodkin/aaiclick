@@ -28,7 +28,6 @@ def _to_view(user: User) -> UserView:
         disabled=user.disabled,
         email=user.email,
         mfa_enabled=user.mfa_enabled,
-        sso_linked=user.oidc_subject is not None,
         has_password=user.password_hash is not None,
         created_at=user.created_at,
     )

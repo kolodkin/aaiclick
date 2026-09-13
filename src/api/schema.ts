@@ -147,57 +147,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v0/auth/oidc/callback": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Oidc Callback */
-        post: operations["oidc_callback_api_v0_auth_oidc_callback_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v0/auth/oidc/config": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Oidc Config */
-        get: operations["oidc_config_api_v0_auth_oidc_config_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v0/auth/oidc/start": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Oidc Start */
-        post: operations["oidc_start_api_v0_auth_oidc_start_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v0/auth/password-reset": {
         parameters: {
             query?: never;
@@ -1646,28 +1595,6 @@ export interface components {
             /** Table */
             table: string;
         };
-        /** OidcCallbackRequest */
-        OidcCallbackRequest: {
-            /** Code */
-            code: string;
-            /** State */
-            state: string;
-        };
-        /**
-         * OidcConfigView
-         * @description Whether SSO is configured, so the login screen can offer the button.
-         */
-        OidcConfigView: {
-            /** Enabled */
-            enabled: boolean;
-            /** Label */
-            label: string;
-        };
-        /** OidcStartView */
-        OidcStartView: {
-            /** Authorization Url */
-            authorization_url: string;
-        };
         OrderBy: [
             string,
             "ASC" | "DESC"
@@ -2250,8 +2177,6 @@ export interface components {
             id: string;
             /** Mfa Enabled */
             mfa_enabled: boolean;
-            /** Sso Linked */
-            sso_linked: boolean;
             /** Superadmin */
             superadmin: boolean;
             /** Username */
@@ -2603,106 +2528,6 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Invalid Request */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    oidc_callback_api_v0_auth_oidc_callback_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["OidcCallbackRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TokenPair"];
-                };
-            };
-            /** @description MFA Required */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Invalid Request */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    oidc_config_api_v0_auth_oidc_config_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OidcConfigView"];
-                };
-            };
-        };
-    };
-    oidc_start_api_v0_auth_oidc_start_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OidcStartView"];
-                };
-            };
-            /** @description Conflict */
-            409: {
                 headers: {
                     [name: string]: unknown;
                 };

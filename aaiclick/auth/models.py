@@ -1,5 +1,5 @@
-"""SQLModel tables for users, sessions, API tokens, SSO state, and password
-resets. See docs/designs/auth.md."""
+"""SQLModel tables for users, sessions, API tokens, and password resets.
+See docs/designs/auth.md."""
 
 from __future__ import annotations
 
@@ -36,12 +36,10 @@ class User(SQLModel, table=True):
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
     username: str = Field(sa_column=Column(String, nullable=False, unique=True, index=True))
     password_hash: str | None = Field(sa_column=Column(String, nullable=True), default=None)
-    """``None`` for SSO-provisioned users — they can never pass the password login."""
+    """``None`` for a user created without one — they can only sign in after a reset."""
     superadmin: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="0"), default=False)
     disabled: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="0"), default=False)
     email: str | None = Field(sa_column=Column(String, nullable=True), default=None)
-    oidc_subject: str | None = Field(sa_column=Column(String, nullable=True, unique=True, index=True), default=None)
-    """``"<issuer>|<sub>"`` once the user has signed in through OIDC."""
     totp_secret: str | None = Field(sa_column=Column(String, nullable=True), default=None)
     """Base32 TOTP seed; pending until ``mfa_enabled`` confirms it."""
     mfa_enabled: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="0"), default=False)
@@ -101,20 +99,6 @@ class ApiToken(SQLModel, table=True):
     last_used_at: datetime | None = Field(default=None)
     revoked_at: datetime | None = Field(default=None)
     created_at: datetime = Field(default_factory=utc_now)
-
-
-class OidcState(SQLModel, table=True):
-    """One in-flight SSO login: the PKCE verifier and nonce the callback must match."""
-
-    __tablename__: ClassVar[str] = "oidc_states"
-
-    id: int = Field(sa_column=Column(BigInteger, primary_key=True))
-    token_hash: str = Field(sa_column=Column(String, nullable=False, unique=True, index=True))
-    """``sha256(state)`` — the OAuth ``state`` parameter is the single-use secret."""
-    nonce: str = Field(sa_column=Column(String, nullable=False))
-    code_verifier: str = Field(sa_column=Column(String, nullable=False))
-    expires_at: datetime
-    consumed_at: datetime | None = Field(default=None)
 
 
 class PasswordResetToken(SQLModel, table=True):

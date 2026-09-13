@@ -125,14 +125,6 @@ async def test_token_routes_422_in_local_mode(orch_ctx, app_client, monkeypatch)
     assert res.status_code == 422 and res.json()["code"] == "invalid"
 
 
-async def test_oidc_config_is_public(orch_ctx, anon_client, enabled, monkeypatch):
-    monkeypatch.delenv("AAICLICK_OIDC_ISSUER", raising=False)
-    res = await anon_client.get(f"{API_PREFIX}/auth/oidc/config")
-    assert res.status_code == 200 and res.json()["enabled"] is False
-    res = await anon_client.post(f"{API_PREFIX}/auth/oidc/start")
-    assert res.status_code == 422 and res.json()["code"] == "invalid"
-
-
 async def test_login_mfa_required_problem_code(orch_ctx, app_client, enabled):
     view = await users.create_user(CreateUserRequest(username="mfa", password="pw"))
     setup = await auth_api.mfa_setup(view.id)

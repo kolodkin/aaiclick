@@ -91,11 +91,11 @@ async def test_authenticated_write_carries_principal_and_tenant(orch_ctx, enable
 
 async def test_policy_all_logs_reads_and_off_logs_nothing(orch_ctx, enabled, anon_client, monkeypatch):
     monkeypatch.setenv("AAICLICK_AUDIT_LOG", "all")
-    await anon_client.get(f"{API_PREFIX}/auth/oidc/config")
-    assert len(await _rows(path="/api/v0/auth/oidc/config")) == 1
+    await anon_client.get(f"{API_PREFIX}/jobs")
+    assert len(await _rows(path="/api/v0/jobs")) == 1
     monkeypatch.setenv("AAICLICK_AUDIT_LOG", "off")
-    await anon_client.get(f"{API_PREFIX}/auth/oidc/config")
-    assert len(await _rows(path="/api/v0/auth/oidc/config")) == 1
+    await anon_client.get(f"{API_PREFIX}/jobs")
+    assert len(await _rows(path="/api/v0/jobs")) == 1
 
 
 async def test_audit_route_is_superadmin_only(orch_ctx, enabled, anon_client, app_client):

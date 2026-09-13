@@ -1,7 +1,6 @@
 """Internal API for login/refresh/logout and MFA. Transport-agnostic; the
-server router supplies the JWT secret from aaiclick.auth.config. The OIDC
-flow lives in ``internal_api.oidc`` (needs ``httpx``, a ``server`` extra
-dependency) and password reset in ``internal_api.password_reset``."""
+server router supplies the JWT secret from aaiclick.auth.config. Password
+reset lives in ``internal_api.password_reset``."""
 
 from __future__ import annotations
 

@@ -100,41 +100,6 @@ export async function login(username: string, password: string, totpCode?: strin
   await storePair(await postAuth("/auth/login", { username, password, totp_code: totpCode ?? null }));
 }
 
-export interface OidcConfig {
-  enabled: boolean;
-  label: string;
-}
-
-// Server-side configuration: fetched once per page load, not per login screen.
-let oidcConfig: Promise<OidcConfig> | null = null;
-
-export function fetchOidcConfig(): Promise<OidcConfig> {
-  oidcConfig ??= fetch(`${API}/auth/oidc/config`)
-    .then((res) => (res.ok ? (res.json() as Promise<OidcConfig>) : { enabled: false, label: "SSO" }))
-    .catch(() => ({ enabled: false, label: "SSO" }));
-  return oidcConfig;
-}
-
-// Ask the server for the provider URL (it records the login state), then
-// leave the SPA for the identity provider.
-export async function startOidcLogin(): Promise<void> {
-  const res = await postAuth("/auth/oidc/start", undefined);
-  if (!res.ok) throw new Error("SSO start failed");
-  const { authorization_url } = (await res.json()) as { authorization_url: string };
-  window.location.assign(authorization_url);
-}
-
-// The provider redirects back to the site root with ?code=&state=. Trade
-// them for a session, then strip the parameters so a reload cannot replay.
-export async function completeOidcLogin(code: string, state: string): Promise<void> {
-  const res = await postAuth("/auth/oidc/callback", { code, state });
-  const url = new URL(window.location.href);
-  url.searchParams.delete("code");
-  url.searchParams.delete("state");
-  window.history.replaceState({}, "", url);
-  await storePair(res);
-}
-
 export async function tryRefresh(): Promise<boolean> {
   const rt = getRefreshToken();
   if (!rt) return false;

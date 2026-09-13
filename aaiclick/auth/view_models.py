@@ -81,8 +81,6 @@ class UserView(BaseModel):
     disabled: bool
     email: str | None
     mfa_enabled: bool
-    sso_linked: bool
-    """The user has signed in through OIDC at least once."""
     has_password: bool
     created_at: datetime
 
@@ -153,22 +151,6 @@ class CreateApiTokenRequest(BaseModel):
     tenant_id: SnowflakeId | None = None
     """Required below ``superadmin``; ignored (and stored ``None``) at that level."""
     expires_at: datetime | None = None
-
-
-class OidcConfigView(BaseModel):
-    """Whether SSO is configured, so the login screen can offer the button."""
-
-    enabled: bool
-    label: str
-
-
-class OidcStartView(BaseModel):
-    authorization_url: str
-
-
-class OidcCallbackRequest(BaseModel):
-    code: str
-    state: str
 
 
 class MfaSetupView(BaseModel):

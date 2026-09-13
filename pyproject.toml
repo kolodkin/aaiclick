@@ -39,7 +39,7 @@ dependencies = [
     "greenlet>=3.0.0",
     "croniter>=6.0.0",
     "bcrypt>=4.2.0",
-    "pyjwt[crypto]>=2.10.0",
+    "pyjwt>=2.10.0",
 ]
 
 [project.optional-dependencies]
@@ -55,7 +55,6 @@ ai = [
 server = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
-    "httpx>=0.27.0",
     "fastmcp>=2.12.0",
 ]
 all = ["aaiclick[distributed,ai,server]"]

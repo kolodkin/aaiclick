@@ -1,6 +1,6 @@
-"""Raw DB access for users, refresh tokens, API tokens, SSO state, and
-password-reset tokens. Domain errors only; the internal_api layer maps these
-to InternalApiError / Problem responses."""
+"""Raw DB access for users, refresh tokens, API tokens, and password-reset
+tokens. Domain errors only; the internal_api layer maps these to
+InternalApiError / Problem responses."""
 
 from __future__ import annotations
 
@@ -15,7 +15,6 @@ from ..orchestration.orch_context import get_sql_session
 from ..snowflake import get_snowflake_id
 from .models import (
     ApiToken,
-    OidcState,
     PasswordResetToken,
     RefreshToken,
     Role,
@@ -63,7 +62,6 @@ async def create_user(
     password_hash: str | None,
     superadmin: bool = False,
     email: str | None = None,
-    oidc_subject: str | None = None,
 ) -> User:
     user = User(
         id=get_snowflake_id(),
@@ -71,7 +69,6 @@ async def create_user(
         password_hash=password_hash,
         superadmin=superadmin,
         email=email,
-        oidc_subject=oidc_subject,
     )
     async with get_sql_session() as session:
         existing = await session.execute(select(User).where(User.username == username))
@@ -116,16 +113,6 @@ async def set_password_hash(user_id: int, password_hash: str) -> User:
 
 async def set_email(user_id: int, email: str | None) -> User:
     return await _update_user(user_id, email=email)
-
-
-async def set_oidc_subject(user_id: int, oidc_subject: str) -> User:
-    return await _update_user(user_id, oidc_subject=oidc_subject)
-
-
-async def get_user_by_oidc_subject(oidc_subject: str) -> User | None:
-    async with get_sql_session() as session:
-        result = await session.execute(select(User).where(User.oidc_subject == oidc_subject))
-        return result.scalar_one_or_none()
 
 
 async def set_totp(user_id: int, *, totp_secret: str | None, mfa_enabled: bool) -> User:
@@ -460,22 +447,6 @@ async def _consume(model: type[SingleUseT], token_hash: str) -> SingleUseT | Non
         session.add(row)
         await session.commit()
     return row
-
-
-async def create_oidc_state(*, token_hash: str, nonce: str, code_verifier: str, ttl: int) -> OidcState:
-    return await _insert(
-        OidcState(
-            id=get_snowflake_id(),
-            token_hash=token_hash,
-            nonce=nonce,
-            code_verifier=code_verifier,
-            expires_at=utc_now() + timedelta(seconds=ttl),
-        )
-    )
-
-
-async def consume_oidc_state(token_hash: str) -> OidcState | None:
-    return await _consume(OidcState, token_hash)
 
 
 async def create_password_reset(*, user_id: int, token_hash: str, ttl: int) -> PasswordResetToken:
