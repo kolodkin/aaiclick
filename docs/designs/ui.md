@@ -196,4 +196,4 @@ Prompt-driven like the rest of the UI; flows and the role matrix are in
 | `reset <token>` | New-password form from a reset link (no session) | `src/views/ResetPassword.tsx` |
 
 `src/components/Header.tsx` shows the signed-in username (opens `@account`)
-and sign-out; `src/views/Login.tsx` adds the SSO button and the MFA code field.
+and sign-out; `src/views/Login.tsx` adds the MFA code field.

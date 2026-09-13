@@ -21,7 +21,7 @@ and any programmatic HTTP / MCP client share one login flow; the CLI runs
 - **Mode-derived enforcement**: auth is a hardcoded convention, not a flag —
   **disabled in local mode** (single-process chdb + SQLite; the server is open,
   zero-config) and **enforced in distributed mode**.
-- **Optional hardening**, each configuration-driven: OIDC / SSO login, TOTP
+- **Optional hardening**, each configuration-driven: TOTP
   multi-factor auth, a password-reset flow, and a per-request audit log.
 
 # Configuration
@@ -36,10 +36,10 @@ var. These variables tune the enforced (distributed) case:
 | `AAICLICK_JWT_REFRESH_TTL` | Refresh-token lifetime, seconds.                               | `1209600` (14 d)|
 | `AAICLICK_ADMIN_USERNAME`  | Seed-superadmin username (inserted on startup when no users exist). | `superadmin`   |
 | `AAICLICK_ADMIN_PASSWORD`  | Seed-admin password.                                           | unset          |
-| `AAICLICK_PUBLIC_URL`      | Browser-facing origin (`https://aaiclick.example.com`). Needed by OIDC (redirect URI) and password-reset links. | unset |
+| `AAICLICK_PUBLIC_URL`      | Browser-facing origin (`https://aaiclick.example.com`). Needed by password-reset links. | unset |
 | `AAICLICK_AUDIT_LOG`       | `writes` / `all` / `off` — see [Audit Log](#audit-log).        | `writes`       |
 
-OIDC and password-reset variables are listed in their own sections.
+Password-reset variables are listed in their own section.
 
 !!! warning "Distributed without a secret is a hard error"
     In distributed mode with `AAICLICK_JWT_SECRET` unset, the server refuses to
@@ -60,17 +60,16 @@ one-line code change rather than a hand-written constraint migration.
 |-----------------|---------------------------------|------------------------|
 | `id`            | `BigInteger` PK (snowflake)     |                        |
 | `username`      | `String`, unique, indexed       | Login identifier       |
-| `password_hash` | `String \| None`                | bcrypt; `None` for SSO-only users |
+| `password_hash` | `String \| None`                | bcrypt; `None` until a reset sets one |
 | `superadmin`    | `Boolean`, default `false`      | Instance-level operator |
 | `disabled`      | `Boolean`, default `false`      | Disabled → cannot log in |
-| `email`         | `String \| None`                | Contact address; filled from the OIDC `email` claim            |
-| `oidc_subject`  | `String \| None`, unique, indexed | `"<issuer>|<sub>"` for SSO-linked users |
+| `email`         | `String \| None`                | Contact address                                                |
 | `totp_secret`   | `String \| None`                | Base32 TOTP seed; set by MFA setup, live once `mfa_enabled` |
 | `mfa_enabled`   | `Boolean`, default `false`      | Login demands a TOTP code |
 | `created_at`    | `datetime` (`utc_now`)          |                        |
 
-`password_hash` is nullable: an SSO-provisioned user has no password and can
-never pass the password login.
+`password_hash` is nullable: a user created without one can never pass the
+password login until a reset link sets it.
 
 ## `refresh_tokens`
 
@@ -99,20 +98,6 @@ never pass the password login.
 | `revoked_at`   | `datetime \| None`                    |                                         |
 | `created_at`   | `datetime` (`utc_now`)                |                                         |
 
-## `oidc_states`
-
-One row per in-flight SSO login; consumed by the callback, expired rows are
-inert (10-minute TTL).
-
-| Column          | Type                        | Notes                          |
-|-----------------|-----------------------------|--------------------------------|
-| `id`            | `BigInteger` PK (snowflake) |                                |
-| `token_hash`    | `String`, unique, indexed   | `sha256(state)`                |
-| `nonce`         | `String`                    | Echoed in the `id_token`       |
-| `code_verifier` | `String`                    | PKCE verifier                  |
-| `expires_at`    | `datetime`                  |                                |
-| `consumed_at`   | `datetime \| None`          | Single use                     |
-
 ## `password_reset_tokens`
 
 | Column        | Type                                  | Notes                       |
@@ -137,16 +122,15 @@ see `docs/designs/tenant_rbac.md` — Data Model.
 ```
 aaiclick/
   auth/
-    models.py        users / refresh_tokens / api_tokens / oidc_states /
+    models.py        users / refresh_tokens / api_tokens /
                      password_reset_tokens / tenants / tenant_memberships;
                      Role + ScopeLevel literals + constants + scope_admits
     security.py      bcrypt hash/verify; secret gen + sha256; JWT encode/decode;
                      API-token format; TOTP (pure functions, no DB, no contextvars)
     config.py        env getters (enabled, secret, TTLs, admin seed, public
-                     URL, OIDC, reset TTL)
+                     URL, reset TTL)
     store.py         raw DB CRUD over users / refresh_tokens / api_tokens /
-                     oidc_states / password_reset_tokens; revoke_all_for_user
-    oidc.py          discovery, PKCE, code exchange, id_token validation (httpx)
+                     password_reset_tokens; revoke_all_for_user
     view_models.py   LoginRequest, TokenPair, MeView, UserView, ApiTokenView,
                      OidcStartView, MfaSetupView, PasswordReset*, ...
   audit/
@@ -155,7 +139,6 @@ aaiclick/
   internal_api/
     auth.py          login(), refresh(), logout(), change_password(), my_tenants(),
                      MFA setup/enable/disable, password reset
-    oidc.py          OIDC config / start / callback (needs httpx — server extra)
     api_tokens.py    create_token, list_tokens, revoke_token
     users.py         create_user, list_users, get_user, set_superadmin,
                      disable_user, set_password, set_email, reset_mfa,
@@ -170,7 +153,7 @@ aaiclick/
     routers/
       auth.py        /auth/login, /auth/refresh, /auth/logout, /auth/me,
                      /auth/me/password, /auth/me/mfa/*, /auth/tokens,
-                     /auth/oidc/*, /auth/password-reset*
+                     /auth/password-reset*
       users.py       /users   (superadmin-only)
       audit.py       /audit   (superadmin-only)
       tenants.py     /tenants (see docs/designs/tenant_rbac.md)
@@ -195,7 +178,7 @@ Passwords are hashed with `bcrypt`. Access JWTs are signed HS256 with
   "expires_in": 1800 }
 ```
 
-- The user must exist, be enabled, have a password (SSO-only users have none),
+- The user must exist, be enabled, have a password,
   and the password must match. Otherwise `401` (`code="unauthorized"`) — no
   user-enumeration distinction.
 - When the user has MFA enabled, the request must also carry a valid
@@ -418,11 +401,9 @@ no HTTP request) the synthetic superadmin applies and every tool is open.
   navigation buttons leading into those flows. Presentation only; `require_admin`
   is still the enforcement.
 - `src/views/Login.tsx`: username + password form; asks for a TOTP code after a
-  `mfa_required` answer; offers an SSO button when `/auth/oidc/config` reports a
-  provider; links to the forgot-password form.
+  `mfa_required` answer; links to the forgot-password form.
 - `App.tsx` gates rendering on the session. When auth is disabled `/auth/me`
-  returns the synthetic admin, so no login wall appears. An OIDC redirect
-  (`?code=&state=` on the site root) is completed before the session probe.
+  returns the synthetic admin, so no login wall appears.
 - Account and admin views, all prompt-driven like the rest of the UI:
 
 | Prompt          | View                                                            | Who            |
@@ -434,49 +415,6 @@ no HTTP request) the synthetic superadmin applies and every tool is open.
 | `reset <token>` | Set a new password from a reset link                            | anonymous      |
 
 The header shows the signed-in username with a sign-out control.
-
-# OIDC / SSO
-
-
-**Implementation**: `aaiclick/auth/oidc.py`; `aaiclick/auth/config.py` — see `oidc_settings`; `aaiclick/internal_api/oidc.py` — see `oidc_start`, `oidc_callback`, `_resolve_oidc_user`; `src/lib/auth.ts` — see `startOidcLogin`, `completeOidcLogin`.
-Authorization-code login against any OpenID Connect provider. The SPA drives
-the redirect; the server holds the client secret and validates the `id_token`.
-
-| Variable                        | Purpose                                                   | Default               |
-|---------------------------------|-----------------------------------------------------------|-----------------------|
-| `AAICLICK_OIDC_ISSUER`          | Issuer URL; discovery at `<issuer>/.well-known/openid-configuration`. Enables SSO when set with the client id. | unset |
-| `AAICLICK_OIDC_CLIENT_ID`       | Registered client id                                      | unset                 |
-| `AAICLICK_OIDC_CLIENT_SECRET`   | Client secret (`client_secret_post`); optional for public clients | unset          |
-| `AAICLICK_OIDC_SCOPES`          | Requested scopes                                          | `openid profile email` |
-| `AAICLICK_OIDC_USERNAME_CLAIM`  | `id_token` claim used as the aaiclick username            | `preferred_username`  |
-| `AAICLICK_OIDC_AUTO_PROVISION`  | `1` → create unknown users on first login (no memberships) | `1`                  |
-| `AAICLICK_OIDC_LABEL`           | Button label in the SPA                                   | `SSO`                 |
-
-The redirect URI is `AAICLICK_PUBLIC_URL` + `/` — register that with the
-provider.
-
-1. `GET /auth/oidc/config` (public) → `{enabled, label}` so the SPA knows
-   whether to show the button.
-2. `POST /auth/oidc/start` (public) → `{authorization_url}`. The server runs
-   discovery, generates `state`, `nonce`, and a PKCE verifier, stores their
-   hashes in `oidc_states`, and builds the provider URL. The browser navigates
-   there.
-3. The provider redirects to `AAICLICK_PUBLIC_URL/?code=…&state=…`. The SPA
-   posts both to `POST /auth/oidc/callback` (public) → `TokenPair`.
-4. The server consumes the `oidc_states` row (missing, expired, or reused →
-   `401`), exchanges the code at the token endpoint with the verifier, fetches
-   the JWKS, and validates the `id_token`: signature, `iss`, `aud`, `exp`,
-   `nonce`. Then it resolves the user:
-    - `oidc_subject == "<issuer>|<sub>"` → that user.
-    - Else a user whose `username` equals the username claim → linked (the
-      subject is stored) — this is how existing password users adopt SSO.
-    - Else, with auto-provision on, a new user with no password and no
-      memberships; otherwise `401`.
-    - A disabled user is `401`.
-5. The regular token pair is minted; the SPA is now in the normal session flow.
-
-MFA is not applied to SSO logins — the provider owns that factor. Password
-login stays available alongside SSO for users that have a password.
 
 # Multi-Factor Auth
 
@@ -569,7 +507,7 @@ newest-first with `user_id`, `path` prefix, `method`, and `since` filters;
 
 # Migration
 
-The auth tables (`users`, `refresh_tokens`, `api_tokens`, `oidc_states`,
+The auth tables (`users`, `refresh_tokens`, `api_tokens`,
 `password_reset_tokens`, `tenants`, `tenant_memberships`) and `audit_log`
 are created by Alembic revisions (this expansion: `ff9242208cc6`)
 (`aaiclick/auth/models.py` is imported in `migrations/env.py` so autogenerate

@@ -502,9 +502,9 @@ documented in `docs/designs/auth.md` — Configuration:
 # Authentication
 
 **Design**: `docs/designs/auth.md`. **Implementation**: `aaiclick/server/auth.py`
-(principal resolution + RBAC), `aaiclick/auth/` (models, security, store,
-oidc), `aaiclick/internal_api/auth.py` (login / refresh / logout, MFA,
-password reset), `aaiclick/internal_api/oidc.py` (SSO), wired in `aaiclick/server/app.py`.
+(principal resolution + RBAC), `aaiclick/auth/` (models, security, store),
+`aaiclick/internal_api/auth.py` (login / refresh / logout, MFA, password
+reset), wired in `aaiclick/server/app.py`.
 
 Username/password users with per-tenant roles (`admin` / `viewer`) plus an
 instance `superadmin` flag, authenticated by a short-lived access JWT +
@@ -516,8 +516,8 @@ rotating refresh token, or by a scoped long-lived API token. The CLI runs
   `AAICLICK_JWT_SECRET`, else the server refuses to start).
 - **Login**: `POST /api/v0/auth/login` `{username, password[, totp_code]}` →
   access + refresh tokens; `POST /auth/refresh` rotates; `POST /auth/logout`
-  revokes; `GET /auth/me` returns the current principal. OIDC / SSO, MFA, and
-  password reset are optional, configuration-driven extensions — see
+  revokes; `GET /auth/me` returns the current principal. MFA and password
+  reset are optional, configuration-driven extensions — see
   `docs/designs/auth.md`.
 - **Enforcement**: `HTTPBearer` extracts the credential (access JWT or
   `aaic_` API token); `require_principal` guards every `/api/v0/*` router,
@@ -531,8 +531,7 @@ rotating refresh token, or by a scoped long-lived API token. The CLI runs
   per `AAICLICK_AUDIT_LOG`.
 
 Open paths (never 401): `GET /health`, `/api/v0/openapi.json`, `/docs`,
-`/redoc`, `/api/v0/auth/login|refresh`, `/api/v0/auth/oidc/*`, and
-`/api/v0/auth/password-reset*`.
+`/redoc`, `/api/v0/auth/login|refresh`, and `/api/v0/auth/password-reset*`.
 
 The error envelope is the standard `Problem` (`code="unauthorized"` or
 `code="mfa_required"` / 401 with `WWW-Authenticate: Bearer`, or

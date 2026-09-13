@@ -88,6 +88,23 @@ An earlier `aaiclick/auth/mail.py` (`smtplib` on a worker thread via
 **When to revisit**: when deployments have a reachable SMTP server, or when
 operators mint links often enough for it to hurt.
 
+## OIDC / SSO Login
+
+Authorization-code login against any OpenID Connect provider was built and
+then removed: no identity provider is connected, so it was code nobody could
+run. Recoverable from git history — `aaiclick/auth/oidc.py` (discovery, PKCE,
+code exchange, `id_token` validation against the JWKS) and
+`aaiclick/internal_api/oidc.py` (config / start / callback), with the SPA half
+in `src/lib/auth.ts` and `src/views/Login.tsx`.
+
+Restoring it needs both back, plus `users.oidc_subject` (`"<issuer>|<sub>"`,
+unique) to link a local user to an external identity, an `oidc_states` table
+holding one row per in-flight login, and `pyjwt[crypto]` again for RS256
+`id_token` signatures. The subject must stay issuer-qualified: `sub` is unique
+only within an issuer, so a bare value lets two providers collide.
+
+**When to revisit**: when a deployment has an IdP to point at.
+
 ## Foreign-Key Enforcement in the Local Test Backend
 
 SQLite defaults `PRAGMA foreign_keys` to `0`, and SQLAlchemy does not turn it
