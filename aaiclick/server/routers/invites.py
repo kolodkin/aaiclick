@@ -25,8 +25,6 @@ router = APIRouter(prefix="/invites", tags=["invites"], dependencies=[Depends(or
 
 
 @router.post("", response_model=InviteView, status_code=201, responses=problem_responses(403, 404, 409, 422))
-async def invite_user(
-    request: InviteUserRequest, principal: Principal = Depends(require_session)
-) -> InviteView:
+async def invite_user(request: InviteUserRequest, principal: Principal = Depends(require_session)) -> InviteView:
     """Create a passwordless user, grant their tenant role, and mint their link."""
     return await invites_api.invite(principal.user_id, request)

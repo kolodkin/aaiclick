@@ -54,9 +54,7 @@ async def test_invited_user_cannot_log_in_until_the_link_is_redeemed(orch_ctx):
     """The whole point: an invite grants no access on its own."""
     tenant = await _tenant()
     root = await _root()
-    invite = await invites.invite(
-        root.id, InviteUserRequest(username="bob", tenant_id=tenant.id, role=ROLE_VIEWER)
-    )
+    invite = await invites.invite(root.id, InviteUserRequest(username="bob", tenant_id=tenant.id, role=ROLE_VIEWER))
     with pytest.raises(Unauthorized):
         await auth.login(LoginRequest(username="bob", password="anything"), secret=SECRET)
 
@@ -82,9 +80,7 @@ async def test_superadmin_invites_any_role_in_any_tenant(orch_ctx):
     root = await _root()
     one, two = await _tenant("one"), await _tenant("two")
     for i, (tenant, role) in enumerate(((one, ROLE_ADMIN), (two, ROLE_VIEWER))):
-        invite = await invites.invite(
-            root.id, InviteUserRequest(username=f"u{i}", tenant_id=tenant.id, role=role)
-        )
+        invite = await invites.invite(root.id, InviteUserRequest(username=f"u{i}", tenant_id=tenant.id, role=role))
         membership = await store.get_membership(tenant_id=tenant.id, user_id=invite.user.id)
         assert membership is not None and membership.role == role
 
@@ -104,9 +100,7 @@ async def test_tenant_admin_invites_both_roles_in_their_own_tenant(orch_ctx):
     tenant = await _tenant()
     admin = await _member("admin", tenant.id, ROLE_ADMIN)
     for i, role in enumerate((ROLE_ADMIN, ROLE_VIEWER)):
-        invite = await invites.invite(
-            admin.id, InviteUserRequest(username=f"peer{i}", tenant_id=tenant.id, role=role)
-        )
+        invite = await invites.invite(admin.id, InviteUserRequest(username=f"peer{i}", tenant_id=tenant.id, role=role))
         membership = await store.get_membership(tenant_id=tenant.id, user_id=invite.user.id)
         assert membership is not None and membership.role == role
 
@@ -130,9 +124,7 @@ async def test_a_stranger_to_the_tenant_gets_not_found(orch_ctx):
     tenant = await _tenant()
     stranger = await users.create_user(CreateUserRequest(username="stranger", password="pw"))
     with pytest.raises(NotFound):
-        await invites.invite(
-            stranger.id, InviteUserRequest(username="nope", tenant_id=tenant.id, role=ROLE_VIEWER)
-        )
+        await invites.invite(stranger.id, InviteUserRequest(username="nope", tenant_id=tenant.id, role=ROLE_VIEWER))
 
 
 # --- request shape -------------------------------------------------------

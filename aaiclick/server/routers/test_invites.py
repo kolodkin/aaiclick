@@ -1,6 +1,5 @@
 from aaiclick.auth import store
-from aaiclick.auth.models import ROLE_ADMIN, ROLE_VIEWER
-from aaiclick.auth.models import SCOPE_ADMIN
+from aaiclick.auth.models import ROLE_ADMIN, ROLE_VIEWER, SCOPE_ADMIN
 from aaiclick.auth.view_models import CreateApiTokenRequest, CreateUserRequest
 from aaiclick.internal_api import api_tokens, users
 from aaiclick.server.app import API_PREFIX
