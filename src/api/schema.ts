@@ -1291,7 +1291,7 @@ export interface components {
             /** Email */
             email?: string | null;
             /** Role */
-            role?: ("viewer" | "member" | "admin" | "superadmin") | null;
+            role?: ("viewer" | "member" | "admin") | null;
             /**
              * Superadmin
              * @default false
@@ -2025,7 +2025,7 @@ export interface components {
              * Role
              * @enum {string}
              */
-            role: "viewer" | "member" | "admin" | "superadmin";
+            role: "viewer" | "member" | "admin";
         };
         /** SetPasswordRequest */
         SetPasswordRequest: {

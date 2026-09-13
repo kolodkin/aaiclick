@@ -21,6 +21,7 @@ from .models import (
     ScopeLevel,
     Tenant,
     TenantMembership,
+    TenantRole,
     User,
 )
 
@@ -156,7 +157,7 @@ async def get_tenant_by_slug(slug: str) -> Tenant | None:
         return result.scalar_one_or_none()
 
 
-async def set_membership(*, tenant_id: int, user_id: int, role: Role) -> TenantMembership:
+async def set_membership(*, tenant_id: int, user_id: int, role: TenantRole) -> TenantMembership:
     """Add a user to a tenant, or update their role if already a member."""
     async with get_sql_session() as session:
         existing = (
@@ -317,7 +318,7 @@ async def _stamp_refresh(token_id: int, field: str) -> None:
 class ResolvedApiToken(NamedTuple):
     token: ApiToken
     user: User
-    role: Role | None
+    role: TenantRole | None
     """The owner's live role in the token's tenant; ``None`` when untenanted or no longer a member."""
 
 
@@ -384,7 +385,7 @@ async def resolve_api_token(token_hash: str) -> ResolvedApiToken | None:
         token, user = pair
         if not _token_active(token, now):
             return None
-        role: Role | None = None
+        role: TenantRole | None = None
         if token.tenant_id is not None:
             membership = (
                 await session.execute(
@@ -394,7 +395,7 @@ async def resolve_api_token(token_hash: str) -> ResolvedApiToken | None:
                     )
                 )
             ).scalar_one_or_none()
-            role = cast(Role, membership.role) if membership is not None else None
+            role = cast(TenantRole, membership.role) if membership is not None else None
         if token.last_used_at is None or now - token.last_used_at >= API_TOKEN_LAST_USED_GRANULARITY:
             token.last_used_at = now
             session.add(token)

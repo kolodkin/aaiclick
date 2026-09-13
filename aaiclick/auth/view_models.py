@@ -7,7 +7,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from ..log_models import SnowflakeId
-from .models import SCOPE_READ, Role, ScopeLevel
+from .models import SCOPE_READ, Role, ScopeLevel, TenantRole
 
 
 class LoginRequest(BaseModel):
@@ -53,7 +53,7 @@ class MemberView(BaseModel):
 
 
 class SetMemberRequest(BaseModel):
-    role: Role
+    role: TenantRole
 
 
 class TenantRoleView(BaseModel):
@@ -191,7 +191,7 @@ class InviteUserRequest(BaseModel):
     username: str = Field(min_length=1, max_length=100)
     superadmin: bool = False
     tenant_id: SnowflakeId | None = None
-    role: Role | None = None
+    role: TenantRole | None = None
     email: str | None = None
 
 

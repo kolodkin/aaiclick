@@ -13,9 +13,10 @@ Execution workers remain shared infrastructure.
 - **Tenant**: named isolation unit with a unique `slug` (used in the CLI
   and UI; resource scoping keys on the immutable `id`). Owns registered
   jobs, jobs, and (phase 2) persistent objects.
-- **Membership**: a user belongs to any number of tenants, each with a role
-  from `TENANT_ROLES` — `viewer` (reads), `member` (adds their own saved
-  queries and dashboards), or `admin` (runs the tenant).
+- **Membership**: a user belongs to any number of tenants, each with a
+  `TenantRole` — `viewer` (reads), `member` (adds their own saved queries and
+  dashboards), or `admin` (runs the tenant). `superadmin` is deliberately not
+  one: it is a property of the user, not of a membership.
 - **Superadmin**: boolean on `users`. Superadmins manage tenants and users,
   act as `admin` in every tenant, and exclusively control shared
   infrastructure (execution workers, and the superadmin-tagged `/mcp` tools).

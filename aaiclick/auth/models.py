@@ -16,13 +16,19 @@ ROLE_MEMBER = "member"
 ROLE_ADMIN = "admin"
 ROLE_SUPERADMIN = "superadmin"
 Role = Literal["viewer", "member", "admin", "superadmin"]
+"""Every rung of authority, including the instance-wide one."""
 
-TENANT_ROLES: tuple[Role, ...] = (ROLE_VIEWER, ROLE_MEMBER, ROLE_ADMIN)
-"""The roles a ``tenant_memberships`` row may hold.
+TenantRole = Literal["viewer", "member", "admin"]
+"""What a ``tenant_memberships`` row may hold, and what the membership and
+invite request models accept.
 
-``superadmin`` is instance-wide — the flag on ``users`` — so it names no tenant
-and is never stored as a membership.
+``superadmin`` is a property of the *user*, not of a membership: it is
+instance-wide, so it names no tenant. Keeping it out of this type is what makes
+the boundary reject it, rather than relying on the ``users.superadmin`` check
+further down to make such a row harmless.
 """
+
+TENANT_ROLES: tuple[TenantRole, ...] = (ROLE_VIEWER, ROLE_MEMBER, ROLE_ADMIN)
 
 SCOPE_READ = "read"
 SCOPE_WRITE = "write"
@@ -84,7 +90,7 @@ class TenantMembership(SQLModel, table=True):
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
     tenant_id: int = Field(sa_column=Column(BigInteger, ForeignKey("tenants.id"), nullable=False, index=True))
     user_id: int = Field(sa_column=Column(BigInteger, ForeignKey("users.id"), nullable=False, index=True))
-    role: Role = Field(sa_column=Column(String, nullable=False))
+    role: TenantRole = Field(sa_column=Column(String, nullable=False))
     created_at: datetime = Field(default_factory=utc_now)
 
 

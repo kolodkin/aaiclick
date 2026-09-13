@@ -113,9 +113,13 @@ password login until a reset link sets it.
 
 See [Audit Log](#audit-log).
 
-`Role = Literal["viewer", "member", "admin", "superadmin"]` lives in
-`aaiclick/auth/models.py`. `TENANT_ROLES` is the storable subset — `superadmin`
-is the instance flag on `users`, so it never appears in a membership row. The
+`aaiclick/auth/models.py` carries two literals: `Role` is every rung, and
+`TenantRole` (`viewer` | `member` | `admin`) is what a membership may hold.
+`superadmin` is a property of the *user* — the flag on `users`, instance-wide
+and naming no tenant — so it is absent from `TenantRole`, and the
+`tenant_memberships.role` column plus the membership and invite request models
+all take the narrow type. The boundary rejects it (`422`) rather than writing a
+row that would resolve to instance scope. The
 `tenants` / `tenant_memberships` tables live in the same module — see
 `docs/designs/tenant_rbac.md` — Data Model.
 

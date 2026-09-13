@@ -100,3 +100,17 @@ async def test_a_bound_token_cannot_reach_another_tenant_by_path(orch_ctx, app_c
         headers={"Authorization": f"Bearer {created.token}"},
     )
     assert res.status_code == 404
+
+
+async def test_superadmin_is_not_a_membership_role(orch_ctx, app_client, enabled):
+    """It is the instance flag on `users`; the boundary rejects it rather than
+    leaving a row whose role resolves to instance scope."""
+    tenant = await store.create_tenant(slug="acme", name="Acme")
+    boss = await users_api.create_user(CreateUserRequest(username="boss", password="pw"))
+    await store.set_membership(tenant_id=tenant.id, user_id=boss.id, role=ROLE_ADMIN)
+    res = await app_client.put(
+        f"{API_PREFIX}/tenants/{tenant.id}/members/{boss.id}",
+        json={"role": "superadmin"},
+        headers=_header(superadmin=True),
+    )
+    assert res.status_code == 422
