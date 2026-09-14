@@ -242,7 +242,7 @@ suspected leak needs the other party's token dead.
 `HTTPBearer(auto_error=False)` (which also registers the `/docs` **Authorize**
 box; `auto_error=False` so a missing credential yields the `Problem` envelope
 rather than FastAPI's bare `HTTPException`), then resolves a
-`Principal {user_id, username, role}`:
+`Principal {user_id, superadmin, tenants, scope, kind, tenant_id}`:
 
 - **Auth disabled** → a synthetic superadmin principal; all routes open.
 - **API token** (bearer starting with `aaic_`) → looked up by hash; must be
@@ -254,7 +254,8 @@ rather than FastAPI's bare `HTTPException`), then resolves a
   trusted for the token's ≤30-min lifetime (`sub`, `superadmin`, `tenants`).
   Disabling or demoting a user revokes their refresh rows immediately (see
   *Session revocation*) but takes full effect on the access token only within
-  one access-TTL. `Principal.kind == "session"`, `scope == "write"`.
+  one access-TTL. `Principal.kind == "session"` and `scope is None` — a
+  session is unscoped, so its ceiling is its role in the active tenant.
 - **Otherwise** → `401` with `WWW-Authenticate: Bearer`.
 
 `require_principal` also stores the resolved principal on `request.state` so
