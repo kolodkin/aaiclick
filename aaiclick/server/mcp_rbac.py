@@ -35,16 +35,7 @@ from aaiclick.auth.models import (
 from aaiclick.internal_api.errors import Forbidden, Invalid, Unauthorized
 from aaiclick.tenancy import active_tenant
 
-from .auth import (
-    TENANT_HEADER,
-    Principal,
-    TenantContext,
-    check_scope,
-    check_superadmin,
-    enforce_scope,
-    resolve_principal,
-    resolve_tenant,
-)
+from .auth import TENANT_HEADER, Principal, check_scope, resolve_principal, resolve_tenant
 from .request_state import audit_state
 
 # A tool's tag *is* the scope it needs; these are aliases so ``mcp.py`` reads in
@@ -64,21 +55,18 @@ def required_level(tags: set[str]) -> ScopeLevel:
     return SCOPE_LEVELS[-1]
 
 
-def authorize_tool(principal: Principal, tags: set[str], tenant_header: str | None) -> TenantContext | None:
+def authorize_tool(principal: Principal, tags: set[str], tenant_header: str | None) -> int | None:
     """Decide whether ``principal`` may call a tool with ``tags``.
 
     Returns the tenant to act in, or ``None`` for instance-level tools. Raises
-    ``Forbidden`` / ``Invalid`` exactly like the REST guards.
+    ``Forbidden`` / ``Invalid`` exactly like the REST guards: the only branch is
+    whether the tool needs a tenant at all, and the gate itself is the one the
+    REST routes use, so a tool and its REST twin agree.
     """
     required = required_level(tags)
-    if required == SCOPE_SUPERADMIN:
-        check_superadmin(principal)
-        enforce_scope(principal, required)
-        return None
-    ctx = resolve_tenant(principal, tenant_header)
-    # The same gate the REST routes use, so a tool and its REST twin agree.
-    check_scope(principal, ctx.role, required)
-    return ctx
+    tenant_id = None if required == SCOPE_SUPERADMIN else resolve_tenant(principal, tenant_header)
+    check_scope(principal, tenant_id, required)
+    return tenant_id
 
 
 def _current_request() -> Request | None:
@@ -138,11 +126,11 @@ class McpRbacMiddleware(Middleware):
             raise ToolError(f"unknown tool {tool_name!r}")
         try:
             principal = await _principal_for(request)
-            ctx = authorize_tool(principal, tool.tags, request.headers.get(TENANT_HEADER))
+            tenant_id = authorize_tool(principal, tool.tags, request.headers.get(TENANT_HEADER))
         except (Unauthorized, Forbidden, Invalid) as exc:
             raise ToolError(f"{tool_name}: {exc}") from exc
-        if ctx is None:
+        if tenant_id is None:
             return await call_next(context)
-        audit.tenant_id = ctx.tenant_id
-        with active_tenant(ctx.tenant_id):
+        audit.tenant_id = tenant_id
+        with active_tenant(tenant_id):
             return await call_next(context)

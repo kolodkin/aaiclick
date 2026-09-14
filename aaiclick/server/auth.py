@@ -8,10 +8,9 @@ registers the OpenAPI scheme. The ``/mcp`` mount keeps an ASGI middleware
 because ``Depends`` does not propagate into mounted sub-apps. See
 ``docs/designs/auth.md``.
 
-The role and scope rules are plain functions (``resolve_tenant``,
-``check_scope``, ``check_superadmin``, ``enforce_scope``) so the FastAPI
-dependencies here and the FastMCP middleware in ``mcp_rbac.py`` share one
-definition of each.
+The scope rules are plain functions (``principal_to_scope``, ``check_scope``,
+``resolve_tenant``, ``enforce_scope``) so the FastAPI dependencies here and the
+FastMCP middleware in ``mcp_rbac.py`` share one definition of each.
 """
 
 from __future__ import annotations
@@ -28,7 +27,6 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from aaiclick.auth import config, security, store
 from aaiclick.auth.models import (
-    ROLE_ADMIN,
     ROLE_SCOPES,
     SCOPE_ADMIN,
     SCOPE_READ,
@@ -136,11 +134,6 @@ def enforce_scope(principal: Principal, required: ScopeLevel) -> None:
         raise Forbidden(f"token scope '{principal.scope}' cannot perform '{required}' operations")
 
 
-def check_superadmin(principal: Principal) -> None:
-    if not principal.superadmin:
-        raise Forbidden("superadmin required")
-
-
 async def require_principal(
     request: Request,
     creds: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
@@ -179,105 +172,94 @@ async def require_user_id(principal: Principal = Depends(require_session)) -> in
     return principal.user_id
 
 
-class TenantContext(NamedTuple):
-    tenant_id: int
-    role: Role
+def principal_to_scope(principal: Principal, tenant_id: int | None) -> ScopeLevel | None:
+    """The one bridge from a principal to the scope it holds in ``tenant_id``
+    (``None`` for instance-level operations), or ``None`` when it has no
+    standing there. Every gate on both surfaces compares this against the level
+    the route or tool declares — nothing else is consulted.
 
-
-def role_in_tenant(principal: Principal, tenant_id: int) -> Role | None:
-    """The principal's effective role in ``tenant_id``, or ``None`` if barred.
-
-    The one place that encodes "a superadmin acts as tenant admin everywhere" —
-    both the header-scoped routes and the path-scoped ``/tenants`` routes ask
-    this rather than re-deriving it.
+    A session resolves through its role: the superadmin flag is
+    ``ROLE_SUPERADMIN`` everywhere, a membership is its ``ROLE_SCOPES`` rung. A
+    token stands on its own scope like a GitHub PAT — the mint ceiling capped
+    it, and demoting the owner does not shrink it; revoke it instead. Two things
+    still stop a token: it acts only in the tenant it is bound to, and only
+    while its owner keeps a membership there (or the flag); and a ``superadmin``
+    token dies with the owner's flag, because that scope reaches every tenant
+    and has no membership to lose.
     """
-    role = principal.tenants_roles.get(tenant_id)
-    if role is None and principal.superadmin:
-        return ROLE_ADMIN
-    return role
+    if principal.tenant_id is not None and tenant_id != principal.tenant_id:
+        return None
+    if principal.scope == SCOPE_SUPERADMIN:
+        return SCOPE_SUPERADMIN if principal.superadmin else None
+    if principal.superadmin:
+        return SCOPE_SUPERADMIN if principal.scope is None else principal.scope
+    if tenant_id is None or tenant_id not in principal.tenants_roles:
+        return None
+    return principal.scope if principal.scope is not None else ROLE_SCOPES[principal.tenants_roles[tenant_id]]
+
+
+def _admit(held: ScopeLevel | None, required: ScopeLevel) -> None:
+    if held is None or not scope_admits(held, required):
+        raise Forbidden(f"'{required}' scope required — this request carries '{held or 'none'}'")
+
+
+def check_scope(principal: Principal, tenant_id: int | None, required: ScopeLevel) -> None:
+    """The single authorization gate: ``Forbidden`` unless the principal's scope
+    in ``tenant_id`` admits ``required``."""
+    _admit(principal_to_scope(principal, tenant_id), required)
 
 
 def check_tenant_scope(principal: Principal, tenant_id: int, required: ScopeLevel) -> None:
     """Gate a route that names its tenant in the path rather than the header.
 
-    Same ladder as ``check_scope``, plus the token binding that ``resolve_tenant``
-    enforces on the header path — without it a token bound to one tenant could
-    reach another by URL. A tenant the caller cannot act in reads as missing, so
-    the path cannot be used to probe for tenants.
+    Same ladder as ``check_scope``, but no standing at all reads as a missing
+    tenant, so the URL cannot be used to probe for tenants — and a token bound
+    elsewhere cannot reach this one by path.
     """
-    if principal.tenant_id is not None and principal.tenant_id != tenant_id:
+    held = principal_to_scope(principal, tenant_id)
+    if held is None:
         raise NotFound(f"tenant {tenant_id} not found")
-    role = role_in_tenant(principal, tenant_id)
-    if role is None:
-        raise NotFound(f"tenant {tenant_id} not found")
-    check_scope(principal, role, required)
+    _admit(held, required)
 
 
-def resolve_tenant(principal: Principal, header_value: str | None) -> TenantContext:
+def resolve_tenant(principal: Principal, header_value: str | None) -> int:
     """Resolve the active tenant from the ``X-Tenant-Id`` header.
 
-    Local mode's synthetic principal always acts as admin of the default
-    tenant, and a tenant-bound API token always acts in the tenant it names.
-    Otherwise a missing header is implied only when the principal has exactly
-    one membership; superadmins (who can act in every tenant) must always name
-    one. A tenant the principal cannot act in is ``Forbidden``.
+    Local mode's synthetic principal always acts in the default tenant, and a
+    tenant-bound API token always acts in the tenant it names. Otherwise a
+    missing header is implied only when the principal has exactly one
+    membership; superadmins (who can act in every tenant) must always name
+    one. A tenant the principal has no standing in is ``Forbidden``.
     """
     if principal.kind == AUTH_KIND_NONE:
-        return TenantContext(tenant_id=DEFAULT_TENANT_ID, role=ROLE_ADMIN)
+        return DEFAULT_TENANT_ID
     if principal.tenant_id is not None:
         if header_value is not None and header_value != str(principal.tenant_id):
             raise Invalid(f"{TENANT_HEADER} does not match the tenant this token is bound to")
-        role = role_in_tenant(principal, principal.tenant_id)
-        if role is None:
-            raise Forbidden(f"no access to tenant {principal.tenant_id}")
-        return TenantContext(tenant_id=principal.tenant_id, role=role)
-    if header_value is not None:
+        tenant_id = principal.tenant_id
+    elif header_value is not None:
         try:
             tenant_id = int(header_value)
         except ValueError as exc:
             raise Invalid(f"{TENANT_HEADER} must be an integer") from exc
-        role = role_in_tenant(principal, tenant_id)
-        if role is None:
-            raise Forbidden(f"no access to tenant {tenant_id}")
-        return TenantContext(tenant_id=tenant_id, role=role)
-    if len(principal.tenants_roles) == 1:
-        tenant_id, role = next(iter(principal.tenants_roles.items()))
-        return TenantContext(tenant_id=tenant_id, role=role)
-    raise Invalid(f"{TENANT_HEADER} header required")
+    elif len(principal.tenants_roles) == 1:
+        tenant_id = next(iter(principal.tenants_roles))
+    else:
+        raise Invalid(f"{TENANT_HEADER} header required")
+    if principal_to_scope(principal, tenant_id) is None:
+        raise Forbidden(f"no access to tenant {tenant_id}")
+    return tenant_id
 
 
-def effective_scope(principal: Principal, role: Role) -> ScopeLevel:
-    """How much this request may do, by the path it authenticated on.
-
-    A session resolves through its user's role in the active tenant. A token
-    carries its own scope and stands on it, like a GitHub PAT: the mint ceiling
-    already capped it at what its owner could delegate, and from then on it is
-    the token's authority. Demoting the owner does not shrink an outstanding
-    token — revoke it. Losing the tenant does still stop it: ``resolve_tenant``
-    needs a live membership before this is ever reached.
-    """
-    return principal.scope if principal.scope is not None else ROLE_SCOPES[role]
-
-
-def check_scope(principal: Principal, role: Role, required: ScopeLevel) -> None:
-    """The single authorization gate: compare effective scope against the level
-    an operation needs."""
-    held = effective_scope(principal, role)
-    if not scope_admits(held, required):
-        raise Forbidden(f"'{required}' scope required — this request carries '{held}'")
-
-
-async def require_tenant(
-    request: Request, principal: Principal = Depends(require_principal)
-) -> AsyncIterator[TenantContext]:
+async def require_tenant(request: Request, principal: Principal = Depends(require_principal)) -> AsyncIterator[int]:
     """Resolve the active tenant and pin the tenancy contextvar for the request."""
-    ctx = resolve_tenant(principal, request.headers.get(TENANT_HEADER))
-    audit_state(request.scope).tenant_id = ctx.tenant_id
-    with active_tenant(ctx.tenant_id):
-        yield ctx
+    tenant_id = resolve_tenant(principal, request.headers.get(TENANT_HEADER))
+    audit_state(request.scope).tenant_id = tenant_id
+    with active_tenant(tenant_id):
+        yield tenant_id
 
 
-def require_scope(required: ScopeLevel) -> Callable[..., Awaitable[TenantContext]]:
+def require_scope(required: ScopeLevel) -> Callable[..., Awaitable[int]]:
     """Tenant-scoped route guard, declared by the level the route needs.
 
     Routes gate on scope, never on role: ``Depends(require_scope(SCOPE_ADMIN))``
@@ -285,11 +267,9 @@ def require_scope(required: ScopeLevel) -> Callable[..., Awaitable[TenantContext
     tokens alike.
     """
 
-    async def guard(
-        ctx: TenantContext = Depends(require_tenant), principal: Principal = Depends(require_principal)
-    ) -> TenantContext:
-        check_scope(principal, ctx.role, required)
-        return ctx
+    async def guard(tenant_id: int = Depends(require_tenant), principal: Principal = Depends(require_principal)) -> int:
+        check_scope(principal, tenant_id, required)
+        return tenant_id
 
     return guard
 
@@ -301,8 +281,8 @@ require_admin = require_scope(SCOPE_ADMIN)
 
 
 async def require_superadmin(principal: Principal = Depends(require_principal)) -> Principal:
-    enforce_scope(principal, SCOPE_SUPERADMIN)
-    check_superadmin(principal)
+    """Instance-level guard: ``superadmin`` scope with no tenant in play."""
+    check_scope(principal, None, SCOPE_SUPERADMIN)
     return principal
 
 

@@ -274,8 +274,8 @@ Matrix / One currency: scope.
 # Superadmin
 
 **Implementation**: `aaiclick/auth/models.py` — see `User.superadmin`, `Role` vs
-`TenantRole`; `aaiclick/server/auth.py` — see `role_in_tenant`,
-`check_superadmin`, `_SYNTHETIC_ADMIN`.
+`TenantRole`; `aaiclick/server/auth.py` — see `principal_to_scope`,
+`_SYNTHETIC_ADMIN`.
 
 The one authority that is a property of the **user**, not of a membership:
 `users.superadmin`, a `Boolean` column. It is instance-wide, spanning every
@@ -289,19 +289,18 @@ is `422` at the boundary rather than a row that resolves to instance scope.
 
 ## The three special treatments
 
-| Where | What happens | Why |
-|-------|--------------|-----|
-| Tenant routes | `role_in_tenant` returns `admin` for a superadmin in **any** tenant, with no membership row | One place encodes "acts as tenant admin everywhere", so header- and path-scoped routes agree |
-| Instance routes | `check_superadmin` reads the **live** flag off the principal | `require_superadmin` guards `/users`, `/tenants`, `/audit`, worker control |
-| Delegation | The mint and invite ceilings return early, unbounded | A superadmin may mint any scope in any tenant, and invite any role anywhere |
+| Where           | What happens                                                                                  | Why                                                                                          |
+|-----------------|-----------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------|
+| Any tenant      | `principal_to_scope` resolves a superadmin session to `superadmin` in **any** tenant, no membership row needed | One resolver encodes "acts everywhere", so header-scoped, path-scoped and MCP gates agree |
+| Instance routes | The same resolver, asked with `tenant_id=None`, yields `superadmin` only for the **live** flag | `require_superadmin` guards `/users`, `/tenants`, `/audit`, worker control                   |
+| Delegation      | The mint and invite ceilings return early, unbounded                                          | A superadmin may mint any scope in any tenant, and invite any role anywhere                  |
 
-!!! important "The flag is not `superadmin` *scope* for a session"
-    `role_in_tenant` synthesises `admin`, so a superadmin **session** acting in
-    a tenant resolves to `SCOPE_ADMIN` — `effective_scope` never reads the flag.
-    `superadmin` scope exists only on an API token. The flag and the scope are
-    checked by different gates, which is why `require_superadmin` calls both
-    `enforce_scope` and `check_superadmin`: a `superadmin`-scoped token whose
-    owner has since lost the flag passes the first and is refused by the second.
+!!! important "A `superadmin` token dies with the owner's flag"
+    Every other token stands on its scope after mint — demote the owner and
+    the token keeps working until revoked. Not this one: `principal_to_scope`
+    returns `None` for a `superadmin`-scoped token whose owner has lost the
+    flag, everywhere. That scope reaches every tenant and has no membership to
+    lose, so the flag is the only thing that can still stop it.
 
 ## Tokens, local mode, bootstrap
 
@@ -321,7 +320,7 @@ is empty, or from the CLI. Losing the last one has no in-app recovery — see
 # API Tokens
 
 
-**Implementation**: `aaiclick/auth/models.py` — see `ApiToken`, `ScopeLevel`, `scope_admits`; `aaiclick/internal_api/api_tokens.py` — see `_mint_ceiling`, `create_token`; `aaiclick/server/auth.py` — see `principal_from_credential`, `enforce_scope`, `resolve_tenant`, `require_session`; `aaiclick/server/routers/auth.py` — see `create_token`; `src/views/Tokens.tsx`.
+**Implementation**: `aaiclick/auth/models.py` — see `ApiToken`, `ScopeLevel`, `scope_admits`; `aaiclick/internal_api/api_tokens.py` — see `_mint_ceiling`, `create_token`; `aaiclick/server/auth.py` — see `principal_from_credential`, `principal_to_scope`, `enforce_scope`, `resolve_tenant`, `require_session`; `aaiclick/server/routers/auth.py` — see `create_token`; `src/views/Tokens.tsx`.
 Long-lived credentials for unattended clients (CI, SDK scripts, MCP agents)
 that should hold neither a password nor a refresh token.
 

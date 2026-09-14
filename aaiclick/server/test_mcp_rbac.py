@@ -92,11 +92,8 @@ def _principal(*, superadmin=False, tenants_roles=None, scope="superadmin"):
 )
 def test_authorize_tool_matrix(enabled, principal, tags, header, expect):
     if expect == "ok":
-        ctx = authorize_tool(principal, tags, header)
-        if TAG_SUPERADMIN in tags:
-            assert ctx is None
-        else:
-            assert ctx is not None and ctx.tenant_id == int(header)
+        tenant_id = authorize_tool(principal, tags, header)
+        assert tenant_id == (None if TAG_SUPERADMIN in tags else int(header))
     else:
         with pytest.raises(expect):
             authorize_tool(principal, tags, header)
@@ -107,8 +104,7 @@ def test_authorize_tool_local_mode_uses_default_tenant():
     default tenant without naming one — the same rule ``resolve_tenant`` applies
     to the REST routes."""
     synthetic = Principal(user_id=None, superadmin=True, tenants_roles={}, kind="none")
-    ctx = authorize_tool(synthetic, {TAG_ADMIN}, None)
-    assert ctx is not None and ctx.tenant_id == DEFAULT_TENANT_ID and ctx.role == "admin"
+    assert authorize_tool(synthetic, {TAG_ADMIN}, None) == DEFAULT_TENANT_ID
     assert authorize_tool(synthetic, {TAG_SUPERADMIN}, None) is None
 
 

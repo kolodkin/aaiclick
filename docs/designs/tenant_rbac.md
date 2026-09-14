@@ -135,9 +135,8 @@ objects) — resolves *where* they act. Tenant-less surfaces (`/auth`,
   tenant-scoped routes.
 - Auth disabled (local mode) → the default tenant, always.
 
-`Principal` grows to `{user_id, username, superadmin, tenants}` (the
-membership map from the JWT); `require_tenant` yields a
-`TenantContext {tenant_id, role}`. Routes then gate on scope —
+`Principal` carries `tenants_roles` (the membership map from the JWT);
+`require_tenant` yields the resolved tenant id. Routes then gate on scope —
 `require_scope(SCOPE_ADMIN)` for tenant mutations, `require_scope(SCOPE_WRITE)`
 for a member's own — and `require_superadmin` guards instance-level
 surfaces.
@@ -201,18 +200,20 @@ Authorization compares scopes and never roles. A request arrives with one by
 either path, and the route declares the level it needs:
 
 ```text
-session:  user -> role (in the active tenant) -> scope
-token:    token -> scope
-                                               |
-                                    required scope of the route
+session:  user -> role (in the active tenant) -> scope   \
+                                                          principal_to_scope(principal, tenant_id)
+token:    token -> scope                                 /          |
+                                                        required scope of the route
 ```
 
-`ROLE_SCOPES` in `aaiclick/auth/models.py` is the single bridge — the last row
-of the matrix above. Roles stay the way people are described; scopes are what
-every gate compares, so REST routes, MCP tools and the CLI answer the same
-question the same way.
+`principal_to_scope` is the one function that turns a principal into the
+scope it holds in a tenant (`None` for instance-level routes), or `None` when
+it has no standing there; `ROLE_SCOPES` in `aaiclick/auth/models.py` is the
+bridge it uses for sessions — the last row of the matrix above. Roles stay the
+way people are described; scopes are what every gate compares, so REST routes,
+MCP tools and the CLI answer the same question the same way.
 
-**Implementation**: `aaiclick/server/auth.py` — see `effective_scope`,
+**Implementation**: `aaiclick/server/auth.py` — see `principal_to_scope`,
 `check_scope`, `require_scope`.
 
 # API Surface
