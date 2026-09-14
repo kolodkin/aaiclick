@@ -22,10 +22,10 @@ def enabled(monkeypatch):
     monkeypatch.setenv("AAICLICK_JWT_SECRET", TEST_JWT_SECRET)
 
 
-def bearer(user_id: int, *, superadmin: bool = False, tenants: dict[int, str] | None = None) -> dict[str, str]:
+def bearer(user_id: int, *, superadmin: bool = False, tenants_roles: dict[int, str] | None = None) -> dict[str, str]:
     """An ``Authorization`` header for a freshly minted access JWT."""
     token = security.encode_access_token(
-        user_id=user_id, superadmin=superadmin, tenants=tenants or {}, secret=TEST_JWT_SECRET, ttl=60
+        user_id=user_id, superadmin=superadmin, tenants_roles=tenants_roles or {}, secret=TEST_JWT_SECRET, ttl=60
     )
     return {"Authorization": f"Bearer {token}"}
 
@@ -51,7 +51,7 @@ def _admin_headers() -> dict[str, str]:
     if not config.auth_enabled():
         return {}
     token = security.encode_access_token(
-        user_id=1, superadmin=True, tenants={}, secret=config.require_jwt_secret(), ttl=3600
+        user_id=1, superadmin=True, tenants_roles={}, secret=config.require_jwt_secret(), ttl=3600
     )
     return {"Authorization": f"Bearer {token}", "X-Tenant-Id": str(DEFAULT_TENANT_ID)}
 

@@ -30,10 +30,10 @@ async def _mint_pair(*, user: User, secret: str) -> TokenPair:
     await store.create_refresh_token(
         user_id=user.id, token_hash=security.sha256_hex(refresh_secret), ttl=config.refresh_ttl()
     )
-    tenants = await store.tenant_roles_for_user(user.id)
+    tenants_roles = await store.tenant_roles_for_user(user.id)
     return TokenPair(
         access_token=security.encode_access_token(
-            user_id=user.id, superadmin=user.superadmin, tenants=tenants, secret=secret, ttl=access_ttl
+            user_id=user.id, superadmin=user.superadmin, tenants_roles=tenants_roles, secret=secret, ttl=access_ttl
         ),
         refresh_token=refresh_secret,
         expires_in=access_ttl,

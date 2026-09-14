@@ -30,8 +30,8 @@ from .mcp_rbac import TAG_ADMIN, TAG_READ, TAG_SUPERADMIN, TAG_WRITE, authorize_
 MCP_HEADERS = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
 
 
-def _principal(*, superadmin=False, tenants=None, scope="superadmin"):
-    return Principal(user_id=5, superadmin=superadmin, tenants=tenants or {}, scope=scope, kind="token")
+def _principal(*, superadmin=False, tenants_roles=None, scope="superadmin"):
+    return Principal(user_id=5, superadmin=superadmin, tenants_roles=tenants_roles or {}, scope=scope, kind="token")
 
 
 # --- authorize_tool ------------------------------------------------------
@@ -40,19 +40,29 @@ def _principal(*, superadmin=False, tenants=None, scope="superadmin"):
 @pytest.mark.parametrize(
     "principal, tags, header, expect",
     [
-        pytest.param(_principal(tenants={7: "viewer"}, scope="read"), {TAG_READ}, "7", "ok", id="read-token-reads"),
         pytest.param(
-            _principal(tenants={7: "viewer"}, scope="read"), {TAG_WRITE}, "7", Forbidden, id="read-token-no-write"
+            _principal(tenants_roles={7: "viewer"}, scope="read"), {TAG_READ}, "7", "ok", id="read-token-reads"
         ),
-        pytest.param(_principal(tenants={7: "member"}, scope="write"), {TAG_WRITE}, "7", "ok", id="member-writes"),
         pytest.param(
-            _principal(tenants={7: "member"}, scope="write"), {TAG_ADMIN}, "7", Forbidden, id="write-token-no-admin"
+            _principal(tenants_roles={7: "viewer"}, scope="read"), {TAG_WRITE}, "7", Forbidden, id="read-token-no-write"
         ),
-        pytest.param(_principal(tenants={7: "admin"}, scope="admin"), {TAG_ADMIN}, "7", "ok", id="admin-token-admins"),
+        pytest.param(
+            _principal(tenants_roles={7: "member"}, scope="write"), {TAG_WRITE}, "7", "ok", id="member-writes"
+        ),
+        pytest.param(
+            _principal(tenants_roles={7: "member"}, scope="write"),
+            {TAG_ADMIN},
+            "7",
+            Forbidden,
+            id="write-token-no-admin",
+        ),
+        pytest.param(
+            _principal(tenants_roles={7: "admin"}, scope="admin"), {TAG_ADMIN}, "7", "ok", id="admin-token-admins"
+        ),
         pytest.param(
             # A token stands on its own scope: the mint ceiling capped it, and a
             # later demotion does not shrink it — revoking does.
-            _principal(tenants={7: "member"}, scope="admin"),
+            _principal(tenants_roles={7: "member"}, scope="admin"),
             {TAG_ADMIN},
             "7",
             "ok",
@@ -62,7 +72,11 @@ def _principal(*, superadmin=False, tenants=None, scope="superadmin"):
             _principal(superadmin=True, scope="superadmin"), {TAG_SUPERADMIN}, None, "ok", id="superadmin-instance"
         ),
         pytest.param(
-            _principal(tenants={7: "admin"}, scope="admin"), {TAG_SUPERADMIN}, "7", Forbidden, id="admin-not-superadmin"
+            _principal(tenants_roles={7: "admin"}, scope="admin"),
+            {TAG_SUPERADMIN},
+            "7",
+            Forbidden,
+            id="admin-not-superadmin",
         ),
         pytest.param(
             _principal(superadmin=True, scope="superadmin"),
@@ -71,7 +85,9 @@ def _principal(*, superadmin=False, tenants=None, scope="superadmin"):
             Invalid,
             id="superadmin-must-name-tenant",
         ),
-        pytest.param(_principal(tenants={7: "admin"}, scope="admin"), {TAG_READ}, "8", Forbidden, id="other-tenant"),
+        pytest.param(
+            _principal(tenants_roles={7: "admin"}, scope="admin"), {TAG_READ}, "8", Forbidden, id="other-tenant"
+        ),
     ],
 )
 def test_authorize_tool_matrix(enabled, principal, tags, header, expect):
@@ -90,7 +106,7 @@ def test_authorize_tool_local_mode_uses_default_tenant():
     """Local mode's synthetic principal (kind "none") acts as admin of the
     default tenant without naming one — the same rule ``resolve_tenant`` applies
     to the REST routes."""
-    synthetic = Principal(user_id=None, superadmin=True, tenants={}, kind="none")
+    synthetic = Principal(user_id=None, superadmin=True, tenants_roles={}, kind="none")
     ctx = authorize_tool(synthetic, {TAG_ADMIN}, None)
     assert ctx is not None and ctx.tenant_id == DEFAULT_TENANT_ID and ctx.role == "admin"
     assert authorize_tool(synthetic, {TAG_SUPERADMIN}, None) is None

@@ -47,11 +47,11 @@ async def test_enabled_missing_token_unauthorized(enabled):
 
 async def test_enabled_valid_jwt(enabled):
     token = security.encode_access_token(
-        user_id=7, superadmin=False, tenants={3: "viewer"}, secret=TEST_JWT_SECRET, ttl=60
+        user_id=7, superadmin=False, tenants_roles={3: "viewer"}, secret=TEST_JWT_SECRET, ttl=60
     )
     principal = await auth.resolve_principal(authorization=_bearer(token))
     assert principal.user_id == 7 and principal.superadmin is False
-    assert principal.tenants == {3: "viewer"}
+    assert principal.tenants_roles == {3: "viewer"}
     assert principal.kind == "session" and principal.scope is None
 
 
@@ -73,7 +73,7 @@ async def test_api_token_resolves_live_owner_state(enabled, orch_ctx):
 
     principal = await auth.resolve_principal(authorization=_bearer(created.token))
     assert principal.user_id == user.id and principal.kind == "token" and principal.scope == "read"
-    assert principal.tenants == {tenant.id: "viewer"}
+    assert principal.tenants_roles == {tenant.id: "viewer"}
 
     await users.disable_user(user.id, True)
     with pytest.raises(Unauthorized):
@@ -97,7 +97,7 @@ async def test_unknown_api_token_unauthorized(enabled, orch_ctx):
     ],
 )
 def test_enforce_scope_walks_the_ladder(held, required, allowed):
-    principal = auth.Principal(user_id=1, superadmin=True, tenants={}, scope=held, kind="token")
+    principal = auth.Principal(user_id=1, superadmin=True, tenants_roles={}, scope=held, kind="token")
     if allowed:
         auth.enforce_scope(principal, required)
     else:
@@ -107,24 +107,24 @@ def test_enforce_scope_walks_the_ladder(held, required, allowed):
 
 def test_unscoped_principal_is_never_blocked_by_the_ladder():
     """A session is bounded by its user's role, not by a scope."""
-    session = auth.Principal(user_id=1, superadmin=True, tenants={}, kind="session")
+    session = auth.Principal(user_id=1, superadmin=True, tenants_roles={}, kind="session")
     auth.enforce_scope(session, "superadmin")
 
 
 def test_resolve_tenant_local_mode_defaults():
-    synthetic = auth.Principal(user_id=None, superadmin=True, tenants={}, kind="none")
+    synthetic = auth.Principal(user_id=None, superadmin=True, tenants_roles={}, kind="none")
     assert auth.resolve_tenant(synthetic, None) == auth.TenantContext(tenant_id=DEFAULT_TENANT_ID, role="admin")
 
 
 # --- resolve_tenant ------------------------------------------------------
 
 
-def _principal(superadmin=False, tenants=None):
-    return auth.Principal(user_id=5, superadmin=superadmin, tenants=tenants or {})
+def _principal(superadmin=False, tenants_roles=None):
+    return auth.Principal(user_id=5, superadmin=superadmin, tenants_roles=tenants_roles or {})
 
 
 def test_tenant_header_resolves_membership_role():
-    ctx = auth.resolve_tenant(_principal(tenants={7: "viewer"}), "7")
+    ctx = auth.resolve_tenant(_principal(tenants_roles={7: "viewer"}), "7")
     assert ctx == auth.TenantContext(tenant_id=7, role="viewer")
 
 
@@ -135,16 +135,16 @@ def test_tenant_header_superadmin_gets_admin_anywhere():
 
 def test_tenant_header_non_member_forbidden():
     with pytest.raises(Forbidden):
-        auth.resolve_tenant(_principal(tenants={7: "admin"}), "8")
+        auth.resolve_tenant(_principal(tenants_roles={7: "admin"}), "8")
 
 
 def test_tenant_header_bad_int_invalid():
     with pytest.raises(Invalid):
-        auth.resolve_tenant(_principal(tenants={7: "admin"}), "acme")
+        auth.resolve_tenant(_principal(tenants_roles={7: "admin"}), "acme")
 
 
 def test_tenant_header_missing_single_membership_implied():
-    ctx = auth.resolve_tenant(_principal(tenants={7: "admin"}), None)
+    ctx = auth.resolve_tenant(_principal(tenants_roles={7: "admin"}), None)
     assert ctx == auth.TenantContext(tenant_id=7, role="admin")
 
 
@@ -152,7 +152,7 @@ def test_tenant_header_missing_zero_or_many_invalid():
     with pytest.raises(Invalid):
         auth.resolve_tenant(_principal(), None)
     with pytest.raises(Invalid):
-        auth.resolve_tenant(_principal(tenants={7: "admin", 8: "viewer"}), None)
+        auth.resolve_tenant(_principal(tenants_roles={7: "admin", 8: "viewer"}), None)
 
 
 def test_tenant_header_missing_superadmin_requires_header():
@@ -204,7 +204,7 @@ async def test_mcp_mount_admits_an_api_token_and_stores_it(orch_ctx, enabled):
 async def test_mcp_mount_refuses_a_session_jwt(enabled):
     """MCP is the machine door; a session JWT belongs on REST."""
     called: list[bool] = []
-    token = security.encode_access_token(user_id=2, superadmin=True, tenants={}, secret=TEST_JWT_SECRET, ttl=60)
+    token = security.encode_access_token(user_id=2, superadmin=True, tenants_roles={}, secret=TEST_JWT_SECRET, ttl=60)
     scope = {"type": "http", "headers": [(b"authorization", f"Bearer {token}".encode())]}
     sent = await _drive(scope, called)
     assert not called
@@ -240,7 +240,7 @@ def test_warn_if_open_silent_in_distributed_mode(monkeypatch):
 
 def _bound(level="admin", tenant_id=7, role="admin"):
     return auth.Principal(
-        user_id=5, superadmin=False, tenants={tenant_id: role}, scope=level, kind="token", tenant_id=tenant_id
+        user_id=5, superadmin=False, tenants_roles={tenant_id: role}, scope=level, kind="token", tenant_id=tenant_id
     )
 
 
@@ -260,11 +260,11 @@ def test_bound_token_accepts_a_matching_header():
 
 
 def test_bound_token_forbidden_once_membership_is_gone():
-    stripped = _bound()._replace(tenants={})
+    stripped = _bound()._replace(tenants_roles={})
     with pytest.raises(Forbidden):
         auth.resolve_tenant(stripped, None)
 
 
 def test_session_principal_is_unscoped():
-    session = auth.Principal(user_id=1, superadmin=True, tenants={}, kind="session")
+    session = auth.Principal(user_id=1, superadmin=True, tenants_roles={}, kind="session")
     assert session.scope is None and session.tenant_id is None

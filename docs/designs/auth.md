@@ -188,8 +188,8 @@ Passwords are hashed with `bcrypt`. Access JWTs are signed HS256 with
   `totp_code`; a correct password without one answers `401`
   `code="mfa_required"` so the client can prompt for the code and retry — see
   [Multi-Factor Auth](#multi-factor-auth).
-- Access JWT claims: `sub=<user_id>`, `superadmin`, `tenants` (the membership
-  map `tenant_id -> role`), `exp`, `type="access"`.
+- Access JWT claims: `sub=<user_id>`, `superadmin`, `tenants_roles` (the
+  membership map `tenant_id -> role`), `exp`, `type="access"`.
 - Refresh token: a random opaque secret; only its `sha256` is stored in
   `refresh_tokens`.
 
@@ -242,7 +242,7 @@ suspected leak needs the other party's token dead.
 `HTTPBearer(auto_error=False)` (which also registers the `/docs` **Authorize**
 box; `auto_error=False` so a missing credential yields the `Problem` envelope
 rather than FastAPI's bare `HTTPException`), then resolves a
-`Principal {user_id, superadmin, tenants, scope, kind, tenant_id}`:
+`Principal {user_id, superadmin, tenants_roles, scope, kind, tenant_id}`:
 
 - **Auth disabled** → a synthetic superadmin principal; all routes open.
 - **API token** (bearer starting with `aaic_`) → looked up by hash; must be
@@ -251,7 +251,7 @@ rather than FastAPI's bare `HTTPException`), then resolves a
   and demotion bind instantly for tokens. `Principal.scope` carries the token's
   scope and `Principal.kind == "token"`.
 - **Valid access JWT** (`type="access"`, valid signature + `exp`) → claims are
-  trusted for the token's ≤30-min lifetime (`sub`, `superadmin`, `tenants`).
+  trusted for the token's ≤30-min lifetime (`sub`, `superadmin`, `tenants_roles`).
   Disabling or demoting a user revokes their refresh rows immediately (see
   *Session revocation*) but takes full effect on the access token only within
   one access-TTL. `Principal.kind == "session"` and `scope is None` — a

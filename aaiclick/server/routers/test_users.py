@@ -12,7 +12,7 @@ def admin() -> dict[str, str]:
 
 
 def viewer() -> dict[str, str]:
-    return bearer(2, tenants={9: "admin"})
+    return bearer(2, tenants_roles={9: "admin"})
 
 
 async def test_admin_can_create_user(orch_ctx, app_client, enabled):

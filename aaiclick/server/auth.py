@@ -62,7 +62,7 @@ AuthKind = Literal["none", "session", "token"]
 class Principal(NamedTuple):
     user_id: int | None
     superadmin: bool
-    tenants: dict[int, Role]
+    tenants_roles: dict[int, Role]
     """Membership map ``tenant_id -> role`` — from the access JWT, or read live for an API token."""
     scope: ScopeLevel | None = None
     """API-token level; ``None`` means unscoped — a session or local mode, bounded by role alone."""
@@ -71,7 +71,7 @@ class Principal(NamedTuple):
     """The tenant a tenant-scoped token is bound to; ``None`` for every other principal."""
 
 
-_SYNTHETIC_ADMIN = Principal(user_id=None, superadmin=True, tenants={}, kind=AUTH_KIND_NONE)
+_SYNTHETIC_ADMIN = Principal(user_id=None, superadmin=True, tenants_roles={}, kind=AUTH_KIND_NONE)
 
 
 def _principal_from_token(token: str) -> Principal:
@@ -80,8 +80,8 @@ def _principal_from_token(token: str) -> Principal:
         claims = security.decode_access_token(token, config.require_jwt_secret())
     except security.TokenError as exc:
         raise Unauthorized(str(exc)) from exc
-    tenants = cast("dict[int, Role]", claims.tenants)
-    return Principal(user_id=claims.user_id, superadmin=claims.superadmin, tenants=tenants)
+    tenants_roles = cast("dict[int, Role]", claims.tenants_roles)
+    return Principal(user_id=claims.user_id, superadmin=claims.superadmin, tenants_roles=tenants_roles)
 
 
 async def _principal_from_api_token(token: str) -> Principal:
@@ -94,13 +94,13 @@ async def _principal_from_api_token(token: str) -> Principal:
         raise Unauthorized("invalid api token")
     if resolved.user.disabled:
         raise Unauthorized("user is disabled")
-    tenants: dict[int, Role] = {}
+    tenants_roles: dict[int, Role] = {}
     if resolved.token.tenant_id is not None and resolved.role is not None:
-        tenants[resolved.token.tenant_id] = resolved.role
+        tenants_roles[resolved.token.tenant_id] = resolved.role
     return Principal(
         user_id=resolved.user.id,
         superadmin=resolved.user.superadmin,
-        tenants=tenants,
+        tenants_roles=tenants_roles,
         scope=resolved.token.scope,
         kind=AUTH_KIND_TOKEN,
         tenant_id=resolved.token.tenant_id,
@@ -191,7 +191,7 @@ def role_in_tenant(principal: Principal, tenant_id: int) -> Role | None:
     both the header-scoped routes and the path-scoped ``/tenants`` routes ask
     this rather than re-deriving it.
     """
-    role = principal.tenants.get(tenant_id)
+    role = principal.tenants_roles.get(tenant_id)
     if role is None and principal.superadmin:
         return ROLE_ADMIN
     return role
@@ -240,8 +240,8 @@ def resolve_tenant(principal: Principal, header_value: str | None) -> TenantCont
         if role is None:
             raise Forbidden(f"no access to tenant {tenant_id}")
         return TenantContext(tenant_id=tenant_id, role=role)
-    if len(principal.tenants) == 1:
-        tenant_id, role = next(iter(principal.tenants.items()))
+    if len(principal.tenants_roles) == 1:
+        tenant_id, role = next(iter(principal.tenants_roles.items()))
         return TenantContext(tenant_id=tenant_id, role=role)
     raise Invalid(f"{TENANT_HEADER} header required")
 

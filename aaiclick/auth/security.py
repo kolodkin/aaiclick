@@ -37,7 +37,7 @@ class TokenError(Exception):
 class AccessClaims(NamedTuple):
     user_id: int
     superadmin: bool
-    tenants: dict[int, str]
+    tenants_roles: dict[int, str]
     """Membership map ``tenant_id -> role`` at mint time."""
 
 
@@ -72,13 +72,13 @@ def api_token_display_prefix(token: str) -> str:
     return token[:API_TOKEN_DISPLAY_CHARS]
 
 
-def encode_access_token(*, user_id: int, superadmin: bool, tenants: dict[int, str], secret: str, ttl: int) -> str:
+def encode_access_token(*, user_id: int, superadmin: bool, tenants_roles: dict[int, str], secret: str, ttl: int) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": str(user_id),
         "superadmin": superadmin,
         # JSON object keys must be strings; decode converts back to int.
-        "tenants": {str(tenant_id): role for tenant_id, role in tenants.items()},
+        "tenants_roles": {str(tenant_id): role for tenant_id, role in tenants_roles.items()},
         "type": TOKEN_TYPE_ACCESS,
         "iat": now,
         "exp": now + timedelta(seconds=ttl),
@@ -97,7 +97,7 @@ def decode_access_token(token: str, secret: str) -> AccessClaims:
         return AccessClaims(
             user_id=int(payload["sub"]),
             superadmin=bool(payload.get("superadmin", False)),
-            tenants={int(tenant_id): role for tenant_id, role in payload.get("tenants", {}).items()},
+            tenants_roles={int(tenant_id): role for tenant_id, role in payload.get("tenants_roles", {}).items()},
         )
     except (KeyError, ValueError) as exc:
         raise TokenError("malformed claims") from exc

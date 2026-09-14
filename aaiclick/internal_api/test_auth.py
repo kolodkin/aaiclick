@@ -35,7 +35,7 @@ async def test_login_token_carries_memberships(orch_ctx):
     pair = await auth.login(LoginRequest(username="member", password="pw"), secret=SECRET)
     claims = security.decode_access_token(pair.access_token, SECRET)
     assert claims.superadmin is True
-    assert claims.tenants == {tenant.id: ROLE_VIEWER}
+    assert claims.tenants_roles == {tenant.id: ROLE_VIEWER}
 
 
 async def test_login_bad_password_raises(orch_ctx):

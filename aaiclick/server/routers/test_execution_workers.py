@@ -16,7 +16,7 @@ RBAC_SECRET = "rbac-execution_workers-test-secret-key-32-plus-bytes"
 async def test_viewer_cannot_start_worker(orch_ctx, app_client, monkeypatch):
     monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: False)
     monkeypatch.setenv("AAICLICK_JWT_SECRET", RBAC_SECRET)
-    token = security.encode_access_token(user_id=2, superadmin=False, tenants={}, secret=RBAC_SECRET, ttl=60)
+    token = security.encode_access_token(user_id=2, superadmin=False, tenants_roles={}, secret=RBAC_SECRET, ttl=60)
     res = await app_client.post(
         f"{API_PREFIX}/execution-workers", json={}, headers={"Authorization": f"Bearer {token}"}
     )
@@ -104,7 +104,9 @@ async def test_start_forbidden_for_tenant_admin(orch_ctx, app_client, monkeypatc
     """Workers are shared infrastructure: a tenant admin is not enough."""
     monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: False)
     monkeypatch.setenv("AAICLICK_JWT_SECRET", RBAC_SECRET)
-    token = security.encode_access_token(user_id=3, superadmin=False, tenants={7: "admin"}, secret=RBAC_SECRET, ttl=60)
+    token = security.encode_access_token(
+        user_id=3, superadmin=False, tenants_roles={7: "admin"}, secret=RBAC_SECRET, ttl=60
+    )
     res = await app_client.post(
         f"{API_PREFIX}/execution-workers",
         json={},
