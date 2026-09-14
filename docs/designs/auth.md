@@ -359,6 +359,23 @@ in `check_tenant_scope`, where a tenant the token is not bound to reads as
 URL. `superadmin` names none, and selects a tenant with the header exactly as a
 superadmin session does.
 
+An `admin` token bound to tenant `...904`, whose owner also administers `...905`:
+
+```http
+GET /tenants/4611686018427387904/members     # the tenant it is bound to
+200
+
+GET /tenants/4611686018427387905/members     # a tenant it is not
+404  tenant 4611686018427387905 not found
+
+GET /objects
+X-Tenant-Id: 4611686018427387905
+422  X-Tenant-Id does not match the tenant this token is bound to
+```
+
+The second is `404` rather than `403` on purpose: a caller must not be able to
+tell an existing tenant from a missing one by the status code.
+
 A caller mints at or below `ROLE_SCOPES[their role in the named tenant]` — you
 delegate what you hold, never more. A superadmin mints any level in any tenant,
 and alone may mint an untenanted `superadmin` token. Above the ceiling is `422`
