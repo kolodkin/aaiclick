@@ -14,7 +14,7 @@ import logging
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, PlainSerializer
+from pydantic import BaseModel, Field, PlainSerializer, WithJsonSchema
 
 from .datetime_utils import utc_now
 
@@ -23,9 +23,14 @@ from .datetime_utils import utc_now
 # fields as strings on the wire (the OpenAPI schema follows, so generated SPA
 # types are honest). ``when_used="json"`` scopes this to JSON output only: the
 # Python attribute and ``model_dump()`` stay ``int``, so the CLI and internal
-# logic are unaffected, and request bodies still coerce a numeric string back
-# to ``int`` on validation.
-SnowflakeId = Annotated[int, PlainSerializer(lambda v: str(v), return_type=str, when_used="json")]
+# logic are unaffected. Request bodies coerce a numeric string back to ``int``
+# on validation, and ``WithJsonSchema`` says so, so a generated SPA type asks
+# for the string the browser can actually hold rather than a lossy number.
+SnowflakeId = Annotated[
+    int,
+    PlainSerializer(lambda v: str(v), return_type=str, when_used="json"),
+    WithJsonSchema({"type": "string"}, mode="validation"),
+]
 
 # Captured task output streams.
 STDOUT_STREAM = "stdout"

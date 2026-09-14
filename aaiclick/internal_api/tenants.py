@@ -11,7 +11,7 @@ from __future__ import annotations
 from sqlmodel import col
 
 from aaiclick.auth import store
-from aaiclick.auth.models import Role, Tenant, TenantMembership, User
+from aaiclick.auth.models import Tenant, TenantMembership, TenantRole, User
 from aaiclick.auth.view_models import CreateTenantRequest, MemberView, TenantListFilter, TenantView
 from aaiclick.view_models import Page
 
@@ -59,7 +59,7 @@ async def list_members(tenant_id: int) -> Page[MemberView]:
     return Page[MemberView](items=items, total=len(items))
 
 
-async def set_member(tenant_id: int, user_id: int, role: Role) -> MemberView:
+async def set_member(tenant_id: int, user_id: int, role: TenantRole) -> MemberView:
     """Add a member or change their role; ends the user's sessions so the
     membership change binds at the refresh boundary."""
     await _require_tenant_row(tenant_id)

@@ -8,7 +8,33 @@ import pytest
 from aaiclick.auth import config, security
 from aaiclick.tenancy import DEFAULT_TENANT_ID
 
-from .app import app
+from .app import API_PREFIX, app
+
+TEST_JWT_SECRET = "server-test-jwt-secret-key-at-least-32-bytes-long"
+
+
+@pytest.fixture
+def enabled(monkeypatch):
+    """Force distributed mode (auth on) + a signing secret, independent of the
+    local/dist matrix the suite runs under. Request it *before* ``app_client``
+    so that fixture mints its admin header."""
+    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: False)
+    monkeypatch.setenv("AAICLICK_JWT_SECRET", TEST_JWT_SECRET)
+
+
+def bearer(user_id: int, *, superadmin: bool = False, tenants_roles: dict[int, str] | None = None) -> dict[str, str]:
+    """An ``Authorization`` header for a freshly minted access JWT."""
+    token = security.encode_access_token(
+        user_id=user_id, superadmin=superadmin, tenants_roles=tenants_roles or {}, secret=TEST_JWT_SECRET, ttl=60
+    )
+    return {"Authorization": f"Bearer {token}"}
+
+
+async def login(client: httpx.AsyncClient, username: str, password: str = "pw") -> dict[str, str]:
+    """Log in through the API and return the ``Authorization`` header."""
+    res = await client.post(f"{API_PREFIX}/auth/login", json={"username": username, "password": password})
+    assert res.status_code == 200, res.text
+    return {"Authorization": f"Bearer {res.json()['access_token']}"}
 
 
 def _admin_headers() -> dict[str, str]:
@@ -25,7 +51,7 @@ def _admin_headers() -> dict[str, str]:
     if not config.auth_enabled():
         return {}
     token = security.encode_access_token(
-        user_id=1, superadmin=True, tenants={}, secret=config.require_jwt_secret(), ttl=3600
+        user_id=1, superadmin=True, tenants_roles={}, secret=config.require_jwt_secret(), ttl=3600
     )
     return {"Authorization": f"Bearer {token}", "X-Tenant-Id": str(DEFAULT_TENANT_ID)}
 

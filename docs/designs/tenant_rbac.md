@@ -13,11 +13,18 @@ Execution workers remain shared infrastructure.
 - **Tenant**: named isolation unit with a unique `slug` (used in the CLI
   and UI; resource scoping keys on the immutable `id`). Owns registered
   jobs, jobs, and (phase 2) persistent objects.
-- **Membership**: a user belongs to any number of tenants, each with a role
-  — the existing `Role` literal (`admin` | `viewer`) reused per tenant.
-- **Superadmin**: boolean on `users`. Superadmins manage tenants and users,
-  act as `admin` in every tenant, and exclusively control shared
-  infrastructure (execution workers, `/mcp`).
+- **Membership**: a user belongs to any number of tenants, each with a
+  `TenantRole` — `viewer` (reads), `member` (adds their own saved queries and
+  dashboards), or `admin` (runs the tenant). `superadmin` is deliberately not
+  one: it is a property of the user, not of a membership.
+- **Superadmin**: boolean on `users` — a property of the *user*, not an edge.
+  Authority is otherwise an edge between a user and one tenant; this one spans
+  every tenant, so it names none and cannot be a membership row. `TenantRole`
+  excludes it, so the boundary refuses `{"role": "superadmin"}` rather than
+  writing a row that would resolve to instance scope. Superadmins manage
+  tenants and users, act as `admin` in every tenant without a membership, and
+  exclusively control shared infrastructure (execution workers, and the
+  superadmin-tagged `/mcp` tools) — `docs/designs/auth.md` — Superadmin.
 - **Isolation level**: metadata-level. One SQL database, one ClickHouse
   database; every query filters by the active tenant. Tenants are trusted
   teams sharing a deployment, not hostile parties.
@@ -96,8 +103,8 @@ JWT claims extend the existing scheme (`docs/designs/auth.md` — Auth
 Mechanics): `sub`, `exp`, `type="access"` stay; `role` is replaced by
 
 - `superadmin`: bool
-- `tenants`: `{"<tenant_id>": "admin" | "viewer"}` — the user's memberships
-  at mint time.
+- `tenants`: `{"<tenant_id>": "viewer" | "member" | "admin"}` — the user's
+  memberships at mint time.
 
 The trust model is unchanged: claims are trusted for the access-token
 lifetime (≤ 30 min); membership grant/revoke/role-change calls
@@ -106,7 +113,7 @@ lifetime (≤ 30 min); membership grant/revoke/role-change calls
 # Active Tenant Resolution
 
 **Implementation**: `aaiclick/server/auth.py` — see `resolve_tenant`,
-`require_tenant`, `require_admin`, `require_superadmin`; the contextvar in
+`require_tenant`, `require_scope`, `require_superadmin`; the contextvar in
 `aaiclick/tenancy.py`.
 
 The active tenant is selected per request with the **`X-Tenant-Id`**
@@ -128,11 +135,11 @@ objects) — resolves *where* they act. Tenant-less surfaces (`/auth`,
   tenant-scoped routes.
 - Auth disabled (local mode) → the default tenant, always.
 
-`Principal` grows to `{user_id, username, superadmin, tenants}` (the
-membership map from the JWT); `require_tenant` yields a
-`TenantContext {tenant_id, tenant_role}`. `require_admin` now means
-*tenant admin* (`tenant_role == "admin"`); a new `require_superadmin`
-guards instance-level surfaces.
+`Principal` carries `tenants_roles` (the membership map from the JWT);
+`require_tenant` yields the resolved tenant id. Routes then gate on scope —
+`require_scope(SCOPE_ADMIN)` for tenant mutations, `require_scope(SCOPE_WRITE)`
+for a member's own — and `require_superadmin` guards instance-level
+surfaces.
 
 Enforcement lives in `internal_api` query filters, not in routers: a
 tenant contextvar (set by the server dependency, or by the CLI / local
@@ -145,22 +152,69 @@ see `new_job_row` (a scheduled run inherits its registration's tenant).
 
 # Role Matrix
 
-| Capability                                          | viewer | tenant admin | superadmin |
-|-----------------------------------------------------|:------:|:------------:|:----------:|
-| Reads within the active tenant (jobs, tasks, ...)   | ✅     | ✅           | ✅         |
-| `/auth/*`, change own password                      | ✅     | ✅           | ✅         |
-| Run / cancel jobs, register / enable / disable jobs | ❌     | ✅           | ✅         |
-| Clear tasks, delete / purge objects                 | ❌     | ✅           | ✅         |
-| Manage memberships of the active tenant             | ❌     | ✅           | ✅         |
-| List execution workers                              | ✅     | ✅           | ✅         |
-| Start / stop execution workers                      | ❌     | ❌           | ✅         |
-| Tenant CRUD (`/tenants`)                            | ❌     | ❌           | ✅         |
-| User management (`/users`)                          | ❌     | ❌           | ✅         |
-| MCP surface (`/mcp`)                                | ❌     | ❌           | ✅         |
+| Capability                                          | viewer | member | tenant admin | superadmin |
+|-----------------------------------------------------|:------:|:------:|:------------:|:----------:|
+| Reads within the active tenant (jobs, tasks, ...)   | ✅     | ✅     | ✅           | ✅         |
+| `/auth/*`, change own password                      | ✅     | ✅     | ✅           | ✅         |
+| Save / delete saved queries and dashboards          | ❌     | ✅     | ✅           | ✅         |
+| Run / cancel jobs, register / enable / disable jobs | ❌     | ❌     | ✅           | ✅         |
+| Clear tasks, delete / purge objects                 | ❌     | ❌     | ✅           | ✅         |
+| Manage memberships of the active tenant             | ❌     | ❌     | ✅           | ✅         |
+| List execution workers                              | ✅     | ✅     | ✅           | ✅         |
+| Start / stop execution workers                      | ❌     | ❌     | ❌           | ✅         |
+| Tenant CRUD (`/tenants`)                            | ❌     | ❌     | ❌           | ✅         |
+| User management (`/users`)                          | ❌     | ❌     | ❌           | ✅         |
+| Invite a user (`/invites`)                          | ❌     | ❌     | ✅ own tenant | ✅ anywhere |
+| Mint an API token (`/auth/tokens`)                  | ✅ `read` | ✅ to `write` | ✅ to `admin` | ✅ to `superadmin` |
+| Scope this role resolves to                         | `read` | `write` | `admin`     | `superadmin` |
 
-Worker start/stop and `/mcp` move from "admin" to superadmin because both
-reach across tenants (workers execute every tenant's tasks; MCP tools are
-not tenant-filtered in phase 1).
+## Delegation ceilings
+
+The last two rows are *delegation* — handing authority to someone else — so
+each is capped at the granter's own level. Neither can be used to climb.
+
+| Granter      | May invite                                              | May mint a token at   |
+|--------------|---------------------------------------------------------|-----------------------|
+| viewer       | nothing (`403`)                                         | `read`                |
+| member       | nothing (`403`)                                         | `read`, `write`       |
+| tenant admin | `viewer`, `member` or `admin`, **their own tenant only** | `read` … `admin`      |
+| superadmin   | any role in any tenant, plus untenanted superadmins     | `read` … `superadmin` |
+
+A tenant the granter is not a member of reads as `404`, never `403`, so
+neither surface can be used to probe for tenants. Both need a **session**: an
+API token can mint neither a token nor an invite, so a leaked one cannot turn
+itself into a permanent foothold.
+
+**Implementation**: `aaiclick/internal_api/invites.py` — see `_check_ceiling`;
+`aaiclick/internal_api/api_tokens.py` — see `_mint_ceiling`.
+
+Worker start/stop stays superadmin because workers execute every tenant's
+tasks. `/mcp` takes API tokens only and gates each tool on the level its tag
+names, pinning the active tenant around the call — `docs/designs/auth.md` —
+MCP Surface. This table is the *session* path: a token carries its own scope
+instead, capped at mint by the role of whoever minted it.
+
+## One currency: scope
+
+Authorization compares scopes and never roles. A request arrives with one by
+either path, and the route declares the level it needs:
+
+```text
+session:  user -> role (in the active tenant) -> scope   \
+                                                          principal_to_scope(principal, tenant_id)
+token:    token -> scope                                 /          |
+                                                        required scope of the route
+```
+
+`principal_to_scope` is the one function that turns a principal into the
+scope it holds in a tenant (`None` for instance-level routes), or `None` when
+it has no standing there; `ROLE_SCOPES` in `aaiclick/auth/models.py` is the
+bridge it uses for sessions — the last row of the matrix above. Roles stay the
+way people are described; scopes are what every gate compares, so REST routes,
+MCP tools and the CLI answer the same question the same way.
+
+**Implementation**: `aaiclick/server/auth.py` — see `principal_to_scope`,
+`check_scope`, `require_scope`.
 
 # API Surface
 
@@ -194,7 +248,7 @@ Thin renderers over `internal_api`, in-process (no HTTP auth):
 
 - `aaiclick tenant create --slug --name`, `tenant list`
 - `aaiclick user create --username --password [--superadmin]`
-- `aaiclick member add|set-role|remove --tenant <slug> --username <u> [--role {admin,viewer}]`
+- `aaiclick member add|set-role|remove --tenant <slug> --username <u> [--role {viewer,member,admin}]`
 
 `AAICLICK_ADMIN_USERNAME` / `AAICLICK_ADMIN_PASSWORD` seed a **superadmin**
 on first startup, unchanged otherwise.

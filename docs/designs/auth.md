@@ -10,15 +10,20 @@ and any programmatic HTTP / MCP client share one login flow; the CLI runs
 
 - **Users**: username + password, stored in the orchestration SQL database,
   plus an instance-level `superadmin` flag.
-- **Roles**: per-tenant memberships carrying `admin` or `viewer` (see
-  `docs/designs/tenant_rbac.md`). No per-resource ACLs or custom roles.
+- **Roles**: per-tenant memberships carrying `viewer`, `member` or `admin`
+  (see `docs/designs/tenant_rbac.md`). No per-resource ACLs or custom roles.
+  Every gate compares **scopes**, never roles — `ROLE_SCOPES` is the bridge.
 - **Sessions**: password login → short-lived access JWT + rotating refresh
   token. One credential header everywhere: `Authorization: Bearer <access-jwt>`.
+- **API tokens**: user-minted, named, optionally expiring bearer tokens on an
+  ordered `read` < `write` < `admin` < `superadmin` ladder, bound to one tenant
+  below `superadmin`, for unattended CLI / SDK / MCP clients — see
+  [API Tokens](#api-tokens).
 - **Mode-derived enforcement**: auth is a hardcoded convention, not a flag —
   **disabled in local mode** (single-process chdb + SQLite; the server is open,
-  zero-config) and **enforced in distributed mode**. There are no long-lived API
-  tokens / PATs, no SSO/OIDC/MFA, no user-management UI, and the `/mcp` surface
-  is all-or-nothing (admin only).
+  zero-config) and **enforced in distributed mode**.
+- **Optional hardening**, each configuration-driven: TOTP
+  multi-factor auth, a password-reset flow, and a per-request audit log.
 
 # Configuration
 
@@ -32,6 +37,10 @@ var. These variables tune the enforced (distributed) case:
 | `AAICLICK_JWT_REFRESH_TTL` | Refresh-token lifetime, seconds.                               | `1209600` (14 d)|
 | `AAICLICK_ADMIN_USERNAME`  | Seed-superadmin username (inserted on startup when no users exist). | `superadmin`   |
 | `AAICLICK_ADMIN_PASSWORD`  | Seed-admin password.                                           | unset          |
+| `AAICLICK_PUBLIC_URL`      | Browser-facing origin (`https://aaiclick.example.com`). Needed by password-reset links. | unset |
+| `AAICLICK_AUDIT_LOG`       | `writes` / `all` / `off` — see [Audit Log](#audit-log).        | `writes`       |
+
+Password-reset variables are listed in their own section.
 
 !!! warning "Distributed without a secret is a hard error"
     In distributed mode with `AAICLICK_JWT_SECRET` unset, the server refuses to
@@ -40,9 +49,18 @@ var. These variables tune the enforced (distributed) case:
 
 # Data Model
 
-Two SQLModel tables in `aaiclick/auth/models.py`. IDs are snowflake
-`BigInteger` PKs; `role` is a plain `String` column typed with the `Role`
-`Literal` and validated in code (no DB CHECK — see CLAUDE.md, "Prefer Literal").
+SQLModel tables in `aaiclick/auth/models.py` (`audit_log` in
+`aaiclick/audit/models.py`). IDs are snowflake `BigInteger` PKs; `role` and
+`scope` are plain `String` columns typed with `Literal`s and validated in code
+(no DB CHECK — see CLAUDE.md, "Prefer Literal"), so widening the scope set is a
+one-line code change rather than a hand-written constraint migration.
+
+Two role literals live there. `Role` is every rung; `TenantRole`
+(`viewer` | `member` | `admin`) is what a membership may hold, and is the type
+of `tenant_memberships.role` and of the membership and invite request models —
+see [Superadmin](#superadmin) for why the flag is absent from it. The `tenants`
+/ `tenant_memberships` tables are in the same module — `docs/designs/tenant_rbac.md`
+— Data Model.
 
 ## `users`
 
@@ -50,10 +68,16 @@ Two SQLModel tables in `aaiclick/auth/models.py`. IDs are snowflake
 |-----------------|---------------------------------|------------------------|
 | `id`            | `BigInteger` PK (snowflake)     |                        |
 | `username`      | `String`, unique, indexed       | Login identifier       |
-| `password_hash` | `String`                        | bcrypt                 |
+| `password_hash` | `String \| None`                | bcrypt; `None` until a reset sets one |
 | `superadmin`    | `Boolean`, default `false`      | Instance-level operator |
 | `disabled`      | `Boolean`, default `false`      | Disabled → cannot log in |
+| `email`         | `String \| None`                | Contact address                                                |
+| `totp_secret`   | `String \| None`                | Base32 TOTP seed; set by MFA setup, live once `mfa_enabled` |
+| `mfa_enabled`   | `Boolean`, default `false`      | Login demands a TOTP code |
 | `created_at`    | `datetime` (`utc_now`)          |                        |
+
+`password_hash` is nullable: a user created without one can never pass the
+password login until a reset link sets it.
 
 ## `refresh_tokens`
 
@@ -66,37 +90,77 @@ Two SQLModel tables in `aaiclick/auth/models.py`. IDs are snowflake
 | `rotated_at` | `datetime \| None`          | Set when consumed by `/auth/refresh` |
 | `revoked_at` | `datetime \| None`          | Set on logout                        |
 
-`Role = Literal["admin", "viewer"]` lives in `aaiclick/auth/models.py` with
-module constants `ROLE_ADMIN` / `ROLE_VIEWER`; it is the per-tenant membership
-role. The `tenants` / `tenant_memberships` tables live in the same module —
-see `docs/designs/tenant_rbac.md` — Data Model.
+## `api_tokens`
+
+| Column         | Type                                  | Notes                                   |
+|----------------|---------------------------------------|-----------------------------------------|
+| `id`           | `BigInteger` PK (snowflake)           |                                         |
+| `user_id`      | `BigInteger` FK → `users.id`, indexed |                                         |
+| `name`         | `String`                              | Free-text label (`"ci-deploy"`)         |
+| `prefix`       | `String`                              | First 12 chars of the secret, for display |
+| `token_hash`   | `String`, unique, indexed             | `sha256(secret)`                        |
+| `scope`        | `String`                              | `ScopeLevel` literal — see [The scope ladder](#the-scope-ladder) |
+| `tenant_id`    | `BigInteger \| None`, indexed         | The tenant the token acts in; `None` only for `superadmin`. A plain column, not a DB FK — matching `jobs` and `table_registry` |
+| `expires_at`   | `datetime \| None`                    | `None` → never expires                  |
+| `last_used_at` | `datetime \| None`                    | Refreshed at most once a minute         |
+| `revoked_at`   | `datetime \| None`                    |                                         |
+| `created_at`   | `datetime` (`utc_now`)                |                                         |
+
+## `password_reset_tokens`
+
+| Column        | Type                                  | Notes                       |
+|---------------|---------------------------------------|-----------------------------|
+| `id`          | `BigInteger` PK (snowflake)           |                             |
+| `user_id`     | `BigInteger` FK → `users.id`, indexed |                             |
+| `token_hash`  | `String`, unique, indexed             | `sha256(secret)`            |
+| `expires_at`  | `datetime`                            | `AAICLICK_PASSWORD_RESET_TTL`, default 1 h |
+| `consumed_at` | `datetime \| None`                    | Single use                  |
+
+## `audit_log`
+
+See [Audit Log](#audit-log).
 
 # Module Layout
 
 ```
 aaiclick/
   auth/
-    models.py        users / refresh_tokens / tenants / tenant_memberships;
-                     Role literal + constants
-    security.py      bcrypt hash/verify; secret gen + sha256; JWT encode/decode
-                     (pure functions, no DB, no contextvars)
-    config.py        env getters (enabled, secret, TTLs, admin seed)
-    store.py         raw DB CRUD over users / refresh_tokens; revoke_all_for_user
-    view_models.py   LoginRequest, RefreshRequest, LogoutRequest, TokenPair,
-                     MeView, UserView, CreateUserRequest, ...
+    models.py        users / refresh_tokens / api_tokens /
+                     password_reset_tokens / tenants / tenant_memberships;
+                     Role + ScopeLevel literals + constants + scope_admits
+    security.py      bcrypt hash/verify; secret gen + sha256; JWT encode/decode;
+                     API-token format; TOTP (pure functions, no DB, no contextvars)
+    config.py        env getters (enabled, secret, TTLs, admin seed, public
+                     URL, reset TTL)
+    store.py         raw DB CRUD over users / refresh_tokens / api_tokens /
+                     password_reset_tokens; revoke_all_for_user
+    view_models.py   LoginRequest, TokenPair, MeView, UserView, ApiTokenView,
+                     InviteView, MfaSetupView, PasswordReset*, ...
+  audit/
+    models.py        audit_log table
+    store.py         insert + paged query
   internal_api/
-    auth.py          login(), refresh(), logout(), change_password(), my_tenants()
+    auth.py          login(), refresh(), logout(), change_password(), my_tenants(),
+                     MFA setup/enable/disable, password reset
+    api_tokens.py    create_token, list_tokens, revoke_token
     users.py         create_user, list_users, get_user, set_superadmin,
-                     disable_user, set_password
+                     disable_user, set_password, set_email, reset_mfa,
+                     create_password_reset
+    audit.py         list_audit
     tenants.py       tenant CRUD + membership management
   server/
-    auth.py          principal resolution + RBAC dependencies + /mcp middleware
+    auth.py          principal resolution (JWT + API token) + RBAC dependencies
+                     + /mcp principal middleware
+    mcp_rbac.py      FastMCP middleware: per-tool RBAC + tenant pinning
+    audit.py         ASGI middleware writing audit_log rows
     routers/
       auth.py        /auth/login, /auth/refresh, /auth/logout, /auth/me,
-                     /auth/me/password
+                     /auth/me/password, /auth/me/mfa/*, /auth/tokens,
+                     /auth/password-reset*
       users.py       /users   (superadmin-only)
+      audit.py       /audit   (superadmin-only)
       tenants.py     /tenants (see docs/designs/tenant_rbac.md)
-  __main__.py        aaiclick user|tenant|member commands
+  __main__.py        aaiclick user|tenant|member|token|audit commands
 ```
 
 Business logic is transport-agnostic in `internal_api` / `auth`, running inside
@@ -117,10 +181,15 @@ Passwords are hashed with `bcrypt`. Access JWTs are signed HS256 with
   "expires_in": 1800 }
 ```
 
-- The user must exist, be enabled, and the password must match. Otherwise `401`
-  (`code="unauthorized"`) — no user-enumeration distinction.
-- Access JWT claims: `sub=<user_id>`, `superadmin`, `tenants` (the membership
-  map `tenant_id -> role`), `exp`, `type="access"`.
+- The user must exist, be enabled, have a password,
+  and the password must match. Otherwise `401` (`code="unauthorized"`) — no
+  user-enumeration distinction.
+- When the user has MFA enabled, the request must also carry a valid
+  `totp_code`; a correct password without one answers `401`
+  `code="mfa_required"` so the client can prompt for the code and retry — see
+  [Multi-Factor Auth](#multi-factor-auth).
+- Access JWT claims: `sub=<user_id>`, `superadmin`, `tenants_roles` (the
+  membership map `tenant_id -> role`), `exp`, `type="access"`.
 - Refresh token: a random opaque secret; only its `sha256` is stored in
   `refresh_tokens`.
 
@@ -145,8 +214,8 @@ current principal (`tenants` lists each membership with slug, name, and role).
 ## Change own password
 
 `PUT /api/v0/auth/me/password` `{current_password, new_password}` → `204`. Open
-to **any** role — `/users` is admin-only, so without this a viewer could never
-rotate their own credential. `current_password` is required so a stolen access
+to **any** role — `/users` is superadmin-only, so without this a viewer could
+never rotate their own credential. `current_password` is required so a stolen access
 token alone cannot seize the account, and a mismatch is `401`. Local mode has no
 current user (the synthetic admin's `user_id` is `None`), so the route answers
 `422` there.
@@ -173,36 +242,207 @@ suspected leak needs the other party's token dead.
 `HTTPBearer(auto_error=False)` (which also registers the `/docs` **Authorize**
 box; `auto_error=False` so a missing credential yields the `Problem` envelope
 rather than FastAPI's bare `HTTPException`), then resolves a
-`Principal {user_id, username, role}`:
+`Principal {user_id, superadmin, tenants_roles, scope, kind, tenant_id}`:
 
 - **Auth disabled** → a synthetic superadmin principal; all routes open.
+- **API token** (bearer starting with `aaic_`) → looked up by hash; must be
+  unrevoked, unexpired, and belong to an enabled user. The user's *current*
+  `superadmin` flag and memberships are read on every request, so revocation
+  and demotion bind instantly for tokens. `Principal.scope` carries the token's
+  scope and `Principal.kind == "token"`.
 - **Valid access JWT** (`type="access"`, valid signature + `exp`) → claims are
-  trusted for the token's ≤30-min lifetime (`sub`, `superadmin`, `tenants`).
+  trusted for the token's ≤30-min lifetime (`sub`, `superadmin`, `tenants_roles`).
   Disabling or demoting a user revokes their refresh rows immediately (see
   *Session revocation*) but takes full effect on the access token only within
-  one access-TTL.
+  one access-TTL. `Principal.kind == "session"` and `scope is None` — a
+  session is unscoped, so its ceiling is its role in the active tenant.
 - **Otherwise** → `401` with `WWW-Authenticate: Bearer`.
 
+`require_principal` also stores the resolved principal on `request.state` so
+the audit middleware can attribute the request after the fact, and enforces
+the token scope: a `read`-scoped principal calling any non-safe HTTP method
+(`POST` / `PUT` / `PATCH` / `DELETE`) is `403`.
+
 Tenant-scoped routers additionally resolve the active tenant via
-`require_tenant` (the `X-Tenant-Id` header); `require_admin` means *tenant
-admin* and `require_superadmin` guards instance-level surfaces. The role
+`require_tenant` (the `X-Tenant-Id` header), then gate on scope:
+`require_scope(SCOPE_WRITE)` (aliased `require_write`) for a member's own
+mutations, `require_scope(SCOPE_ADMIN)` (aliased `require_admin`) for tenant
+mutations, and `require_superadmin` for instance-level surfaces. The role
 matrix and resolution rules live in `docs/designs/tenant_rbac.md` — Role
-Matrix / Active Tenant Resolution.
+Matrix / One currency: scope.
+
+# Superadmin
+
+**Implementation**: `aaiclick/auth/models.py` — see `User.superadmin`, `Role` vs
+`TenantRole`; `aaiclick/server/auth.py` — see `principal_to_scope`,
+`_SYNTHETIC_ADMIN`.
+
+The one authority that is a property of the **user**, not of a membership:
+`users.superadmin`, a `Boolean` column. It is instance-wide, spanning every
+tenant, so it names none — which is exactly why it cannot be a membership row,
+where authority is an edge between a user and one tenant.
+
+That is enforced by the type, not by convention. `Role` carries every rung;
+`TenantRole` (`viewer` | `member` | `admin`) is what `tenant_memberships.role`,
+`SetMemberRequest` and `InviteUserRequest` accept, so `{"role": "superadmin"}`
+is `422` at the boundary rather than a row that resolves to instance scope.
+
+## The three special treatments
+
+| Where           | What happens                                                                                  | Why                                                                                          |
+|-----------------|-----------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------|
+| Any tenant      | `principal_to_scope` resolves a superadmin session to `superadmin` in **any** tenant, no membership row needed | One resolver encodes "acts everywhere", so header-scoped, path-scoped and MCP gates agree |
+| Instance routes | The same resolver, asked with `tenant_id=None`, yields `superadmin` only for the **live** flag | `require_superadmin` guards `/users`, `/tenants`, `/audit`, worker control                   |
+| Delegation      | The mint and invite ceilings return early, unbounded                                          | A superadmin may mint any scope in any tenant, and invite any role anywhere                  |
+
+!!! important "A `superadmin` token dies with the owner's flag"
+    Every other token stands on its scope after mint — demote the owner and
+    the token keeps working until revoked. Not this one: `principal_to_scope`
+    returns `None` for a `superadmin`-scoped token whose owner has lost the
+    flag, everywhere. That scope reaches every tenant and has no membership to
+    lose, so the flag is the only thing that can still stop it.
+
+## Tokens, local mode, bootstrap
+
+A `superadmin` token is the only untenanted one — `api_tokens.tenant_id` is
+`NULL` — and selects a tenant with `X-Tenant-Id`, exactly as a superadmin
+session does. Only a superadmin may mint one.
+
+Local mode has no credential, so `_SYNTHETIC_ADMIN` stands in: `superadmin=True`
+with `user_id=None`. That is why account routes needing a real user row answer
+`422` there.
+
+The first superadmin comes from `AAICLICK_ADMIN_USERNAME` /
+`AAICLICK_ADMIN_PASSWORD`, seeded during server startup when the `users` table
+is empty, or from the CLI. Losing the last one has no in-app recovery — see
+[Password Reset](#password-reset).
+
+# API Tokens
+
+
+**Implementation**: `aaiclick/auth/models.py` — see `ApiToken`, `ScopeLevel`, `scope_admits`; `aaiclick/internal_api/api_tokens.py` — see `_mint_ceiling`, `create_token`; `aaiclick/server/auth.py` — see `principal_from_credential`, `principal_to_scope`, `enforce_scope`, `resolve_tenant`, `require_session`; `aaiclick/server/routers/auth.py` — see `create_token`; `src/views/Tokens.tsx`.
+Long-lived credentials for unattended clients (CI, SDK scripts, MCP agents)
+that should hold neither a password nor a refresh token.
+
+- **Format**: `aaic_` + 43 URL-safe random characters. The prefix lets the
+  resolver route the credential without a JWT parse attempt, and lets secret
+  scanners recognise it. Only `sha256(secret)` is stored; the raw secret is
+  returned exactly once, in the create response.
+- **Expiry**: optional `expires_at`; `None` never expires. The SPA form defaults
+  to 90 days.
+- **Ownership**: tokens belong to the user who minted them. Disabling the user
+  disables every token. A token cannot mint or revoke tokens (`403`) — token
+  management needs a real session, so a leaked token cannot bootstrap a
+  permanent foothold.
+- **MFA**: not applied to tokens — that is the point of them. Minting one
+  requires a session, which MFA already protected.
+
+## The scope ladder
+
+A token carries one of four ordered levels, and admits its own level plus
+every level beneath it. `read` is the default at every mint site.
+
+| Level        | Admits, plus everything below                                                                     | REST guard it mirrors                  |
+|--------------|---------------------------------------------------------------------------------------------------|----------------------------------------|
+| `read`       | every read                                                                                        | safe method                            |
+| `write`      | a member's own mutations — saved queries, dashboards                                              | `require_write`                        |
+| `admin`      | tenant mutations — run / cancel jobs, register, clear tasks, delete / purge objects, memberships   | `require_admin`                        |
+| `superadmin` | instance operations — setup, migrate, worker start / stop, users, tenants                         | `require_superadmin`                   |
+
+The first three name a tenant at mint (`api_tokens.tenant_id`) and act only
+there, so `X-Tenant-Id` no longer selects one: the header may be omitted, and
+one naming a different tenant is `422` rather than quietly ignored. Routes that
+name their tenant in the path rather than the header enforce the same binding
+in `check_tenant_scope`, where a tenant the token is not bound to reads as
+`404` — otherwise an `admin` token minted in one tenant could reach another by
+URL. `superadmin` names none, and selects a tenant with the header exactly as a
+superadmin session does.
+
+An `admin` token bound to tenant `...904`, whose owner also administers `...905`:
+
+```http
+GET /tenants/4611686018427387904/members     # the tenant it is bound to
+200
+
+GET /tenants/4611686018427387905/members     # a tenant it is not
+404  tenant 4611686018427387905 not found
+
+GET /objects
+X-Tenant-Id: 4611686018427387905
+422  X-Tenant-Id does not match the tenant this token is bound to
+```
+
+The second is `404` rather than `403` on purpose: a caller must not be able to
+tell an existing tenant from a missing one by the status code.
+
+A caller mints at or below `ROLE_SCOPES[their role in the named tenant]` — you
+delegate what you hold, never more. A superadmin mints any level in any tenant,
+and alone may mint an untenanted `superadmin` token. Above the ceiling is `422`
+naming the caller's own level; a tenant they cannot act in reads as missing
+(404), never forbidden, so tokens cannot probe for tenants.
+
+!!! important "A token stands on its own scope"
+    The ceiling applies **at mint**, not on every request. Once issued, the
+    token's scope is its authority — a GitHub PAT, not a live projection of its
+    owner. Demote the owner from admin to viewer and an outstanding `admin`
+    token keeps working: **revoke it** to take it away. What does still stop it
+    is losing the tenant, since `resolve_tenant` needs a live membership before
+    the scope is ever consulted, and being disabled, which `resolve_api_token`
+    checks.
+
+| Route                          | Guard                          | Purpose                                         |
+|--------------------------------|--------------------------------|-------------------------------------------------|
+| `GET /auth/tokens`             | session                        | The caller's tokens (`ApiTokenView`, no secret)  |
+| `POST /auth/tokens`            | session                        | `{name, scope, tenant_id, expires_at}` → `ApiTokenCreated` (includes `token`, once) |
+| `DELETE /auth/tokens/{id}`     | session                        | Revoke (`204`; another user's token is `404`)   |
+
+CLI (in-process, superadmin-equivalent): `aaiclick token create <username>
+--name <n> [--scope read|write|admin|superadmin] [--expires-days N]`, taking
+its tenant from the top-level `--tenant` flag; `token list <username>`,
+`token revoke <id>`. The SPA exposes the same at `@tokens`, offering only the
+levels the signed-in user may mint.
 
 # MCP Surface
 
-The `/mcp` mount is **superadmin-only** and all-or-nothing — no per-tool RBAC.
+
+**Implementation**: `aaiclick/server/mcp_rbac.py` — see `required_level`, `authorize_tool`, `McpRbacMiddleware`; `aaiclick/server/auth.py` — see `PrincipalAuthMiddleware`; tool tags in `aaiclick/server/mcp.py`.
+The `/mcp` mount takes **API tokens only** once auth is enabled — a session JWT
+there is `401`. The surface is for unattended clients, an API token is their
+credential, and the restriction is what gives every MCP principal a real level
+to gate on. Each tool's tag *is* the level it needs on
+[the scope ladder](#the-scope-ladder), and `tools/list` only shows what the
+caller may call.
+
+| Tag          | Tools                                                                                         | Needs                                         |
+|--------------|-----------------------------------------------------------------------------------------------|-----------------------------------------------|
+| `read`       | `list_jobs`, `get_job`, `job_stats`, `list_registered_jobs`, `get_task`, `list_execution_workers`, `list_objects`, `get_object`, `oplog_subgraph`, `query_table`, `get_table_schema`, `query_object`, `list_saved_queries`, `list_dashboards`, `get_dashboard`, `run_dashboard` | `read`; any member of the token's tenant |
+| `write`      | `save_query`, `delete_saved_query`, `save_dashboard`, `delete_dashboard`                       | `write`; any member of the token's tenant     |
+| `admin`      | `cancel_job`, `run_job`, `register_job`, `enable_job`, `disable_job`, `clear_task`, `delete_object`, `purge_objects` | `admin`; tenant admin                   |
+| `superadmin` | `start_execution_worker`, `stop_execution_worker`, `setup`, `migrate`, `bootstrap_ollama`      | `superadmin`; the instance flag               |
+
+`required_level` takes the highest tag present, so a mistagged tool fails
+closed rather than open.
+
 Because FastAPI's `Depends` does not reach mounted sub-apps, the mount is
-wrapped in an ASGI middleware that runs the same principal resolution and
-additionally requires `superadmin`; other requests get a `401`/`403`
-`Problem`.
+wrapped in an ASGI middleware that checks the credential is an API token,
+resolves the principal, rejects anonymous calls with a `401` `Problem`, and
+stores the principal on the ASGI scope. A FastMCP middleware then runs on every
+`tools/call` and `tools/list`: it reads the principal and the `X-Tenant-Id`
+header from the current HTTP request, resolves the active tenant exactly like
+the REST `require_tenant`, pins the tenancy contextvar around the tool call,
+and applies the table above. Denials surface as tool errors. `superadmin` tools
+never need a tenant.
+
+In local mode (auth disabled) and for in-process clients (`fastmcp.Client(mcp)`,
+no HTTP request) the synthetic superadmin applies and every tool is open.
 
 # CLI & Admin Bootstrap
 
-- **CLI**: `aaiclick user create <username> --password [--superadmin]`,
-  `list`, `set-superadmin`, `disable`, `passwd` — thin renderers over
-  `internal_api.users`, running in-process. Tenant and membership commands:
-  `docs/designs/tenant_rbac.md` — CLI.
+- **CLI**: `aaiclick user create <username> [--password] [--email] [--superadmin]`,
+  `invite`, `list`, `set-superadmin`, `disable`, `enable`, `passwd`, `set-email`,
+  `reset-mfa`, `reset-link` — thin renderers over `internal_api.users`,
+  running in-process. `aaiclick token ...` and `aaiclick audit list` likewise.
+  Tenant and membership commands: `docs/designs/tenant_rbac.md` — CLI.
 - **Startup seed**: when auth is enabled and `AAICLICK_ADMIN_PASSWORD` is
   set, a **superadmin** is inserted during server lifespan startup if the
   `users` table is empty (username from `AAICLICK_ADMIN_USERNAME`, default
@@ -223,14 +463,154 @@ additionally requires `superadmin`; other requests get a `401`/`403`
   feature. Used for run / cancel / register / enable-toggle, and for the
   navigation buttons leading into those flows. Presentation only; `require_admin`
   is still the enforcement.
-- `src/views/Login.tsx`: username + password form.
+- `src/views/Login.tsx`: username + password form; asks for a TOTP code after a
+  `mfa_required` answer; links to the forgot-password form.
 - `App.tsx` gates rendering on the session. When auth is disabled `/auth/me`
   returns the synthetic admin, so no login wall appears.
+- Account and admin views, all prompt-driven like the rest of the UI:
+
+| Prompt          | View                                                            | Who            |
+|-----------------|-----------------------------------------------------------------|----------------|
+| `@account`      | Change password, MFA setup / disable                            | any user       |
+| `@tokens`       | List / create / revoke the caller's API tokens                  | any user       |
+| `@users`        | User table: create, superadmin toggle, disable / enable, set password, set email, reset MFA, mint reset link | superadmin |
+| `@audit`        | Audit log table with user / path filters                        | superadmin     |
+| `reset <token>` | Set a new password from a reset link                            | anonymous      |
+
+The header shows the signed-in username with a sign-out control.
+
+# Multi-Factor Auth
+
+
+**Implementation**: `aaiclick/auth/security.py` — see `totp_code`, `verify_totp`, `totp_uri`; `aaiclick/internal_api/auth.py` — see `login`, `mfa_setup`, `mfa_enable`, `mfa_disable`; `aaiclick/internal_api/users.py` — see `reset_mfa`; `aaiclick/internal_api/errors.py` — see `MfaRequired`; `src/views/Account.tsx` — see `MfaPanel`.
+TOTP (RFC 6238: SHA-1, 30 s step, 6 digits, ±1 step drift), implemented on the
+standard library in `aaiclick/auth/security.py` — no new dependency. Any
+authenticator app works from the `otpauth://` URI or the base32 secret.
+
+| Route                          | Guard   | Purpose                                                        |
+|--------------------------------|---------|----------------------------------------------------------------|
+| `POST /auth/me/mfa/setup`      | session | Generate a pending secret → `MfaSetupView {secret, otpauth_uri}` |
+| `POST /auth/me/mfa/enable`     | session | `{code}` — verify against the pending secret, set `mfa_enabled` |
+| `POST /auth/me/mfa/disable`    | session | `{password, code}` — both factors required to turn it off       |
+| `POST /users/{id}/mfa/reset`   | superadmin | Clear the secret and flag (lost-device recovery)             |
+
+Login with `mfa_enabled` set: `{username, password}` alone → `401`
+`code="mfa_required"`; with a wrong `totp_code` → plain `401`. Enabling MFA
+revokes the user's other refresh tokens so every open session re-authenticates
+with the second factor. There are no recovery codes: the superadmin reset is
+the recovery path, matching the CLI-first admin model.
+
+# Password Reset
+
+**Implementation**: `aaiclick/internal_api/password_reset.py` — see `create`, `redeem`; `src/views/ResetPassword.tsx`.
+
+A reset token is a one-time secret bound to a user with a short TTL
+(`AAICLICK_PASSWORD_RESET_TTL`, default 3600 s). Consuming it sets the password
+and revokes the user's sessions, like an admin reset.
+
+- **Mint**: `POST /users/{id}/password-reset` (superadmin) →
+  `PasswordResetLinkView {token, expires_at, url}` — the operator hands the
+  link over out of band. CLI: `aaiclick user reset-link <user_id>`.
+- **Redeem**: `POST /auth/password-reset {token, new_password}` (public) →
+  `204`, or `401` for an unknown / expired / consumed token.
+
+The link is `AAICLICK_PUBLIC_URL/?p=reset%20<token>`, which the SPA routes to
+the new-password form; without that variable only the raw `token` is returned.
+
+There is no self-service "email me a link" flow — mail delivery is not
+implemented (`docs/designs/future.md`). The SPA's **Forgot password?** link
+tells the user to ask an administrator.
+
+!!! warning "Superadmin lockout has no in-app recovery"
+    Minting a link needs a superadmin, so a deployment whose only superadmin
+    loses their password must recover through the CLI on a host with database
+    access (`aaiclick user passwd <user_id>`). Keep a second superadmin, or
+    keep that step in the runbook.
+
+## Invites
+
+**Implementation**: `aaiclick/internal_api/invites.py` — see `invite`,
+`_check_shape`, `_check_ceiling`; `aaiclick/server/routers/invites.py`;
+`src/views/Invite.tsx`.
+
+Onboarding is a reset link by another name: create the user with no password,
+grant their tenant role, and mint their link — `POST /invites` →
+`InviteView {user, link}` does all three in one call. The account grants
+nothing until the link is redeemed, since `login` refuses any user whose
+`password_hash` is `None`, so an invite left unredeemed is inert rather than an
+open door.
+
+An invite is either **instance-level** (`superadmin: true`, naming no tenant)
+or **tenant-level** (`tenant_id` + `role`) — never both, never neither.
+
+Only a tenant admin may invite, into their own tenant only; a superadmin may
+invite any role anywhere, plus untenanted superadmins. A tenant the inviter is
+not a member of reads as `404`, never `403`, so an invite cannot probe for
+tenants — the same rule the mint ceiling follows. Both ceilings side by side:
+`docs/designs/tenant_rbac.md` — Delegation ceilings.
+
+Inviting needs a **session**: the route guards on `require_session`, so an API
+token cannot mint an invite. An account is exactly the permanent foothold a
+leaked token must not be able to create for itself — the same reason token
+management is session-only.
+
+`aaiclick user invite <username> [--role viewer|member|admin] [--email]
+[--superadmin]` is the CLI form, taking its tenant from the global `--tenant`
+flag; the in-process CLI is superadmin-equivalent and caps against nothing. The
+SPA offers `@invite`, showing only the grants the signed-in user may make.
+
+!!! note "Its own module and its own router"
+    `internal_api/password_reset.py` already imports `users`, so composing the
+    two there would close an import cycle — `invites.py` imports both instead.
+    The router is separate because `/users` is superadmin-only at the router
+    level, and a tenant admin may invite into their own tenant.
+
+# Audit Log
+
+
+**Implementation**: `aaiclick/audit/` (model, store, view models); `aaiclick/server/audit.py` — see `auditable_path`, `should_audit`, `AuditMiddleware`; `aaiclick/internal_api/audit.py`; `aaiclick/server/routers/audit.py`; `src/views/Audit.tsx`.
+
+Who called what, when — one row per HTTP request under `/api/v0/` or `/mcp`,
+written by an ASGI middleware after the response is produced. `/health`,
+docs, and static assets are never logged.
+
+`auditable_path` decides that *before* the middleware opens the request's SQL
+context, which also excludes the SSE stream (`GET /api/v0/events`,
+`docs/designs/frontend.md`): a row written when a client disconnects would say
+nothing, and wrapping the stream would pin one SQL engine open for the life of
+every open browser tab.
+
+| Column        | Type                        | Notes                                              |
+|---------------|-----------------------------|----------------------------------------------------|
+| `id`          | `BigInteger` PK (snowflake) |                                                    |
+| `at`          | `datetime`                  | Request start                                      |
+| `user_id`     | `BigInteger \| None`        | `None` for anonymous / local-mode calls            |
+| `username`    | `String \| None`            | Denormalised so rows outlive user deletion; the attempted username on `/auth/login` |
+| `auth_kind`   | `String`                    | `AuthKind` literal: `none` / `session` / `token`   |
+| `tenant_id`   | `BigInteger \| None`        | Active tenant when one was resolved                |
+| `method`      | `String`                    |                                                    |
+| `path`        | `String`                    |                                                    |
+| `action`      | `String \| None`            | MCP tool name for `/mcp` calls                     |
+| `status`      | `Integer`                   | HTTP status                                        |
+| `duration_ms` | `Integer`                   |                                                    |
+| `client_ip`   | `String \| None`            |                                                    |
+
+`AAICLICK_AUDIT_LOG` selects the policy: `writes` (default) records every
+non-safe method plus every `/mcp` tool call; `all` also records reads (the SPA
+polls every 2 s, so expect volume); `off` disables the middleware. Insert
+failures are logged and never fail the request.
+
+The principal comes from `request.state` (set by `require_principal` and the
+`/mcp` mount middleware); the login route stamps the attempted username so
+failed logins are attributable. `GET /audit` (superadmin) pages the table
+newest-first with `user_id`, `path` prefix, `method`, and `since` filters;
+`aaiclick audit list` mirrors it and the SPA shows it at `@audit`.
 
 # Migration
 
-The auth tables (`users`, `refresh_tokens`, `tenants`, `tenant_memberships`)
-are created by Alembic revisions
+The auth tables (`users`, `refresh_tokens`, `api_tokens`,
+`password_reset_tokens`, `tenants`, `tenant_memberships`) and `audit_log`
+are created by Alembic revisions (this expansion: `ff9242208cc6`)
 (`aaiclick/auth/models.py` is imported in `migrations/env.py` so autogenerate
 sees them). Local/dev (`aaiclick setup`) builds the tables from
 `SQLModel.metadata`, so the revision is only required for Postgres-backed

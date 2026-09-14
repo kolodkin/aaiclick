@@ -1,24 +1,16 @@
-import pytest
-
-from aaiclick.auth import security
-from aaiclick.auth.view_models import CreateTenantRequest, CreateUserRequest
+from aaiclick.auth import store
+from aaiclick.auth.models import ROLE_ADMIN, ROLE_VIEWER, SCOPE_ADMIN, SCOPE_WRITE
+from aaiclick.auth.view_models import CreateApiTokenRequest, CreateTenantRequest, CreateUserRequest
+from aaiclick.internal_api import api_tokens
 from aaiclick.internal_api import tenants as tenants_api
 from aaiclick.internal_api import users as users_api
 
 from ..app import API_PREFIX
-
-SECRET = "router-tenants-test-secret-key-32-plus-bytes"
-
-
-@pytest.fixture
-def enabled(monkeypatch):
-    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: False)
-    monkeypatch.setenv("AAICLICK_JWT_SECRET", SECRET)
+from ..conftest import bearer
 
 
-def _header(*, superadmin=False, tenants=None):
-    token = security.encode_access_token(user_id=1, superadmin=superadmin, tenants=tenants or {}, secret=SECRET, ttl=60)
-    return {"Authorization": f"Bearer {token}"}
+def _header(*, superadmin=False, tenants_roles=None):
+    return bearer(1, superadmin=superadmin, tenants_roles=tenants_roles)
 
 
 async def test_create_and_get_tenant_local_mode(orch_ctx, app_client):
@@ -42,7 +34,7 @@ async def test_bad_slug_422(orch_ctx, app_client):
 
 
 async def test_list_tenants_requires_superadmin(orch_ctx, app_client, enabled):
-    res = await app_client.get(f"{API_PREFIX}/tenants", headers=_header(tenants={5: "admin"}))
+    res = await app_client.get(f"{API_PREFIX}/tenants", headers=_header(tenants_roles={5: "admin"}))
     assert res.status_code == 403 and res.json()["code"] == "forbidden"
     res = await app_client.get(f"{API_PREFIX}/tenants", headers=_header(superadmin=True))
     assert res.status_code == 200
@@ -52,8 +44,8 @@ async def test_member_routes_allow_tenant_admin_only(orch_ctx, app_client, enabl
     tenant = await tenants_api.create_tenant(CreateTenantRequest(slug="acme", name="Acme"))
     user = await users_api.create_user(CreateUserRequest(username="lee", password="pw"))
 
-    admin = _header(tenants={tenant.id: "admin"})
-    viewer = _header(tenants={tenant.id: "viewer"})
+    admin = _header(tenants_roles={tenant.id: "admin"})
+    viewer = _header(tenants_roles={tenant.id: "viewer"})
 
     put = await app_client.put(
         f"{API_PREFIX}/tenants/{tenant.id}/members/{user.id}", json={"role": "viewer"}, headers=admin
@@ -74,5 +66,51 @@ async def test_member_routes_allow_tenant_admin_only(orch_ctx, app_client, enabl
 
 async def test_get_tenant_non_member_not_found(orch_ctx, app_client, enabled):
     tenant = await tenants_api.create_tenant(CreateTenantRequest(slug="acme", name="Acme"))
-    res = await app_client.get(f"{API_PREFIX}/tenants/{tenant.id}", headers=_header(tenants={999: "admin"}))
+    res = await app_client.get(f"{API_PREFIX}/tenants/{tenant.id}", headers=_header(tenants_roles={999: "admin"}))
     assert res.status_code == 404
+
+
+async def test_write_token_cannot_manage_memberships(orch_ctx, app_client, enabled):
+    """Path-scoped routes gate on scope too, not role alone: managing members is
+    an `admin` operation whichever way the tenant is named."""
+    tenant = await store.create_tenant(slug="acme", name="Acme")
+    boss = await users_api.create_user(CreateUserRequest(username="boss", password="pw"))
+    await store.set_membership(tenant_id=tenant.id, user_id=boss.id, role=ROLE_ADMIN)
+    created = await api_tokens.create_token(
+        boss.id, CreateApiTokenRequest(name="ci", scope=SCOPE_WRITE, tenant_id=tenant.id)
+    )
+    res = await app_client.put(
+        f"{API_PREFIX}/tenants/{tenant.id}/members/{boss.id}",
+        json={"role": ROLE_VIEWER},
+        headers={"Authorization": f"Bearer {created.token}"},
+    )
+    assert res.status_code == 403 and res.json()["code"] == "forbidden"
+
+
+async def test_a_bound_token_cannot_reach_another_tenant_by_path(orch_ctx, app_client, enabled):
+    """The binding holds on the path routes too, or it is not a binding."""
+    mine = await store.create_tenant(slug="mine", name="Mine")
+    theirs = await store.create_tenant(slug="theirs", name="Theirs")
+    root = await users_api.create_user(CreateUserRequest(username="root", password="pw", superadmin=True))
+    created = await api_tokens.create_token(
+        root.id, CreateApiTokenRequest(name="ci", scope=SCOPE_ADMIN, tenant_id=mine.id)
+    )
+    res = await app_client.get(
+        f"{API_PREFIX}/tenants/{theirs.id}/members",
+        headers={"Authorization": f"Bearer {created.token}"},
+    )
+    assert res.status_code == 404
+
+
+async def test_superadmin_is_not_a_membership_role(orch_ctx, app_client, enabled):
+    """It is the instance flag on `users`; the boundary rejects it rather than
+    leaving a row whose role resolves to instance scope."""
+    tenant = await store.create_tenant(slug="acme", name="Acme")
+    boss = await users_api.create_user(CreateUserRequest(username="boss", password="pw"))
+    await store.set_membership(tenant_id=tenant.id, user_id=boss.id, role=ROLE_ADMIN)
+    res = await app_client.put(
+        f"{API_PREFIX}/tenants/{tenant.id}/members/{boss.id}",
+        json={"role": "superadmin"},
+        headers=_header(superadmin=True),
+    )
+    assert res.status_code == 422

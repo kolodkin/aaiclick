@@ -7,12 +7,14 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from ..log_models import SnowflakeId
-from .models import Role
+from .models import SCOPE_READ, Role, ScopeLevel, TenantRole
 
 
 class LoginRequest(BaseModel):
     username: str
     password: str
+    totp_code: str | None = None
+    """Required once the account has MFA enabled (``401 code="mfa_required"`` otherwise)."""
 
 
 class RefreshRequest(BaseModel):
@@ -45,13 +47,13 @@ class CreateTenantRequest(BaseModel):
 
 
 class MemberView(BaseModel):
-    user_id: int
+    user_id: SnowflakeId
     username: str
     role: Role
 
 
 class SetMemberRequest(BaseModel):
-    role: Role
+    role: TenantRole
 
 
 class TenantRoleView(BaseModel):
@@ -65,24 +67,34 @@ class MeView(BaseModel):
     """Current principal. ``id``/``username`` are ``None`` in local mode
     (auth disabled — the synthetic superadmin has no user row)."""
 
-    id: int | None
+    id: SnowflakeId | None
     username: str | None
     superadmin: bool
+    mfa_enabled: bool = False
     tenants: list[TenantRoleView]
 
 
 class UserView(BaseModel):
-    id: int
+    id: SnowflakeId
     username: str
     superadmin: bool
     disabled: bool
+    email: str | None
+    mfa_enabled: bool
+    has_password: bool
     created_at: datetime
 
 
 class CreateUserRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(min_length=1, max_length=100)
+    password: str | None = None
+    """``None`` creates a user who can only sign in after redeeming a reset link."""
     superadmin: bool = False
+    email: str | None = None
+
+
+class SetEmailRequest(BaseModel):
+    email: str | None
 
 
 class SetSuperadminRequest(BaseModel):
@@ -111,3 +123,85 @@ class TenantListFilter(BaseModel):
     limit: int = 50
     offset: int = 0
     cursor: str | None = None
+
+
+class ApiTokenView(BaseModel):
+    """A token as listed — never carries the secret."""
+
+    id: SnowflakeId
+    name: str
+    prefix: str
+    scope: ScopeLevel
+    tenant_id: SnowflakeId | None
+    expires_at: datetime | None
+    last_used_at: datetime | None
+    revoked_at: datetime | None
+    created_at: datetime
+
+
+class ApiTokenCreated(ApiTokenView):
+    """Create response: the only time the raw ``token`` is ever returned."""
+
+    token: str
+
+
+class CreateApiTokenRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    scope: ScopeLevel = SCOPE_READ
+    tenant_id: SnowflakeId | None = None
+    """Required below ``superadmin``; ignored (and stored ``None``) at that level."""
+    expires_at: datetime | None = None
+
+
+class MfaSetupView(BaseModel):
+    """A pending TOTP secret; MFA turns on only after ``/auth/me/mfa/enable``
+    proves the authenticator has it."""
+
+    secret: str
+    otpauth_uri: str
+
+
+class MfaEnableRequest(BaseModel):
+    code: str
+
+
+class MfaDisableRequest(BaseModel):
+    """Both factors are needed to turn MFA off."""
+
+    password: str
+    code: str
+
+
+class PasswordResetLinkView(BaseModel):
+    """An admin-minted reset token. ``url`` is set when ``AAICLICK_PUBLIC_URL``
+    is configured; either way the raw ``token`` appears here only."""
+
+    token: str
+    expires_at: datetime
+    url: str | None
+
+
+class InviteUserRequest(BaseModel):
+    """Create a user who sets their own password by redeeming the link.
+
+    Either an instance invite (``superadmin=True``, no tenant) or a tenant
+    invite (``tenant_id`` + ``role``) — never both.
+    """
+
+    username: str = Field(min_length=1, max_length=100)
+    superadmin: bool = False
+    tenant_id: SnowflakeId | None = None
+    role: TenantRole | None = None
+    email: str | None = None
+
+
+class InviteView(BaseModel):
+    """The new user and the one-time link that lets them in."""
+
+    user: UserView
+    link: PasswordResetLinkView
+
+
+class PasswordResetRedeem(BaseModel):
+    token: str
+    new_password: str = Field(min_length=1)

@@ -17,6 +17,12 @@ inside ``local_runtime()``'s outer context — all consistent.
 ``setup`` / ``migrate`` / ``bootstrap_ollama`` are infrastructure
 commands and run without an orchestration context, matching the CLI.
 
+Every tool carries exactly one RBAC tag naming the level on the scope
+ladder it needs — ``read``, ``write`` (member-level saves), ``admin``
+(tenant mutations), or ``superadmin`` (instance operations) — enforced per
+call and used to filter ``tools/list`` by ``McpRbacMiddleware``
+(``server/mcp_rbac.py``).
+
 Mounted on the FastAPI app in ``aaiclick.server.app``; the module-level
 ``mcp`` instance is also usable standalone (``mcp.run()``) or from
 in-process tests via ``fastmcp.Client(mcp)``.
@@ -81,6 +87,8 @@ from aaiclick.viewer.view_models import (
     SavedQueryIn,
 )
 
+from .mcp_rbac import TAG_ADMIN, TAG_READ, TAG_SUPERADMIN, TAG_WRITE, McpRbacMiddleware
+
 
 @asynccontextmanager
 async def _mcp_lifespan(server: FastMCP) -> AsyncIterator[None]:
@@ -101,41 +109,42 @@ mcp: FastMCP = FastMCP(
         "the same backends as the REST surface under /api/v0 — see docs/designs/api_server.md."
     ),
     lifespan=_mcp_lifespan,
+    middleware=[McpRbacMiddleware()],
 )
 
 
 # --- jobs -------------------------------------------------------------
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_READ})
 async def list_jobs(filter: JobListFilter | None = None) -> Page[JobView]:
     """Return a page of jobs ordered by ``created_at`` descending."""
     async with orch_context(with_ch=False):
         return await jobs_api.list_jobs(filter)
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_READ})
 async def get_job(ref: RefId) -> JobDetail:
     """Return full job detail including all tasks."""
     async with orch_context(with_ch=False):
         return await jobs_api.get_job(ref)
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_READ})
 async def job_stats(ref: RefId) -> JobStatsView:
     """Return execution statistics for a job and its tasks."""
     async with orch_context(with_ch=False):
         return await jobs_api.job_stats(ref)
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_ADMIN})
 async def cancel_job(ref: RefId) -> JobView:
     """Cancel a job and its non-terminal tasks."""
     async with orch_context(with_ch=False):
         return await jobs_api.cancel_job(ref)
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_ADMIN})
 async def run_job(request: RunJobRequest) -> JobView:
     """Run a job immediately, auto-registering if needed."""
     async with orch_context(with_ch=True):
@@ -145,7 +154,7 @@ async def run_job(request: RunJobRequest) -> JobView:
 # --- registered jobs --------------------------------------------------
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_READ})
 async def list_registered_jobs(
     filter: RegisteredJobFilter | None = None,
 ) -> Page[RegisteredJobView]:
@@ -154,21 +163,21 @@ async def list_registered_jobs(
         return await rj_api.list_registered_jobs(filter)
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_ADMIN})
 async def register_job(request: RegisterJobRequest) -> RegisteredJobView:
     """Register a new job in the catalog."""
     async with orch_context(with_ch=False):
         return await rj_api.register_job(request)
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_ADMIN})
 async def enable_job(name: str) -> RegisteredJobView:
     """Enable a registered job and recompute its next fire time."""
     async with orch_context(with_ch=False):
         return await rj_api.enable_job(name)
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_ADMIN})
 async def disable_job(name: str) -> RegisteredJobView:
     """Disable a registered job and clear its next fire time."""
     async with orch_context(with_ch=False):
@@ -178,14 +187,14 @@ async def disable_job(name: str) -> RegisteredJobView:
 # --- tasks ------------------------------------------------------------
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_READ})
 async def get_task(task_id: int) -> TaskDetail:
     """Return full task detail by numeric ID."""
     async with orch_context(with_ch=False):
         return await tasks_api.get_task(task_id)
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_ADMIN})
 async def clear_task(task_id: int) -> ClearTaskView:
     """Reset a task and all its downstream tasks to PENDING for re-run."""
     async with orch_context(with_ch=False):
@@ -195,21 +204,21 @@ async def clear_task(task_id: int) -> ClearTaskView:
 # --- execution workers ----------------------------------------------------------
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_READ})
 async def list_execution_workers(filter: ExecutionWorkerFilter | None = None) -> Page[ExecutionWorkerView]:
     """Return a page of execution workers ordered by ``started_at`` descending."""
     async with orch_context(with_ch=False):
         return await execution_workers_api.list_execution_workers(filter)
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_SUPERADMIN})
 async def start_execution_worker(request: StartExecutionWorkerRequest | None = None) -> None:
     """Spawn a detached worker process (distributed mode only; errors in local mode)."""
     async with orch_context(with_ch=False):
         await execution_workers_api.start_execution_worker(request)
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_SUPERADMIN})
 async def stop_execution_worker(execution_worker_id: int) -> ExecutionWorkerView:
     """Request a worker to stop gracefully after its current task."""
     async with orch_context(with_ch=False):
@@ -219,28 +228,28 @@ async def stop_execution_worker(execution_worker_id: int) -> ExecutionWorkerView
 # --- objects ----------------------------------------------------------
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_READ})
 async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
     """Return a page of persistent objects ordered by name."""
     async with orch_context(with_ch=True):
         return await objects_api.list_objects(filter)
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_READ})
 async def get_object(name: str, job: RefId | None = None) -> ObjectDetail:
     """Return full object detail including its schema; ``job`` selects that job's object."""
     async with orch_context(with_ch=True):
         return await objects_api.get_object(name, job)
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_ADMIN})
 async def delete_object(name: str) -> Deleted:
     """Drop a global-scope persistent object by name (idempotent)."""
     async with orch_context(with_ch=True):
         return await objects_api.delete_object(name)
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_ADMIN})
 async def purge_objects(request: PurgeObjectsRequest) -> PurgeObjectsResult:
     """Drop global-scope persistent objects filtered by creation time."""
     async with orch_context(with_ch=True):
@@ -252,7 +261,7 @@ async def purge_objects(request: PurgeObjectsRequest) -> PurgeObjectsResult:
 # planned CLI work — see docs/designs/future.md.
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_READ})
 async def oplog_subgraph(
     target_table: str,
     direction: LineageDirection = "backward",
@@ -263,7 +272,7 @@ async def oplog_subgraph(
         return await lineage_api.oplog_subgraph(target_table, direction=direction, max_depth=max_depth)
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_READ})
 async def query_table(
     sql: str,
     scope_tables: list[str],
@@ -278,7 +287,7 @@ async def query_table(
         return await lineage_api.query_table(sql, scope_tables=scope_tables, row_limit=row_limit)
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_READ})
 async def get_table_schema(table: str, scope_tables: list[str]) -> TableSchema:
     """Return columns and types for ``table`` (must be in ``scope_tables``)."""
     async with orch_context(with_ch=True):
@@ -288,19 +297,19 @@ async def get_table_schema(table: str, scope_tables: list[str]) -> TableSchema:
 # --- setup ------------------------------------------------------------
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_SUPERADMIN})
 def setup(ai: bool = False) -> SetupResult:
     """Run environment setup — filesystem, SQL migrations, (optionally) AI deps."""
     return setup_api.setup(ai=ai)
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_SUPERADMIN})
 def migrate(action: MigrationAction, revision: str | None = None) -> MigrationResult:
     """Run an alembic migration subcommand."""
     return setup_api.migrate(action, revision)
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_SUPERADMIN})
 def bootstrap_ollama(
     model: str,
     base_url: str = OLLAMA_BASE_URL,
@@ -312,7 +321,7 @@ def bootstrap_ollama(
 # --- viewer: object queries, saved queries, dashboards ------------------
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_READ})
 async def query_object(request: ObjectQueryRequest) -> ObjectQueryResult:
     """Read one page of an object by ``(scope, object)`` with optional
     ``fields`` / ``where`` / ``order_by``; JSONCompact ``meta`` + ``data``."""
@@ -320,56 +329,56 @@ async def query_object(request: ObjectQueryRequest) -> ObjectQueryResult:
         return await viewer_api.query_object(request)
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_READ})
 async def list_saved_queries(filter: SavedQueryFilter | None = None) -> Page[SavedQuery]:
     """Saved viewer queries, optionally for one scope or object."""
     async with orch_context(with_ch=True):
         return await viewer_api.list_saved_queries(filter)
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_WRITE})
 async def save_query(query: SavedQueryIn) -> SavedQuery:
     """Create or replace a saved viewer query by name."""
     async with orch_context(with_ch=True):
         return await viewer_api.save_query(query)
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_WRITE})
 async def delete_saved_query(name: str) -> Deleted:
     """Delete a saved viewer query by name."""
     async with orch_context(with_ch=True):
         return await viewer_api.delete_saved_query(name)
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_READ})
 async def list_dashboards() -> Page[DashboardSummary]:
     """Dashboards of the active tenant."""
     async with orch_context(with_ch=True):
         return await viewer_api.list_dashboards()
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_READ})
 async def get_dashboard(name: str) -> Dashboard:
     """A dashboard's HTML and panel queries."""
     async with orch_context(with_ch=True):
         return await viewer_api.get_dashboard(name)
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_WRITE})
 async def save_dashboard(dashboard: DashboardIn) -> Dashboard:
     """Create or replace a dashboard: HTML plus named object queries."""
     async with orch_context(with_ch=True):
         return await viewer_api.save_dashboard(dashboard)
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_WRITE})
 async def delete_dashboard(name: str) -> Deleted:
     """Delete a dashboard by name."""
     async with orch_context(with_ch=True):
         return await viewer_api.delete_dashboard(name)
 
 
-@mcp.tool
+@mcp.tool(tags={TAG_READ})
 async def run_dashboard(name: str) -> DashboardResults:
     """Run every panel query of a dashboard; column-oriented results."""
     async with orch_context(with_ch=True):
