@@ -352,8 +352,11 @@ every level beneath it. `read` is the default at every mint site.
 
 The first three name a tenant at mint (`api_tokens.tenant_id`) and act only
 there, so `X-Tenant-Id` no longer selects one: the header may be omitted, and
-one naming a different tenant is `422` rather than quietly ignored.
-`superadmin` names none, and selects a tenant with the header exactly as a
+one naming a different tenant is `422` rather than quietly ignored. Routes that
+name their tenant in the path rather than the header enforce the same binding
+in `check_tenant_scope`, where a tenant the token is not bound to reads as
+`404` — otherwise an `admin` token minted in one tenant could reach another by
+URL. `superadmin` names none, and selects a tenant with the header exactly as a
 superadmin session does.
 
 A caller mints at or below `ROLE_SCOPES[their role in the named tenant]` — you
