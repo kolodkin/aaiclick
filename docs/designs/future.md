@@ -66,13 +66,22 @@ Shape, following Airflow's per-try log selector:
     Airflow screenshots to follow as the reference for layout and wording — do
     not settle the UI details before then.
 
-## Tenant RBAC — Remaining Phases
+## Tenants — Kubernetes Control Plane
 
-Phases 1 (backend core) and 2 (object tenancy) are implemented —
-`docs/designs/tenant_rbac.md`. Remaining:
+Multi-tenancy as a fleet layer rather than a filtered column: a control
+plane that provisions one full aaiclick installation per tenant, each in
+its own Kubernetes namespace, with central identity and direct routing to
+each tenant's own ingress.
 
-- **Phase 3 — SPA**: tenant switcher sending `X-Tenant-Id`, membership admin
-  UI, superadmin-gated controls.
+An installation carries no tenant state — see `docs/designs/auth.md` for
+the RBAC it does carry. Tenancy is a Kubernetes-only feature; there is no
+Compose or local-mode equivalent.
+
+Full design: `docs/designs/tenants.md`.
+
+**When to revisit**: when a deployment must serve mutually-distrusting
+parties. The earlier metadata-level scheme filtered one shared database by
+an active tenant and never provided that, which is why it was removed.
 
 ## Password Reset by Email
 
