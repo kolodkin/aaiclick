@@ -13,6 +13,7 @@ from .models import (
     TASK_COMPLETED,
     TASK_FAILED,
     TASK_PENDING,
+    TASK_RUNNING,
     Dependency,
     Group,
     Job,
@@ -23,6 +24,7 @@ from .models import (
 from .view_models import (
     GRAPH_EDGE_BUILD,
     GRAPH_EDGE_DEPENDENCY,
+    GRAPH_NODE_GROUP,
     GRAPH_NODE_TASK,
     JobDetail,
     JobStatsView,
@@ -249,22 +251,114 @@ def test_build_job_graph_view_expands_group_dependency_onto_sink_task():
 
     view = build_job_graph_view(job, tasks, groups, dependencies)
 
-    assert {n.id for n in view.nodes} == {101, 102, 103}
-    assert all(n.kind == GRAPH_NODE_TASK for n in view.nodes)
+    assert {n.id for n in view.nodes if n.kind == GRAPH_NODE_TASK} == {101, 102, 103}
     edges = {(e.source_id, e.target_id) for e in view.edges}
     assert (102, 103) in edges
     assert (101, 103) not in edges
     assert view.dropped_cycle_edges == 0
 
 
-def test_build_job_graph_view_carries_parent_group_id_for_future_containers():
+def test_build_job_graph_view_emits_group_container_with_rolled_up_status():
+    """A group becomes a ``"group"`` node whose status and timing summarise its
+    members, and member tasks point at it via ``parent_group_id``."""
     job = Job(id=1, name="graph_job")
-    tasks = [Task(id=101, job_id=1, group_id=200, entrypoint="m.a", name="a")]
+    tasks = [
+        Task(
+            id=101,
+            job_id=1,
+            group_id=200,
+            entrypoint="m.a",
+            name="a",
+            status=TASK_COMPLETED,
+            started_at=datetime(2025, 1, 1, 12, 0, 0),
+            completed_at=datetime(2025, 1, 1, 12, 0, 5),
+        ),
+        Task(
+            id=102,
+            job_id=1,
+            group_id=200,
+            entrypoint="m.b",
+            name="b",
+            status=TASK_RUNNING,
+            started_at=datetime(2025, 1, 1, 12, 0, 3),
+        ),
+        Task(id=103, job_id=1, entrypoint="m.c", name="c"),
+    ]
     groups = [Group(id=200, job_id=1, name="g")]
 
     view = build_job_graph_view(job, tasks, groups, [])
 
-    assert view.nodes[0].parent_group_id == 200
+    by_id = {n.id: n for n in view.nodes}
+    assert by_id[200].kind == GRAPH_NODE_GROUP
+    assert by_id[200].name == "g"
+    assert by_id[200].parent_group_id is None
+    assert by_id[200].status == TASK_RUNNING
+    assert by_id[200].started_at == datetime(2025, 1, 1, 12, 0, 0)
+    assert by_id[200].completed_at is None
+    assert by_id[101].parent_group_id == 200
+    assert by_id[103].parent_group_id is None
+
+
+def test_build_job_graph_view_nested_group_rolls_up_descendants():
+    """A parent group's status covers tasks in nested child groups, and the
+    child group carries ``parent_group_id`` so the client can nest containers."""
+    job = Job(id=1, name="graph_job")
+    tasks = [
+        Task(id=101, job_id=1, group_id=200, entrypoint="m.a", name="a", status=TASK_COMPLETED),
+        Task(id=102, job_id=1, group_id=201, entrypoint="m.b", name="b", status=TASK_FAILED),
+    ]
+    groups = [Group(id=200, job_id=1, name="outer"), Group(id=201, job_id=1, parent_group_id=200, name="inner")]
+
+    view = build_job_graph_view(job, tasks, groups, [])
+
+    by_id = {n.id: n for n in view.nodes}
+    assert by_id[200].status == TASK_FAILED
+    assert by_id[201].status == TASK_FAILED
+    assert by_id[201].parent_group_id == 200
+
+
+def test_build_job_graph_view_completed_group_ends_at_latest_member():
+    job = Job(id=1, name="graph_job")
+    tasks = [
+        Task(
+            id=101,
+            job_id=1,
+            group_id=200,
+            entrypoint="m.a",
+            name="a",
+            status=TASK_COMPLETED,
+            started_at=datetime(2025, 1, 1, 12, 0, 0),
+            completed_at=datetime(2025, 1, 1, 12, 0, 9),
+        ),
+        Task(
+            id=102,
+            job_id=1,
+            group_id=200,
+            entrypoint="m.b",
+            name="b",
+            status=TASK_COMPLETED,
+            started_at=datetime(2025, 1, 1, 12, 0, 1),
+            completed_at=datetime(2025, 1, 1, 12, 0, 4),
+        ),
+    ]
+    groups = [Group(id=200, job_id=1, name="g")]
+
+    view = build_job_graph_view(job, tasks, groups, [])
+
+    group = next(n for n in view.nodes if n.kind == GRAPH_NODE_GROUP)
+    assert group.status == TASK_COMPLETED
+    assert group.completed_at == datetime(2025, 1, 1, 12, 0, 9)
+
+
+def test_build_job_graph_view_omits_empty_groups():
+    """A group with no tasks anywhere beneath it has nothing to contain."""
+    job = Job(id=1, name="graph_job")
+    tasks = [Task(id=101, job_id=1, entrypoint="m.a", name="a")]
+    groups = [Group(id=200, job_id=1, name="empty"), Group(id=201, job_id=1, parent_group_id=200, name="inner")]
+
+    view = build_job_graph_view(job, tasks, groups, [])
+
+    assert {n.id for n in view.nodes} == {101}
 
 
 def test_build_job_graph_view_classifies_build_edges_and_the_attaching_one():

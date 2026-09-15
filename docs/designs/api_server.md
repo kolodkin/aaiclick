@@ -138,7 +138,9 @@ the numeric string and coerce it back to `int`. The generated SPA types
 | `JobListFilter`        | `status`, `name`, `since`, `limit`, `cursor`                 |
 | `RegisteredJobFilter`  | `enabled`, `name`, `limit`, `cursor`                         |
 | `ExecutionWorkerFilter`         | `status`, `limit`                                            |
-| `ObjectFilter`         | `prefix`, `scope`, `limit`, `cursor`                         |
+| `ObjectFilter`         | `prefix`, `scope`, `job`, `limit`, `cursor`                  |
+
+Viewer request models (`ObjectQueryRequest`, `SavedQueryIn`, `DashboardIn`, their filters and results) live in `aaiclick/viewer/view_models.py`; see `docs/designs/viewer.md`.
 
 ## Orchestration (`aaiclick/orchestration/view_models.py`)
 
@@ -227,7 +229,28 @@ All REST paths share a common `/api/v0` prefix — see
 | `data get <name>`          | `get_object(name)`                 | `GET /objects/{name}`              | `get_object`              |
 | `data delete <name>`       | `delete_object(name)`              | `DELETE /objects/{name}`           | `delete_object`           |
 | `data purge`               | `purge_objects(filter)`            | `POST /objects:purge`              | `purge_objects`           |
+| `data query <object>`      | `query_object(request)`            | `POST /viewer/query`               | `query_object`            |
+| `view queries list`        | `list_saved_queries(filter)`       | `GET /viewer/queries`              | `list_saved_queries`      |
+| `view queries save`        | `save_query(query)`                | `PUT /viewer/queries/{name}`       | `save_query`              |
+| `view queries delete`      | `delete_saved_query(name)`         | `DELETE /viewer/queries/{name}`    | `delete_saved_query`      |
+| `view dashboards list`     | `list_dashboards()`                | `GET /viewer/dashboards`           | `list_dashboards`         |
+| `view dashboards get`      | `get_dashboard(name)`              | `GET /viewer/dashboards/{name}`    | `get_dashboard`           |
+| `view dashboards save`     | `save_dashboard(dashboard)`        | `PUT /viewer/dashboards/{name}`    | `save_dashboard`          |
+| `view dashboards delete`   | `delete_dashboard(name)`           | `DELETE /viewer/dashboards/{name}` | `delete_dashboard`        |
+| `view dashboards run`      | `run_dashboard(name)`              | `POST /viewer/dashboards/{name}:run` | `run_dashboard`         |
 | *(new)* task detail        | `get_task(id)`                     | `GET /tasks/{id}`                  | `get_task`                |
+| `explain <table> [q]`      | `lineage_ai.explain_lineage(...)`  | —                                  | —                         |
+| `debug <table> "<q>"`      | `lineage_ai.debug_result(...)`     | —                                  | —                         |
+
+`job wait <ref>` and `run-job --progress` have no row: they are CLI-only
+compositions over `job_stats`. Blocking a request for up to 600s is not a
+valid server shape — REST clients poll `GET /jobs/{ref}/stats` instead.
+
+`explain` / `debug` need the `ai` extra, so their wrappers live in
+`internal_api.lineage_ai`, imported on demand by the CLI and never from
+`internal_api.__init__`. REST and MCP expose only the AI-independent
+primitives in `internal_api.lineage`; the calling agent composes them itself.
+
 
 # CLI Rendering Contract
 
@@ -378,6 +401,15 @@ workers.
 `Forbidden` ships in v0 so the error-mapping table is stable; no route
 raises it until scopes land.
 
+## Live updates — `GET /api/v0/events`
+
+A `text/event-stream` of `changed` events (no payload) fed by Postgres
+`LISTEN`/`NOTIFY` in distributed mode and an in-process bus in local mode.
+Requires a principal like every other resource route; the signal itself
+carries nothing per-user. Design and client behaviour:
+`docs/designs/frontend.md` — Live updates. **Implementation**:
+`aaiclick/server/events.py` — see `stream_events`, `live_events`.
+
 # MCP Surface
 
 `aaiclick/server/mcp.py` exposes a module-level `mcp = FastMCP("aaiclick")`
@@ -456,7 +488,8 @@ parallel `AAICLICK_SERVER_*` namespace.
 
 # Configuration
 
-The server reuses the CLI's existing env vars and adds a single auth knob:
+The server reuses the CLI's existing env vars and adds the auth knobs
+documented in `docs/designs/auth.md` — Configuration:
 
 | Variable               | Purpose                                              | Status                 |
 |------------------------|------------------------------------------------------|------------------------|
@@ -470,36 +503,41 @@ The server reuses the CLI's existing env vars and adds a single auth knob:
 
 **Design**: `docs/designs/auth.md`. **Implementation**: `aaiclick/server/auth.py`
 (principal resolution + RBAC), `aaiclick/auth/` (models, security, store),
-`aaiclick/internal_api/auth.py` (login/refresh/logout), wired in
-`aaiclick/server/app.py`.
+`aaiclick/internal_api/auth.py` (login / refresh / logout, MFA, password
+reset), wired in `aaiclick/server/app.py`.
 
-Username/password users with two roles (`admin` / `viewer`),
-authenticated by a short-lived access JWT + rotating refresh token. The CLI
-runs `internal_api` in-process and never crosses this HTTP-transport layer.
+Username/password users with one role each (`viewer` / `member` / `admin`),
+authenticated by a short-lived access JWT +
+rotating refresh token, or by a scoped long-lived API token. The CLI runs
+`internal_api` in-process and never crosses this HTTP-transport layer.
 
 - **Gating**: mode-derived, not a flag — open in local mode (synthetic admin +
   startup `WARNING`), enforced in distributed mode (requires
   `AAICLICK_JWT_SECRET`, else the server refuses to start).
-- **Login**: `POST /api/v0/auth/login` `{username, password}` → access +
-  refresh tokens; `POST /auth/refresh` rotates; `POST /auth/logout` revokes;
-  `GET /auth/me` returns the current principal.
-- **Enforcement**: `HTTPBearer` extracts the access JWT; `require_principal`
-  guards every `/api/v0/*` router and `require_admin` guards every mutating
-  endpoint and all of `/users`. Reads need only a valid principal.
-- **MCP**: the `/mcp` mount is admin-only via an ASGI middleware (`Depends`
-  does not propagate into mounted sub-apps).
+- **Login**: `POST /api/v0/auth/login` `{username, password[, totp_code]}` →
+  access + refresh tokens; `POST /auth/refresh` rotates; `POST /auth/logout`
+  revokes; `GET /auth/me` returns the current principal. MFA and password
+  reset are optional, configuration-driven extensions — see
+  `docs/designs/auth.md`.
+- **Enforcement**: `HTTPBearer` extracts the credential (access JWT or
+  `aaic_` API token); `require_principal` guards every `/api/v0/*` router,
+  then `require_scope(...)` gates on the level a route needs (`require_write`
+  for a member's own mutations, `require_admin` for everything else — jobs,
+  objects, users, audit, worker control). Authorization always
+  compares scopes: a session resolves one through its role, a token carries
+  its own.
+- **MCP**: the `/mcp` mount requires any principal (ASGI middleware — `Depends`
+  does not propagate into mounted sub-apps); each tool is gated by its
+  `read` / `write` / `admin` tag in `aaiclick/server/mcp_rbac.py`.
+- **Audit**: `aaiclick/server/audit.py` records requests to `audit_log`
+  per `AAICLICK_AUDIT_LOG`.
 
 Open paths (never 401): `GET /health`, `/api/v0/openapi.json`, `/docs`,
-`/redoc`, and `/api/v0/auth/login|refresh`.
+`/redoc`, `/api/v0/auth/login|refresh`, and `/api/v0/auth/password-reset*`.
 
-The error envelope is the standard `Problem` (`code="unauthorized"` / 401 with
-`WWW-Authenticate: Bearer`, or `code="forbidden"` / 403).
-
-## Future
-
-Per-tool MCP RBAC, a user-management UI, long-lived API tokens / PATs with
-scopes, OAuth 2.0 / OIDC, and a per-request audit log are tracked in
-`docs/designs/future.md`.
+The error envelope is the standard `Problem` (`code="unauthorized"` or
+`code="mfa_required"` / 401 with `WWW-Authenticate: Bearer`, or
+`code="forbidden"` / 403).
 
 # Non-Goals
 

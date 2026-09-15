@@ -158,3 +158,11 @@ async def test_run_job_bare_name_resolves_registered_entrypoint(orch_ctx):
     detail = await jobs.get_job(view.id)
 
     assert detail.tasks[0].entrypoint == _SAMPLE_TASK
+
+
+async def test_resolve_job_by_id_and_name_and_missing(orch_ctx):
+    job = await create_job("rj", _SAMPLE_TASK)
+    assert (await jobs.resolve_job(job.id)).id == job.id
+    assert (await jobs.resolve_job("rj")).id == job.id
+    with pytest.raises(errors.NotFound):
+        await jobs.resolve_job("no_such_job")

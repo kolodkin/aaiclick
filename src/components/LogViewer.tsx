@@ -1,6 +1,8 @@
 import { memo, useState } from "react";
-import type { LogLine } from "../api/types";
+import type { LogLine, TaskStatus } from "../api/types";
 import { useTaskLogs } from "../api/hooks";
+import { LiveStatus } from "./LiveStatus";
+import { isTaskStarted, isTerminalTask } from "../lib/status";
 
 // Render a captured created_at (ISO string) as HH:MM:SS.mmm for the inline
 // timestamp prefix. Kept tiny and dependency-free; the value is informational.
@@ -37,27 +39,48 @@ const LogLines = memo(function LogLines({
   );
 });
 
-export function LogViewer({ taskId }: { taskId: string }) {
-  const { data, isLoading, isError } = useTaskLogs(taskId);
+export function LogViewer({ taskId, status }: { taskId: string; status: TaskStatus }) {
+  const started = isTaskStarted(status);
+  const live = started && !isTerminalTask(status);
+  const { data, isLoading, isError, dataUpdatedAt } = useTaskLogs(taskId, status);
   const [showTimestamps, setShowTimestamps] = useState(false);
 
   if (isLoading) return <div className="logs">loading logs…</div>;
   if (isError) return <div className="logs">failed to load logs</div>;
   const lines = data?.lines ?? [];
-  if (!data || !data.available || lines.length === 0) {
-    return <div className="logs">(no logs captured for this task)</div>;
-  }
+  const empty = !data || !data.available || lines.length === 0;
+  // Only a finished task can be said to have captured nothing; a queued one has
+  // produced nothing *yet*, and a running one may simply not have flushed —
+  // which keeps its toolbar below, since it is still being polled.
+  const notice = !started
+    ? "Task has not started — no output until it runs."
+    : empty && !live
+      ? "(no logs captured for this task)"
+      : null;
+  if (notice) return <div className="logs sub">{notice}</div>;
   return (
     <div className="logs">
-      <label className="logs-toolbar">
-        <input
-          type="checkbox"
-          checked={showTimestamps}
-          onChange={(e) => setShowTimestamps(e.target.checked)}
-        />
-        Show timestamps
-      </label>
-      <LogLines lines={lines} showTimestamps={showTimestamps} />
+      <div className="logs-toolbar">
+        <label>
+          <input
+            type="checkbox"
+            checked={showTimestamps}
+            onChange={(e) => setShowTimestamps(e.target.checked)}
+          />
+          Show timestamps
+        </label>
+        <div className="spacer" />
+        {/* Logs are on their own clock, not the /events stream — say so here
+            rather than letting the task's "live" badge above imply otherwise.
+            Once the task is terminal nothing more arrives, so the badge goes
+            away instead of ticking up an age that will never reset. */}
+        {live && <LiveStatus updatedAt={dataUpdatedAt} queryKey="task-logs" />}
+      </div>
+      {empty ? (
+        <div className="sub">waiting for output…</div>
+      ) : (
+        <LogLines lines={lines} showTimestamps={showTimestamps} />
+      )}
     </div>
   );
 }

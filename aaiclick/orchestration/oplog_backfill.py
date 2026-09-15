@@ -18,6 +18,7 @@ from .sql_context import get_sql_session
 
 logger = logging.getLogger(__name__)
 
+# Module global on purpose: a once-per-process latch, not per-context state.
 _migration_done = False
 
 

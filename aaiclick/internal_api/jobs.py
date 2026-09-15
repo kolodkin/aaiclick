@@ -61,6 +61,17 @@ async def _resolve_job(ref: RefId, session: AsyncSession | None = None) -> Job |
         ).scalar_one_or_none()
 
 
+async def resolve_job(ref: RefId, session: AsyncSession | None = None) -> Job:
+    """The job for ``ref``: a numeric id, or the most recent job with that name.
+
+    Raises ``NotFound`` when no job matches.
+    """
+    job = await _resolve_job(ref, session)
+    if job is None:
+        raise NotFound(f"Job not found: {ref}")
+    return job
+
+
 async def list_jobs(filter: JobListFilter | None = None) -> Page[JobView]:
     """Return a page of jobs ordered by ``created_at`` descending.
 
@@ -123,9 +134,7 @@ async def _load_job_and_tasks(ref: RefId, session: AsyncSession | None = None) -
     the resolve-and-load contract.
     """
     async with _sql_session(session) as s:
-        job = await _resolve_job(ref, s)
-        if job is None:
-            raise NotFound(f"Job not found: {ref}")
+        job = await resolve_job(ref, s)
         tasks = (
             (await s.execute(select(Task).where(Task.job_id == job.id).order_by(col(Task.created_at)))).scalars().all()
         )
@@ -189,9 +198,7 @@ async def cancel_job(ref: RefId) -> JobView:
     if isinstance(ref, int):
         job_id = ref
     else:
-        job = await _resolve_job(ref)
-        if job is None:
-            raise NotFound(f"Job not found: {ref}")
+        job = await resolve_job(ref)
         job_id = job.id
 
     try:

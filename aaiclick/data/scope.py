@@ -6,7 +6,7 @@ Four scopes share one table-name prefix convention:
 - ``"temp"``       → ``t_<snowflake_id>``         — lifetime: context/task
 - ``"temp_named"`` → ``t_<name>_<snowflake_id>``  — lifetime: context/task (named)
 - ``"job"``        → ``j_<job_id>_<name>``        — lifetime: owning job's TTL
-- ``"global"``     → ``p_<name>``                 — lifetime: forever (user-managed)
+- ``"global"``     → ``p_<name>``                — lifetime: forever (user-managed)
 
 Prefix matching is cheap and works both in Python and in SQL cleanup queries.
 """
@@ -26,9 +26,10 @@ NamedScope = Literal["temp_named", "job", "global"]
 PersistentScope = Literal["job", "global"]
 
 GLOBAL_PREFIX = "p_"
+JOB_PREFIX = "j_"
 TEMP_PREFIX = "t_"
-JOB_SCOPED_RE = re.compile(r"^j_\d+_")
-TEMP_NAMED_RE = re.compile(r"^t_[a-zA-Z_][a-zA-Z0-9_]*_\d+$")
+JOB_SCOPED_RE = re.compile(rf"^{JOB_PREFIX}\d+_")
+TEMP_NAMED_RE = re.compile(rf"^{TEMP_PREFIX}[a-zA-Z_][a-zA-Z0-9_]*_\d+$")
 
 
 def scope_of(table_name: str) -> ObjectScope:
@@ -90,4 +91,4 @@ def make_scoped_table_name(
             "scope='job' requires a job_id; create_object_from_value(scope='job') "
             "must run inside orch_context()/task_scope(). Use scope='global' outside orch."
         )
-    return f"j_{job_id}_{name}"
+    return f"{JOB_PREFIX}{job_id}_{name}"

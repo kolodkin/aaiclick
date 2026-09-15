@@ -3,12 +3,25 @@
 import pytest
 from sqlmodel import select
 
+from ..decorators import job, task
 from ..factories import create_job, create_task
 from ..models import TASK_COMPLETED, TASK_PENDING_CLEANUP, Task
 from ..orch_context import get_sql_session
 from .execution_worker import execution_worker_main_loop
 
 pytestmark = pytest.mark.usefixtures("fast_poll")
+
+
+@task
+async def _child_step(label: str) -> str:
+    """Child of a dynamic registration test — returns its label."""
+    return label
+
+
+@job("test_local_dynamic_list")
+def dynamic_list_pipeline():
+    """Entry task returning a plain list of Tasks (the documented @job shape)."""
+    return [_child_step(label="a"), _child_step(label="b")]
 
 
 async def test_local_worker_executes_task(orch_ctx):
@@ -90,6 +103,25 @@ async def test_local_worker_shell_task_nonzero_exit(orch_ctx):
         task = result.scalar_one()
         assert task.status == TASK_PENDING_CLEANUP
         assert "exit 7" in (task.error or "")
+
+
+async def test_local_worker_registers_returned_task_list(orch_ctx):
+    """An entry task returning a plain list of Tasks registers them as children."""
+    j = await dynamic_list_pipeline()
+
+    tasks_executed = await execution_worker_main_loop(
+        max_tasks=3,
+        install_signal_handlers=False,
+        max_empty_polls=1,
+    )
+    assert tasks_executed == 3
+
+    async with get_sql_session() as session:
+        result = await session.execute(select(Task).where(Task.job_id == j.id))
+        tasks = result.scalars().all()
+
+    assert len(tasks) == 3
+    assert all(t.status == TASK_COMPLETED for t in tasks)
 
 
 async def test_local_worker_no_tasks(orch_ctx):

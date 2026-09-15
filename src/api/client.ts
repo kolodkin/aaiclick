@@ -1,28 +1,9 @@
 import { clearSession, getAccessToken, tryRefresh } from "../lib/auth";
-import type { Problem } from "./types";
+import { ApiError, parseError } from "./problem";
 
 export const API = "/api/v0";
 
-export class ApiError extends Error {
-  status: number;
-  problem: Problem | null;
-  constructor(status: number, problem: Problem | null, message: string) {
-    super(message);
-    this.status = status;
-    this.problem = problem;
-  }
-}
-
-async function parseError(res: Response): Promise<ApiError> {
-  let problem: Problem | null = null;
-  try {
-    problem = (await res.json()) as Problem;
-  } catch {
-    problem = null;
-  }
-  const detail = problem?.detail ?? problem?.title ?? res.statusText;
-  return new ApiError(res.status, problem, detail);
-}
+export { ApiError };
 
 function authHeaders(extra?: HeadersInit): Record<string, string> {
   const headers: Record<string, string> = { ...(extra as Record<string, string>) };
@@ -46,18 +27,36 @@ async function request(path: string, init: RequestInit = {}): Promise<Response> 
   return res;
 }
 
-export async function fetchJSON<T>(path: string): Promise<T> {
-  const res = await request(path);
-  if (!res.ok) throw await parseError(res);
-  return (await res.json()) as T;
-}
-
-export async function postJSON<T>(path: string, body?: unknown): Promise<T> {
+// The one place a verb's request shape and error handling live; callers below
+// only choose how to decode the body.
+async function send(method: string, path: string, body?: unknown): Promise<Response> {
   const res = await request(path, {
-    method: "POST",
+    method,
     headers: body === undefined ? {} : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!res.ok) throw await parseError(res);
+  return res;
+}
+
+// `T` is `void` at the call sites whose route answers 204 (no body to decode).
+async function sendJSON<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await send(method, path, body);
+  if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
+}
+
+export async function postText(path: string, body: unknown): Promise<string> {
+  return (await send("POST", path, body)).text();
+}
+
+export const fetchJSON = <T>(path: string) => sendJSON<T>("GET", path);
+export const postJSON = <T>(path: string, body?: unknown) => sendJSON<T>("POST", path, body);
+export const putJSON = <T>(path: string, body: unknown) => sendJSON<T>("PUT", path, body);
+export const deleteJSON = <T>(path: string) => sendJSON<T>("DELETE", path);
+
+// Open a long-lived response (server-sent events) through the same auth
+// chokepoint. The caller reads `res.body`; `signal` aborts the connection.
+export function openStream(path: string, signal: AbortSignal): Promise<Response> {
+  return request(path, { signal, headers: { Accept: "text/event-stream" } });
 }

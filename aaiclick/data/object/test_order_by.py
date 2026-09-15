@@ -71,11 +71,15 @@ async def test_order_by_mergetree():
 
         result = await ch.query(f"SELECT engine, sorting_key FROM system.tables WHERE name = '{obj.table}'")
         assert result.result_rows[0][0] == "MergeTree"
-        assert result.result_rows[0][1] == "date"
+        assert result.result_rows[0][1] == "(date)"
 
 
 async def test_order_by_multi_column_mergetree():
-    """Multiple order_by columns with MergeTree."""
+    """Multiple order_by columns with MergeTree.
+
+    Unlike a single-column key, ClickHouse flattens a multi-column tuple, so
+    ``sorting_key`` reads back without the surrounding parentheses.
+    """
     async with data_context(engine=ENGINE_MERGE_TREE):
         ch = get_ch_client()
         obj = await create_object_from_value(
@@ -97,7 +101,7 @@ async def test_order_by_falls_back_to_aai_id_on_mergetree():
         )
 
         result = await ch.query(f"SELECT sorting_key FROM system.tables WHERE name = '{obj.table}'")
-        assert result.result_rows[0][0] == "aai_id"
+        assert result.result_rows[0][0] == "(aai_id)"
 
 
 async def test_order_by_no_aai_id_uses_tuple_on_mergetree():
@@ -121,7 +125,7 @@ async def test_explicit_order_by_overrides_aai_id_fallback():
         )
 
         result = await ch.query(f"SELECT sorting_key FROM system.tables WHERE name = '{obj.table}'")
-        assert result.result_rows[0][0] == "date"
+        assert result.result_rows[0][0] == "(date)"
 
 
 async def test_no_order_by_stays_memory(ctx):

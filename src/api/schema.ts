@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/api/v0/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Audit */
+        get: operations["list_audit_api_v0_audit_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v0/auth/login": {
         parameters: {
             query?: never;
@@ -13,7 +30,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Login */
+        /**
+         * Login
+         * @description ``401 code="mfa_required"`` means the password was accepted but the
+         *     account needs ``totp_code`` — retry with it.
+         */
         post: operations["login_api_v0_auth_login_post"];
         delete?: never;
         options?: never;
@@ -55,6 +76,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v0/auth/me/mfa/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mfa Disable */
+        post: operations["mfa_disable_api_v0_auth_me_mfa_disable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/auth/me/mfa/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mfa Enable */
+        post: operations["mfa_enable_api_v0_auth_me_mfa_enable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/auth/me/mfa/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mfa Setup */
+        post: operations["mfa_setup_api_v0_auth_me_mfa_setup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v0/auth/me/password": {
         parameters: {
             query?: never;
@@ -75,6 +147,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v0/auth/password-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Redeem Password Reset */
+        post: operations["redeem_password_reset_api_v0_auth_password_reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v0/auth/refresh": {
         parameters: {
             query?: never;
@@ -86,6 +175,64 @@ export interface paths {
         put?: never;
         /** Refresh */
         post: operations["refresh_api_v0_auth_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/auth/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Tokens */
+        get: operations["list_tokens_api_v0_auth_tokens_get"];
+        put?: never;
+        /**
+         * Create Token
+         * @description The raw ``token`` appears in this response and nowhere else.
+         */
+        post: operations["create_token_api_v0_auth_tokens_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/auth/tokens/{token_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke Token */
+        delete: operations["revoke_token_api_v0_auth_tokens__token_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stream change signals
+         * @description `text/event-stream` of `changed` events; refetch after each one. Sends a keepalive comment while idle.
+         */
+        get: operations["stream_events_api_v0_events_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -127,6 +274,26 @@ export interface paths {
         put?: never;
         /** Stop Execution Worker */
         post: operations["stop_execution_worker_api_v0_execution_workers__execution_worker_id__stop_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/invites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Invite User
+         * @description Create a passwordless user with the given role, and mint their link.
+         */
+        post: operations["invite_user_api_v0_invites_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -408,6 +575,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v0/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get User */
+        get: operations["get_user_api_v0_users__user_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v0/users/{user_id}/disable": {
         parameters: {
             query?: never;
@@ -419,6 +603,60 @@ export interface paths {
         put?: never;
         /** Disable User */
         post: operations["disable_user_api_v0_users__user_id__disable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/users/{user_id}/email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Email */
+        put: operations["set_email_api_v0_users__user_id__email_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/users/{user_id}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enable User */
+        post: operations["enable_user_api_v0_users__user_id__enable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/users/{user_id}/mfa/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset Mfa
+         * @description Lost-authenticator recovery — there are no recovery codes.
+         */
+        post: operations["reset_mfa_api_v0_users__user_id__mfa_reset_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -442,6 +680,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v0/users/{user_id}/password-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Password Reset
+         * @description Mint a one-time reset link to hand to the user out of band.
+         */
+        post: operations["create_password_reset_api_v0_users__user_id__password_reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v0/users/{user_id}/role": {
         parameters: {
             query?: never;
@@ -459,10 +717,201 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v0/viewer/dashboards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Dashboards */
+        get: operations["list_dashboards_api_v0_viewer_dashboards_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/viewer/dashboards/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Dashboard */
+        get: operations["get_dashboard_api_v0_viewer_dashboards__name__get"];
+        /** Save Dashboard */
+        put: operations["save_dashboard_api_v0_viewer_dashboards__name__put"];
+        post?: never;
+        /** Delete Dashboard */
+        delete: operations["delete_dashboard_api_v0_viewer_dashboards__name__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/viewer/dashboards/{name}:run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run Dashboard */
+        post: operations["run_dashboard_api_v0_viewer_dashboards__name__run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/viewer/queries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Saved Queries */
+        get: operations["list_saved_queries_api_v0_viewer_queries_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/viewer/queries/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Save Query */
+        put: operations["save_query_api_v0_viewer_queries__name__put"];
+        post?: never;
+        /** Delete Saved Query */
+        delete: operations["delete_saved_query_api_v0_viewer_queries__name__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/viewer/query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Query Object */
+        post: operations["query_object_api_v0_viewer_query_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * ApiTokenCreated
+         * @description Create response: the only time the raw ``token`` is ever returned.
+         */
+        ApiTokenCreated: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Expires At */
+            expires_at: string | null;
+            /** Id */
+            id: string;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Name */
+            name: string;
+            /** Prefix */
+            prefix: string;
+            /** Revoked At */
+            revoked_at: string | null;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "read" | "write" | "admin";
+            /** Token */
+            token: string;
+        };
+        /**
+         * ApiTokenView
+         * @description A token as listed — never carries the secret.
+         */
+        ApiTokenView: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Expires At */
+            expires_at: string | null;
+            /** Id */
+            id: string;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Name */
+            name: string;
+            /** Prefix */
+            prefix: string;
+            /** Revoked At */
+            revoked_at: string | null;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "read" | "write" | "admin";
+        };
+        /** AuditEntryView */
+        AuditEntryView: {
+            /** Action */
+            action: string | null;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Auth Kind */
+            auth_kind: string;
+            /** Client Ip */
+            client_ip: string | null;
+            /** Duration Ms */
+            duration_ms: number;
+            /** Id */
+            id: string;
+            /** Method */
+            method: string;
+            /** Path */
+            path: string;
+            /** Status */
+            status: number;
+            /** User Id */
+            user_id: string | null;
+            /** Username */
+            username: string | null;
+        };
         /**
          * ChangePasswordRequest
          * @description Self-service password change. ``current_password`` is required so a
@@ -531,18 +980,119 @@ export interface components {
             /** Type */
             type: string;
         };
+        /**
+         * ColumnSchema
+         * @description One result column: its name and ClickHouse type string.
+         */
+        ColumnSchema: {
+            /** Name */
+            name: string;
+            /** Type */
+            type: string;
+        };
+        /** CreateApiTokenRequest */
+        CreateApiTokenRequest: {
+            /** Expires At */
+            expires_at?: string | null;
+            /** Name */
+            name: string;
+            /**
+             * Scope
+             * @default read
+             * @enum {string}
+             */
+            scope: "read" | "write" | "admin";
+        };
         /** CreateUserRequest */
         CreateUserRequest: {
+            /** Email */
+            email?: string | null;
             /** Password */
-            password: string;
+            password?: string | null;
             /**
              * Role
              * @default viewer
              * @enum {string}
              */
-            role: "admin" | "viewer";
+            role: "viewer" | "member" | "admin";
             /** Username */
             username: string;
+        };
+        /** Dashboard */
+        Dashboard: {
+            /** Html */
+            html: string;
+            /** Name */
+            name: string;
+            /** Queries */
+            queries: {
+                [key: string]: components["schemas"]["ObjectQuery"];
+            };
+            /**
+             * Scope
+             * @default persistent
+             */
+            scope: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** DashboardBody */
+        DashboardBody: {
+            /** Html */
+            html: string;
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+            /** Queries */
+            queries: {
+                [key: string]: components["schemas"]["ObjectQuery"];
+            };
+            /**
+             * Scope
+             * @default persistent
+             */
+            scope: string;
+        };
+        /**
+         * DashboardResults
+         * @description Column-oriented results per panel — the ``window.queries`` contract.
+         */
+        DashboardResults: {
+            /** Meta */
+            meta: {
+                [key: string]: components["schemas"]["ColumnSchema"][];
+            };
+            /** Results */
+            results: {
+                [key: string]: {
+                    [key: string]: unknown[];
+                };
+            };
+        };
+        /** DashboardSummary */
+        DashboardSummary: {
+            /** Name */
+            name: string;
+            /** Scope */
+            scope: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * Deleted
+         * @description Response from a delete-by-name verb: the name that was removed.
+         */
+        Deleted: {
+            /** Name */
+            name: string;
         };
         /**
          * ExecutionWorkerView
@@ -604,7 +1154,9 @@ export interface components {
         };
         /**
          * GraphNodeView
-         * @description A node in the job graph. v1 emits only ``"task"`` nodes.
+         * @description A node in the job graph: a task, or a group container drawn around its
+         *     member tasks. A group's ``status`` and timing are rolled up from every task
+         *     beneath it; its ``entrypoint`` is empty and ``attempt`` is ``0``.
          */
         GraphNodeView: {
             /** Attempt */
@@ -643,6 +1195,30 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * InviteUserRequest
+         * @description Create a user who sets their own password by redeeming the link.
+         */
+        InviteUserRequest: {
+            /** Email */
+            email?: string | null;
+            /**
+             * Role
+             * @default viewer
+             * @enum {string}
+             */
+            role: "viewer" | "member" | "admin";
+            /** Username */
+            username: string;
+        };
+        /**
+         * InviteView
+         * @description The new user and the one-time link that lets them in.
+         */
+        InviteView: {
+            link: components["schemas"]["PasswordResetLinkView"];
+            user: components["schemas"]["UserView"];
         };
         /**
          * JobDetail
@@ -816,6 +1392,8 @@ export interface components {
         LoginRequest: {
             /** Password */
             password: string;
+            /** Totp Code */
+            totp_code?: string | null;
             /** Username */
             username: string;
         };
@@ -824,25 +1402,52 @@ export interface components {
             /** Refresh Token */
             refresh_token: string;
         };
-        /** MeView */
+        /**
+         * MeView
+         * @description Current principal. ``id``/``username`` are ``None`` in local mode
+         *     (auth disabled — the synthetic admin has no user row).
+         */
         MeView: {
             /** Id */
-            id: number;
+            id: string | null;
+            /**
+             * Mfa Enabled
+             * @default false
+             */
+            mfa_enabled: boolean;
             /**
              * Role
              * @enum {string}
              */
-            role: "admin" | "viewer";
+            role: "viewer" | "member" | "admin";
             /** Username */
-            username: string;
+            username: string | null;
         };
         /**
-         * ObjectDeleted
-         * @description Response from ``internal_api.delete_object`` — name of the dropped table.
+         * MfaDisableRequest
+         * @description Both factors are needed to turn MFA off.
          */
-        ObjectDeleted: {
-            /** Name */
-            name: string;
+        MfaDisableRequest: {
+            /** Code */
+            code: string;
+            /** Password */
+            password: string;
+        };
+        /** MfaEnableRequest */
+        MfaEnableRequest: {
+            /** Code */
+            code: string;
+        };
+        /**
+         * MfaSetupView
+         * @description A pending TOTP secret; MFA turns on only after ``/auth/me/mfa/enable``
+         *     proves the authenticator has it.
+         */
+        MfaSetupView: {
+            /** Otpauth Uri */
+            otpauth_uri: string;
+            /** Secret */
+            secret: string;
         };
         /**
          * ObjectDetail
@@ -871,6 +1476,52 @@ export interface components {
             table_schema: components["schemas"]["Schema"];
         };
         /**
+         * ObjectQuery
+         * @description What to read from one object — a dashboard panel, or the saved part of a request.
+         */
+        ObjectQuery: {
+            /** Fields */
+            fields?: string[] | null;
+            /** Object */
+            object: string;
+            /** Order By */
+            order_by?: components["schemas"]["OrderBy"][];
+            /** Where */
+            where?: string | null;
+        };
+        /** ObjectQueryRequest */
+        ObjectQueryRequest: {
+            /** Fields */
+            fields?: string[] | null;
+            /**
+             * Fmt
+             * @default json
+             * @enum {string}
+             */
+            fmt: "json" | "csv";
+            /**
+             * Limit
+             * @default 100
+             */
+            limit: number;
+            /** Object */
+            object: string;
+            /**
+             * Offset
+             * @default 0
+             */
+            offset: number;
+            /** Order By */
+            order_by?: components["schemas"]["OrderBy"][];
+            /**
+             * Scope
+             * @default persistent
+             */
+            scope: string;
+            /** Where */
+            where?: string | null;
+        };
+        /**
          * ObjectView
          * @description Compact object representation used by list endpoints.
          */
@@ -892,6 +1543,37 @@ export interface components {
             size_bytes?: number | null;
             /** Table */
             table: string;
+        };
+        OrderBy: [
+            string,
+            "ASC" | "DESC"
+        ];
+        /** Page[ApiTokenView] */
+        Page_ApiTokenView_: {
+            /** Items */
+            items: components["schemas"]["ApiTokenView"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Total */
+            total?: number | null;
+        };
+        /** Page[AuditEntryView] */
+        Page_AuditEntryView_: {
+            /** Items */
+            items: components["schemas"]["AuditEntryView"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Total */
+            total?: number | null;
+        };
+        /** Page[DashboardSummary] */
+        Page_DashboardSummary_: {
+            /** Items */
+            items: components["schemas"]["DashboardSummary"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Total */
+            total?: number | null;
         };
         /** Page[ExecutionWorkerView] */
         Page_ExecutionWorkerView_: {
@@ -929,6 +1611,15 @@ export interface components {
             /** Total */
             total?: number | null;
         };
+        /** Page[SavedQuery] */
+        Page_SavedQuery_: {
+            /** Items */
+            items: components["schemas"]["SavedQuery"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Total */
+            total?: number | null;
+        };
         /** Page[UserView] */
         Page_UserView_: {
             /** Items */
@@ -937,6 +1628,29 @@ export interface components {
             next_cursor?: string | null;
             /** Total */
             total?: number | null;
+        };
+        /**
+         * PasswordResetLinkView
+         * @description An admin-minted reset token. ``url`` is set when ``AAICLICK_PUBLIC_URL``
+         *     is configured; either way the raw ``token`` appears here only.
+         */
+        PasswordResetLinkView: {
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Token */
+            token: string;
+            /** Url */
+            url: string | null;
+        };
+        /** PasswordResetRedeem */
+        PasswordResetRedeem: {
+            /** New Password */
+            new_password: string;
+            /** Token */
+            token: string;
         };
         /**
          * Problem
@@ -956,7 +1670,7 @@ export interface components {
          * @description Stable machine-readable code attached to every ``Problem`` response.
          * @enum {string}
          */
-        ProblemCode: "not_found" | "conflict" | "invalid" | "unauthorized" | "forbidden" | "execution_worker_spawn_failed";
+        ProblemCode: "not_found" | "conflict" | "invalid" | "unauthorized" | "mfa_required" | "forbidden" | "execution_worker_spawn_failed";
         /**
          * PurgeObjectsRequest
          * @description Inputs for ``internal_api.purge_objects``.
@@ -1105,6 +1819,54 @@ export interface components {
             /** Service Account */
             service_account?: string | null;
         };
+        /** SavedQuery */
+        SavedQuery: {
+            /** Cell View */
+            cell_view?: string | null;
+            /** Fields */
+            fields?: string[] | null;
+            /** Name */
+            name: string;
+            /** Object */
+            object: string;
+            /** Order By */
+            order_by?: components["schemas"]["OrderBy"][];
+            /**
+             * Scope
+             * @default persistent
+             */
+            scope: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Where */
+            where?: string | null;
+        };
+        /** SavedQueryBody */
+        SavedQueryBody: {
+            /** Cell View */
+            cell_view?: string | null;
+            /** Fields */
+            fields?: string[] | null;
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+            /** Object */
+            object: string;
+            /** Order By */
+            order_by?: components["schemas"]["OrderBy"][];
+            /**
+             * Scope
+             * @default persistent
+             */
+            scope: string | null;
+            /** Where */
+            where?: string | null;
+        };
         /**
          * Schema
          * @description Schema definition for Object tables. Also serves as Object metadata
@@ -1133,6 +1895,11 @@ export interface components {
             /** Table */
             table?: string | null;
         };
+        /** SetEmailRequest */
+        SetEmailRequest: {
+            /** Email */
+            email: string | null;
+        };
         /** SetPasswordRequest */
         SetPasswordRequest: {
             /** Password */
@@ -1144,7 +1911,7 @@ export interface components {
              * Role
              * @enum {string}
              */
-            role: "admin" | "viewer";
+            role: "viewer" | "member" | "admin";
         };
         /**
          * StartExecutionWorkerRequest
@@ -1300,13 +2067,19 @@ export interface components {
             created_at: string;
             /** Disabled */
             disabled: boolean;
+            /** Email */
+            email: string | null;
+            /** Has Password */
+            has_password: boolean;
             /** Id */
-            id: number;
+            id: string;
+            /** Mfa Enabled */
+            mfa_enabled: boolean;
             /**
              * Role
              * @enum {string}
              */
-            role: "admin" | "viewer";
+            role: "viewer" | "member" | "admin";
             /** Username */
             username: string;
         };
@@ -1332,6 +2105,43 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_audit_api_v0_audit_get: {
+        parameters: {
+            query?: {
+                user_id?: number | null;
+                username?: string | null;
+                method?: string | null;
+                path?: string | null;
+                since?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_AuditEntryView_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     login_api_v0_auth_login_post: {
         parameters: {
             query?: never;
@@ -1354,7 +2164,7 @@ export interface operations {
                     "application/json": components["schemas"]["TokenPair"];
                 };
             };
-            /** @description Unauthorized */
+            /** @description MFA Required */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -1425,6 +2235,169 @@ export interface operations {
             };
         };
     };
+    mfa_disable_api_v0_auth_me_mfa_disable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MfaDisableRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description MFA Required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    mfa_enable_api_v0_auth_me_mfa_enable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MfaEnableRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description MFA Required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    mfa_setup_api_v0_auth_me_mfa_setup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MfaSetupView"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     change_password_api_v0_auth_me_password_put: {
         parameters: {
             query?: never;
@@ -1445,8 +2418,17 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Unauthorized */
+            /** @description MFA Required */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1461,6 +2443,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    redeem_password_reset_api_v0_auth_password_reset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordResetRedeem"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description MFA Required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1487,7 +2509,7 @@ export interface operations {
                     "application/json": components["schemas"]["TokenPair"];
                 };
             };
-            /** @description Unauthorized */
+            /** @description MFA Required */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -1504,6 +2526,151 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    list_tokens_api_v0_auth_tokens_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_ApiTokenView_"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_token_api_v0_auth_tokens_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateApiTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiTokenCreated"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    revoke_token_api_v0_auth_tokens__token_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    stream_events_api_v0_events_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -1646,6 +2813,66 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    invite_user_api_v0_invites_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InviteUserRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteView"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -1911,6 +3138,7 @@ export interface operations {
             query?: {
                 prefix?: string | null;
                 scope?: ("temp" | "temp_named" | "job" | "global") | null;
+                job?: number | string | null;
                 limit?: number;
                 cursor?: string | null;
             };
@@ -1942,7 +3170,9 @@ export interface operations {
     };
     get_object_api_v0_objects__name__get: {
         parameters: {
-            query?: never;
+            query?: {
+                job?: string | null;
+            };
             header?: never;
             path: {
                 name: string;
@@ -1997,7 +3227,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ObjectDeleted"];
+                    "application/json": components["schemas"]["Deleted"];
                 };
             };
             /** @description Forbidden */
@@ -2462,7 +3692,171 @@ export interface operations {
             };
         };
     };
+    get_user_api_v0_users__user_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserView"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     disable_user_api_v0_users__user_id__disable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserView"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_email_api_v0_users__user_id__email_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetEmailRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserView"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enable_user_api_v0_users__user_id__enable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserView"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_mfa_api_v0_users__user_id__mfa_reset_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -2546,6 +3940,46 @@ export interface operations {
             };
         };
     };
+    create_password_reset_api_v0_users__user_id__password_reset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasswordResetLinkView"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     set_role_api_v0_users__user_id__role_put: {
         parameters: {
             query?: never;
@@ -2586,6 +4020,332 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_dashboards_api_v0_viewer_dashboards_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_DashboardSummary_"];
+                };
+            };
+        };
+    };
+    get_dashboard_api_v0_viewer_dashboards__name__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dashboard"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_dashboard_api_v0_viewer_dashboards__name__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DashboardBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dashboard"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    delete_dashboard_api_v0_viewer_dashboards__name__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Deleted"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_dashboard_api_v0_viewer_dashboards__name__run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardResults"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_saved_queries_api_v0_viewer_queries_get: {
+        parameters: {
+            query?: {
+                scope?: string | null;
+                object?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_SavedQuery_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_query_api_v0_viewer_queries__name__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SavedQueryBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedQuery"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    delete_saved_query_api_v0_viewer_queries__name__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Deleted"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    query_object_api_v0_viewer_query_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ObjectQueryRequest"];
+            };
+        };
+        responses: {
+            /** @description ClickHouse's own output, verbatim: `JSONCompact` (`{meta, data, rows, statistics}`) for `fmt=json`, `CSVWithNames` for `fmt=csv`. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                    "text/csv": unknown;
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
                 };
             };
         };

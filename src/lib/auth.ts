@@ -1,7 +1,8 @@
 // Module-level token store. `fetchJSON`/`postJSON` are plain functions outside
 // React, so the access token lives in a module singleton; the refresh token
 // persists in localStorage so a page reload can re-establish a session.
-import type { MeView } from "../api/types";
+import { parseError } from "../api/problem";
+import type { MeView, Role, ScopeLevel } from "../api/types";
 
 // Local base + POST helper. We deliberately do NOT route through client.ts's
 // `request` (it would recurse: this module IS the 401-refresh path), and we
@@ -13,13 +14,45 @@ let accessToken: string | null = null;
 function postAuth(path: string, body: unknown): Promise<Response> {
   return fetch(`${API}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    headers: body === undefined ? {} : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
 }
 
 export function getAccessToken(): string | null {
   return accessToken;
+}
+
+// The session's principal, kept so the role is *derived* rather than tracked
+// as a second piece of state that transitions could forget to update.
+let currentMe: MeView | null = null;
+
+// Ordered low to high; the index is the comparison, as in aaiclick/auth/models.py.
+export const SCOPE_LEVELS: ScopeLevel[] = ["read", "write", "admin"];
+
+// The role -> scope bridge, mirroring ROLE_SCOPES in aaiclick/auth/models.py.
+const ROLE_SCOPES: Record<Role, ScopeLevel> = {
+  viewer: "read",
+  member: "write",
+  admin: "admin",
+};
+
+// The signed-in user's role, or null before /auth/me has answered.
+export function activeRole(): Role | null {
+  return currentMe?.role ?? null;
+}
+
+// The highest scope this user may delegate, mirroring _mint_ceiling. The server
+// is the authority — this only keeps a form from offering a certain refusal.
+export function mintableScopes(): ScopeLevel[] {
+  const role = activeRole();
+  if (role === null) return [];
+  return SCOPE_LEVELS.slice(0, SCOPE_LEVELS.indexOf(ROLE_SCOPES[role]) + 1);
+}
+
+// Only an admin may invite; any role may be granted.
+export function invitableRoles(): Role[] {
+  return activeRole() === "admin" ? ["viewer", "member", "admin"] : [];
 }
 
 function setAccessToken(token: string | null): void {
@@ -39,6 +72,7 @@ export type { MeView };
 
 export function clearSession(): void {
   accessToken = null;
+  currentMe = null;
   setRefreshToken(null);
 }
 
@@ -48,26 +82,31 @@ interface TokenPair {
   expires_in: number;
 }
 
-export async function login(username: string, password: string): Promise<void> {
-  const res = await postAuth("/auth/login", { username, password });
-  if (!res.ok) throw new Error("login failed");
+// Store a freshly minted pair. The access token stays in memory; the refresh
+// token persists so a reload can re-establish the session.
+async function storePair(res: Response): Promise<void> {
+  if (!res.ok) throw await parseError(res);
   const pair = (await res.json()) as TokenPair;
   setAccessToken(pair.access_token);
   setRefreshToken(pair.refresh_token);
 }
 
+// Throws `ApiError`; `error.code === "mfa_required"` means the password was
+// accepted and the account needs a second factor.
+export async function login(username: string, password: string, totpCode?: string): Promise<void> {
+  await storePair(await postAuth("/auth/login", { username, password, totp_code: totpCode ?? null }));
+}
+
 export async function tryRefresh(): Promise<boolean> {
   const rt = getRefreshToken();
   if (!rt) return false;
-  const res = await postAuth("/auth/refresh", { refresh_token: rt });
-  if (!res.ok) {
+  try {
+    await storePair(await postAuth("/auth/refresh", { refresh_token: rt }));
+    return true;
+  } catch {
     clearSession();
     return false;
   }
-  const pair = (await res.json()) as TokenPair;
-  setAccessToken(pair.access_token);
-  setRefreshToken(pair.refresh_token);
-  return true;
 }
 
 export async function logout(): Promise<void> {
@@ -91,6 +130,15 @@ export async function fetchMe(): Promise<MeView | null> {
       headers: { Authorization: `Bearer ${getAccessToken()}` },
     });
   }
-  if (!res.ok) return null;
-  return (await res.json()) as MeView;
+  if (!res.ok) {
+    currentMe = null;
+    return null;
+  }
+  currentMe = (await res.json()) as MeView;
+  return currentMe;
+}
+
+export async function redeemPasswordReset(token: string, newPassword: string): Promise<void> {
+  const res = await postAuth("/auth/password-reset", { token, new_password: newPassword });
+  if (!res.ok) throw await parseError(res);
 }

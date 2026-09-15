@@ -8,7 +8,8 @@ helpers — keeping them here avoids a circular import between the two.
 
 from __future__ import annotations
 
-from ..data_context.data_context import _infer_clickhouse_type
+from typing import NamedTuple
+
 from ..models import (
     AAI_ID_COLUMN,
     FIELDTYPE_ARRAY,
@@ -18,31 +19,36 @@ from ..models import (
     INT_TYPES,
     ColumnInfo,
     Schema,
-    ValueScalarType,
     parse_ch_type,
 )
 
 # Division and power always return Float64 in ClickHouse.
 _FLOAT_RESULT_OPS = frozenset({"/", "**"})
 
+# Comparison operators always yield UInt8 rather than a promoted numeric type.
+_COMPARISON_OPS = frozenset({"==", "!=", "<", "<=", ">", ">="})
+
 # Small unsigned types (Bool, UInt8) promote to wider types in ClickHouse.
 # Subtraction always produces signed result.
 _SMALL_UNSIGNED = frozenset({"Bool", "UInt8"})
 
 
-def _promote_arithmetic_type(operator: str, type_a: str, type_b: str) -> str:
-    """Determine the ClickHouse result type for an arithmetic operation.
+def _result_value_type(operator: str, type_a: str, type_b: str) -> str:
+    """Determine the ClickHouse result type of a binary operator.
 
     Matches ClickHouse type promotion rules:
+    - comparisons always return UInt8
     - ``/`` and ``**`` always return Float64
     - int + float → Float64
     - Bool/UInt8 same-type ``+``/``*`` → UInt16, ``-`` → Int16
     - Subtraction always promotes to signed (Int64)
     - Mixed int widths promote to the wider type
 
-    Validated by ``test_type_promotion.py::test_arithmetic_type_promotion``
+    Validated by ``test_type_promotion.py::test_operator_result_type``
     which compares against ``SELECT toTypeName(CAST(0, 'T1') op CAST(0, 'T2'))``.
     """
+    if operator in _COMPARISON_OPS:
+        return "UInt8"
     if operator in _FLOAT_RESULT_OPS:
         return "Float64"
     if type_a in FLOAT_TYPES or type_b in FLOAT_TYPES:
@@ -55,20 +61,6 @@ def _promote_arithmetic_type(operator: str, type_a: str, type_b: str) -> str:
     if operator == "-":
         return "Int64"
     return type_a
-
-
-def _scalar_to_schema(value: ValueScalarType) -> Schema:
-    """Build a one-column scalar Schema from a Python scalar.
-
-    Defers to ``_infer_clickhouse_type`` — the same routine
-    ``create_object_from_value`` uses — so the preview schema for a scalar
-    operand can't drift from the schema of the table that would be
-    materialized at await time.
-    """
-    return Schema(
-        fieldtype=FIELDTYPE_SCALAR,
-        columns={"value": _infer_clickhouse_type(value)},
-    )
 
 
 def _compute_operator_schema(
@@ -93,7 +85,7 @@ def _compute_operator_schema(
     a_is_array = fieldtype_a == FIELDTYPE_ARRAY
     b_is_array = fieldtype_b == FIELDTYPE_ARRAY
     fieldtype = FIELDTYPE_ARRAY if (a_is_array or b_is_array) else FIELDTYPE_SCALAR
-    value_type = _promote_arithmetic_type(operator, type_a, type_b)
+    value_type = _result_value_type(operator, type_a, type_b)
     result_nullable = nullable_a or nullable_b
 
     result_columns: dict[str, ColumnInfo] = {
@@ -135,6 +127,9 @@ UNARY_TRANSFORMS: dict[str, tuple[str, str]] = {
     "abs": ("abs", "Float64"),
     "log2": ("log2", "Float64"),
     "sqrt": ("sqrt", "Float64"),
+    # Null checks
+    "is_null": ("isNull", "UInt8"),
+    "is_not_null": ("isNotNull", "UInt8"),
 }
 
 
@@ -177,14 +172,13 @@ def _determine_agg_result_type(agg_func: str, source_type: str | ColumnInfo) -> 
     return "Float64"
 
 
-def _preview_unary_schema(input_fieldtype: str, transform: str) -> Schema:
-    """Sync preview of the Schema ``operators.unary_transform`` will produce.
+def _preview_fixed_type_schema(input_fieldtype: str, result_type: str) -> Schema:
+    """Sync preview for every value-wise operator with a fixed result type —
+    unary transforms, string/regex operators and ``isin``.
 
-    The unary transform preserves the input fieldtype (scalar→scalar,
-    array→array) and replaces the value type with the transform's fixed
-    result type from ``UNARY_TRANSFORMS``.
+    Each preserves the input fieldtype (scalar→scalar, array→array) and
+    replaces the value type with the operator's fixed result type.
     """
-    _, result_type = UNARY_TRANSFORMS[transform]
     return Schema(fieldtype=input_fieldtype, columns={"value": ColumnInfo(result_type)})
 
 
@@ -250,3 +244,65 @@ def _preview_operator_schema(schema_a: Schema, schema_b: Schema, operator: str) 
         operator=operator,
     )
     return schema
+
+
+# String/regex operator key → (SQL expression template, result type) — single
+# source of truth shared between ``_preview_fixed_type_schema`` (preview) and
+# ``operators._apply_string_op_db`` (materialize). ``{pattern}`` and
+# ``{replacement}`` are substituted with SQL-escaped string literals at
+# materialize time.
+class StringOp(NamedTuple):
+    expression: str
+    result_type: str
+
+
+STRING_OPS: dict[str, StringOp] = {
+    "match": StringOp("match(a.value, {pattern})", "UInt8"),
+    "like": StringOp("a.value LIKE {pattern}", "UInt8"),
+    "ilike": StringOp("a.value ILIKE {pattern}", "UInt8"),
+    "extract": StringOp("extract(a.value, {pattern})", "String"),
+    "replace": StringOp("replaceRegexpAll(a.value, {pattern}, {replacement})", "String"),
+}
+
+
+def _compute_coalesce_schema(
+    *,
+    fieldtype_a: str,
+    fieldtype_b: str,
+    type_a: str,
+    nullable_a: bool,
+    nullable_b: bool,
+) -> Schema:
+    """Result Schema for ``coalesce(a, b)``.
+
+    The value type follows the first operand; the result is nullable only when
+    both operands are (a non-nullable fallback always supplies a value). Shared
+    between ``Object.coalesce`` (preview) and ``operators.coalesce_op``
+    (materialize) so the two cannot drift.
+    """
+    either_is_array = FIELDTYPE_ARRAY in (fieldtype_a, fieldtype_b)
+    return Schema(
+        fieldtype=FIELDTYPE_ARRAY if either_is_array else FIELDTYPE_SCALAR,
+        columns={"value": ColumnInfo(type_a, nullable=nullable_a and nullable_b)},
+    )
+
+
+def _compute_array_map_schema(
+    *,
+    operator: str,
+    type_a: str,
+    type_b: str,
+    nullable_a: bool,
+    nullable_b: bool,
+) -> Schema:
+    """Result Schema for ``array_map(a, b, operator)`` — always an array.
+
+    Comparison operators yield UInt8; the rest follow the arithmetic promotion
+    rules. Shared between ``Object.array_map`` (preview) and
+    ``operators.array_map_db`` (materialize).
+    """
+    value_type = _result_value_type(operator, type_a, type_b)
+    return Schema(
+        fieldtype=FIELDTYPE_ARRAY,
+        columns={"value": ColumnInfo(value_type, nullable=nullable_a or nullable_b)},
+    )

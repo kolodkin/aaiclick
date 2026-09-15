@@ -3,7 +3,7 @@ Object
 
 # Overview
 
-The `Object` class (`aaiclick/data/object.py`) wraps a ClickHouse table. Each instance corresponds to one table; operator overloading creates new tables with results.
+The `Object` class (`aaiclick/data/object/object.py`) wraps a ClickHouse table. Each instance corresponds to one table; operator overloading creates new tables with results.
 
 **Key Features:**
 - Operator overloading for arithmetic, comparison, and bitwise operations
@@ -36,6 +36,7 @@ See [DataContext](data_context.md) for lifecycle, schemas, and deployment modes.
 | `.group_by(keys).any(col)`                       | Group By         | Arbitrary non-NULL value per group            | [Group By Operations](#group-by-operations)                          |
 | `.group_by(keys).group_array_distinct(col)`      | Group By         | Distinct values → Array per group             | [Group By Operations](#group-by-operations)                          |
 | `.view(where, limit, offset, order_by)`          | Views            | Read-only View with optional filters          | [Views](#views)                                                      |
+| `.select_sql(columns, order_by, limit, offset)`  | Views            | The SELECT text the object reads with; Views include their constraints | [Views](#views)                                     |
 | `.where(cond)` / `.or_where(cond)`               | Views            | Fluent WHERE chaining (AND / OR)              | [Chained WHERE Clauses](#chained-where-clauses)                      |
 | `obj[key]` / `obj[[keys]]`                       | Views            | Select column(s) from dict Object → View      | [Column Selection](#column-selection)                                |
 | `.with_columns({name: Computed(type, expr)})`    | Views            | Add SQL expression columns → View             | [Computed Column Expansion](#computed-column-expansion-with_columns) |
@@ -61,11 +62,20 @@ See [DataContext](data_context.md) for lifecycle, schemas, and deployment modes.
 All operators work element-wise on scalar and array data, creating new Object tables. See `examples/basic_operators.py`.
 
 !!! tip "Scalar broadcast"
-    Python scalars work on either side: `obj * 2` and `2 * obj` both work.
+    Python scalars work on either side: `obj * 2` and `2 * obj` both work. The scalar is inlined into the operator SQL as a typed literal — it never gets a table of its own.
 
 ## Lazy Operator Results (`a + b` and `a.sum()` are Plans, not Tables)
 
-Every binary operator (`+`, `-`, `*`, `/`, `//`, `%`, `**`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `&`, `|`, `^`), aggregation (`.min()` / `.max()` / `.sum()` / `.mean()` / `.std()` / `.var()` / `.count()` / `.count_if()` / `.quantile()` / `.unique()` / `.nunique()`), and unary transform (`.year()` / `.month()` / `.day_of_week()` / `.lower()` / `.upper()` / `.length()` / `.trim()` / `.abs()` / `.log2()` / `.sqrt()`) returns a `LazyOperator` — a subclass of `Object` that captures the operation plan (`lhs`, `rhs`, `operator`, precomputed result schema) without touching ClickHouse. The `CREATE TABLE` + `INSERT INTO ... SELECT` happens when the lazy is awaited.
+Every value-column operator returns a `LazyOperator` — a subclass of `Object` that captures the operation plan (`lhs`, `rhs`, `operator`, precomputed result schema) without touching ClickHouse. The `CREATE TABLE` + `INSERT INTO ... SELECT` happens when the lazy is awaited.
+
+| Family            | Methods                                                                                                                     |
+|-------------------|-----------------------------------------------------------------------------------------------------------------------------|
+| Binary            | `+`, `-`, `*`, `/`, `//`, `%`, `**`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `&`, `\|`, `^`                                        |
+| Aggregation       | `.min()`, `.max()`, `.sum()`, `.mean()`, `.std()`, `.var()`, `.count()`, `.count_if()`, `.quantile()`, `.unique()`, `.nunique()` |
+| Unary transform   | `.year()`, `.month()`, `.day_of_week()`, `.lower()`, `.upper()`, `.length()`, `.trim()`, `.abs()`, `.log2()`, `.sqrt()`      |
+| String / regex    | `.match()`, `.like()`, `.ilike()`, `.extract()`, `.replace()`                                                               |
+| Membership / null | `.isin()`, `.is_null()`, `.is_not_null()`, `.coalesce()`                                                                    |
+| Element-wise      | `.array_map()`                                                                                                              |
 
 ```python
 # 1. Build a plan — pure Python, no DB call
@@ -153,7 +163,7 @@ LazyOperator(op="sum", lhs=LazyOperator(op="abs", lhs=obj, rhs=None), rhs=None)
 
 `asyncio.gather(lazy.data(), lazy.data())` races: both tasks see `_materialized is None` and both materialize. The result is two tables (the second wins the cache slot; the first is orphaned and dropped via refcount cleanup). To share a result across tasks, `await` once and share the returned `Object`.
 
-**Implementation:** `LazyOperator`, `_plan_operator`, `_plan_aggregation`, `_plan_unary_transform` in `aaiclick/data/object/object.py`; shared schema-computation helpers in `aaiclick/data/object/schema_compute.py` (`_preview_operator_schema`, `_preview_agg_schema`, `_preview_unary_schema`, …); materialization in `aaiclick/data/object/operators.py` (`_apply_operator_db`, `_apply_aggregation`, `unary_transform`, …).
+**Implementation:** `LazyOperator`, `_plan_operator`, `_plan_aggregation`, `_plan_unary_transform` and the `_UNARY_MATERIALIZERS` / `_BINARY_MATERIALIZERS` dispatch tables in `aaiclick/data/object/object.py`; shared schema-computation helpers in `aaiclick/data/object/schema_compute.py` (`_preview_operator_schema`, `_preview_agg_schema`, `_preview_unary_schema`, …); materialization in `aaiclick/data/object/operators.py` (`_apply_operator_db`, `_apply_aggregation`, `unary_transform`, …); Python operands inlined as literals by `aaiclick/data/object/literals.py`.
 
 ??? note "Arithmetic Operators"
 
@@ -169,7 +179,7 @@ LazyOperator(op="sum", lhs=LazyOperator(op="abs", lhs=obj, rhs=None), rhs=None)
 
 ## Arithmetic Type Promotion
 
-Arithmetic result types match ClickHouse's native promotion rules. See `_promote_arithmetic_type()` in `aaiclick/data/object/schema_compute.py`, validated by `aaiclick/data/object/test_type_promotion.py` against `SELECT toTypeName()`.
+Result types match ClickHouse's native promotion rules. See `_result_value_type()` in `aaiclick/data/object/schema_compute.py`, validated by `aaiclick/data/object/test_type_promotion.py` against `SELECT toTypeName()`.
 
 ??? note "Comparison Operators"
 
@@ -182,7 +192,7 @@ Arithmetic result types match ClickHouse's native promotion rules. See `_promote
     | `>`             | Greater Than          | `>`                   | `__gt__`      |
     | `>=`            | Greater Than or Equal | `>=`                  | `__ge__`      |
 
-    Comparison operators don't need explicit reverse methods — Python swaps `<`/`>` and `<=`/`>=` automatically (e.g., `5 < obj` becomes `obj > 5`).
+    Comparison operators don't need explicit reverse methods — Python swaps `<`/`>` and `<=`/`>=` automatically (e.g., `5 < obj` becomes `obj > 5`). The result column is always `UInt8` (0/1), as in ClickHouse, whatever the operand type.
 
 ??? note "Bitwise Operators"
 
@@ -217,7 +227,7 @@ Reduce an array to a scalar Object.
 
 ## String/Regex Operators
 
-Pattern matching on String columns. Each method takes a `str` pattern, returns a new Object, and is chainable (e.g., `match()` → `sum()` to count matches).
+Pattern matching on String columns. Each method takes a `str` pattern and returns a [`LazyOperator`](#lazy-operator-results-a--b-and-asum-are-plans-not-tables) — chainable, and nameable with `.as_(name, scope=...)`.
 
 | Method              | ClickHouse Function          | Result Type | Description                        |
 |---------------------|------------------------------|-------------|------------------------------------|
@@ -227,7 +237,17 @@ Pattern matching on String columns. Each method takes a `str` pattern, returns a
 | `.extract(p)`       | `extract(val, p)`            | String      | Extract first capture group        |
 | `.replace(p, r)`    | `replaceRegexpAll(val, p, r)`| String      | Replace all regex matches          |
 
+```python
+obj = await create_object_from_value(["apple", "banana", "avocado"])
+
+await obj.match("^a").data()                                   # [1, 0, 1]
+hits = await obj.like("a%").as_("hits")                        # t_hits_<id>
+count = await obj.extract("(an)").match("^an$").sum().data()   # 1 — chain stays lazy
+```
+
 **Note**: ClickHouse uses RE2 regex syntax (no lookaheads/lookbehinds).
+
+**Tests**: `aaiclick/data/object/test_string_regex.py`.
 
 ## Membership Operator: `isin()`
 
@@ -237,31 +257,28 @@ UInt8 membership mask via ClickHouse `IN` subquery — all data stays in the dat
 |--------------|-------------------------------------------------|-------------|
 | `.isin(other)` | `value IN (SELECT value FROM other_table)`    | UInt8       |
 
-Accepts an `Object` or a Python `list` (auto-converted to Object).
+Returns a `LazyOperator`. Accepts an `Object` or a Python `list`.
 
 ```python
 obj = await create_object_from_value(["a", "b", "c", "d"])
 allowed = await create_object_from_value(["a", "c"])
-mask = await obj.isin(allowed)
-await mask.data()           # [1, 0, 1, 0]
+await obj.isin(allowed).data()          # [1, 0, 1, 0]
 
-# Also works with a plain Python list
-mask = await obj.isin(["a", "c"])
-
-# Chain with sum() to count matches
-total = await mask.sum()
-await total.data()          # 2
+# Also works with a plain Python list, and chains into an aggregation
+await obj.isin(["a", "c"]).sum().data()  # 2
 
 # Works on dict column selection
 obj = await create_object_from_value({"category": ["a", "b", "c"], "val": [1, 2, 3]})
 mask = await obj["category"].isin(allowed)
 ```
 
+A Python list is inlined as literals (`arrayJoin([...])`) rather than loaded into a table; lists longer than `LITERAL_LIST_MAX` (`aaiclick/data/object/literals.py`) fall back to a table.
+
 **Tests**: `aaiclick/data/object/test_isin.py`. For runnable examples, see `examples/isin.py`.
 
 ## Unary Transform Operators
 
-**Implementation**: `aaiclick/data/object.py` (methods) delegates to `aaiclick/data/operators.py` — see `unary_transform()`
+**Implementation**: `aaiclick/data/object/object.py` (methods) delegates to `aaiclick/data/object/operators.py` — see `unary_transform()`
 
 Apply a ClickHouse function element-wise to the value column, returning a new Object. Object-level equivalents of [Domain Helpers](#domain-helpers) which operate on Views.
 
@@ -278,13 +295,13 @@ Apply a ClickHouse function element-wise to the value column, returning a new Ob
 | `.log2()`       | `log2()`            | Float64     | Math      |
 | `.sqrt()`       | `sqrt()`            | Float64     | Math      |
 
-Results are full Objects — chainable with any operator (e.g., `await (await obj.year()).unique()`).
+Results are full Objects — chainable with any operator (e.g., `await obj.year().unique()`).
 
-**Tests**: `aaiclick/data/test_unary_transforms.py`. For runnable examples, see `examples/transforms.py`.
+**Tests**: `aaiclick/data/object/test_unary_transforms.py`. For runnable examples, see `examples/transforms.py`.
 
 ## Group By Operations
 
-Pandas-style two-step: `obj.group_by('key').sum('col')`. See `GroupByQuery` class in `aaiclick/data/object.py`.
+Pandas-style two-step: `obj.group_by('key').sum('col')`. See `GroupByQuery` class in `aaiclick/data/object/object.py`.
 
 | Method             | Description                  | Result Column Type                     |
 |--------------------|------------------------------|----------------------------------------|
@@ -392,7 +409,12 @@ await create_object_from_url(
 For nested JSON APIs that wrap rows inside an envelope (e.g.
 `{"vulnerabilities": [...]}`), pass `RawBLOB` or `JSONAsString` plus
 `json_path` and `json_columns`. ClickHouse loads the whole document as a
-single string and applies `JSONExtract` per field:
+single string and applies `JSONExtract` per field. Dots walk nesting in
+both parameters — `json_path="result.vulnerabilities"` reaches an array
+inside an envelope, `"cve.id"` a nested field of each element (keys
+literally containing `.` are not addressable). Dotted keys become
+dot-notation columns that `data()` re-nests — see
+[Nested Data Flattening](#nested-data-flattening):
 
 ```python
 await create_object_from_url(
@@ -416,7 +438,7 @@ types from a sample of zero rows.
 
 ??? note "Shared insert mechanics"
 
-    Both `insert()` and `concat()` delegate to `_insert_source()` (`aaiclick/data/ingest.py`) — one `INSERT INTO ... SELECT CAST(...) FROM source` per source. Order follows argument order.
+    Both `insert()` and `concat()` delegate to `_insert_source()` (`aaiclick/data/object/ingest.py`) — one `INSERT INTO ... SELECT CAST(...) FROM source` per source. Order follows argument order.
 
 ## Row Order
 
@@ -665,6 +687,9 @@ by name-parsing the column names.
 | `.`      | dict value (nested object) | 1:1         | none — extends name only   |
 | `.*.`    | list-of-dicts value        | 1:N         | adds one `Array()` wrapper |
 
+Stars stack: each extra list level around a dict adds another `*` segment
+and another `Array()` wrapper.
+
 ```python
 obj = await create_object_from_value({"x": {"y": {"z": 1}}})
 # → column x.y.z (Int64)
@@ -672,14 +697,20 @@ await obj.data()            # {"x": {"y": {"z": 1}}}
 
 obj = await create_object_from_value({"b": [{"c": [1, 2], "d": 5}]})
 # → columns b.*.c (Array(Array(Int64))), b.*.d (Array(Int64))
+
+obj = await create_object_from_value({"a": [[{"x": 1}], [{"x": 2}]]})
+# → column a.*.*.x (Array(Array(Int64)))
 ```
 
 Ingest raises `ValueError` for anything that cannot round-trip: mismatched
 keys across records or items, non-dict items in a list of dicts, type
-conflicts, dotted keys, and empty dicts. All-`None` values infer as
-`Nullable(String)` and round-trip as `None`. Name-parsing applies to any
+conflicts, dotted keys, and empty dicts. Columns marked `FieldSpec(nullable=True)` are
+exempt at the leaf level — missing or `None` values ingest as NULL and
+read back as `None`; a `None` dict or list item still raises. All-`None`
+values infer as `Nullable(String)` and round-trip as `None`. Name-parsing applies to any
 dict-shaped read — explicit `Schema` columns, imports, and Views with
-dotted column names reconstruct the same way.
+dotted column names reconstruct the same way; a plain column colliding
+with a dotted prefix (`x` next to `x.y`) raises rather than dropping data.
 
 **Tests**: `aaiclick/data/object/test_nested_dicts.py`, `aaiclick/data/object/test_nested_arrays.py`, `aaiclick/data/data_context/test_arrow_ingest.py`.
 
@@ -745,6 +776,8 @@ obj.with_columns({"weight": literal(1.0, "Float64")})
 
 Supported types: `str` (quoted), `int`/`float` (bare), `bool` (`true`/`false`).
 
+**Tests**: `aaiclick/data/object/test_with_columns.py`
+
 ## Explode
 
 Flattens Array column(s) into individual rows (scalar columns duplicated). Returns a **View** — downstream operators fuse into a single query. Exploded columns change from `Array(T)` to `T`. See `aaiclick/data/examples/explode.py`.
@@ -765,29 +798,39 @@ Flattens Array column(s) into individual rows (scalar columns duplicated). Retur
 
 Named shortcuts that delegate to `with_columns()`. Each auto-names the result column; all accept `alias=` override and return a `View`.
 
-| Helper                                    | Default Alias         | Type      | Expression                            |
-|-------------------------------------------|-----------------------|-----------|---------------------------------------|
-| `with_year(col)`                          | `{col}_year`          | `UInt16`  | `toYear(col)`                         |
-| `with_month(col)`                         | `{col}_month`         | `UInt8`   | `toMonth(col)`                        |
-| `with_day_of_week(col)`                   | `{col}_dow`           | `UInt8`   | `toDayOfWeek(col)`                    |
-| `with_date_diff(unit, col_a, col_b)`      | `{col_a}_{col_b}_diff`| `Int64`   | `dateDiff('unit', col_a, col_b)`      |
-| `with_lower(col)`                         | `{col}_lower`         | `String`  | `lower(col)`                          |
-| `with_upper(col)`                         | `{col}_upper`         | `String`  | `upper(col)`                          |
-| `with_length(col)`                        | `{col}_length`        | `UInt64`  | `length(col)`                         |
-| `with_trim(col)`                          | `{col}_trimmed`       | `String`  | `trim(col)`                           |
-| `with_abs(col)`                           | `{col}_abs`           | `Float64` | `abs(col)`                            |
-| `with_log2(col)`                          | `{col}_log2`          | `Float64` | `log2(col)`                           |
-| `with_sqrt(col)`                          | `{col}_sqrt`          | `Float64` | `sqrt(col)`                           |
-| `with_bucket(col, size)`                  | `{col}_bucket`        | `Int64`   | `intDiv(col, size)`                   |
-| `with_hash_bucket(col, n)`               | `{col}_hash`          | `UInt64`  | `cityHash64(col) % n`                |
-| `with_if(cond, then, else, *, alias)`     | required `alias`      | `String`  | `if(cond, then, else)`                |
-| `with_cast(col, ch_type)`                 | `{col}_{type_lower}`  | `ch_type` | `to{Type}(col)`                       |
-| `with_split_by_char(col, sep)`            | `{col}_parts`         | `Array(String)` | `splitByChar(sep, col)`         |
-| `with_isin(col, other)`                   | `{col}_isin`          | `UInt8`   | `col IN (SELECT value FROM …)`        |
+| Helper                                       | Default Alias          | Type            | Expression                       |
+|----------------------------------------------|------------------------|-----------------|----------------------------------|
+| `with_year(col)`                             | `{col}_year`           | `UInt16`        | `toYear(col)`                    |
+| `with_month(col)`                            | `{col}_month`          | `UInt8`         | `toMonth(col)`                   |
+| `with_day_of_week(col)`                      | `{col}_dow`            | `UInt8`         | `toDayOfWeek(col)`               |
+| `with_date_diff(unit, col_a, col_b)`         | `{col_a}_{col_b}_diff` | `Int64`         | `dateDiff('unit', col_a, col_b)` |
+| `with_lower(col)`                            | `{col}_lower`          | `String`        | `lower(col)`                     |
+| `with_upper(col)`                            | `{col}_upper`          | `String`        | `upper(col)`                     |
+| `with_length(col)`                           | `{col}_length`         | `UInt64`        | `length(col)`                    |
+| `with_trim(col)`                             | `{col}_trimmed`        | `String`        | `trim(col)`                      |
+| `with_abs(col)`                              | `{col}_abs`            | `Float64`       | `abs(col)`                       |
+| `with_log2(col)`                             | `{col}_log2`           | `Float64`       | `log2(col)`                      |
+| `with_sqrt(col)`                             | `{col}_sqrt`           | `Float64`       | `sqrt(col)`                      |
+| `with_bucket(col, size)`                     | `{col}_bucket`         | `Int64`         | `intDiv(col, size)`              |
+| `with_hash_bucket(col, n)`                   | `{col}_hash`           | `UInt64`        | `cityHash64(col) % n`            |
+| `with_if(cond, then, else, *, alias)`        | required `alias`       | `String`        | `if(cond, then, else)`           |
+| `with_multi_if(branches, *, default, alias)` | required `alias`       | `String`        | `multiIf(c1, r1, …, default)`    |
+| `with_cast(col, ch_type)`                    | `{col}_{type_lower}`   | `ch_type`       | `to{Type}(col)`                  |
+| `with_split_by_char(col, sep)`               | `{col}_parts`          | `Array(String)` | `splitByChar(sep, col)`          |
+| `with_isin(col, other)`                      | `{col}_isin`           | `UInt8`         | `col IN (SELECT value FROM …)`   |
+
+`with_multi_if()` takes `(condition, result)` pairs — plain 2-tuples or `Branch` from `aaiclick.data.models` — and the earliest
+match wins. `default` is required: ClickHouse's `multiIf` has no implicit else. Both halves are raw
+SQL, so `AND` / `OR` / `NOT` / `IN` compose in a condition, and a result may be a literal, a column,
+or an expression.
+
+!!! warning "Conditions must be `UInt8`"
+    ClickHouse rejects a bare numeric column with `Illegal type Int64 of argument (condition)`.
+    Write `is_member = 1`, not `is_member`.
 
 `with_columns()` remains the public power-user interface for arbitrary expressions via `Computed(type, expression)`.
 
-**Tests**: `aaiclick/data/object/test_with_columns.py`
+**Tests**: `aaiclick/data/object/test_domain_helpers.py`
 
 ## Column Renaming: `rename()`
 
@@ -836,7 +879,7 @@ The result carries the `INSERT … SELECT` stats — `result = await obj.copy()`
     destination will interleave their rows non-deterministically. Structure
     your pipeline so a named destination has a single writer.
 
-**Tests**: `aaiclick/data/test_copy_parametrized.py`
+**Tests**: `aaiclick/data/object/test_copy_parametrized.py`
 
 # Operation Provenance (Oplog)
 

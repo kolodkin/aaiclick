@@ -7,22 +7,28 @@ Each operator function takes table names and ch_client instead of Object instanc
 Design — two-stage planner / materializer
 =========================================
 
-Every binary operator follows the same two-stage pattern:
+Every value-column operator follows the same two-stage pattern:
 
 - **Plan (sync, in ``object.py``):** Each binary dunder (``__add__``,
   ``__sub__``, etc.) calls ``Object._plan_operator(other, op_symbol)`` and
   returns a ``LazyOperator``. No DB call. Reverse operators (``__radd__``,
   ``__rsub__``, etc.) use ``_plan_operator_reverse`` which swaps operand
-  order for ``scalar op object`` syntax.
-- **Materialize (async, here):** Awaiting the ``LazyOperator`` triggers
-  ``_apply_operator_db()``, which builds ``QueryInfo`` for both operands
-  and emits the ``CREATE TABLE`` + ``INSERT INTO ... SELECT``. Python
-  scalars are inlined as ``(SELECT literal AS value)`` — no extra
-  ClickHouse table.
+  order for ``scalar op object`` syntax. Aggregations, unary transforms
+  (the null checks among them), the string/regex matchers, ``isin``,
+  ``coalesce`` and ``array_map`` plan the same way through their own
+  ``_plan_*`` helpers.
+- **Materialize (async, here):** Awaiting the ``LazyOperator`` dispatches to
+  the operator function for its family — ``_apply_operator_db()`` for the
+  binary dunders, ``_apply_string_op_db()`` for the string/regex matchers,
+  and so on. Each builds ``QueryInfo`` for its operands and emits the
+  ``CREATE TABLE`` + ``INSERT INTO ... SELECT``, forwarding the ``name`` /
+  ``scope`` that ``.as_()`` recorded. A Python scalar (or short list)
+  operand is inlined as a constant subquery by ``_resolve_operand`` — see
+  ``literals.py`` — so no table is created for it.
 
 Shared schema-computation helpers (``_compute_operator_schema``,
-``_preview_operator_schema``, ``_promote_arithmetic_type``,
-``_scalar_to_schema``) live in the neutral ``schema_compute.py`` module so
+``_preview_operator_schema``, ``_result_value_type``) live in the neutral
+``schema_compute.py`` module so
 both ``_plan_operator`` (preview) and ``_apply_operator_db`` (materialize)
 hit the same code — no drift between preview and result schemas.
 
@@ -105,18 +111,23 @@ from ..models import (
     parse_ch_type,
 )
 from ..scope import NamedScope
-from ..sql_utils import escape_sql_string, quote_identifier, quote_sql_literal
+from ..sql_utils import quote_identifier, quote_sql_literal
 from .emit import emit_result
 from .schema_compute import (
     AGGREGATION_FUNCTIONS,
+    STRING_OPS,
     UNARY_TRANSFORMS,
+    _compute_array_map_schema,
+    _compute_coalesce_schema,
     _compute_operator_schema,
     _determine_agg_result_type,
-    _promote_arithmetic_type,
+    _preview_fixed_type_schema,
 )
 
-# Operator to arrayMap lambda expression mapping (uses x, y variables)
-ARRAYMAP_EXPRESSIONS = {
+# Operator to arrayMap lambda expression mapping (uses x, y variables). Pure SQL
+# text — unlike the schema tables it has no preview-side consumer, so it lives
+# here with the code that builds the query.
+ARRAYMAP_EXPRESSIONS: dict[str, str] = {
     # Arithmetic operators
     "+": "x + y",
     "-": "x - y",
@@ -282,6 +293,15 @@ class _AaiIdProj(NamedTuple):
     aliased: str  # ", <alias>.aai_id AS aai_id" — table-qualified projection
 
 
+def _operand_tables(**operands: str) -> dict[str, str]:
+    """oplog kwargs naming an operator's operand tables.
+
+    A literal operand has no table (``QueryInfo.base_table`` is empty) and is
+    left out, so the lineage graph only ever references real tables.
+    """
+    return {role: table for role, table in operands.items() if table}
+
+
 def _aai_id_proj(propagate: bool, alias: str = "a") -> _AaiIdProj:
     if not propagate:
         return _AaiIdProj("(value)", "", "")
@@ -335,6 +355,7 @@ async def _apply_operator_db(
     aai_id_alias = aai_id_side or "a"  # "a" default is ignored when propagate=False
     proj = _aai_id_proj(aai_id_side is not None, alias=aai_id_alias)
     result = await create_object(schema, name=name, scope=scope)
+    operand_tables = _operand_tables(left=info_a.base_table, right=info_b.base_table)
 
     # Insert data based on fieldtype combinations
     if a_is_array and b_is_array:
@@ -342,7 +363,7 @@ async def _apply_operator_db(
         # the same table with identical constraints, emit a single SELECT instead
         # of the expensive INNER JOIN on row_number().
         same_table = (
-            info_a.base_table == info_b.base_table
+            info_a.same_table_as(info_b)
             and info_a.value_column != "value"
             and info_b.value_column != "value"
             and info_a.constraint_sql == info_b.constraint_sql
@@ -409,7 +430,7 @@ async def _apply_operator_db(
                     client=ch_client,
                 )
 
-        oplog_record_sample(result.table, operator, kwargs={"left": info_a.base_table, "right": info_b.base_table})
+        oplog_record_sample(result.table, operator, kwargs=operand_tables)
         return result
 
     # Scalar broadcasting (array⊗scalar, scalar⊗array, scalar⊗scalar):
@@ -424,7 +445,7 @@ async def _apply_operator_db(
         client=ch_client,
     )
 
-    oplog_record_sample(result.table, operator, kwargs={"left": info_a.base_table, "right": info_b.base_table})
+    oplog_record_sample(result.table, operator, kwargs=operand_tables)
     return result
 
 
@@ -448,27 +469,19 @@ async def _apply_aggregation(
     All computation happens within ClickHouse - no data round-trips to Python.
 
     Args:
-        info: QueryInfo for the source (contains source, base_table, value_column)
+        info: QueryInfo for the source (contains source, value_type)
         agg_func: Aggregation function key (e.g., 'min', 'max', 'sum', 'mean', 'std')
         ch_client: ClickHouse client instance
 
     Returns:
         New Object instance pointing to result table (scalar type)
     """
-    # Get SQL function from aggregation mapping
     sql_func = AGGREGATION_FUNCTIONS[agg_func]
 
-    # Get value column type from source table (use base table for metadata)
-    # Use value_column to query the correct column for single-field selection
-    safe_value_column = escape_sql_string(info.value_column)
-    type_query = f"""
-    SELECT type FROM system.columns
-    WHERE table = '{info.base_table}' AND name = '{safe_value_column}'
-    """
-    type_result = await ch_client.query(type_query)
-    source_type = type_result.result_rows[0][0] if type_result.result_rows else "Float64"
-
-    value_type = _determine_agg_result_type(agg_func, source_type)
+    # ``info.value_type`` is the effective source type — post-explode scalar
+    # for ARRAY JOIN views — and the same input the sync preview used, so the
+    # result type matches ``_preview_agg_schema`` without a system.columns query.
+    value_type = _determine_agg_result_type(agg_func, info.value_type)
 
     # Build schema for result table (scalar type, never nullable)
     schema = Schema(
@@ -675,7 +688,15 @@ async def nunique_agg(
 # Docs: https://clickhouse.com/docs/sql-reference/functions/array-functions#arraymapfunc-arr1-
 
 
-async def array_map_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_client):
+async def array_map_db(
+    info_a: QueryInfo,
+    info_b: QueryInfo,
+    operator: str,
+    ch_client,
+    *,
+    name: str | None = None,
+    scope: NamedScope | None = None,
+):
     """
     Apply an element-wise operation using ClickHouse's arrayMap function.
 
@@ -694,29 +715,18 @@ async def array_map_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_c
         New Object instance pointing to result table (FIELDTYPE_ARRAY)
 
     Raises:
-        ValueError: If operator is not supported
+        KeyError: If operator is not in ARRAYMAP_EXPRESSIONS. ``Object.array_map``
+            rejects those at plan time, so this is a direct-caller guard only.
         DB::Exception: If array sizes don't match (from ClickHouse)
     """
-    if operator not in ARRAYMAP_EXPRESSIONS:
-        raise ValueError(f"Unsupported operator for array_map: {operator!r}")
-
     expression = ARRAYMAP_EXPRESSIONS[operator]
 
-    # Determine result type
-    type_a = info_a.value_type
-    type_b = info_b.value_type
-
-    comparison_ops = {"==", "!=", "<", "<=", ">", ">="}
-
-    if operator in comparison_ops:
-        value_type = "UInt8"
-    else:
-        value_type = _promote_arithmetic_type(operator, type_a, type_b)
-
-    result_nullable = info_a.nullable or info_b.nullable
-    schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
-        columns={"value": ColumnInfo(value_type, nullable=result_nullable)},
+    schema = _compute_array_map_schema(
+        operator=operator,
+        type_a=info_a.value_type,
+        type_b=info_b.value_type,
+        nullable_a=info_a.nullable,
+        nullable_b=info_b.nullable,
     )
 
     b_is_scalar = info_b.fieldtype == FIELDTYPE_SCALAR
@@ -744,7 +754,7 @@ async def array_map_db(info_a: QueryInfo, info_b: QueryInfo, operator: str, ch_c
         ) AS value
         """
 
-    return await emit_result(schema, select_query, ch_client)
+    return await emit_result(schema, select_query, ch_client, name=name, scope=scope)
 
 
 # Group By Operators
@@ -770,6 +780,12 @@ def _normalize_aggregations(aggregations: dict) -> list[tuple[str, Agg]]:
             for entry in spec:
                 result.append((column, Agg._make(entry) if not isinstance(entry, Agg) else entry))
     return result
+
+
+def _agg_expr(op: str, source_col: str, alias: str) -> str:
+    """One aggregation SELECT expression; count() takes no argument."""
+    arg = "" if op == "count" else quote_identifier(source_col)
+    return f"{AGGREGATION_FUNCTIONS[op]}({arg}) AS {quote_identifier(alias)}"
 
 
 async def group_by_agg(
@@ -802,7 +818,7 @@ async def group_by_agg(
         New dict Object with group keys + all aggregated columns
     """
     entries = _normalize_aggregations(aggregations)
-    keys_str = ", ".join(info.group_keys)
+    keys_str = ", ".join(quote_identifier(k) for k in info.group_keys)
 
     # Build aggregation expressions and result schema. Every result column
     # carries multiple rows (one per group), so fieldtype=ARRAY.
@@ -813,23 +829,18 @@ async def group_by_agg(
         result_columns[key] = ColumnInfo(info.columns[key], fieldtype=FIELDTYPE_ARRAY)
 
     for source_col, agg in entries:
-        sql_func = AGGREGATION_FUNCTIONS[agg.op]
+        agg_exprs.append(_agg_expr(agg.op, source_col, agg.alias))
         if agg.op == "count":
-            agg_exprs.append(f"{sql_func}() AS {agg.alias}")
             result_columns[agg.alias] = ColumnInfo("UInt64", fieldtype=FIELDTYPE_ARRAY)
         elif agg.op == "group_array_distinct":
-            agg_exprs.append(f"{sql_func}({source_col}) AS {agg.alias}")
             source_type = info.columns[source_col]
             base_type = parse_ch_type(source_type).type if isinstance(source_type, str) else source_type.type
             result_columns[agg.alias] = ColumnInfo(base_type, array=True, fieldtype=FIELDTYPE_ARRAY)
         else:
-            agg_exprs.append(f"{sql_func}({source_col}) AS {agg.alias}")
             source_type = info.columns[source_col]
             result_columns[agg.alias] = ColumnInfo(
                 _determine_agg_result_type(agg.op, source_type), fieldtype=FIELDTYPE_ARRAY
             )
-
-    agg_str = ", ".join(agg_exprs)
 
     if info.having:
         # Use temporary aliases to avoid ClickHouse resolving HAVING column
@@ -838,19 +849,15 @@ async def group_by_agg(
         tmp_agg_exprs = []
         rename_exprs = []
         for source_col, agg in entries:
-            sql_func = AGGREGATION_FUNCTIONS[agg.op]
             tmp_alias = f"__agg_{agg.alias}"
-            if agg.op == "count":
-                tmp_agg_exprs.append(f"{sql_func}() AS {tmp_alias}")
-            else:
-                tmp_agg_exprs.append(f"{sql_func}({source_col}) AS {tmp_alias}")
-            rename_exprs.append(f"{tmp_alias} AS {agg.alias}")
+            tmp_agg_exprs.append(_agg_expr(agg.op, source_col, tmp_alias))
+            rename_exprs.append(f"{quote_identifier(tmp_alias)} AS {quote_identifier(agg.alias)}")
         tmp_agg_str = ", ".join(tmp_agg_exprs)
         rename_str = ", ".join(rename_exprs)
         inner = f"SELECT {keys_str}, {tmp_agg_str} FROM {info.source} GROUP BY {keys_str} HAVING {info.having}"
         query = f"SELECT {keys_str}, {rename_str} FROM ({inner})"
     else:
-        query = f"SELECT {keys_str}, {agg_str} FROM {info.source} GROUP BY {keys_str}"
+        query = f"SELECT {keys_str}, {', '.join(agg_exprs)} FROM {info.source} GROUP BY {keys_str}"
 
     schema = Schema(fieldtype=FIELDTYPE_DICT, columns=result_columns)
     return await emit_result(schema, query, ch_client, name=name, scope=scope)
@@ -859,24 +866,8 @@ async def group_by_agg(
 # String/Regex Operators
 # Docs: https://clickhouse.com/docs/sql-reference/functions/string-search-functions
 
-# SQL expression templates for string operations
-# {pattern} and {replacement} are SQL-escaped string literals (with quotes)
-STRING_OP_EXPRESSIONS = {
-    "match": "match(a.value, {pattern})",
-    "like": "a.value LIKE {pattern}",
-    "ilike": "a.value ILIKE {pattern}",
-    "extract": "extract(a.value, {pattern})",
-    "replace": "replaceRegexpAll(a.value, {pattern}, {replacement})",
-}
-
-# Fixed result types for string operations
-STRING_OP_RESULT_TYPES = {
-    "match": "UInt8",
-    "like": "UInt8",
-    "ilike": "UInt8",
-    "extract": "String",
-    "replace": "String",
-}
+# ``STRING_OPS`` lives in ``schema_compute`` so the preview path and the
+# materialize path share one source of truth.
 
 
 async def _apply_string_op_db(
@@ -885,13 +876,16 @@ async def _apply_string_op_db(
     pattern: str,
     ch_client,
     replacement: str | None = None,
+    *,
+    name: str | None = None,
+    scope: NamedScope | None = None,
 ):
     """
     Apply a string/regex operation at the database level.
 
     Args:
         info: QueryInfo for source (string column)
-        op_name: Operation name key in STRING_OP_EXPRESSIONS
+        op_name: Operation name key in STRING_OPS
         pattern: Regex or LIKE pattern string
         ch_client: ClickHouse client instance
         replacement: Replacement string (only for 'replace' operation)
@@ -899,66 +893,47 @@ async def _apply_string_op_db(
     Returns:
         New Object instance pointing to result table
     """
-    escaped_pattern = quote_sql_literal(pattern)
-    format_args = {"pattern": escaped_pattern}
+    string_op = STRING_OPS[op_name]
+    format_args = {"pattern": quote_sql_literal(pattern)}
     if replacement is not None:
         format_args["replacement"] = quote_sql_literal(replacement)
 
-    expression = STRING_OP_EXPRESSIONS[op_name].format(**format_args)
-    value_type = STRING_OP_RESULT_TYPES[op_name]
+    expression = string_op.expression.format(**format_args)
 
-    schema = Schema(
-        fieldtype=info.fieldtype,
-        columns={"value": ColumnInfo(value_type)},
+    return await emit_result(
+        _preview_fixed_type_schema(info.fieldtype, string_op.result_type),
+        f"SELECT {expression} AS value FROM {info.source} AS a",
+        ch_client,
+        name=name,
+        scope=scope,
     )
-    return await emit_result(schema, f"SELECT {expression} AS value FROM {info.source} AS a", ch_client)
-
-
-async def match_op(info: QueryInfo, pattern: str, ch_client):
-    """RE2 regex match. Returns UInt8 (1 if match, 0 otherwise)."""
-    return await _apply_string_op_db(info, "match", pattern, ch_client)
-
-
-async def like_op(info: QueryInfo, pattern: str, ch_client):
-    """SQL LIKE pattern match. Returns UInt8 (1 if match, 0 otherwise)."""
-    return await _apply_string_op_db(info, "like", pattern, ch_client)
-
-
-async def ilike_op(info: QueryInfo, pattern: str, ch_client):
-    """Case-insensitive SQL LIKE pattern match. Returns UInt8."""
-    return await _apply_string_op_db(info, "ilike", pattern, ch_client)
-
-
-async def extract_op(info: QueryInfo, pattern: str, ch_client):
-    """Extract first regex capture group. Returns String."""
-    return await _apply_string_op_db(info, "extract", pattern, ch_client)
-
-
-async def replace_op(info: QueryInfo, pattern: str, replacement: str, ch_client):
-    """Replace all regex matches. Returns String."""
-    return await _apply_string_op_db(info, "replace", pattern, ch_client, replacement=replacement)
 
 
 # IN (isin) Operations
 # Docs: https://clickhouse.com/docs/sql-reference/operators#in
 
 
-async def isin_op(info: QueryInfo, other_info: QueryInfo, ch_client):
+async def isin_op(
+    info: QueryInfo,
+    other_info: QueryInfo,
+    ch_client,
+    *,
+    name: str | None = None,
+    scope: NamedScope | None = None,
+):
     """Test if values are in another Object's value set. Returns UInt8 (1 if in, 0 otherwise).
 
     Generates: value IN (SELECT value FROM other_table)
     """
-    schema = Schema(
-        fieldtype=info.fieldtype,
-        columns={"value": ColumnInfo("UInt8")},
-    )
     subquery = f"SELECT value FROM {other_info.source}"
     return await emit_result(
-        schema,
+        _preview_fixed_type_schema(info.fieldtype, "UInt8"),
         f"SELECT toUInt8(a.value IN ({subquery})) AS value FROM {info.source} AS a",
         ch_client,
+        name=name,
+        scope=scope,
         oplog_op="isin",
-        oplog_kwargs={"source": info.base_table, "other": other_info.base_table},
+        oplog_kwargs=_operand_tables(source=info.base_table, other=other_info.base_table),
     )
 
 
@@ -1006,53 +981,40 @@ async def unary_transform(
     )
 
 
-# Null Operations
+# Coalesce
 # Docs: https://clickhouse.com/docs/sql-reference/functions/functions-for-nulls
+# ``is_null`` / ``is_not_null`` are plain unary transforms — see UNARY_TRANSFORMS.
 
 
-async def is_null_op(info: QueryInfo, ch_client):
-    """Apply isNull() — returns UInt8 Object (1 for NULL, 0 otherwise)."""
-    schema = Schema(
-        fieldtype=info.fieldtype,
-        columns={"value": ColumnInfo("UInt8")},
-    )
-    return await emit_result(schema, f"SELECT isNull(value) AS value FROM {info.source}", ch_client)
-
-
-async def is_not_null_op(info: QueryInfo, ch_client):
-    """Apply isNotNull() — returns UInt8 Object (1 for non-NULL, 0 otherwise)."""
-    schema = Schema(
-        fieldtype=info.fieldtype,
-        columns={"value": ColumnInfo("UInt8")},
-    )
-    return await emit_result(schema, f"SELECT isNotNull(value) AS value FROM {info.source}", ch_client)
-
-
-async def coalesce_op(info_a: QueryInfo, info_b: QueryInfo, ch_client):
+async def coalesce_op(
+    info_a: QueryInfo,
+    info_b: QueryInfo,
+    ch_client,
+    *,
+    name: str | None = None,
+    scope: NamedScope | None = None,
+):
     """Apply coalesce(a, b) — returns first non-NULL value.
 
     Result is non-nullable if the fallback (info_b) is non-nullable.
     """
     a_is_array = info_a.fieldtype == FIELDTYPE_ARRAY
     b_is_array = info_b.fieldtype == FIELDTYPE_ARRAY
-    fieldtype = FIELDTYPE_ARRAY if (a_is_array or b_is_array) else FIELDTYPE_SCALAR
 
-    # Result type follows the first operand's base type
-    value_type = info_a.value_type
-    # Result is nullable only if both operands are nullable
-    result_nullable = info_a.nullable and info_b.nullable
-
-    schema = Schema(
-        fieldtype=fieldtype,
-        columns={"value": ColumnInfo(value_type, nullable=result_nullable)},
+    schema = _compute_coalesce_schema(
+        fieldtype_a=info_a.fieldtype,
+        fieldtype_b=info_b.fieldtype,
+        type_a=info_a.value_type,
+        nullable_a=info_a.nullable,
+        nullable_b=info_b.nullable,
     )
-    result = await create_object(schema)
+    result = await create_object(schema, name=name, scope=scope)
 
     if a_is_array and b_is_array:
         # Cross-table contract enforced by Object.coalesce — both operands must
         # be Views with explicit order_by. Same-base-table coalesce is legal
         # without views (matching source rows 1:1).
-        same_table = info_a.base_table == info_b.base_table
+        same_table = info_a.same_table_as(info_b)
         assert same_table or (info_a.order_by and info_b.order_by), (
             "cross-table coalesce reached operator SQL without order_by — the "
             "contract check in Object.coalesce should have rejected it"

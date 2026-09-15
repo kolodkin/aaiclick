@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from typing import NamedTuple
+from urllib.parse import quote
 
 from ..backend import is_local
 
@@ -17,9 +18,15 @@ ENV_ACCESS_TTL = "AAICLICK_JWT_ACCESS_TTL"
 ENV_REFRESH_TTL = "AAICLICK_JWT_REFRESH_TTL"
 ENV_ADMIN_USERNAME = "AAICLICK_ADMIN_USERNAME"
 ENV_ADMIN_PASSWORD = "AAICLICK_ADMIN_PASSWORD"
+ENV_PUBLIC_URL = "AAICLICK_PUBLIC_URL"
+
+
+ENV_PASSWORD_RESET_TTL = "AAICLICK_PASSWORD_RESET_TTL"
 
 DEFAULT_ACCESS_TTL = 1800
 DEFAULT_REFRESH_TTL = 1209600
+DEFAULT_ADMIN_USERNAME = "admin"
+DEFAULT_PASSWORD_RESET_TTL = 3600
 
 
 class AdminSeed(NamedTuple):
@@ -53,8 +60,32 @@ def refresh_ttl() -> int:
 
 
 def admin_seed() -> AdminSeed | None:
-    username = os.getenv(ENV_ADMIN_USERNAME)
+    """First-startup admin seed; the username defaults to ``admin``.
+
+    The password has no default — without ``AAICLICK_ADMIN_PASSWORD`` nothing
+    is seeded, so a deployment never ships a well-known credential.
+    """
+    username = os.getenv(ENV_ADMIN_USERNAME) or DEFAULT_ADMIN_USERNAME
     password = os.getenv(ENV_ADMIN_PASSWORD)
-    if username and password:
+    if password:
         return AdminSeed(username, password)
     return None
+
+
+def public_url() -> str | None:
+    """Browser-facing origin, without a trailing slash."""
+    value = os.getenv(ENV_PUBLIC_URL)
+    return value.rstrip("/") if value else None
+
+
+def spa_url(prompt: str | None = None) -> str:
+    """A browser URL into the SPA — the site root, or a ``?p=`` prompt such as
+    ``reset <token>``. Requires ``AAICLICK_PUBLIC_URL``."""
+    base = public_url()
+    if base is None:
+        raise RuntimeError(f"{ENV_PUBLIC_URL} must be set")
+    return f"{base}/?p={quote(prompt)}" if prompt else f"{base}/"
+
+
+def password_reset_ttl() -> int:
+    return int(os.getenv(ENV_PASSWORD_RESET_TTL, DEFAULT_PASSWORD_RESET_TTL))

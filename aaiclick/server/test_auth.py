@@ -1,4 +1,4 @@
-"""Tests for the JWT principal-resolution layer and the admin-only /mcp guard.
+"""Tests for the principal-resolution layer and the /mcp mount guard.
 
 ``resolve_principal`` is shared by the REST dependency and the ``/mcp`` ASGI
 middleware. HTTP end-to-end coverage (login -> access -> protected route, RBAC
@@ -14,58 +14,125 @@ import jwt
 import pytest
 
 from aaiclick.auth import security
-from aaiclick.auth.models import ROLE_ADMIN, ROLE_VIEWER
-from aaiclick.internal_api.errors import Unauthorized
+from aaiclick.auth.view_models import CreateApiTokenRequest, CreateUserRequest
+from aaiclick.internal_api import api_tokens, users
+from aaiclick.internal_api.errors import Forbidden, Unauthorized
 
 from . import auth
-from .auth import AdminAuthMiddleware, warn_if_open
+from .auth import PrincipalAuthMiddleware, warn_if_open
+from .conftest import TEST_JWT_SECRET
+from .request_state import audit_state
 
-SECRET = "server-auth-test-secret-key-32-plus-bytes"
 OTHER_SECRET = "a-different-secret-also-32-plus-bytes-long"
-
-
-@pytest.fixture
-def enabled(monkeypatch):
-    # Auth is mode-derived: force distributed mode (auth on) + a signing secret.
-    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: False)
-    monkeypatch.setenv("AAICLICK_JWT_SECRET", SECRET)
 
 
 def _bearer(token: str) -> str:
     return f"Bearer {token}"
 
 
-def _admin_token() -> str:
-    return security.encode_access_token(user_id=1, role=ROLE_ADMIN, secret=SECRET, ttl=60)
-
-
 # --- resolve_principal ---------------------------------------------------
 
 
-def test_local_mode_returns_synthetic_admin(monkeypatch):
+async def test_local_mode_returns_synthetic_admin(monkeypatch):
     monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
-    principal = auth.resolve_principal(authorization=None)
-    assert principal.role == ROLE_ADMIN
+    principal = await auth.resolve_principal(authorization=None)
+    assert principal.role == "admin" and principal.kind == "none"
 
 
-def test_enabled_missing_token_unauthorized(enabled):
+async def test_enabled_missing_token_unauthorized(enabled):
     with pytest.raises(Unauthorized):
-        auth.resolve_principal(authorization=None)
+        await auth.resolve_principal(authorization=None)
 
 
-def test_enabled_valid_jwt(enabled):
-    token = security.encode_access_token(user_id=7, role=ROLE_VIEWER, secret=SECRET, ttl=60)
-    principal = auth.resolve_principal(authorization=_bearer(token))
-    assert principal.user_id == 7 and principal.role == ROLE_VIEWER
+async def test_enabled_valid_jwt(enabled):
+    token = security.encode_access_token(user_id=7, role="member", secret=TEST_JWT_SECRET, ttl=60)
+    principal = await auth.resolve_principal(authorization=_bearer(token))
+    assert principal.user_id == 7 and principal.role == "member"
+    assert principal.kind == "session" and principal.scope is None
 
 
-def test_enabled_bad_signature_unauthorized(enabled):
-    token = jwt.encode({"sub": "1", "role": "admin", "type": "access"}, OTHER_SECRET, algorithm="HS256")
+async def test_enabled_bad_signature_unauthorized(enabled):
+    token = jwt.encode({"sub": "1", "type": "access", "role": "admin"}, OTHER_SECRET, algorithm="HS256")
     with pytest.raises(Unauthorized):
-        auth.resolve_principal(authorization=_bearer(token))
+        await auth.resolve_principal(authorization=_bearer(token))
 
 
-# --- AdminAuthMiddleware -------------------------------------------------
+async def test_api_token_resolves_live_owner_state(enabled, orch_ctx):
+    """An ``aaic_`` credential is looked up in the DB and carries the owner's
+    current role and the token's scope."""
+    user = await users.create_user(CreateUserRequest(username="bot", password="pw", role="member"))
+    created = await api_tokens.create_token(user.id, CreateApiTokenRequest(name="ci", scope="read"))
+
+    principal = await auth.resolve_principal(authorization=_bearer(created.token))
+    assert principal.user_id == user.id and principal.kind == "token" and principal.scope == "read"
+    assert principal.role == "member"
+
+    await users.disable_user(user.id, True)
+    with pytest.raises(Unauthorized):
+        await auth.resolve_principal(authorization=_bearer(created.token))
+
+
+async def test_unknown_api_token_unauthorized(enabled, orch_ctx):
+    with pytest.raises(Unauthorized):
+        await auth.resolve_principal(authorization=_bearer("aaic_not-a-real-token"))
+
+
+@pytest.mark.parametrize(
+    "held, required, allowed",
+    [
+        pytest.param("read", "read", True, id="read-reads"),
+        pytest.param("read", "write", False, id="read-cannot-write"),
+        pytest.param("write", "admin", False, id="write-cannot-admin"),
+        pytest.param("admin", "write", True, id="admin-can-write"),
+        pytest.param("admin", "admin", True, id="admin-can-admin"),
+    ],
+)
+def test_enforce_scope_walks_the_ladder(held, required, allowed):
+    principal = auth.Principal(user_id=1, role="admin", scope=held, kind="token")
+    if allowed:
+        auth.enforce_scope(principal, required)
+    else:
+        with pytest.raises(Forbidden):
+            auth.enforce_scope(principal, required)
+
+
+def test_unscoped_principal_is_never_blocked_by_the_ladder():
+    """A session is bounded by its user's role, not by a scope."""
+    session = auth.Principal(user_id=1, role="admin", kind="session")
+    auth.enforce_scope(session, "admin")
+
+
+# --- principal_to_scope --------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("principal", "expected"),
+    [
+        pytest.param(auth.Principal(user_id=5, role="viewer"), "read", id="viewer-session-reads"),
+        pytest.param(auth.Principal(user_id=5, role="member"), "write", id="member-session-writes"),
+        pytest.param(auth.Principal(user_id=5, role="admin"), "admin", id="admin-session-admins"),
+        pytest.param(
+            auth.Principal(user_id=5, role="admin", scope="read", kind="token"), "read", id="token-stands-alone"
+        ),
+        pytest.param(auth.Principal(user_id=None, role="admin", kind="none"), "admin", id="local-mode-is-admin"),
+    ],
+)
+def test_principal_to_scope(principal, expected):
+    assert auth.principal_to_scope(principal) == expected
+
+
+def test_check_scope_forbids_too_little():
+    with pytest.raises(Forbidden):
+        auth.check_scope(auth.Principal(user_id=5, role="member"), "admin")
+    auth.check_scope(auth.Principal(user_id=5, role="member"), "write")
+
+
+def test_session_principal_is_unscoped():
+    session = auth.Principal(user_id=1, role="admin", kind="session")
+    assert session.scope is None
+
+
+# --- PrincipalAuthMiddleware ---------------------------------------------
 
 
 async def _drive(scope, middleware_inner_flag):
@@ -80,7 +147,7 @@ async def _drive(scope, middleware_inner_flag):
     async def inner(scope, receive, send):
         middleware_inner_flag.append(True)
 
-    await AdminAuthMiddleware(inner)(scope, receive, send)
+    await PrincipalAuthMiddleware(inner)(scope, receive, send)
     return sent
 
 
@@ -92,20 +159,26 @@ async def test_mcp_middleware_rejects_missing_token(enabled):
     assert (b"www-authenticate", b"Bearer") in sent[0]["headers"]
 
 
-async def test_mcp_middleware_rejects_viewer(enabled):
+async def test_mcp_mount_admits_an_api_token_and_stores_it(orch_ctx, enabled):
+    """Per-tool RBAC lives in mcp_rbac.py — the mount only needs a principal."""
     called: list[bool] = []
-    token = security.encode_access_token(user_id=2, role=ROLE_VIEWER, secret=SECRET, ttl=60)
+    user = await users.create_user(CreateUserRequest(username="m", password="pw"))
+    created = await api_tokens.create_token(user.id, CreateApiTokenRequest(name="m", scope="read"))
+    scope = {"type": "http", "headers": [(b"authorization", f"Bearer {created.token}".encode())]}
+    await _drive(scope, called)
+    assert called == [True]
+    recorded = audit_state(scope).principal
+    assert recorded is not None and recorded.user_id == user.id
+
+
+async def test_mcp_mount_refuses_a_session_jwt(enabled):
+    """MCP is the machine door; a session JWT belongs on REST."""
+    called: list[bool] = []
+    token = security.encode_access_token(user_id=2, role="admin", secret=TEST_JWT_SECRET, ttl=60)
     scope = {"type": "http", "headers": [(b"authorization", f"Bearer {token}".encode())]}
     sent = await _drive(scope, called)
     assert not called
-    assert sent[0]["status"] == 403
-
-
-async def test_mcp_middleware_delegates_on_admin(enabled):
-    called: list[bool] = []
-    scope = {"type": "http", "headers": [(b"authorization", f"Bearer {_admin_token()}".encode())]}
-    await _drive(scope, called)
-    assert called == [True]
+    assert sent[0]["status"] == 401
 
 
 async def test_mcp_middleware_open_in_local_mode(monkeypatch):

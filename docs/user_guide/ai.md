@@ -184,15 +184,36 @@ Used by `explain_lineage()` — see `aaiclick/ai/agents/tools.py`:
 
 ---
 
+# CLI
+
+Both agents are CLI verbs. They run with ClickHouse attached, so the usual
+`AAICLICK_CH_URL` / `AAICLICK_SQL_URL` settings apply:
+
+```bash
+python -m aaiclick explain p_revenue                          # how was this table produced?
+python -m aaiclick explain p_revenue "Which join fed this?"   # custom question, same structural context
+python -m aaiclick debug p_revenue "Why is total negative?"   # tool loop with live queries
+python -m aaiclick debug p_revenue "Why only 3 rows?" --max-iterations 5 --json
+```
+
+Text output is the agent's answer; `--json` emits a `LineageAnswer`
+(`target_table`, `question`, `answer`). Without the `ai` extra the commands
+exit 1 with an install hint.
+
+**Implementation**: `aaiclick/internal_api/lineage_ai.py` — see
+`explain_lineage()`, `debug_result()`; CLI wiring in `aaiclick/__main__.py`
+(`_run_explain()`, `_run_debug()`). The module stays out of
+`internal_api.__init__` so the litellm-free primitives in
+`internal_api.lineage` (the only ones MCP exposes) import without the extra.
+
+---
+
 # Graceful Degradation
 
-```python
-# aaiclick core — surfaced in aaiclick/__init__.py
+Modules that pull in litellm are imported on first use through
+`import_ai_module()`, which turns a missing extra into one `ImportError`
+carrying the install hint; the CLI prints it and exits 1. Programmatic
+callers import `aaiclick.internal_api.lineage_ai` directly.
 
-async def explain(target_table: str, question: str | None = None) -> str:
-    try:
-        from aaiclick.ai.agents.lineage_agent import explain_lineage
-    except ImportError:
-        raise ImportError("AI features require aaiclick[ai]: pip install aaiclick[ai]")
-    return await explain_lineage(target_table, question)
-```
+**Implementation**: `aaiclick/ai/importing.py` — see `import_ai_module()`;
+called from `aaiclick/__main__.py` (`_load_lineage_ai()`).

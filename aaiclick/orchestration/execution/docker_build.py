@@ -1,8 +1,7 @@
 """Low-level build helpers for Docker-runner jobs.
 
-Used by the injected image-build task (``execution.image_build_task``) in
-registry mode, and by ``resolve_launch_image`` for the inline no-registry
-build at container launch.
+Used by the injected image-build task (``execution.image_build_task``);
+``resolve_launch_image`` only derives the tag a container launches with.
 
 Cache hierarchy (first hit short-circuits):
 
@@ -10,7 +9,7 @@ Cache hierarchy (first hit short-circuits):
    now in the local daemon.
 2. ``docker image inspect <tag>`` succeeds — local cache hit.
 3. Fall through: ``git clone`` at SHA, ``docker build``, then
-   ``docker push`` if a registry is configured.
+   ``docker push`` if a registry is configured (local mode stops here).
 """
 
 from __future__ import annotations
@@ -129,12 +128,11 @@ async def resolve_launch_image(image_source: ImageSourceT | None, *, task_id: in
     """Resolve the image tag a container actually launches with.
 
     The tag is derived from the source (prebuilt tag verbatim, computed
-    ``aaiclick-job:<sha>`` for a build). Registry mode: the ``build >> task``
-    dependency edge guarantees the tag is already pushed — the launch path
-    pulls. No registry + build source: build inline on this host
-    (``build_image_to_tag`` short-circuits on a local-cache hit), holding the
-    worker slot for a cold build — accepted, no-registry is de facto
-    single-host mode (spec: docs/designs/orchestration.md "Image source").
+    ``aaiclick-job:<sha>`` for a build). Never builds: the ``build >> task``
+    dependency edge guarantees the build task has already pushed the tag
+    (registry mode) or left it in this host's daemon (local mode), so the
+    launch path pulls or runs directly (spec: docs/designs/orchestration.md
+    "Image source").
 
     A ``None`` source cannot occur through dispatch (``_resolve_dispatch``
     routes NULL-image tasks to the subprocess vehicle); the raise here is the
@@ -142,10 +140,7 @@ async def resolve_launch_image(image_source: ImageSourceT | None, *, task_id: in
     if image_source is None:
         raise ValueError(f"container task {task_id} has no image_source")
     if isinstance(image_source, ImageBuild):
-        image_tag = compute_image_tag(image_source.git_sha)
-        if get_registry() is None:
-            await build_image_to_tag(image_source, image_tag)
-        return image_tag
+        return compute_image_tag(image_source.git_sha)
     return image_source.image_tag
 
 

@@ -295,28 +295,22 @@ async def test_group_by_array_object_count(ctx):
 # =============================================================================
 
 
-async def test_group_by_invalid_key_raises(ctx):
-    """ValueError for nonexistent key."""
+@pytest.mark.parametrize(
+    "keys, match",
+    [
+        pytest.param(("nonexistent",), "not found", id="nonexistent-key"),
+        pytest.param((), "at least one key", id="no-keys"),
+    ],
+)
+async def test_group_by_invalid_keys_raises(ctx, keys, match):
     obj = await create_object_from_value(
         {
             "category": ["A", "B"],
             "amount": [10, 20],
         }
     )
-    with pytest.raises(ValueError, match="not found"):
-        obj.group_by("nonexistent")
-
-
-async def test_group_by_no_keys_raises(ctx):
-    """ValueError for empty keys."""
-    obj = await create_object_from_value(
-        {
-            "category": ["A", "B"],
-            "amount": [10, 20],
-        }
-    )
-    with pytest.raises(ValueError, match="at least one key"):
-        obj.group_by()
+    with pytest.raises(ValueError, match=match):
+        obj.group_by(*keys)
 
 
 # =============================================================================
@@ -846,3 +840,61 @@ async def test_group_by_count_with_name(ctx):
     data = await result.data()
     by_cat = dict(zip(data["category"], data["_count"], strict=True))
     assert by_cat == {"A": 2, "B": 1}
+
+
+# =============================================================================
+# Dot-notation column names (nested-dict ingest)
+# =============================================================================
+
+_NESTED_AMOUNT_ROWS = [
+    {"category": "A", "m": {"amount": 10}},
+    {"category": "A", "m": {"amount": 20}},
+    {"category": "B", "m": {"amount": 35}},
+]
+
+
+async def test_group_by_agg_on_nested_dot_column(ctx):
+    """Aggregating a dot-notation column must quote it in the GROUP BY SQL."""
+    obj = await create_object_from_value(_NESTED_AMOUNT_ROWS)
+    result = await obj.group_by("category").sum("m.amount")
+    data = await result.data()
+
+    # Result column keeps the dotted name, so data() re-nests it under "m".
+    pairs = sorted(zip(data["category"], [m["amount"] for m in data["m"]], strict=False))
+    assert pairs == [("A", 30), ("B", 35)]
+
+
+async def test_group_by_nested_dot_key(ctx):
+    """A dot-notation column used as a group key must be quoted in GROUP BY."""
+    obj = await create_object_from_value(
+        [
+            {"m": {"category": "A"}, "amount": 10},
+            {"m": {"category": "A"}, "amount": 20},
+            {"m": {"category": "B"}, "amount": 35},
+        ]
+    )
+    result = await obj.group_by("m.category").sum("amount")
+    data = await result.data()
+
+    pairs = sorted(zip([m["category"] for m in data["m"]], data["amount"], strict=False))
+    assert pairs == [("A", 30), ("B", 35)]
+
+
+async def test_group_by_agg_alias_avoids_dotted_result_column(ctx):
+    """An explicit Agg alias renames a dotted source column to a flat result column."""
+    obj = await create_object_from_value(_NESTED_AMOUNT_ROWS)
+    result = await obj.group_by("category").agg({"m.amount": Agg("sum", "total")})
+    data = await result.data()
+
+    pairs = sorted(zip(data["category"], data["total"], strict=False))
+    assert pairs == [("A", 30), ("B", 35)]
+
+
+async def test_group_by_having_on_nested_dot_column(ctx):
+    """The HAVING path aliases aggregates internally — dotted names must be quoted there too."""
+    obj = await create_object_from_value(_NESTED_AMOUNT_ROWS)
+    result = await obj.group_by("category").having("sum(`m.amount`) > 30").sum("m.amount")
+    data = await result.data()
+
+    assert data["category"] == ["B"]
+    assert [m["amount"] for m in data["m"]] == [35]

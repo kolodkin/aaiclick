@@ -121,8 +121,9 @@ async def test_array_map_size_mismatch(ctx):
 
 
 async def test_array_map_invalid_operator(ctx):
-    """array_map raises ValueError for unsupported operator."""
+    """array_map rejects an unsupported operator when the call is planned,
+    before the LazyOperator is awaited."""
     a = await create_object_from_value([1, 2, 3])
     b = await create_object_from_value([4, 5, 6])
     with pytest.raises(ValueError, match="Unsupported operator"):
-        await a.array_map(b, "invalid")
+        a.array_map(b, "invalid")

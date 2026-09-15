@@ -48,3 +48,9 @@ class Unauthorized(InternalApiError):
 class Forbidden(InternalApiError):
     """Authenticated but insufficient role — raised by ``require_admin`` when a
     viewer hits a mutating route or the admin-only ``/users`` and ``/mcp`` surfaces."""
+
+
+class MfaRequired(Unauthorized):
+    """Password accepted but the account has MFA enabled and no (valid) TOTP
+    code was supplied. An ``Unauthorized`` subclass with its own
+    ``ProblemCode`` so a client can prompt for the code and retry."""

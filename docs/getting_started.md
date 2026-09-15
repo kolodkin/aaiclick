@@ -12,6 +12,12 @@ Getting Started
     python -m aaiclick setup
     ```
 
+    !!! warning "Upgrading over an existing `local.db`"
+        SQLite databases are not migrated in place. When `local.db` predates the
+        installed version, `setup` stops and names the missing columns — re-run
+        with `--force` to recreate it. Local job/task history is lost; data
+        objects in chdb are untouched.
+
 === "Distributed (ClickHouse + PostgreSQL)"
 
     For a remote ClickHouse server and PostgreSQL:

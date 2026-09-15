@@ -34,7 +34,7 @@ dependencies = [
     "pydantic>=2.12.0",
     "sqlmodel>=0.0.38",
     "alembic>=1.18.0",
-    "chdb>=4.1.7",
+    "chdb>=4.3.0",
     "aiosqlite>=0.22.0",
     "greenlet>=3.0.0",
     "croniter>=6.0.0",
@@ -55,11 +55,11 @@ ai = [
 server = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
-    "httpx>=0.27.0",
     "fastmcp>=2.12.0",
 ]
 all = ["aaiclick[distributed,ai,server]"]
 test = [
+    "httpx>=0.27.0",
     "pytest>=9.0.0",
     "pytest-asyncio>=1.3.0",
     "pytest-cov>=7.1.0",
@@ -90,6 +90,11 @@ aaiclick = ["py.typed"]
 "aaiclick.orchestration.execution" = ["sql/*.sql"]
 "aaiclick.oplog" = ["migrations/*.sql"]
 "aaiclick.deploy" = ["templates/**/*"]
+# Sample files served over HTTP by the test_insert_from_url fixture. The
+# packaged test suite runs from site-packages, so they must ship in the
+# wheel; a bare glob keeps a newly generated sample format from silently
+# dropping out.
+"aaiclick.url_samples" = ["*"]
 # Vite SPA build output. The directory is gitignored and produced by
 # `npm run build` — release CI builds it before `uv build` so the wheel
 # ships a working /api/v0 + SPA out of the box.

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-
 import pytest
 
 from aaiclick.data.data_context import (
@@ -11,25 +9,18 @@ from aaiclick.data.data_context import (
     list_persistent_objects,
 )
 from aaiclick.data.view_models import ObjectDetail, ObjectView
+from aaiclick.orchestration.factories import create_job
+from aaiclick.orchestration.orch_context import task_scope
+from aaiclick.snowflake import get_snowflake_id
 from aaiclick.view_models import ObjectFilter, Page, PurgeObjectsRequest
 
 from . import errors, objects
 
+_SAMPLE_TASK = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
 
-@pytest.fixture(autouse=True)
-async def _object_data_ctx(orch_ctx) -> AsyncIterator[None]:
-    """Drop any leftover persistent objects around each test.
-
-    Reuses the shared ``orch_ctx`` fixture (orch_context + synthetic
-    task_scope) so ``create_object`` writes ``table_registry.schema_doc``
-    via the OrchLifecycleHandler — Phase 2's registry-backed read path
-    requires it.
-    """
-    for name in await list_persistent_objects():
-        await objects.delete_object(name)
-    yield
-    for name in await list_persistent_objects():
-        await objects.delete_object(name)
+# orch supplies the registry read path; its per-test reset drops every CH
+# table and SQL row — every registered table — so no extra sweep is needed.
+pytestmark = pytest.mark.usefixtures("orch_ctx")
 
 
 async def test_list_objects_returns_page():
@@ -118,3 +109,26 @@ async def test_delete_object_missing_is_idempotent():
 async def test_purge_objects_requires_time_filter():
     with pytest.raises(errors.Invalid):
         await objects.purge_objects(PurgeObjectsRequest())
+
+
+async def test_list_objects_job_scope_by_ref():
+    job = await create_job("objs_job", _SAMPLE_TASK)
+    async with task_scope(task_id=get_snowflake_id(), job_id=job.id, run_id=get_snowflake_id()):
+        await create_object_from_value([1, 2], name="result", scope="job")
+    await create_object_from_value([3], name="persist", scope="global")
+
+    page = await objects.list_objects(ObjectFilter(scope="job", job=job.id))
+    assert [(o.name, o.scope, o.table) for o in page.items] == [("result", "job", f"j_{job.id}_result")]
+
+    by_name = await objects.list_objects(ObjectFilter(job="objs_job"))
+    assert [o.name for o in by_name.items] == ["result"]
+
+    detail = await objects.get_object("result", job="objs_job")
+    assert detail.table == f"j_{job.id}_result"
+    with pytest.raises(errors.NotFound):
+        await objects.get_object("persist", job=job.id)
+
+
+async def test_list_objects_job_scope_requires_job():
+    with pytest.raises(errors.Invalid):
+        await objects.list_objects(ObjectFilter(scope="job"))

@@ -55,9 +55,17 @@ function creates the job and its tasks.
 
 ## Dynamic tasks
 
-A task may itself return `TaskResult(tasks=[...])` to register new child tasks
-at runtime — the graph grows while the job runs. See
+A task may itself return child tasks to register them at runtime — the graph
+grows while the job runs. Return `tasks_list(a, b)` (or a plain list, `[a, b]`)
+for tasks alone, and `task_result(data=..., tasks=[...])` when the task also
+returns data. See
 [Examples: Orchestration Dynamic](../examples/orchestration_dynamic.md).
+
+!!! warning "A list carries tasks only, unnested"
+    `return [obj, group]` raises `TypeError` — use
+    `task_result(data=obj, tasks=[group])` to return data alongside tasks. So
+    does `return [[a, b], [c, d]]`: nesting means nothing to the graph, so use a
+    `Group` when tasks belong together.
 
 ## Testing jobs
 
@@ -73,7 +81,7 @@ Two deployment modes, selected by two environment variables:
 |------------------|--------------------------------------------|-----------------------------------------------------|
 | **Data backend** | chdb (embedded ClickHouse)                 | ClickHouse server                                   |
 | **SQL backend**  | SQLite via aiosqlite                       | PostgreSQL via asyncpg                              |
-| **`AAICLICK_CH_URL`**  | `chdb://~/.aaiclick/chdb_data`       | `clickhouse://user:pass@host:9000/database`         |
+| **`AAICLICK_CH_URL`**  | `chdb:///~/.aaiclick/chdb_data`      | `clickhouse://user:pass@host:8123/database`         |
 | **`AAICLICK_SQL_URL`** | `sqlite+aiosqlite:///~/.aaiclick/local.db` | `postgresql+asyncpg://user:pass@host:5432/database` |
 | **Setup**        | `python -m aaiclick setup`                 | Provision servers + `python -m aaiclick migrate upgrade head` |
 
@@ -124,29 +132,71 @@ not a prerequisite.
     from aaiclick.orchestration.registered_jobs import run_job
 
     async with orch_context():
-        job = await run_job("etl", "myapp.pipelines.etl", kwargs={"day": "2026-07-01"})
+        job = await run_job("crawl", "myapp.pipelines.crawl", kwargs={"url": "https://example.com"})
     ```
 
 === "CLI"
 
     ```bash
-    python -m aaiclick run-job etl --kwargs '{"day": "2026-07-01"}'
+    python -m aaiclick run-job crawl --kwargs '{"url": "https://example.com"}'
+
+    # Repeatable KEY=VALUE pairs; values are JSON-parsed (depth is an int,
+    # force a bool, and the unparseable url stays a string).
+    python -m aaiclick run-job crawl --set url=https://example.com --set depth=3 --set force=true
     ```
+
+    `--set` beats `--kwargs`, which beats the registration's `default_kwargs`.
+    A value that is not valid JSON stays a string.
 
 === "REST"
 
     ```bash
     curl -X POST http://127.0.0.1:5255/api/v0/jobs:run \
       -H "Content-Type: application/json" \
-      -d '{"name": "etl", "kwargs": {"day": "2026-07-01"}}'
+      -d '{"name": "crawl", "kwargs": {"url": "https://example.com"}}'
     ```
 
-    A dotted `name` (e.g. `"myapp.pipelines.etl"`) is used as the entrypoint
+    A dotted `name` (e.g. `"myapp.pipelines.crawl"`) is used as the entrypoint
     directly; a bare name reuses the registered job's entrypoint.
 
 All three surfaces also accept `preservation_mode` and the runner fields —
 `entry_type` / `command` / `command_env` (see [Shell tasks](#shell-tasks)) and
 `image` / `git_*` / `dockerfile` (see [Image source](#image-source-docker-kubernetes)).
+
+## Wait for completion
+
+`run-job` returns as soon as the job is queued. `--progress` blocks until it
+reaches a terminal status; `job wait` does the same for an already-submitted job,
+by id or name:
+
+```bash
+python -m aaiclick run-job crawl --set url=https://example.com --progress
+python -m aaiclick job wait crawl --timeout 900
+```
+
+Both re-print the task table whenever the status counts change and exit
+**non-zero** on failure, cancellation, or timeout (default 600s), so `set -e`
+scripts and CI stop on a failed run. Failures print the failing task's full error
+and its `task get` command; `--json` emits the final stats as one parseable
+document, with diagnostics on stderr.
+
+Registration is not a prerequisite: the wait follows the job id the run
+returns, so a dotted entrypoint blocks and reports the same way.
+
+```bash
+python -m aaiclick run-job myapp.pipelines.crawl --set depth=3 --progress
+
+# A dotted run is named after the last segment, so it is waitable by name too:
+python -m aaiclick job wait crawl
+```
+
+!!! warning "A bare name that was never registered is not an entrypoint"
+    With no `crawl` registration, `run-job crawl` falls back to the name itself
+    as the entrypoint and the task fails on the worker with `Invalid entrypoint
+    format: crawl. Expected 'module.function'`. `--progress` surfaces that in
+    the same command instead of leaving a failed job to discover later.
+
+**Implementation**: `aaiclick/cli_wait.py` — see `wait_for_job()`.
 
 ## Register a job
 
@@ -163,18 +213,18 @@ of `entrypoint`.
 
     async with orch_context():
         await register_job(
-            name="etl",
-            entrypoint="myapp.pipelines.etl",
+            name="crawl",
+            entrypoint="myapp.pipelines.crawl",
             schedule="0 8 * * *",
-            default_kwargs={"day": "today"},
+            default_kwargs={"depth": 3},
         )
     ```
 
 === "CLI"
 
     ```bash
-    python -m aaiclick register-job myapp.pipelines.etl --name etl \
-        --schedule "0 8 * * *" --kwargs '{"day": "today"}'
+    python -m aaiclick register-job myapp.pipelines.crawl --name crawl \
+        --schedule "0 8 * * *" --kwargs '{"depth": 3}'
     ```
 
 === "REST"
@@ -182,7 +232,7 @@ of `entrypoint`.
     ```bash
     curl -X POST http://127.0.0.1:5255/api/v0/registered-jobs \
       -H "Content-Type: application/json" \
-      -d '{"name": "etl", "entrypoint": "myapp.pipelines.etl", "schedule": "0 8 * * *", "default_kwargs": {"day": "today"}}'
+      -d '{"name": "crawl", "entrypoint": "myapp.pipelines.crawl", "schedule": "0 8 * * *", "default_kwargs": {"depth": 3}}'
     ```
 
 Runner defaults are set here too: `--runner subprocess|docker|kubernetes` and
@@ -201,24 +251,24 @@ Runner defaults are set here too: `--runner subprocess|docker|kubernetes` and
     )
 
     async with orch_context():
-        await enable_job("etl")
-        await disable_job("etl")
+        await enable_job("crawl")
+        await disable_job("crawl")
         registrations = await list_registered_jobs(enabled_only=True)
     ```
 
 === "CLI"
 
     ```bash
-    python -m aaiclick job enable etl
-    python -m aaiclick job disable etl
+    python -m aaiclick job enable crawl
+    python -m aaiclick job disable crawl
     python -m aaiclick registered-job list
     ```
 
 === "REST"
 
     ```bash
-    curl -X POST http://127.0.0.1:5255/api/v0/registered-jobs/etl/enable
-    curl -X POST http://127.0.0.1:5255/api/v0/registered-jobs/etl/disable
+    curl -X POST http://127.0.0.1:5255/api/v0/registered-jobs/crawl/enable
+    curl -X POST http://127.0.0.1:5255/api/v0/registered-jobs/crawl/disable
     curl http://127.0.0.1:5255/api/v0/registered-jobs
     ```
 
@@ -272,7 +322,7 @@ subprocess even inside a docker/kubernetes job:
 
 | Source     | How                                                        | When built            |
 |------------|------------------------------------------------------------|-----------------------|
-| `build`    | Your git repo, built into an image at a specific SHA       | by a `build-image` task in the job graph (with `AAICLICK_REGISTRY`), else inline at launch |
+| `build`    | Your git repo, built into an image at a specific SHA       | by a `build-image` task in the job graph |
 | `prebuilt` | `image="python:3.12"` run verbatim                         | never                 |
 
 Pass `image=` (`run_job` / `run-job --image`, or `register-job --image` for a
@@ -282,10 +332,19 @@ stamps the resolved image on the job's entry task; dynamic child tasks inherit
 their parent's image unless they declare their own
 (`create_task(image=...)` or `create_task(git_remote=..., git_sha=...)`).
 
-With `AAICLICK_REGISTRY` set, each distinct image gets one `build-image` task
-in the job that every task on that image depends on — it pulls if the
-registry already has the SHA, otherwise builds and pushes, and it appears in
-the job graph like any other task (retries, logs, UI included).
+Each distinct image gets one `build-image` task in the job that every task on
+that image depends on; it appears in the job graph like any other task
+(retries, logs, UI included). The worker running it picks one of two
+mutually exclusive build modes:
+
+| Env var                    | Mode     | What the build task does                                         |
+|----------------------------|----------|------------------------------------------------------------------|
+| `AAICLICK_REGISTRY=<host>` | registry | Pulls if the registry has the SHA, else builds and pushes; every worker pulls the tag |
+| `AAICLICK_LOCAL_BUILD=1`   | local    | Builds into the worker's own Docker daemon, no push — single-host deployments |
+
+Setting both, or neither, fails the build task with an error naming the two
+variables. Kubernetes `build` sources need registry mode: the cluster cannot
+pull from a worker's daemon.
 
 For the released `aaiclick` container images and their Docker/Kubernetes
 runtime requirements, see [Container Images](container_images.md).
@@ -336,14 +395,14 @@ downstream tasks can depend on.
     from aaiclick.orchestration import get_job, list_jobs, orch_context
 
     async with orch_context():
-        jobs = await list_jobs(status="RUNNING", name_like="%etl%", limit=20)
+        jobs = await list_jobs(status="RUNNING", name_like="%crawl%", limit=20)
         job = await get_job(job_id)
     ```
 
 === "CLI"
 
     ```bash
-    python -m aaiclick job list [--status RUNNING] [--like "%etl%"] [--limit 20 --offset 40]
+    python -m aaiclick job list [--status RUNNING] [--like "%crawl%"] [--limit 20 --offset 40]
     python -m aaiclick job get <id>
     python -m aaiclick job stats <id>
     ```
@@ -426,7 +485,8 @@ the job's retention lifecycle. Fetch them via
 | `AAICLICK_CH_URL`        | `chdb://{root}/chdb_data`             | ClickHouse connection URL for data ops    |
 | `AAICLICK_DEFAULT_PRESERVATION_MODE` | unset                     | Level-3 preservation-mode default         |
 | `AAICLICK_DOCKER_BIN`    | `docker`                              | Docker CLI used by the docker runner      |
-| `AAICLICK_REGISTRY`      | unset                                 | Registry for `build` images — pushed after build, pulled as cache by docker & kubernetes runners; required for kubernetes `build` |
+| `AAICLICK_REGISTRY`      | unset                                 | Registry build mode for `build` images — pushed after build, pulled as cache by docker & kubernetes runners; required for kubernetes `build` |
+| `AAICLICK_LOCAL_BUILD`   | unset                                 | Local build mode for `build` images — kept in the worker's Docker daemon, never pushed; mutually exclusive with `AAICLICK_REGISTRY` |
 
 # Internal Design
 

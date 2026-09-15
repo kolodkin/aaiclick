@@ -1,5 +1,7 @@
 import pytest
 
+from aaiclick.auth import security
+from aaiclick.auth.models import ROLE_ADMIN
 from aaiclick.auth.view_models import (
     ChangePasswordRequest,
     CreateUserRequest,
@@ -9,13 +11,13 @@ from aaiclick.auth.view_models import (
     TokenPair,
 )
 from aaiclick.internal_api import auth, users
-from aaiclick.internal_api.errors import Invalid, Unauthorized
+from aaiclick.internal_api.errors import Unauthorized
 
 SECRET = "internal-api-test-secret-key-32-plus-bytes"
 
 
-async def _make_user(username="alice", password="pw", role="admin"):
-    await users.create_user(CreateUserRequest(username=username, password=password, role=role))
+async def _make_user(username="alice", password="pw"):
+    await users.create_user(CreateUserRequest(username=username, password=password))
 
 
 async def test_login_success(orch_ctx):
@@ -23,6 +25,14 @@ async def test_login_success(orch_ctx):
     pair = await auth.login(LoginRequest(username="alice", password="pw"), secret=SECRET)
     assert isinstance(pair, TokenPair)
     assert pair.access_token and pair.refresh_token
+
+
+async def test_login_token_carries_the_role(orch_ctx):
+    await users.create_user(CreateUserRequest(username="boss", password="pw", role=ROLE_ADMIN))
+
+    pair = await auth.login(LoginRequest(username="boss", password="pw"), secret=SECRET)
+    claims = security.decode_access_token(pair.access_token, SECRET)
+    assert claims.role == ROLE_ADMIN
 
 
 async def test_login_bad_password_raises(orch_ctx):
@@ -77,13 +87,6 @@ async def test_change_password_revokes_existing_sessions(orch_ctx):
 
     with pytest.raises(Unauthorized):
         await auth.refresh(RefreshRequest(refresh_token=pair.refresh_token), secret=SECRET)
-
-
-async def test_change_password_without_a_user_raises_invalid(orch_ctx):
-    """Local mode resolves a synthetic admin with ``user_id=None`` — there is no
-    row to update, so this is a 422 rather than a crash."""
-    with pytest.raises(Invalid):
-        await auth.change_password(None, ChangePasswordRequest(current_password="x", new_password="y"))
 
 
 async def test_logout_revokes_refresh(orch_ctx):

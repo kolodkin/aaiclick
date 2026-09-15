@@ -35,7 +35,7 @@ async def test_oplog_subgraph_returns_graph_and_passes_kwargs():
     mock_subgraph.assert_awaited_once_with("result", direction="forward", max_depth=3)
 
 
-async def test_query_table_runs_validated_select():
+async def test_query_table_runs_validated_select(orch_ctx):
     qr = QueryResult(columns=["id"], rows=[[1], [2]], truncated=False)
     mock_run = AsyncMock(return_value=qr)
 
@@ -50,17 +50,16 @@ async def test_query_table_runs_validated_select():
     mock_run.assert_awaited_once_with("SELECT id FROM p_revenue", 50, scan="SELECT id FROM p_revenue")
 
 
-async def test_query_table_raises_invalid_on_ddl():
+@pytest.mark.parametrize(
+    "sql",
+    [
+        pytest.param("DROP TABLE p_revenue", id="ddl"),
+        pytest.param("SELECT * FROM p_secret", id="out-of-scope"),
+    ],
+)
+async def test_query_table_raises_invalid(orch_ctx, sql):
     with pytest.raises(Invalid):
-        await lineage_api.query_table("DROP TABLE p_revenue", scope_tables=["p_revenue"])
-
-
-async def test_query_table_raises_invalid_on_out_of_scope():
-    with pytest.raises(Invalid):
-        await lineage_api.query_table(
-            "SELECT * FROM p_secret",
-            scope_tables=["p_revenue"],
-        )
+        await lineage_api.query_table(sql, scope_tables=["p_revenue"])
 
 
 async def test_get_table_schema_returns_describe_result():

@@ -108,7 +108,7 @@ async def _expand_map(
         List of child tasks for dynamic registration.
     """
     table_name = obj.table
-    row_count = await (await obj.count()).data()
+    row_count = await obj.count().data()
     n_partitions = max(1, ceil(row_count / partition))
 
     out = await create_object(obj.schema)
@@ -271,7 +271,7 @@ async def _expand_reduce(
     """
     ch = get_ch_client()
 
-    count = await (await obj.count()).data()
+    count = await obj.count().data()
 
     if count == 0:
         raise TypeError("reduce() of empty sequence with no initial value")

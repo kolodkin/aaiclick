@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import create_engine as sa_create_engine
+from sqlalchemy import text as sa_text
+from sqlmodel import SQLModel
 
 from aaiclick.oplog.migrate import ChVersionState
 from aaiclick.view_models import (
@@ -19,24 +22,28 @@ from aaiclick.view_models import (
 from . import errors, setup
 
 
-def _stub_chdb_and_sqlalchemy(monkeypatch):
-    """Replace chdb Session + SQLAlchemy DDL so ``setup()`` has no side effects.
-
-    chdb's Session is a per-process singleton; tests stub the shared-session
-    accessor so ``setup()`` doesn't touch real chdb state. The SQLAlchemy stub
-    likewise avoids touching the test DB (whose schema is owned by the
-    fixture-run alembic migration).
-    """
+def _stub_chdb(monkeypatch):
+    """Stub chdb's per-process singleton Session so ``setup()`` leaves it alone."""
 
     class _FakeSession:
         def query(self, _sql):
             return None
 
+    monkeypatch.setattr(setup, "get_shared_session", lambda _path: _FakeSession())
+
+
+def _stub_chdb_and_sqlalchemy(monkeypatch):
+    """Replace chdb Session + SQLAlchemy DDL so ``setup()`` has no side effects.
+
+    The SQLAlchemy stub avoids touching the test DB, whose schema is owned by
+    the fixture-run alembic migration.
+    """
+
     class _FakeEngine:
         def dispose(self):
             return None
 
-    monkeypatch.setattr(setup, "get_shared_session", lambda _path: _FakeSession())
+    _stub_chdb(monkeypatch)
     monkeypatch.setattr(setup, "create_engine", lambda _url: _FakeEngine())
     monkeypatch.setattr(setup.SQLModel.metadata, "create_all", lambda _engine: None)
 
@@ -190,3 +197,126 @@ def test_migrate_current_runs_without_revision(monkeypatch):
     assert result.action == MIGRATE_CURRENT
     assert result.revision is None
     assert calls == [("current", True)]
+
+
+_INSERT_JOB = (
+    "INSERT INTO jobs (id, name, status, run_type, preservation_mode, runner_mode, created_at) "
+    "VALUES (1, :name, 'pending', 'flat', 'NONE', 'subprocess', '2024-01-01')"
+)
+
+
+@pytest.fixture
+def local_db(tmp_path, monkeypatch):
+    """Point aaiclick at an empty local root and yield its ``local.db`` path."""
+    db = tmp_path / "local.db"
+    monkeypatch.setenv("AAICLICK_LOCAL_ROOT", str(tmp_path))
+    monkeypatch.setenv("AAICLICK_SQL_URL", f"sqlite+aiosqlite:///{db}")
+    monkeypatch.delenv("AAICLICK_CH_URL", raising=False)
+    _stub_chdb(monkeypatch)
+    return db
+
+
+def _current_sqlite_db(path, *, job_name: str | None = None):
+    """Build a database at the current schema, optionally holding one job."""
+    engine = sa_create_engine(f"sqlite:///{path}")
+    SQLModel.metadata.create_all(engine)
+    if job_name is not None:
+        with engine.begin() as conn:
+            conn.execute(sa_text(_INSERT_JOB), {"name": job_name})
+    return engine
+
+
+def _older_sqlite_db(path):
+    """Build a database shaped like one written before ``jobs.error`` existed."""
+    engine = _current_sqlite_db(path, job_name="old-job")
+    with engine.begin() as conn:
+        conn.execute(sa_text("ALTER TABLE jobs DROP COLUMN error"))
+    engine.dispose()
+
+
+def test_stale_local_db_lists_columns_added_since(local_db):
+    """A database written by an older version reports the columns it lacks."""
+    _older_sqlite_db(local_db)
+
+    assert "jobs.error" in setup.stale_local_db()
+
+
+def test_stale_local_db_empty_for_current_schema(local_db):
+    """A database at the current schema is not reported stale."""
+    _current_sqlite_db(local_db).dispose()
+
+    assert setup.stale_local_db() == []
+
+
+def test_stale_local_db_sees_a_dropped_index(local_db):
+    """Drift the models express but a column comparison cannot see.
+
+    The check builds a reference database and diffs against it, so indexes,
+    unique constraints and foreign keys count too — a database whose columns
+    all match is not necessarily the one ``setup`` would build.
+    """
+    engine = _current_sqlite_db(local_db)
+    with engine.begin() as conn:
+        conn.execute(sa_text("DROP INDEX ix_jobs_status"))
+    engine.dispose()
+
+    assert "jobs.ix_jobs_status (index)" in setup.stale_local_db()
+
+
+def test_missing_local_tables_is_separate_from_shape_drift(local_db):
+    """A dropped table is reported apart from a wrong-shaped one, because
+    ``create_all`` can add it back without recreating the database."""
+    engine = _current_sqlite_db(local_db)
+    with engine.begin() as conn:
+        conn.execute(sa_text("DROP TABLE groups"))
+    engine.dispose()
+
+    assert setup.missing_local_tables() == ["groups"]
+    assert setup.stale_local_db() == []
+
+
+def test_stale_local_db_empty_when_absent(local_db):
+    """A first run has no database to compare against."""
+    assert setup.stale_local_db() == []
+
+
+def test_setup_refuses_stale_local_db_without_force(local_db):
+    """Regression: ``setup`` used to run ``create_all`` over an older
+    ``local.db``, which creates missing *tables* but never alters existing
+    ones — so it reported ``ok`` while ``jobs`` silently kept its old shape
+    and every query against it failed with "no such column".
+
+    It now refuses instead, naming the flag that recreates the database."""
+    _older_sqlite_db(local_db)
+
+    with pytest.raises(errors.Invalid, match="--force"):
+        setup.setup()
+
+    assert local_db.exists()
+
+
+def test_setup_force_recreates_stale_local_db(local_db):
+    """``--force`` deletes the outdated database and rebuilds it current."""
+    _older_sqlite_db(local_db)
+
+    result = setup.setup(force=True)
+
+    sqlite_step = next(s for s in result.steps if s.name == "sqlite")
+    assert "recreated" in (sqlite_step.detail or "")
+    assert setup.stale_local_db() == []
+    engine = sa_create_engine(f"sqlite:///{local_db}")
+    with engine.connect() as conn:
+        assert conn.execute(sa_text("SELECT count(*) FROM jobs")).scalar() == 0
+    engine.dispose()
+
+
+def test_setup_force_keeps_a_current_database(local_db):
+    """``--force`` only deletes on a schema collision — an up-to-date
+    database keeps its rows so a routine re-run is never destructive."""
+    engine = _current_sqlite_db(local_db, job_name="keep-me")
+
+    setup.setup(force=True)
+
+    with engine.connect() as conn:
+        assert conn.execute(sa_text("SELECT name FROM jobs WHERE id = 1")).scalar() == "keep-me"
+    engine.dispose()

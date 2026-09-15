@@ -150,6 +150,19 @@ class Computed(NamedTuple):
     expression: str
 
 
+class Branch(NamedTuple):
+    """One condition/result pair in a ``multiIf`` chain.
+
+    Attributes:
+        condition: SQL boolean expression, e.g. ``"score >= 90"``.
+        result: SQL value when the condition holds — a literal (``"'A'"``),
+            a column, or an expression (``"price * 0.9"``).
+    """
+
+    condition: str
+    result: str
+
+
 def parse_ch_type(type_str: str) -> "ColumnInfo":
     """Parse a ClickHouse type string into a ColumnInfo.
 
@@ -254,6 +267,14 @@ class QueryInfo:
     constraint_sql: str = ""
     order_by: str | None = None  # Populated from View._order_by — cross-table row_number() uses it
     aai_id_info: Optional["ColumnInfo"] = None  # Source's aai_id ColumnInfo when present — operators propagate it
+
+    def same_table_as(self, other: "QueryInfo") -> bool:
+        """True when both operands read the same base table.
+
+        A literal operand has no table (empty ``base_table``) and never
+        matches — not even another literal.
+        """
+        return bool(self.base_table) and self.base_table == other.base_table
 
 
 @dataclass

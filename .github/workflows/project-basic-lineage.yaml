@@ -39,7 +39,7 @@ jobs:
         uses: ./.github/actions/setup-uv
         with:
           sync-args: "--extra ai"
-          cache-dependency-glob: "pyproject.toml\naaiclick/example_projects/basic_lineage/uv.lock"
+          cache-dependency-glob: "pyproject.toml\nexample_projects/basic_lineage/uv.lock"
 
       - name: Setup local backend
         run: uv run python -m aaiclick setup
@@ -51,7 +51,7 @@ jobs:
           AAICLICK_AI_API_KEY: ${{ secrets.AAICLICK_AI_API_KEY }}
         run: |
           mkdir -p tmp
-          aaiclick/example_projects/basic_lineage/basic_lineage.sh 2>&1 | tee tmp/basic-lineage_output.txt
+          example_projects/basic_lineage/basic_lineage.sh 2>&1 | tee tmp/basic-lineage_output.txt
           exit ${PIPESTATUS[0]}
 
       - name: Add output to summary

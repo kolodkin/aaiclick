@@ -74,5 +74,5 @@ async def test_data_without_constraints_is_unordered(ctx):
 async def test_aggregation_works_without_aai_id(ctx):
     """Aggregations don't need pair-stability — they reduce to a scalar."""
     obj = await create_object_from_value([10, 20, 30])
-    assert await (await obj.sum()).data() == 60
-    assert await (await obj.mean()).data() == 20
+    assert await obj.sum().data() == 60
+    assert await obj.mean().data() == 20

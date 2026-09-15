@@ -16,7 +16,7 @@ If any workflows fail, analyze the error logs and fix issues automatically.
 
 # Testing
 
-Use the `python-testing-style` skill for test layout, async test rules, Object API alignment, and what NOT to test.
+Use the `python-testing-style` skill for test layout, async test rules, Object API alignment, what NOT to test, when to parametrize input/expected clusters, and when a redundant test is safe to delete.
 
 # Coding Guidelines
 
@@ -78,6 +78,48 @@ Use the `python-testing-style` skill for test layout, async test rules, Object A
   - When breaking circular imports, use module-level imports (`from . import module as mod`) combined with `from __future__ import annotations` so types resolve correctly
   - Prefer `obj: mod.ClassName` over `obj: Any`
   - If restructuring is needed to get proper types, do it
+
+- **Mutable process state: `ContextVar`, never a `global`**: Runtime state that is
+  written after import belongs in a `contextvars.ContextVar`. Do not rebind a
+  module-level variable with a `global` statement.
+  - A `ContextVar` scopes the value to the calling context rather than the whole
+    process, so concurrent callers — server requests, parallel tasks, tests
+    sharing one interpreter — cannot clobber each other's value.
+  - `asyncio.run()` and task creation copy the current context, so a value set
+    before the event loop starts still reaches the coroutine.
+  - Expose a `@contextmanager` that sets a token and resets it in `finally`, so
+    the previous value is restored on exit; keep the `ContextVar` itself private
+    (`_name`) behind getter/setter helpers.
+  - **Never read a `ContextVar` at import scope.** Call `.get()` only inside a
+    function, at runtime. A module-level `X = _var.get()` freezes whatever the
+    importing context held into a plain global, defeating the isolation.
+  - This is about values that *change*. Module-level **constants** never rebound
+    after import stay plain module attributes.
+  - When a site must stay a module global (a process-wide ID sequence, a
+    once-per-process latch), leave a one-line comment saying why so the
+    choice reads as deliberate.
+  - Reference implementation: `aaiclick/orchestration/orch_context.py`
+    (the context accessors around `get_sql_session` / `get_ch_client`).
+
+  ```python
+  # GOOD — context-scoped, restored on exit
+  _active_job_id: ContextVar[int | None] = ContextVar("active_job_id", default=None)
+
+  @contextmanager
+  def active_job(job_id: int) -> Iterator[None]:
+      token = _active_job_id.set(job_id)
+      try:
+          yield
+      finally:
+          _active_job_id.reset(token)
+
+  # BAD — process-wide, leaks across concurrent callers
+  _job_id = None
+
+  def set_job(job_id):
+      global _job_id
+      _job_id = job_id
+  ```
 
 - **Prefer `Literal` over `StrEnum` / `(str, Enum)` for string constants**: Use `typing.Literal` for closed sets of string values. Reach for a real `Enum` class only when something forces it.
   - Define a `Literal` type alias for the validated value set.
@@ -172,6 +214,7 @@ Use the `generate-migration` skill. Never hand-write migration files.
 2. **Plan and Implement with superpowers**: Use the `superpowers:writing-plans` and `superpowers:executing-plans` skills to break the feature into phases and execute them:
    - Write comprehensive tests for each phase
    - Commit working code frequently
+   - **Always execute plans inline** (`superpowers:executing-plans` in the current session). Do not offer the subagent-driven option or ask which execution mode to use.
 
 3. **Update Documentation to Reference Implementation**:
    - **Add implementation references**: Point to actual code files and line numbers

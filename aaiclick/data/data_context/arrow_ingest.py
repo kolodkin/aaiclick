@@ -5,7 +5,8 @@ aaiclick.data.data_context.arrow_ingest - Arrow-based ingest schema evaluation.
 C++ (no first-record sampling; ``pa.Table.from_pylist`` must NOT be used -
 it takes top-level keys from the first record only). The type tree maps
 1:1 onto dot notation: struct field -> ``x.y`` (no Array level),
-list<struct> -> ``x.*.y`` (one Array level per star). Keys missing in some
+list<struct> -> ``x.*.y`` (one Array level per star), and stars stack for
+lists of lists of dicts: list<list<struct>> -> ``x.*.*.y``. Keys missing in some
 records/items surface as nulls in the unified type and are rejected -
 strict identical-keys semantics with no per-item Python work. Leaf data
 stays in arrow end to end: flat leaf arrays are assembled into a
@@ -60,6 +61,21 @@ def _is_list_type(pa_type: pa.DataType) -> bool:
     return pa.types.is_list(pa_type) or pa.types.is_large_list(pa_type)
 
 
+def list_leaf_column_info(pa_type: pa.DataType, array_depth: int, key_path: str) -> ColumnInfo:
+    """Descend list nesting to the leaf ColumnInfo for a parallel-array column.
+
+    Dict items cannot appear here: a column whose sampled first element chain
+    leads to a dict routes to the nested-record path instead, so a struct leaf
+    means dicts were mixed with empty or non-dict lists in the same column.
+    """
+    while _is_list_type(pa_type):
+        array_depth += 1
+        pa_type = pa_type.value_type
+    if pa.types.is_struct(pa_type):
+        raise ValueError(f"Cannot infer a uniform schema for column {key_path!r}: dict items mixed with non-dict lists")
+    return leaf_column_info(pa_type, array_depth)
+
+
 def struct_type_to_columns(struct_type: pa.StructType) -> dict[str, ColumnInfo]:
     """Walk the arrow type tree into flat dot-notation ColumnInfos.
 
@@ -91,18 +107,19 @@ def _walk_type(
             _walk_type(field.name, field.type, f"{key_path}.", array_depth, columns)
     elif _is_list_type(pa_type):
         elem = pa_type.value_type
+        list_depth = 1
+        while _is_list_type(elem):
+            elem = elem.value_type
+            list_depth += 1
         if pa.types.is_struct(elem):
             if elem.num_fields == 0:
                 raise ValueError(f"Empty dict values are not supported: {key_path!r}")
+            star_prefix = key_path + ".*" * list_depth + "."
             for i in range(elem.num_fields):
                 field = elem.field(i)
-                _walk_type(field.name, field.type, f"{key_path}.*.", array_depth + 1, columns)
+                _walk_type(field.name, field.type, star_prefix, array_depth + list_depth, columns)
         else:
-            depth = array_depth + 1
-            while _is_list_type(elem):
-                depth += 1
-                elem = elem.value_type
-            columns[key_path] = leaf_column_info(elem, depth)
+            columns[key_path] = leaf_column_info(elem, array_depth + list_depth)
     else:
         columns[key_path] = leaf_column_info(pa_type, array_depth)
 
@@ -139,11 +156,14 @@ def _missing(key_path: str) -> ValueError:
     return ValueError(f"All records must have identical keys: field {key_path!r} is missing or None in some records")
 
 
-def struct_array_to_columns(arr: pa.StructArray) -> dict[str, pa.Array]:
+def struct_array_to_columns(arr: pa.StructArray, nullable_keys: frozenset[str] = frozenset()) -> dict[str, pa.Array]:
     """Extract flat leaf columns as arrow arrays, enforcing strictness.
 
     Any null at a struct/list level, or in a typed leaf, means a key was
-    missing (or None) in some records/items -> ValueError. All-null leaves
+    missing (or None) in some records/items -> ValueError. Leaves whose
+    dot-notation key is in ``nullable_keys`` (from ``FieldSpec(nullable=True)``)
+    are exempt — their nulls ingest as NULL. Struct- and list-level nulls
+    always raise: a None dict or list item cannot round-trip. All-null leaves
     (arrow ``null`` type, e.g. from empty lists or all-None values) pass
     through as-is and are cast to Nullable(String) by
     :func:`arrow_table_for_insert`, matching legacy behavior.
@@ -151,41 +171,52 @@ def struct_array_to_columns(arr: pa.StructArray) -> dict[str, pa.Array]:
     if arr.null_count:
         raise ValueError("Records must all be dicts (found a null record)")
     # Offsets-based rewrapping assumes an unsliced array, i.e. fresh from pa.array().
-    return _extract_struct(arr, "")
+    return _extract_struct(arr, "", nullable_keys)
 
 
-def _extract_struct(arr: pa.StructArray, prefix: str) -> dict[str, pa.Array]:
+def _extract_struct(arr: pa.StructArray, prefix: str, nullable_keys: frozenset[str]) -> dict[str, pa.Array]:
     out: dict[str, pa.Array] = {}
     for i in range(arr.type.num_fields):
         field = arr.type.field(i)
-        _extract_field(f"{prefix}{field.name}", arr.field(i), out)
+        _extract_field(f"{prefix}{field.name}", arr.field(i), out, nullable_keys)
     return out
 
 
-def _extract_field(key_path: str, arr: pa.Array, out: dict[str, pa.Array]) -> None:
+def _extract_field(key_path: str, arr: pa.Array, out: dict[str, pa.Array], nullable_keys: frozenset[str]) -> None:
     pa_type = arr.type
     if pa.types.is_struct(pa_type):
         if arr.null_count:
             raise _missing(key_path)
-        out.update(_extract_struct(arr, f"{key_path}."))
+        out.update(_extract_struct(arr, f"{key_path}.", nullable_keys))
     elif _is_list_type(pa_type):
         if arr.null_count:
             raise _missing(key_path)
-        if pa.types.is_struct(pa_type.value_type):
-            values = arr.values
-            if values.null_count:
-                raise _missing(key_path)
-            sub = _extract_struct(values, f"{key_path}.*.")
+        elem = pa_type.value_type
+        list_depth = 1
+        while _is_list_type(elem):
+            elem = elem.value_type
+            list_depth += 1
+        if pa.types.is_struct(elem):
+            values = arr
+            offsets_per_level = []
+            for _ in range(list_depth):
+                offsets_per_level.append(values.offsets)
+                values = values.values
+                if values.null_count:
+                    raise _missing(key_path)
+            sub = _extract_struct(values, key_path + ".*" * list_depth + ".", nullable_keys)
             for name, leaf in sub.items():
-                out[name] = pa.ListArray.from_arrays(arr.offsets, leaf)
+                for offsets in reversed(offsets_per_level):
+                    leaf = pa.ListArray.from_arrays(offsets, leaf)
+                out[name] = leaf
         else:
             inner = arr
             while _is_list_type(inner.type):
                 inner = inner.values
-                if inner.null_count and not pa.types.is_null(inner.type):
+                if inner.null_count and not pa.types.is_null(inner.type) and key_path not in nullable_keys:
                     raise _missing(key_path)
             out[key_path] = arr
     else:
-        if arr.null_count and not pa.types.is_null(pa_type):
+        if arr.null_count and not pa.types.is_null(pa_type) and key_path not in nullable_keys:
             raise _missing(key_path)
         out[key_path] = arr

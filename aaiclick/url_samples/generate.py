@@ -14,7 +14,9 @@ data but differ in how the header is encoded.
 """
 
 import csv
+import gzip
 import json
+import lzma
 from pathlib import Path
 
 import pyarrow as pa
@@ -75,6 +77,19 @@ def generate_csv_no_header() -> None:
 def generate_csv_with_types() -> None:
     """CSVWithNamesAndTypes sample (header row + types row)."""
     _write_csv(OUT_DIR / "sample_withtypes.csv", [list(COLUMNS), list(TYPES)])
+
+
+def generate_csv_compressed() -> None:
+    """Gzip- and xz-compressed copies of the CSVWithNames sample.
+
+    ClickHouse infers the codec from the trailing suffix of the URL or file
+    path, so these exercise compressed input the way real feeds ship it.
+    """
+    raw = (OUT_DIR / "sample.csv").read_bytes()
+    with gzip.open(OUT_DIR / "sample.csv.gz", "wb") as f:
+        f.write(raw)
+    with lzma.open(OUT_DIR / "sample.csv.xz", "wb") as f:
+        f.write(raw)
 
 
 def generate_tsv() -> None:
@@ -143,6 +158,7 @@ if __name__ == "__main__":
     generate_csv()
     generate_csv_no_header()
     generate_csv_with_types()
+    generate_csv_compressed()
     generate_tsv()
     generate_tsv_no_header()
     generate_tsv_with_types()

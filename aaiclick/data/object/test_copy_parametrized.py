@@ -193,3 +193,37 @@ async def test_copy_with_name_temp_scope(ctx):
 
     assert copy.table.startswith("t_copy_named_temp_")
     assert await copy.data() == [10, 20]
+
+
+# =============================================================================
+# Ordered + Limited Copy Tests
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    "offset,expected",
+    [
+        pytest.param(None, [9, 8, 7], id="limit"),
+        pytest.param(2, [7, 6, 5], id="limit-offset"),
+    ],
+)
+async def test_copy_applies_order_by_before_slicing(ctx, offset, expected):
+    """Regression: copy() of an ordered + sliced View must materialize the
+    top-N rows, not an arbitrary N re-sorted. See ``_build_select``."""
+    obj = await create_object_from_value([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+
+    copied = await obj.view(order_by="value DESC", limit=3, offset=offset).copy()
+
+    assert sorted(await copied.data(), reverse=True) == expected
+
+
+async def test_copy_selected_fields_applies_order_by_before_limit(ctx):
+    """The field-selection copy path needs the same inner ORDER BY —
+    this is the shape that silently truncates a "top-N by score" corpus."""
+    obj = await create_object_from_value({"title": ["a", "b", "c", "d", "e"], "votes": [1, 5, 3, 2, 4]})
+
+    view = obj[["title", "votes"]].view(order_by="votes DESC", limit=2)
+    data = await (await view.copy()).data()
+
+    assert sorted(data["votes"], reverse=True) == [5, 4]
+    assert sorted(data["title"]) == ["b", "e"]

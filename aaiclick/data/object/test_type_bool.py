@@ -17,68 +17,47 @@ from aaiclick import create_object_from_value
 @pytest.mark.parametrize(
     "value,expected",
     [
-        pytest.param(True, 1, id="true"),
-        pytest.param(False, 0, id="false"),
+        pytest.param(True, 1, id="scalar-true"),
+        pytest.param(False, 0, id="scalar-false"),
+        pytest.param([True, False, True, False], [1, 0, 1, 0], id="array"),
     ],
 )
-async def test_bool_scalar_creation(ctx, value, expected):
-    """Test creating boolean scalar objects (stored as UInt8)."""
+async def test_bool_creation(ctx, value, expected):
+    """Booleans are stored as UInt8, so they read back as 1/0."""
     obj = await create_object_from_value(value, aai_id=True)
     data = await obj.data()
     assert data == expected
 
 
-async def test_bool_scalar_add(ctx):
-    """Test addition of boolean scalars (as integers)."""
-    a = await create_object_from_value(True, aai_id=True)  # 1
-    b = await create_object_from_value(True, aai_id=True)  # 1
+@pytest.mark.parametrize(
+    "left, right, expected",
+    [
+        pytest.param(True, True, 2, id="scalar"),  # 1 + 1
+        pytest.param([True, True, False], [True, False, False], [2, 1, 0], id="array"),
+    ],
+)
+async def test_bool_add(ctx, left, right, expected):
+    """Test addition of booleans (as their underlying integers)."""
+    a = await create_object_from_value(left, aai_id=True)
+    b = await create_object_from_value(right, aai_id=True)
 
     result = a + b
-    data = await result.data()
 
-    assert data == 2  # 1 + 1
-
-
-async def test_bool_scalar_sub(ctx):
-    """Test subtraction of boolean scalars (as integers)."""
-    a = await create_object_from_value(True, aai_id=True)  # 1
-    b = await create_object_from_value(False, aai_id=True)  # 0
-
-    result = a - b
-    data = await result.data()
-
-    assert data == 1  # 1 - 0
+    assert await result.data() == expected
 
 
-# =============================================================================
-# Array Tests
-# =============================================================================
-
-
-async def test_bool_array_creation(ctx):
-    """Test creating a boolean array object."""
-    obj = await create_object_from_value([True, False, True, False], aai_id=True)
-    data = await obj.data()
-    assert data == [1, 0, 1, 0]  # Stored as UInt8
-
-
-async def test_bool_array_add(ctx):
-    """Test element-wise addition of boolean arrays."""
-    a = await create_object_from_value([True, True, False], aai_id=True)  # [1, 1, 0]
-    b = await create_object_from_value([True, False, False], aai_id=True)  # [1, 0, 0]
-
-    result = a + b
-    data = await result.data()
-
-    assert data == [2, 1, 0]
-
-
-async def test_bool_array_sub(ctx):
-    """Test element-wise subtraction of boolean arrays."""
-    a = await create_object_from_value([True, True, True], aai_id=True)  # [1, 1, 1]
-    b = await create_object_from_value([False, True, False], aai_id=True)  # [0, 1, 0]
+@pytest.mark.parametrize(
+    "left, right, expected",
+    [
+        pytest.param(True, False, 1, id="scalar"),  # 1 - 0
+        pytest.param([True, True, True], [False, True, False], [1, 0, 1], id="array"),
+    ],
+)
+async def test_bool_sub(ctx, left, right, expected):
+    """Test subtraction of booleans (as their underlying integers)."""
+    a = await create_object_from_value(left, aai_id=True)
+    b = await create_object_from_value(right, aai_id=True)
 
     result = a - b
-    data = await result.data()
 
-    assert data == [1, 0, 1]
+    assert await result.data() == expected

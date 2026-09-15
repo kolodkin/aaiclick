@@ -232,3 +232,97 @@ async def test_select_columns_after_rename(ctx):
     assert set(data.keys()) == {"title", "genres"}
     assert data["title"] == ["Movie"]
     assert data["genres"] == [["Action", "Drama"]]
+
+
+async def test_rename_after_column_selection(ctx):
+    """Regression: rename() chained after a field selection must apply.
+
+    ``selected_fields`` hold post-rename names, but a rename applied *after*
+    a selection left them at their pre-rename spelling — so the rename was
+    silently ignored and ``data()`` still returned the old column name."""
+    obj = await create_object_from_value({"a": [1, 2, 3], "b": [10, 20, 30]})
+
+    data = await obj[["a", "b"]].rename({"b": "c"}).data()
+
+    assert sorted(data) == ["a", "c"]
+    assert data["c"] == [10, 20, 30]
+
+
+async def test_copy_after_rename_following_selection(ctx):
+    """Regression: the same pre-rename ``selected_fields`` made ``copy()``
+    raise ``KeyError`` on the old name — ``_get_copy_info`` keys its columns
+    by the post-rename name while the selection still asked for the old one."""
+    obj = await create_object_from_value({"a": [1, 2, 3], "b": [10, 20, 30]})
+
+    copied = await obj[["a", "b"]].rename({"b": "c"}).copy()
+
+    assert sorted(copied._schema.columns) == ["a", "c"]
+    data = await copied.data()
+    assert data["c"] == [10, 20, 30]
+
+
+async def test_rename_after_selection_keeps_earlier_rename(ctx):
+    """A rename chained after a selection must compose with the View's
+    existing renames rather than replacing them."""
+    obj = await create_object_from_value({"a": [1, 2], "b": [10, 20], "c": [100, 200]})
+
+    view = obj.rename({"a": "x"})[["x", "b"]].rename({"b": "y"})
+    data = await view.data()
+
+    assert sorted(data) == ["x", "y"]
+    assert data["x"] == [1, 2]
+    assert data["y"] == [10, 20]
+
+
+async def test_rename_rejects_alias_already_used_by_an_earlier_rename(ctx):
+    """Composed renames must not alias two columns to the same name — that
+    emits ``a AS x, c AS x``, which ClickHouse rejects as an ambiguous alias."""
+    obj = await create_object_from_value({"a": [1, 2], "b": [10, 20], "c": [100, 200]})
+
+    with pytest.raises(ValueError, match="collides with a rename already applied"):
+        obj.rename({"a": "x"}).rename({"c": "x"})
+
+
+async def test_copy_orders_by_pre_rename_column_name(ctx):
+    """``data()`` accepts the pre-rename spelling in ``order_by`` because the
+    source column is still in scope. ``copy()`` applies the order in a wrapper
+    query that only sees post-rename columns, so the same View raised
+    ClickHouse Code 47 — the order is now rewritten so both paths agree."""
+    obj = await create_object_from_value({"a": [3, 1, 2], "b": [30, 10, 20]})
+
+    view = obj.rename({"a": "x"}).view(order_by="a DESC", limit=2)
+    assert await view.data() == {"x": [3, 2], "b": [30, 20]}
+
+    copied = await view.copy()
+    assert sorted((await copied.data())["x"], reverse=True) == [3, 2]
+
+
+async def test_copy_keeps_post_rename_order_by_working(ctx):
+    """The post-rename spelling already worked and must keep working."""
+    obj = await create_object_from_value({"a": [3, 1, 2], "b": [30, 10, 20]})
+
+    copied = await obj.rename({"a": "x"}).view(order_by="x DESC", limit=2).copy()
+
+    assert sorted((await copied.data())["x"], reverse=True) == [3, 2]
+
+
+async def test_copy_passes_expression_order_by_through_unchanged(ctx):
+    """Only plain ``col [ASC|DESC]`` terms are rewritten — an expression is
+    left alone rather than risk substituting inside it."""
+    obj = await create_object_from_value({"a": [3, 1, 2], "b": [30, 10, 20]})
+
+    view = obj.rename({"a": "x"}).view(order_by="b * -1", limit=2)
+    assert view._get_copy_info().order_by == "b * -1"
+
+    copied = await view.copy()
+    assert sorted((await copied.data())["b"]) == [20, 30]
+
+
+async def test_copy_remaps_multi_key_order_by(ctx):
+    """Every term of a comma-separated order is rewritten."""
+    obj = await create_object_from_value({"a": [1, 1, 2], "b": [30, 10, 20]})
+
+    view = obj.rename({"a": "x", "b": "y"}).view(order_by="a ASC, b DESC", limit=3)
+
+    assert view._get_copy_info().order_by == "`x` ASC, `y` DESC"
+    assert (await (await view.copy()).data())["y"] == [30, 10, 20]

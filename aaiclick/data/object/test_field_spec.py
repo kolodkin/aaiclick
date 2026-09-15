@@ -184,3 +184,79 @@ async def test_field_spec_nullable_arithmetic(ctx):
     result = obj + 5
     data = await result.data()
     assert data == [15, 25, 35, None]
+
+
+# =============================================================================
+# nullable=True admits None / missing values at ingest
+# =============================================================================
+
+
+async def test_field_spec_nullable_admits_none_in_records(ctx):
+    """A None value in a records column marked nullable ingests as NULL."""
+    obj = await create_object_from_value(
+        [{"a": 1, "score": 0.5}, {"a": 2, "score": None}],
+        fields={"score": FieldSpec(nullable=True)},
+    )
+
+    assert obj.schema.columns["score"].nullable is True
+    data = await obj.data()
+    assert data == {"a": [1, 2], "score": [0.5, None]}
+
+
+async def test_field_spec_nullable_admits_missing_key(ctx):
+    """A key missing from some records reads back as None when marked nullable."""
+    obj = await create_object_from_value(
+        [{"a": 1, "b": 2}, {"a": 2}],
+        fields={"b": FieldSpec(nullable=True)},
+    )
+
+    data = await obj.data()
+    assert data == {"a": [1, 2], "b": [2, None]}
+
+
+async def test_field_spec_nullable_nested_leaf(ctx):
+    """Dot-notation leaves accept None when marked nullable."""
+    obj = await create_object_from_value(
+        [{"a": 1, "m": {"x": 10}}, {"a": 2, "m": {"x": None}}],
+        fields={"m.x": FieldSpec(nullable=True)},
+    )
+
+    data = await obj.data()
+    assert data == {"a": [1, 2], "m": [{"x": 10}, {"x": None}]}
+
+
+async def test_field_spec_nullable_star_leaf(ctx):
+    """Leaves inside list-of-dicts items accept None when marked nullable."""
+    obj = await create_object_from_value(
+        {"b": [{"c": 1}, {"c": None}]},
+        fields={"b.*.c": FieldSpec(nullable=True)},
+    )
+
+    assert await obj.data() == {"b": [{"c": 1}, {"c": None}]}
+
+
+async def test_field_spec_unmarked_none_still_raises(ctx):
+    """Only columns explicitly marked nullable admit None — others stay strict."""
+    with pytest.raises(ValueError, match="identical keys"):
+        await create_object_from_value(
+            [{"a": 1, "b": 2}, {"a": None, "b": 3}],
+            fields={"b": FieldSpec(nullable=True)},
+        )
+
+
+async def test_field_spec_nullable_does_not_admit_null_dict(ctx):
+    """A None nested dict cannot round-trip — nullable leaves don't rescue it."""
+    with pytest.raises(ValueError, match="identical keys"):
+        await create_object_from_value(
+            [{"a": 1, "m": {"x": 10}}, {"a": 2, "m": None}],
+            fields={"m.x": FieldSpec(nullable=True)},
+        )
+
+
+async def test_field_spec_nullable_does_not_admit_null_list_item(ctx):
+    """A None item inside a list of dicts still raises — no record fabrication."""
+    with pytest.raises(ValueError, match="identical keys"):
+        await create_object_from_value(
+            {"b": [{"c": 1}, None]},
+            fields={"b.*.c": FieldSpec(nullable=True)},
+        )

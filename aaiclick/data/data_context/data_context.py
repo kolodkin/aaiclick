@@ -17,6 +17,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING, cast
 
 import pyarrow as pa
+from sqlalchemy import delete as sql_delete
+from sqlmodel import col, select
 
 from aaiclick.locks import load_advisory_id, table_insert_lock
 from aaiclick.oplog.oplog_api import oplog_record
@@ -40,18 +42,21 @@ from ..models import (
     build_order_by_clause,
 )
 from ..scope import (
+    GLOBAL_PREFIX,
+    JOB_PREFIX,
     SCOPE_GLOBAL,
     SCOPE_JOB,
     SCOPE_TEMP_NAMED,
     NamedScope,
     PersistentScope,
     make_scoped_table_name,
+    name_from_table,
 )
-from ..sql_utils import quote_identifier
+from ..sql_utils import naive_utc, quote_identifier
 from .arrow_ingest import (
     arrow_table_for_insert,
     infer_struct_array,
-    leaf_column_info,
+    list_leaf_column_info,
     struct_array_to_columns,
     struct_type_to_columns,
 )
@@ -224,15 +229,26 @@ def get_engine_clause(engine: EngineType, order_by: str = "tuple()") -> str:
 
 _VALID_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
+# ClickHouse caps table names near ``213 - len(database)`` characters; the
+# widest prefix aaiclick adds is ``j_<19-digit id>_`` (22), so 128 leaves ample
+# room while failing an over-long name at the API boundary instead of deep in
+# ClickHouse.
+MAX_PERSISTENT_NAME_LEN = 128
+
 
 def _validate_persistent_name(name: str) -> None:
     """Validate a persistent object name.
 
     Raises:
-        ValueError: If name doesn't match [a-zA-Z_][a-zA-Z0-9_]*
+        ValueError: If name doesn't match [a-zA-Z_][a-zA-Z0-9_]* or exceeds
+            ``MAX_PERSISTENT_NAME_LEN`` characters.
     """
     if not _VALID_NAME_RE.match(name):
         raise ValueError(f"Invalid persistent name '{name}': must match [a-zA-Z_][a-zA-Z0-9_]*")
+    if len(name) > MAX_PERSISTENT_NAME_LEN:
+        raise ValueError(
+            f"Invalid persistent name: {len(name)} characters exceeds the {MAX_PERSISTENT_NAME_LEN}-character limit"
+        )
 
 
 def _resolve_scope(name: str | None, scope: NamedScope | None) -> NamedScope | None:
@@ -269,13 +285,17 @@ def _resolve_scope(name: str | None, scope: NamedScope | None) -> NamedScope | N
     return effective
 
 
-def _build_scoped_table(name: str, scope: NamedScope) -> str:
-    """Validate ``name`` and build the full CH table name for a scoped object."""
+def _build_scoped_table(name: str, scope: NamedScope, *, job_id: int | None = None) -> str:
+    """Validate ``name`` and build the full CH table name for a scoped object.
+
+    ``job_id`` overrides the ambient job (from ``task_scope``) for
+    ``scope="job"``; callers outside a task, such as the viewer, pass it
+    explicitly.
+    """
     _validate_persistent_name(name)
     if scope == SCOPE_TEMP_NAMED:
         return make_scoped_table_name(scope, name, snowid=get_snowflake_id())
-    job_id: int | None = None
-    if scope == SCOPE_JOB:
+    if scope == SCOPE_JOB and job_id is None:
         lifecycle = get_data_lifecycle()
         job_id = lifecycle.current_job_id() if lifecycle is not None else None
     return make_scoped_table_name(scope, name, job_id=job_id)
@@ -382,8 +402,14 @@ async def create_object(
 
 
 def _is_list_of_dicts(value: object) -> bool:
-    """Check if a value is a non-empty list of dicts (nested array-of-objects)."""
-    return isinstance(value, list) and bool(value) and isinstance(value[0], dict)
+    """Check if a value is a non-empty list of dicts (nested array-of-objects).
+
+    Recurses through leading list levels so lists of lists of dicts
+    (``[[{...}]]``) are also treated as nested structures.
+    """
+    if not (isinstance(value, list) and value):
+        return False
+    return isinstance(value[0], dict) or _is_list_of_dicts(value[0])
 
 
 def _has_nested_dicts(record: dict) -> bool:
@@ -442,6 +468,11 @@ def _apply_field_spec(col: ColumnInfo, spec: FieldSpec) -> ColumnInfo:
     )
 
 
+def _nullable_column_keys(columns: dict[str, ColumnInfo]) -> frozenset[str]:
+    """Keys of nullable columns — exempt from ingest strictness."""
+    return frozenset(name for name, col in columns.items() if col.nullable)
+
+
 def _apply_field_specs(
     columns: dict[str, ColumnInfo],
     fields: dict[str, FieldSpec] | None,
@@ -472,13 +503,17 @@ async def create_object_from_value(
             - Scalar (int, float, bool, str): Creates single row
             - List of scalars: Creates multiple rows
             - Dict of scalars: Single row with columns per key
-            - Dict of arrays: Multiple rows with columns per key
+            - Dict of arrays (all values lists): Multiple rows with columns per key
+            - Dict mixing scalars and lists: Single row; lists become
+              ``Array(T)`` columns
             - Dict/List with nested dicts: flattened to plain-dot columns
               (``{"x": {"y": 1}}`` → column ``x.y``)
             - Dict/List with nested list-of-dicts: flattened with dot-star
               notation (``{"b": [{"c": 1}]}`` → column ``b.*.c``)
             The schema is inferred by pyarrow across ALL records — keys must
-            be identical in every record (missing keys raise ``ValueError``).
+            be identical in every record (missing keys raise ``ValueError``),
+            except columns marked ``FieldSpec(nullable=True)``, whose missing
+            or ``None`` leaf values ingest as NULL.
 
             Keys containing ``.`` and empty dict values raise ``ValueError``.
         name: Optional name. When set, ``scope`` selects the lifetime tier —
@@ -537,40 +572,29 @@ async def create_object_from_value(
             await ch.insert_arrow(table, arrow_table)
 
     if isinstance(val, dict):
-        has_arrays = any(isinstance(v, list) for v in val.values())
+        all_arrays = bool(val) and all(isinstance(v, list) for v in val.values())
 
-        if has_arrays and not _has_nested_dicts(val):
+        if all_arrays and not _has_nested_dicts(val):
             # Dict of parallel arrays: one row per element.
             columns = {}
             col_map: dict[str, pa.Array | list] = {}
             array_len = None
 
             for key, value in val.items():
-                if isinstance(value, list):
-                    if array_len is None:
-                        array_len = len(value)
-                    elif len(value) != array_len:
-                        raise ValueError(
-                            f"All arrays must have same length. Expected {array_len}, got {len(value)} for key '{key}'"
-                        )
-                    if "." in key:
-                        raise ValueError(f"Dict keys must not contain '.': {key!r}")
-                    try:
-                        pa_arr = pa.array(value)
-                    except (pa.ArrowInvalid, pa.ArrowTypeError) as e:
-                        raise ValueError(f"Cannot infer a uniform schema from records: {e}") from e
-                    elem_type = pa_arr.type
-                    depth = 0
-                    while pa.types.is_list(elem_type) or pa.types.is_large_list(elem_type):
-                        depth += 1
-                        elem_type = elem_type.value_type
-                    col_def = leaf_column_info(elem_type, depth)
-                    col_map[key] = pa_arr
-                else:
+                if array_len is None:
+                    array_len = len(value)
+                elif len(value) != array_len:
                     raise ValueError(
-                        f"Dict of arrays requires all values to be lists. Key '{key}' has type {type(value).__name__}"
+                        f"All arrays must have same length. Expected {array_len}, got {len(value)} for key '{key}'"
                     )
-                columns[key] = col_def.with_fieldtype(FIELDTYPE_ARRAY)
+                if "." in key:
+                    raise ValueError(f"Dict keys must not contain '.': {key!r}")
+                try:
+                    pa_arr = pa.array(value)
+                except (pa.ArrowInvalid, pa.ArrowTypeError) as e:
+                    raise ValueError(f"Cannot infer a uniform schema from records: {e}") from e
+                col_map[key] = pa_arr
+                columns[key] = list_leaf_column_info(pa_arr.type, 0, key).with_fieldtype(FIELDTYPE_ARRAY)
 
             columns = _maybe_add_aai_id(_apply_field_specs(columns, fields))
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
@@ -579,13 +603,12 @@ async def create_object_from_value(
             await _insert_columns(obj.table, columns, col_map)
 
         else:
-            # Single record (flat or nested): arrow infers the schema, leaves
-            # flatten to dot/dot-star columns.
+            # Single record (flat, nested, or mixed scalar/list): arrow
+            # infers the schema; leaves flatten to dot/dot-star columns.
             struct_arr = infer_struct_array([val])
             columns = struct_type_to_columns(struct_arr.type)
-            col_map = struct_array_to_columns(struct_arr)
-
             columns = _maybe_add_aai_id(_apply_field_specs(columns, fields))
+            col_map = struct_array_to_columns(struct_arr, _nullable_column_keys(columns))
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
             obj = await create_object(schema, name=name, scope=scope)
 
@@ -604,9 +627,8 @@ async def create_object_from_value(
                 name_: ci.with_fieldtype(FIELDTYPE_ARRAY)
                 for name_, ci in struct_type_to_columns(struct_arr.type).items()
             }
-            col_map = struct_array_to_columns(struct_arr)
-
             columns = _maybe_add_aai_id(_apply_field_specs(columns, fields))
+            col_map = struct_array_to_columns(struct_arr, _nullable_column_keys(columns))
             schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by=order_by_clause)
             obj = await create_object(schema, name=name, scope=scope)
 
@@ -643,34 +665,47 @@ async def create_object_from_value(
     return obj
 
 
-async def open_object(name: str, scope: PersistentScope = SCOPE_JOB) -> Object:
+class ObjectNotFoundError(RuntimeError):
+    """No persistent object exists under the requested name and scope.
+
+    A ``RuntimeError`` subclass so callers written against ``open_object``'s
+    original contract keep working.
+    """
+
+
+async def open_object(name: str, scope: PersistentScope = SCOPE_JOB, *, job_id: int | None = None) -> Object:
     """Open an existing persistent Object by name.
 
     Args:
         name: Persistent name (without prefix).
         scope: Persistence tier the object was created with — ``"global"`` →
                looks up ``p_<name>``; ``"job"`` → looks up
-               ``j_<job_id>_<name>`` using the active orch job. ``"temp_named"``
-               is not openable — temp tables disappear with their context.
+               ``j_<job_id>_<name>``. ``"temp_named"`` is not openable —
+               temp tables disappear with their context.
+        job_id: The owning job for ``scope="job"``. Defaults to the active
+               orch job; pass it explicitly outside a task (REST, MCP, CLI).
 
     Returns:
         Object with schema loaded from ClickHouse.
 
     Raises:
         ValueError: If name is invalid.
-        RuntimeError: If table does not exist.
+        ObjectNotFoundError: If the table does not exist.
     """
     from ..object import Object
     from ..object.ingest import _get_table_schema
 
-    table_name = _build_scoped_table(name, scope)
+    table_name = _build_scoped_table(name, scope, job_id=job_id)
     ch = get_ch_client()
 
     result = await ch.command(f"EXISTS TABLE {table_name}")
     if not result:
-        raise RuntimeError(f"Persistent object '{name}' does not exist (table {table_name})")
+        raise ObjectNotFoundError(f"Persistent object '{name}' does not exist (table {table_name})")
 
-    fieldtype, columns = await _get_table_schema(table_name, ch)
+    try:
+        fieldtype, columns = await _get_table_schema(table_name, ch)
+    except LookupError as exc:
+        raise ObjectNotFoundError(f"Persistent object '{name}' does not exist (table {table_name})") from exc
     schema = Schema(fieldtype=fieldtype, columns=columns)
     obj = Object(table=table_name, schema=schema)
     register_object(obj)
@@ -690,23 +725,44 @@ async def delete_persistent_object(name: str, scope: PersistentScope = SCOPE_JOB
     """
     table_name = _build_scoped_table(name, scope)
     await get_ch_client().command(f"DROP TABLE IF EXISTS {table_name}")
+    await _forget_registry_rows([table_name])
+
+
+async def _forget_registry_rows(table_names: list[str]) -> None:
+    """Delete ``table_registry`` rows for dropped tables.
+
+    Without this a re-created object would hit the registry's
+    ``ON CONFLICT (table_name) DO NOTHING`` and keep a stale schema_doc,
+    and registry-backed listing would keep showing the dropped object.
+    """
+    if not table_names:
+        return
+    # Circular dep: see list_persistent_tables.
+    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
+    from aaiclick.orchestration.sql_context import get_sql_session
+
+    async with get_sql_session() as session:
+        await session.execute(sql_delete(TableRegistry).where(col(TableRegistry.table_name).in_(table_names)))
+        await session.commit()
 
 
 async def delete_persistent_objects(
     after: datetime | None = None,
     before: datetime | None = None,
 ) -> list[str]:
-    """Drop persistent tables filtered by creation time.
+    """Drop persistent tables, filtered by creation time.
 
-    Uses ClickHouse ``system.tables.metadata_modification_time`` to
-    determine when each table was created.
+    Candidates come from ``table_registry`` (see ``list_persistent_tables``),
+    so the time window is evaluated against the registry's ``created_at`` —
+    not ClickHouse's ``metadata_modification_time``, which chdb reports as the
+    epoch.
 
     Args:
         after: Drop tables created at or after this time (inclusive).
         before: Drop tables created before this time (exclusive).
 
     Returns:
-        List of deleted persistent names (without ``p_`` prefix).
+        List of deleted persistent names (without prefix).
 
     Raises:
         ValueError: If neither ``after`` nor ``before`` is specified.
@@ -717,36 +773,56 @@ async def delete_persistent_objects(
             "to prevent accidental deletion of all persistent objects"
         )
     ch = get_ch_client()
-    conditions = [
-        "database = currentDatabase()",
-        r"name LIKE 'p\_%'",
-    ]
-    if after is not None:
-        after_str = after.strftime("%Y-%m-%d %H:%M:%S")
-        conditions.append(f"metadata_modification_time >= '{after_str}'")
-    if before is not None:
-        before_str = before.strftime("%Y-%m-%d %H:%M:%S")
-        conditions.append(f"metadata_modification_time < '{before_str}'")
-
-    where = " AND ".join(conditions)
-    result = await ch.query(f"SELECT name FROM system.tables WHERE {where}")
-    names = [row[0] for row in result.result_rows]
-
+    names = await list_persistent_tables(after=after, before=before)
     for table_name in names:
         await ch.command(f"DROP TABLE IF EXISTS {table_name}")
+    await _forget_registry_rows(names)
+    return [name_from_table(n) for n in names]
 
-    return [n[2:] for n in names]
+
+async def _registered_tables(*predicates) -> list[str]:
+    """CH table names in SQL ``table_registry`` matching ``predicates`` —
+    ownership lives in SQL."""
+    # Circular dep: orchestration imports the data package at import time,
+    # so the registry model and SQL session are resolved at call time
+    # (same pattern as aaiclick/data/object/ingest.py::_get_table_schema).
+    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
+    from aaiclick.orchestration.sql_context import get_sql_session
+
+    async with get_sql_session() as session:
+        result = await session.execute(select(TableRegistry.table_name).where(*predicates))
+    return sorted(row[0] for row in result.all())
+
+
+async def list_persistent_tables(
+    after: datetime | None = None,
+    before: datetime | None = None,
+) -> list[str]:
+    """List persistent CH table names (``p_*``).
+
+    Args:
+        after: Only tables registered at or after this time (inclusive).
+        before: Only tables registered before this time (exclusive).
+    """
+    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry  # Circular dep: see _registered_tables.
+
+    predicates = [col(TableRegistry.table_name).startswith(GLOBAL_PREFIX, autoescape=True)]
+    if after is not None:
+        predicates.append(col(TableRegistry.created_at) >= naive_utc(after))
+    if before is not None:
+        predicates.append(col(TableRegistry.created_at) < naive_utc(before))
+    return await _registered_tables(*predicates)
+
+
+async def list_job_tables(job_id: int) -> list[str]:
+    """List CH table names registered under ``job_id``."""
+    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry  # Circular dep: see _registered_tables.
+
+    return await _registered_tables(
+        TableRegistry.job_id == job_id, col(TableRegistry.table_name).startswith(JOB_PREFIX, autoescape=True)
+    )
 
 
 async def list_persistent_objects() -> list[str]:
-    """List all persistent object names.
-
-    Returns:
-        List of persistent names (without ``p_`` prefix).
-    """
-    result = await get_ch_client().query(
-        "SELECT name FROM system.tables "
-        "WHERE database = currentDatabase() "
-        r"AND name LIKE 'p\_%'"
-    )
-    return [row[0][2:] for row in result.result_rows]
+    """List persistent object names (without prefix)."""
+    return [name_from_table(t) for t in await list_persistent_tables()]

@@ -37,6 +37,17 @@ def _has_nested_columns(column_names: list[str]) -> bool:
     return any("." in name for name in column_names)
 
 
+def _check_prefix_collisions(column_names: list[str]) -> None:
+    """A plain column that is also a dotted prefix of another cannot be reconstructed."""
+    names = set(column_names)
+    for name in column_names:
+        parts = name.split(".")
+        for i in range(1, len(parts)):
+            prefix = ".".join(parts[:i])
+            if prefix in names:
+                raise ValueError(f"Column {prefix!r} collides with nested column {name!r}")
+
+
 def _undot_record(flat: dict) -> dict:
     """Group plain-dot keys by first segment and recurse.
 
@@ -86,20 +97,38 @@ def _unflatten_record(flat_record: dict) -> dict:
     result = dict(plain)
 
     for prefix, sub_fields in nested_groups.items():
-        first_val = next(iter(sub_fields.values()))
-        length = len(first_val) if isinstance(first_val, (list, tuple)) else 1
-
-        items = []
-        for i in range(length):
-            item = {}
-            for suffix, values in sub_fields.items():
-                item[suffix] = values[i] if isinstance(values, (list, tuple)) else values
-            items.append(item)
-
-        # Recursively unflatten if deeper nesting exists
-        result[prefix] = [_unflatten_record(item) for item in items]
+        result[prefix] = _unflatten_star_group(sub_fields)
 
     return _undot_record(result)
+
+
+def _unflatten_star_group(sub_fields: dict[str, Any]) -> list:
+    """Build the list value for one star level from parallel suffix arrays.
+
+    Suffixes starting with ``*.`` come from stacked stars (``x.*.*.y``
+    columns): the items at this level are lists, not dicts, so strip the
+    star and recurse per item. Otherwise each item is a dict assembled
+    from the parallel arrays and unflattened for deeper nesting.
+    """
+    if all(suffix.startswith("*.") for suffix in sub_fields):
+        stripped = {suffix[2:]: values for suffix, values in sub_fields.items()}
+        first_val = next(iter(stripped.values()))
+        return [
+            _unflatten_star_group({suffix: values[i] for suffix, values in stripped.items()})
+            for i in range(len(first_val))
+        ]
+
+    first_val = next(iter(sub_fields.values()))
+    length = len(first_val) if isinstance(first_val, (list, tuple)) else 1
+
+    items = []
+    for i in range(length):
+        item = {}
+        for suffix, values in sub_fields.items():
+            item[suffix] = values[i] if isinstance(values, (list, tuple)) else values
+        items.append(item)
+
+    return [_unflatten_record(item) for item in items]
 
 
 async def extract_scalar_data(obj: Object) -> Any:
@@ -161,6 +190,8 @@ async def extract_dict_data(
     col_indices = {name: column_names.index(name) for name in output_columns}
 
     nested = _has_nested_columns(output_columns)
+    if nested:
+        _check_prefix_collisions(output_columns)
 
     # Dict-of-arrays when the first column carries fieldtype=ARRAY.
     first_col = output_columns[0] if output_columns else None

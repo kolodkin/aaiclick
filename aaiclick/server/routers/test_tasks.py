@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import pytest
 from sqlmodel import select
 
 from aaiclick.auth import security
-from aaiclick.auth.models import ROLE_VIEWER
 from aaiclick.orchestration.factories import _callable_to_string, create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
@@ -25,7 +25,7 @@ async def test_viewer_cannot_clear_task(orch_ctx, app_client, monkeypatch):
     monkeypatch.setenv("AAICLICK_JWT_SECRET", RBAC_SECRET)
     job = await create_job("rbac_clear_job", simple_task)
     task = (await get_tasks_for_job(job.id))[0]
-    token = security.encode_access_token(user_id=2, role=ROLE_VIEWER, secret=RBAC_SECRET, ttl=60)
+    token = security.encode_access_token(user_id=2, role="viewer", secret=RBAC_SECRET, ttl=60)
 
     response = await app_client.post(
         f"{API_PREFIX}/tasks/{task.id}/clear", headers={"Authorization": f"Bearer {token}"}
@@ -44,14 +44,6 @@ async def test_get_task(orch_ctx, app_client):
     detail = TaskDetail.model_validate(response.json())
     assert detail.id == task.id
     assert detail.entrypoint == _callable_to_string(simple_task)
-
-
-async def test_get_task_not_found_returns_404(orch_ctx, app_client):
-    response = await app_client.get(f"{API_PREFIX}/tasks/999999999")
-
-    assert response.status_code == 404
-    problem = Problem.model_validate(response.json())
-    assert problem.code is ProblemCode.NOT_FOUND
 
 
 async def test_get_task_logs(orch_ctx, app_client):
@@ -96,14 +88,6 @@ async def test_get_task_logs_accepts_tail_param(orch_ctx, app_client):
     TaskLogsView.model_validate(response.json())
 
 
-async def test_get_task_logs_not_found_returns_404(orch_ctx, app_client):
-    response = await app_client.get(f"{API_PREFIX}/tasks/999999999/logs")
-
-    assert response.status_code == 404
-    problem = Problem.model_validate(response.json())
-    assert problem.code is ProblemCode.NOT_FOUND
-
-
 async def test_clear_task(orch_ctx, app_client):
     job = await create_job("http_clear_job", simple_task)
     task = (await get_tasks_for_job(job.id))[0]
@@ -116,8 +100,16 @@ async def test_clear_task(orch_ctx, app_client):
     assert view.job.id == job.id
 
 
-async def test_clear_task_not_found_returns_404(orch_ctx, app_client):
-    response = await app_client.post(f"{API_PREFIX}/tasks/999999999/clear")
+@pytest.mark.parametrize(
+    "method, path",
+    [
+        pytest.param("GET", "/tasks/999999999", id="get-task"),
+        pytest.param("GET", "/tasks/999999999/logs", id="get-task-logs"),
+        pytest.param("POST", "/tasks/999999999/clear", id="clear-task"),
+    ],
+)
+async def test_unknown_task_returns_404(orch_ctx, app_client, method, path):
+    response = await app_client.request(method, f"{API_PREFIX}{path}")
 
     assert response.status_code == 404
     problem = Problem.model_validate(response.json())

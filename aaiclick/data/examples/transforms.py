@@ -92,8 +92,42 @@ async def example():
     )
     result = await view.data()
     print(f"source: {result['source']}")  # → ['survey_2024', 'survey_2024']
-    print(f"active: {result['active']}")  # → [1, 1]
+    print(f"active: {result['active']}")  # → [True, True]
     print(f"weight: {result['weight']}")  # → [1.0, 1.0]
+
+    section("Example 6: with_multi_if() n-way conditional column")
+
+    obj = await create_object_from_value({"score": [95, 72, 45, 88, 60]})
+    graded = obj.with_multi_if(
+        [("score >= 90", "'A'"), ("score >= 80", "'B'"), ("score >= 60", "'C'")],
+        default="'F'",
+        alias="grade",
+    )
+    result = await graded.data()
+    print(f"score: {result['score']}")  # → [95, 72, 45, 88, 60]
+    print(f"grade: {result['grade']}")  # → ['A', 'C', 'F', 'B', 'C']
+
+    # Both halves are SQL: boolean operators compose in conditions, and a
+    # result may be a column or an expression, not just a constant.
+    orders = await create_object_from_value(
+        {
+            "price": [100.0, 200.0, 50.0, 80.0],
+            "status": ["void", "ok", "ok", "ok"],
+            "region": ["EU", "US", "EU", "APAC"],
+            "is_member": [0, 1, 0, 1],
+        }
+    )
+    priced = orders.with_multi_if(
+        [
+            ("status = 'void' OR price = 0", "0.0"),
+            ("is_member = 1 AND region IN ('EU', 'US')", "price * 0.8"),
+            ("NOT (region = 'APAC') AND price >= 100", "price * 0.95"),
+        ],
+        default="price",
+        alias="final_price",
+        type="Float64",
+    )
+    print(f"final_price: {(await priced.data())['final_price']}")  # → [0.0, 160.0, 50.0, 80.0]
 
 
 async def amain():

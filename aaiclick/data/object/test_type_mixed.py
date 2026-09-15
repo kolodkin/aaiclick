@@ -129,11 +129,11 @@ async def test_mixed_statistics_after_operation(ctx):
 
     expected_values = np.array([10.5, 21.5, 32.5, 43.5])
 
-    assert abs(await (await result.min()).data() - np.min(expected_values)) < THRESHOLD
-    assert abs(await (await result.max()).data() - np.max(expected_values)) < THRESHOLD
-    assert abs(await (await result.sum()).data() - np.sum(expected_values)) < THRESHOLD
-    assert abs(await (await result.mean()).data() - np.mean(expected_values)) < THRESHOLD
-    assert abs(await (await result.std()).data() - np.std(expected_values, ddof=0)) < THRESHOLD
+    assert abs(await result.min().data() - np.min(expected_values)) < THRESHOLD
+    assert abs(await result.max().data() - np.max(expected_values)) < THRESHOLD
+    assert abs(await result.sum().data() - np.sum(expected_values)) < THRESHOLD
+    assert abs(await result.mean().data() - np.mean(expected_values)) < THRESHOLD
+    assert abs(await result.std().data() - np.std(expected_values, ddof=0)) < THRESHOLD
 
 
 async def test_mixed_min_max_after_subtraction(ctx):
@@ -143,8 +143,8 @@ async def test_mixed_min_max_after_subtraction(ctx):
 
     result = a.view(order_by="value") - b.view(order_by="value")
 
-    assert abs(await (await result.min()).data() - 99.9) < THRESHOLD
-    assert abs(await (await result.max()).data() - 299.7) < THRESHOLD
+    assert abs(await result.min().data() - 99.9) < THRESHOLD
+    assert abs(await result.max().data() - 299.7) < THRESHOLD
 
 
 async def test_mixed_sum_mean_precision(ctx):
@@ -159,8 +159,8 @@ async def test_mixed_sum_mean_precision(ctx):
     expected_sum = np.sum(expected_values)
     expected_mean = np.mean(expected_values)
 
-    assert abs(await (await result.sum()).data() - expected_sum) < THRESHOLD
-    assert abs(await (await result.mean()).data() - expected_mean) < THRESHOLD
+    assert abs(await result.sum().data() - expected_sum) < THRESHOLD
+    assert abs(await result.mean().data() - expected_mean) < THRESHOLD
 
 
 # =============================================================================

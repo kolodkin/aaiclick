@@ -9,94 +9,169 @@ Planned work across aaiclick, ordered by priority.
 
 Items deferred until preconditions are met.
 
-## SSE `/events` Endpoint + LISTEN/NOTIFY Fanout
+## Event Fanout — Beyond Postgres LISTEN/NOTIFY
 
-v0 uses 2 s `refetchInterval` polling. The designed real-time path is:
-
-1. `GET /api/v0/events` → `text/event-stream` (one connection per UI session).
-2. Workers emit `NOTIFY job_events` in the same commit as every status write.
-3. FastAPI holds one `LISTEN` connection per backend and forwards
-   notifications onto an in-process pub/sub bus.
-4. The SSE endpoint subscribes and streams typed events (`job.updated`,
-   `task.updated`, `task.log`) to the browser.
-5. The browser calls `queryClient.invalidateQueries(...)` and lets REST
-   fetch authoritative state — events are signals, not payloads.
-
-**SQLite local mode**: poll + snapshot diff every 2 s (same latency as current
-polling, but avoids N×M HTTP requests from N browser tabs). SQLite pairs with
-chdb, and local mode is single-process — cross-host fanout doesn't arise there.
-
-**Multi-host is already covered**: Postgres delivers each `NOTIFY` to every
-connection that has issued `LISTEN`, so N API hosts just hold N `LISTEN`
-connections — no extra broker. `NOTIFY` in the same commit as the status
-write guarantees a refetching client sees the committed state. Escape
-hatches, should the feeder ever measurably hurt:
+`GET /api/v0/events` streams change signals fed by `pg_notify` on every
+job/task commit (`docs/designs/frontend.md` — Live updates). Escape hatches,
+should the feeder ever measurably hurt:
 
 - **Redis Pub/Sub** — only if listener count or notification volume becomes a
-  real cost (dozens of hosts, very high event rates), or payloads outgrow
-  Postgres's ~8 KB `NOTIFY` limit; events are signals, not payloads, so they
-  stay tiny.
-- **ClickHouse tail** — each API host polls `operation_log` (or a dedicated
-  events table) past a watermark: N pollers instead of N×M browser polls, no
-  touch on the SQL commit path. But latency is poll-bound and the CH insert
-  is unordered relative to the SQL commit, so a client can refetch before the
-  status write is visible. chdb is in-process single-session — not a bus.
+  real cost (dozens of hosts, very high event rates). Signals carry no
+  payload, so Postgres's ~8 KB `NOTIFY` limit never bites.
+- **ClickHouse tail** — each API host polls `operation_log` past a watermark:
+  N pollers, no touch on the SQL commit path. But latency is poll-bound and
+  the CH insert is unordered relative to the SQL commit, so a client can
+  refetch before the status write is visible.
+- **Typed per-job events** — every view is job-scoped
+  and refetches the same few queries, so the coarse signal costs nothing
+  today; widen the payload only if a view needs to ignore other jobs' churn.
 
-**When to revisit**: when polling overhead is measurable (many tabs or many
-concurrent jobs), or when sub-2 s latency matters for operators.
+## Change Signals — Consumers Beyond the UI
 
-## Job Graph View — Group Containers
+The signal (`aaiclick/orchestration/events`) is "a job, task or group row
+committed", not a UI concept; the SSE stream is merely its first subscriber.
+Next in line:
 
-The job graph view (`docs/designs/ui.md`) renders tasks only. Groups
-are honoured semantically — dependencies touching a group are expanded onto its
-source / sink tasks — but are not drawn. Containers would render as React Flow
-subflows (`parentId` + `extent`) with a status rolled up from member tasks.
-The endpoint already accommodates this: `GraphNodeView.kind` gains `"group"`
-and `parent_group_id` is populated today.
+- **`cli_wait.wait_for_job`** — polls job stats on a fixed interval today.
+  It could run the active transport's `feed` and block on
+  `EventBus.subscribe()` instead, re-reading stats only when a signal lands:
+  sub-second reaction, zero idle queries. Keep a slow poll as the fallback,
+  as the browser does. Local mode is the harder case: the CLI is a separate
+  process from a running local server, and `LocalTransport` only sees
+  commits in its own process, so a wait on a job the server is running
+  would need the Postgres transport or the SSE stream over HTTP.
+- **MCP / SDK waiters** — the same subscribe-then-refetch loop serves any
+  in-process caller that blocks on a job; external tools in distributed
+  mode can `LISTEN aaiclick_events` on Postgres directly.
 
-**When to revisit**: when jobs routinely use nested groups and the flattened
-view loses structure operators need. Expect to reassess the layout engine at
-the same time — dagre's nested-cluster quality is its weakest area, and the
-MIT-compatible escape hatch is Graphviz WASM (`@hpcc-js/wasm-graphviz`), not
-elkjs (dual EPL-2.0 / GPL-3.0-or-later).
+## Task Logs — Per-Attempt History in the Log Panel
 
-## Inline No-Registry Build Holds the Worker Slot
+`get_task_logs` (`aaiclick/internal_api/tasks.py`) reads `task.run_ids[-1]`, so
+the panel shows only the latest attempt. Earlier attempts are already in
+ClickHouse — `task_logs` tags each line with `run_id`, and `Task.run_ids` /
+`Task.run_statuses` hold the ordered attempts and how each ended — so a retried
+task's failed runs are retained but unreachable. That is exactly the output you
+want after a flaky task finally passes.
 
-In registry mode, image builds are ordinary graph tasks gated by dependency
-edges — no worker ever waits on someone else's build. Without a registry the
-docker launch path builds inline (`docker_build.resolve_launch_image`),
-holding the worker slot for the cold build. Accepted: no-registry is de facto
-single-host / small-scale mode, and per-host daemon cache dedups repeats.
-**When to revisit**: only if no-registry multi-worker hosts with cold builds
-become a real workload — the likely fix is a registry, not scheduler work.
+Shape, following Airflow's per-try log selector:
 
-## API Auth — Beyond Username/Password + RBAC
+- `GET /tasks/{id}/logs` takes an optional 1-based `attempt`, resolved through
+  `run_ids`; defaults to the last.
+- `TaskLogsView` carries the attempts and their statuses, so the selector costs
+  no second request.
+- `LogViewer` shows the selector only when `run_ids` has more than one entry.
+  Polling stays on the latest attempt; older ones are immutable.
 
-Username/password users, admin/viewer RBAC, and JWT login (access + refresh)
-ship today (`docs/designs/auth.md`). Follow-ups, once more callers / finer control are
-needed:
+!!! note "Pending input"
+    Airflow screenshots to follow as the reference for layout and wording — do
+    not settle the UI details before then.
 
-- **Long-lived API tokens / PATs with scopes** — user-minted, named, expiring
-  tokens with per-token `read` / `write` scopes for unattended CLI / SDK / MCP
-  clients (currently they log in with username/password and ride the refresh
-  flow). Includes a token-management UI + CLI.
-- **Per-tool MCP RBAC** — the `/mcp` mount is admin-only today; expose
-  read-only tools to `viewer` once per-tool gating is worth the complexity.
-- **Admin user-management UI** — admins manage users via REST + CLI today.
-- **OAuth 2.0 / OIDC / SSO**, **MFA**, **password-reset flow** — delegated /
-  hardened identity for enterprise deployments.
-- **Per-request audit log** — who called what, when.
+## Tenants — Kubernetes Control Plane
 
-## CLI Lineage AI Commands
+Multi-tenancy as a fleet layer rather than a filtered column: a control
+plane that provisions one full aaiclick installation per tenant, each in
+its own Kubernetes namespace, with central identity and direct routing to
+each tenant's own ingress.
 
-A CLI surface for AI lineage (e.g. `aaiclick explain <table>` /
-`aaiclick debug <table> "<question>"`). When it lands, add thin
-`internal_api` wrappers over `ai.agents.lineage_agent.explain_lineage` and
-`ai.agents.debug_agent.debug_result`, kept separate from
-`internal_api.lineage` so callers without the `ai` extra can still import
-the primitives (a previous unwired version, `internal_api/lineage_ai.py`,
-was removed as dead code). MCP intentionally exposes only the
-AI-independent primitives (`server/mcp.py`).
+An installation carries no tenant state — see `docs/designs/auth.md` for
+the RBAC it does carry. Tenancy is a Kubernetes-only feature; there is no
+Compose or local-mode equivalent.
+
+Full design: `docs/designs/tenants_draft.md`.
+
+**When to revisit**: when a deployment must serve mutually-distrusting
+parties. The earlier metadata-level scheme filtered one shared database by
+an active tenant and never provided that, which is why it was removed.
+
+## Password Reset by Email
+
+An admin mints reset links today and hands them over out of band
+(`docs/designs/auth.md` — Password Reset). A self-service "email me a link"
+flow needs an SMTP sender plus a public request endpoint that always answers
+`204`, so it never discloses whether an account exists. `users.email` is
+already populated — set through the API / CLI, or from the OIDC `email` claim
+— so the missing pieces are the sender, its configuration, and the endpoint.
+An earlier `aaiclick/auth/mail.py` (`smtplib` on a worker thread via
+`asyncio.to_thread`) was removed as unused; it is recoverable from git history.
+
+**When to revisit**: when deployments have a reachable SMTP server, or when
+operators mint links often enough for it to hurt.
+
+## OIDC / SSO Login
+
+Authorization-code login against any OpenID Connect provider was built and
+then removed: no identity provider is connected, so it was code nobody could
+run. Recoverable from git history — `aaiclick/auth/oidc.py` (discovery, PKCE,
+code exchange, `id_token` validation against the JWKS) and
+`aaiclick/internal_api/oidc.py` (config / start / callback), with the SPA half
+in `src/lib/auth.ts` and `src/views/Login.tsx`.
+
+Restoring it needs both back, plus `users.oidc_subject` (`"<issuer>|<sub>"`,
+unique) to link a local user to an external identity, an `oidc_states` table
+holding one row per in-flight login, and `pyjwt[crypto]` again for RS256
+`id_token` signatures. The subject must stay issuer-qualified: `sub` is unique
+only within an issuer, so a bare value lets two providers collide.
+
+**When to revisit**: when a deployment has an IdP to point at.
+
+## Foreign-Key Enforcement in the Local Test Backend
+
+SQLite defaults `PRAGMA foreign_keys` to `0`, and SQLAlchemy does not turn it
+on, so every `REFERENCES` clause in the local test schema is declared and never
+checked. Postgres enforces them always. The local half of the CI matrix is
+therefore structurally unable to catch a referential-integrity bug, and half of
+the 16 jobs are local — the scope-ladder branch shipped a test helper that
+inserted a child row for a parent with no row, which 2595 local tests passed
+straight over and only `Internal API dist` rejected.
+
+The fix is a `connect` event listener on the test engine issuing
+`PRAGMA foreign_keys=ON`. The cost is unknown until tried: turning enforcement
+on may surface existing violations in suites that have been quietly relying on
+the laxity, and each one wants fixing rather than suppressing.
+
+**When to revisit**: next time a foreign-key bug reaches `dist` after passing
+`local`, or alongside any work already touching the shared test fixtures.
+
+## Viewer Follow-ups
+
+See `viewer.md` for the shipped design.
+
+- **SQL over several objects at once** (joins, unions): today `query_object`
+  reads one object with a `where` filter. A `query_sql` verb would take
+  `scope`, a SQL text, and a map of the object names it uses
+  (`{"o": "orders", "c": "customers"}`); the user writes `SELECT … FROM o
+  JOIN c ON …` and the server prepends one CTE per entry (`WITH o AS (SELECT *
+  FROM p_orders), c AS (…)`), so the SQL still never names a table and the
+  scope rules stay server-side. Verified on chdb that such CTEs
+  resolve inside the pagination wrapper and alongside the user's own `WITH`.
+  Deferred until single-object queries prove insufficient.
+- **Agent push to the browser**: QueryView's remote channel (an agent pushes a
+  query or dashboard into a live tab) has no aaiclick equivalent yet; it
+  needs the SSE endpoint planned above.
+- **Git sync and YAML export** for saved queries and dashboards, as QueryView
+  has (QueryView's workspaces have no aaiclick counterpart — one installation
+  is one workspace).
+- **`options_sql` params**: the kernel's `params:` block accepts a query
+  whose first column feeds a dropdown; aaiclick has no free-SQL endpoint, so
+  `QueryPanel` renders static `options` only.
+- **Dashboard authoring in the UI**: `@dashboard` picks and runs; HTML and
+  panel queries are written through MCP, REST, or `view dashboards save`.
+
+## Lazy Operator — Chain Fusion
+
+Every `LazyOperator` node materializes into its own table. For single-source
+families (unary transforms, aggregations, string ops) the upstream SELECT
+could instead be wrapped as a subquery, so `obj.abs().sum()` writes one table
+rather than two. Not a correctness problem; measure before acting.
+
+Weigh it carefully: "each node materializes into its own table — no fusion"
+is a stated invariant in `docs/user_guide/object.md`, and the per-node tables
+are what make `.as_()` and refcounted cleanup work.
+
+Separately, `LazyOperator` keeps `lhs` / `rhs` after `_materialized` is set,
+so holding an awaited chain pins its intermediate tables (table lifetime is
+refcounted off Python object lifetime). Clearing them needs `as_()` — the only
+reader — handled first.
 
 ## Changelog
 

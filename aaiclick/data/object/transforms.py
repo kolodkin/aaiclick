@@ -1,10 +1,12 @@
 """Computed column helper functions for common ClickHouse transformations."""
 
+from datetime import datetime
+
 from ..models import Computed
-from ..sql_utils import quote_sql_literal
+from ..sql_utils import quote_sql_literal, sql_literal
 
 
-def literal(value: str | int | float | bool, ch_type: str) -> Computed:
+def literal(value: str | int | float | bool | datetime, ch_type: str) -> Computed:
     """Create a Computed column with a constant SQL literal.
 
     Args:
@@ -17,15 +19,7 @@ def literal(value: str | int | float | bool, ch_type: str) -> Computed:
         literal(3.14, "Float64")           # Computed("Float64", "3.14")
         literal(True, "UInt8")             # Computed("UInt8", "true")
     """
-    if isinstance(value, bool):
-        expr = "true" if value else "false"
-    elif isinstance(value, str):
-        expr = quote_sql_literal(value)
-    elif isinstance(value, (int, float)):
-        expr = str(value)
-    else:
-        raise TypeError(f"Unsupported literal type: {type(value).__name__}")
-    return Computed(ch_type, expr)
+    return Computed(ch_type, sql_literal(value))
 
 
 def cast(col: str, to_type: str, nullable: bool = True) -> Computed:

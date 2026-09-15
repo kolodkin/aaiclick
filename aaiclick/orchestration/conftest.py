@@ -6,7 +6,14 @@ family) register globally via the ``aaiclick.testing`` plugin (see
 helpers: the polling-speed monkeypatches.
 """
 
+import importlib.util
+
 import pytest
+
+# The Postgres transport imports asyncpg at module level (``distributed``
+# extra); skip its test module when the driver is not installed, the same
+# way the root conftest skips the ``server`` and ``ai`` suites.
+collect_ignore = [] if importlib.util.find_spec("asyncpg") else ["test_events_postgres.py"]
 
 
 @pytest.fixture

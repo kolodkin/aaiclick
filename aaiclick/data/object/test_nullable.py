@@ -18,16 +18,25 @@ from aaiclick.data.models import parse_ch_type
 # --- ColumnInfo and parse_ch_type utility tests ---
 
 
-def test_column_def_ch_type_non_nullable():
-    cd = ColumnInfo("Int64")
-    assert cd.ch_type() == "Int64"
-    assert cd.nullable is False
-
-
-def test_column_def_ch_type_nullable():
-    cd = ColumnInfo("Int64", nullable=True)
-    assert cd.ch_type() == "Nullable(Int64)"
-    assert cd.nullable is True
+@pytest.mark.parametrize(
+    "column, expected",
+    [
+        pytest.param(ColumnInfo("Int64"), "Int64", id="plain"),
+        pytest.param(ColumnInfo("Int64", nullable=True), "Nullable(Int64)", id="nullable"),
+        pytest.param(
+            ColumnInfo("String", low_cardinality=True),
+            "LowCardinality(String)",
+            id="low-cardinality",
+        ),
+        pytest.param(
+            ColumnInfo("String", nullable=True, low_cardinality=True),
+            "LowCardinality(Nullable(String))",
+            id="low-cardinality-nullable",
+        ),
+    ],
+)
+def test_column_info_ch_type(column, expected):
+    assert column.ch_type() == expected
 
 
 def test_column_def_frozen():
@@ -36,56 +45,28 @@ def test_column_def_frozen():
         cd.type = "String"  # type: ignore[misc]
 
 
-def test_parse_ch_type_plain():
-    cd = parse_ch_type("Int64")
-    assert cd.type == "Int64"
-    assert cd.nullable is False
-
-
-def test_parse_ch_type_nullable():
-    cd = parse_ch_type("Nullable(Int64)")
-    assert cd.type == "Int64"
-    assert cd.nullable is True
-
-
-def test_parse_ch_type_string():
-    cd = parse_ch_type("String")
-    assert cd.type == "String"
-    assert cd.nullable is False
-
-
-def test_parse_ch_type_nullable_string():
-    cd = parse_ch_type("Nullable(String)")
-    assert cd.type == "String"
-    assert cd.nullable is True
-
-
-# --- LowCardinality support ---
-
-
-def test_column_def_low_cardinality():
-    cd = ColumnInfo("String", low_cardinality=True)
-    assert cd.ch_type() == "LowCardinality(String)"
-    assert cd.low_cardinality is True
-
-
-def test_column_def_low_cardinality_nullable():
-    cd = ColumnInfo("String", nullable=True, low_cardinality=True)
-    assert cd.ch_type() == "LowCardinality(Nullable(String))"
-
-
-def test_parse_ch_type_low_cardinality():
-    cd = parse_ch_type("LowCardinality(String)")
-    assert cd.type == "String"
-    assert cd.nullable is False
-    assert cd.low_cardinality is True
-
-
-def test_parse_ch_type_low_cardinality_nullable():
-    cd = parse_ch_type("LowCardinality(Nullable(String))")
-    assert cd.type == "String"
-    assert cd.nullable is True
-    assert cd.low_cardinality is True
+@pytest.mark.parametrize(
+    "ch_type, expected_type, expected_nullable, expected_low_cardinality",
+    [
+        pytest.param("Int64", "Int64", False, False, id="plain"),
+        pytest.param("Nullable(Int64)", "Int64", True, False, id="nullable"),
+        pytest.param("String", "String", False, False, id="string"),
+        pytest.param("Nullable(String)", "String", True, False, id="nullable-string"),
+        pytest.param("LowCardinality(String)", "String", False, True, id="low-cardinality"),
+        pytest.param(
+            "LowCardinality(Nullable(String))",
+            "String",
+            True,
+            True,
+            id="low-cardinality-nullable",
+        ),
+    ],
+)
+def test_parse_ch_type(ch_type, expected_type, expected_nullable, expected_low_cardinality):
+    cd = parse_ch_type(ch_type)
+    assert cd.type == expected_type
+    assert cd.nullable is expected_nullable
+    assert cd.low_cardinality is expected_low_cardinality
 
 
 # --- Table creation with nullable columns ---

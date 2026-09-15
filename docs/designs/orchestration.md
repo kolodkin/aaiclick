@@ -45,6 +45,25 @@ Wraps a workflow function into a `JobFactory`. Auto-manages `orch_context()` and
 
 **Job testing**: `job_test(job)` and `ajob_test(job)` execute synchronously (`aaiclick/orchestration/execution/debug.py`).
 
+# Topology
+
+Two storage services, three process roles:
+
+| Component         | Count | Role                                                                 |
+|-------------------|-------|----------------------------------------------------------------------|
+| PostgreSQL        | 1     | Orchestration + user state: jobs, tasks, workers, auth, table refs   |
+| ClickHouse        | 1     | Data factory: Object tables, `task_logs`, oplog                      |
+| API server        | 1     | Combined REST + MCP FastAPI app                                      |
+| Background worker | 1     | Cron scheduling, dead-worker detection, sole table-cleanup authority |
+| Execution worker  | N     | Claims tasks; runs each in a child process / container / Pod         |
+
+Processes never talk to each other — all coordination goes through the two
+databases: task claiming, heartbeats, and cancellation polling via PostgreSQL;
+data and logs via ClickHouse. Local mode collapses the three process roles into
+one process — hence exactly one execution worker — on embedded chdb + SQLite.
+
+**Implementation**: `aaiclick/orchestration/local_runtime.py` — see `local_runtime()`
+
 # Deployment Modes
 
 Two deployment modes, controlled by two independent environment variables:
@@ -53,13 +72,40 @@ Two deployment modes, controlled by two independent environment variables:
 |---------------------|----------------------------------------------|-----------------------------------------------------|
 | **Data backend**    | chdb (embedded ClickHouse)                   | ClickHouse server                                   |
 | **SQL backend**     | SQLite via aiosqlite                         | PostgreSQL via asyncpg                              |
-| **SQL URL**         | `sqlite+aiosqlite:///~/.aaiclick/local.db`   | `postgresql+asyncpg://user:pass@host:5432/database` |
+| **`AAICLICK_CH_URL`**  | `chdb:///~/.aaiclick/chdb_data`           | `clickhouse://user:pass@host:8123/database`         |
+| **`AAICLICK_SQL_URL`** | `sqlite+aiosqlite:///~/.aaiclick/local.db` | `postgresql+asyncpg://user:pass@host:5432/database` |
 | **Setup**           | `python -m aaiclick setup`                   | Provision servers + `python -m aaiclick migrate upgrade head` |
+| **Schema**          | `create_all`, no revision chain              | Alembic revision chain                              |
 | **Task claiming**   | Sequential SELECT + UPDATE                   | Atomic CTE with `FOR UPDATE SKIP LOCKED`            |
 | **Table lifecycle** | `LocalLifecycleHandler` (background thread)  | `OrchLifecycleHandler` (SQL refcounts)              |
 | **Detection**       | `is_chdb()` / `is_sqlite()` return `True`    | Both return `False`                                 |
 
 **Implementation**: `aaiclick/backend.py` — see `get_ch_url()`, `get_db_url()`, `is_chdb()`, `is_sqlite()`
+
+**One migration chain, not two.** The Alembic revisions target PostgreSQL
+alone — they use plain `ALTER` of constraints, which SQLite cannot execute
+without alembic's batch (copy-and-move) mode. That is deliberate: supporting
+both backends would mean every revision written, reviewed and tested twice,
+for a local database that exists to be thrown away. Local SQLite is built by
+`create_all` and is recreated rather than migrated when it falls behind
+(`aaiclick setup --force`).
+
+The cost lands on one question — *is this database current?* — which has no
+`alembic_version` row to read locally. `setup` answers it by building a
+throwaway in-memory database from the same `create_all` and diffing the real
+one against it, so the comparison covers everything the models materialise:
+tables, columns and their types, indexes, unique constraints, foreign keys.
+The two halves have different remedies — `missing_local_tables` is added by a
+plain `create_all`, while `stale_local_db_reason` (a table in the wrong shape)
+means recreating the database,
+since SQLite cannot `ALTER` its way there.
+
+What this still cannot see is anything a revision would do that `create_all`
+would not — a backfill, a data repair. That is the accepted limit of keeping
+one chain: local databases are recreated, so there is nothing to backfill.
+
+**Implementation**: `aaiclick/internal_api/setup.py` — see `_reference_shape`,
+`_drift`, `stale_local_db_reason`, `missing_local_tables`.
 
 ## Distributed runner subtypes
 
@@ -90,23 +136,30 @@ The image is a **task** property: every container task carries a nullable `tasks
 
 | Source     | How                                              | When built             |
 |------------|--------------------------------------------------|------------------------|
-| `build`    | git repo → `aaiclick-job:<sha>` image built from `git clone` + `docker build` | build task in the graph (registry mode) / inline at launch (no registry) |
+| `build`    | git repo → `aaiclick-job:<sha>` image built from `git clone` + `docker build` | build task in the graph |
 | `prebuilt` | `image="python:3.12"` run verbatim, no build stage | never                  |
 
 Pass `image=` (`run_job` / `RunJobRequest` / `run-job --image`, or `register-job --image` for a default) to select a prebuilt image — **mutually exclusive** with the git build fields (`git_remote` / `git_sha` / `git_branch` / `dockerfile`). `run_job` stamps the resolved source onto the **entry task**; dynamic children inherit the committing task's image at `commit_tasks` unless they declare their own (`create_task(image=... / git_*=...)`).
 
-With `AAICLICK_REGISTRY` set, commit points inject one **ordinary build task** per distinct image identity (`sha256(git_remote, git_sha, dockerfile)`) into the job, host-pinned via `image_source=NULL`, wired `build >> dependent` for every task on that image — the scheduler's existing dependency filter guarantees no task is claimed before its image is pushed. The build body is pull-first (`docker pull` → done, else clone + build + push); crash recovery is the ordinary task retry/reaper path. Cross-job dedup is the registry itself: concurrent same-SHA jobs may double-build, which is wasteful but correct. Without a registry no build task is injected — the docker launch path builds inline on the dispatching host (a build's success would be host-local, not a global fact).
+Commit points always inject one **ordinary build task** per distinct image identity (`sha256(git_remote, git_sha, dockerfile)`) into the job, host-pinned via `image_source=NULL`, wired `build >> dependent` for every task on that image — the scheduler's existing dependency filter guarantees no task is claimed before its image exists. Submission reads no build env; the **worker** running the build task decides the mode from two mutually exclusive variables (`docker_config.get_build_mode`):
+
+| Env var                    | Mode     | Build body                                                             | Launch path   |
+|----------------------------|----------|------------------------------------------------------------------------|---------------|
+| `AAICLICK_REGISTRY=<host>` | registry | pull-first (`docker pull` → done), else clone + build + push           | `docker pull` |
+| `AAICLICK_LOCAL_BUILD=1`   | local    | daemon-cache-first (`docker image inspect` → done), else clone + build | run directly  |
+
+Both set, or neither, raises in the build task naming both variables. Local mode is single-host by construction: the image lives only in the building host's daemon, so it is rejected for kubernetes `build` sources at commit points. Crash recovery is the ordinary task retry/reaper path. Cross-job dedup is the registry (or daemon cache) itself: concurrent same-SHA jobs may double-build, which is wasteful but correct. The container launch path never builds — it only derives the tag.
 
 **ExecutionWorker prerequisites** — because the build and the `docker run` happen on the worker's host, not in a separate service:
 
-- **`docker` runner** — every worker that may run the job needs a reachable **Docker daemon + CLI** (`AAICLICK_DOCKER_BIN`, default `docker`), for both `build` (to build the image) and `prebuilt` (to `docker run` it).
+- **`docker` runner** — every worker that may run the job needs a reachable **Docker daemon + CLI** (`AAICLICK_DOCKER_BIN`, default `docker`), for both `build` (to build the image) and `prebuilt` (to `docker run` it), plus exactly one of `AAICLICK_REGISTRY` / `AAICLICK_LOCAL_BUILD` for `build`.
 - **`kubernetes` runner, `build` source** — **requires `AAICLICK_REGISTRY`** (validated at commit points); the injected build task needs Docker on the worker host, then the Pod pulls from the registry.
 - **`kubernetes` runner, `prebuilt` source** — no Docker on the worker; it only needs cluster access (`kubectl`), and the cluster pulls the image.
 - **`subprocess` runner** — no Docker at all.
 
 A `build` starts by preflighting Docker (`docker version`): a worker with no CLI or an unreachable daemon fails the build with an actionable error naming `AAICLICK_DOCKER_BIN` / the prebuilt-image alternative, rather than a raw `FileNotFoundError` or a daemon error deep inside `docker build`.
 
-**Implementation**: `aaiclick/orchestration/image_injection.py` — see `inject_build_tasks()`, `stamp_inherited_image()`, `validate_image_sources()`; `aaiclick/orchestration/execution/image_build_task.py` — see `run_image_build()`; `aaiclick/orchestration/execution/docker_build.py` — see `build_image_to_tag()`, `resolve_launch_image()`, `_require_docker()`; `aaiclick/orchestration/docker_config.py` — see `resolve_image_source()`, `resolve_runner_config()`, `image_key()`
+**Implementation**: `aaiclick/orchestration/image_injection.py` — see `inject_build_tasks()`, `stamp_inherited_image()`, `validate_image_sources()`; `aaiclick/orchestration/execution/image_build_task.py` — see `run_image_build()`; `aaiclick/orchestration/execution/docker_build.py` — see `build_image_to_tag()`, `resolve_launch_image()`, `_require_docker()`; `aaiclick/orchestration/docker_config.py` — see `get_build_mode()`, `resolve_image_source()`, `resolve_runner_config()`, `image_key()`
 
 ## Shell entry type
 
@@ -315,7 +368,7 @@ python -m aaiclick background start
 ```bash
 python -m aaiclick job get <id>
 python -m aaiclick job cancel <id>
-python -m aaiclick job list [--status RUNNING] [--like "%etl%"] [--limit 20 --offset 40]
+python -m aaiclick job list [--status RUNNING] [--like "%crawl%"] [--limit 20 --offset 40]
 python -m aaiclick job enable <name>          # Enable a registered job
 python -m aaiclick job disable <name>         # Disable a registered job
 python -m aaiclick register-job <entrypoint> [--name NAME] [--schedule "0 8 * * *"] [--kwargs '{"key": "val"}'] [--preservation-mode NONE|FULL] [--runner subprocess|docker|kubernetes] [--image python:3.12]

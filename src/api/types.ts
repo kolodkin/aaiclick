@@ -23,6 +23,33 @@ export type GraphEdgeView = S["GraphEdgeView"];
 export type Problem = S["Problem"];
 export type RunJobRequest = S["RunJobRequest"];
 export type RegisterJobRequest = S["RegisterJobRequest"];
+export type UserView = S["UserView"];
+export type CreateUserRequest = S["CreateUserRequest"];
+export type InviteUserRequest = S["InviteUserRequest"];
+export type ScopeLevel = S["ApiTokenView"]["scope"];
+export type Role = S["UserView"]["role"];
+export type SetRoleRequest = S["SetRoleRequest"];
+export type InviteView = S["InviteView"];
+export type ChangePasswordRequest = S["ChangePasswordRequest"];
+export type MfaSetupView = S["MfaSetupView"];
+export type PasswordResetLinkView = S["PasswordResetLinkView"];
+export type AuditEntryView = S["AuditEntryView"];
+export type ApiTokenView = S["ApiTokenView"];
+export type ApiTokenCreated = S["ApiTokenCreated"];
+export type CreateApiTokenRequest = S["CreateApiTokenRequest"];
+
+export type ObjectView = S["ObjectView"];
+export type ObjectDetail = S["ObjectDetail"];
+export type ColumnInfo = S["ColumnInfo"];
+export type ColumnSchema = S["ColumnSchema"];
+export type OrderByPair = S["OrderBy"];
+export type ObjectQueryRequest = S["ObjectQueryRequest"];
+export type SavedQuery = S["SavedQuery"];
+export type SavedQueryBody = S["SavedQueryBody"];
+export type DashboardSummary = S["DashboardSummary"];
+export type Dashboard = S["Dashboard"];
+export type DashboardResults = S["DashboardResults"];
+export type Deleted = S["Deleted"];
 
 // FastAPI emits a concrete schema per instantiation (`Page_JobView_`, …); keep
 // a hand-written generic so call sites stay `Page<JobView>`.

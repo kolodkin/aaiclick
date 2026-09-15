@@ -232,11 +232,11 @@ async def test_statistics_after_operation(ctx, array_a, array_b, operator):
         expected_values = np.array(array_a) - np.array(array_b)
 
     # Test all statistics (now return Objects, use .data() to extract values)
-    assert abs(await (await result.min()).data() - np.min(expected_values)) < THRESHOLD
-    assert abs(await (await result.max()).data() - np.max(expected_values)) < THRESHOLD
-    assert abs(await (await result.sum()).data() - np.sum(expected_values)) < THRESHOLD
-    assert abs(await (await result.mean()).data() - np.mean(expected_values)) < THRESHOLD
-    assert abs(await (await result.std()).data() - np.std(expected_values, ddof=0)) < THRESHOLD
+    assert abs(await result.min().data() - np.min(expected_values)) < THRESHOLD
+    assert abs(await result.max().data() - np.max(expected_values)) < THRESHOLD
+    assert abs(await result.sum().data() - np.sum(expected_values)) < THRESHOLD
+    assert abs(await result.mean().data() - np.mean(expected_values)) < THRESHOLD
+    assert abs(await result.std().data() - np.std(expected_values, ddof=0)) < THRESHOLD
 
 
 # =============================================================================
@@ -262,11 +262,11 @@ async def test_single_value_statistics(ctx, value):
 
     expected_val = float(value[0])
 
-    assert abs(await (await obj.min()).data() - expected_val) < THRESHOLD
-    assert abs(await (await obj.max()).data() - expected_val) < THRESHOLD
-    assert abs(await (await obj.sum()).data() - expected_val) < THRESHOLD
-    assert abs(await (await obj.mean()).data() - expected_val) < THRESHOLD
-    assert abs(await (await obj.std()).data() - 0.0) < THRESHOLD
+    assert abs(await obj.min().data() - expected_val) < THRESHOLD
+    assert abs(await obj.max().data() - expected_val) < THRESHOLD
+    assert abs(await obj.sum().data() - expected_val) < THRESHOLD
+    assert abs(await obj.mean().data() - expected_val) < THRESHOLD
+    assert abs(await obj.std().data() - 0.0) < THRESHOLD
 
 
 # =============================================================================
@@ -292,11 +292,11 @@ async def test_special_cases(ctx, values, expected_min, expected_max, expected_s
     """Test statistics on special case arrays. Returns Objects, use .data() to extract values."""
     obj = await create_object_from_value(values)
 
-    assert abs(await (await obj.min()).data() - expected_min) < THRESHOLD
-    assert abs(await (await obj.max()).data() - expected_max) < THRESHOLD
-    assert abs(await (await obj.sum()).data() - expected_sum) < THRESHOLD
-    assert abs(await (await obj.mean()).data() - expected_mean) < THRESHOLD
-    assert abs(await (await obj.std()).data() - expected_std) < THRESHOLD
+    assert abs(await obj.min().data() - expected_min) < THRESHOLD
+    assert abs(await obj.max().data() - expected_max) < THRESHOLD
+    assert abs(await obj.sum().data() - expected_sum) < THRESHOLD
+    assert abs(await obj.mean().data() - expected_mean) < THRESHOLD
+    assert abs(await obj.std().data() - expected_std) < THRESHOLD
 
 
 # =============================================================================
@@ -326,11 +326,11 @@ async def test_negative_numbers_statistics(ctx, values):
     expected_mean = np.mean(values)
     expected_std = np.std(values, ddof=0)
 
-    assert abs(await (await obj.min()).data() - expected_min) < THRESHOLD
-    assert abs(await (await obj.max()).data() - expected_max) < THRESHOLD
-    assert abs(await (await obj.sum()).data() - expected_sum) < THRESHOLD
-    assert abs(await (await obj.mean()).data() - expected_mean) < THRESHOLD
-    assert abs(await (await obj.std()).data() - expected_std) < THRESHOLD
+    assert abs(await obj.min().data() - expected_min) < THRESHOLD
+    assert abs(await obj.max().data() - expected_max) < THRESHOLD
+    assert abs(await obj.sum().data() - expected_sum) < THRESHOLD
+    assert abs(await obj.mean().data() - expected_mean) < THRESHOLD
+    assert abs(await obj.std().data() - expected_std) < THRESHOLD
 
 
 # =============================================================================
@@ -404,8 +404,8 @@ async def test_var_equals_std_squared(ctx):
     values = [2, 4, 6, 8, 10]
     obj = await create_object_from_value(values)
 
-    std_result = await (await obj.std()).data()
-    var_result = await (await obj.var()).data()
+    std_result = await obj.std().data()
+    var_result = await obj.var().data()
 
     assert abs(var_result - std_result**2) < THRESHOLD
 

@@ -8,8 +8,16 @@ from SQLModel rows — so the JSON schema and text columns cannot drift.
 
 from __future__ import annotations
 
-from aaiclick.auth.view_models import UserView
+from aaiclick.audit.view_models import AuditEntryView
+from aaiclick.auth.view_models import (
+    ApiTokenCreated,
+    ApiTokenView,
+    InviteView,
+    PasswordResetLinkView,
+    UserView,
+)
 from aaiclick.data.view_models import ObjectDetail, ObjectView
+from aaiclick.orchestration.models import NON_SUCCESS_TASK_STATUSES, TASK_FAILED
 from aaiclick.orchestration.view_models import (
     ExecutionWorkerView,
     JobDetail,
@@ -26,12 +34,20 @@ from aaiclick.view_models import (
     OLLAMA_NOT_OLLAMA,
     OLLAMA_PULLED,
     OLLAMA_SERVER_UNREACHABLE,
+    Deleted,
+    LineageAnswer,
     MigrationResult,
-    ObjectDeleted,
     OllamaBootstrapResult,
     Page,
     PurgeObjectsResult,
     SetupResult,
+)
+from aaiclick.viewer.view_models import (
+    Dashboard,
+    DashboardResults,
+    DashboardSummary,
+    ObjectQueryResult,
+    SavedQuery,
 )
 
 
@@ -120,6 +136,30 @@ def render_job_created(view: JobView) -> None:
     print(f"Job '{view.name}' created (id={view.id}, run_type={view.run_type})")
 
 
+def render_job_failure(stats: JobStatsView) -> None:
+    """Print the untruncated error of every failed task in a terminal job.
+
+    ``render_job_stats`` clips errors to 60 characters so its table stays
+    aligned; this is the end-of-wait message, where the whole error is the
+    point. Points at ``task get`` for the task's full detail and logs.
+
+    Prefers directly-failed tasks: a cascade marks every downstream task
+    ``UPSTREAM_FAILED`` with one constant error, so listing those beside a real
+    failure is noise. They are the fallback when nothing failed directly (a
+    cancelled origin), so the block is never silent on a job the rollup failed.
+    """
+    failed = [t for t in stats.tasks if t.status == TASK_FAILED]
+    if not failed:
+        failed = [t for t in stats.tasks if t.status in NON_SUCCESS_TASK_STATUSES]
+
+    print(f"\nJob '{stats.job_name}' (id={stats.job_id}) ended as {stats.job_status}:")
+    for t in failed:
+        print(f"\n  Task {t.id} ({t.entrypoint})")
+        if t.error:
+            print(f"    {t.error}")
+        print(f"    Full detail: aaiclick task get {t.id}")
+
+
 def render_registered_jobs_page(page: Page[RegisteredJobView], offset: int) -> None:
     """Print a paged list of registered jobs as an aligned text table."""
     if not page.items:
@@ -196,7 +236,63 @@ def render_execution_worker_stopped(view: ExecutionWorkerView) -> None:
 
 def render_user(view: UserView) -> None:
     """Single-line summary of one user."""
-    print(f"{view.id}  {view.username}  role={view.role}  disabled={view.disabled}")
+    print(
+        f"{view.id}  {view.username}  role={view.role}  disabled={view.disabled}  "
+        f"email={_fmt_optional(view.email)}  mfa={view.mfa_enabled}"
+    )
+
+
+def render_api_token_created(view: ApiTokenCreated) -> None:
+    """Show the freshly minted secret — the only time it is ever displayed."""
+    print(f"{view.id}  {view.name}  scope={view.scope}  expires={_fmt_optional(view.expires_at)}")
+    print(f"token: {view.token}")
+    print("Store it now — it cannot be retrieved again.")
+
+
+def render_audit_page(page: Page[AuditEntryView], offset: int) -> None:
+    """Print audit entries as an aligned text table, newest first."""
+    if not page.items:
+        print("No audit entries found")
+        return
+
+    print(f"{'At':<20} {'User':<16} {'Kind':<8} {'Method':<7} {'Path / action':<44} {'Status':<6} {'ms':>6}")
+    print("-" * 113)
+    for e in page.items:
+        target = f"{e.path} {e.action}" if e.action else e.path
+        print(
+            f"{e.at:%Y-%m-%d %H:%M:%S}  {_fmt_optional(e.username):<16} {e.auth_kind:<8} "
+            f"{e.method:<7} {target:<44} {e.status:<6} {e.duration_ms:>6}"
+        )
+    _print_page_footer(page, offset)
+
+
+def render_invite(view: InviteView) -> None:
+    """The new user, then the link that lets them in."""
+    render_user(view.user)
+    render_password_reset_link(view.link)
+
+
+def render_password_reset_link(view: PasswordResetLinkView) -> None:
+    print(f"expires: {view.expires_at}")
+    print(f"token: {view.token}")
+    if view.url:
+        print(f"url: {view.url}")
+
+
+def render_api_tokens_page(page: Page[ApiTokenView]) -> None:
+    """Print a user's API tokens as an aligned text table."""
+    if not page.items:
+        print("No api tokens found")
+        return
+
+    print(f"{'ID':<20} {'Name':<20} {'Prefix':<14} {'Scope':<11} {'Expires':<26} {'Last used':<26} {'Revoked':<26}")
+    print("-" * 147)
+    for t in page.items:
+        print(
+            f"{t.id:<20} {t.name:<20} {t.prefix:<14} {t.scope:<11} "
+            f"{_fmt_optional(t.expires_at):<26} {_fmt_optional(t.last_used_at):<26} "
+            f"{_fmt_optional(t.revoked_at):<26}"
+        )
 
 
 def render_users_page(page: Page[UserView], offset: int) -> None:
@@ -206,7 +302,7 @@ def render_users_page(page: Page[UserView], offset: int) -> None:
         return
 
     print(f"{'ID':<20} {'Username':<20} {'Role':<8} {'Disabled':<8}")
-    print("-" * 60)
+    print("-" * 59)
     for u in page.items:
         print(f"{u.id:<20} {u.username:<20} {u.role:<8} {str(u.disabled):<8}")
     _print_page_footer(page, offset)
@@ -239,9 +335,14 @@ def render_object_detail(detail: ObjectDetail) -> None:
         print(f"  {name}: {info.type}")
 
 
-def render_object_deleted(view: ObjectDeleted) -> None:
-    """Single-line confirmation that ``internal_api.delete_object`` succeeded."""
-    print(f"Deleted persistent object '{view.name}'")
+def render_deleted(view: Deleted, noun: str = "persistent object") -> None:
+    """Single-line confirmation that a delete-by-name verb succeeded."""
+    print(f"Deleted {noun} '{view.name}'")
+
+
+def render_lineage_answer(view: LineageAnswer) -> None:
+    """Print the agent's answer from ``internal_api.lineage_ai`` as-is."""
+    print(view.answer)
 
 
 def render_objects_purged(result: PurgeObjectsResult) -> None:
@@ -311,3 +412,65 @@ def render_migration_result(result: MigrationResult) -> None:
         print(f"Database downgraded to {result.revision}")
     for v in result.ch_versions:
         print(f"ClickHouse {v.version}: {'applied' if v.applied else 'pending'}")
+
+
+def render_query_result(result: ObjectQueryResult) -> None:
+    """Print a query page as an aligned text table, or the CSV text verbatim."""
+    if result.text is not None:
+        print(result.text)
+        return
+    names = [c.name for c in result.meta]
+    if not names:
+        print("No columns")
+        return
+    widths = [max([len(n)] + [len(str(row[i])) for row in result.data]) for i, n in enumerate(names)]
+    print("  ".join(n.ljust(widths[i]) for i, n in enumerate(names)))
+    print("  ".join("-" * w for w in widths))
+    for row in result.data:
+        print("  ".join(str(v).ljust(widths[i]) for i, v in enumerate(row)))
+    print(f"\nRows: {len(result.data)}")
+
+
+def render_saved_queries_page(page: Page[SavedQuery]) -> None:
+    if not page.items:
+        print("No saved queries")
+        return
+    print(f"{'Name':<30} {'Scope':<20} {'Object':<30} Where")
+    print("-" * 100)
+    for q in page.items:
+        print(f"{q.name:<30} {q.scope or '*':<20} {q.object:<30} {q.where or ''}")
+
+
+def render_saved_query(q: SavedQuery) -> None:
+    print(f"Name:     {q.name}")
+    print(f"Scope:    {q.scope or '*'}")
+    print(f"Object:   {q.object}")
+    print(f"Fields:   {', '.join(q.fields) if q.fields else '*'}")
+    print(f"Where:    {q.where or ''}")
+    print(f"Order by: {', '.join(f'{o.name} {o.dir}' for o in q.order_by)}")
+    print(f"Updated:  {q.updated_at}")
+
+
+def render_dashboards_page(page: Page[DashboardSummary]) -> None:
+    if not page.items:
+        print("No dashboards")
+        return
+    print(f"{'Name':<30} {'Scope':<20} Updated")
+    print("-" * 70)
+    for d in page.items:
+        print(f"{d.name:<30} {d.scope:<20} {d.updated_at}")
+
+
+def render_dashboard(d: Dashboard) -> None:
+    print(f"Name:    {d.name}")
+    print(f"Scope:   {d.scope}")
+    print("Panels:")
+    for panel, q in d.queries.items():
+        print(f"  {panel}: {q.object}" + (f" where {q.where}" if q.where else ""))
+    print(f"HTML:    {len(d.html)} chars")
+
+
+def render_dashboard_results(r: DashboardResults) -> None:
+    for panel, columns in r.results.items():
+        rows = len(next(iter(columns.values()), []))
+        print(f"{panel}: {rows} row(s), columns {', '.join(columns)}")

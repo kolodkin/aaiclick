@@ -9,9 +9,8 @@ The `DataContext` manages ClickHouse client lifecycle, Object tracking, and tabl
 ```python
 async with data_context():
     obj = await create_object_from_value([1, 2, 3])
-    result = await obj.sum()
-    print(await result.data())  # 6
-# obj and result are now stale — using them raises RuntimeError
+    print(await obj.sum().data())  # 6
+# obj is now stale — using it raises RuntimeError
 ```
 
 To wrap an entire async function, use `data_context()` as a decorator (the
@@ -122,12 +121,17 @@ Each Object gets a ClickHouse table `t{snowflake_id}` containing only the user-d
 
 ### Schema Patterns
 
-| Data Type       | Columns                | Rows     |
-|-----------------|------------------------|----------|
-| Scalar          | `value {type}`         | 1        |
-| Array/List      | `value {type}`         | N        |
-| Dict of Scalars | `col1`, `col2`, ...    | 1        |
-| Dict of Arrays  | `col1`, `col2`, ...    | N        |
+| Data Type                    | Columns                | Rows     |
+|------------------------------|------------------------|----------|
+| Scalar                       | `value {type}`         | 1        |
+| Array/List                   | `value {type}`         | N        |
+| Dict of Scalars              | `col1`, `col2`, ...    | 1        |
+| Dict of Arrays (all lists)   | `col1`, `col2`, ...    | N        |
+| Dict Mixing Scalars + Lists  | `col1`, `col2`, ...    | 1        |
+
+A dict routes to parallel arrays (one row per element) only when **all** values
+are lists; a mixed dict is a single record whose lists become `Array(T)`
+columns (`{"id": 1, "tags": ["a"]}` → `id` Int64, `tags` Array(String)).
 
 Column names are backtick-quoted via `quote_identifier()` in `aaiclick/data/sql_utils.py`.
 
@@ -172,6 +176,13 @@ obj = await create_object_from_value(
     [10, 20, 30],
     fields={"value": FieldSpec(nullable=True)},
 )
+
+# nullable=True also admits missing / None leaf values in records
+obj = await create_object_from_value(
+    [{"a": 1, "score": 0.5}, {"a": 2}],
+    fields={"score": FieldSpec(nullable=True)},
+)
+await obj.data()  # {"a": [1, 2], "score": [0.5, None]}
 ```
 
 | Attribute        | Default | Description                                                         |
@@ -213,7 +224,7 @@ from aaiclick.orchestration.registered_jobs import run_job
 
 await run_job(
     "debug_run",
-    "myapp.pipelines.etl",
+    "myapp.pipelines.crawl",
     preservation_mode=PRESERVATION_FULL,
 )
 ```

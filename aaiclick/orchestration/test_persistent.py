@@ -23,7 +23,7 @@ from aaiclick.data.data_context import (
     get_data_lifecycle,
     open_object,
 )
-from aaiclick.data.data_context.data_context import _validate_persistent_name
+from aaiclick.data.data_context.data_context import MAX_PERSISTENT_NAME_LEN, _validate_persistent_name
 
 
 async def test_scope_default_is_temp_named_when_name_set(orch_ctx):
@@ -123,6 +123,7 @@ async def test_unnamed_object_is_temp_in_orch_context(orch_ctx):
 
 
 async def test_persistent_name_validation():
+    """Names become ClickHouse identifiers, so they must match the identifier regex."""
     with pytest.raises(ValueError, match="Invalid persistent name"):
         _validate_persistent_name("123bad")
     with pytest.raises(ValueError, match="Invalid persistent name"):
@@ -132,3 +133,11 @@ async def test_persistent_name_validation():
     _validate_persistent_name("valid_name")
     _validate_persistent_name("_underscore")
     _validate_persistent_name("CamelCase")
+
+
+async def test_persistent_name_length_is_capped():
+    """An over-long name must raise ``ValueError`` here, not fail deep inside
+    ClickHouse — see ``MAX_PERSISTENT_NAME_LEN``."""
+    _validate_persistent_name("a" * MAX_PERSISTENT_NAME_LEN)
+    with pytest.raises(ValueError, match="Invalid persistent name"):
+        _validate_persistent_name("a" * (MAX_PERSISTENT_NAME_LEN + 1))

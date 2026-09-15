@@ -6,9 +6,12 @@ session via the contextvar getter. Returns pydantic view models.
 
 from __future__ import annotations
 
+from sqlmodel import select
+
 from aaiclick.orchestration.execution import claiming
-from aaiclick.orchestration.jobs.queries import get_task as _get_task_impl
 from aaiclick.orchestration.logging import read_task_logs
+from aaiclick.orchestration.models import Task
+from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.view_models import (
     ClearTaskView,
     TaskDetail,
@@ -20,15 +23,20 @@ from aaiclick.orchestration.view_models import (
 from .errors import NotFound
 
 
+async def _require_visible_task(task_id: int) -> Task:
+    async with get_sql_session() as session:
+        task = (await session.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
+    if task is None:
+        raise NotFound(f"Task not found: {task_id}")
+    return task
+
+
 async def get_task(task_id: int) -> TaskDetail:
     """Return full task detail by numeric ID.
 
     Raises ``NotFound`` if no task matches ``task_id``.
     """
-    task = await _get_task_impl(task_id)
-    if task is None:
-        raise NotFound(f"Task not found: {task_id}")
-    return task_to_detail(task)
+    return task_to_detail(await _require_visible_task(task_id))
 
 
 async def get_task_logs(task_id: int, tail: int | None = None) -> TaskLogsView:
@@ -42,9 +50,7 @@ async def get_task_logs(task_id: int, tail: int | None = None) -> TaskLogsView:
 
     Raises ``NotFound`` if no task matches ``task_id``.
     """
-    task = await _get_task_impl(task_id)
-    if task is None:
-        raise NotFound(f"Task not found: {task_id}")
+    task = await _require_visible_task(task_id)
 
     if not task.run_ids:
         return TaskLogsView(available=False)
@@ -60,6 +66,7 @@ async def clear_task(task_id: int) -> ClearTaskView:
     is reactivated so the cleared tasks run again. Raises ``NotFound`` if no
     task matches ``task_id``.
     """
+    await _require_visible_task(task_id)
     try:
         cleared_ids, job = await claiming.clear_task(task_id)
     except claiming.TaskNotFound as exc:

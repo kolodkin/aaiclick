@@ -181,6 +181,55 @@ async def test_with_if_chained_with_group_by(ctx):
 
 
 # =============================================================================
+# with_multi_if: n-way conditional column
+# =============================================================================
+
+
+async def test_with_multi_if_first_match_wins(ctx):
+    """with_multi_if() takes the earliest matching branch, not the last."""
+    obj = await create_object_from_value({"score": [95, 72, 45, 88, 60]})
+    view = obj.with_multi_if(
+        [("score >= 90", "'A'"), ("score >= 80", "'B'"), ("score >= 60", "'C'")],
+        default="'F'",
+        alias="grade",
+    )
+    data = await view.data()
+    # 95 satisfies all three conditions and 88 satisfies two; both take the earliest.
+    assert data["grade"] == ["A", "C", "F", "B", "C"]
+
+
+async def test_with_multi_if_sql_conditions_and_results(ctx):
+    """Branches are raw SQL: boolean operators in conditions, expressions in results."""
+    obj = await create_object_from_value(
+        {
+            "price": [100.0, 200.0, 50.0, 80.0],
+            "status": ["void", "ok", "ok", "ok"],
+            "region": ["EU", "US", "EU", "APAC"],
+            "is_member": [0, 1, 0, 1],
+        }
+    )
+    view = obj.with_multi_if(
+        [
+            ("status = 'void' OR price = 0", "0.0"),
+            ("is_member = 1 AND region IN ('EU', 'US')", "price * 0.8"),
+            ("NOT (region = 'APAC') AND price >= 100", "price * 0.95"),
+        ],
+        default="price",
+        alias="final_price",
+        type="Float64",
+    )
+    data = await view.data()
+    assert data["final_price"] == [0.0, 160.0, 50.0, 80.0]
+
+
+async def test_with_multi_if_empty_branches(ctx):
+    """with_multi_if() requires at least one branch."""
+    obj = await create_object_from_value({"score": [1, 2]})
+    with pytest.raises(ValueError, match="branches must be non-empty"):
+        obj.with_multi_if([], default="'F'", alias="grade")
+
+
+# =============================================================================
 # with_split_by_char: split string column into Array
 # =============================================================================
 

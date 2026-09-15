@@ -73,30 +73,24 @@ async def test_cancel_running_job(orch_ctx):
             assert t.status == TASK_CANCELLED
 
 
-async def test_cancel_completed_job_raises_already_terminal(orch_ctx):
-    """Test that a COMPLETED job cannot be cancelled."""
-    job = await create_job("cancel_completed", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
-    await update_job_status(job.id, JOB_COMPLETED)
+@pytest.mark.parametrize(
+    "name, status, error",
+    [
+        pytest.param("cancel_completed", JOB_COMPLETED, None, id="completed"),
+        pytest.param("cancel_failed", JOB_FAILED, "some error", id="failed"),
+    ],
+)
+async def test_cancel_terminal_job_raises_already_terminal(orch_ctx, name, status, error):
+    """A job in a terminal state cannot be cancelled, and keeps that state."""
+    job = await create_job(name, "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+    await update_job_status(job.id, status, error=error)
 
-    with pytest.raises(JobAlreadyTerminal, match="COMPLETED"):
+    with pytest.raises(JobAlreadyTerminal, match=status):
         await cancel_job(job.id)
 
     async with get_sql_session() as session:
         db_job = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
-        assert db_job.status == JOB_COMPLETED
-
-
-async def test_cancel_failed_job_raises_already_terminal(orch_ctx):
-    """Test that a FAILED job cannot be cancelled."""
-    job = await create_job("cancel_failed", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
-    await update_job_status(job.id, JOB_FAILED, error="some error")
-
-    with pytest.raises(JobAlreadyTerminal, match="FAILED"):
-        await cancel_job(job.id)
-
-    async with get_sql_session() as session:
-        db_job = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
-        assert db_job.status == JOB_FAILED
+        assert db_job.status == status
 
 
 async def test_cancel_already_cancelled_raises_already_terminal(orch_ctx):

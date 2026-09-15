@@ -4,6 +4,8 @@ Tests for argument-order behaviour in insert/concat.
 Order follows argument order: self first, then args left-to-right.
 """
 
+import pytest
+
 from aaiclick import create_object_from_value
 
 
@@ -21,24 +23,21 @@ async def test_concat_follows_argument_order(ctx):
     assert data == [4, 5, 6, 1, 2, 3]
 
 
-async def test_insert_follows_argument_order(ctx):
-    """Insert appends args in argument order after existing data."""
-    obj_a = await create_object_from_value([1, 2, 3])
-    obj_b = await create_object_from_value([4, 5, 6])
+@pytest.mark.parametrize(
+    "target, source, expected",
+    [
+        pytest.param([1, 2, 3], [4, 5, 6], [1, 2, 3, 4, 5, 6], id="ascending"),
+        pytest.param([4, 5, 6], [1, 2, 3], [4, 5, 6, 1, 2, 3], id="reversed"),
+    ],
+)
+async def test_insert_follows_argument_order(ctx, target, source, expected):
+    """Insert preserves target data first, then appends the source."""
+    obj_a = await create_object_from_value(target)
+    obj_b = await create_object_from_value(source)
 
     await obj_a.insert(obj_b)
     data = await obj_a.data()
-    assert data == [1, 2, 3, 4, 5, 6]
-
-
-async def test_insert_reverse_argument_order(ctx):
-    """Insert preserves target data first, then appends source."""
-    obj_a = await create_object_from_value([4, 5, 6])
-    obj_b = await create_object_from_value([1, 2, 3])
-
-    await obj_a.insert(obj_b)
-    data = await obj_a.data()
-    assert data == [4, 5, 6, 1, 2, 3]
+    assert data == expected
 
 
 async def test_concat_with_value_follows_argument_order(ctx):

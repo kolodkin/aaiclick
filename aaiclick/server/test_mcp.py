@@ -27,6 +27,7 @@ from aaiclick.orchestration.models import EXECUTION_WORKER_STOPPING
 from aaiclick.orchestration.view_models import ClearTaskView, ExecutionWorkerView, JobDetail, JobView, TaskDetail
 from aaiclick.testing import make_oplog_node
 from aaiclick.view_models import Page
+from aaiclick.viewer.view_models import ObjectQueryResult
 
 from .mcp import mcp
 
@@ -55,6 +56,15 @@ EXPECTED_TOOLS = {
     "setup",
     "migrate",
     "bootstrap_ollama",
+    "query_object",
+    "list_saved_queries",
+    "save_query",
+    "delete_saved_query",
+    "list_dashboards",
+    "get_dashboard",
+    "save_dashboard",
+    "delete_dashboard",
+    "run_dashboard",
 }
 
 
@@ -213,3 +223,17 @@ async def test_get_table_schema_returns_columns(orch_ctx, mcp_client):
     parsed = TableSchema.model_validate(result.structured_content)
     assert parsed.table == "p_revenue"
     assert [c.name for c in parsed.columns] == ["id", "val"]
+
+
+async def test_query_object_tool_round_trips(orch_ctx, mcp_client):
+    await create_object_from_value({"id": [1, 2]}, name="mcp_orders", scope="global")
+    result = await mcp_client.call_tool(
+        "query_object", {"request": {"object": "mcp_orders", "order_by": [["id", "DESC"]]}}
+    )
+    parsed = ObjectQueryResult.model_validate(result.structured_content)
+    assert parsed.data == [["2"], ["1"]]
+
+
+async def test_query_object_tool_maps_not_found(orch_ctx, mcp_client):
+    with pytest.raises(ToolError):
+        await mcp_client.call_tool("query_object", {"request": {"object": "missing"}})

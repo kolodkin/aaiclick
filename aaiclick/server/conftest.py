@@ -6,9 +6,33 @@ import httpx
 import pytest
 
 from aaiclick.auth import config, security
-from aaiclick.auth.models import ROLE_ADMIN
+from aaiclick.auth.models import ROLE_ADMIN, ROLE_VIEWER, Role
 
-from .app import app
+from .app import API_PREFIX, app
+
+TEST_JWT_SECRET = "server-test-jwt-secret-key-at-least-32-bytes-long"
+
+
+@pytest.fixture
+def enabled(monkeypatch):
+    """Force distributed mode (auth on) + a signing secret, independent of the
+    local/dist matrix the suite runs under. Request it *before* ``app_client``
+    so that fixture mints its admin header."""
+    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: False)
+    monkeypatch.setenv("AAICLICK_JWT_SECRET", TEST_JWT_SECRET)
+
+
+def bearer(user_id: int, *, role: Role = ROLE_VIEWER) -> dict[str, str]:
+    """An ``Authorization`` header for a freshly minted access JWT."""
+    token = security.encode_access_token(user_id=user_id, role=role, secret=TEST_JWT_SECRET, ttl=60)
+    return {"Authorization": f"Bearer {token}"}
+
+
+async def login(client: httpx.AsyncClient, username: str, password: str = "pw") -> dict[str, str]:
+    """Log in through the API and return the ``Authorization`` header."""
+    res = await client.post(f"{API_PREFIX}/auth/login", json={"username": username, "password": password})
+    assert res.status_code == 200, res.text
+    return {"Authorization": f"Bearer {res.json()['access_token']}"}
 
 
 def _admin_headers() -> dict[str, str]:
@@ -18,7 +42,7 @@ def _admin_headers() -> dict[str, str]:
     distributed test matrix runs with auth ON and every protected route needs a
     token. Minting an admin access JWT directly is enough — the access-token path
     trusts claims and never hits the DB, so no seeded user row is required. In
-    local mode auth is off and no header is attached (synthetic admin applies).
+    local mode auth is off and no headers are attached (synthetic admin applies).
     """
     if not config.auth_enabled():
         return {}

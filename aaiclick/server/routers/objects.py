@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.internal_api import objects as objects_api
 from aaiclick.view_models import (
-    ObjectDeleted,
+    Deleted,
     ObjectFilter,
     Page,
     PurgeObjectsRequest,
@@ -35,15 +35,15 @@ async def purge_objects(request: PurgeObjectsRequest) -> PurgeObjectsResult:
 
 
 @router.get("/{name}", response_model=ObjectDetail, responses=problem_responses(404))
-async def get_object(name: str) -> ObjectDetail:
-    return await objects_api.get_object(name)
+async def get_object(name: str, job: str | None = None) -> ObjectDetail:
+    return await objects_api.get_object(name, job)
 
 
 @router.delete(
     "/{name}",
-    response_model=ObjectDeleted,
+    response_model=Deleted,
     dependencies=[Depends(require_admin)],
     responses=problem_responses(403),
 )
-async def delete_object(name: str) -> ObjectDeleted:
+async def delete_object(name: str) -> Deleted:
     return await objects_api.delete_object(name)

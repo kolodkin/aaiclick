@@ -130,8 +130,10 @@ async def test_capture_task_output_streams_mid_run(orch_ctx, monkeypatch):
     mid_run_lines: list[str] = []
     async with capture_task_output(task_id, job_id, run_id):
         print("early line")
-        await asyncio.sleep(0.3)  # let the flusher tick
-        mid_run_lines = [line.text for line in await read_task_logs(task_id, run_id)]
+        deadline = time.monotonic() + 30
+        while not (mid_run_lines := [line.text for line in await read_task_logs(task_id, run_id)]):
+            assert time.monotonic() < deadline, "'early line' was never flushed to task_logs"
+            await asyncio.sleep(0.05)
         print("late line")
     assert mid_run_lines == ["early line"]
     final = [line.text for line in await read_task_logs(task_id, run_id)]
@@ -327,18 +329,17 @@ async def test_deserialize_pydantic_model_round_trip(orch_ctx):
     assert recovered.ratio is None
 
 
-async def test_execute_task_sync_function(orch_ctx):
-    """Test executing a sync task function with no parameters."""
-    task = create_task("aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+@pytest.mark.parametrize(
+    "entrypoint",
+    [
+        pytest.param("aaiclick.orchestration.fixtures.sample_tasks.simple_task", id="sync"),
+        pytest.param("aaiclick.orchestration.fixtures.sample_tasks.async_task", id="async"),
+    ],
+)
+async def test_execute_task_no_parameters(orch_ctx, entrypoint):
+    """Test executing a task function with no parameters."""
+    task = create_task(entrypoint)
     task.job_id = 1  # Set a dummy job_id
-
-    await execute_task(task)  # Should not raise
-
-
-async def test_execute_task_async_function(orch_ctx):
-    """Test executing an async task function with no parameters."""
-    task = create_task("aaiclick.orchestration.fixtures.sample_tasks.async_task")
-    task.job_id = 1
 
     await execute_task(task)  # Should not raise
 
@@ -567,6 +568,74 @@ async def test_register_returned_tasks_task_result_with_data(orch_ctx):
         )
         children = result.scalars().all()
         assert len(children) == 2
+
+
+@pytest.mark.parametrize("shape", ["flat_list", "bare_tuple"])
+async def test_register_returned_tasks_flat_shapes(orch_ctx, shape):
+    """A flat list or tuple of Tasks registers them and returns None data."""
+    job = await create_job(f"reg_shape_{shape}", "mod.func")
+    parent = create_task("mod.parent")
+    parent.job_id = job.id
+
+    a, b, c, d = (create_task(f"mod.child{i}") for i in range(4))
+    payload = {
+        "flat_list": [a, b, c, d],
+        "bare_tuple": (a, b, c, d),  # ``return a, b`` — no brackets needed
+    }[shape]
+
+    assert await register_returned_tasks(payload, parent_task_id=parent.id, job_id=job.id) is None
+
+    async with get_sql_session() as session:
+        result = await session.execute(
+            select(Task).where(Task.job_id == job.id, col(Task.entrypoint).like("mod.child%"))
+        )
+        assert len(result.scalars().all()) == 4
+
+
+@pytest.mark.parametrize("shape", ["tuple_of_lists", "list_of_tuples", "deep"])
+async def test_register_returned_tasks_rejects_nesting(orch_ctx, shape):
+    """Nesting carries no meaning in the graph, so it is rejected, not flattened."""
+    job = await create_job(f"reg_nested_{shape}", "mod.func")
+    parent = create_task("mod.parent")
+    parent.job_id = job.id
+
+    a, b = create_task("mod.child0"), create_task("mod.child1")
+    payload = {
+        "tuple_of_lists": ([a], [b]),
+        "list_of_tuples": [(a,), (b,)],
+        "deep": [a, [b]],
+    }[shape]
+
+    with pytest.raises(TypeError, match="nested"):
+        await register_returned_tasks(payload, parent_task_id=parent.id, job_id=job.id)
+
+
+async def test_register_returned_tasks_rejects_nested_task_result(orch_ctx):
+    """The same flatness rule applies to task_result(tasks=[...])."""
+    job = await create_job("reg_nested_task_result", "mod.func")
+    parent = create_task("mod.parent")
+    parent.job_id = job.id
+
+    with pytest.raises(TypeError, match="nested"):
+        await register_returned_tasks(
+            task_result(tasks=[[create_task("mod.child0")]]), parent_task_id=parent.id, job_id=job.id
+        )
+
+
+async def test_register_returned_tasks_list_of_data(orch_ctx):
+    """A list holding no Task/Group stays pure data."""
+    result = await register_returned_tasks([1, 2, 3], parent_task_id=1, job_id=1)
+    assert result == [1, 2, 3]
+
+
+async def test_register_returned_tasks_list_mixing_tasks_and_data(orch_ctx):
+    """Mixing Tasks with data in a list is rejected rather than silently dropped."""
+    job = await create_job("reg_mixed_test", "mod.func")
+    parent = create_task("mod.parent")
+    parent.job_id = job.id
+
+    with pytest.raises(TypeError, match="task_result"):
+        await register_returned_tasks([create_task("mod.child1"), "my_data"], parent_task_id=parent.id, job_id=job.id)
 
 
 # Dynamic pipeline integration tests

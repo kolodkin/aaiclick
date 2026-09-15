@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 from ..data_context import create_object, get_ch_client
 from ..formats import INPUT_FORMATS, JSON_BLOB_FORMATS
 from ..models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, ColumnInfo, Schema, parse_ch_type
-from ..sql_utils import escape_sql_string, quote_identifier
+from ..sql_utils import escape_sql_string, quote_identifier, quote_sql_literal
 from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
 
 if TYPE_CHECKING:
@@ -47,6 +47,20 @@ def _validate_url_format(fmt: str) -> None:
         raise ValueError(f"Unsupported format '{fmt}'. Supported formats: {sorted(INPUT_FORMATS)}")
 
 
+def _validate_json_path(path: str, param: str) -> None:
+    """Reject empty segments in a dotted JSON path (dots separate nesting levels).
+
+    Keys whose names literally contain ``.`` are not addressable.
+    """
+    if any(not k for k in path.split(".")):
+        raise ValueError(f"{param} contains an empty path segment: {path!r}")
+
+
+def _json_keys_sql(path: str) -> str:
+    """Render a dotted JSON path as variadic JSONExtract key arguments."""
+    return ", ".join(quote_sql_literal(k) for k in path.split("."))
+
+
 def _json_extract_expr(field_name: str, col_info: ColumnInfo) -> str:
     """Build a JSONExtract expression for a single JSON field.
 
@@ -59,24 +73,24 @@ def _json_extract_expr(field_name: str, col_info: ColumnInfo) -> str:
         col_info: ColumnInfo describing the target ClickHouse type
 
     Returns:
-        SQL expression like "JSONExtractString(elem, 'cveID')"
+        SQL expression like "JSONExtractString(elem, 'cve', 'id')"
     """
-    safe_field = escape_sql_string(field_name)
+    keys_sql = _json_keys_sql(field_name)
 
     if col_info.array or col_info.nullable:
-        return f"JSONExtract(elem, '{safe_field}', '{col_info.ch_type()}')"
+        return f"JSONExtract(elem, {keys_sql}, '{col_info.ch_type()}')"
 
     base = col_info.type
     if base == "String":
-        return f"JSONExtractString(elem, '{safe_field}')"
+        return f"JSONExtractString(elem, {keys_sql})"
     if base == "Bool":
-        return f"JSONExtractBool(elem, '{safe_field}')"
+        return f"JSONExtractBool(elem, {keys_sql})"
     if base in INT_TYPES:
-        return f"JSONExtractInt(elem, '{safe_field}')"
+        return f"JSONExtractInt(elem, {keys_sql})"
     if base in FLOAT_TYPES:
-        return f"JSONExtractFloat(elem, '{safe_field}')"
+        return f"JSONExtractFloat(elem, {keys_sql})"
 
-    return f"JSONExtract(elem, '{safe_field}', '{col_info.ch_type()}')"
+    return f"JSONExtract(elem, {keys_sql}, '{col_info.ch_type()}')"
 
 
 def _build_json_select(
@@ -101,7 +115,7 @@ def _build_json_select(
         (select_exprs, from_subquery) tuple for use in INSERT...SELECT
     """
     source_col = _FORMAT_SOURCE_COLUMN[format]
-    safe_path = escape_sql_string(json_path)
+    path_keys_sql = _json_keys_sql(json_path)
 
     select_parts = []
     for field_name, col_info in json_columns.items():
@@ -112,7 +126,7 @@ def _build_json_select(
     select_exprs = ", ".join(select_parts)
     from_subquery = (
         f"(SELECT arrayJoin(JSONExtractArrayRaw("
-        f"{quote_identifier(source_col)}, '{safe_path}')) AS elem "
+        f"{quote_identifier(source_col)}, {path_keys_sql})) AS elem "
         f"FROM url('{safe_url}', '{format}')) AS _json_src"
     )
 
@@ -154,8 +168,11 @@ async def create_object_from_url(
         format: ClickHouse format name. Default "Parquet".
         where: Optional SQL WHERE clause for filtering rows at load time
         limit: Optional row limit applied at load time
-        json_path: Path to JSON array in response (e.g., "vulnerabilities"). Requires json_columns.
-        json_columns: Mapping of JSON field names to ColumnInfo types. Requires json_path.
+        json_path: Dotted path to the JSON array (e.g. ``"result.vulnerabilities"``).
+            Requires json_columns.
+        json_columns: Mapping of dotted field paths relative to each array element
+            (e.g. ``"cve.id"``) to ColumnInfo types. Requires json_path. Keys whose
+            names literally contain ``.`` are not addressable.
         ch_settings: Optional ClickHouse query settings passed to the read operation.
             Useful for format-specific options, e.g.
             ``{"input_format_csv_skip_first_lines": 1}`` to skip a comment header line.
@@ -197,6 +214,9 @@ async def create_object_from_url(
             raise ValueError("json_columns must be a non-empty dict")
         if format not in JSON_BLOB_FORMATS:
             raise ValueError(f"JSON mode requires format to be one of {sorted(JSON_BLOB_FORMATS)}, got '{format}'")
+        _validate_json_path(json_path, "json_path")
+        for key in json_columns:
+            _validate_json_path(key, "json_columns key")
         return await _create_from_json(
             url, format, json_path, json_columns, where, limit, ch_settings, retries, backoff_factor
         )

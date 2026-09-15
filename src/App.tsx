@@ -1,23 +1,32 @@
 import { useCallback, useEffect, useState } from "react";
+import { LiveUpdates } from "./api/events";
 import { useAuth } from "./components/Auth";
 import { Header } from "./components/Header";
-import { parsePrompt, promptFromUrl, pushPromptToUrl } from "./prompt";
+import { parsePrompt, promptFromUrl, PUBLIC_ROUTES, pushPromptToUrl, type Route } from "./prompt";
 import {
+  Account,
   AllGallery,
+  Audit,
   CancelConfirm,
+  Dashboard,
+  Data,
   Home,
   JobDetail,
   Jobs,
+  Query,
   Registered,
   RegisterForm,
   RunConfirm,
   RunForm,
   TaskDetail,
+  Tokens,
+  Invite,
+  Users,
 } from "./views";
 import { Login } from "./views/Login";
+import { ResetPassword } from "./views/ResetPassword";
 
-function renderRoute(prompt: string, onPrompt: (v: string) => void) {
-  const route = parsePrompt(prompt);
+function renderRoute(route: Route, onPrompt: (v: string) => void) {
   switch (route.kind) {
     case "home":
       return <Home onPrompt={onPrompt} />;
@@ -39,6 +48,24 @@ function renderRoute(prompt: string, onPrompt: (v: string) => void) {
       return <RunForm name={route.name} onPrompt={onPrompt} />;
     case "cancel-confirm":
       return <CancelConfirm refId={route.ref} onPrompt={onPrompt} />;
+    case "tokens":
+      return <Tokens onPrompt={onPrompt} />;
+    case "account":
+      return <Account onPrompt={onPrompt} />;
+    case "users":
+      return <Users onPrompt={onPrompt} />;
+    case "invite":
+      return <Invite onPrompt={onPrompt} />;
+    case "audit":
+      return <Audit onPrompt={onPrompt} />;
+    case "reset":
+      return <ResetPassword token={route.token} onDone={() => onPrompt("")} />;
+    case "data":
+      return <Data job={route.job} object={route.object} onPrompt={onPrompt} />;
+    case "query":
+      return <Query job={route.job} object={route.object} onPrompt={onPrompt} />;
+    case "dashboard":
+      return <Dashboard name={route.name} onPrompt={onPrompt} />;
     case "unknown":
       return (
         <>
@@ -77,14 +104,17 @@ export function App() {
   // Wait for the initial /auth/me probe; when auth is disabled the server
   // returns a synthetic admin so `me` is set and no login wall appears.
   if (!ready) return null;
-  if (!me) return <Login />;
+  const route = parsePrompt(prompt);
+  if (!me && !PUBLIC_ROUTES.has(route.kind)) return <Login />;
+  if (!me) return renderRoute(route, onPrompt);
 
   return (
     <>
+      <LiveUpdates />
       <Header prompt={prompt} onPrompt={onPrompt} />
       <main>
         <div className="content" id="content">
-          {renderRoute(prompt, onPrompt)}
+          {renderRoute(route, onPrompt)}
         </div>
       </main>
     </>

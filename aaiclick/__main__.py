@@ -3,6 +3,7 @@
 Usage:
     python -m aaiclick setup                    # Initialize local dev environment
     python -m aaiclick setup --ai               # Also pull the configured Ollama model
+    python -m aaiclick setup --force            # Recreate a local.db left behind by an older version
     python -m aaiclick migrate                  # Run database migrations
     python -m aaiclick migrate --help           # Show migration help
     python -m aaiclick local start              # Start REST + MCP server with execution workers (local mode)
@@ -14,16 +15,23 @@ Usage:
     python -m aaiclick job stats <ref>          # Show job execution stats
     python -m aaiclick job cancel <ref>         # Cancel a job
     python -m aaiclick job list                 # List jobs
+    python -m aaiclick job wait <ref>           # Block until a job reaches a terminal status
     python -m aaiclick job enable <name>        # Enable a registered job
     python -m aaiclick job disable <name>       # Disable a registered job
     python -m aaiclick task get <id>            # Get task details by ID
     python -m aaiclick register-job <entrypoint> # Register a job
     python -m aaiclick run-job <name>           # Run a job immediately
+    python -m aaiclick run-job <name> --progress  # ...and block, showing task progress
     python -m aaiclick registered-job list      # List registered jobs
     python -m aaiclick data list                # List persistent objects
     python -m aaiclick data get <name>          # Show persistent object details
     python -m aaiclick data delete <name>       # Delete persistent object
     python -m aaiclick data purge --after ISO   # Delete persistent objects by time
+    python -m aaiclick data query <object> [--scope job:<ref>] [--where EXPR]   # Read rows of an object
+    python -m aaiclick view queries list|save|delete                            # Saved viewer queries
+    python -m aaiclick view dashboards list|get|save|delete|run                 # Dashboards
+    python -m aaiclick explain <table>          # AI: explain how a table was produced (needs aaiclick[ai])
+    python -m aaiclick debug <table> "<question>"  # AI: debug a result with live-query tools (needs aaiclick[ai])
     python -m aaiclick docker init              # Scaffold a starter Dockerfile
     python -m aaiclick compose init             # Scaffold a docker-runner compose stack
     python -m aaiclick k8s init                 # Scaffold a helm chart
@@ -34,18 +42,38 @@ import asyncio
 import json
 import shlex
 import sys
-from datetime import datetime
-from typing import cast, get_args
+from contextlib import closing, redirect_stdout
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any, cast, get_args
 
-from aaiclick import cli_renderers, internal_api
-from aaiclick.auth.models import ROLE_VIEWER, ROLES
-from aaiclick.auth.view_models import CreateUserRequest, UserListFilter
-from aaiclick.data.data_context import data_context
+from aaiclick import cli_renderers, cli_wait, internal_api
+from aaiclick.ai.importing import import_ai_module
+from aaiclick.audit.view_models import AuditListFilter
+from aaiclick.auth import store as auth_store
+from aaiclick.auth.models import ROLE_VIEWER, ROLES, SCOPE_LEVELS, SCOPE_READ
+from aaiclick.auth.view_models import (
+    CreateApiTokenRequest,
+    CreateUserRequest,
+    InviteUserRequest,
+    UserListFilter,
+)
+from aaiclick.datetime_utils import utc_now
+from aaiclick.internal_api import api_tokens as api_tokens_api
+from aaiclick.internal_api import audit as audit_api
+from aaiclick.internal_api import invites as invites_api
+from aaiclick.internal_api import password_reset as reset_api
 from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import users as users_api
-from aaiclick.internal_api.errors import InternalApiError
+from aaiclick.internal_api.errors import InternalApiError, NotFound
 from aaiclick.orchestration.kubernetes_config import build_kubernetes_config
-from aaiclick.orchestration.models import ExecutionWorkerStatus, JobStatus, PreservationMode, RunnerMode
+from aaiclick.orchestration.models import (
+    JOB_COMPLETED,
+    ExecutionWorkerStatus,
+    JobStatus,
+    PreservationMode,
+    RunnerMode,
+)
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.orchestration.runner_config import ENTRY_TYPES
 from aaiclick.view_models import (
@@ -54,16 +82,38 @@ from aaiclick.view_models import (
     MigrationAction,
     ObjectFilter,
     PurgeObjectsRequest,
+    RefId,
     RegisteredJobFilter,
     RegisterJobRequest,
     RunJobRequest,
 )
+from aaiclick.viewer.view_models import DashboardIn, ObjectQueryRequest, OrderBy, SavedQueryFilter, SavedQueryIn
 
 _JSON_HELP = "Emit JSON instead of a table"
 
 
 def _add_json_flag(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--json", action="store_true", help=_JSON_HELP)
+
+
+def _add_timeout_flag(parser: argparse.ArgumentParser, *, context: str) -> None:
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=cli_wait.DEFAULT_WAIT_TIMEOUT,
+        help=f"Seconds to wait {context} (default: {cli_wait.DEFAULT_WAIT_TIMEOUT:.0f})",
+    )
+
+
+def _add_set_flag(parser: argparse.ArgumentParser, *, verb: str) -> None:
+    parser.add_argument(
+        "--set",
+        dest="set_kwargs",
+        action="append",
+        metavar="KEY=VALUE",
+        default=None,
+        help=f"{verb} kwarg as KEY=VALUE (repeatable); JSON-typed, wins over --kwargs",
+    )
 
 
 def _print_json(model) -> None:
@@ -79,24 +129,30 @@ def _render(args: argparse.Namespace, view, text_renderer) -> None:
         text_renderer(view)
 
 
-async def _run_internal_api(coro):
-    """Run ``coro`` inside ``orch_context(with_ch=False)``, mapping API errors to exit 1."""
-    try:
-        async with orch_context(with_ch=False):
-            return await coro
-    except InternalApiError as exc:
-        print(exc, file=sys.stderr)
-        sys.exit(1)
+async def _run_internal_api(coro, *, with_ch: bool = False):
+    """Run ``coro`` inside ``orch_context``, mapping API errors to exit 1.
+
+    Args:
+        coro: The ``internal_api`` coroutine to await.
+        with_ch: Attach a ClickHouse client — required by the ``data``
+            subcommands, unnecessary for the orchestration ones.
+    """
+    # We own `coro`, so close it however we leave: a missing extra or a locked
+    # chdb raises before it is ever awaited, and an unclosed coroutine trails a
+    # "was never awaited" RuntimeWarning over the error.
+    with closing(coro):
+        try:
+            async with orch_context(with_ch=with_ch):
+                return await coro
+        except InternalApiError as exc:
+            print(exc, file=sys.stderr)
+            sys.exit(1)
 
 
 async def _run_data_api(coro):
-    """Run ``coro`` inside ``data_context()``, mapping API errors to exit 1."""
-    try:
-        async with data_context():
-            return await coro
-    except InternalApiError as exc:
-        print(exc, file=sys.stderr)
-        sys.exit(1)
+    """Run a ``data`` subcommand with ClickHouse attached — ``open_object``
+    needs the SQL ``table_registry`` session only an orch context provides."""
+    return await _run_internal_api(coro, with_ch=True)
 
 
 def _run_sync_api(call):
@@ -151,8 +207,31 @@ def _parse_command_env(pairs: list[str] | None) -> dict[str, str] | None:
     return result
 
 
+def _parse_set_kwargs(pairs: list[str] | None) -> dict[str, Any]:
+    """Parse repeated ``--set KEY=VALUE`` args into typed job kwargs.
+
+    Values are JSON-parsed so ``corpus_size=300`` arrives as an ``int`` and
+    ``generate=true`` as a ``bool``, falling back to the raw string when the
+    value is not valid JSON (``name=hello``). Splits on the first ``=`` only,
+    so ``expr=a=b`` keeps its value intact.
+    """
+    if not pairs:
+        return {}
+    result: dict[str, Any] = {}
+    for pair in pairs:
+        key, sep, value = pair.partition("=")
+        if not sep:
+            raise ValueError(f"--set expects KEY=VALUE, got {pair!r}")
+        try:
+            result[key] = json.loads(value)
+        except json.JSONDecodeError:
+            result[key] = value
+    return result
+
+
 async def _run_run_job(args: argparse.Namespace) -> None:
     kwargs: dict = json.loads(args.kwargs) if args.kwargs else {}
+    kwargs.update(_parse_set_kwargs(args.set_kwargs))
     request = RunJobRequest(
         name=args.name,
         kwargs=kwargs,
@@ -170,11 +249,53 @@ async def _run_run_job(args: argparse.Namespace) -> None:
         image=args.image,
     )
     view = await _run_internal_api(internal_api.run_job(request))
-    _render(args, view, cli_renderers.render_job_created)
+    # With --progress --json the final stats are the document callers parse;
+    # emitting the created-job view too would put two JSON objects on stdout.
+    if not (args.progress and args.json):
+        _render(args, view, cli_renderers.render_job_created)
+    if args.progress:
+        await _wait_and_exit(view.id, args)
+
+
+async def _wait_and_exit(ref: RefId, args: argparse.Namespace) -> None:
+    """Block until ``ref`` is terminal, report it, and exit with its status code.
+
+    Only ``COMPLETED`` exits 0 — a failed, cancelled, or timed-out job must be
+    visible to ``set -e`` scripts and CI steps.
+    """
+    # Progress reports would corrupt the single JSON document --json promises.
+    on_change = None if args.json else cli_renderers.render_job_stats
+    try:
+        stats = await _run_internal_api(cli_wait.wait_for_job(ref, timeout=args.timeout, on_change=on_change))
+    except cli_wait.JobWaitTimeout as exc:
+        print(exc, file=sys.stderr)
+        # Progress was suppressed under --json, so nothing has named the stuck
+        # task yet. Dump it to stderr — stdout stays one parseable document.
+        if args.json:
+            with redirect_stdout(sys.stderr):
+                cli_renderers.render_job_stats(exc.stats)
+        sys.exit(1)
+
+    if args.json:
+        _print_json(stats)
+
+    if stats.job_status != JOB_COMPLETED:
+        # Under --json the document above already carries every task error;
+        # appending the human-readable block would make stdout unparseable.
+        if not args.json:
+            cli_renderers.render_job_failure(stats)
+        sys.exit(1)
+
+
+async def _run_job_wait(args: argparse.Namespace) -> None:
+    await _wait_and_exit(args.ref, args)
 
 
 async def _run_register_job(args: argparse.Namespace) -> None:
     default_kwargs: dict | None = json.loads(args.kwargs) if args.kwargs else None
+    set_kwargs = _parse_set_kwargs(args.set_kwargs)
+    if set_kwargs:
+        default_kwargs = {**(default_kwargs or {}), **set_kwargs}
     kubernetes_config = build_kubernetes_config(
         namespace=args.namespace,
         service_account=args.k8s_service_account,
@@ -234,19 +355,19 @@ def _parse_datetime(value: str) -> datetime:
 
 
 async def _run_data_list(args: argparse.Namespace) -> None:
-    filter = ObjectFilter(prefix=args.prefix, limit=args.limit)
+    filter = ObjectFilter(prefix=args.prefix, job=args.job, limit=args.limit)
     page = await _run_data_api(internal_api.list_objects(filter))
     _render(args, page, cli_renderers.render_objects_page)
 
 
 async def _run_data_get(args: argparse.Namespace) -> None:
-    detail = await _run_data_api(internal_api.get_object(args.name))
+    detail = await _run_data_api(internal_api.get_object(args.name, args.job))
     _render(args, detail, cli_renderers.render_object_detail)
 
 
 async def _run_data_delete(args: argparse.Namespace) -> None:
     view = await _run_data_api(internal_api.delete_object(args.name))
-    _render(args, view, cli_renderers.render_object_deleted)
+    _render(args, view, cli_renderers.render_deleted)
 
 
 async def _run_data_purge(args: argparse.Namespace) -> None:
@@ -256,6 +377,111 @@ async def _run_data_purge(args: argparse.Namespace) -> None:
     )
     result = await _run_data_api(internal_api.purge_objects(request))
     _render(args, result, cli_renderers.render_objects_purged)
+
+
+def _parse_order_by(raw: str | None) -> list[OrderBy]:
+    """``col:desc,other`` → ``[OrderBy("col", "DESC"), OrderBy("other", "ASC")]``."""
+    if not raw:
+        return []
+    out = []
+    for part in raw.split(","):
+        name, _, direction = part.strip().partition(":")
+        out.append(OrderBy(name, "DESC" if direction.lower() == "desc" else "ASC"))
+    return out
+
+
+def _parse_fields(raw: str | None) -> list[str] | None:
+    return [f.strip() for f in raw.split(",")] if raw else None
+
+
+async def _run_data_query(args: argparse.Namespace) -> None:
+    request = ObjectQueryRequest(
+        scope=args.scope,
+        object=args.object,
+        fields=_parse_fields(args.fields),
+        where=args.where,
+        order_by=_parse_order_by(args.order_by),
+        limit=args.limit,
+        offset=args.offset,
+        fmt="csv" if args.csv else "json",
+    )
+    result = await _run_data_api(internal_api.query_object(request))
+    _render(args, result, cli_renderers.render_query_result)
+
+
+async def _run_view_queries_list(args: argparse.Namespace) -> None:
+    page = await _run_data_api(internal_api.list_saved_queries(SavedQueryFilter(scope=args.scope, object=args.object)))
+    _render(args, page, cli_renderers.render_saved_queries_page)
+
+
+async def _run_view_queries_save(args: argparse.Namespace) -> None:
+    cell_view = Path(args.cell_view).read_text() if args.cell_view else None
+    query = SavedQueryIn(
+        name=args.name,
+        scope=args.scope,
+        object=args.object,
+        where=args.where,
+        fields=_parse_fields(args.fields),
+        order_by=_parse_order_by(args.order_by),
+        cell_view=cell_view,
+    )
+    _render(args, await _run_data_api(internal_api.save_query(query)), cli_renderers.render_saved_query)
+
+
+async def _run_view_queries_delete(args: argparse.Namespace) -> None:
+    deleted = await _run_data_api(internal_api.delete_saved_query(args.name))
+    _render(args, deleted, lambda v: cli_renderers.render_deleted(v, "saved query"))
+
+
+async def _run_view_dashboards_list(args: argparse.Namespace) -> None:
+    _render(args, await _run_data_api(internal_api.list_dashboards()), cli_renderers.render_dashboards_page)
+
+
+async def _run_view_dashboards_get(args: argparse.Namespace) -> None:
+    _render(args, await _run_data_api(internal_api.get_dashboard(args.name)), cli_renderers.render_dashboard)
+
+
+async def _run_view_dashboards_save(args: argparse.Namespace) -> None:
+    doc = json.loads(Path(args.file).read_text())  # {"scope"?, "html", "queries": {panel: {...}}}
+    dashboard = DashboardIn(name=args.name, **doc)
+    _render(args, await _run_data_api(internal_api.save_dashboard(dashboard)), cli_renderers.render_dashboard)
+
+
+async def _run_view_dashboards_delete(args: argparse.Namespace) -> None:
+    deleted = await _run_data_api(internal_api.delete_dashboard(args.name))
+    _render(args, deleted, lambda v: cli_renderers.render_deleted(v, "dashboard"))
+
+
+async def _run_view_dashboards_run(args: argparse.Namespace) -> None:
+    _render(args, await _run_data_api(internal_api.run_dashboard(args.name)), cli_renderers.render_dashboard_results)
+
+
+def _load_lineage_ai():
+    """Import ``internal_api.lineage_ai`` on demand, exiting 1 without the ``ai`` extra.
+
+    The module pulls in litellm, so it is loaded per command rather than at
+    the top of this file — the rest of the CLI must keep working without the
+    optional dependency.
+    """
+    try:
+        return import_ai_module("aaiclick.internal_api.lineage_ai")
+    except ImportError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
+
+
+async def _run_explain(args: argparse.Namespace) -> None:
+    lineage_ai = _load_lineage_ai()
+    answer = await _run_data_api(lineage_ai.explain_lineage(args.table, question=args.question))
+    _render(args, answer, cli_renderers.render_lineage_answer)
+
+
+async def _run_debug(args: argparse.Namespace) -> None:
+    lineage_ai = _load_lineage_ai()
+    answer = await _run_data_api(
+        lineage_ai.debug_result(args.table, question=args.question, max_iterations=args.max_iterations)
+    )
+    _render(args, answer, cli_renderers.render_lineage_answer)
 
 
 async def _run_execution_worker_list(args: argparse.Namespace) -> None:
@@ -275,9 +501,23 @@ async def _run_execution_worker_stop(args: argparse.Namespace) -> None:
 
 async def _run_user_create(args: argparse.Namespace) -> None:
     view = await _run_internal_api(
-        users_api.create_user(CreateUserRequest(username=args.username, password=args.password, role=args.role))
+        users_api.create_user(
+            CreateUserRequest(username=args.username, password=args.password, role=args.role, email=args.email)
+        )
     )
     _render(args, view, cli_renderers.render_user)
+
+
+async def _run_user_invite(args: argparse.Namespace) -> None:
+    view = await _run_internal_api(
+        invites_api.invite(
+            # The in-process CLI is admin-equivalent, like local mode's
+            # synthetic principal — there is no inviter to cap against.
+            None,
+            InviteUserRequest(username=args.username, role=args.role, email=args.email),
+        )
+    )
+    _render(args, view, cli_renderers.render_invite)
 
 
 async def _run_user_list(args: argparse.Namespace) -> None:
@@ -295,9 +535,78 @@ async def _run_user_disable(args: argparse.Namespace) -> None:
     _render(args, view, cli_renderers.render_user)
 
 
+async def _run_user_enable(args: argparse.Namespace) -> None:
+    view = await _run_internal_api(users_api.disable_user(args.user_id, False))
+    _render(args, view, cli_renderers.render_user)
+
+
+async def _run_user_reset_link(args: argparse.Namespace) -> None:
+    view = await _run_internal_api(reset_api.create(args.user_id))
+    _render(args, view, cli_renderers.render_password_reset_link)
+
+
+async def _run_user_reset_mfa(args: argparse.Namespace) -> None:
+    view = await _run_internal_api(users_api.reset_mfa(args.user_id))
+    _render(args, view, cli_renderers.render_user)
+
+
+async def _run_user_set_email(args: argparse.Namespace) -> None:
+    view = await _run_internal_api(users_api.set_email(args.user_id, args.email or None))
+    _render(args, view, cli_renderers.render_user)
+
+
 async def _run_user_passwd(args: argparse.Namespace) -> None:
     view = await _run_internal_api(users_api.set_password(args.user_id, args.password))
     _render(args, view, cli_renderers.render_user)
+
+
+async def _run_audit_list(args: argparse.Namespace) -> None:
+    filter = AuditListFilter(
+        user_id=args.user_id,
+        username=args.username,
+        method=args.method,
+        path=args.path,
+        since=_parse_datetime(args.since) if args.since else None,
+        limit=args.limit,
+        offset=args.offset,
+    )
+    page = await _run_internal_api(audit_api.list_audit(filter))
+    _render(args, page, lambda p: cli_renderers.render_audit_page(p, offset=args.offset))
+
+
+async def _resolve_user_id(username: str) -> int:
+    user = await auth_store.get_user_by_username(username)
+    if user is None:
+        raise NotFound(f"user '{username}' not found")
+    return user.id
+
+
+async def _run_token_create(args: argparse.Namespace) -> None:
+    async def do():
+        user_id = await _resolve_user_id(args.username)
+        expires_at = utc_now() + timedelta(days=args.expires_days) if args.expires_days else None
+        return await api_tokens_api.create_token(
+            user_id, CreateApiTokenRequest(name=args.name, scope=args.scope, expires_at=expires_at)
+        )
+
+    view = await _run_internal_api(do())
+    _render(args, view, cli_renderers.render_api_token_created)
+
+
+async def _run_token_list(args: argparse.Namespace) -> None:
+    async def do():
+        return await api_tokens_api.list_tokens(await _resolve_user_id(args.username))
+
+    page = await _run_internal_api(do())
+    _render(args, page, cli_renderers.render_api_tokens_page)
+
+
+async def _run_token_revoke(args: argparse.Namespace) -> None:
+    async def do():
+        await api_tokens_api.revoke_token(await _resolve_user_id(args.username), args.token_id)
+
+    await _run_internal_api(do())
+    print(f"revoked api token {args.token_id}")
 
 
 _MIGRATE_HELP = """\
@@ -333,8 +642,21 @@ Environment Variables:
 """
 
 
+def _confirm_local_db_reset(reason: str) -> bool:
+    """Ask before deleting a local database that predates this version."""
+    print(reason, file=sys.stderr)
+    return input("Delete and recreate it? [y/N] ").strip().lower() in {"y", "yes"}
+
+
 def _run_setup_cli(args: argparse.Namespace) -> None:
-    result = _run_sync_api(lambda: setup_api.setup(ai=args.ai))
+    force = args.force
+    # Prompt only for an interactive run: piped or --json callers fall through
+    # to setup(), which raises with the same guidance rather than blocking.
+    if not force and not args.json and sys.stdin.isatty():
+        reason = setup_api.stale_local_db_reason()
+        if reason:
+            force = _confirm_local_db_reset(reason)
+    result = _run_sync_api(lambda: setup_api.setup(ai=args.ai, force=force))
     _render(args, result, cli_renderers.render_setup_result)
 
 
@@ -419,6 +741,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Also pull the configured Ollama model (reads AAICLICK_AI_MODEL)",
+    )
+    setup_parser.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help=(
+            "Delete and recreate the local SQLite database when its schema predates "
+            "this version (a database already up to date is left alone)"
+        ),
     )
     _add_json_flag(setup_parser)
 
@@ -590,6 +921,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_json_flag(job_list_parser)
 
+    # job wait <ref>
+    job_wait_parser = job_subparsers.add_parser(
+        "wait",
+        help="Block until a job reaches a terminal status",
+    )
+    job_wait_parser.add_argument("ref", type=str, help="Job ID or name")
+    _add_timeout_flag(job_wait_parser, context="before giving up")
+    _add_json_flag(job_wait_parser)
+
     # job enable <name>
     job_enable_parser = job_subparsers.add_parser(
         "enable",
@@ -633,6 +973,7 @@ def build_parser() -> argparse.ArgumentParser:
     register_job_parser.add_argument("--name", default=None, help="Job name (default: last segment of entrypoint)")
     register_job_parser.add_argument("--schedule", default=None, help="Cron expression (e.g. '0 8 * * *')")
     register_job_parser.add_argument("--kwargs", default=None, help="Default kwargs as JSON string")
+    _add_set_flag(register_job_parser, verb="Default")
     register_job_parser.add_argument(
         "--preservation-mode",
         choices=list(get_args(PreservationMode)),
@@ -684,6 +1025,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_job_parser.add_argument("name", type=str, help="Job name or entrypoint")
     run_job_parser.add_argument("--kwargs", default=None, help="Override kwargs as JSON string")
+    _add_set_flag(run_job_parser, verb="Override")
     run_job_parser.add_argument(
         "--preservation-mode",
         choices=list(get_args(PreservationMode)),
@@ -753,6 +1095,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Prebuilt image to run verbatim (no build stage); mutually exclusive with --git-*",
     )
+    run_job_parser.add_argument(
+        "--progress",
+        action="store_true",
+        help="Block until the job finishes, printing task progress; exits non-zero if it fails",
+    )
+    _add_timeout_flag(run_job_parser, context="with --progress")
     _add_json_flag(run_job_parser)
 
     # Add registered-job subcommand
@@ -830,6 +1178,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=50,
         help="Maximum results (default: 50)",
     )
+    data_list_parser.add_argument("--job", default=None, help="List one job's objects (id or name)")
     _add_json_flag(data_list_parser)
 
     # data get <name>
@@ -838,6 +1187,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show persistent object details",
     )
     data_get_parser.add_argument("name", type=str, help="Persistent object name")
+    data_get_parser.add_argument("--job", default=None, help="The object's job (id or name); default: global tier")
     _add_json_flag(data_get_parser)
 
     # data delete <name>
@@ -864,6 +1214,96 @@ def build_parser() -> argparse.ArgumentParser:
         help="Delete tables created before this time (ISO 8601)",
     )
     _add_json_flag(data_purge_parser)
+
+    # data query <object> [--scope] [--where] [--fields] [--order-by] [--limit] [--offset] [--csv]
+    data_query_parser = data_subparsers.add_parser("query", help="Read rows of an object")
+    data_query_parser.add_argument("object", type=str, help="Object name within the scope")
+    data_query_parser.add_argument("--scope", default="persistent", help="persistent (default) or job:<id|name>")
+    data_query_parser.add_argument("--where", default=None, help="SQL boolean expression over the object's columns")
+    data_query_parser.add_argument("--fields", default=None, help="Comma-separated columns (default: all)")
+    data_query_parser.add_argument("--order-by", dest="order_by", default=None, help="col[:asc|desc],...")
+    data_query_parser.add_argument("--limit", type=int, default=100, help="Rows per page (max 1000)")
+    data_query_parser.add_argument("--offset", type=int, default=0, help="Row offset")
+    data_query_parser.add_argument("--csv", action="store_true", help="Print CSV instead of a table")
+    _add_json_flag(data_query_parser)
+
+    # view queries ... / view dashboards ...
+    view_parser = subparsers.add_parser("view", help="Saved viewer queries and dashboards")
+    view_subparsers = view_parser.add_subparsers(dest="view_command", help="View commands")
+
+    vq = view_subparsers.add_parser("queries", help="Saved queries")
+    vq_sub = vq.add_subparsers(dest="view_verb")
+    p = vq_sub.add_parser("list", help="List saved queries")
+    p.set_defaults(handler=_run_view_queries_list)
+    p.add_argument("--scope", default=None)
+    p.add_argument("--object", default=None)
+    _add_json_flag(p)
+    p = vq_sub.add_parser("save", help="Create or replace a saved query")
+    p.set_defaults(handler=_run_view_queries_save)
+    p.add_argument("name")
+    p.add_argument("object")
+    p.add_argument("--scope", default="persistent")
+    p.add_argument("--where", default=None)
+    p.add_argument("--fields", default=None)
+    p.add_argument("--order-by", dest="order_by", default=None)
+    p.add_argument("--cell-view", dest="cell_view", default=None, help="Path to a cell_view YAML file")
+    _add_json_flag(p)
+    p = vq_sub.add_parser("delete", help="Delete a saved query")
+    p.set_defaults(handler=_run_view_queries_delete)
+    p.add_argument("name")
+    _add_json_flag(p)
+
+    vd = view_subparsers.add_parser("dashboards", help="Dashboards")
+    vd_sub = vd.add_subparsers(dest="view_verb")
+    p = vd_sub.add_parser("list", help="List dashboards")
+    p.set_defaults(handler=_run_view_dashboards_list)
+    _add_json_flag(p)
+    p = vd_sub.add_parser("get", help="Show a dashboard")
+    p.set_defaults(handler=_run_view_dashboards_get)
+    p.add_argument("name")
+    _add_json_flag(p)
+    p = vd_sub.add_parser("save", help="Create or replace a dashboard from a JSON file")
+    p.set_defaults(handler=_run_view_dashboards_save)
+    p.add_argument("name")
+    p.add_argument("--file", required=True, help='JSON: {"scope"?, "html", "queries": {panel: {object, ...}}}')
+    _add_json_flag(p)
+    p = vd_sub.add_parser("delete", help="Delete a dashboard")
+    p.set_defaults(handler=_run_view_dashboards_delete)
+    p.add_argument("name")
+    _add_json_flag(p)
+    p = vd_sub.add_parser("run", help="Run a dashboard's panel queries")
+    p.set_defaults(handler=_run_view_dashboards_run)
+    p.add_argument("name")
+    _add_json_flag(p)
+
+    # explain <table> [question]
+    explain_parser = subparsers.add_parser(
+        "explain",
+        help="AI: explain how a table was produced from its lineage (requires aaiclick[ai])",
+    )
+    explain_parser.add_argument("table", type=str, help="Target ClickHouse table name")
+    explain_parser.add_argument(
+        "question",
+        nargs="?",
+        default=None,
+        help="Question to answer instead of the default 'how was this produced?'",
+    )
+    _add_json_flag(explain_parser)
+
+    # debug <table> <question>
+    debug_parser = subparsers.add_parser(
+        "debug",
+        help="AI: answer a 'why' question about a table using live-query tools (requires aaiclick[ai])",
+    )
+    debug_parser.add_argument("table", type=str, help="Target ClickHouse table name")
+    debug_parser.add_argument("question", type=str, help='Question, e.g. "Why is this value negative?"')
+    debug_parser.add_argument(
+        "--max-iterations",
+        type=int,
+        default=10,
+        help="Maximum tool-call rounds before the agent is asked for a final answer (default: 10)",
+    )
+    _add_json_flag(debug_parser)
 
     # Add background subcommand
     background_parser = subparsers.add_parser(
@@ -987,9 +1427,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     user_create_parser = user_subparsers.add_parser("create", help="Create a user")
     user_create_parser.add_argument("username")
-    user_create_parser.add_argument("--password", required=True)
+    user_create_parser.add_argument(
+        "--password", default=None, help="Omit to onboard the user with a reset link instead"
+    )
+    user_create_parser.add_argument("--email", default=None)
     user_create_parser.add_argument("--role", choices=list(ROLES), default=ROLE_VIEWER)
     _add_json_flag(user_create_parser)
+
+    user_invite_parser = user_subparsers.add_parser(
+        "invite", help="Create a user with no password and mint their one-time link"
+    )
+    user_invite_parser.add_argument("username")
+    user_invite_parser.add_argument("--email", default=None)
+    user_invite_parser.add_argument("--role", choices=list(ROLES), default=ROLE_VIEWER, help="Role granted on redeem")
+    _add_json_flag(user_invite_parser)
 
     user_list_parser = user_subparsers.add_parser("list", help="List users")
     user_list_parser.add_argument("--limit", type=int, default=50)
@@ -1005,10 +1456,60 @@ def build_parser() -> argparse.ArgumentParser:
     user_disable_parser.add_argument("user_id", type=int)
     _add_json_flag(user_disable_parser)
 
+    user_enable_parser = user_subparsers.add_parser("enable", help="Re-enable a disabled user")
+    user_enable_parser.add_argument("user_id", type=int)
+    _add_json_flag(user_enable_parser)
+
+    user_reset_link_parser = user_subparsers.add_parser("reset-link", help="Mint a one-time password-reset link")
+    user_reset_link_parser.add_argument("user_id", type=int)
+    _add_json_flag(user_reset_link_parser)
+
+    user_reset_mfa_parser = user_subparsers.add_parser("reset-mfa", help="Clear a user's authenticator (lost device)")
+    user_reset_mfa_parser.add_argument("user_id", type=int)
+    _add_json_flag(user_reset_mfa_parser)
+
+    user_set_email_parser = user_subparsers.add_parser("set-email", help="Set (or clear) a user's email")
+    user_set_email_parser.add_argument("user_id", type=int)
+    user_set_email_parser.add_argument("email", nargs="?", default=None, help="Omit to clear")
+    _add_json_flag(user_set_email_parser)
+
     user_passwd_parser = user_subparsers.add_parser("passwd", help="Set a user's password")
     user_passwd_parser.add_argument("user_id", type=int)
     user_passwd_parser.add_argument("--password", required=True)
     _add_json_flag(user_passwd_parser)
+
+    # Add audit subcommand
+    audit_parser = subparsers.add_parser("audit", help="Request audit log")
+    audit_subparsers = audit_parser.add_subparsers(dest="audit_command", help="Audit commands")
+
+    audit_list_parser = audit_subparsers.add_parser("list", help="List audit entries, newest first")
+    audit_list_parser.add_argument("--user-id", type=int, default=None)
+    audit_list_parser.add_argument("--username", default=None)
+    audit_list_parser.add_argument("--method", default=None, help="HTTP method, e.g. POST")
+    audit_list_parser.add_argument("--path", default=None, help="Path prefix, e.g. /api/v0/jobs")
+    audit_list_parser.add_argument("--since", default=None, help="ISO 8601 lower bound")
+    audit_list_parser.add_argument("--limit", type=int, default=50)
+    audit_list_parser.add_argument("--offset", type=int, default=0)
+    _add_json_flag(audit_list_parser)
+
+    # Add token subcommand (API tokens)
+    token_parser = subparsers.add_parser("token", help="API token administration")
+    token_subparsers = token_parser.add_subparsers(dest="token_command", help="Token commands")
+
+    token_create_parser = token_subparsers.add_parser("create", help="Mint an API token for a user")
+    token_create_parser.add_argument("username")
+    token_create_parser.add_argument("--name", required=True, help="Label shown in token lists")
+    token_create_parser.add_argument("--scope", choices=list(SCOPE_LEVELS), default=SCOPE_READ)
+    token_create_parser.add_argument("--expires-days", type=int, default=None, help="Lifetime in days (default: never)")
+    _add_json_flag(token_create_parser)
+
+    token_list_parser = token_subparsers.add_parser("list", help="List a user's API tokens")
+    token_list_parser.add_argument("username")
+    _add_json_flag(token_list_parser)
+
+    token_revoke_parser = token_subparsers.add_parser("revoke", help="Revoke one of a user's API tokens")
+    token_revoke_parser.add_argument("username")
+    token_revoke_parser.add_argument("token_id", type=int)
 
     return parser
 
@@ -1070,6 +1571,9 @@ def main():
         elif args.job_command == "list":
             asyncio.run(_run_job_list(args))
 
+        elif args.job_command == "wait":
+            asyncio.run(_run_job_wait(args))
+
         elif args.job_command == "enable":
             asyncio.run(_run_job_enable(args))
 
@@ -1112,8 +1616,25 @@ def main():
         elif args.data_command == "purge":
             asyncio.run(_run_data_purge(args))
 
+        elif args.data_command == "query":
+            asyncio.run(_run_data_query(args))
+
         else:
             subcommands["data"].print_help()
+
+    elif args.command == "view":
+        # Each leaf parser carries its handler via set_defaults (see build_parser).
+        view_handler = getattr(args, "handler", None)
+        if view_handler is None:
+            subcommands["view"].print_help()
+        else:
+            asyncio.run(view_handler(args))
+
+    elif args.command == "explain":
+        asyncio.run(_run_explain(args))
+
+    elif args.command == "debug":
+        asyncio.run(_run_debug(args))
 
     elif args.command == "background":
         from aaiclick.orchestration.cli import start_background
@@ -1142,9 +1663,28 @@ def main():
         else:
             subcommands["k8s"].print_help()
 
+    elif args.command == "audit":
+        if args.audit_command == "list":
+            asyncio.run(_run_audit_list(args))
+        else:
+            subcommands["audit"].print_help()
+
+    elif args.command == "token":
+        if args.token_command == "create":
+            asyncio.run(_run_token_create(args))
+        elif args.token_command == "list":
+            asyncio.run(_run_token_list(args))
+        elif args.token_command == "revoke":
+            asyncio.run(_run_token_revoke(args))
+        else:
+            subcommands["token"].print_help()
+
     elif args.command == "user":
         if args.user_command == "create":
             asyncio.run(_run_user_create(args))
+
+        elif args.user_command == "invite":
+            asyncio.run(_run_user_invite(args))
 
         elif args.user_command == "list":
             asyncio.run(_run_user_list(args))
@@ -1154,6 +1694,14 @@ def main():
 
         elif args.user_command == "disable":
             asyncio.run(_run_user_disable(args))
+        elif args.user_command == "enable":
+            asyncio.run(_run_user_enable(args))
+        elif args.user_command == "set-email":
+            asyncio.run(_run_user_set_email(args))
+        elif args.user_command == "reset-mfa":
+            asyncio.run(_run_user_reset_mfa(args))
+        elif args.user_command == "reset-link":
+            asyncio.run(_run_user_reset_link(args))
 
         elif args.user_command == "passwd":
             asyncio.run(_run_user_passwd(args))
