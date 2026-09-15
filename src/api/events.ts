@@ -3,7 +3,7 @@
 // The stream carries one event kind, `changed`, with no payload: on every
 // frame — and on every (re)connect, to catch up on anything missed — the
 // whole React Query cache is invalidated and REST supplies fresh state.
-// `EventSource` cannot send the bearer / tenant headers, so the stream is read
+// `EventSource` cannot send the bearer header, so the stream is read
 // through `fetch` via the same auth chokepoint as every other request.
 //
 // While the stream is down, `isLiveConnected()` returns false and the

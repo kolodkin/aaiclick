@@ -174,7 +174,7 @@ export function Account({ onPrompt }: { onPrompt: (v: string) => void }) {
       <h2>Account</h2>
       <p className="sub">
         Signed in as <span className="mono">{me?.username ?? "(local mode — no user)"}</span>
-        {me?.superadmin ? " · superadmin" : ""}
+        {me?.role ? ` · ${me.role}` : ""}
       </p>
       {me?.username ? (
         <>

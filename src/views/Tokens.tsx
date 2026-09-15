@@ -5,7 +5,7 @@ import { Chips } from "../components/Chips";
 import { Panel } from "../components/Panel";
 import { SecretPanel } from "../components/SecretPanel";
 import { useToast } from "../components/Toast";
-import { getActiveTenantId, mintableScopes } from "../lib/auth";
+import { mintableScopes } from "../lib/auth";
 import type { ScopeLevel } from "../api/types";
 import { relativeTime } from "../lib/format";
 
@@ -14,8 +14,7 @@ const DEFAULT_EXPIRY_DAYS = "90";
 const SCOPE_HELP: Record<ScopeLevel, string> = {
   read: "every read",
   write: "saved queries and dashboards",
-  admin: "run and cancel jobs, register, delete objects, memberships",
-  superadmin: "instance operations — setup, migrate, workers, users, tenants",
+  admin: "run and cancel jobs, register, delete objects, users, workers, setup, migrate",
 };
 
 function expiresAt(days: string): string | null {
@@ -37,13 +36,7 @@ export function Tokens({ onPrompt }: { onPrompt: (v: string) => void }) {
 
   const onCreate = () => {
     create.mutate(
-      {
-        name,
-        scope,
-        // Below superadmin a token is bound to the tenant it is minted in.
-        tenant_id: scope === "superadmin" ? null : getActiveTenantId(),
-        expires_at: expiresAt(days),
-      },
+      { name, scope, expires_at: expiresAt(days) },
       {
         onSuccess: (t) => {
           setCreated(t);
@@ -110,7 +103,6 @@ export function Tokens({ onPrompt }: { onPrompt: (v: string) => void }) {
               <th>Name</th>
               <th>Prefix</th>
               <th>Scope</th>
-              <th>Tenant</th>
               <th>Expires</th>
               <th>Last used</th>
               <th>Status</th>
@@ -125,7 +117,6 @@ export function Tokens({ onPrompt }: { onPrompt: (v: string) => void }) {
                 <td>
                   <span className="badge b-PENDING">{t.scope}</span>
                 </td>
-                <td className="mono">{t.tenant_id ?? "—"}</td>
                 <td>{t.expires_at ? new Date(t.expires_at).toLocaleDateString() : "never"}</td>
                 <td>{relativeTime(t.last_used_at)}</td>
                 <td>{t.revoked_at ? <span className="badge b-CANCELLED">revoked</span> : <span className="badge b-COMPLETED">active</span>}</td>

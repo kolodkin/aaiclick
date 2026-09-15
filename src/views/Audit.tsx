@@ -25,7 +25,7 @@ export function Audit({ onPrompt }: { onPrompt: (v: string) => void }) {
       <Chips chips={[{ label: "← home", cmd: "" }]} onPrompt={onPrompt} />
       <h2>Audit log</h2>
       <p className="sub">Newest first. Which requests are recorded follows AAICLICK_AUDIT_LOG (writes / all / off).</p>
-      {!me?.superadmin && <p className="err">Requires the superadmin flag.</p>}
+      {me?.role !== "admin" && <p className="err">Requires the admin role.</p>}
       <div className="chips">
         <input className="fake-prompt" id="audit-username" placeholder="username" value={username} onChange={(e) => setUsername(e.target.value)} />
         <input className="fake-prompt" id="audit-method" placeholder="method (POST)" value={method} onChange={(e) => setMethod(e.target.value)} />
@@ -40,7 +40,6 @@ export function Audit({ onPrompt }: { onPrompt: (v: string) => void }) {
               <th>When</th>
               <th>User</th>
               <th>Kind</th>
-              <th>Tenant</th>
               <th>Request</th>
               <th>Status</th>
               <th>Duration</th>
@@ -53,7 +52,6 @@ export function Audit({ onPrompt }: { onPrompt: (v: string) => void }) {
                 <td title={e.at}>{relativeTime(e.at)}</td>
                 <td className="mono">{e.username ?? (e.user_id ? `#${e.user_id}` : "—")}</td>
                 <td>{e.auth_kind}</td>
-                <td className="mono">{e.tenant_id ?? "—"}</td>
                 <td className="mono">
                   {e.method} {e.path}
                   {e.action ? ` · ${e.action}` : ""}
