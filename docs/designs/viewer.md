@@ -47,7 +47,7 @@ URL, saved queries, and CLI flags:
 
 | Scope            | Tables listed                                    |
 |------------------|--------------------------------------------------|
-| `persistent`     | tenant's `p_*` rows in `table_registry`          |
+| `persistent`     | `p_*` rows in `table_registry`                   |
 | `job:<id\|name>` | `table_registry` rows with the resolved `job_id` |
 
 A job scope resolves through `resolve_job` like `get_job` does: an id names
@@ -59,20 +59,8 @@ store the key as given, so `job:nightly_etl` follows each new run while
 `aaiclick/internal_api/objects.py` — see `open_scoped` (also behind
 `get_object(name, job)` and `list_objects(ObjectFilter(job=…))`).
 
-Every surface identifies an object as `(scope, name)` — the tenant is never one
-of the two. Each resolves it once, outside the verb:
-
-| Surface | Active tenant                                                                    |
-|---------|----------------------------------------------------------------------------------|
-| REST    | `X-Tenant-Id`, through `require_tenant`                                          |
-| CLI     | the default tenant, or the global `--tenant <slug>` flag (`_run_internal_api`)   |
-| MCP     | the default tenant — there is no tenant selector                                 |
-
-The CLI reaches the database directly and authenticates no one, so `--tenant`
-steps into another tenant rather than requesting access to it — it is the
-operator's panel. `make_scoped_table_name` maps the pair to
-`p_<tenant_id>_<name>` or `j_<job_id>_<name>`, the job checked against the
-active tenant.
+Every surface identifies an object as `(scope, name)`; `make_scoped_table_name`
+maps the pair to `p_<name>` or `j_<job_id>_<name>`.
 
 ## Queries name an object, not a table
 
@@ -109,17 +97,17 @@ The viewer builds on three additions to `aaiclick/data` and
 ## Internal API
 
 `aaiclick/internal_api/viewer.py`; every function runs under
-`orch_context(with_ch=True)` and the active tenant, like `objects.py`.
+`orch_context(with_ch=True)`, like `objects.py`.
 
 | Function                                    | Returns                                | Notes                                                                                   |
 |---------------------------------------------|----------------------------------------|-----------------------------------------------------------------------------------------|
 | `query_object(ObjectQueryRequest)`          | `ObjectQueryResult`                    | `limit ≤ 1000`, `max_execution_time` 30 s; `fmt="json"` fills `meta` + `data`, `"csv"` fills `text` (MCP, CLI) |
 | `query_object_bytes(ObjectQueryRequest)`    | `bytes`                                | the same page as ClickHouse sent it — what REST returns verbatim (`application/json` / `text/csv`), no decode or re-encode |
 | `list_saved_queries(SavedQueryFilter)`      | `Page[SavedQuery]`                     | by `scope` and `object`; a query saved with `scope=None` matches every scope            |
-| `save_query(SavedQueryIn)`                  | `SavedQuery`                           | upsert on `(tenant, name)`; validates `where` and the `cell_view` YAML shape            |
+| `save_query(SavedQueryIn)`                  | `SavedQuery`                           | upsert on `name`; validates `where` and the `cell_view` YAML shape                      |
 | `delete_saved_query(name)`                  | `Deleted`                              |                                                                                         |
 | `list_dashboards()` / `get_dashboard(name)` | `Page[DashboardSummary]` / `Dashboard` |                                                                                         |
-| `save_dashboard(DashboardIn)`               | `Dashboard`                            | upsert on `(tenant, name)`; `queries` is `dict[panel, ObjectQuery]`                      |
+| `save_dashboard(DashboardIn)`               | `Dashboard`                            | upsert on `name`; `queries` is `dict[panel, ObjectQuery]`                                |
 | `delete_dashboard(name)`                    | `Deleted`                              |                                                                                         |
 | `run_dashboard(name)`                       | `DashboardResults`                     | runs the panels concurrently under the dashboard's scope; column-oriented, the `window.queries` contract |
 
@@ -132,8 +120,7 @@ need no separate mechanism: job code calls `save_query` through the same
 ## Storage
 
 `viewer_queries` and `viewer_dashboards` (`aaiclick/viewer/models.py`, unique
-on `(tenant_id, name)`), migrated through the Alembic chain. `tenant_id` is a
-plain `BigInteger` without FK, per `aaiclick/orchestration/models.py`.
+on `name`), migrated through the Alembic chain.
 `cell_view` is raw YAML and `order_by` / `fields` / `queries` are JSON text,
 stored verbatim and interpreted by the kernel; the server validates shape,
 and `where` with the rules above.
@@ -141,10 +128,10 @@ and `where` with the rules above.
 ## Surfaces
 
 - **REST** `aaiclick/server/routers/viewer.py`, prefix `/viewer`, the objects
-  router's dependencies (`orch_scope_with_ch`, tenant): `POST /query` (raw
+  router's dependencies (`orch_scope_with_ch`): `POST /query` (raw
   ClickHouse text, no parse / re-serialise on the server),
   `GET|PUT|DELETE /queries[/{name}]`, `GET|PUT|DELETE /dashboards[/{name}]`,
-  `POST /dashboards/{name}:run`. Any tenant member may read, run, and save;
+  `POST /dashboards/{name}:run`. Any user may read and run; members and admins save;
   nothing here drops data.
 - **MCP** `aaiclick/server/mcp.py` (viewer section): one tool per verb, each
   opening `orch_context(with_ch=True)`. The lineage-scoped `query_table`
@@ -175,7 +162,7 @@ over clickhouse-connect. Nothing in the viewer is per-process.
 - `aaiclick/internal_api/test_viewer.py` (chdb): `query_object` over
   persistent and job objects — fields, `where`, ordering, paging, CSV, the
   `where` guard, unknown objects and jobs; saved-query and dashboard
-  round-trips with tenant isolation; `run_dashboard` column orientation.
+  round-trips; `run_dashboard` column orientation.
 - `aaiclick/server/routers/test_viewer.py`: routes, 404 / 422 problems, 401
   without a token in distributed mode.
 - Vitest (`npm test`): the kernel's own tests, `src/prompt.test.ts`,

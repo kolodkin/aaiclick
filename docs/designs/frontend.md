@@ -167,7 +167,7 @@ DB commit ─▶ change signal ─▶ EventBus ─▶ SSE frame ─▶ browser �
 ```
 
 Each hop has its own protocol and one handler that speaks it. Nothing on the
-path carries job or tenant data; only the final REST refetch does.
+path carries job or user data; only the final REST refetch does.
 
 | Layer            | Protocol                                                                        | Producer → consumer                                 | Handler                                                                                                                                 |
 |------------------|---------------------------------------------------------------------------------|-----------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------|
@@ -175,7 +175,7 @@ path carries job or tenant data; only the final REST refetch does.
 | 2. Change signal | Postgres: `NOTIFY aaiclick_events` in the same transaction                      | committing process → every `LISTEN` connection      | `events/postgres.py` — `PostgresTransport.before_commit` notifies; `feed` holds one `LISTEN` connection per API host, `state` tracks it |
 | 3. EventBus      | in-process pub/sub, depth-1 queue per subscriber                                | transport → each open stream                        | `events/bus.py` — `EventBus.publish` / `close`, `EventBus.subscription()` → `Subscription.wait()`                                       |
 | 4. SSE transport | `text/event-stream`: `event: changed`, `: keepalive` / 15 s, ≤ 1 frame / 500 ms | `GET /api/v0/events` → browser                      | `aaiclick/server/events.py` — `event_frames`, `stream_events`; `live_events` owns bus + listener per lifespan                           |
-| 5. Browser       | `fetch` + `ReadableStream`, bearer and `X-Tenant-Id` headers                    | response body → frame parser                        | `src/api/client.ts` — `openStream`; `src/api/events.ts` — `readFrames`, `useLiveUpdates` (backoff 1 s → 30 s)                           |
+| 5. Browser       | `fetch` + `ReadableStream`, bearer header                                       | response body → frame parser                        | `src/api/client.ts` — `openStream`; `src/api/events.ts` — `readFrames`, `useLiveUpdates` (backoff 1 s → 30 s)                           |
 | 6. Query cache   | TanStack Query invalidation                                                     | `changed` / (re)connect → every active query        | `useLiveUpdates` → `queryClient.invalidateQueries()`; `src/main.tsx` — `refetchInterval` falls back to 2 s while disconnected           |
 | 7. REST refetch  | existing JSON endpoints                                                         | hooks → `/jobs`, `/jobs/{ref}`, `/tasks/{id}`, …    | `src/api/hooks.ts` (unchanged)                                                                                                          |
 
@@ -229,7 +229,7 @@ called explicitly from the two entry points every writer passes through:
   commit so a subscriber that refetches immediately sees the row.
 
 **Layer 4 — why no `EventSource`.** The browser API cannot send the bearer
-or `X-Tenant-Id` headers, so the stream is read through the same `fetch`
+header, so the stream is read through the same `fetch`
 chokepoint as every other request, including its silent 401 refresh.
 
 **Fallback.** `isLiveConnected()` feeds the QueryClient default

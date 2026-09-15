@@ -191,9 +191,9 @@ Prompt-driven like the rest of the UI; flows and the role matrix are in
 |-----------------|-----------------------------------------------|--------------------------------|
 | `@account`      | Change password, MFA setup / disable          | `src/views/Account.tsx`        |
 | `@tokens`       | List / create / revoke the caller's API tokens | `src/views/Tokens.tsx`        |
-| `@users`        | Superadmin user table                         | `src/views/Users.tsx`          |
-| `@invite`       | Invite a user — any tenant admin              | `src/views/Invite.tsx`         |
-| `@audit`        | Superadmin audit-log table with filters       | `src/views/Audit.tsx`          |
+| `@users`        | Admin user table                              | `src/views/Users.tsx`          |
+| `@invite`       | Invite a user — admin only                    | `src/views/Invite.tsx`         |
+| `@audit`        | Admin audit-log table with filters            | `src/views/Audit.tsx`          |
 | `reset <token>` | New-password form from a reset link (no session) | `src/views/ResetPassword.tsx` |
 
 `src/components/Header.tsx` shows the signed-in username (opens `@account`)

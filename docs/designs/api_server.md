@@ -405,8 +405,8 @@ raises it until scopes land.
 
 A `text/event-stream` of `changed` events (no payload) fed by Postgres
 `LISTEN`/`NOTIFY` in distributed mode and an in-process bus in local mode.
-Requires a principal and a tenant like every other resource route; the
-signal itself carries nothing tenant-specific. Design and client behaviour:
+Requires a principal like every other resource route; the signal itself
+carries nothing per-user. Design and client behaviour:
 `docs/designs/frontend.md` — Live updates. **Implementation**:
 `aaiclick/server/events.py` — see `stream_events`, `live_events`.
 
@@ -506,8 +506,8 @@ documented in `docs/designs/auth.md` — Configuration:
 `aaiclick/internal_api/auth.py` (login / refresh / logout, MFA, password
 reset), wired in `aaiclick/server/app.py`.
 
-Username/password users with per-tenant roles (`admin` / `viewer`) plus an
-instance `superadmin` flag, authenticated by a short-lived access JWT +
+Username/password users with one role each (`viewer` / `member` / `admin`),
+authenticated by a short-lived access JWT +
 rotating refresh token, or by a scoped long-lived API token. The CLI runs
 `internal_api` in-process and never crosses this HTTP-transport layer.
 
@@ -521,15 +521,14 @@ rotating refresh token, or by a scoped long-lived API token. The CLI runs
   `docs/designs/auth.md`.
 - **Enforcement**: `HTTPBearer` extracts the credential (access JWT or
   `aaic_` API token); `require_principal` guards every `/api/v0/*` router,
-  `require_tenant` resolves `X-Tenant-Id`, then `require_scope(...)` gates on
-  the level a route needs (`require_write` for a member's own mutations,
-  `require_admin` for tenant mutations), and `require_superadmin` guards
-  `/users`, `/tenants`, `/audit`, and worker control. Authorization always
+  then `require_scope(...)` gates on the level a route needs (`require_write`
+  for a member's own mutations, `require_admin` for everything else — jobs,
+  objects, users, audit, worker control). Authorization always
   compares scopes: a session resolves one through its role, a token carries
   its own.
 - **MCP**: the `/mcp` mount requires any principal (ASGI middleware — `Depends`
   does not propagate into mounted sub-apps); each tool is gated by its
-  `read` / `write` / `superadmin` tag in `aaiclick/server/mcp_rbac.py`.
+  `read` / `write` / `admin` tag in `aaiclick/server/mcp_rbac.py`.
 - **Audit**: `aaiclick/server/audit.py` records requests to `audit_log`
   per `AAICLICK_AUDIT_LOG`.
 
