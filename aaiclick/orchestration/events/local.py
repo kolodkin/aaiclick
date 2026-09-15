@@ -22,6 +22,11 @@ class LocalTransport:
         # A direct call can neither connect nor drop: always listening.
         return STATE_LISTENING
 
+    @property
+    def cross_process(self) -> bool:
+        # chdb's file lock allows one process, so every writer is this one.
+        return False
+
     def before_commit(self, session: Session) -> None:
         return None
 

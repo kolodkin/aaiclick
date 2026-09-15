@@ -283,3 +283,9 @@ async def test_rolled_back_write_publishes_nothing(orch_ctx, live_bus):
             )
             await session.rollback()
     assert signals == []
+
+
+def test_local_transport_is_not_cross_process():
+    """chdb's file lock confines local-mode writers to one process, so a
+    waiter in another process can never receive their signals."""
+    assert LocalTransport().cross_process is False

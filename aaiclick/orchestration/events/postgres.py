@@ -51,6 +51,12 @@ class PostgresTransport:
     def state(self) -> TransportState:
         return self._state
 
+    @property
+    def cross_process(self) -> bool:
+        # Postgres fans each NOTIFY out to every LISTEN connection, whichever
+        # process holds it.
+        return True
+
     def before_commit(self, session: Session) -> None:
         session.execute(text("SELECT pg_notify(:channel, '')"), {"channel": EVENTS_CHANNEL})
 
