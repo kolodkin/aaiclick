@@ -351,7 +351,7 @@ async def delete_saved_query(name: str) -> Deleted:
 
 @mcp.tool(tags={TAG_READ})
 async def list_dashboards() -> Page[DashboardSummary]:
-    """Dashboards of the active tenant."""
+    """Saved dashboards."""
     async with orch_context(with_ch=True):
         return await viewer_api.list_dashboards()
 

@@ -494,7 +494,7 @@ async def test_job_wait_json_timeout_keeps_stdout_clean_and_diagnoses_on_stderr(
 def _stub_setup_cli(monkeypatch, *, isatty: bool) -> list[bool]:
     """Stub the setup CLI's collaborators; returns the ``force`` values forwarded."""
     calls: list[bool] = []
-    monkeypatch.setattr("aaiclick.__main__.setup_api.stale_local_db_reason", lambda: "stale: jobs.tenant_id")
+    monkeypatch.setattr("aaiclick.__main__.setup_api.stale_local_db_reason", lambda: "stale: jobs.error")
     monkeypatch.setattr("sys.stdin.isatty", lambda: isatty)
     monkeypatch.setattr("aaiclick.__main__.setup_api.setup", lambda *, ai, force: calls.append(force))
     monkeypatch.setattr("aaiclick.__main__._render", lambda *a, **k: None)
@@ -515,7 +515,7 @@ def test_setup_prompts_before_recreating_stale_local_db(monkeypatch, capsys):
     _run_setup_main()
 
     assert calls == [True]
-    assert "jobs.tenant_id" in capsys.readouterr().err
+    assert "jobs.error" in capsys.readouterr().err
 
 
 def test_setup_declined_prompt_leaves_database_alone(monkeypatch):

@@ -1,4 +1,4 @@
-"""Internal API over the audit log (superadmin-only at the HTTP layer)."""
+"""Internal API over the audit log (admin-only at the HTTP layer)."""
 
 from __future__ import annotations
 
