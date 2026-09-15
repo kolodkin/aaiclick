@@ -1,0 +1,36 @@
+name: Publish aaiclick-task-api
+
+# Out-of-band Maven Central publish — the de-risk 0.0.x dry-run before the
+# first lockstep release, or a recovery run when a release's Java leg failed.
+# Regular releases publish through publish.yaml on the same tag as the
+# Python package.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Maven version to publish (X.Y.Z, no leading v)"
+        required: true
+        type: string
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate version format
+        run: |
+          if ! echo "${{ inputs.version }}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Error: version '${{ inputs.version }}' does not match X.Y.Z"
+            exit 1
+          fi
+
+  publish:
+    needs: validate
+    uses: ./.github/workflows/_publish-java-reusable.yaml
+    with:
+      version: ${{ inputs.version }}
+    secrets:
+      MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+      MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+      MAVEN_GPG_PRIVATE_KEY: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+      MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}

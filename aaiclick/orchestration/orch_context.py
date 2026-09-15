@@ -26,7 +26,7 @@ from .env import get_db_url
 from .events import register_session_hooks
 from .execution.db_handler import _db_handler_var, create_db_handler, get_db_handler  # noqa: F401
 from .execution.execution_worker_context import get_current_task_info
-from .image_injection import inject_build_tasks, stamp_inherited_image, validate_image_sources
+from .image_injection import inject_build_tasks, stamp_inherited_image, validate_image_sources, validate_jvm_tasks
 from .lifecycle.db_lifecycle import DBLifecycleMessage, DBLifecycleOp, OplogPayload, OplogTablePayload
 from .models import Group, Job, Task, TasksType
 from .oplog_backfill import migrate_table_registry_to_sql
@@ -569,6 +569,7 @@ async def commit_tasks(
     tasks_only = [item for item in all_items if isinstance(item, Task)]
 
     stamp_inherited_image(tasks_only, _current_parent_image_source())
+    validate_jvm_tasks(tasks_only)
 
     async with get_sql_session() as session:
         injected: list[Task] = []
