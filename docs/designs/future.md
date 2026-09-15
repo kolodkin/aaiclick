@@ -9,23 +9,6 @@ Planned work across aaiclick, ordered by priority.
 
 Items deferred until preconditions are met.
 
-## Event Fanout — Beyond Postgres LISTEN/NOTIFY
-
-`GET /api/v0/events` streams change signals fed by `pg_notify` on every
-job/task commit (`docs/designs/frontend.md` — Live updates). Escape hatches,
-should the feeder ever measurably hurt:
-
-- **Redis Pub/Sub** — only if listener count or notification volume becomes a
-  real cost (dozens of hosts, very high event rates). Signals carry no
-  payload, so Postgres's ~8 KB `NOTIFY` limit never bites.
-- **ClickHouse tail** — each API host polls `operation_log` past a watermark:
-  N pollers, no touch on the SQL commit path. But latency is poll-bound and
-  the CH insert is unordered relative to the SQL commit, so a client can
-  refetch before the status write is visible.
-- **Typed per-job events** — every view is job-scoped
-  and refetches the same few queries, so the coarse signal costs nothing
-  today; widen the payload only if a view needs to ignore other jobs' churn.
-
 ## Change Signals — Consumers Beyond the UI
 
 The signal (`aaiclick/orchestration/events`) is "a job, task or group row
