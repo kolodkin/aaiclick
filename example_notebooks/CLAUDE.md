@@ -33,7 +33,7 @@ Project Title
 
 One paragraph — what it does, which aaiclick features it demonstrates.
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kolodkin/aaiclick/blob/main/aaiclick/example_notebooks/<name>/<name>.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kolodkin/aaiclick/blob/main/example_notebooks/<name>/<name>.ipynb)
 ```
 
 Badge URL targets `main` — share `blob/<branch>/...` on feature branches.

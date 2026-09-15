@@ -88,7 +88,7 @@ Prefer the single-await idiom — `await obj.sum().data()`, not `await (await ob
 
 Name materialized results only when they cross task boundaries or you'd want to open them during lineage / oplog inspection — otherwise the default `t_<snowflake>` is fine. Use `scope="job"` so the table outlives the producing task but is cleaned up with the job; `scope="global"` is for results that should survive past the job (rare in example projects).
 
-API summary in `docs/user_guide/object.md` "Lazy Operator Results" (`.as_()` for operators/aggregations; `name=` / `scope=` kwargs on `copy` / `concat` / `join` / `group_by(...).agg`). Canonical examples: `aaiclick/example_projects/basic_lineage/basic_lineage/__init__.py` (`.as_()`) and `cyber_threat_feeds/consolidated.py` (`group_by(...).agg(..., name=..., scope="job")`).
+API summary in `docs/user_guide/object.md` "Lazy Operator Results" (`.as_()` for operators/aggregations; `name=` / `scope=` kwargs on `copy` / `concat` / `join` / `group_by(...).agg`). Canonical examples: `example_projects/basic_lineage/basic_lineage/__init__.py` (`.as_()`) and `cyber_threat_feeds/consolidated.py` (`group_by(...).agg(..., name=..., scope="job")`).
 
 ## Report Output Format
 
