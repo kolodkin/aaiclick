@@ -12,20 +12,18 @@ Items deferred until preconditions are met.
 ## Change Signals — Consumers Beyond the UI
 
 The signal (`aaiclick/orchestration/events`) is "a job, task or group row
-committed", not a UI concept; the SSE stream is merely its first subscriber.
-Next in line:
+committed", not a UI concept. The SSE stream and `cli_wait.wait_for_job` both
+consume it; `SignalTransport.cross_process` marks which transports can carry
+it between processes.
 
-- **`cli_wait.wait_for_job`** — polls job stats on a fixed interval today.
-  It could run the active transport's `feed` and block on
-  `EventBus.subscribe()` instead, re-reading stats only when a signal lands:
-  sub-second reaction, zero idle queries. Keep a slow poll as the fallback,
-  as the browser does. Local mode is the harder case: the CLI is a separate
-  process from a running local server, and `LocalTransport` only sees
-  commits in its own process, so a wait on a job the server is running
-  would need the Postgres transport or the SSE stream over HTTP.
-- **MCP / SDK waiters** — the same subscribe-then-refetch loop serves any
-  in-process caller that blocks on a job; external tools in distributed
-  mode can `LISTEN aaiclick_events` on Postgres directly.
+- **Local mode across processes** — `LocalTransport.cross_process` is `False`:
+  chdb's file lock means jobs run only inside the `local start` server
+  process, so a CLI waiting in another process falls back to polling. Closing
+  that gap needs either the Postgres transport or an SSE client in the CLI.
+- **MCP / SDK waiters** — `wait_for_job` is already the reusable
+  subscribe-then-refetch loop; an in-process caller can await it directly.
+  External tools in distributed mode can `LISTEN aaiclick_events` on Postgres
+  instead.
 
 ## Task Logs — Per-Attempt History in the Log Panel
 
