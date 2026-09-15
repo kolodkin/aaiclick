@@ -18,6 +18,8 @@ from urllib.parse import quote
 import bcrypt
 import jwt
 
+from .models import ROLES, Role
+
 TOKEN_TYPE_ACCESS = "access"
 API_TOKEN_PREFIX = "aaic_"
 API_TOKEN_DISPLAY_CHARS = 12
@@ -36,9 +38,8 @@ class TokenError(Exception):
 
 class AccessClaims(NamedTuple):
     user_id: int
-    superadmin: bool
-    tenants_roles: dict[int, str]
-    """Membership map ``tenant_id -> role`` at mint time."""
+    role: Role
+    """The user's installation-wide role at mint time."""
 
 
 def hash_password(password: str) -> str:
@@ -72,13 +73,11 @@ def api_token_display_prefix(token: str) -> str:
     return token[:API_TOKEN_DISPLAY_CHARS]
 
 
-def encode_access_token(*, user_id: int, superadmin: bool, tenants_roles: dict[int, str], secret: str, ttl: int) -> str:
+def encode_access_token(*, user_id: int, role: Role, secret: str, ttl: int) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": str(user_id),
-        "superadmin": superadmin,
-        # JSON object keys must be strings; decode converts back to int.
-        "tenants_roles": {str(tenant_id): role for tenant_id, role in tenants_roles.items()},
+        "role": role,
         "type": TOKEN_TYPE_ACCESS,
         "iat": now,
         "exp": now + timedelta(seconds=ttl),
@@ -93,12 +92,11 @@ def decode_access_token(token: str, secret: str) -> AccessClaims:
         raise TokenError(str(exc)) from exc
     if payload.get("type") != TOKEN_TYPE_ACCESS:
         raise TokenError("not an access token")
+    role = payload.get("role")
+    if role not in ROLES:
+        raise TokenError("malformed claims")
     try:
-        return AccessClaims(
-            user_id=int(payload["sub"]),
-            superadmin=bool(payload.get("superadmin", False)),
-            tenants_roles={int(tenant_id): role for tenant_id, role in payload.get("tenants_roles", {}).items()},
-        )
+        return AccessClaims(user_id=int(payload["sub"]), role=role)
     except (KeyError, ValueError) as exc:
         raise TokenError("malformed claims") from exc
 
