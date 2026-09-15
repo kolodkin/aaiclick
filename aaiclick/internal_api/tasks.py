@@ -6,11 +6,11 @@ session via the contextvar getter. Returns pydantic view models.
 
 from __future__ import annotations
 
-from sqlmodel import col, select
+from sqlmodel import select
 
 from aaiclick.orchestration.execution import claiming
 from aaiclick.orchestration.logging import read_task_logs
-from aaiclick.orchestration.models import Job, Task
+from aaiclick.orchestration.models import Task
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.view_models import (
     ClearTaskView,
@@ -19,24 +19,13 @@ from aaiclick.orchestration.view_models import (
     clear_to_view,
     task_to_detail,
 )
-from aaiclick.tenancy import get_active_tenant_id
 
 from .errors import NotFound
 
 
 async def _require_visible_task(task_id: int) -> Task:
-    """Load a task, joined to its job so tenancy is inherited in one query.
-
-    A task outside the active tenant reads as missing — no existence leak.
-    """
     async with get_sql_session() as session:
-        task = (
-            await session.execute(
-                select(Task)
-                .join(Job, col(Job.id) == col(Task.job_id))
-                .where(Task.id == task_id, Job.tenant_id == get_active_tenant_id())
-            )
-        ).scalar_one_or_none()
+        task = (await session.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
     if task is None:
         raise NotFound(f"Task not found: {task_id}")
     return task

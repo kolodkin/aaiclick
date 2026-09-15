@@ -5,7 +5,6 @@ from collections.abc import Callable
 from pathlib import Path
 
 from aaiclick.snowflake import get_snowflake_id
-from aaiclick.tenancy import get_active_tenant_id
 
 from ..datetime_utils import utc_now
 from .env import get_default_preservation_mode
@@ -77,7 +76,6 @@ def new_job_row(
     """Build an uncommitted PENDING Job row with a resolved preservation mode."""
     return Job(
         id=get_snowflake_id(),
-        tenant_id=registered.tenant_id if registered is not None else get_active_tenant_id(),
         name=name,
         status=JOB_PENDING,
         run_type=run_type,

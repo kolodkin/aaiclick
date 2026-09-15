@@ -99,7 +99,6 @@ OUT_OF_SCOPE_TABLES: dict[str, str] = {
     "temp-named": make_scoped_table_name(SCOPE_TEMP_NAMED, "orders", snowid=OUT_OF_SCOPE_ID),
     "job": make_scoped_table_name(SCOPE_JOB, "payroll", job_id=OUT_OF_SCOPE_ID),
     "global": make_scoped_table_name(SCOPE_GLOBAL, "sales"),
-    "global-other-tenant": make_scoped_table_name(SCOPE_GLOBAL, "sales", tenant_id=OUT_OF_SCOPE_ID),
 }
 
 
@@ -107,8 +106,8 @@ OUT_OF_SCOPE_TABLES: dict[str, str] = {
 async def test_query_table_rejects_out_of_scope_table(orch_ctx, table):
     """Every scoped-table shape aaiclick creates is rejected when out of graph.
 
-    ClickHouse keeps all tenants' tables in one database, so reaching one of
-    these is a read outside the graph and outside the tenant.
+    ClickHouse keeps every persistent table in one database, so reaching one
+    of these is a read outside the graph.
     """
     toolbox = LineageToolbox(_sample_graph())
     err = await toolbox.query_table(f"SELECT * FROM {table}")
@@ -120,7 +119,7 @@ async def test_query_table_rejects_out_of_scope_table(orch_ctx, table):
 @pytest.mark.parametrize(
     "sql, function",
     [
-        # Reads every tenant's persistent tables in one call.
+        # Reads every persistent table in one call.
         pytest.param("SELECT * FROM merge(currentDatabase(), '^p_')", "merge", id="merge"),
         pytest.param("SELECT * FROM remote('h:9000', 'default', 'p_sales')", "remote", id="remote"),
         pytest.param("SELECT * FROM url('http://x/y', CSV, 'a String')", "url", id="url"),
@@ -133,7 +132,7 @@ async def test_query_table_rejects_table_functions(orch_ctx, sql, function):
 
     Nothing in table position is an identifier at all, so a guard that looks
     for table names sees an empty query. ``merge`` and ``cluster`` reach every
-    tenant in the database; ``url`` and ``file`` reach outside it entirely.
+    table in the database; ``url`` and ``file`` reach outside it entirely.
     """
     toolbox = LineageToolbox(_sample_graph())
     err = await toolbox.query_table(sql)

@@ -36,7 +36,7 @@ async def test_local_runtime_rejects_a_stale_local_db(monkeypatch):
     database that is behind the models. The helper refuses instead."""
     monkeypatch.setattr(lr, "is_local", lambda: True)
     monkeypatch.setattr(lr, "is_setup_done", lambda: True)
-    monkeypatch.setattr(lr, "stale_local_db_reason", lambda: "stale: jobs.tenant_id")
+    monkeypatch.setattr(lr, "stale_local_db_reason", lambda: "stale: jobs.error")
 
     with pytest.raises(RuntimeError, match="--force"):
         async with lr.local_runtime():

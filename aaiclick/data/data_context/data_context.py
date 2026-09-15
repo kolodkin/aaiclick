@@ -23,7 +23,6 @@ from sqlmodel import col, select
 from aaiclick.locks import load_advisory_id, table_insert_lock
 from aaiclick.oplog.oplog_api import oplog_record
 from aaiclick.snowflake import get_snowflake_id
-from aaiclick.tenancy import get_active_tenant_id
 
 from ..models import (
     AAI_ID_COLUMN,
@@ -230,8 +229,10 @@ def get_engine_clause(engine: EngineType, order_by: str = "tuple()") -> str:
 
 _VALID_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
-# Stays clear of ClickHouse's table-name ceiling after any scope prefix —
-# see docs/designs/tenant_rbac.md, "Name length budget".
+# ClickHouse caps table names near ``213 - len(database)`` characters; the
+# widest prefix aaiclick adds is ``j_<19-digit id>_`` (22), so 128 leaves ample
+# room while failing an over-long name at the API boundary instead of deep in
+# ClickHouse.
 MAX_PERSISTENT_NAME_LEN = 128
 
 
@@ -297,7 +298,7 @@ def _build_scoped_table(name: str, scope: NamedScope, *, job_id: int | None = No
     if scope == SCOPE_JOB and job_id is None:
         lifecycle = get_data_lifecycle()
         job_id = lifecycle.current_job_id() if lifecycle is not None else None
-    return make_scoped_table_name(scope, name, job_id=job_id, tenant_id=get_active_tenant_id())
+    return make_scoped_table_name(scope, name, job_id=job_id)
 
 
 async def create_object(
@@ -319,7 +320,7 @@ async def create_object(
               ``"temp_named"`` → ``t_<name>_<snowflake>`` (default; dies with
               the context, like an unnamed temp). ``"job"`` → ``j_<job_id>_<name>``
               (lives only as long as the active orch job; raises if no job is
-              active). ``"global"`` → ``p_<tenant_id>_<name>`` (user-managed, removed only
+              active). ``"global"`` → ``p_<name>`` (user-managed, removed only
               by ``delete_persistent_object()``).
 
     Returns:
@@ -529,7 +530,7 @@ async def create_object_from_value(
               ``"temp_named"`` → ``t_<name>_<snowflake>`` (default; dies with
               the context). ``"job"`` → ``j_<job_id>_<name>`` (lives only as
               long as the active orch job; raises when called from pure
-              ``data_context()``). ``"global"`` → ``p_<tenant_id>_<name>`` (user-managed,
+              ``data_context()``). ``"global"`` → ``p_<name>`` (user-managed,
               removed only by ``delete_persistent_object()``).
         aai_id: When ``True``, add an ``aai_id`` column (``UInt64`` with
               ``DEFAULT generateSnowflakeID()``). Each row gets a unique,
@@ -678,7 +679,7 @@ async def open_object(name: str, scope: PersistentScope = SCOPE_JOB, *, job_id: 
     Args:
         name: Persistent name (without prefix).
         scope: Persistence tier the object was created with — ``"global"`` →
-               looks up ``p_<tenant_id>_<name>``; ``"job"`` → looks up
+               looks up ``p_<name>``; ``"job"`` → looks up
                ``j_<job_id>_<name>``. ``"temp_named"`` is not openable —
                temp tables disappear with their context.
         job_id: The owning job for ``scope="job"``. Defaults to the active
@@ -717,7 +718,7 @@ async def delete_persistent_object(name: str, scope: PersistentScope = SCOPE_JOB
     Args:
         name: Persistent name (without prefix).
         scope: Tier the object was created with — ``"global"`` drops
-               ``p_<tenant_id>_<name>``; ``"job"`` drops ``j_<job_id>_<name>``.
+               ``p_<name>``; ``"job"`` drops ``j_<job_id>_<name>``.
 
     Raises:
         ValueError: If name is invalid.
@@ -749,12 +750,12 @@ async def delete_persistent_objects(
     after: datetime | None = None,
     before: datetime | None = None,
 ) -> list[str]:
-    """Drop the active tenant's persistent tables, filtered by creation time.
+    """Drop persistent tables, filtered by creation time.
 
     Candidates come from ``table_registry`` (see ``list_persistent_tables``),
-    so the purge cannot reach another tenant's tables and the time window is
-    evaluated against the registry's ``created_at`` — not ClickHouse's
-    ``metadata_modification_time``, which chdb reports as the epoch.
+    so the time window is evaluated against the registry's ``created_at`` —
+    not ClickHouse's ``metadata_modification_time``, which chdb reports as the
+    epoch.
 
     Args:
         after: Drop tables created at or after this time (inclusive).
@@ -780,9 +781,8 @@ async def delete_persistent_objects(
 
 
 async def _registered_tables(*predicates) -> list[str]:
-    """The active tenant's CH table names in SQL ``table_registry`` matching
-    ``predicates`` — ownership lives in SQL, and a ClickHouse scan cannot tell
-    one tenant's tables from another's without re-parsing every prefix."""
+    """CH table names in SQL ``table_registry`` matching ``predicates`` —
+    ownership lives in SQL."""
     # Circular dep: orchestration imports the data package at import time,
     # so the registry model and SQL session are resolved at call time
     # (same pattern as aaiclick/data/object/ingest.py::_get_table_schema).
@@ -790,9 +790,7 @@ async def _registered_tables(*predicates) -> list[str]:
     from aaiclick.orchestration.sql_context import get_sql_session
 
     async with get_sql_session() as session:
-        result = await session.execute(
-            select(TableRegistry.table_name).where(TableRegistry.tenant_id == get_active_tenant_id(), *predicates)
-        )
+        result = await session.execute(select(TableRegistry.table_name).where(*predicates))
     return sorted(row[0] for row in result.all())
 
 
@@ -800,7 +798,7 @@ async def list_persistent_tables(
     after: datetime | None = None,
     before: datetime | None = None,
 ) -> list[str]:
-    """List the active tenant's persistent CH table names (``p_*``).
+    """List persistent CH table names (``p_*``).
 
     Args:
         after: Only tables registered at or after this time (inclusive).
@@ -817,7 +815,7 @@ async def list_persistent_tables(
 
 
 async def list_job_tables(job_id: int) -> list[str]:
-    """List the active tenant's CH table names registered under ``job_id``."""
+    """List CH table names registered under ``job_id``."""
     from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry  # Circular dep: see _registered_tables.
 
     return await _registered_tables(
@@ -826,5 +824,5 @@ async def list_job_tables(job_id: int) -> list[str]:
 
 
 async def list_persistent_objects() -> list[str]:
-    """List the active tenant's persistent object names (without prefix)."""
+    """List persistent object names (without prefix)."""
     return [name_from_table(t) for t in await list_persistent_tables()]
