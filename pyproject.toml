@@ -90,6 +90,11 @@ aaiclick = ["py.typed"]
 "aaiclick.orchestration.execution" = ["sql/*.sql"]
 "aaiclick.oplog" = ["migrations/*.sql"]
 "aaiclick.deploy" = ["templates/**/*"]
+# Sample files served over HTTP by the test_insert_from_url fixture. The
+# packaged test suite runs from site-packages, so they must ship in the
+# wheel; a bare glob keeps a newly generated sample format from silently
+# dropping out.
+"aaiclick.url_samples" = ["*"]
 # Vite SPA build output. The directory is gitignored and produced by
 # `npm run build` — release CI builds it before `uv build` so the wheel
 # ships a working /api/v0 + SPA out of the box.
