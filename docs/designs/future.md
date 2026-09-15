@@ -77,7 +77,7 @@ An installation carries no tenant state — see `docs/designs/auth.md` for
 the RBAC it does carry. Tenancy is a Kubernetes-only feature; there is no
 Compose or local-mode equivalent.
 
-Full design: `docs/designs/tenants.md`.
+Full design: `docs/designs/tenants_draft.md`.
 
 **When to revisit**: when a deployment must serve mutually-distrusting
 parties. The earlier metadata-level scheme filtered one shared database by

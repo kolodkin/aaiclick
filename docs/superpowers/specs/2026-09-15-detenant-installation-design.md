@@ -3,7 +3,7 @@ De-tenant the Installation
 
 Remove multi-tenancy from an aaiclick installation. RBAC stays, reduced to
 `admin` / `member` / `viewer`. Fleet-level tenancy moves to a future control
-plane, specified separately in `docs/designs/tenants.md`.
+plane, specified separately in `docs/designs/tenants_draft.md`.
 
 # Motivation
 
@@ -25,7 +25,7 @@ migration chain, and updating every doc that describes tenancy as shipped.
 
 Out of scope: the control plane itself, per-tenant provisioning, central
 identity, and asymmetric token signing. All of it is specified in
-`docs/designs/tenants.md` and indexed from `docs/designs/future.md`.
+`docs/designs/tenants_draft.md` and indexed from `docs/designs/future.md`.
 
 # Role Model
 
@@ -142,7 +142,7 @@ from it.
 
 # Documentation
 
-`docs/designs/tenants.md` and the `docs/designs/future.md` entry pointing
+`docs/designs/tenants_draft.md` and the `docs/designs/future.md` entry pointing
 at it are already written — they carry the control-plane design, including
 the constraint that tenancy is Kubernetes-only, with one namespace per
 tenant and no Compose or local-mode equivalent.
