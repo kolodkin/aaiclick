@@ -25,7 +25,7 @@ ENV_PASSWORD_RESET_TTL = "AAICLICK_PASSWORD_RESET_TTL"
 
 DEFAULT_ACCESS_TTL = 1800
 DEFAULT_REFRESH_TTL = 1209600
-DEFAULT_ADMIN_USERNAME = "superadmin"
+DEFAULT_ADMIN_USERNAME = "admin"
 DEFAULT_PASSWORD_RESET_TTL = 3600
 
 
@@ -60,7 +60,7 @@ def refresh_ttl() -> int:
 
 
 def admin_seed() -> AdminSeed | None:
-    """First-startup superadmin seed; the username defaults to ``superadmin``.
+    """First-startup admin seed; the username defaults to ``admin``.
 
     The password has no default — without ``AAICLICK_ADMIN_PASSWORD`` nothing
     is seeded, so a deployment never ships a well-known credential.

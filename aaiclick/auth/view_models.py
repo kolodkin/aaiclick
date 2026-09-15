@@ -7,7 +7,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from ..log_models import SnowflakeId
-from .models import SCOPE_READ, Role, ScopeLevel, TenantRole
+from .models import ROLE_VIEWER, SCOPE_READ, Role, ScopeLevel
 
 
 class LoginRequest(BaseModel):
@@ -32,52 +32,20 @@ class TokenPair(BaseModel):
     expires_in: int
 
 
-class TenantView(BaseModel):
-    id: SnowflakeId
-    slug: str
-    name: str
-    created_at: datetime
-
-
-class CreateTenantRequest(BaseModel):
-    # Pattern as a field constraint, not a validator, so it reaches the
-    # generated OpenAPI schema the SPA types are built from.
-    slug: str = Field(pattern=r"^[a-z0-9_]+$")
-    name: str
-
-
-class MemberView(BaseModel):
-    user_id: SnowflakeId
-    username: str
-    role: Role
-
-
-class SetMemberRequest(BaseModel):
-    role: TenantRole
-
-
-class TenantRoleView(BaseModel):
-    tenant_id: SnowflakeId
-    slug: str
-    name: str
-    role: Role
-
-
 class MeView(BaseModel):
     """Current principal. ``id``/``username`` are ``None`` in local mode
-    (auth disabled — the synthetic superadmin has no user row)."""
+    (auth disabled — the synthetic admin has no user row)."""
 
     id: SnowflakeId | None
     username: str | None
-    superadmin: bool
+    role: Role
     mfa_enabled: bool = False
-    tenants: list[TenantRoleView]
 
 
 class UserView(BaseModel):
     id: SnowflakeId
     username: str
-    superadmin: bool
+    role: Role
     disabled: bool
     email: str | None
     mfa_enabled: bool
@@ -89,7 +57,7 @@ class CreateUserRequest(BaseModel):
     username: str = Field(min_length=1, max_length=100)
     password: str | None = None
     """``None`` creates a user who can only sign in after redeeming a reset link."""
-    superadmin: bool = False
+    role: Role = ROLE_VIEWER
     email: str | None = None
 
 
@@ -97,8 +65,8 @@ class SetEmailRequest(BaseModel):
     email: str | None
 
 
-class SetSuperadminRequest(BaseModel):
-    superadmin: bool
+class SetRoleRequest(BaseModel):
+    role: Role
 
 
 class SetPasswordRequest(BaseModel):
@@ -119,12 +87,6 @@ class UserListFilter(BaseModel):
     cursor: str | None = None
 
 
-class TenantListFilter(BaseModel):
-    limit: int = 50
-    offset: int = 0
-    cursor: str | None = None
-
-
 class ApiTokenView(BaseModel):
     """A token as listed — never carries the secret."""
 
@@ -132,7 +94,6 @@ class ApiTokenView(BaseModel):
     name: str
     prefix: str
     scope: ScopeLevel
-    tenant_id: SnowflakeId | None
     expires_at: datetime | None
     last_used_at: datetime | None
     revoked_at: datetime | None
@@ -148,8 +109,6 @@ class ApiTokenCreated(ApiTokenView):
 class CreateApiTokenRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     scope: ScopeLevel = SCOPE_READ
-    tenant_id: SnowflakeId | None = None
-    """Required below ``superadmin``; ignored (and stored ``None``) at that level."""
     expires_at: datetime | None = None
 
 
@@ -182,16 +141,10 @@ class PasswordResetLinkView(BaseModel):
 
 
 class InviteUserRequest(BaseModel):
-    """Create a user who sets their own password by redeeming the link.
-
-    Either an instance invite (``superadmin=True``, no tenant) or a tenant
-    invite (``tenant_id`` + ``role``) — never both.
-    """
+    """Create a user who sets their own password by redeeming the link."""
 
     username: str = Field(min_length=1, max_length=100)
-    superadmin: bool = False
-    tenant_id: SnowflakeId | None = None
-    role: TenantRole | None = None
+    role: Role = ROLE_VIEWER
     email: str | None = None
 
 

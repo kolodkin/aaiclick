@@ -1,9 +1,9 @@
 """Invite routes.
 
-Its own router rather than a path under ``/users``: that router is
-superadmin-only at the router level, and a tenant admin may invite into their
-own tenant. The ceiling lives in ``internal_api.invites`` so the CLI and the
-HTTP surface enforce one rule.
+Its own router rather than a path under ``/users``: that router is admin-only
+at the router level and takes ``orch_scope``; an invite only needs a session,
+and the ceiling lives in ``internal_api.invites`` so the CLI and the HTTP
+surface enforce one rule.
 
 ``require_session`` rather than ``require_principal``: an invite creates an
 account, which is exactly the permanent foothold a leaked API token must not be
@@ -26,5 +26,5 @@ router = APIRouter(prefix="/invites", tags=["invites"], dependencies=[Depends(or
 
 @router.post("", response_model=InviteView, status_code=201, responses=problem_responses(403, 404, 409, 422))
 async def invite_user(request: InviteUserRequest, principal: Principal = Depends(require_session)) -> InviteView:
-    """Create a passwordless user, grant their tenant role, and mint their link."""
+    """Create a passwordless user with the given role, and mint their link."""
     return await invites_api.invite(principal.user_id, request)

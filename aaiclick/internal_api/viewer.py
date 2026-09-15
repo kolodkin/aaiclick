@@ -1,8 +1,8 @@
 """Internal API for the viewer: object-scoped queries, saved queries, dashboards.
 
-Every function runs inside ``orch_context(with_ch=True)`` and the active
-tenant. Queries never see a table name: ``open_scoped`` resolves ``(scope,
-object)`` and the Object API builds the SELECT (see docs/designs/viewer.md).
+Every function runs inside ``orch_context(with_ch=True)``. Queries never see
+a table name: ``open_scoped`` resolves ``(scope, object)`` and the Object API
+builds the SELECT (see docs/designs/viewer.md).
 """
 
 from __future__ import annotations
@@ -28,7 +28,6 @@ from aaiclick.data.view_models import ColumnSchema
 from aaiclick.datetime_utils import utc_now
 from aaiclick.orchestration.sql_context import get_sql_session
 from aaiclick.snowflake import get_snowflake_id
-from aaiclick.tenancy import get_active_tenant_id
 from aaiclick.view_models import Deleted, Page
 from aaiclick.viewer.cell_view import cell_view_error
 from aaiclick.viewer.models import DashboardRow, SavedQueryRow
@@ -126,8 +125,8 @@ async def query_object(request: ObjectQueryRequest) -> ObjectQueryResult:
 
 
 async def _find_row(session: AsyncSession, model: type[RowT], name: str) -> RowT | None:
-    """The active tenant's row named ``name`` — the one place the tenant filter lives."""
-    stmt = select(model).where(model.tenant_id == get_active_tenant_id(), model.name == name)
+    """The row named ``name``."""
+    stmt = select(model).where(model.name == name)
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
@@ -155,10 +154,10 @@ def _validate_saved_query(query: SavedQueryIn) -> None:
 
 
 async def list_saved_queries(filter: SavedQueryFilter | None = None) -> Page[SavedQuery]:
-    """Saved queries of the active tenant. ``scope`` matches that scope plus
+    """Saved queries. ``scope`` matches that scope plus
     queries saved without one; ``object`` matches exactly."""
     filter = filter or SavedQueryFilter()
-    predicates = [SavedQueryRow.tenant_id == get_active_tenant_id()]
+    predicates = []
     if filter.scope is not None:
         predicates.append((col(SavedQueryRow.scope) == filter.scope) | (col(SavedQueryRow.scope).is_(None)))
     if filter.object is not None:
@@ -170,12 +169,12 @@ async def list_saved_queries(filter: SavedQueryFilter | None = None) -> Page[Sav
 
 
 async def save_query(query: SavedQueryIn) -> SavedQuery:
-    """Upsert a saved query by ``(tenant, name)``."""
+    """Upsert a saved query by ``name``."""
     _validate_saved_query(query)
     async with get_sql_session() as session:
         row = await _find_row(session, SavedQueryRow, query.name)
         if row is None:
-            row = SavedQueryRow(id=get_snowflake_id(), tenant_id=get_active_tenant_id(), name=query.name, object="")
+            row = SavedQueryRow(id=get_snowflake_id(), name=query.name, object="")
             session.add(row)
         row.scope = query.scope
         row.object = query.object
@@ -217,7 +216,7 @@ def _validate_dashboard(dashboard: DashboardIn) -> None:
 
 
 async def list_dashboards() -> Page[DashboardSummary]:
-    stmt = select(DashboardRow).where(DashboardRow.tenant_id == get_active_tenant_id()).order_by(col(DashboardRow.name))
+    stmt = select(DashboardRow).order_by(col(DashboardRow.name))
     async with get_sql_session() as session:
         rows = (await session.execute(stmt)).scalars().all()
     return Page[DashboardSummary](
@@ -238,14 +237,13 @@ async def get_dashboard(name: str) -> Dashboard:
 
 
 async def save_dashboard(dashboard: DashboardIn) -> Dashboard:
-    """Upsert a dashboard by ``(tenant, name)``."""
+    """Upsert a dashboard by ``name``."""
     _validate_dashboard(dashboard)
     async with get_sql_session() as session:
         row = await _find_row(session, DashboardRow, dashboard.name)
         if row is None:
             row = DashboardRow(
                 id=get_snowflake_id(),
-                tenant_id=get_active_tenant_id(),
                 name=dashboard.name,
                 scope="",
                 html="",

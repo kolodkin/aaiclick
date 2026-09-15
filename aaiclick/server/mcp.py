@@ -18,9 +18,8 @@ inside ``local_runtime()``'s outer context — all consistent.
 commands and run without an orchestration context, matching the CLI.
 
 Every tool carries exactly one RBAC tag naming the level on the scope
-ladder it needs — ``read``, ``write`` (member-level saves), ``admin``
-(tenant mutations), or ``superadmin`` (instance operations) — enforced per
-call and used to filter ``tools/list`` by ``McpRbacMiddleware``
+ladder it needs — ``read``, ``write`` (member-level saves), or ``admin``
+(everything else that mutates or administers) — enforced per call and used to filter ``tools/list`` by ``McpRbacMiddleware``
 (``server/mcp_rbac.py``).
 
 Mounted on the FastAPI app in ``aaiclick.server.app``; the module-level
@@ -87,7 +86,7 @@ from aaiclick.viewer.view_models import (
     SavedQueryIn,
 )
 
-from .mcp_rbac import TAG_ADMIN, TAG_READ, TAG_SUPERADMIN, TAG_WRITE, McpRbacMiddleware
+from .mcp_rbac import TAG_ADMIN, TAG_READ, TAG_WRITE, McpRbacMiddleware
 
 
 @asynccontextmanager
@@ -211,14 +210,14 @@ async def list_execution_workers(filter: ExecutionWorkerFilter | None = None) ->
         return await execution_workers_api.list_execution_workers(filter)
 
 
-@mcp.tool(tags={TAG_SUPERADMIN})
+@mcp.tool(tags={TAG_ADMIN})
 async def start_execution_worker(request: StartExecutionWorkerRequest | None = None) -> None:
     """Spawn a detached worker process (distributed mode only; errors in local mode)."""
     async with orch_context(with_ch=False):
         await execution_workers_api.start_execution_worker(request)
 
 
-@mcp.tool(tags={TAG_SUPERADMIN})
+@mcp.tool(tags={TAG_ADMIN})
 async def stop_execution_worker(execution_worker_id: int) -> ExecutionWorkerView:
     """Request a worker to stop gracefully after its current task."""
     async with orch_context(with_ch=False):
@@ -297,19 +296,19 @@ async def get_table_schema(table: str, scope_tables: list[str]) -> TableSchema:
 # --- setup ------------------------------------------------------------
 
 
-@mcp.tool(tags={TAG_SUPERADMIN})
+@mcp.tool(tags={TAG_ADMIN})
 def setup(ai: bool = False) -> SetupResult:
     """Run environment setup — filesystem, SQL migrations, (optionally) AI deps."""
     return setup_api.setup(ai=ai)
 
 
-@mcp.tool(tags={TAG_SUPERADMIN})
+@mcp.tool(tags={TAG_ADMIN})
 def migrate(action: MigrationAction, revision: str | None = None) -> MigrationResult:
     """Run an alembic migration subcommand."""
     return setup_api.migrate(action, revision)
 
 
-@mcp.tool(tags={TAG_SUPERADMIN})
+@mcp.tool(tags={TAG_ADMIN})
 def bootstrap_ollama(
     model: str,
     base_url: str = OLLAMA_BASE_URL,
@@ -352,7 +351,7 @@ async def delete_saved_query(name: str) -> Deleted:
 
 @mcp.tool(tags={TAG_READ})
 async def list_dashboards() -> Page[DashboardSummary]:
-    """Dashboards of the active tenant."""
+    """Saved dashboards."""
     async with orch_context(with_ch=True):
         return await viewer_api.list_dashboards()
 

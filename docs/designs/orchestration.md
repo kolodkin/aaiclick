@@ -96,8 +96,8 @@ throwaway in-memory database from the same `create_all` and diffing the real
 one against it, so the comparison covers everything the models materialise:
 tables, columns and their types, indexes, unique constraints, foreign keys.
 The two halves have different remedies — `missing_local_tables` is added by a
-plain `create_all`, while `stale_local_db_reason` (a table in the wrong shape,
-or a default tenant predating the id move) means recreating the database,
+plain `create_all`, while `stale_local_db_reason` (a table in the wrong shape)
+means recreating the database,
 since SQLite cannot `ALTER` its way there.
 
 What this still cannot see is anything a revision would do that `create_all`

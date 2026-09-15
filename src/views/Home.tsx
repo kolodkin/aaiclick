@@ -30,7 +30,7 @@ const ACCOUNT: Cmd[] = [
 ];
 
 const ADMIN: Cmd[] = [
-  { code: "@users", desc: "Manage users — create, superadmin, disable, reset password.", cmd: "@users" },
+  { code: "@users", desc: "Manage users — create, set role, disable, reset password.", cmd: "@users" },
   { code: "@audit", desc: "Request audit log — who called what, when.", cmd: "@audit" },
 ];
 
@@ -59,7 +59,7 @@ export function Home({ onPrompt }: { onPrompt: (v: string) => void }) {
       <CmdList items={ACTIONS} onPrompt={onPrompt} />
       <div className="group-label">Account</div>
       <CmdList items={ACCOUNT} onPrompt={onPrompt} />
-      {me?.superadmin && (
+      {me?.role === "admin" && (
         <>
           <div className="group-label">Administration</div>
           <CmdList items={ADMIN} onPrompt={onPrompt} />

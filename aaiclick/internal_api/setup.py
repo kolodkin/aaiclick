@@ -22,12 +22,11 @@ from pathlib import Path
 from typing import NamedTuple
 
 from alembic import command
-from sqlalchemy import create_engine, insert, inspect, select
-from sqlalchemy.engine import Connection, Engine, make_url
+from sqlalchemy import create_engine, inspect
+from sqlalchemy.engine import Connection, make_url
 
 import aaiclick.audit.models  # noqa: F401  # register audit_log with SQLModel.metadata
 from aaiclick.ai.ollama import bootstrap_ollama, get_configured_model
-from aaiclick.auth.models import Tenant
 from aaiclick.backend import (
     get_ch_url,
     get_root,
@@ -37,12 +36,10 @@ from aaiclick.backend import (
     is_sqlite,
 )
 from aaiclick.data.data_context.chdb_client import get_chdb_data_path, get_shared_session
-from aaiclick.datetime_utils import utc_now
 from aaiclick.oplog.migrate import ch_status_standalone, ch_upgrade_standalone
 from aaiclick.orchestration.env import get_db_url
 from aaiclick.orchestration.migrate import get_alembic_config
 from aaiclick.orchestration.models import SQLModel
-from aaiclick.tenancy import DEFAULT_TENANT_ID, DEFAULT_TENANT_SLUG
 from aaiclick.view_models import (
     MIGRATE_CURRENT,
     MIGRATE_DOWNGRADE,
@@ -59,18 +56,6 @@ from aaiclick.view_models import (
 )
 
 from .errors import Invalid
-
-
-def _seed_default_tenant(engine: Engine) -> None:
-    """Insert the default tenant (fixed id) if missing — idempotent re-run."""
-    with engine.begin() as conn:
-        exists = conn.execute(select(Tenant.id).where(Tenant.id == DEFAULT_TENANT_ID)).first()
-        if exists is None:
-            conn.execute(
-                insert(Tenant).values(
-                    id=DEFAULT_TENANT_ID, slug=DEFAULT_TENANT_SLUG, name=DEFAULT_TENANT_SLUG, created_at=utc_now()
-                )
-            )
 
 
 def is_setup_done() -> bool:
@@ -195,22 +180,6 @@ def _drift(conn: Connection) -> LocalDbDrift:
     return LocalDbDrift(missing_tables, mismatched)
 
 
-def _old_default_tenant(conn: Connection) -> int | None:
-    """The id of a default-tenant row predating the current ``DEFAULT_TENANT_ID``.
-
-    The id moved once (to ``1 << 62``), and ``_seed_default_tenant`` looks the
-    row up by id — so against an older database it inserts a second row and
-    trips the ``slug`` unique constraint. The id is not just a key: it is
-    written into every ``tenant_id`` column and into ClickHouse table names
-    (``p_<tenant_id>_<name>``), so the remedy is to recreate, not to re-point
-    the row.
-    """
-    if "tenants" not in inspect(conn).get_table_names():
-        return None
-    found = conn.execute(select(Tenant.id).where(Tenant.slug == DEFAULT_TENANT_SLUG)).scalar()
-    return found if found is not None and found != DEFAULT_TENANT_ID else None
-
-
 def stale_local_db() -> list[str]:
     """Everything an existing local table lacks, against a reference build.
 
@@ -237,8 +206,7 @@ def stale_local_db_reason(*, limit: int = 5) -> str | None:
     """Why the local SQLite database cannot be reused, or ``None`` when it can.
 
     The one question every caller asks before continuing against the database
-    it found — shape (missing columns) and seeded content (a default tenant
-    from before the id moved) answered over a single connection.
+    it found — is its shape current? — answered over a single connection.
     """
     with _local_db_connection() as conn:
         if conn is None:
@@ -250,8 +218,6 @@ def stale_local_db_reason(*, limit: int = 5) -> str | None:
             if len(mismatched) > limit:
                 shown += f" and {len(mismatched) - limit} more"
             detail = f"is missing {len(mismatched)} item(s) added since: {shown}"
-        elif (old_id := _old_default_tenant(conn)) is not None:
-            detail = f"carries default tenant {old_id}, not {DEFAULT_TENANT_ID}"
     if detail is None:
         return None
     return f"{_local_db_path()} was created by an older version of aaiclick: it {detail}. {_RECREATE_TAIL}"
@@ -280,8 +246,7 @@ STALE_DB_REMEDY = "Re-run `aaiclick setup --force` to recreate it."
 def _reset_stale_local_db(*, force: bool) -> bool:
     """Delete the local SQLite DB when its schema predates the current models.
 
-    Stale means either shape or seeded content is behind the models — see
-    ``stale_local_db_reason``. Returns True when the database was removed.
+    Stale means the shape is behind the models — see ``stale_local_db_reason``. Returns True when the database was removed.
     Raises ``Invalid`` when it is stale and ``force`` is not set, so no caller
     continues against a half-upgraded database.
     """
@@ -343,7 +308,6 @@ def setup(*, ai: bool = False, force: bool = False) -> SetupResult:
         recreated = _reset_stale_local_db(force=force)
         engine = create_engine(_sync_db_url() or db_url)
         SQLModel.metadata.create_all(engine)
-        _seed_default_tenant(engine)
         engine.dispose()
         detail = f"{db_url} (recreated — schema predated this version)" if recreated else db_url
         steps.append(SetupStep(name="sqlite", status="ok", detail=detail))

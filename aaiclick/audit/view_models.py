@@ -13,7 +13,6 @@ class AuditEntryView(BaseModel):
     user_id: SnowflakeId | None
     username: str | None
     auth_kind: str
-    tenant_id: SnowflakeId | None
     method: str
     path: str
     action: str | None

@@ -8,11 +8,11 @@ from ..conftest import bearer
 def admin() -> dict[str, str]:
     """Minted per call, never at import: ``bearer`` signs a 60-second JWT, and a
     module-level constant expires before a full-suite run reaches this file."""
-    return bearer(1, superadmin=True)
+    return bearer(1, role="admin")
 
 
 def viewer() -> dict[str, str]:
-    return bearer(2, tenants_roles={9: "admin"})
+    return bearer(2, role="viewer")
 
 
 async def test_admin_can_create_user(orch_ctx, app_client, enabled):
@@ -53,3 +53,11 @@ async def test_get_enable_and_email_routes(orch_ctx, app_client, enabled):
     )
     assert mail.status_code == 200 and mail.json()["email"] == "c@example.com"
     assert (await app_client.get(f"{API_PREFIX}/users/0", headers=admin())).status_code == 404
+
+
+async def test_admin_sets_a_role(orch_ctx, app_client, enabled):
+    created = await users.create_user(CreateUserRequest(username="dan", password="pw"))
+    res = await app_client.put(f"{API_PREFIX}/users/{created.id}/role", json={"role": "admin"}, headers=admin())
+    assert res.status_code == 200 and res.json()["role"] == "admin"
+    bad = await app_client.put(f"{API_PREFIX}/users/{created.id}/role", json={"role": "superadmin"}, headers=admin())
+    assert bad.status_code == 422

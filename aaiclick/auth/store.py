@@ -14,14 +14,12 @@ from ..datetime_utils import utc_now
 from ..orchestration.orch_context import get_sql_session
 from ..snowflake import get_snowflake_id
 from .models import (
+    ROLE_VIEWER,
     ApiToken,
     PasswordResetToken,
     RefreshToken,
     Role,
     ScopeLevel,
-    Tenant,
-    TenantMembership,
-    TenantRole,
     User,
 )
 
@@ -45,10 +43,6 @@ class UsernameTaken(ValueError):
     """A user with this username already exists."""
 
 
-class SlugTaken(ValueError):
-    """A tenant with this slug already exists."""
-
-
 class UserNotFound(ValueError):
     """No user matches the given id/username."""
 
@@ -61,14 +55,14 @@ async def create_user(
     *,
     username: str,
     password_hash: str | None,
-    superadmin: bool = False,
+    role: Role = ROLE_VIEWER,
     email: str | None = None,
 ) -> User:
     user = User(
         id=get_snowflake_id(),
         username=username,
         password_hash=password_hash,
-        superadmin=superadmin,
+        role=role,
         email=email,
     )
     async with get_sql_session() as session:
@@ -100,8 +94,8 @@ async def has_users() -> bool:
         return result.first() is not None
 
 
-async def set_superadmin(user_id: int, superadmin: bool) -> User:
-    return await _update_user(user_id, superadmin=superadmin)
+async def set_role(user_id: int, role: Role) -> User:
+    return await _update_user(user_id, role=role)
 
 
 async def set_disabled(user_id: int, disabled: bool) -> User:
@@ -131,113 +125,6 @@ async def _update_user(user_id: int, **fields) -> User:
         await session.commit()
         await session.refresh(user)
     return user
-
-
-async def create_tenant(*, slug: str, name: str) -> Tenant:
-    tenant = Tenant(id=get_snowflake_id(), slug=slug, name=name)
-    async with get_sql_session() as session:
-        existing = await session.execute(select(Tenant).where(Tenant.slug == slug))
-        if existing.scalar_one_or_none() is not None:
-            raise SlugTaken(f"tenant slug '{slug}' already exists")
-        session.add(tenant)
-        await session.commit()
-        await session.refresh(tenant)
-    return tenant
-
-
-async def get_tenant_by_id(tenant_id: int) -> Tenant | None:
-    async with get_sql_session() as session:
-        result = await session.execute(select(Tenant).where(Tenant.id == tenant_id))
-        return result.scalar_one_or_none()
-
-
-async def get_tenant_by_slug(slug: str) -> Tenant | None:
-    async with get_sql_session() as session:
-        result = await session.execute(select(Tenant).where(Tenant.slug == slug))
-        return result.scalar_one_or_none()
-
-
-async def set_membership(*, tenant_id: int, user_id: int, role: TenantRole) -> TenantMembership:
-    """Add a user to a tenant, or update their role if already a member."""
-    async with get_sql_session() as session:
-        existing = (
-            await session.execute(
-                select(TenantMembership).where(
-                    TenantMembership.tenant_id == tenant_id, TenantMembership.user_id == user_id
-                )
-            )
-        ).scalar_one_or_none()
-        row = existing or TenantMembership(id=get_snowflake_id(), tenant_id=tenant_id, user_id=user_id, role=role)
-        row.role = role
-        session.add(row)
-        await session.commit()
-        await session.refresh(row)
-    return row
-
-
-async def get_membership(*, tenant_id: int, user_id: int) -> TenantMembership | None:
-    async with get_sql_session() as session:
-        result = await session.execute(
-            select(TenantMembership).where(TenantMembership.tenant_id == tenant_id, TenantMembership.user_id == user_id)
-        )
-        return result.scalar_one_or_none()
-
-
-async def remove_membership(*, tenant_id: int, user_id: int) -> bool:
-    """Remove a user from a tenant; True if a row was deleted."""
-    async with get_sql_session() as session:
-        row = (
-            await session.execute(
-                select(TenantMembership).where(
-                    TenantMembership.tenant_id == tenant_id, TenantMembership.user_id == user_id
-                )
-            )
-        ).scalar_one_or_none()
-        if row is None:
-            return False
-        await session.delete(row)
-        await session.commit()
-    return True
-
-
-async def list_memberships_for_user(user_id: int) -> list[TenantMembership]:
-    async with get_sql_session() as session:
-        result = await session.execute(select(TenantMembership).where(TenantMembership.user_id == user_id))
-        return list(result.scalars().all())
-
-
-async def tenant_roles_for_user(user_id: int) -> dict[int, Role]:
-    """Membership map ``tenant_id -> role`` — the shape the access JWT and
-    ``Principal`` carry."""
-    return {m.tenant_id: cast(Role, m.role) for m in await list_memberships_for_user(user_id)}
-
-
-async def list_user_tenants(user_id: int) -> list[tuple[TenantMembership, Tenant]]:
-    """Every tenant the user belongs to, paired with the membership role.
-
-    Joined rather than membership-then-lookup: ``/auth/me`` runs this on every
-    session bootstrap, and the per-membership round trip was the cost.
-    """
-    async with get_sql_session() as session:
-        result = await session.execute(
-            select(TenantMembership, Tenant)
-            .join(Tenant, col(Tenant.id) == col(TenantMembership.tenant_id))
-            .where(TenantMembership.user_id == user_id)
-            .order_by(col(Tenant.slug).asc())
-        )
-        return [(membership, tenant) for membership, tenant in result.all()]
-
-
-async def list_tenant_members(tenant_id: int) -> list[tuple[TenantMembership, User]]:
-    """Every member of a tenant, paired with their user row (single join)."""
-    async with get_sql_session() as session:
-        result = await session.execute(
-            select(TenantMembership, User)
-            .join(User, col(User.id) == col(TenantMembership.user_id))
-            .where(TenantMembership.tenant_id == tenant_id)
-            .order_by(col(User.username).asc())
-        )
-        return [(membership, user) for membership, user in result.all()]
 
 
 async def create_refresh_token(*, user_id: int, token_hash: str, ttl: int) -> RefreshToken:
@@ -318,8 +205,6 @@ async def _stamp_refresh(token_id: int, field: str) -> None:
 class ResolvedApiToken(NamedTuple):
     token: ApiToken
     user: User
-    role: TenantRole | None
-    """The owner's live role in the token's tenant; ``None`` when untenanted or no longer a member."""
 
 
 async def create_api_token(
@@ -329,7 +214,6 @@ async def create_api_token(
     prefix: str,
     token_hash: str,
     scope: ScopeLevel,
-    tenant_id: int | None,
     expires_at: datetime | None,
 ) -> ApiToken:
     return await _insert(
@@ -340,7 +224,6 @@ async def create_api_token(
             prefix=prefix,
             token_hash=token_hash,
             scope=scope,
-            tenant_id=tenant_id,
             expires_at=expires_at,
         )
     )
@@ -369,8 +252,8 @@ async def get_active_api_token(token_hash: str) -> ApiToken | None:
 
 async def resolve_api_token(token_hash: str) -> ResolvedApiToken | None:
     """Everything a request needs to authenticate an API token, in one session:
-    the active token, its owner, and the owner's live role in the token's own
-    tenant. Also stamps ``last_used_at`` (throttled) without a further session."""
+    the active token and its owner. Also stamps ``last_used_at`` (throttled)
+    without a further session."""
     now = utc_now()
     async with get_sql_session() as session:
         pair = (
@@ -385,22 +268,11 @@ async def resolve_api_token(token_hash: str) -> ResolvedApiToken | None:
         token, user = pair
         if not _token_active(token, now):
             return None
-        role: TenantRole | None = None
-        if token.tenant_id is not None:
-            membership = (
-                await session.execute(
-                    select(TenantMembership).where(
-                        TenantMembership.user_id == user.id,
-                        TenantMembership.tenant_id == token.tenant_id,
-                    )
-                )
-            ).scalar_one_or_none()
-            role = cast(TenantRole, membership.role) if membership is not None else None
         if token.last_used_at is None or now - token.last_used_at >= API_TOKEN_LAST_USED_GRANULARITY:
             token.last_used_at = now
             session.add(token)
             await session.commit()
-    return ResolvedApiToken(token=token, user=user, role=role)
+    return ResolvedApiToken(token=token, user=user)
 
 
 async def revoke_api_token(token_id: int, *, user_id: int) -> bool:

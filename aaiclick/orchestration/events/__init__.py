@@ -7,7 +7,7 @@ in the single local-mode process, :mod:`.postgres` rides ``NOTIFY`` /
 ``LISTEN`` across hosts — chosen by :func:`get_transport`. The browser
 invalidates its query cache on each signal and REST supplies authoritative
 state, so a burst of writes collapses into one pending signal per
-subscriber and nothing tenant-specific ever crosses the channel.
+subscriber and nothing user-specific ever crosses the channel.
 """
 
 from .bus import EventBus, Subscription, event_bus, get_event_bus

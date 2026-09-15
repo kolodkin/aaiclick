@@ -12,7 +12,6 @@ from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.orch_context import task_scope
 from aaiclick.snowflake import get_snowflake_id
-from aaiclick.tenancy import DEFAULT_TENANT_ID, active_tenant
 from aaiclick.view_models import ObjectFilter, Page, PurgeObjectsRequest
 
 from . import errors, objects
@@ -20,7 +19,7 @@ from . import errors, objects
 _SAMPLE_TASK = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
 
 # orch supplies the registry read path; its per-test reset drops every CH
-# table and SQL row — all tenants included — so no extra sweep is needed.
+# table and SQL row — every registered table — so no extra sweep is needed.
 pytestmark = pytest.mark.usefixtures("orch_ctx")
 
 
@@ -81,7 +80,7 @@ async def test_get_object_returns_detail_with_schema():
 
     assert isinstance(detail, ObjectDetail)
     assert detail.name == "detail_target"
-    assert detail.table == f"p_{DEFAULT_TENANT_ID}_detail_target"
+    assert detail.table == "p_detail_target"
     assert detail.scope == "global"
     col_names = list(detail.table_schema.columns)
     assert "value" in col_names
@@ -110,37 +109,6 @@ async def test_delete_object_missing_is_idempotent():
 async def test_purge_objects_requires_time_filter():
     with pytest.raises(errors.Invalid):
         await objects.purge_objects(PurgeObjectsRequest())
-
-
-async def test_list_objects_is_tenant_scoped():
-    with active_tenant(7):
-        await create_object_from_value([1], name="seven", scope="global")
-    with active_tenant(8):
-        await create_object_from_value([2], name="eight", scope="global")
-
-    with active_tenant(7):
-        page = await objects.list_objects()
-        assert [item.name for item in page.items] == ["seven"]
-        # Metadata must resolve through the tenant-prefixed table name.
-        assert page.items[0].row_count == 1
-
-
-async def test_get_object_across_tenants_is_not_found():
-    """404, never 403 — a cross-tenant get must not leak existence."""
-    with active_tenant(7):
-        await create_object_from_value([1], name="seven", scope="global")
-
-    with active_tenant(8):
-        with pytest.raises(errors.NotFound):
-            await objects.get_object("seven")
-
-
-async def test_object_detail_carries_row_count_for_a_non_default_tenant():
-    """Metadata lookup must use the tenant-prefixed table name."""
-    with active_tenant(7):
-        await create_object_from_value([1, 2, 3], name="seven", scope="global")
-        detail = await objects.get_object("seven")
-        assert detail.row_count == 3
 
 
 async def test_list_objects_job_scope_by_ref():

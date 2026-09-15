@@ -91,7 +91,6 @@ class AuditMiddleware:
                         user_id=audit.principal.user_id if audit.principal else None,
                         username=audit.username,
                         auth_kind=audit.principal.kind if audit.principal else AUTH_KIND_NONE,
-                        tenant_id=audit.tenant_id,
                         method=method,
                         path=path,
                         action=audit.action,

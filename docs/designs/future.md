@@ -22,7 +22,7 @@ should the feeder ever measurably hurt:
   N pollers, no touch on the SQL commit path. But latency is poll-bound and
   the CH insert is unordered relative to the SQL commit, so a client can
   refetch before the status write is visible.
-- **Typed per-job events with tenant filtering** — every view is job-scoped
+- **Typed per-job events** — every view is job-scoped
   and refetches the same few queries, so the coarse signal costs nothing
   today; widen the payload only if a view needs to ignore other jobs' churn.
 
@@ -66,17 +66,26 @@ Shape, following Airflow's per-try log selector:
     Airflow screenshots to follow as the reference for layout and wording — do
     not settle the UI details before then.
 
-## Tenant RBAC — Remaining Phases
+## Tenants — Kubernetes Control Plane
 
-Phases 1 (backend core) and 2 (object tenancy) are implemented —
-`docs/designs/tenant_rbac.md`. Remaining:
+Multi-tenancy as a fleet layer rather than a filtered column: a control
+plane that provisions one full aaiclick installation per tenant, each in
+its own Kubernetes namespace, with central identity and direct routing to
+each tenant's own ingress.
 
-- **Phase 3 — SPA**: tenant switcher sending `X-Tenant-Id`, membership admin
-  UI, superadmin-gated controls.
+An installation carries no tenant state — see `docs/designs/auth.md` for
+the RBAC it does carry. Tenancy is a Kubernetes-only feature; there is no
+Compose or local-mode equivalent.
+
+Full design: `docs/designs/tenants_draft.md`.
+
+**When to revisit**: when a deployment must serve mutually-distrusting
+parties. The earlier metadata-level scheme filtered one shared database by
+an active tenant and never provided that, which is why it was removed.
 
 ## Password Reset by Email
 
-A superadmin mints reset links today and hands them over out of band
+An admin mints reset links today and hands them over out of band
 (`docs/designs/auth.md` — Password Reset). A self-service "email me a link"
 flow needs an SMTP sender plus a public request endpoint that always answers
 `204`, so it never discloses whether an account exists. `users.email` is
@@ -112,8 +121,8 @@ on, so every `REFERENCES` clause in the local test schema is declared and never
 checked. Postgres enforces them always. The local half of the CI matrix is
 therefore structurally unable to catch a referential-integrity bug, and half of
 the 16 jobs are local — the scope-ladder branch shipped a test helper that
-inserted a membership for a tenant with no `tenants` row, which 2595 local
-tests passed straight over and only `Internal API dist` rejected.
+inserted a child row for a parent with no row, which 2595 local tests passed
+straight over and only `Internal API dist` rejected.
 
 The fix is a `connect` event listener on the test engine issuing
 `PRAGMA foreign_keys=ON`. The cost is unknown until tried: turning enforcement
@@ -170,15 +179,16 @@ See `viewer.md` for the shipped design.
   `scope`, a SQL text, and a map of the object names it uses
   (`{"o": "orders", "c": "customers"}`); the user writes `SELECT … FROM o
   JOIN c ON …` and the server prepends one CTE per entry (`WITH o AS (SELECT *
-  FROM p_7_orders), c AS (…)`), so the SQL still never names a table and the
-  tenant / scope rules stay server-side. Verified on chdb that such CTEs
+  FROM p_orders), c AS (…)`), so the SQL still never names a table and the
+  scope rules stay server-side. Verified on chdb that such CTEs
   resolve inside the pagination wrapper and alongside the user's own `WITH`.
   Deferred until single-object queries prove insufficient.
 - **Agent push to the browser**: QueryView's remote channel (an agent pushes a
   query or dashboard into a live tab) has no aaiclick equivalent yet; it
   needs the SSE endpoint planned above.
 - **Git sync and YAML export** for saved queries and dashboards, as QueryView
-  has (QueryView's workspaces map to tenants here, so nothing else is needed).
+  has (QueryView's workspaces have no aaiclick counterpart — one installation
+  is one workspace).
 - **`options_sql` params**: the kernel's `params:` block accepts a query
   whose first column feeds a dropdown; aaiclick has no free-SQL endpoint, so
   `QueryPanel` renders static `options` only.

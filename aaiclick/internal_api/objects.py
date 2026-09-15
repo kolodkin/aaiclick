@@ -66,7 +66,7 @@ async def list_objects(filter: ObjectFilter | None = None) -> Page[ObjectView]:
     """Return a page of persistent objects ordered by name.
 
     ``filter.job`` (id, or name → latest run) lists that job's ``j_<id>_*``
-    tables; otherwise ``scope=None`` / ``"global"`` lists the tenant's ``p_*``
+    tables; otherwise ``scope=None`` / ``"global"`` lists the ``p_*``
     tables. Any other scope raises ``Invalid``.
     """
     filter = filter or ObjectFilter()

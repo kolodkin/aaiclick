@@ -14,103 +14,55 @@ from typing import Any
 import httpx
 import pytest
 
-from aaiclick.auth import store
-from aaiclick.auth.models import ROLE_ADMIN, ROLE_MEMBER, SCOPE_SUPERADMIN, SCOPE_WRITE
+from aaiclick.auth.models import ROLE_ADMIN, ROLE_MEMBER, SCOPE_ADMIN, SCOPE_WRITE, Role, ScopeLevel
 from aaiclick.auth.view_models import CreateApiTokenRequest, CreateUserRequest
 from aaiclick.internal_api import api_tokens, users
-from aaiclick.internal_api.errors import Forbidden, Invalid
+from aaiclick.internal_api.errors import Forbidden
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
-from aaiclick.tenancy import DEFAULT_TENANT_ID, active_tenant
 
 from .auth import Principal, PrincipalAuthMiddleware
 from .mcp import mcp
-from .mcp_rbac import TAG_ADMIN, TAG_READ, TAG_SUPERADMIN, TAG_WRITE, authorize_tool
+from .mcp_rbac import TAG_ADMIN, TAG_READ, TAG_WRITE, authorize_tool
 
 MCP_HEADERS = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
 
 
-def _principal(*, superadmin=False, tenants_roles=None, scope="superadmin"):
-    return Principal(user_id=5, superadmin=superadmin, tenants_roles=tenants_roles or {}, scope=scope, kind="token")
+def _principal(*, role: Role = ROLE_ADMIN, scope: ScopeLevel = SCOPE_ADMIN):
+    return Principal(user_id=5, role=role, scope=scope, kind="token")
 
 
 # --- authorize_tool ------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    "principal, tags, header, expect",
+    ("principal", "tags", "expect"),
     [
-        pytest.param(
-            _principal(tenants_roles={7: "viewer"}, scope="read"), {TAG_READ}, "7", "ok", id="read-token-reads"
-        ),
-        pytest.param(
-            _principal(tenants_roles={7: "viewer"}, scope="read"), {TAG_WRITE}, "7", Forbidden, id="read-token-no-write"
-        ),
-        pytest.param(
-            _principal(tenants_roles={7: "member"}, scope="write"), {TAG_WRITE}, "7", "ok", id="member-writes"
-        ),
-        pytest.param(
-            _principal(tenants_roles={7: "member"}, scope="write"),
-            {TAG_ADMIN},
-            "7",
-            Forbidden,
-            id="write-token-no-admin",
-        ),
-        pytest.param(
-            _principal(tenants_roles={7: "admin"}, scope="admin"), {TAG_ADMIN}, "7", "ok", id="admin-token-admins"
-        ),
-        pytest.param(
-            # A token stands on its own scope: the mint ceiling capped it, and a
-            # later demotion does not shrink it — revoking does.
-            _principal(tenants_roles={7: "member"}, scope="admin"),
-            {TAG_ADMIN},
-            "7",
-            "ok",
-            id="token-scope-stands-alone",
-        ),
-        pytest.param(
-            _principal(superadmin=True, scope="superadmin"), {TAG_SUPERADMIN}, None, "ok", id="superadmin-instance"
-        ),
-        pytest.param(
-            _principal(tenants_roles={7: "admin"}, scope="admin"),
-            {TAG_SUPERADMIN},
-            "7",
-            Forbidden,
-            id="admin-not-superadmin",
-        ),
-        pytest.param(
-            _principal(superadmin=True, scope="superadmin"),
-            {TAG_WRITE},
-            None,
-            Invalid,
-            id="superadmin-must-name-tenant",
-        ),
-        pytest.param(
-            _principal(tenants_roles={7: "admin"}, scope="admin"), {TAG_READ}, "8", Forbidden, id="other-tenant"
-        ),
+        pytest.param(_principal(role="viewer", scope="read"), {TAG_READ}, "ok", id="read-token-reads"),
+        pytest.param(_principal(role="viewer", scope="read"), {TAG_WRITE}, Forbidden, id="read-token-no-write"),
+        pytest.param(_principal(role="member", scope="write"), {TAG_WRITE}, "ok", id="member-writes"),
+        pytest.param(_principal(role="member", scope="write"), {TAG_ADMIN}, Forbidden, id="member-no-admin"),
+        pytest.param(_principal(role="admin", scope="admin"), {TAG_ADMIN}, "ok", id="admin-token-admins"),
+        pytest.param(_principal(role="admin", scope="admin"), {TAG_READ}, "ok", id="admin-reads-too"),
     ],
 )
-def test_authorize_tool_matrix(enabled, principal, tags, header, expect):
+def test_authorize_tool_matrix(enabled, principal, tags, expect):
     if expect == "ok":
-        tenant_id = authorize_tool(principal, tags, header)
-        assert tenant_id == (None if TAG_SUPERADMIN in tags else int(header))
+        authorize_tool(principal, tags)
     else:
         with pytest.raises(expect):
-            authorize_tool(principal, tags, header)
+            authorize_tool(principal, tags)
 
 
-def test_authorize_tool_local_mode_uses_default_tenant():
-    """Local mode's synthetic principal (kind "none") acts as admin of the
-    default tenant without naming one — the same rule ``resolve_tenant`` applies
-    to the REST routes."""
-    synthetic = Principal(user_id=None, superadmin=True, tenants_roles={}, kind="none")
-    assert authorize_tool(synthetic, {TAG_ADMIN}, None) == DEFAULT_TENANT_ID
-    assert authorize_tool(synthetic, {TAG_SUPERADMIN}, None) is None
+def test_authorize_tool_local_mode_is_admin():
+    """Local mode's synthetic principal (kind "none") acts as admin."""
+    synthetic = Principal(user_id=None, role=ROLE_ADMIN, kind="none")
+    authorize_tool(synthetic, {TAG_ADMIN})
 
 
 async def test_every_tool_has_exactly_one_rbac_tag():
     tools = await mcp.list_tools(run_middleware=False)
-    assert tools and all(len(t.tags & {TAG_READ, TAG_WRITE, TAG_ADMIN, TAG_SUPERADMIN}) == 1 for t in tools)
+    assert tools and all(len(t.tags & {TAG_READ, TAG_WRITE, TAG_ADMIN}) == 1 for t in tools)
 
 
 # --- through the HTTP mount ---------------------------------------------
@@ -132,33 +84,10 @@ async def _mcp_http() -> AsyncIterator[httpx.AsyncClient]:
             yield client
 
 
-HOME_SLUG = "home"
-"""A real tenant the HTTP tests bind tokens to.
-
-Not ``DEFAULT_TENANT_ID``: that constant is the data plane's fallback and has
-no ``tenants`` row, so a membership naming it violates the
-``tenant_memberships`` foreign key under Postgres.
-"""
-
-
-async def _home() -> int:
-    tenant = await store.get_tenant_by_slug(HOME_SLUG)
-    if tenant is None:
-        tenant = await store.create_tenant(slug=HOME_SLUG, name="Home")
-    return tenant.id
-
-
-async def _api_token(scope: str, *, superadmin: bool = False, role: str = ROLE_ADMIN) -> str:
+async def _api_token(scope: ScopeLevel, *, role: Role = ROLE_ADMIN) -> str:
     """Mint a real token — the mount takes API tokens only, never a session JWT."""
-    user = await users.create_user(
-        CreateUserRequest(username=f"t_{scope}_{superadmin}", password="pw", superadmin=superadmin)
-    )
-    tenant_id = None if scope == SCOPE_SUPERADMIN else await _home()
-    if not superadmin and tenant_id is not None:
-        await store.set_membership(tenant_id=tenant_id, user_id=user.id, role=role)
-    created = await api_tokens.create_token(
-        user.id, CreateApiTokenRequest(name=scope, scope=scope, tenant_id=tenant_id)
-    )
+    user = await users.create_user(CreateUserRequest(username=f"t_{scope}_{role}", password="pw", role=role))
+    created = await api_tokens.create_token(user.id, CreateApiTokenRequest(name=scope, scope=scope))
     return created.token
 
 
@@ -169,24 +98,23 @@ async def _rpc(client: httpx.AsyncClient, method: str, params: dict[str, Any], h
 
 
 async def test_tools_list_is_filtered_by_role(orch_ctx, enabled):
-    viewer = {"Authorization": f"Bearer {await _api_token(SCOPE_WRITE, role=ROLE_MEMBER)}"}
-    superadmin = {"Authorization": f"Bearer {await _api_token(SCOPE_SUPERADMIN, superadmin=True)}"}
+    member = {"Authorization": f"Bearer {await _api_token(SCOPE_WRITE, role=ROLE_MEMBER)}"}
+    admin = {"Authorization": f"Bearer {await _api_token(SCOPE_ADMIN)}"}
     async with _mcp_http() as client:
-        body = await _rpc(client, "tools/list", {}, viewer)
+        body = await _rpc(client, "tools/list", {}, member)
         names = {t["name"] for t in body["result"]["tools"]}
         assert "list_jobs" in names and "run_job" not in names and "setup" not in names
 
-        body = await _rpc(client, "tools/list", {}, superadmin)
+        body = await _rpc(client, "tools/list", {}, admin)
         names = {t["name"] for t in body["result"]["tools"]}
         assert {"list_jobs", "run_job", "setup"} <= names
         assert len(names) == len(await mcp.list_tools(run_middleware=False))
 
 
 async def test_member_can_read_but_not_admin(orch_ctx, enabled):
-    """A member reads and makes their own writes; tenant mutations need admin."""
+    """A member reads and makes their own writes; job mutations need admin."""
     member = {"Authorization": f"Bearer {await _api_token(SCOPE_WRITE, role=ROLE_MEMBER)}"}
-    with active_tenant(await _home()):
-        job = await create_job("mcp_rbac_job", simple_task)
+    job = await create_job("mcp_rbac_job", simple_task)
     async with _mcp_http() as client:
         ok = await _rpc(client, "tools/call", {"name": "get_job", "arguments": {"ref": job.id}}, member)
         assert ok["result"]["structuredContent"]["name"] == "mcp_rbac_job"

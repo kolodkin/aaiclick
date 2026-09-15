@@ -9,7 +9,6 @@ from aaiclick.internal_api import errors, viewer
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.orch_context import task_scope
 from aaiclick.snowflake import get_snowflake_id
-from aaiclick.tenancy import active_tenant
 from aaiclick.viewer.view_models import (
     DashboardIn,
     ObjectQuery,
@@ -134,14 +133,12 @@ async def test_save_query_validates_where_and_cell_view():
         await viewer.save_query(SavedQueryIn(name="x", object="orders", cell_view="col: [unclosed"))
 
 
-async def test_saved_queries_are_tenant_scoped():
+async def test_saved_query_upserts_by_name():
     await viewer.save_query(SavedQueryIn(name="mine", object="orders"))
-    with active_tenant(2):
-        assert (await viewer.list_saved_queries()).items == []
-        with pytest.raises(errors.NotFound):
-            await viewer.delete_saved_query("mine")
+    again = await viewer.save_query(SavedQueryIn(name="mine", object="customers"))
+    assert again.object == "customers"
+    assert [q.name for q in (await viewer.list_saved_queries()).items] == ["mine"]
     assert (await viewer.delete_saved_query("mine")).name == "mine"
-    assert (await viewer.list_saved_queries()).items == []
 
 
 async def test_dashboard_round_trip_and_run():

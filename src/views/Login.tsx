@@ -4,7 +4,7 @@ import { useAuth } from "../components/Auth";
 import { ApiError } from "../api/problem";
 import { login } from "../lib/auth";
 
-// Reset links are minted by a superadmin and handed over out of band — there
+// Reset links are minted by an admin and handed over out of band — there
 // is no self-service email flow (see docs/designs/future.md).
 function ForgotPassword({ onBack }: { onBack: () => void }) {
   return (

@@ -23,30 +23,33 @@ def test_generate_secret_unique():
 
 
 def test_access_token_round_trip():
-    token = security.encode_access_token(
-        user_id=42, superadmin=True, tenants_roles={5: "admin", 6: "viewer"}, secret=SECRET, ttl=60
-    )
+    token = security.encode_access_token(user_id=42, role="admin", secret=SECRET, ttl=60)
     claims = security.decode_access_token(token, SECRET)
-    assert claims.user_id == 42
-    assert claims.superadmin is True
-    assert claims.tenants_roles == {5: "admin", 6: "viewer"}
+    assert claims == security.AccessClaims(user_id=42, role="admin")
 
 
-def test_access_token_defaults_missing_claims():
-    """Tokens minted without the new claims decode to no-access defaults."""
-    token = jwt.encode({"sub": "1", "type": "access"}, SECRET, algorithm="HS256")
-    claims = security.decode_access_token(token, SECRET)
-    assert claims.superadmin is False and claims.tenants_roles == {}
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param({"sub": "1", "type": "access"}, id="missing-role"),
+        pytest.param({"sub": "1", "type": "access", "role": "superadmin"}, id="unknown-role"),
+    ],
+)
+def test_decode_rejects_malformed_role(payload):
+    """A token without a valid role grants nothing rather than defaulting."""
+    token = jwt.encode(payload, SECRET, algorithm="HS256")
+    with pytest.raises(security.TokenError, match="malformed claims"):
+        security.decode_access_token(token, SECRET)
 
 
 def test_decode_rejects_bad_signature():
-    token = security.encode_access_token(user_id=1, superadmin=False, tenants_roles={}, secret=SECRET, ttl=60)
+    token = security.encode_access_token(user_id=1, role="viewer", secret=SECRET, ttl=60)
     with pytest.raises(security.TokenError):
         security.decode_access_token(token, "a-different-secret-also-32-plus-bytes-long")
 
 
 def test_decode_rejects_expired():
-    token = security.encode_access_token(user_id=1, superadmin=False, tenants_roles={}, secret=SECRET, ttl=-1)
+    token = security.encode_access_token(user_id=1, role="viewer", secret=SECRET, ttl=-1)
     with pytest.raises(security.TokenError):
         security.decode_access_token(token, SECRET)
 

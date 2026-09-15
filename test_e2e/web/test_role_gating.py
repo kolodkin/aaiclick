@@ -22,8 +22,6 @@ from pathlib import Path
 import pytest
 from helpers import open_page
 
-from aaiclick.tenancy import DEFAULT_TENANT_ID
-
 STATIC = Path(__file__).resolve().parents[2] / "aaiclick" / "server" / "static" / "index.html"
 
 pytest.importorskip("playwright.sync_api")
@@ -42,17 +40,8 @@ _REGISTERED_JOB = {
 
 
 def _stub_session(page, role: str) -> None:
-    """Serve a fixed principal and one registered job, whatever the backend.
-
-    ``admin`` maps to the superadmin flag: until the tenant switcher lands
-    (tenant RBAC phase 3) the SPA's ``isAdmin`` gate reads ``me.superadmin``.
-    """
-    me = {
-        "id": 1,
-        "username": f"{role}_user",
-        "superadmin": role == "admin",
-        "tenants": [{"tenant_id": str(DEFAULT_TENANT_ID), "slug": "aaiclick", "name": "aaiclick", "role": role}],
-    }
+    """Serve a fixed principal and one registered job, whatever the backend."""
+    me = {"id": 1, "username": f"{role}_user", "role": role, "mfa_enabled": False}
     page.route(
         "**/api/v0/auth/me",
         lambda route: route.fulfill(

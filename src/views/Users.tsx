@@ -4,12 +4,12 @@ import {
   useCreateUser,
   useResetUserMfa,
   useSetDisabled,
-  useSetSuperadmin,
+  useSetRole,
   useSetUserEmail,
   useSetUserPassword,
   useUsers,
 } from "../api/hooks";
-import type { PasswordResetLinkView, UserView } from "../api/types";
+import type { PasswordResetLinkView, Role, UserView } from "../api/types";
 import { useAuth } from "../components/Auth";
 import { Chips } from "../components/Chips";
 import { Panel } from "../components/Panel";
@@ -17,24 +17,26 @@ import { SecretPanel } from "../components/SecretPanel";
 import { useToast } from "../components/Toast";
 import { relativeTime } from "../lib/format";
 
+const ROLES: Role[] = ["viewer", "member", "admin"];
+
 function CreateUserForm() {
   const create = useCreateUser();
   const toast = useToast();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [email, setEmail] = useState("");
-  const [superadmin, setSuperadmin] = useState(false);
+  const [role, setRole] = useState<Role>("viewer");
 
   const submit = () =>
     create.mutate(
-      { username, password: password || null, email: email || null, superadmin },
+      { username, password: password || null, email: email || null, role },
       {
         onSuccess: (u) => {
           toast(`Created ${u.username}`);
           setUsername("");
           setPassword("");
           setEmail("");
-          setSuperadmin(false);
+          setRole("viewer");
         },
         onError: (e) => toast(`Create failed: ${e.message}`),
       },
@@ -59,9 +61,15 @@ function CreateUserForm() {
         </label>
         <input id="user-email" type="text" value={email} onChange={(e) => setEmail(e.target.value)} />
       </div>
-      <div className="field inline">
-        <input id="user-superadmin" type="checkbox" checked={superadmin} onChange={(e) => setSuperadmin(e.target.checked)} />
-        <label htmlFor="user-superadmin">Superadmin</label>
+      <div className="field">
+        <label>Role</label>
+        <select id="user-role" value={role} onChange={(e) => setRole(e.target.value as Role)}>
+          {ROLES.map((r) => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
+        </select>
       </div>
       <div className="form-actions">
         <button id="user-create" className="btn btn-primary" disabled={create.isPending || !username.trim()} onClick={submit}>
@@ -73,7 +81,7 @@ function CreateUserForm() {
 }
 
 interface RowActions {
-  setSuperadmin: (id: string, superadmin: boolean) => void;
+  setRole: (id: string, role: Role) => void;
   setDisabled: (id: string, disabled: boolean) => void;
   setPassword: (id: string, password: string) => void;
   setEmail: (id: string, email: string | null) => void;
@@ -97,15 +105,19 @@ function UserRow({ user, self, actions }: { user: UserView; self: boolean; actio
       <td className="mono">{user.username}</td>
       <td className="mono">{user.email ?? "—"}</td>
       <td>
-        <button
-          className={`toggle ${user.superadmin ? "on" : "off"}`}
+        <select
+          className="mono"
+          value={user.role}
           disabled={self || actions.busy}
-          title={self ? "You cannot change your own superadmin flag" : undefined}
-          onClick={() => actions.setSuperadmin(user.id, !user.superadmin)}
+          title={self ? "You cannot change your own role" : undefined}
+          onChange={(e) => actions.setRole(user.id, e.target.value as Role)}
         >
-          <span className="switch" />
-          {user.superadmin ? "superadmin" : "user"}
-        </button>
+          {ROLES.map((r) => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
+        </select>
       </td>
       <td>
         <button
@@ -153,7 +165,7 @@ export function Users({ onPrompt }: { onPrompt: (v: string) => void }) {
 
   // One mutation instance each, not one per row: the table renders up to 200
   // rows and every hook adds a subscription that re-renders on any change.
-  const setSuperadmin = useSetSuperadmin();
+  const setRole = useSetRole();
   const setDisabled = useSetDisabled();
   const setPassword = useSetUserPassword();
   const setEmail = useSetUserEmail();
@@ -162,22 +174,22 @@ export function Users({ onPrompt }: { onPrompt: (v: string) => void }) {
   const fail = (what: string) => (e: Error) => toast(`${what} failed: ${e.message}`);
 
   const actions: RowActions = {
-    setSuperadmin: (id, superadmin) => setSuperadmin.mutate({ id, superadmin }, { onError: fail("Superadmin") }),
+    setRole: (id, role) => setRole.mutate({ id, role }, { onError: fail("Set role") }),
     setDisabled: (id, disabled) => setDisabled.mutate({ id, disabled }, { onError: fail("Disable") }),
     setPassword: (id, password) =>
       setPassword.mutate({ id, password }, { onSuccess: () => toast("Password set"), onError: fail("Set password") }),
     setEmail: (id, email) => setEmail.mutate({ id, email }, { onError: fail("Set email") }),
     resetMfa: (id) => resetMfa.mutate(id, { onSuccess: () => toast("MFA reset"), onError: fail("Reset MFA") }),
     resetLink: (id) => resetLink.mutate(id, { onSuccess: setLink, onError: fail("Reset link") }),
-    busy: setSuperadmin.isPending || setDisabled.isPending || resetLink.isPending,
+    busy: setRole.isPending || setDisabled.isPending || resetLink.isPending,
   };
 
   return (
     <>
       <Chips chips={[{ label: "← home", cmd: "" }]} onPrompt={onPrompt} />
       <h2>Users</h2>
-      <p className="sub">Instance-level accounts. Tenant memberships are managed with the CLI (`aaiclick member …`).</p>
-      {!me?.superadmin && <p className="err">Requires the superadmin flag.</p>}
+      <p className="sub">Installation accounts and their roles.</p>
+      {me?.role !== "admin" && <p className="err">Requires the admin role.</p>}
       {link && (
         <SecretPanel
           title="One-time link"
@@ -186,7 +198,7 @@ export function Users({ onPrompt }: { onPrompt: (v: string) => void }) {
           onDone={() => setLink(null)}
         />
       )}
-      {me?.superadmin && <CreateUserForm />}
+      {me?.role === "admin" && <CreateUserForm />}
       {isLoading && <p className="sub">loading…</p>}
       {isError && <p className="err">{error.message}</p>}
       {data && (

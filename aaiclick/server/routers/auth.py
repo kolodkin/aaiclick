@@ -55,16 +55,10 @@ async def logout(request: LogoutRequest) -> None:
 
 @router.get("/me", response_model=MeView)
 async def me(principal: Principal = Depends(require_principal)) -> MeView:
-    if principal.user_id is None:  # local mode — synthetic superadmin, no user row
-        return MeView(id=None, username=None, superadmin=principal.superadmin, tenants=[])
+    if principal.user_id is None:  # local mode — synthetic admin, no user row
+        return MeView(id=None, username=None, role=principal.role)
     user = await users_api.get_user(principal.user_id)
-    return MeView(
-        id=user.id,
-        username=user.username,
-        superadmin=principal.superadmin,
-        mfa_enabled=user.mfa_enabled,
-        tenants=await auth_api.my_tenants(principal.user_id),
-    )
+    return MeView(id=user.id, username=user.username, role=user.role, mfa_enabled=user.mfa_enabled)
 
 
 @router.put("/me/password", status_code=204, responses=problem_responses(401, 403, 422))
@@ -75,7 +69,7 @@ async def change_password(request: ChangePasswordRequest, user_id: int = Depends
 
 # --- Password reset -------------------------------------------------------
 # Public: the caller redeeming a link has no session by definition. Minting a
-# link is superadmin-only and lives on /users.
+# link is admin-only and lives on /users.
 
 
 @router.post("/password-reset", status_code=204, responses=problem_responses(401))

@@ -14,7 +14,6 @@ async def _row(**overrides):
         "user_id": 1,
         "username": "alice",
         "auth_kind": "session",
-        "tenant_id": 1,
         "method": "POST",
         "path": "/api/v0/jobs:run",
         "action": None,

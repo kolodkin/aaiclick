@@ -1,4 +1,4 @@
-"""Audit-log routes (superadmin-only)."""
+"""Audit-log routes (admin-only)."""
 
 from __future__ import annotations
 
@@ -8,13 +8,13 @@ from aaiclick.audit.view_models import AuditEntryView, AuditListFilter
 from aaiclick.internal_api import audit as audit_api
 from aaiclick.view_models import Page
 
-from ..auth import require_superadmin
+from ..auth import require_admin
 from ..deps import orch_scope
 
 router = APIRouter(
     prefix="/audit",
     tags=["audit"],
-    dependencies=[Depends(orch_scope), Depends(require_superadmin)],
+    dependencies=[Depends(orch_scope), Depends(require_admin)],
 )
 
 

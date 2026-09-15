@@ -11,12 +11,12 @@ import type {
   ChangePasswordRequest,
   CreateApiTokenRequest,
   CreateUserRequest,
-  InviteUserRequest,
-  InviteView,
   Dashboard,
   DashboardResults,
   DashboardSummary,
   Deleted,
+  InviteUserRequest,
+  InviteView,
   JobDetail,
   JobGraphView,
   JobView,
@@ -26,8 +26,9 @@ import type {
   ObjectView,
   Page,
   PasswordResetLinkView,
-  RegisterJobRequest,
   RegisteredJobView,
+  RegisterJobRequest,
+  Role,
   RunJobRequest,
   SavedQuery,
   SavedQueryBody,
@@ -303,7 +304,7 @@ export function useMfaDisable() {
   });
 }
 
-// --- users (superadmin) -------------------------------------------------
+// --- users (admin) -------------------------------------------------
 
 export function useUsers() {
   return useQuery({
@@ -327,10 +328,8 @@ export function useInviteUser() {
   return useInvalidating(["users"], (req: InviteUserRequest) => postJSON<InviteView>("/invites", req));
 }
 
-export function useSetSuperadmin() {
-  return useUserMutation(({ id, superadmin }: { id: string; superadmin: boolean }) =>
-    putJSON<UserView>(`/users/${id}/superadmin`, { superadmin }),
-  );
+export function useSetRole() {
+  return useUserMutation(({ id, role }: { id: string; role: Role }) => putJSON<UserView>(`/users/${id}/role`, { role }));
 }
 
 export function useSetDisabled() {
@@ -359,7 +358,7 @@ export function useSetUserEmail() {
   );
 }
 
-// --- audit (superadmin) -------------------------------------------------
+// --- audit (admin) -------------------------------------------------
 
 export interface AuditQuery {
   username?: string;

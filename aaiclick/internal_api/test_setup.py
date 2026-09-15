@@ -4,13 +4,10 @@ from __future__ import annotations
 
 import pytest
 from sqlalchemy import create_engine as sa_create_engine
-from sqlalchemy import select as sa_select
 from sqlalchemy import text as sa_text
 from sqlmodel import SQLModel
 
-from aaiclick.auth.models import Tenant
 from aaiclick.oplog.migrate import ChVersionState
-from aaiclick.tenancy import DEFAULT_TENANT_ID
 from aaiclick.view_models import (
     MIGRATE_CURRENT,
     MIGRATE_DOWNGRADE,
@@ -49,7 +46,6 @@ def _stub_chdb_and_sqlalchemy(monkeypatch):
     _stub_chdb(monkeypatch)
     monkeypatch.setattr(setup, "create_engine", lambda _url: _FakeEngine())
     monkeypatch.setattr(setup.SQLModel.metadata, "create_all", lambda _engine: None)
-    monkeypatch.setattr(setup, "_seed_default_tenant", lambda _engine: None)
 
 
 def test_setup_local_writes_marker_and_returns_ok_steps(tmp_path, monkeypatch):
@@ -203,24 +199,9 @@ def test_migrate_current_runs_without_revision(monkeypatch):
     assert calls == [("current", True)]
 
 
-def test_seed_default_tenant_inserts_once():
-    engine = sa_create_engine("sqlite:///:memory:")
-    SQLModel.metadata.create_all(engine)
-
-    setup._seed_default_tenant(engine)
-    setup._seed_default_tenant(engine)  # idempotent re-run
-
-    with engine.connect() as conn:
-        rows = conn.execute(sa_select(Tenant.id, Tenant.slug)).all()
-    engine.dispose()
-
-    assert rows == [(DEFAULT_TENANT_ID, "aaiclick")]
-
-
 _INSERT_JOB = (
-    "INSERT INTO jobs (id, tenant_id, name, status, run_type, "
-    "preservation_mode, runner_mode, created_at) "
-    "VALUES (1, 1, :name, 'pending', 'flat', 'NONE', 'subprocess', '2024-01-01')"
+    "INSERT INTO jobs (id, name, status, run_type, preservation_mode, runner_mode, created_at) "
+    "VALUES (1, :name, 'pending', 'flat', 'NONE', 'subprocess', '2024-01-01')"
 )
 
 
@@ -246,12 +227,10 @@ def _current_sqlite_db(path, *, job_name: str | None = None):
 
 
 def _older_sqlite_db(path):
-    """Build a database shaped like one written before tenancy landed."""
+    """Build a database shaped like one written before ``jobs.error`` existed."""
     engine = _current_sqlite_db(path, job_name="old-job")
     with engine.begin() as conn:
-        conn.execute(sa_text("DROP INDEX ix_jobs_tenant_id"))
-        conn.execute(sa_text("ALTER TABLE jobs DROP COLUMN tenant_id"))
-        conn.execute(sa_text("DROP TABLE tenants"))
+        conn.execute(sa_text("ALTER TABLE jobs DROP COLUMN error"))
     engine.dispose()
 
 
@@ -259,7 +238,7 @@ def test_stale_local_db_lists_columns_added_since(local_db):
     """A database written by an older version reports the columns it lacks."""
     _older_sqlite_db(local_db)
 
-    assert "jobs.tenant_id" in setup.stale_local_db()
+    assert "jobs.error" in setup.stale_local_db()
 
 
 def test_stale_local_db_empty_for_current_schema(local_db):
@@ -278,10 +257,10 @@ def test_stale_local_db_sees_a_dropped_index(local_db):
     """
     engine = _current_sqlite_db(local_db)
     with engine.begin() as conn:
-        conn.execute(sa_text("DROP INDEX ix_jobs_tenant_id"))
+        conn.execute(sa_text("DROP INDEX ix_jobs_status"))
     engine.dispose()
 
-    assert "jobs.ix_jobs_tenant_id (index)" in setup.stale_local_db()
+    assert "jobs.ix_jobs_status (index)" in setup.stale_local_db()
 
 
 def test_missing_local_tables_is_separate_from_shape_drift(local_db):
@@ -305,7 +284,7 @@ def test_setup_refuses_stale_local_db_without_force(local_db):
     """Regression: ``setup`` used to run ``create_all`` over an older
     ``local.db``, which creates missing *tables* but never alters existing
     ones — so it reported ``ok`` while ``jobs`` silently kept its old shape
-    and every tenant-scoped query failed with "no such column: tenant_id".
+    and every query against it failed with "no such column".
 
     It now refuses instead, naming the flag that recreates the database."""
     _older_sqlite_db(local_db)
@@ -328,52 +307,6 @@ def test_setup_force_recreates_stale_local_db(local_db):
     engine = sa_create_engine(f"sqlite:///{local_db}")
     with engine.connect() as conn:
         assert conn.execute(sa_text("SELECT count(*) FROM jobs")).scalar() == 0
-        assert conn.execute(sa_text("SELECT slug FROM tenants")).scalar() == "aaiclick"
-    engine.dispose()
-
-
-def _old_default_tenant_db(path):
-    """A current-schema database whose default tenant predates the id move."""
-    engine = _current_sqlite_db(path, job_name="old-job")
-    with engine.begin() as conn:
-        conn.execute(sa_text("DELETE FROM tenants"))
-        conn.execute(
-            sa_text("INSERT INTO tenants (id, slug, name, created_at) VALUES (1, 'aaiclick', 'aaiclick', '2024-01-01')")
-        )
-    engine.dispose()
-
-
-def test_stale_local_db_reason_flags_an_old_default_tenant(local_db):
-    """The schema is current, so only the seeded tenant marks it outdated."""
-    _old_default_tenant_db(local_db)
-
-    assert setup.stale_local_db() == []
-    reason = setup.stale_local_db_reason()
-    assert reason is not None and str(DEFAULT_TENANT_ID) in reason
-
-
-def test_setup_refuses_an_old_default_tenant_without_force(local_db):
-    """Regression: ``_seed_default_tenant`` looks the row up by id, so against
-    a pre-move database it inserted a second row and died on the ``slug``
-    unique constraint. It now refuses with the flag that recreates it."""
-    _old_default_tenant_db(local_db)
-
-    with pytest.raises(errors.Invalid, match="--force"):
-        setup.setup()
-
-    assert local_db.exists()
-
-
-def test_setup_force_recreates_an_old_default_tenant(local_db):
-    """``--force`` rebuilds the database around the current default tenant."""
-    _old_default_tenant_db(local_db)
-
-    setup.setup(force=True)
-
-    assert setup.stale_local_db_reason() is None
-    engine = sa_create_engine(f"sqlite:///{local_db}")
-    with engine.connect() as conn:
-        assert conn.execute(sa_select(Tenant.id, Tenant.slug)).all() == [(DEFAULT_TENANT_ID, "aaiclick")]
     engine.dispose()
 
 

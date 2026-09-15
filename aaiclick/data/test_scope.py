@@ -12,7 +12,6 @@ from aaiclick.data.scope import (
     name_from_table,
     scope_of,
 )
-from aaiclick.tenancy import DEFAULT_TENANT_ID
 
 
 @pytest.mark.parametrize(
@@ -24,7 +23,7 @@ from aaiclick.tenancy import DEFAULT_TENANT_ID
         pytest.param("t_my_table_999999999999", "temp_named", id="temp-named-multi-part"),
         pytest.param("t_CamelCase_42", "temp_named", id="temp-named-camel-case"),
         pytest.param("p_foo", "global", id="global"),
-        pytest.param("p_7_sales", "global", id="global-tenant-prefixed"),
+        pytest.param("p_7_sales", "global", id="global-digit-leading-name"),
         pytest.param("p_user_catalog", "global", id="global-multi-part"),
         pytest.param("j_42_bar", "job", id="job"),
         pytest.param("j_1234567890_my_table", "job", id="job-multi-part"),
@@ -65,9 +64,7 @@ def test_temp_named_regex():
 
 
 def test_make_scoped_table_name_global():
-    """Every tenant, the default one included, gets the tenant-prefixed form."""
-    assert make_scoped_table_name("global", "foo") == f"p_{DEFAULT_TENANT_ID}_foo"
-    assert make_scoped_table_name("global", "foo", tenant_id=7) == "p_7_foo"
+    assert make_scoped_table_name("global", "foo") == "p_foo"
 
 
 def test_make_scoped_table_name_job():
@@ -93,9 +90,9 @@ def test_make_scoped_table_name_missing_required_id_raises(scope, match):
 @pytest.mark.parametrize(
     "table, expected",
     [
-        pytest.param("p_7_orders", "orders", id="global"),
-        pytest.param("p_7_user_catalog", "user_catalog", id="global-multi-part"),
-        pytest.param("p_7__5_x", "_5_x", id="global-leading-underscore-name"),
+        pytest.param("p_orders", "orders", id="global"),
+        pytest.param("p_user_catalog", "user_catalog", id="global-multi-part"),
+        pytest.param("p__5_x", "_5_x", id="global-leading-underscore-name"),
         pytest.param("j_12345_staging", "staging", id="job"),
         pytest.param("j_12345_multi_part_name", "multi_part_name", id="job-multi-part"),
         pytest.param("t_orders_42", "orders", id="temp-named"),
@@ -108,7 +105,7 @@ def test_name_from_table(table, expected):
     assert name_from_table(table) == expected
 
 
-def test_job_and_temp_names_never_take_a_tenant_prefix():
-    """They reach their tenant through the owning job — no stacking."""
-    assert make_scoped_table_name("job", "x", job_id=42, tenant_id=7) == "j_42_x"
-    assert make_scoped_table_name("temp_named", "x", snowid=99, tenant_id=7) == "t_x_99"
+def test_make_scoped_table_name_ignores_ids_it_does_not_need():
+    """Only the scope that needs an id reads it — a stray one is not encoded."""
+    assert make_scoped_table_name("global", "x", job_id=42, snowid=99) == "p_x"
+    assert make_scoped_table_name("job", "x", job_id=42, snowid=99) == "j_42_x"

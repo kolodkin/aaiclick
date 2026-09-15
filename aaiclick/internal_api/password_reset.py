@@ -1,4 +1,4 @@
-"""Internal API for the password-reset lifecycle: a superadmin (or the CLI)
+"""Internal API for the password-reset lifecycle: an admin (or the CLI)
 mints a one-time link, the user redeems it without a session."""
 
 from __future__ import annotations

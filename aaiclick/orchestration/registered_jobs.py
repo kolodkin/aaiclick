@@ -11,7 +11,6 @@ from sqlmodel import select
 from ..backend import is_local
 from ..datetime_utils import utc_now
 from ..snowflake import get_snowflake_id
-from ..tenancy import get_active_tenant_id
 from .docker_config import resolve_image_source, resolve_runner_config
 from .factories import create_built_job, create_job, create_task
 from .kubernetes_config import resolve_kubernetes_config
@@ -39,12 +38,8 @@ class RegisteredJobNotFound(ValueError):
 
 
 def _by_name(name: str):
-    """Select the registration named ``name`` within the active tenant.
-
-    One builder for every by-name lookup: names are unique per tenant, so a
-    call site that forgot the tenant predicate would read another tenant's row.
-    """
-    return select(RegisteredJob).where(RegisteredJob.name == name, RegisteredJob.tenant_id == get_active_tenant_id())
+    """Select the registration named ``name``."""
+    return select(RegisteredJob).where(RegisteredJob.name == name)
 
 
 def compute_next_run(cron_expr: str, after: datetime | None = None) -> datetime:
@@ -84,7 +79,6 @@ def _build_registered_job(
     """Build an uncommitted RegisteredJob row with computed next_run_at."""
     return RegisteredJob(
         id=get_snowflake_id(),
-        tenant_id=get_active_tenant_id(),
         name=name,
         entrypoint=entrypoint,
         enabled=enabled,

@@ -7,7 +7,6 @@ Tests scalar and array copying with verification that new tables are created.
 import pytest
 
 from aaiclick import create_object_from_value, delete_persistent_object
-from aaiclick.tenancy import DEFAULT_TENANT_ID
 
 THRESHOLD = 1e-5
 
@@ -180,7 +179,7 @@ async def test_copy_with_name_global_scope(ctx):
 
     copy = await obj.copy(name="copy_named_global", scope="global")
     try:
-        assert copy.table == f"p_{DEFAULT_TENANT_ID}_copy_named_global"
+        assert copy.table == "p_copy_named_global"
         assert await copy.data() == [1, 2, 3]
     finally:
         await delete_persistent_object("copy_named_global", scope="global")

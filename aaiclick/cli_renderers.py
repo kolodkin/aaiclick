@@ -13,9 +13,7 @@ from aaiclick.auth.view_models import (
     ApiTokenCreated,
     ApiTokenView,
     InviteView,
-    MemberView,
     PasswordResetLinkView,
-    TenantView,
     UserView,
 )
 from aaiclick.data.view_models import ObjectDetail, ObjectView
@@ -239,39 +237,14 @@ def render_execution_worker_stopped(view: ExecutionWorkerView) -> None:
 def render_user(view: UserView) -> None:
     """Single-line summary of one user."""
     print(
-        f"{view.id}  {view.username}  superadmin={view.superadmin}  disabled={view.disabled}  "
+        f"{view.id}  {view.username}  role={view.role}  disabled={view.disabled}  "
         f"email={_fmt_optional(view.email)}  mfa={view.mfa_enabled}"
     )
 
 
-def render_tenant(view: TenantView) -> None:
-    """Single-line summary of one tenant."""
-    print(f"{view.id}  {view.slug}  {view.name}")
-
-
-def render_tenants_page(page: Page[TenantView]) -> None:
-    """Print all tenants as an aligned text table."""
-    if not page.items:
-        print("No tenants found")
-        return
-
-    print(f"{'ID':<20} {'Slug':<20} {'Name':<30}")
-    print("-" * 72)
-    for t in page.items:
-        print(f"{t.id:<20} {t.slug:<20} {t.name:<30}")
-
-
-def render_member(view: MemberView) -> None:
-    """Single-line summary of one tenant member."""
-    print(f"{view.user_id}  {view.username}  role={view.role}")
-
-
 def render_api_token_created(view: ApiTokenCreated) -> None:
     """Show the freshly minted secret — the only time it is ever displayed."""
-    print(
-        f"{view.id}  {view.name}  scope={view.scope}  "
-        f"tenant={_fmt_optional(view.tenant_id)}  expires={_fmt_optional(view.expires_at)}"
-    )
+    print(f"{view.id}  {view.name}  scope={view.scope}  expires={_fmt_optional(view.expires_at)}")
     print(f"token: {view.token}")
     print("Store it now — it cannot be retrieved again.")
 
@@ -282,15 +255,13 @@ def render_audit_page(page: Page[AuditEntryView], offset: int) -> None:
         print("No audit entries found")
         return
 
-    print(
-        f"{'At':<20} {'User':<16} {'Kind':<8} {'Tenant':<8} {'Method':<7} {'Path / action':<44} {'Status':<6} {'ms':>6}"
-    )
-    print("-" * 122)
+    print(f"{'At':<20} {'User':<16} {'Kind':<8} {'Method':<7} {'Path / action':<44} {'Status':<6} {'ms':>6}")
+    print("-" * 113)
     for e in page.items:
         target = f"{e.path} {e.action}" if e.action else e.path
         print(
             f"{e.at:%Y-%m-%d %H:%M:%S}  {_fmt_optional(e.username):<16} {e.auth_kind:<8} "
-            f"{_fmt_optional(e.tenant_id):<8} {e.method:<7} {target:<44} {e.status:<6} {e.duration_ms:>6}"
+            f"{e.method:<7} {target:<44} {e.status:<6} {e.duration_ms:>6}"
         )
     _print_page_footer(page, offset)
 
@@ -314,14 +285,11 @@ def render_api_tokens_page(page: Page[ApiTokenView]) -> None:
         print("No api tokens found")
         return
 
-    print(
-        f"{'ID':<20} {'Name':<20} {'Prefix':<14} {'Scope':<11} {'Tenant':<20} "
-        f"{'Expires':<26} {'Last used':<26} {'Revoked':<26}"
-    )
-    print("-" * 168)
+    print(f"{'ID':<20} {'Name':<20} {'Prefix':<14} {'Scope':<11} {'Expires':<26} {'Last used':<26} {'Revoked':<26}")
+    print("-" * 147)
     for t in page.items:
         print(
-            f"{t.id:<20} {t.name:<20} {t.prefix:<14} {t.scope:<11} {_fmt_optional(t.tenant_id):<20} "
+            f"{t.id:<20} {t.name:<20} {t.prefix:<14} {t.scope:<11} "
             f"{_fmt_optional(t.expires_at):<26} {_fmt_optional(t.last_used_at):<26} "
             f"{_fmt_optional(t.revoked_at):<26}"
         )
@@ -333,10 +301,10 @@ def render_users_page(page: Page[UserView], offset: int) -> None:
         print("No users found")
         return
 
-    print(f"{'ID':<20} {'Username':<20} {'Superadmin':<10} {'Disabled':<8}")
-    print("-" * 61)
+    print(f"{'ID':<20} {'Username':<20} {'Role':<8} {'Disabled':<8}")
+    print("-" * 59)
     for u in page.items:
-        print(f"{u.id:<20} {u.username:<20} {str(u.superadmin):<10} {str(u.disabled):<8}")
+        print(f"{u.id:<20} {u.username:<20} {u.role:<8} {str(u.disabled):<8}")
     _print_page_footer(page, offset)
 
 

@@ -9,7 +9,6 @@ from aaiclick.audit.view_models import AuditListFilter
 from aaiclick.auth.view_models import CreateUserRequest
 from aaiclick.internal_api import audit as audit_api
 from aaiclick.internal_api import users
-from aaiclick.tenancy import DEFAULT_TENANT_ID
 
 from . import audit as audit_mw
 from .app import API_PREFIX
@@ -62,7 +61,7 @@ async def _rows(**filters):
 
 async def test_login_attempts_are_attributed(orch_ctx, enabled, anon_client, monkeypatch):
     monkeypatch.setenv("AAICLICK_AUDIT_LOG", "writes")
-    await users.create_user(CreateUserRequest(username="alice", password="pw", superadmin=True))
+    await users.create_user(CreateUserRequest(username="alice", password="pw", role="admin"))
     await anon_client.post(f"{API_PREFIX}/auth/login", json={"username": "alice", "password": "wrong"})
     await anon_client.post(f"{API_PREFIX}/auth/login", json={"username": "alice", "password": "pw"})
 
@@ -72,11 +71,11 @@ async def test_login_attempts_are_attributed(orch_ctx, enabled, anon_client, mon
     assert rows[0].duration_ms >= 0
 
 
-async def test_authenticated_write_carries_principal_and_tenant(orch_ctx, enabled, anon_client, monkeypatch):
+async def test_authenticated_write_carries_the_principal(orch_ctx, enabled, anon_client, monkeypatch):
     monkeypatch.setenv("AAICLICK_AUDIT_LOG", "writes")
-    admin = await users.create_user(CreateUserRequest(username="root", password="pw", superadmin=True))
+    admin = await users.create_user(CreateUserRequest(username="root", password="pw", role="admin"))
     login = await anon_client.post(f"{API_PREFIX}/auth/login", json={"username": "root", "password": "pw"})
-    headers = {"Authorization": f"Bearer {login.json()['access_token']}", "X-Tenant-Id": str(DEFAULT_TENANT_ID)}
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
 
     await anon_client.get(f"{API_PREFIX}/jobs", headers=headers)  # read: not logged under "writes"
     res = await anon_client.post(f"{API_PREFIX}/jobs/999999/cancel", headers=headers)
@@ -85,7 +84,7 @@ async def test_authenticated_write_carries_principal_and_tenant(orch_ctx, enable
     rows = await _rows(path="/api/v0/jobs")
     assert len(rows) == 1
     row = rows[0]
-    assert row.user_id == admin.id and row.auth_kind == "session" and row.tenant_id == DEFAULT_TENANT_ID
+    assert row.user_id == admin.id and row.auth_kind == "session"
     assert row.status == 404 and row.method == "POST"
 
 
@@ -98,7 +97,7 @@ async def test_policy_all_logs_reads_and_off_logs_nothing(orch_ctx, enabled, ano
     assert len(await _rows(path="/api/v0/jobs")) == 1
 
 
-async def test_audit_route_is_superadmin_only(orch_ctx, enabled, anon_client, app_client):
+async def test_audit_route_is_admin_only(orch_ctx, enabled, anon_client, app_client):
     await users.create_user(CreateUserRequest(username="viewer", password="pw"))
     login = await anon_client.post(f"{API_PREFIX}/auth/login", json={"username": "viewer", "password": "pw"})
     viewer = {"Authorization": f"Bearer {login.json()['access_token']}"}

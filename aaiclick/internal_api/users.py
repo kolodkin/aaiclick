@@ -7,7 +7,7 @@ import asyncio
 from sqlmodel import col
 
 from aaiclick.auth import security, store
-from aaiclick.auth.models import User
+from aaiclick.auth.models import Role, User
 from aaiclick.auth.view_models import CreateUserRequest, UserListFilter, UserView
 from aaiclick.view_models import Page
 
@@ -24,7 +24,7 @@ def _to_view(user: User) -> UserView:
     return UserView(
         id=user.id,
         username=user.username,
-        superadmin=user.superadmin,
+        role=user.role,
         disabled=user.disabled,
         email=user.email,
         mfa_enabled=user.mfa_enabled,
@@ -38,7 +38,7 @@ async def create_user(request: CreateUserRequest) -> UserView:
         user = await store.create_user(
             username=request.username,
             password_hash=await _hash(request.password) if request.password is not None else None,
-            superadmin=request.superadmin,
+            role=request.role,
             email=request.email,
         )
     except store.UsernameTaken as exc:
@@ -59,11 +59,11 @@ async def get_user(user_id: int) -> UserView:
     return _to_view(user)
 
 
-async def set_superadmin(user_id: int, superadmin: bool) -> UserView:
-    """Change a user's superadmin flag and end their sessions, so a demotion
-    cannot be outlived by a refresh token still minting the old claims."""
+async def set_role(user_id: int, role: Role) -> UserView:
+    """Change a user's role and end their sessions, so a demotion cannot be
+    outlived by a refresh token still minting the old claim."""
     try:
-        user = await store.set_superadmin(user_id, superadmin)
+        user = await store.set_role(user_id, role)
     except store.UserNotFound as exc:
         raise NotFound(str(exc)) from exc
     await store.revoke_all_for_user(user_id)
@@ -100,7 +100,7 @@ async def set_email(user_id: int, email: str | None) -> UserView:
 
 
 async def reset_mfa(user_id: int) -> UserView:
-    """Superadmin recovery for a lost authenticator: clear the secret and flag,
+    """Admin recovery for a lost authenticator: clear the secret and flag,
     and end the user's sessions so the account is re-verified on next login."""
     try:
         user = await store.set_totp(user_id, totp_secret=None, mfa_enabled=False)

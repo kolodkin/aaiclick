@@ -5,13 +5,12 @@ import { Chips } from "../components/Chips";
 import { Panel } from "../components/Panel";
 import { SecretPanel } from "../components/SecretPanel";
 import { useToast } from "../components/Toast";
-import { getActiveTenantId, invitableRoles } from "../lib/auth";
+import { invitableRoles } from "../lib/auth";
 
 const GRANT_HELP: Record<Role, string> = {
   viewer: "reads, and nothing else",
   member: "reads, plus their own saved queries and dashboards",
-  admin: "everything in this tenant — jobs, objects, memberships",
-  superadmin: "the whole instance, every tenant",
+  admin: "everything — jobs, objects, users, workers, audit",
 };
 
 export function Invite({ onPrompt }: { onPrompt: (v: string) => void }) {
@@ -22,21 +21,13 @@ export function Invite({ onPrompt }: { onPrompt: (v: string) => void }) {
   const [grant, setGrant] = useState<Role>("viewer");
   const [link, setLink] = useState<PasswordResetLinkView | null>(null);
 
-  // Only a tenant admin may invite, and never above their own role; the server
+  // Only an admin may invite; the server
   // enforces it, the picker just avoids offering a certain 403.
   const grants = invitableRoles();
 
   const submit = () =>
     invite.mutate(
-      {
-        username,
-        email: email || null,
-        superadmin: grant === "superadmin",
-        // An instance invite names no tenant; a tenant invite acts where the
-        // inviter already is.
-        tenant_id: grant === "superadmin" ? null : getActiveTenantId(),
-        role: grant === "superadmin" ? null : grant,
-      },
+      { username, email: email || null, role: grant },
       {
         onSuccess: (res) => {
           setLink(res.link);

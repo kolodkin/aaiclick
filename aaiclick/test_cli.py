@@ -1,7 +1,6 @@
 """Tests for the argparse CLI: new shell/image flags and their forwarding."""
 
 import json
-from contextlib import nullcontext
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -20,7 +19,6 @@ from aaiclick.__main__ import (
     main,
 )
 from aaiclick.cli_wait import JobWaitTimeout
-from aaiclick.internal_api.errors import NotFound
 from aaiclick.orchestration.models import JobStatus
 from aaiclick.orchestration.sql_context import get_sql_session
 from aaiclick.orchestration.view_models import JobStatsView, TaskStatsView
@@ -293,38 +291,14 @@ def test_load_lineage_ai_exits_with_install_hint_without_ai_extra(capsys):
     assert "pip install aaiclick[ai]" in capsys.readouterr().err
 
 
-def test_tenant_parser():
+def test_user_role_parsers():
     parser = build_parser()
-    args = parser.parse_args(["tenant", "create", "acme", "--name", "Acme Corp"])
-    assert args.command == "tenant" and args.tenant_command == "create"
-    assert args.slug == "acme" and args.name == "Acme Corp"
-    args = parser.parse_args(["tenant", "list"])
-    assert args.tenant_command == "list"
-
-
-def test_member_parser():
-    parser = build_parser()
-    args = parser.parse_args(["member", "add", "--tenant", "acme", "--username", "u", "--role", "admin"])
-    assert args.command == "member" and args.member_command == "add"
-    assert args.tenant == "acme" and args.username == "u" and args.role == "admin"
-    args = parser.parse_args(["member", "remove", "--tenant", "acme", "--username", "u"])
-    assert args.member_command == "remove"
-
-
-def test_global_tenant_flag():
-    parser = build_parser()
-    args = parser.parse_args(["--tenant", "acme", "registered-job", "list"])
-    assert args.global_tenant == "acme" and args.command == "registered-job"
-    args = parser.parse_args(["registered-job", "list"])
-    assert args.global_tenant is None
-
-
-def test_global_and_subcommand_tenant_flags_do_not_collide():
-    """The member subcommand owns ``--tenant``; the global flag keeps its own
-    slot, so neither silently overwrites the other."""
-    parser = build_parser()
-    args = parser.parse_args(["--tenant", "global_t", "member", "add", "--tenant", "acme", "--username", "u"])
-    assert args.global_tenant == "global_t" and args.tenant == "acme"
+    args = parser.parse_args(["user", "create", "u", "--role", "admin"])
+    assert args.user_command == "create" and args.role == "admin"
+    args = parser.parse_args(["user", "set-role", "7", "member"])
+    assert args.user_command == "set-role" and args.user_id == 7 and args.role == "member"
+    with pytest.raises(SystemExit):
+        parser.parse_args(["user", "set-role", "7", "superadmin"])
 
 
 async def test_run_data_api_provides_a_sql_session():
@@ -517,33 +491,10 @@ async def test_job_wait_json_timeout_keeps_stdout_clean_and_diagnoses_on_stderr(
     assert "mod.stuck" in captured.err
 
 
-async def test_unknown_tenant_exits_without_leaving_the_command_unawaited(monkeypatch, capsys):
-    """A bad ``--tenant`` resolves before the command runs, so the coroutine it
-    was handed is closed rather than garbage-collected with a "was never
-    awaited" RuntimeWarning trailing the error."""
-    import aaiclick.__main__ as cli
-
-    async def command():
-        raise AssertionError("must not run under an unresolvable tenant")
-
-    coro = command()
-    monkeypatch.setattr(cli, "orch_context", lambda **_kw: nullcontext())
-    monkeypatch.setattr(cli, "_resolve_tenant_id", AsyncMock(side_effect=NotFound("tenant 'nope' not found")))
-    cli._tenant_slug.set("nope")
-    try:
-        with pytest.raises(SystemExit):
-            await cli._run_internal_api(coro)
-    finally:
-        cli._tenant_slug.set(None)
-
-    assert coro.cr_frame is None, "the unrun command was left open"
-    assert "tenant 'nope' not found" in capsys.readouterr().err
-
-
 def _stub_setup_cli(monkeypatch, *, isatty: bool) -> list[bool]:
     """Stub the setup CLI's collaborators; returns the ``force`` values forwarded."""
     calls: list[bool] = []
-    monkeypatch.setattr("aaiclick.__main__.setup_api.stale_local_db_reason", lambda: "stale: jobs.tenant_id")
+    monkeypatch.setattr("aaiclick.__main__.setup_api.stale_local_db_reason", lambda: "stale: jobs.error")
     monkeypatch.setattr("sys.stdin.isatty", lambda: isatty)
     monkeypatch.setattr("aaiclick.__main__.setup_api.setup", lambda *, ai, force: calls.append(force))
     monkeypatch.setattr("aaiclick.__main__._render", lambda *a, **k: None)
@@ -564,7 +515,7 @@ def test_setup_prompts_before_recreating_stale_local_db(monkeypatch, capsys):
     _run_setup_main()
 
     assert calls == [True]
-    assert "jobs.tenant_id" in capsys.readouterr().err
+    assert "jobs.error" in capsys.readouterr().err
 
 
 def test_setup_declined_prompt_leaves_database_alone(monkeypatch):
@@ -631,7 +582,7 @@ def test_audit_parser_flags():
 
 def test_token_parser_accepts_every_scope():
     parser = build_parser()
-    for level in ("read", "write", "admin", "superadmin"):
+    for level in ("read", "write", "admin"):
         args = parser.parse_args(["token", "create", "alice", "--name", "ci", "--scope", level])
         assert args.scope == level
     assert parser.parse_args(["token", "create", "alice", "--name", "ci"]).scope == "read"
@@ -639,10 +590,7 @@ def test_token_parser_accepts_every_scope():
 
 def test_user_invite_parser():
     parser = build_parser()
-    args = parser.parse_args(["user", "invite", "alice", "--email", "a@example.com", "--superadmin"])
+    args = parser.parse_args(["user", "invite", "alice", "--email", "a@example.com", "--role", "admin"])
     assert args.user_command == "invite" and args.username == "alice"
-    assert args.email == "a@example.com" and args.superadmin is True
-
-    default = parser.parse_args(["user", "invite", "bob"])
-    assert default.superadmin is False and default.role == "viewer"
-    assert parser.parse_args(["user", "invite", "bob", "--role", "admin"]).role == "admin"
+    assert args.email == "a@example.com" and args.role == "admin"
+    assert parser.parse_args(["user", "invite", "bob"]).role == "viewer"

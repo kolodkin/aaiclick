@@ -1,9 +1,8 @@
 """SQLModel tables for saved viewer queries and dashboards.
 
-``tenant_id`` is a plain ``BigInteger`` (no FK), and free-text config
-(``cell_view`` YAML, ``fields`` / ``order_by`` / ``queries`` JSON) is stored
-verbatim — the SPA interprets it; the server validates shape only. Same
-conventions as ``aaiclick/orchestration/models.py``.
+Free-text config (``cell_view`` YAML, ``fields`` / ``order_by`` / ``queries``
+JSON) is stored verbatim — the SPA interprets it; the server validates shape
+only. Same conventions as ``aaiclick/orchestration/models.py``.
 """
 
 from __future__ import annotations
@@ -15,20 +14,15 @@ from sqlalchemy import BigInteger, DateTime, String, Text, UniqueConstraint
 from sqlmodel import Column, Field, SQLModel
 
 from ..datetime_utils import utc_now
-from ..tenancy import DEFAULT_TENANT_ID
 
 
 class SavedQueryRow(SQLModel, table=True):
     """A saved object query: scope, object, filter, presentation, cell views."""
 
     __tablename__: ClassVar[str] = "viewer_queries"
-    __table_args__ = (UniqueConstraint("tenant_id", "name"),)
+    __table_args__ = (UniqueConstraint("name"),)
 
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
-    tenant_id: int = Field(
-        default=DEFAULT_TENANT_ID,
-        sa_column=Column(BigInteger, nullable=False, index=True, server_default=str(DEFAULT_TENANT_ID)),
-    )
     name: str = Field(sa_column=Column(String, nullable=False, index=True))
     scope: str | None = Field(default=None, sa_column=Column(String, nullable=True, index=True))
     object: str = Field(sa_column=Column(String, nullable=False, index=True))
@@ -43,13 +37,9 @@ class DashboardRow(SQLModel, table=True):
     """An agent-authored HTML dashboard over named object queries."""
 
     __tablename__: ClassVar[str] = "viewer_dashboards"
-    __table_args__ = (UniqueConstraint("tenant_id", "name"),)
+    __table_args__ = (UniqueConstraint("name"),)
 
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
-    tenant_id: int = Field(
-        default=DEFAULT_TENANT_ID,
-        sa_column=Column(BigInteger, nullable=False, index=True, server_default=str(DEFAULT_TENANT_ID)),
-    )
     name: str = Field(sa_column=Column(String, nullable=False, index=True))
     scope: str = Field(sa_column=Column(String, nullable=False))
     html: str = Field(sa_column=Column(Text, nullable=False))

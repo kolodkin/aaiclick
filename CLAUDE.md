@@ -98,27 +98,27 @@ Use the `python-testing-style` skill for test layout, async test rules, Object A
   - When a site must stay a module global (a process-wide ID sequence, a
     once-per-process latch), leave a one-line comment saying why so the
     choice reads as deliberate.
-  - Reference implementation: `aaiclick/tenancy.py` (`active_tenant` /
-    `get_active_tenant_id`).
+  - Reference implementation: `aaiclick/orchestration/orch_context.py`
+    (the context accessors around `get_sql_session` / `get_ch_client`).
 
   ```python
   # GOOD — context-scoped, restored on exit
-  _active_tenant_id: ContextVar[int] = ContextVar("active_tenant_id", default=DEFAULT_TENANT_ID)
+  _active_job_id: ContextVar[int | None] = ContextVar("active_job_id", default=None)
 
   @contextmanager
-  def active_tenant(tenant_id: int) -> Iterator[None]:
-      token = _active_tenant_id.set(tenant_id)
+  def active_job(job_id: int) -> Iterator[None]:
+      token = _active_job_id.set(job_id)
       try:
           yield
       finally:
-          _active_tenant_id.reset(token)
+          _active_job_id.reset(token)
 
   # BAD — process-wide, leaks across concurrent callers
-  _tenant_id = None
+  _job_id = None
 
-  def set_tenant(tenant_id):
-      global _tenant_id
-      _tenant_id = tenant_id
+  def set_job(job_id):
+      global _job_id
+      _job_id = job_id
   ```
 
 - **Prefer `Literal` over `StrEnum` / `(str, Enum)` for string constants**: Use `typing.Literal` for closed sets of string values. Reach for a real `Enum` class only when something forces it.
