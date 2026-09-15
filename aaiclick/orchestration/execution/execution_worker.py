@@ -13,6 +13,7 @@ from typing import Any, NamedTuple, Protocol, TypeVar
 from sqlalchemy import update
 from sqlmodel import col, select
 
+from aaiclick.async_wait import wait_or_timeout
 from aaiclick.snowflake import get_snowflake_id
 
 from ...datetime_utils import utc_now
@@ -136,12 +137,8 @@ async def _heartbeat_while_waiting(
     heartbeat_fn: Callable[[int], Awaitable[Any]],
 ) -> None:
     """Heartbeat every ``interval`` seconds until ``done`` is set."""
-    while not done.is_set():
-        try:
-            await asyncio.wait_for(done.wait(), timeout=interval)
-            return
-        except asyncio.TimeoutError:
-            await heartbeat_fn(execution_worker_id)
+    while not await wait_or_timeout(done, interval):
+        await heartbeat_fn(execution_worker_id)
 
 
 async def _watch_for_cancellation(
@@ -157,12 +154,7 @@ async def _watch_for_cancellation(
     ``cancelled`` is the source of truth the driver reads after gather —
     reading this task's return value is racy (it may still be sleeping in
     ``wait_for`` when ``done`` is set externally)."""
-    while not done.is_set():
-        try:
-            await asyncio.wait_for(done.wait(), timeout=poll_interval)
-            return
-        except asyncio.TimeoutError:
-            pass
+    while not await wait_or_timeout(done, poll_interval):
         if await vehicle.poll_cancelled(task):
             cancelled.set()
             await vehicle.terminate(handle)

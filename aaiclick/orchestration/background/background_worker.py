@@ -28,6 +28,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
+from aaiclick.async_wait import wait_or_timeout
 from aaiclick.backend import is_chdb, parse_ch_url
 from aaiclick.oplog.cleanup import TableOwner, lineage_aware_drop
 from aaiclick.snowflake import get_snowflake_id
@@ -113,13 +114,7 @@ class BackgroundWorker:
     async def _cleanup_loop(self) -> None:
         while not self._shutdown.is_set():
             await self._do_cleanup()
-            try:
-                await asyncio.wait_for(
-                    self._shutdown.wait(),
-                    timeout=self._poll_interval,
-                )
-            except asyncio.TimeoutError:
-                pass
+            await wait_or_timeout(self._shutdown, self._poll_interval)
 
     async def _do_cleanup(self) -> None:
         await self._process_pending_cleanup()
