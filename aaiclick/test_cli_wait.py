@@ -1,6 +1,7 @@
 """Tests for the blocking wait/progress loop behind ``run-job --progress``
 and ``job wait``."""
 
+import asyncio
 from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -8,7 +9,14 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from aaiclick.cli_renderers import render_job_failure
-from aaiclick.cli_wait import JobWaitTimeout, wait_for_job
+from aaiclick.cli_wait import JobWaitTimeout, _wake_interval, wait_for_job
+from aaiclick.orchestration.events import (
+    STATE_IDLE,
+    STATE_LISTENING,
+    STATE_RECONNECTING,
+    get_event_bus,
+    signal_transport,
+)
 from aaiclick.orchestration.models import JOB_COMPLETED, Job, JobStatus
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import run_job
@@ -185,3 +193,128 @@ def test_render_job_failure_hides_cascade_victims_when_a_real_failure_exists(cap
 
     assert "mod.boom" in out
     assert "mod.downstream" not in out
+
+
+class _SignallingTransport:
+    """Cross-process transport whose feed wakes every subscriber on a timer."""
+
+    cross_process = True
+    state = STATE_LISTENING
+
+    def before_commit(self, session) -> None:
+        return None
+
+    def after_commit(self, session) -> None:
+        return None
+
+    async def feed(self, bus, *, stop) -> None:
+        while not stop.is_set():
+            await asyncio.sleep(0.01)
+            bus.publish()
+
+
+class _SilentTransport:
+    """Cross-process transport that never publishes; records that feed ran."""
+
+    cross_process = True
+    state = STATE_LISTENING
+
+    def __init__(self) -> None:
+        self.feed_started = False
+        self.feed_finished = False
+
+    def before_commit(self, session) -> None:
+        return None
+
+    def after_commit(self, session) -> None:
+        return None
+
+    async def feed(self, bus, *, stop) -> None:
+        self.feed_started = True
+        try:
+            await stop.wait()
+        finally:
+            self.feed_finished = True
+
+
+class _LocalLikeTransport(_SilentTransport):
+    """Mirrors LocalTransport: listening, but signals never cross processes."""
+
+    cross_process = False
+
+
+@pytest.mark.parametrize(
+    "cross_process, state, expected",
+    [
+        pytest.param(True, STATE_LISTENING, 10.0, id="listening-uses-slow-poll"),
+        pytest.param(True, STATE_RECONNECTING, 1.0, id="reconnecting-uses-fast-poll"),
+        pytest.param(True, STATE_IDLE, 1.0, id="idle-uses-fast-poll"),
+        # LocalTransport.state is always LISTENING, so cross_process is the
+        # only thing standing between local mode and a 10s wait.
+        pytest.param(False, STATE_LISTENING, 1.0, id="local-always-fast"),
+    ],
+)
+def test_wake_interval(cross_process, state, expected):
+    transport = SimpleNamespace(cross_process=cross_process, state=state)
+    assert _wake_interval(transport, poll_interval=1.0, signal_poll_interval=10.0) == expected
+
+
+async def test_signal_advances_loop_without_waiting_slow_poll():
+    """Both intervals are 30s, so only a signal can finish this inside 2s."""
+    with _patch_stats(_stats("RUNNING", {"RUNNING": 1}), _stats("COMPLETED", {"COMPLETED": 1})):
+        with signal_transport(_SignallingTransport()):
+            result = await asyncio.wait_for(
+                wait_for_job(1, timeout=30.0, poll_interval=30.0, signal_poll_interval=30.0),
+                timeout=2.0,
+            )
+    assert result.job_status == "COMPLETED"
+
+
+async def test_signal_published_during_fetch_is_not_lost():
+    """The subscription opens before the first fetch, so a commit landing
+    mid-fetch is queued in the depth-1 mailbox rather than dropped."""
+    seen: list[int] = []
+
+    async def _stats_publishing_once(_ref):
+        seen.append(1)
+        if len(seen) == 1:
+            # A commit lands while this very fetch is in flight.
+            get_event_bus().publish()
+            return _stats("RUNNING", {"RUNNING": 1})
+        return _stats("COMPLETED", {"COMPLETED": 1})
+
+    with patch.multiple(
+        "aaiclick.cli_wait.internal_api",
+        job_stats=AsyncMock(side_effect=_stats_publishing_once),
+        get_job=AsyncMock(return_value=SimpleNamespace(id=1)),
+    ):
+        with signal_transport(_SilentTransport()):
+            result = await asyncio.wait_for(
+                wait_for_job(1, timeout=30.0, poll_interval=30.0, signal_poll_interval=30.0),
+                timeout=2.0,
+            )
+    assert result.job_status == "COMPLETED"
+
+
+async def test_feed_is_torn_down_when_the_wait_times_out():
+    """The Postgres LISTEN connection must not outlive a failed wait.
+
+    The intervals are small but non-zero so the loop really suspends: awaiting
+    an ``AsyncMock`` never yields to the event loop, so a zero-timeout wait
+    would raise before the feed task was ever scheduled.
+    """
+    transport = _SilentTransport()
+    with _patch_stats(_stats("RUNNING", {"RUNNING": 1})):
+        with signal_transport(transport):
+            with pytest.raises(JobWaitTimeout):
+                await wait_for_job(1, timeout=0.05, poll_interval=0.01, signal_poll_interval=0.01)
+    assert transport.feed_started is True
+    assert transport.feed_finished is True
+
+
+async def test_no_feed_started_when_transport_is_not_cross_process():
+    transport = _LocalLikeTransport()
+    with _patch_stats(_stats("COMPLETED", {"COMPLETED": 1})):
+        with signal_transport(transport):
+            await wait_for_job(1, timeout=5.0, poll_interval=0)
+    assert transport.feed_started is False
