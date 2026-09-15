@@ -67,11 +67,25 @@ jobs:
           VERSION="${{ inputs.tag }}"
           SETUPTOOLS_SCM_PRETEND_VERSION="${VERSION#v}" uv build
 
-      - name: Verify wheel contains SPA bundle
+      # Non-.py files reach the wheel only through [tool.setuptools.package-data].
+      # Anything that is merely git-tracked can vanish when a build backend
+      # changes, and the loss surfaces six minutes later as puzzling test
+      # failures, so assert the data the installed package needs.
+      - name: Verify wheel contains required data files
         run: |
           wheel=$(ls dist/aaiclick-*.whl | head -n 1)
-          unzip -l "$wheel" | grep -q "aaiclick/server/static/index.html" \
-            || { echo "Built wheel $wheel does not contain aaiclick/server/static/index.html"; exit 1; }
+          contents=$(unzip -l "$wheel")
+          missing=0
+          for path in \
+            aaiclick/server/static/index.html \
+            aaiclick/url_samples/sample.parquet \
+            aaiclick/url_samples/sample.csv \
+            aaiclick/orchestration/alembic.ini \
+            aaiclick/deploy/templates/compose/docker-compose.yaml
+          do
+            grep -q " ${path}\$" <<<"$contents" || { echo "missing: ${path}"; missing=1; }
+          done
+          [ "$missing" -eq 0 ] || { echo "Built wheel $wheel is missing required data files"; exit 1; }
 
       - name: Upload dist artifacts
         uses: actions/upload-artifact@v6
