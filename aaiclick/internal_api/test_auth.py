@@ -1,7 +1,7 @@
 import pytest
 
-from aaiclick.auth import security, store
-from aaiclick.auth.models import ROLE_VIEWER
+from aaiclick.auth import security
+from aaiclick.auth.models import ROLE_ADMIN
 from aaiclick.auth.view_models import (
     ChangePasswordRequest,
     CreateUserRequest,
@@ -27,15 +27,12 @@ async def test_login_success(orch_ctx):
     assert pair.access_token and pair.refresh_token
 
 
-async def test_login_token_carries_memberships(orch_ctx):
-    view = await users.create_user(CreateUserRequest(username="member", password="pw", superadmin=True))
-    tenant = await store.create_tenant(slug="acme", name="Acme")
-    await store.set_membership(tenant_id=tenant.id, user_id=view.id, role=ROLE_VIEWER)
+async def test_login_token_carries_the_role(orch_ctx):
+    await users.create_user(CreateUserRequest(username="boss", password="pw", role=ROLE_ADMIN))
 
-    pair = await auth.login(LoginRequest(username="member", password="pw"), secret=SECRET)
+    pair = await auth.login(LoginRequest(username="boss", password="pw"), secret=SECRET)
     claims = security.decode_access_token(pair.access_token, SECRET)
-    assert claims.superadmin is True
-    assert claims.tenants_roles == {tenant.id: ROLE_VIEWER}
+    assert claims.role == ROLE_ADMIN
 
 
 async def test_login_bad_password_raises(orch_ctx):

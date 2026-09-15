@@ -16,7 +16,6 @@ from aaiclick.auth.view_models import (
     MfaEnableRequest,
     MfaSetupView,
     RefreshRequest,
-    TenantRoleView,
     TokenPair,
 )
 
@@ -30,22 +29,11 @@ async def _mint_pair(*, user: User, secret: str) -> TokenPair:
     await store.create_refresh_token(
         user_id=user.id, token_hash=security.sha256_hex(refresh_secret), ttl=config.refresh_ttl()
     )
-    tenants_roles = await store.tenant_roles_for_user(user.id)
     return TokenPair(
-        access_token=security.encode_access_token(
-            user_id=user.id, superadmin=user.superadmin, tenants_roles=tenants_roles, secret=secret, ttl=access_ttl
-        ),
+        access_token=security.encode_access_token(user_id=user.id, role=user.role, secret=secret, ttl=access_ttl),
         refresh_token=refresh_secret,
         expires_in=access_ttl,
     )
-
-
-async def my_tenants(user_id: int) -> list[TenantRoleView]:
-    """Resolve the user's memberships to tenant views for ``/auth/me``."""
-    return [
-        TenantRoleView(tenant_id=tenant.id, slug=tenant.slug, name=tenant.name, role=membership.role)
-        for membership, tenant in await store.list_user_tenants(user_id)
-    ]
 
 
 async def _authenticates(user: User, password: str) -> bool:
