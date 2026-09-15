@@ -5,13 +5,12 @@ from aaiclick.internal_api import api_tokens as api_tokens_api
 from aaiclick.internal_api import auth as auth_api
 from aaiclick.internal_api import users
 from aaiclick.server.app import API_PREFIX
-from aaiclick.tenancy import DEFAULT_TENANT_ID
 
 from ..conftest import login
 
 
 async def test_login_then_access_protected(orch_ctx, app_client, enabled):
-    await users.create_user(CreateUserRequest(username="alice", password="pw", superadmin=True))
+    await users.create_user(CreateUserRequest(username="alice", password="pw", role="admin"))
 
     login = await app_client.post(f"{API_PREFIX}/auth/login", json={"username": "alice", "password": "pw"})
     assert login.status_code == 200
@@ -20,7 +19,7 @@ async def test_login_then_access_protected(orch_ctx, app_client, enabled):
     me = await app_client.get(f"{API_PREFIX}/auth/me", headers={"Authorization": f"Bearer {access}"})
     assert me.status_code == 200
     body = me.json()
-    assert body["superadmin"] is True and body["username"] == "alice" and body["tenants"] == []
+    assert body["role"] == "admin" and body["username"] == "alice"
 
 
 async def test_login_bad_password_401(orch_ctx, app_client, enabled):
@@ -74,12 +73,12 @@ async def test_protected_route_requires_token_when_enabled(orch_ctx, anon_client
 
 async def test_api_token_lifecycle(orch_ctx, app_client, enabled):
     """Session mints a token → the token authenticates → revoke → 401."""
-    await users.create_user(CreateUserRequest(username="alice", password="pw", superadmin=True))
+    await users.create_user(CreateUserRequest(username="alice", password="pw", role="admin"))
     session = await login(app_client, "alice")
 
     created = await app_client.post(
         f"{API_PREFIX}/auth/tokens",
-        json={"name": "ci", "scope": "write", "tenant_id": DEFAULT_TENANT_ID},
+        json={"name": "ci", "scope": "write"},
         headers=session,
     )
     assert created.status_code == 201
@@ -99,15 +98,10 @@ async def test_api_token_lifecycle(orch_ctx, app_client, enabled):
 
 
 async def test_read_token_cannot_write_or_manage_tokens(orch_ctx, app_client, enabled):
-    await users.create_user(CreateUserRequest(username="alice", password="pw", superadmin=True))
+    await users.create_user(CreateUserRequest(username="alice", password="pw", role="admin"))
     session = await login(app_client, "alice")
-    created = await app_client.post(
-        f"{API_PREFIX}/auth/tokens", json={"name": "ro", "tenant_id": DEFAULT_TENANT_ID}, headers=session
-    )
-    token_header = {
-        "Authorization": f"Bearer {created.json()['token']}",
-        "X-Tenant-Id": str(DEFAULT_TENANT_ID),
-    }
+    created = await app_client.post(f"{API_PREFIX}/auth/tokens", json={"name": "ro"}, headers=session)
+    token_header = {"Authorization": f"Bearer {created.json()['token']}"}
 
     assert (await app_client.get(f"{API_PREFIX}/jobs", headers=token_header)).status_code == 200
     denied = await app_client.post(
@@ -157,10 +151,8 @@ async def test_password_reset_routes(orch_ctx, enabled, anon_client, app_client)
 
 async def test_write_token_cannot_reach_an_admin_route(orch_ctx, app_client, enabled):
     """The ladder, not the HTTP verb, is what separates write from admin."""
-    user = await users.create_user(CreateUserRequest(username="w", password="pw", superadmin=True))
-    created = await api_tokens_api.create_token(
-        user.id, CreateApiTokenRequest(name="w", scope=SCOPE_WRITE, tenant_id=DEFAULT_TENANT_ID)
-    )
+    user = await users.create_user(CreateUserRequest(username="w", password="pw", role="admin"))
+    created = await api_tokens_api.create_token(user.id, CreateApiTokenRequest(name="w", scope=SCOPE_WRITE))
     headers = {"Authorization": f"Bearer {created.token}"}
     assert (await app_client.get(f"{API_PREFIX}/jobs", headers=headers)).status_code == 200
     denied = await app_client.post(f"{API_PREFIX}/jobs/1/cancel", headers=headers)

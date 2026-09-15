@@ -19,7 +19,6 @@ def _to_view(row: AuditLog) -> AuditEntryView:
         user_id=row.user_id,
         username=row.username,
         auth_kind=row.auth_kind,
-        tenant_id=row.tenant_id,
         method=row.method,
         path=row.path,
         action=row.action,

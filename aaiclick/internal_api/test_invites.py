@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from aaiclick.auth.models import ROLE_ADMIN, ROLE_MEMBER, ROLE_VIEWER
+from aaiclick.auth.models import ROLE_ADMIN, ROLE_MEMBER, ROLE_VIEWER, Role
 from aaiclick.auth.view_models import (
     CreateUserRequest,
     InviteUserRequest,
@@ -18,7 +18,7 @@ from aaiclick.internal_api.errors import Conflict, Forbidden, NotFound, Unauthor
 SECRET = "internal-api-invites-test-secret-key-32-plus-bytes"
 
 
-async def _user(username: str, role: str = ROLE_VIEWER):
+async def _user(username: str, role: Role = ROLE_VIEWER):
     return await users.create_user(CreateUserRequest(username=username, password="pw", role=role))
 
 

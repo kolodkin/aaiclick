@@ -9,15 +9,15 @@ because ``Depends`` does not propagate into mounted sub-apps. See
 ``docs/designs/auth.md``.
 
 The scope rules are plain functions (``principal_to_scope``, ``check_scope``,
-``resolve_tenant``, ``enforce_scope``) so the FastAPI dependencies here and the
-FastMCP middleware in ``mcp_rbac.py`` share one definition of each.
+``enforce_scope``) so the FastAPI dependencies here and the FastMCP middleware
+in ``mcp_rbac.py`` share one definition of each.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import Literal, NamedTuple, cast
+from collections.abc import Awaitable, Callable
+from typing import Literal, NamedTuple
 
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -27,24 +27,22 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from aaiclick.auth import config, security, store
 from aaiclick.auth.models import (
+    ROLE_ADMIN,
     ROLE_SCOPES,
     SCOPE_ADMIN,
     SCOPE_READ,
-    SCOPE_SUPERADMIN,
     SCOPE_WRITE,
     Role,
     ScopeLevel,
     scope_admits,
 )
-from aaiclick.internal_api.errors import Forbidden, Invalid, NotFound, Unauthorized
+from aaiclick.internal_api.errors import Forbidden, Invalid, Unauthorized
 from aaiclick.orchestration.orch_context import orch_context
-from aaiclick.tenancy import DEFAULT_TENANT_ID, active_tenant
 from aaiclick.view_models import ProblemCode
 
 from .errors import BEARER_CHALLENGE, problem_response
 from .request_state import audit_state
 
-TENANT_HEADER = "X-Tenant-Id"
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 logger = logging.getLogger(__name__)
 
@@ -59,17 +57,14 @@ AuthKind = Literal["none", "session", "token"]
 
 class Principal(NamedTuple):
     user_id: int | None
-    superadmin: bool
-    tenants_roles: dict[int, Role]
-    """Membership map ``tenant_id -> role`` — from the access JWT, or read live for an API token."""
+    role: Role
+    """The user's installation-wide role — from the access JWT, or read live for an API token."""
     scope: ScopeLevel | None = None
     """API-token level; ``None`` means unscoped — a session or local mode, bounded by role alone."""
     kind: AuthKind = AUTH_KIND_SESSION
-    tenant_id: int | None = None
-    """The tenant a tenant-scoped token is bound to; ``None`` for every other principal."""
 
 
-_SYNTHETIC_ADMIN = Principal(user_id=None, superadmin=True, tenants_roles={}, kind=AUTH_KIND_NONE)
+_SYNTHETIC_ADMIN = Principal(user_id=None, role=ROLE_ADMIN, kind=AUTH_KIND_NONE)
 
 
 def _principal_from_token(token: str) -> Principal:
@@ -78,30 +73,20 @@ def _principal_from_token(token: str) -> Principal:
         claims = security.decode_access_token(token, config.require_jwt_secret())
     except security.TokenError as exc:
         raise Unauthorized(str(exc)) from exc
-    tenants_roles = cast("dict[int, Role]", claims.tenants_roles)
-    return Principal(user_id=claims.user_id, superadmin=claims.superadmin, tenants_roles=tenants_roles)
+    return Principal(user_id=claims.user_id, role=claims.role)
 
 
 async def _principal_from_api_token(token: str) -> Principal:
     """Look an ``aaic_`` token up by hash and build a Principal from its owner's
-    *current* flag and live role in the token's tenant, so revocation and
-    demotion bind instantly."""
+    *current* role, so revocation and demotion bind instantly."""
     async with orch_context(with_ch=False):
         resolved = await store.resolve_api_token(security.sha256_hex(token))
     if resolved is None:
         raise Unauthorized("invalid api token")
     if resolved.user.disabled:
         raise Unauthorized("user is disabled")
-    tenants_roles: dict[int, Role] = {}
-    if resolved.token.tenant_id is not None and resolved.role is not None:
-        tenants_roles[resolved.token.tenant_id] = resolved.role
     return Principal(
-        user_id=resolved.user.id,
-        superadmin=resolved.user.superadmin,
-        tenants_roles=tenants_roles,
-        scope=resolved.token.scope,
-        kind=AUTH_KIND_TOKEN,
-        tenant_id=resolved.token.tenant_id,
+        user_id=resolved.user.id, role=resolved.user.role, scope=resolved.token.scope, kind=AUTH_KIND_TOKEN
     )
 
 
@@ -172,104 +157,39 @@ async def require_user_id(principal: Principal = Depends(require_session)) -> in
     return principal.user_id
 
 
-def principal_to_scope(principal: Principal, tenant_id: int | None) -> ScopeLevel | None:
-    """The one bridge from a principal to the scope it holds in ``tenant_id``
-    (``None`` for instance-level operations), or ``None`` when it has no
-    standing there. Every gate on both surfaces compares this against the level
-    the route or tool declares — nothing else is consulted.
+def principal_to_scope(principal: Principal) -> ScopeLevel:
+    """The one bridge from a principal to the scope it holds. Every gate on
+    both surfaces compares this against the level the route or tool declares —
+    nothing else is consulted.
 
-    A session resolves through its role: the superadmin flag is
-    ``ROLE_SUPERADMIN`` everywhere, a membership is its ``ROLE_SCOPES`` rung. A
-    token stands on its own scope like a GitHub PAT — the mint ceiling capped
-    it, and demoting the owner does not shrink it; revoke it instead. Two things
-    still stop a token: it acts only in the tenant it is bound to, and only
-    while its owner keeps a membership there (or the flag); and a ``superadmin``
-    token dies with the owner's flag, because that scope reaches every tenant
-    and has no membership to lose.
+    A session resolves through its role via ``ROLE_SCOPES``. A token stands on
+    its own scope like a GitHub PAT — the mint ceiling capped it, and demoting
+    the owner does not shrink it; revoke it instead. Disabling the owner still
+    stops it, which ``resolve_api_token`` checks.
     """
-    if principal.tenant_id is not None and tenant_id != principal.tenant_id:
-        return None
-    if principal.scope == SCOPE_SUPERADMIN:
-        return SCOPE_SUPERADMIN if principal.superadmin else None
-    if principal.superadmin:
-        return SCOPE_SUPERADMIN if principal.scope is None else principal.scope
-    if tenant_id is None or tenant_id not in principal.tenants_roles:
-        return None
-    return principal.scope if principal.scope is not None else ROLE_SCOPES[principal.tenants_roles[tenant_id]]
+    if principal.scope is not None:
+        return principal.scope
+    return ROLE_SCOPES[principal.role]
 
 
-def _admit(held: ScopeLevel | None, required: ScopeLevel) -> None:
-    if held is None or not scope_admits(held, required):
-        raise Forbidden(f"'{required}' scope required — this request carries '{held or 'none'}'")
+def check_scope(principal: Principal, required: ScopeLevel) -> None:
+    """The single authorization gate: ``Forbidden`` unless the principal's scope admits ``required``."""
+    held = principal_to_scope(principal)
+    if not scope_admits(held, required):
+        raise Forbidden(f"'{required}' scope required — this request carries '{held}'")
 
 
-def check_scope(principal: Principal, tenant_id: int | None, required: ScopeLevel) -> None:
-    """The single authorization gate: ``Forbidden`` unless the principal's scope
-    in ``tenant_id`` admits ``required``."""
-    _admit(principal_to_scope(principal, tenant_id), required)
-
-
-def check_tenant_scope(principal: Principal, tenant_id: int, required: ScopeLevel) -> None:
-    """Gate a route that names its tenant in the path rather than the header.
-
-    Same ladder as ``check_scope``, but no standing at all reads as a missing
-    tenant, so the URL cannot be used to probe for tenants — and a token bound
-    elsewhere cannot reach this one by path.
-    """
-    held = principal_to_scope(principal, tenant_id)
-    if held is None:
-        raise NotFound(f"tenant {tenant_id} not found")
-    _admit(held, required)
-
-
-def resolve_tenant(principal: Principal, header_value: str | None) -> int:
-    """Resolve the active tenant from the ``X-Tenant-Id`` header.
-
-    Local mode's synthetic principal always acts in the default tenant, and a
-    tenant-bound API token always acts in the tenant it names. Otherwise a
-    missing header is implied only when the principal has exactly one
-    membership; superadmins (who can act in every tenant) must always name
-    one. A tenant the principal has no standing in is ``Forbidden``.
-    """
-    if principal.kind == AUTH_KIND_NONE:
-        return DEFAULT_TENANT_ID
-    if principal.tenant_id is not None:
-        if header_value is not None and header_value != str(principal.tenant_id):
-            raise Invalid(f"{TENANT_HEADER} does not match the tenant this token is bound to")
-        tenant_id = principal.tenant_id
-    elif header_value is not None:
-        try:
-            tenant_id = int(header_value)
-        except ValueError as exc:
-            raise Invalid(f"{TENANT_HEADER} must be an integer") from exc
-    elif len(principal.tenants_roles) == 1:
-        tenant_id = next(iter(principal.tenants_roles))
-    else:
-        raise Invalid(f"{TENANT_HEADER} header required")
-    if principal_to_scope(principal, tenant_id) is None:
-        raise Forbidden(f"no access to tenant {tenant_id}")
-    return tenant_id
-
-
-async def require_tenant(request: Request, principal: Principal = Depends(require_principal)) -> AsyncIterator[int]:
-    """Resolve the active tenant and pin the tenancy contextvar for the request."""
-    tenant_id = resolve_tenant(principal, request.headers.get(TENANT_HEADER))
-    audit_state(request.scope).tenant_id = tenant_id
-    with active_tenant(tenant_id):
-        yield tenant_id
-
-
-def require_scope(required: ScopeLevel) -> Callable[..., Awaitable[int]]:
-    """Tenant-scoped route guard, declared by the level the route needs.
+def require_scope(required: ScopeLevel) -> Callable[..., Awaitable[Principal]]:
+    """Route guard, declared by the level the route needs.
 
     Routes gate on scope, never on role: ``Depends(require_scope(SCOPE_ADMIN))``
     reads as the capability it protects, and one comparison covers sessions and
     tokens alike.
     """
 
-    async def guard(tenant_id: int = Depends(require_tenant), principal: Principal = Depends(require_principal)) -> int:
-        check_scope(principal, tenant_id, required)
-        return tenant_id
+    async def guard(principal: Principal = Depends(require_principal)) -> Principal:
+        check_scope(principal, required)
+        return principal
 
     return guard
 
@@ -277,13 +197,7 @@ def require_scope(required: ScopeLevel) -> Callable[..., Awaitable[int]]:
 require_write = require_scope(SCOPE_WRITE)
 """A member's own mutations — saved queries, dashboards."""
 require_admin = require_scope(SCOPE_ADMIN)
-"""Tenant mutations — jobs, objects, tasks, memberships."""
-
-
-async def require_superadmin(principal: Principal = Depends(require_principal)) -> Principal:
-    """Instance-level guard: ``superadmin`` scope with no tenant in play."""
-    check_scope(principal, None, SCOPE_SUPERADMIN)
-    return principal
+"""Everything else that mutates or administers: jobs, objects, tasks, users, workers, audit."""
 
 
 def warn_if_open() -> None:

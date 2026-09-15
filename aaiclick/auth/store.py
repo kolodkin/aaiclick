@@ -43,7 +43,6 @@ class UsernameTaken(ValueError):
     """A user with this username already exists."""
 
 
-
 class UserNotFound(ValueError):
     """No user matches the given id/username."""
 

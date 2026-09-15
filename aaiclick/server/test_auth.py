@@ -13,11 +13,10 @@ from unittest.mock import patch
 import jwt
 import pytest
 
-from aaiclick.auth import security, store
+from aaiclick.auth import security
 from aaiclick.auth.view_models import CreateApiTokenRequest, CreateUserRequest
 from aaiclick.internal_api import api_tokens, users
-from aaiclick.internal_api.errors import Forbidden, Invalid, NotFound, Unauthorized
-from aaiclick.tenancy import DEFAULT_TENANT_ID
+from aaiclick.internal_api.errors import Forbidden, Unauthorized
 
 from . import auth
 from .auth import PrincipalAuthMiddleware, warn_if_open
@@ -37,7 +36,7 @@ def _bearer(token: str) -> str:
 async def test_local_mode_returns_synthetic_admin(monkeypatch):
     monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
     principal = await auth.resolve_principal(authorization=None)
-    assert principal.superadmin is True and principal.kind == "none"
+    assert principal.role == "admin" and principal.kind == "none"
 
 
 async def test_enabled_missing_token_unauthorized(enabled):
@@ -46,34 +45,27 @@ async def test_enabled_missing_token_unauthorized(enabled):
 
 
 async def test_enabled_valid_jwt(enabled):
-    token = security.encode_access_token(
-        user_id=7, superadmin=False, tenants_roles={3: "viewer"}, secret=TEST_JWT_SECRET, ttl=60
-    )
+    token = security.encode_access_token(user_id=7, role="member", secret=TEST_JWT_SECRET, ttl=60)
     principal = await auth.resolve_principal(authorization=_bearer(token))
-    assert principal.user_id == 7 and principal.superadmin is False
-    assert principal.tenants_roles == {3: "viewer"}
+    assert principal.user_id == 7 and principal.role == "member"
     assert principal.kind == "session" and principal.scope is None
 
 
 async def test_enabled_bad_signature_unauthorized(enabled):
-    token = jwt.encode({"sub": "1", "type": "access"}, OTHER_SECRET, algorithm="HS256")
+    token = jwt.encode({"sub": "1", "type": "access", "role": "admin"}, OTHER_SECRET, algorithm="HS256")
     with pytest.raises(Unauthorized):
         await auth.resolve_principal(authorization=_bearer(token))
 
 
 async def test_api_token_resolves_live_owner_state(enabled, orch_ctx):
     """An ``aaic_`` credential is looked up in the DB and carries the owner's
-    current flag, live role in the token's tenant, and the token's scope."""
-    user = await users.create_user(CreateUserRequest(username="bot", password="pw"))
-    tenant = await store.create_tenant(slug="acme", name="Acme")
-    await store.set_membership(tenant_id=tenant.id, user_id=user.id, role="viewer")
-    created = await api_tokens.create_token(
-        user.id, CreateApiTokenRequest(name="ci", scope="read", tenant_id=tenant.id)
-    )
+    current role and the token's scope."""
+    user = await users.create_user(CreateUserRequest(username="bot", password="pw", role="member"))
+    created = await api_tokens.create_token(user.id, CreateApiTokenRequest(name="ci", scope="read"))
 
     principal = await auth.resolve_principal(authorization=_bearer(created.token))
     assert principal.user_id == user.id and principal.kind == "token" and principal.scope == "read"
-    assert principal.tenants_roles == {tenant.id: "viewer"}
+    assert principal.role == "member"
 
     await users.disable_user(user.id, True)
     with pytest.raises(Unauthorized):
@@ -92,12 +84,11 @@ async def test_unknown_api_token_unauthorized(enabled, orch_ctx):
         pytest.param("read", "write", False, id="read-cannot-write"),
         pytest.param("write", "admin", False, id="write-cannot-admin"),
         pytest.param("admin", "write", True, id="admin-can-write"),
-        pytest.param("admin", "superadmin", False, id="admin-cannot-superadmin"),
-        pytest.param("superadmin", "superadmin", True, id="superadmin-can"),
+        pytest.param("admin", "admin", True, id="admin-can-admin"),
     ],
 )
 def test_enforce_scope_walks_the_ladder(held, required, allowed):
-    principal = auth.Principal(user_id=1, superadmin=True, tenants_roles={}, scope=held, kind="token")
+    principal = auth.Principal(user_id=1, role="admin", scope=held, kind="token")
     if allowed:
         auth.enforce_scope(principal, required)
     else:
@@ -107,114 +98,38 @@ def test_enforce_scope_walks_the_ladder(held, required, allowed):
 
 def test_unscoped_principal_is_never_blocked_by_the_ladder():
     """A session is bounded by its user's role, not by a scope."""
-    session = auth.Principal(user_id=1, superadmin=True, tenants_roles={}, kind="session")
-    auth.enforce_scope(session, "superadmin")
-
-
-def test_resolve_tenant_local_mode_defaults():
-    synthetic = auth.Principal(user_id=None, superadmin=True, tenants_roles={}, kind="none")
-    assert auth.resolve_tenant(synthetic, None) == DEFAULT_TENANT_ID
+    session = auth.Principal(user_id=1, role="admin", kind="session")
+    auth.enforce_scope(session, "admin")
 
 
 # --- principal_to_scope --------------------------------------------------
 
 
-def _session(*, superadmin=False, tenants_roles=None):
-    return auth.Principal(user_id=5, superadmin=superadmin, tenants_roles=tenants_roles or {})
-
-
-def _token(scope, *, tenant_id=None, superadmin=False, tenants_roles=None):
-    return auth.Principal(
-        user_id=5,
-        superadmin=superadmin,
-        tenants_roles=tenants_roles or {},
-        scope=scope,
-        kind="token",
-        tenant_id=tenant_id,
-    )
-
-
 @pytest.mark.parametrize(
-    ("principal", "tenant_id", "expected"),
+    ("principal", "expected"),
     [
-        pytest.param(_session(tenants_roles={7: "viewer"}), 7, "read", id="viewer-session-reads"),
-        pytest.param(_session(tenants_roles={7: "member"}), 7, "write", id="member-session-writes"),
-        pytest.param(_session(tenants_roles={7: "admin"}), 7, "admin", id="admin-session-admins"),
-        pytest.param(_session(tenants_roles={7: "admin"}), 8, None, id="session-no-standing-elsewhere"),
-        pytest.param(_session(tenants_roles={7: "admin"}), None, None, id="session-no-instance-standing"),
-        pytest.param(_session(superadmin=True), 7, "superadmin", id="superadmin-session-anywhere"),
-        pytest.param(_session(superadmin=True), None, "superadmin", id="superadmin-session-instance"),
-        pytest.param(_token("read", tenant_id=7, tenants_roles={7: "admin"}), 7, "read", id="token-stands-alone"),
-        pytest.param(_token("admin", tenant_id=7, tenants_roles={7: "admin"}), 8, None, id="bound-token-stays-put"),
+        pytest.param(auth.Principal(user_id=5, role="viewer"), "read", id="viewer-session-reads"),
+        pytest.param(auth.Principal(user_id=5, role="member"), "write", id="member-session-writes"),
+        pytest.param(auth.Principal(user_id=5, role="admin"), "admin", id="admin-session-admins"),
         pytest.param(
-            _token("admin", tenant_id=7, tenants_roles={7: "admin"}), None, None, id="bound-token-no-instance"
+            auth.Principal(user_id=5, role="admin", scope="read", kind="token"), "read", id="token-stands-alone"
         ),
-        pytest.param(_token("admin", tenant_id=7), 7, None, id="token-dies-with-membership"),
-        pytest.param(_token("admin", tenant_id=7, superadmin=True), 7, "admin", id="superadmin-owner-needs-no-row"),
-        pytest.param(_token("superadmin", superadmin=True), 7, "superadmin", id="superadmin-token-anywhere"),
-        pytest.param(_token("superadmin", superadmin=True), None, "superadmin", id="superadmin-token-instance"),
-        pytest.param(_token("superadmin"), None, None, id="superadmin-token-dies-with-flag"),
-        pytest.param(_token("superadmin"), 7, None, id="superadmin-token-dies-with-flag-in-tenant"),
+        pytest.param(auth.Principal(user_id=None, role="admin", kind="none"), "admin", id="local-mode-is-admin"),
     ],
 )
-def test_principal_to_scope(principal, tenant_id, expected):
-    assert auth.principal_to_scope(principal, tenant_id) == expected
+def test_principal_to_scope(principal, expected):
+    assert auth.principal_to_scope(principal) == expected
 
 
-def test_check_scope_forbids_no_standing_and_too_little():
-    with pytest.raises(Forbidden, match="none"):
-        auth.check_scope(_session(), 7, "read")
-    with pytest.raises(Forbidden, match="'admin' scope required"):
-        auth.check_scope(_session(tenants_roles={7: "member"}), 7, "admin")
-    auth.check_scope(_session(tenants_roles={7: "member"}), 7, "write")
-
-
-def test_check_tenant_scope_hides_tenants_the_caller_cannot_see():
-    with pytest.raises(NotFound):
-        auth.check_tenant_scope(_session(tenants_roles={7: "admin"}), 8, "read")
+def test_check_scope_forbids_too_little():
     with pytest.raises(Forbidden):
-        auth.check_tenant_scope(_session(tenants_roles={7: "viewer"}), 7, "admin")
+        auth.check_scope(auth.Principal(user_id=5, role="member"), "admin")
+    auth.check_scope(auth.Principal(user_id=5, role="member"), "write")
 
 
-# --- resolve_tenant ------------------------------------------------------
-
-
-def _principal(superadmin=False, tenants_roles=None):
-    return auth.Principal(user_id=5, superadmin=superadmin, tenants_roles=tenants_roles or {})
-
-
-def test_tenant_header_resolves_membership_role():
-    assert auth.resolve_tenant(_principal(tenants_roles={7: "viewer"}), "7") == 7
-
-
-def test_tenant_header_superadmin_resolves_anywhere():
-    assert auth.resolve_tenant(_principal(superadmin=True), "7") == 7
-
-
-def test_tenant_header_non_member_forbidden():
-    with pytest.raises(Forbidden):
-        auth.resolve_tenant(_principal(tenants_roles={7: "admin"}), "8")
-
-
-def test_tenant_header_bad_int_invalid():
-    with pytest.raises(Invalid):
-        auth.resolve_tenant(_principal(tenants_roles={7: "admin"}), "acme")
-
-
-def test_tenant_header_missing_single_membership_implied():
-    assert auth.resolve_tenant(_principal(tenants_roles={7: "admin"}), None) == 7
-
-
-def test_tenant_header_missing_zero_or_many_invalid():
-    with pytest.raises(Invalid):
-        auth.resolve_tenant(_principal(), None)
-    with pytest.raises(Invalid):
-        auth.resolve_tenant(_principal(tenants_roles={7: "admin", 8: "viewer"}), None)
-
-
-def test_tenant_header_missing_superadmin_requires_header():
-    with pytest.raises(Invalid):
-        auth.resolve_tenant(_principal(superadmin=True), None)
+def test_session_principal_is_unscoped():
+    session = auth.Principal(user_id=1, role="admin", kind="session")
+    assert session.scope is None
 
 
 # --- PrincipalAuthMiddleware ---------------------------------------------
@@ -248,9 +163,7 @@ async def test_mcp_mount_admits_an_api_token_and_stores_it(orch_ctx, enabled):
     """Per-tool RBAC lives in mcp_rbac.py — the mount only needs a principal."""
     called: list[bool] = []
     user = await users.create_user(CreateUserRequest(username="m", password="pw"))
-    tenant = await store.create_tenant(slug="home", name="Home")
-    await store.set_membership(tenant_id=tenant.id, user_id=user.id, role="viewer")
-    created = await api_tokens.create_token(user.id, CreateApiTokenRequest(name="m", scope="read", tenant_id=tenant.id))
+    created = await api_tokens.create_token(user.id, CreateApiTokenRequest(name="m", scope="read"))
     scope = {"type": "http", "headers": [(b"authorization", f"Bearer {created.token}".encode())]}
     await _drive(scope, called)
     assert called == [True]
@@ -261,7 +174,7 @@ async def test_mcp_mount_admits_an_api_token_and_stores_it(orch_ctx, enabled):
 async def test_mcp_mount_refuses_a_session_jwt(enabled):
     """MCP is the machine door; a session JWT belongs on REST."""
     called: list[bool] = []
-    token = security.encode_access_token(user_id=2, superadmin=True, tenants_roles={}, secret=TEST_JWT_SECRET, ttl=60)
+    token = security.encode_access_token(user_id=2, role="admin", secret=TEST_JWT_SECRET, ttl=60)
     scope = {"type": "http", "headers": [(b"authorization", f"Bearer {token}".encode())]}
     sent = await _drive(scope, called)
     assert not called
@@ -290,37 +203,3 @@ def test_warn_if_open_silent_in_distributed_mode(monkeypatch):
     with patch.object(auth.logger, "warning") as warning:
         warn_if_open()
     warning.assert_not_called()
-
-
-# --- tenant-bound API tokens ---------------------------------------------
-
-
-def _bound(level="admin", tenant_id=7, role="admin"):
-    return auth.Principal(
-        user_id=5, superadmin=False, tenants_roles={tenant_id: role}, scope=level, kind="token", tenant_id=tenant_id
-    )
-
-
-def test_bound_token_ignores_a_missing_header():
-    assert auth.resolve_tenant(_bound(), None) == 7
-
-
-def test_bound_token_rejects_a_mismatched_header():
-    """A client naming a different tenant has a bug — surface it, don't ignore it."""
-    with pytest.raises(Invalid, match="bound"):
-        auth.resolve_tenant(_bound(), "8")
-
-
-def test_bound_token_accepts_a_matching_header():
-    assert auth.resolve_tenant(_bound(), "7") == 7
-
-
-def test_bound_token_forbidden_once_membership_is_gone():
-    stripped = _bound()._replace(tenants_roles={})
-    with pytest.raises(Forbidden):
-        auth.resolve_tenant(stripped, None)
-
-
-def test_session_principal_is_unscoped():
-    session = auth.Principal(user_id=1, superadmin=True, tenants_roles={}, kind="session")
-    assert session.scope is None and session.tenant_id is None

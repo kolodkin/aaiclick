@@ -43,7 +43,6 @@ import json
 import shlex
 import sys
 from contextlib import closing, redirect_stdout
-from contextvars import ContextVar
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, cast, get_args
@@ -52,10 +51,9 @@ from aaiclick import cli_renderers, cli_wait, internal_api
 from aaiclick.ai.importing import import_ai_module
 from aaiclick.audit.view_models import AuditListFilter
 from aaiclick.auth import store as auth_store
-from aaiclick.auth.models import ROLE_VIEWER, SCOPE_LEVELS, SCOPE_READ, SCOPE_SUPERADMIN, TENANT_ROLES
+from aaiclick.auth.models import ROLE_VIEWER, ROLES, SCOPE_LEVELS, SCOPE_READ
 from aaiclick.auth.view_models import (
     CreateApiTokenRequest,
-    CreateTenantRequest,
     CreateUserRequest,
     InviteUserRequest,
     UserListFilter,
@@ -66,7 +64,6 @@ from aaiclick.internal_api import audit as audit_api
 from aaiclick.internal_api import invites as invites_api
 from aaiclick.internal_api import password_reset as reset_api
 from aaiclick.internal_api import setup as setup_api
-from aaiclick.internal_api import tenants as tenants_api
 from aaiclick.internal_api import users as users_api
 from aaiclick.internal_api.errors import InternalApiError, NotFound
 from aaiclick.orchestration.kubernetes_config import build_kubernetes_config
@@ -79,7 +76,6 @@ from aaiclick.orchestration.models import (
 )
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.orchestration.runner_config import ENTRY_TYPES
-from aaiclick.tenancy import active_tenant, get_active_tenant_id
 from aaiclick.view_models import (
     ExecutionWorkerFilter,
     JobListFilter,
@@ -133,48 +129,21 @@ def _render(args: argparse.Namespace, view, text_renderer) -> None:
         text_renderer(view)
 
 
-_tenant_slug: ContextVar[str | None] = ContextVar("cli_tenant_slug", default=None)
-"""``--tenant`` slug for this invocation, set by ``main()`` before dispatch.
-
-A ContextVar rather than a module global: the write site needs no ``global``
-statement, and the value is scoped to the calling context instead of the
-process, so it stays correct if commands are ever driven concurrently.
-``asyncio.run`` copies the current context, so a value set here reaches the
-coroutine.
-"""
-
-
-async def _resolve_tenant_id(slug: str) -> int:
-    tenant = await auth_store.get_tenant_by_slug(slug)
-    if tenant is None:
-        raise NotFound(f"tenant '{slug}' not found")
-    return tenant.id
-
-
 async def _run_internal_api(coro, *, with_ch: bool = False):
     """Run ``coro`` inside ``orch_context``, mapping API errors to exit 1.
-
-    When the top-level ``--tenant`` flag is set, the command runs with that
-    tenant active (contextvars are read at await time, so setting the scope
-    here covers the already-created coroutine).
 
     Args:
         coro: The ``internal_api`` coroutine to await.
         with_ch: Attach a ClickHouse client — required by the ``data``
             subcommands, unnecessary for the orchestration ones.
     """
-    slug = _tenant_slug.get()
-    # We own `coro`, so close it however we leave: an unknown --tenant, a
-    # missing extra, or a locked chdb all raise before it is ever awaited, and
-    # an unclosed coroutine trails a "was never awaited" RuntimeWarning over
-    # the error. Closing one that already ran is a no-op.
+    # We own `coro`, so close it however we leave: a missing extra or a locked
+    # chdb raises before it is ever awaited, and an unclosed coroutine trails a
+    # "was never awaited" RuntimeWarning over the error.
     with closing(coro):
         try:
             async with orch_context(with_ch=with_ch):
-                if slug is None:
-                    return await coro
-                with active_tenant(await _resolve_tenant_id(slug)):
-                    return await coro
+                return await coro
         except InternalApiError as exc:
             print(exc, file=sys.stderr)
             sys.exit(1)
@@ -533,9 +502,7 @@ async def _run_execution_worker_stop(args: argparse.Namespace) -> None:
 async def _run_user_create(args: argparse.Namespace) -> None:
     view = await _run_internal_api(
         users_api.create_user(
-            CreateUserRequest(
-                username=args.username, password=args.password, superadmin=args.superadmin, email=args.email
-            )
+            CreateUserRequest(username=args.username, password=args.password, role=args.role, email=args.email)
         )
     )
     _render(args, view, cli_renderers.render_user)
@@ -544,16 +511,10 @@ async def _run_user_create(args: argparse.Namespace) -> None:
 async def _run_user_invite(args: argparse.Namespace) -> None:
     view = await _run_internal_api(
         invites_api.invite(
-            # The in-process CLI is superadmin-equivalent, like local mode's
+            # The in-process CLI is admin-equivalent, like local mode's
             # synthetic principal — there is no inviter to cap against.
             None,
-            InviteUserRequest(
-                username=args.username,
-                superadmin=args.superadmin,
-                tenant_id=None if args.superadmin else get_active_tenant_id(),
-                role=None if args.superadmin else args.role,
-                email=args.email,
-            ),
+            InviteUserRequest(username=args.username, role=args.role, email=args.email),
         )
     )
     _render(args, view, cli_renderers.render_invite)
@@ -564,8 +525,8 @@ async def _run_user_list(args: argparse.Namespace) -> None:
     _render(args, page, lambda p: cli_renderers.render_users_page(p, offset=args.offset))
 
 
-async def _run_user_set_superadmin(args: argparse.Namespace) -> None:
-    view = await _run_internal_api(users_api.set_superadmin(args.user_id, args.superadmin == "true"))
+async def _run_user_set_role(args: argparse.Namespace) -> None:
+    view = await _run_internal_api(users_api.set_role(args.user_id, args.role))
     _render(args, view, cli_renderers.render_user)
 
 
@@ -624,13 +585,8 @@ async def _run_token_create(args: argparse.Namespace) -> None:
     async def do():
         user_id = await _resolve_user_id(args.username)
         expires_at = utc_now() + timedelta(days=args.expires_days) if args.expires_days else None
-        # Below superadmin a token is bound to one tenant. _run_internal_api has
-        # already entered the tenant the top-level --tenant flag names, so the
-        # contextvar is the answer — and the default tenant when it is absent.
-        tenant_id = None if args.scope == SCOPE_SUPERADMIN else get_active_tenant_id()
         return await api_tokens_api.create_token(
-            user_id,
-            CreateApiTokenRequest(name=args.name, scope=args.scope, tenant_id=tenant_id, expires_at=expires_at),
+            user_id, CreateApiTokenRequest(name=args.name, scope=args.scope, expires_at=expires_at)
         )
 
     view = await _run_internal_api(do())
@@ -651,40 +607,6 @@ async def _run_token_revoke(args: argparse.Namespace) -> None:
 
     await _run_internal_api(do())
     print(f"revoked api token {args.token_id}")
-
-
-async def _run_tenant_create(args: argparse.Namespace) -> None:
-    request = CreateTenantRequest(slug=args.slug, name=args.name or args.slug)
-    view = await _run_internal_api(tenants_api.create_tenant(request))
-    _render(args, view, cli_renderers.render_tenant)
-
-
-async def _run_tenant_list(args: argparse.Namespace) -> None:
-    page = await _run_internal_api(tenants_api.list_tenants())
-    _render(args, page, cli_renderers.render_tenants_page)
-
-
-async def _resolve_member(args: argparse.Namespace) -> tuple[int, int]:
-    """Resolve ``--tenant`` slug and ``--username`` to their ids."""
-    return await _resolve_tenant_id(args.tenant), await _resolve_user_id(args.username)
-
-
-async def _run_member_set(args: argparse.Namespace) -> None:
-    async def do():
-        tenant_id, user_id = await _resolve_member(args)
-        return await tenants_api.set_member(tenant_id, user_id, args.role)
-
-    view = await _run_internal_api(do())
-    _render(args, view, cli_renderers.render_member)
-
-
-async def _run_member_remove(args: argparse.Namespace) -> None:
-    async def do():
-        tenant_id, user_id = await _resolve_member(args)
-        await tenants_api.remove_member(tenant_id, user_id)
-
-    await _run_internal_api(do())
-    print(f"removed '{args.username}' from tenant '{args.tenant}'")
 
 
 _MIGRATE_HELP = """\
@@ -806,12 +728,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="aaiclick",
         description="aaiclick command-line interface",
-    )
-    parser.add_argument(
-        "--tenant",
-        dest="global_tenant",
-        default=None,
-        help="Tenant slug to run the command in (default: the default tenant)",
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
@@ -1511,7 +1427,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--password", default=None, help="Omit to onboard the user with a reset link instead"
     )
     user_create_parser.add_argument("--email", default=None)
-    user_create_parser.add_argument("--superadmin", action="store_true")
+    user_create_parser.add_argument("--role", choices=list(ROLES), default=ROLE_VIEWER)
     _add_json_flag(user_create_parser)
 
     user_invite_parser = user_subparsers.add_parser(
@@ -1519,12 +1435,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     user_invite_parser.add_argument("username")
     user_invite_parser.add_argument("--email", default=None)
-    user_invite_parser.add_argument(
-        "--role", choices=list(TENANT_ROLES), default=ROLE_VIEWER, help="Role in --tenant (ignored with --superadmin)"
-    )
-    user_invite_parser.add_argument(
-        "--superadmin", action="store_true", help="Invite an instance superadmin instead, with no tenant"
-    )
+    user_invite_parser.add_argument("--role", choices=list(ROLES), default=ROLE_VIEWER, help="Role granted on redeem")
     _add_json_flag(user_invite_parser)
 
     user_list_parser = user_subparsers.add_parser("list", help="List users")
@@ -1532,12 +1443,10 @@ def build_parser() -> argparse.ArgumentParser:
     user_list_parser.add_argument("--offset", type=int, default=0)
     _add_json_flag(user_list_parser)
 
-    user_set_superadmin_parser = user_subparsers.add_parser(
-        "set-superadmin", help="Grant or revoke the instance superadmin flag"
-    )
-    user_set_superadmin_parser.add_argument("user_id", type=int)
-    user_set_superadmin_parser.add_argument("superadmin", choices=["true", "false"])
-    _add_json_flag(user_set_superadmin_parser)
+    user_set_role_parser = user_subparsers.add_parser("set-role", help="Change a user's role")
+    user_set_role_parser.add_argument("user_id", type=int)
+    user_set_role_parser.add_argument("role", choices=list(ROLES))
+    _add_json_flag(user_set_role_parser)
 
     user_disable_parser = user_subparsers.add_parser("disable", help="Disable a user")
     user_disable_parser.add_argument("user_id", type=int)
@@ -1598,34 +1507,6 @@ def build_parser() -> argparse.ArgumentParser:
     token_revoke_parser.add_argument("username")
     token_revoke_parser.add_argument("token_id", type=int)
 
-    # Add tenant subcommand (administration)
-    tenant_parser = subparsers.add_parser("tenant", help="Tenant administration")
-    tenant_subparsers = tenant_parser.add_subparsers(dest="tenant_command", help="Tenant commands")
-
-    tenant_create_parser = tenant_subparsers.add_parser("create", help="Create a tenant")
-    tenant_create_parser.add_argument("slug")
-    tenant_create_parser.add_argument("--name", default=None, help="Display name (default: the slug)")
-    _add_json_flag(tenant_create_parser)
-
-    tenant_list_parser = tenant_subparsers.add_parser("list", help="List tenants")
-    _add_json_flag(tenant_list_parser)
-
-    # Add member subcommand (tenant membership administration)
-    member_parser = subparsers.add_parser("member", help="Tenant membership administration")
-    member_subparsers = member_parser.add_subparsers(dest="member_command", help="Membership commands")
-
-    for member_cmd, member_help in (("add", "Add a user to a tenant"), ("set-role", "Change a member's role")):
-        member_set_parser = member_subparsers.add_parser(member_cmd, help=member_help)
-        member_set_parser.add_argument("--tenant", required=True, help="Tenant slug")
-        member_set_parser.add_argument("--username", required=True)
-        member_set_parser.add_argument("--role", choices=list(TENANT_ROLES), default=ROLE_VIEWER)
-        _add_json_flag(member_set_parser)
-
-    member_remove_parser = member_subparsers.add_parser("remove", help="Remove a user from a tenant")
-    member_remove_parser.add_argument("--tenant", required=True, help="Tenant slug")
-    member_remove_parser.add_argument("--username", required=True)
-    _add_json_flag(member_remove_parser)
-
     return parser
 
 
@@ -1642,7 +1523,6 @@ def main():
     parser = build_parser()
     subcommands = _subcommand_parsers(parser)
     args = parser.parse_args()
-    _tenant_slug.set(args.global_tenant)
 
     if args.command == "setup":
         _run_setup_cli(args)
@@ -1795,22 +1675,6 @@ def main():
         else:
             subcommands["token"].print_help()
 
-    elif args.command == "tenant":
-        if args.tenant_command == "create":
-            asyncio.run(_run_tenant_create(args))
-        elif args.tenant_command == "list":
-            asyncio.run(_run_tenant_list(args))
-        else:
-            subcommands["tenant"].print_help()
-
-    elif args.command == "member":
-        if args.member_command in ("add", "set-role"):
-            asyncio.run(_run_member_set(args))
-        elif args.member_command == "remove":
-            asyncio.run(_run_member_remove(args))
-        else:
-            subcommands["member"].print_help()
-
     elif args.command == "user":
         if args.user_command == "create":
             asyncio.run(_run_user_create(args))
@@ -1821,8 +1685,8 @@ def main():
         elif args.user_command == "list":
             asyncio.run(_run_user_list(args))
 
-        elif args.user_command == "set-superadmin":
-            asyncio.run(_run_user_set_superadmin(args))
+        elif args.user_command == "set-role":
+            asyncio.run(_run_user_set_role(args))
 
         elif args.user_command == "disable":
             asyncio.run(_run_user_disable(args))

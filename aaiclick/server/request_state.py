@@ -3,7 +3,7 @@ middlewares, and the audit middleware.
 
 Starlette's ``request.state`` is a view over ``scope["state"]``, so one typed
 carrier stored there is visible to every layer of a request — the FastAPI
-dependencies that resolve the principal and tenant, the FastMCP middleware
+dependencies that resolve the principal, the FastMCP middleware
 that knows the tool name, the login route that knows the attempted username,
 and finally the audit middleware that writes the row.
 """
@@ -24,7 +24,6 @@ _KEY = "aaiclick_audit"
 @dataclass
 class RequestAudit:
     principal: server_auth.Principal | None = None
-    tenant_id: int | None = None
     action: str | None = None
     """MCP tool name for ``/mcp`` calls."""
     username: str | None = None

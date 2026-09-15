@@ -16,11 +16,10 @@ class AuditLog(SQLModel, table=True):
 
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
     at: datetime = Field(default_factory=utc_now, index=True)
-    # Plain columns, not FKs: rows must outlive the user and tenant they name.
+    # Plain columns, not FKs: rows must outlive the user they name.
     user_id: int | None = Field(sa_column=Column(BigInteger, nullable=True, index=True), default=None)
     username: str | None = Field(sa_column=Column(String, nullable=True), default=None)
     auth_kind: str = Field(sa_column=Column(String, nullable=False))
-    tenant_id: int | None = Field(sa_column=Column(BigInteger, nullable=True), default=None)
     method: str = Field(sa_column=Column(String, nullable=False))
     path: str = Field(sa_column=Column(String, nullable=False, index=True))
     action: str | None = Field(sa_column=Column(String, nullable=True), default=None)

@@ -9,7 +9,7 @@ from aaiclick.auth.view_models import (
     PasswordResetLinkView,
     SetEmailRequest,
     SetPasswordRequest,
-    SetSuperadminRequest,
+    SetRoleRequest,
     UserListFilter,
     UserView,
 )
@@ -17,14 +17,14 @@ from aaiclick.internal_api import password_reset as reset_api
 from aaiclick.internal_api import users as users_api
 from aaiclick.view_models import Page
 
-from ..auth import require_superadmin
+from ..auth import require_admin
 from ..deps import orch_scope
 from ..errors import problem_responses
 
 router = APIRouter(
     prefix="/users",
     tags=["users"],
-    dependencies=[Depends(orch_scope), Depends(require_superadmin)],
+    dependencies=[Depends(orch_scope), Depends(require_admin)],
 )
 
 
@@ -48,9 +48,9 @@ async def set_email(user_id: int, request: SetEmailRequest) -> UserView:
     return await users_api.set_email(user_id, request.email)
 
 
-@router.put("/{user_id}/superadmin", response_model=UserView, responses=problem_responses(404))
-async def set_superadmin(user_id: int, request: SetSuperadminRequest) -> UserView:
-    return await users_api.set_superadmin(user_id, request.superadmin)
+@router.put("/{user_id}/role", response_model=UserView, responses=problem_responses(404))
+async def set_role(user_id: int, request: SetRoleRequest) -> UserView:
+    return await users_api.set_role(user_id, request.role)
 
 
 @router.put("/{user_id}/password", response_model=UserView, responses=problem_responses(404))

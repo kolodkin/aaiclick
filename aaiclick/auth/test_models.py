@@ -85,7 +85,9 @@ async def test_api_token_carries_its_scope(orch_ctx):
         session.add(User(id=uid, username="tok", password_hash="x"))
         await session.flush()
         session.add(
-            ApiToken(id=get_snowflake_id(), user_id=uid, name="ci", prefix="aaic_abc", token_hash="h", scope=SCOPE_ADMIN)
+            ApiToken(
+                id=get_snowflake_id(), user_id=uid, name="ci", prefix="aaic_abc", token_hash="h", scope=SCOPE_ADMIN
+            )
         )
         await session.commit()
     async with get_sql_session() as session:

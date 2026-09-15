@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from aaiclick.auth import config, security
-from aaiclick.tenancy import DEFAULT_TENANT_ID
+from aaiclick.auth.models import ROLE_ADMIN, ROLE_VIEWER, Role
 
 from .app import API_PREFIX, app
 
@@ -22,11 +22,9 @@ def enabled(monkeypatch):
     monkeypatch.setenv("AAICLICK_JWT_SECRET", TEST_JWT_SECRET)
 
 
-def bearer(user_id: int, *, superadmin: bool = False, tenants_roles: dict[int, str] | None = None) -> dict[str, str]:
+def bearer(user_id: int, *, role: Role = ROLE_VIEWER) -> dict[str, str]:
     """An ``Authorization`` header for a freshly minted access JWT."""
-    token = security.encode_access_token(
-        user_id=user_id, superadmin=superadmin, tenants_roles=tenants_roles or {}, secret=TEST_JWT_SECRET, ttl=60
-    )
+    token = security.encode_access_token(user_id=user_id, role=role, secret=TEST_JWT_SECRET, ttl=60)
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -42,18 +40,14 @@ def _admin_headers() -> dict[str, str]:
 
     Auth is mode-derived (``config.auth_enabled()`` → ``not is_local()``), so the
     distributed test matrix runs with auth ON and every protected route needs a
-    token. Minting a superadmin access JWT directly is enough — the access-token
-    path trusts claims and never hits the DB, so no seeded user row is required.
-    Superadmins must name the active tenant on tenant-scoped routes, so the
-    default tenant rides along as ``X-Tenant-Id``. In local mode auth is off and
-    no headers are attached (synthetic superadmin + default tenant apply).
+    token. Minting an admin access JWT directly is enough — the access-token path
+    trusts claims and never hits the DB, so no seeded user row is required. In
+    local mode auth is off and no headers are attached (synthetic admin applies).
     """
     if not config.auth_enabled():
         return {}
-    token = security.encode_access_token(
-        user_id=1, superadmin=True, tenants_roles={}, secret=config.require_jwt_secret(), ttl=3600
-    )
-    return {"Authorization": f"Bearer {token}", "X-Tenant-Id": str(DEFAULT_TENANT_ID)}
+    token = security.encode_access_token(user_id=1, role=ROLE_ADMIN, secret=config.require_jwt_secret(), ttl=3600)
+    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture
