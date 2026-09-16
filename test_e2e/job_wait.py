@@ -13,7 +13,7 @@ from datetime import timedelta
 from sqlmodel import col, select
 
 from aaiclick.datetime_utils import utc_now
-from aaiclick.orchestration.env import wait_timeout
+from aaiclick.orchestration.env import job_wait_timeout
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import TERMINAL_JOB_STATUSES, Job
 from aaiclick.orchestration.orch_context import get_sql_session
@@ -26,7 +26,7 @@ async def wait_for_job_by_name(job_name: str, timeout: float | None = None) -> J
     per-task log files, not stdout).
     """
     if timeout is None:
-        timeout = wait_timeout()
+        timeout = job_wait_timeout()
     deadline = utc_now() + timedelta(seconds=timeout)
     job = None
     while utc_now() < deadline:

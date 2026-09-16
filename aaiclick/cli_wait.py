@@ -22,7 +22,7 @@ from contextlib import asynccontextmanager, suppress
 from time import monotonic
 
 from aaiclick import internal_api
-from aaiclick.orchestration.env import wait_timeout
+from aaiclick.orchestration.env import job_wait_timeout
 from aaiclick.orchestration.events import (
     STATE_LISTENING,
     EventBus,
@@ -115,7 +115,7 @@ async def wait_for_job(
         ref: Job id or name.
         timeout: Seconds to wait before raising ``JobWaitTimeout``. The first
             poll always happens, so ``0`` means "check once". ``None`` reads
-            ``AAICLICK_WAIT_TIMEOUT``, defaulting to an hour.
+            ``AAICLICK_JOB_WAIT_TIMEOUT``, defaulting to an hour.
         poll_interval: Seconds between polls when no change signal can reach
             this process.
         signal_poll_interval: Seconds between polls while change signals are
@@ -131,7 +131,7 @@ async def wait_for_job(
         JobWaitTimeout: If the job is still non-terminal at the deadline.
     """
     if timeout is None:
-        timeout = wait_timeout()
+        timeout = job_wait_timeout()
     deadline = monotonic() + timeout
     # Resolve once: a name resolves to the *most recent* job of that name, so
     # re-resolving each tick would silently retarget a run started mid-wait.
