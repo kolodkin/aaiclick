@@ -24,19 +24,16 @@ from __future__ import annotations
 import asyncio
 import subprocess
 import sys
-from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from sqlmodel import col, select
+from job_wait import wait_for_job_by_name
 
-from aaiclick.datetime_utils import utc_now
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.docker_config import compute_image_tag
 from aaiclick.orchestration.execution.mp_worker import mp_worker_main_loop
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
-from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, TASK_COMPLETED, Job
-from aaiclick.orchestration.orch_context import get_sql_session
+from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, TASK_COMPLETED
 from aaiclick.orchestration.runner_config import DockerRunner, ImageBuild, parse_image_source, parse_runner_config
 
 
@@ -58,29 +55,6 @@ def _aaiclick(*args: str, cwd: Path) -> subprocess.CompletedProcess:
     )
     proc.check_returncode()
     return proc
-
-
-async def _wait_for_job(job_name: str, timeout: float = 600.0) -> Job:
-    """Poll the most recent Job with this name until it reaches a
-    terminal status, or fail. On timeout, dump per-task states so a stuck
-    or failing task is diagnosable from the CI log (the worker writes its
-    own output to per-task log files, not stdout)."""
-    deadline = utc_now() + timedelta(seconds=timeout)
-    job = None
-    while utc_now() < deadline:
-        async with get_sql_session() as session:
-            result = await session.execute(
-                select(Job).where(Job.name == job_name).order_by(col(Job.id).desc()).limit(1)
-            )
-            job = result.scalar_one_or_none()
-        if job is not None and job.status in (JOB_COMPLETED, JOB_FAILED):
-            return job
-        await asyncio.sleep(1.0)
-    lines = [f"Job {job_name!r} did not complete within {timeout}s; job_status={getattr(job, 'status', None)}"]
-    if job is not None:
-        for t in await get_tasks_for_job(job.id):
-            lines.append(f"  task entrypoint={t.entrypoint!r} status={t.status} attempt={t.attempt} error={t.error!r}")
-    raise TimeoutError("\n".join(lines))
 
 
 @pytest.mark.docker_e2e
@@ -113,7 +87,7 @@ async def test_docker_runner_smoke(orch_ctx, docker_e2e_user_repo):
         )
     )
     try:
-        completed = await _wait_for_job(job_name)
+        completed = await wait_for_job_by_name(job_name)
     finally:
         worker_task.cancel()
         try:
@@ -188,7 +162,7 @@ async def test_docker_runner_shell_prebuilt(orch_ctx, tmp_path):
         )
     )
     try:
-        completed = await _wait_for_job(job_name)
+        completed = await wait_for_job_by_name(job_name)
     finally:
         worker_task.cancel()
         try:
@@ -247,7 +221,7 @@ async def test_docker_runner_shell_nonzero_fails(orch_ctx, tmp_path):
         )
     )
     try:
-        completed = await _wait_for_job(job_name)
+        completed = await wait_for_job_by_name(job_name)
     finally:
         worker_task.cancel()
         try:

@@ -12,5 +12,5 @@ subscriber and nothing user-specific ever crosses the channel.
 
 from .bus import EventBus, Subscription, event_bus, get_event_bus
 from .hooks import register_session_hooks, unregister_session_hooks
-from .state import STATE_LISTENING
+from .state import STATE_IDLE, STATE_LISTENING, STATE_RECONNECTING
 from .transport import SignalTransport, get_transport, signal_transport
