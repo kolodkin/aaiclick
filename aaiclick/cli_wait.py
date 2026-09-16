@@ -22,6 +22,7 @@ from contextlib import asynccontextmanager, suppress
 from time import monotonic
 
 from aaiclick import internal_api
+from aaiclick.orchestration.env import wait_timeout
 from aaiclick.orchestration.events import (
     STATE_LISTENING,
     EventBus,
@@ -34,7 +35,6 @@ from aaiclick.orchestration.models import TERMINAL_JOB_STATUSES
 from aaiclick.orchestration.view_models import JobStatsView
 from aaiclick.view_models import RefId
 
-DEFAULT_WAIT_TIMEOUT = 600.0
 DEFAULT_POLL_INTERVAL = 1.0
 DEFAULT_SIGNAL_POLL_INTERVAL = 10.0
 
@@ -104,7 +104,7 @@ async def _wake_ups(transport: SignalTransport) -> AsyncIterator[Callable[[float
 async def wait_for_job(
     ref: RefId,
     *,
-    timeout: float = DEFAULT_WAIT_TIMEOUT,
+    timeout: float | None = None,
     poll_interval: float = DEFAULT_POLL_INTERVAL,
     signal_poll_interval: float = DEFAULT_SIGNAL_POLL_INTERVAL,
     on_change: Callable[[JobStatsView], None] | None = None,
@@ -114,7 +114,8 @@ async def wait_for_job(
     Args:
         ref: Job id or name.
         timeout: Seconds to wait before raising ``JobWaitTimeout``. The first
-            poll always happens, so ``0`` means "check once".
+            poll always happens, so ``0`` means "check once". ``None`` reads
+            ``AAICLICK_WAIT_TIMEOUT``, defaulting to an hour.
         poll_interval: Seconds between polls when no change signal can reach
             this process.
         signal_poll_interval: Seconds between polls while change signals are
@@ -129,6 +130,8 @@ async def wait_for_job(
     Raises:
         JobWaitTimeout: If the job is still non-terminal at the deadline.
     """
+    if timeout is None:
+        timeout = wait_timeout()
     deadline = monotonic() + timeout
     # Resolve once: a name resolves to the *most recent* job of that name, so
     # re-resolving each tick would silently retarget a run started mid-wait.

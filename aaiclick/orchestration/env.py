@@ -14,6 +14,22 @@ from aaiclick.backend import get_sql_url
 
 from .models import PRESERVATION_NONE, PreservationMode
 
+ENV_WAIT_TIMEOUT = "AAICLICK_WAIT_TIMEOUT"
+# An hour, not minutes: the timeout bounds how long a caller *watches* a job,
+# never how long the job may run, so a short budget reports a healthy
+# long-running job as a failure instead of protecting anything.
+DEFAULT_WAIT_TIMEOUT = 3600.0
+
+
+def wait_timeout() -> float:
+    """Seconds to wait for a job to reach a terminal status.
+
+    Read per call rather than frozen into a module constant, so a test or an
+    in-process caller can change it without re-importing. CI sets
+    ``AAICLICK_WAIT_TIMEOUT`` lower to stay inside its own job cap.
+    """
+    return float(os.getenv(ENV_WAIT_TIMEOUT, DEFAULT_WAIT_TIMEOUT))
+
 
 def get_db_url() -> str:
     """Return the async SQL URL for orchestration.

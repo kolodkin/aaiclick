@@ -66,6 +66,7 @@ from aaiclick.internal_api import password_reset as reset_api
 from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import users as users_api
 from aaiclick.internal_api.errors import InternalApiError, NotFound
+from aaiclick.orchestration.env import wait_timeout
 from aaiclick.orchestration.kubernetes_config import build_kubernetes_config
 from aaiclick.orchestration.models import (
     JOB_COMPLETED,
@@ -100,8 +101,8 @@ def _add_timeout_flag(parser: argparse.ArgumentParser, *, context: str) -> None:
     parser.add_argument(
         "--timeout",
         type=float,
-        default=cli_wait.DEFAULT_WAIT_TIMEOUT,
-        help=f"Seconds to wait {context} (default: {cli_wait.DEFAULT_WAIT_TIMEOUT:.0f})",
+        default=wait_timeout(),
+        help=f"Seconds to wait {context} (default: {wait_timeout():.0f}, from $AAICLICK_WAIT_TIMEOUT)",
     )
 
 

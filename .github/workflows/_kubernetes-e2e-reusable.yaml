@@ -40,6 +40,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
+    env:
+      # Keep the waiter's own timeout — and its per-task diagnostic dump —
+      # well inside this job's timeout-minutes cap. Without it the runner is
+      # killed first and the log shows no reason for the hang.
+      AAICLICK_WAIT_TIMEOUT: "600"
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
