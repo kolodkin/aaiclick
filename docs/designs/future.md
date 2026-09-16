@@ -31,19 +31,6 @@ Shape, following Airflow's per-try log selector:
     Airflow screenshots to follow as the reference for layout and wording — do
     not settle the UI details before then.
 
-## Task Logs — Live Line Streaming
-
-`GET /tasks/{id}/logs` returns the captured lines in one `TaskLogsView`, and
-the UI polls it every 2 s while a task runs (`docs/designs/api_server.md` —
-Non-Goals). A per-line envelope (`TaskLogLine`) pushed as the line lands would
-retire the poll, but lines reach ClickHouse on the task process's own flush
-cadence, with no SQL commit to hang a notification off — so the push needs a
-change source the `/events` SSE stream does not have today.
-
-**When to revisit**: when a running task's log volume makes the 2 s poll
-expensive, or alongside any work that gives ClickHouse writes a notification
-path.
-
 ## Tenants — Kubernetes Control Plane
 
 Multi-tenancy as a fleet layer rather than a filtered column: a control
