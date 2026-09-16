@@ -186,24 +186,27 @@ path carries job or user data; only the final REST refetch does.
 
 ## Consumers
 
-Two, both subscribing to the same bus, and deliberately no more: MCP
-exposes `job_stats` and REST the stream itself, since neither should hold
-a call open for a job's lifetime.
+Two subscribe to the bus in-process; anything else reads Postgres directly.
 
 | Consumer                        | Subscribes via                             | Falls back to                                   | Notes                                              |
 |---------------------------------|--------------------------------------------|-------------------------------------------------|----------------------------------------------------|
 | SSE stream (`server/events.py`) | `EventBus.subscription()` per open request | nothing — the browser polls instead, 2 s        | Runs inside the server, so it always has a fed bus |
 | `cli_wait.wait_for_job`         | same, plus it runs `feed` itself           | 10 s safety poll while listening, 1 s otherwise | Only where `cross_process` is true                 |
 
-A CLI waiter is not a server, so it owns the whole pipeline for one wait:
-scopes a bus, runs `feed` as a task, and tears it down in a `finally`. Its
-subscription opens *before* the first stats read — the mailbox is depth-1, so
-a commit landing mid-fetch is queued rather than lost.
-
-`SignalTransport.cross_process` decides whether it bothers. `state` cannot:
-`LocalTransport` reports `listening` unconditionally, because a direct
-in-process call can neither connect nor drop. Only `cross_process` says
-whether signals committed *elsewhere* can arrive.
+- **A CLI waiter owns the whole pipeline** for one wait: scopes a bus, runs
+  `feed` as a task, tears it down in a `finally`. Its subscription opens
+  *before* the first stats read — the mailbox is depth-1, so a commit landing
+  mid-fetch is queued rather than lost.
+- **`cross_process` decides whether it bothers**, and `state` cannot:
+  `LocalTransport` reports `listening` unconditionally, since a direct
+  in-process call can neither connect nor drop. Only `cross_process` says
+  whether signals committed *elsewhere* arrive.
+- **No MCP or REST waiter, deliberately.** MCP exposes `job_stats` and REST
+  the stream itself; neither should hold a call open for a job's lifetime,
+  and agents re-trigger on their own scheduled events. `cli_wait` therefore
+  stays in the CLI layer — it is not a promotion candidate.
+- **External tools** in distributed mode can `LISTEN aaiclick_events` on
+  Postgres directly, with no aaiclick code in the path.
 
 ## What the signal does not do
 
@@ -269,12 +272,16 @@ called explicitly from the two entry points every writer passes through:
 
 **Layer 2 — how a dead listener is noticed.** A `LISTEN` connection carries
 no traffic, so a dead link looks exactly like an idle one and nothing raises
-on its own. `_keep_alive` pings `SELECT 1` every `PING_INTERVAL` purely to
-make the failure surface; that raise is what drives `_back_off` and the one
-resync publish in `_connected`, since `NOTIFY` has no replay. Without it a
-listener killed by a blip or a restart would keep reporting `listening` while
-dropping every signal — and its SSE streams stay open, so the browser never
-falls back to polling and simply freezes on stale state.
+on its own.
+
+- `_keep_alive` pings `SELECT 1` every `PING_INTERVAL`, purely to make a dead
+  socket raise instead of hanging.
+- That raise drives `_back_off` and the one resync publish in `_connected`,
+  since `NOTIFY` has no replay.
+- Without it, a listener killed by a blip, an idle-connection reaper or a
+  restart keeps reporting `listening` while dropping every signal — and its
+  SSE streams stay open, so the browser never falls back to polling and
+  freezes on stale state with nothing logged.
 
 !!! warning "Not the SSE keepalive"
     Layer 4's `: keepalive` stops proxies reaping the browser's stream. This
