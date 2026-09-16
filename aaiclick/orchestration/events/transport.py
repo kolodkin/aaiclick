@@ -33,11 +33,10 @@ class SignalTransport(Protocol):
     def cross_process(self) -> bool:
         """Whether ``feed`` can deliver signals committed by *other* processes.
 
-        ``state`` answers whether this transport's link is up, which is not
-        the same question: a transport can be healthily "listening" and still
-        only ever see its own process's commits. Only a waiter in a separate
-        process from the writers needs this distinction, and for it a false
-        value means signals will never arrive — poll instead.
+        Not the same question as ``state``: a transport can be healthily
+        "listening" and still only ever see its own process's commits. A
+        waiter running outside the writers' process must poll when this is
+        false, since no signal will ever arrive.
         """
         ...
 

@@ -15,18 +15,16 @@ from aaiclick.backend import get_sql_url
 from .models import PRESERVATION_NONE, PreservationMode
 
 ENV_JOB_WAIT_TIMEOUT = "AAICLICK_JOB_WAIT_TIMEOUT"
-# An hour, not minutes: the timeout bounds how long a caller *watches* a job,
-# never how long the job may run, so a short budget reports a healthy
-# long-running job as a failure instead of protecting anything.
+# An hour: this bounds how long a caller watches, never how long the job runs,
+# so a short budget just reports healthy long jobs as failures.
 DEFAULT_JOB_WAIT_TIMEOUT = 3600.0
 
 
 def job_wait_timeout() -> float:
     """Seconds to wait for a job to reach a terminal status.
 
-    Read per call rather than frozen into a module constant, so a test or an
-    in-process caller can change it without re-importing. CI sets
-    ``AAICLICK_JOB_WAIT_TIMEOUT`` lower to stay inside its own job cap.
+    Read per call, not frozen into a module constant, so a test or in-process
+    caller can change it without re-importing.
     """
     return float(os.getenv(ENV_JOB_WAIT_TIMEOUT, DEFAULT_JOB_WAIT_TIMEOUT))
 

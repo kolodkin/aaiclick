@@ -4,10 +4,9 @@ Watches :func:`internal_api.job_stats` until the job reaches a terminal status,
 invoking ``on_change`` only when the per-status task counts change, so a piped
 CI log gets one report per transition instead of one per tick.
 
-Where the backend can deliver change signals to this process the loop blocks
-on one instead of sleeping, and keeps a slow poll as the safety net; where it
-cannot — local mode runs jobs only inside the ``local start`` server process —
-it polls exactly as before.
+Where the transport is ``cross_process`` the loop blocks on a change signal
+instead of sleeping, keeping a slow poll as the safety net; otherwise it polls
+exactly as before.
 
 Holds no presentation and opens no context: callers wrap it in
 ``_run_internal_api`` so every poll shares one orch context, and supply the
@@ -54,10 +53,8 @@ class JobWaitTimeout(RuntimeError):
 def _wake_interval(transport: SignalTransport, poll_interval: float, signal_poll_interval: float) -> float:
     """How long to wait before refetching unprompted.
 
-    The slow interval applies only while signals can actually arrive.
-    ``state`` alone is not enough: ``LocalTransport`` reports ``LISTENING``
-    unconditionally, so keying off it would slow local-mode waits down rather
-    than speed them up.
+    Both conditions are load-bearing: ``state`` alone would pick the slow
+    interval for ``LocalTransport``, which always reports ``LISTENING``.
     """
     if transport.cross_process and transport.state == STATE_LISTENING:
         return signal_poll_interval
@@ -68,9 +65,8 @@ def _wake_interval(transport: SignalTransport, poll_interval: float, signal_poll
 async def _wake_ups(transport: SignalTransport) -> AsyncIterator[Callable[[float], Awaitable[None]]]:
     """Yield ``await wake(seconds)``, which returns early on a change signal.
 
-    A transport that cannot carry signals between processes yields plain
-    ``asyncio.sleep`` — local mode executes jobs only inside the ``local
-    start`` server process, so a CLI waiting here would never be woken.
+    A transport that is not ``cross_process`` yields plain ``asyncio.sleep``;
+    nothing would ever wake the subscription.
 
     The subscription opens before the caller's first fetch and stays open for
     the whole loop. The mailbox is depth-1, so a commit landing during a fetch

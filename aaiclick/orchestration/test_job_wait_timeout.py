@@ -25,9 +25,7 @@ def test_env_var_overrides_default(monkeypatch, env_value, expected):
 
 
 def test_read_at_call_time_not_import_time(monkeypatch):
-    """The value must not be frozen when the module is first imported, or a
-    CI job setting the env var late — and every in-process caller — sees the
-    wrong budget."""
+    """Freezing it at import would ignore every later change."""
     monkeypatch.setenv(ENV_JOB_WAIT_TIMEOUT, "111")
     assert job_wait_timeout() == 111.0
     monkeypatch.setenv(ENV_JOB_WAIT_TIMEOUT, "222")

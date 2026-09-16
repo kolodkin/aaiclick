@@ -1,8 +1,8 @@
 """Shared job waiter for the runner e2e suites.
 
 Queries the ORM directly rather than going through ``internal_api``: these
-suites assert on the ``Job`` row itself, and a 600 s budget gains nothing from
-the change signals ``cli_wait.wait_for_job`` uses.
+suites assert on the ``Job`` row itself, and a run measured in minutes gains
+nothing from the change signals ``cli_wait.wait_for_job`` uses.
 """
 
 from __future__ import annotations
