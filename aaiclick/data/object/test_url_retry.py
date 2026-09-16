@@ -168,6 +168,6 @@ async def test_with_url_retry_validates_args(retries, backoff_factor, match):
 
 
 def test_default_constants():
-    """Defaults match the future.md spec: 4 attempts, 2x backoff (2/4/8 s)."""
+    """4 attempts, 2x backoff (2/4/8 s)."""
     assert DEFAULT_RETRIES == 4
     assert DEFAULT_BACKOFF_FACTOR == 2.0

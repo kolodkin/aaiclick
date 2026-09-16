@@ -390,5 +390,3 @@ with `test_e2e/docker/` rather than running a parallel Node runner.
     CI workflow. The `UI e2e dist` job in
     `.github/workflows/_test-reusable.yaml` runs `test_e2e/web/` on every
     PR against the distributed (Postgres + ClickHouse) backend.
-
-Deferred work (Vitest, OpenAPI codegen) is tracked in `docs/designs/future.md`.

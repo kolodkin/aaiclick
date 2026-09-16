@@ -35,7 +35,7 @@ from .mcp import mcp
 # purpose. One name must never appear: a job *waiter*. ``job_stats`` reports
 # where a job is and the agent re-triggers on its own scheduled event; a tool
 # that blocks for a job's lifetime would hold the agent's turn open instead.
-# Blocking on a job is CLI-only by design — see ``docs/designs/future.md``.
+# Blocking on a job is CLI-only by design — see ``aaiclick/cli_wait.py``.
 EXPECTED_TOOLS = {
     "list_jobs",
     "get_job",
