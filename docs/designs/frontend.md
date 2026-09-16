@@ -186,7 +186,9 @@ path carries job or user data; only the final REST refetch does.
 
 ## Consumers
 
-Two, both subscribing to the same bus.
+Two, both subscribing to the same bus, and deliberately no more: MCP
+exposes `job_stats` and REST the stream itself, since neither should hold
+a call open for a job's lifetime.
 
 | Consumer                        | Subscribes via                             | Falls back to                                   | Notes                                              |
 |---------------------------------|--------------------------------------------|-------------------------------------------------|----------------------------------------------------|
@@ -265,29 +267,18 @@ called explicitly from the two entry points every writer passes through:
   call reaches the streams with no network hop; it must run after the
   commit so a subscriber that refetches immediately sees the row.
 
-**Layer 2 — how a dead listener is noticed.** A `LISTEN` connection is
-silent by design: it sends nothing and receives only on a `NOTIFY`, so an
-idle link and a dead one look identical. Nothing reads or writes the socket,
-so asyncpg raises nothing and `_listen` would wait forever on a connection
-killed by a network blip, an idle-connection reaper or a Postgres restart —
-still reporting `listening`, silently dropping every signal.
+**Layer 2 — how a dead listener is noticed.** A `LISTEN` connection carries
+no traffic, so a dead link looks exactly like an idle one and nothing raises
+on its own. `_keep_alive` pings `SELECT 1` every `PING_INTERVAL` purely to
+make the failure surface; that raise is what drives `_back_off` and the one
+resync publish in `_connected`, since `NOTIFY` has no replay. Without it a
+listener killed by a blip or a restart would keep reporting `listening` while
+dropping every signal — and its SSE streams stay open, so the browser never
+falls back to polling and simply freezes on stale state.
 
-`_keep_alive` forces I/O for that reason alone: `SELECT 1` every
-`PING_INTERVAL` (30 s) so a dead socket raises instead of hanging. The raise
-is what starts recovery — `feed`'s supervisor catches it, `_back_off` waits
-1 s doubling to 30 s, and `_connected` publishes one resync signal on the way
-back, since `NOTIFY` has no replay and anything committed during the gap was
-announced to nobody.
-
-!!! warning "Not the same as the SSE keepalive"
-    Layer 4's `: keepalive` comment every 15 s keeps the *browser's* stream
-    from being reaped by proxies. This ping keeps the *server's* Postgres
-    link honest. Neither substitutes for the other.
-
-Silence is the worst outcome here, which is why detection is worth a query
-every 30 s. A server whose `LISTEN` died quietly still holds its SSE streams
-open, so `isLiveConnected()` stays true, the fallback poll below never
-engages, and the UI freezes on stale state with nothing logged anywhere.
+!!! warning "Not the SSE keepalive"
+    Layer 4's `: keepalive` stops proxies reaping the browser's stream. This
+    ping keeps the server's own Postgres link honest.
 
 **Layer 4 — why no `EventSource`.** The browser API cannot send the bearer
 header, so the stream is read through the same `fetch`
