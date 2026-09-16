@@ -256,8 +256,8 @@ async def purge_objects(request: PurgeObjectsRequest) -> PurgeObjectsResult:
 
 
 # --- lineage primitives -----------------------------------------------
-# MCP exposes the AI-independent primitives only; turnkey LLM wrappers are
-# planned CLI work — see docs/designs/future.md.
+# MCP exposes the AI-independent primitives only; the turnkey LLM wrappers
+# are the CLI's ``explain`` / ``debug`` verbs.
 
 
 @mcp.tool(tags={TAG_READ})

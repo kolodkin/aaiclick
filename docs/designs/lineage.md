@@ -42,16 +42,15 @@ Inputs the agent starts with:
   question
 - **Natural-language question** from the user
 
-Agent tools — Tier 1 tools are implemented in
-`aaiclick/ai/agents/lineage_tools.py` (`LineageToolbox`); `request_full_replay`
-is Phase 2 and not yet implemented.
+Agent tools — **Implementation**: `aaiclick/ai/agents/lineage_tools.py` —
+see `LineageToolbox`.
 
-- `query_table` ✅ — arbitrary read-only SQL against any node in the graph
-- `get_op_sql` ✅ — rendered SQL for a specific operation
-- `list_graph_nodes` ✅ — all tables in the lineage graph with their node
+- `query_table` — arbitrary read-only SQL against any node in the graph
+- `get_op_sql` — rendered SQL for a specific operation
+- `list_graph_nodes` — all tables in the lineage graph with their node
   kind (input / intermediate / target) and liveness
-- `get_schema` ✅ — columns and types for a table
-- `request_full_replay` ⚠️ Phase 2 — escalate to Tier 2
+- `get_schema` — columns and types for a table
+- `request_full_replay` — escalate to Tier 2 (`docs/designs/future.md`)
 
 The loop:
 
@@ -77,7 +76,7 @@ longer exists must escalate.
 
 Tier 2 is not a separate API — it is the existing `run_job()` entry
 point invoked with `preservation_mode=FULL`. No cloning, no task-graph
-surgery, no special replay function.
+surgery, no special replay function. Tracked in `docs/designs/future.md`.
 
 Triggered by `request_full_replay` (or by `--deep` on the initial
 request). Mechanics:

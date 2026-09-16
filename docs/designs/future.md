@@ -31,6 +31,19 @@ Shape, following Airflow's per-try log selector:
     Airflow screenshots to follow as the reference for layout and wording — do
     not settle the UI details before then.
 
+## Task Logs — Live Line Streaming
+
+`GET /tasks/{id}/logs` returns the captured lines in one `TaskLogsView`, and
+the UI polls it every 2 s while a task runs (`docs/designs/api_server.md` —
+Non-Goals). A per-line envelope (`TaskLogLine`) pushed as the line lands would
+retire the poll, but lines reach ClickHouse on the task process's own flush
+cadence, with no SQL commit to hang a notification off — so the push needs a
+change source the `/events` SSE stream does not have today.
+
+**When to revisit**: when a running task's log volume makes the 2 s poll
+expensive, or alongside any work that gives ClickHouse writes a notification
+path.
+
 ## Tenants — Kubernetes Control Plane
 
 Multi-tenancy as a fleet layer rather than a filtered column: a control
@@ -159,6 +172,31 @@ See `viewer.md` for the shipped design.
   `QueryPanel` renders static `options` only.
 - **Dashboard authoring in the UI**: `@dashboard` picks and runs; HTML and
   panel queries are written through MCP, REST, or `view dashboards save`.
+
+## Lineage — Tier 2 Full Replay
+
+The Tier 1 tools are built (`aaiclick/ai/agents/lineage_tools.py` —
+`LineageToolbox`); `request_full_replay` and the `--deep` flag that
+pre-commits to it are not. Tier 2 re-runs the original job through
+`run_job()` with `preservation_mode=FULL`, so every intermediate table is
+alive for the agent to query. Full design: `docs/designs/lineage.md` (Tier 2).
+
+**When to revisit**: when Tier 1's static reasoning demonstrably fails on
+real questions — a bug whose explanation lives only in an intermediate table
+that cleanup has already dropped.
+
+## Joins — Sharded Backends and Semi / Anti / Asof
+
+`Object.join()` emits a plain `JOIN`, which suffices for the single-shard
+chdb backend (`docs/user_guide/object.md` — Distributed considerations). A
+sharded backend wants `GLOBAL JOIN` plus `join_algorithm` hints
+(`parallel_hash`, `partial_merge`, `grace_hash`), reachable from the v1 API
+as a later `strategy=` kwarg. Semi / anti / asof joins are a separate gap —
+each carries semantic nuance (left-only output schema, a required
+`order_by`, a tolerance) worth its own mini-spec first.
+
+**When to revisit**: sharding when a deployment outgrows one shard; the extra
+join kinds when a user asks for one.
 
 ## Lazy Operator — Chain Fusion
 
