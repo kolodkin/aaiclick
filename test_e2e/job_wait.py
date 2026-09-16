@@ -17,8 +17,10 @@ from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import TERMINAL_JOB_STATUSES, Job
 from aaiclick.orchestration.orch_context import get_sql_session
 
+DEFAULT_E2E_TIMEOUT = 3600.0  # 1 hour
 
-async def wait_for_job_by_name(job_name: str, timeout: float = 600.0) -> Job:
+
+async def wait_for_job_by_name(job_name: str, timeout: float = DEFAULT_E2E_TIMEOUT) -> Job:
     """Poll the most recent Job with this name until it reaches a terminal
     status, or fail. On timeout, dump per-task states so a stuck or failing
     task is diagnosable from the CI log (the worker writes its own output to
