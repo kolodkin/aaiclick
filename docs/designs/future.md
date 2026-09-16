@@ -9,13 +9,6 @@ Planned work across aaiclick, ordered by priority.
 
 Items deferred until preconditions are met.
 
-## Change Signals — Local Mode Across Processes
-
-`LocalTransport.cross_process` is `False`: chdb's file lock confines jobs to
-the `local start` server process, so a CLI waiting elsewhere polls. Closing
-the gap needs the Postgres transport or an SSE client in the CLI. Design:
-`frontend.md` — Live updates.
-
 ## Task Logs — Per-Attempt History in the Log Panel
 
 `get_task_logs` (`aaiclick/internal_api/tasks.py`) reads `task.run_ids[-1]`, so
