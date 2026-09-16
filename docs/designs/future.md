@@ -20,10 +20,13 @@ it between processes.
   chdb's file lock means jobs run only inside the `local start` server
   process, so a CLI waiting in another process falls back to polling. Closing
   that gap needs either the Postgres transport or an SSE client in the CLI.
-- **MCP / SDK waiters** — `wait_for_job` is already the reusable
-  subscribe-then-refetch loop; an in-process caller can await it directly.
-  External tools in distributed mode can `LISTEN aaiclick_events` on Postgres
-  instead.
+
+Blocking on a job is deliberately CLI-only. MCP exposes `job_stats` and no
+waiter: agents re-trigger on their own scheduled events rather than holding a
+tool call open for a job's lifetime. REST stays on the `/events` stream for
+the same reason. `cli_wait` therefore sits in the CLI layer on purpose — it is
+not a promotion candidate. External tools in distributed mode can `LISTEN
+aaiclick_events` on Postgres directly.
 
 ## Task Logs — Per-Attempt History in the Log Panel
 
