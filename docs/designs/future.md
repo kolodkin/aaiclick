@@ -185,35 +185,6 @@ alive for the agent to query. Full design: `docs/designs/lineage.md` (Tier 2).
 real questions — a bug whose explanation lives only in an intermediate table
 that cleanup has already dropped.
 
-## Joins — Sharded Backends and Semi / Anti / Asof
-
-`Object.join()` emits a plain `JOIN`, which suffices for the single-shard
-chdb backend (`docs/user_guide/object.md` — Distributed considerations). A
-sharded backend wants `GLOBAL JOIN` plus `join_algorithm` hints
-(`parallel_hash`, `partial_merge`, `grace_hash`), reachable from the v1 API
-as a later `strategy=` kwarg. Semi / anti / asof joins are a separate gap —
-each carries semantic nuance (left-only output schema, a required
-`order_by`, a tolerance) worth its own mini-spec first.
-
-**When to revisit**: sharding when a deployment outgrows one shard; the extra
-join kinds when a user asks for one.
-
-## Lazy Operator — Chain Fusion
-
-Every `LazyOperator` node materializes into its own table. For single-source
-families (unary transforms, aggregations, string ops) the upstream SELECT
-could instead be wrapped as a subquery, so `obj.abs().sum()` writes one table
-rather than two. Not a correctness problem; measure before acting.
-
-Weigh it carefully: "each node materializes into its own table — no fusion"
-is a stated invariant in `docs/user_guide/object.md`, and the per-node tables
-are what make `.as_()` and refcounted cleanup work.
-
-Separately, `LazyOperator` keeps `lhs` / `rhs` after `_materialized` is set,
-so holding an awaited chain pins its intermediate tables (table lifetime is
-refcounted off Python object lifetime). Clearing them needs `as_()` — the only
-reader — handled first.
-
 ## Changelog
 
 `docs/changelog.md` — version history in Keep a Changelog format. Introduce with v1.0.0 release.
