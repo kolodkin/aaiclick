@@ -348,8 +348,11 @@ all and the panel says so — the status change that starts it arrives over
 triggers one final fetch — this key is not in `LIVE_KEYS`, so nothing else
 would ever collect what the task wrote since the last poll. A finished task's
 logs are immutable, so its query opts out with `false` rather than
-`undefined`, which would inherit the stream's 2 s fallback. Earlier attempts of a retried task are kept in
-ClickHouse but not yet reachable from the UI — see `future.md`.
+`undefined`, which would inherit the stream's 2 s fallback. Retiring the poll
+for a pushed per-line envelope would need a change source `/events` does not
+have, and only pays off once a running task's log volume makes the 2 s fetch
+expensive. Earlier attempts of a retried task are kept in ClickHouse but not
+yet reachable from the UI — see `future.md`.
 
 # Testing
 
