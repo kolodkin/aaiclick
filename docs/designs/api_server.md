@@ -542,8 +542,8 @@ The error envelope is the standard `Problem` (`code="unauthorized"` or
 # Non-Goals
 
 - **Streaming log envelopes** — `GET /tasks/{id}/logs` returns the captured
-  lines in one `TaskLogsView`; live per-line streaming (`TaskLogLine`) is a
-  follow-up tracked in `docs/designs/future.md`.
+  lines in one `TaskLogsView`; the UI polls it while a task runs. There is no
+  live per-line push.
 - **WebSockets** — the UI's live update channel is a follow-up once the REST
   surface stabilises.
 - **Backwards-compatible shims for old CLI code paths** — during migration,
