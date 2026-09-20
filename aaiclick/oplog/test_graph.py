@@ -86,6 +86,26 @@ async def test_forward_subgraph_labels_all_edges(orch_ctx):
         assert edge.target in labels, f"unlabeled target {edge.target}"
 
 
+@pytest.mark.parametrize(
+    "direction, table",
+    [
+        # Closes the IN list of the forward frontier query and widens it to every row.
+        pytest.param("forward", "x') OR true OR arrayExists(v -> v IN ('x", id="forward-quote"),
+        # A trailing backslash neutralises quote-only escaping; the rest is live SQL.
+        pytest.param("forward", "x\\' OR true --", id="forward-backslash"),
+        pytest.param("backward", "x\\' OR true --", id="backward-backslash"),
+    ],
+)
+async def test_oplog_subgraph_treats_table_name_as_data(orch_ctx, direction, table):
+    """A hostile table name matches nothing instead of widening the query to the whole log."""
+    await _run_pipeline()
+
+    async with lineage_context():
+        graph = await oplog_subgraph(table, direction=direction)
+
+    assert graph.nodes == []
+
+
 async def test_invalid_direction(orch_ctx):
     """oplog_subgraph raises ValueError for unknown direction."""
     async with lineage_context():

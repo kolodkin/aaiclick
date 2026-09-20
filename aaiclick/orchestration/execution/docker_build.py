@@ -74,8 +74,8 @@ async def _git_clone_at_sha(remote: str, sha: str, workdir: str) -> None:
     so we avoid pulling the full default branch when only one commit is needed,
     and so the remote can be a non-default-branch SHA."""
     await cli.run("git", "init", "--quiet", workdir)
-    await cli.run("git", "-C", workdir, "remote", "add", "origin", remote)
-    await cli.run("git", "-C", workdir, "fetch", "--depth=1", "--quiet", "origin", sha)
+    await cli.run("git", "-C", workdir, "remote", "add", "origin", "--", remote)
+    await cli.run("git", "-C", workdir, "fetch", "--depth=1", "--quiet", "origin", "--", sha)
     await cli.run("git", "-C", workdir, "checkout", "--quiet", sha)
 
 

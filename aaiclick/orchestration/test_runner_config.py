@@ -15,6 +15,21 @@ from aaiclick.orchestration.runner_config import (
 )
 
 
+@pytest.mark.parametrize(
+    "sha",
+    [
+        pytest.param("--upload-pack=touch /tmp/pwned", id="git-option"),
+        pytest.param("A" * 40, id="uppercase"),
+        pytest.param("a" * 39, id="short"),
+        pytest.param("main", id="branch-name"),
+    ],
+)
+def test_image_build_rejects_non_sha_git_sha(sha):
+    """``git_sha`` reaches ``git fetch`` argv, so only a full lowercase hex SHA is accepted."""
+    with pytest.raises(ValidationError, match="40-char lowercase hex"):
+        ImageBuild(git_remote="https://example.com/r.git", git_sha=sha)
+
+
 def test_parse_docker_runner_is_bare_marker():
     # Pre-migration job rows carry an "image" key in the runner JSON; the
     # parser must ignore it — the image is a task property now.

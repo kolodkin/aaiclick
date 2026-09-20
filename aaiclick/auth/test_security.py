@@ -13,6 +13,14 @@ def test_password_round_trip():
     assert security.verify_password("wrong", h) is False
 
 
+def test_password_longer_than_bcrypt_limit_round_trips():
+    """bcrypt only ever keyed on the first 72 bytes; since 5.0 it raises instead of truncating."""
+    long_password = "p" * 100
+    h = security.hash_password(long_password)
+    assert security.verify_password(long_password, h) is True
+    assert security.verify_password("q" * 100, h) is False
+
+
 def test_sha256_hex_stable():
     assert security.sha256_hex("abc") == security.sha256_hex("abc")
     assert security.sha256_hex("abc") != security.sha256_hex("abd")

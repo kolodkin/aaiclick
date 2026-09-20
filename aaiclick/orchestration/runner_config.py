@@ -8,6 +8,7 @@ invoked. Pure data + validation — no env, no I/O — so any layer can import i
 
 from __future__ import annotations
 
+import re
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter, field_validator
@@ -21,6 +22,9 @@ ENTRY_TYPES: list[EntryType] = [ENTRY_MODULE, ENTRY_SHELL, ENTRY_JVM]
 
 
 # --- image source (nested in docker/kubernetes runners) -------------------
+_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+
+
 class ImageBuild(BaseModel):
     """Build the image from a git repo at a SHA. ``image_tag`` is computed
     (``aaiclick-job:<sha>``), not stored here."""
@@ -30,6 +34,14 @@ class ImageBuild(BaseModel):
     git_sha: str
     git_branch: str | None = None
     dockerfile: str | None = None
+
+    @field_validator("git_sha")
+    @classmethod
+    def _full_lowercase_hex(cls, v: str) -> str:
+        """``git_sha`` lands in ``git fetch`` argv; anything but a SHA could read as an option."""
+        if not _SHA_RE.match(v):
+            raise ValueError(f"git_sha must be a 40-char lowercase hex string; got {v!r}")
+        return v
 
 
 class ImagePrebuilt(BaseModel):

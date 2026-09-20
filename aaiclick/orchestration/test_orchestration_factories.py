@@ -158,6 +158,12 @@ def test_create_task_image_and_git_mutually_exclusive():
         create_task("m.f", image="ghcr.io/x/y:1", git_sha="a" * 40)
 
 
+def test_create_task_rejects_git_option_as_sha():
+    """Container code reaches create_task directly, so it must not be the one unvalidated surface."""
+    with pytest.raises(ValueError, match="40-char lowercase hex"):
+        create_task("m.f", git_remote="https://example.com/r.git", git_sha="--upload-pack=touch /tmp/pwned")
+
+
 def test_create_task_build_requires_remote_and_sha():
     with pytest.raises(ValueError, match="git_remote and git_sha"):
         create_task("m.f", git_sha="a" * 40)

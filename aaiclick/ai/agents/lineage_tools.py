@@ -139,17 +139,17 @@ def validate_select_safety(sql: str, *, scan: str | None = None) -> ToolError | 
     return None
 
 
-def _explain_statement(sql: str) -> str:
-    """Statement whose rows are ``sql``'s AST dump.
+async def _explain_ast(sql: str) -> list[str]:
+    """Lines of ``sql``'s ``EXPLAIN AST`` dump — a parse, never an evaluation.
 
-    Wrapped in a ``SELECT`` on purpose. Drivers append their read format to
-    every query (clickhouse-connect sends ``\\n FORMAT Native``), and on a bare
-    ``EXPLAIN AST`` that clause binds to the explained query instead of the
-    EXPLAIN — ClickHouse then answers in its default format while the driver
-    decodes Native, and the format name shows up in the AST as an identifier.
-    The wrapper keeps any appended clause outside the EXPLAIN.
+    Sent through ``raw_query`` with no format so the driver appends none: a
+    ``FORMAT`` clause after an ``EXPLAIN`` binds to the explained query and
+    shows up in its AST. Wrapping in ``SELECT * FROM (EXPLAIN AST …)`` would
+    keep the clause outside, but it also lets ``sql`` close the parenthesis
+    and run a statement of its own before any scope check.
     """
-    return f"SELECT * FROM (EXPLAIN AST {sql})"
+    dump = await get_ch_client().raw_query(f"EXPLAIN AST {sql}")
+    return dump.decode().splitlines()
 
 
 def _table_expressions(ast_lines: Iterable[str]) -> list[str]:
@@ -189,16 +189,15 @@ async def validate_scope(sql: str, scope_tables: set[str]) -> ToolError | None:
     rejected. The tool description tells the model to write the CTE as a
     subquery in ``FROM``, which parses to a ``Subquery`` and is allowed.
     """
-    ch_client = get_ch_client()
     try:
-        result = await ch_client.query(_explain_statement(sql))
+        ast_lines = await _explain_ast(sql)
     except Exception as exc:
         logger.debug("EXPLAIN AST failed for agent SQL", exc_info=True)
         return ToolError("invalid_argument", f"Could not parse SQL: {exc}")
 
     unknown: set[str] = set()
     functions: set[str] = set()
-    for child in _table_expressions(str(row[0]) for row in result.result_rows):
+    for child in _table_expressions(ast_lines):
         if child.startswith(_AST_TABLE_IDENTIFIER):
             # Trailing " (alias a)" / " (children N)" are printer annotations.
             name = child[len(_AST_TABLE_IDENTIFIER) :].split(" (")[0]
