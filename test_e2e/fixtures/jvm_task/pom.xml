@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Standalone user project for the docker-runner jvm e2e: one @AaiTask
+     method on top of the aaiclick-task-api SDK. The Dockerfile installs the
+     SDK from the checkout under this fixed revision first, so the e2e tests
+     the shim at the commit under test rather than a Maven Central release. -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>io.github.kolodkin.e2e</groupId>
+  <artifactId>jvm-task-fixture</artifactId>
+  <version>0.0.0-e2e</version>
+
+  <properties>
+    <aaiclick.version>0.0.0-e2e</aaiclick.version>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>io.github.kolodkin</groupId>
+      <artifactId>aaiclick-task-api</artifactId>
+      <version>${aaiclick.version}</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>app</finalName>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.13.0</version>
+        <configuration>
+          <!-- Kwargs bind to task methods by parameter name. -->
+          <parameters>true</parameters>
+        </configuration>
+      </plugin>
+      <!-- Runtime classpath next to the jar: the SDK, Jackson, and the
+           PostgreSQL driver the shim connects with. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <version>3.8.1</version>
+        <executions>
+          <execution>
+            <id>copy-runtime-classpath</id>
+            <phase>package</phase>
+            <goals>
+              <goal>copy-dependencies</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.build.directory}/libs</outputDirectory>
+              <includeScope>runtime</includeScope>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

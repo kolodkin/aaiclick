@@ -22,6 +22,7 @@ the runner."""
 from __future__ import annotations
 
 import asyncio
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -34,7 +35,14 @@ from aaiclick.orchestration.docker_config import compute_image_tag
 from aaiclick.orchestration.execution.mp_worker import mp_worker_main_loop
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, TASK_COMPLETED
-from aaiclick.orchestration.runner_config import DockerRunner, ImageBuild, parse_image_source, parse_runner_config
+from aaiclick.orchestration.runner_config import (
+    ENTRY_JVM,
+    DockerRunner,
+    ImageBuild,
+    ImagePrebuilt,
+    parse_image_source,
+    parse_runner_config,
+)
 
 
 def _aaiclick(*args: str, cwd: Path) -> subprocess.CompletedProcess:
@@ -122,6 +130,79 @@ async def test_docker_runner_smoke(orch_ctx, docker_e2e_user_repo):
     # values are wrapped as ``{"native_value": ...}`` in Task.result.
     summed = next(t for t in tasks if t.entrypoint == "sample_jobs.compute_sum")
     assert summed.result == {"native_value": {"total": 120}}, summed.result
+
+
+@pytest.mark.docker_e2e
+async def test_docker_runner_jvm_task(orch_ctx, docker_e2e_user_repo, jvm_task_image):
+    """Run a ``jvm`` task between two Python tasks, each in its own container.
+
+    Covers what the SDK's SQLite unit suite cannot: the runner env handoff
+    into a JVM image, the shim reading an upstream Python result and writing
+    its own result row over JDBC against PostgreSQL, and a Python task
+    consuming the jvm return value downstream."""
+    remote, sha, worktree = docker_e2e_user_repo
+    job_name = "docker_e2e_jvm"
+
+    _aaiclick(
+        "register-job",
+        "sample_jobs.jvm_entry_task",
+        "--name",
+        job_name,
+        "--runner",
+        "docker",
+        "--git-remote",
+        remote,
+        cwd=worktree,
+    )
+
+    _aaiclick(
+        "run-job",
+        job_name,
+        "--git-sha",
+        sha,
+        "--kwargs",
+        json.dumps({"jvm_image": jvm_task_image}),
+        cwd=worktree,
+    )
+
+    worker_task = asyncio.create_task(
+        mp_worker_main_loop(
+            max_tasks=10,
+            install_signal_handlers=False,
+            max_empty_polls=10,
+        )
+    )
+    try:
+        completed = await wait_for_job_by_name(job_name)
+    finally:
+        worker_task.cancel()
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            pass
+
+    assert completed.status == JOB_COMPLETED, completed.error
+
+    tasks = await get_tasks_for_job(completed.id)
+    non_terminal = [t for t in tasks if t.status != TASK_COMPLETED]
+    assert not non_terminal, [(t.entrypoint, t.status, t.error) for t in non_terminal]
+
+    # The jvm task ran in the prebuilt fixture image, not the job's build image.
+    summed = next(t for t in tasks if t.entry_type == ENTRY_JVM)
+    assert summed.entrypoint == "io.github.kolodkin.aaiclick.e2e.SumTask"
+    assert summed.image_source is not None
+    source = parse_image_source(summed.image_source)
+    assert isinstance(source, ImagePrebuilt)
+    assert source.image_tag == jvm_task_image
+
+    # The shim resolved produce_values' [10, 20, 30] through the upstream
+    # ref and wrote its map back in the shared ``native_value`` shape.
+    expected = {"native_value": {"total": 60.0, "count": 3}}
+    assert summed.result == expected, summed.result
+
+    # And the Python consumer read that jvm result as a plain dict.
+    reported = next(t for t in tasks if t.entrypoint == "sample_jobs.report")
+    assert reported.result == expected, reported.result
 
 
 @pytest.mark.docker_e2e

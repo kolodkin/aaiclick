@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+
+from aaiclick.orchestration.docker_config import get_registry
 
 # Re-import the fixture symbols from the project's testing plugin so pytest
 # registers them at this conftest. ``pytest_plugins`` is the obvious mechanism
@@ -29,7 +32,11 @@ from aaiclick.testing import (  # noqa: F401 - re-exported as pytest fixtures
     sql_worker_setup,
 )
 
-_SAMPLE_JOB = Path(__file__).parent.parent / "fixtures" / "sample_job"
+_FIXTURES = Path(__file__).parent.parent / "fixtures"
+_SAMPLE_JOB = _FIXTURES / "sample_job"
+_JVM_TASK = _FIXTURES / "jvm_task"
+_JAVA_SDK = Path(__file__).parent.parent.parent / "java"
+_JVM_TASK_IMAGE = "aaiclick-e2e-jvm-task:local"
 
 
 @pytest.fixture(scope="session")
@@ -39,6 +46,31 @@ def docker_e2e_user_repo(tmp_path_factory: pytest.TempPathFactory) -> tuple[str,
     See ``aaiclick.testing.publish_user_repo`` — the daemon is workflow
     infrastructure started by ``_docker-e2e-reusable.yaml``."""
     return publish_user_repo(tmp_path_factory, _SAMPLE_JOB)
+
+
+@pytest.fixture(scope="session")
+def jvm_task_image(tmp_path_factory: pytest.TempPathFactory) -> str:
+    """Build the ``jvm_task`` fixture image and return its tag.
+
+    The build context pairs the checkout's ``java/`` SDK with the fixture's
+    user project (see the fixture Dockerfile), so the shim under test is the
+    one at this commit. With ``AAICLICK_REGISTRY`` set the image is pushed
+    there under the registry prefix, matching how a prebuilt image reaches
+    the runner in production (the worker pulls before ``docker run``)."""
+    context = tmp_path_factory.mktemp("jvm_task_ctx")
+    shutil.copytree(_JAVA_SDK, context / "sdk", ignore=shutil.ignore_patterns("target", ".flattened-pom.xml"))
+    shutil.copytree(_JVM_TASK, context / "app")
+
+    registry = get_registry()
+    tag = f"{registry}/{_JVM_TASK_IMAGE}" if registry else _JVM_TASK_IMAGE
+    subprocess.run(
+        ["docker", "build", "-f", str(context / "app" / "Dockerfile"), "-t", tag, str(context)],
+        check=True,
+        stdout=sys.stderr,
+    )
+    if registry:
+        subprocess.run(["docker", "push", tag], check=True, stdout=sys.stderr)
+    return tag
 
 
 def pytest_configure(config: pytest.Config) -> None:
