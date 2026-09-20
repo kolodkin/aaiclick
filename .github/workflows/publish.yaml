@@ -1,4 +1,4 @@
-name: Publish to PyPI
+name: Release
 
 # Repeated steps (GHCR login, artifact downloads, uv install) and matrices
 # are YAML-anchored at their first use and aliased below — GitHub Actions
@@ -29,6 +29,47 @@ permissions:
   id-token: write
 
 jobs:
+  # Gate the release on the Java SDK's own suite at the release version, so
+  # a broken jar blocks the irreversible PyPI upload rather than failing in
+  # publish-java after it. Mirrors test.yaml's java-sdk job, schema fixture
+  # included, plus -Drevision so the flattened POM is the one that ships.
+  verify-java:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup uv
+        uses: ./.github/actions/setup-uv
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Generate SQLite schema fixture from Python metadata
+        run: |
+          uv run --frozen python - <<'EOF'
+          from sqlalchemy import create_engine
+          from sqlmodel import SQLModel
+
+          import aaiclick.orchestration.models  # noqa: F401 — registers the tables
+
+          engine = create_engine("sqlite:////tmp/aaiclick-schema-fixture.db")
+          SQLModel.metadata.create_all(engine)
+          engine.dispose()
+          EOF
+
+      - name: Run Maven verify at the release version
+        env:
+          AAICLICK_TEST_SQLITE_DB: /tmp/aaiclick-schema-fixture.db
+        run: |
+          VERSION="${{ inputs.tag }}"
+          mvn -B -f java/pom.xml -Drevision="${VERSION#v}" verify
+
   build:
     runs-on: ubuntu-latest
     steps:
@@ -398,9 +439,10 @@ jobs:
       image_tag: ${{ inputs.tag }}-rc
 
   publish:
-    needs: [test-package-local, test-package, test-package-docker-e2e, test-compose-e2e, test-helm-e2e]
+    needs: [verify-java, test-package-local, test-package, test-package-docker-e2e, test-compose-e2e, test-helm-e2e]
     if: >-
       always()
+      && needs.verify-java.result == 'success'
       && needs.test-package-local.result == 'success'
       && needs.test-package.result == 'success'
       && needs.test-compose-e2e.result == 'success'

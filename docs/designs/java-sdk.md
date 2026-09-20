@@ -193,6 +193,10 @@ compatibility contract is a release's PostgreSQL schema and task semantics.
   token), `MAVEN_GPG_PRIVATE_KEY` / `MAVEN_GPG_PASSPHRASE`.
 - De-risk with a one-time `0.0.x` dry-run publish (manual
   `workflow_dispatch`) before the first real lockstep release.
+- The Java leg runs after the PyPI upload, so the release is gated on
+  `mvn verify` at the release version first: a broken jar blocks the
+  irreversible upload instead of orphaning a tagged Python release.
 
-**Implementation**: `.github/workflows/publish.yaml` — see the `publish-java`
-job; `.github/workflows/test.yaml` — see the `java-sdk` job.
+**Implementation**: `.github/workflows/publish.yaml` — see the `verify-java`
+and `publish-java` jobs; `.github/workflows/test.yaml` — see the `java-sdk`
+job.
