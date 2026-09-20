@@ -6,7 +6,7 @@ import asyncio
 from unittest.mock import AsyncMock
 
 from ..models import RUNNER_DOCKER, Task
-from ..runner_config import ENTRY_MODULE, ImagePrebuilt
+from ..runner_config import ENTRY_JVM, ENTRY_MODULE, ImagePrebuilt
 from . import docker_worker
 from .docker_worker import _build_docker_run_cmd, build_shell_run_spec
 from .execution_worker import JobDispatch, RunnerResult
@@ -34,6 +34,19 @@ def test_module_cmd_uses_bootstrap_shim():
     assert "aaiclick.orchestration.execution.remote_result" in joined
     assert "--task-id" in joined
     assert "--run-epoch" in joined
+
+
+def test_jvm_cmd_relies_on_image_entrypoint():
+    cmd = _build_docker_run_cmd(
+        _cmdtask(entry_type=ENTRY_JVM, entrypoint="com.example.Pipeline"),
+        "ghcr.io/example/pipeline:1.0",
+        {"AAICLICK_SQL_URL": "u"},
+    )
+    # The image's own ENTRYPOINT is the aaiclick-task-api shim — the runner
+    # appends only the shim arguments after the image tag.
+    image_idx = cmd.index("ghcr.io/example/pipeline:1.0")
+    assert cmd[image_idx + 1 :] == ["--task-id", "1", "--run-epoch", "0"]
+    assert "-e AAICLICK_SQL_URL=u" in " ".join(cmd)
 
 
 def test_build_shell_run_spec_wraps_argv():
