@@ -557,7 +557,7 @@ skus   = await colors.join(sizes, how="cross")  # 4 rows
 
 ### Distributed considerations
 
-The default chdb backend is single-shard, so the naive `JOIN` suffices. For a future sharded backend, `GLOBAL JOIN` and `join_algorithm` hints (`parallel_hash`, `partial_merge`, `grace_hash`) are the next levers — deferred to `docs/designs/future.md`. Nothing in the v1 API precludes a later `strategy=` kwarg.
+The default chdb backend is single-shard, so the naive `JOIN` suffices. For a future sharded backend, `GLOBAL JOIN` and `join_algorithm` hints (`parallel_hash`, `partial_merge`, `grace_hash`) are the next levers. Nothing in the v1 API precludes a later `strategy=` kwarg.
 
 Semi / anti / asof joins are deferred: each has semantic nuance (left-only output schema, required `order_by`, tolerance) worth its own mini-spec.
 

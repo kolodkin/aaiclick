@@ -29,6 +29,17 @@ class SignalTransport(Protocol):
         """Whether ``feed`` is currently delivering signals."""
         ...
 
+    @property
+    def cross_process(self) -> bool:
+        """Whether ``feed`` can deliver signals committed by *other* processes.
+
+        Not the same question as ``state``: a transport can be healthily
+        "listening" and still only ever see its own process's commits. A
+        waiter running outside the writers' process must poll when this is
+        false, since no signal will ever arrive.
+        """
+        ...
+
     def before_commit(self, session: Session) -> None:
         """Runs inside the flagged transaction, before it commits."""
         ...

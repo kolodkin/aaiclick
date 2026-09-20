@@ -31,6 +31,11 @@ from aaiclick.viewer.view_models import ObjectQueryResult
 
 from .mcp import mcp
 
+# Exact match, so a new tool fails this test until it is listed here on
+# purpose. One name must never appear: a job *waiter*. ``job_stats`` reports
+# where a job is and the agent re-triggers on its own scheduled event; a tool
+# that blocks for a job's lifetime would hold the agent's turn open instead.
+# Blocking on a job is CLI-only by design — see ``aaiclick/cli_wait.py``.
 EXPECTED_TOOLS = {
     "list_jobs",
     "get_job",
@@ -78,6 +83,14 @@ async def test_registered_tools_match_expected(mcp_client):
     tools = await mcp_client.list_tools()
     names = {t.name for t in tools}
     assert names == EXPECTED_TOOLS
+
+
+async def test_no_blocking_job_waiter_is_exposed(mcp_client):
+    """Status is a question an agent asks and re-asks on its own schedule,
+    never a tool it blocks inside. Catches a waiter added under any name."""
+    tools = await mcp_client.list_tools()
+    blocking = {t.name for t in tools if any(k in t.name.lower() for k in ("wait", "block", "poll", "watch"))}
+    assert blocking == set()
 
 
 async def test_list_jobs_returns_page_view(orch_ctx, mcp_client):

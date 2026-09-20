@@ -40,6 +40,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
+    env:
+      # Test wait timeout, kept under timeout-minutes above.
+      AAICLICK_JOB_WAIT_TIMEOUT: "600"
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v5

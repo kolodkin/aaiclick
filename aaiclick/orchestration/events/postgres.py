@@ -23,6 +23,8 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
+from aaiclick.async_wait import wait_or_timeout
+
 from ..env import get_db_url
 from .bus import EventBus
 from .state import STATE_IDLE, STATE_LISTENING, STATE_RECONNECTING, TransportState
@@ -40,15 +42,6 @@ def _dsn() -> str:
     return make_url(get_db_url()).set(drivername="postgresql").render_as_string(hide_password=False)
 
 
-async def _wait_or_timeout(stop: asyncio.Event, timeout: float) -> bool:
-    """True once ``stop`` is set, False when ``timeout`` elapses first."""
-    try:
-        await asyncio.wait_for(stop.wait(), timeout)
-    except asyncio.TimeoutError:
-        return False
-    return True
-
-
 class PostgresTransport:
     def __init__(self) -> None:
         self._state: TransportState = STATE_IDLE
@@ -57,6 +50,12 @@ class PostgresTransport:
     @property
     def state(self) -> TransportState:
         return self._state
+
+    @property
+    def cross_process(self) -> bool:
+        # Postgres fans each NOTIFY out to every LISTEN connection, whichever
+        # process holds it.
+        return True
 
     def before_commit(self, session: Session) -> None:
         session.execute(text("SELECT pg_notify(:channel, '')"), {"channel": EVENTS_CHANNEL})
@@ -107,7 +106,7 @@ class PostgresTransport:
     async def _keep_alive(self, conn: asyncpg.Connection, stop: asyncio.Event) -> None:
         """Ping every :data:`PING_INTERVAL` so a dead socket surfaces as an
         exception instead of a silent wait; return when ``stop`` is set."""
-        while not await _wait_or_timeout(stop, PING_INTERVAL):
+        while not await wait_or_timeout(stop, PING_INTERVAL):
             await conn.execute("SELECT 1")
 
     async def _back_off(self, stop: asyncio.Event) -> bool:
@@ -115,6 +114,6 @@ class PostgresTransport:
         True if ``stop`` was set during the wait."""
         self._state = STATE_RECONNECTING
         logger.warning("Postgres event listener lost; reconnecting in %.1fs", self._backoff, exc_info=True)
-        stopped = await _wait_or_timeout(stop, self._backoff)
+        stopped = await wait_or_timeout(stop, self._backoff)
         self._backoff = min(self._backoff * 2, RECONNECT_MAX)
         return stopped

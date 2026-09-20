@@ -73,6 +73,10 @@ jobs:
         ports:
           - 8080:8080
 
+    env:
+      # Test wait timeout, kept under timeout-minutes above.
+      AAICLICK_JOB_WAIT_TIMEOUT: "600"
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v5

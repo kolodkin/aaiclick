@@ -9,41 +9,6 @@ Planned work across aaiclick, ordered by priority.
 
 Items deferred until preconditions are met.
 
-## Event Fanout — Beyond Postgres LISTEN/NOTIFY
-
-`GET /api/v0/events` streams change signals fed by `pg_notify` on every
-job/task commit (`docs/designs/frontend.md` — Live updates). Escape hatches,
-should the feeder ever measurably hurt:
-
-- **Redis Pub/Sub** — only if listener count or notification volume becomes a
-  real cost (dozens of hosts, very high event rates). Signals carry no
-  payload, so Postgres's ~8 KB `NOTIFY` limit never bites.
-- **ClickHouse tail** — each API host polls `operation_log` past a watermark:
-  N pollers, no touch on the SQL commit path. But latency is poll-bound and
-  the CH insert is unordered relative to the SQL commit, so a client can
-  refetch before the status write is visible.
-- **Typed per-job events** — every view is job-scoped
-  and refetches the same few queries, so the coarse signal costs nothing
-  today; widen the payload only if a view needs to ignore other jobs' churn.
-
-## Change Signals — Consumers Beyond the UI
-
-The signal (`aaiclick/orchestration/events`) is "a job, task or group row
-committed", not a UI concept; the SSE stream is merely its first subscriber.
-Next in line:
-
-- **`cli_wait.wait_for_job`** — polls job stats on a fixed interval today.
-  It could run the active transport's `feed` and block on
-  `EventBus.subscribe()` instead, re-reading stats only when a signal lands:
-  sub-second reaction, zero idle queries. Keep a slow poll as the fallback,
-  as the browser does. Local mode is the harder case: the CLI is a separate
-  process from a running local server, and `LocalTransport` only sees
-  commits in its own process, so a wait on a job the server is running
-  would need the Postgres transport or the SSE stream over HTTP.
-- **MCP / SDK waiters** — the same subscribe-then-refetch loop serves any
-  in-process caller that blocks on a job; external tools in distributed
-  mode can `LISTEN aaiclick_events` on Postgres directly.
-
 ## Task Logs — Per-Attempt History in the Log Panel
 
 `get_task_logs` (`aaiclick/internal_api/tasks.py`) reads `task.run_ids[-1]`, so
@@ -157,21 +122,17 @@ See `viewer.md` for the shipped design.
 - **Dashboard authoring in the UI**: `@dashboard` picks and runs; HTML and
   panel queries are written through MCP, REST, or `view dashboards save`.
 
-## Lazy Operator — Chain Fusion
+## Lineage — Tier 2 Full Replay
 
-Every `LazyOperator` node materializes into its own table. For single-source
-families (unary transforms, aggregations, string ops) the upstream SELECT
-could instead be wrapped as a subquery, so `obj.abs().sum()` writes one table
-rather than two. Not a correctness problem; measure before acting.
+The Tier 1 tools are built (`aaiclick/ai/agents/lineage_tools.py` —
+`LineageToolbox`); `request_full_replay` and the `--deep` flag that
+pre-commits to it are not. Tier 2 re-runs the original job through
+`run_job()` with `preservation_mode=FULL`, so every intermediate table is
+alive for the agent to query. Full design: `docs/designs/lineage.md` (Tier 2).
 
-Weigh it carefully: "each node materializes into its own table — no fusion"
-is a stated invariant in `docs/user_guide/object.md`, and the per-node tables
-are what make `.as_()` and refcounted cleanup work.
-
-Separately, `LazyOperator` keeps `lhs` / `rhs` after `_materialized` is set,
-so holding an awaited chain pins its intermediate tables (table lifetime is
-refcounted off Python object lifetime). Clearing them needs `as_()` — the only
-reader — handled first.
+**When to revisit**: when Tier 1's static reasoning demonstrably fails on
+real questions — a bug whose explanation lives only in an intermediate table
+that cleanup has already dropped.
 
 ## Changelog
 

@@ -172,10 +172,10 @@ RunnerMode = Literal["subprocess", "docker", "kubernetes"]
     Adding `"kubernetes"` dropped the `runner_mode` CHECK constraints rather than
     widening them (Alembic can't autogenerate CHECK changes, and widening recurs
     on every new mode). `runner_mode` is validated by the `RunnerMode` Literal
-    (typing) + the CLI's `choices=` (runtime). This is a scoped deviation from
-    the project's String+CHECK enum convention; the other enum columns keep
-    their CHECKs. A codebase-wide review of which convention to standardize on is
-    tracked in `docs/designs/future.md`.
+    (typing) + the CLI's `choices=` (runtime). The project has since
+    standardized on exactly that — closed string sets are plain `String`
+    columns enforced by a `Literal` plus boundary validation, and no enum
+    column carries a CHECK — so `runner_mode` is no longer a deviation.
 
 - `register-job --runner kubernetes` records the mode (plus `--namespace` and
   resource flags) on the `RegisteredJob`.

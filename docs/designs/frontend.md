@@ -6,15 +6,15 @@ real-time updates. UX (layout, modes, wireframes) lives in `docs/designs/ui.md`.
 
 # Tech stack
 
-| Layer        | Choice                       | Why                                              |
-|--------------|------------------------------|--------------------------------------------------|
-| UI framework | React 19 + TypeScript        | Largest ecosystem, first-class TanStack Query    |
-| Styling      | TailwindCSS 4                | Utility-first, no design-system overhead         |
-| Build        | Vite 6                       | Fast HMR, native ESM, zero-config TS             |
-| Data fetch   | TanStack Query 5             | Caching, retries, invalidation                   |
-| Real-time    | SSE `/api/v0/events`         | Change signals; 2 s polling only as fallback     |
-| Client state | None (URL is the state)      | The prompt drives navigation; no Redux/Zustand   |
-| Graph        | React Flow 12 + dagre 3      | Layered DAG view of job tasks (both MIT)         |
+| Layer        | Choice                  | Why                                            |
+|--------------|-------------------------|------------------------------------------------|
+| UI framework | React 19 + TypeScript   | Largest ecosystem, first-class TanStack Query  |
+| Styling      | TailwindCSS 4           | Utility-first, no design-system overhead       |
+| Build        | Vite 6                  | Fast HMR, native ESM, zero-config TS           |
+| Data fetch   | TanStack Query 5        | Caching, retries, invalidation                 |
+| Real-time    | SSE `/api/v0/events`    | Change signals; 2 s polling only as fallback   |
+| Client state | None (URL is the state) | The prompt drives navigation; no Redux/Zustand |
+| Graph        | React Flow 12 + dagre 3 | Layered DAG view of job tasks (both MIT)       |
 
 ??? info "Why React Flow + dagre for the graph"
     React Flow renders nodes as React components, so `StatusBadge` and the
@@ -66,11 +66,11 @@ and `node_modules/`.
 
 # Build & dev workflow
 
-| Command         | What it does                                                          |
-|-----------------|-----------------------------------------------------------------------|
-| `npm run dev`   | Vite dev server at `:5173` with HMR; proxies `/api/*` to FastAPI      |
-| `npm run build` | Type-checks then bundles to `aaiclick/server/static/`                 |
-| `npm run check` | `tsc --noEmit` only (CI gate)                                         |
+| Command         | What it does                                                              |
+|-----------------|---------------------------------------------------------------------------|
+| `npm run dev`   | Vite dev server at `:5173` with HMR; proxies `/api/*` to FastAPI          |
+| `npm run build` | Type-checks then bundles to `aaiclick/server/static/`                     |
+| `npm run check` | `tsc --noEmit` only (CI gate)                                             |
 | `npm test`      | `vitest run` — the kernel's tests, `prompt.test.ts`, `lib/viewer.test.ts` |
 
 In production, FastAPI mounts `aaiclick/server/static/` and serves
@@ -99,23 +99,23 @@ change over `/api/v0/events` (see Live updates), and fall back to a 2 s
 
 **Backend endpoints consumed**:
 
-| Hook              | Endpoint                         | Router                                   |
-|-------------------|----------------------------------|------------------------------------------|
-| `useJobs`         | `GET /api/v0/jobs`               | `aaiclick/server/routers/jobs.py`        |
-| `useJob`          | `GET /api/v0/jobs/{ref}`         | `aaiclick/server/routers/jobs.py`        |
-| `useJobGraph`     | `GET /api/v0/jobs/{ref}/graph`   | `aaiclick/server/routers/jobs.py`        |
-| `useTask`         | `GET /api/v0/tasks/{id}`         | `aaiclick/server/routers/tasks.py`       |
-| `useTaskLogs`     | `GET /api/v0/tasks/{id}/logs`    | `aaiclick/server/routers/tasks.py`       |
-| `useRegisteredJobs` | `GET /api/v0/registered-jobs`  | `aaiclick/server/routers/registered_jobs.py` |
-| `useRunJob`       | `POST /api/v0/jobs:run`          | `aaiclick/server/routers/jobs.py`        |
-| `useCancelJob`    | `POST /api/v0/jobs/{ref}/cancel` | `aaiclick/server/routers/jobs.py`        |
-| `useRegisterJob`  | `POST /api/v0/registered-jobs`   | `aaiclick/server/routers/registered_jobs.py` |
-| `useObjects`      | `GET /api/v0/objects`            | `aaiclick/server/routers/objects.py`     |
-| `useObject`       | `GET /api/v0/objects/{name}[?job=…]` | `aaiclick/server/routers/objects.py` |
-| `useObjectRows` / `useQueryObject` / `useQueryObjectCsv` | `POST /api/v0/viewer/query` (raw JSONCompact or CSV) | `aaiclick/server/routers/viewer.py` |
-| `useQueryObject`  | `POST /api/v0/viewer/query`      | `aaiclick/server/routers/viewer.py`      |
-| `useSavedQueries` / `useSaveQuery` / `useDeleteSavedQuery` | `/api/v0/viewer/queries[/{name}]` | `aaiclick/server/routers/viewer.py` |
-| `useDashboards` / `useDashboard` / `useRunDashboard` | `/api/v0/viewer/dashboards[/{name}[:run]]` | `aaiclick/server/routers/viewer.py` |
+| Hook                                                       | Endpoint                                             | Router                                       |
+|------------------------------------------------------------|------------------------------------------------------|----------------------------------------------|
+| `useJobs`                                                  | `GET /api/v0/jobs`                                   | `aaiclick/server/routers/jobs.py`            |
+| `useJob`                                                   | `GET /api/v0/jobs/{ref}`                             | `aaiclick/server/routers/jobs.py`            |
+| `useJobGraph`                                              | `GET /api/v0/jobs/{ref}/graph`                       | `aaiclick/server/routers/jobs.py`            |
+| `useTask`                                                  | `GET /api/v0/tasks/{id}`                             | `aaiclick/server/routers/tasks.py`           |
+| `useTaskLogs`                                              | `GET /api/v0/tasks/{id}/logs`                        | `aaiclick/server/routers/tasks.py`           |
+| `useRegisteredJobs`                                        | `GET /api/v0/registered-jobs`                        | `aaiclick/server/routers/registered_jobs.py` |
+| `useRunJob`                                                | `POST /api/v0/jobs:run`                              | `aaiclick/server/routers/jobs.py`            |
+| `useCancelJob`                                             | `POST /api/v0/jobs/{ref}/cancel`                     | `aaiclick/server/routers/jobs.py`            |
+| `useRegisterJob`                                           | `POST /api/v0/registered-jobs`                       | `aaiclick/server/routers/registered_jobs.py` |
+| `useObjects`                                               | `GET /api/v0/objects`                                | `aaiclick/server/routers/objects.py`         |
+| `useObject`                                                | `GET /api/v0/objects/{name}[?job=…]`                 | `aaiclick/server/routers/objects.py`         |
+| `useObjectRows` / `useQueryObject` / `useQueryObjectCsv`   | `POST /api/v0/viewer/query` (raw JSONCompact or CSV) | `aaiclick/server/routers/viewer.py`          |
+| `useQueryObject`                                           | `POST /api/v0/viewer/query`                          | `aaiclick/server/routers/viewer.py`          |
+| `useSavedQueries` / `useSaveQuery` / `useDeleteSavedQuery` | `/api/v0/viewer/queries[/{name}]`                    | `aaiclick/server/routers/viewer.py`          |
+| `useDashboards` / `useDashboard` / `useRunDashboard`       | `/api/v0/viewer/dashboards[/{name}[:run]]`           | `aaiclick/server/routers/viewer.py`          |
 
 **Implementation**: `aaiclick/server/routers/tasks.py` — see `get_task_logs`;
 `aaiclick/internal_api/tasks.py` — see `get_task_logs` (reads the CH
@@ -160,6 +160,11 @@ One SSE connection per UI session carries a single event kind, `changed`,
 with no payload. The client invalidates its whole React Query cache on each
 frame and REST supplies authoritative state — events are signals, not data.
 
+The signal itself is not a UI concept: it means "a `jobs`, `tasks` or
+`groups` row committed". The SSE stream is its first consumer, not its only
+one — see Consumers below. Layers 1-3 are shared; layers 4-7 are the
+browser's path through them.
+
 ## Layers
 
 ```
@@ -169,15 +174,51 @@ DB commit ─▶ change signal ─▶ EventBus ─▶ SSE frame ─▶ browser �
 Each hop has its own protocol and one handler that speaks it. Nothing on the
 path carries job or user data; only the final REST refetch does.
 
-| Layer            | Protocol                                                                        | Producer → consumer                                 | Handler                                                                                                                                 |
-|------------------|---------------------------------------------------------------------------------|-----------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------|
-| 1. DB commit     | SQLAlchemy `Session` events                                                     | any writer of `jobs` / `tasks` / `groups` → session | `events/hooks.py` — flags the session, then calls the transport on either side of the commit                                            |
-| 2. Change signal | Postgres: `NOTIFY aaiclick_events` in the same transaction                      | committing process → every `LISTEN` connection      | `events/postgres.py` — `PostgresTransport.before_commit` notifies; `feed` holds one `LISTEN` connection per API host, `state` tracks it |
-| 3. EventBus      | in-process pub/sub, depth-1 queue per subscriber                                | transport → each open stream                        | `events/bus.py` — `EventBus.publish` / `close`, `EventBus.subscription()` → `Subscription.wait()`                                       |
-| 4. SSE transport | `text/event-stream`: `event: changed`, `: keepalive` / 15 s, ≤ 1 frame / 500 ms | `GET /api/v0/events` → browser                      | `aaiclick/server/events.py` — `event_frames`, `stream_events`; `live_events` owns bus + listener per lifespan                           |
-| 5. Browser       | `fetch` + `ReadableStream`, bearer header                                       | response body → frame parser                        | `src/api/client.ts` — `openStream`; `src/api/events.ts` — `readFrames`, `useLiveUpdates` (backoff 1 s → 30 s)                           |
-| 6. Query cache   | TanStack Query invalidation                                                     | `changed` / (re)connect → every active query        | `useLiveUpdates` → `queryClient.invalidateQueries()`; `src/main.tsx` — `refetchInterval` falls back to 2 s while disconnected           |
-| 7. REST refetch  | existing JSON endpoints                                                         | hooks → `/jobs`, `/jobs/{ref}`, `/tasks/{id}`, …    | `src/api/hooks.ts` (unchanged)                                                                                                          |
+| Layer            | Protocol                                                                        | Producer → consumer                                 | Handler                                                                                                                                          |
+|------------------|---------------------------------------------------------------------------------|-----------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|
+| 1. DB commit     | SQLAlchemy `Session` events                                                     | any writer of `jobs` / `tasks` / `groups` → session | `events/hooks.py` — flags the session, then calls the transport on either side of the commit                                                     |
+| 2. Change signal | Postgres: `NOTIFY aaiclick_events` in the same transaction                      | committing process → every `LISTEN` connection      | `events/postgres.py` — `PostgresTransport.before_commit` notifies; `feed` holds one `LISTEN` connection per consuming process, `state` tracks it |
+| 3. EventBus      | in-process pub/sub, depth-1 queue per subscriber                                | transport → each subscriber                         | `events/bus.py` — `EventBus.publish` / `close`, `EventBus.subscription()` → `Subscription.wait()`                                                |
+| 4. SSE transport | `text/event-stream`: `event: changed`, `: keepalive` / 15 s, ≤ 1 frame / 500 ms | `GET /api/v0/events` → browser                      | `aaiclick/server/events.py` — `event_frames`, `stream_events`; `live_events` owns bus + listener per lifespan                                    |
+| 5. Browser       | `fetch` + `ReadableStream`, bearer header                                       | response body → frame parser                        | `src/api/client.ts` — `openStream`; `src/api/events.ts` — `readFrames`, `useLiveUpdates` (backoff 1 s → 30 s)                                    |
+| 6. Query cache   | TanStack Query invalidation                                                     | `changed` / (re)connect → every active query        | `useLiveUpdates` → `queryClient.invalidateQueries()`; `src/main.tsx` — `refetchInterval` falls back to 2 s while disconnected                    |
+| 7. REST refetch  | existing JSON endpoints                                                         | hooks → `/jobs`, `/jobs/{ref}`, `/tasks/{id}`, …    | `src/api/hooks.ts` (unchanged)                                                                                                                   |
+
+## Consumers
+
+Two subscribe to the bus in-process; anything else reads Postgres directly.
+
+| Consumer                        | Subscribes via                             | Falls back to                                   | Notes                                              |
+|---------------------------------|--------------------------------------------|-------------------------------------------------|----------------------------------------------------|
+| SSE stream (`server/events.py`) | `EventBus.subscription()` per open request | nothing — the browser polls instead, 2 s        | Runs inside the server, so it always has a fed bus |
+| `cli_wait.wait_for_job`         | same, plus it runs `feed` itself           | 10 s safety poll while listening, 1 s otherwise | Only where `cross_process` is true                 |
+
+- **A CLI waiter owns the whole pipeline** for one wait: scopes a bus, runs
+  `feed` as a task, tears it down in a `finally`. Its subscription opens
+  *before* the first stats read — the mailbox is depth-1, so a commit landing
+  mid-fetch is queued rather than lost.
+- **`cross_process` decides whether it bothers**, and `state` cannot:
+  `LocalTransport` reports `listening` unconditionally, since a direct
+  in-process call can neither connect nor drop. Only `cross_process` says
+  whether signals committed *elsewhere* arrive.
+- **No MCP or REST waiter, deliberately.** MCP exposes `job_stats` and REST
+  the stream itself; neither should hold a call open for a job's lifetime,
+  and agents re-trigger on their own scheduled events. `cli_wait` therefore
+  stays in the CLI layer — it is not a promotion candidate.
+- **External tools** in distributed mode can `LISTEN aaiclick_events` on
+  Postgres directly, with no aaiclick code in the path.
+
+## What the signal does not do
+
+It is an observation layer, not a scheduling one. Nothing that performs work
+is woken by it.
+
+| Wait                                  | Driven by                     | Why not the signal                                                                                                 |
+|---------------------------------------|-------------------------------|--------------------------------------------------------------------------------------------------------------------|
+| Execution worker claiming a task      | 1 s poll of `claim_next_task` | A task becoming claimable publishes a signal, but no worker subscribes; pickup latency is the poll, not the signal |
+| Background worker cleanup             | 10 s poll                     | Time-driven work, not row-driven                                                                                   |
+| Task log panel                        | poll while the task runs      | `task_logs` is written to ClickHouse, outside the SQL commit the hooks watch                                       |
+| Vehicle cancellation / child liveness | 1 s, 0.5 s polls              | Container and process state, not database rows                                                                     |
 
 ## Local mode vs distributed mode
 
@@ -199,6 +240,7 @@ neither the session hooks nor `live_events` branch on the backend. Layers
 | Commit hook         | `after_commit` → `get_event_bus().publish()` — a direct call, nothing leaves the process | `before_commit` → `SELECT pg_notify('aaiclick_events', '')` inside the committing transaction              |
 | Who feeds the bus   | the committing session itself                                                            | `PostgresTransport.feed`: one autocommit `LISTEN` connection per API host, forwarding each `NOTIFY`        |
 | Writers seen        | only this process — by design, since the chdb file lock already forbids a second one     | every writer anywhere; Postgres fans each `NOTIFY` out to all listeners                                    |
+| `cross_process`     | `False` — a waiter in another process never hears these signals and must poll            | `True` — any process holding a `LISTEN` connection hears every writer                                      |
 | Failure mode        | none: no network hop                                                                     | `feed` reconnects with backoff and publishes one resync signal, since NOTIFYs sent during the gap are lost |
 | Extra configuration | none                                                                                     | none: the listener reuses `AAICLICK_SQL_URL`                                                               |
 
@@ -227,6 +269,23 @@ called explicitly from the two entry points every writer passes through:
   in-process bus. The workers run inside the server process, so a direct
   call reaches the streams with no network hop; it must run after the
   commit so a subscriber that refetches immediately sees the row.
+
+**Layer 2 — how a dead listener is noticed.** A `LISTEN` connection carries
+no traffic, so a dead link looks exactly like an idle one and nothing raises
+on its own.
+
+- `_keep_alive` pings `SELECT 1` every `PING_INTERVAL`, purely to make a dead
+  socket raise instead of hanging.
+- That raise drives `_back_off` and the one resync publish in `_connected`,
+  since `NOTIFY` has no replay.
+- Without it, a listener killed by a blip, an idle-connection reaper or a
+  restart keeps reporting `listening` while dropping every signal — and its
+  SSE streams stay open, so the browser never falls back to polling and
+  freezes on stale state with nothing logged.
+
+!!! warning "Not the SSE keepalive"
+    Layer 4's `: keepalive` stops proxies reaping the browser's stream. This
+    ping keeps the server's own Postgres link honest.
 
 **Layer 4 — why no `EventSource`.** The browser API cannot send the bearer
 header, so the stream is read through the same `fetch`
@@ -289,16 +348,19 @@ all and the panel says so — the status change that starts it arrives over
 triggers one final fetch — this key is not in `LIVE_KEYS`, so nothing else
 would ever collect what the task wrote since the last poll. A finished task's
 logs are immutable, so its query opts out with `false` rather than
-`undefined`, which would inherit the stream's 2 s fallback. Earlier attempts of a retried task are kept in
-ClickHouse but not yet reachable from the UI — see `future.md`.
+`undefined`, which would inherit the stream's 2 s fallback. Retiring the poll
+for a pushed per-line envelope would need a change source `/events` does not
+have, and only pays off once a running task's log volume makes the 2 s fetch
+expensive. Earlier attempts of a retried task are kept in ClickHouse but not
+yet reachable from the UI — see `future.md`.
 
 # Testing
 
-| Layer                | Tool                | Where                                          |
-|----------------------|---------------------|------------------------------------------------|
-| Static type check    | `tsc --noEmit`      | `npm run check` — CI gate for every frontend task |
+| Layer                | Tool                | Where                                                                     |
+|----------------------|---------------------|---------------------------------------------------------------------------|
+| Static type check    | `tsc --noEmit`      | `npm run check` — CI gate for every frontend task                         |
 | Unit tests           | vitest              | `npm test` — kernel tests, `src/prompt.test.ts`, `src/lib/viewer.test.ts` |
-| End-to-end (browser) | Playwright (Python) | `test_e2e/web/test_smoke.py`, pytest           |
+| End-to-end (browser) | Playwright (Python) | `test_e2e/web/test_smoke.py`, pytest                                      |
 
 **Implementation**: `test_e2e/web/test_smoke.py` — golden-path smoke
 (home load, `@jobs` view, URL sync, job graph render) and the live-update
@@ -331,5 +393,3 @@ with `test_e2e/docker/` rather than running a parallel Node runner.
     CI workflow. The `UI e2e dist` job in
     `.github/workflows/_test-reusable.yaml` runs `test_e2e/web/` on every
     PR against the distributed (Postgres + ClickHouse) backend.
-
-Deferred work (Vitest, OpenAPI codegen) is tracked in `docs/designs/future.md`.

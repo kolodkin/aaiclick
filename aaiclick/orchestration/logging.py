@@ -16,6 +16,7 @@ import sys
 from contextlib import asynccontextmanager, suppress
 from typing import TextIO
 
+from aaiclick.async_wait import wait_or_timeout
 from aaiclick.backend import is_chdb
 from aaiclick.data.data_context import ChClient, get_ch_client
 from aaiclick.data.data_context.ch_client import create_ch_client
@@ -157,12 +158,7 @@ class _SinkFlusher:
                 self._own_client = None
 
     async def run(self) -> None:
-        while True:
-            try:
-                await asyncio.wait_for(self._stop.wait(), timeout=LOG_FLUSH_INTERVAL)
-                return
-            except asyncio.TimeoutError:
-                pass
+        while not await wait_or_timeout(self._stop, LOG_FLUSH_INTERVAL):
             await self.flush_pending()
 
 

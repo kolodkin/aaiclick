@@ -77,13 +77,13 @@ debugging a pipeline before handing it to workers.
 
 Two deployment modes, selected by two environment variables:
 
-| Aspect           | Local (default)                            | Distributed                                         |
-|------------------|--------------------------------------------|-----------------------------------------------------|
-| **Data backend** | chdb (embedded ClickHouse)                 | ClickHouse server                                   |
-| **SQL backend**  | SQLite via aiosqlite                       | PostgreSQL via asyncpg                              |
-| **`AAICLICK_CH_URL`**  | `chdb:///~/.aaiclick/chdb_data`      | `clickhouse://user:pass@host:8123/database`         |
-| **`AAICLICK_SQL_URL`** | `sqlite+aiosqlite:///~/.aaiclick/local.db` | `postgresql+asyncpg://user:pass@host:5432/database` |
-| **Setup**        | `python -m aaiclick setup`                 | Provision servers + `python -m aaiclick migrate upgrade head` |
+| Aspect                 | Local (default)                            | Distributed                                                   |
+|------------------------|--------------------------------------------|---------------------------------------------------------------|
+| **Data backend**       | chdb (embedded ClickHouse)                 | ClickHouse server                                             |
+| **SQL backend**        | SQLite via aiosqlite                       | PostgreSQL via asyncpg                                        |
+| **`AAICLICK_CH_URL`**  | `chdb:///~/.aaiclick/chdb_data`            | `clickhouse://user:pass@host:8123/database`                   |
+| **`AAICLICK_SQL_URL`** | `sqlite+aiosqlite:///~/.aaiclick/local.db` | `postgresql+asyncpg://user:pass@host:5432/database`           |
+| **Setup**              | `python -m aaiclick setup`                 | Provision servers + `python -m aaiclick migrate upgrade head` |
 
 ## Local mode
 
@@ -286,12 +286,12 @@ after the run — see
 [DataContext — Preservation Modes](data_context.md#preservation-modes) for the
 two modes' semantics. The effective mode resolves through a precedence chain:
 
-| Level | Source                                                | Wins when                            |
-|-------|-------------------------------------------------------|---------------------------------------|
-| 1     | Explicit `run_job(...)` argument                      | The caller passes a non-`None` value |
-| 2     | Registered job's `preservation_mode`                  | The registration carries a default   |
-| 3     | `AAICLICK_DEFAULT_PRESERVATION_MODE` env var          | Set in environment                   |
-| 4     | `"NONE"`                                              | Hardcoded fallback                   |
+| Level | Source                                       | Wins when                            |
+|-------|----------------------------------------------|--------------------------------------|
+| 1     | Explicit `run_job(...)` argument             | The caller passes a non-`None` value |
+| 2     | Registered job's `preservation_mode`         | The registration carries a default   |
+| 3     | `AAICLICK_DEFAULT_PRESERVATION_MODE` env var | Set in environment                   |
+| 4     | `"NONE"`                                     | Hardcoded fallback                   |
 
 # Runners
 
@@ -303,11 +303,11 @@ Two independent dials control how a task runs:
 
 ## Runner modes
 
-| Mode                      | Where the task runs                      | Worker host requirements                     |
-|---------------------------|------------------------------------------|-----------------------------------------------|
-| **subprocess** (default)  | Child process on the worker host         | none                                          |
-| **docker**                | Container via the worker's Docker daemon | Docker daemon + CLI (`AAICLICK_DOCKER_BIN`)   |
-| **kubernetes**            | Pod in a cluster                         | `kubectl` (+ Docker & `AAICLICK_REGISTRY` for `build`) |
+| Mode                     | Where the task runs                      | Worker host requirements                               |
+|--------------------------|------------------------------------------|--------------------------------------------------------|
+| **subprocess** (default) | Child process on the worker host         | none                                                   |
+| **docker**               | Container via the worker's Docker daemon | Docker daemon + CLI (`AAICLICK_DOCKER_BIN`)            |
+| **kubernetes**           | Pod in a cluster                         | `kubectl` (+ Docker & `AAICLICK_REGISTRY` for `build`) |
 
 The `docker` and `kubernetes` modes require the distributed backends — a
 container or Pod reaches shared ClickHouse + PostgreSQL over the network, but
@@ -320,10 +320,10 @@ The image is a **per-task** requirement. Each container task carries an
 `image_source` from one of two kinds; a task with none runs as a host
 subprocess even inside a docker/kubernetes job:
 
-| Source     | How                                                        | When built            |
-|------------|------------------------------------------------------------|-----------------------|
-| `build`    | Your git repo, built into an image at a specific SHA       | by a `build-image` task in the job graph |
-| `prebuilt` | `image="python:3.12"` run verbatim                         | never                 |
+| Source     | How                                                  | When built                               |
+|------------|------------------------------------------------------|------------------------------------------|
+| `build`    | Your git repo, built into an image at a specific SHA | by a `build-image` task in the job graph |
+| `prebuilt` | `image="python:3.12"` run verbatim                   | never                                    |
 
 Pass `image=` (`run_job` / `run-job --image`, or `register-job --image` for a
 default) to select a prebuilt image — mutually exclusive with the git build
@@ -337,10 +337,10 @@ that image depends on; it appears in the job graph like any other task
 (retries, logs, UI included). The worker running it picks one of two
 mutually exclusive build modes:
 
-| Env var                    | Mode     | What the build task does                                         |
-|----------------------------|----------|------------------------------------------------------------------|
+| Env var                    | Mode     | What the build task does                                                              |
+|----------------------------|----------|---------------------------------------------------------------------------------------|
 | `AAICLICK_REGISTRY=<host>` | registry | Pulls if the registry has the SHA, else builds and pushes; every worker pulls the tag |
-| `AAICLICK_LOCAL_BUILD=1`   | local    | Builds into the worker's own Docker daemon, no push — single-host deployments |
+| `AAICLICK_LOCAL_BUILD=1`   | local    | Builds into the worker's own Docker daemon, no push — single-host deployments         |
 
 Setting both, or neither, fails the build task with an error naming the two
 variables. Kubernetes `build` sources need registry mode: the cluster cannot
@@ -478,15 +478,16 @@ the job's retention lifecycle. Fetch them via
 
 # Configuration
 
-| Variable                 | Default                               | Description                               |
-|--------------------------|---------------------------------------|--------------------------------------------|
-| `AAICLICK_LOCAL_ROOT`    | `~/.aaiclick`                         | Base directory for all local-mode state   |
-| `AAICLICK_SQL_URL`       | `sqlite+aiosqlite:///{root}/local.db` | SQLAlchemy async URL for orchestration DB |
-| `AAICLICK_CH_URL`        | `chdb://{root}/chdb_data`             | ClickHouse connection URL for data ops    |
-| `AAICLICK_DEFAULT_PRESERVATION_MODE` | unset                     | Level-3 preservation-mode default         |
-| `AAICLICK_DOCKER_BIN`    | `docker`                              | Docker CLI used by the docker runner      |
-| `AAICLICK_REGISTRY`      | unset                                 | Registry build mode for `build` images — pushed after build, pulled as cache by docker & kubernetes runners; required for kubernetes `build` |
-| `AAICLICK_LOCAL_BUILD`   | unset                                 | Local build mode for `build` images — kept in the worker's Docker daemon, never pushed; mutually exclusive with `AAICLICK_REGISTRY` |
+| Variable                             | Default                               | Description                                                                                                                                                             |
+|--------------------------------------|---------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `AAICLICK_LOCAL_ROOT`                | `~/.aaiclick`                         | Base directory for all local-mode state                                                                                                                                 |
+| `AAICLICK_SQL_URL`                   | `sqlite+aiosqlite:///{root}/local.db` | SQLAlchemy async URL for orchestration DB                                                                                                                               |
+| `AAICLICK_CH_URL`                    | `chdb://{root}/chdb_data`             | ClickHouse connection URL for data ops                                                                                                                                  |
+| `AAICLICK_DEFAULT_PRESERVATION_MODE` | unset                                 | Level-3 preservation-mode default                                                                                                                                       |
+| `AAICLICK_JOB_WAIT_TIMEOUT`          | `3600`                                | Seconds `job wait` / `run-job --progress` watch a job before giving up. Bounds the wait, not the job — a timeout stops watching and exits 1 while the job keeps running |
+| `AAICLICK_DOCKER_BIN`                | `docker`                              | Docker CLI used by the docker runner                                                                                                                                    |
+| `AAICLICK_REGISTRY`                  | unset                                 | Registry build mode for `build` images — pushed after build, pulled as cache by docker & kubernetes runners; required for kubernetes `build`                            |
+| `AAICLICK_LOCAL_BUILD`               | unset                                 | Local build mode for `build` images — kept in the worker's Docker daemon, never pushed; mutually exclusive with `AAICLICK_REGISTRY`                                     |
 
 # Internal Design
 
