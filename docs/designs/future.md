@@ -5,6 +5,14 @@ Planned work across aaiclick, ordered by priority.
 
 ---
 
+# Code Review Backlog
+
+`docs/designs/code_review_2026_09.md` — findings from the whole-project
+review at commit `db56ac4`, grouped by severity with a suggested fix order.
+Remove each item from that file as it lands; delete the file when empty.
+
+---
+
 # Deferred
 
 Items deferred until preconditions are met.
