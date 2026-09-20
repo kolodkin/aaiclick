@@ -165,6 +165,18 @@ cross-language schema drift. Production containers use the
 PostgreSQL driver (a runtime dependency of the SDK); URL translation is
 unit-tested for both schemes.
 
+The docker-runner e2e covers what the unit suite cannot: a `jvm` task between
+two Python tasks, each in its own container, against PostgreSQL — the runner
+env handoff, an upstream ref resolved over JDBC, the result-row write, and a
+Python consumer of the jvm return value. The fixture image
+(`test_e2e/fixtures/jvm_task/`) builds the SDK from the checkout, so the shim
+under test is the commit's.
+
+**Implementation**: `test_e2e/docker/test_runner_e2e.py` — see
+`test_docker_runner_jvm_task()`; `test_e2e/docker/conftest.py` — see the
+`jvm_task_image` fixture; `test_e2e/fixtures/sample_job/sample_jobs.py` — see
+`jvm_entry_task()`.
+
 # Publishing
 
 `aaiclick-task-api` publishes to Maven Central via the Central Publisher
@@ -181,6 +193,10 @@ compatibility contract is a release's PostgreSQL schema and task semantics.
   token), `MAVEN_GPG_PRIVATE_KEY` / `MAVEN_GPG_PASSPHRASE`.
 - De-risk with a one-time `0.0.x` dry-run publish (manual
   `workflow_dispatch`) before the first real lockstep release.
+- The Java leg runs after the PyPI upload, so the release is gated on
+  `mvn verify` at the release version first: a broken jar blocks the
+  irreversible upload instead of orphaning a tagged Python release.
 
-**Implementation**: `.github/workflows/publish.yaml` — see the `publish-java`
-job; `.github/workflows/test.yaml` — see the `java-sdk` job.
+**Implementation**: `.github/workflows/publish.yaml` — see the `verify-java`
+and `publish-java` jobs; `.github/workflows/test.yaml` — see the `java-sdk`
+job.
