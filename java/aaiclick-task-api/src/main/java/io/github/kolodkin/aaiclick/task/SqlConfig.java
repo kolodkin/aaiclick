@@ -31,14 +31,20 @@ public record SqlConfig(Dialect dialect, String jdbcUrl, String user, String pas
         String rest = url.substring(schemeEnd + 3);
         if (url.startsWith("postgresql")) {
             // The JDBC URL is the SQLAlchemy URL minus its dialect suffix and
-            // userinfo: host, port, path and query pass through verbatim, and
-            // the driver supplies the default port. Not java.net.URI, which
+            // credentials: host, port, path and query pass through, and the
+            // driver supplies the default port. Not java.net.URI, which
             // rejects underscored hosts and characters SQLAlchemy accepts.
-            String authority = rest.split("[/?]", 2)[0];
-            int at = authority.lastIndexOf('@');
-            String[] userInfo = splitUserInfo(at == -1 ? null : authority.substring(0, at));
-            return new SqlConfig(Dialect.POSTGRES, "jdbc:postgresql://" + rest.substring(at + 1),
-                userInfo[0], userInfo[1]);
+            // Credentials end at the first '@' (SQLAlchemy's password may hold
+            // anything but '@'; its username nothing of ':' or '/').
+            int at = rest.indexOf('@');
+            boolean hasCredentials = at != -1 && !rest.substring(0, at).split(":", 2)[0].contains("/");
+            String[] userInfo = splitUserInfo(hasCredentials ? rest.substring(0, at) : null);
+            String hostPathQuery = hasCredentials ? rest.substring(at + 1) : rest;
+            // asyncpg's ssl=<mode> and pgjdbc's sslmode=<mode> share libpq's
+            // vocabulary; pgjdbc's own `ssl` is a boolean that reads any mode
+            // as "prefer".
+            String jdbc = "jdbc:postgresql://" + hostPathQuery.replaceFirst("([?&])ssl=", "$1sslmode=");
+            return new SqlConfig(Dialect.POSTGRES, jdbc, userInfo[0], userInfo[1]);
         }
         if (url.startsWith("sqlite")) {
             // sqlite:///rel.db → "rel.db"; sqlite:////abs/p.db → "/abs/p.db"
@@ -60,8 +66,12 @@ public record SqlConfig(Dialect dialect, String jdbcUrl, String user, String pas
         return new String[] {percentDecode(user), percentDecode(password)};
     }
 
-    /** Percent-decoding only: {@link URLDecoder} would turn a literal {@code +} into a space. */
+    /**
+     * Percent-decoding as Python's {@code unquote} does it: a literal {@code +}
+     * stays, and a {@code %} not followed by two hex digits stays verbatim.
+     */
     private static String percentDecode(String s) {
-        return URLDecoder.decode(s.replace("+", "%2B"), StandardCharsets.UTF_8);
+        String escaped = s.replace("+", "%2B").replaceAll("%(?![0-9A-Fa-f]{2})", "%25");
+        return URLDecoder.decode(escaped, StandardCharsets.UTF_8);
     }
 }

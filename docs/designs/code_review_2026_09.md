@@ -183,6 +183,6 @@ is fixed.
 
 # Fix Order
 
-1. Deploy templates, then `SqlConfig.java`.
+1. Deploy templates.
 2. Remaining Mediums grouped by shared root cause: missing status guards,
    missing `try/except` in worker loops.
