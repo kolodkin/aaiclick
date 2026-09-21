@@ -28,7 +28,7 @@ Usage:
 
 import asyncio
 
-from aaiclick.orchestration import job
+from aaiclick.orchestration import Group, job
 
 from .consolidated import analyze_consolidated, build_consolidated_table
 from .epss import analyze_epss, load_epss_data
@@ -61,9 +61,9 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
                             |                                                     |
                             +-------------------------------------------+        |
                                                                         v        |
-        load_shodan_kev_cves ---+                             build_consolidated  |
-                                +--> combine_shodan_cves ---->       _table       |
-        load_shodan_general_cves +       |                          /      \      |
+        [shodan group] ---------+                             build_consolidated  |
+          load_shodan_kev_cves  +--> combine_shodan_cves ---->       _table       |
+          load_shodan_general_cves       |                          /      \      |
                                          +---> analyze_shodan_cves  v       v     |
                                                                 analyze  generate_
         load_epss_data ---+---> analyze_epss ----------------> _consol  threat_
@@ -73,14 +73,13 @@ def cyber_threat_pipeline(shodan_limit: int = 5000):
     kev = load_kev_data()
     kev_report = analyze_kev(kev=kev)
 
-    # Phase 2: Shodan CVEDB (two parallel loads + combine)
-    shodan_kev = load_shodan_kev_cves()
-    shodan_general = load_shodan_general_cves(
-        start_date=START_DATE,
-        end_date=END_DATE,
-        limit=shodan_limit,
-    )
-    cves = combine_shodan_cves(kev_cves=shodan_kev, general_cves=shodan_general)
+    # Phase 2: Shodan CVEDB — parallel loads grouped, then combined. Passing
+    # the Group as a kwarg makes combine_shodan_cves wait for every member and
+    # receive their Objects as a list.
+    shodan = Group(name="shodan")
+    shodan.add_task(load_shodan_kev_cves())
+    shodan.add_task(load_shodan_general_cves(start_date=START_DATE, end_date=END_DATE, limit=shodan_limit))
+    cves = combine_shodan_cves(loads=shodan)
     shodan_analysis = analyze_shodan_cves(cves=cves)
 
     # Phase 6: FIRST EPSS — full exploitation scoring feed
