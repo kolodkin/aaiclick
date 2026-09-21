@@ -157,8 +157,8 @@ async def test_commit_tasks_stamps_and_injects_for_docker_job(orch_ctx_no_ch, mo
 
 
 async def test_commit_tasks_rejects_jvm_task_without_own_image(orch_ctx_no_ch, monkeypatch):
-    """A jvm task never inherits the committing task's image: that image is
-    the Python one, and the JVM entrypoint does not exist in it."""
+    """A jvm task never inherits the committing task's Python image, which
+    has no JVM entrypoint."""
     monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
     job = await create_job("j", "m.entry")
     async with get_sql_session() as session:

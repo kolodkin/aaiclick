@@ -561,9 +561,7 @@ async def commit_tasks(
     all_items = _collect_from_registry(items_list)
     tasks_only = [item for item in all_items if isinstance(item, Task)]
 
-    # Before stamping: a jvm task must declare its own image, since the
-    # committing task's is a Python one with no JVM entrypoint.
-    validate_jvm_tasks(tasks_only)
+    validate_jvm_tasks(tasks_only)  # before stamping, see its docstring
     stamp_inherited_image(tasks_only, _current_parent_image_source())
 
     async with get_sql_session() as session:

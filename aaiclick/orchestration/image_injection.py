@@ -82,9 +82,9 @@ def validate_jvm_tasks(tasks: list[Task]) -> None:
     The shim jar has no ClickHouse data plane, so Object/View refs can never
     reach a jvm task's kwargs; and there is no host-subprocess JVM contract,
     so a jvm task must carry an image (docker/kubernetes jobs only — implied
-    by ``validate_image_sources`` once the image is required). Callers run
-    this before ``stamp_inherited_image``: the inherited image is the
-    committing Python task's, which cannot run a JVM entrypoint."""
+    by ``validate_image_sources`` once the image is required). Runs before
+    ``stamp_inherited_image``: the inherited image is the committing Python
+    task's, which has no JVM entrypoint."""
     for task in tasks:
         if task.entry_type != ENTRY_JVM:
             continue

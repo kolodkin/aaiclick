@@ -50,9 +50,9 @@ public record SqlConfig(Dialect dialect, String jdbcUrl, String user, String pas
     }
 
     /**
-     * {@code host:port} from the raw authority. {@link URI#getHost()} is null for
-     * names that are not RFC 2396 hostnames (an underscore, as in a compose
-     * service {@code postgres_db}), which the driver resolves fine.
+     * {@code host:port} from the raw authority: {@link URI#getHost()} is null for
+     * non-RFC 2396 names such as a compose service {@code postgres_db}, which the
+     * driver resolves fine.
      */
     private static String hostPort(URI parsed) {
         String authority = parsed.getRawAuthority();
@@ -76,10 +76,7 @@ public record SqlConfig(Dialect dialect, String jdbcUrl, String user, String pas
         return new String[] {percentDecode(user), percentDecode(password)};
     }
 
-    /**
-     * Percent-decoding only: {@link URLDecoder} is form decoding, which turns a
-     * literal {@code +} into a space, unlike SQLAlchemy's {@code unquote}.
-     */
+    /** Percent-decoding only: {@link URLDecoder} would turn a literal {@code +} into a space. */
     private static String percentDecode(String s) {
         return URLDecoder.decode(s.replace("+", "%2B"), StandardCharsets.UTF_8);
     }

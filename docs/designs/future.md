@@ -142,10 +142,9 @@ See `viewer.md` for the shipped design.
   Deferred until single-object queries prove insufficient.
 - **Agent push to the browser**: QueryView's remote channel (an agent pushes a
   query or dashboard into a live tab) has no aaiclick equivalent. `GET
-  /events` (`aaiclick/server/events.py`) carries one payload-less `changed`
-  kind that the SPA answers by invalidating its cache (`src/api/events.ts`),
-  so a push needs an event kind with a payload and a handler that switches
-  the mode.
+  /events` carries one payload-less `changed` kind that the SPA answers by
+  invalidating its cache (`src/api/events.ts`), so a push needs a kind with
+  a payload and a handler that switches the mode.
 - **Git sync and YAML export** for saved queries and dashboards, as QueryView
   has (QueryView's workspaces have no aaiclick counterpart — one installation
   is one workspace).
