@@ -49,9 +49,9 @@ from .orch_context import commit_tasks, get_sql_session, orch_context
 from .sql_context import _sql_engine_var
 
 
-def _collect_upstreams(value: Any, upstream_tasks: list[Task]) -> None:
-    """Recursively collect Task instances from nested structures."""
-    if isinstance(value, Task):
+def _collect_upstreams(value: Any, upstream_tasks: list[Task | Group]) -> None:
+    """Recursively collect Task and Group instances from nested structures."""
+    if isinstance(value, (Task, Group)):
         upstream_tasks.append(value)
     elif isinstance(value, (list, tuple)):
         for v in value:
@@ -119,7 +119,7 @@ class TaskFactory:
     def __call__(self, *args, **kwargs) -> Task:
         """Create a Task instance.
 
-        When Task objects are passed as arguments, automatically:
+        When Task or Group objects are passed as arguments, automatically:
         1. Creates upstream references for result injection
         2. Sets up dependencies (upstream >> this_task)
 
@@ -134,7 +134,7 @@ class TaskFactory:
             raise ValueError("TaskFactory does not support positional arguments. Use keyword arguments instead.")
 
         # Collect upstream tasks for dependency creation
-        upstream_tasks: list[Task] = []
+        upstream_tasks: list[Task | Group] = []
         for value in kwargs.values():
             _collect_upstreams(value, upstream_tasks)
 

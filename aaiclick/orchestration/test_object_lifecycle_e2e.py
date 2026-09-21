@@ -144,7 +144,6 @@ def group_consumer_pipeline():
     for _ in range(2):
         group.add_task(produce())
     reader = read_group_sum(results=group)
-    group >> reader
     return [group, reader]
 
 

@@ -30,7 +30,7 @@ is fixed.
   expander exits** — `aaiclick/orchestration/operators.py`, `_expand_map()`.
   Nothing pins `out`, so both tables are eligible for the drop sweep before
   any `_map_part` child runs. Root cause and design: `future.md`
-  "Group Kwarg Creates No Dependency Edge" and "Expander Children Have No Pin Path".
+  "Expander Children Have No Pin Path".
 
 ## Deployment
 
@@ -82,9 +82,6 @@ is fixed.
 
 ## Orchestration correctness
 
-- **A Group passed as a kwarg creates no dependency** —
-  `aaiclick/orchestration/decorators.py`, `_collect_upstreams()`. Only `Task`
-  is collected; the consumer runs first and receives `[]`.
 - **The same upstream in two kwargs raises IntegrityError on commit** — same
   file, `TaskFactory.__call__()`. Duplicate composite-PK `Dependency` rows.
 - **The Postgres claim CTE never triggers change signals** —
