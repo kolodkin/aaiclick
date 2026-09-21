@@ -10,7 +10,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from aaiclick.ai.agents.lineage_tools import (
+    DEFAULT_ROW_LIMIT,
     LINEAGE_TOOL_DEFINITIONS,
+    ROW_LIMIT_CEILING,
     ColumnSchema,
     LineageToolbox,
     QueryResult,
@@ -25,6 +27,7 @@ from aaiclick.data.scope import (
     SCOPE_TEMP_NAMED,
     make_scoped_table_name,
 )
+from aaiclick.data.sql_utils import normalize_sql_for_scan
 from aaiclick.oplog.lineage import OplogEdge, OplogGraph
 from aaiclick.testing import make_oplog_node
 
@@ -263,6 +266,88 @@ async def test_query_table_pins_execution_settings(orch_ctx):
     settings = mock_client.query.call_args.kwargs["settings"]
     assert "max_execution_time" in settings
     assert "max_result_rows" in settings
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        pytest.param(f"SELECT id FROM {TARGET_TABLE} WHERE id IN {OUT_OF_SCOPE_TABLES['global']}", id="in"),
+        pytest.param(
+            f"SELECT id FROM {TARGET_TABLE} WHERE id GLOBAL NOT IN {OUT_OF_SCOPE_TABLES['global']}", id="global-not-in"
+        ),
+        pytest.param(
+            f"SELECT id FROM {TARGET_TABLE} WHERE in(id, {OUT_OF_SCOPE_TABLES['global']})", id="function-form"
+        ),
+        pytest.param(f"SELECT id FROM {TARGET_TABLE} WHERE id IN default.{PERSISTENT_INPUT}", id="qualified"),
+    ],
+)
+async def test_query_table_rejects_in_with_out_of_scope_table(orch_ctx, sql):
+    """``expr IN table`` reads the table without a table position.
+
+    The bare-identifier form is an ``Identifier`` under the ``in`` function,
+    never a ``TableExpression``, so a guard that only walks table positions
+    lets it read any table in the database.
+    """
+    toolbox = LineageToolbox(_sample_graph())
+    err = await toolbox.query_table(sql)
+    assert isinstance(err, ToolError)
+    assert err.kind == "out_of_scope"
+
+
+async def test_query_table_allows_in_with_graph_table(orch_ctx):
+    """The same form against a table of the graph is an ordinary in-scope read."""
+    toolbox = LineageToolbox(_sample_graph())
+    mock_client = _ch_client_with_real_parser([(1,)], ["id"])
+
+    with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
+        result = await toolbox.query_table(f"SELECT id FROM {TARGET_TABLE} WHERE id IN {INTERMEDIATE_TABLE}")
+
+    assert isinstance(result, QueryResult)
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        pytest.param(f"SELECT id FROM {TARGET_TABLE} SETTINGS max_execution_time = 0", id="top-level"),
+        pytest.param(f"SELECT id FROM (SELECT id FROM {TARGET_TABLE} SETTINGS max_result_rows = 0)", id="subquery"),
+    ],
+)
+async def test_query_table_rejects_settings_clause(orch_ctx, sql):
+    """A query-level SETTINGS clause outranks the caps ``run_select`` sets.
+
+    ``readonly=2`` permits settings changes, and ClickHouse applies a clause in
+    the text over settings sent beside the query, so the model could lift its
+    own execution-time and result-row limits.
+    """
+    toolbox = LineageToolbox(_sample_graph())
+    err = await toolbox.query_table(sql)
+    assert isinstance(err, ToolError)
+    assert err.kind == "invalid_argument"
+    assert "SETTINGS" in err.message
+
+
+async def test_run_select_injects_limit_after_a_trailing_comment(orch_ctx):
+    """A ``--`` comment at the end of the SQL must not swallow the injected LIMIT."""
+    mock_client = _ch_client_with_real_parser([(1,)], ["id"])
+
+    with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
+        await run_select(f"SELECT id FROM {TARGET_TABLE} -- newest first")
+
+    called_sql = mock_client.query.call_args.args[0]
+    assert "LIMIT 101" in normalize_sql_for_scan(called_sql)
+
+
+async def test_run_select_truncates_past_the_ceiling_instead_of_failing(orch_ctx):
+    """A result larger than the ceiling is cut, not turned into an error.
+
+    ``max_result_rows`` alone makes ClickHouse throw once the ceiling is
+    crossed; with ``result_overflow_mode='break'`` it stops reading instead,
+    and the tool reports the truncation.
+    """
+    result = await run_select(f"SELECT number FROM numbers({ROW_LIMIT_CEILING * 2}) LIMIT {ROW_LIMIT_CEILING * 2}")
+
+    assert result.truncated
+    assert len(result.rows) == DEFAULT_ROW_LIMIT
 
 
 async def test_run_select_is_refused_write_access_by_clickhouse(orch_ctx):

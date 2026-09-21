@@ -73,6 +73,10 @@ EXPECTED_TOOLS = {
 }
 
 
+def _lineage_of(*tables: str) -> OplogGraph:
+    return OplogGraph(nodes=[make_oplog_node(t, "add") for t in tables], edges=[])
+
+
 @pytest.fixture
 async def mcp_client() -> AsyncIterator[Client]:
     async with Client(mcp) as client:
@@ -194,10 +198,13 @@ async def test_query_table_returns_query_result(orch_ctx, mcp_client):
     qr = QueryResult(columns=["id", "val"], rows=[[1, 10.0], [2, 20.0]], truncated=False)
     mock_run = AsyncMock(return_value=qr)
 
-    with patch("aaiclick.internal_api.lineage.run_select", new=mock_run):
+    with (
+        patch("aaiclick.internal_api.lineage._oplog_subgraph", new=AsyncMock(return_value=_lineage_of("p_revenue"))),
+        patch("aaiclick.internal_api.lineage.run_select", new=mock_run),
+    ):
         result = await mcp_client.call_tool(
             "query_table",
-            {"sql": "SELECT id, val FROM p_revenue", "scope_tables": ["p_revenue"]},
+            {"sql": "SELECT id, val FROM p_revenue", "target_table": "p_revenue"},
         )
 
     parsed = QueryResult.model_validate(result.structured_content)
@@ -213,11 +220,12 @@ async def test_query_table_rejects_out_of_scope(orch_ctx, mcp_client):
     aaiclick/internal_api/test_lineage.py — this asserts only the
     error mapping through the MCP layer.
     """
-    with pytest.raises(ToolError):
-        await mcp_client.call_tool(
-            "query_table",
-            {"sql": "SELECT * FROM p_secret", "scope_tables": ["p_revenue"]},
-        )
+    with patch("aaiclick.internal_api.lineage._oplog_subgraph", new=AsyncMock(return_value=_lineage_of("p_revenue"))):
+        with pytest.raises(ToolError):
+            await mcp_client.call_tool(
+                "query_table",
+                {"sql": "SELECT * FROM p_secret", "target_table": "p_revenue"},
+            )
 
 
 async def test_get_table_schema_returns_columns(orch_ctx, mcp_client):
@@ -227,10 +235,13 @@ async def test_get_table_schema_returns_columns(orch_ctx, mcp_client):
     )
     mock_describe = AsyncMock(return_value=schema)
 
-    with patch("aaiclick.internal_api.lineage.describe_table", new=mock_describe):
+    with (
+        patch("aaiclick.internal_api.lineage._oplog_subgraph", new=AsyncMock(return_value=_lineage_of("p_revenue"))),
+        patch("aaiclick.internal_api.lineage.describe_table", new=mock_describe),
+    ):
         result = await mcp_client.call_tool(
             "get_table_schema",
-            {"table": "p_revenue", "scope_tables": ["p_revenue"]},
+            {"table": "p_revenue", "target_table": "p_revenue"},
         )
 
     parsed = TableSchema.model_validate(result.structured_content)

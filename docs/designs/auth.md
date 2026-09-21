@@ -191,7 +191,9 @@ Passwords are hashed with `bcrypt`. Access JWTs are signed HS256 with
 looked up by hash and rejected if missing / expired / rotated / revoked. On
 success the old row is stamped `rotated_at` and a fresh refresh token is issued,
 re-reading the owner's current `role` and `disabled`.
-Reusing a rotated token returns `401`.
+Reusing a rotated token returns `401`. The stamp is a conditional `UPDATE`
+(`rotated_at IS NULL AND revoked_at IS NULL`), so two refreshes racing on one
+token mint exactly one pair — the loser gets the same `401`.
 
 ## Logout
 

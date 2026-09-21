@@ -62,3 +62,21 @@ async def test_refresh_token_lifecycle(orch_ctx):
     assert found is not None and found.id == rt.id
     await store.rotate_refresh(rt.id)
     assert await store.get_active_refresh("hash1") is None  # rotated => inactive
+
+
+async def test_rotate_refresh_consumes_the_row_exactly_once(orch_ctx):
+    """The second rotation of one row fails: rotation is a conditional UPDATE, so
+    two refreshes racing on the same token cannot both mint a new pair."""
+    u = await store.create_user(username="grace", password_hash="h")
+    rt = await store.create_refresh_token(user_id=u.id, token_hash="g1", ttl=3600)
+    await store.rotate_refresh(rt.id)
+    with pytest.raises(store.RefreshInvalid):
+        await store.rotate_refresh(rt.id)
+
+
+async def test_rotate_refresh_rejects_a_revoked_row(orch_ctx):
+    u = await store.create_user(username="heidi", password_hash="h")
+    rt = await store.create_refresh_token(user_id=u.id, token_hash="h1", ttl=3600)
+    await store.revoke_refresh(rt.id)
+    with pytest.raises(store.RefreshInvalid):
+        await store.rotate_refresh(rt.id)

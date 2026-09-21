@@ -64,7 +64,11 @@ async def refresh(request: RefreshRequest, *, secret: str) -> TokenPair:
     user = await store.get_user_by_id(row.user_id)
     if user is None or user.disabled:
         raise Unauthorized("user is disabled")
-    await store.rotate_refresh(row.id)  # rotation: old token becomes inactive
+    try:
+        await store.rotate_refresh(row.id)  # rotation: old token becomes inactive
+    except store.RefreshInvalid as exc:
+        # Lost the race to a concurrent refresh of the same token.
+        raise Unauthorized("invalid refresh token") from exc
     return await _mint_pair(user=user, secret=secret)
 
 

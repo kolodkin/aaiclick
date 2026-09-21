@@ -155,10 +155,17 @@ async def get_active_refresh(token_hash: str) -> RefreshToken | None:
 
 
 async def rotate_refresh(token_id: int) -> None:
-    await _stamp_refresh(token_id, "rotated_at")
+    """Consume the row; ``RefreshInvalid`` if it was not active any more.
+
+    Two refreshes racing on one token both pass ``get_active_refresh``, so
+    this stamp is what decides the race: exactly one of them succeeds.
+    """
+    if not await _stamp_refresh(token_id, "rotated_at"):
+        raise RefreshInvalid(f"refresh token {token_id} is not active")
 
 
 async def revoke_refresh(token_id: int) -> None:
+    """Idempotent: a row that is already rotated or revoked stays as it is."""
     await _stamp_refresh(token_id, "revoked_at")
 
 
@@ -189,14 +196,27 @@ async def revoke_all_for_user(user_id: int) -> int:
     return result.rowcount
 
 
-async def _stamp_refresh(token_id: int, field: str) -> None:
+async def _stamp_refresh(token_id: int, field: str) -> bool:
+    """Set ``field`` on the row only while it is still active; True if it was.
+
+    The active predicate is part of the UPDATE rather than a prior read, so
+    concurrent callers cannot both see an active row and both stamp it.
+    """
     async with get_sql_session() as session:
-        row = (await session.execute(select(RefreshToken).where(RefreshToken.id == token_id))).scalar_one_or_none()
-        if row is None:
-            raise RefreshInvalid(f"refresh token {token_id} not found")
-        setattr(row, field, utc_now())
-        session.add(row)
+        result = cast(
+            "CursorResult[Any]",
+            await session.execute(
+                update(RefreshToken)
+                .where(
+                    col(RefreshToken.id) == token_id,
+                    col(RefreshToken.rotated_at).is_(None),
+                    col(RefreshToken.revoked_at).is_(None),
+                )
+                .values({field: utc_now()})
+            ),
+        )
         await session.commit()
+    return result.rowcount > 0
 
 
 # --- API tokens ---------------------------------------------------------
