@@ -41,6 +41,10 @@ spec:
               value: {{ .Values.env.sqlUrl | quote }}
             - name: AAICLICK_CH_URL
               value: {{ .Values.env.chUrl | quote }}
+            - name: AAICLICK_JWT_SECRET
+              value: {{ .Values.auth.jwtSecret | quote }}
+            - name: AAICLICK_ADMIN_PASSWORD
+              value: {{ .Values.auth.adminPassword | quote }}
           readinessProbe:
             httpGet:
               path: /health

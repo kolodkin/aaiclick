@@ -111,7 +111,18 @@ class OrchLifecycleHandler(LifecycleHandler):
         """
         event = asyncio.Event()
         self._enqueue(DBLifecycleMessage(DBLifecycleOp.FLUSH, flush_event=event))
-        await event.wait()
+        if self._task is None:
+            raise RuntimeError("lifecycle handler not started")
+        # Race the barrier against the consumer itself: if the loop exits
+        # (stopped, cancelled) before reaching this message, nothing will
+        # ever set the event.
+        waiter = asyncio.ensure_future(event.wait())
+        try:
+            await asyncio.wait({waiter, self._task}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            waiter.cancel()
+        if not event.is_set():
+            raise RuntimeError("lifecycle loop exited before the flush completed")
 
     def incref(self, table_name: str) -> None:
         self._enqueue(DBLifecycleMessage(DBLifecycleOp.INCREF, table_name))
@@ -262,82 +273,92 @@ class OrchLifecycleHandler(LifecycleHandler):
             logger.error("Failed to write table registry for %s", p.table_name, exc_info=True)
 
     async def _process_loop(self) -> None:
-        run_id = str(self._run_id)
         while True:
             msg = await self._queue.get()
             if msg.op == DBLifecycleOp.SHUTDOWN:
                 break
-
-            # -- Table lifecycle (junction table, no inline drops) --
-            if msg.op in (DBLifecycleOp.INCREF, DBLifecycleOp.DECREF, DBLifecycleOp.PIN, DBLifecycleOp.RELEASE_PINS):
-                async with get_sql_session() as session:
-                    if msg.op == DBLifecycleOp.INCREF:
-                        # lookup_advisory_id holds the hashtext xact lock in
-                        # distributed mode, so concurrent INCREFs on the same
-                        # table_name serialize and agree on one advisory_id.
-                        existing = await lookup_advisory_id(session, msg.table_name)
-                        advisory_id = existing if existing is not None else get_snowflake_id()
-
-                        # Register table in context refs (idempotent)
-                        await session.execute(
-                            text(
-                                "INSERT INTO table_context_refs "
-                                "(table_name, context_id, advisory_id) "
-                                "VALUES (:table_name, :context_id, :advisory_id) "
-                                "ON CONFLICT (table_name, context_id) DO NOTHING"
-                            ),
-                            {
-                                "table_name": msg.table_name,
-                                "context_id": self._task_id,
-                                "advisory_id": advisory_id,
-                            },
-                        )
-                        # Add run ref
-                        await session.execute(
-                            text(
-                                "INSERT INTO table_run_refs (table_name, run_id) "
-                                "VALUES (:table_name, :run_id) "
-                                "ON CONFLICT (table_name, run_id) DO NOTHING"
-                            ),
-                            {"table_name": msg.table_name, "run_id": run_id},
-                        )
-                    elif msg.op == DBLifecycleOp.DECREF:
-                        await session.execute(
-                            text("DELETE FROM table_run_refs WHERE table_name = :table_name AND run_id = :run_id"),
-                            {"table_name": msg.table_name, "run_id": run_id},
-                        )
-                    elif msg.op == DBLifecycleOp.PIN:
-                        # Fan out: one pin_ref per downstream consumer task.
-                        assert msg.pin_task_id is not None
-                        consumers = await successor_task_ids(session, {msg.pin_task_id})
-                        if consumers:
-                            await session.execute(
-                                text(
-                                    "INSERT INTO table_pin_refs (table_name, task_id) "
-                                    "VALUES (:table_name, :task_id) "
-                                    "ON CONFLICT (table_name, task_id) DO NOTHING"
-                                ),
-                                [{"table_name": msg.table_name, "task_id": cid} for cid in consumers],
-                            )
-                    elif msg.op == DBLifecycleOp.RELEASE_PINS:
-                        await session.execute(
-                            text("DELETE FROM table_pin_refs WHERE task_id = :task_id"),
-                            {"task_id": msg.pin_task_id},
-                        )
-                    await session.commit()
-
-            # -- Oplog (immediate write, no buffer) --
-            elif msg.op == DBLifecycleOp.OPLOG_RECORD:
-                assert msg.oplog is not None
-                await self._write_oplog_row(msg.oplog)
-            elif msg.op == DBLifecycleOp.OPLOG_TABLE:
-                assert msg.oplog_table is not None
-                await self._write_table_registry_row(msg.oplog_table)
-
-            # -- Flush barrier (signalled once all prior messages have been processed) --
-            elif msg.op == DBLifecycleOp.FLUSH:
+            # A FLUSH barrier is signalled even when an earlier message
+            # failed: the barrier promises "everything before me was
+            # attempted", and a waiter must never hang on a lost message.
+            if msg.op == DBLifecycleOp.FLUSH:
                 assert msg.flush_event is not None
                 msg.flush_event.set()
+                continue
+            try:
+                await self._process_message(msg)
+            except Exception:
+                # One bad write (transient DB error, a missing row) must not
+                # end the consumer: every later message would then queue
+                # forever, and task_scope exit would block on ``stop()``.
+                logger.error("Lifecycle %s for %s failed; continuing", msg.op.name, msg.table_name, exc_info=True)
+
+    async def _process_message(self, msg: DBLifecycleMessage) -> None:
+        run_id = str(self._run_id)
+        # -- Table lifecycle (junction table, no inline drops) --
+        if msg.op in (DBLifecycleOp.INCREF, DBLifecycleOp.DECREF, DBLifecycleOp.PIN, DBLifecycleOp.RELEASE_PINS):
+            async with get_sql_session() as session:
+                if msg.op == DBLifecycleOp.INCREF:
+                    # lookup_advisory_id holds the hashtext xact lock in
+                    # distributed mode, so concurrent INCREFs on the same
+                    # table_name serialize and agree on one advisory_id.
+                    existing = await lookup_advisory_id(session, msg.table_name)
+                    advisory_id = existing if existing is not None else get_snowflake_id()
+
+                    # Register table in context refs (idempotent)
+                    await session.execute(
+                        text(
+                            "INSERT INTO table_context_refs "
+                            "(table_name, context_id, advisory_id) "
+                            "VALUES (:table_name, :context_id, :advisory_id) "
+                            "ON CONFLICT (table_name, context_id) DO NOTHING"
+                        ),
+                        {
+                            "table_name": msg.table_name,
+                            "context_id": self._task_id,
+                            "advisory_id": advisory_id,
+                        },
+                    )
+                    # Add run ref
+                    await session.execute(
+                        text(
+                            "INSERT INTO table_run_refs (table_name, run_id) "
+                            "VALUES (:table_name, :run_id) "
+                            "ON CONFLICT (table_name, run_id) DO NOTHING"
+                        ),
+                        {"table_name": msg.table_name, "run_id": run_id},
+                    )
+                elif msg.op == DBLifecycleOp.DECREF:
+                    await session.execute(
+                        text("DELETE FROM table_run_refs WHERE table_name = :table_name AND run_id = :run_id"),
+                        {"table_name": msg.table_name, "run_id": run_id},
+                    )
+                elif msg.op == DBLifecycleOp.PIN:
+                    # Fan out: one pin_ref per downstream consumer task.
+                    assert msg.pin_task_id is not None
+                    consumers = await successor_task_ids(session, {msg.pin_task_id})
+                    if consumers:
+                        await session.execute(
+                            text(
+                                "INSERT INTO table_pin_refs (table_name, task_id) "
+                                "VALUES (:table_name, :task_id) "
+                                "ON CONFLICT (table_name, task_id) DO NOTHING"
+                            ),
+                            [{"table_name": msg.table_name, "task_id": cid} for cid in consumers],
+                        )
+                elif msg.op == DBLifecycleOp.RELEASE_PINS:
+                    await session.execute(
+                        text("DELETE FROM table_pin_refs WHERE task_id = :task_id"),
+                        {"task_id": msg.pin_task_id},
+                    )
+                await session.commit()
+
+        # -- Oplog (immediate write, no buffer) --
+        elif msg.op == DBLifecycleOp.OPLOG_RECORD:
+            assert msg.oplog is not None
+            await self._write_oplog_row(msg.oplog)
+        elif msg.op == DBLifecycleOp.OPLOG_TABLE:
+            assert msg.oplog_table is not None
+            await self._write_table_registry_row(msg.oplog_table)
 
 
 @asynccontextmanager
@@ -396,21 +417,24 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
 
     ch_token = None
     ch_client_owned = None
-    if with_ch:
-        # chdb's Session is a true per-process singleton (see
-        # ``docs/designs/technical_debt.md``): we open it once and reuse it for the
-        # lifetime of the process. Reusing an outer context's client when
-        # nested keeps that invariant for callers that enter ``orch_context``
-        # multiple times (e.g. ``ajob_test``).
-        existing = _ch_client_var.get()
-        if existing is not None:
-            ch_client = existing
-        else:
-            ch_client = await create_ch_client()
-            ch_client_owned = ch_client
-        ch_token = _ch_client_var.set(ch_client)
-
+    # Everything past the ContextVar sets is inside the try so a failing
+    # ``create_ch_client`` (chdb lock held by another process) still resets
+    # the vars and disposes the engine instead of leaking a half-built context.
     try:
+        if with_ch:
+            # chdb's Session is a true per-process singleton (see
+            # ``docs/designs/technical_debt.md``): we open it once and reuse it for the
+            # lifetime of the process. Reusing an outer context's client when
+            # nested keeps that invariant for callers that enter ``orch_context``
+            # multiple times (e.g. ``ajob_test``).
+            existing = _ch_client_var.get()
+            if existing is not None:
+                ch_client = existing
+            else:
+                ch_client = await create_ch_client()
+                ch_client_owned = ch_client
+            ch_token = _ch_client_var.set(ch_client)
+
         yield
     finally:
         _sql_engine_var.reset(sql_token)

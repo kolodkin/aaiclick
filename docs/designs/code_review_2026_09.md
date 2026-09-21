@@ -9,19 +9,6 @@ is fixed.
 
 ---
 
-# High
-
-## Deployment
-
-- **Scaffolded compose and helm stacks cannot be logged into** —
-  `aaiclick/deploy/templates/compose/docker-compose.yaml` and the helm
-  `values.yaml`. Distributed URLs enforce auth, but neither sets
-  `AAICLICK_JWT_SECRET` or `AAICLICK_ADMIN_PASSWORD`, and `_lifespan` in
-  `aaiclick/server/app.py` never calls `require_jwt_secret()`. Health passes;
-  login is a 500.
-
----
-
 # Medium
 
 ## Security
@@ -40,19 +27,6 @@ is fixed.
 - **Refresh-token rotation is check-then-act** — `aaiclick/auth/store.py`,
   `_stamp_refresh()`. Two concurrent refreshes with the same token both
   succeed. The UPDATE has no `rotated_at IS NULL` predicate or rowcount check.
-
-## Orchestration races
-
-- **Dead-worker recovery does not bump `run_epoch`** —
-  `aaiclick/orchestration/background/handler.py`, the retry transition. A
-  stalled-but-alive worker can write COMPLETED over a task another worker has
-  re-claimed.
-- **Lifecycle FIFO consumer dies on one SQL error; `flush()` blocks forever**
-  — `aaiclick/orchestration/orch_context.py`,
-  `OrchLifecycleHandler._process_loop()`.
-- **`orch_context` leaks ContextVar tokens and the engine if
-  `create_ch_client()` raises** — same file, `orch_context()`. The `.set()`
-  calls and engine creation precede the `try`.
 
 ## Orchestration correctness
 
@@ -183,6 +157,5 @@ is fixed.
 
 # Fix Order
 
-1. Deploy templates.
-2. Remaining Mediums grouped by shared root cause: missing status guards,
-   missing `try/except` in worker loops.
+Remaining Mediums grouped by shared root cause: scope and settings validation
+in the lineage tools, missing status guards, unbounded list filters.

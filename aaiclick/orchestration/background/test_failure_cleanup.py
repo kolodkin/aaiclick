@@ -12,6 +12,7 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime
 from unittest.mock import AsyncMock
 
+import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
@@ -252,3 +253,33 @@ async def test_failure_cleanup_retry_backoff(bg_db):
     expected = RETRY_BASE_DELAY * (2**1)
     assert delay >= expected * 0.9
     assert delay <= expected + 1.0
+
+
+async def _get_run_epoch(engine, task_id):
+    async with AsyncSession(engine) as session:
+        result = await session.execute(text("SELECT run_epoch FROM tasks WHERE id = :id"), {"id": task_id})
+        return result.scalar_one()
+
+
+@pytest.mark.parametrize(
+    "max_retries, expected_status",
+    [
+        pytest.param(3, "PENDING", id="retry"),
+        pytest.param(0, "FAILED", id="exhausted"),
+    ],
+)
+async def test_failure_cleanup_bumps_run_epoch(bg_db, max_retries, expected_status):
+    """Leaving PENDING_FAILURE_CLEANUP fences the run that reported it.
+
+    A worker declared dead by heartbeat timeout may still be alive; once its
+    task is retried and re-claimed under the same epoch, its late COMPLETED
+    write would pass the epoch guard and land on another worker's run.
+    """
+    await insert_job(bg_db, 1000)
+    await _insert_task(bg_db, 100, 1000, status="PENDING_FAILURE_CLEANUP", max_retries=max_retries, run_ids="[111]")
+    assert await _get_run_epoch(bg_db, 100) == 0
+
+    await _make_worker(bg_db)._process_failure_cleanup()
+
+    assert (await _get_task_status(bg_db, 100))[0] == expected_status
+    assert await _get_run_epoch(bg_db, 100) == 1

@@ -73,6 +73,7 @@ nav:
     - DataContext: user_guide/data_context.md
     - Orchestration: user_guide/orchestration.md
     - Container Images: user_guide/container_images.md
+    - Deployment: user_guide/deployment.md
     - AI Layer: user_guide/ai.md
     - Operation Log: user_guide/oplog.md
     - Example Projects: user_guide/example_projects.md
