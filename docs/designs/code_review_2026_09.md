@@ -69,8 +69,9 @@ is fixed.
 
 ## Orchestration correctness
 
-- **The same upstream in two kwargs raises IntegrityError on commit** — same
-  file, `TaskFactory.__call__()`. Duplicate composite-PK `Dependency` rows.
+- **The same upstream in two kwargs raises IntegrityError on commit** —
+  `aaiclick/orchestration/decorators.py`, `TaskFactory.__call__()`. Duplicate
+  composite-PK `Dependency` rows.
 - **The Postgres claim CTE never triggers change signals** —
   `aaiclick/orchestration/events/hooks.py`, `_WRITE_RE`. Matches only
   statements starting with INSERT/UPDATE/DELETE; `claim_next_task.sql` starts
