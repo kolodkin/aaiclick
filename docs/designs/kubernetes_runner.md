@@ -112,6 +112,37 @@ The Pod runs the shared container entrypoint (`remote_result.remote_entry_main`,
 also used by Docker containers): boot `orch_context`, run the task through the
 shared `runner.execute_task` path, then write a `RemoteTaskResult` row.
 
+## Example: the Pod disappears mid-run
+
+A Pod that is deleted (cancellation) or evicted never reaches `Succeeded` or
+`Failed`, so `wait` cannot rely on phase alone. `_pod_status` reads kubectl's
+exit code and stderr and reports the sentinel `POD_NOT_FOUND`; any other
+kubectl failure reports an empty phase and is retried.
+
+```
+# poll 1 — Pod running, container not terminated yet
+$ kubectl get pod aaiclick-task-7-1 -n jobs -o jsonpath='{.status.phase} {...exitCode}'
+Running                                   → ("Running", -1)   keep polling
+
+# meanwhile: cancel_job(7) → poll_cancelled → terminate → kubectl delete pod
+
+# poll 2 — the Pod is gone
+$ kubectl get pod aaiclick-task-7-1 -n jobs ...
+Error from server (NotFound): pods "aaiclick-task-7-1" not found   (rc 1)
+                                          → ("NotFound", -1)  wait ends:
+                                            error "Pod aaiclick-task-7-1 disappeared"
+
+# by contrast, an API blip is not the Pod's fault
+$ kubectl get pod aaiclick-task-7-1 -n jobs ...
+Unable to connect to the server: dial tcp: i/o timeout             (rc 1)
+                                          → ("", -1)          keep polling
+```
+
+`collect` then folds the outcome: a fired cancellation wins (`"cancelled"`),
+otherwise the `disappeared` error stands, since an evicted Pod wrote no result
+row. Tests: `test_kubernetes_worker.py` — `test_pod_status_maps_kubectl_failure`,
+`test_wait_ends_when_pod_disappears`, `test_wait_retries_transient_kubectl_failure`.
+
 # Image build is shared
 
 Kubernetes reuses the Docker build pipeline unchanged. The image is an

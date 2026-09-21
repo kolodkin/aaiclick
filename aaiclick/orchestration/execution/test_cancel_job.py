@@ -233,7 +233,7 @@ async def test_set_pending_failure_cleanup_refuses_cancelled(orch_ctx):
     job_id, task_id = await _claim_fresh(worker.id, "failure_after_cancel")
     await cancel_job(job_id)
 
-    await _set_pending_failure_cleanup(task_id, "killed")
+    assert await _set_pending_failure_cleanup(task_id, "killed", expected_epoch=0) is False
 
     (task,) = await _job_tasks(job_id)
     assert task.status == TASK_PENDING_CANCELLED_CLEANUP

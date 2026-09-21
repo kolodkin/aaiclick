@@ -7,6 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
+from aaiclick.orchestration.models import PRESERVATION_FULL
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import register_job
 
@@ -22,13 +23,15 @@ async def _get_engine(orch_ctx):
 
 
 async def test_check_schedules_creates_job(orch_ctx):
-    """A due registered job should produce a Job + Task."""
+    """A due registered job should produce a Job + Task carrying the
+    registration's config (preservation mode), not the column defaults."""
     # Register a job with next_run_at in the past
     reg = await register_job(
         name="sched_test",
         entrypoint="myapp.sched_task",
         schedule="* * * * *",
         default_kwargs={"key": "val"},
+        preservation_mode=PRESERVATION_FULL,
     )
 
     # Force next_run_at to the past
@@ -49,16 +52,20 @@ async def test_check_schedules_creates_job(orch_ctx):
     # Verify Job was created
     async with get_sql_session() as session:
         result = await session.execute(
-            text("SELECT id, name, run_type, registered_job_id FROM jobs WHERE registered_job_id = :reg_id"),
+            text(
+                "SELECT id, name, run_type, registered_job_id, preservation_mode "
+                "FROM jobs WHERE registered_job_id = :reg_id"
+            ),
             {"reg_id": reg.id},
         )
         jobs = result.fetchall()
 
     assert len(jobs) == 1
-    job_id, name, run_type, registered_job_id = jobs[0]
+    job_id, name, run_type, registered_job_id, preservation_mode = jobs[0]
     assert name == "sched_test"
     assert run_type == "SCHEDULED"
     assert registered_job_id == reg.id
+    assert preservation_mode == PRESERVATION_FULL
 
     # Verify entry Task was created
     async with get_sql_session() as session:

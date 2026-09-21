@@ -453,3 +453,13 @@ async def test_quantile_invalid_level(ctx):
 
     with pytest.raises(ValueError):
         await obj.quantile(1.1)
+
+
+async def test_sum_of_comparison_does_not_wrap(ctx):
+    """``(a == b).sum()`` counts every match: the UInt8 comparison result must
+    widen to UInt64 before summing, or 300 matches wrap to 44."""
+    values = list(range(300))
+    obj_a = await create_object_from_value(values, aai_id=True)
+    obj_b = await create_object_from_value(values, aai_id=True)
+
+    assert await (await (obj_a == obj_b).sum()).data() == 300
