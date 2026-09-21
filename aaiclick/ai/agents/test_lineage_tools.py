@@ -166,13 +166,12 @@ async def test_query_table_rejects_system_tables(orch_ctx):
 
 
 async def test_query_table_never_evaluates_sql_while_validating_scope(orch_ctx):
-    """Scope validation only parses the SQL; nothing in it runs before the scope check passes.
+    """Scope validation parses the SQL; nothing in it runs first.
 
-    The payload is shaped to break out of a ``SELECT * FROM (EXPLAIN AST …)``
-    wrapper: it closes the parenthesis, appends its own statement, and reopens
-    one so the whole text parses. ``throwIf`` is the canary: its message is
-    assembled at run time, so it can only reach the error text if the appended
-    statement was executed (a parse error merely echoes the source).
+    The payload escapes a ``SELECT * FROM (EXPLAIN AST …)`` wrapper: close the
+    parenthesis, append a statement, reopen one so the text parses. ``throwIf``
+    builds its message at run time, so it reaches the error text only if that
+    statement executed — a parse error just echoes the source.
     """
     toolbox = LineageToolbox(_sample_graph())
     err = await toolbox.query_table("SELECT 1) UNION ALL SELECT throwIf(1, concat('exec', 'uted')) FROM (SELECT 1")

@@ -143,10 +143,9 @@ async def _explain_ast(sql: str) -> list[str]:
     """Lines of ``sql``'s ``EXPLAIN AST`` dump — a parse, never an evaluation.
 
     Sent through ``raw_query`` with no format so the driver appends none: a
-    ``FORMAT`` clause after an ``EXPLAIN`` binds to the explained query and
-    shows up in its AST. Wrapping in ``SELECT * FROM (EXPLAIN AST …)`` would
-    keep the clause outside, but it also lets ``sql`` close the parenthesis
-    and run a statement of its own before any scope check.
+    ``FORMAT`` after an ``EXPLAIN`` binds to the explained query and shows up
+    in its AST. A ``SELECT * FROM (EXPLAIN AST …)`` wrapper would keep it
+    outside, but lets ``sql`` close the parenthesis and run its own statement.
     """
     dump = await get_ch_client().raw_query(f"EXPLAIN AST {sql}")
     return dump.decode().splitlines()
