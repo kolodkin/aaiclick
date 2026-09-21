@@ -25,7 +25,7 @@ from .claiming import (
     update_job_status,
     update_task_status,
 )
-from .execution_worker import register_execution_worker
+from .execution_worker import _set_pending_cleanup, register_execution_worker
 
 
 async def test_cancel_pending_job(orch_ctx):
@@ -197,3 +197,23 @@ async def test_update_task_status_refuses_overwrite_cancelled(orch_ctx):
     task = await get_task(task_id)
     assert task is not None
     assert task.status == TASK_CANCELLED
+
+
+async def test_set_pending_cleanup_refuses_overwrite_cancelled(orch_ctx):
+    """A runner reporting its killed run as a failure must not resurrect a
+    CANCELLED task into PENDING_CLEANUP — the next background cycle would
+    then fail a job the user cancelled."""
+    job = await create_job("pending_cleanup_cancelled", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+
+    async with get_sql_session() as session:
+        task = (await session.execute(select(Task).where(Task.job_id == job.id))).scalar_one()
+        task_id = task.id
+
+    await cancel_job(job.id)
+
+    assert await _set_pending_cleanup(task_id, "killed", expected_epoch=task.run_epoch) is False
+
+    task = await get_task(task_id)
+    assert task is not None
+    assert task.status == TASK_CANCELLED
+    assert task.error is None

@@ -44,6 +44,24 @@ OPERATOR_CASES = [
     ("/", "Bool", "Int64"),
     ("**", "Int64", "Int64"),
     ("**", "Bool", "Bool"),
+    ("%", "Int64", "Int64"),
+    ("%", "UInt8", "UInt8"),
+    ("%", "Int32", "UInt8"),
+    ("%", "Int64", "Float64"),
+    # Narrow and mixed-signedness integers widen — the result must not fall
+    # through to the left operand's type.
+    ("+", "Int32", "Int32"),
+    ("*", "Int32", "Int32"),
+    ("+", "Int8", "Int8"),
+    ("+", "UInt16", "UInt16"),
+    ("+", "UInt32", "Int8"),
+    ("+", "UInt64", "Int64"),
+    ("*", "Int64", "UInt64"),
+    ("-", "Int32", "Int32"),
+    ("-", "UInt32", "UInt32"),
+    ("-", "Int8", "UInt64"),
+    ("+", "Float32", "Float32"),
+    ("+", "Int32", "Float32"),
 ]
 
 
@@ -70,6 +88,18 @@ AGG_CASES = [
     ("max", "Int64"),
     ("sum", "Int64"),
     ("sum", "Float64"),
+    ("sum", "Float32"),
+    # sum() widens every narrow integer to the 64-bit type of its signedness.
+    ("sum", "UInt8"),
+    ("sum", "UInt16"),
+    ("sum", "UInt32"),
+    ("sum", "UInt64"),
+    ("sum", "Int8"),
+    ("sum", "Int16"),
+    ("sum", "Int32"),
+    ("mean", "Int32"),
+    ("std", "UInt8"),
+    ("var", "UInt8"),
     ("count", "Int64"),
     ("count", "Bool"),
 ]

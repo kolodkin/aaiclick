@@ -8,9 +8,10 @@ import os
 import signal
 import socket
 from collections.abc import Awaitable, Callable
-from typing import Any, NamedTuple, Protocol, TypeVar
+from typing import Any, NamedTuple, Protocol, TypeVar, cast
 
 from sqlalchemy import update
+from sqlalchemy.engine import CursorResult
 from sqlmodel import col, select
 
 from aaiclick.async_wait import wait_or_timeout
@@ -22,6 +23,7 @@ from ..models import (
     EXECUTION_WORKER_ACTIVE,
     EXECUTION_WORKER_STOPPED,
     EXECUTION_WORKER_STOPPING,
+    TASK_CANCELLED,
     TASK_COMPLETED,
     TASK_FAILED,
     TASK_PENDING_CLEANUP,
@@ -136,9 +138,15 @@ async def _heartbeat_while_waiting(
     interval: float,
     heartbeat_fn: Callable[[int], Awaitable[Any]],
 ) -> None:
-    """Heartbeat every ``interval`` seconds until ``done`` is set."""
+    """Heartbeat every ``interval`` seconds until ``done`` is set.
+
+    A failed heartbeat is logged and retried next tick; one transient DB error
+    must not get a long task's worker declared dead."""
     while not await wait_or_timeout(done, interval):
-        await heartbeat_fn(execution_worker_id)
+        try:
+            await heartbeat_fn(execution_worker_id)
+        except Exception:
+            logger.exception("ExecutionWorker %s heartbeat failed; retrying next tick", execution_worker_id)
 
 
 async def _watch_for_cancellation(
@@ -155,7 +163,12 @@ async def _watch_for_cancellation(
     reading this task's return value is racy (it may still be sleeping in
     ``wait_for`` when ``done`` is set externally)."""
     while not await wait_or_timeout(done, poll_interval):
-        if await vehicle.poll_cancelled(task):
+        try:
+            aborted = await vehicle.poll_cancelled(task)
+        except Exception:
+            logger.exception("Task %s cancellation poll failed; retrying next tick", task.id)
+            continue
+        if aborted:
             cancelled.set()
             await vehicle.terminate(handle)
             return
@@ -196,29 +209,31 @@ async def drive_vehicle(
         await vehicle.cleanup(handle)
 
 
-async def _set_pending_cleanup(task_id: int, error: str, expected_epoch: int | None = None) -> None:
+async def _set_pending_cleanup(task_id: int, error: str, expected_epoch: int | None = None) -> bool:
     """Transition a failed task to PENDING_CLEANUP for background ref cleanup.
 
-    When ``expected_epoch`` is given and no longer matches the task's
-    ``run_epoch``, the write is skipped — the run was cleared out from under
-    this execution_worker and its failure must not clobber the reset state. The epoch
-    guard lives in the UPDATE's WHERE clause so it is enforced atomically with
-    the write on every backend, not only where ``FOR UPDATE`` holds a row lock.
+    Returns False without writing when the run no longer owns the task: it is
+    CANCELLED (``cancel_job`` settled it; a killed run's failure report must
+    not turn a cancelled job FAILED — mirrors ``update_task_status``), or
+    ``expected_epoch`` no longer matches ``run_epoch`` (``clear_task`` reset it).
+
+    Both guards sit in the UPDATE's WHERE clause, so they hold atomically on
+    every backend, not only where ``FOR UPDATE`` locks the row; the rowcount
+    is the verdict. The prior SELECT only feeds ``run_statuses``.
     """
     async with get_sql_session() as session:
         task = (await session.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
         if task is None:
-            return
-        if expected_epoch is not None and task.run_epoch != expected_epoch:
-            return
+            return False
         values: dict[str, str | list[str]] = {"status": TASK_PENDING_CLEANUP, "error": error}
         if task.run_statuses:
             values["run_statuses"] = [*task.run_statuses[:-1], TASK_FAILED]
-        stmt = update(Task).where(col(Task.id) == task_id)
+        stmt = update(Task).where(col(Task.id) == task_id, col(Task.status) != TASK_CANCELLED)
         if expected_epoch is not None:
             stmt = stmt.where(col(Task.run_epoch) == expected_epoch)
-        await session.execute(stmt.values(**values))
+        result = await session.execute(stmt.values(**values))
         await session.commit()
+        return cast(CursorResult, result).rowcount > 0
 
 
 async def register_execution_worker(
@@ -391,8 +406,12 @@ async def _increment_execution_worker_stat(execution_worker_id: int, field: str)
             await session.commit()
 
 
-async def _cancellation_monitor(task_id: int, exec_task: asyncio.Task, expected_epoch: int) -> None:
+async def _cancellation_monitor(task_id: int, exec_task: asyncio.Task, expected_epoch: int) -> bool:
     """Poll task state in DB and cancel the asyncio.Task if the run is aborted.
+
+    Returns True when this monitor cancelled ``exec_task``, False when the
+    task finished (or was cancelled by someone else) first — the runner uses
+    it to tell a cancelled run from a cancelled worker.
 
     Runs concurrently with task execution. Checks the database every
     POLL_INTERVAL seconds. When cancel_job() marks the task CANCELLED or
@@ -410,10 +429,16 @@ async def _cancellation_monitor(task_id: int, exec_task: asyncio.Task, expected_
     while not exec_task.done():
         await asyncio.wait({exec_task}, timeout=POLL_INTERVAL)
         if exec_task.done():
-            return
-        if await check_run_aborted(task_id, expected_epoch):
+            return False
+        try:
+            aborted = await check_run_aborted(task_id, expected_epoch)
+        except Exception:
+            logger.exception("Task %s cancellation poll failed; retrying next tick", task_id)
+            continue
+        if aborted:
             exec_task.cancel()
-            return
+            return True
+    return False
 
 
 async def _handle_task_result(
@@ -448,7 +473,9 @@ async def _handle_task_result(
 
     error = error or "Unknown error"
     logger.warning("ExecutionWorker %s task %s failed: %s", execution_worker_id, task.id, error)
-    await _set_pending_cleanup(task.id, error, expected_epoch=task.run_epoch)
+    if not await _set_pending_cleanup(task.id, error, expected_epoch=task.run_epoch):
+        logger.info("ExecutionWorker %s task %s failure discarded (cleared or cancelled)", execution_worker_id, task.id)
+        return False
     await _increment_execution_worker_stat(execution_worker_id, "tasks_failed")
     logger.info("ExecutionWorker %s task %s set to PENDING_CLEANUP", execution_worker_id, task.id)
     return False
@@ -533,7 +560,15 @@ async def _execution_worker_loop(
             logger.info("ExecutionWorker %s executing task %s: %s", execution_worker_id, task.id, task.entrypoint)
             await update_task_status(task.id, TASK_RUNNING, expected_epoch=task.run_epoch)
 
-            success, result_ref, error = await execute_fn(task, execution_worker_id)
+            try:
+                success, result_ref, error = await execute_fn(task, execution_worker_id)
+            except Exception as e:
+                # Dispatch failures (missing image tag, rejected ``kubectl
+                # apply``) are the task's, not the worker's: escaping would stop
+                # the loop and leave the task RUNNING under a STOPPED worker the
+                # dead-worker sweep never revisits.
+                logger.exception("ExecutionWorker %s task %s dispatch raised", execution_worker_id, task.id)
+                success, result_ref, error = False, None, f"{type(e).__name__}: {e}"
             if await _handle_task_result(task, execution_worker_id, success, result_ref, error):
                 tasks_executed += 1
 
@@ -545,21 +580,38 @@ async def _execution_worker_loop(
 
 
 async def _execute_in_process(task: Task, execution_worker_id: int) -> tuple[bool, dict | None, str | None]:
-    """Execute a task in the current async process with cancellation monitoring."""
+    """Execute a task in the current async process with cancellation monitoring.
+
+    Heartbeats while the task runs; the loop only heartbeats between claims,
+    so a task longer than the dead-worker timeout would otherwise be declared
+    dead and run twice.
+
+    ``CancelledError`` is either the monitor aborting the run (``cancel_job``
+    / ``clear_task``), reported as a non-failure so the loop moves on, or the
+    worker itself being cancelled (``local start`` shutdown), which propagates
+    so the loop exits instead of orphaning the task.
+    """
     exec_task = asyncio.create_task(execute_task(task))
     monitor = asyncio.create_task(_cancellation_monitor(task.id, exec_task, task.run_epoch))
+    done = asyncio.Event()
+    heartbeat = asyncio.create_task(
+        _heartbeat_while_waiting(execution_worker_id, done, HEARTBEAT_INTERVAL, execution_worker_heartbeat)
+    )
 
     try:
         data_result = await exec_task
         result_ref = serialize_task_result(data_result, task.job_id)
         return True, result_ref, None
     except asyncio.CancelledError:
+        if not await monitor:  # self-terminates once exec_task is done
+            raise
         logger.info("Task %s cancelled", task.id)
         return False, None, None
     except Exception as e:
         return False, None, str(e)
     finally:
-        await monitor  # self-terminates once exec_task is done
+        done.set()
+        await asyncio.gather(monitor, heartbeat, return_exceptions=True)
 
 
 async def execution_worker_main_loop(

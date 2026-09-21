@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock
 
+import pytest
+
 from ..models import Task
 from . import kubernetes_worker as kw
 from .execution_worker import JobDispatch
@@ -213,3 +215,41 @@ async def test_module_pod_wait_reads_result_row(monkeypatch):
 
     assert (exit_code, error) == (0, None)
     assert payload is row
+
+
+@pytest.mark.parametrize(
+    "rc, stderr, expected_phase",
+    [
+        pytest.param(
+            1, 'Error from server (NotFound): pods "aaiclick-task-7-1" not found', kw.POD_NOT_FOUND, id="gone"
+        ),
+        pytest.param(1, "Unable to connect to the server: dial tcp: i/o timeout", "", id="transient"),
+    ],
+)
+async def test_pod_status_maps_kubectl_failure(monkeypatch, rc, stderr, expected_phase):
+    monkeypatch.setattr(kw.cli, "run", AsyncMock(return_value=(rc, "", stderr)))
+
+    assert await kw._pod_status(_handle()) == (expected_phase, -1)
+
+
+async def test_wait_ends_when_pod_disappears(monkeypatch):
+    """A Pod that vanishes never reports a terminal phase; ``wait`` must end on
+    ``POD_NOT_FOUND`` instead of looping forever."""
+    monkeypatch.setattr(kw, "POLL_INTERVAL", 0)
+    monkeypatch.setattr(kw, "_pod_status", AsyncMock(side_effect=[("Running", -1), (kw.POD_NOT_FOUND, -1)]))
+    monkeypatch.setattr(kw, "read_task_run_result", AsyncMock(return_value=None))
+
+    exit_code, error, payload = await _vehicle("module").wait(_handle(), None)
+
+    assert (exit_code, error, payload) == (-1, "Pod aaiclick-task-7-1 disappeared", None)
+
+
+async def test_wait_retries_transient_kubectl_failure(monkeypatch):
+    """An empty phase (``kubectl`` could not answer) does not end the wait."""
+    monkeypatch.setattr(kw, "POLL_INTERVAL", 0)
+    monkeypatch.setattr(kw, "_pod_status", AsyncMock(side_effect=[("Running", -1), ("", -1), ("Succeeded", 0)]))
+    monkeypatch.setattr(kw, "read_task_run_result", AsyncMock(return_value=None))
+
+    exit_code, error, _ = await _vehicle("module").wait(_handle(), None)
+
+    assert (exit_code, error) == (0, None)

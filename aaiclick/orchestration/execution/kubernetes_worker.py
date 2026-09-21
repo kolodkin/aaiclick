@@ -153,10 +153,17 @@ async def _kubectl_delete(handle: _PodHandle) -> None:
     )
 
 
+# Phase reported by ``_pod_status`` when the API says the Pod no longer exists
+# (deleted on cancellation, or evicted); never a real Kubernetes phase.
+POD_NOT_FOUND = "NotFound"
+
+
 async def _pod_status(handle: _PodHandle) -> tuple[str, int]:
     """One ``kubectl get`` returning ``(phase, container exit code)``. The exit
-    code is ``-1`` until the container has terminated."""
-    _, out, _ = await cli.run(
+    code is ``-1`` until the container has terminated. A missing Pod reports
+    ``POD_NOT_FOUND``; any other ``kubectl`` failure reports an empty phase so
+    the caller retries."""
+    rc, out, err = await cli.run(
         _kubectl_bin(),
         "get",
         "pod",
@@ -167,6 +174,8 @@ async def _pod_status(handle: _PodHandle) -> tuple[str, int]:
         "jsonpath={.status.phase} {.status.containerStatuses[0].state.terminated.exitCode}",
         check=False,
     )
+    if rc != 0:
+        return (POD_NOT_FOUND if "NotFound" in err else ""), -1
     parts = out.split()
     phase = parts[0] if parts else ""
     try:
@@ -256,12 +265,21 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
         return _PodHandle(name, self._spec.namespace, task.id, task.job_id, task.run_epoch)
 
     async def wait(self, handle: _PodHandle, timeout: float | None) -> tuple[int, str | None, RunnerResult | None]:
+        """Poll the Pod until it reaches a terminal phase.
+
+        A Pod that vanishes — deleted by ``terminate`` on cancellation, or
+        evicted — never reports Succeeded/Failed, so ``POD_NOT_FOUND`` ends the
+        wait too; otherwise a cancelled task with no timeout would park the
+        worker here forever."""
         elapsed = 0.0
         error: str | None = None
         exit_code = -1
         while True:
             phase, exit_code = await _pod_status(handle)
             if phase in ("Succeeded", "Failed"):
+                break
+            if phase == POD_NOT_FOUND:
+                error, exit_code = f"Pod {handle.name} disappeared", -1
                 break
             if timeout is not None and elapsed >= timeout:
                 error, exit_code = f"Task timed out after {timeout}s", -1

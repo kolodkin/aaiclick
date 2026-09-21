@@ -332,7 +332,7 @@ Scheduled runs inherit the registered job's level-2 defaults automatically. Manu
 
 **Implementation**: `aaiclick/orchestration/background/background_worker.py` — see `BackgroundWorker._check_schedules()`
 
-`BackgroundWorker` polls enabled jobs where `next_run_at <= NOW()` (~10s). Optimistic locking on `next_run_at` prevents duplicates. Cron parsed by `croniter`; `next_run_at` recomputed on registration, enable, and after each run.
+`BackgroundWorker` polls enabled jobs where `next_run_at <= NOW()` (~10s). Optimistic locking on `next_run_at` prevents duplicates; once the lock commits, each run is created through `run_job(run_type="SCHEDULED")`, so registration config (preservation mode, runner, image source) applies as for a manual run. Cron parsed by `croniter`; `next_run_at` recomputed on registration, enable, and after each run.
 
 # CLI
 

@@ -35,8 +35,22 @@ ColumnType = Literal[
     "Nested",
 ]
 
+# Bit width of every integer type ClickHouse promotes between; Bool promotes
+# as an 8-bit unsigned integer.
+INT_BITS: dict[str, int] = {
+    "Bool": 8,
+    "UInt8": 8,
+    "Int8": 8,
+    "UInt16": 16,
+    "Int16": 16,
+    "UInt32": 32,
+    "Int32": 32,
+    "UInt64": 64,
+    "Int64": 64,
+}
+
 # Type category sets for runtime type checking
-INT_TYPES = frozenset({"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Bool"})
+INT_TYPES = frozenset(INT_BITS)
 FLOAT_TYPES = frozenset({"Float32", "Float64"})
 DATE_TYPES = frozenset({"DateTime64(3, 'UTC')"})
 NUMERIC_TYPES = INT_TYPES | FLOAT_TYPES
