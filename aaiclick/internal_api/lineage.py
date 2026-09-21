@@ -13,12 +13,11 @@ from aaiclick.ai.agents.lineage_tools import (
     QueryResult,
     TableSchema,
     describe_table,
-    normalize_sql_for_scan,
     run_select,
     validate_scope,
     validate_select_safety,
 )
-from aaiclick.oplog.lineage import LineageDirection, OplogGraph
+from aaiclick.oplog.lineage import DEFAULT_MAX_DEPTH, LineageDirection, OplogGraph
 from aaiclick.oplog.lineage import oplog_subgraph as _oplog_subgraph
 
 from .errors import Invalid, NotFound
@@ -27,13 +26,13 @@ from .errors import Invalid, NotFound
 async def oplog_subgraph(
     target_table: str,
     direction: LineageDirection = "backward",
-    max_depth: int = 10,
+    max_depth: int = DEFAULT_MAX_DEPTH,
 ) -> OplogGraph:
     """Return the lineage graph for ``target_table`` in the given direction."""
     return await _oplog_subgraph(target_table, direction=direction, max_depth=max_depth)
 
 
-async def _lineage_scope(target_table: str, direction: LineageDirection, max_depth: int) -> set[str]:
+async def _lineage_scope(target_table: str, *, direction: LineageDirection, max_depth: int) -> set[str]:
     """The tables of ``target_table``'s lineage graph — the scope every read
     below is held to.
 
@@ -41,7 +40,7 @@ async def _lineage_scope(target_table: str, direction: LineageDirection, max_dep
     to call these tools cannot widen the scope by naming more tables. A
     target no operation produced has no graph and nothing to debug.
     """
-    graph = await _oplog_subgraph(target_table, direction=direction, max_depth=max_depth)
+    graph = await oplog_subgraph(target_table, direction=direction, max_depth=max_depth)
     if not graph.nodes:
         raise NotFound(f"{target_table} has no lineage.")
     return graph.tables
@@ -53,7 +52,7 @@ async def query_table(
     row_limit: int = DEFAULT_ROW_LIMIT,
     *,
     direction: LineageDirection = "backward",
-    max_depth: int = 10,
+    max_depth: int = DEFAULT_MAX_DEPTH,
 ) -> QueryResult:
     """Run a sandboxed read-only ``SELECT`` against the lineage graph of ``target_table``.
 
@@ -62,13 +61,12 @@ async def query_table(
     clause, and any table reference outside the graph. Auto-injects
     ``LIMIT`` and pins ``max_execution_time``.
     """
-    scope_tables = await _lineage_scope(target_table, direction, max_depth)
-    scan = normalize_sql_for_scan(sql)
-    if err := validate_select_safety(sql, scan=scan):
+    if err := validate_select_safety(sql):
         raise Invalid(err.message)
+    scope_tables = await _lineage_scope(target_table, direction=direction, max_depth=max_depth)
     if err := await validate_scope(sql, scope_tables):
         raise Invalid(err.message)
-    return await run_select(sql, row_limit, scan=scan)
+    return await run_select(sql, row_limit)
 
 
 async def get_table_schema(
@@ -76,7 +74,7 @@ async def get_table_schema(
     target_table: str,
     *,
     direction: LineageDirection = "backward",
-    max_depth: int = 10,
+    max_depth: int = DEFAULT_MAX_DEPTH,
 ) -> TableSchema:
     """Return columns + types for ``table``, a table in ``target_table``'s lineage graph.
 
@@ -84,7 +82,7 @@ async def get_table_schema(
     the target has no lineage or ``DESCRIBE TABLE`` fails (e.g. the table
     was dropped after the graph was captured).
     """
-    if table not in await _lineage_scope(target_table, direction, max_depth):
+    if table not in await _lineage_scope(target_table, direction=direction, max_depth=max_depth):
         raise Invalid(f"{table} is not in the lineage of {target_table}.")
     try:
         return await describe_table(table)

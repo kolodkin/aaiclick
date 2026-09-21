@@ -27,7 +27,6 @@ from aaiclick.data.scope import (
     SCOPE_TEMP_NAMED,
     make_scoped_table_name,
 )
-from aaiclick.data.sql_utils import normalize_sql_for_scan
 from aaiclick.oplog.lineage import OplogEdge, OplogGraph
 from aaiclick.testing import make_oplog_node
 
@@ -191,7 +190,7 @@ async def test_query_table_reports_unparseable_sql(orch_ctx):
     assert err.kind == "invalid_argument"
 
 
-async def test_query_table_happy_path_wraps_limit(orch_ctx):
+async def test_query_table_happy_path_caps_rows(orch_ctx):
     toolbox = LineageToolbox(_sample_graph())
     mock_client = _ch_client_with_real_parser([(1, "a"), (2, "b")], ["id", "name"])
 
@@ -202,8 +201,8 @@ async def test_query_table_happy_path_wraps_limit(orch_ctx):
     assert result.columns == ["id", "name"]
     assert result.rows == [[1, "a"], [2, "b"]]
     assert not result.truncated
-    called_sql = mock_client.query.call_args.args[0]
-    assert "LIMIT 101" in called_sql  # default row_limit=100 → LIMIT 101
+    settings = mock_client.query.call_args.kwargs["settings"]
+    assert settings["limit"] == DEFAULT_ROW_LIMIT + 1  # one past, so truncation is detectable
 
 
 async def test_query_table_truncation_flag(orch_ctx):
@@ -231,8 +230,7 @@ async def test_query_table_coerces_string_row_limit(orch_ctx):
         result = await toolbox.query_table(f"SELECT id FROM {TARGET_TABLE}", row_limit="5")
 
     assert isinstance(result, QueryResult)
-    called_sql = mock_client.query.call_args.args[0]
-    assert "LIMIT 6" in called_sql  # row_limit=5 → LIMIT 6
+    assert mock_client.query.call_args.kwargs["settings"]["limit"] == 6
 
 
 async def test_query_table_rejects_non_numeric_row_limit():
@@ -242,17 +240,16 @@ async def test_query_table_rejects_non_numeric_row_limit():
     assert err.kind == "invalid_argument"
 
 
-async def test_query_table_respects_existing_limit(orch_ctx):
+async def test_query_table_sends_sql_unchanged(orch_ctx):
+    """The cap travels as a setting; the query text, comments and all, is sent as written."""
     toolbox = LineageToolbox(_sample_graph())
     mock_client = _ch_client_with_real_parser([(1,)], ["id"])
+    sql = f"SELECT id FROM {TARGET_TABLE} LIMIT 3 -- newest first"
 
     with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
-        await toolbox.query_table(f"SELECT id FROM {TARGET_TABLE} LIMIT 3")
+        await toolbox.query_table(sql)
 
-    called_sql = mock_client.query.call_args.args[0]
-    # Only the user-supplied LIMIT 3 should be present — no injected LIMIT
-    assert called_sql.count("LIMIT") == 1
-    assert "LIMIT 3" in called_sql
+    assert mock_client.query.call_args.args[0] == sql
 
 
 async def test_query_table_pins_execution_settings(orch_ctx):
@@ -266,6 +263,7 @@ async def test_query_table_pins_execution_settings(orch_ctx):
     settings = mock_client.query.call_args.kwargs["settings"]
     assert "max_execution_time" in settings
     assert "max_result_rows" in settings
+    assert "limit" in settings
 
 
 @pytest.mark.parametrize(
@@ -324,17 +322,7 @@ async def test_query_table_rejects_settings_clause(orch_ctx, sql):
     assert isinstance(err, ToolError)
     assert err.kind == "invalid_argument"
     assert "SETTINGS" in err.message
-
-
-async def test_run_select_injects_limit_after_a_trailing_comment(orch_ctx):
-    """A ``--`` comment at the end of the SQL must not swallow the injected LIMIT."""
-    mock_client = _ch_client_with_real_parser([(1,)], ["id"])
-
-    with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
-        await run_select(f"SELECT id FROM {TARGET_TABLE} -- newest first")
-
-    called_sql = mock_client.query.call_args.args[0]
-    assert "LIMIT 101" in normalize_sql_for_scan(called_sql)
+    assert "list_graph_nodes" not in err.message  # the scope hint is for scope errors only
 
 
 async def test_run_select_truncates_past_the_ceiling_instead_of_failing(orch_ctx):
@@ -342,7 +330,8 @@ async def test_run_select_truncates_past_the_ceiling_instead_of_failing(orch_ctx
 
     ``max_result_rows`` alone makes ClickHouse throw once the ceiling is
     crossed; with ``result_overflow_mode='break'`` it stops reading instead,
-    and the tool reports the truncation.
+    and the tool reports the truncation. The query's own LIMIT is above the
+    ceiling so the ``limit`` setting is what wins.
     """
     result = await run_select(f"SELECT number FROM numbers({ROW_LIMIT_CEILING * 2}) LIMIT {ROW_LIMIT_CEILING * 2}")
 

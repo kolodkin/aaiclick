@@ -151,8 +151,8 @@ async def query_table(
     """
     Execute a read-only SELECT against a table in the current job's
     lineage graph. `sql` must reference only nodes present in the
-    graph. Automatically wrapped in `LIMIT row_limit` if not already
-    limited. Rejects any statement other than SELECT.
+    graph. Capped at `row_limit` rows. Rejects any statement other than
+    SELECT.
     """
 
 async def get_op_sql(op_id: str) -> str:

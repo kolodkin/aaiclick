@@ -4,8 +4,7 @@ aaiclick.ai.agents.lineage_tools - Tier 1 agent tools scoped to a lineage graph.
 All tools operate on a single ``OplogGraph`` — the backward lineage of the
 target table being debugged. ``query_table`` is read-only and row-limited,
 and every table it reads must be one the graph contains — ClickHouse parses
-the SQL and the scope check reads table position, and the right-hand side of
-``IN``, off the parse tree.
+the SQL and the scope check reads table references off the parse tree.
 
 See ``docs/designs/lineage.md`` for the design.
 """
@@ -88,14 +87,8 @@ _AST_FUNCTION = "Function "
 _AST_SUBQUERY = "Subquery"
 # A SETTINGS clause, at any depth, parses to this node.
 _AST_SETTINGS = "Set"
-# ``expr IN table`` and its variants: the table is a bare ``Identifier``
-# operand, never a ``TableExpression``.
-_AST_IN_FUNCTIONS = {f"Function {name}" for name in ("in", "notIn", "globalIn", "globalNotIn")}
+_AST_IN_FUNCTIONS = {f"{_AST_FUNCTION}{name}" for name in ("in", "notIn", "globalIn", "globalNotIn")}
 _STATEMENT_START_RE = re.compile(r"^\s*(?:WITH\b|SELECT\b)", re.IGNORECASE)
-# Any LIMIT anywhere (including in a subquery) suppresses outer-LIMIT
-# injection. max_result_rows still caps the overall result, so the
-# worst case is an unbounded outer query truncated at the ceiling.
-_LIMIT_RE = re.compile(r"\bLIMIT\b\s+\d+", re.IGNORECASE)
 _SEMICOLON_RE = re.compile(r";\s*\S")
 
 
@@ -203,9 +196,11 @@ def _table_expressions(rows: list[_AstRow]) -> list[str]:
 def _in_identifiers(rows: list[_AstRow]) -> list[str]:
     """Bare identifiers on the right-hand side of ``IN`` / ``NOT IN`` / ``GLOBAL IN``.
 
-    ClickHouse reads such an identifier as a table when one exists by that
-    name and as an array column otherwise; the parse tree cannot tell the two
-    apart, so the caller treats each as a table reference.
+    ``expr IN name`` reads a table without a table position: the name is an
+    ``Identifier`` operand, never a ``TableExpression``. ClickHouse reads it
+    as a table when one exists by that name and as an array column otherwise;
+    the parse tree cannot tell the two apart, so the caller treats each as a
+    table reference.
     """
     names = []
     for index, row in enumerate(rows):
@@ -214,7 +209,7 @@ def _in_identifiers(rows: list[_AstRow]) -> list[str]:
         for operands in _direct_children(rows, index):
             args = _direct_children(rows, operands)
             if len(args) == 2 and rows[args[1]].text.startswith(_AST_IDENTIFIER):
-                names.append(_node_name(rows[args[1]].text)[len(_AST_IDENTIFIER) :])
+                names.append(_node_name(rows[args[1]].text).removeprefix(_AST_IDENTIFIER))
     return names
 
 
@@ -230,10 +225,8 @@ async def validate_scope(sql: str, scope_tables: set[str]) -> ToolError | None:
     Parsing with the engine that will run the query is deliberate — a
     second-guessing parser that disagreed with ClickHouse would be a bypass.
 
-    ``expr IN table`` reads a table without a table position: its right-hand
-    side is a bare identifier, which is held to the same check. ClickHouse
-    also accepts an array column there, but the tree does not say which it
-    is, so the model is told to use ``has()`` for arrays instead.
+    The right-hand side of ``IN`` is held to the same check — see
+    ``_in_identifiers`` for why an array column is rejected there too.
 
     A CTE name is a table identifier no graph contains, so ``WITH`` queries are
     rejected. The tool description tells the model to write the CTE as a
@@ -256,41 +249,45 @@ async def validate_scope(sql: str, scope_tables: set[str]) -> ToolError | None:
     functions: set[str] = set()
     for child in _table_expressions(rows):
         if child.startswith(_AST_TABLE_IDENTIFIER):
-            name = _node_name(child)[len(_AST_TABLE_IDENTIFIER) :]
+            name = _node_name(child).removeprefix(_AST_TABLE_IDENTIFIER)
             if name not in scope_tables:
                 unknown.add(name)
         elif child.startswith(_AST_FUNCTION):
-            functions.add(_node_name(child)[len(_AST_FUNCTION) :])
+            functions.add(_node_name(child).removeprefix(_AST_FUNCTION))
         elif not child.startswith(_AST_SUBQUERY):
             # Fail closed: an unrecognized table expression is not provably in scope.
             unknown.add(_node_name(child))
-    in_unknown = {name for name in _in_identifiers(rows) if name not in scope_tables}
-
     if functions:
         listed = ", ".join(sorted(functions))
         return ToolError("out_of_scope", f"Table functions are not permitted: {listed}.")
-    if unknown or in_unknown:
-        listed = ", ".join(sorted(unknown | in_unknown)[:3])
+
+    in_unknown = {name for name in _in_identifiers(rows) if name not in scope_tables}
+    unknown |= in_unknown
+    if unknown:
+        listed = ", ".join(sorted(unknown)[:3])
         hint = " IN <identifier> reads a table; for an array column use has(column, value)." if in_unknown else ""
         return ToolError("out_of_scope", f"Tables not in scope: {listed}.{hint}")
     return None
 
 
-async def run_select(sql: str, row_limit: int = DEFAULT_ROW_LIMIT, *, scan: str | None = None) -> QueryResult:
-    """Execute a (pre-validated) ``SELECT`` with row + execution-time caps."""
-    if scan is None:
-        scan = normalize_sql_for_scan(sql)
+async def run_select(sql: str, row_limit: int = DEFAULT_ROW_LIMIT) -> QueryResult:
+    """Execute a (pre-validated) ``SELECT`` with row + execution-time caps.
+
+    The row cap is the ``limit`` setting rather than text appended to the
+    SQL: it caps the outermost query, yields to a smaller ``LIMIT`` of the
+    query's own, and nothing appended can land inside a trailing comment.
+    """
     row_limit = max(1, min(row_limit, ROW_LIMIT_CEILING))
-    # On its own line so a trailing ``--`` comment cannot swallow it.
-    effective_sql = sql if _LIMIT_RE.search(scan) else f"{sql.rstrip().rstrip(';').rstrip()}\nLIMIT {row_limit + 1}"
 
     ch_client = get_ch_client()
     result = await ch_client.query(
-        effective_sql,
+        sql,
         settings={
             "max_execution_time": DEFAULT_MAX_EXECUTION_TIME,
-            # ``break`` stops reading at the ceiling instead of failing the
-            # query; the truncation is reported below.
+            # One past the limit so truncation is detectable below.
+            "limit": row_limit + 1,
+            # ``limit`` applies per branch of a UNION; the ceiling still bounds
+            # the whole result, and ``break`` truncates instead of failing.
             "max_result_rows": ROW_LIMIT_CEILING + 1,
             "result_overflow_mode": "break",
             # Enforce read-only in the engine, so validate_select_safety's
@@ -364,12 +361,13 @@ class LineageToolbox:
                 row_limit = int(row_limit)
             except (TypeError, ValueError):
                 return ToolError("invalid_argument", f"row_limit must be an integer, got {row_limit!r}.")
-        scan = normalize_sql_for_scan(sql)
-        if err := validate_select_safety(sql, scan=scan):
+        if err := validate_select_safety(sql):
             return err
         if err := await validate_scope(sql, self._tables):
-            return err._replace(message=err.message + " Use list_graph_nodes() to see what's in scope.")
-        return await run_select(sql, row_limit, scan=scan)
+            if err.kind == "out_of_scope":
+                err = err._replace(message=err.message + " Use list_graph_nodes() to see what's in scope.")
+            return err
+        return await run_select(sql, row_limit)
 
     async def get_op_sql(self, table: str) -> str | ToolError:
         """Rendered SQL template for the operation that produced ``table``."""
@@ -524,8 +522,8 @@ LINEAGE_TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "Execute a read-only SELECT against tables in the current lineage "
                 "graph. Rejects non-SELECT, out-of-scope tables, table functions, and "
                 "SETTINGS clauses; write a CTE as a subquery in FROM instead, and use "
-                "has(column, value) rather than IN for an array column. Automatically "
-                "LIMITs results when no LIMIT is given."
+                "has(column, value) rather than IN for an array column. Results are "
+                "capped at row_limit."
             ),
             "parameters": {
                 "type": "object",
