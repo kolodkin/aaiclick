@@ -5,34 +5,6 @@ Planned work across aaiclick, ordered by priority.
 
 ---
 
-# Cancellation Cleanup — CANCELLING State
-
-Cancelling a task releases none of its lifecycle refs. Pin refs that upstream
-producers hold for it as a consumer are never unpinned (the task never
-deserializes its inputs), and a container or pod killed by `terminate` may
-never run `task_scope`'s decref block, so its run refs linger too. Both keep
-the job's tables alive until the job-TTL sweep. Failures already have a
-contract for this — PENDING_CLEANUP, where the background worker drops the
-attempt's run refs and pin refs before the task turns terminal — and
-cancellation should get the same shape. No backwards compatibility is
-required; renaming PENDING_CLEANUP to PENDING_FAILURE_CLEANUP alongside is
-allowed.
-
-1. `cancel_job` moves every non-terminal task to CANCELLING (the job goes to
-   CANCELLED at once, as today).
-2. The worker's abort check treats CANCELLING like CANCELLED and kills the
-   run. When the killed run reports back, the worker stamps the last
-   `run_statuses` entry CANCELLED; `update_task_status` and
-   `_set_pending_cleanup` refuse to overwrite CANCELLING.
-3. The background worker's cleanup pass picks up CANCELLING tasks whose last
-   run has ended, or that never ran, deletes their run refs and pin refs, and
-   moves them to CANCELLED — the PENDING_CLEANUP pass minus the retry branch.
-
-The run-status stamp in step 2 is the signal that a container or pod kill has
-landed, so no table is dropped under a process still being stopped.
-
----
-
 # Pin Fan-Out Ignores Group Edges
 
 The PIN handler (`aaiclick/orchestration/orch_context.py` — see
@@ -64,20 +36,77 @@ siblings with no edge from it at all.
    next-tasks of M plus the next-tasks of M's group, with group targets
    expanded to their members — one hop of `_downstream_task_ids()`, shared
    rather than re-implemented.
-2. Cover expander-created children, which the fan-out cannot reach even once
-   group-aware: their rows and group membership are committed by
-   `register_returned_tasks()` after the expander pins, and `map()`'s `out`
-   is not the expander's return value. Either pin after the children are
-   committed and let the expander name what it pins for them, or return
-   `out` as `TaskResult.data` and treat the expander's own group members as
-   consumers. Decide once, for `map()` and `reduce()` together.
-3. `_collect_upstreams()` in `decorators.py` ignores `Group`, so a group
+2. `_collect_upstreams()` in `decorators.py` ignores `Group`, so a group
    passed as a kwarg creates no dependency edge at all; the consumer can run
    before the group finishes, independent of pinning. Fix alongside, since
    the group-aware fan-out assumes the edge exists.
 
-Covers the `map()` High and the `_expand_reduce` Medium in the code review
-backlog.
+Covers the `_expand_reduce` Medium in the code review backlog. The `map()`
+High needs the follow-up below as well.
+
+---
+
+# Expander Children Have No Pin Path
+
+Follow-up to "Pin Fan-Out Ignores Group Edges": a group-aware fan-out still
+cannot reach the children an expander creates at runtime.
+
+`_expand_map()` (`aaiclick/orchestration/operators.py`) creates `out`, builds
+one `_map_part` child per partition, and returns them as `tasks_list`. Two
+things keep the children out of any fan-out:
+
+- Their rows and group membership are committed by
+  `register_returned_tasks()` after the expander has already pinned, so at
+  pin time no `dependencies` or `tasks` row names them.
+- `out` is not the expander's return value, so `execute_task` never pins it
+  at all; the source table's only protection is the expander's own run ref,
+  which its `task_scope` exit deletes.
+
+Between the expander exiting and the first child claiming, both tables meet
+the drop sweep's "no pins, no run refs" condition. `_expand_reduce()` has the
+same shape per layer once group edges are covered.
+
+## Design
+
+Decide once, for `map()` and `reduce()` together:
+
+- Pin after the children are committed — move the pin in `execute_task` to
+  after `register_returned_tasks()`, and let the expander name the tables it
+  pins for them (source and `out`), since the children are its consumers in
+  fact but not by any edge.
+- Or return `out` as `TaskResult.data` and treat the expander's own group
+  members as consumers in the fan-out.
+
+Each child releases its pin as it deserializes the table, as consumers do
+today. Covers the `map()` High in the code review backlog.
+
+---
+
+# Cancellation Cleanup — CANCELLING State
+
+Cancelling a task releases none of its lifecycle refs. Pin refs that upstream
+producers hold for it as a consumer are never unpinned (the task never
+deserializes its inputs), and a container or pod killed by `terminate` may
+never run `task_scope`'s decref block, so its run refs linger too. Both keep
+the job's tables alive until the job-TTL sweep. Failures already have a
+contract for this — PENDING_CLEANUP, where the background worker drops the
+attempt's run refs and pin refs before the task turns terminal — and
+cancellation should get the same shape. No backwards compatibility is
+required; renaming PENDING_CLEANUP to PENDING_FAILURE_CLEANUP alongside is
+allowed.
+
+1. `cancel_job` moves every non-terminal task to CANCELLING (the job goes to
+   CANCELLED at once, as today).
+2. The worker's abort check treats CANCELLING like CANCELLED and kills the
+   run. When the killed run reports back, the worker stamps the last
+   `run_statuses` entry CANCELLED; `update_task_status` and
+   `_set_pending_cleanup` refuse to overwrite CANCELLING.
+3. The background worker's cleanup pass picks up CANCELLING tasks whose last
+   run has ended, or that never ran, deletes their run refs and pin refs, and
+   moves them to CANCELLED — the PENDING_CLEANUP pass minus the retry branch.
+
+The run-status stamp in step 2 is the signal that a container or pod kill has
+landed, so no table is dropped under a process still being stopped.
 
 ---
 
