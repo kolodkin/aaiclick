@@ -44,3 +44,5 @@ area in depth.
 - [Orchestration](../user_guide/orchestration.md) — `@task`/`@job`, workers, and scheduling
 - [Examples: Orchestration Basics](../examples/orchestration_basic.md) — the complete runnable script
 - [Examples: Orchestration Dynamic](../examples/orchestration_dynamic.md) — dynamic task generation
+- [Examples: Orchestration Groups](../examples/orchestration_groups.md) — groups as dependencies and fan-in
+- [Examples: Orchestration Operators](../examples/orchestration_operators.md) — `map()` and `reduce()`

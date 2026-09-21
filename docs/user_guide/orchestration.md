@@ -85,7 +85,7 @@ total = sum_results(results=group)  # receives [42, 42, 42]
 return [group, total]
 ```
 
-See [Examples: Orchestration Dynamic](../examples/orchestration_dynamic.md).
+See [Examples: Orchestration Groups](../examples/orchestration_groups.md).
 
 ## Testing jobs
 
@@ -403,7 +403,8 @@ python -m aaiclick run-job <name> --entry-type shell --command 'python main.py' 
   input schema.
 
 Both accept a `Task` or an `Object` as input and return a `Group` that
-downstream tasks can depend on.
+downstream tasks can depend on. See
+[Examples: Orchestration Operators](../examples/orchestration_operators.md).
 
 # Managing Jobs
 
