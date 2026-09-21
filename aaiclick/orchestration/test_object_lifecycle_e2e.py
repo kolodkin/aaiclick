@@ -18,6 +18,7 @@ from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHan
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution.debug import run_job_tasks
 from aaiclick.orchestration.models import JOB_COMPLETED, Group, Job
+from aaiclick.orchestration.operators import map
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.sql_context import _sql_engine_var
 from aaiclick.snowflake import get_snowflake_id
@@ -56,6 +57,11 @@ async def read_sum(data: Object) -> dict:
 @task
 async def touch_nothing() -> dict:
     return {"touched": True}
+
+
+@task
+async def row_noop(row) -> None:
+    pass
 
 
 @task
@@ -135,6 +141,13 @@ def ordering_edge_pipeline():
     done = touch_nothing()
     data >> done
     return done
+
+
+@job("lifecycle_map")
+def map_pipeline():
+    """produce >> map: the expander's children read the source and write the output."""
+    data = produce()
+    return [data, map(cbk=row_noop, obj=data)]
 
 
 @job("lifecycle_group_consumer")
@@ -345,3 +358,9 @@ async def test_ordering_edge_releases_pin(orch_ctx):
     """A pin held for a consumer that never deserializes the table is released when it starts."""
     events = await _run_and_verify(ordering_edge_pipeline)
     assert len(_pin_inserts(events)) == 1
+
+
+async def test_map_children_pinned(orch_ctx):
+    """One pin for produce → expander, plus source and output pins for the single child."""
+    events = await _run_and_verify(map_pipeline)
+    assert len(_pin_inserts(events)) == 3

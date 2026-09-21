@@ -35,7 +35,6 @@ from typing import Any
 from aaiclick.data.data_context import (
     create_object,
     get_ch_client,
-    get_data_lifecycle,
 )
 from aaiclick.data.object import Object, View
 from aaiclick.data.object.refs import ViewRef
@@ -282,16 +281,10 @@ async def _expand_reduce(
         await ch.command(f"INSERT INTO {result_obj.table} SELECT * FROM {obj.table}")
         return data_list(result_obj)
 
-    # Pre-allocate all layer Objects
+    # Pre-allocate all layer Objects. Registration pins each layer for the
+    # part tasks that reference it; the last layer is also pinned for the
+    # group's consumers via TaskResult.data.
     layer_objs = [await create_object(obj.schema) for _ in range(num_layers)]
-
-    # Pin intermediate layers so they outlive _expand_reduce's data_context.
-    # The last layer is pinned by execute_task via TaskResult.data.
-    lifecycle = get_data_lifecycle()
-    if lifecycle is not None:
-        for lo in layer_objs[:-1]:
-            if not lo.persistent:
-                lifecycle.pin(lo.table)
 
     all_groups = []
     src_size = count

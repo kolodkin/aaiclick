@@ -15,39 +15,15 @@ internal ordering; if not, render all members like the runtime does.
 
 ---
 
-# Expander Children Have No Pin Path
+# `map()` Has No Output Path
 
-The PIN fan-out resolves consumers through group edges, but still cannot
-reach the children an expander creates at runtime.
-
-`_expand_map()` (`aaiclick/orchestration/operators.py`) creates `out`, builds
-one `_map_part` child per partition, and returns them as `tasks_list`. Two
-things keep the children out of any fan-out:
-
-- Their rows and group membership are committed by
-  `register_returned_tasks()` after the expander has already pinned, so at
-  pin time no `dependencies` or `tasks` row names them.
-- `out` is not the expander's return value, so `execute_task` never pins it
-  at all; the source table's only protection is the expander's own run ref,
-  which its `task_scope` exit deletes.
-
-Between the expander exiting and the first child claiming, both tables meet
-the drop sweep's "no pins, no run refs" condition. `_expand_reduce()` has the
-same shape per layer.
-
-## Design
-
-Decide once, for `map()` and `reduce()` together:
-
-- Pin after the children are committed — move the pin in `execute_task` to
-  after `register_returned_tasks()`, and let the expander name the tables it
-  pins for them (source and `out`), since the children are its consumers in
-  fact but not by any edge.
-- Or return `out` as `TaskResult.data` and treat the expander's own group
-  members as consumers in the fan-out.
-
-Each child releases its pin as it deserializes the table, as consumers do
-today. Covers the `map()` High in the code review backlog.
+`_expand_map()` (`aaiclick/orchestration/operators.py`) creates `out` and the
+`_map_part` children write into it, but nothing returns `out`: it is not the
+expander's result and the map group has no `_result_task`. Once the children
+finish, `out` has no refs and the sweep drops it. Decide how a consumer reaches
+it — return `out` as the expander's `TaskResult.data` (then a
+`group_results_ref` read of the map group yields it alongside the children's
+`None` results), or set `group._result_task` like `reduce()` does.
 
 ---
 

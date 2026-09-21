@@ -461,6 +461,11 @@ Task C starts, deserializes its inputs
 
 All consumers started → 0 pin_refs, run_refs protect during execution
 All consumers finished → 0 pin_refs, 0 run_refs → eligible for cleanup
+
+Dynamic children (map / reduce parts) exist only after their parent has
+pinned, so `register_returned_tasks` pins each child on every ephemeral
+table its kwargs reference (see _pin_child_inputs). The child releases
+them like any consumer.
 ```
 
 ## OrchLifecycleHandler
