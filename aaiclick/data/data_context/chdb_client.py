@@ -18,7 +18,7 @@ from pathlib import Path
 import pyarrow as pa
 from chdb.session import Session
 
-from aaiclick.data.sql_utils import escape_sql_string, quote_identifier
+from aaiclick.data.sql_utils import quote_identifier, quote_sql_literal
 
 from .arrow_types import ch_type_to_pa
 
@@ -39,8 +39,7 @@ def _with_settings(query: str, settings: dict | None) -> str:
         elif isinstance(val, (int, float)):
             parts.append(f"{key}={val}")
         else:
-            escaped = escape_sql_string(str(val))
-            parts.append(f"{key}='{escaped}'")
+            parts.append(f"{key}={quote_sql_literal(str(val))}")
     return f"{query} SETTINGS {', '.join(parts)}"
 
 
@@ -58,7 +57,7 @@ def _serialize_param(value: object) -> object:
             return "[]"
         first = value[0]
         if isinstance(first, str):
-            parts = [f"'{escape_sql_string(v)}'" for v in value]
+            parts = [quote_sql_literal(v) for v in value]
             return "[" + ",".join(parts) + "]"
     return value
 

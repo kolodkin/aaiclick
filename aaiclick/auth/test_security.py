@@ -14,7 +14,7 @@ def test_password_round_trip():
 
 
 def test_password_longer_than_bcrypt_limit_round_trips():
-    """bcrypt only ever keyed on the first 72 bytes; since 5.0 it raises instead of truncating."""
+    """Passwords over bcrypt's 72-byte cap still round-trip."""
     long_password = "p" * 100
     h = security.hash_password(long_password)
     assert security.verify_password(long_password, h) is True

@@ -19,6 +19,7 @@ from aaiclick.backend import is_chdb
 
 from ..formats import open_export_writer
 from ..models import QueryStats
+from ..sql_utils import quote_sql_literal
 
 
 class QueryResult(Protocol):
@@ -67,7 +68,13 @@ class ChClient(Protocol):
         settings: dict | None = None,
         fmt: str | None = None,
     ) -> bytes:
-        """ClickHouse's own output for ``query`` in format ``fmt``, as bytes."""
+        """ClickHouse's own output for ``query`` in format ``fmt``, as bytes.
+
+        ``fmt=None`` sends ``query`` unchanged — no ``FORMAT`` clause is
+        appended, so the server's default applies. ``EXPLAIN`` callers rely
+        on this: a ``FORMAT`` after an ``EXPLAIN`` binds to the explained
+        query.
+        """
         ...
 
     async def insert_arrow(self, table: str, arrow_table: pa.Table) -> None:
@@ -153,8 +160,7 @@ async def export_query_to_file(query: str, path: str, fmt: str) -> str:
     abs_path = str(Path(path).resolve())
     client = get_ch_client()
     if is_chdb():
-        safe_path = abs_path.replace("'", "\\'")
-        await client.command(f"INSERT INTO FUNCTION file('{safe_path}', '{fmt}') {query}")
+        await client.command(f"INSERT INTO FUNCTION file({quote_sql_literal(abs_path)}, '{fmt}') {query}")
         return abs_path
 
     async with await client.raw_stream(query=query, fmt=fmt) as stream:  # type: ignore[attr-defined]
@@ -178,14 +184,14 @@ JSON_COMPACT_SETTINGS = {
 }
 
 
-async def query_bytes(sql: str, fmt: str, settings: dict | None = None) -> bytes:
+async def query_bytes(sql: str, fmt: str | None = None, settings: dict | None = None) -> bytes:
     """ClickHouse's own output for ``sql`` in format ``fmt``, exactly as it sent
     it — so ``JSONCompact`` / ``CSVWithNames`` can reach a response body without
     a decode/encode round trip."""
     return await get_ch_client().raw_query(sql, settings=settings, fmt=fmt)
 
 
-async def query_text(sql: str, fmt: str, settings: dict | None = None) -> str:
+async def query_text(sql: str, fmt: str | None = None, settings: dict | None = None) -> str:
     """``query_bytes`` decoded, for callers that work with the text itself."""
     return (await query_bytes(sql, fmt, settings)).decode("utf-8")
 

@@ -98,12 +98,6 @@ is fixed.
 - **A model-written `SETTINGS` clause overrides the caps on clickhouse-connect**
   — same file, `run_select()`. `readonly=2` permits settings changes and
   query-level SETTINGS win over HTTP-param settings.
-- **URL and export path escaping breaks on backslashes** —
-  `aaiclick/data/object/url.py` (`_describe_url`, JSON path),
-  `aaiclick/data/object/object.py` `insert_from_url()`, and
-  `aaiclick/data/data_context/ch_client.py` `export_query_to_file()`. All
-  inline user strings with quote-only escaping; `quote_sql_literal` in
-  `sql_utils.py` exists for this.
 - **Refresh-token rotation is check-then-act** — `aaiclick/auth/store.py`,
   `_stamp_refresh()`. Two concurrent refreshes with the same token both
   succeed. The UPDATE has no `rotated_at IS NULL` predicate or rowcount check.
@@ -273,5 +267,5 @@ is fixed.
 2. Worker crash, missing heartbeat, cancelled-task resurrection, scheduled-job
    config.
 3. Deploy templates, then `SqlConfig.java`.
-4. Remaining Mediums grouped by shared root cause: `escape_sql_string`
-   misuse, missing status guards, missing `try/except` in worker loops.
+4. Remaining Mediums grouped by shared root cause: missing status guards,
+   missing `try/except` in worker loops.

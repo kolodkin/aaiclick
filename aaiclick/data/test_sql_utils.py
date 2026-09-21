@@ -4,7 +4,21 @@ from __future__ import annotations
 
 import pytest
 
-from aaiclick.data.sql_utils import validate_where_expression
+from aaiclick.data.sql_utils import quote_sql_literal, validate_where_expression
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        pytest.param("plain", "'plain'", id="plain"),
+        pytest.param("it's", "'it\\'s'", id="quote"),
+        # A trailing backslash must not swallow the closing quote.
+        pytest.param("x\\", "'x\\\\'", id="trailing-backslash"),
+        pytest.param("a\\'b", "'a\\\\\\'b'", id="backslash-then-quote"),
+    ],
+)
+def test_quote_sql_literal(value, expected):
+    assert quote_sql_literal(value) == expected
 
 
 @pytest.mark.parametrize(

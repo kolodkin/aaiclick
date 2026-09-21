@@ -24,6 +24,7 @@ import pyarrow.orc as orc
 import pyarrow.parquet as pq
 
 from aaiclick.data.data_context.chdb_client import get_shared_session
+from aaiclick.data.sql_utils import quote_sql_literal
 
 NUM_ROWS = 200
 OUT_DIR = Path(__file__).parent
@@ -150,8 +151,7 @@ def generate_avro() -> None:
     avro_path.unlink(missing_ok=True)
     session = get_shared_session()
     table = _arrow_table()  # noqa: F841 — referenced by chdb's Python() table function
-    safe_path = str(avro_path).replace("'", "\\'")
-    session.query(f"INSERT INTO FUNCTION file('{safe_path}', 'Avro') SELECT * FROM Python(table)")
+    session.query(f"INSERT INTO FUNCTION file({quote_sql_literal(str(avro_path))}, 'Avro') SELECT * FROM Python(table)")
 
 
 if __name__ == "__main__":

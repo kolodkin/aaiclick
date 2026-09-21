@@ -20,12 +20,12 @@ from typing import Any, Literal, NamedTuple
 from pydantic import BaseModel, Field
 
 from aaiclick.data.data_context import get_ch_client
-from aaiclick.data.data_context.ch_client import DEFAULT_MAX_EXECUTION_TIME
+from aaiclick.data.data_context.ch_client import DEFAULT_MAX_EXECUTION_TIME, query_text
 from aaiclick.data.sql_utils import (
     FORBIDDEN_KEYWORDS_RE,
-    escape_sql_string,
     normalize_sql_for_scan,
     quote_identifier,
+    quote_sql_literal,
 )
 from aaiclick.data.view_models import ColumnSchema
 from aaiclick.oplog.lineage import OplogGraph
@@ -142,13 +142,12 @@ def validate_select_safety(sql: str, *, scan: str | None = None) -> ToolError | 
 async def _explain_ast(sql: str) -> list[str]:
     """Lines of ``sql``'s ``EXPLAIN AST`` dump — a parse, never an evaluation.
 
-    Sent through ``raw_query`` with no format so the driver appends none: a
-    ``FORMAT`` after an ``EXPLAIN`` binds to the explained query and shows up
-    in its AST. A ``SELECT * FROM (EXPLAIN AST …)`` wrapper would keep it
-    outside, but lets ``sql`` close the parenthesis and run its own statement.
+    Fetched with no format so the driver appends none: a ``FORMAT`` after an
+    ``EXPLAIN`` binds to the explained query and shows up in its AST. A
+    ``SELECT * FROM (EXPLAIN AST …)`` wrapper would keep it outside, but lets
+    ``sql`` close the parenthesis and run its own statement.
     """
-    dump = await get_ch_client().raw_query(f"EXPLAIN AST {sql}")
-    return dump.decode().splitlines()
+    return (await query_text(f"EXPLAIN AST {sql}")).splitlines()
 
 
 def _table_expressions(ast_lines: Iterable[str]) -> list[str]:
@@ -266,7 +265,7 @@ async def _liveness(tables: set[str]) -> dict[str, bool]:
     if not tables:
         return {}
     ch_client = get_ch_client()
-    quoted = ", ".join(f"'{escape_sql_string(t)}'" for t in tables)
+    quoted = ", ".join(quote_sql_literal(t) for t in tables)
     result = await ch_client.query(
         f"SELECT name FROM system.tables WHERE database = currentDatabase() AND name IN ({quoted})"
     )
