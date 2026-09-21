@@ -9,6 +9,7 @@ for single-process local operation.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from contextvars import ContextVar
 
 from .ch_client import ChClient
@@ -68,8 +69,11 @@ class LifecycleHandler(ABC):
         iterations or before measuring the next operation.
         """
 
-    def pin(self, table_name: str) -> None:
-        """Mark table as result that survives stop(). Default: no-op."""
+    def pin(self, table_name: str, consumer_task_ids: Iterable[int] | None = None) -> None:
+        """Mark table as result that survives stop(). Default: no-op.
+
+        ``consumer_task_ids`` names the tasks the pin is held for; ``None``
+        means every downstream consumer of the current task."""
 
     def unpin(self, table_name: str) -> None:
         """Remove this task's pin for a table. Default: no-op."""

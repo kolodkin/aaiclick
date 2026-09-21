@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import weakref
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -118,23 +118,27 @@ class OrchLifecycleHandler(LifecycleHandler):
     def decref(self, table_name: str) -> None:
         self._enqueue(DBLifecycleMessage(DBLifecycleOp.DECREF, table_name))
 
-    def pin(self, table_name: str) -> None:
-        """Pin a table for all downstream consumer tasks.
+    def pin(self, table_name: str, consumer_task_ids: Iterable[int] | None = None) -> None:
+        """Pin a table for downstream consumer tasks.
 
-        The PIN handler fans out: queries the dependencies table to find
-        all tasks that depend on the current task, then inserts one
-        pin_ref(table_name, consumer_task_id) per consumer.
+        With ``consumer_task_ids`` the PIN handler inserts one
+        pin_ref(table_name, consumer_task_id) per given id. Expanders use
+        this for the children they create at runtime: those children have no
+        ``dependencies`` row from the expander, and the rows for their own
+        edges are committed only after the expander returns, so a fan-out
+        would find nothing to pin.
 
-        Only at runtime (when the producer returns an Object) do we know
-        both the table_name and the upstream task_id. The downstream
-        consumer task_ids are discovered via the dependencies table —
-        this is the only point where table→task mapping exists.
+        Without it the handler fans out: queries the dependencies table to
+        find all tasks that depend on the current task, then inserts one
+        pin_ref per consumer. Only at runtime (when the producer returns an
+        Object) do we know both the table_name and the upstream task_id.
         """
         self._enqueue(
             DBLifecycleMessage(
                 DBLifecycleOp.PIN,
                 table_name,
                 pin_task_id=self._task_id,
+                pin_consumer_ids=None if consumer_task_ids is None else tuple(consumer_task_ids),
             )
         )
 
@@ -310,16 +314,20 @@ class OrchLifecycleHandler(LifecycleHandler):
                             {"table_name": msg.table_name, "run_id": run_id},
                         )
                     elif msg.op == DBLifecycleOp.PIN:
-                        # Fan out: one pin_ref per downstream consumer task.
-                        result = await session.execute(
-                            text(
-                                "SELECT next_id FROM dependencies "
-                                "WHERE previous_id = :task_id "
-                                "AND previous_type = 'task' AND next_type = 'task'"
-                            ),
-                            {"task_id": msg.pin_task_id},
-                        )
-                        consumer_ids = [row[0] for row in result.fetchall()]
+                        # One pin_ref per consumer task: the ids named on the
+                        # message, else a fan-out over the dependencies table.
+                        if msg.pin_consumer_ids is not None:
+                            consumer_ids = list(msg.pin_consumer_ids)
+                        else:
+                            result = await session.execute(
+                                text(
+                                    "SELECT next_id FROM dependencies "
+                                    "WHERE previous_id = :task_id "
+                                    "AND previous_type = 'task' AND next_type = 'task'"
+                                ),
+                                {"task_id": msg.pin_task_id},
+                            )
+                            consumer_ids = [row[0] for row in result.fetchall()]
                         for cid in consumer_ids:
                             await session.execute(
                                 text(

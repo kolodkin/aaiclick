@@ -28,7 +28,7 @@ Usage:
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from math import ceil, log
 from typing import Any
 
@@ -135,7 +135,26 @@ async def _expand_map(
         child.group_id = group_id
         tasks.append(child)
 
+    _pin_for_tasks([obj, out], tasks)
     return tasks_list(*tasks)
+
+
+def _pin_for_tasks(objects: Iterable[Object | View], tasks: Iterable[Task]) -> None:
+    """Pin each non-persistent table in ``objects`` for every task in ``tasks``.
+
+    Expander children are created at runtime, so the tables they read and
+    write have no pin from any producer and no run ref once the expander
+    exits — without this they are eligible for the drop sweep before the
+    first child runs. Each child releases its pins as it deserializes the
+    table (``runner._deserialize_value`` unpins after INCREF).
+    """
+    lifecycle = get_data_lifecycle()
+    if lifecycle is None:
+        return
+    task_ids = [t.id for t in tasks]
+    for obj in objects:
+        if not obj.persistent:
+            lifecycle.pin(obj.table, task_ids)
 
 
 @task
@@ -253,6 +272,7 @@ def _build_layer_group(
         )
         part_task.group_id = group.id
         group.add_task(part_task)
+    _pin_for_tasks([src, layer_obj], group._tasks)
     return group
 
 
@@ -284,16 +304,10 @@ async def _expand_reduce(
         await ch.command(f"INSERT INTO {result_obj.table} SELECT * FROM {obj.table}")
         return data_list(result_obj)
 
-    # Pre-allocate all layer Objects
+    # Pre-allocate all layer Objects. Each layer's tables are pinned for that
+    # layer's part tasks in _build_layer_group; the last layer is also pinned
+    # for the expander's own consumers by execute_task via TaskResult.data.
     layer_objs = [await create_object(obj.schema) for _ in range(num_layers)]
-
-    # Pin intermediate layers so they outlive _expand_reduce's data_context.
-    # The last layer is pinned by execute_task via TaskResult.data.
-    lifecycle = get_data_lifecycle()
-    if lifecycle is not None:
-        for lo in layer_objs[:-1]:
-            if not lo.persistent:
-                lifecycle.pin(lo.table)
 
     all_groups = []
     src_size = count

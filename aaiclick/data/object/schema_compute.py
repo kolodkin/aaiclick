@@ -28,21 +28,47 @@ _FLOAT_RESULT_OPS = frozenset({"/", "**"})
 # Comparison operators always yield UInt8 rather than a promoted numeric type.
 _COMPARISON_OPS = frozenset({"==", "!=", "<", "<=", ">", ">="})
 
-# Small unsigned types (Bool, UInt8) promote to wider types in ClickHouse.
-# Subtraction always produces signed result.
-_SMALL_UNSIGNED = frozenset({"Bool", "UInt8"})
+# Byte width of every integer type ClickHouse promotes between. Bool is a
+# one-byte unsigned integer for promotion purposes.
+_INT_WIDTH: dict[str, int] = {
+    "Bool": 1,
+    "UInt8": 1,
+    "Int8": 1,
+    "UInt16": 2,
+    "Int16": 2,
+    "UInt32": 4,
+    "Int32": 4,
+    "UInt64": 8,
+    "Int64": 8,
+}
+
+
+def _is_signed(int_type: str) -> bool:
+    return int_type.startswith("Int")
+
+
+def _int_type(*, signed: bool, width: int) -> str:
+    return f"{'Int' if signed else 'UInt'}{width * 8}"
+
+
+def _next_width(width: int) -> int:
+    """ClickHouse ``nextSize``: results widen to the next size, capped at 64 bits."""
+    return width * 2 if width < 8 else width
 
 
 def _result_value_type(operator: str, type_a: str, type_b: str) -> str:
     """Determine the ClickHouse result type of a binary operator.
 
-    Matches ClickHouse type promotion rules:
+    Matches ClickHouse's ``NumberTraits`` promotion rules:
     - comparisons always return UInt8
     - ``/`` and ``**`` always return Float64
-    - int + float → Float64
-    - Bool/UInt8 same-type ``+``/``*`` → UInt16, ``-`` → Int16
-    - Subtraction always promotes to signed (Int64)
-    - Mixed int widths promote to the wider type
+    - any float operand → Float64
+    - ``+`` / ``*``: signed if either side is, width is the next size up from
+      the wider operand (``Int32 * Int32`` → Int64, ``UInt8 + UInt8`` → UInt16)
+    - ``-``: always signed, same widening (``UInt64 - UInt64`` → Int64)
+    - ``%``: follows the divisor's width, widened once when the dividend is
+      signed so a negative remainder fits (``Int32 % UInt8`` → Int16)
+    - non-integer operands (dates, strings) keep the left operand's type
 
     Validated by ``test_type_promotion.py::test_operator_result_type``
     which compares against ``SELECT toTypeName(CAST(0, 'T1') op CAST(0, 'T2'))``.
@@ -53,14 +79,15 @@ def _result_value_type(operator: str, type_a: str, type_b: str) -> str:
         return "Float64"
     if type_a in FLOAT_TYPES or type_b in FLOAT_TYPES:
         return "Float64"
-    if type_a in _SMALL_UNSIGNED and type_b in _SMALL_UNSIGNED:
-        return "Int16" if operator == "-" else "UInt16"
-    if type_a in _SMALL_UNSIGNED or type_b in _SMALL_UNSIGNED:
-        wider = type_b if type_a in _SMALL_UNSIGNED else type_a
-        return wider
-    if operator == "-":
-        return "Int64"
-    return type_a
+    if type_a not in _INT_WIDTH or type_b not in _INT_WIDTH:
+        return type_a
+    if operator == "%":
+        signed = _is_signed(type_a)
+        width = _next_width(_INT_WIDTH[type_b]) if signed else _INT_WIDTH[type_b]
+        return _int_type(signed=signed, width=width)
+    signed = operator == "-" or _is_signed(type_a) or _is_signed(type_b)
+    width = _next_width(max(_INT_WIDTH[type_a], _INT_WIDTH[type_b]))
+    return _int_type(signed=signed, width=width)
 
 
 def _compute_operator_schema(
@@ -156,7 +183,8 @@ def _determine_agg_result_type(agg_func: str, source_type: str | ColumnInfo) -> 
 
     Rules:
         - min/max/any preserve the source base type
-        - sum preserves integer types, promotes to Float64 for float types
+        - sum widens integers to Int64/UInt64 by signedness (Bool counts as
+          unsigned), and promotes float types to Float64
         - count always returns UInt64
         - mean/std/var always return Float64
     """
@@ -164,9 +192,9 @@ def _determine_agg_result_type(agg_func: str, source_type: str | ColumnInfo) -> 
     if agg_func in ("min", "max", "any"):
         return base_type
     if agg_func == "sum":
-        if base_type == "Bool":
-            return "UInt64"
-        return base_type if base_type in INT_TYPES else "Float64"
+        if base_type in INT_TYPES:
+            return _int_type(signed=_is_signed(base_type), width=8)
+        return "Float64"
     if agg_func == "count":
         return "UInt64"
     return "Float64"

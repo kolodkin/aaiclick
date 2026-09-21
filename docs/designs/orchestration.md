@@ -332,7 +332,7 @@ Scheduled runs inherit the registered job's level-2 defaults automatically. Manu
 
 **Implementation**: `aaiclick/orchestration/background/background_worker.py` — see `BackgroundWorker._check_schedules()`
 
-`BackgroundWorker` polls enabled jobs where `next_run_at <= NOW()` (~10s). Optimistic locking on `next_run_at` prevents duplicates. Cron parsed by `croniter`; `next_run_at` recomputed on registration, enable, and after each run.
+`BackgroundWorker` polls enabled jobs where `next_run_at <= NOW()` (~10s). Optimistic locking on `next_run_at` prevents duplicates; once the lock commits, each run is created through `run_job(run_type="SCHEDULED")`, so registration config (preservation mode, runner, image source) applies as for a manual run. Cron parsed by `croniter`; `next_run_at` recomputed on registration, enable, and after each run.
 
 # CLI
 
@@ -419,7 +419,7 @@ ExecutionWorker Process (spawns child per task)
 ├── OrchLifecycleHandler (per task, per child process)
 │   ├── incref → insert into table_context_refs + table_run_refs
 │   ├── decref → delete from table_run_refs
-│   ├── pin → fan out: insert one pin_ref per downstream consumer
+│   ├── pin → insert one pin_ref per consumer (named ids, else fan out over dependencies)
 │   └── unpin → delete own pin_ref
 ├── task_scope exit → decrefs ALL objects, stale-marks
 ├── BackgroundWorker (sole cleanup authority)
@@ -455,11 +455,17 @@ All consumers started → 0 pin_refs, run_refs protect during execution
 All consumers finished → 0 pin_refs, 0 run_refs → eligible for cleanup
 ```
 
+Expander tasks (`map`, `reduce`) cannot use the fan-out: their children have
+no `dependencies` row from the expander, and the children's own edges are
+committed only after the expander returns. They name the child ids instead —
+`pin(table, consumer_task_ids)` via `operators._pin_for_tasks` — and each
+child releases its pin as it deserializes the table.
+
 ## OrchLifecycleHandler
 
 **Implementation**: `aaiclick/orchestration/orch_context.py` — see `OrchLifecycleHandler` class
 
-Uses `task_id` as `context_id` for context_refs. Pin fans out to downstream consumers via dependencies table. Unpin removes the consumer's own pin_ref row.
+Uses `task_id` as `context_id` for context_refs. Pin fans out to downstream consumers via the dependencies table, or pins the consumer ids the caller names. Unpin removes the consumer's own pin_ref row.
 
 **PostgreSQL tables**: `TableContextRef` — composite PK `(table_name, context_id)`; `TableRunRef` — composite PK `(table_name, run_id)`; `TablePinRef` — composite PK `(table_name, task_id)`.
 

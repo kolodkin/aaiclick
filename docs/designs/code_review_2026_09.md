@@ -11,54 +11,6 @@ is fixed.
 
 # High
 
-## Data correctness
-
-- **`sum()` over narrow integer columns wraps modulo the type** —
-  `aaiclick/data/object/schema_compute.py`, `_determine_agg_result_type()`.
-  ClickHouse widens `sum()` to Int64/UInt64; the result schema keeps the
-  source type. Comparison results are UInt8, so `(a == b).sum()` over 300
-  matching rows returns 44. Same for `is_null().sum()`, `month().sum()`, and
-  Int32 parquet columns.
-- **Binary operator result type falls through to the left operand** —
-  `aaiclick/data/object/schema_compute.py`, `_result_value_type()`. Integer
-  combinations not involving Bool/UInt8 return `type_a`, contradicting the
-  docstring. `Int32 * Int32` stores into Int32 and wraps; `UInt64 + Int64`
-  declares UInt64 and negative results wrap to 2^64-1.
-
-## Orchestration
-
-- **Exception from the dispatch crashes the worker and strands the task in
-  RUNNING** — `aaiclick/orchestration/execution/execution_worker.py`,
-  `_execution_worker_loop()`. No `try/except` around `execute_fn`, so a
-  missing image tag or `kubectl apply` failure deregisters the worker as
-  STOPPED, which the dead-worker sweep (ACTIVE/STOPPING only) never revisits.
-- **In-process runner sends no heartbeat during execution** — same file,
-  `_execute_in_process()`. Local mode heartbeats only between claims (30 s)
-  against a 90 s timeout. Any task over about a minute is declared dead,
-  re-queued, and run twice.
-- **Cancelled tasks are resurrected and the job marked FAILED** — same file,
-  `_set_pending_cleanup()`. Guards on `run_epoch` only, not on
-  `TASK_CANCELLED` (unlike `update_task_status`). After `cancel_job`, every
-  runner path reports the cancelled run as a failure and the next background
-  cycle fails the job.
-- **Worker cancellation is swallowed on local-mode shutdown** — same file,
-  `_execute_in_process()`. `CancelledError` is caught without checking whether
-  the inner task or the worker itself was cancelled. Ctrl+C on `local start`
-  orphans the running task and the loop never exits.
-- **Kubernetes `wait()` loops forever after a cancellation deletes the pod** —
-  `aaiclick/orchestration/execution/kubernetes_worker.py`,
-  `_KubernetesVehicle.wait()`. A missing pod yields phase `''`, neither
-  Succeeded nor Failed; with no task timeout the worker stops claiming.
-- **Scheduled jobs ignore the registration's config** —
-  `aaiclick/orchestration/background/background_worker.py`,
-  `_check_schedules()`. The raw INSERT omits preservation mode, runner, and
-  `image_source`, so a docker/FULL registration runs on the host as
-  subprocess/NONE and has its tables dropped.
-- **`map()` output and source tables have zero lifecycle refs after the
-  expander exits** — `aaiclick/orchestration/operators.py`, `_expand_map()`.
-  Nothing pins `out`, so both tables are eligible for the drop sweep before
-  any `_map_part` child runs.
-
 ## Java SDK
 
 - **`validate_jvm_tasks` accepts any image, including a Python one** —
@@ -108,10 +60,6 @@ is fixed.
   `aaiclick/orchestration/background/handler.py`, the retry transition. A
   stalled-but-alive worker can write COMPLETED over a task another worker has
   re-claimed.
-- **`_expand_reduce` pins fan out over dependency rows that do not exist yet**
-  — `aaiclick/orchestration/operators.py`, `_expand_reduce()`. The PIN handler
-  queries `dependencies` live; the `_reduce_part` edges are committed later in
-  `register_returned_tasks`. On Postgres the pins insert nothing.
 - **`_complete_job` has no job-status guard** —
   `aaiclick/orchestration/background/handler.py` and `sql/complete_job.sql`.
   A `cancel_job` between a worker's COMPLETED write and its rollup turns the
@@ -120,11 +68,6 @@ is fixed.
   `aaiclick/orchestration/operators.py`, `map()`. Until the expander runs the
   group is empty, so `group >> consumer` is vacuously satisfied on
   multi-worker deployments.
-- **Heartbeat and cancel-watch loops die on the first transient error** —
-  `aaiclick/orchestration/execution/execution_worker.py`,
-  `_heartbeat_while_waiting()` and `_watch_for_cancellation()`.
-  `gather(return_exceptions=True)` discards the failure; a long container
-  task is then re-queued or never sees cancellation.
 - **Lifecycle FIFO consumer dies on one SQL error; `flush()` blocks forever**
   — `aaiclick/orchestration/orch_context.py`,
   `OrchLifecycleHandler._process_loop()`.
@@ -263,9 +206,6 @@ is fixed.
 
 # Fix Order
 
-1. High data correctness (silent wrong numbers).
-2. Worker crash, missing heartbeat, cancelled-task resurrection, scheduled-job
-   config.
-3. Deploy templates, then `SqlConfig.java`.
-4. Remaining Mediums grouped by shared root cause: missing status guards,
+1. Deploy templates, then `SqlConfig.java`.
+2. Remaining Mediums grouped by shared root cause: missing status guards,
    missing `try/except` in worker loops.

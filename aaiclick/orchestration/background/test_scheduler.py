@@ -5,8 +5,10 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
+from sqlmodel import select
 
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
+from aaiclick.orchestration.models import PRESERVATION_FULL, RUN_SCHEDULED, RUNNER_SUBPROCESS, Job
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import register_job
 
@@ -174,5 +176,37 @@ async def test_check_schedules_skips_no_schedule_jobs(orch_ctx):
         count = result.scalar_one()
 
     assert count == 0
+
+    await worker._engine.dispose()
+
+
+async def test_check_schedules_applies_registration_config(orch_ctx):
+    """A scheduled run carries the registration's preservation mode and
+    runner — the same job shape a manual ``run_job`` would create — instead
+    of the column defaults (NONE / subprocess) a bare INSERT would leave."""
+    reg = await register_job(
+        name="sched_full",
+        entrypoint="myapp.sched_full",
+        schedule="* * * * *",
+        preservation_mode=PRESERVATION_FULL,
+    )
+    async with get_sql_session() as session:
+        await session.execute(
+            text("UPDATE registered_jobs SET next_run_at = :past WHERE id = :id"),
+            {"past": utc_now() - timedelta(minutes=5), "id": reg.id},
+        )
+        await session.commit()
+
+    worker = BackgroundWorker()
+    worker._engine = await _get_engine(orch_ctx)
+    worker._ch_client = None
+
+    await worker._check_schedules()
+
+    async with get_sql_session() as session:
+        job = (await session.execute(select(Job).where(Job.registered_job_id == reg.id))).scalar_one()
+    assert job.run_type == RUN_SCHEDULED
+    assert job.preservation_mode == PRESERVATION_FULL
+    assert job.runner_mode == RUNNER_SUBPROCESS
 
     await worker._engine.dispose()

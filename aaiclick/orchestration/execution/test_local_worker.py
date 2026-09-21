@@ -1,13 +1,22 @@
 """Tests for local mode worker (in-process async execution with chdb)."""
 
+import asyncio
+
 import pytest
 from sqlmodel import select
 
 from ..decorators import job, task
 from ..factories import create_job, create_task
-from ..models import TASK_COMPLETED, TASK_PENDING_CLEANUP, Task
+from ..models import EXECUTION_WORKER_STOPPED, TASK_COMPLETED, TASK_PENDING_CLEANUP, TASK_RUNNING, Task
 from ..orch_context import get_sql_session
-from .execution_worker import execution_worker_main_loop
+from . import execution_worker as ew
+from .execution_worker import (
+    _execution_worker_loop,
+    execution_worker_heartbeat,
+    execution_worker_main_loop,
+    get_execution_worker,
+    register_execution_worker,
+)
 
 pytestmark = pytest.mark.usefixtures("fast_poll")
 
@@ -132,3 +141,88 @@ async def test_local_worker_no_tasks(orch_ctx):
     )
 
     assert tasks_executed == 0
+
+
+async def _wait_for_status(task_id: int, status: str, timeout: float = 5.0) -> None:
+    """Poll until the task reaches ``status``."""
+    deadline = asyncio.get_running_loop().time() + timeout
+    while asyncio.get_running_loop().time() < deadline:
+        async with get_sql_session() as session:
+            task = (await session.execute(select(Task).where(Task.id == task_id))).scalar_one()
+        if task.status == status:
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"task {task_id} never reached {status}")
+
+
+async def test_local_worker_dispatch_exception_fails_task(orch_ctx):
+    """An exception escaping the runner is the task's failure: the task lands in
+    PENDING_CLEANUP with the error and the loop keeps running rather than
+    stranding the task RUNNING under a STOPPED worker."""
+    job = await create_job("test_dispatch_raises", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+
+    async def boom(task: Task, execution_worker_id: int):
+        raise RuntimeError("no image tag")
+
+    tasks_executed = await _execution_worker_loop(
+        execute_fn=boom,
+        max_tasks=1,
+        install_signal_handlers=False,
+        max_empty_polls=1,
+    )
+
+    assert tasks_executed == 0
+    async with get_sql_session() as session:
+        task = (await session.execute(select(Task).where(Task.job_id == job.id))).scalar_one()
+    assert task.status == TASK_PENDING_CLEANUP
+    assert task.error == "RuntimeError: no image tag"
+
+
+async def test_local_worker_heartbeats_during_task(orch_ctx, monkeypatch):
+    """The in-process runner heartbeats while a task runs, not only between
+    claims — otherwise any task longer than the dead-worker timeout is
+    declared dead and run twice."""
+    monkeypatch.setattr(ew, "HEARTBEAT_INTERVAL", 0.05)
+    beats = 0
+
+    async def counting_heartbeat(execution_worker_id: int):
+        nonlocal beats
+        beats += 1
+        return await execution_worker_heartbeat(execution_worker_id)
+
+    monkeypatch.setattr(ew, "execution_worker_heartbeat", counting_heartbeat)
+    await create_job(
+        "test_heartbeat_during_task",
+        create_task("aaiclick.orchestration.fixtures.sample_tasks.slow_task", {"seconds": 0.5, "steps": 5}),
+    )
+
+    tasks_executed = await execution_worker_main_loop(max_tasks=1, install_signal_handlers=False, max_empty_polls=1)
+
+    assert tasks_executed == 1
+    assert beats >= 3
+
+
+async def test_local_worker_cancel_propagates_to_loop(orch_ctx):
+    """Cancelling the worker (``local start`` shutdown) while a task runs
+    cancels the task and exits the loop instead of swallowing the
+    cancellation and polling forever."""
+    worker = await register_execution_worker()
+    job = await create_job(
+        "test_worker_cancel",
+        create_task("aaiclick.orchestration.fixtures.sample_tasks.slow_task", {"seconds": 30, "steps": 30}),
+    )
+    async with get_sql_session() as session:
+        task = (await session.execute(select(Task).where(Task.job_id == job.id))).scalar_one()
+
+    loop_task = asyncio.create_task(
+        execution_worker_main_loop(execution_worker_id=worker.id, install_signal_handlers=False)
+    )
+    await _wait_for_status(task.id, TASK_RUNNING)
+
+    loop_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(loop_task, timeout=5)
+
+    stopped = await get_execution_worker(worker.id)
+    assert stopped is not None
+    assert stopped.status == EXECUTION_WORKER_STOPPED

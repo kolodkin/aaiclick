@@ -11,13 +11,14 @@ All resource cleanup is job-driven: every CH table, sample, and oplog entry
 traces to a job_id via table_registry (SQL). Resources without a job_id
 (orphans) are cleaned up after the same TTL.
 
-Completely independent of DataContext and OrchContext — has its own DB engine and CH client.
+Runs on its own DB engine and CH client, outside DataContext and OrchContext;
+only scheduled-run creation enters a short-lived ``orch_context`` so it takes
+the same ``run_job`` path as a manual submission.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 from datetime import datetime, timedelta
@@ -31,12 +32,13 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engin
 from aaiclick.async_wait import wait_or_timeout
 from aaiclick.backend import is_chdb, parse_ch_url
 from aaiclick.oplog.cleanup import TableOwner, lineage_aware_drop
-from aaiclick.snowflake import get_snowflake_id
 
 from ...datetime_utils import utc_now
 from ..env import get_db_url
 from ..events import register_session_hooks
-from ..models import JOB_CANCELLED, JOB_COMPLETED, JOB_FAILED, PRESERVATION_FULL
+from ..models import JOB_CANCELLED, JOB_COMPLETED, JOB_FAILED, PRESERVATION_FULL, RUN_SCHEDULED
+from ..orch_context import orch_context
+from ..registered_jobs import run_job
 from .handler import BackgroundHandler, create_background_handler, in_clause, try_complete_job
 
 # Base delay for retry backoff (seconds).  Actual delay = BASE * 2^attempt.
@@ -73,8 +75,8 @@ class BackgroundWorker:
     4. Dead worker detection: marks tasks from expired workers as PENDING_CLEANUP
     5. Job scheduling: creates Job runs for registered jobs whose next_run_at is due
 
-    Completely independent of DataContext and OrchContext.
-    Has own DB engine and CH client.
+    Has its own DB engine and CH client; see the module docstring for the one
+    place it enters ``orch_context``.
     """
 
     def __init__(
@@ -450,17 +452,23 @@ class BackgroundWorker:
         """Create Job runs for registered jobs whose next_run_at is due.
 
         Uses optimistic locking on next_run_at to prevent duplicate runs
-        when multiple background workers are active.
+        when multiple background workers are active. The lock is committed
+        before any job is created so a second worker sees the advanced
+        ``next_run_at`` at once, and so the creation runs in its own
+        transaction rather than inside this worker's write lock.
 
-        Uses raw SQL instead of ORM because BackgroundWorker operates
-        independently of OrchContext with its own DB engine.
+        Each run is created through ``run_job`` — the same path as a manual
+        submission — so the registration's preservation mode, runner, image
+        source, and build-task injection all apply to scheduled runs. A
+        failure to create one run is logged and does not stop the loop; the
+        schedule has already advanced to the next fire time.
         """
         now = utc_now()
 
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
                 text(
-                    "SELECT id, name, entrypoint, schedule, default_kwargs, next_run_at "
+                    "SELECT id, name, entrypoint, schedule, next_run_at "
                     "FROM registered_jobs "
                     "WHERE enabled = :enabled AND next_run_at <= :now"
                 ),
@@ -468,9 +476,8 @@ class BackgroundWorker:
             )
             due_jobs = result.fetchall()
 
-            for row in due_jobs:
-                reg_id, name, entrypoint, schedule, default_kwargs, old_next_run = row
-
+            won: list[tuple[str, str]] = []
+            for reg_id, name, entrypoint, schedule, old_next_run in due_jobs:
                 # Compute next fire time from cron
                 new_next_run = croniter(schedule, now).get_next(datetime)
 
@@ -491,36 +498,15 @@ class BackgroundWorker:
 
                 if cast(CursorResult, lock_result).rowcount == 0:
                     continue
-
-                # Won the race — create Job + entry Task
-                job_id = get_snowflake_id()
-                task_id = get_snowflake_id()
-
-                await session.execute(
-                    text(
-                        "INSERT INTO jobs (id, name, status, run_type, registered_job_id, created_at) "
-                        "VALUES (:id, :name, 'PENDING', 'SCHEDULED', :reg_id, :now)"
-                    ),
-                    {"id": job_id, "name": name, "reg_id": reg_id, "now": now},
-                )
-
-                await session.execute(
-                    text(
-                        "INSERT INTO tasks (id, job_id, entrypoint, name, kwargs, status, created_at, max_retries, attempt) "
-                        "VALUES (:id, :job_id, :entrypoint, :name, :kwargs, 'PENDING', :now, 0, 0)"
-                    ),
-                    {
-                        "id": task_id,
-                        "job_id": job_id,
-                        "entrypoint": entrypoint,
-                        "name": name,
-                        "kwargs": default_kwargs
-                        if isinstance(default_kwargs, str)
-                        else (json.dumps(default_kwargs) if default_kwargs else "{}"),
-                        "now": now,
-                    },
-                )
-
-                logger.info("Scheduled job '%s' created (job_id=%s)", name, job_id)
+                won.append((name, entrypoint))
 
             await session.commit()
+
+        for name, entrypoint in won:
+            try:
+                async with orch_context(with_ch=False):
+                    job = await run_job(name, entrypoint, run_type=RUN_SCHEDULED)
+            except Exception:
+                logger.exception("Scheduled job '%s' could not be created", name)
+                continue
+            logger.info("Scheduled job '%s' created (job_id=%s)", name, job.id)
