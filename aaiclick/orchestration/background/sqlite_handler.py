@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,11 +13,7 @@ class SqliteBackgroundHandler(BackgroundHandler):
     """SQLite: batch operations via IN clause."""
 
     @staticmethod
-    async def mark_dead_execution_workers(
-        session: AsyncSession,
-        dead_execution_worker_ids: list[int],
-        now: datetime,
-    ) -> None:
+    async def mark_dead_execution_workers(session: AsyncSession, dead_execution_worker_ids: list[int]) -> None:
         placeholders, params = in_clause(dead_execution_worker_ids, "wid")
         await session.execute(
             text(f"UPDATE execution_workers SET status = 'STOPPED' WHERE id IN ({placeholders})"),

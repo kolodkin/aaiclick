@@ -482,8 +482,7 @@ class BackgroundWorker:
             if not dead_execution_worker_ids:
                 return
 
-            now = utc_now()
-            await self._handler.mark_dead_execution_workers(session, dead_execution_worker_ids, now)
+            await self._handler.mark_dead_execution_workers(session, dead_execution_worker_ids)
             await session.commit()
 
             for wid in dead_execution_worker_ids:

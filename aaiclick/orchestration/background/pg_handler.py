@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,11 +13,7 @@ class PgBackgroundHandler(BackgroundHandler):
     """PostgreSQL: batch operations with ANY() array operator."""
 
     @staticmethod
-    async def mark_dead_execution_workers(
-        session: AsyncSession,
-        dead_execution_worker_ids: list[int],
-        now: datetime,
-    ) -> None:
+    async def mark_dead_execution_workers(session: AsyncSession, dead_execution_worker_ids: list[int]) -> None:
         params = {"execution_worker_ids": dead_execution_worker_ids}
         await session.execute(
             text("UPDATE execution_workers SET status = 'STOPPED' WHERE id = ANY(:execution_worker_ids)"),

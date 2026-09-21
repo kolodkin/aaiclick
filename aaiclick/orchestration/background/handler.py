@@ -290,11 +290,7 @@ class BackgroundHandler(ABC):
 
     @staticmethod
     @abstractmethod
-    async def mark_dead_execution_workers(
-        session: AsyncSession,
-        dead_execution_worker_ids: list[int],
-        now: datetime,
-    ) -> None:
+    async def mark_dead_execution_workers(session: AsyncSession, dead_execution_worker_ids: list[int]) -> None:
         """Mark dead workers as STOPPED and release their tasks.
 
         RUNNING / CLAIMED tasks become PENDING_FAILURE_CLEANUP. A
