@@ -108,9 +108,39 @@ async def cascade_upstream_failed(session: AsyncSession, job_id: int) -> int:
     return total
 
 
+class CancellingTransition(NamedTuple):
+    """SQL fragments for an UPDATE that moves tasks to PENDING_CANCELLED_CLEANUP.
+
+    Shared by ``cancel_job`` and the group-sibling abort so the ownership rule
+    lives once: a ``PENDING_FAILURE_CLEANUP`` task was already reported back,
+    so its ``execution_worker_id`` is released with the transition; any other
+    cancellable task stays owned until its worker reports the killed run.
+    """
+
+    set_sql: str
+    cancellable_sql: str
+    params: dict
+
+
+def cancelling_transition() -> CancellingTransition:
+    """Build the SET clause, the cancellable-status IN list, and their params."""
+    ph, params = in_clause(list(CANCELLABLE_TASK_STATUSES), "st")
+    return CancellingTransition(
+        set_sql=(
+            "status = :cancelling, "
+            "execution_worker_id = CASE WHEN status = :failure_cleanup THEN NULL ELSE execution_worker_id END"
+        ),
+        cancellable_sql=ph,
+        params={
+            **params,
+            "cancelling": TASK_PENDING_CANCELLED_CLEANUP,
+            "failure_cleanup": TASK_PENDING_FAILURE_CLEANUP,
+        },
+    )
+
+
 _CASCADE_ABORT_GROUP_SIBLINGS_SQL = """
-    UPDATE tasks SET status = :cancelling, error = :error_msg,
-      execution_worker_id = CASE WHEN status = :failure_cleanup THEN NULL ELSE execution_worker_id END
+    UPDATE tasks SET {set_sql}, error = :error_msg
     WHERE job_id = :job_id
       AND status IN ({cancellable})
       AND group_id IS NOT NULL
@@ -138,15 +168,15 @@ async def cascade_abort_group_siblings(session: AsyncSession, job_id: int) -> in
     Returns the number of siblings cancelled. The caller is responsible for
     committing.
     """
-    ph, params = in_clause(list(CANCELLABLE_TASK_STATUSES), "st")
+    cancelling = cancelling_transition()
     result = await session.execute(
-        text(_CASCADE_ABORT_GROUP_SIBLINGS_SQL.format(cancellable=ph)),
+        text(
+            _CASCADE_ABORT_GROUP_SIBLINGS_SQL.format(set_sql=cancelling.set_sql, cancellable=cancelling.cancellable_sql)
+        ),
         {
-            **params,
+            **cancelling.params,
             "job_id": job_id,
             "error_msg": GROUP_SIBLING_ABORTED_ERROR,
-            "cancelling": TASK_PENDING_CANCELLED_CLEANUP,
-            "failure_cleanup": TASK_PENDING_FAILURE_CLEANUP,
             "cancelled": TASK_CANCELLED,
             "failed": TASK_FAILED,
             "upstream_failed": TASK_UPSTREAM_FAILED,
@@ -250,7 +280,6 @@ class CleanupTask(NamedTuple):
 
     task_id: int
     job_id: int
-    error: str | None
     run_ids: list
     attempt: int
     max_retries: int
@@ -311,10 +340,10 @@ class BackgroundHandler(ABC):
         """
         unowned = " AND execution_worker_id IS NULL" if status == TASK_PENDING_CANCELLED_CLEANUP else ""
         result = await session.execute(
-            text(f"SELECT id, job_id, error, run_ids, attempt, max_retries FROM tasks WHERE status = :status{unowned}"),
+            text(f"SELECT id, job_id, run_ids, attempt, max_retries FROM tasks WHERE status = :status{unowned}"),
             {"status": status},
         )
-        return [CleanupTask._make((*row[:3], _run_ids(row[3]), *row[4:])) for row in result.fetchall()]
+        return [CleanupTask._make((*row[:2], _run_ids(row[2]), *row[3:])) for row in result.fetchall()]
 
     @staticmethod
     async def transition_failure_cleanup(

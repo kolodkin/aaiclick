@@ -9,32 +9,28 @@ Verifies that the background worker:
 from __future__ import annotations
 
 from datetime import timedelta
-from unittest.mock import AsyncMock
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
-from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
-from aaiclick.orchestration.env import get_db_url
 
 from ...datetime_utils import utc_now
 from .conftest import get_run_refs, insert_job, insert_pin_ref, insert_run_ref
-from .test_failure_cleanup import _get_job_status, _get_pin_refs, _get_task_status, _insert_task, _make_worker
+from .test_failure_cleanup import (
+    _get_job_status,
+    _get_pin_refs,
+    _get_task_status,
+    _insert_task,
+    _make_worker,
+    run_cleanup_pass,
+)
 
 DEAD_WORKER_ID = 999
 
 
 async def run_cancelled_cleanup() -> None:
-    """Run one cancelled-cleanup pass against the current orch_context DB."""
-    worker = BackgroundWorker(poll_interval=0)
-    worker._engine = create_async_engine(get_db_url(), echo=False)
-    worker._handler = SqliteBackgroundHandler()
-    worker._ch_client = AsyncMock()
-    try:
-        await worker._process_cancelled_cleanup()
-    finally:
-        await worker._engine.dispose()
+    await run_cleanup_pass(BackgroundWorker._process_cancelled_cleanup)
 
 
 async def _insert_dead_worker(engine, worker_id: int, *, stale_by: timedelta) -> None:

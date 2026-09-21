@@ -442,6 +442,13 @@ async def _cancellation_monitor(task_id: int, exec_task: asyncio.Task, expected_
     return False
 
 
+async def _discard_run(task: Task, execution_worker_id: int, outcome: str) -> None:
+    """A refused status write means the run no longer owns the task (cleared or
+    cancelled); a cancelled task still needs its ownership released."""
+    await release_cancelled_run(task.id, expected_epoch=task.run_epoch)
+    logger.info("ExecutionWorker %s task %s %s discarded (cleared or cancelled)", execution_worker_id, task.id, outcome)
+
+
 async def _handle_task_result(
     task: Task,
     execution_worker_id: int,
@@ -450,10 +457,6 @@ async def _handle_task_result(
     error: str | None,
 ) -> bool:
     """Process the result of a task execution. Returns True if task succeeded."""
-    if await release_cancelled_run(task.id, expected_epoch=task.run_epoch):
-        logger.info("ExecutionWorker %s task %s run ended after cancellation", execution_worker_id, task.id)
-        return False
-
     if success:
         updated = await update_task_status(
             task.id,
@@ -462,9 +465,7 @@ async def _handle_task_result(
             expected_epoch=task.run_epoch,
         )
         if not updated:
-            logger.info(
-                "ExecutionWorker %s task %s completion discarded (cleared or cancelled)", execution_worker_id, task.id
-            )
+            await _discard_run(task, execution_worker_id, "completion")
             return False
         logger.info("ExecutionWorker %s completed task %s", execution_worker_id, task.id)
         await _increment_execution_worker_stat(execution_worker_id, "tasks_completed")
@@ -479,7 +480,7 @@ async def _handle_task_result(
     error = error or "Unknown error"
     logger.warning("ExecutionWorker %s task %s failed: %s", execution_worker_id, task.id, error)
     if not await _set_pending_failure_cleanup(task.id, error, expected_epoch=task.run_epoch):
-        logger.info("ExecutionWorker %s task %s failure discarded (cleared or cancelled)", execution_worker_id, task.id)
+        await _discard_run(task, execution_worker_id, "failure")
         return False
     await _increment_execution_worker_stat(execution_worker_id, "tasks_failed")
     logger.info("ExecutionWorker %s task %s set to PENDING_FAILURE_CLEANUP", execution_worker_id, task.id)

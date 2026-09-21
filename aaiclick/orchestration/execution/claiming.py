@@ -5,9 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from ...datetime_utils import utc_now
-from ..background.handler import in_clause
+from ..background.handler import cancelling_transition, in_clause
 from ..models import (
-    CANCELLABLE_TASK_STATUSES,
     CANCELLING_TASK_STATUSES,
     JOB_CANCELLED,
     JOB_RUNNING,
@@ -15,8 +14,6 @@ from ..models import (
     TASK_COMPLETED,
     TASK_FAILED,
     TASK_PENDING,
-    TASK_PENDING_CANCELLED_CLEANUP,
-    TASK_PENDING_FAILURE_CLEANUP,
     TASK_RUNNING,
     TERMINAL_JOB_STATUSES,
     Job,
@@ -195,20 +192,13 @@ async def cancel_job(job_id: int) -> Job:
         job.completed_at = now
         session.add(job)
 
-        ph, params = in_clause(list(CANCELLABLE_TASK_STATUSES), "st")
+        cancelling = cancelling_transition()
         await session.execute(
             text(
-                "UPDATE tasks SET status = :cancelling, "
-                "execution_worker_id = CASE WHEN status = :failure_cleanup THEN NULL "
-                "ELSE execution_worker_id END "
-                f"WHERE job_id = :job_id AND status IN ({ph})"
+                f"UPDATE tasks SET {cancelling.set_sql} "
+                f"WHERE job_id = :job_id AND status IN ({cancelling.cancellable_sql})"
             ),
-            {
-                **params,
-                "cancelling": TASK_PENDING_CANCELLED_CLEANUP,
-                "failure_cleanup": TASK_PENDING_FAILURE_CLEANUP,
-                "job_id": job_id,
-            },
+            {**cancelling.params, "job_id": job_id},
         )
 
         await session.commit()

@@ -8,6 +8,7 @@ Verifies that the background worker correctly:
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from unittest.mock import AsyncMock
 
@@ -89,20 +90,24 @@ def _make_worker(engine):
     return worker
 
 
-async def run_failure_cleanup() -> None:
-    """Process PENDING_FAILURE_CLEANUP tasks using the current orch_context DB.
+async def run_cleanup_pass(pass_fn: Callable[[BackgroundWorker], Awaitable[None]]) -> None:
+    """Run one BackgroundWorker pass against the current orch_context DB.
 
     Test helper that creates a temporary BackgroundWorker pointed at the
-    same SQL database and runs a single cleanup cycle.
+    same SQL database, e.g. ``run_cleanup_pass(BackgroundWorker._process_failure_cleanup)``.
     """
     worker = BackgroundWorker(poll_interval=0)
     worker._engine = create_async_engine(get_db_url(), echo=False)
     worker._handler = SqliteBackgroundHandler()
     worker._ch_client = AsyncMock()
     try:
-        await worker._process_failure_cleanup()
+        await pass_fn(worker)
     finally:
         await worker._engine.dispose()
+
+
+async def run_failure_cleanup() -> None:
+    await run_cleanup_pass(BackgroundWorker._process_failure_cleanup)
 
 
 async def test_failure_cleanup_transitions_to_pending_with_retries(bg_db):

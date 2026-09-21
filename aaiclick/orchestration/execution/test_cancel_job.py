@@ -30,6 +30,7 @@ from .claiming import (
     update_task_status,
 )
 from .execution_worker import _set_pending_failure_cleanup, register_execution_worker
+from .runner import register_run
 
 SIMPLE_TASK = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
 
@@ -52,12 +53,7 @@ async def _claim_fresh(worker_id: int, job_name: str) -> tuple[int, int]:
 async def _start_run(task_id: int) -> None:
     """Mark the claimed task RUNNING with one registered run, as a worker would."""
     await update_task_status(task_id, TASK_RUNNING)
-    async with get_sql_session() as session:
-        task = (await session.execute(select(Task).where(Task.id == task_id))).scalar_one()
-        task.run_ids = [111]
-        task.run_statuses = [TASK_RUNNING]
-        session.add(task)
-        await session.commit()
+    await register_run(task_id)
 
 
 async def test_cancel_pending_job(orch_ctx):
