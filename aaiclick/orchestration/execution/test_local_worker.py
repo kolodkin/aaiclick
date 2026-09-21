@@ -6,12 +6,22 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlmodel import select
 
+from ..background.test_cancelled_cleanup import run_cancelled_cleanup
 from ..decorators import job, task
 from ..factories import create_job, create_task
 from ..jobs import get_task
-from ..models import EXECUTION_WORKER_STOPPED, TASK_COMPLETED, TASK_PENDING_CLEANUP, TASK_RUNNING, Task
+from ..models import (
+    EXECUTION_WORKER_STOPPED,
+    TASK_CANCELLED,
+    TASK_COMPLETED,
+    TASK_PENDING_CANCELLED_CLEANUP,
+    TASK_PENDING_FAILURE_CLEANUP,
+    TASK_RUNNING,
+    Task,
+)
 from ..orch_context import get_sql_session
 from . import execution_worker as ew
+from .claiming import cancel_job
 from .execution_worker import (
     _execution_worker_loop,
     execution_worker_heartbeat,
@@ -74,7 +84,7 @@ async def test_local_worker_handles_failure(orch_ctx):
     async with get_sql_session() as session:
         result = await session.execute(select(Task).where(Task.job_id == job.id))
         task = result.scalar_one()
-        assert task.status == TASK_PENDING_CLEANUP
+        assert task.status == TASK_PENDING_FAILURE_CLEANUP
         assert task.error is not None
 
 
@@ -98,7 +108,7 @@ async def test_local_worker_executes_shell_task(orch_ctx):
 
 
 async def test_local_worker_shell_task_nonzero_exit(orch_ctx):
-    """A failing shell task lands in PENDING_CLEANUP with its exit code."""
+    """A failing shell task lands in PENDING_FAILURE_CLEANUP with its exit code."""
     entry = create_task(None, entry_type="shell", command=["sh", "-c", "exit 7"])
     job = await create_job("test_local_shell_fail", entry)
 
@@ -112,7 +122,7 @@ async def test_local_worker_shell_task_nonzero_exit(orch_ctx):
     async with get_sql_session() as session:
         result = await session.execute(select(Task).where(Task.job_id == job.id))
         task = result.scalar_one()
-        assert task.status == TASK_PENDING_CLEANUP
+        assert task.status == TASK_PENDING_FAILURE_CLEANUP
         assert "exit 7" in (task.error or "")
 
 
@@ -160,7 +170,7 @@ async def _wait_for_status(task_id: int, status: str) -> None:
 
 async def test_local_worker_dispatch_exception_fails_task(orch_ctx):
     """An exception escaping the runner is the task's failure: the task lands in
-    PENDING_CLEANUP with the error and the loop keeps running rather than
+    PENDING_FAILURE_CLEANUP with the error and the loop keeps running rather than
     stranding the task RUNNING under a STOPPED worker."""
     job = await create_job("test_dispatch_raises", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
 
@@ -177,7 +187,7 @@ async def test_local_worker_dispatch_exception_fails_task(orch_ctx):
     assert tasks_executed == 0
     async with get_sql_session() as session:
         task = (await session.execute(select(Task).where(Task.job_id == job.id))).scalar_one()
-    assert task.status == TASK_PENDING_CLEANUP
+    assert task.status == TASK_PENDING_FAILURE_CLEANUP
     assert task.error == "RuntimeError: no image tag"
 
 
@@ -223,3 +233,34 @@ async def test_local_worker_cancel_propagates_to_loop(orch_ctx):
     stopped = await get_execution_worker(worker.id)
     assert stopped is not None
     assert stopped.status == EXECUTION_WORKER_STOPPED
+
+
+async def _task_row(job_id: int) -> Task:
+    async with get_sql_session() as session:
+        return (await session.execute(select(Task).where(Task.job_id == job_id))).scalar_one()
+
+
+async def test_local_worker_cancelled_mid_run(orch_ctx):
+    """Cancelling a running task kills the run; the worker reports it back by
+    releasing its ownership and stamping the run, and only then does the
+    cancelled-cleanup pass settle the task to CANCELLED."""
+    job = await create_job(
+        "test_local_cancel",
+        create_task("aaiclick.orchestration.fixtures.sample_tasks.slow_task", {"seconds": 30.0, "steps": 300}),
+    )
+    loop = asyncio.create_task(
+        execution_worker_main_loop(max_tasks=1, install_signal_handlers=False, max_empty_polls=1)
+    )
+    while (await _task_row(job.id)).run_statuses != [TASK_RUNNING]:
+        await asyncio.sleep(0.05)
+
+    await cancel_job(job.id)
+    assert await loop == 0
+
+    task = await _task_row(job.id)
+    assert task.status == TASK_PENDING_CANCELLED_CLEANUP
+    assert task.execution_worker_id is None
+    assert task.run_statuses == [TASK_CANCELLED]
+
+    await run_cancelled_cleanup()
+    assert (await _task_row(job.id)).status == TASK_CANCELLED

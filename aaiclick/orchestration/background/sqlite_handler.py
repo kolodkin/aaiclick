@@ -2,39 +2,44 @@
 
 from __future__ import annotations
 
-import json
-from datetime import datetime
-
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..models import TASK_CLAIMED, TASK_PENDING_CANCELLED_CLEANUP, TASK_PENDING_FAILURE_CLEANUP, TASK_RUNNING
 from ..sql_utils import in_clause
-from .handler import BackgroundHandler, PendingCleanupTask
+from .handler import DEAD_WORKER_ERROR, BackgroundHandler
 
 
 class SqliteBackgroundHandler(BackgroundHandler):
     """SQLite: batch operations via IN clause."""
 
     @staticmethod
-    async def mark_dead_execution_workers(
-        session: AsyncSession,
-        dead_execution_worker_ids: list[int],
-        now: datetime,
-    ) -> None:
+    async def mark_dead_execution_workers(session: AsyncSession, dead_execution_worker_ids: list[int]) -> None:
         placeholders, params = in_clause(dead_execution_worker_ids, "wid")
-        params["now"] = now
         await session.execute(
             text(f"UPDATE execution_workers SET status = 'STOPPED' WHERE id IN ({placeholders})"),
             params,
         )
         await session.execute(
             text(
-                f"UPDATE tasks SET status = 'PENDING_CLEANUP', "
-                f"error = 'ExecutionWorker died (heartbeat timeout)' "
+                f"UPDATE tasks SET status = :failure_cleanup, error = :error "
                 f"WHERE execution_worker_id IN ({placeholders}) "
-                f"AND status IN ('RUNNING', 'CLAIMED')"
+                f"AND status IN (:running, :claimed)"
             ),
-            params,
+            {
+                **params,
+                "failure_cleanup": TASK_PENDING_FAILURE_CLEANUP,
+                "error": DEAD_WORKER_ERROR,
+                "running": TASK_RUNNING,
+                "claimed": TASK_CLAIMED,
+            },
+        )
+        await session.execute(
+            text(
+                f"UPDATE tasks SET execution_worker_id = NULL "
+                f"WHERE execution_worker_id IN ({placeholders}) AND status = :cancelled_cleanup"
+            ),
+            {**params, "cancelled_cleanup": TASK_PENDING_CANCELLED_CLEANUP},
         )
 
     @staticmethod
@@ -44,24 +49,3 @@ class SqliteBackgroundHandler(BackgroundHandler):
             text(f"DELETE FROM table_run_refs WHERE run_id IN ({placeholders})"),
             params,
         )
-
-    @staticmethod
-    async def get_pending_cleanup_tasks(
-        session: AsyncSession,
-    ) -> list[PendingCleanupTask]:
-        result = await session.execute(
-            text(
-                "SELECT id, job_id, execution_worker_id, error, run_ids, attempt, max_retries "
-                "FROM tasks WHERE status = 'PENDING_CLEANUP'"
-            ),
-        )
-        return [
-            PendingCleanupTask._make(
-                (
-                    *row[:4],
-                    row[4] if isinstance(row[4], list) else json.loads(row[4] or "[]"),
-                    *row[5:],
-                )
-            )
-            for row in result.fetchall()
-        ]

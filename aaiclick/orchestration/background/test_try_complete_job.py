@@ -157,7 +157,9 @@ async def test_try_complete_job_any_failed_marks_failed(bg_db):
     assert error == JOB_FAILED_ERROR
 
 
-@pytest.mark.parametrize("non_terminal", ["PENDING", "CLAIMED", "RUNNING", "PENDING_CLEANUP"])
+@pytest.mark.parametrize(
+    "non_terminal", ["PENDING", "CLAIMED", "RUNNING", "PENDING_FAILURE_CLEANUP", "PENDING_CANCELLED_CLEANUP"]
+)
 async def test_try_complete_job_non_terminal_is_noop(bg_db, non_terminal):
     """Any non-terminal task → job stays RUNNING, no completed_at set."""
     await insert_job(bg_db, 1)
@@ -280,6 +282,9 @@ async def test_cascade_transitive_chain(bg_db):
         # CANCELLED upstream cascades to downstream the same way FAILED does, and
         # UPSTREAM_FAILED downstream counts as a failure for the job.
         pytest.param("CANCELLED", "UPSTREAM_FAILED", "FAILED", id="cancelled-cascades"),
+        # A cancelling upstream is doomed already, so downstream cascades now;
+        # the job waits for the cleanup pass to settle the upstream.
+        pytest.param("PENDING_CANCELLED_CLEANUP", "UPSTREAM_FAILED", "RUNNING", id="cancelling-cascades"),
         # COMPLETED upstream is the success case — downstream stays PENDING.
         pytest.param("COMPLETED", "PENDING", "RUNNING", id="completed-does-not-propagate"),
     ],
@@ -302,7 +307,8 @@ async def test_cascade_group_to_task_propagates_on_first_failure(bg_db):
     """group→task: a failure in the upstream group cascades to downstream-of-group.
 
     The failing group's still-running sibling (102) is aborted by the
-    fail-fast sweep, so the whole job reaches a terminal FAILED state."""
+    fail-fast sweep; the job stays RUNNING until the cancelled-cleanup pass
+    settles it."""
     await insert_job(bg_db, 1)
     await _insert_group(bg_db, group_id=500, job_id=1)
     await _insert_task(bg_db, task_id=101, job_id=1, status="FAILED", group_id=500)
@@ -314,11 +320,10 @@ async def test_cascade_group_to_task_propagates_on_first_failure(bg_db):
 
     status, _ = await _get_task(bg_db, 103)
     assert status == "UPSTREAM_FAILED"
-    # Sibling 102 is aborted (fail-fast), so the job reaches terminal FAILED.
     status_102, _ = await _get_task(bg_db, 102)
-    assert status_102 == "CANCELLED"
+    assert status_102 == "PENDING_CANCELLED_CLEANUP"
     job_status, _, _ = await _get_job(bg_db, 1)
-    assert job_status == "FAILED"
+    assert job_status == "RUNNING"
 
 
 async def test_cascade_task_to_group(bg_db):
@@ -379,10 +384,11 @@ async def test_cascade_does_not_touch_claimed_or_running(bg_db):
 # --- Fail-fast group-sibling abort tests (default behavior) ---
 
 
-@pytest.mark.parametrize("sibling_status", ["PENDING", "CLAIMED", "RUNNING", "PENDING_CLEANUP"])
+@pytest.mark.parametrize("sibling_status", ["PENDING", "CLAIMED", "RUNNING", "PENDING_FAILURE_CLEANUP"])
 async def test_group_sibling_abort_cancels_active_sibling(bg_db, sibling_status):
     """A FAILED group member cancels its still-active sibling regardless of how
-    far the sibling had progressed."""
+    far the sibling had progressed. The sibling is not terminal until the
+    cancelled-cleanup pass drops its refs, so the job stays RUNNING."""
     await insert_job(bg_db, 1)
     await _insert_group(bg_db, group_id=500, job_id=1)
     await _insert_task(bg_db, task_id=101, job_id=1, status="FAILED", group_id=500)
@@ -391,11 +397,10 @@ async def test_group_sibling_abort_cancels_active_sibling(bg_db, sibling_status)
     await _run_try_complete(bg_db, 1)
 
     status, error = await _get_task(bg_db, 102)
-    assert status == "CANCELLED"
+    assert status == "PENDING_CANCELLED_CLEANUP"
     assert error == GROUP_SIBLING_ABORTED_ERROR
-    # 101 FAILED + 102 CANCELLED → all terminal → job FAILED.
     job_status, _, _ = await _get_job(bg_db, 1)
-    assert job_status == "FAILED"
+    assert job_status == "RUNNING"
 
 
 async def test_group_sibling_abort_does_not_touch_completed_sibling(bg_db):
@@ -428,7 +433,7 @@ async def test_group_sibling_abort_only_aborts_the_failing_group(bg_db):
     await _run_try_complete(bg_db, 1)
 
     status_102, _ = await _get_task(bg_db, 102)
-    assert status_102 == "CANCELLED"
+    assert status_102 == "PENDING_CANCELLED_CLEANUP"
     for tid in (201, 202):
         status, _ = await _get_task(bg_db, tid)
         assert status == "RUNNING", f"task {tid}"
@@ -439,7 +444,7 @@ async def test_group_sibling_abort_only_aborts_the_failing_group(bg_db):
 
 async def test_group_sibling_abort_cascades_downstream(bg_db):
     """A sibling cancelled by the abort sweep propagates onward: a task depending
-    on the now-CANCELLED sibling is marked UPSTREAM_FAILED in the same pass."""
+    on the now-cancelling sibling is marked UPSTREAM_FAILED in the same pass."""
     await insert_job(bg_db, 1)
     await _insert_group(bg_db, group_id=500, job_id=1)
     await _insert_task(bg_db, task_id=101, job_id=1, status="FAILED", group_id=500)
@@ -451,7 +456,19 @@ async def test_group_sibling_abort_cascades_downstream(bg_db):
 
     status_102, _ = await _get_task(bg_db, 102)
     status_103, _ = await _get_task(bg_db, 103)
-    assert status_102 == "CANCELLED"
+    assert status_102 == "PENDING_CANCELLED_CLEANUP"
     assert status_103 == "UPSTREAM_FAILED"
     job_status, _, _ = await _get_job(bg_db, 1)
-    assert job_status == "FAILED"
+    assert job_status == "RUNNING"
+
+
+async def test_try_complete_job_leaves_terminal_job_alone(bg_db):
+    """A job ``cancel_job`` already closed keeps CANCELLED when its last
+    cancelled task settles and the rollup runs again."""
+    await insert_job(bg_db, 1, status="CANCELLED")
+    await _insert_tasks(bg_db, 1, ["COMPLETED", "CANCELLED"])
+
+    await _run_try_complete(bg_db, 1)
+
+    job_status, _, _ = await _get_job(bg_db, 1)
+    assert job_status == "CANCELLED"

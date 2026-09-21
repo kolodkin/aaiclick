@@ -238,14 +238,23 @@ All entities use **Snowflake IDs** via ClickHouse [`generateSnowflakeID()`](http
 | Enum           | Values                                          |
 |----------------|-------------------------------------------------|
 | `JobStatus`    | PENDING, RUNNING, COMPLETED, FAILED, CANCELLED  |
-| `TaskStatus`   | PENDING, CLAIMED, RUNNING, COMPLETED, FAILED, CANCELLED, PENDING_CLEANUP, UPSTREAM_FAILED |
+| `TaskStatus`   | PENDING, CLAIMED, RUNNING, COMPLETED, FAILED, CANCELLED, PENDING_FAILURE_CLEANUP, PENDING_CANCELLED_CLEANUP, UPSTREAM_FAILED |
 | `ExecutionWorkerStatus` | ACTIVE, IDLE, STOPPING, STOPPED                 |
 | `RunType`      | SCHEDULED, MANUAL                               |
 
-Two `TaskStatus` values are set by the background sweep, not the worker:
-`PENDING_CLEANUP` (transient — a failed or dead-worker run awaiting ref cleanup
-before it retries to PENDING or settles to FAILED) and `UPSTREAM_FAILED`
-(terminal — a pending task whose transitive upstream failed or was cancelled).
+Three `TaskStatus` values are set by the background sweep, not the worker:
+
+- `PENDING_FAILURE_CLEANUP` — transient; a failed or dead-worker run awaiting
+  ref cleanup before it retries to PENDING or settles to FAILED.
+- `PENDING_CANCELLED_CLEANUP` — transient; set by `cancel_job` and the
+  fail-fast group-sibling abort. The worker kills the run; the sweep drops
+  the attempt's refs and settles the task to CANCELLED once no worker owns it
+  (`execution_worker_id` is NULL — released by `release_cancelled_run` on
+  report-back, or by the dead-worker sweep).
+- `UPSTREAM_FAILED` — terminal; a pending task whose transitive upstream
+  failed or was cancelled.
+
+**Implementation**: `aaiclick/orchestration/background/background_worker.py` — see `_process_failure_cleanup()` / `_process_cancelled_cleanup()`; `aaiclick/orchestration/execution/claiming.py` — see `cancel_job()` / `release_cancelled_run()`
 
 ## Entities
 

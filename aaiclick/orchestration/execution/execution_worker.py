@@ -20,13 +20,13 @@ from aaiclick.snowflake import get_snowflake_id
 from ...datetime_utils import utc_now
 from ..background.handler import roll_up_job
 from ..models import (
+    CANCELLING_TASK_STATUSES,
     EXECUTION_WORKER_ACTIVE,
     EXECUTION_WORKER_STOPPED,
     EXECUTION_WORKER_STOPPING,
-    TASK_CANCELLED,
     TASK_COMPLETED,
     TASK_FAILED,
-    TASK_PENDING_CLEANUP,
+    TASK_PENDING_FAILURE_CLEANUP,
     TASK_RUNNING,
     ExecutionWorker,
     ExecutionWorkerStatus,
@@ -35,7 +35,7 @@ from ..models import (
 )
 from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_MODULE, EntryType, ImageSourceT
-from .claiming import check_run_aborted, claim_next_task, update_task_status
+from .claiming import check_run_aborted, claim_next_task, release_cancelled_run, update_task_status
 from .runner import execute_task, serialize_task_result
 
 logger = logging.getLogger(__name__)
@@ -209,13 +209,13 @@ async def drive_vehicle(
         await vehicle.cleanup(handle)
 
 
-async def _set_pending_cleanup(task_id: int, error: str, expected_epoch: int | None = None) -> bool:
-    """Transition a failed task to PENDING_CLEANUP for background ref cleanup.
+async def _set_pending_failure_cleanup(task_id: int, error: str, expected_epoch: int | None = None) -> bool:
+    """Transition a failed task to PENDING_FAILURE_CLEANUP for background ref cleanup.
 
     Returns False without writing when the run no longer owns the task: it is
-    CANCELLED (``cancel_job`` settled it; a killed run's failure report must
-    not turn a cancelled job FAILED — mirrors ``update_task_status``), or
-    ``expected_epoch`` no longer matches ``run_epoch`` (``clear_task`` reset it).
+    cancelling or CANCELLED (a killed run's failure report must not resurrect
+    it as a retry — mirrors ``update_task_status``), or ``expected_epoch`` no
+    longer matches ``run_epoch`` (``clear_task`` reset it).
 
     Both guards sit in the UPDATE's WHERE clause, so they hold atomically on
     every backend, not only where ``FOR UPDATE`` locks the row; the rowcount
@@ -225,10 +225,10 @@ async def _set_pending_cleanup(task_id: int, error: str, expected_epoch: int | N
         task = (await session.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
         if task is None:
             return False
-        values: dict[str, str | list[str]] = {"status": TASK_PENDING_CLEANUP, "error": error}
+        values: dict[str, str | list[str]] = {"status": TASK_PENDING_FAILURE_CLEANUP, "error": error}
         if task.run_statuses:
             values["run_statuses"] = [*task.run_statuses[:-1], TASK_FAILED]
-        stmt = update(Task).where(col(Task.id) == task_id, col(Task.status) != TASK_CANCELLED)
+        stmt = update(Task).where(col(Task.id) == task_id, col(Task.status).not_in(CANCELLING_TASK_STATUSES))
         if expected_epoch is not None:
             stmt = stmt.where(col(Task.run_epoch) == expected_epoch)
         result = await session.execute(stmt.values(**values))
@@ -414,8 +414,9 @@ async def _cancellation_monitor(task_id: int, exec_task: asyncio.Task, expected_
     it to tell a cancelled run from a cancelled worker.
 
     Runs concurrently with task execution. Checks the database every
-    POLL_INTERVAL seconds. When cancel_job() marks the task CANCELLED or
-    clear_task() bumps its run_epoch past ``expected_epoch``, this monitor
+    POLL_INTERVAL seconds. When cancel_job() marks the task
+    PENDING_CANCELLED_CLEANUP or clear_task() bumps its run_epoch past
+    ``expected_epoch``, this monitor
     cancels the asyncio.Task, raising CancelledError at the next await point
     in the running coroutine.
 
@@ -441,6 +442,13 @@ async def _cancellation_monitor(task_id: int, exec_task: asyncio.Task, expected_
     return False
 
 
+async def _discard_run(task: Task, execution_worker_id: int, outcome: str) -> None:
+    """A refused status write means the run no longer owns the task (cleared or
+    cancelled); a cancelled task still needs its ownership released."""
+    await release_cancelled_run(task.id, expected_epoch=task.run_epoch)
+    logger.info("ExecutionWorker %s task %s %s discarded (cleared or cancelled)", execution_worker_id, task.id, outcome)
+
+
 async def _handle_task_result(
     task: Task,
     execution_worker_id: int,
@@ -457,9 +465,7 @@ async def _handle_task_result(
             expected_epoch=task.run_epoch,
         )
         if not updated:
-            logger.info(
-                "ExecutionWorker %s task %s completion discarded (cleared or cancelled)", execution_worker_id, task.id
-            )
+            await _discard_run(task, execution_worker_id, "completion")
             return False
         logger.info("ExecutionWorker %s completed task %s", execution_worker_id, task.id)
         await _increment_execution_worker_stat(execution_worker_id, "tasks_completed")
@@ -473,11 +479,11 @@ async def _handle_task_result(
 
     error = error or "Unknown error"
     logger.warning("ExecutionWorker %s task %s failed: %s", execution_worker_id, task.id, error)
-    if not await _set_pending_cleanup(task.id, error, expected_epoch=task.run_epoch):
-        logger.info("ExecutionWorker %s task %s failure discarded (cleared or cancelled)", execution_worker_id, task.id)
+    if not await _set_pending_failure_cleanup(task.id, error, expected_epoch=task.run_epoch):
+        await _discard_run(task, execution_worker_id, "failure")
         return False
     await _increment_execution_worker_stat(execution_worker_id, "tasks_failed")
-    logger.info("ExecutionWorker %s task %s set to PENDING_CLEANUP", execution_worker_id, task.id)
+    logger.info("ExecutionWorker %s task %s set to PENDING_FAILURE_CLEANUP", execution_worker_id, task.id)
     return False
 
 

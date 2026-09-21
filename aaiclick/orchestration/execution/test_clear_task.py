@@ -15,7 +15,7 @@ from ..models import (
     TASK_COMPLETED,
     TASK_FAILED,
     TASK_PENDING,
-    TASK_PENDING_CLEANUP,
+    TASK_PENDING_FAILURE_CLEANUP,
     TASK_RUNNING,
     Dependency,
     Group,
@@ -30,7 +30,7 @@ from .claiming import (
     clear_task,
     update_task_status,
 )
-from .execution_worker import _set_pending_cleanup, register_execution_worker
+from .execution_worker import _set_pending_failure_cleanup, register_execution_worker
 
 EP = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
 
@@ -232,8 +232,8 @@ async def test_clear_fences_stale_update_task_status(orch_ctx):
     assert await _status(t.id) == TASK_COMPLETED
 
 
-async def test_clear_fences_stale_pending_cleanup(orch_ctx):
-    """A stale-epoch _set_pending_cleanup is a no-op; the matching epoch applies."""
+async def test_clear_fences_stale_failure_cleanup(orch_ctx):
+    """A stale-epoch _set_pending_failure_cleanup is a no-op; the matching epoch applies."""
     job = await create_job("fence_cleanup", EP)
     t = _task(job.id, status=TASK_RUNNING)
     t.run_statuses = [TASK_RUNNING]
@@ -241,11 +241,11 @@ async def test_clear_fences_stale_pending_cleanup(orch_ctx):
 
     await clear_task(t.id)  # run_epoch 0 -> 1
 
-    await _set_pending_cleanup(t.id, "boom", expected_epoch=0)
+    await _set_pending_failure_cleanup(t.id, "boom", expected_epoch=0)
     assert await _status(t.id) == TASK_PENDING
 
-    await _set_pending_cleanup(t.id, "boom", expected_epoch=1)
-    assert await _status(t.id) == TASK_PENDING_CLEANUP
+    await _set_pending_failure_cleanup(t.id, "boom", expected_epoch=1)
+    assert await _status(t.id) == TASK_PENDING_FAILURE_CLEANUP
 
 
 async def test_check_run_aborted(orch_ctx):

@@ -5,16 +5,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from ...datetime_utils import utc_now
+from ..background.handler import cancelling_transition
 from ..dependency_graph import successor_task_ids
 from ..models import (
+    CANCELLING_TASK_STATUSES,
     JOB_CANCELLED,
     JOB_RUNNING,
     TASK_CANCELLED,
-    TASK_CLAIMED,
     TASK_COMPLETED,
     TASK_FAILED,
     TASK_PENDING,
-    TASK_PENDING_CLEANUP,
     TASK_RUNNING,
     TERMINAL_JOB_STATUSES,
     Job,
@@ -99,7 +99,7 @@ async def update_task_status(
         if task is None:
             return False
 
-        if task.status == TASK_CANCELLED:
+        if task.status in CANCELLING_TASK_STATUSES:
             return False
 
         if expected_epoch is not None and task.run_epoch != expected_epoch:
@@ -158,9 +158,12 @@ async def cancel_job(job_id: int) -> Job:
     """
     Cancel a job and all its non-terminal tasks.
 
-    Atomically transitions the job to CANCELLED and bulk-updates all
-    PENDING, CLAIMED, and RUNNING tasks to CANCELLED. Tasks already
-    COMPLETED or FAILED are left unchanged.
+    Atomically transitions the job to CANCELLED and every cancellable task
+    (``CANCELLABLE_TASK_STATUSES``) to ``PENDING_CANCELLED_CLEANUP``; terminal
+    tasks are left unchanged. The background worker settles each task to
+    ``CANCELLED`` once no worker owns it (see ``release_cancelled_run``). A
+    ``PENDING_FAILURE_CLEANUP`` task was already reported back, so its
+    ownership is released here.
 
     Only PENDING and RUNNING jobs can be cancelled.
 
@@ -191,26 +194,45 @@ async def cancel_job(job_id: int) -> Job:
         job.completed_at = now
         session.add(job)
 
+        cancelling = cancelling_transition()
         await session.execute(
             text(
-                "UPDATE tasks SET status = :cancelled_status, "
-                "completed_at = :now "
-                "WHERE job_id = :job_id "
-                "AND status IN (:pending, :claimed, :running, :pending_cleanup)"
+                f"UPDATE tasks SET {cancelling.set_sql} "
+                f"WHERE job_id = :job_id AND status IN ({cancelling.cancellable_sql})"
             ),
-            {
-                "cancelled_status": TASK_CANCELLED,
-                "now": now,
-                "job_id": job_id,
-                "pending": TASK_PENDING,
-                "claimed": TASK_CLAIMED,
-                "running": TASK_RUNNING,
-                "pending_cleanup": TASK_PENDING_CLEANUP,
-            },
+            {**cancelling.params, "job_id": job_id},
         )
 
         await session.commit()
         return job
+
+
+async def release_cancelled_run(task_id: int, expected_epoch: int | None = None) -> bool:
+    """Record that a worker's run of a cancelled task has ended.
+
+    ``execution_worker_id`` is the worker's ownership, held from claim until it
+    reports back. A cancelled task refuses the normal status write, so the
+    worker calls this instead: the last ``run_statuses`` entry is stamped
+    ``CANCELLED`` and the ownership released. The cancelled-cleanup pass keys
+    on that release, so it never drops the refs of a run still being stopped.
+
+    Returns False without writing unless the task is cancelling or cancelled
+    and, when ``expected_epoch`` is given, its ``run_epoch`` still matches.
+    """
+    handler = get_db_handler()
+    async with get_sql_session() as session:
+        task = (await session.execute(handler.lock_query(select(Task).where(Task.id == task_id)))).scalar_one_or_none()
+        if task is None or task.status not in CANCELLING_TASK_STATUSES:
+            return False
+        if expected_epoch is not None and task.run_epoch != expected_epoch:
+            return False
+
+        task.execution_worker_id = None
+        if task.run_statuses and task.run_statuses[-1] == TASK_RUNNING:
+            task.run_statuses = [*task.run_statuses[:-1], TASK_CANCELLED]
+        session.add(task)
+        await session.commit()
+        return True
 
 
 async def check_task_cancelled(task_id: int) -> bool:
@@ -224,12 +246,12 @@ async def check_task_cancelled(task_id: int) -> bool:
         task_id: Task ID to check
 
     Returns:
-        bool: True if task status is CANCELLED
+        bool: True if task status is PENDING_CANCELLED_CLEANUP or CANCELLED
     """
     async with get_sql_session() as session:
         result = await session.execute(select(Task.status).where(Task.id == task_id))
         status = result.scalar_one_or_none()
-        return status == TASK_CANCELLED
+        return status in CANCELLING_TASK_STATUSES
 
 
 async def check_run_aborted(task_id: int, expected_epoch: int) -> bool:
@@ -246,7 +268,7 @@ async def check_run_aborted(task_id: int, expected_epoch: int) -> bool:
     if row is None:
         return False
     status, run_epoch = row
-    return status == TASK_CANCELLED or run_epoch != expected_epoch
+    return status in CANCELLING_TASK_STATUSES or run_epoch != expected_epoch
 
 
 async def _downstream_task_ids(session: AsyncSession, task_id: int) -> set[int]:

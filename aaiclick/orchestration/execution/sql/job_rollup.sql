@@ -10,9 +10,10 @@
 -- failure-processing path (the UPSTREAM_FAILED sweep).
 SELECT
     COUNT(*) AS total,
-    SUM(CASE WHEN status IN ('PENDING', 'CLAIMED', 'RUNNING', 'PENDING_CLEANUP')
+    SUM(CASE WHEN status IN ('PENDING', 'CLAIMED', 'RUNNING',
+                             'PENDING_FAILURE_CLEANUP', 'PENDING_CANCELLED_CLEANUP')
         THEN 1 ELSE 0 END) AS non_terminal,
     SUM(CASE WHEN status IN ('FAILED', 'UPSTREAM_FAILED') THEN 1 ELSE 0 END) AS failed,
-    SUM(CASE WHEN status IN ('FAILED', 'CANCELLED', 'UPSTREAM_FAILED')
+    SUM(CASE WHEN status IN ('FAILED', 'PENDING_CANCELLED_CLEANUP', 'CANCELLED', 'UPSTREAM_FAILED')
         THEN 1 ELSE 0 END) AS cascade_trigger
 FROM tasks WHERE job_id = :job_id

@@ -10,7 +10,8 @@ const KNOWN: ReadonlySet<string> = new Set<JobStatus | TaskStatus>([
   "COMPLETED",
   "FAILED",
   "CANCELLED",
-  "PENDING_CLEANUP",
+  "PENDING_FAILURE_CLEANUP",
+  "PENDING_CANCELLED_CLEANUP",
   "UPSTREAM_FAILED",
 ]);
 

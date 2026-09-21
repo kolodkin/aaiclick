@@ -58,12 +58,26 @@ TASK_RUNNING = "RUNNING"
 TASK_COMPLETED = "COMPLETED"
 TASK_FAILED = "FAILED"
 TASK_CANCELLED = "CANCELLED"
-TASK_PENDING_CLEANUP = "PENDING_CLEANUP"
+TASK_PENDING_FAILURE_CLEANUP = "PENDING_FAILURE_CLEANUP"
+TASK_PENDING_CANCELLED_CLEANUP = "PENDING_CANCELLED_CLEANUP"
 TASK_UPSTREAM_FAILED = "UPSTREAM_FAILED"
 TaskStatus = Literal[
-    "PENDING", "CLAIMED", "RUNNING", "COMPLETED", "FAILED", "CANCELLED", "PENDING_CLEANUP", "UPSTREAM_FAILED"
+    "PENDING",
+    "CLAIMED",
+    "RUNNING",
+    "COMPLETED",
+    "FAILED",
+    "CANCELLED",
+    "PENDING_FAILURE_CLEANUP",
+    "PENDING_CANCELLED_CLEANUP",
+    "UPSTREAM_FAILED",
 ]
 """Task execution status.
+
+The ``PENDING_*_CLEANUP`` states are transient: the background worker still
+has to drop the attempt's run refs and pin refs. ``PENDING_FAILURE_CLEANUP``
+then retries to ``PENDING`` or settles to ``FAILED``;
+``PENDING_CANCELLED_CLEANUP`` settles to ``CANCELLED``.
 
 ``UPSTREAM_FAILED`` is a terminal state assigned by the cascade sweep when a
 task's transitive upstream is ``FAILED``, ``CANCELLED``, or ``UPSTREAM_FAILED``.
@@ -71,6 +85,17 @@ Job rollup treats it as a failure."""
 
 NON_SUCCESS_TASK_STATUSES: tuple[TaskStatus, ...] = (TASK_FAILED, TASK_CANCELLED, TASK_UPSTREAM_FAILED)
 """Terminal task statuses that a job rollup counts as a failure."""
+
+CANCELLABLE_TASK_STATUSES: tuple[TaskStatus, ...] = (
+    TASK_PENDING,
+    TASK_CLAIMED,
+    TASK_RUNNING,
+    TASK_PENDING_FAILURE_CLEANUP,
+)
+"""Statuses a cancellation moves to ``PENDING_CANCELLED_CLEANUP``."""
+
+CANCELLING_TASK_STATUSES: tuple[TaskStatus, ...] = (TASK_PENDING_CANCELLED_CLEANUP, TASK_CANCELLED)
+"""Statuses under which a worker aborts the run and no other status write lands."""
 
 
 EXECUTION_WORKER_ACTIVE = "ACTIVE"

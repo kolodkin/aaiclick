@@ -26,7 +26,7 @@ from .events.hooks import statement_touches_watched
 from .events.local import LocalTransport
 from .events.state import TransportState
 from .execution.claiming import cancel_job, update_task_status
-from .execution.execution_worker import _set_pending_cleanup, register_execution_worker
+from .execution.execution_worker import _set_pending_failure_cleanup, register_execution_worker
 from .factories import create_job
 from .jobs import get_tasks_for_job
 from .models import TASK_RUNNING
@@ -254,7 +254,7 @@ async def test_orm_update_statement_publishes(orch_ctx, live_bus):
     task = (await get_tasks_for_job(job.id))[0]
     await asyncio.sleep(SETTLE)
     async with recording(live_bus) as signals:
-        await _set_pending_cleanup(task.id, "boom")
+        await _set_pending_failure_cleanup(task.id, "boom")
     assert len(signals) == 1
 
 
