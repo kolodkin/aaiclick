@@ -537,8 +537,7 @@ async def commit_tasks(
 ) -> TasksType:
     """Commit tasks, groups, and their dependencies to the database.
 
-    Sets job_id on all items, generates snowflake IDs for Groups
-    if not already set, and commits to the SQL database.
+    Sets job_id on all items and commits to the SQL database.
 
     All tasks and groups created via create_task() or Group() are tracked in
     the active task registry (ContextVar set by orch_context / task_scope).
@@ -577,10 +576,6 @@ async def commit_tasks(
 
         for item in [*injected, *all_items]:
             item.job_id = job_id
-
-            if isinstance(item, Group) and item.id is None:
-                item.id = get_snowflake_id()
-
             session.add(item)
 
         await session.commit()
