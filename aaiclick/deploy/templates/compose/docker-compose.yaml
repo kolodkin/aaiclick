@@ -1,8 +1,9 @@
 # Starter docker-compose stack for an aaiclick docker-runner deployment.
 #
 # Scaffolded by `python -m aaiclick compose init` — customize freely; you
-# own this file. Credentials below are starter defaults: change them for
-# anything beyond local evaluation.
+# own this file. Every credential below reads `change-me-...`: the stack works
+# as-is, and the server warns at startup until you replace them. The full list
+# is in docs/user_guide/deployment.md.
 #
 # Task containers spawned by the docker runner run as SIBLINGS on the host
 # docker daemon (the worker mounts /var/run/docker.sock). They cannot
@@ -17,7 +18,7 @@ services:
     image: clickhouse/clickhouse-server:26.7
     environment:
       CLICKHOUSE_USER: default
-      CLICKHOUSE_PASSWORD: click123
+      CLICKHOUSE_PASSWORD: change-me-clickhouse
       CLICKHOUSE_DB: default
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 0
     ports:
@@ -39,7 +40,7 @@ services:
     image: postgres:18.6
     environment:
       POSTGRES_USER: aaiclick
-      POSTGRES_PASSWORD: secret
+      POSTGRES_PASSWORD: change-me-postgres
       POSTGRES_DB: aaiclick
     ports:
       - "5432:5432"
@@ -60,8 +61,8 @@ services:
     image: ghcr.io/kolodkin/aaiclick:__AAICLICK_IMAGE_TAG__
     command: python -m aaiclick migrate upgrade head
     environment:
-      AAICLICK_SQL_URL: postgresql+asyncpg://aaiclick:secret@postgres:5432/aaiclick
-      AAICLICK_CH_URL: clickhouse://default:click123@clickhouse:8123/default
+      AAICLICK_SQL_URL: postgresql+asyncpg://aaiclick:change-me-postgres@postgres:5432/aaiclick
+      AAICLICK_CH_URL: clickhouse://default:change-me-clickhouse@clickhouse:8123/default
     depends_on:
       postgres:
         condition: service_healthy
@@ -74,13 +75,12 @@ services:
     ports:
       - "5255:5255"
     environment:
-      AAICLICK_SQL_URL: postgresql+asyncpg://aaiclick:secret@postgres:5432/aaiclick
-      AAICLICK_CH_URL: clickhouse://default:click123@clickhouse:8123/default
-      # Distributed URLs enforce auth: the server refuses to start without a
-      # signing secret, and the admin below is seeded on first startup so the
-      # stack can be logged into (username: admin).
-      AAICLICK_JWT_SECRET: change-me-compose-jwt-secret-at-least-32-bytes
-      AAICLICK_ADMIN_PASSWORD: admin123
+      AAICLICK_SQL_URL: postgresql+asyncpg://aaiclick:change-me-postgres@postgres:5432/aaiclick
+      AAICLICK_CH_URL: clickhouse://default:change-me-clickhouse@clickhouse:8123/default
+      # Distributed URLs enforce auth: no signing secret means the server
+      # refuses to start. The admin is seeded on first startup (username: admin).
+      AAICLICK_JWT_SECRET: change-me-jwt-secret-at-least-32-bytes-long
+      AAICLICK_ADMIN_PASSWORD: change-me-admin-password
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -101,8 +101,8 @@ services:
       # host.docker.internal DSNs resolve BOTH here (extra_hosts above) and
       # inside spawned task containers (AAICLICK_DOCKER_RUN_ADD_HOST below),
       # so tasks inherit working connection strings verbatim.
-      AAICLICK_SQL_URL: postgresql+asyncpg://aaiclick:secret@host.docker.internal:5432/aaiclick
-      AAICLICK_CH_URL: clickhouse://default:click123@host.docker.internal:8123/default
+      AAICLICK_SQL_URL: postgresql+asyncpg://aaiclick:change-me-postgres@host.docker.internal:5432/aaiclick
+      AAICLICK_CH_URL: clickhouse://default:change-me-clickhouse@host.docker.internal:8123/default
       AAICLICK_REGISTRY: host.docker.internal:5000
       AAICLICK_DOCKER_BUILD_ADD_HOST: host.docker.internal:host-gateway
       AAICLICK_DOCKER_RUN_ADD_HOST: host.docker.internal:host-gateway
@@ -116,8 +116,8 @@ services:
     image: ghcr.io/kolodkin/aaiclick:__AAICLICK_IMAGE_TAG__
     command: python -m aaiclick background start
     environment:
-      AAICLICK_SQL_URL: postgresql+asyncpg://aaiclick:secret@postgres:5432/aaiclick
-      AAICLICK_CH_URL: clickhouse://default:click123@clickhouse:8123/default
+      AAICLICK_SQL_URL: postgresql+asyncpg://aaiclick:change-me-postgres@postgres:5432/aaiclick
+      AAICLICK_CH_URL: clickhouse://default:change-me-clickhouse@clickhouse:8123/default
     depends_on:
       migrate:
         condition: service_completed_successfully

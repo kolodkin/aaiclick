@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from aaiclick.auth import config, security, store
 from aaiclick.auth.models import ROLE_ADMIN
 from aaiclick.backend import is_local
+from aaiclick.deploy.placeholders import warn_if_placeholder_credentials
 from aaiclick.orchestration.local_runtime import local_runtime
 from aaiclick.orchestration.orch_context import orch_context
 
@@ -51,6 +52,7 @@ async def _seed_admin() -> None:
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     warn_if_open()
+    warn_if_placeholder_credentials()
     if config.auth_enabled():
         # Fail at startup, not on the first login: a distributed server
         # without a signing secret would pass health and 500 every login.

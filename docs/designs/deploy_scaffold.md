@@ -82,7 +82,10 @@ Full stack — `docker compose up` yields a complete working docker-runner deplo
   so that spawned task containers inherit the exact same env var values verbatim; only
   server/background use compose service names in `AAICLICK_SQL_URL` / `AAICLICK_CH_URL`.
 - Distributed URLs enforce auth, so the server carries starter `AAICLICK_JWT_SECRET` /
-  `AAICLICK_ADMIN_PASSWORD` values — without them it refuses to start or cannot be logged into.
+  `AAICLICK_ADMIN_PASSWORD` values — without them it refuses to start or cannot be logged in to.
+- Every shipped credential reads `change-me-...`, and the server warns at startup for each one
+  still unreplaced. **Implementation**: `aaiclick/deploy/placeholders.py` — see
+  `warn_if_placeholder_credentials()`; the user-facing list is `docs/user_guide/deployment.md`.
 - No profiles: `docker compose up` always brings up the whole stack. CI jobs that only need
   the infra services still run the full stack — simpler than maintaining profile splits.
 
@@ -182,9 +185,7 @@ test_e2e/compose/ (marker `compose_e2e`, `AAICLICK_E2E_COMPOSE_DIR`).
 - **No compose profiles**: everything comes up on `docker compose up`. Running the app
   services during infra-only CI jobs costs a little, but one invocation with no modes is
   simpler for users and CI alike.
-- **Starter auth credentials over helm `required`**: `auth.jwtSecret` / `auth.adminPassword`
-  ship as literal defaults like the database passwords, so `docker compose up` and
-  `helm install` work unmodified. The alternative — `required` in the chart and
-  `${VAR:?}` in compose — would fail every first install and the e2e gates without
-  extra `--set` flags. Cost: a well-known secret on any deployment that never overrides it,
-  which the template comments call out.
+- **Working placeholders over helm `required`**: every credential is a literal
+  `change-me-...` default, so a first install works unmodified. `required` would fail every
+  install and e2e gate instead. Cost: a well-known secret until replaced, which the startup
+  warning and the user guide chase.

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import patch
 
 import pytest
 from fastapi.routing import APIRoute
 from starlette.routing import Route
 
 from aaiclick.backend import is_local
+from aaiclick.deploy import placeholders
+from aaiclick.deploy.placeholders import PLACEHOLDER_MARKER
 from aaiclick.orchestration.execution import list_execution_workers
 from aaiclick.orchestration.models import EXECUTION_WORKER_ACTIVE
 from aaiclick.view_models import Problem
@@ -138,3 +141,15 @@ async def test_lifespan_refuses_to_start_without_jwt_secret(monkeypatch):
     with pytest.raises(RuntimeError, match="AAICLICK_JWT_SECRET"):
         async with _lifespan(app):
             pass
+
+
+async def test_lifespan_warns_about_unreplaced_scaffold_credentials(monkeypatch):
+    """A deployment still running the scaffold's credentials is flagged on
+    every startup, not silently trusted."""
+    monkeypatch.setenv("AAICLICK_JWT_SECRET", f"{PLACEHOLDER_MARKER}-jwt-secret-at-least-32-bytes-long")
+
+    with patch.object(placeholders.logger, "warning") as warning:
+        async with _lifespan(app):
+            pass
+
+    assert "AAICLICK_JWT_SECRET" in (warning.call_args[0][0] % warning.call_args[0][1:])

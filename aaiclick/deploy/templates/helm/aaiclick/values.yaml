@@ -9,20 +9,21 @@ imagePullSecrets: []
 
 # Connection URLs consumed by every aaiclick component. The defaults point
 # at the in-cluster dev dependencies below; production installs override
-# them (ideally via --set-file / an external secret manager).
+# them (ideally via --set-file / an external secret manager). Every
+# `change-me-...` value below is warned about at startup until replaced —
+# the full list is in docs/user_guide/deployment.md.
 env:
-  sqlUrl: postgresql+asyncpg://aaiclick:secret@aaiclick-postgres:5432/aaiclick
-  chUrl: clickhouse://default:click123@aaiclick-clickhouse:8123/default
+  sqlUrl: postgresql+asyncpg://aaiclick:change-me-postgres@aaiclick-postgres:5432/aaiclick
+  chUrl: clickhouse://default:change-me-clickhouse@aaiclick-clickhouse:8123/default
   # Registry the docker/kubernetes runner pushes task images to. Empty
   # disables the env var (subprocess and prebuilt-image jobs need none).
   registry: ""
 
-# Distributed URLs enforce auth: the server refuses to start without a
-# signing secret, and the admin is seeded on first startup so the release can
-# be logged into (username: admin). Starter defaults — override for real use.
+# Distributed URLs enforce auth: no signing secret means the server refuses to
+# start. The admin is seeded on first startup (username: admin).
 auth:
-  jwtSecret: change-me-helm-jwt-secret-at-least-32-bytes
-  adminPassword: admin123
+  jwtSecret: change-me-jwt-secret-at-least-32-bytes-long
+  adminPassword: change-me-admin-password
 
 serviceAccount:
   name: aaiclick-worker
@@ -51,9 +52,9 @@ devDependencies:
   postgres:
     image: postgres:18.6
     user: aaiclick
-    password: secret
+    password: change-me-postgres
     db: aaiclick
   clickhouse:
     image: clickhouse/clickhouse-server:26.7
     user: default
-    password: click123
+    password: change-me-clickhouse
