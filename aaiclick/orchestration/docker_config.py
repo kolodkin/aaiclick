@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-import re
 from typing import Literal
 
 from .execution import cli
@@ -22,8 +21,6 @@ from .runner_config import (
     KubernetesRunner,
     RunnerConfigT,
 )
-
-_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 BUILD_MODE_REGISTRY = "registry"
 BUILD_MODE_LOCAL = "local"
@@ -147,7 +144,7 @@ async def resolve_image_source(
         remote = registered.git_remote
     if remote is None:
         remote = await auto_detect_git_remote()
-    sha = _validate_sha(git_sha) if git_sha else await auto_detect_git_sha()
+    sha = git_sha or await auto_detect_git_sha()
     branch = git_branch if git_branch is not None else await auto_detect_git_branch()
     dfile = dockerfile
     if dfile is None and registered is not None:
@@ -185,9 +182,3 @@ def add_host_flags(env_var: str) -> list[str]:
         if entry:
             flags.extend(["--add-host", entry])
     return flags
-
-
-def _validate_sha(sha: str) -> str:
-    if not _SHA_RE.match(sha):
-        raise ValueError(f"git_sha must be a 40-char lowercase hex string; got {sha!r}")
-    return sha

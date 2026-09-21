@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 from ..data_context import create_object, get_ch_client
 from ..formats import INPUT_FORMATS, JSON_BLOB_FORMATS
 from ..models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, ColumnInfo, Schema, parse_ch_type
-from ..sql_utils import escape_sql_string, quote_identifier, quote_sql_literal
+from ..sql_utils import quote_identifier, quote_sql_literal
 from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
 
 if TYPE_CHECKING:
@@ -106,7 +106,7 @@ def _build_json_select(
         json_columns: Mapping of JSON field name to target ColumnInfo
         json_path: Dot-path to the JSON array (e.g., "vulnerabilities")
         format: RawBLOB or JSONAsString
-        safe_url: SQL-safe URL string (single quotes escaped)
+        safe_url: The URL as a quoted SQL literal (``quote_sql_literal``)
         single_col_alias: When set (single-column ARRAY case), alias the
             extracted value to this name so INSERT matches the schema's
             ``"value"`` column.
@@ -127,7 +127,7 @@ def _build_json_select(
     from_subquery = (
         f"(SELECT arrayJoin(JSONExtractArrayRaw("
         f"{quote_identifier(source_col)}, {path_keys_sql})) AS elem "
-        f"FROM url('{safe_url}', '{format}')) AS _json_src"
+        f"FROM url({safe_url}, '{format}')) AS _json_src"
     )
 
     return select_exprs, from_subquery
@@ -243,8 +243,7 @@ async def _create_from_tabular(
     """Load data from a tabular URL source (Parquet, CSV, JSONEachRow, etc.)."""
     ch = get_ch_client()
     settings = ch_settings or {}
-    safe_url = escape_sql_string(url)
-    safe_source = f"url('{safe_url}', '{format}')"
+    safe_source = f"url({quote_sql_literal(url)}, '{format}')"
 
     quoted_columns = [quote_identifier(c) for c in columns]
     columns_str = ", ".join(quoted_columns)
@@ -310,7 +309,7 @@ async def _create_from_json(
     """Load data from a nested JSON API via RawBLOB/JSONAsString + JSONExtract."""
     ch = get_ch_client()
     settings = ch_settings or {}
-    safe_url = escape_sql_string(url)
+    safe_url = quote_sql_literal(url)
 
     if len(json_columns) == 1:
         only_col_info = next(iter(json_columns.values()))

@@ -60,7 +60,7 @@ from ..models import (
     parse_ch_type,
 )
 from ..scope import NamedScope, ObjectScope, is_persistent_table, scope_of
-from ..sql_utils import escape_sql_string, quote_identifier
+from ..sql_utils import quote_identifier, quote_sql_literal
 from . import data_extraction, ingest, operators
 from . import join as join_module
 from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
@@ -1184,7 +1184,7 @@ class Object:
         if where is not None and ";" in where:
             raise ValueError("WHERE clause must not contain ';'")
 
-        safe_url = escape_sql_string(url)
+        safe_url = quote_sql_literal(url)
 
         # Build column selection
         quoted_columns = [quote_identifier(c) for c in columns]
@@ -1203,7 +1203,7 @@ class Object:
         insert_query = (
             f"INSERT INTO {self.table} ({insert_cols_str}) "
             f"SELECT {select_cols} "
-            f"FROM url('{safe_url}', '{format}')"
+            f"FROM url({safe_url}, '{format}')"
             f"{where_clause}"
             f"{limit_clause}"
         )

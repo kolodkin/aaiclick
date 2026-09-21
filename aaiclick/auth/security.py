@@ -31,6 +31,11 @@ TOTP_DRIFT_STEPS = 1
 """Accept codes from this many steps either side of now — clock skew tolerance."""
 TOTP_ISSUER = "aaiclick"
 
+BCRYPT_MAX_PASSWORD_BYTES = 72
+"""bcrypt keys on at most this many bytes. Before 5.0 it truncated silently;
+5.0 raises instead, so truncate here to keep long passwords — and the hashes
+already stored for them — working."""
+
 
 class TokenError(Exception):
     """Access token is missing, malformed, expired, or wrong type."""
@@ -42,12 +47,16 @@ class AccessClaims(NamedTuple):
     """The user's installation-wide role at mint time."""
 
 
+def _bcrypt_input(password: str) -> bytes:
+    return password.encode()[:BCRYPT_MAX_PASSWORD_BYTES]
+
+
 def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    return bcrypt.hashpw(_bcrypt_input(password), bcrypt.gensalt()).decode()
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    return bcrypt.checkpw(password.encode(), password_hash.encode())
+    return bcrypt.checkpw(_bcrypt_input(password), password_hash.encode())
 
 
 def generate_secret() -> str:

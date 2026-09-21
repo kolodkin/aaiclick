@@ -12,7 +12,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from aaiclick.data.data_context.ch_client import _ch_client_var, create_ch_client, get_ch_client
-from aaiclick.data.sql_utils import escape_sql_string
+from aaiclick.data.sql_utils import quote_sql_literal
 
 LineageDirection = Literal["backward", "forward"]
 
@@ -192,14 +192,13 @@ async def backward_oplog(
     guards against revisiting nodes in diamond-shaped lineage graphs.
     """
     ch_client = get_ch_client()
-    table_escaped = escape_sql_string(table)
     result = await ch_client.query(f"""
         WITH RECURSIVE upstream AS (
             SELECT result_table, operation, kwargs,
                    sql_template, task_id, job_id,
                    0 AS depth, [result_table] AS visited
             FROM operation_log
-            WHERE result_table = '{table_escaped}'
+            WHERE result_table = {quote_sql_literal(table)}
 
             UNION ALL
 
@@ -229,12 +228,11 @@ async def forward_oplog(
     visited: set[str] = set()
     nodes: list[OplogNode] = []
 
-    table_escaped = escape_sql_string(table)
     seed = await ch_client.query(f"""
         SELECT result_table, operation, kwargs,
                sql_template, task_id, job_id
         FROM operation_log
-        WHERE result_table = '{table_escaped}'
+        WHERE result_table = {quote_sql_literal(table)}
         LIMIT 1
     """)
     for row in seed.result_rows:
@@ -247,7 +245,7 @@ async def forward_oplog(
         if not frontier:
             break
 
-        placeholders = ", ".join(f"'{t}'" for t in frontier)
+        placeholders = ", ".join(quote_sql_literal(t) for t in frontier)
         result = await ch_client.query(f"""
             SELECT result_table, operation, kwargs,
                    sql_template, task_id, job_id

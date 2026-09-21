@@ -76,6 +76,19 @@ async def test_build_image_to_tag_pushes_after_local_cache_hit_when_registry_set
     push.assert_awaited_once_with(expected_tag)
 
 
+async def test_git_clone_passes_remote_and_sha_after_end_of_options(monkeypatch):
+    """Both remote and SHA are positional to git; ``--`` stops git reading either as an option."""
+    run = AsyncMock()
+    monkeypatch.setattr(docker_build.cli, "run", run)
+    sha = "a" * 40
+
+    await docker_build._git_clone_at_sha("https://example.com/r.git", sha, "/work")
+
+    argvs = [call.args for call in run.await_args_list]
+    assert ("git", "-C", "/work", "remote", "add", "origin", "--", "https://example.com/r.git") in argvs
+    assert ("git", "-C", "/work", "fetch", "--depth=1", "--quiet", "origin", "--", sha) in argvs
+
+
 async def test_build_image_to_tag_missing_dockerfile_raises(monkeypatch):
     monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
     source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40, dockerfile="Dockerfile.missing")
