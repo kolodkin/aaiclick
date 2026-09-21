@@ -64,9 +64,6 @@ class DBLifecycleMessage:
     op: DBLifecycleOp
     table_name: str = ""
     pin_task_id: int | None = None
-    # PIN only: pin for exactly these consumer task ids instead of fanning out
-    # over the ``dependencies`` rows of ``pin_task_id``.
-    pin_consumer_ids: tuple[int, ...] | None = None
     oplog: OplogPayload | None = None
     oplog_table: OplogTablePayload | None = None
     flush_event: asyncio.Event | None = None  # signalled after FLUSH reaches here

@@ -33,6 +33,54 @@ landed, so no table is dropped under a process still being stopped.
 
 ---
 
+# Pin Fan-Out Ignores Group Edges
+
+The PIN handler (`aaiclick/orchestration/orch_context.py` — see
+`OrchLifecycleHandler._process_loop()`) resolves a producer's consumers with
+`previous_id = :task_id AND previous_type = 'task' AND next_type = 'task'`:
+direct task→task edges only. The scheduler understands four edge shapes, and
+`_downstream_task_ids()` in `claiming.py` already walks all of them. Pinning
+and scheduling disagree about what a consumer is.
+
+Every group edge therefore leaves a window in which a result table has
+neither a pin nor a run ref and is drop-eligible:
+
+- `A >> group` — the row is (task A, group G); no member of G gets a pin.
+- `group >> B` — the row is (group G, task B); a member M's fan-out looks up
+  `previous_id = M.id` and finds nothing.
+- `group >> group` — both at once; this is the edge reduce uses between
+  layers.
+
+A consumer reads group results through `group_results_ref` at its own start
+(incref, then a no-op unpin), so the window runs from the member's
+`task_scope` exit to the consumer's claim. It is short in-process and the
+sweep polls every ten seconds, which keeps it latent locally. `map()` is the
+guaranteed case: the expander pins nothing and its children are group
+siblings with no edge from it at all.
+
+## Design
+
+1. Resolve pin consumers the way the scheduler does: from producer M, the
+   next-tasks of M plus the next-tasks of M's group, with group targets
+   expanded to their members — one hop of `_downstream_task_ids()`, shared
+   rather than re-implemented.
+2. Cover expander-created children, which the fan-out cannot reach even once
+   group-aware: their rows and group membership are committed by
+   `register_returned_tasks()` after the expander pins, and `map()`'s `out`
+   is not the expander's return value. Either pin after the children are
+   committed and let the expander name what it pins for them, or return
+   `out` as `TaskResult.data` and treat the expander's own group members as
+   consumers. Decide once, for `map()` and `reduce()` together.
+3. `_collect_upstreams()` in `decorators.py` ignores `Group`, so a group
+   passed as a kwarg creates no dependency edge at all; the consumer can run
+   before the group finishes, independent of pinning. Fix alongside, since
+   the group-aware fan-out assumes the edge exists.
+
+Covers the `map()` High and the `_expand_reduce` Medium in the code review
+backlog.
+
+---
+
 # Code Review Backlog
 
 `docs/designs/code_review_2026_09.md` — findings from the whole-project

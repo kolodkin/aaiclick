@@ -24,6 +24,14 @@ is fixed.
   hostnames** — `SqlConfig.java`, `fromUrl()`. `?ssl=require` is lost; a
   service named `postgres_db` yields `jdbc:postgresql://null:5432/...`.
 
+## Orchestration
+
+- **`map()` output and source tables have zero lifecycle refs after the
+  expander exits** — `aaiclick/orchestration/operators.py`, `_expand_map()`.
+  Nothing pins `out`, so both tables are eligible for the drop sweep before
+  any `_map_part` child runs. Root cause and design: `future.md`
+  "Pin Fan-Out Ignores Group Edges".
+
 ## Deployment
 
 - **Scaffolded compose and helm stacks cannot be logged into** —
@@ -60,6 +68,11 @@ is fixed.
   `aaiclick/orchestration/background/handler.py`, the retry transition. A
   stalled-but-alive worker can write COMPLETED over a task another worker has
   re-claimed.
+- **`_expand_reduce` pins fan out over dependency rows that do not exist yet**
+  — `aaiclick/orchestration/operators.py`, `_expand_reduce()`. The PIN handler
+  queries `dependencies` live; the `_reduce_part` edges are committed later in
+  `register_returned_tasks`. On Postgres the pins insert nothing. Same root
+  cause as the `map()` item above.
 - **`_complete_job` has no job-status guard** —
   `aaiclick/orchestration/background/handler.py` and `sql/complete_job.sql`.
   A `cancel_job` between a worker's COMPLETED write and its rollup turns the
