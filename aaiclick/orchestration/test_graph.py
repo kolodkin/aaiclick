@@ -21,7 +21,8 @@ from .models import (
     TASK_COMPLETED,
     TASK_FAILED,
     TASK_PENDING,
-    TASK_PENDING_CLEANUP,
+    TASK_PENDING_CANCELLED_CLEANUP,
+    TASK_PENDING_FAILURE_CLEANUP,
     TASK_RUNNING,
     TASK_UPSTREAM_FAILED,
 )
@@ -144,7 +145,8 @@ def test_build_graph_edges_expands_then_drops_cycles():
         pytest.param([TASK_COMPLETED, TASK_CANCELLED], TASK_CANCELLED, id="cancelled"),
         pytest.param([TASK_COMPLETED, TASK_COMPLETED], TASK_COMPLETED, id="all-completed"),
         pytest.param([TASK_COMPLETED, TASK_PENDING], TASK_PENDING, id="partial-progress-is-pending"),
-        pytest.param([TASK_COMPLETED, TASK_PENDING_CLEANUP], TASK_PENDING, id="cleanup-is-pending"),
+        pytest.param([TASK_COMPLETED, TASK_PENDING_FAILURE_CLEANUP], TASK_PENDING, id="failure-cleanup-is-pending"),
+        pytest.param([TASK_COMPLETED, TASK_PENDING_CANCELLED_CLEANUP], TASK_PENDING, id="cancelled-cleanup-is-pending"),
         pytest.param([], TASK_PENDING, id="empty"),
     ],
 )

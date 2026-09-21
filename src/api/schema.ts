@@ -1189,7 +1189,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "PENDING" | "CLAIMED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_CLEANUP" | "UPSTREAM_FAILED";
+            status: "PENDING" | "CLAIMED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_FAILURE_CLEANUP" | "PENDING_CANCELLED_CLEANUP" | "UPSTREAM_FAILED";
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1974,7 +1974,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "PENDING" | "CLAIMED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_CLEANUP" | "UPSTREAM_FAILED";
+            status: "PENDING" | "CLAIMED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_FAILURE_CLEANUP" | "PENDING_CANCELLED_CLEANUP" | "UPSTREAM_FAILED";
         };
         /**
          * TaskLogsView
@@ -2005,7 +2005,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "PENDING" | "CLAIMED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_CLEANUP" | "UPSTREAM_FAILED";
+            status: "PENDING" | "CLAIMED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_FAILURE_CLEANUP" | "PENDING_CANCELLED_CLEANUP" | "UPSTREAM_FAILED";
         };
         /**
          * TaskView
@@ -2042,7 +2042,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "PENDING" | "CLAIMED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_CLEANUP" | "UPSTREAM_FAILED";
+            status: "PENDING" | "CLAIMED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_FAILURE_CLEANUP" | "PENDING_CANCELLED_CLEANUP" | "UPSTREAM_FAILED";
         };
         /** TokenPair */
         TokenPair: {

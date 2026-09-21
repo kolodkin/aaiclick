@@ -82,34 +82,6 @@ today. Covers the `map()` High in the code review backlog.
 
 ---
 
-# Cancellation Cleanup — CANCELLING State
-
-Cancelling a task releases none of its lifecycle refs. Pin refs that upstream
-producers hold for it as a consumer are never unpinned (the task never
-deserializes its inputs), and a container or pod killed by `terminate` may
-never run `task_scope`'s decref block, so its run refs linger too. Both keep
-the job's tables alive until the job-TTL sweep. Failures already have a
-contract for this — PENDING_CLEANUP, where the background worker drops the
-attempt's run refs and pin refs before the task turns terminal — and
-cancellation should get the same shape. No backwards compatibility is
-required; renaming PENDING_CLEANUP to PENDING_FAILURE_CLEANUP alongside is
-allowed.
-
-1. `cancel_job` moves every non-terminal task to CANCELLING (the job goes to
-   CANCELLED at once, as today).
-2. The worker's abort check treats CANCELLING like CANCELLED and kills the
-   run. When the killed run reports back, the worker stamps the last
-   `run_statuses` entry CANCELLED; `update_task_status` and
-   `_set_pending_cleanup` refuse to overwrite CANCELLING.
-3. The background worker's cleanup pass picks up CANCELLING tasks whose last
-   run has ended, or that never ran, deletes their run refs and pin refs, and
-   moves them to CANCELLED — the PENDING_CLEANUP pass minus the retry branch.
-
-The run-status stamp in step 2 is the signal that a container or pod kill has
-landed, so no table is dropped under a process still being stopped.
-
----
-
 # Code Review Backlog
 
 `docs/designs/code_review_2026_09.md` — findings from the whole-project

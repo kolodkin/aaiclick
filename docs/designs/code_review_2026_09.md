@@ -73,10 +73,6 @@ is fixed.
   queries `dependencies` live; the `_reduce_part` edges are committed later in
   `register_returned_tasks`. On Postgres the pins insert nothing. Same root
   cause as the `map()` item above.
-- **`_complete_job` has no job-status guard** —
-  `aaiclick/orchestration/background/handler.py` and `sql/complete_job.sql`.
-  A `cancel_job` between a worker's COMPLETED write and its rollup turns the
-  CANCELLED job into COMPLETED.
 - **`map()` never sets `expander.group_id`** —
   `aaiclick/orchestration/operators.py`, `map()`. Until the expander runs the
   group is empty, so `group >> consumer` is vacuously satisfied on
