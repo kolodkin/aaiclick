@@ -17,9 +17,10 @@ from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution.debug import run_job_tasks
-from aaiclick.orchestration.models import JOB_COMPLETED, Job
+from aaiclick.orchestration.models import JOB_COMPLETED, Group, Job
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.sql_context import _sql_engine_var
+from aaiclick.snowflake import get_snowflake_id
 
 # --- Task fixtures (module-level for entrypoint resolution) ---
 
@@ -50,6 +51,14 @@ async def add_objects(a: Object, b: Object) -> Object:
 async def read_sum(data: Object) -> dict:
     result = await data.sum()
     return {"total": await result.data()}
+
+
+@task
+async def read_group_sum(results: list[Object]) -> dict:
+    total = 0
+    for obj in results:
+        total += await (await obj.sum()).data()
+    return {"total": total}
 
 
 @task
@@ -112,6 +121,19 @@ def diamond_pipeline():
 def view_concat_pipeline():
     data = paginate_and_concat()
     return read_sum(data=data)
+
+
+@job("lifecycle_group_consumer")
+def group_consumer_pipeline():
+    """Two producers in a group feed one consumer over a group >> task edge."""
+    group = Group(id=get_snowflake_id(), name="producers")
+    for _ in range(2):
+        member = produce()
+        member.group_id = group.id
+        group.add_task(member)
+    reader = read_group_sum(results=group)
+    group >> reader
+    return [group, reader]
 
 
 # --- Audit trail ---
@@ -291,3 +313,10 @@ async def test_view_concat_lifecycle(orch_ctx):
     are checked by _run_and_verify itself.
     """
     await _run_and_verify(view_concat_pipeline)
+
+
+async def test_group_consumer(orch_ctx):
+    """(M1, M2) in G, G >> B: each member's table is pinned for B and released by B."""
+    events = await _run_and_verify(group_consumer_pipeline)
+    pins = [e for e in events if e.table == "table_pin_refs" and e.action == "INSERT"]
+    assert len(pins) == 2

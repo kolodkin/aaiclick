@@ -5,51 +5,28 @@ Planned work across aaiclick, ordered by priority.
 
 ---
 
-# Pin Fan-Out Ignores Group Edges
+# Group Kwarg Creates No Dependency Edge
 
-The PIN handler (`aaiclick/orchestration/orch_context.py` — see
-`OrchLifecycleHandler._process_loop()`) resolves a producer's consumers with
-`previous_id = :task_id AND previous_type = 'task' AND next_type = 'task'`:
-direct task→task edges only. The scheduler understands four edge shapes, and
-`_downstream_task_ids()` in `claiming.py` already walks all of them. Pinning
-and scheduling disagree about what a consumer is.
+`_collect_upstreams()` in `decorators.py` ignores `Group`, while
+`_serialize_value()` emits a `group_results_ref` for it. A group passed as a
+kwarg therefore creates no dependency edge: the consumer can be claimed before
+the group finishes, and the group-results read (which filters on COMPLETED
+members) silently returns a partial or empty list.
 
-Every group edge therefore leaves a window in which a result table has
-neither a pin nor a run ref and is drop-eligible:
+Fix: collect `Group` values alongside `Task` values and wire `group >> task`.
+Land the "`map()` never sets `expander.group_id`" backlog item with it —
+until the expander is a member, the new edge is vacuously satisfied on
+multi-worker deployments.
 
-- `A >> group` — the row is (task A, group G); no member of G gets a pin.
-- `group >> B` — the row is (group G, task B); a member M's fan-out looks up
-  `previous_id = M.id` and finds nothing.
-- `group >> group` — both at once; this is the edge reduce uses between
-  layers.
-
-A consumer reads group results through `group_results_ref` at its own start
-(incref, then a no-op unpin), so the window runs from the member's
-`task_scope` exit to the consumer's claim. It is short in-process and the
-sweep polls every ten seconds, which keeps it latent locally. `map()` is the
-guaranteed case: the expander pins nothing and its children are group
-siblings with no edge from it at all.
-
-## Design
-
-1. Resolve pin consumers the way the scheduler does: from producer M, the
-   next-tasks of M plus the next-tasks of M's group, with group targets
-   expanded to their members — one hop of `_downstream_task_ids()`, shared
-   rather than re-implemented.
-2. `_collect_upstreams()` in `decorators.py` ignores `Group`, so a group
-   passed as a kwarg creates no dependency edge at all; the consumer can run
-   before the group finishes, independent of pinning. Fix alongside, since
-   the group-aware fan-out assumes the edge exists.
-
-Covers the `_expand_reduce` Medium in the code review backlog. The `map()`
-High needs the follow-up below as well.
+The PIN fan-out (`_pin_consumer_ids` in `orch_context.py`) already resolves
+consumers through group edges, so the edge is all that is missing.
 
 ---
 
 # Expander Children Have No Pin Path
 
-Follow-up to "Pin Fan-Out Ignores Group Edges": a group-aware fan-out still
-cannot reach the children an expander creates at runtime.
+The PIN fan-out resolves consumers through group edges, but still cannot
+reach the children an expander creates at runtime.
 
 `_expand_map()` (`aaiclick/orchestration/operators.py`) creates `out`, builds
 one `_map_part` child per partition, and returns them as `tasks_list`. Two
@@ -64,7 +41,7 @@ things keep the children out of any fan-out:
 
 Between the expander exiting and the first child claiming, both tables meet
 the drop sweep's "no pins, no run refs" condition. `_expand_reduce()` has the
-same shape per layer once group edges are covered.
+same shape per layer.
 
 ## Design
 

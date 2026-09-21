@@ -30,7 +30,7 @@ is fixed.
   expander exits** — `aaiclick/orchestration/operators.py`, `_expand_map()`.
   Nothing pins `out`, so both tables are eligible for the drop sweep before
   any `_map_part` child runs. Root cause and design: `future.md`
-  "Pin Fan-Out Ignores Group Edges" and "Expander Children Have No Pin Path".
+  "Group Kwarg Creates No Dependency Edge" and "Expander Children Have No Pin Path".
 
 ## Deployment
 
