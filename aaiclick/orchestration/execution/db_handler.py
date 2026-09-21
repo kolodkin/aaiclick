@@ -33,6 +33,8 @@ def get_db_handler() -> DbHandler:
 # SQLite-only: the PostgreSQL claim path carries its own copy of these
 # clauses inside the shared sql/claim_next_task.sql — keep the two in sync
 # when eligibility rules change.
+# The successor direction of the same four edge shapes lives in
+# orchestration/dependency_graph.py.
 DEPENDENCY_WHERE = """
     AND NOT EXISTS (
         SELECT 1 FROM dependencies d

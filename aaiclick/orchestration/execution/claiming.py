@@ -5,7 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from ...datetime_utils import utc_now
-from ..background.handler import cancelling_transition, in_clause
+from ..background.handler import cancelling_transition
+from ..dependency_graph import successor_task_ids
 from ..models import (
     CANCELLING_TASK_STATUSES,
     JOB_CANCELLED,
@@ -22,6 +23,7 @@ from ..models import (
     TaskStatus,
 )
 from ..orch_context import get_db_handler, get_sql_session
+from ..sql_utils import in_clause
 
 
 class JobNotFound(ValueError):
@@ -272,70 +274,15 @@ async def check_run_aborted(task_id: int, expected_epoch: int) -> bool:
 async def _downstream_task_ids(session: AsyncSession, task_id: int) -> set[int]:
     """Return every task id transitively downstream of ``task_id`` (excluding it).
 
-    Walks the four dependency edge shapes the scheduler already understands
-    (task→task, task→group, group→task, group→group). A grouped task pulls in
-    the group's *consumers* — the group is no longer fully complete — but never
-    its parallel siblings, which are not downstream.
+    Iterates ``successor_task_ids`` to a fixpoint. A grouped task pulls in the
+    group's *consumers* — the group is no longer fully complete — but never its
+    parallel siblings, which are not downstream.
     """
-
-    def classify(edges, task_dest: set[int], group_dest: set[int]) -> None:
-        """Sort dependency ``(next_id, next_type)`` rows into task vs group sets."""
-        for next_id, next_type in edges:
-            (task_dest if next_type == "task" else group_dest).add(next_id)
-
     downstream: set[int] = set()
     frontier = {task_id}
     while frontier:
-        task_ids = list(frontier)
-        tph, tparams = in_clause(task_ids, "t")
-        rows = await session.execute(
-            text(f"SELECT DISTINCT group_id FROM tasks WHERE id IN ({tph}) AND group_id IS NOT NULL"),
-            tparams,
-        )
-        group_ids = [r[0] for r in rows]
-
-        succ_task_ids: set[int] = set()
-        succ_group_ids: set[int] = set()
-
-        # Edges originating from the frontier tasks themselves.
-        classify(
-            await session.execute(
-                text(
-                    f"SELECT next_id, next_type FROM dependencies WHERE previous_type = 'task' AND previous_id IN ({tph})"
-                ),
-                tparams,
-            ),
-            succ_task_ids,
-            succ_group_ids,
-        )
-
-        # Edges originating from the groups those frontier tasks belong to.
-        if group_ids:
-            gph, gparams = in_clause(group_ids, "g")
-            classify(
-                await session.execute(
-                    text(
-                        f"SELECT next_id, next_type FROM dependencies "
-                        f"WHERE previous_type = 'group' AND previous_id IN ({gph})"
-                    ),
-                    gparams,
-                ),
-                succ_task_ids,
-                succ_group_ids,
-            )
-
-        # Resolve any successor groups to their member tasks.
-        if succ_group_ids:
-            sgph, sgparams = in_clause(sorted(succ_group_ids), "sg")
-            member_rows = await session.execute(
-                text(f"SELECT id FROM tasks WHERE group_id IN ({sgph})"),
-                sgparams,
-            )
-            succ_task_ids.update(r[0] for r in member_rows)
-
-        new = succ_task_ids - downstream - {task_id}
-        downstream |= new
-        frontier = new
+        frontier = await successor_task_ids(session, frontier) - downstream - {task_id}
+        downstream |= frontier
     return downstream
 
 

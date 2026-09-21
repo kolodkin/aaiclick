@@ -6,7 +6,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import TASK_CLAIMED, TASK_PENDING_CANCELLED_CLEANUP, TASK_PENDING_FAILURE_CLEANUP, TASK_RUNNING
-from .handler import DEAD_WORKER_ERROR, BackgroundHandler, in_clause
+from ..sql_utils import in_clause
+from .handler import DEAD_WORKER_ERROR, BackgroundHandler
 
 
 class SqliteBackgroundHandler(BackgroundHandler):

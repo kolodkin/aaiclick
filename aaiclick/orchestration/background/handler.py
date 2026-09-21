@@ -30,6 +30,7 @@ from ..models import (
     TASK_UPSTREAM_FAILED,
     TaskStatus,
 )
+from ..sql_utils import in_clause
 
 JOB_FAILED_ERROR = "One or more tasks failed"
 UPSTREAM_FAILED_ERROR = "Upstream task failed"
@@ -183,16 +184,6 @@ async def cascade_abort_group_siblings(session: AsyncSession, job_id: int) -> in
         },
     )
     return cast(CursorResult, result).rowcount or 0
-
-
-def in_clause(ids: list, prefix: str) -> tuple[str, dict]:
-    """Build a parameterized IN clause compatible with both SQLite and PostgreSQL.
-
-    Returns (placeholder_string, params_dict) e.g. (":p0, :p1", {"p0": 1, "p1": 2}).
-    """
-    params = {f"{prefix}{i}": v for i, v in enumerate(ids)}
-    placeholders = ", ".join(f":{k}" for k in params)
-    return placeholders, params
 
 
 # The status-set knowledge lives in the SQL files, not in code. Eager loads

@@ -17,9 +17,11 @@ from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution.debug import run_job_tasks
-from aaiclick.orchestration.models import JOB_COMPLETED, Job
+from aaiclick.orchestration.models import JOB_COMPLETED, Group, Job
+from aaiclick.orchestration.operators import map
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.sql_context import _sql_engine_var
+from aaiclick.snowflake import get_snowflake_id
 
 # --- Task fixtures (module-level for entrypoint resolution) ---
 
@@ -50,6 +52,24 @@ async def add_objects(a: Object, b: Object) -> Object:
 async def read_sum(data: Object) -> dict:
     result = await data.sum()
     return {"total": await result.data()}
+
+
+@task
+async def touch_nothing() -> dict:
+    return {"touched": True}
+
+
+@task
+async def row_noop(row) -> None:
+    pass
+
+
+@task
+async def read_group_sum(results: list[Object]) -> dict:
+    total = 0
+    for obj in results:
+        total += await (await obj.sum()).data()
+    return {"total": total}
 
 
 @task
@@ -114,6 +134,32 @@ def view_concat_pipeline():
     return read_sum(data=data)
 
 
+@job("lifecycle_ordering_edge")
+def ordering_edge_pipeline():
+    """A >> B where B never reads A's table: B's pin is still released."""
+    data = produce()
+    done = touch_nothing()
+    data >> done
+    return done
+
+
+@job("lifecycle_map")
+def map_pipeline():
+    """produce >> map: the expander's children read the source and write the output."""
+    data = produce()
+    return [data, map(cbk=row_noop, obj=data)]
+
+
+@job("lifecycle_group_consumer")
+def group_consumer_pipeline():
+    """Two producers in a group feed one consumer over a group >> task edge."""
+    group = Group(id=get_snowflake_id(), name="producers")
+    for _ in range(2):
+        group.add_task(produce())
+    reader = read_group_sum(results=group)
+    return [group, reader]
+
+
 # --- Audit trail ---
 
 TRACKED_TABLES = {"table_pin_refs", "table_run_refs", "table_context_refs"}
@@ -129,25 +175,29 @@ def _install_hook(async_engine):
     events = []
     sync_engine = async_engine.sync_engine
 
-    @event.listens_for(sync_engine, "before_cursor_execute")
+    @event.listens_for(sync_engine, "after_cursor_execute")
     def capture(conn, cursor, statement, parameters, context, executemany):
         stmt_upper = statement.upper()
         for tracked in TRACKED_TABLES:
             if tracked.upper() in stmt_upper:
                 if "INSERT" in stmt_upper:
                     action = "INSERT"
+                    # A batched INSERT carries one parameter set per row.
+                    rows = len(parameters) if executemany else 1
                 elif "DELETE" in stmt_upper:
                     action = "DELETE"
+                    # One release may drop several pin rows, or none.
+                    rows = cursor.rowcount
                 else:
                     continue
-                events.append(RefEvent(action, tracked))
+                events.extend([RefEvent(action, tracked)] * rows)
 
     return events, capture
 
 
 def _remove_hook(async_engine, listener):
     """Remove the event hook."""
-    event.remove(async_engine.sync_engine, "before_cursor_execute", listener)
+    event.remove(async_engine.sync_engine, "after_cursor_execute", listener)
 
 
 # --- Helpers ---
@@ -166,6 +216,10 @@ async def _get_run_refs(session):
 async def _get_context_tables(session):
     result = await session.execute(text("SELECT DISTINCT table_name FROM table_context_refs"))
     return {r[0] for r in result.fetchall()}
+
+
+def _pin_inserts(events: list[RefEvent]) -> list[RefEvent]:
+    return [e for e in events if e.table == "table_pin_refs" and e.action == "INSERT"]
 
 
 async def _run_cleanup():
@@ -201,7 +255,7 @@ async def _run_and_verify(pipeline_fn):
             assert len(temp_tables) > 0, "Expected context_refs before cleanup"
 
         # Verify pin/unpin pairs (per-consumer: producer fans out, consumer unpins)
-        pin_inserts = [e for e in events if e.table == "table_pin_refs" and e.action == "INSERT"]
+        pin_inserts = _pin_inserts(events)
         pin_deletes = [e for e in events if e.table == "table_pin_refs" and e.action == "DELETE"]
         assert len(pin_inserts) > 0, "No PINs recorded"
         assert len(pin_deletes) > 0, "No UNPINs recorded"
@@ -246,7 +300,7 @@ async def _run_and_verify(pipeline_fn):
 async def test_single_consumer(orch_ctx):
     """A → B: one pin for the single consumer, one unpin."""
     events = await _run_and_verify(single_consumer_pipeline)
-    pins = [e for e in events if e.table == "table_pin_refs" and e.action == "INSERT"]
+    pins = _pin_inserts(events)
     # produce() result → read_sum(): 1 consumer pin
     assert len(pins) >= 1
 
@@ -254,7 +308,7 @@ async def test_single_consumer(orch_ctx):
 async def test_fan_out(orch_ctx):
     """A → (B, C) → D: produce() result pinned for both double() and add_ten()."""
     events = await _run_and_verify(fan_out_pipeline)
-    pins = [e for e in events if e.table == "table_pin_refs" and e.action == "INSERT"]
+    pins = _pin_inserts(events)
     # produce() fans out to double + add_ten = 2 pins for that table
     assert len(pins) >= 2
 
@@ -262,7 +316,7 @@ async def test_fan_out(orch_ctx):
 async def test_chain(orch_ctx):
     """A → B → C: each link gets its own pin."""
     events = await _run_and_verify(chain_pipeline)
-    pins = [e for e in events if e.table == "table_pin_refs" and e.action == "INSERT"]
+    pins = _pin_inserts(events)
     # produce→double: 1 pin, double→read_sum: 1 pin
     assert len(pins) >= 2
 
@@ -270,7 +324,7 @@ async def test_chain(orch_ctx):
 async def test_diamond(orch_ctx):
     """A → (B, C) → D: diamond with per-consumer pins."""
     events = await _run_and_verify(diamond_pipeline)
-    pins = [e for e in events if e.table == "table_pin_refs" and e.action == "INSERT"]
+    pins = _pin_inserts(events)
     # produce→(double, add_ten): 2 pins
     # double→add_objects: 1 pin
     # add_ten→add_objects: 1 pin
@@ -291,3 +345,22 @@ async def test_view_concat_lifecycle(orch_ctx):
     are checked by _run_and_verify itself.
     """
     await _run_and_verify(view_concat_pipeline)
+
+
+async def test_group_consumer(orch_ctx):
+    """(M1, M2) in G, G >> B: each member's table is pinned for B and released by B."""
+    events = await _run_and_verify(group_consumer_pipeline)
+    pins = _pin_inserts(events)
+    assert len(pins) == 2
+
+
+async def test_ordering_edge_releases_pin(orch_ctx):
+    """A pin held for a consumer that never deserializes the table is released when it starts."""
+    events = await _run_and_verify(ordering_edge_pipeline)
+    assert len(_pin_inserts(events)) == 1
+
+
+async def test_map_children_pinned(orch_ctx):
+    """One pin for produce → expander, plus source and output pins for the single child."""
+    events = await _run_and_verify(map_pipeline)
+    assert len(_pin_inserts(events)) == 3

@@ -217,3 +217,25 @@ async def test_apply_saves_dependencies(orch_ctx):
         assert dep is not None
         assert dep.previous_type == DEPENDENCY_TASK
         assert dep.next_type == DEPENDENCY_TASK
+
+
+async def test_commit_tasks_persists_group_members(orch_ctx):
+    """A group reached through ``group >> consumer`` is committed with its members.
+
+    ``add_task`` is the only membership call; the member rows must still carry
+    the group id so the scheduler and pin fan-out see them.
+    """
+    job = await create_job("test_group_members_job", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+    group = Group(id=get_snowflake_id(), name="producers")
+    members = [create_task("aaiclick.orchestration.fixtures.sample_tasks.simple_task") for _ in range(2)]
+    for member in members:
+        group.add_task(member)
+    consumer = create_task("aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+    group >> consumer
+
+    await commit_tasks(consumer, job_id=job.id)
+
+    for member in members:
+        row = await get_task(member.id)
+        assert row is not None, f"Member {member.id} was not persisted"
+        assert row.group_id == group.id

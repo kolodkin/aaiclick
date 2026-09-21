@@ -14,6 +14,7 @@ from sqlalchemy.orm import Mapped
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
 from ..datetime_utils import utc_now
+from ..snowflake import get_snowflake_id
 from .runner_config import ENTRY_MODULE, EntryType
 from .task_registry import register_task
 
@@ -348,7 +349,7 @@ class Group(_DependencyOps, SQLModel, table=True):
     __tablename__: ClassVar[str] = "groups"
     _dep_next_type: ClassVar[DependencyType] = DEPENDENCY_GROUP
 
-    id: int = Field(sa_column=Column(BigInteger, primary_key=True))
+    id: int = Field(default_factory=get_snowflake_id, sa_column=Column(BigInteger, primary_key=True))
     job_id: int = Field(default=0, sa_column=Column(BigInteger, ForeignKey("jobs.id"), index=True))
     parent_group_id: int | None = Field(
         default=None, sa_column=Column(BigInteger, ForeignKey("groups.id"), index=True, nullable=True)
@@ -365,7 +366,8 @@ class Group(_DependencyOps, SQLModel, table=True):
         register_task(self.id, self)
 
     def add_task(self, task: "Task") -> None:
-        """Attach a Task to this group for co-registration."""
+        """Make ``task`` a member: sets its ``group_id`` and attaches it for co-registration."""
+        task.group_id = self.id
         self._tasks.append(task)
 
     def get_tasks(self) -> list["Task"]:

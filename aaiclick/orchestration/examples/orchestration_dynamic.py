@@ -7,11 +7,8 @@ Demonstrates dynamic task creation patterns:
 3. Explicit dependencies via >> operator
 4. Mixed [Task, Task, ...] returns
 
-Note: map() example is not included here because it requires distributed
-workers with lifecycle handlers for Object table management. See
-aaiclick/orchestration/operators.py for the map() implementation.
-
-Note: This requires running PostgreSQL and ClickHouse servers.
+See orchestration_groups.py for Groups and orchestration_operators.py for
+map() and reduce().
 """
 
 import asyncio

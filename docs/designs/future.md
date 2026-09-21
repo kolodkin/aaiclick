@@ -5,80 +5,25 @@ Planned work across aaiclick, ordered by priority.
 
 ---
 
-# Pin Fan-Out Ignores Group Edges
+# Graph Rendering Expands Group Edges Differently From the Runtime
 
-The PIN handler (`aaiclick/orchestration/orch_context.py` — see
-`OrchLifecycleHandler._process_loop()`) resolves a producer's consumers with
-`previous_id = :task_id AND previous_type = 'task' AND next_type = 'task'`:
-direct task→task edges only. The scheduler understands four edge shapes, and
-`_downstream_task_ids()` in `claiming.py` already walks all of them. Pinning
-and scheduling disagree about what a consumer is.
-
-Every group edge therefore leaves a window in which a result table has
-neither a pin nor a run ref and is drop-eligible:
-
-- `A >> group` — the row is (task A, group G); no member of G gets a pin.
-- `group >> B` — the row is (group G, task B); a member M's fan-out looks up
-  `previous_id = M.id` and finds nothing.
-- `group >> group` — both at once; this is the edge reduce uses between
-  layers.
-
-A consumer reads group results through `group_results_ref` at its own start
-(incref, then a no-op unpin), so the window runs from the member's
-`task_scope` exit to the consumer's claim. It is short in-process and the
-sweep polls every ten seconds, which keeps it latent locally. `map()` is the
-guaranteed case: the expander pins nothing and its children are group
-siblings with no edge from it at all.
-
-## Design
-
-1. Resolve pin consumers the way the scheduler does: from producer M, the
-   next-tasks of M plus the next-tasks of M's group, with group targets
-   expanded to their members — one hop of `_downstream_task_ids()`, shared
-   rather than re-implemented.
-2. `_collect_upstreams()` in `decorators.py` ignores `Group`, so a group
-   passed as a kwarg creates no dependency edge at all; the consumer can run
-   before the group finishes, independent of pinning. Fix alongside, since
-   the group-aware fan-out assumes the edge exists.
-
-Covers the `_expand_reduce` Medium in the code review backlog. The `map()`
-High needs the follow-up below as well.
+`expand_dependencies()` in `graph.py` expands `A >> G` to G's source tasks and
+`G >> B` to G's sinks, while `successor_task_ids()` and the scheduler treat a
+group target as all of its members. The rendered DAG therefore does not match
+which tasks the runtime waits on or pins for. Decide once whether groups have
+internal ordering; if not, render all members like the runtime does.
 
 ---
 
-# Expander Children Have No Pin Path
+# `map()` Has No Output Path
 
-Follow-up to "Pin Fan-Out Ignores Group Edges": a group-aware fan-out still
-cannot reach the children an expander creates at runtime.
-
-`_expand_map()` (`aaiclick/orchestration/operators.py`) creates `out`, builds
-one `_map_part` child per partition, and returns them as `tasks_list`. Two
-things keep the children out of any fan-out:
-
-- Their rows and group membership are committed by
-  `register_returned_tasks()` after the expander has already pinned, so at
-  pin time no `dependencies` or `tasks` row names them.
-- `out` is not the expander's return value, so `execute_task` never pins it
-  at all; the source table's only protection is the expander's own run ref,
-  which its `task_scope` exit deletes.
-
-Between the expander exiting and the first child claiming, both tables meet
-the drop sweep's "no pins, no run refs" condition. `_expand_reduce()` has the
-same shape per layer once group edges are covered.
-
-## Design
-
-Decide once, for `map()` and `reduce()` together:
-
-- Pin after the children are committed — move the pin in `execute_task` to
-  after `register_returned_tasks()`, and let the expander name the tables it
-  pins for them (source and `out`), since the children are its consumers in
-  fact but not by any edge.
-- Or return `out` as `TaskResult.data` and treat the expander's own group
-  members as consumers in the fan-out.
-
-Each child releases its pin as it deserializes the table, as consumers do
-today. Covers the `map()` High in the code review backlog.
+`_expand_map()` (`aaiclick/orchestration/operators.py`) creates `out` and the
+`_map_part` children write into it, but nothing returns `out`: it is not the
+expander's result and the map group has no `_result_task`. Once the children
+finish, `out` has no refs and the sweep drops it. Decide how a consumer reaches
+it — return `out` as the expander's `TaskResult.data` (then a
+`group_results_ref` read of the map group yields it alongside the children's
+`None` results), or set `group._result_task` like `reduce()` does.
 
 ---
 

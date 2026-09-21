@@ -44,6 +44,7 @@ from .jobs import (
     resolve_job,
 )
 from .models import (
+    Group,
     JOB_CANCELLED,
     JOB_COMPLETED,
     JOB_FAILED,

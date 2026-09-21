@@ -4,10 +4,14 @@ from aaiclick.example_runner import run_all
 
 from .orchestration_basic import amain as orchestration_basic_example
 from .orchestration_dynamic import amain as orchestration_dynamic_example
+from .orchestration_groups import amain as orchestration_groups_example
+from .orchestration_operators import amain as orchestration_operators_example
 
 EXAMPLES = [
     ("Orchestration Basic", orchestration_basic_example),
     ("Orchestration Dynamic", orchestration_dynamic_example),
+    ("Orchestration Groups", orchestration_groups_example),
+    ("Orchestration Operators", orchestration_operators_example),
 ]
 
 

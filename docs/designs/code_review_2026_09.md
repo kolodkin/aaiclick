@@ -24,14 +24,6 @@ is fixed.
   hostnames** — `SqlConfig.java`, `fromUrl()`. `?ssl=require` is lost; a
   service named `postgres_db` yields `jdbc:postgresql://null:5432/...`.
 
-## Orchestration
-
-- **`map()` output and source tables have zero lifecycle refs after the
-  expander exits** — `aaiclick/orchestration/operators.py`, `_expand_map()`.
-  Nothing pins `out`, so both tables are eligible for the drop sweep before
-  any `_map_part` child runs. Root cause and design: `future.md`
-  "Pin Fan-Out Ignores Group Edges" and "Expander Children Have No Pin Path".
-
 ## Deployment
 
 - **Scaffolded compose and helm stacks cannot be logged into** —
@@ -68,15 +60,6 @@ is fixed.
   `aaiclick/orchestration/background/handler.py`, the retry transition. A
   stalled-but-alive worker can write COMPLETED over a task another worker has
   re-claimed.
-- **`_expand_reduce` pins fan out over dependency rows that do not exist yet**
-  — `aaiclick/orchestration/operators.py`, `_expand_reduce()`. The PIN handler
-  queries `dependencies` live; the `_reduce_part` edges are committed later in
-  `register_returned_tasks`. On Postgres the pins insert nothing. Same root
-  cause as the `map()` item above.
-- **`map()` never sets `expander.group_id`** —
-  `aaiclick/orchestration/operators.py`, `map()`. Until the expander runs the
-  group is empty, so `group >> consumer` is vacuously satisfied on
-  multi-worker deployments.
 - **Lifecycle FIFO consumer dies on one SQL error; `flush()` blocks forever**
   — `aaiclick/orchestration/orch_context.py`,
   `OrchLifecycleHandler._process_loop()`.
@@ -86,11 +69,9 @@ is fixed.
 
 ## Orchestration correctness
 
-- **A Group passed as a kwarg creates no dependency** —
-  `aaiclick/orchestration/decorators.py`, `_collect_upstreams()`. Only `Task`
-  is collected; the consumer runs first and receives `[]`.
-- **The same upstream in two kwargs raises IntegrityError on commit** — same
-  file, `TaskFactory.__call__()`. Duplicate composite-PK `Dependency` rows.
+- **The same upstream in two kwargs raises IntegrityError on commit** —
+  `aaiclick/orchestration/decorators.py`, `TaskFactory.__call__()`. Duplicate
+  composite-PK `Dependency` rows.
 - **The Postgres claim CTE never triggers change signals** —
   `aaiclick/orchestration/events/hooks.py`, `_WRITE_RE`. Matches only
   statements starting with INSERT/UPDATE/DELETE; `claim_next_task.sql` starts

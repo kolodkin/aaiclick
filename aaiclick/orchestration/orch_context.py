@@ -22,6 +22,7 @@ from aaiclick.locks import lookup_advisory_id
 from aaiclick.oplog.models import get_column_types, init_oplog_tables
 
 from ..snowflake import get_snowflake_id
+from .dependency_graph import successor_task_ids
 from .env import get_db_url
 from .events import register_session_hooks
 from .execution.db_handler import _db_handler_var, create_db_handler, get_db_handler  # noqa: F401
@@ -138,19 +139,15 @@ class OrchLifecycleHandler(LifecycleHandler):
             )
         )
 
-    def unpin(self, table_name: str) -> None:
-        """Remove this task's pin ref for a table.
+    def release_pins(self) -> None:
+        """Drop every pin ref held for this task as a consumer.
 
-        Enqueued through the FIFO queue so it executes AFTER any preceding
-        INCREF, ensuring the run_ref is committed before the pin is released.
+        Enqueued through the FIFO queue so it executes AFTER the INCREFs from
+        input deserialization, ensuring run_refs are committed before the pins
+        are released. Pins for tables the task never reads go too: an ordering
+        edge pins the producer's table for a consumer that has no use for it.
         """
-        self._enqueue(
-            DBLifecycleMessage(
-                DBLifecycleOp.UNPIN,
-                table_name,
-                pin_task_id=self._task_id,
-            )
-        )
+        self._enqueue(DBLifecycleMessage(DBLifecycleOp.RELEASE_PINS, pin_task_id=self._task_id))
 
     # -- Oplog methods (enqueue to same FIFO as incref/decref) --
 
@@ -272,7 +269,7 @@ class OrchLifecycleHandler(LifecycleHandler):
                 break
 
             # -- Table lifecycle (junction table, no inline drops) --
-            if msg.op in (DBLifecycleOp.INCREF, DBLifecycleOp.DECREF, DBLifecycleOp.PIN, DBLifecycleOp.UNPIN):
+            if msg.op in (DBLifecycleOp.INCREF, DBLifecycleOp.DECREF, DBLifecycleOp.PIN, DBLifecycleOp.RELEASE_PINS):
                 async with get_sql_session() as session:
                     if msg.op == DBLifecycleOp.INCREF:
                         # lookup_advisory_id holds the hashtext xact lock in
@@ -311,28 +308,21 @@ class OrchLifecycleHandler(LifecycleHandler):
                         )
                     elif msg.op == DBLifecycleOp.PIN:
                         # Fan out: one pin_ref per downstream consumer task.
-                        result = await session.execute(
-                            text(
-                                "SELECT next_id FROM dependencies "
-                                "WHERE previous_id = :task_id "
-                                "AND previous_type = 'task' AND next_type = 'task'"
-                            ),
-                            {"task_id": msg.pin_task_id},
-                        )
-                        consumer_ids = [row[0] for row in result.fetchall()]
-                        for cid in consumer_ids:
+                        assert msg.pin_task_id is not None
+                        consumers = await successor_task_ids(session, {msg.pin_task_id})
+                        if consumers:
                             await session.execute(
                                 text(
                                     "INSERT INTO table_pin_refs (table_name, task_id) "
                                     "VALUES (:table_name, :task_id) "
                                     "ON CONFLICT (table_name, task_id) DO NOTHING"
                                 ),
-                                {"table_name": msg.table_name, "task_id": cid},
+                                [{"table_name": msg.table_name, "task_id": cid} for cid in consumers],
                             )
-                    elif msg.op == DBLifecycleOp.UNPIN:
+                    elif msg.op == DBLifecycleOp.RELEASE_PINS:
                         await session.execute(
-                            text("DELETE FROM table_pin_refs WHERE table_name = :table_name AND task_id = :task_id"),
-                            {"table_name": msg.table_name, "task_id": msg.pin_task_id},
+                            text("DELETE FROM table_pin_refs WHERE task_id = :task_id"),
+                            {"task_id": msg.pin_task_id},
                         )
                     await session.commit()
 
@@ -522,6 +512,10 @@ def _collect_from_registry(items: list[Task | Group]) -> list[Task | Group]:
             if upstream is not None:
                 visit(upstream)
         result.append(node)
+        # Members follow their group so the group row exists first.
+        if isinstance(node, Group):
+            for member in node.get_tasks():
+                visit(member)
 
     for item in items:
         visit(item)
@@ -543,8 +537,7 @@ async def commit_tasks(
 ) -> TasksType:
     """Commit tasks, groups, and their dependencies to the database.
 
-    Sets job_id on all items, generates snowflake IDs for Groups
-    if not already set, and commits to the SQL database.
+    Sets job_id on all items and commits to the SQL database.
 
     All tasks and groups created via create_task() or Group() are tracked in
     the active task registry (ContextVar set by orch_context / task_scope).
@@ -583,10 +576,6 @@ async def commit_tasks(
 
         for item in [*injected, *all_items]:
             item.job_id = job_id
-
-            if isinstance(item, Group) and item.id is None:
-                item.id = get_snowflake_id()
-
             session.add(item)
 
         await session.commit()

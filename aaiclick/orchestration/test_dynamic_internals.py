@@ -4,8 +4,9 @@ from aaiclick.data.object import Object
 from aaiclick.orchestration.decorators import TaskFactory, _serialize_value
 from aaiclick.orchestration.execution.runner import import_callback
 from aaiclick.orchestration.factories import create_task
-from aaiclick.orchestration.models import Group, Task
+from aaiclick.orchestration.models import DEPENDENCY_GROUP, Group, Task
 from aaiclick.orchestration.operators import _map_part, map
+from aaiclick.snowflake import get_snowflake_id
 
 
 async def _dummy_func(row):
@@ -78,3 +79,16 @@ def test_map_args_with_object_and_task(orch_ctx):
     dep_ids = {d.previous_id for d in expander2.previous_dependencies}
     assert obj_task.id in dep_ids
     assert extra_task.id in dep_ids
+
+
+def test_group_kwarg_creates_group_dependency(orch_ctx):
+    """A Group kwarg wires ``group >> task`` like a Task kwarg wires ``task >> task``."""
+    factory = TaskFactory(_dummy_func, name="_dummy_func")
+    group = Group(id=get_snowflake_id(), name="producers")
+    group.add_task(create_task("mymodule.member"))
+
+    consumer = factory(results=group)
+
+    assert consumer.kwargs["results"]["ref_type"] == "group_results"
+    deps = [(d.previous_id, d.previous_type) for d in consumer.previous_dependencies]
+    assert deps == [(group.id, DEPENDENCY_GROUP)]

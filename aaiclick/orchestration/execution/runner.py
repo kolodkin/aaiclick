@@ -31,6 +31,7 @@ from aaiclick.data.object.refs import (
     NATIVE_VALUE,
     OBJECT,
     OBJECT_TYPE,
+    PERSISTENT,
     PYDANTIC_DATA,
     PYDANTIC_TYPE,
     REF_TYPE,
@@ -212,10 +213,6 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
             if not ref.persistent:
                 obj._register()  # enqueues INCREF
             register_object(obj)
-            if not ref.persistent:
-                lifecycle = get_data_lifecycle()
-                if lifecycle is not None:
-                    lifecycle.unpin(ref.table)  # FIFO: after INCREF
             return obj
 
         elif obj_type == VIEW:
@@ -235,9 +232,6 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
                 renamed_columns=ref.renamed_columns,
             )
             register_object(view)
-            lifecycle = get_data_lifecycle()
-            if lifecycle is not None:
-                lifecycle.unpin(ref.table)  # FIFO: after INCREF
             return view
 
         else:
@@ -330,6 +324,9 @@ async def execute_task(task: Task, shell_spec: ShellSpec | None = None) -> Any:
             run_id=run_id,
         ):
             kwargs = await deserialize_task_params(task.kwargs)
+            lifecycle = get_data_lifecycle()
+            if lifecycle is not None:
+                lifecycle.release_pins()  # FIFO: after every INCREF from deserialization
             if inspect.iscoroutinefunction(func):
                 result = await func(**kwargs)
             else:
@@ -642,8 +639,47 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
             item.previous_dependencies.append(dep)
 
     await commit_tasks(task_items, job_id)
+    await _pin_child_inputs(task_items)
 
     return data_result
+
+
+def _referenced_tables(value: Any) -> set[str]:
+    """Ephemeral table names referenced by Object/View refs anywhere inside ``value``."""
+    if isinstance(value, dict):
+        if value.get(OBJECT_TYPE) in (OBJECT, VIEW):
+            return set() if value.get(PERSISTENT) else {value["table"]}
+        return set().union(*(_referenced_tables(v) for v in value.values()))
+    if isinstance(value, (list, tuple)):
+        return set().union(*(_referenced_tables(v) for v in value))
+    return set()
+
+
+async def _pin_child_inputs(items: list) -> None:
+    """Pin each dynamic child on the tables its kwargs reference.
+
+    The parent produced those tables but no dependency row names the
+    children when it pins, so the producer fan-out cannot reach them. The
+    child releases the pins once it has deserialized its inputs, as any
+    consumer does.
+    """
+    rows = [
+        {"table_name": table, "task_id": item.id}
+        for item in items
+        if isinstance(item, Task)
+        for table in sorted(_referenced_tables(item.kwargs))
+    ]
+    if not rows:
+        return
+    async with get_sql_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO table_pin_refs (table_name, task_id) VALUES (:table_name, :task_id) "
+                "ON CONFLICT (table_name, task_id) DO NOTHING"
+            ),
+            rows,
+        )
+        await session.commit()
 
 
 _READY_TASK_SQL = f"""

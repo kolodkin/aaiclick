@@ -67,6 +67,26 @@ returns data. See
     does `return [[a, b], [c, d]]`: nesting means nothing to the graph, so use a
     `Group` when tasks belong together.
 
+## Groups
+
+A `Group` bundles tasks that belong together. `group.add_task(t)` makes `t` a
+member, and a returned Group registers its members with it. Dependencies work
+on the whole group: `a >> group` runs every member after `a`, and
+`group >> b` runs `b` once every member has completed.
+
+Passing a Group as a kwarg does both at once — it wires `group >> consumer`
+and hands the consumer the members' results as a list, in task order:
+
+```python
+group = Group(name="producers")
+for _ in range(3):
+    group.add_task(step_a())
+total = sum_results(results=group)  # receives [42, 42, 42]
+return [group, total]
+```
+
+See [Examples: Orchestration Groups](../examples/orchestration_groups.md).
+
 ## Testing jobs
 
 `job_test(j)` (sync) and `await ajob_test(j)` (async) execute every task of a
@@ -383,7 +403,8 @@ python -m aaiclick run-job <name> --entry-type shell --command 'python main.py' 
   input schema.
 
 Both accept a `Task` or an `Object` as input and return a `Group` that
-downstream tasks can depend on.
+downstream tasks can depend on. See
+[Examples: Orchestration Operators](../examples/orchestration_operators.md).
 
 # Managing Jobs
 

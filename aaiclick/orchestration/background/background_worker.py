@@ -47,7 +47,8 @@ from ..models import (
 )
 from ..orch_context import orch_context
 from ..registered_jobs import run_job
-from .handler import BackgroundHandler, CleanupTask, create_background_handler, in_clause, try_complete_job
+from ..sql_utils import in_clause
+from .handler import BackgroundHandler, CleanupTask, create_background_handler, try_complete_job
 
 # Base delay for retry backoff (seconds).  Actual delay = BASE * 2^attempt.
 RETRY_BASE_DELAY = 1
@@ -226,7 +227,7 @@ class BackgroundWorker:
         """Drop CH tables with no pin refs and no run refs.
 
         Each consumer task has its own pin_ref row (created by producer
-        fan-out, removed by consumer's unpin during deserialization).
+        fan-out, released once the consumer has deserialized its inputs).
         A table is eligible when all consumers have unpinned AND no
         run_refs remain.
 

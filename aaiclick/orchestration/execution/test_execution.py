@@ -7,11 +7,12 @@ import time
 
 import pytest
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlmodel import col
 
 from aaiclick import create_object_from_value
 from aaiclick.data.object import Object, View
+from aaiclick.data.object.refs import ViewRef
 from aaiclick.internal_api.tasks import get_task_logs
 from aaiclick.orchestration.examples.orchestration_dynamic import (
     chain_pipeline,
@@ -546,6 +547,32 @@ async def test_register_returned_tasks_task_result_tasks_only(orch_ctx):
         dep = result.scalar_one()
         assert dep.previous_type == "task"
         assert dep.next_type == "task"
+
+
+async def test_register_returned_tasks_pins_child_input_tables(orch_ctx):
+    """Dynamic children are pinned on every ephemeral table their kwargs reference.
+
+    The parent is their producer in fact but not by any edge that exists when
+    it pins, so registration inserts the pins itself. Persistent refs are not
+    lifecycle-managed and stay unpinned.
+    """
+    job = await create_job("reg_pins", "mod.func")
+    parent = create_task("mod.parent")
+    parent.job_id = job.id
+    child = create_task(
+        "mod.child",
+        kwargs={
+            "data": Object(table="t_source")._serialize_ref(),
+            "nested": [ViewRef(table="t_view", limit=2, offset=0, order_by="tuple()").to_dict()],
+            "keep": {"object_type": "object", "table": "p_keep", "persistent": True},
+        },
+    )
+
+    await register_returned_tasks(tasks_list(child), parent_task_id=parent.id, job_id=job.id)
+
+    async with get_sql_session() as session:
+        rows = await session.execute(text("SELECT table_name, task_id FROM table_pin_refs"))
+        assert {tuple(r) for r in rows} == {("t_source", child.id), ("t_view", child.id)}
 
 
 async def test_register_returned_tasks_task_result_with_data(orch_ctx):
