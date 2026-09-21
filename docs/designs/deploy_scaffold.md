@@ -182,3 +182,9 @@ test_e2e/compose/ (marker `compose_e2e`, `AAICLICK_E2E_COMPOSE_DIR`).
 - **No compose profiles**: everything comes up on `docker compose up`. Running the app
   services during infra-only CI jobs costs a little, but one invocation with no modes is
   simpler for users and CI alike.
+- **Starter auth credentials over helm `required`**: `auth.jwtSecret` / `auth.adminPassword`
+  ship as literal defaults like the database passwords, so `docker compose up` and
+  `helm install` work unmodified. The alternative — `required` in the chart and
+  `${VAR:?}` in compose — would fail every first install and the e2e gates without
+  extra `--set` flags. Cost: a well-known secret on any deployment that never overrides it,
+  which the template comments call out.
