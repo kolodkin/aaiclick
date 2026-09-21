@@ -174,7 +174,8 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
 .b-COMPLETED { color: var(--green);  background: var(--green-bg); }
 .b-FAILED    { color: var(--red);    background: var(--red-bg); }
 .b-CANCELLED { color: var(--yellow); background: var(--yellow-bg); }
-.b-PENDING_CLEANUP { color: var(--gray); background: var(--gray-bg); }
+.b-PENDING_FAILURE_CLEANUP,
+.b-PENDING_CANCELLED_CLEANUP { color: var(--gray); background: var(--gray-bg); }
 .b-UPSTREAM_FAILED { color: var(--red);  background: var(--red-bg); }
 .b-unknown   { color: var(--muted);  background: var(--gray-bg); }
 
@@ -337,7 +338,8 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
 .gnode-FAILED,
 .gnode-UPSTREAM_FAILED { border-left-color: var(--red); }
 .gnode-CANCELLED { border-left-color: var(--yellow); }
-.gnode-PENDING_CLEANUP { border-left-color: var(--gray); }
+.gnode-PENDING_FAILURE_CLEANUP,
+.gnode-PENDING_CANCELLED_CLEANUP { border-left-color: var(--gray); }
 .gnode-build { border-style: dashed; }
 .chip-active { border-color: var(--accent); color: var(--accent); }
 

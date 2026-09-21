@@ -1,8 +1,8 @@
-"""Tests for PENDING_CLEANUP background processing.
+"""Tests for PENDING_FAILURE_CLEANUP background processing.
 
 Verifies that the background worker correctly:
 1. Cleans run_refs and pin_refs for failed tasks
-2. Transitions PENDING_CLEANUP → PENDING (retries remaining) or FAILED (exhausted)
+2. Transitions PENDING_FAILURE_CLEANUP → PENDING (retries remaining) or FAILED (exhausted)
 3. Checks job completion after marking tasks FAILED
 """
 
@@ -89,8 +89,8 @@ def _make_worker(engine):
     return worker
 
 
-async def run_pending_cleanup() -> None:
-    """Process PENDING_CLEANUP tasks using the current orch_context DB.
+async def run_failure_cleanup() -> None:
+    """Process PENDING_FAILURE_CLEANUP tasks using the current orch_context DB.
 
     Test helper that creates a temporary BackgroundWorker pointed at the
     same SQL database and runs a single cleanup cycle.
@@ -100,19 +100,19 @@ async def run_pending_cleanup() -> None:
     worker._handler = SqliteBackgroundHandler()
     worker._ch_client = AsyncMock()
     try:
-        await worker._process_pending_cleanup()
+        await worker._process_failure_cleanup()
     finally:
         await worker._engine.dispose()
 
 
-async def test_pending_cleanup_transitions_to_pending_with_retries(bg_db):
-    """PENDING_CLEANUP task with retries → PENDING with incremented attempt."""
+async def test_failure_cleanup_transitions_to_pending_with_retries(bg_db):
+    """PENDING_FAILURE_CLEANUP task with retries → PENDING with incremented attempt."""
     await insert_job(bg_db, 1000)
     await _insert_task(
         bg_db,
         100,
         1000,
-        status="PENDING_CLEANUP",
+        status="PENDING_FAILURE_CLEANUP",
         attempt=0,
         max_retries=3,
         run_ids="[111]",
@@ -121,7 +121,7 @@ async def test_pending_cleanup_transitions_to_pending_with_retries(bg_db):
     )
     await insert_run_ref(bg_db, "t_intermediate", "111")
 
-    await _make_worker(bg_db)._process_pending_cleanup()
+    await _make_worker(bg_db)._process_failure_cleanup()
 
     row = await _get_task_status(bg_db, 100)
     status, attempt, retry_after, error, execution_worker_id, completed_at = row
@@ -133,14 +133,14 @@ async def test_pending_cleanup_transitions_to_pending_with_retries(bg_db):
     assert await get_run_refs(bg_db, "t_intermediate") == set()
 
 
-async def test_pending_cleanup_transitions_to_failed_no_retries(bg_db):
-    """PENDING_CLEANUP task with no retries → FAILED."""
+async def test_failure_cleanup_transitions_to_failed_no_retries(bg_db):
+    """PENDING_FAILURE_CLEANUP task with no retries → FAILED."""
     await insert_job(bg_db, 1000)
     await _insert_task(
         bg_db,
         100,
         1000,
-        status="PENDING_CLEANUP",
+        status="PENDING_FAILURE_CLEANUP",
         attempt=0,
         max_retries=0,
         run_ids="[111]",
@@ -148,7 +148,7 @@ async def test_pending_cleanup_transitions_to_failed_no_retries(bg_db):
     )
     await insert_run_ref(bg_db, "t_table", "111")
 
-    await _make_worker(bg_db)._process_pending_cleanup()
+    await _make_worker(bg_db)._process_failure_cleanup()
 
     row = await _get_task_status(bg_db, 100)
     status, attempt, retry_after, error, execution_worker_id, completed_at = row
@@ -158,14 +158,14 @@ async def test_pending_cleanup_transitions_to_failed_no_retries(bg_db):
     assert await get_run_refs(bg_db, "t_table") == set()
 
 
-async def test_pending_cleanup_cleans_pin_refs(bg_db):
-    """PENDING_CLEANUP processing removes pin_refs for the task."""
+async def test_failure_cleanup_cleans_pin_refs(bg_db):
+    """PENDING_FAILURE_CLEANUP processing removes pin_refs for the task."""
     await insert_job(bg_db, 1000)
     await _insert_task(
         bg_db,
         100,
         1000,
-        status="PENDING_CLEANUP",
+        status="PENDING_FAILURE_CLEANUP",
         attempt=0,
         max_retries=1,
         run_ids="[111]",
@@ -175,59 +175,59 @@ async def test_pending_cleanup_cleans_pin_refs(bg_db):
     await insert_pin_ref(bg_db, "t_other_data", 100)
     await insert_pin_ref(bg_db, "t_upstream_data", 200)
 
-    await _make_worker(bg_db)._process_pending_cleanup()
+    await _make_worker(bg_db)._process_failure_cleanup()
 
     assert await _get_pin_refs(bg_db, 100) == set()
     assert await _get_pin_refs(bg_db, 200) == {"t_upstream_data"}
 
 
-async def test_pending_cleanup_completes_job_when_all_failed(bg_db):
-    """Job transitions to FAILED when last task transitions from PENDING_CLEANUP to FAILED."""
+async def test_failure_cleanup_completes_job_when_all_failed(bg_db):
+    """Job transitions to FAILED when last task transitions from PENDING_FAILURE_CLEANUP to FAILED."""
     await insert_job(bg_db, 1000, status="RUNNING")
     await _insert_task(bg_db, 100, 1000, status="COMPLETED")
     await _insert_task(
         bg_db,
         101,
         1000,
-        status="PENDING_CLEANUP",
+        status="PENDING_FAILURE_CLEANUP",
         attempt=0,
         max_retries=0,
         run_ids="[222]",
         error="oops",
     )
 
-    await _make_worker(bg_db)._process_pending_cleanup()
+    await _make_worker(bg_db)._process_failure_cleanup()
 
     assert await _get_job_status(bg_db, 1000) == "FAILED"
 
 
-async def test_pending_cleanup_does_not_complete_job_with_retries(bg_db):
-    """Job stays RUNNING when PENDING_CLEANUP task transitions to PENDING (has retries)."""
+async def test_failure_cleanup_does_not_complete_job_with_retries(bg_db):
+    """Job stays RUNNING when PENDING_FAILURE_CLEANUP task transitions to PENDING (has retries)."""
     await insert_job(bg_db, 1000, status="RUNNING")
     await _insert_task(
         bg_db,
         100,
         1000,
-        status="PENDING_CLEANUP",
+        status="PENDING_FAILURE_CLEANUP",
         attempt=0,
         max_retries=2,
         run_ids="[111]",
         error="will retry",
     )
 
-    await _make_worker(bg_db)._process_pending_cleanup()
+    await _make_worker(bg_db)._process_failure_cleanup()
 
     assert await _get_job_status(bg_db, 1000) == "RUNNING"
 
 
-async def test_pending_cleanup_retry_backoff(bg_db):
+async def test_failure_cleanup_retry_backoff(bg_db):
     """Retry backoff doubles each attempt: 1s, 2s, 4s."""
     await insert_job(bg_db, 1000)
     await _insert_task(
         bg_db,
         100,
         1000,
-        status="PENDING_CLEANUP",
+        status="PENDING_FAILURE_CLEANUP",
         attempt=1,
         max_retries=5,
         run_ids="[111, 222]",
@@ -235,7 +235,7 @@ async def test_pending_cleanup_retry_backoff(bg_db):
     )
 
     before = utc_now()
-    await _make_worker(bg_db)._process_pending_cleanup()
+    await _make_worker(bg_db)._process_failure_cleanup()
 
     row = await _get_task_status(bg_db, 100)
     status, attempt, retry_after_str, error, execution_worker_id, completed_at = row

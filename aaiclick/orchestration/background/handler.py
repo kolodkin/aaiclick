@@ -5,6 +5,7 @@ Concrete implementations live in sqlite_handler.py and pg_handler.py.
 
 from __future__ import annotations
 
+import json
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import NamedTuple, cast
@@ -18,20 +19,22 @@ from aaiclick.backend import is_sqlite
 from ...datetime_utils import utc_now
 from ..execution.sql_loader import load_sql
 from ..models import (
+    CANCELLABLE_TASK_STATUSES,
     JOB_COMPLETED,
     JOB_FAILED,
     TASK_CANCELLED,
-    TASK_CLAIMED,
     TASK_FAILED,
     TASK_PENDING,
-    TASK_PENDING_CLEANUP,
-    TASK_RUNNING,
+    TASK_PENDING_CANCELLED_CLEANUP,
+    TASK_PENDING_FAILURE_CLEANUP,
     TASK_UPSTREAM_FAILED,
+    TaskStatus,
 )
 
 JOB_FAILED_ERROR = "One or more tasks failed"
 UPSTREAM_FAILED_ERROR = "Upstream task failed"
 GROUP_SIBLING_ABORTED_ERROR = "Aborted: a sibling task in the group failed"
+DEAD_WORKER_ERROR = "ExecutionWorker died (heartbeat timeout)"
 
 _CASCADE_UPSTREAM_FAILED_SQL = """
     UPDATE tasks SET status = :upstream_failed, completed_at = :now, error = :error_msg
@@ -44,7 +47,7 @@ _CASCADE_UPSTREAM_FAILED_SQL = """
             WHERE d.next_id = tasks.id
               AND d.next_type = 'task'
               AND d.previous_type = 'task'
-              AND prev.status IN (:failed, :cancelled, :upstream_failed)
+              AND prev.status IN (:failed, :cancelling, :cancelled, :upstream_failed)
         )
         OR EXISTS (
             SELECT 1 FROM dependencies d
@@ -52,7 +55,7 @@ _CASCADE_UPSTREAM_FAILED_SQL = """
             WHERE d.next_id = tasks.id
               AND d.next_type = 'task'
               AND d.previous_type = 'group'
-              AND prev.status IN (:failed, :cancelled, :upstream_failed)
+              AND prev.status IN (:failed, :cancelling, :cancelled, :upstream_failed)
         )
         OR (tasks.group_id IS NOT NULL AND EXISTS (
             SELECT 1 FROM dependencies d
@@ -60,7 +63,7 @@ _CASCADE_UPSTREAM_FAILED_SQL = """
             WHERE d.next_id = tasks.group_id
               AND d.next_type = 'group'
               AND d.previous_type = 'task'
-              AND prev.status IN (:failed, :cancelled, :upstream_failed)
+              AND prev.status IN (:failed, :cancelling, :cancelled, :upstream_failed)
         ))
         OR (tasks.group_id IS NOT NULL AND EXISTS (
             SELECT 1 FROM dependencies d
@@ -68,7 +71,7 @@ _CASCADE_UPSTREAM_FAILED_SQL = """
             WHERE d.next_id = tasks.group_id
               AND d.next_type = 'group'
               AND d.previous_type = 'group'
-              AND prev.status IN (:failed, :cancelled, :upstream_failed)
+              AND prev.status IN (:failed, :cancelling, :cancelled, :upstream_failed)
         ))
       )
 """
@@ -76,6 +79,9 @@ _CASCADE_UPSTREAM_FAILED_SQL = """
 
 async def cascade_upstream_failed(session: AsyncSession, job_id: int) -> int:
     """Mark transitively-downstream PENDING tasks as UPSTREAM_FAILED.
+
+    A ``PENDING_CANCELLED_CLEANUP`` upstream counts as failed already: it can
+    only settle to ``CANCELLED``, so its downstream is doomed now.
 
     Loops the cascade UPDATE until it converges (no rows changed) so a chain
     A→B→C→D collapses in one call. Returns the total number of tasks marked.
@@ -88,6 +94,7 @@ async def cascade_upstream_failed(session: AsyncSession, job_id: int) -> int:
         "error_msg": UPSTREAM_FAILED_ERROR,
         "pending": TASK_PENDING,
         "failed": TASK_FAILED,
+        "cancelling": TASK_PENDING_CANCELLED_CLEANUP,
         "cancelled": TASK_CANCELLED,
         "upstream_failed": TASK_UPSTREAM_FAILED,
     }
@@ -102,15 +109,16 @@ async def cascade_upstream_failed(session: AsyncSession, job_id: int) -> int:
 
 
 _CASCADE_ABORT_GROUP_SIBLINGS_SQL = """
-    UPDATE tasks SET status = :cancelled, completed_at = :now, error = :error_msg
+    UPDATE tasks SET status = :cancelling, error = :error_msg,
+      execution_worker_id = CASE WHEN status = :failure_cleanup THEN NULL ELSE execution_worker_id END
     WHERE job_id = :job_id
-      AND status IN (:pending, :claimed, :running, :pending_cleanup)
+      AND status IN ({cancellable})
       AND group_id IS NOT NULL
       AND group_id IN (
         SELECT group_id FROM tasks sib
         WHERE sib.job_id = :job_id
           AND sib.group_id IS NOT NULL
-          AND sib.status IN (:failed, :cancelled, :upstream_failed)
+          AND sib.status IN (:failed, :cancelling, :cancelled, :upstream_failed)
       )
 """
 
@@ -118,33 +126,31 @@ _CASCADE_ABORT_GROUP_SIBLINGS_SQL = """
 async def cascade_abort_group_siblings(session: AsyncSession, job_id: int) -> int:
     """Cancel still-active siblings of any failed/cancelled group member (fail-fast).
 
-    For each group with a member in a non-success terminal state (``FAILED``,
-    ``CANCELLED``, or ``UPSTREAM_FAILED``), the group's all-success contract is
-    already broken — every downstream consumer is doomed — so the remaining
-    siblings are wasted compute. This marks those siblings ``CANCELLED``:
-
-    - ``PENDING`` / ``CLAIMED`` / ``PENDING_CLEANUP`` siblings flip to
-      ``CANCELLED`` outright.
-    - ``RUNNING`` siblings flip to ``CANCELLED`` too; the worker's cancellation
-      monitor (``execution/claiming.py``) notices and aborts the in-flight run,
-      reusing the same abort path as ``cancel_job`` (incl. the COMPLETED race —
-      a sibling that already reached ``COMPLETED`` is terminal and untouched).
+    For each group with a member in a non-success state (``FAILED``,
+    ``PENDING_CANCELLED_CLEANUP``, ``CANCELLED``, or ``UPSTREAM_FAILED``), the
+    group's all-success contract is already broken — every downstream consumer
+    is doomed — so the remaining siblings are wasted compute. This moves those
+    siblings to ``PENDING_CANCELLED_CLEANUP``, the same transition
+    ``cancel_job`` makes: a ``RUNNING`` sibling's worker notices through its
+    cancellation monitor (``execution/claiming.py``) and aborts the in-flight
+    run, and the cancelled-cleanup pass settles each sibling to ``CANCELLED``
+    once no worker owns it. A sibling that already reached ``COMPLETED`` is
+    terminal and untouched.
 
     Runs unconditionally on every ``try_complete_job`` pass that sees a failure.
     Returns the number of siblings cancelled. The caller is responsible for
     committing.
     """
+    ph, params = in_clause(list(CANCELLABLE_TASK_STATUSES), "st")
     result = await session.execute(
-        text(_CASCADE_ABORT_GROUP_SIBLINGS_SQL),
+        text(_CASCADE_ABORT_GROUP_SIBLINGS_SQL.format(cancellable=ph)),
         {
+            **params,
             "job_id": job_id,
-            "now": utc_now(),
             "error_msg": GROUP_SIBLING_ABORTED_ERROR,
+            "cancelling": TASK_PENDING_CANCELLED_CLEANUP,
+            "failure_cleanup": TASK_PENDING_FAILURE_CLEANUP,
             "cancelled": TASK_CANCELLED,
-            "pending": TASK_PENDING,
-            "claimed": TASK_CLAIMED,
-            "running": TASK_RUNNING,
-            "pending_cleanup": TASK_PENDING_CLEANUP,
             "failed": TASK_FAILED,
             "upstream_failed": TASK_UPSTREAM_FAILED,
         },
@@ -176,7 +182,11 @@ async def _job_rollup(session: AsyncSession, job_id: int) -> tuple[int, int, int
 
 
 async def _complete_job(session: AsyncSession, job_id: int, failed: int) -> None:
-    """Terminal job update, run only after the rollup saw zero non-terminal tasks."""
+    """Terminal job update, run only after the rollup saw zero non-terminal tasks.
+
+    The SQL leaves an already-terminal job alone, so a rollup that lands after
+    ``cancel_job`` — the cancelled-cleanup pass settling the last task — never
+    turns a CANCELLED job into COMPLETED or FAILED."""
     await session.execute(
         text(COMPLETE_JOB_SQL),
         {
@@ -193,9 +203,9 @@ async def roll_up_job(session: AsyncSession, job_id: int) -> None:
 
     This is the contract the execution worker follows on task success.
     No cascade: stranded downstream tasks are handled by whoever performs failure
-    transitions — ``try_complete_job`` on the BackgroundWorker's
-    PENDING_CLEANUP path, and ``cancel_job`` — so by the time a success-path
-    rollup runs, any UPSTREAM_FAILED sweep has already happened.
+    transitions — ``try_complete_job`` on the BackgroundWorker's cleanup passes
+    — so by the time a success-path rollup runs, any UPSTREAM_FAILED sweep has
+    already happened.
     """
     total, non_terminal, failed, _ = await _job_rollup(session, job_id)
     if not total or non_terminal:
@@ -206,25 +216,26 @@ async def roll_up_job(session: AsyncSession, job_id: int) -> None:
 async def try_complete_job(session: AsyncSession, job_id: int) -> None:
     """Mark a job COMPLETED or FAILED if all its tasks are in terminal states.
 
-    No-op while any task is still PENDING, CLAIMED, RUNNING, or PENDING_CLEANUP.
-    The terminal check is aggregated inside SQL (one row returned regardless
-    of task count) so this stays O(1) even for large jobs. Uses raw SQL on
-    the passed session so it works both inside and outside an active
+    No-op while any task is still PENDING, CLAIMED, RUNNING, or in a cleanup
+    state. The terminal check is aggregated inside SQL (one row returned
+    regardless of task count) so this stays O(1) even for large jobs. Uses raw
+    SQL on the passed session so it works both inside and outside an active
     ``orch_context``. The caller is responsible for committing.
 
-    The full recipe for failure-transition owners (BackgroundWorker,
-    ``cancel_job``): on top of ``roll_up_job``'s shared rollup, when any task
-    is in a non-success terminal state it sweeps PENDING tasks whose
-    transitive upstream failed and marks them UPSTREAM_FAILED — otherwise
-    they would block job completion forever. The sweep is gated on the rollup
-    aggregate so the happy path stays a single SELECT.
+    The full recipe for the BackgroundWorker's failure and cancellation
+    transitions: on top of ``roll_up_job``'s shared rollup, when any task is
+    in a non-success state it sweeps PENDING tasks whose transitive upstream
+    failed and marks them UPSTREAM_FAILED — otherwise they would block job
+    completion forever. The sweep is gated on the rollup aggregate so the
+    happy path stays a single SELECT.
     """
     total, non_terminal, failed, cascade_trigger = await _job_rollup(session, job_id)
     if cascade_trigger and non_terminal:
-        # Fail-fast first: cancelling a doomed group's still-active siblings
-        # turns them into CANCELLED upstreams, which the downstream
-        # UPSTREAM_FAILED sweep then propagates in the same pass.
-        non_terminal -= await cascade_abort_group_siblings(session, job_id)
+        # Fail-fast first: a doomed group's still-active siblings become
+        # cancelling upstreams (still non-terminal until the cancelled-cleanup
+        # pass settles them), which the downstream UPSTREAM_FAILED sweep then
+        # propagates in the same pass.
+        await cascade_abort_group_siblings(session, job_id)
         marked = await cascade_upstream_failed(session, job_id)
         non_terminal -= marked
         failed += marked
@@ -233,13 +244,17 @@ async def try_complete_job(session: AsyncSession, job_id: int) -> None:
     await _complete_job(session, job_id, failed)
 
 
-class PendingCleanupTask(NamedTuple):
-    """Row returned by get_pending_cleanup_tasks."""
+def _run_ids(value: list | str | None) -> list:
+    """Decode a raw ``run_ids`` column: a list on PostgreSQL, JSON text on SQLite."""
+    return value if isinstance(value, list) else json.loads(value or "[]")
+
+
+class CleanupTask(NamedTuple):
+    """Row returned by get_cleanup_tasks."""
 
     task_id: int
     job_id: int
-    execution_worker_id: int
-    error: str
+    error: str | None
     run_ids: list
     attempt: int
     max_retries: int
@@ -255,7 +270,14 @@ class BackgroundHandler(ABC):
         dead_execution_worker_ids: list[int],
         now: datetime,
     ) -> None:
-        """Mark dead workers as STOPPED and their tasks as PENDING_CLEANUP."""
+        """Mark dead workers as STOPPED and release their tasks.
+
+        RUNNING / CLAIMED tasks become PENDING_FAILURE_CLEANUP. A
+        PENDING_CANCELLED_CLEANUP task whose worker died will never be
+        reported back, so its ownership is released here instead (the same
+        write ``release_cancelled_run`` makes) and the cancelled-cleanup pass
+        settles it.
+        """
         ...
 
     @staticmethod
@@ -271,8 +293,8 @@ class BackgroundHandler(ABC):
         """Delete all table_pin_refs rows for a given task_id.
 
         Cleans pin refs that upstream producers created for this task as
-        a downstream consumer.  Called during PENDING_CLEANUP processing
-        so stale pins don't block table cleanup.
+        a downstream consumer.  Called by the cleanup passes so stale pins
+        don't block table cleanup.
         """
         await session.execute(
             text("DELETE FROM table_pin_refs WHERE task_id = :task_id"),
@@ -286,15 +308,23 @@ class BackgroundHandler(ABC):
         ...
 
     @staticmethod
-    @abstractmethod
-    async def get_pending_cleanup_tasks(
-        session: AsyncSession,
-    ) -> list[PendingCleanupTask]:
-        """Return tasks in PENDING_CLEANUP status."""
-        ...
+    async def get_cleanup_tasks(session: AsyncSession, status: TaskStatus) -> list[CleanupTask]:
+        """Return tasks in the given cleanup status whose run has ended.
+
+        A ``PENDING_FAILURE_CLEANUP`` task has always been reported back. A
+        ``PENDING_CANCELLED_CLEANUP`` task still owned by a worker
+        (``execution_worker_id`` set) is being stopped: its refs stay until
+        ``release_cancelled_run`` lands, so only unowned ones are returned.
+        """
+        unowned = " AND execution_worker_id IS NULL" if status == TASK_PENDING_CANCELLED_CLEANUP else ""
+        result = await session.execute(
+            text(f"SELECT id, job_id, error, run_ids, attempt, max_retries FROM tasks WHERE status = :status{unowned}"),
+            {"status": status},
+        )
+        return [CleanupTask._make((*row[:3], _run_ids(row[3]), *row[4:])) for row in result.fetchall()]
 
     @staticmethod
-    async def transition_pending_cleanup(
+    async def transition_failure_cleanup(
         session: AsyncSession,
         task_id: int,
         *,
@@ -302,15 +332,15 @@ class BackgroundHandler(ABC):
         attempt: int,
         retry_after: datetime,
     ) -> None:
-        """Transition a PENDING_CLEANUP task to PENDING or FAILED.
+        """Transition a PENDING_FAILURE_CLEANUP task to PENDING or FAILED.
 
-        The ``AND status = 'PENDING_CLEANUP'`` in each WHERE clause guards a race
-        with ``clear_task``. The background sweep reads the task, then writes its
-        new status a moment later. If a ``clear_task`` runs in that gap and resets
-        the task to PENDING, this write would otherwise overwrite the clear. The
+        The ``AND status = 'PENDING_FAILURE_CLEANUP'`` in each WHERE clause
+        guards a race with ``clear_task`` and ``cancel_job``. The background
+        sweep reads the task, then writes its new status a moment later. If
+        either runs in that gap, this write would otherwise overwrite it. The
         extra condition means the UPDATE only fires while the task is *still*
-        PENDING_CLEANUP — once it's been cleared, the UPDATE matches no rows and
-        does nothing, so the clear stands.
+        PENDING_FAILURE_CLEANUP — otherwise it matches no rows and the other
+        transition stands.
         """
         if has_retries:
             await session.execute(
@@ -319,29 +349,49 @@ class BackgroundHandler(ABC):
                     "attempt = :attempt, retry_after = :retry_after, "
                     "execution_worker_id = NULL, claimed_at = NULL, "
                     "started_at = NULL, completed_at = NULL "
-                    "WHERE id = :task_id AND status = :pending_cleanup"
+                    "WHERE id = :task_id AND status = :failure_cleanup"
                 ),
                 {
                     "task_id": task_id,
                     "attempt": attempt,
                     "retry_after": retry_after,
                     "status": TASK_PENDING,
-                    "pending_cleanup": TASK_PENDING_CLEANUP,
+                    "failure_cleanup": TASK_PENDING_FAILURE_CLEANUP,
                 },
             )
         else:
             await session.execute(
                 text(
                     "UPDATE tasks SET status = :status, completed_at = :now "
-                    "WHERE id = :task_id AND status = :pending_cleanup"
+                    "WHERE id = :task_id AND status = :failure_cleanup"
                 ),
                 {
                     "task_id": task_id,
                     "now": utc_now(),
                     "status": TASK_FAILED,
-                    "pending_cleanup": TASK_PENDING_CLEANUP,
+                    "failure_cleanup": TASK_PENDING_FAILURE_CLEANUP,
                 },
             )
+
+    @staticmethod
+    async def transition_cancelled_cleanup(session: AsyncSession, task_id: int) -> None:
+        """Settle a PENDING_CANCELLED_CLEANUP task to CANCELLED.
+
+        Guarded on the status the same way as ``transition_failure_cleanup``
+        so a ``clear_task`` in the read/write gap stands.
+        """
+        await session.execute(
+            text(
+                "UPDATE tasks SET status = :status, completed_at = :now "
+                "WHERE id = :task_id AND status = :cancelled_cleanup"
+            ),
+            {
+                "task_id": task_id,
+                "now": utc_now(),
+                "status": TASK_CANCELLED,
+                "cancelled_cleanup": TASK_PENDING_CANCELLED_CLEANUP,
+            },
+        )
 
 
 def create_background_handler() -> BackgroundHandler:

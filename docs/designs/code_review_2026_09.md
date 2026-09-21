@@ -36,11 +36,6 @@ is fixed.
   `_execute_in_process()`. Local mode heartbeats only between claims (30 s)
   against a 90 s timeout. Any task over about a minute is declared dead,
   re-queued, and run twice.
-- **Cancelled tasks are resurrected and the job marked FAILED** — same file,
-  `_set_pending_cleanup()`. Guards on `run_epoch` only, not on
-  `TASK_CANCELLED` (unlike `update_task_status`). After `cancel_job`, every
-  runner path reports the cancelled run as a failure and the next background
-  cycle fails the job.
 - **Worker cancellation is swallowed on local-mode shutdown** — same file,
   `_execute_in_process()`. `CancelledError` is caught without checking whether
   the inner task or the worker itself was cancelled. Ctrl+C on `local start`
@@ -112,10 +107,6 @@ is fixed.
   — `aaiclick/orchestration/operators.py`, `_expand_reduce()`. The PIN handler
   queries `dependencies` live; the `_reduce_part` edges are committed later in
   `register_returned_tasks`. On Postgres the pins insert nothing.
-- **`_complete_job` has no job-status guard** —
-  `aaiclick/orchestration/background/handler.py` and `sql/complete_job.sql`.
-  A `cancel_job` between a worker's COMPLETED write and its rollup turns the
-  CANCELLED job into COMPLETED.
 - **`map()` never sets `expander.group_id`** —
   `aaiclick/orchestration/operators.py`, `map()`. Until the expander runs the
   group is empty, so `group >> consumer` is vacuously satisfied on

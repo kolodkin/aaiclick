@@ -1,10 +1,10 @@
 """Background worker for cleanup and job scheduling.
 
 BackgroundWorker polls the database for:
-1. Completed/failed jobs — deletes their job-scoped pin refs
+1. Failed and cancelled tasks awaiting cleanup — drops their refs, settles them
 2. Tables with no run refs — drops them in ClickHouse (samples registered with job)
 3. Expired jobs — deletes all job data (CH tables, oplog, SQL metadata) + orphans
-4. Dead workers — marks their running tasks as FAILED
+4. Dead workers — marks their running tasks as PENDING_FAILURE_CLEANUP
 5. Scheduled jobs — creates Job runs when next_run_at is due
 
 All resource cleanup is job-driven: every CH table, sample, and oplog entry
@@ -36,8 +36,15 @@ from aaiclick.snowflake import get_snowflake_id
 from ...datetime_utils import utc_now
 from ..env import get_db_url
 from ..events import register_session_hooks
-from ..models import JOB_CANCELLED, JOB_COMPLETED, JOB_FAILED, PRESERVATION_FULL
-from .handler import BackgroundHandler, create_background_handler, in_clause, try_complete_job
+from ..models import (
+    JOB_CANCELLED,
+    JOB_COMPLETED,
+    JOB_FAILED,
+    PRESERVATION_FULL,
+    TASK_PENDING_CANCELLED_CLEANUP,
+    TASK_PENDING_FAILURE_CLEANUP,
+)
+from .handler import BackgroundHandler, CleanupTask, create_background_handler, in_clause, try_complete_job
 
 # Base delay for retry backoff (seconds).  Actual delay = BASE * 2^attempt.
 RETRY_BASE_DELAY = 1
@@ -67,10 +74,11 @@ class BackgroundWorker:
     """Background worker for cleanup and job scheduling.
 
     Performs five operations on each poll:
-    1. Pending cleanup: processes failed tasks (ref cleanup, retry/fail transition)
+    1. Cleanup passes: failed tasks (ref cleanup, retry/fail transition) and
+       cancelled tasks (ref cleanup, settle to CANCELLED)
     2. Unreferenced tables: drops CH tables with no run/pin refs (samples tracked with job)
     3. Expired jobs: deletes all data for jobs past AAICLICK_JOB_TTL_DAYS + orphans
-    4. Dead worker detection: marks tasks from expired workers as PENDING_CLEANUP
+    4. Dead worker detection: marks tasks from expired workers as PENDING_FAILURE_CLEANUP
     5. Job scheduling: creates Job runs for registered jobs whose next_run_at is due
 
     Completely independent of DataContext and OrchContext.
@@ -117,30 +125,37 @@ class BackgroundWorker:
             await wait_or_timeout(self._shutdown, self._poll_interval)
 
     async def _do_cleanup(self) -> None:
-        await self._process_pending_cleanup()
+        # Failure first: a failed group member's fail-fast sweep cancels its
+        # siblings, and the cancelled pass then settles the unclaimed ones in
+        # the same cycle.
+        await self._process_failure_cleanup()
+        await self._process_cancelled_cleanup()
         await self._cleanup_unreferenced_tables()
         await self._cleanup_expired_jobs()
         await self._cleanup_dead_workers()
         await self._check_schedules()
 
-    async def _process_pending_cleanup(self) -> None:
-        """Process tasks in PENDING_CLEANUP status.
+    async def _clean_task_refs(self, session: AsyncSession, tasks: list[CleanupTask]) -> None:
+        """Drop the last run's run_refs (batched) and every pin_ref (per task)."""
+        run_ids_to_clean = [str(t.run_ids[-1]) for t in tasks if t.run_ids]
+        if run_ids_to_clean:
+            await self._handler.clean_task_runs(session, run_ids_to_clean)
+        for t in tasks:
+            await self._handler.clean_task_pins(session, t.task_id)
+
+    async def _process_failure_cleanup(self) -> None:
+        """Process tasks in PENDING_FAILURE_CLEANUP status.
 
         1. Batch-clean run_refs and pin_refs for all failed tasks
         2. Transition each to PENDING (retries remaining) or FAILED (exhausted)
         3. Check job completion for jobs with newly-FAILED tasks
         """
         async with AsyncSession(self._engine) as session:
-            tasks = await self._handler.get_pending_cleanup_tasks(session)
+            tasks = await self._handler.get_cleanup_tasks(session, TASK_PENDING_FAILURE_CLEANUP)
             if not tasks:
                 return
 
-            # Clean run_refs (batched) and pin_refs (per-task) for all failed tasks
-            run_ids_to_clean = [str(t.run_ids[-1]) for t in tasks if t.run_ids]
-            if run_ids_to_clean:
-                await self._handler.clean_task_runs(session, run_ids_to_clean)
-            for t in tasks:
-                await self._handler.clean_task_pins(session, t.task_id)
+            await self._clean_task_refs(session, tasks)
 
             # Transition each task and collect jobs that need completion check
             failed_job_ids: set[int] = set()
@@ -150,7 +165,7 @@ class BackgroundWorker:
                     retry_after = utc_now() + timedelta(
                         seconds=RETRY_BASE_DELAY * (2**task.attempt),
                     )
-                    await self._handler.transition_pending_cleanup(
+                    await self._handler.transition_failure_cleanup(
                         session,
                         task.task_id,
                         has_retries=True,
@@ -164,7 +179,7 @@ class BackgroundWorker:
                         task.max_retries,
                     )
                 else:
-                    await self._handler.transition_pending_cleanup(
+                    await self._handler.transition_failure_cleanup(
                         session,
                         task.task_id,
                         has_retries=False,
@@ -175,6 +190,33 @@ class BackgroundWorker:
                     failed_job_ids.add(task.job_id)
 
             for job_id in failed_job_ids:
+                await try_complete_job(session, job_id)
+
+            await session.commit()
+
+    async def _process_cancelled_cleanup(self) -> None:
+        """Process PENDING_CANCELLED_CLEANUP tasks whose run has ended.
+
+        The failure pass minus the retry branch: drop the last run's run_refs
+        and the task's pin_refs, settle it to CANCELLED, then roll up its
+        job. A task still owned by a worker is skipped until the worker
+        reports the killed run back (``release_cancelled_run``) or is
+        declared dead — so no table is dropped under a process still being
+        stopped. The rollup is a no-op for a job ``cancel_job`` already
+        closed; it matters for fail-fast siblings, whose job is still RUNNING.
+        """
+        async with AsyncSession(self._engine) as session:
+            tasks = await self._handler.get_cleanup_tasks(session, TASK_PENDING_CANCELLED_CLEANUP)
+            if not tasks:
+                return
+
+            await self._clean_task_refs(session, tasks)
+
+            for task in tasks:
+                await self._handler.transition_cancelled_cleanup(session, task.task_id)
+                logger.info("Task %s cleaned and marked CANCELLED", task.task_id)
+
+            for job_id in {t.job_id for t in tasks}:
                 await try_complete_job(session, job_id)
 
             await session.commit()
@@ -421,9 +463,9 @@ class BackgroundWorker:
             logger.debug("Failed to delete orphaned operation_log entries", exc_info=True)
 
     async def _cleanup_dead_workers(self) -> None:
-        """Detect dead workers, mark their running tasks as PENDING_CLEANUP.
+        """Detect dead workers, mark their running tasks as PENDING_FAILURE_CLEANUP.
 
-        Ref cleanup is handled by _process_pending_cleanup on the next cycle.
+        Ref cleanup is handled by the cleanup passes on the next cycle.
         """
         cutoff = utc_now() - timedelta(seconds=self._worker_timeout)
 

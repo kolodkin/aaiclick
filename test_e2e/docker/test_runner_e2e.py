@@ -288,7 +288,7 @@ async def test_docker_runner_shell_nonzero_fails(orch_ctx, tmp_path):
         cwd=tmp_path,
     )
 
-    # A failed task lands in PENDING_CLEANUP; the BackgroundWorker is what
+    # A failed task lands in PENDING_FAILURE_CLEANUP; the BackgroundWorker is what
     # transitions it to FAILED and then fails the job (the success path is
     # finalized inline by the mp worker, but the failure path is not). Run a
     # real one alongside the worker so the job reaches its terminal state.

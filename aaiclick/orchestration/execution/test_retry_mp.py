@@ -8,14 +8,14 @@ each spawned child). Shares ``_cancel_all_pending_tasks`` and
 
 from sqlmodel import select
 
-from ..background.test_pending_cleanup import run_pending_cleanup  # noqa: E402  (test-sibling import)
+from ..background.test_failure_cleanup import run_failure_cleanup  # noqa: E402  (test-sibling import)
 from ..factories import create_job, create_task
 from ..models import (
     JOB_COMPLETED,
     JOB_FAILED,
     TASK_COMPLETED,
     TASK_FAILED,
-    TASK_PENDING_CLEANUP,
+    TASK_PENDING_FAILURE_CLEANUP,
     Job,
     Task,
 )
@@ -73,9 +73,9 @@ async def test_worker_no_retries_immediate_fail(orch_ctx_no_ch, fast_poll):
     async with get_sql_session() as session:
         result = await session.execute(select(Task).where(Task.job_id == job.id))
         t = result.scalar_one()
-        assert t.status == TASK_PENDING_CLEANUP
+        assert t.status == TASK_PENDING_FAILURE_CLEANUP
 
-    await run_pending_cleanup()
+    await run_failure_cleanup()
 
     async with get_sql_session() as session:
         result = await session.execute(select(Task).where(Task.job_id == job.id))

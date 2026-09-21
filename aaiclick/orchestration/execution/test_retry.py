@@ -1,4 +1,4 @@
-"""Tests for task retry logic with PENDING_CLEANUP lifecycle."""
+"""Tests for task retry logic with PENDING_FAILURE_CLEANUP lifecycle."""
 
 from datetime import timedelta
 
@@ -6,14 +6,14 @@ from sqlalchemy import text
 from sqlmodel import select
 
 from ...datetime_utils import utc_now
-from ..background.test_pending_cleanup import run_pending_cleanup
+from ..background.test_failure_cleanup import run_failure_cleanup
 from ..factories import create_job, create_task
 from ..jobs import get_task
-from ..models import TASK_CANCELLED, TASK_COMPLETED, TASK_FAILED, TASK_PENDING_CLEANUP, TASK_RUNNING, Task
+from ..models import TASK_CANCELLED, TASK_COMPLETED, TASK_FAILED, TASK_PENDING_FAILURE_CLEANUP, TASK_RUNNING, Task
 from ..orch_context import get_sql_session
 from .claiming import claim_next_task, update_task_status
 from .execution_worker import (
-    _set_pending_cleanup,
+    _set_pending_failure_cleanup,
     deregister_execution_worker,
     register_execution_worker,
 )
@@ -21,22 +21,22 @@ from .mp_worker import mp_worker_main_loop
 
 
 async def _cancel_all_pending_tasks():
-    """Cancel all pending/running/pending_cleanup tasks to prevent interference."""
+    """Cancel all pending/running/failure-cleanup tasks to prevent interference."""
     async with get_sql_session() as session:
         await session.execute(
             text(
                 "UPDATE tasks SET status = 'CANCELLED', completed_at = :now "
-                "WHERE status IN ('PENDING', 'CLAIMED', 'RUNNING', 'PENDING_CLEANUP')"
+                "WHERE status IN ('PENDING', 'CLAIMED', 'RUNNING', 'PENDING_FAILURE_CLEANUP')"
             ),
             {"now": utc_now()},
         )
         await session.commit()
 
 
-async def test_set_pending_cleanup(orch_ctx):
-    """_set_pending_cleanup transitions a task to PENDING_CLEANUP with error."""
+async def test_set_pending_failure_cleanup(orch_ctx):
+    """_set_pending_failure_cleanup transitions a task to PENDING_FAILURE_CLEANUP with error."""
     job = await create_job(
-        "test_pending_cleanup",
+        "test_failure_cleanup",
         create_task(
             "aaiclick.orchestration.fixtures.sample_tasks.failing_task",
             max_retries=3,
@@ -49,11 +49,11 @@ async def test_set_pending_cleanup(orch_ctx):
         task_id = t.id
 
     await update_task_status(task_id, TASK_RUNNING)
-    await _set_pending_cleanup(task_id, "test error")
+    await _set_pending_failure_cleanup(task_id, "test error")
 
     t = await get_task(task_id)
     assert t is not None
-    assert t.status == TASK_PENDING_CLEANUP
+    assert t.status == TASK_PENDING_FAILURE_CLEANUP
     assert t.error == "test error"
 
 
@@ -121,6 +121,6 @@ async def _run_until_terminal(job_id: int, max_cycles: int = 20) -> None:
             install_signal_handlers=False,
             max_empty_polls=1,
         )
-        await run_pending_cleanup()
+        await run_failure_cleanup()
 
     raise AssertionError(f"Task did not reach terminal state after {max_cycles} cycles")

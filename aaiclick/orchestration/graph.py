@@ -73,7 +73,7 @@ def rollup_status(statuses: Iterable[TaskStatus]) -> TaskStatus:
 
     Activity outranks outcome — a group with a failure and a task still running
     reads as running, then fails once it settles — and among outcomes the worse
-    wins. ``PENDING_CLEANUP`` and a mix of finished and unstarted members both
+    wins. A cleanup state and a mix of finished and unstarted members both
     read as pending: neither is running, neither is done.
     """
     seen = set(statuses)
