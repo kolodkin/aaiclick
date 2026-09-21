@@ -181,27 +181,25 @@ Safety rails on `query_table`:
   table functions (`merge`, `remote`, `url`, `file`, `cluster`) are
   rejected because they name their targets in string literals. Write a
   CTE as a subquery in `FROM` instead — a CTE name is not in the graph
-- Scoped through `IN` too — `expr IN name` reads a table without a table
-  position, so the bare identifier on the right of `IN` / `NOT IN` /
-  `GLOBAL IN` must be a graph table. ClickHouse also accepts an array
-  column there and the parse tree cannot tell the two apart, so an array
-  column is tested with `has(column, value)` instead
-- No `SETTINGS` clause — `readonly=2` permits settings changes and a
-  clause in the text outranks the caps sent beside the query, so one at
-  any depth is rejected
+- Scoped through `IN` too — a bare identifier on the right of `IN` /
+  `NOT IN` / `GLOBAL IN` reads a table, so it must be a graph table. The
+  parse tree cannot tell it from an array column; use `has(column, value)`
+  for arrays
 - Read-only in the engine — `readonly=2` / `allow_ddl=0` are set on the
-  query, so the keyword regex is a first line rather than the only one
+  query, so the keyword regex is a first line rather than the only one.
+  `readonly=2` still permits settings changes and a `SETTINGS` clause in
+  the text outranks the caps sent beside the query, so one at any depth is
+  rejected
 - Bounded — `row_limit` defaulted low, ceiling enforced by ClickHouse
-  `max_result_rows` with `result_overflow_mode='break'`, so a larger
-  result is cut and reported as truncated rather than failed
+  `max_result_rows`; `result_overflow_mode='break'` truncates a larger
+  result instead of failing it
 - Cheap — `max_execution_time` set to keep accidental table scans from
   tying up the cluster
 
-The MCP `query_table` / `get_table_schema` tools take a `target_table` (plus
-`direction` / `max_depth`) and look the scope up server-side as the graph
-`oplog_subgraph` returns for the same arguments — a caller cannot widen it.
-
-**Implementation**: `aaiclick/internal_api/lineage.py` — see `_lineage_scope()`
+The MCP `query_table` / `get_table_schema` tools take a `target_table`
+(plus `direction` / `max_depth`) and resolve the scope server-side from its
+lineage graph, so a caller cannot widen it — see `_lineage_scope()` in
+`aaiclick/internal_api/lineage.py`.
 
 ## Tool Result Types
 

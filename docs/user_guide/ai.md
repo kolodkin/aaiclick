@@ -163,7 +163,7 @@ returns `ToolError("out_of_scope", ...)` rather than leaking across jobs.
 Safety rails on `query_table`:
 
 - Rejects anything other than `SELECT` / `WITH ... SELECT`
-- Rejects tables outside the current graph's node set — in table position and on the right of `IN` (use `has(column, value)` for an array column)
+- Rejects tables outside the current graph, in table position or on the right of `IN` (use `has(column, value)` for arrays)
 - Rejects a `SETTINGS` clause, which would outrank the caps below
 - Wraps in `LIMIT row_limit + 1` when no `LIMIT` is given so truncation is reported
 - Pins `max_execution_time` and `max_result_rows` on every query so an accidental scan cannot tie up the cluster
