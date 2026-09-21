@@ -156,6 +156,24 @@ async def test_commit_tasks_stamps_and_injects_for_docker_job(orch_ctx_no_ch, mo
     assert build.id in {d.previous_id for d in deps}
 
 
+async def test_commit_tasks_rejects_jvm_task_without_own_image(orch_ctx_no_ch, monkeypatch):
+    """A jvm task never inherits the committing task's image: that image is
+    the Python one, and the JVM entrypoint does not exist in it."""
+    monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
+    job = await create_job("j", "m.entry")
+    async with get_sql_session() as session:
+        row = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
+        row.runner_mode = RUNNER_DOCKER
+        entry = (await session.execute(select(Task).where(Task.job_id == job.id))).scalar_one()
+        entry.image_source = BUILD_A
+        await session.commit()
+        entry_id = entry.id
+
+    set_current_task_info(task_id=entry_id, job_id=job.id, image_source=BUILD_A)
+    with pytest.raises(ValueError, match="no image_source"):
+        await commit_tasks(create_task("com.example.Pipeline", entry_type="jvm"), job.id)
+
+
 async def test_commit_tasks_subprocess_job_rejects_image(orch_ctx_no_ch):
     job = await create_job("j", "m.entry")
     t = create_task("m.child")

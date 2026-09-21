@@ -11,19 +11,6 @@ is fixed.
 
 # High
 
-## Java SDK
-
-- **`validate_jvm_tasks` accepts any image, including a Python one** —
-  `aaiclick/orchestration/image_injection.py`, `validate_jvm_tasks()`. A jvm
-  task with no explicit image inherits the Python image and fails at runtime
-  with `exec: "--task-id": executable file not found`.
-- **Postgres credentials with `+` are form-decoded to spaces** —
-  `SqlConfig.java`, `splitUserInfo()`. `URLDecoder.decode` turns `p+ss` into
-  `p ss`; SQLAlchemy's `unquote` on the Python side does not.
-- **JDBC URL drops the query string; `getHost()` is null for underscored
-  hostnames** — `SqlConfig.java`, `fromUrl()`. `?ssl=require` is lost; a
-  service named `postgres_db` yields `jdbc:postgresql://null:5432/...`.
-
 ## Deployment
 
 - **Scaffolded compose and helm stacks cannot be logged into** —

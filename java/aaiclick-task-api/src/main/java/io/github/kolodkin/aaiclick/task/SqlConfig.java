@@ -27,10 +27,10 @@ public record SqlConfig(Dialect dialect, String jdbcUrl, String user, String pas
     public static SqlConfig fromUrl(String url) {
         if (url.startsWith("postgresql")) {
             URI parsed = URI.create(url.replaceFirst("^postgresql(\\+[a-z0-9]+)?", "postgresql"));
-            String[] userInfo = splitUserInfo(parsed.getUserInfo());
-            String jdbc = "jdbc:postgresql://" + parsed.getHost()
-                + ":" + (parsed.getPort() == -1 ? 5432 : parsed.getPort())
-                + parsed.getPath();
+            String[] userInfo = splitUserInfo(parsed.getRawUserInfo());
+            // The query string rides along verbatim (e.g. ssl=require).
+            String query = parsed.getRawQuery() == null ? "" : "?" + parsed.getRawQuery();
+            String jdbc = "jdbc:postgresql://" + hostPort(parsed) + parsed.getRawPath() + query;
             return new SqlConfig(Dialect.POSTGRES, jdbc, userInfo[0], userInfo[1]);
         }
         if (url.startsWith("sqlite")) {
@@ -49,16 +49,38 @@ public record SqlConfig(Dialect dialect, String jdbcUrl, String user, String pas
             "Unsupported AAICLICK_SQL_URL scheme (expected postgresql or sqlite): " + url);
     }
 
-    private static String[] splitUserInfo(String userInfo) {
-        if (userInfo == null) {
+    /**
+     * {@code host:port} from the raw authority. {@link URI#getHost()} is null for
+     * names that are not RFC 2396 hostnames (an underscore, as in a compose
+     * service {@code postgres_db}), which the driver resolves fine.
+     */
+    private static String hostPort(URI parsed) {
+        String authority = parsed.getRawAuthority();
+        if (authority == null) {
+            throw new IllegalArgumentException("postgresql URL has no host: " + parsed);
+        }
+        String hostPort = authority.substring(authority.lastIndexOf('@') + 1);
+        int portSep = hostPort.lastIndexOf(':');
+        boolean hasPort = portSep > hostPort.lastIndexOf(']');
+        return hasPort ? hostPort : hostPort + ":5432";
+    }
+
+    /** Split raw userinfo on its first {@code :}, then percent-decode each side. */
+    private static String[] splitUserInfo(String rawUserInfo) {
+        if (rawUserInfo == null) {
             return new String[] {"", ""};
         }
-        int colon = userInfo.indexOf(':');
-        String user = colon == -1 ? userInfo : userInfo.substring(0, colon);
-        String password = colon == -1 ? "" : userInfo.substring(colon + 1);
-        return new String[] {
-            URLDecoder.decode(user, StandardCharsets.UTF_8),
-            URLDecoder.decode(password, StandardCharsets.UTF_8),
-        };
+        int colon = rawUserInfo.indexOf(':');
+        String user = colon == -1 ? rawUserInfo : rawUserInfo.substring(0, colon);
+        String password = colon == -1 ? "" : rawUserInfo.substring(colon + 1);
+        return new String[] {percentDecode(user), percentDecode(password)};
+    }
+
+    /**
+     * Percent-decoding only: {@link URLDecoder} is form decoding, which turns a
+     * literal {@code +} into a space, unlike SQLAlchemy's {@code unquote}.
+     */
+    private static String percentDecode(String s) {
+        return URLDecoder.decode(s.replace("+", "%2B"), StandardCharsets.UTF_8);
     }
 }

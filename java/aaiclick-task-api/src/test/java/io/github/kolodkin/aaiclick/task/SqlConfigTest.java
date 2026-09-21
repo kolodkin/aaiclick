@@ -33,6 +33,35 @@ class SqlConfigTest {
     }
 
     @Test
+    void keepsPlusSignInCredentials() {
+        SqlConfig cfg = SqlConfig.fromUrl("postgresql+asyncpg://u+ser:p+ss@db:5432/orch");
+        assertEquals("u+ser", cfg.user());
+        assertEquals("p+ss", cfg.password());
+        assertEquals("p+ss", SqlConfig.fromUrl("postgresql://u:p%2Bss@db/orch").password());
+    }
+
+    @Test
+    void splitsCredentialsOnFirstRawColon() {
+        SqlConfig cfg = SqlConfig.fromUrl("postgresql://u:p%3Aa:b@db/orch");
+        assertEquals("u", cfg.user());
+        assertEquals("p:a:b", cfg.password());
+    }
+
+    @Test
+    void forwardsQueryString() {
+        SqlConfig cfg = SqlConfig.fromUrl("postgresql+asyncpg://u:p@db:5432/orch?ssl=require&application_name=x");
+        assertEquals("jdbc:postgresql://db:5432/orch?ssl=require&application_name=x", cfg.jdbcUrl());
+    }
+
+    @Test
+    void acceptsUnderscoredHostname() {
+        SqlConfig cfg = SqlConfig.fromUrl("postgresql+asyncpg://u:p@postgres_db:5432/orch");
+        assertEquals("jdbc:postgresql://postgres_db:5432/orch", cfg.jdbcUrl());
+        assertEquals("jdbc:postgresql://postgres_db:5432/orch",
+            SqlConfig.fromUrl("postgresql://u:p@postgres_db/orch").jdbcUrl());
+    }
+
+    @Test
     void translatesSqliteRelativeAndAbsolutePaths() {
         assertEquals("jdbc:sqlite:local.db",
             SqlConfig.fromUrl("sqlite+aiosqlite:///local.db").jdbcUrl());
