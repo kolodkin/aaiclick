@@ -1,6 +1,5 @@
 package io.github.kolodkin.aaiclick.task;
 
-import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
@@ -25,44 +24,29 @@ public record SqlConfig(Dialect dialect, String jdbcUrl, String user, String pas
     }
 
     public static SqlConfig fromUrl(String url) {
+        int schemeEnd = url.indexOf("://");
+        if (schemeEnd == -1) {
+            throw new IllegalArgumentException("Unparseable AAICLICK_SQL_URL: " + url);
+        }
+        String rest = url.substring(schemeEnd + 3);
         if (url.startsWith("postgresql")) {
-            URI parsed = URI.create(url.replaceFirst("^postgresql(\\+[a-z0-9]+)?", "postgresql"));
-            String[] userInfo = splitUserInfo(parsed.getRawUserInfo());
-            // The query string rides along verbatim (e.g. ssl=require).
-            String query = parsed.getRawQuery() == null ? "" : "?" + parsed.getRawQuery();
-            String jdbc = "jdbc:postgresql://" + hostPort(parsed) + parsed.getRawPath() + query;
-            return new SqlConfig(Dialect.POSTGRES, jdbc, userInfo[0], userInfo[1]);
+            // The JDBC URL is the SQLAlchemy URL minus its dialect suffix and
+            // userinfo: host, port, path and query pass through verbatim, and
+            // the driver supplies the default port. Not java.net.URI, which
+            // rejects underscored hosts and characters SQLAlchemy accepts.
+            String authority = rest.split("[/?]", 2)[0];
+            int at = authority.lastIndexOf('@');
+            String[] userInfo = splitUserInfo(at == -1 ? null : authority.substring(0, at));
+            return new SqlConfig(Dialect.POSTGRES, "jdbc:postgresql://" + rest.substring(at + 1),
+                userInfo[0], userInfo[1]);
         }
         if (url.startsWith("sqlite")) {
-            int schemeEnd = url.indexOf("://");
-            if (schemeEnd == -1) {
-                throw new IllegalArgumentException("Unparseable sqlite URL: " + url);
-            }
             // sqlite:///rel.db → "rel.db"; sqlite:////abs/p.db → "/abs/p.db"
-            String path = url.substring(schemeEnd + 3);
-            if (path.startsWith("/")) {
-                path = path.substring(1);
-            }
+            String path = rest.startsWith("/") ? rest.substring(1) : rest;
             return new SqlConfig(Dialect.SQLITE, "jdbc:sqlite:" + path, "", "");
         }
         throw new IllegalArgumentException(
             "Unsupported AAICLICK_SQL_URL scheme (expected postgresql or sqlite): " + url);
-    }
-
-    /**
-     * {@code host:port} from the raw authority: {@link URI#getHost()} is null for
-     * non-RFC 2396 names such as a compose service {@code postgres_db}, which the
-     * driver resolves fine.
-     */
-    private static String hostPort(URI parsed) {
-        String authority = parsed.getRawAuthority();
-        if (authority == null) {
-            throw new IllegalArgumentException("postgresql URL has no host: " + parsed);
-        }
-        String hostPort = authority.substring(authority.lastIndexOf('@') + 1);
-        int portSep = hostPort.lastIndexOf(':');
-        boolean hasPort = portSep > hostPort.lastIndexOf(']');
-        return hasPort ? hostPort : hostPort + ":5432";
     }
 
     /** Split raw userinfo on its first {@code :}, then percent-decode each side. */

@@ -37,11 +37,13 @@ def stamp_inherited_image(tasks: list[Task], parent_image_source: dict | None) -
 
     ``parent_image_source`` is the committing task's own stamped value (or
     None outside task execution / for a NULL-image parent, in which case
-    undeclared children stay NULL ⇒ host subprocess)."""
+    undeclared children stay NULL ⇒ host subprocess). jvm tasks never
+    inherit: the committing task is a Python one, and its image has no JVM
+    entrypoint."""
     if parent_image_source is None:
         return
     for task in tasks:
-        if task.image_source is None:
+        if task.image_source is None and task.entry_type != ENTRY_JVM:
             task.image_source = parent_image_source
 
 
@@ -82,9 +84,7 @@ def validate_jvm_tasks(tasks: list[Task]) -> None:
     The shim jar has no ClickHouse data plane, so Object/View refs can never
     reach a jvm task's kwargs; and there is no host-subprocess JVM contract,
     so a jvm task must carry an image (docker/kubernetes jobs only — implied
-    by ``validate_image_sources`` once the image is required). Runs before
-    ``stamp_inherited_image``: the inherited image is the committing Python
-    task's, which has no JVM entrypoint."""
+    by ``validate_image_sources`` once the image is required)."""
     for task in tasks:
         if task.entry_type != ENTRY_JVM:
             continue

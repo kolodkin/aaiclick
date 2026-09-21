@@ -19,9 +19,9 @@ class SqlConfigTest {
     }
 
     @Test
-    void postgresPortDefaultsTo5432() {
+    void leavesAnAbsentPortToTheDriver() {
         SqlConfig cfg = SqlConfig.fromUrl("postgresql://u@db/orch");
-        assertEquals("jdbc:postgresql://db:5432/orch", cfg.jdbcUrl());
+        assertEquals("jdbc:postgresql://db/orch", cfg.jdbcUrl());
         assertEquals("", cfg.password());
     }
 
@@ -57,8 +57,6 @@ class SqlConfigTest {
     void acceptsUnderscoredHostname() {
         SqlConfig cfg = SqlConfig.fromUrl("postgresql+asyncpg://u:p@postgres_db:5432/orch");
         assertEquals("jdbc:postgresql://postgres_db:5432/orch", cfg.jdbcUrl());
-        assertEquals("jdbc:postgresql://postgres_db:5432/orch",
-            SqlConfig.fromUrl("postgresql://u:p@postgres_db/orch").jdbcUrl());
     }
 
     @Test
@@ -73,6 +71,7 @@ class SqlConfigTest {
     @Test
     void rejectsUnsupportedSchemeAndMissingEnv() {
         assertThrows(IllegalArgumentException.class, () -> SqlConfig.fromUrl("mysql://u@h/db"));
+        assertThrows(IllegalArgumentException.class, () -> SqlConfig.fromUrl("postgresql:nonsense"));
         assertThrows(IllegalArgumentException.class, () -> SqlConfig.fromEnv(Map.of()));
     }
 }
