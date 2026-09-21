@@ -55,9 +55,10 @@ submission surface (`aaiclick/orchestration/registered_jobs.py` — see
 - A `jvm` task must not receive Object/View refs as kwargs — the shim has no
   ClickHouse data plane. Any nested kwargs dict carrying `object_type` is
   rejected at commit.
-- A `jvm` task requires an `image_source` on a docker/kubernetes job — there
-  is no host-subprocess JVM contract, so a `jvm` task that would fall back to
-  the subprocess runner is rejected.
+- A `jvm` task requires its own `image_source` on a docker/kubernetes job —
+  there is no host-subprocess JVM contract, so a `jvm` task that would fall
+  back to the subprocess runner is rejected. It never inherits the committing
+  task's Python image, which has no JVM entrypoint.
 - A `jvm` task's entrypoint (class name) must be non-empty.
 - Results are never auto-converted to Objects: the shim writes plain values
   only (`{"native_value": ...}`), which downstream Python tasks consume as

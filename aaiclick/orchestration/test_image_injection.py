@@ -21,9 +21,11 @@ def test_stamp_inherited_image_fills_only_undeclared():
     declared = create_task("m.f1")
     declared.image_source = BUILD_B
     inherited = create_task("m.f2")
-    stamp_inherited_image([declared, inherited], BUILD_A)
+    jvm = create_task("com.example.Pipeline", entry_type="jvm")
+    stamp_inherited_image([declared, inherited, jvm], BUILD_A)
     assert declared.image_source == BUILD_B
     assert inherited.image_source == BUILD_A
+    assert jvm.image_source is None
 
 
 def test_stamp_inherited_image_none_parent_is_noop():
@@ -154,6 +156,14 @@ async def test_commit_tasks_stamps_and_injects_for_docker_job(orch_ctx_no_ch, mo
             .all()
         )
     assert build.id in {d.previous_id for d in deps}
+
+
+async def test_commit_tasks_rejects_jvm_task_without_own_image(orch_ctx_no_ch):
+    """The committing task's image is not a substitute for a jvm task's own."""
+    job = await create_job("j", "m.entry")
+    set_current_task_info(task_id=1, job_id=job.id, image_source=BUILD_A)
+    with pytest.raises(ValueError, match="no image_source"):
+        await commit_tasks(create_task("com.example.Pipeline", entry_type="jvm"), job.id)
 
 
 async def test_commit_tasks_subprocess_job_rejects_image(orch_ctx_no_ch):

@@ -37,11 +37,13 @@ def stamp_inherited_image(tasks: list[Task], parent_image_source: dict | None) -
 
     ``parent_image_source`` is the committing task's own stamped value (or
     None outside task execution / for a NULL-image parent, in which case
-    undeclared children stay NULL ⇒ host subprocess)."""
+    undeclared children stay NULL ⇒ host subprocess). jvm tasks never
+    inherit: the committing task is a Python one, and its image has no JVM
+    entrypoint."""
     if parent_image_source is None:
         return
     for task in tasks:
-        if task.image_source is None:
+        if task.image_source is None and task.entry_type != ENTRY_JVM:
             task.image_source = parent_image_source
 
 
@@ -91,7 +93,7 @@ def validate_jvm_tasks(tasks: list[Task]) -> None:
         if task.image_source is None:
             raise ValueError(
                 f"jvm task {task.name!r} declares no image_source; jvm tasks run only "
-                "in containers on docker/kubernetes jobs"
+                "in their own container image on docker/kubernetes jobs"
             )
         if _contains_object_ref(task.kwargs):
             raise ValueError(
