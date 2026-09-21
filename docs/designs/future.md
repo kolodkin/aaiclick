@@ -9,17 +9,15 @@ Planned work across aaiclick, ordered by priority.
 
 `_collect_upstreams()` in `decorators.py` ignores `Group`, while
 `_serialize_value()` emits a `group_results_ref` for it. A group passed as a
-kwarg therefore creates no dependency edge: the consumer can be claimed before
-the group finishes, and the group-results read (which filters on COMPLETED
-members) silently returns a partial or empty list.
+kwarg creates no dependency edge: the consumer can be claimed before the
+group finishes, and the group-results read (COMPLETED members only) silently
+returns a partial or empty list. The PIN fan-out already resolves consumers
+through group edges, so the edge is all that is missing.
 
 Fix: collect `Group` values alongside `Task` values and wire `group >> task`.
 Land the "`map()` never sets `expander.group_id`" backlog item with it —
-until the expander is a member, the new edge is vacuously satisfied on
+until the expander is a member, the edge is vacuously satisfied on
 multi-worker deployments.
-
-The PIN fan-out (`_pin_consumer_ids` in `orch_context.py`) already resolves
-consumers through group edges, so the edge is all that is missing.
 
 ---
 
