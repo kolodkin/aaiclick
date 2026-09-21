@@ -80,8 +80,8 @@ _CASCADE_UPSTREAM_FAILED_SQL = """
 async def cascade_upstream_failed(session: AsyncSession, job_id: int) -> int:
     """Mark transitively-downstream PENDING tasks as UPSTREAM_FAILED.
 
-    A ``PENDING_CANCELLED_CLEANUP`` upstream counts as failed already: it can
-    only settle to ``CANCELLED``, so its downstream is doomed now.
+    A ``PENDING_CANCELLED_CLEANUP`` upstream already counts as failed: it can
+    only settle to ``CANCELLED``.
 
     Loops the cascade UPDATE until it converges (no rows changed) so a chain
     A→B→C→D collapses in one call. Returns the total number of tasks marked.
@@ -126,16 +126,13 @@ _CASCADE_ABORT_GROUP_SIBLINGS_SQL = """
 async def cascade_abort_group_siblings(session: AsyncSession, job_id: int) -> int:
     """Cancel still-active siblings of any failed/cancelled group member (fail-fast).
 
-    For each group with a member in a non-success state (``FAILED``,
-    ``PENDING_CANCELLED_CLEANUP``, ``CANCELLED``, or ``UPSTREAM_FAILED``), the
-    group's all-success contract is already broken — every downstream consumer
-    is doomed — so the remaining siblings are wasted compute. This moves those
-    siblings to ``PENDING_CANCELLED_CLEANUP``, the same transition
-    ``cancel_job`` makes: a ``RUNNING`` sibling's worker notices through its
-    cancellation monitor (``execution/claiming.py``) and aborts the in-flight
-    run, and the cancelled-cleanup pass settles each sibling to ``CANCELLED``
-    once no worker owns it. A sibling that already reached ``COMPLETED`` is
-    terminal and untouched.
+    A group with a member in a non-success state (``FAILED``,
+    ``PENDING_CANCELLED_CLEANUP``, ``CANCELLED``, ``UPSTREAM_FAILED``) has
+    broken its all-success contract, so its remaining siblings are wasted
+    compute. They get the same transition as ``cancel_job``: a ``RUNNING``
+    sibling's cancellation monitor (``execution/claiming.py``) aborts the run,
+    and the cancelled-cleanup pass settles each sibling to ``CANCELLED`` once
+    no worker owns it. A ``COMPLETED`` sibling is terminal and untouched.
 
     Runs unconditionally on every ``try_complete_job`` pass that sees a failure.
     Returns the number of siblings cancelled. The caller is responsible for
@@ -184,9 +181,8 @@ async def _job_rollup(session: AsyncSession, job_id: int) -> tuple[int, int, int
 async def _complete_job(session: AsyncSession, job_id: int, failed: int) -> None:
     """Terminal job update, run only after the rollup saw zero non-terminal tasks.
 
-    The SQL leaves an already-terminal job alone, so a rollup that lands after
-    ``cancel_job`` — the cancelled-cleanup pass settling the last task — never
-    turns a CANCELLED job into COMPLETED or FAILED."""
+    The SQL skips an already-terminal job, so the rollup after the last
+    cancelled task settles never turns a CANCELLED job into COMPLETED."""
     await session.execute(
         text(COMPLETE_JOB_SQL),
         {
@@ -273,10 +269,8 @@ class BackgroundHandler(ABC):
         """Mark dead workers as STOPPED and release their tasks.
 
         RUNNING / CLAIMED tasks become PENDING_FAILURE_CLEANUP. A
-        PENDING_CANCELLED_CLEANUP task whose worker died will never be
-        reported back, so its ownership is released here instead (the same
-        write ``release_cancelled_run`` makes) and the cancelled-cleanup pass
-        settles it.
+        PENDING_CANCELLED_CLEANUP task will never be reported back, so its
+        ownership is released here (as ``release_cancelled_run`` would).
         """
         ...
 
@@ -311,10 +305,9 @@ class BackgroundHandler(ABC):
     async def get_cleanup_tasks(session: AsyncSession, status: TaskStatus) -> list[CleanupTask]:
         """Return tasks in the given cleanup status whose run has ended.
 
-        A ``PENDING_FAILURE_CLEANUP`` task has always been reported back. A
-        ``PENDING_CANCELLED_CLEANUP`` task still owned by a worker
-        (``execution_worker_id`` set) is being stopped: its refs stay until
-        ``release_cancelled_run`` lands, so only unowned ones are returned.
+        A ``PENDING_CANCELLED_CLEANUP`` task still owned by a worker is being
+        stopped, so only unowned ones are returned; a failure-cleanup task
+        was always reported back first.
         """
         unowned = " AND execution_worker_id IS NULL" if status == TASK_PENDING_CANCELLED_CLEANUP else ""
         result = await session.execute(
@@ -335,12 +328,9 @@ class BackgroundHandler(ABC):
         """Transition a PENDING_FAILURE_CLEANUP task to PENDING or FAILED.
 
         The ``AND status = 'PENDING_FAILURE_CLEANUP'`` in each WHERE clause
-        guards a race with ``clear_task`` and ``cancel_job``. The background
-        sweep reads the task, then writes its new status a moment later. If
-        either runs in that gap, this write would otherwise overwrite it. The
-        extra condition means the UPDATE only fires while the task is *still*
-        PENDING_FAILURE_CLEANUP — otherwise it matches no rows and the other
-        transition stands.
+        guards a race with ``clear_task`` and ``cancel_job``: if either runs
+        between the sweep's read and this write, the UPDATE matches no rows
+        and the other transition stands.
         """
         if has_retries:
             await session.execute(
@@ -377,8 +367,8 @@ class BackgroundHandler(ABC):
     async def transition_cancelled_cleanup(session: AsyncSession, task_id: int) -> None:
         """Settle a PENDING_CANCELLED_CLEANUP task to CANCELLED.
 
-        Guarded on the status the same way as ``transition_failure_cleanup``
-        so a ``clear_task`` in the read/write gap stands.
+        Status-guarded like ``transition_failure_cleanup`` so a ``clear_task``
+        in the read/write gap stands.
         """
         await session.execute(
             text(

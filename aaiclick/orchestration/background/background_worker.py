@@ -128,9 +128,8 @@ class BackgroundWorker:
             await wait_or_timeout(self._shutdown, self._poll_interval)
 
     async def _do_cleanup(self) -> None:
-        # Failure first: a failed group member's fail-fast sweep cancels its
-        # siblings, and the cancelled pass then settles the unclaimed ones in
-        # the same cycle.
+        # Failure first: its fail-fast sweep cancels group siblings, which the
+        # cancelled pass can then settle in the same cycle.
         await self._process_failure_cleanup()
         await self._process_cancelled_cleanup()
         await self._cleanup_unreferenced_tables()
@@ -200,13 +199,12 @@ class BackgroundWorker:
     async def _process_cancelled_cleanup(self) -> None:
         """Process PENDING_CANCELLED_CLEANUP tasks whose run has ended.
 
-        The failure pass minus the retry branch: drop the last run's run_refs
-        and the task's pin_refs, settle it to CANCELLED, then roll up its
-        job. A task still owned by a worker is skipped until the worker
-        reports the killed run back (``release_cancelled_run``) or is
-        declared dead — so no table is dropped under a process still being
-        stopped. The rollup is a no-op for a job ``cancel_job`` already
-        closed; it matters for fail-fast siblings, whose job is still RUNNING.
+        The failure pass minus the retry branch: drop refs, settle to
+        CANCELLED, roll up the job. A task still owned by a worker waits
+        until the worker reports the killed run back (``release_cancelled_run``)
+        or is declared dead, so no table is dropped under a process still
+        being stopped. The rollup only matters for fail-fast siblings, whose
+        job is still RUNNING.
         """
         async with AsyncSession(self._engine) as session:
             tasks = await self._handler.get_cleanup_tasks(session, TASK_PENDING_CANCELLED_CLEANUP)

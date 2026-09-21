@@ -159,15 +159,12 @@ async def cancel_job(job_id: int) -> Job:
     """
     Cancel a job and all its non-terminal tasks.
 
-    Atomically transitions the job to CANCELLED and bulk-updates every
-    cancellable task (``CANCELLABLE_TASK_STATUSES``) to
-    ``PENDING_CANCELLED_CLEANUP``. Tasks already terminal are left unchanged.
-
-    A cancelled task is not terminal yet: the background worker drops the
-    attempt's run refs and pin refs and settles it to ``CANCELLED`` once no
-    worker owns it — see ``release_cancelled_run`` for the ownership signal.
-    A ``PENDING_FAILURE_CLEANUP`` task has already been reported back by its
-    worker, so its ownership is released here.
+    Atomically transitions the job to CANCELLED and every cancellable task
+    (``CANCELLABLE_TASK_STATUSES``) to ``PENDING_CANCELLED_CLEANUP``; terminal
+    tasks are left unchanged. The background worker settles each task to
+    ``CANCELLED`` once no worker owns it (see ``release_cancelled_run``). A
+    ``PENDING_FAILURE_CLEANUP`` task was already reported back, so its
+    ownership is released here.
 
     Only PENDING and RUNNING jobs can be cancelled.
 
@@ -221,15 +218,14 @@ async def cancel_job(job_id: int) -> Job:
 async def release_cancelled_run(task_id: int, expected_epoch: int | None = None) -> bool:
     """Record that a worker's run of a cancelled task has ended.
 
-    A worker owns a task from claim until it reports back; ``execution_worker_id``
-    is that ownership. When the task was cancelled mid-flight the worker's
-    normal status write is refused, so it calls this instead: the last
-    ``run_statuses`` entry is stamped ``CANCELLED`` and the ownership is
-    released. The background worker's cancelled-cleanup pass keys on that
-    release — it never drops the refs of a run a worker may still be stopping.
+    ``execution_worker_id`` is the worker's ownership, held from claim until it
+    reports back. A cancelled task refuses the normal status write, so the
+    worker calls this instead: the last ``run_statuses`` entry is stamped
+    ``CANCELLED`` and the ownership released. The cancelled-cleanup pass keys
+    on that release, so it never drops the refs of a run still being stopped.
 
-    A no-op (returns False) unless the task is cancelling or cancelled and,
-    when ``expected_epoch`` is given, its ``run_epoch`` still matches.
+    Returns False without writing unless the task is cancelling or cancelled
+    and, when ``expected_epoch`` is given, its ``run_epoch`` still matches.
     """
     handler = get_db_handler()
     async with get_sql_session() as session:

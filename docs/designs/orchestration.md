@@ -247,11 +247,10 @@ Three `TaskStatus` values are set by the background sweep, not the worker:
 - `PENDING_FAILURE_CLEANUP` — transient; a failed or dead-worker run awaiting
   ref cleanup before it retries to PENDING or settles to FAILED.
 - `PENDING_CANCELLED_CLEANUP` — transient; set by `cancel_job` and the
-  fail-fast group-sibling abort. The worker's abort check kills the run; the
-  sweep drops the attempt's run refs and pin refs and settles the task to
-  CANCELLED once no worker owns it (`execution_worker_id` is NULL). A worker
-  owns a task from claim until it reports back — a killed run through
-  `release_cancelled_run` — or until the dead-worker sweep releases it.
+  fail-fast group-sibling abort. The worker kills the run; the sweep drops
+  the attempt's refs and settles the task to CANCELLED once no worker owns it
+  (`execution_worker_id` is NULL — released by `release_cancelled_run` on
+  report-back, or by the dead-worker sweep).
 - `UPSTREAM_FAILED` — terminal; a pending task whose transitive upstream
   failed or was cancelled.
 

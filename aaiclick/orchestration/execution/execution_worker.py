@@ -214,8 +214,8 @@ async def _set_pending_failure_cleanup(task_id: int, error: str, expected_epoch:
 
     Returns False without writing when the run no longer owns the task: it is
     cancelling or CANCELLED (a killed run's failure report must not resurrect
-    the task as a retry — mirrors ``update_task_status``), or ``expected_epoch``
-    no longer matches ``run_epoch`` (``clear_task`` reset it).
+    it as a retry — mirrors ``update_task_status``), or ``expected_epoch`` no
+    longer matches ``run_epoch`` (``clear_task`` reset it).
 
     Both guards sit in the UPDATE's WHERE clause, so they hold atomically on
     every backend, not only where ``FOR UPDATE`` locks the row; the rowcount

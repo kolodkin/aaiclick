@@ -74,11 +74,10 @@ TaskStatus = Literal[
 ]
 """Task execution status.
 
-The two ``PENDING_*_CLEANUP`` states are transient: the run has ended (or
-never started) and the background worker still has to drop the attempt's run
-refs and pin refs before the task settles. ``PENDING_FAILURE_CLEANUP`` then
-retries to ``PENDING`` or settles to ``FAILED``; ``PENDING_CANCELLED_CLEANUP``
-settles to ``CANCELLED``.
+The ``PENDING_*_CLEANUP`` states are transient: the background worker still
+has to drop the attempt's run refs and pin refs. ``PENDING_FAILURE_CLEANUP``
+then retries to ``PENDING`` or settles to ``FAILED``;
+``PENDING_CANCELLED_CLEANUP`` settles to ``CANCELLED``.
 
 ``UPSTREAM_FAILED`` is a terminal state assigned by the cascade sweep when a
 task's transitive upstream is ``FAILED``, ``CANCELLED``, or ``UPSTREAM_FAILED``.
@@ -96,8 +95,7 @@ CANCELLABLE_TASK_STATUSES: tuple[TaskStatus, ...] = (
 """Statuses a cancellation moves to ``PENDING_CANCELLED_CLEANUP``."""
 
 CANCELLING_TASK_STATUSES: tuple[TaskStatus, ...] = (TASK_PENDING_CANCELLED_CLEANUP, TASK_CANCELLED)
-"""Statuses under which a worker must abort the task's run and no other status
-write may land."""
+"""Statuses under which a worker aborts the run and no other status write lands."""
 
 
 EXECUTION_WORKER_ACTIVE = "ACTIVE"
