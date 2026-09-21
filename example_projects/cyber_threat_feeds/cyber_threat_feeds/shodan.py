@@ -69,17 +69,13 @@ async def load_shodan_general_cves(start_date: str, end_date: str, limit: int = 
 
 
 @task
-async def combine_shodan_cves(loads: list[Object]) -> Object:
-    """Concatenate every Shodan load into a single Object.
+async def combine_shodan_cves(kev_cves: Object, general_cves: Object) -> Object:
+    """Combine KEV-flagged and general Shodan CVEs into a single Object.
 
-    ``loads`` is the ``shodan`` Group passed as a kwarg: one Object per
-    member, in task order. The KEV-flagged and general queries return
-    disjoint sets, so no deduplication is needed.
+    Since is_kev=true and is_kev=false return disjoint sets, no
+    deduplication is needed.
     """
-    combined, *rest = loads
-    for load in rest:
-        combined = await combined.concat(load)
-    return combined
+    return await kev_cves.concat(general_cves)
 
 
 async def _cvss_distribution(cves: Object) -> dict:
