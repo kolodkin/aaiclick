@@ -77,10 +77,6 @@ is fixed.
   `aaiclick/orchestration/background/handler.py` and `sql/complete_job.sql`.
   A `cancel_job` between a worker's COMPLETED write and its rollup turns the
   CANCELLED job into COMPLETED.
-- **`map()` never sets `expander.group_id`** —
-  `aaiclick/orchestration/operators.py`, `map()`. Until the expander runs the
-  group is empty, so `group >> consumer` is vacuously satisfied on
-  multi-worker deployments.
 - **Lifecycle FIFO consumer dies on one SQL error; `flush()` blocks forever**
   — `aaiclick/orchestration/orch_context.py`,
   `OrchLifecycleHandler._process_loop()`.

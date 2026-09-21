@@ -186,7 +186,7 @@ class BackgroundWorker:
         """Drop CH tables with no pin refs and no run refs.
 
         Each consumer task has its own pin_ref row (created by producer
-        fan-out, removed by consumer's unpin during deserialization).
+        fan-out, released once the consumer has deserialized its inputs).
         A table is eligible when all consumers have unpinned AND no
         run_refs remain.
 

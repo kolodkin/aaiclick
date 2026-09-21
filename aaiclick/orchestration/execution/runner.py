@@ -212,10 +212,6 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
             if not ref.persistent:
                 obj._register()  # enqueues INCREF
             register_object(obj)
-            if not ref.persistent:
-                lifecycle = get_data_lifecycle()
-                if lifecycle is not None:
-                    lifecycle.unpin(ref.table)  # FIFO: after INCREF
             return obj
 
         elif obj_type == VIEW:
@@ -235,9 +231,6 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
                 renamed_columns=ref.renamed_columns,
             )
             register_object(view)
-            lifecycle = get_data_lifecycle()
-            if lifecycle is not None:
-                lifecycle.unpin(ref.table)  # FIFO: after INCREF
             return view
 
         else:
@@ -330,6 +323,9 @@ async def execute_task(task: Task, shell_spec: ShellSpec | None = None) -> Any:
             run_id=run_id,
         ):
             kwargs = await deserialize_task_params(task.kwargs)
+            lifecycle = get_data_lifecycle()
+            if lifecycle is not None:
+                lifecycle.release_pins()  # FIFO: after every INCREF from deserialization
             if inspect.iscoroutinefunction(func):
                 result = await func(**kwargs)
             else:

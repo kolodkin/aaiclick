@@ -139,19 +139,15 @@ class OrchLifecycleHandler(LifecycleHandler):
             )
         )
 
-    def unpin(self, table_name: str) -> None:
-        """Remove this task's pin ref for a table.
+    def release_pins(self) -> None:
+        """Drop every pin ref held for this task as a consumer.
 
-        Enqueued through the FIFO queue so it executes AFTER any preceding
-        INCREF, ensuring the run_ref is committed before the pin is released.
+        Enqueued through the FIFO queue so it executes AFTER the INCREFs from
+        input deserialization, ensuring run_refs are committed before the pins
+        are released. Pins for tables the task never reads go too: an ordering
+        edge pins the producer's table for a consumer that has no use for it.
         """
-        self._enqueue(
-            DBLifecycleMessage(
-                DBLifecycleOp.UNPIN,
-                table_name,
-                pin_task_id=self._task_id,
-            )
-        )
+        self._enqueue(DBLifecycleMessage(DBLifecycleOp.RELEASE_PINS, pin_task_id=self._task_id))
 
     # -- Oplog methods (enqueue to same FIFO as incref/decref) --
 
@@ -273,7 +269,7 @@ class OrchLifecycleHandler(LifecycleHandler):
                 break
 
             # -- Table lifecycle (junction table, no inline drops) --
-            if msg.op in (DBLifecycleOp.INCREF, DBLifecycleOp.DECREF, DBLifecycleOp.PIN, DBLifecycleOp.UNPIN):
+            if msg.op in (DBLifecycleOp.INCREF, DBLifecycleOp.DECREF, DBLifecycleOp.PIN, DBLifecycleOp.RELEASE_PINS):
                 async with get_sql_session() as session:
                     if msg.op == DBLifecycleOp.INCREF:
                         # lookup_advisory_id holds the hashtext xact lock in
@@ -323,10 +319,10 @@ class OrchLifecycleHandler(LifecycleHandler):
                                 ),
                                 [{"table_name": msg.table_name, "task_id": cid} for cid in consumers],
                             )
-                    elif msg.op == DBLifecycleOp.UNPIN:
+                    elif msg.op == DBLifecycleOp.RELEASE_PINS:
                         await session.execute(
-                            text("DELETE FROM table_pin_refs WHERE table_name = :table_name AND task_id = :task_id"),
-                            {"table_name": msg.table_name, "task_id": msg.pin_task_id},
+                            text("DELETE FROM table_pin_refs WHERE task_id = :task_id"),
+                            {"task_id": msg.pin_task_id},
                         )
                     await session.commit()
 
@@ -516,6 +512,10 @@ def _collect_from_registry(items: list[Task | Group]) -> list[Task | Group]:
             if upstream is not None:
                 visit(upstream)
         result.append(node)
+        # Members follow their group so the group row exists first.
+        if isinstance(node, Group):
+            for member in node.get_tasks():
+                visit(member)
 
     for item in items:
         visit(item)

@@ -340,7 +340,8 @@ class Group(_DependencyOps, SQLModel, table=True):
         register_task(self.id, self)
 
     def add_task(self, task: "Task") -> None:
-        """Attach a Task to this group for co-registration."""
+        """Make ``task`` a member: sets its ``group_id`` and attaches it for co-registration."""
+        task.group_id = self.id
         self._tasks.append(task)
 
     def get_tasks(self) -> list["Task"]:

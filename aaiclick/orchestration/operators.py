@@ -210,7 +210,6 @@ def reduce(
         cbk_kwargs=kwargs,
     )
 
-    expander.group_id = group.id
     group.add_task(expander)
     group._result_task = expander
     return group
@@ -251,7 +250,6 @@ def _build_layer_group(
             cbk_args=cbk_args,
             cbk_kwargs=cbk_kwargs,
         )
-        part_task.group_id = group.id
         group.add_task(part_task)
     return group
 

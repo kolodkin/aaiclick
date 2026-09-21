@@ -54,6 +54,11 @@ async def read_sum(data: Object) -> dict:
 
 
 @task
+async def touch_nothing() -> dict:
+    return {"touched": True}
+
+
+@task
 async def read_group_sum(results: list[Object]) -> dict:
     total = 0
     for obj in results:
@@ -123,14 +128,21 @@ def view_concat_pipeline():
     return read_sum(data=data)
 
 
+@job("lifecycle_ordering_edge")
+def ordering_edge_pipeline():
+    """A >> B where B never reads A's table: B's pin is still released."""
+    data = produce()
+    done = touch_nothing()
+    data >> done
+    return done
+
+
 @job("lifecycle_group_consumer")
 def group_consumer_pipeline():
     """Two producers in a group feed one consumer over a group >> task edge."""
     group = Group(id=get_snowflake_id(), name="producers")
     for _ in range(2):
-        member = produce()
-        member.group_id = group.id
-        group.add_task(member)
+        group.add_task(produce())
     reader = read_group_sum(results=group)
     group >> reader
     return [group, reader]
@@ -151,19 +163,21 @@ def _install_hook(async_engine):
     events = []
     sync_engine = async_engine.sync_engine
 
-    @event.listens_for(sync_engine, "before_cursor_execute")
+    @event.listens_for(sync_engine, "after_cursor_execute")
     def capture(conn, cursor, statement, parameters, context, executemany):
         stmt_upper = statement.upper()
         for tracked in TRACKED_TABLES:
             if tracked.upper() in stmt_upper:
                 if "INSERT" in stmt_upper:
                     action = "INSERT"
+                    # A batched INSERT carries one parameter set per row.
+                    rows = len(parameters) if executemany else 1
                 elif "DELETE" in stmt_upper:
                     action = "DELETE"
+                    # One release may drop several pin rows, or none.
+                    rows = cursor.rowcount
                 else:
                     continue
-                # A batched INSERT carries one parameter set per row.
-                rows = len(parameters) if executemany else 1
                 events.extend([RefEvent(action, tracked)] * rows)
 
     return events, capture
@@ -171,7 +185,7 @@ def _install_hook(async_engine):
 
 def _remove_hook(async_engine, listener):
     """Remove the event hook."""
-    event.remove(async_engine.sync_engine, "before_cursor_execute", listener)
+    event.remove(async_engine.sync_engine, "after_cursor_execute", listener)
 
 
 # --- Helpers ---
@@ -326,3 +340,9 @@ async def test_group_consumer(orch_ctx):
     events = await _run_and_verify(group_consumer_pipeline)
     pins = _pin_inserts(events)
     assert len(pins) == 2
+
+
+async def test_ordering_edge_releases_pin(orch_ctx):
+    """A pin held for a consumer that never deserializes the table is released when it starts."""
+    events = await _run_and_verify(ordering_edge_pipeline)
+    assert len(_pin_inserts(events)) == 1

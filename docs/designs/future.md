@@ -15,9 +15,16 @@ returns a partial or empty list. The PIN fan-out (`successor_task_ids`) already 
 through group edges, so the edge is all that is missing.
 
 Fix: collect `Group` values alongside `Task` values and wire `group >> task`.
-Land the "`map()` never sets `expander.group_id`" backlog item with it —
-until the expander is a member, the edge is vacuously satisfied on
-multi-worker deployments.
+
+---
+
+# Graph Rendering Expands Group Edges Differently From the Runtime
+
+`expand_dependencies()` in `graph.py` expands `A >> G` to G's source tasks and
+`G >> B` to G's sinks, while `successor_task_ids()` and the scheduler treat a
+group target as all of its members. The rendered DAG therefore does not match
+which tasks the runtime waits on or pins for. Decide once whether groups have
+internal ordering; if not, render all members like the runtime does.
 
 ---
 

@@ -20,7 +20,6 @@ _TABLE = "t_pinned"
 
 def _member(group: Group):
     task = create_task(_ENTRY)
-    task.group_id = group.id
     group.add_task(task)
     return task
 
