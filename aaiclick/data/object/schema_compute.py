@@ -28,8 +28,7 @@ _FLOAT_RESULT_OPS = frozenset({"/", "**"})
 # Comparison operators always yield UInt8 rather than a promoted numeric type.
 _COMPARISON_OPS = frozenset({"==", "!=", "<", "<=", ">", ">="})
 
-# Byte width of every integer type ClickHouse promotes between. Bool is a
-# one-byte unsigned integer for promotion purposes.
+# Byte widths ClickHouse promotes between; Bool promotes as a one-byte unsigned.
 _INT_WIDTH: dict[str, int] = {
     "Bool": 1,
     "UInt8": 1,

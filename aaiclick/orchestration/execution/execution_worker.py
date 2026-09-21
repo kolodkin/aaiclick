@@ -140,9 +140,8 @@ async def _heartbeat_while_waiting(
 ) -> None:
     """Heartbeat every ``interval`` seconds until ``done`` is set.
 
-    A failed heartbeat is logged and retried on the next tick: one transient
-    DB error must not silence the worker for the rest of a long task and get
-    it declared dead."""
+    A failed heartbeat is logged and retried next tick; one transient DB error
+    must not get a long task's worker declared dead."""
     while not await wait_or_timeout(done, interval):
         try:
             await heartbeat_fn(execution_worker_id)
@@ -213,17 +212,13 @@ async def drive_vehicle(
 async def _set_pending_cleanup(task_id: int, error: str, expected_epoch: int | None = None) -> bool:
     """Transition a failed task to PENDING_CLEANUP for background ref cleanup.
 
-    Returns False without writing when the run no longer owns the task:
+    Returns False without writing when the run no longer owns the task: it is
+    CANCELLED (``cancel_job`` settled it; a killed run's failure report must
+    not turn a cancelled job FAILED — mirrors ``update_task_status``), or
+    ``expected_epoch`` no longer matches ``run_epoch`` (``clear_task`` reset it).
 
-    - the task is CANCELLED — ``cancel_job`` already settled it, and every
-      runner path reports the killed run as a failure that must not turn a
-      cancelled job into a FAILED one (mirrors ``update_task_status``);
-    - ``expected_epoch`` is given and no longer matches ``run_epoch`` — the
-      run was cleared out from under this execution_worker.
-
-    Both guards live in the UPDATE's WHERE clause so they are enforced
-    atomically with the write on every backend, not only where ``FOR UPDATE``
-    holds a row lock.
+    Both guards sit in the UPDATE's WHERE clause, so they hold atomically on
+    every backend, not only where ``FOR UPDATE`` locks the row.
     """
     async with get_sql_session() as session:
         task = (await session.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
@@ -571,11 +566,10 @@ async def _execution_worker_loop(
             try:
                 success, result_ref, error = await execute_fn(task, execution_worker_id)
             except Exception as e:
-                # A dispatch failure (missing image tag, ``kubectl apply``
-                # rejected, ...) is the task's failure, not the worker's: an
-                # escaped exception would stop the loop and leave the task
-                # RUNNING under a STOPPED worker that the dead-worker sweep
-                # never revisits.
+                # Dispatch failures (missing image tag, rejected ``kubectl
+                # apply``) are the task's, not the worker's: escaping would stop
+                # the loop and leave the task RUNNING under a STOPPED worker the
+                # dead-worker sweep never revisits.
                 logger.exception("ExecutionWorker %s task %s dispatch raised", execution_worker_id, task.id)
                 success, result_ref, error = False, None, f"{type(e).__name__}: {e}"
             if await _handle_task_result(task, execution_worker_id, success, result_ref, error):
@@ -591,15 +585,14 @@ async def _execution_worker_loop(
 async def _execute_in_process(task: Task, execution_worker_id: int) -> tuple[bool, dict | None, str | None]:
     """Execute a task in the current async process with cancellation monitoring.
 
-    Heartbeats while the task runs — the worker loop only heartbeats between
-    claims, so without this any task longer than the dead-worker timeout is
-    declared dead, re-queued, and run twice.
+    Heartbeats while the task runs; the loop only heartbeats between claims,
+    so a task longer than the dead-worker timeout would otherwise be declared
+    dead and run twice.
 
-    A ``CancelledError`` means one of two things: the monitor aborted the run
-    (``cancel_job`` / ``clear_task``), which is reported as a non-failure so
-    the loop moves on; or the worker itself is being cancelled (``local
-    start`` shutting down), which must propagate so the loop exits instead of
-    orphaning the task and polling forever.
+    ``CancelledError`` is either the monitor aborting the run (``cancel_job``
+    / ``clear_task``), reported as a non-failure so the loop moves on, or the
+    worker itself being cancelled (``local start`` shutdown), which propagates
+    so the loop exits instead of orphaning the task.
     """
     exec_task = asyncio.create_task(execute_task(task))
     monitor = asyncio.create_task(_cancellation_monitor(task.id, exec_task, task.run_epoch))

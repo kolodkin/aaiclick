@@ -33,7 +33,7 @@ from .runner import ShellSpec
 from .runner_env import build_runner_env
 
 # Consecutive empty ``kubectl get`` results before ``wait`` presumes the Pod
-# gone — one so a single flaky API call is not mistaken for a vanished Pod.
+# gone; more than one so a flaky API call is not mistaken for a vanished Pod.
 MISSING_POD_POLLS = 3
 
 
@@ -263,12 +263,10 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
         """Poll the Pod until it reaches a terminal phase.
 
         A Pod that vanishes — deleted by ``terminate`` on cancellation, or
-        evicted — never reports ``Succeeded``/``Failed``: ``kubectl get``
-        yields an empty phase. That ends the wait too, after
-        ``MISSING_POD_POLLS`` consecutive empty polls so one flaky API call
-        does not count, or immediately once this handle's Pod was deleted.
-        Otherwise a cancelled task with no timeout would park the worker in
-        this loop forever."""
+        evicted — never reports Succeeded/Failed; ``kubectl get`` yields an
+        empty phase. The wait also ends once this handle's Pod was deleted, or
+        after ``MISSING_POD_POLLS`` consecutive empty polls, so a cancelled
+        task with no timeout cannot park the worker here forever."""
         elapsed = 0.0
         error: str | None = None
         exit_code = -1

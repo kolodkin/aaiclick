@@ -451,17 +451,15 @@ class BackgroundWorker:
     async def _check_schedules(self) -> None:
         """Create Job runs for registered jobs whose next_run_at is due.
 
-        Uses optimistic locking on next_run_at to prevent duplicate runs
-        when multiple background workers are active. The lock is committed
-        before any job is created so a second worker sees the advanced
-        ``next_run_at`` at once, and so the creation runs in its own
-        transaction rather than inside this worker's write lock.
+        Optimistic locking on next_run_at prevents duplicate runs across
+        background workers. The lock commits before any job is created, so a
+        second worker sees the advanced ``next_run_at`` at once and creation
+        runs outside this worker's write transaction.
 
-        Each run is created through ``run_job`` — the same path as a manual
-        submission — so the registration's preservation mode, runner, image
-        source, and build-task injection all apply to scheduled runs. A
-        failure to create one run is logged and does not stop the loop; the
-        schedule has already advanced to the next fire time.
+        Runs go through ``run_job`` — the manual-submission path — so the
+        registration's preservation mode, runner, image source, and
+        build-task injection apply. A failed creation is logged and skipped;
+        the schedule has already advanced.
         """
         now = utc_now()
 
