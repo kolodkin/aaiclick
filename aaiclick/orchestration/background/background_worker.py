@@ -39,7 +39,8 @@ from ..events import register_session_hooks
 from ..models import JOB_CANCELLED, JOB_COMPLETED, JOB_FAILED, PRESERVATION_FULL, RUN_SCHEDULED
 from ..orch_context import orch_context
 from ..registered_jobs import run_job
-from .handler import BackgroundHandler, create_background_handler, in_clause, try_complete_job
+from ..sql_utils import in_clause
+from .handler import BackgroundHandler, create_background_handler, try_complete_job
 
 # Base delay for retry backoff (seconds).  Actual delay = BASE * 2^attempt.
 RETRY_BASE_DELAY = 1

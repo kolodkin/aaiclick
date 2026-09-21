@@ -162,7 +162,9 @@ def _install_hook(async_engine):
                     action = "DELETE"
                 else:
                     continue
-                events.append(RefEvent(action, tracked))
+                # A batched INSERT carries one parameter set per row.
+                rows = len(parameters) if executemany else 1
+                events.extend([RefEvent(action, tracked)] * rows)
 
     return events, capture
 
@@ -188,6 +190,10 @@ async def _get_run_refs(session):
 async def _get_context_tables(session):
     result = await session.execute(text("SELECT DISTINCT table_name FROM table_context_refs"))
     return {r[0] for r in result.fetchall()}
+
+
+def _pin_inserts(events: list[RefEvent]) -> list[RefEvent]:
+    return [e for e in events if e.table == "table_pin_refs" and e.action == "INSERT"]
 
 
 async def _run_cleanup():
@@ -223,7 +229,7 @@ async def _run_and_verify(pipeline_fn):
             assert len(temp_tables) > 0, "Expected context_refs before cleanup"
 
         # Verify pin/unpin pairs (per-consumer: producer fans out, consumer unpins)
-        pin_inserts = [e for e in events if e.table == "table_pin_refs" and e.action == "INSERT"]
+        pin_inserts = _pin_inserts(events)
         pin_deletes = [e for e in events if e.table == "table_pin_refs" and e.action == "DELETE"]
         assert len(pin_inserts) > 0, "No PINs recorded"
         assert len(pin_deletes) > 0, "No UNPINs recorded"
@@ -268,7 +274,7 @@ async def _run_and_verify(pipeline_fn):
 async def test_single_consumer(orch_ctx):
     """A → B: one pin for the single consumer, one unpin."""
     events = await _run_and_verify(single_consumer_pipeline)
-    pins = [e for e in events if e.table == "table_pin_refs" and e.action == "INSERT"]
+    pins = _pin_inserts(events)
     # produce() result → read_sum(): 1 consumer pin
     assert len(pins) >= 1
 
@@ -276,7 +282,7 @@ async def test_single_consumer(orch_ctx):
 async def test_fan_out(orch_ctx):
     """A → (B, C) → D: produce() result pinned for both double() and add_ten()."""
     events = await _run_and_verify(fan_out_pipeline)
-    pins = [e for e in events if e.table == "table_pin_refs" and e.action == "INSERT"]
+    pins = _pin_inserts(events)
     # produce() fans out to double + add_ten = 2 pins for that table
     assert len(pins) >= 2
 
@@ -284,7 +290,7 @@ async def test_fan_out(orch_ctx):
 async def test_chain(orch_ctx):
     """A → B → C: each link gets its own pin."""
     events = await _run_and_verify(chain_pipeline)
-    pins = [e for e in events if e.table == "table_pin_refs" and e.action == "INSERT"]
+    pins = _pin_inserts(events)
     # produce→double: 1 pin, double→read_sum: 1 pin
     assert len(pins) >= 2
 
@@ -292,7 +298,7 @@ async def test_chain(orch_ctx):
 async def test_diamond(orch_ctx):
     """A → (B, C) → D: diamond with per-consumer pins."""
     events = await _run_and_verify(diamond_pipeline)
-    pins = [e for e in events if e.table == "table_pin_refs" and e.action == "INSERT"]
+    pins = _pin_inserts(events)
     # produce→(double, add_ten): 2 pins
     # double→add_objects: 1 pin
     # add_ten→add_objects: 1 pin
@@ -318,5 +324,5 @@ async def test_view_concat_lifecycle(orch_ctx):
 async def test_group_consumer(orch_ctx):
     """(M1, M2) in G, G >> B: each member's table is pinned for B and released by B."""
     events = await _run_and_verify(group_consumer_pipeline)
-    pins = [e for e in events if e.table == "table_pin_refs" and e.action == "INSERT"]
+    pins = _pin_inserts(events)
     assert len(pins) == 2

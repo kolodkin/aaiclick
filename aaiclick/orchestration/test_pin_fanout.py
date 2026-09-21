@@ -15,6 +15,7 @@ from aaiclick.orchestration.orch_context import commit_tasks, get_sql_session, t
 from aaiclick.snowflake import get_snowflake_id
 
 _ENTRY = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
+_TABLE = "t_pinned"
 
 
 def _member(group: Group):
@@ -24,17 +25,15 @@ def _member(group: Group):
     return task
 
 
-async def _pin_from(producer_id: int, job_id: int, table_name: str) -> set[int]:
-    """Pin ``table_name`` as ``producer_id`` and return the consumer ids it fanned out to."""
+async def _pin_from(producer_id: int, job_id: int) -> set[int]:
+    """Pin a table as ``producer_id`` and return the consumer ids it fanned out to."""
     async with task_scope(task_id=producer_id, job_id=job_id, run_id=get_snowflake_id()):
         lifecycle = get_data_lifecycle()
         assert lifecycle is not None
-        lifecycle.pin(table_name)
+        lifecycle.pin(_TABLE)
         await lifecycle.flush()
     async with get_sql_session() as session:
-        rows = await session.execute(
-            text("SELECT task_id FROM table_pin_refs WHERE table_name = :t"), {"t": table_name}
-        )
+        rows = await session.execute(text("SELECT task_id FROM table_pin_refs"))
         return {row[0] for row in rows}
 
 
@@ -47,7 +46,7 @@ async def test_pin_task_to_group_reaches_members(orch_ctx):
     producer >> group
     await commit_tasks([producer, group, m1, m2], job_id=job.id)
 
-    assert await _pin_from(producer.id, job.id, "t_task_to_group") == {m1.id, m2.id}
+    assert await _pin_from(producer.id, job.id) == {m1.id, m2.id}
 
 
 async def test_pin_group_to_task_reaches_consumer(orch_ctx):
@@ -59,7 +58,7 @@ async def test_pin_group_to_task_reaches_consumer(orch_ctx):
     group >> consumer
     await commit_tasks([group, member, consumer], job_id=job.id)
 
-    assert await _pin_from(member.id, job.id, "t_group_to_task") == {consumer.id}
+    assert await _pin_from(member.id, job.id) == {consumer.id}
 
 
 async def test_pin_group_to_group_reaches_members(orch_ctx):
@@ -72,4 +71,4 @@ async def test_pin_group_to_group_reaches_members(orch_ctx):
     g1 >> g2
     await commit_tasks([g1, g2, m1, sibling, c1, c2], job_id=job.id)
 
-    assert await _pin_from(m1.id, job.id, "t_group_to_group") == {c1.id, c2.id}
+    assert await _pin_from(m1.id, job.id) == {c1.id, c2.id}

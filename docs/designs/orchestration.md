@@ -438,7 +438,7 @@ where the table→task mapping exists.
 
 ```
 Task A executes, returns Object(table=T)
-  ├── PIN fans out one hop via dependencies table (see _pin_consumer_ids):
+  ├── PIN fans out one hop via dependencies table (see successor_task_ids):
   │   → inserts pin_ref(T, B.task_id), pin_ref(T, C.task_id)
   └── task_scope exit: decref all → run_refs removed, pin_refs protect T
 
@@ -458,7 +458,7 @@ All consumers finished → 0 pin_refs, 0 run_refs → eligible for cleanup
 
 **Implementation**: `aaiclick/orchestration/orch_context.py` — see `OrchLifecycleHandler` class
 
-Uses `task_id` as `context_id` for context_refs. Pin fans out to consumers one dependency hop away through all four edge shapes (`_pin_consumer_ids`). Unpin removes the consumer's own pin_ref row.
+Uses `task_id` as `context_id` for context_refs. Pin fans out to consumers one dependency hop away through all four edge shapes (`successor_task_ids` in `dependency_graph.py`). Unpin removes the consumer's own pin_ref row.
 
 **PostgreSQL tables**: `TableContextRef` — composite PK `(table_name, context_id)`; `TableRunRef` — composite PK `(table_name, run_id)`; `TablePinRef` — composite PK `(table_name, task_id)`.
 

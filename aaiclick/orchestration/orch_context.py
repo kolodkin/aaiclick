@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import select
 
 from aaiclick.backend import is_postgres
@@ -22,6 +22,7 @@ from aaiclick.locks import lookup_advisory_id
 from aaiclick.oplog.models import get_column_types, init_oplog_tables
 
 from ..snowflake import get_snowflake_id
+from .dependency_graph import successor_task_ids
 from .env import get_db_url
 from .events import register_session_hooks
 from .execution.db_handler import _db_handler_var, create_db_handler, get_db_handler  # noqa: F401
@@ -45,36 +46,6 @@ _OPLOG_COLS = [
     "run_id",
     "created_at",
 ]
-
-
-async def _pin_consumer_ids(session: AsyncSession, producer_id: int) -> set[int]:
-    """Task ids one dependency hop downstream of ``producer_id``.
-
-    Resolves consumers the way the scheduler does: edges leaving the task
-    itself and edges leaving its group, with group targets expanded to their
-    member tasks. ``_downstream_task_ids()`` in ``execution/claiming.py`` walks
-    the same four edge shapes transitively.
-    """
-    group_id = (
-        await session.execute(text("SELECT group_id FROM tasks WHERE id = :id"), {"id": producer_id})
-    ).scalar_one_or_none()
-    edges = await session.execute(
-        text(
-            "SELECT next_id, next_type FROM dependencies "
-            "WHERE (previous_type = 'task' AND previous_id = :task_id) "
-            "OR (previous_type = 'group' AND previous_id = :group_id)"
-        ),
-        {"task_id": producer_id, "group_id": group_id},
-    )
-    consumers: set[int] = set()
-    for next_id, next_type in edges:
-        if next_type == "task":
-            consumers.add(next_id)
-            continue
-        members = await session.execute(text("SELECT id FROM tasks WHERE group_id = :gid"), {"gid": next_id})
-        consumers.update(row[0] for row in members)
-    consumers.discard(producer_id)
-    return consumers
 
 
 class OrchLifecycleHandler(LifecycleHandler):
@@ -342,14 +313,15 @@ class OrchLifecycleHandler(LifecycleHandler):
                     elif msg.op == DBLifecycleOp.PIN:
                         # Fan out: one pin_ref per downstream consumer task.
                         assert msg.pin_task_id is not None
-                        for cid in sorted(await _pin_consumer_ids(session, msg.pin_task_id)):
+                        consumers = await successor_task_ids(session, {msg.pin_task_id})
+                        if consumers:
                             await session.execute(
                                 text(
                                     "INSERT INTO table_pin_refs (table_name, task_id) "
                                     "VALUES (:table_name, :task_id) "
                                     "ON CONFLICT (table_name, task_id) DO NOTHING"
                                 ),
-                                {"table_name": msg.table_name, "task_id": cid},
+                                [{"table_name": msg.table_name, "task_id": cid} for cid in consumers],
                             )
                     elif msg.op == DBLifecycleOp.UNPIN:
                         await session.execute(

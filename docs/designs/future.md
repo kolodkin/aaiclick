@@ -11,7 +11,7 @@ Planned work across aaiclick, ordered by priority.
 `_serialize_value()` emits a `group_results_ref` for it. A group passed as a
 kwarg creates no dependency edge: the consumer can be claimed before the
 group finishes, and the group-results read (COMPLETED members only) silently
-returns a partial or empty list. The PIN fan-out already resolves consumers
+returns a partial or empty list. The PIN fan-out (`successor_task_ids`) already resolves consumers
 through group edges, so the edge is all that is missing.
 
 Fix: collect `Group` values alongside `Task` values and wire `group >> task`.

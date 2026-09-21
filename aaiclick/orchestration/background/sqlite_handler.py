@@ -8,7 +8,8 @@ from datetime import datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .handler import BackgroundHandler, PendingCleanupTask, in_clause
+from ..sql_utils import in_clause
+from .handler import BackgroundHandler, PendingCleanupTask
 
 
 class SqliteBackgroundHandler(BackgroundHandler):

@@ -152,16 +152,6 @@ async def cascade_abort_group_siblings(session: AsyncSession, job_id: int) -> in
     return cast(CursorResult, result).rowcount or 0
 
 
-def in_clause(ids: list, prefix: str) -> tuple[str, dict]:
-    """Build a parameterized IN clause compatible with both SQLite and PostgreSQL.
-
-    Returns (placeholder_string, params_dict) e.g. (":p0, :p1", {"p0": 1, "p1": 2}).
-    """
-    params = {f"{prefix}{i}": v for i, v in enumerate(ids)}
-    placeholders = ", ".join(f":{k}" for k in params)
-    return placeholders, params
-
-
 # The status-set knowledge lives in the SQL files, not in code. Eager loads
 # keep a mis-packaged wheel failing at import.
 JOB_ROLLUP_SQL = load_sql("job_rollup.sql")
