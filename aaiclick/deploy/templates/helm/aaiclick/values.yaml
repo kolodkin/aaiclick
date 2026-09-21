@@ -17,6 +17,13 @@ env:
   # disables the env var (subprocess and prebuilt-image jobs need none).
   registry: ""
 
+# Distributed URLs enforce auth: the server refuses to start without a
+# signing secret, and the admin is seeded on first startup so the release can
+# be logged into (username: admin). Starter defaults — override for real use.
+auth:
+  jwtSecret: change-me-helm-jwt-secret-at-least-32-bytes
+  adminPassword: admin123
+
 serviceAccount:
   name: aaiclick-worker
 rbac:

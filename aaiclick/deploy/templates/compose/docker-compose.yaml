@@ -76,6 +76,11 @@ services:
     environment:
       AAICLICK_SQL_URL: postgresql+asyncpg://aaiclick:secret@postgres:5432/aaiclick
       AAICLICK_CH_URL: clickhouse://default:click123@clickhouse:8123/default
+      # Distributed URLs enforce auth: the server refuses to start without a
+      # signing secret, and the admin below is seeded on first startup so the
+      # stack can be logged into (username: admin).
+      AAICLICK_JWT_SECRET: change-me-compose-jwt-secret-at-least-32-bytes
+      AAICLICK_ADMIN_PASSWORD: admin123
     depends_on:
       migrate:
         condition: service_completed_successfully

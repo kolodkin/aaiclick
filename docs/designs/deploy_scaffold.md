@@ -81,6 +81,8 @@ Full stack — `docker compose up` yields a complete working docker-runner deplo
   ClickHouse/Postgres/the registry via `host.docker.internal` (not the compose service name)
   so that spawned task containers inherit the exact same env var values verbatim; only
   server/background use compose service names in `AAICLICK_SQL_URL` / `AAICLICK_CH_URL`.
+- Distributed URLs enforce auth, so the server carries starter `AAICLICK_JWT_SECRET` /
+  `AAICLICK_ADMIN_PASSWORD` values — without them it refuses to start or cannot be logged into.
 - No profiles: `docker compose up` always brings up the whole stack. CI jobs that only need
   the infra services still run the full stack — simpler than maintaining profile splits.
 
@@ -101,8 +103,9 @@ never succeed against in-chart databases); the worker's initContainer waits for 
 giving the same migrate → server → worker ordering as the compose stack.
 
 `values.yaml` covers: image repository/tag per component, `AAICLICK_SQL_URL` /
-`AAICLICK_CH_URL` (secret-ref or literal), registry URL, imagePullSecret, namespace-scoped
-RBAC toggles, resources.
+`AAICLICK_CH_URL` (secret-ref or literal), registry URL, the server's `auth.jwtSecret` /
+`auth.adminPassword` (starter defaults, as with the database credentials), imagePullSecret,
+namespace-scoped RBAC toggles, resources.
 
 # Release pipeline restructure
 

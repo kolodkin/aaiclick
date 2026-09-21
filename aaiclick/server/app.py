@@ -51,6 +51,10 @@ async def _seed_admin() -> None:
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     warn_if_open()
+    if config.auth_enabled():
+        # Fail at startup, not on the first login: a distributed server
+        # without a signing secret would pass health and 500 every login.
+        config.require_jwt_secret()
     await _seed_admin()
     async with _mcp_app.lifespan(app), live_events(app):
         if is_local():

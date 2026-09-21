@@ -127,3 +127,14 @@ async def test_lifespan_distributed_mode_is_a_no_op():
 
     async with _lifespan(app):
         pass
+
+
+async def test_lifespan_refuses_to_start_without_jwt_secret(monkeypatch):
+    """Distributed mode without a signing secret is a startup error, not a
+    healthy server whose every login is a 500."""
+    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: False)
+    monkeypatch.delenv("AAICLICK_JWT_SECRET", raising=False)
+
+    with pytest.raises(RuntimeError, match="AAICLICK_JWT_SECRET"):
+        async with _lifespan(app):
+            pass

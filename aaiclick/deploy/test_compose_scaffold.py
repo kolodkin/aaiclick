@@ -83,3 +83,13 @@ def test_cli_compose_init_existing_file_exits_nonzero(tmp_path):
     )
     assert result.returncode == 1
     assert "already exists" in result.stderr
+
+
+def test_init_compose_server_carries_auth_credentials(tmp_path):
+    """Distributed URLs enforce auth, so the server needs a signing secret and
+    a seed admin or the stack comes up healthy but cannot be logged into."""
+    target = tmp_path / "docker-compose.yaml"
+    init_compose(target, image_tag="v1.0.0")
+    env = yaml.safe_load(target.read_text())["services"]["server"]["environment"]
+    assert env["AAICLICK_JWT_SECRET"]
+    assert env["AAICLICK_ADMIN_PASSWORD"]

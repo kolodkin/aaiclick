@@ -81,3 +81,20 @@ def test_cli_k8s_init_writes_chart(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "chart" / "Chart.yaml").is_file()
+
+
+def test_init_helm_server_carries_auth_credentials(tmp_path):
+    """Distributed URLs enforce auth, so the server needs a signing secret and
+    a seed admin or the release comes up healthy but cannot be logged into."""
+    target = tmp_path / "aaiclick-chart"
+    init_helm(target, image_tag="v1.0.0")
+
+    values = yaml.safe_load((target / "values.yaml").read_text())
+    assert values["auth"]["jwtSecret"]
+    assert values["auth"]["adminPassword"]
+
+    server = (target / "templates" / "server.yaml").read_text()
+    assert "AAICLICK_JWT_SECRET" in server
+    assert ".Values.auth.jwtSecret" in server
+    assert "AAICLICK_ADMIN_PASSWORD" in server
+    assert ".Values.auth.adminPassword" in server

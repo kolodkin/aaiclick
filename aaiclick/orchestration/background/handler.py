@@ -347,11 +347,16 @@ class BackgroundHandler(ABC):
         guards a race with ``clear_task`` and ``cancel_job``: if either runs
         between the sweep's read and this write, the UPDATE matches no rows
         and the other transition stands.
+
+        Both branches bump ``run_epoch`` to fence the run that reported the
+        failure. A worker declared dead by heartbeat timeout may still be
+        alive; without the bump its late COMPLETED write would pass the epoch
+        guard and land on the retry another worker has since claimed.
         """
         if has_retries:
             await session.execute(
                 text(
-                    "UPDATE tasks SET status = :status, "
+                    "UPDATE tasks SET status = :status, run_epoch = run_epoch + 1, "
                     "attempt = :attempt, retry_after = :retry_after, "
                     "execution_worker_id = NULL, claimed_at = NULL, "
                     "started_at = NULL, completed_at = NULL "
@@ -368,7 +373,7 @@ class BackgroundHandler(ABC):
         else:
             await session.execute(
                 text(
-                    "UPDATE tasks SET status = :status, completed_at = :now "
+                    "UPDATE tasks SET status = :status, run_epoch = run_epoch + 1, completed_at = :now "
                     "WHERE id = :task_id AND status = :failure_cleanup"
                 ),
                 {
