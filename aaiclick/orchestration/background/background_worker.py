@@ -474,10 +474,10 @@ class BackgroundWorker:
             )
             due_jobs = result.fetchall()
 
-            won: list[tuple[str, str]] = []
-            for reg_id, name, entrypoint, schedule, old_next_run in due_jobs:
+            won = []
+            for row in due_jobs:
                 # Compute next fire time from cron
-                new_next_run = croniter(schedule, now).get_next(datetime)
+                new_next_run = croniter(row.schedule, now).get_next(datetime)
 
                 # Optimistic lock: only update if next_run_at hasn't changed
                 lock_result = await session.execute(
@@ -489,22 +489,24 @@ class BackgroundWorker:
                     {
                         "new_next": new_next_run,
                         "now": now,
-                        "reg_id": reg_id,
-                        "old_next": old_next_run,
+                        "reg_id": row.id,
+                        "old_next": row.next_run_at,
                     },
                 )
 
                 if cast(CursorResult, lock_result).rowcount == 0:
                     continue
-                won.append((name, entrypoint))
+                won.append(row)
 
             await session.commit()
 
-        for name, entrypoint in won:
-            try:
-                async with orch_context(with_ch=False):
-                    job = await run_job(name, entrypoint, run_type=RUN_SCHEDULED)
-            except Exception:
-                logger.exception("Scheduled job '%s' could not be created", name)
-                continue
-            logger.info("Scheduled job '%s' created (job_id=%s)", name, job.id)
+        if not won:
+            return
+        async with orch_context(with_ch=False):
+            for row in won:
+                try:
+                    job = await run_job(row.name, row.entrypoint, run_type=RUN_SCHEDULED)
+                except Exception:
+                    logger.exception("Scheduled job '%s' could not be created", row.name)
+                    continue
+                logger.info("Scheduled job '%s' created (job_id=%s)", row.name, job.id)

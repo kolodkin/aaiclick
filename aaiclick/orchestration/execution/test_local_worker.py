@@ -1,12 +1,14 @@
 """Tests for local mode worker (in-process async execution with chdb)."""
 
 import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlmodel import select
 
 from ..decorators import job, task
 from ..factories import create_job, create_task
+from ..jobs import get_task
 from ..models import EXECUTION_WORKER_STOPPED, TASK_COMPLETED, TASK_PENDING_CLEANUP, TASK_RUNNING, Task
 from ..orch_context import get_sql_session
 from . import execution_worker as ew
@@ -143,16 +145,17 @@ async def test_local_worker_no_tasks(orch_ctx):
     assert tasks_executed == 0
 
 
-async def _wait_for_status(task_id: int, status: str, timeout: float = 5.0) -> None:
+async def _wait_for_status(task_id: int, status: str) -> None:
     """Poll until the task reaches ``status``."""
-    deadline = asyncio.get_running_loop().time() + timeout
-    while asyncio.get_running_loop().time() < deadline:
-        async with get_sql_session() as session:
-            task = (await session.execute(select(Task).where(Task.id == task_id))).scalar_one()
-        if task.status == status:
-            return
-        await asyncio.sleep(0.05)
-    raise AssertionError(f"task {task_id} never reached {status}")
+
+    async def poll():
+        while True:
+            task = await get_task(task_id)
+            if task is not None and task.status == status:
+                return
+            await asyncio.sleep(0.05)
+
+    await asyncio.wait_for(poll(), timeout=5)
 
 
 async def test_local_worker_dispatch_exception_fails_task(orch_ctx):
@@ -183,14 +186,8 @@ async def test_local_worker_heartbeats_during_task(orch_ctx, monkeypatch):
     claims — otherwise any task longer than the dead-worker timeout is
     declared dead and run twice."""
     monkeypatch.setattr(ew, "HEARTBEAT_INTERVAL", 0.05)
-    beats = 0
-
-    async def counting_heartbeat(execution_worker_id: int):
-        nonlocal beats
-        beats += 1
-        return await execution_worker_heartbeat(execution_worker_id)
-
-    monkeypatch.setattr(ew, "execution_worker_heartbeat", counting_heartbeat)
+    heartbeat = AsyncMock(wraps=execution_worker_heartbeat)
+    monkeypatch.setattr(ew, "execution_worker_heartbeat", heartbeat)
     await create_job(
         "test_heartbeat_during_task",
         create_task("aaiclick.orchestration.fixtures.sample_tasks.slow_task", {"seconds": 0.5, "steps": 5}),
@@ -199,7 +196,7 @@ async def test_local_worker_heartbeats_during_task(orch_ctx, monkeypatch):
     tasks_executed = await execution_worker_main_loop(max_tasks=1, install_signal_handlers=False, max_empty_polls=1)
 
     assert tasks_executed == 1
-    assert beats >= 3
+    assert heartbeat.await_count >= 3
 
 
 async def test_local_worker_cancel_propagates_to_loop(orch_ctx):

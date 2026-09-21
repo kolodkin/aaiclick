@@ -218,15 +218,12 @@ async def _set_pending_cleanup(task_id: int, error: str, expected_epoch: int | N
     ``expected_epoch`` no longer matches ``run_epoch`` (``clear_task`` reset it).
 
     Both guards sit in the UPDATE's WHERE clause, so they hold atomically on
-    every backend, not only where ``FOR UPDATE`` locks the row.
+    every backend, not only where ``FOR UPDATE`` locks the row; the rowcount
+    is the verdict. The prior SELECT only feeds ``run_statuses``.
     """
     async with get_sql_session() as session:
         task = (await session.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
         if task is None:
-            return False
-        if task.status == TASK_CANCELLED:
-            return False
-        if expected_epoch is not None and task.run_epoch != expected_epoch:
             return False
         values: dict[str, str | list[str]] = {"status": TASK_PENDING_CLEANUP, "error": error}
         if task.run_statuses:

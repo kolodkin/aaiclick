@@ -16,6 +16,7 @@ from ..models import (
     FIELDTYPE_DICT,
     FIELDTYPE_SCALAR,
     FLOAT_TYPES,
+    INT_BITS,
     INT_TYPES,
     ColumnInfo,
     Schema,
@@ -28,31 +29,18 @@ _FLOAT_RESULT_OPS = frozenset({"/", "**"})
 # Comparison operators always yield UInt8 rather than a promoted numeric type.
 _COMPARISON_OPS = frozenset({"==", "!=", "<", "<=", ">", ">="})
 
-# Byte widths ClickHouse promotes between; Bool promotes as a one-byte unsigned.
-_INT_WIDTH: dict[str, int] = {
-    "Bool": 1,
-    "UInt8": 1,
-    "Int8": 1,
-    "UInt16": 2,
-    "Int16": 2,
-    "UInt32": 4,
-    "Int32": 4,
-    "UInt64": 8,
-    "Int64": 8,
-}
-
 
 def _is_signed(int_type: str) -> bool:
     return int_type.startswith("Int")
 
 
-def _int_type(*, signed: bool, width: int) -> str:
-    return f"{'Int' if signed else 'UInt'}{width * 8}"
+def _int_type(*, signed: bool, bits: int) -> str:
+    return f"{'Int' if signed else 'UInt'}{bits}"
 
 
-def _next_width(width: int) -> int:
+def _next_bits(bits: int) -> int:
     """ClickHouse ``nextSize``: results widen to the next size, capped at 64 bits."""
-    return width * 2 if width < 8 else width
+    return min(bits * 2, 64)
 
 
 def _result_value_type(operator: str, type_a: str, type_b: str) -> str:
@@ -78,15 +66,15 @@ def _result_value_type(operator: str, type_a: str, type_b: str) -> str:
         return "Float64"
     if type_a in FLOAT_TYPES or type_b in FLOAT_TYPES:
         return "Float64"
-    if type_a not in _INT_WIDTH or type_b not in _INT_WIDTH:
+    if type_a not in INT_TYPES or type_b not in INT_TYPES:
         return type_a
     if operator == "%":
         signed = _is_signed(type_a)
-        width = _next_width(_INT_WIDTH[type_b]) if signed else _INT_WIDTH[type_b]
-        return _int_type(signed=signed, width=width)
+        bits = _next_bits(INT_BITS[type_b]) if signed else INT_BITS[type_b]
+        return _int_type(signed=signed, bits=bits)
     signed = operator == "-" or _is_signed(type_a) or _is_signed(type_b)
-    width = _next_width(max(_INT_WIDTH[type_a], _INT_WIDTH[type_b]))
-    return _int_type(signed=signed, width=width)
+    bits = _next_bits(max(INT_BITS[type_a], INT_BITS[type_b]))
+    return _int_type(signed=signed, bits=bits)
 
 
 def _compute_operator_schema(
@@ -192,7 +180,7 @@ def _determine_agg_result_type(agg_func: str, source_type: str | ColumnInfo) -> 
         return base_type
     if agg_func == "sum":
         if base_type in INT_TYPES:
-            return _int_type(signed=_is_signed(base_type), width=8)
+            return _int_type(signed=_is_signed(base_type), bits=64)
         return "Float64"
     if agg_func == "count":
         return "UInt64"

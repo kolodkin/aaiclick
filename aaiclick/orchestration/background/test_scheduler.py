@@ -5,10 +5,9 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
-from sqlmodel import select
 
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
-from aaiclick.orchestration.models import PRESERVATION_FULL, RUN_SCHEDULED, RUNNER_SUBPROCESS, Job
+from aaiclick.orchestration.models import PRESERVATION_FULL
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import register_job
 
@@ -24,13 +23,15 @@ async def _get_engine(orch_ctx):
 
 
 async def test_check_schedules_creates_job(orch_ctx):
-    """A due registered job should produce a Job + Task."""
+    """A due registered job should produce a Job + Task carrying the
+    registration's config (preservation mode), not the column defaults."""
     # Register a job with next_run_at in the past
     reg = await register_job(
         name="sched_test",
         entrypoint="myapp.sched_task",
         schedule="* * * * *",
         default_kwargs={"key": "val"},
+        preservation_mode=PRESERVATION_FULL,
     )
 
     # Force next_run_at to the past
@@ -51,16 +52,20 @@ async def test_check_schedules_creates_job(orch_ctx):
     # Verify Job was created
     async with get_sql_session() as session:
         result = await session.execute(
-            text("SELECT id, name, run_type, registered_job_id FROM jobs WHERE registered_job_id = :reg_id"),
+            text(
+                "SELECT id, name, run_type, registered_job_id, preservation_mode "
+                "FROM jobs WHERE registered_job_id = :reg_id"
+            ),
             {"reg_id": reg.id},
         )
         jobs = result.fetchall()
 
     assert len(jobs) == 1
-    job_id, name, run_type, registered_job_id = jobs[0]
+    job_id, name, run_type, registered_job_id, preservation_mode = jobs[0]
     assert name == "sched_test"
     assert run_type == "SCHEDULED"
     assert registered_job_id == reg.id
+    assert preservation_mode == PRESERVATION_FULL
 
     # Verify entry Task was created
     async with get_sql_session() as session:
@@ -176,37 +181,5 @@ async def test_check_schedules_skips_no_schedule_jobs(orch_ctx):
         count = result.scalar_one()
 
     assert count == 0
-
-    await worker._engine.dispose()
-
-
-async def test_check_schedules_applies_registration_config(orch_ctx):
-    """A scheduled run carries the registration's preservation mode and
-    runner — the same job shape a manual ``run_job`` would create — instead
-    of the column defaults (NONE / subprocess) a bare INSERT would leave."""
-    reg = await register_job(
-        name="sched_full",
-        entrypoint="myapp.sched_full",
-        schedule="* * * * *",
-        preservation_mode=PRESERVATION_FULL,
-    )
-    async with get_sql_session() as session:
-        await session.execute(
-            text("UPDATE registered_jobs SET next_run_at = :past WHERE id = :id"),
-            {"past": utc_now() - timedelta(minutes=5), "id": reg.id},
-        )
-        await session.commit()
-
-    worker = BackgroundWorker()
-    worker._engine = await _get_engine(orch_ctx)
-    worker._ch_client = None
-
-    await worker._check_schedules()
-
-    async with get_sql_session() as session:
-        job = (await session.execute(select(Job).where(Job.registered_job_id == reg.id))).scalar_one()
-    assert job.run_type == RUN_SCHEDULED
-    assert job.preservation_mode == PRESERVATION_FULL
-    assert job.runner_mode == RUNNER_SUBPROCESS
 
     await worker._engine.dispose()

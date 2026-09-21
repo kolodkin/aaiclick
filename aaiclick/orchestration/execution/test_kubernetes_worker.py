@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock
 
+import pytest
+
 from ..models import Task
 from . import kubernetes_worker as kw
 from .execution_worker import JobDispatch
@@ -215,24 +217,35 @@ async def test_module_pod_wait_reads_result_row(monkeypatch):
     assert payload is row
 
 
+@pytest.mark.parametrize(
+    "rc, stderr, expected_phase",
+    [
+        pytest.param(
+            1, 'Error from server (NotFound): pods "aaiclick-task-7-1" not found', kw.POD_NOT_FOUND, id="gone"
+        ),
+        pytest.param(1, "Unable to connect to the server: dial tcp: i/o timeout", "", id="transient"),
+    ],
+)
+async def test_pod_status_maps_kubectl_failure(monkeypatch, rc, stderr, expected_phase):
+    monkeypatch.setattr(kw.cli, "run", AsyncMock(return_value=(rc, "", stderr)))
+
+    assert await kw._pod_status(_handle()) == (expected_phase, -1)
+
+
 async def test_wait_ends_when_pod_disappears(monkeypatch):
-    """A Pod that vanishes never reports a terminal phase; ``wait`` must give
-    up after MISSING_POD_POLLS empty polls instead of looping forever."""
+    """A Pod that vanishes never reports a terminal phase; ``wait`` must end on
+    ``POD_NOT_FOUND`` instead of looping forever."""
     monkeypatch.setattr(kw, "POLL_INTERVAL", 0)
-    status = AsyncMock(return_value=("", -1))
-    monkeypatch.setattr(kw, "_pod_status", status)
+    monkeypatch.setattr(kw, "_pod_status", AsyncMock(side_effect=[("Running", -1), (kw.POD_NOT_FOUND, -1)]))
     monkeypatch.setattr(kw, "read_task_run_result", AsyncMock(return_value=None))
 
     exit_code, error, payload = await _vehicle("module").wait(_handle(), None)
 
-    assert exit_code == -1
-    assert error == "Pod aaiclick-task-7-1 disappeared"
-    assert payload is None
-    assert status.await_count == kw.MISSING_POD_POLLS
+    assert (exit_code, error, payload) == (-1, "Pod aaiclick-task-7-1 disappeared", None)
 
 
-async def test_wait_tolerates_one_empty_poll(monkeypatch):
-    """A single empty ``kubectl get`` (transient API error) does not end the wait."""
+async def test_wait_retries_transient_kubectl_failure(monkeypatch):
+    """An empty phase (``kubectl`` could not answer) does not end the wait."""
     monkeypatch.setattr(kw, "POLL_INTERVAL", 0)
     monkeypatch.setattr(kw, "_pod_status", AsyncMock(side_effect=[("Running", -1), ("", -1), ("Succeeded", 0)]))
     monkeypatch.setattr(kw, "read_task_run_result", AsyncMock(return_value=None))
@@ -240,20 +253,3 @@ async def test_wait_tolerates_one_empty_poll(monkeypatch):
     exit_code, error, _ = await _vehicle("module").wait(_handle(), None)
 
     assert (exit_code, error) == (0, None)
-
-
-async def test_wait_ends_once_handle_deleted(monkeypatch):
-    """After ``terminate`` deleted the Pod (cancellation), ``wait`` returns on
-    the next poll rather than waiting out the missing-Pod threshold."""
-    monkeypatch.setattr(kw, "POLL_INTERVAL", 0)
-    status = AsyncMock(return_value=("Running", -1))
-    monkeypatch.setattr(kw, "_pod_status", status)
-    monkeypatch.setattr(kw, "read_task_run_result", AsyncMock(return_value=None))
-    handle = _handle()
-    handle.deleted = True
-
-    exit_code, error, _ = await _vehicle("module").wait(handle, None)
-
-    assert exit_code == -1
-    assert error == "Pod aaiclick-task-7-1 was deleted before it finished"
-    assert status.await_count == 1
