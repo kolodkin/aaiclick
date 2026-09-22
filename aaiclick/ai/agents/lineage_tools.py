@@ -15,6 +15,7 @@ import json
 import logging
 import re
 from collections.abc import Iterable
+from dataclasses import dataclass, field
 from typing import Any, Literal, NamedTuple
 
 from pydantic import BaseModel, Field
@@ -81,13 +82,16 @@ class QueryResult(BaseModel):
 DEFAULT_ROW_LIMIT = 100
 ROW_LIMIT_CEILING = 1000
 
+_AST_TABLE_EXPRESSION = "TableExpression"
 _AST_TABLE_IDENTIFIER = "TableIdentifier "
 _AST_IDENTIFIER = "Identifier "
 _AST_FUNCTION = "Function "
 _AST_SUBQUERY = "Subquery"
 # A SETTINGS clause, at any depth, parses to this node.
 _AST_SETTINGS = "Set"
-_AST_IN_FUNCTIONS = {f"{_AST_FUNCTION}{name}" for name in ("in", "notIn", "globalIn", "globalNotIn")}
+# Every IN-family function ClickHouse exposes — in, notIn, globalIn,
+# nullIn, globalNotNullIn, inIgnoreSet, … — reads a table named on its right.
+_IN_FUNCTION_RE = re.compile(r"^(global)?(not)?(null)?in(ignoreset)?$", re.IGNORECASE)
 _STATEMENT_START_RE = re.compile(r"^\s*(?:WITH\b|SELECT\b)", re.IGNORECASE)
 _SEMICOLON_RE = re.compile(r";\s*\S")
 
@@ -178,39 +182,55 @@ def _direct_children(rows: list[_AstRow], index: int) -> list[int]:
     return children
 
 
-def _table_expressions(rows: list[_AstRow]) -> list[str]:
-    """The single child of every ``TableExpression`` node.
+@dataclass
+class _TableReads:
+    """Everything in a parse tree that reads a table, plus the one clause that lifts the caps."""
 
-    A ``TableExpression`` is what sits in table position, and its child says
-    which kind it is: ``TableIdentifier <name>``, ``Subquery``, or
-    ``Function <name>`` for a table function.
-    """
-    return [
-        rows[child].text
-        for index, row in enumerate(rows)
-        if row.text.startswith("TableExpression")
-        for child in _direct_children(rows, index)[:1]
-    ]
-
-
-def _in_identifiers(rows: list[_AstRow]) -> list[str]:
-    """Bare identifiers on the right-hand side of ``IN`` / ``NOT IN`` / ``GLOBAL IN``.
+    tables: set[str] = field(default_factory=set)
+    """``TableIdentifier`` names in table position."""
+    functions: set[str] = field(default_factory=set)
+    """Table functions in table position — ``merge``, ``remote``, ``url``, …"""
+    opaque: set[str] = field(default_factory=set)
+    """Table expressions of a kind this walk does not recognize."""
+    in_tables: set[str] = field(default_factory=set)
+    """Bare identifiers on the right of an IN-family function.
 
     ``expr IN name`` reads a table without a table position: the name is an
     ``Identifier`` operand, never a ``TableExpression``. ClickHouse reads it
     as a table when one exists by that name and as an array column otherwise;
-    the parse tree cannot tell the two apart, so the caller treats each as a
-    table reference.
+    the parse tree cannot tell the two apart, so each is treated as a table.
     """
-    names = []
+    has_settings: bool = False
+
+
+def _table_reads(rows: list[_AstRow]) -> _TableReads:
+    """One pass over an ``EXPLAIN AST`` dump.
+
+    A ``TableExpression`` is what sits in table position, and its single child
+    (the next row) says which kind it is: ``TableIdentifier <name>``,
+    ``Subquery``, or ``Function <name>`` for a table function.
+    """
+    reads = _TableReads()
     for index, row in enumerate(rows):
-        if _node_name(row.text) not in _AST_IN_FUNCTIONS:
-            continue
-        for operands in _direct_children(rows, index):
-            args = _direct_children(rows, operands)
-            if len(args) == 2 and rows[args[1]].text.startswith(_AST_IDENTIFIER):
-                names.append(_node_name(rows[args[1]].text).removeprefix(_AST_IDENTIFIER))
-    return names
+        name = _node_name(row.text)
+        if name == _AST_SETTINGS:
+            reads.has_settings = True
+        elif name == _AST_TABLE_EXPRESSION:
+            if index + 1 == len(rows) or rows[index + 1].indent != row.indent + 1:
+                continue
+            child = _node_name(rows[index + 1].text)
+            if child.startswith(_AST_TABLE_IDENTIFIER):
+                reads.tables.add(child.removeprefix(_AST_TABLE_IDENTIFIER))
+            elif child.startswith(_AST_FUNCTION):
+                reads.functions.add(child.removeprefix(_AST_FUNCTION))
+            elif not child.startswith(_AST_SUBQUERY):
+                reads.opaque.add(child)
+        elif name.startswith(_AST_FUNCTION) and _IN_FUNCTION_RE.match(name.removeprefix(_AST_FUNCTION)):
+            for operands in _direct_children(rows, index):
+                args = _direct_children(rows, operands)
+                if len(args) == 2 and rows[args[1]].text.startswith(_AST_IDENTIFIER):
+                    reads.in_tables.add(_node_name(rows[args[1]].text).removeprefix(_AST_IDENTIFIER))
+    return reads
 
 
 async def validate_scope(sql: str, scope_tables: set[str]) -> ToolError | None:
@@ -226,7 +246,7 @@ async def validate_scope(sql: str, scope_tables: set[str]) -> ToolError | None:
     second-guessing parser that disagreed with ClickHouse would be a bypass.
 
     The right-hand side of ``IN`` is held to the same check — see
-    ``_in_identifiers`` for why an array column is rejected there too.
+    ``_TableReads.in_tables`` for why an array column is rejected there too.
 
     A CTE name is a table identifier no graph contains, so ``WITH`` queries are
     rejected. The tool description tells the model to write the CTE as a
@@ -237,32 +257,20 @@ async def validate_scope(sql: str, scope_tables: set[str]) -> ToolError | None:
     ``run_select`` sends beside the query.
     """
     try:
-        rows = _ast_rows(await _explain_ast(sql))
+        reads = _table_reads(_ast_rows(await _explain_ast(sql)))
     except Exception as exc:
         logger.debug("EXPLAIN AST failed for agent SQL", exc_info=True)
         return ToolError("invalid_argument", f"Could not parse SQL: {exc}")
 
-    if any(_node_name(row.text) == _AST_SETTINGS for row in rows):
+    if reads.has_settings:
         return ToolError("invalid_argument", "A SETTINGS clause is not permitted; the tool sets the execution caps.")
-
-    unknown: set[str] = set()
-    functions: set[str] = set()
-    for child in _table_expressions(rows):
-        if child.startswith(_AST_TABLE_IDENTIFIER):
-            name = _node_name(child).removeprefix(_AST_TABLE_IDENTIFIER)
-            if name not in scope_tables:
-                unknown.add(name)
-        elif child.startswith(_AST_FUNCTION):
-            functions.add(_node_name(child).removeprefix(_AST_FUNCTION))
-        elif not child.startswith(_AST_SUBQUERY):
-            # Fail closed: an unrecognized table expression is not provably in scope.
-            unknown.add(_node_name(child))
-    if functions:
-        listed = ", ".join(sorted(functions))
+    if reads.functions:
+        listed = ", ".join(sorted(reads.functions))
         return ToolError("out_of_scope", f"Table functions are not permitted: {listed}.")
 
-    in_unknown = {name for name in _in_identifiers(rows) if name not in scope_tables}
-    unknown |= in_unknown
+    # Fail closed: an opaque table expression is not provably in scope.
+    in_unknown = reads.in_tables - scope_tables
+    unknown = (reads.tables - scope_tables) | reads.opaque | in_unknown
     if unknown:
         listed = ", ".join(sorted(unknown)[:3])
         hint = " IN <identifier> reads a table; for an array column use has(column, value)." if in_unknown else ""

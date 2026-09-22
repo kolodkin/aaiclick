@@ -312,13 +312,23 @@ SingleUseT = TypeVar("SingleUseT", bound=_SingleUse)
 
 async def _consume(model: type[SingleUseT], token_hash: str) -> SingleUseT | None:
     """Mark a single-use row consumed and return it; ``None`` if missing,
-    expired, or already consumed."""
+    expired, or already consumed.
+
+    One conditional ``UPDATE … RETURNING``: two redemptions racing on the same
+    token cannot both see an unconsumed row.
+    """
+    now = utc_now()
     async with get_sql_session() as session:
-        row = (await session.execute(select(model).where(model.token_hash == token_hash))).scalar_one_or_none()
-        if row is None or row.consumed_at is not None or row.expires_at <= utc_now():
-            return None
-        row.consumed_at = utc_now()
-        session.add(row)
+        row = (
+            await session.execute(
+                update(model)
+                .where(
+                    col(model.token_hash) == token_hash, col(model.consumed_at).is_(None), col(model.expires_at) > now
+                )
+                .values(consumed_at=now)
+                .returning(model)
+            )
+        ).scalar_one_or_none()
         await session.commit()
     return row
 

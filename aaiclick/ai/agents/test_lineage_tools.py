@@ -284,7 +284,8 @@ async def test_query_table_rejects_in_with_out_of_scope_table(orch_ctx, sql):
 
     The bare-identifier form is an ``Identifier`` under the ``in`` function,
     never a ``TableExpression``, so a guard that only walks table positions
-    lets it read any table in the database.
+    lets it read any table in the database. Every IN-family function —
+    ``nullIn``, ``globalNotNullIn``, the ``IgnoreSet`` variants — does the same.
     """
     toolbox = LineageToolbox(_sample_graph())
     err = await toolbox.query_table(sql)

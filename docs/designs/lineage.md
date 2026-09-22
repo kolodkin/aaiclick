@@ -181,8 +181,9 @@ Safety rails on `query_table`:
   table functions (`merge`, `remote`, `url`, `file`, `cluster`) are
   rejected because they name their targets in string literals. Write a
   CTE as a subquery in `FROM` instead — a CTE name is not in the graph
-- Scoped through `IN` too — a bare identifier on the right of `IN` /
-  `NOT IN` / `GLOBAL IN` reads a table, so it must be a graph table. The
+- Scoped through `IN` too — a bare identifier on the right of any IN-family
+  function (`IN`, `GLOBAL NOT IN`, `nullIn`, …) reads a table, so it must be
+  a graph table. The
   parse tree cannot tell it from an array column; use `has(column, value)`
   for arrays
 - Read-only in the engine — `readonly=2` / `allow_ddl=0` are set on the
