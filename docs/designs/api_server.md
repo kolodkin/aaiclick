@@ -119,12 +119,14 @@ Auth + worker-spawn add `StartWorkerRequest` and expand `ProblemCode` — see
 
 ## Shared (`aaiclick/view_models.py`)
 
-| Model                  | Purpose                                                      |
-|------------------------|--------------------------------------------------------------|
-| `Page[T]`              | Generic paged list: `items`, `total`, `next_cursor`          |
-| `Problem`              | Error shape: `title`, `status`, `detail`, `code`             |
-| `RefId`                | `int \| str` — numeric id or human-readable name             |
-| `SnowflakeId`          | `int` serialized as a JSON **string** (`when_used="json"`)   |
+| Model                     | Purpose                                                                                             |
+|---------------------------|-----------------------------------------------------------------------------------------------------|
+| `Page[T]`                 | Generic paged list: `items`, `total`, `next_cursor`                                                 |
+| `Problem`                 | Error shape: `title`, `status`, `detail`, `code`                                                    |
+| `RefId`                   | `int \| str` — numeric id or human-readable name                                                    |
+| `SnowflakeId`             | `int` serialized as a JSON **string** (`when_used="json"`)                                          |
+| `PageLimit`, `PageOffset` | Bounds on every `*Filter`: `1 ≤ limit ≤ MAX_PAGE_LIMIT` (1000), `offset ≥ 0`; out of range is `422` |
+| `UtcDateTime`             | Request datetimes (`since`, `expires_at`, …) normalized to naive UTC                                |
 
 **Snowflake ids on the wire**: every 64-bit id field (`id`, `job_id`,
 `execution_worker_id`, …) is typed `SnowflakeId`, so it serializes to a JSON *string*.

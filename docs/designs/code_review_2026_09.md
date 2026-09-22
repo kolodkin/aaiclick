@@ -41,21 +41,6 @@ is fixed.
   `View._effective_columns()`. With two computed columns and one exploded,
   `data()` assigns values to the wrong keys.
 
-## Server and API
-
-- **`expires_at` accepts aware datetimes; the comparison is naive UTC** —
-  `aaiclick/auth/view_models.py` `CreateApiTokenRequest` and
-  `aaiclick/internal_api/api_tokens.py` `create_token()`. The SPA sends
-  `...Z`, so every token mint with an expiry is a 500.
-- **`limit` / `offset` are unconstrained on every list filter** —
-  `aaiclick/view_models.py` and the auth, audit, viewer filter models. Huge
-  limits return whole tables; negative values are a 500 on Postgres.
-- **REST scope enforcement keys purely on HTTP method** —
-  `aaiclick/server/auth.py`, `require_principal()`. POST `/viewer/query` and
-  dashboard runs are reads, tagged read in MCP, but reject read-scope tokens.
-- **TOTP with non-ASCII input is a 500** — `aaiclick/auth/security.py`,
-  `verify_totp()`. `hmac.compare_digest` raises `TypeError`.
-
 ## Java SDK
 
 - **`KwargsResolver.resolve` is applied to the whole kwargs object** —
@@ -135,5 +120,5 @@ is fixed.
 
 # Fix Order
 
-Remaining Mediums grouped by shared root cause: missing status guards,
-unbounded list filters.
+Remaining Mediums are grouped by area above; the Java SDK attempt and
+validation items share the jvm launch path.

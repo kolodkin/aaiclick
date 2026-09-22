@@ -6,7 +6,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from ..log_models import SnowflakeId
+from ..log_models import PageLimit, PageOffset, SnowflakeId, UtcDateTime
 from .models import ROLE_VIEWER, SCOPE_READ, Role, ScopeLevel
 
 
@@ -82,8 +82,8 @@ class ChangePasswordRequest(BaseModel):
 
 
 class UserListFilter(BaseModel):
-    limit: int = 50
-    offset: int = 0
+    limit: PageLimit = 50
+    offset: PageOffset = 0
     cursor: str | None = None
 
 
@@ -109,7 +109,7 @@ class ApiTokenCreated(ApiTokenView):
 class CreateApiTokenRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     scope: ScopeLevel = SCOPE_READ
-    expires_at: datetime | None = None
+    expires_at: UtcDateTime | None = None
 
 
 class MfaSetupView(BaseModel):

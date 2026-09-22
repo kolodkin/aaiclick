@@ -93,6 +93,13 @@ def test_verify_totp_accepts_drift_and_rejects_stale():
     assert not security.verify_totp(secret, "000000" if code != "000000" else "111111", at=now)
 
 
+def test_verify_totp_rejects_non_ascii_input():
+    """``hmac.compare_digest`` raises on non-ASCII str; a fullwidth-digit code
+    must be a plain mismatch, not a 500."""
+    secret = security.generate_totp_secret()
+    assert not security.verify_totp(secret, "\uff11\uff12\uff13\uff14\uff15\uff16", at=1_700_000_000.0)
+
+
 def test_totp_uri_shape():
     uri = security.totp_uri("ABC234", "al ice")
     assert uri.startswith("otpauth://totp/aaiclick%3Aal%20ice?secret=ABC234&issuer=aaiclick")

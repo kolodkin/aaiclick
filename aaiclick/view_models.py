@@ -30,12 +30,16 @@ from .ai.ollama import (
     OllamaBootstrapStatus,
 )
 from .log_models import (
+    MAX_PAGE_LIMIT,
     STDERR_STREAM,
     STDOUT_STREAM,
     LogLevel,
     LogLine,
     LogStream,
+    PageLimit,
+    PageOffset,
     SnowflakeId,
+    UtcDateTime,
     normalize_level,
 )
 from .orchestration.models import ExecutionWorkerStatus, JobStatus, PreservationMode, RunnerMode
@@ -144,9 +148,9 @@ class JobListFilter(BaseModel):
 
     status: JobStatus | None = None
     name: str | None = None
-    since: datetime | None = None
-    limit: int = 50
-    offset: int = 0
+    since: UtcDateTime | None = None
+    limit: PageLimit = 50
+    offset: PageOffset = 0
     cursor: str | None = None
 
 
@@ -155,8 +159,8 @@ class RegisteredJobFilter(BaseModel):
 
     enabled: bool | None = None
     name: str | None = None
-    limit: int = 50
-    offset: int = 0
+    limit: PageLimit = 50
+    offset: PageOffset = 0
     cursor: str | None = None
 
 
@@ -164,8 +168,8 @@ class ExecutionWorkerFilter(BaseModel):
     """Filter parameters for ``internal_api.list_execution_workers``."""
 
     status: ExecutionWorkerStatus | None = None
-    limit: int = 50
-    offset: int = 0
+    limit: PageLimit = 50
+    offset: PageOffset = 0
     cursor: str | None = None
 
 
@@ -185,7 +189,7 @@ class ObjectFilter(BaseModel):
     prefix: str | None = None
     scope: ObjectScope | None = None
     job: RefId | None = None  # list one job's objects: id, or name → latest run
-    limit: int = 50
+    limit: PageLimit = 50
     cursor: str | None = None
 
 
@@ -196,8 +200,8 @@ class PurgeObjectsRequest(BaseModel):
     refuses to purge everything unfiltered.
     """
 
-    after: datetime | None = None
-    before: datetime | None = None
+    after: UtcDateTime | None = None
+    before: UtcDateTime | None = None
 
 
 class PurgeObjectsResult(BaseModel):

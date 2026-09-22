@@ -20,6 +20,11 @@ async def test_list_jobs_returns_page(orch_ctx, app_client):
     assert any(j.name == "http_list_a" for j in page.items)
 
 
+async def test_list_jobs_rejects_out_of_range_paging(orch_ctx, app_client):
+    assert (await app_client.get(f"{API_PREFIX}/jobs", params={"limit": 0})).status_code == 422
+    assert (await app_client.get(f"{API_PREFIX}/jobs", params={"offset": -1})).status_code == 422
+
+
 async def test_list_jobs_filter_by_status(orch_ctx, app_client):
     await create_job("http_status_job", simple_task)
 

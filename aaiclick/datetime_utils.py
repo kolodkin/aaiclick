@@ -22,3 +22,16 @@ sqlite3.register_adapter(date, str)
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def to_naive_utc(value: datetime) -> datetime:
+    """Normalize an input datetime to the storage convention.
+
+    An aware value is converted to UTC and stripped; a naive one is taken as
+    UTC already. Comparing an aware value against ``utc_now()`` or a stored
+    column raises ``TypeError``, so every datetime that enters from the wire
+    passes through here first.
+    """
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)

@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -45,6 +45,18 @@ async def test_expiry_validated_and_revoke_deactivates(orch_ctx):
     assert await store.get_active_api_token(security.sha256_hex(created.token)) is not None
     await api_tokens.revoke_token(user.id, created.id)
     assert await store.get_active_api_token(security.sha256_hex(created.token)) is None
+
+
+async def test_aware_expiry_is_normalized_to_naive_utc(orch_ctx):
+    """The SPA sends ``...Z``; the store and the future check both run on naive UTC."""
+    user = await _user()
+    request = CreateApiTokenRequest.model_validate({"name": "spa", "expires_at": "2099-01-01T12:00:00+02:00"})
+    created = await api_tokens.create_token(user.id, request)
+    assert created.expires_at == datetime(2099, 1, 1, 10, 0)
+    with pytest.raises(Invalid, match="future"):
+        await api_tokens.create_token(
+            user.id, CreateApiTokenRequest.model_validate({"name": "old", "expires_at": "2000-01-01T00:00:00Z"})
+        )
 
 
 async def test_revoke_other_users_token_is_not_found(orch_ctx):
