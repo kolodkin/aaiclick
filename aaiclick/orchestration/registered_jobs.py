@@ -390,7 +390,9 @@ async def run_job(
             ``entry_type="shell"``, rejected for ``"module"``).
         command_env: Env vars (``KEY: VALUE``) injected for shell tasks.
         image: Prebuilt image tag to run verbatim. Mutually exclusive with
-            the ``git_*``/``dockerfile`` build fields.
+            the ``git_*``/``dockerfile`` build fields. Like those fields, it
+            is rejected unless the registered job is in docker/kubernetes
+            mode — a subprocess job has no image to build.
         git_remote: Override the registered job's default git remote.
         git_sha: Pin the build to a specific commit SHA. ``None`` means
             auto-detect from the working tree (must be clean and pushed).
@@ -422,6 +424,20 @@ async def run_job(
         raise ValueError(
             "jvm entry_type requires a docker/kubernetes registered job — the shim jar "
             "runs only inside the task's container image (spec: docs/designs/java-sdk.md)"
+        )
+
+    image_overrides = {
+        "image": image,
+        "git_remote": git_remote,
+        "git_sha": git_sha,
+        "git_branch": git_branch,
+        "dockerfile": dockerfile,
+    }
+    given = [key for key, value in image_overrides.items() if value is not None]
+    if given and runner_mode not in (RUNNER_DOCKER, RUNNER_KUBERNETES):
+        raise ValueError(
+            f"{', '.join(given)} require a docker/kubernetes registered job; "
+            f"{name!r} runs on the {runner_mode} runner, which has no image to build"
         )
 
     if runner_mode in (RUNNER_DOCKER, RUNNER_KUBERNETES):

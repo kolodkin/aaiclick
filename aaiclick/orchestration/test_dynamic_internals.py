@@ -92,3 +92,14 @@ def test_group_kwarg_creates_group_dependency(orch_ctx):
     assert consumer.kwargs["results"]["ref_type"] == "group_results"
     deps = [(d.previous_id, d.previous_type) for d in consumer.previous_dependencies]
     assert deps == [(group.id, DEPENDENCY_GROUP)]
+
+
+def test_same_upstream_in_two_kwargs_wires_one_dependency(orch_ctx):
+    """One Dependency row per upstream: the composite PK would reject a duplicate on commit."""
+    factory = TaskFactory(_dummy_func, name="_dummy_func")
+    upstream = create_task("mymodule.producer")
+
+    consumer = factory(left=upstream, right=[upstream, {"nested": upstream}])
+
+    assert consumer.kwargs["left"]["ref_type"] == "upstream"
+    assert [d.previous_id for d in consumer.previous_dependencies] == [upstream.id]

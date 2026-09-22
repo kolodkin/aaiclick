@@ -50,9 +50,15 @@ from .sql_context import _sql_engine_var
 
 
 def _collect_upstreams(value: Any, upstream_tasks: list[Task | Group]) -> None:
-    """Recursively collect Task and Group instances from nested structures."""
+    """Recursively collect distinct Task and Group instances from nested structures.
+
+    The same upstream passed twice (two kwargs, or nested inside a list) is
+    recorded once: ``dependencies`` has a composite primary key, so a second
+    ``upstream >> task`` edge would fail the commit with an IntegrityError.
+    """
     if isinstance(value, (Task, Group)):
-        upstream_tasks.append(value)
+        if not any(value is seen for seen in upstream_tasks):
+            upstream_tasks.append(value)
     elif isinstance(value, (list, tuple)):
         for v in value:
             _collect_upstreams(v, upstream_tasks)

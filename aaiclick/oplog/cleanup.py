@@ -4,13 +4,10 @@ aaiclick.oplog.cleanup - Table cleanup helpers.
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, NamedTuple
 
 if TYPE_CHECKING:
     from aaiclick.data.data_context.ch_client import ChClient
-
-logger = logging.getLogger(__name__)
 
 
 class TableOwner(NamedTuple):
@@ -28,14 +25,12 @@ async def lineage_aware_drop(
 ) -> None:
     """Drop a table.
 
-    Best effort — exceptions are logged but do not propagate.
+    A failing DROP propagates so the caller can keep the table's registry
+    row and retry on a later sweep.
 
     Args:
         ch_client: Async ClickHouse client.
         table_name: Table to drop.
         owner: Ownership metadata (reserved for future use).
     """
-    try:
-        await ch_client.command(f"DROP TABLE IF EXISTS {table_name}")
-    except Exception:
-        logger.debug("Failed to drop %s", table_name, exc_info=True)
+    await ch_client.command(f"DROP TABLE IF EXISTS {table_name}")

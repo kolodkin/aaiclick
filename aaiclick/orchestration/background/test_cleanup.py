@@ -168,6 +168,36 @@ async def test_cleanup_none_mode_drops(bg_db):
     assert "t_none" not in remaining
 
 
+async def _get_registry_tables(engine):
+    async with AsyncSession(engine) as session:
+        result = await session.execute(text("SELECT table_name FROM table_registry"))
+        return {row[0] for row in result.fetchall()}
+
+
+async def test_cleanup_keeps_refs_when_drop_fails(bg_db):
+    """A table whose DROP failed stays registered so the next sweep retries it."""
+    await _insert_job(bg_db, 999, "NONE")
+    await insert_context_ref(bg_db, "t_stuck", 100)
+    await insert_table_registry(bg_db, "t_stuck", job_id=999)
+    await insert_context_ref(bg_db, "t_fine", 101)
+    await insert_table_registry(bg_db, "t_fine", job_id=999)
+
+    async def drop(sql):
+        if "t_stuck" in sql:
+            raise RuntimeError("ClickHouse unavailable")
+
+    worker = BackgroundWorker()
+    worker._engine = bg_db
+    worker._handler = SqliteBackgroundHandler()
+    worker._ch_client = AsyncMock()
+    worker._ch_client.command.side_effect = drop
+
+    await worker._cleanup_unreferenced_tables()
+
+    assert await _get_context_tables(bg_db) == {"t_stuck"}
+    assert await _get_registry_tables(bg_db) == {"t_stuck"}
+
+
 async def test_cleanup_skips_persistent_and_job_scoped_tables(bg_db):
     """``p_*`` and ``j_<id>_*`` tables are exempt from refcount-based cleanup."""
     await insert_context_ref(bg_db, "p_user_catalog", 100)

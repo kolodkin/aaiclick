@@ -261,6 +261,8 @@ class BackgroundWorker:
             if not rows:
                 return
 
+            # A table whose DROP failed keeps its refs and registry row so the
+            # next sweep sees it again; deleting them here would orphan it.
             dropped_tables: list[str] = []
             for table_name, job_id, task_id, run_id in rows:
                 owner = TableOwner(job_id=job_id, task_id=task_id, run_id=run_id)
@@ -268,6 +270,7 @@ class BackgroundWorker:
                     await lineage_aware_drop(self._ch_client, table_name, owner=owner)
                 except Exception:
                     logger.warning("Failed to drop CH table %s", table_name, exc_info=True)
+                    continue
                 dropped_tables.append(table_name)
 
             if dropped_tables:
