@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from aaiclick.auth import store
@@ -62,3 +64,35 @@ async def test_refresh_token_lifecycle(orch_ctx):
     assert found is not None and found.id == rt.id
     await store.rotate_refresh(rt.id)
     assert await store.get_active_refresh("hash1") is None  # rotated => inactive
+
+
+async def test_rotate_refresh_consumes_the_row_exactly_once(orch_ctx):
+    """The second rotation of one row fails: rotation is a conditional UPDATE, so
+    two refreshes racing on the same token cannot both mint a new pair."""
+    u = await store.create_user(username="grace", password_hash="h")
+    rt = await store.create_refresh_token(user_id=u.id, token_hash="g1", ttl=3600)
+    assert await store.rotate_refresh(rt.id)
+    assert not await store.rotate_refresh(rt.id)
+
+
+async def test_rotate_refresh_rejects_a_revoked_row(orch_ctx):
+    u = await store.create_user(username="heidi", password_hash="h")
+    rt = await store.create_refresh_token(user_id=u.id, token_hash="h1", ttl=3600)
+    await store.revoke_refresh(rt.id)
+    assert not await store.rotate_refresh(rt.id)
+
+
+async def test_consume_password_reset_is_single_use_under_concurrency(orch_ctx):
+    """Two redemptions racing on one reset token: exactly one gets the row."""
+    u = await store.create_user(username="ivan", password_hash="h")
+    await store.create_password_reset(user_id=u.id, token_hash="r1", ttl=3600)
+
+    rows = await asyncio.gather(store.consume_password_reset("r1"), store.consume_password_reset("r1"))
+
+    assert sum(row is not None for row in rows) == 1
+
+
+async def test_consume_password_reset_rejects_expired(orch_ctx):
+    u = await store.create_user(username="judy", password_hash="h")
+    await store.create_password_reset(user_id=u.id, token_hash="r2", ttl=-1)
+    assert await store.consume_password_reset("r2") is None

@@ -28,7 +28,8 @@ def _with_settings(query: str, settings: dict | None) -> str:
 
     chdb does not accept settings as keyword arguments, so they must be
     embedded directly in the SQL. Integer/float values are unquoted;
-    strings are single-quoted.
+    strings are single-quoted. The clause starts a new line so a query
+    ending in a ``--`` comment cannot swallow it.
     """
     if not settings:
         return query
@@ -40,7 +41,7 @@ def _with_settings(query: str, settings: dict | None) -> str:
             parts.append(f"{key}={val}")
         else:
             parts.append(f"{key}={quote_sql_literal(str(val))}")
-    return f"{query} SETTINGS {', '.join(parts)}"
+    return f"{query}\nSETTINGS {', '.join(parts)}"
 
 
 def _serialize_param(value: object) -> object:

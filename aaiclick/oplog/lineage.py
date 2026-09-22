@@ -15,6 +15,7 @@ from aaiclick.data.data_context.ch_client import _ch_client_var, create_ch_clien
 from aaiclick.data.sql_utils import quote_sql_literal
 
 LineageDirection = Literal["backward", "forward"]
+DEFAULT_MAX_DEPTH = 10
 
 
 def _to_dict(kwargs_raw: Any) -> dict[str, str]:
@@ -184,7 +185,7 @@ async def lineage_context() -> AsyncIterator[None]:
 
 async def backward_oplog(
     table: str,
-    max_depth: int = 10,
+    max_depth: int = DEFAULT_MAX_DEPTH,
 ) -> list[OplogNode]:
     """Trace all upstream operations that produced `table`.
 
@@ -221,7 +222,7 @@ async def backward_oplog(
 
 async def forward_oplog(
     table: str,
-    max_depth: int = 10,
+    max_depth: int = DEFAULT_MAX_DEPTH,
 ) -> list[OplogNode]:
     """Trace all downstream operations that consumed `table`, including the seed."""
     ch_client = get_ch_client()
@@ -271,7 +272,7 @@ async def forward_oplog(
 async def oplog_subgraph(
     table: str,
     direction: LineageDirection = "backward",
-    max_depth: int = 10,
+    max_depth: int = DEFAULT_MAX_DEPTH,
 ) -> OplogGraph:
     """Return a structured OplogGraph for visualization or AI context."""
     if direction == "backward":

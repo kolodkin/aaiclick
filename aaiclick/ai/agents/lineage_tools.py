@@ -4,7 +4,7 @@ aaiclick.ai.agents.lineage_tools - Tier 1 agent tools scoped to a lineage graph.
 All tools operate on a single ``OplogGraph`` — the backward lineage of the
 target table being debugged. ``query_table`` is read-only and row-limited,
 and every table it reads must be one the graph contains — ClickHouse parses
-the SQL and the scope check reads table position off the parse tree.
+the SQL and the scope check reads table references off the parse tree.
 
 See ``docs/designs/lineage.md`` for the design.
 """
@@ -15,6 +15,7 @@ import json
 import logging
 import re
 from collections.abc import Iterable
+from dataclasses import dataclass, field
 from typing import Any, Literal, NamedTuple
 
 from pydantic import BaseModel, Field
@@ -81,14 +82,17 @@ class QueryResult(BaseModel):
 DEFAULT_ROW_LIMIT = 100
 ROW_LIMIT_CEILING = 1000
 
+_AST_TABLE_EXPRESSION = "TableExpression"
 _AST_TABLE_IDENTIFIER = "TableIdentifier "
+_AST_IDENTIFIER = "Identifier "
 _AST_FUNCTION = "Function "
 _AST_SUBQUERY = "Subquery"
+# A SETTINGS clause, at any depth, parses to this node.
+_AST_SETTINGS = "Set"
+# Every IN-family function ClickHouse exposes — in, notIn, globalIn,
+# nullIn, globalNotNullIn, inIgnoreSet, … — reads a table named on its right.
+_IN_FUNCTION_RE = re.compile(r"^(global)?(not)?(null)?in(ignoreset)?$", re.IGNORECASE)
 _STATEMENT_START_RE = re.compile(r"^\s*(?:WITH\b|SELECT\b)", re.IGNORECASE)
-# Any LIMIT anywhere (including in a subquery) suppresses outer-LIMIT
-# injection. max_result_rows still caps the overall result, so the
-# worst case is an unbounded outer query truncated at the ceiling.
-_LIMIT_RE = re.compile(r"\bLIMIT\b\s+\d+", re.IGNORECASE)
 _SEMICOLON_RE = re.compile(r";\s*\S")
 
 
@@ -150,25 +154,83 @@ async def _explain_ast(sql: str) -> list[str]:
     return (await query_text(f"EXPLAIN AST {sql}")).splitlines()
 
 
-def _table_expressions(ast_lines: Iterable[str]) -> list[str]:
-    """Return the first child of every ``TableExpression`` node in an ``EXPLAIN AST`` dump.
+class _AstRow(NamedTuple):
+    indent: int
+    text: str
 
-    The dump is an indented tree, one node per row. A ``TableExpression`` is
-    what sits in table position, and its single child says which kind it is:
-    ``TableIdentifier <name>``, ``Subquery``, or ``Function <name>`` for a
-    table function.
-    """
-    rows = [(len(line) - len(line.lstrip(" ")), line.strip()) for line in ast_lines]
+
+def _ast_rows(ast_lines: Iterable[str]) -> list[_AstRow]:
+    """``EXPLAIN AST`` is an indented tree, one node per row, one space per level."""
+    return [_AstRow(len(line) - len(line.lstrip(" ")), line.strip()) for line in ast_lines]
+
+
+def _node_name(text: str) -> str:
+    """Drop the printer's trailing ``(alias a)`` / ``(children N)`` annotations."""
+    return text.split(" (")[0]
+
+
+def _direct_children(rows: list[_AstRow], index: int) -> list[int]:
+    """Indexes of the rows one level below ``rows[index]``."""
+    indent = rows[index].indent
     children = []
-    for index, (indent, text) in enumerate(rows):
-        if not text.startswith("TableExpression"):
-            continue
-        for child_indent, child_text in rows[index + 1 :]:
-            if child_indent <= indent:
-                break
-            children.append(child_text)
+    for child_index in range(index + 1, len(rows)):
+        child_indent = rows[child_index].indent
+        if child_indent <= indent:
             break
+        if child_indent == indent + 1:
+            children.append(child_index)
     return children
+
+
+@dataclass
+class _TableReads:
+    """Everything in a parse tree that reads a table, plus the one clause that lifts the caps."""
+
+    tables: set[str] = field(default_factory=set)
+    """``TableIdentifier`` names in table position."""
+    functions: set[str] = field(default_factory=set)
+    """Table functions in table position — ``merge``, ``remote``, ``url``, …"""
+    opaque: set[str] = field(default_factory=set)
+    """Table expressions of a kind this walk does not recognize."""
+    in_tables: set[str] = field(default_factory=set)
+    """Bare identifiers on the right of an IN-family function.
+
+    ``expr IN name`` reads a table without a table position: the name is an
+    ``Identifier`` operand, never a ``TableExpression``. ClickHouse reads it
+    as a table when one exists by that name and as an array column otherwise;
+    the parse tree cannot tell the two apart, so each is treated as a table.
+    """
+    has_settings: bool = False
+
+
+def _table_reads(rows: list[_AstRow]) -> _TableReads:
+    """One pass over an ``EXPLAIN AST`` dump.
+
+    A ``TableExpression`` is what sits in table position, and its single child
+    (the next row) says which kind it is: ``TableIdentifier <name>``,
+    ``Subquery``, or ``Function <name>`` for a table function.
+    """
+    reads = _TableReads()
+    for index, row in enumerate(rows):
+        name = _node_name(row.text)
+        if name == _AST_SETTINGS:
+            reads.has_settings = True
+        elif name == _AST_TABLE_EXPRESSION:
+            if index + 1 == len(rows) or rows[index + 1].indent != row.indent + 1:
+                continue
+            child = _node_name(rows[index + 1].text)
+            if child.startswith(_AST_TABLE_IDENTIFIER):
+                reads.tables.add(child.removeprefix(_AST_TABLE_IDENTIFIER))
+            elif child.startswith(_AST_FUNCTION):
+                reads.functions.add(child.removeprefix(_AST_FUNCTION))
+            elif not child.startswith(_AST_SUBQUERY):
+                reads.opaque.add(child)
+        elif name.startswith(_AST_FUNCTION) and _IN_FUNCTION_RE.match(name.removeprefix(_AST_FUNCTION)):
+            for operands in _direct_children(rows, index):
+                args = _direct_children(rows, operands)
+                if len(args) == 2 and rows[args[1]].text.startswith(_AST_IDENTIFIER):
+                    reads.in_tables.add(_node_name(rows[args[1]].text).removeprefix(_AST_IDENTIFIER))
+    return reads
 
 
 async def validate_scope(sql: str, scope_tables: set[str]) -> ToolError | None:
@@ -183,52 +245,59 @@ async def validate_scope(sql: str, scope_tables: set[str]) -> ToolError | None:
     Parsing with the engine that will run the query is deliberate — a
     second-guessing parser that disagreed with ClickHouse would be a bypass.
 
+    The right-hand side of ``IN`` is held to the same check — see
+    ``_TableReads.in_tables`` for why an array column is rejected there too.
+
     A CTE name is a table identifier no graph contains, so ``WITH`` queries are
     rejected. The tool description tells the model to write the CTE as a
     subquery in ``FROM``, which parses to a ``Subquery`` and is allowed.
+
+    A ``SETTINGS`` clause is rejected at any depth: ``readonly=2`` permits
+    settings changes, and a clause in the text outranks the caps
+    ``run_select`` sends beside the query.
     """
     try:
-        ast_lines = await _explain_ast(sql)
+        reads = _table_reads(_ast_rows(await _explain_ast(sql)))
     except Exception as exc:
         logger.debug("EXPLAIN AST failed for agent SQL", exc_info=True)
         return ToolError("invalid_argument", f"Could not parse SQL: {exc}")
 
-    unknown: set[str] = set()
-    functions: set[str] = set()
-    for child in _table_expressions(ast_lines):
-        if child.startswith(_AST_TABLE_IDENTIFIER):
-            # Trailing " (alias a)" / " (children N)" are printer annotations.
-            name = child[len(_AST_TABLE_IDENTIFIER) :].split(" (")[0]
-            if name not in scope_tables:
-                unknown.add(name)
-        elif child.startswith(_AST_FUNCTION):
-            functions.add(child[len(_AST_FUNCTION) :].split(" (")[0])
-        elif not child.startswith(_AST_SUBQUERY):
-            # Fail closed: an unrecognized table expression is not provably in scope.
-            unknown.add(child.split(" (")[0])
-
-    if functions:
-        listed = ", ".join(sorted(functions))
+    if reads.has_settings:
+        return ToolError("invalid_argument", "A SETTINGS clause is not permitted; the tool sets the execution caps.")
+    if reads.functions:
+        listed = ", ".join(sorted(reads.functions))
         return ToolError("out_of_scope", f"Table functions are not permitted: {listed}.")
+
+    # Fail closed: an opaque table expression is not provably in scope.
+    in_unknown = reads.in_tables - scope_tables
+    unknown = (reads.tables - scope_tables) | reads.opaque | in_unknown
     if unknown:
         listed = ", ".join(sorted(unknown)[:3])
-        return ToolError("out_of_scope", f"Tables not in scope: {listed}.")
+        hint = " IN <identifier> reads a table; for an array column use has(column, value)." if in_unknown else ""
+        return ToolError("out_of_scope", f"Tables not in scope: {listed}.{hint}")
     return None
 
 
-async def run_select(sql: str, row_limit: int = DEFAULT_ROW_LIMIT, *, scan: str | None = None) -> QueryResult:
-    """Execute a (pre-validated) ``SELECT`` with row + execution-time caps."""
-    if scan is None:
-        scan = normalize_sql_for_scan(sql)
+async def run_select(sql: str, row_limit: int = DEFAULT_ROW_LIMIT) -> QueryResult:
+    """Execute a (pre-validated) ``SELECT`` with row + execution-time caps.
+
+    The row cap is the ``limit`` setting rather than text appended to the
+    SQL: it caps the outermost query, yields to a smaller ``LIMIT`` of the
+    query's own, and nothing appended can land inside a trailing comment.
+    """
     row_limit = max(1, min(row_limit, ROW_LIMIT_CEILING))
-    effective_sql = sql if _LIMIT_RE.search(scan) else f"{sql.rstrip().rstrip(';')} LIMIT {row_limit + 1}"
 
     ch_client = get_ch_client()
     result = await ch_client.query(
-        effective_sql,
+        sql,
         settings={
             "max_execution_time": DEFAULT_MAX_EXECUTION_TIME,
+            # One past the limit so truncation is detectable below.
+            "limit": row_limit + 1,
+            # ``limit`` applies per branch of a UNION; the ceiling still bounds
+            # the whole result, and ``break`` truncates instead of failing.
             "max_result_rows": ROW_LIMIT_CEILING + 1,
+            "result_overflow_mode": "break",
             # Enforce read-only in the engine, so validate_select_safety's
             # keyword regex is a first line rather than the only one. Level 2
             # rather than 1 because 1 also forbids the settings set alongside it.
@@ -300,12 +369,13 @@ class LineageToolbox:
                 row_limit = int(row_limit)
             except (TypeError, ValueError):
                 return ToolError("invalid_argument", f"row_limit must be an integer, got {row_limit!r}.")
-        scan = normalize_sql_for_scan(sql)
-        if err := validate_select_safety(sql, scan=scan):
+        if err := validate_select_safety(sql):
             return err
         if err := await validate_scope(sql, self._tables):
-            return err._replace(message=err.message + " Use list_graph_nodes() to see what's in scope.")
-        return await run_select(sql, row_limit, scan=scan)
+            if err.kind == "out_of_scope":
+                err = err._replace(message=err.message + " Use list_graph_nodes() to see what's in scope.")
+            return err
+        return await run_select(sql, row_limit)
 
     async def get_op_sql(self, table: str) -> str | ToolError:
         """Rendered SQL template for the operation that produced ``table``."""
@@ -458,9 +528,10 @@ LINEAGE_TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "name": "query_table",
             "description": (
                 "Execute a read-only SELECT against tables in the current lineage "
-                "graph. Rejects non-SELECT, out-of-scope tables, and table functions; "
-                "write a CTE as a subquery in FROM instead. Automatically LIMITs "
-                "results when no LIMIT is given."
+                "graph. Rejects non-SELECT, out-of-scope tables, table functions, and "
+                "SETTINGS clauses; write a CTE as a subquery in FROM instead, and use "
+                "has(column, value) rather than IN for an array column. Results are "
+                "capped at row_limit."
             ),
             "parameters": {
                 "type": "object",

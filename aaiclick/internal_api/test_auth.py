@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from aaiclick.auth import security
@@ -60,6 +62,24 @@ async def test_refresh_rotates_and_rejects_reuse(orch_ctx):
     assert rotated.refresh_token != pair.refresh_token
     with pytest.raises(Unauthorized):  # reuse of the old token
         await auth.refresh(RefreshRequest(refresh_token=pair.refresh_token), secret=SECRET)
+
+
+async def test_concurrent_refreshes_of_one_token_mint_one_pair(orch_ctx):
+    """Two refreshes racing on the same token: one wins, the other is a 401.
+
+    Both pass the active-row lookup before either rotates, so only the
+    conditional rotation itself can decide the race.
+    """
+    await _make_user()
+    pair = await auth.login(LoginRequest(username="alice", password="pw"), secret=SECRET)
+    request = RefreshRequest(refresh_token=pair.refresh_token)
+
+    outcomes = await asyncio.gather(
+        auth.refresh(request, secret=SECRET), auth.refresh(request, secret=SECRET), return_exceptions=True
+    )
+
+    assert sum(isinstance(o, TokenPair) for o in outcomes) == 1
+    assert sum(isinstance(o, Unauthorized) for o in outcomes) == 1
 
 
 async def test_change_password_swaps_the_credential(orch_ctx):

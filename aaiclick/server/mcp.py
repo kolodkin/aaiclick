@@ -45,7 +45,7 @@ from aaiclick.internal_api import registered_jobs as rj_api
 from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import tasks as tasks_api
 from aaiclick.internal_api import viewer as viewer_api
-from aaiclick.oplog.lineage import LineageDirection, OplogGraph
+from aaiclick.oplog.lineage import DEFAULT_MAX_DEPTH, LineageDirection, OplogGraph
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.orchestration.view_models import (
     ClearTaskView,
@@ -264,7 +264,7 @@ async def purge_objects(request: PurgeObjectsRequest) -> PurgeObjectsResult:
 async def oplog_subgraph(
     target_table: str,
     direction: LineageDirection = "backward",
-    max_depth: int = 10,
+    max_depth: int = DEFAULT_MAX_DEPTH,
 ) -> OplogGraph:
     """Return the lineage graph for ``target_table`` (backward or forward)."""
     async with orch_context(with_ch=True):
@@ -274,23 +274,33 @@ async def oplog_subgraph(
 @mcp.tool(tags={TAG_READ})
 async def query_table(
     sql: str,
-    scope_tables: list[str],
+    target_table: str,
     row_limit: int = DEFAULT_ROW_LIMIT,
+    direction: LineageDirection = "backward",
+    max_depth: int = DEFAULT_MAX_DEPTH,
 ) -> QueryResult:
-    """Run a sandboxed read-only SELECT against tables in ``scope_tables``.
+    """Run a sandboxed read-only SELECT against the lineage graph of ``target_table``.
 
-    ``scope_tables`` should come from a prior ``oplog_subgraph`` call
-    (use ``OplogGraph.tables``). Rejects DDL/DML and out-of-scope refs.
+    The scope is the graph ``oplog_subgraph`` returns for the same arguments;
+    it is looked up server-side. Rejects DDL/DML, SETTINGS clauses, and any
+    table outside the graph.
     """
     async with orch_context(with_ch=True):
-        return await lineage_api.query_table(sql, scope_tables=scope_tables, row_limit=row_limit)
+        return await lineage_api.query_table(
+            sql, target_table, row_limit=row_limit, direction=direction, max_depth=max_depth
+        )
 
 
 @mcp.tool(tags={TAG_READ})
-async def get_table_schema(table: str, scope_tables: list[str]) -> TableSchema:
-    """Return columns and types for ``table`` (must be in ``scope_tables``)."""
+async def get_table_schema(
+    table: str,
+    target_table: str,
+    direction: LineageDirection = "backward",
+    max_depth: int = DEFAULT_MAX_DEPTH,
+) -> TableSchema:
+    """Return columns and types for ``table``, a table in ``target_table``'s lineage graph."""
     async with orch_context(with_ch=True):
-        return await lineage_api.get_table_schema(table, scope_tables=scope_tables)
+        return await lineage_api.get_table_schema(table, target_table, direction=direction, max_depth=max_depth)
 
 
 # --- setup ------------------------------------------------------------

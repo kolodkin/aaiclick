@@ -11,23 +11,6 @@ is fixed.
 
 # Medium
 
-## Security
-
-- **`query_table` scope is caller-supplied** — `aaiclick/internal_api/lineage.py`,
-  `query_table()`, exposed in `aaiclick/server/mcp.py`. `scope_tables` is a
-  plain tool argument, so a read token passes `["system.query_log"]` and
-  reads it.
-- **`expr IN table_name` bypasses scope validation** —
-  `aaiclick/ai/agents/lineage_tools.py`, `_table_expressions()`. Only
-  `TableExpression` nodes are checked; the bare-identifier `IN` form is not
-  one.
-- **A model-written `SETTINGS` clause overrides the caps on clickhouse-connect**
-  — same file, `run_select()`. `readonly=2` permits settings changes and
-  query-level SETTINGS win over HTTP-param settings.
-- **Refresh-token rotation is check-then-act** — `aaiclick/auth/store.py`,
-  `_stamp_refresh()`. Two concurrent refreshes with the same token both
-  succeed. The UPDATE has no `rotated_at IS NULL` predicate or rowcount check.
-
 ## Orchestration correctness
 
 - **The same upstream in two kwargs raises IntegrityError on commit** —
@@ -72,9 +55,6 @@ is fixed.
   dashboard runs are reads, tagged read in MCP, but reject read-scope tokens.
 - **TOTP with non-ASCII input is a 500** — `aaiclick/auth/security.py`,
   `verify_totp()`. `hmac.compare_digest` raises `TypeError`.
-- **LIMIT appended on the same line as a trailing `--` comment** —
-  `aaiclick/ai/agents/lineage_tools.py`, `run_select()`. On chdb the SETTINGS
-  clause is swallowed too, so the query runs with no caps.
 
 ## Java SDK
 
@@ -107,8 +87,6 @@ is fixed.
   `aaiclick/data/data_context/clickhouse_client.py`.
 - **`setup` MCP tool returns both DB URLs with embedded passwords** —
   `aaiclick/internal_api/setup.py`, `SetupResult`.
-- **`max_result_rows` without `result_overflow_mode='break'`** turns >1001
-  rows into an error — `aaiclick/ai/agents/lineage_tools.py`, `run_select()`.
 - **`debug_result` returns provider failures as a prose answer** with exit 0
   — `aaiclick/ai/agents/debug_agent.py`.
 - **`query_with_tools` crashes on empty tool arguments** —
@@ -157,5 +135,5 @@ is fixed.
 
 # Fix Order
 
-Remaining Mediums grouped by shared root cause: scope and settings validation
-in the lineage tools, missing status guards, unbounded list filters.
+Remaining Mediums grouped by shared root cause: missing status guards,
+unbounded list filters.

@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any, NamedTuple, Protocol, TypeVar, cast
 
-from sqlalchemy import CursorResult, update
+from sqlalchemy import ColumnElement, CursorResult, Update, update
 from sqlmodel import SQLModel, col, select
 
 from ..datetime_utils import utc_now
@@ -39,16 +39,32 @@ async def _insert(row: RowT) -> RowT:
     return row
 
 
+async def _update_rows(statement: Update) -> int:
+    """Execute + commit a conditional UPDATE; returns the number of rows it hit.
+
+    Putting the condition in the UPDATE rather than in a prior read is what
+    makes a stamp single-use under concurrency: two callers cannot both see an
+    active row and both stamp it.
+    """
+    async with get_sql_session() as session:
+        # An UPDATE always yields a CursorResult; ``execute`` is just typed
+        # for the general case, and ``rowcount`` is how the count comes free.
+        result = cast("CursorResult[Any]", await session.execute(statement))
+        await session.commit()
+    return result.rowcount
+
+
+def _refresh_active() -> tuple[ColumnElement[bool], ColumnElement[bool]]:
+    """Predicates for a refresh row that is neither rotated nor revoked."""
+    return col(RefreshToken.rotated_at).is_(None), col(RefreshToken.revoked_at).is_(None)
+
+
 class UsernameTaken(ValueError):
     """A user with this username already exists."""
 
 
 class UserNotFound(ValueError):
     """No user matches the given id/username."""
-
-
-class RefreshInvalid(ValueError):
-    """Refresh token is missing, expired, rotated, or revoked."""
 
 
 async def create_user(
@@ -154,12 +170,18 @@ async def get_active_refresh(token_hash: str) -> RefreshToken | None:
     return row
 
 
-async def rotate_refresh(token_id: int) -> None:
-    await _stamp_refresh(token_id, "rotated_at")
+async def rotate_refresh(token_id: int) -> bool:
+    """Consume the row; False if it was not active any more.
+
+    Two refreshes racing on one token both pass ``get_active_refresh``, so
+    this stamp is what decides the race: exactly one of them succeeds.
+    """
+    return await _stamp_refresh(token_id, rotated_at=utc_now())
 
 
 async def revoke_refresh(token_id: int) -> None:
-    await _stamp_refresh(token_id, "revoked_at")
+    """Idempotent: a row that is already rotated or revoked stays as it is."""
+    await _stamp_refresh(token_id, revoked_at=utc_now())
 
 
 async def revoke_all_for_user(user_id: int) -> int:
@@ -170,33 +192,19 @@ async def revoke_all_for_user(user_id: int) -> int:
     (see ``server/auth.py``). Used when a role change, disable, or password
     change should stop the user renewing.
     """
-    async with get_sql_session() as session:
-        # An UPDATE always yields a CursorResult; ``execute`` is just typed
-        # for the general case, and ``rowcount`` is how the count comes free.
-        result = cast(
-            "CursorResult[Any]",
-            await session.execute(
-                update(RefreshToken)
-                .where(
-                    col(RefreshToken.user_id) == user_id,
-                    col(RefreshToken.rotated_at).is_(None),
-                    col(RefreshToken.revoked_at).is_(None),
-                )
-                .values(revoked_at=utc_now())
-            ),
-        )
-        await session.commit()
-    return result.rowcount
+    return await _update_rows(
+        update(RefreshToken)
+        .where(col(RefreshToken.user_id) == user_id, *_refresh_active())
+        .values(revoked_at=utc_now())
+    )
 
 
-async def _stamp_refresh(token_id: int, field: str) -> None:
-    async with get_sql_session() as session:
-        row = (await session.execute(select(RefreshToken).where(RefreshToken.id == token_id))).scalar_one_or_none()
-        if row is None:
-            raise RefreshInvalid(f"refresh token {token_id} not found")
-        setattr(row, field, utc_now())
-        session.add(row)
-        await session.commit()
+async def _stamp_refresh(token_id: int, **values: datetime) -> bool:
+    """Stamp the row only while it is still active; True if it was."""
+    hit = await _update_rows(
+        update(RefreshToken).where(col(RefreshToken.id) == token_id, *_refresh_active()).values(**values)
+    )
+    return hit > 0
 
 
 # --- API tokens ---------------------------------------------------------
@@ -282,19 +290,12 @@ async def revoke_api_token(token_id: int, *, user_id: int) -> bool:
     caller can neither revoke nor even confirm the existence of another user's
     token.
     """
-    async with get_sql_session() as session:
-        result = cast(
-            "CursorResult[Any]",
-            await session.execute(
-                update(ApiToken)
-                .where(
-                    col(ApiToken.id) == token_id, col(ApiToken.user_id) == user_id, col(ApiToken.revoked_at).is_(None)
-                )
-                .values(revoked_at=utc_now())
-            ),
-        )
-        await session.commit()
-    return result.rowcount > 0
+    hit = await _update_rows(
+        update(ApiToken)
+        .where(col(ApiToken.id) == token_id, col(ApiToken.user_id) == user_id, col(ApiToken.revoked_at).is_(None))
+        .values(revoked_at=utc_now())
+    )
+    return hit > 0
 
 
 # --- Single-use tokens (password reset) ---------------------------------
@@ -311,13 +312,23 @@ SingleUseT = TypeVar("SingleUseT", bound=_SingleUse)
 
 async def _consume(model: type[SingleUseT], token_hash: str) -> SingleUseT | None:
     """Mark a single-use row consumed and return it; ``None`` if missing,
-    expired, or already consumed."""
+    expired, or already consumed.
+
+    One conditional ``UPDATE … RETURNING``: two redemptions racing on the same
+    token cannot both see an unconsumed row.
+    """
+    now = utc_now()
     async with get_sql_session() as session:
-        row = (await session.execute(select(model).where(model.token_hash == token_hash))).scalar_one_or_none()
-        if row is None or row.consumed_at is not None or row.expires_at <= utc_now():
-            return None
-        row.consumed_at = utc_now()
-        session.add(row)
+        row = (
+            await session.execute(
+                update(model)
+                .where(
+                    col(model.token_hash) == token_hash, col(model.consumed_at).is_(None), col(model.expires_at) > now
+                )
+                .values(consumed_at=now)
+                .returning(model)
+            )
+        ).scalar_one_or_none()
         await session.commit()
     return row
 

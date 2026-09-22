@@ -163,8 +163,9 @@ returns `ToolError("out_of_scope", ...)` rather than leaking across jobs.
 Safety rails on `query_table`:
 
 - Rejects anything other than `SELECT` / `WITH ... SELECT`
-- Rejects tables outside the current graph's node set
-- Wraps in `LIMIT row_limit + 1` when no `LIMIT` is given so truncation is reported
+- Rejects tables outside the current graph, in table position or on the right of `IN` (use `has(column, value)` for arrays)
+- Rejects a `SETTINGS` clause, which would outrank the caps below
+- Caps the result at `row_limit + 1` through the `limit` setting, so truncation is reported and the SQL is sent as written
 - Pins `max_execution_time` and `max_result_rows` on every query so an accidental scan cannot tie up the cluster
 
 Tool results use typed `NamedTuple`s (`QueryResult`, `TableSchema`,
