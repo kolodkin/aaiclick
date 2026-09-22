@@ -49,6 +49,17 @@ async def test_task_lshift_creates_dependency():
     assert dep.next_type == DEPENDENCY_TASK
 
 
+async def test_repeated_edge_is_recorded_once():
+    """``a >> b`` twice, or ``a >> [b, b]``, yields one Dependency (composite PK)."""
+    task1 = create_task("module.func1")
+    task2 = create_task("module.func2")
+
+    task1 >> task2
+    task1 >> [task2, task2]
+
+    assert [d.previous_id for d in task2.previous_dependencies] == [task1.id]
+
+
 async def test_task_chained_rshift():
     """Test chained >> operators (A >> B >> C)."""
     task1 = create_task("module.func1")

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
+import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,10 +21,18 @@ from ...datetime_utils import utc_now
 from .conftest import get_run_refs, insert_context_ref, insert_pin_ref, insert_run_ref, insert_table_registry
 
 
-async def _get_context_tables(engine):
+async def _table_names(engine, ref_table: str) -> set[str]:
     async with AsyncSession(engine) as session:
-        result = await session.execute(text("SELECT DISTINCT table_name FROM table_context_refs"))
+        result = await session.execute(text(f"SELECT DISTINCT table_name FROM {ref_table}"))
         return {row[0] for row in result.fetchall()}
+
+
+def _make_worker(engine) -> BackgroundWorker:
+    worker = BackgroundWorker()
+    worker._engine = engine
+    worker._handler = SqliteBackgroundHandler()
+    worker._ch_client = AsyncMock()
+    return worker
 
 
 async def test_cleanup_skips_pinned_tables(bg_db):
@@ -32,14 +41,11 @@ async def test_cleanup_skips_pinned_tables(bg_db):
     await insert_context_ref(bg_db, "t_pinned", 200)
     await insert_pin_ref(bg_db, "t_pinned", 300)
 
-    worker = BackgroundWorker()
-    worker._engine = bg_db
-    worker._handler = SqliteBackgroundHandler()
-    worker._ch_client = AsyncMock()
+    worker = _make_worker(bg_db)
 
     await worker._cleanup_unreferenced_tables()
 
-    remaining = await _get_context_tables(bg_db)
+    remaining = await _table_names(bg_db, "table_context_refs")
     assert "t_pinned" in remaining, "Pinned table was dropped"
     assert "t_unpinned" not in remaining, "Unpinned table was not cleaned up"
 
@@ -50,14 +56,11 @@ async def test_cleanup_skips_tables_with_active_runs(bg_db):
     await insert_run_ref(bg_db, "t_active", "run_1")
     await insert_context_ref(bg_db, "t_empty", 200)
 
-    worker = BackgroundWorker()
-    worker._engine = bg_db
-    worker._handler = SqliteBackgroundHandler()
-    worker._ch_client = AsyncMock()
+    worker = _make_worker(bg_db)
 
     await worker._cleanup_unreferenced_tables()
 
-    remaining = await _get_context_tables(bg_db)
+    remaining = await _table_names(bg_db, "table_context_refs")
     assert "t_active" in remaining, "Active table was dropped"
     assert "t_empty" not in remaining, "Empty table was not cleaned up"
 
@@ -104,14 +107,11 @@ async def test_clean_task_run_then_cleanup_drops_table(bg_db):
         await BackgroundHandler.clean_task_run(session, "crashed_run")
         await session.commit()
 
-    worker = BackgroundWorker()
-    worker._engine = bg_db
-    worker._handler = SqliteBackgroundHandler()
-    worker._ch_client = AsyncMock()
+    worker = _make_worker(bg_db)
 
     await worker._cleanup_unreferenced_tables()
 
-    remaining = await _get_context_tables(bg_db)
+    remaining = await _table_names(bg_db, "table_context_refs")
     assert "t_orphan" not in remaining, "Orphaned table was not cleaned up"
 
 
@@ -138,15 +138,12 @@ async def test_cleanup_full_mode_skips_drop(bg_db):
     await insert_context_ref(bg_db, "t_full", 100)
     await insert_table_registry(bg_db, "t_full", job_id=777)
 
-    worker = BackgroundWorker()
-    worker._engine = bg_db
-    worker._handler = SqliteBackgroundHandler()
-    worker._ch_client = AsyncMock()
+    worker = _make_worker(bg_db)
 
     await worker._cleanup_unreferenced_tables()
 
     # Table still present, no drop was attempted on CH.
-    remaining = await _get_context_tables(bg_db)
+    remaining = await _table_names(bg_db, "table_context_refs")
     assert "t_full" in remaining
     worker._ch_client.command.assert_not_called()
 
@@ -157,21 +154,17 @@ async def test_cleanup_none_mode_drops(bg_db):
     await insert_context_ref(bg_db, "t_none", 100)
     await insert_table_registry(bg_db, "t_none", job_id=888)
 
-    worker = BackgroundWorker()
-    worker._engine = bg_db
-    worker._handler = SqliteBackgroundHandler()
-    worker._ch_client = AsyncMock()
+    worker = _make_worker(bg_db)
 
     await worker._cleanup_unreferenced_tables()
 
-    remaining = await _get_context_tables(bg_db)
+    remaining = await _table_names(bg_db, "table_context_refs")
     assert "t_none" not in remaining
 
 
-async def _get_registry_tables(engine):
-    async with AsyncSession(engine) as session:
-        result = await session.execute(text("SELECT table_name FROM table_registry"))
-        return {row[0] for row in result.fetchall()}
+async def _fail_drop_of(sql: str) -> None:
+    if "t_stuck" in sql:
+        raise RuntimeError("ClickHouse unavailable")
 
 
 async def test_cleanup_keeps_refs_when_drop_fails(bg_db):
@@ -182,20 +175,40 @@ async def test_cleanup_keeps_refs_when_drop_fails(bg_db):
     await insert_context_ref(bg_db, "t_fine", 101)
     await insert_table_registry(bg_db, "t_fine", job_id=999)
 
-    async def drop(sql):
-        if "t_stuck" in sql:
-            raise RuntimeError("ClickHouse unavailable")
-
-    worker = BackgroundWorker()
-    worker._engine = bg_db
-    worker._handler = SqliteBackgroundHandler()
-    worker._ch_client = AsyncMock()
-    worker._ch_client.command.side_effect = drop
+    worker = _make_worker(bg_db)
+    worker._ch_client.command.side_effect = _fail_drop_of
 
     await worker._cleanup_unreferenced_tables()
 
-    assert await _get_context_tables(bg_db) == {"t_stuck"}
-    assert await _get_registry_tables(bg_db) == {"t_stuck"}
+    assert await _table_names(bg_db, "table_context_refs") == {"t_stuck"}
+    assert await _table_names(bg_db, "table_registry") == {"t_stuck"}
+
+
+async def test_orphan_cleanup_keeps_registry_row_when_drop_fails(bg_db):
+    """The orphan sweep deletes registry rows only for tables it actually dropped."""
+    await insert_table_registry(bg_db, "t_stuck")
+    await insert_table_registry(bg_db, "t_fine")
+
+    worker = _make_worker(bg_db)
+    worker._ch_client.command.side_effect = _fail_drop_of
+
+    await worker._cleanup_orphaned_resources(ttl_days=0)
+
+    assert await _table_names(bg_db, "table_registry") == {"t_stuck"}
+
+
+async def test_delete_job_data_propagates_failed_drop(bg_db):
+    """Job expiry retries next cycle rather than deleting SQL metadata past a failed DROP."""
+    await _insert_job(bg_db, 998, "NONE")
+    await insert_table_registry(bg_db, "t_stuck", job_id=998)
+
+    worker = _make_worker(bg_db)
+    worker._ch_client.command.side_effect = _fail_drop_of
+
+    with pytest.raises(RuntimeError, match="ClickHouse unavailable"):
+        await worker._delete_job_data(998)
+
+    assert await _table_names(bg_db, "table_registry") == {"t_stuck"}
 
 
 async def test_cleanup_skips_persistent_and_job_scoped_tables(bg_db):
@@ -204,14 +217,11 @@ async def test_cleanup_skips_persistent_and_job_scoped_tables(bg_db):
     await insert_context_ref(bg_db, "j_42_intermediate", 101)
     await insert_context_ref(bg_db, "t_scratch", 102)
 
-    worker = BackgroundWorker()
-    worker._engine = bg_db
-    worker._handler = SqliteBackgroundHandler()
-    worker._ch_client = AsyncMock()
+    worker = _make_worker(bg_db)
 
     await worker._cleanup_unreferenced_tables()
 
-    remaining = await _get_context_tables(bg_db)
+    remaining = await _table_names(bg_db, "table_context_refs")
     assert "p_user_catalog" in remaining, "Persistent global table was dropped"
     assert "j_42_intermediate" in remaining, "Job-scoped table was dropped before TTL"
     assert "t_scratch" not in remaining, "Temp table was not cleaned up"
@@ -225,10 +235,7 @@ async def test_delete_job_data_exempts_persistent_tables(bg_db):
     await insert_table_registry(bg_db, "j_555_intermediate", job_id=job_id)
     await insert_table_registry(bg_db, "t_scratch", job_id=job_id)
 
-    worker = BackgroundWorker()
-    worker._engine = bg_db
-    worker._handler = SqliteBackgroundHandler()
-    worker._ch_client = AsyncMock()
+    worker = _make_worker(bg_db)
 
     await worker._delete_job_data(job_id)
 
@@ -247,10 +254,7 @@ async def test_delete_job_data_purges_ch_log_tables(bg_db):
     job_id = 556
     await _insert_job(bg_db, job_id, "NONE")
 
-    worker = BackgroundWorker()
-    worker._engine = bg_db
-    worker._handler = SqliteBackgroundHandler()
-    worker._ch_client = AsyncMock()
+    worker = _make_worker(bg_db)
 
     await worker._delete_job_data(job_id)
 

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from aaiclick.backend import is_postgres
 
+from .background.handler import COMPLETE_JOB_SQL
 from .events import (
     STATE_LISTENING,
     EventBus,
@@ -107,9 +108,8 @@ def test_event_bus_context_swaps_and_restores():
         pytest.param("INSERT INTO table_run_refs (table_name) VALUES ('t')", False, id="unwatched-table"),
         pytest.param("SELECT id FROM tasks WHERE status = :s", False, id="select-only"),
         pytest.param("UPDATE tasks_archive SET x = 1", False, id="prefix-not-whole-word"),
-        # The Postgres claim is a data-modifying CTE: it starts with a comment
-        # block and WITH, never with UPDATE.
         pytest.param(CLAIM_NEXT_TASK_SQL, True, id="claim-cte"),
+        pytest.param(COMPLETE_JOB_SQL, True, id="complete-job-comment-header"),
         pytest.param("WITH t AS (UPDATE tasks SET status = 'x' RETURNING id) SELECT * FROM t", True, id="cte-update"),
         pytest.param("-- note\nUPDATE jobs SET status = :s", True, id="leading-comment"),
         pytest.param("WITH t AS (SELECT id FROM tasks) SELECT * FROM t", False, id="cte-select-only"),

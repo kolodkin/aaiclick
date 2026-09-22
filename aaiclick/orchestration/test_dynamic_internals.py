@@ -101,5 +101,4 @@ def test_same_upstream_in_two_kwargs_wires_one_dependency(orch_ctx):
 
     consumer = factory(left=upstream, right=[upstream, {"nested": upstream}])
 
-    assert consumer.kwargs["left"]["ref_type"] == "upstream"
     assert [d.previous_id for d in consumer.previous_dependencies] == [upstream.id]

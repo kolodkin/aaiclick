@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engin
 
 from aaiclick.async_wait import wait_or_timeout
 from aaiclick.backend import is_chdb, parse_ch_url
-from aaiclick.oplog.cleanup import TableOwner, lineage_aware_drop
+from aaiclick.oplog.cleanup import TableOwner, drop_tables, lineage_aware_drop
 
 from ...datetime_utils import utc_now
 from ..env import get_db_url
@@ -261,18 +261,11 @@ class BackgroundWorker:
             if not rows:
                 return
 
-            # A table whose DROP failed keeps its refs and registry row so the
-            # next sweep sees it again; deleting them here would orphan it.
-            dropped_tables: list[str] = []
-            for table_name, job_id, task_id, run_id in rows:
-                owner = TableOwner(job_id=job_id, task_id=task_id, run_id=run_id)
-                try:
-                    await lineage_aware_drop(self._ch_client, table_name, owner=owner)
-                except Exception:
-                    logger.warning("Failed to drop CH table %s", table_name, exc_info=True)
-                    continue
-                dropped_tables.append(table_name)
-
+            owners = {
+                table_name: TableOwner(job_id=job_id, task_id=task_id, run_id=run_id)
+                for table_name, job_id, task_id, run_id in rows
+            }
+            dropped_tables = await drop_tables(self._ch_client, owners)
             if dropped_tables:
                 await _delete_table_refs(session, dropped_tables)
                 ph, params = in_clause(dropped_tables, "tn")
@@ -351,17 +344,15 @@ class BackgroundWorker:
             )
             table_names = [row[0] for row in result.fetchall()]
 
-            # 2. Drop all non-global CH tables (includes samples registered in table_registry)
+            # 2. Drop all non-global CH tables (includes samples registered in
+            #    table_registry). These and the log purges below live on CH,
+            #    not SQL. Let a failure propagate: _cleanup_expired_jobs logs
+            #    it and retries the whole (idempotent) deletion next cycle —
+            #    better than committing the SQL deletes while CH tables or
+            #    rows are orphaned behind a swallowed error.
             for table_name in table_names:
-                try:
-                    await self._ch_client.command(f"DROP TABLE IF EXISTS {table_name}")
-                except Exception:
-                    logger.debug("Failed to drop table %s", table_name, exc_info=True)
+                await lineage_aware_drop(self._ch_client, table_name)
 
-            # operation_log and task_logs live on CH, not SQL. Let a failure
-            # propagate: _cleanup_expired_jobs logs it and retries the whole
-            # (idempotent) deletion next cycle — better than committing the SQL
-            # deletes while the CH rows are orphaned behind a swallowed error.
             await self._ch_client.command(f"ALTER TABLE operation_log DELETE WHERE job_id = {job_id}")
             await self._ch_client.command(f"ALTER TABLE task_logs DELETE WHERE job_id = {job_id}")
 
@@ -444,17 +435,13 @@ class BackgroundWorker:
             )
             orphan_tables = [row[0] for row in result.fetchall()]
 
-            for table_name in orphan_tables:
-                try:
-                    await self._ch_client.command(f"DROP TABLE IF EXISTS {table_name}")
-                    logger.debug("Dropped orphaned table %s", table_name)
-                except Exception:
-                    logger.debug("Failed to drop orphaned table %s", table_name, exc_info=True)
-
-            await session.execute(
-                text("DELETE FROM table_registry WHERE job_id IS NULL AND created_at < :cutoff"),
-                {"cutoff": cutoff},
-            )
+            dropped_tables = await drop_tables(self._ch_client, dict.fromkeys(orphan_tables))
+            if dropped_tables:
+                ph, params = in_clause(dropped_tables, "tn")
+                await session.execute(
+                    text(f"DELETE FROM table_registry WHERE table_name IN ({ph})"),
+                    params,
+                )
             await session.commit()
 
         # operation_log still lives on CH — prune orphaned rows there.

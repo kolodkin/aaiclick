@@ -51,6 +51,7 @@ from ...datetime_utils import utc_now
 from ..decorators import JobFactory, TaskFactory
 from ..logging import _ChLogSink, _SinkFlusher, capture_task_output
 from ..models import (
+    DEPENDENCY_TASK,
     JOB_COMPLETED,
     JOB_FAILED,
     JOB_RUNNING,
@@ -58,7 +59,6 @@ from ..models import (
     TASK_FAILED,
     TASK_PENDING,
     TASK_RUNNING,
-    Dependency,
     Group,
     Job,
     Task,
@@ -630,13 +630,7 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
     # Wire dependency: each returned item depends on the parent task
     for item in task_items:
         if isinstance(item, (Task, Group)):
-            dep = Dependency(
-                previous_id=parent_task_id,
-                previous_type="task",
-                next_id=item.id,
-                next_type="task" if isinstance(item, Task) else "group",
-            )
-            item.previous_dependencies.append(dep)
+            item.link_previous(parent_task_id, DEPENDENCY_TASK)
 
     await commit_tasks(task_items, job_id)
     await _pin_child_inputs(task_items)

@@ -29,22 +29,20 @@ _WATCHED_MODELS = (Job, Task, Group)
 # Derived, so adding a model to the tuple above updates the regex and the
 # Core-statement check together.
 WATCHED_TABLES = tuple(model.__tablename__ for model in _WATCHED_MODELS)
-# Leading ``--`` comment lines and a ``WITH`` prefix are allowed before the
-# write: the Postgres claim (``claim_next_task.sql``) is a data-modifying CTE
-# that opens with a comment block, and it must signal like a plain UPDATE.
+# Unanchored: the packaged ``sql/*.sql`` statements open with a comment
+# header, and the Postgres claim is a data-modifying CTE, so the write verb
+# is rarely the first token. A read never puts a write verb before a table.
 _WRITE_RE = re.compile(
-    r"^\s*(?:--[^\n]*\n\s*)*(?:with\b.*?)?"
-    r"(?:insert\s+into|update|delete\s+from)\s+\"?(?:" + "|".join(WATCHED_TABLES) + r")\b",
-    re.IGNORECASE | re.DOTALL,
+    r"\b(?:insert\s+into|update|delete\s+from)\s+\"?(?:" + "|".join(WATCHED_TABLES) + r")\b",
+    re.IGNORECASE,
 )
 _DIRTY_KEY = "aaiclick_events_dirty"
 _TRANSPORT_KEY = "aaiclick_events_transport"
 
 
 def statement_touches_watched(sql: str) -> bool:
-    """True for a textual INSERT / UPDATE / DELETE against a watched table,
-    including one inside a data-modifying CTE."""
-    return _WRITE_RE.match(sql) is not None
+    """True for a textual INSERT / UPDATE / DELETE against a watched table."""
+    return _WRITE_RE.search(sql) is not None
 
 
 def _statement_writes_watched(statement: object) -> bool:
