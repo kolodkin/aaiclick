@@ -87,19 +87,18 @@ async def test_unknown_api_token_unauthorized(enabled, orch_ctx):
         pytest.param("admin", "admin", True, id="admin-can-admin"),
     ],
 )
-def test_enforce_scope_walks_the_ladder(held, required, allowed):
-    principal = auth.Principal(user_id=1, role="admin", scope=held, kind="token")
+def test_check_scope_walks_the_ladder(held, required, allowed):
+    principal = auth.Principal(user_id=1, role="viewer", scope=held, kind="token")
     if allowed:
-        auth.enforce_scope(principal, required)
+        auth.check_scope(principal, required)
     else:
         with pytest.raises(Forbidden):
-            auth.enforce_scope(principal, required)
+            auth.check_scope(principal, required)
 
 
-def test_unscoped_principal_is_never_blocked_by_the_ladder():
-    """A session is bounded by its user's role, not by a scope."""
-    session = auth.Principal(user_id=1, role="admin", kind="session")
-    auth.enforce_scope(session, "admin")
+def test_unscoped_principal_is_bounded_by_role_alone():
+    """A session carries no scope; its role sets the ceiling."""
+    auth.check_scope(auth.Principal(user_id=1, role="admin", kind="session"), "admin")
 
 
 # --- principal_to_scope --------------------------------------------------

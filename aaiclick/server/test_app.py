@@ -15,6 +15,23 @@ from aaiclick.orchestration.models import EXECUTION_WORKER_ACTIVE
 from aaiclick.view_models import Problem
 
 from .app import API_PREFIX, _lifespan, app
+from .auth import SAFE_METHODS, require_admin, require_session, require_write
+
+# Mint or redeem the credential itself, so no principal exists yet.
+_PUBLIC_MUTATIONS = {
+    f"{API_PREFIX}/auth/login",
+    f"{API_PREFIX}/auth/refresh",
+    f"{API_PREFIX}/auth/logout",
+    f"{API_PREFIX}/auth/password-reset",
+}
+# POST bodies that only read — a read token may call them.
+_POST_READS = {f"{API_PREFIX}/viewer/query", f"{API_PREFIX}/viewer/dashboards/{{name}}:run"}
+
+
+def _dependency_calls(dependant):
+    for sub in dependant.dependencies:
+        yield sub.call
+        yield from _dependency_calls(sub)
 
 
 def test_all_resource_routes_are_prefixed():
@@ -23,6 +40,19 @@ def test_all_resource_routes_are_prefixed():
         if not isinstance(r, Route) or r.path in excluded:
             continue
         assert r.path.startswith(API_PREFIX), f"route {r.path!r} is not under {API_PREFIX}"
+
+
+def test_every_mutating_route_names_its_scope_guard():
+    """``require_principal`` only authenticates; the guard a route declares is
+    the one scope gate. So every non-safe route must carry one, or be a listed
+    public or read-only exception — a new mutation without a guard fails here."""
+    for r in app.routes:
+        if not isinstance(r, APIRoute) or r.methods <= SAFE_METHODS:
+            continue
+        if r.path in _PUBLIC_MUTATIONS | _POST_READS:
+            continue
+        guards = set(_dependency_calls(r.dependant)) & {require_write, require_admin, require_session}
+        assert guards, f"{sorted(r.methods)} {r.path} declares no scope guard"
 
 
 def test_expected_routes_are_registered():

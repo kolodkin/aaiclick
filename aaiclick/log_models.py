@@ -14,9 +14,9 @@ import logging
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, PlainSerializer, WithJsonSchema
+from pydantic import AfterValidator, BaseModel, Field, PlainSerializer, WithJsonSchema
 
-from .datetime_utils import utc_now
+from .datetime_utils import to_naive_utc, utc_now
 
 # Snowflake ids are 64-bit, exceeding JavaScript's safe-integer range (2^53-1),
 # so a JSON number would silently lose precision in the browser. Serialize id
@@ -31,6 +31,18 @@ SnowflakeId = Annotated[
     PlainSerializer(lambda v: str(v), return_type=str, when_used="json"),
     WithJsonSchema({"type": "string"}, mode="validation"),
 ]
+
+# Request-side datetimes arrive as ISO strings, often with a ``Z`` or offset
+# (the SPA sends ``toISOString()``). Storage and every comparison run on
+# naive UTC, so the value is normalized on validation.
+UtcDateTime = Annotated[datetime, AfterValidator(to_naive_utc)]
+
+# Paging bounds shared by every ``*Filter`` model: a page is at most
+# ``MAX_PAGE_LIMIT`` rows, and a negative OFFSET (a Postgres error) or a
+# ``limit`` of zero are refused at the boundary rather than sent to SQL.
+MAX_PAGE_LIMIT = 1000
+PageLimit = Annotated[int, Field(ge=1, le=MAX_PAGE_LIMIT)]
+PageOffset = Annotated[int, Field(ge=0)]
 
 # Captured task output streams.
 STDOUT_STREAM = "stdout"

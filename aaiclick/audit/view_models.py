@@ -4,7 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from ..log_models import SnowflakeId
+from ..log_models import PageLimit, PageOffset, SnowflakeId, UtcDateTime
 
 
 class AuditEntryView(BaseModel):
@@ -28,6 +28,6 @@ class AuditListFilter(BaseModel):
     username: str | None = None
     method: str | None = None
     path: str | None = None
-    since: datetime | None = None
-    limit: int = 50
-    offset: int = 0
+    since: UtcDateTime | None = None
+    limit: PageLimit = 50
+    offset: PageOffset = 0

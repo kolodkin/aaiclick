@@ -132,9 +132,10 @@ def totp_code(secret: str, at: float | None = None) -> str:
 def verify_totp(secret: str, code: str, at: float | None = None) -> bool:
     """Constant-time check of ``code`` against the current step ± drift."""
     now = time.time() if at is None else at
-    candidate = code.strip().replace(" ", "")
+    # Compared as bytes: ``compare_digest`` raises ``TypeError`` on a non-ASCII str.
+    candidate = code.strip().replace(" ", "").encode()
     return any(
-        hmac.compare_digest(totp_code(secret, now + step * TOTP_STEP_SECONDS), candidate)
+        hmac.compare_digest(totp_code(secret, now + step * TOTP_STEP_SECONDS).encode(), candidate)
         for step in range(-TOTP_DRIFT_STEPS, TOTP_DRIFT_STEPS + 1)
     )
 

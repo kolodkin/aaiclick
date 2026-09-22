@@ -253,14 +253,17 @@ rather than FastAPI's bare `HTTPException`), then resolves a
 - **Otherwise** → `401` with `WWW-Authenticate: Bearer`.
 
 `require_principal` also stores the resolved principal on `request.state` so
-the audit middleware can attribute the request after the fact, and enforces
-the token scope: a `read`-scoped principal calling any non-safe HTTP method
-(`POST` / `PUT` / `PATCH` / `DELETE`) is `403`.
+the audit middleware can attribute the request after the fact. It only
+authenticates: the HTTP method says nothing about scope — `POST /viewer/query`
+and a dashboard run are reads, open to a `read` token.
 
-Resource routers gate on scope: `require_scope(SCOPE_WRITE)` (aliased
-`require_write`) for a member's own mutations, `require_scope(SCOPE_ADMIN)`
-(aliased `require_admin`) for everything else that mutates or administers —
-jobs, objects, tasks, users, workers, audit.
+The guard a route declares is the one scope gate: `require_scope(SCOPE_WRITE)`
+(aliased `require_write`) for a member's own mutations,
+`require_scope(SCOPE_ADMIN)` (aliased `require_admin`) for everything else that
+mutates or administers — jobs, objects, tasks, users, workers, audit. A
+non-safe route without a guard fails
+`test_every_mutating_route_names_its_scope_guard` in
+`aaiclick/server/test_app.py`.
 
 # Roles
 
@@ -289,7 +292,7 @@ A user created without an explicit role is a `viewer`.
 # API Tokens
 
 
-**Implementation**: `aaiclick/auth/models.py` — see `ApiToken`, `ScopeLevel`, `scope_admits`; `aaiclick/internal_api/api_tokens.py` — see `_mint_ceiling`, `create_token`; `aaiclick/server/auth.py` — see `principal_from_credential`, `principal_to_scope`, `enforce_scope`, `require_session`; `aaiclick/server/routers/auth.py` — see `create_token`; `src/views/Tokens.tsx`.
+**Implementation**: `aaiclick/auth/models.py` — see `ApiToken`, `ScopeLevel`, `scope_admits`; `aaiclick/internal_api/api_tokens.py` — see `_mint_ceiling`, `create_token`; `aaiclick/server/auth.py` — see `principal_from_credential`, `principal_to_scope`, `check_scope`, `require_session`; `aaiclick/server/routers/auth.py` — see `create_token`; `src/views/Tokens.tsx`.
 Long-lived credentials for unattended clients (CI, SDK scripts, MCP agents)
 that should hold neither a password nor a refresh token.
 
@@ -297,8 +300,9 @@ that should hold neither a password nor a refresh token.
   resolver route the credential without a JWT parse attempt, and lets secret
   scanners recognise it. Only `sha256(secret)` is stored; the raw secret is
   returned exactly once, in the create response.
-- **Expiry**: optional `expires_at`; `None` never expires. The SPA form defaults
-  to 90 days.
+- **Expiry**: optional `expires_at` (`UtcDateTime` — an aware value is
+  normalized to naive UTC); `None` never expires. The SPA form defaults to
+  90 days.
 - **Ownership**: tokens belong to the user who minted them. Disabling the user
   disables every token. A token cannot mint or revoke tokens (`403`) — token
   management needs a real session, so a leaked token cannot bootstrap a
@@ -313,7 +317,7 @@ every level beneath it. `read` is the default at every mint site.
 
 | Level        | Admits, plus everything below                                                                     | REST guard it mirrors                  |
 |--------------|---------------------------------------------------------------------------------------------------|----------------------------------------|
-| `read`       | every read                                                                                        | safe method                            |
+| `read`       | every read, including `POST /viewer/query` and dashboard runs                                     | `require_principal` alone              |
 | `write`      | a member's own mutations — saved queries, dashboards                                              | `require_write`                        |
 | `admin`      | everything else — run / cancel jobs, register, clear tasks, delete / purge objects, users, workers, setup, migrate | `require_admin`       |
 

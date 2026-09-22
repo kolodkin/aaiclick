@@ -8,9 +8,9 @@ registers the OpenAPI scheme. The ``/mcp`` mount keeps an ASGI middleware
 because ``Depends`` does not propagate into mounted sub-apps. See
 ``docs/designs/auth.md``.
 
-The scope rules are plain functions (``principal_to_scope``, ``check_scope``,
-``enforce_scope``) so the FastAPI dependencies here and the FastMCP middleware
-in ``mcp_rbac.py`` share one definition of each.
+The scope rules are plain functions (``principal_to_scope``, ``check_scope``)
+so the FastAPI dependencies here and the FastMCP middleware in ``mcp_rbac.py``
+share one definition of each.
 """
 
 from __future__ import annotations
@@ -30,7 +30,6 @@ from aaiclick.auth.models import (
     ROLE_ADMIN,
     ROLE_SCOPES,
     SCOPE_ADMIN,
-    SCOPE_READ,
     SCOPE_WRITE,
     Role,
     ScopeLevel,
@@ -108,17 +107,6 @@ async def resolve_principal(authorization: str | None) -> Principal:
     return await principal_from_credential(credentials)
 
 
-def enforce_scope(principal: Principal, required: ScopeLevel) -> None:
-    """Gate a principal's token level against the level an operation needs.
-
-    REST reads ``required`` off the route's guard and method, MCP off the
-    tool's tag, so both surfaces answer the question the same way. An unscoped
-    principal (a session, or local mode) is bounded by role alone.
-    """
-    if principal.scope is not None and not scope_admits(principal.scope, required):
-        raise Forbidden(f"token scope '{principal.scope}' cannot perform '{required}' operations")
-
-
 async def require_principal(
     request: Request,
     creds: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
@@ -128,6 +116,10 @@ async def require_principal(
     ``HTTPBearer`` already extracted and scheme-checked the credential, so the
     token is decoded directly — no header re-parsing. The principal is recorded
     on the request's audit carrier.
+
+    This authenticates only. Scope is the route guard's call (``require_scope``
+    below): the HTTP method says nothing about it — ``POST /viewer/query`` and a
+    dashboard run are reads, and every read is open to a ``read`` token.
     """
     if not config.auth_enabled():
         principal = _SYNTHETIC_ADMIN
@@ -135,7 +127,6 @@ async def require_principal(
         raise Unauthorized("missing bearer token")
     else:
         principal = await principal_from_credential(creds.credentials)
-    enforce_scope(principal, SCOPE_READ if request.method in SAFE_METHODS else SCOPE_WRITE)
     audit_state(request.scope).principal = principal
     return principal
 

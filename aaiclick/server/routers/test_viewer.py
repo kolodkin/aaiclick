@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from aaiclick.auth.view_models import CreateUserRequest
 from aaiclick.data.data_context import create_object_from_value
+from aaiclick.internal_api import users
 from aaiclick.view_models import Page, Problem, ProblemCode
 from aaiclick.viewer.view_models import Dashboard, DashboardResults, SavedQuery
 
 from ..app import API_PREFIX
+from ..conftest import login
 
 V = f"{API_PREFIX}/viewer"
 
@@ -51,3 +54,22 @@ async def test_viewer_requires_auth(orch_ctx, anon_client, monkeypatch):
     monkeypatch.setenv("AAICLICK_JWT_SECRET", "viewer-router-test-secret-key-32-plus-bytes")
     response = await anon_client.post(f"{V}/query", json={"object": "x"})
     assert response.status_code == 401
+
+
+async def test_read_token_runs_post_reads_but_cannot_write(orch_ctx, app_client, enabled):
+    """``POST /viewer/query`` and a dashboard run are reads: the route's guard
+    decides the scope, not the HTTP method."""
+    await users.create_user(CreateUserRequest(username="alice", password="pw", role="admin"))
+    session = await login(app_client, "alice")
+    created = await app_client.post(f"{API_PREFIX}/auth/tokens", json={"name": "ro"}, headers=session)
+    token = {"Authorization": f"Bearer {created.json()['token']}"}
+    await create_object_from_value({"id": [1]}, name="http_ro", scope="global")
+    put_d = await app_client.put(
+        f"{V}/dashboards/d_ro", json={"html": "<p/>", "queries": {"p": {"object": "http_ro"}}}, headers=session
+    )
+    assert put_d.status_code == 200
+
+    assert (await app_client.post(f"{V}/query", json={"object": "http_ro"}, headers=token)).status_code == 200
+    assert (await app_client.post(f"{V}/dashboards/d_ro:run", headers=token)).status_code == 200
+    denied = await app_client.put(f"{V}/queries/q_ro", json={"object": "http_ro"}, headers=token)
+    assert denied.status_code == 403 and denied.json()["code"] == "forbidden"
