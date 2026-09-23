@@ -35,6 +35,20 @@ Remove each item from that file as it lands; delete the file when empty.
 
 ---
 
+# Tests That Assert SQL Text Instead of Outcomes
+
+A few tests pin the exact command string sent to a mocked ClickHouse client
+rather than the effect: `test_delete_job_data_exempts_persistent_tables` and
+`test_delete_job_data_purges_ch_log_tables` in
+`aaiclick/orchestration/background/test_cleanup.py`, and
+`test_worker_skips_persistent_tables_on_cleanup` in
+`aaiclick/data/data_context/test_table_worker.py`.
+They break on harmless rewording of the SQL. Replace the mock with a fake
+client that tracks a set of existing tables, or run against the local chdb
+backend, and assert which tables remain.
+
+---
+
 # Deferred
 
 Items deferred until preconditions are met.
