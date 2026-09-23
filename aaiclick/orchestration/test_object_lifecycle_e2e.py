@@ -361,6 +361,6 @@ async def test_ordering_edge_releases_pin(orch_ctx):
 
 
 async def test_map_children_pinned(orch_ctx):
-    """One pin for produce → expander, plus source and output pins for the single child."""
+    """One pin for produce → expander, source and output pins for the single child, and the finalize output pin."""
     events = await _run_and_verify(map_pipeline)
-    assert len(_pin_inserts(events)) == 3
+    assert len(_pin_inserts(events)) == 4

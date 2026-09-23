@@ -555,8 +555,8 @@ async def _dependency_pairs(next_id: int) -> set[tuple[int, str]]:
         return {(previous_id, previous_type) for previous_id, previous_type in rows.all()}
 
 
-async def test_register_returned_tasks_holds_direct_successor(orch_ctx):
-    """task_result(data=..., tasks=[child]) with parent >> consumer adds child >> consumer."""
+async def test_register_returned_tasks_holds_on_data_task(orch_ctx):
+    """task_result(data=child, tasks=[child]) with parent >> consumer adds child >> consumer."""
     job = await create_job("hold_direct", "mod.func")
     parent = create_task("mod.parent")
     consumer = create_task("mod.consumer")
@@ -564,13 +564,13 @@ async def test_register_returned_tasks_holds_direct_successor(orch_ctx):
     await commit_tasks([parent, consumer], job_id=job.id)
 
     child = create_task("mod.child")
-    await register_returned_tasks(task_result(data="x", tasks=[child]), parent_task_id=parent.id, job_id=job.id)
+    await register_returned_tasks(task_result(data=child, tasks=[child]), parent_task_id=parent.id, job_id=job.id)
 
     assert await _dependency_pairs(consumer.id) == {(parent.id, "task"), (child.id, "task")}
 
 
 async def test_register_returned_tasks_holds_group_successor(orch_ctx):
-    """Parent in G with G >> consumer: a returned Group holds the consumer as group >> consumer."""
+    """Parent in G with G >> consumer: the data task holds the consumer too."""
     job = await create_job("hold_group", "mod.func")
     parent_group = Group(id=get_snowflake_id(), name="pg")
     parent = create_task("mod.parent")
@@ -582,9 +582,27 @@ async def test_register_returned_tasks_holds_group_successor(orch_ctx):
     layer = Group(id=get_snowflake_id(), name="layer")
     member = create_task("mod.member")
     layer.add_task(member)
-    await register_returned_tasks(task_result(data="x", tasks=[layer]), parent_task_id=parent.id, job_id=job.id)
+    finalize = create_task("mod.finalize")
+    layer >> finalize
+    await register_returned_tasks(
+        task_result(data=finalize, tasks=[layer, finalize]), parent_task_id=parent.id, job_id=job.id
+    )
 
-    assert await _dependency_pairs(consumer.id) == {(parent_group.id, "group"), (layer.id, "group")}
+    assert await _dependency_pairs(consumer.id) == {(parent_group.id, "group"), (finalize.id, "task")}
+
+
+async def test_register_returned_tasks_no_hold_for_plain_data(orch_ctx):
+    """Data that is not a returned task does not depend on the children, so consumers start after the parent."""
+    job = await create_job("hold_plain", "mod.func")
+    parent = create_task("mod.parent")
+    consumer = create_task("mod.consumer")
+    parent >> consumer
+    await commit_tasks([parent, consumer], job_id=job.id)
+
+    child = create_task("mod.child")
+    await register_returned_tasks(task_result(data="x", tasks=[child]), parent_task_id=parent.id, job_id=job.id)
+
+    assert await _dependency_pairs(consumer.id) == {(parent.id, "task")}
 
 
 async def test_register_returned_tasks_no_hold_without_data(orch_ctx):

@@ -25,6 +25,12 @@ async def parent_without_data():
 
 
 @task
+async def parent_with_plain_data():
+    """Data independent of the children: consumers need not wait for them."""
+    return task_result(data=3, tasks=[child_value()])
+
+
+@task
 async def consume(value) -> int:
     return value
 
@@ -49,6 +55,13 @@ def hold_group_successor():
 @job("test_no_hold_without_data")
 def no_hold_without_data():
     parent = parent_without_data()
+    seen = consume(value=parent)
+    return task_result(data=seen, tasks=[parent, seen])
+
+
+@job("test_no_hold_plain_data")
+def no_hold_plain_data():
+    parent = parent_with_plain_data()
     seen = consume(value=parent)
     return task_result(data=seen, tasks=[parent, seen])
 
@@ -78,3 +91,12 @@ async def test_tasks_list_does_not_hold(orch_ctx):
 
     assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
     assert await get_job_result(j) is None
+
+
+async def test_plain_data_does_not_hold(orch_ctx):
+    """A value that is not a returned task is readable as soon as the parent completes."""
+    j = await no_hold_plain_data()
+    await ajob_test(j)
+
+    assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
+    assert await get_job_result(j) == 3

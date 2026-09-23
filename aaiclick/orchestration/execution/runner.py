@@ -52,7 +52,6 @@ from ..decorators import JobFactory, TaskFactory
 from ..dependency_graph import successor_task_ids
 from ..logging import _ChLogSink, _SinkFlusher, capture_task_output
 from ..models import (
-    DEPENDENCY_GROUP,
     DEPENDENCY_TASK,
     JOB_COMPLETED,
     JOB_FAILED,
@@ -548,14 +547,7 @@ def _contains_dag_node(item: Any) -> bool:
     return False
 
 
-class _Returned(NamedTuple):
-    """A tasks position split into what was returned and what must be committed."""
-
-    items: list[Task | Group]  # top-level, as returned
-    tasks: list[Task | Group]  # items plus each Group's members
-
-
-def _tasks_from(items: Any) -> _Returned:
+def _tasks_from(items: Any) -> list[Task | Group]:
     """Validate a tasks position and expand it one level deep.
 
     A Group also contributes its member tasks. Nothing beyond that one level is
@@ -566,15 +558,12 @@ def _tasks_from(items: Any) -> _Returned:
     Raises:
         TypeError: if the position holds anything but Tasks and Groups.
     """
-    top_level: list[Task | Group] = []
     tasks: list[Task | Group] = []
 
     for item in items if isinstance(items, (list, tuple)) else [items]:
         if isinstance(item, Task):
-            top_level.append(item)
             tasks.append(item)
         elif isinstance(item, Group):
-            top_level.append(item)
             tasks.extend([item, *item.get_tasks()])
         elif _contains_dag_node(item):
             raise TypeError(
@@ -588,31 +577,26 @@ def _tasks_from(items: Any) -> _Returned:
                 "to return data alongside tasks."
             )
 
-    return _Returned(top_level, tasks)
+    return tasks
 
 
-async def _hold_dependencies(items: list[Task | Group], parent_task_id: int) -> list[Dependency]:
-    """``item >> successor`` rows for every returned item and existing successor of the parent.
+async def _hold_dependencies(data_task: Task, parent_task_id: int) -> list[Dependency]:
+    """``data_task >> successor`` rows for every existing successor of the parent.
 
-    The data returned alongside children is usually an Object the children
-    fill, so their consumers must wait for them. A returned Group holds as one
-    ``group >> consumer`` edge; its members are covered by it. Called before
-    the children are committed, so they are not successors yet and cannot hold
-    one another.
+    A parent whose data is one of its returned tasks has a result that is not
+    ready until that task completes, so its consumers must wait for it. Called
+    before the children are committed, so they are not successors yet.
     """
-    if not items:
-        return []
     async with get_sql_session() as session:
-        successor_ids = sorted(await successor_task_ids(session, {parent_task_id}))
+        successor_ids = await successor_task_ids(session, {parent_task_id})
     return [
         Dependency(
-            previous_id=item.id,
-            previous_type=DEPENDENCY_TASK if isinstance(item, Task) else DEPENDENCY_GROUP,
+            previous_id=data_task.id,
+            previous_type=DEPENDENCY_TASK,
             next_id=successor_id,
             next_type=DEPENDENCY_TASK,
         )
-        for item in items
-        for successor_id in successor_ids
+        for successor_id in sorted(successor_ids)
     ]
 
 
@@ -626,8 +610,9 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
     - flat list/tuple of Task/Group → register all, return None
     - Any other value               → pure data, return as-is
 
-    A TaskResult with data also holds the parent's existing consumers until
-    every returned task completes (see ``_hold_dependencies``).
+    When ``data`` is one of the returned tasks, the parent's existing consumers
+    wait for it (see ``_hold_dependencies``): return data that the children
+    produce through a task that depends on them.
 
     The list/tuple must be flat and hold nothing but Tasks and Groups. Mixing
     in data is rejected — that is what ``task_result(data=..., tasks=[...])``
@@ -646,33 +631,29 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
     Raises:
         TypeError: if a returned list/tuple is nested or holds non-Task items.
     """
-    hold_items: list[Task | Group] = []
     if result is None:
         return None
 
     elif isinstance(result, TaskResult):
-        returned = _tasks_from(result.tasks)
+        task_items = _tasks_from(result.tasks)
         data_result = result.data
-        if data_result is not None:
-            hold_items = returned.items
     elif isinstance(result, (Task, Group)):
         # Job entry tasks can return a single Task or Group directly
-        returned = _tasks_from(result)
+        task_items = _tasks_from(result)
         data_result = None
     elif isinstance(result, (list, tuple)):
         if not _contains_dag_node(result):
             # No DAG nodes anywhere — an ordinary data return like [1, 2, 3].
             return result
-        returned = _tasks_from(result)
+        task_items = _tasks_from(result)
         data_result = None
     else:
         return result
 
-    task_items = returned.tasks
     if not task_items:
         return data_result
 
-    hold_rows = await _hold_dependencies(hold_items, parent_task_id)
+    hold_rows = await _hold_dependencies(data_result, parent_task_id) if isinstance(data_result, Task) else []
 
     # Wire dependency: each returned item depends on the parent task
     for item in task_items:

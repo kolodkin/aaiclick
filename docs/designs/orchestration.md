@@ -392,8 +392,9 @@ python -m aaiclick registered-job list        # List registered jobs
 |-------------------------------------------------------|----------------------------------------------------------------------------------------------------|
 | `map(cbk, obj, partition, args, kwargs) -> Task`      | Expander Task. Partitions Object into Views, creates N `_map_part` children; result is the output. |
 | `_map_part(cbk, part, out) -> None`                   | Applies `cbk(row, *args, **kwargs)` to each record; non-None returns are inserted into `out`.      |
+| `_finalize(out) -> Object`                            | Join task after the parts (or the last layer); the expander returns it as data.                    |
 | `reduce(cbk, obj, partition, args, kwargs) -> Task`   | Expander Task. Layered parallel reduction; result is the final single-row Object.                  |
-| `_expand_reduce(cbk, obj, ...) -> (Object, [Groups])` | Pre-allocates all layer Objects and tasks at once.                                                 |
+| `_expand_reduce(cbk, obj, ...) -> (Task, [Groups])`   | Pre-allocates all layer Objects and tasks at once.                                                 |
 | `_reduce_part(cbk, part, layer_obj) -> None`          | Calls `cbk(partition, output)` — callback writes directly into `layer_obj`.                        |
 
 ## reduce()
@@ -408,9 +409,11 @@ Layer 1  input=⌈N/P⌉  tasks=⌈.../P⌉ → layer_1_obj
 
 Empty input raises `TypeError("reduce() of empty sequence with no initial value")`.
 
-Consumers of the expander wait for every layer: `register_returned_tasks` adds
-`layer >> consumer` edges for each existing consumer (see `_hold_dependencies` in
-`runner.py`). The same hold applies to any `task_result(data=..., tasks=[...])`.
+Consumers of the expander wait for every layer: the expander's data is a
+`_finalize` task after the last layer, and `register_returned_tasks` adds
+`finalize >> consumer` for each existing consumer (see `_hold_dependencies` in
+`runner.py`). The same hold applies to any `task_result` whose data is one of its
+returned tasks.
 
 # Distributed Object Lifecycle
 

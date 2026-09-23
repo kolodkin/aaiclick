@@ -86,9 +86,8 @@ def map(
 async def _expand_map(cbk: Callable, obj: Object, partition: int, cbk_args: list, cbk_kwargs: dict) -> TaskResult:
     """Expander task: queries Object row count and creates partition tasks.
 
-    Returns the pre-allocated output Object as data and a ``map`` Group of
-    ``_map_part`` children as tasks. Registration pins the output for the
-    children and, via the hold on returned tasks, for the consumers.
+    Returns a ``map`` Group of ``_map_part`` children writing into a
+    pre-allocated output, and the ``_finalize`` task that returns it as data.
     """
     row_count = await obj.count().data()
     n_partitions = max(1, ceil(row_count / partition))
@@ -99,7 +98,19 @@ async def _expand_map(cbk: Callable, obj: Object, partition: int, cbk_args: list
     for part in _partition_refs(obj, partition, n_partitions):
         group.add_task(_map_part(cbk=cbk, part=part, out=out, cbk_args=cbk_args, cbk_kwargs=cbk_kwargs))
 
-    return task_result(data=out, tasks=[group])
+    finalize = _finalize(out=out)
+    group >> finalize
+    return task_result(data=finalize, tasks=[group, finalize])
+
+
+@task
+async def _finalize(out: Object) -> Object:
+    """Join task: runs after every partition task and hands the filled output on.
+
+    An expander returns it as data, so consumers of the expander wait for it
+    and it pins ``out`` for them.
+    """
+    return out
 
 
 def _partition_refs(src: Object | View, partition: int, count: int) -> list[dict]:
@@ -214,8 +225,9 @@ async def _expand_reduce(
 ) -> TaskResult:
     """Expander task: queries count, pre-allocates all layers, creates all tasks.
 
-    Runs once at execution time. Returns the final Object as its task result
-    alongside all layer subgroups and partition tasks as dynamic children.
+    Runs once at execution time. Returns all layer subgroups as dynamic
+    children and, as data, the ``_finalize`` task that hands on the final
+    Object once the last layer is done.
     """
     ch = get_ch_client()
 
@@ -234,7 +246,7 @@ async def _expand_reduce(
 
     # Pre-allocate all layer Objects. Registration pins each layer for the
     # part tasks that reference it; the last layer is also pinned for the
-    # group's consumers via TaskResult.data.
+    # finalize task and, through its result, for the consumers.
     layer_objs = [await create_object(obj.schema) for _ in range(num_layers)]
 
     all_groups = []
@@ -255,7 +267,9 @@ async def _expand_reduce(
         all_groups.append(group)
         src_size = ceil(src_size / partition)
 
-    return task_result(data=layer_objs[-1], tasks=all_groups)
+    finalize = _finalize(out=layer_objs[-1])
+    all_groups[-1] >> finalize
+    return task_result(data=finalize, tasks=[*all_groups, finalize])
 
 
 @task

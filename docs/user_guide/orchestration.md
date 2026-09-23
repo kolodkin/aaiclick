@@ -60,9 +60,11 @@ for tasks alone, and `task_result(data=..., tasks=[...])` when the task also
 returns data. See
 [Examples: Orchestration Dynamic](../examples/orchestration_dynamic.md).
 
-Consumers of a task that returns `task_result(data=..., tasks=[...])` also wait
-for every returned task, since the data is usually an Object the children fill.
-`tasks_list(...)` carries no data and does not hold consumers.
+When `data` is one of the returned tasks, consumers of the parent wait for that
+task. So when the data is something the children produce, return it through a
+task that depends on them: `map()` and `reduce()` return a finalize task that
+runs after the partition tasks and hands the output Object on. Any other `data`
+is readable as soon as the parent completes.
 
 !!! warning "A list carries tasks only, unnested"
     `return [obj, group]` raises `TypeError` — use
@@ -411,8 +413,8 @@ python -m aaiclick run-job <name> --entry-type shell --command 'python main.py' 
   input schema.
 
 Both accept a `Task` or an `Object` as input and return the expander `Task`.
-Its result is the output Object; a task that consumes it waits for every
-partition task. See
+Its result is the output Object, produced by a finalize task that runs after
+every partition task, so a consumer sees it filled. See
 [Examples: Orchestration Operators](../examples/orchestration_operators.md).
 
 !!! warning "Output schema equals input schema"
