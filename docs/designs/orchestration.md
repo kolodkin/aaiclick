@@ -410,10 +410,11 @@ Layer 1  input=⌈N/P⌉  tasks=⌈.../P⌉ → layer_1_obj
 Empty input raises `TypeError("reduce() of empty sequence with no initial value")`.
 
 Consumers of the expander wait for every layer: the expander's data is a
-`_finalize` task after the last layer, and `register_returned_tasks` adds
-`finalize >> consumer` for each existing consumer (see `_hold_dependencies` in
-`runner.py`). The same hold applies to any `task_result` whose data is one of its
-returned tasks.
+`_finalize` task after the last layer, and `register_returned_tasks` copies every
+edge leaving the expander (or its group) onto `_finalize` (see
+`_hold_dependencies` in `runner.py`). A group consumer stays a group edge, so
+members it gains later are held too. The same hold applies to any `task_result`
+whose data is one of its returned tasks.
 
 # Distributed Object Lifecycle
 

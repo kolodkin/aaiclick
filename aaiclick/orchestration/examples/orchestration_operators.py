@@ -18,10 +18,8 @@ from aaiclick.data.data_context import data_context
 from aaiclick.orchestration import (
     JOB_COMPLETED,
     ajob_test,
-    get_job_result,
     job,
     map,
-    orch_context,
     reduce,
     task,
     task_result,
@@ -95,9 +93,6 @@ async def amain():
         job2 = await ajob_test(reduce_job)
         print(f"Job status: {job2.status}")
         assert job2.status == JOB_COMPLETED, f"Expected COMPLETED, got {job2.status}: {job2.error}"
-        async with orch_context():
-            total = await get_job_result(job2)
-            print(f"Reduced total: {(await total.data())[0]}")  # → 15
 
     print("\n" + "=" * 50)
     print("Parallel operators example completed successfully!")

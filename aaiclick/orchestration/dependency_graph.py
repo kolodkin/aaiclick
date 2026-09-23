@@ -9,10 +9,20 @@ predecessor direction, inside the atomic claim statement. The job graph view
 mirrors it in ``graph.py`` (``_member_edges``) — change all three together.
 """
 
+from typing import NamedTuple
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .models import DependencyType
 from .sql_utils import in_clause
+
+
+class EdgeTarget(NamedTuple):
+    """The ``next`` end of a dependency row: a task, or a group standing for its members."""
+
+    id: int
+    type: DependencyType
 
 
 async def successor_task_ids(session: AsyncSession, task_ids: set[int]) -> set[int]:
@@ -43,3 +53,22 @@ async def successor_task_ids(session: AsyncSession, task_ids: set[int]) -> set[i
         members = await session.execute(text(f"SELECT id FROM tasks WHERE group_id IN ({gph})"), gparams)
         successors.update(row[0] for row in members)
     return successors - task_ids
+
+
+async def successor_edges(session: AsyncSession, task_id: int) -> set[EdgeTarget]:
+    """Targets of the edges leaving ``task_id`` and its group, group targets unexpanded.
+
+    Unlike ``successor_task_ids`` this keeps a group target as the group, so an
+    edge copied onto another source covers the members the group has when a
+    consumer is claimed, including members added after the copy.
+    """
+    edges = await session.execute(
+        text(
+            "SELECT next_id, next_type FROM dependencies "
+            "WHERE (previous_type = 'task' AND previous_id = :task_id) "
+            "OR (previous_type = 'group' AND previous_id = "
+            "(SELECT group_id FROM tasks WHERE id = :task_id AND group_id IS NOT NULL))"
+        ),
+        {"task_id": task_id},
+    )
+    return {EdgeTarget(next_id, next_type) for next_id, next_type in edges}

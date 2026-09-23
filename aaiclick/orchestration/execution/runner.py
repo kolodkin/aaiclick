@@ -49,7 +49,7 @@ from aaiclick.snowflake import get_snowflake_id
 
 from ...datetime_utils import utc_now
 from ..decorators import JobFactory, TaskFactory
-from ..dependency_graph import successor_task_ids
+from ..dependency_graph import successor_edges
 from ..logging import _ChLogSink, _SinkFlusher, capture_task_output
 from ..models import (
     DEPENDENCY_TASK,
@@ -581,22 +581,23 @@ def _tasks_from(items: Any) -> list[Task | Group]:
 
 
 async def _hold_dependencies(data_task: Task, parent_task_id: int) -> list[Dependency]:
-    """``data_task >> successor`` rows for every existing successor of the parent.
+    """Copy every edge leaving the parent (or its group) onto ``data_task``.
 
     A parent whose data is one of its returned tasks has a result that is not
-    ready until that task completes, so its consumers must wait for it. Called
+    ready until that task completes, so its consumers must wait for it. A group
+    consumer stays a group edge, so members it gains later are held too. Called
     before the children are committed, so they are not successors yet.
     """
     async with get_sql_session() as session:
-        successor_ids = await successor_task_ids(session, {parent_task_id})
+        targets = await successor_edges(session, parent_task_id)
     return [
         Dependency(
             previous_id=data_task.id,
             previous_type=DEPENDENCY_TASK,
-            next_id=successor_id,
-            next_type=DEPENDENCY_TASK,
+            next_id=target.id,
+            next_type=target.type,
         )
-        for successor_id in sorted(successor_ids)
+        for target in sorted(targets)
     ]
 
 
