@@ -194,7 +194,7 @@ jobs:
                   print("JOB", dict(r))
               for r in await c.fetch("select id,entrypoint,status,error from tasks order by id"):
                   print("TASK", dict(r))
-              for r in await c.fetch("select task_id,run_epoch,success,error from task_run_results order by task_id"):
+              for r in await c.fetch("select task_id,run_epoch,success,error from remote_task_results order by task_id"):
                   print("RESULT", dict(r))
               await c.close()
           asyncio.run(main())
