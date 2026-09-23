@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from ..log_models import LogLine, SnowflakeId
 from .graph import DependencyRow, build_graph_edges, group_member_tasks, rollup_status
 from .models import (
+    DEPENDENCY_GROUP,
     TASK_COMPLETED,
     Dependency,
     ExecutionWorker,
@@ -122,7 +123,8 @@ GraphEdgeKind = Literal["dependency", "build"]
 
 
 class GraphEdgeView(BaseModel):
-    """A resolved task-to-task edge.
+    """An edge to draw: one per dependency, so either endpoint may be a group
+    node — ``A >> G`` is a single edge into G's container.
 
     ``kind`` and ``attaches_build`` are graph semantics, so they are settled
     here rather than re-derived per client: an image build gates every task
@@ -137,12 +139,22 @@ class GraphEdgeView(BaseModel):
     attaches_build: bool = False
 
 
+class LayoutEdgeView(BaseModel):
+    """A task-to-task edge for positioning only. The layout engine cannot
+    attach an edge to a container, so a group edge is expanded onto the
+    group's direct member tasks here."""
+
+    source_id: SnowflakeId
+    target_id: SnowflakeId
+
+
 class JobGraphView(BaseModel):
     """Job dependency graph served by ``GET /jobs/{ref}/graph``."""
 
     job_id: SnowflakeId
     nodes: list[GraphNodeView] = Field(default_factory=list)
     edges: list[GraphEdgeView] = Field(default_factory=list)
+    layout_edges: list[LayoutEdgeView] = Field(default_factory=list)
     dropped_cycle_edges: int = 0
 
 
@@ -324,7 +336,7 @@ def build_job_graph_view(
     groups: list[Group],
     dependencies: list[Dependency],
 ) -> JobGraphView:
-    """Resolve the job's DAG into task nodes and task-to-task edges."""
+    """Resolve the job's DAG into nodes, drawn edges, and layout edges."""
     group_members: dict[int, set[int]] = {g.id: set() for g in groups}
     for task in tasks:
         if task.group_id is not None:
@@ -335,18 +347,6 @@ def build_job_graph_view(
         if group.parent_group_id is not None:
             group_children.setdefault(group.parent_group_id, set()).add(group.id)
 
-    rows = [DependencyRow(d.previous_id, d.previous_type, d.next_id, d.next_type) for d in dependencies]
-    edges, dropped = build_graph_edges(rows, group_members, group_children)
-
-    # A dependency row can reference a task removed by a retention sweep;
-    # React Flow throws on an edge whose endpoint is missing.
-    known = {t.id for t in tasks}
-    kept = [e for e in edges if e.source_id in known and e.target_id in known]
-
-    build_ids = {t.id for t in tasks if t.is_image_build}
-    # A task is a pipeline root when nothing but a build precedes it.
-    has_dependency_predecessor = {e.target_id for e in kept if e.source_id not in build_ids}
-
     tasks_by_id = {t.id: t for t in tasks}
     group_nodes = []
     for group in groups:
@@ -354,6 +354,21 @@ def build_job_graph_view(
         # A group with nothing beneath it has nothing to contain.
         if members:
             group_nodes.append(group_to_graph_node(group, members))
+
+    # A dependency row can reference a task removed by a retention sweep;
+    # React Flow throws on an edge whose endpoint is missing.
+    rows = [
+        DependencyRow(d.previous_id, d.previous_type, d.next_id, d.next_type)
+        for d in dependencies
+        if (d.previous_type == DEPENDENCY_GROUP or d.previous_id in tasks_by_id)
+        and (d.next_type == DEPENDENCY_GROUP or d.next_id in tasks_by_id)
+    ]
+    graph = build_graph_edges(rows, group_members)
+    node_ids = tasks_by_id.keys() | {g.id for g in group_nodes}
+
+    build_ids = {t.id for t in tasks if t.is_image_build}
+    # A task is a pipeline root when nothing but a build precedes it.
+    has_dependency_predecessor = {e.target_id for e in graph.layout if e.source_id not in build_ids}
 
     return JobGraphView(
         job_id=job.id,
@@ -366,9 +381,11 @@ def build_job_graph_view(
                 kind=GRAPH_EDGE_BUILD if e.source_id in build_ids else GRAPH_EDGE_DEPENDENCY,
                 attaches_build=e.source_id in build_ids and e.target_id not in has_dependency_predecessor,
             )
-            for e in kept
+            for e in graph.drawn
+            if e.source_id in node_ids and e.target_id in node_ids
         ],
-        dropped_cycle_edges=dropped,
+        layout_edges=[LayoutEdgeView(source_id=e.source_id, target_id=e.target_id) for e in graph.layout],
+        dropped_cycle_edges=graph.dropped,
     )
 
 

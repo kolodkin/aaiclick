@@ -21,10 +21,10 @@ The build task is a hub, not a link in the chain: ``inject_build_tasks`` wires
 job normally shares one image job-wide. Modelling it as a chain would test a
 shape that never occurs.
 
-``transforms`` is a real ``Group`` with an internal edge, so its source is
-``transform_a`` and its sink is ``transform_b``. ``extract >> group`` and
-``group >> report`` therefore expand to exactly one edge each — the
-source/sink logic in ``aaiclick.orchestration.graph``, exercised end to end.
+``transforms`` is a real ``Group`` with an internal edge. ``extract >> group``
+and ``group >> report`` are each drawn once, into and out of the container,
+and laid out through every member — ``aaiclick.orchestration.graph``,
+exercised end to end.
 """
 
 from __future__ import annotations

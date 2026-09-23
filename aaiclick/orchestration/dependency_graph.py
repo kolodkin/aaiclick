@@ -3,9 +3,10 @@
 The scheduler understands four dependency edge shapes: task→task, task→group,
 group→task and group→group. A grouped task inherits the edges leaving its
 group, and a group target stands for every one of its member tasks. This
-module is the one place that rule is written in Python; ``DEPENDENCY_WHERE``
-in ``execution/db_handler.py`` encodes the same rule in the predecessor
-direction, inside the atomic claim statement.
+module is the one place the scheduler's rule is written in Python;
+``DEPENDENCY_WHERE`` in ``execution/db_handler.py`` encodes the same rule in the
+predecessor direction, inside the atomic claim statement. The job graph view
+mirrors it in ``graph.py`` (``_member_edges``) — change all three together.
 """
 
 from sqlalchemy import text
