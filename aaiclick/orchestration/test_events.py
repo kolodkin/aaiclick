@@ -111,6 +111,10 @@ def test_event_bus_context_swaps_and_restores():
         pytest.param(CLAIM_NEXT_TASK_SQL, True, id="claim-cte"),
         pytest.param(COMPLETE_JOB_SQL, True, id="complete-job-comment-header"),
         pytest.param("WITH t AS (SELECT id FROM tasks) SELECT * FROM t", False, id="cte-select-only"),
+        pytest.param("-- callers then update tasks\nSELECT id FROM tasks", False, id="write-only-in-line-comment"),
+        pytest.param("/* delete from jobs later */ SELECT 1", False, id="write-only-in-block-comment"),
+        pytest.param("UPDATE public.tasks SET status = 'x'", True, id="schema-qualified"),
+        pytest.param('UPDATE ONLY "public"."jobs" SET status = \'x\'', True, id="only-quoted-schema"),
     ],
 )
 def test_statement_touches_watched(sql, expected):

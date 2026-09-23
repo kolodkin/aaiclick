@@ -54,7 +54,7 @@ _spa_built = pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing;
 _MAIN_TSX = Path(__file__).resolve().parents[2] / "src" / "main.tsx"
 _FALLBACK_MATCH = re.search(r"isLiveConnected\(\)\s*\?\s*false\s*:\s*(\d+)", _MAIN_TSX.read_text())
 POLL_FALLBACK_MS = int(_FALLBACK_MATCH.group(1)) if _FALLBACK_MATCH else 5000
-# Well above the NOTIFY → /events → refetch round trip.
+# Well above the commit → /events → refetch round trip on either transport.
 SIGNAL_SETTLE_MS = 1000
 
 
@@ -371,10 +371,10 @@ def test_task_view_separates_streamed_status_from_polled_logs(page, base_url: st
     page.get_by_text(f"step {SLOW_TASK_STEPS} of {SLOW_TASK_STEPS}").wait_for(timeout=10000)
     shot("sse-task-completed")
 
-    # Nothing commits now and no signal fires — and neither half may fetch
-    # anyway. A timer would keep going regardless, which is exactly the
-    # difference under test. (This says nothing about the stream being down:
-    # the fallback interval is inert here because the stream is up.)
+    # Once the job is terminal too, nothing commits and no signal fires — and
+    # neither half may fetch anyway. A timer would keep going regardless, which
+    # is exactly the difference under test. (This says nothing about the stream
+    # being down: the fallback interval is inert here because the stream is up.)
     _settle_after_job_terminal(page, job_id)
     seen = len(requests)
     page.wait_for_timeout(POLL_FALLBACK_MS + 500)

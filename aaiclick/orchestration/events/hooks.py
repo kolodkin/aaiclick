@@ -32,10 +32,13 @@ _WATCHED_MODELS = (Job, Task, Group)
 WATCHED_TABLES = tuple(model.__tablename__ for model in _WATCHED_MODELS)
 # Unanchored: the packaged ``sql/*.sql`` statements open with a comment
 # header, and the Postgres claim is a data-modifying CTE, so the write verb
-# is rarely the first token. Only a write puts that verb before a watched
-# table, so keep such phrases out of SQL comments.
+# is rarely the first token. Comments are stripped first, so only real SQL
+# can put the verb before a table. Accepts ``ONLY`` and a schema qualifier.
+_SQL_COMMENT_RE = re.compile(r"--[^\n]*|/\*.*?\*/", re.DOTALL)
 _WRITE_RE = re.compile(
-    r"\b(?:insert\s+into|update|delete\s+from)\s+\"?(?:" + "|".join(WATCHED_TABLES) + r")\b",
+    r"\b(?:insert\s+into|update|delete\s+from)\s+(?:only\s+)?(?:\"?\w+\"?\.)?\"?(?:"
+    + "|".join(WATCHED_TABLES)
+    + r")\b",
     re.IGNORECASE,
 )
 _DIRTY_KEY = "aaiclick_events_dirty"
@@ -44,7 +47,7 @@ _TRANSPORT_KEY = "aaiclick_events_transport"
 
 def statement_touches_watched(sql: str) -> bool:
     """True for a textual INSERT / UPDATE / DELETE against a watched table."""
-    return _WRITE_RE.search(sql) is not None
+    return _WRITE_RE.search(_SQL_COMMENT_RE.sub(" ", sql)) is not None
 
 
 def _statement_writes_watched(statement: object) -> bool:

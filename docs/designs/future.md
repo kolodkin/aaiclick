@@ -104,10 +104,11 @@ fields on a subprocess registration where nothing reads them, and `run_job`
 ignores `namespace` / `service_account` / `image_pull_secret` off kubernetes,
 as its docstring promises. One `validate_runner_fields(runner_mode, ...)` in
 `runner_config.py`, next to `validate_image_exclusivity`, should cover
-registration and the kubernetes trio. Two preconditions: move `RUNNER_*` and
-`RunnerMode` from `models.py` into `runner_config.py` (`models.py` already
-imports `runner_config.py`, so the validator cannot import back), and decide to reject the
-kubernetes overrides instead of documenting them as ignored.
+registration and the kubernetes trio. Two preconditions: move `RUNNER_*`
+and `RunnerMode` from `models.py` into `runner_config.py` (`models.py`
+already imports `runner_config.py`, so the validator cannot import back),
+and decide to reject the kubernetes overrides instead of documenting them as
+ignored.
 
 ---
 
