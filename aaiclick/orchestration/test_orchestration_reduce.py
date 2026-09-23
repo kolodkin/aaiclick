@@ -1,7 +1,7 @@
 """Execution tests for reduce() via ajob_test."""
 
 from aaiclick.data.data_context import create_object_from_value, data_context
-from aaiclick.data.object import Object
+from aaiclick.data.object import Object, View
 from aaiclick.orchestration import get_job_result, task_result
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution.debug import ajob_test
@@ -69,6 +69,20 @@ def reduce_consumer(values: list, partition_size: int):
     return task_result(data=seen, tasks=[data, reduced, seen])
 
 
+@task
+async def create_filtered_view(values: list, where: str) -> View:
+    data = await create_object_from_value(values, aai_id=True)
+    return data.view(where=where, order_by="aai_id")
+
+
+@job("test_reduce_view")
+def reduce_view_pipeline(values: list, where: str, partition_size: int):
+    data = create_filtered_view(values=values, where=where)
+    reduced = reduce(sum_reduce, data, partition=partition_size)
+    seen = read_total(total=reduced)
+    return task_result(data=seen, tasks=[data, reduced, seen])
+
+
 # --- Tests ---
 
 
@@ -129,3 +143,12 @@ async def test_reduce_consumer_sees_filled_result(orch_ctx):
 
     assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
     assert await get_job_result(j) == [15]
+
+
+async def test_reduce_over_filtered_view_sums_only_its_rows(orch_ctx):
+    """Layer-0 partitions slice the View, not its base table."""
+    j = await reduce_view_pipeline(values=[1, 2, 3, 4, 5], where="value >= 3", partition_size=2)
+    await ajob_test(j)
+
+    assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
+    assert await get_job_result(j) == [12]

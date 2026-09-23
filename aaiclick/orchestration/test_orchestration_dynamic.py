@@ -3,8 +3,10 @@
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from aaiclick.data.data_context import create_object_from_value, data_context
-from aaiclick.data.object import Object
+from aaiclick.data.object import Object, View
 from aaiclick.orchestration import get_job_result, task_result, tasks_list
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution.debug import ajob_test
@@ -75,6 +77,13 @@ async def read_pairs(values: Object) -> list:
     return sorted(zip(data["a"], data["b"], strict=True))
 
 
+@task
+async def create_test_view(where: str | None, offset: int | None, limit: int | None) -> View:
+    """A View over [10, 20, 30, 40, 50]; the map must see only the rows it selects."""
+    data = await create_object_from_value([10, 20, 30, 40, 50], aai_id=True)
+    return data.view(where=where, offset=offset, limit=limit, order_by="aai_id")
+
+
 # --- Job pipelines (must be module-level for entrypoint resolution) ---
 
 
@@ -140,6 +149,14 @@ def map_records_pipeline():
 @job("test_map_cast")
 def map_cast_pipeline():
     return _map_then_read(create_test_data, quarter, read_values, partition=2)
+
+
+@job("test_map_view")
+def map_view_pipeline(where: str | None, offset: int | None, limit: int | None):
+    data = create_test_view(where=where, offset=offset, limit=limit)
+    mapped = map(cbk=scale, obj=data, partition=1, kwargs={"factor": 2})
+    seen = read_values(values=mapped)
+    return task_result(data=seen, tasks=[data, mapped, seen])
 
 
 # --- Execution tests ---
@@ -219,3 +236,21 @@ async def test_map_casts_returns_to_input_column_type(orch_ctx):
     assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
     async with data_context():
         assert await get_job_result(j) == [2, 5, 7, 10, 12]
+
+
+@pytest.mark.parametrize(
+    "where, offset, limit, expected",
+    [
+        pytest.param("value >= 30", None, None, [60, 80, 100], id="filtered"),
+        pytest.param(None, 1, 3, [40, 60, 80], id="sliced"),
+        pytest.param("value >= 20", 1, 2, [60, 80], id="filtered-and-sliced"),
+    ],
+)
+async def test_map_over_view_sees_only_its_rows(orch_ctx, where, offset, limit, expected):
+    """Partitions slice the View, not its base table."""
+    j = await map_view_pipeline(where=where, offset=offset, limit=limit)
+    await ajob_test(j)
+
+    assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
+    async with data_context():
+        assert await get_job_result(j) == expected

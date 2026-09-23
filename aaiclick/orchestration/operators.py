@@ -90,12 +90,11 @@ async def _expand_map(cbk: Callable, obj: Object, partition: int, cbk_args: list
     pre-allocated output, and the ``_finalize`` task that returns it as data.
     """
     row_count = await obj.count().data()
-    n_partitions = max(1, ceil(row_count / partition))
 
     out = await create_object(obj.schema)
 
     group = Group(id=get_snowflake_id(), name="map")
-    for part in _partition_refs(obj, partition, n_partitions):
+    for part in _partition_refs(obj, partition, row_count):
         group.add_task(_map_part(cbk=cbk, part=part, out=out, cbk_args=cbk_args, cbk_kwargs=cbk_kwargs))
 
     finalize = _finalize(out=out)
@@ -113,17 +112,27 @@ async def _finalize(out: Object) -> Object:
     return out
 
 
-def _partition_refs(src: Object | View, partition: int, count: int) -> list[dict]:
-    """Serialized View refs for ``count`` consecutive LIMIT/OFFSET slices of ``src``.
+def _partition_refs(src: Object | View, partition: int, rows: int) -> list[dict]:
+    """Serialized View refs slicing the ``rows`` rows of ``src`` into LIMIT/OFFSET partitions.
 
-    LIMIT/OFFSET needs a stable ordering for the slices to be disjoint. Honour
-    the source's declared order_by; fall back to tuple() (no-op). Callers who
-    care wrap in .view(order_by=...) first.
+    A View source keeps its WHERE, field selection and renames, and each slice
+    is offset within the View's own window, so partitions cover exactly the
+    rows the View selects. LIMIT/OFFSET needs a stable ordering for the slices
+    to be disjoint: honour the source's order_by, falling back to tuple() (no-op).
     """
+    base = ViewRef.model_validate(src._serialize_ref()) if isinstance(src, View) else ViewRef(table=src.table)
+    start = base.offset or 0
     order_by = src.order_by or "tuple()"
     return [
-        ViewRef(table=src.table, limit=partition, offset=i * partition, order_by=order_by).to_dict()
-        for i in range(count)
+        base.model_copy(
+            update={
+                "offset": start + i * partition,
+                # An empty source still gets one partition; it reads nothing.
+                "limit": min(partition, rows - i * partition) if rows else partition,
+                "order_by": order_by,
+            }
+        ).to_dict()
+        for i in range(max(1, ceil(rows / partition)))
     ]
 
 
@@ -210,7 +219,7 @@ def _build_layer_group(
     group = Group(id=get_snowflake_id(), name=f"layer_{L}")
     if prev_group is not None:
         group.depends_on(prev_group)
-    for part in _partition_refs(src, partition, ceil(src_size / partition)):
+    for part in _partition_refs(src, partition, src_size):
         group.add_task(_reduce_part(cbk=cbk, part=part, layer_obj=layer_obj, cbk_args=cbk_args, cbk_kwargs=cbk_kwargs))
     return group
 
