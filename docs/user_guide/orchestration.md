@@ -416,11 +416,11 @@ partition task. See
 [Examples: Orchestration Operators](../examples/orchestration_operators.md).
 
 !!! warning "Output schema equals input schema"
-    Both operators allocate the output from the input's schema. A `map()`
-    callback that returns a fraction for an integer column raises `TypeError`
-    rather than truncating; other type changes are cast by ClickHouse on
-    insert. Create the input with `aai_id=True` (or an `order_by` view) so the
-    LIMIT/OFFSET partitions are disjoint.
+    Both operators allocate the output from the input's schema, and ClickHouse
+    casts returned values to it on insert: a `map()` callback returning `2.5`
+    for an integer column stores `2`. Map over a float column, or convert in
+    the callback, when the type changes. Create the input with `aai_id=True`
+    (or an `order_by` view) so the LIMIT/OFFSET partitions are disjoint.
 
 # Managing Jobs
 

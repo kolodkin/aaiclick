@@ -63,7 +63,8 @@ def map(
     Args:
         cbk: Callback applied to each row: ``cbk(row, *args, **kwargs)``.
             Its return value is appended to the output; ``None`` adds no row.
-            The output schema equals the input schema.
+            The output schema equals the input schema, and returns are cast
+            to it on insert.
         obj: Task or Object to partition. If Task, the expander waits for it.
         partition: Number of rows per partition (default 5000).
         args: Extra positional arguments forwarded to cbk after row.
@@ -148,24 +149,7 @@ async def _map_part(
         if value is not None:
             results.append(value)
     if results:
-        _check_integer_columns(out, results)
         await out.insert(results)
-
-
-_INTEGER_TYPE_PREFIXES = ("Int", "UInt")
-
-
-def _check_integer_columns(out: Object, results: list) -> None:
-    """Refuse a float with a fraction bound for an integer column: the insert would truncate it silently."""
-    integer_columns = {name for name, col in out.schema.columns.items() if col.type.startswith(_INTEGER_TYPE_PREFIXES)}
-    for value in results:
-        cells = value.items() if isinstance(value, dict) else [("value", value)]
-        for column, cell in cells:
-            if column in integer_columns and isinstance(cell, float) and not cell.is_integer():
-                raise TypeError(
-                    f"map() callback returned {cell!r} for integer column {column!r}: "
-                    "the output schema equals the input schema"
-                )
 
 
 def reduce(

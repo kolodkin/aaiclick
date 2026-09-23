@@ -8,7 +8,7 @@ from aaiclick.data.object import Object
 from aaiclick.orchestration import get_job_result, task_result, tasks_list
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution.debug import ajob_test
-from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED
+from aaiclick.orchestration.models import JOB_COMPLETED
 from aaiclick.orchestration.operators import map
 
 # --- Task fixtures ---
@@ -138,11 +138,12 @@ def map_records_pipeline():
     return task_result(data=seen, tasks=[data, mapped, seen])
 
 
-@job("test_map_truncation")
-def map_truncation_pipeline():
+@job("test_map_cast")
+def map_cast_pipeline():
     data = create_test_data()
     mapped = map(cbk=quarter, obj=data, partition=2)
-    return task_result(data=mapped, tasks=[data, mapped])
+    seen = read_values(values=mapped)
+    return task_result(data=seen, tasks=[data, mapped, seen])
 
 
 # --- Execution tests ---
@@ -214,10 +215,11 @@ async def test_map_dict_schema_rows_are_records(orch_ctx):
         assert await get_job_result(j) == [[3, 1], [4, 2]]
 
 
-async def test_map_rejects_fraction_into_integer_column(orch_ctx):
-    """A float with a fraction is refused rather than truncated into the integer output column."""
-    j = await map_truncation_pipeline()
+async def test_map_casts_returns_to_input_column_type(orch_ctx):
+    """Returns are cast to the input column type on insert: fractions truncate into an integer column."""
+    j = await map_cast_pipeline()
     await ajob_test(j)
 
-    assert j.status == JOB_FAILED
-    assert "integer column 'value'" in (j.error or "")
+    assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
+    async with data_context():
+        assert await get_job_result(j) == [2, 5, 7, 10, 12]
