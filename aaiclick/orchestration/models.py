@@ -278,6 +278,9 @@ class _DependencyOps:
         Declare that this item depends on a task or group.
 
         Creates a Dependency record that will be committed when commit_tasks() is called.
+        Idempotent: re-declaring an existing edge (the same upstream passed in two
+        kwargs, or ``a >> b`` twice) adds nothing, since a second row would
+        collide on the composite primary key.
 
         Args:
             other: Task or Group that must complete before this one
@@ -286,9 +289,12 @@ class _DependencyOps:
             self (for chaining)
         """
         node = self._node()
+        previous_type = DEPENDENCY_TASK if isinstance(other, Task) else DEPENDENCY_GROUP
+        if any(d.previous_id == other.id and d.previous_type == previous_type for d in node.previous_dependencies):
+            return node
         dependency = Dependency(
             previous_id=other.id,
-            previous_type=DEPENDENCY_TASK if isinstance(other, Task) else DEPENDENCY_GROUP,
+            previous_type=previous_type,
             next_id=node.id,
             next_type=node._dep_next_type,
         )
