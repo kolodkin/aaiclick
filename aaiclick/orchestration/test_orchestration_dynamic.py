@@ -114,36 +114,32 @@ def map_partitions_pipeline(output_file: str):
     return tasks_list(data, mapped)
 
 
+def _map_then_read(source, cbk, reader, partition: int, kwargs: dict | None = None):
+    """Map ``source`` through ``cbk`` and hand the output to ``reader``; the job result is the read."""
+    data = source()
+    mapped = map(cbk=cbk, obj=data, partition=partition, kwargs=kwargs or {})
+    seen = reader(values=mapped)
+    return task_result(data=seen, tasks=[data, mapped, seen])
+
+
 @job("test_map_output")
 def map_output_pipeline(factor: int):
-    data = create_test_data()
-    mapped = map(cbk=scale, obj=data, partition=2, kwargs={"factor": factor})
-    seen = read_values(values=mapped)
-    return task_result(data=seen, tasks=[data, mapped, seen])
+    return _map_then_read(create_test_data, scale, read_values, partition=2, kwargs={"factor": factor})
 
 
 @job("test_map_filter")
 def map_filter_pipeline():
-    data = create_test_data()
-    mapped = map(cbk=keep_large, obj=data, partition=2)
-    seen = read_values(values=mapped)
-    return task_result(data=seen, tasks=[data, mapped, seen])
+    return _map_then_read(create_test_data, keep_large, read_values, partition=2)
 
 
 @job("test_map_records")
 def map_records_pipeline():
-    data = create_test_records()
-    mapped = map(cbk=swap, obj=data, partition=1)
-    seen = read_pairs(values=mapped)
-    return task_result(data=seen, tasks=[data, mapped, seen])
+    return _map_then_read(create_test_records, swap, read_pairs, partition=1)
 
 
 @job("test_map_cast")
 def map_cast_pipeline():
-    data = create_test_data()
-    mapped = map(cbk=quarter, obj=data, partition=2)
-    seen = read_values(values=mapped)
-    return task_result(data=seen, tasks=[data, mapped, seen])
+    return _map_then_read(create_test_data, quarter, read_values, partition=2)
 
 
 # --- Execution tests ---

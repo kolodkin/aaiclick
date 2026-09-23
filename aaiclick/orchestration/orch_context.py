@@ -29,7 +29,7 @@ from .execution.db_handler import _db_handler_var, create_db_handler, get_db_han
 from .execution.execution_worker_context import get_current_task_info
 from .image_injection import inject_build_tasks, stamp_inherited_image, validate_image_sources, validate_jvm_tasks
 from .lifecycle.db_lifecycle import DBLifecycleMessage, DBLifecycleOp, OplogPayload, OplogTablePayload
-from .models import Group, Job, Task, TasksType
+from .models import Dependency, Group, Job, Task, TasksType
 from .oplog_backfill import migrate_table_registry_to_sql
 from .sql_context import _sql_engine_var, get_sql_session
 from .task_registry import _task_registry_var, get_task_registry
@@ -558,10 +558,13 @@ def _current_parent_image_source() -> dict | None:
 async def commit_tasks(
     items: TasksType,
     job_id: int,
+    extra_dependencies: list[Dependency] | None = None,
 ) -> TasksType:
     """Commit tasks, groups, and their dependencies to the database.
 
     Sets job_id on all items and commits to the SQL database.
+    ``extra_dependencies`` are edges onto already-committed rows that must land
+    in the same transaction as the items (the hold on returned tasks).
 
     All tasks and groups created via create_task() or Group() are tracked in
     the active task registry (ContextVar set by orch_context / task_scope).
@@ -601,6 +604,7 @@ async def commit_tasks(
         for item in [*injected, *all_items]:
             item.job_id = job_id
             session.add(item)
+        session.add_all(extra_dependencies or [])
 
         await session.commit()
 

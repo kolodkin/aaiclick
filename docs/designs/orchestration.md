@@ -409,7 +409,7 @@ Layer 1  input=⌈N/P⌉  tasks=⌈.../P⌉ → layer_1_obj
 Empty input raises `TypeError("reduce() of empty sequence with no initial value")`.
 
 Consumers of the expander wait for every layer: `register_returned_tasks` adds
-`layer >> consumer` edges for each existing consumer (see `_hold_successors` in
+`layer >> consumer` edges for each existing consumer (see `_hold_dependencies` in
 `runner.py`). The same hold applies to any `task_result(data=..., tasks=[...])`.
 
 # Distributed Object Lifecycle

@@ -90,35 +90,30 @@ async def _expand_map(cbk: Callable, obj: Object, partition: int, cbk_args: list
     ``_map_part`` children as tasks. Registration pins the output for the
     children and, via the hold on returned tasks, for the consumers.
     """
-    table_name = obj.table
     row_count = await obj.count().data()
     n_partitions = max(1, ceil(row_count / partition))
 
     out = await create_object(obj.schema)
 
-    # Partitioning uses LIMIT/OFFSET, which needs a stable ordering for the
-    # slices to be disjoint. Honour the Object's declared order_by; fall back
-    # to tuple() (no-op). Callers who care wrap in .view(order_by=...) first.
-    partition_order = obj.order_by or "tuple()"
-
     group = Group(id=get_snowflake_id(), name="map")
-    for i in range(n_partitions):
-        group.add_task(
-            _map_part(
-                cbk=cbk,
-                part=ViewRef(
-                    table=table_name,
-                    limit=partition,
-                    offset=i * partition,
-                    order_by=partition_order,
-                ).to_dict(),
-                out=out,
-                cbk_args=cbk_args,
-                cbk_kwargs=cbk_kwargs,
-            )
-        )
+    for part in _partition_refs(obj, partition, n_partitions):
+        group.add_task(_map_part(cbk=cbk, part=part, out=out, cbk_args=cbk_args, cbk_kwargs=cbk_kwargs))
 
     return task_result(data=out, tasks=[group])
+
+
+def _partition_refs(src: Object | View, partition: int, count: int) -> list[dict]:
+    """Serialized View refs for ``count`` consecutive LIMIT/OFFSET slices of ``src``.
+
+    LIMIT/OFFSET needs a stable ordering for the slices to be disjoint. Honour
+    the source's declared order_by; fall back to tuple() (no-op). Callers who
+    care wrap in .view(order_by=...) first.
+    """
+    order_by = src.order_by or "tuple()"
+    return [
+        ViewRef(table=src.table, limit=partition, offset=i * partition, order_by=order_by).to_dict()
+        for i in range(count)
+    ]
 
 
 @task
@@ -145,8 +140,7 @@ async def _map_part(
         value = await cbk(row, *cbk_args, **cbk_kwargs) if is_async else cbk(row, *cbk_args, **cbk_kwargs)
         if value is not None:
             results.append(value)
-    if results:
-        await out.insert(results)
+    await out.insert(results)
 
 
 def reduce(
@@ -202,25 +196,11 @@ def _build_layer_group(
     cbk_kwargs: dict,
 ) -> Group:
     """Build one reduce layer: a Group with ceil(src_size/partition) part tasks."""
-    M = ceil(src_size / partition)
     group = Group(id=get_snowflake_id(), name=f"layer_{L}")
     if prev_group is not None:
         group.depends_on(prev_group)
-    partition_order = src.order_by or "tuple()"
-    for i in range(M):
-        part_task = _reduce_part(
-            cbk=cbk,
-            part=ViewRef(
-                table=src.table,
-                limit=partition,
-                offset=i * partition,
-                order_by=partition_order,
-            ).to_dict(),
-            layer_obj=layer_obj,
-            cbk_args=cbk_args,
-            cbk_kwargs=cbk_kwargs,
-        )
-        group.add_task(part_task)
+    for part in _partition_refs(src, partition, ceil(src_size / partition)):
+        group.add_task(_reduce_part(cbk=cbk, part=part, layer_obj=layer_obj, cbk_args=cbk_args, cbk_kwargs=cbk_kwargs))
     return group
 
 
