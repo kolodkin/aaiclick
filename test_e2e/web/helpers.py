@@ -10,8 +10,9 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import NamedTuple, TypeVar
 
 from aaiclick.internal_api.jobs import get_job_graph
+from aaiclick.orchestration import get_job_result
 from aaiclick.orchestration.factories import create_job, create_task
-from aaiclick.orchestration.jobs import get_tasks_for_job
+from aaiclick.orchestration.jobs import get_job, get_tasks_for_job
 from aaiclick.orchestration.orch_context import orch_context
 
 T = TypeVar("T")
@@ -111,6 +112,34 @@ def wait_for_task(job_id: str, status: str | None = None, timeout: float = 30.0)
                     return TaskRow(str(task.id), task.name, task.status)
                 await asyncio.sleep(0.1)
             raise AssertionError(f"job {job_id}: task did not reach {status or 'existence'} within {timeout} s")
+
+    return run_in_process(go)
+
+
+def wait_for_job(job_id: str, status: str, timeout: float = 120.0) -> None:
+    """Block until the job row reaches ``status``."""
+
+    async def go() -> None:
+        async with orch_context(with_ch=False):
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                job = await get_job(int(job_id))
+                if job is not None and job.status == status:
+                    return
+                await asyncio.sleep(0.2)
+            raise AssertionError(f"job {job_id}: did not reach {status} within {timeout} s")
+
+    run_in_process(go)
+
+
+def job_result(job_id: str):
+    """The completed job's native result, as ``get_job_result`` resolves it."""
+
+    async def go():
+        async with orch_context(with_ch=False):
+            job = await get_job(int(job_id))
+            assert job is not None
+            return await get_job_result(job)
 
     return run_in_process(go)
 
