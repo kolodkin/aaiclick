@@ -3,7 +3,7 @@ Parallel operators example for aaiclick orchestration.
 
 Demonstrates map() and reduce() over partitions of an Object:
 1. map(cbk, obj, partition): one child task per partition, cbk applied to
-   each row
+   each row and its return values collected into the output Object
 2. reduce(cbk, obj, partition): layered reduction — each layer reduces
    partitions until a single row remains
 
@@ -35,16 +35,24 @@ async def create_values() -> Object:
 
 
 @task
-async def print_row(row: int) -> None:
-    """map() callback: called once per row of a partition."""
-    print(f"  map: row {row}")
+async def double(row: int) -> int:
+    """map() callback: called once per row; the return value lands in the output."""
+    return row * 2
+
+
+@task
+async def show_doubled(doubled: Object) -> None:
+    """Consumer of map(): runs after every partition task."""
+    print(f"Doubled: {sorted(await doubled.data())}")  # → [2, 4, 6, 8, 10]
 
 
 @job("map_example")
 def map_job():
     """map() creates one _map_part child per partition of the Object."""
     values = create_values()
-    return [values, map(print_row, values, partition=2)]
+    doubled = map(double, values, partition=2)
+    shown = show_doubled(doubled=doubled)
+    return task_result(data=doubled, tasks=[values, doubled, shown])
 
 
 @task
@@ -76,7 +84,7 @@ async def amain():
     print("=" * 50)
 
     async with data_context():
-        print("\nmap(): callback per row, one task per partition")
+        print("\nmap(): callback per row, returns collected into the output")
         print("-" * 50)
         job1 = await map_job()
         await ajob_test(job1)

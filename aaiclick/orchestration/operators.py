@@ -18,7 +18,7 @@ Usage:
     def pipeline():
         data = load_data()
         mapped = map(cbk=scale, obj=data, partition=5000, kwargs={"factor": 2})
-        return [data, mapped]
+        return task_result(data=mapped, tasks=[data, mapped])
 
     @job("reduce_pipeline")
     def reduce_pipeline(data: Object):
@@ -42,7 +42,7 @@ from aaiclick.snowflake import get_snowflake_id
 
 from .decorators import TaskFactory, task
 from .models import Group, Task
-from .result import TaskResult, data_list, task_result, tasks_list
+from .result import TaskResult, data_list, task_result
 
 
 def map(
@@ -51,60 +51,45 @@ def map(
     partition: int = 5000,
     args: tuple = (),
     kwargs: dict[str, Any] | None = None,
-) -> Group:
-    """Create a parallel map operation over partitions of an Object.
+) -> Task:
+    """Create a parallel map over partitions of an Object.
 
-    At definition time, creates an expander Task + Group and returns the Group.
-    At runtime, the expander queries ClickHouse for row count and creates
-    N partition child tasks (one per partition).
+    Returns the expander Task. At runtime it queries the row count and
+    creates one ``_map_part`` child per partition. Its result is the output
+    Object holding every value the callback returned, and tasks that consume
+    it wait for every partition to finish.
 
     Args:
-        cbk: Callback function applied to each row.
-        obj: Task or Object to partition. If Task, expander waits for it.
+        cbk: Callback applied to each row: ``cbk(row, *args, **kwargs)``.
+            Its return value is appended to the output; ``None`` adds no row.
+            The output schema equals the input schema.
+        obj: Task or Object to partition. If Task, the expander waits for it.
         partition: Number of rows per partition (default 5000).
         args: Extra positional arguments forwarded to cbk after row.
         kwargs: Extra keyword arguments forwarded to cbk.
 
     Returns:
-        Group containing the expander task.
+        The expander Task; its result is the output Object.
     """
     if kwargs is None:
         kwargs = {}
 
-    group = Group(id=get_snowflake_id(), name="map")
-
-    expander = _expand_map(
+    return _expand_map(
         cbk=cbk,
         obj=obj,
         partition=partition,
-        group_id=group.id,
         cbk_args=list(args),
         cbk_kwargs=kwargs,
     )
 
-    group.add_task(expander)
-    return group
-
 
 @task
-async def _expand_map(
-    cbk: Callable, obj: Object, partition: int, group_id: int, cbk_args: list, cbk_kwargs: dict
-) -> TaskResult:
+async def _expand_map(cbk: Callable, obj: Object, partition: int, cbk_args: list, cbk_kwargs: dict) -> TaskResult:
     """Expander task: queries Object row count and creates partition tasks.
 
-    Runs at execution time. Partitions the Object into Views and creates
-    N _map_part child tasks.
-
-    Args:
-        cbk: Callback function applied to each row.
-        obj: Object to partition.
-        partition: Number of rows per partition.
-        group_id: Group ID for the partition tasks.
-        cbk_args: Extra positional arguments forwarded to cbk.
-        cbk_kwargs: Extra keyword arguments forwarded to cbk.
-
-    Returns:
-        List of child tasks for dynamic registration.
+    Returns the pre-allocated output Object as data and a ``map`` Group of
+    ``_map_part`` children as tasks. Registration pins the output for the
+    children and, via the hold on returned tasks, for the consumers.
     """
     table_name = obj.table
     row_count = await obj.count().data()
@@ -117,38 +102,36 @@ async def _expand_map(
     # to tuple() (no-op). Callers who care wrap in .view(order_by=...) first.
     partition_order = obj.order_by or "tuple()"
 
-    tasks = []
+    group = Group(id=get_snowflake_id(), name="map")
     for i in range(n_partitions):
-        child = _map_part(
-            cbk=cbk,
-            part=ViewRef(
-                table=table_name,
-                limit=partition,
-                offset=i * partition,
-                order_by=partition_order,
-            ).to_dict(),
-            out=out,
-            cbk_args=cbk_args,
-            cbk_kwargs=cbk_kwargs,
+        group.add_task(
+            _map_part(
+                cbk=cbk,
+                part=ViewRef(
+                    table=table_name,
+                    limit=partition,
+                    offset=i * partition,
+                    order_by=partition_order,
+                ).to_dict(),
+                out=out,
+                cbk_args=cbk_args,
+                cbk_kwargs=cbk_kwargs,
+            )
         )
-        child.group_id = group_id
-        tasks.append(child)
 
-    return tasks_list(*tasks)
+    return task_result(data=out, tasks=[group])
 
 
 @task
 async def _map_part(
     cbk: Callable, part: View, out: Object, cbk_args: list | None = None, cbk_kwargs: dict | None = None
 ) -> None:
-    """Apply a callback to each row in a partition View.
-
-    Reads rows from the partition, calls cbk(row, *args, **kwargs) for each.
+    """Apply a callback to each row in a partition View, appending returns to ``out``.
 
     Args:
-        cbk: Callback function. Signature: cbk(row, *args, **kwargs) -> None.
+        cbk: Callback function. Signature: cbk(row, *args, **kwargs) -> value | None.
         part: View (partition) of the source Object.
-        out: Output Object to write results to.
+        out: Output Object; every non-None return is inserted.
         cbk_args: Extra positional arguments forwarded to cbk.
         cbk_kwargs: Extra keyword arguments forwarded to cbk.
     """
@@ -158,11 +141,13 @@ async def _map_part(
         cbk_kwargs = {}
     is_async = inspect.iscoroutinefunction(cbk)
     rows = await part.data()
+    results = []
     for row in rows:
-        if is_async:
-            await cbk(row, *cbk_args, **cbk_kwargs)
-        else:
-            cbk(row, *cbk_args, **cbk_kwargs)
+        value = await cbk(row, *cbk_args, **cbk_kwargs) if is_async else cbk(row, *cbk_args, **cbk_kwargs)
+        if value is not None:
+            results.append(value)
+    if results:
+        await out.insert(results)
 
 
 def reduce(
