@@ -7,8 +7,8 @@ Demonstrates map() and reduce() over partitions of an Object:
 2. reduce(cbk, obj, partition): layered reduction — each layer reduces
    partitions until a single row remains
 
-Both return a Group; the expander task inside it creates the partition
-tasks at runtime, once the Object's row count is known.
+Both return the expander Task; its result is the output Object, and
+consumers wait for the partition tasks.
 """
 
 import asyncio
@@ -54,12 +54,19 @@ async def sum_partition(partition: Object, output: Object) -> None:
     await output.insert(int(sum(values)))
 
 
+@task
+async def show_total(total: Object) -> None:
+    """Consumer of reduce(): runs after every layer, so the Object is filled."""
+    print(f"Reduced total: {(await total.data())[0]}")  # → 15
+
+
 @job("reduce_example")
 def reduce_job():
     """reduce() with partition=2 builds layers of 3, 2 and 1 tasks for 5 rows."""
     values = create_values()
     total = reduce(sum_partition, values, partition=2)
-    return task_result(data=total._result_task, tasks=[values, total])
+    shown = show_total(total=total)
+    return task_result(data=total, tasks=[values, total, shown])
 
 
 async def amain():

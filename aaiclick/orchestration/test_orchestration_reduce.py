@@ -32,28 +32,41 @@ async def create_test_object(values: list) -> Object:
 def reduce_single_layer(values: list):
     data = create_test_object(values=values)
     reduced = reduce(sum_reduce, data, partition=100)
-    return task_result(data=reduced._result_task, tasks=[data, reduced])
+    return task_result(data=reduced, tasks=[data, reduced])
 
 
 @job("test_reduce_multi_layer")
 def reduce_multi_layer(values: list, partition_size: int):
     data = create_test_object(values=values)
     reduced = reduce(sum_reduce, data, partition=partition_size)
-    return task_result(data=reduced._result_task, tasks=[data, reduced])
+    return task_result(data=reduced, tasks=[data, reduced])
 
 
 @job("test_reduce_empty")
 def reduce_empty():
     data = create_test_object(values=[])
     reduced = reduce(sum_reduce, data, partition=100)
-    return task_result(data=reduced._result_task, tasks=[data, reduced])
+    return task_result(data=reduced, tasks=[data, reduced])
 
 
 @job("test_reduce_single_row")
 def reduce_single_row():
     data = create_test_object(values=[42])
     reduced = reduce(sum_reduce, data, partition=100)
-    return task_result(data=reduced._result_task, tasks=[data, reduced])
+    return task_result(data=reduced, tasks=[data, reduced])
+
+
+@task
+async def read_total(total: Object) -> list:
+    return await total.data()
+
+
+@job("test_reduce_consumer")
+def reduce_consumer(values: list, partition_size: int):
+    data = create_test_object(values=values)
+    reduced = reduce(sum_reduce, data, partition=partition_size)
+    seen = read_total(total=reduced)
+    return task_result(data=seen, tasks=[data, reduced, seen])
 
 
 # --- Tests ---
@@ -112,3 +125,12 @@ async def test_reduce_native_api(orch_ctx):
     async with data_context():
         result_obj = await get_job_result(j)
         assert (await result_obj.data())[0] == 100
+
+
+async def test_reduce_consumer_sees_filled_result(orch_ctx):
+    """A consumer of reduce() runs after every layer, not after the expander alone."""
+    j = await reduce_consumer(values=[1, 2, 3, 4, 5], partition_size=2)
+    await ajob_test(j)
+
+    assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
+    assert await get_job_result(j) == [15]

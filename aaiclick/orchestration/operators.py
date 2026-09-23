@@ -172,46 +172,36 @@ def reduce(
     partition: int = 5000,
     args: tuple = (),
     kwargs: dict[str, Any] | None = None,
-) -> Group:
+) -> Task:
     """Create a layered parallel reduction over an Object.
 
-    At definition time, creates an expander Task + Group and returns the Group.
-    At runtime, the expander queries row count, pre-allocates all layer Objects,
-    and creates all layer subgroups and partition tasks at once.
-
-    All layers are registered together in a single expansion step — no lazy
-    layer-by-layer creation. The final Object (1 row) is returned as
-    _expand_reduce's task result.
+    Returns the expander Task. At runtime it queries the row count,
+    pre-allocates every layer Object, and registers all layer groups and
+    partition tasks at once. Its result is the final single-row Object, and
+    tasks that consume it wait for every layer to finish.
 
     Args:
         cbk: Callback applied to each partition. Must be homomorphic:
              output schema must match input schema. Returns 1 row.
-             Signature: async def f(partition: Object, *args, **kwargs) -> Object
-        obj: Task or Object to reduce. If Task, expander waits for it.
+             Signature: async def f(partition: Object, output: Object, *args, **kwargs) -> None
+        obj: Task or Object to reduce. If Task, the expander waits for it.
         partition: Max rows per partition task (default 5000).
         args: Extra positional arguments forwarded to cbk.
         kwargs: Extra keyword arguments forwarded to cbk.
 
     Returns:
-        Group containing the expander task. The expander's task result is
-        the final single-row Object.
+        The expander Task; its result is the final single-row Object.
     """
     if kwargs is None:
         kwargs = {}
 
-    group = Group(id=get_snowflake_id(), name="reduce")
-
-    expander = _expand_reduce(
+    return _expand_reduce(
         cbk=cbk,
         obj=obj,
         partition=partition,
         cbk_args=list(args),
         cbk_kwargs=kwargs,
     )
-
-    group.add_task(expander)
-    group._result_task = expander
-    return group
 
 
 def _reduce_num_layers(count: int, partition: int) -> int:

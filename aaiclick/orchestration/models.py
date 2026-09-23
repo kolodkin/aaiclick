@@ -358,11 +358,9 @@ class Group(_DependencyOps, SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now)
 
     _tasks: list = []
-    _result_task: Any = None
 
     def model_post_init(self, __context: Any) -> None:
         self._tasks = []
-        self._result_task = None
         register_task(self.id, self)
 
     def add_task(self, task: "Task") -> None:
