@@ -106,9 +106,12 @@ A Table/Graph toggle switches the body between the tasks table and the
 dependency graph. The prompt carries the mode — `@job <name> graph` — so the
 view stays shareable as a URL.
 
-Edges are task-level: the server resolves `Group` dependencies onto member
-tasks, so the client receives task-to-task edges only. Node colour follows task
-status, and an image-build task and its outgoing edges are styled distinctly.
+One edge is drawn per dependency, so a `Group` dependency is a single edge
+on the group's container — every member waits, as the scheduler enforces
+(`successor_task_ids`). dagre cannot anchor an edge on a container, so
+`layout_edges` carries each group edge expanded onto its direct members, for
+positioning only. Node colour follows task status; image-build tasks and
+their edges are styled distinctly.
 
 Groups render as nested containers around their members: `"group"` nodes with
 a status rolled up server-side from every task beneath them (activity outranks

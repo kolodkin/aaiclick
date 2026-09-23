@@ -166,17 +166,21 @@ def test_clicking_build_badge_opens_the_build_task(graph_page, seeded_job_id: in
     assert graph_page.input_value("#prompt") == f"@task {build_id}"
 
 
-def test_graph_expands_group_to_source_and_sink_only(graph_page, seeded_job_id: int) -> None:
-    """``extract >> group`` reaches only the group's source task, and
-    ``group >> report`` leaves only from its sink — not from every member."""
+def test_group_dependencies_draw_one_edge_into_and_out_of_the_frame(graph_page, seeded_job_id: int) -> None:
+    """``extract >> group`` and ``group >> report`` are one edge each, on the
+    container — not one per member — while layout still sees every member."""
     graph = job_graph(str(seeded_job_id))
     by_id = {n["id"]: n["name"] for n in graph["nodes"]}
     edges = {(by_id[e["source_id"]], by_id[e["target_id"]]) for e in graph["edges"]}
+    layout = {(by_id[e["source_id"]], by_id[e["target_id"]]) for e in graph["layout_edges"]}
 
-    assert ("extract", "transform_a") in edges
-    assert ("extract", "transform_b") not in edges
-    assert ("transform_b", "report") in edges
-    assert ("transform_a", "report") not in edges
+    assert {("extract", "transforms"), ("transforms", "report")} <= edges
+    assert not {("extract", "transform_b"), ("transform_a", "report")} & edges
+    assert {("extract", "transform_a"), ("extract", "transform_b"), ("transform_a", "report")} <= layout
+
+    group_id = next(n["id"] for n in graph["nodes"] if n["name"] == "transforms")
+    assert graph_page.locator(f".react-flow__edge[data-id$='>{group_id}']").count() == 1
+    assert graph_page.locator(f".react-flow__edge[data-id^='{group_id}>']").count() == 1
 
 
 def test_clicking_a_node_navigates_to_the_task(graph_page) -> None:

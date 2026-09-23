@@ -5,16 +5,6 @@ Planned work across aaiclick, ordered by priority.
 
 ---
 
-# Graph Rendering Expands Group Edges Differently From the Runtime
-
-`expand_dependencies()` in `graph.py` expands `A >> G` to G's source tasks and
-`G >> B` to G's sinks, while `successor_task_ids()` and the scheduler treat a
-group target as all of its members. The rendered DAG therefore does not match
-which tasks the runtime waits on or pins for. Decide once whether groups have
-internal ordering; if not, render all members like the runtime does.
-
----
-
 # `map()` Has No Output Path
 
 `_expand_map()` (`aaiclick/orchestration/operators.py`) creates `out` and the
@@ -153,6 +143,22 @@ See `viewer.md` for the shipped design.
   `QueryPanel` renders static `options` only.
 - **Dashboard authoring in the UI**: `@dashboard` picks and runs; HTML and
   panel queries are written through MCP, REST, or `view dashboards save`.
+
+## Job Graph — Collapsible Groups
+
+Group containers are fixed frames (`GroupNode.tsx`), so a wide group — e.g.
+`map()`'s per-partition children — always takes its full size. Collapsing is
+client-only; the graph response already carries every group and its members.
+
+- A collapsed group is one node (name, rolled-up status, member count). Edges
+  touching a member re-point to it and are deduplicated; intra-group edges
+  are hidden. Collapsing a parent hides nested groups.
+- A chevron in the header toggles it; groups start expanded, state kept in
+  the URL or `localStorage`.
+- Collapsing re-runs dagre, so positions change — unlike the build-edge
+  toggle, the point is to reclaim space.
+
+**When to revisit**: when a real job's group makes the graph unreadable.
 
 ## Lineage — Tier 2 Full Replay
 
