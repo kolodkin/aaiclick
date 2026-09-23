@@ -146,22 +146,22 @@ See `viewer.md` for the shipped design.
 
 ## Job Graph — Collapsible Groups
 
-Group containers are fixed frames (`src/components/graph/GroupNode.tsx`), and
-the server expands a group edge onto every member, so a wide group draws one
-edge per member. Collapsing is client-only — the graph response already
-carries every group and its members:
+Group containers are fixed frames (`src/components/graph/GroupNode.tsx`), so
+a wide group — e.g. `map()`'s per-partition children — takes its full size on
+the canvas. Collapsing is client-only — the graph response already carries
+every group and its members:
 
 - A collapsed group renders as one node (name, rolled-up status, member
-  count). Edges touching a member re-point to it and are deduplicated;
-  intra-group edges are hidden. Collapsing a parent hides nested groups.
+  count). Group edges already attach to the container; edges touching a
+  member re-point to it and are deduplicated, and intra-group edges are
+  hidden. Collapsing a parent hides nested groups.
 - A chevron in the group header toggles it; clicking the rest of the frame
   still does nothing. Groups start expanded; the state lives in the URL or
   `localStorage`.
 - Collapsing re-runs dagre — unlike the build-edge toggle, the point is to
   reclaim space, so node positions change when the toggle flips.
 
-**When to revisit**: when a real job's group — e.g. `map()`'s per-partition
-children — makes the graph unreadable.
+**When to revisit**: when a real job's group makes the graph unreadable.
 
 ## Lineage — Tier 2 Full Replay
 

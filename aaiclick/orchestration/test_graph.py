@@ -127,10 +127,34 @@ def test_drop_cycle_edges_handles_deep_chain_without_recursion_error():
 def test_build_graph_edges_expands_then_drops_cycles():
     dependencies = [_task_dep(1, 2), _task_dep(2, 1)]
 
-    edges, dropped = build_graph_edges(dependencies, {})
+    graph = build_graph_edges(dependencies, {})
 
-    assert dropped == 1
-    assert len(edges) == 1
+    assert graph.dropped == 1
+    assert len(graph.layout) == 1
+    assert graph.drawn == graph.layout
+
+
+def test_build_graph_edges_draws_group_edge_once_and_lays_it_out_per_member():
+    dependencies = [_task_dep(1, 2), DependencyRow(3, DEPENDENCY_TASK, 10, DEPENDENCY_GROUP)]
+
+    graph = build_graph_edges(dependencies, {10: {1, 2}})
+
+    assert graph.drawn == [GraphEdge(1, 2), GraphEdge(3, 10)]
+    assert graph.layout == [GraphEdge(1, 2), GraphEdge(3, 1), GraphEdge(3, 2)]
+
+
+def test_build_graph_edges_skips_group_edge_with_nothing_to_anchor():
+    """An empty group, or one whose every member edge is a dropped back-edge, draws nothing."""
+    dependencies = [
+        DependencyRow(3, DEPENDENCY_TASK, 10, DEPENDENCY_GROUP),
+        _task_dep(4, 5),
+        DependencyRow(5, DEPENDENCY_TASK, 11, DEPENDENCY_GROUP),
+    ]
+
+    graph = build_graph_edges(dependencies, {10: set(), 11: {4}})
+
+    assert graph.dropped == 1
+    assert graph.drawn == [GraphEdge(4, 5)]
 
 
 @pytest.mark.parametrize(

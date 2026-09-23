@@ -1127,7 +1127,8 @@ export interface components {
         };
         /**
          * GraphEdgeView
-         * @description A resolved task-to-task edge.
+         * @description An edge to draw: one per dependency, so either endpoint may be a group
+         *     node — ``A >> G`` is a single edge into G's container.
          *
          *     ``kind`` and ``attaches_build`` are graph semantics, so they are settled
          *     here rather than re-derived per client: an image build gates every task
@@ -1286,6 +1287,8 @@ export interface components {
             edges?: components["schemas"]["GraphEdgeView"][];
             /** Job Id */
             job_id: string;
+            /** Layout Edges */
+            layout_edges?: components["schemas"]["LayoutEdgeView"][];
             /** Nodes */
             nodes?: components["schemas"]["GraphNodeView"][];
         };
@@ -1363,6 +1366,18 @@ export interface components {
              * @default 0
              */
             total_tasks: number;
+        };
+        /**
+         * LayoutEdgeView
+         * @description A task-to-task edge for positioning only. The layout engine cannot
+         *     attach an edge to a container, so a group edge is expanded onto the
+         *     group's direct member tasks here.
+         */
+        LayoutEdgeView: {
+            /** Source Id */
+            source_id: string;
+            /** Target Id */
+            target_id: string;
         };
         /**
          * LogLine

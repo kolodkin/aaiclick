@@ -85,10 +85,12 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
   // Layout always sees *every* edge, including the collapsed build ones. dagre
   // then reserves space and computes waypoints for them, so revealing them
   // routes around nodes rather than through — and because the input never
-  // changes, toggling moves nothing.
+  // changes, toggling moves nothing. The server sends these task-level: dagre
+  // cannot anchor an edge on a container, so a group edge arrives here once
+  // per member, while `allEdges` draws it once, into the frame.
   const layoutEdges = useMemo(
-    () => allEdges.map((e) => ({ source: String(e.source_id), target: String(e.target_id) })),
-    [allEdges],
+    () => (data?.layout_edges ?? []).map((e) => ({ source: String(e.source_id), target: String(e.target_id) })),
+    [data],
   );
 
   const key = useMemo(() => structuralKey(layoutNodes, layoutEdges), [layoutNodes, layoutEdges]);

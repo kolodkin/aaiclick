@@ -5,7 +5,7 @@ The web e2e server runs as a subprocess against whichever backend
 in-process and the server reads the result back through
 ``GET /jobs/{ref}/graph``.
 
-Shape (9 tasks, 18 edges), chosen so one fixture proves layout, edge routing,
+Shape (9 tasks, 16 edges), chosen so one fixture proves layout, edge routing,
 and every status colour at once::
 
     extract ─┬─▶ [group transforms] transform_a ─▶ transform_b ─┐
@@ -22,8 +22,9 @@ job normally shares one image job-wide. Modelling it as a chain would test a
 shape that never occurs.
 
 ``transforms`` is a real ``Group`` with an internal edge. ``extract >> group``
-and ``group >> report`` still expand to an edge per member, as the scheduler
-waits on every member — ``aaiclick.orchestration.graph``, exercised end to end.
+and ``group >> report`` are each drawn once, into and out of the container,
+and laid out through every member — ``aaiclick.orchestration.graph``,
+exercised end to end.
 """
 
 from __future__ import annotations

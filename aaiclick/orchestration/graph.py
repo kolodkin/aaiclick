@@ -4,10 +4,11 @@ Imports no SQLModel: callers pass plain ids, so these functions stay
 unit-testable without a database and the ``view_models`` → ``orchestration``
 import boundary stays one-directional.
 
-Edges are task-to-task, so a dependency touching a ``Group`` is rewritten onto
-the group's direct member tasks — the same rule the scheduler applies
-(``dependency_graph.py``), so the rendered edges are exactly the waits the
-runtime enforces. Groups themselves reach the client as container nodes with a
+A dependency touching a ``Group`` is drawn as one edge to or from the group's
+container node — it means every member waits, which is what the scheduler
+enforces (``dependency_graph.py``). The layout engine cannot attach an edge to a
+container, so each such edge is also expanded onto the group's direct member
+tasks for positioning only. Groups reach the client as container nodes with a
 status rolled up from every task beneath them.
 """
 
@@ -86,6 +87,13 @@ def rollup_status(statuses: Iterable[TaskStatus]) -> TaskStatus:
     return TASK_PENDING
 
 
+def _member_edges(dep: DependencyRow, group_members: Mapping[int, set[int]]) -> set[GraphEdge]:
+    """``dep`` rewritten onto task ids, a group standing for its direct members."""
+    heads = group_members.get(dep.previous_id, set()) if dep.previous_type == DEPENDENCY_GROUP else {dep.previous_id}
+    tails = group_members.get(dep.next_id, set()) if dep.next_type == DEPENDENCY_GROUP else {dep.next_id}
+    return {GraphEdge(head, tail) for head in heads for tail in tails if head != tail}
+
+
 def expand_dependencies(
     dependencies: Sequence[DependencyRow],
     group_members: Mapping[int, set[int]],
@@ -98,21 +106,7 @@ def expand_dependencies(
     """
     edges: set[GraphEdge] = set()
     for dep in dependencies:
-        if dep.previous_type == DEPENDENCY_GROUP:
-            heads = group_members.get(dep.previous_id, set())
-        else:
-            heads = {dep.previous_id}
-
-        if dep.next_type == DEPENDENCY_GROUP:
-            tails = group_members.get(dep.next_id, set())
-        else:
-            tails = {dep.next_id}
-
-        for head in heads:
-            for tail in tails:
-                if head != tail:
-                    edges.add(GraphEdge(head, tail))
-
+        edges |= _member_edges(dep, group_members)
     return sorted(edges)
 
 
@@ -152,9 +146,26 @@ def drop_cycle_edges(edges: Sequence[GraphEdge]) -> tuple[list[GraphEdge], int]:
     return [e for e in ordered if e not in dropped], len(dropped)
 
 
+class GraphEdges(NamedTuple):
+    """Edges to draw, and the task-level edges to lay them out with."""
+
+    drawn: list[GraphEdge]
+    """One per dependency; an endpoint may be a group id."""
+    layout: list[GraphEdge]
+    """Every dependency expanded onto member tasks, cycle-free."""
+    dropped: int
+
+
 def build_graph_edges(
     dependencies: Sequence[DependencyRow],
     group_members: Mapping[int, set[int]],
-) -> tuple[list[GraphEdge], int]:
-    """Expand group dependencies, then drop any cycles. Returns (edges, dropped)."""
-    return drop_cycle_edges(expand_dependencies(dependencies, group_members))
+) -> GraphEdges:
+    """Expand group dependencies for layout and drop any cycles.
+
+    A dependency is drawn only while layout keeps at least one of its member
+    edges — an empty group or a cycle-dropped edge has nothing to anchor it.
+    """
+    layout, dropped = drop_cycle_edges(expand_dependencies(dependencies, group_members))
+    kept = set(layout)
+    drawn = {GraphEdge(d.previous_id, d.next_id) for d in dependencies if _member_edges(d, group_members) & kept}
+    return GraphEdges(sorted(drawn), layout, dropped)

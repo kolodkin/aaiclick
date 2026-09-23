@@ -37,9 +37,9 @@ _EXPECTED_STATUSES = [
 
 _NODE_COUNT = 9
 # `inject_build_tasks` fans a build out to everything sharing its image, so the
-# seed has 10 pipeline edges plus 8 build dependencies. Those 8 collapse into
+# seed has 8 pipeline edges plus 8 build dependencies. Those 8 collapse into
 # per-node badges, save the one into the pipeline root.
-_PIPELINE_EDGE_COUNT = 10
+_PIPELINE_EDGE_COUNT = 8
 _BUILD_GATED_COUNT = 8
 # One build edge into the pipeline root (`extract`) is always drawn solid so
 # the build stays attached; the other 7 are dashed and behind the toggle.
@@ -166,15 +166,21 @@ def test_clicking_build_badge_opens_the_build_task(graph_page, seeded_job_id: in
     assert graph_page.input_value("#prompt") == f"@task {build_id}"
 
 
-def test_graph_expands_group_edges_to_every_member(graph_page, seeded_job_id: int) -> None:
-    """``extract >> group`` reaches every member and ``group >> report``
-    leaves from every member, despite ``transform_a >> transform_b`` inside."""
+def test_group_dependencies_draw_one_edge_into_and_out_of_the_frame(graph_page, seeded_job_id: int) -> None:
+    """``extract >> group`` and ``group >> report`` are one edge each, on the
+    container — not one per member — while layout still sees every member."""
     graph = job_graph(str(seeded_job_id))
     by_id = {n["id"]: n["name"] for n in graph["nodes"]}
     edges = {(by_id[e["source_id"]], by_id[e["target_id"]]) for e in graph["edges"]}
+    layout = {(by_id[e["source_id"]], by_id[e["target_id"]]) for e in graph["layout_edges"]}
 
-    assert {("extract", "transform_a"), ("extract", "transform_b")} <= edges
-    assert {("transform_a", "report"), ("transform_b", "report")} <= edges
+    assert {("extract", "transforms"), ("transforms", "report")} <= edges
+    assert not {("extract", "transform_b"), ("transform_a", "report")} & edges
+    assert {("extract", "transform_a"), ("extract", "transform_b"), ("transform_a", "report")} <= layout
+
+    group_id = next(n["id"] for n in graph["nodes"] if n["name"] == "transforms")
+    assert graph_page.locator(f".react-flow__edge[data-id$='>{group_id}']").count() == 1
+    assert graph_page.locator(f".react-flow__edge[data-id^='{group_id}>']").count() == 1
 
 
 def test_clicking_a_node_navigates_to_the_task(graph_page) -> None:

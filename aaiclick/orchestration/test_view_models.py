@@ -235,8 +235,9 @@ def test_task_logs_view_with_lines():
     assert [(line.stream, line.text) for line in view.lines] == [("stdout", "a"), ("stderr", "b")]
 
 
-def test_build_job_graph_view_expands_group_dependency_onto_every_member():
-    """A group→task dependency must reach the graph as a task→task edge."""
+def test_build_job_graph_view_draws_group_dependency_as_one_edge():
+    """``G >> c`` is drawn as one edge from the container, and laid out through
+    every member so the layout engine, which cannot anchor a container, places c."""
     job = Job(id=1, name="graph_job")
     tasks = [
         Task(id=101, job_id=1, group_id=200, entrypoint="m.a", name="a"),
@@ -252,9 +253,24 @@ def test_build_job_graph_view_expands_group_dependency_onto_every_member():
     view = build_job_graph_view(job, tasks, groups, dependencies)
 
     assert {n.id for n in view.nodes if n.kind == GRAPH_NODE_TASK} == {101, 102, 103}
-    edges = {(e.source_id, e.target_id) for e in view.edges}
-    assert edges == {(101, 102), (101, 103), (102, 103)}
+    assert {(e.source_id, e.target_id) for e in view.edges} == {(101, 102), (200, 103)}
+    assert {(e.source_id, e.target_id) for e in view.layout_edges} == {(101, 102), (101, 103), (102, 103)}
     assert view.dropped_cycle_edges == 0
+
+
+def test_build_job_graph_view_skips_edges_to_swept_tasks_and_missing_groups():
+    """React Flow throws on an edge whose endpoint is not a node."""
+    job = Job(id=1, name="graph_job")
+    tasks = [Task(id=101, job_id=1, group_id=300, entrypoint="m.a", name="a")]
+    dependencies = [
+        Dependency(previous_id=999, previous_type=DEPENDENCY_TASK, next_id=101, next_type=DEPENDENCY_TASK),
+        Dependency(previous_id=300, previous_type=DEPENDENCY_GROUP, next_id=101, next_type=DEPENDENCY_TASK),
+    ]
+
+    view = build_job_graph_view(job, tasks, [], dependencies)
+
+    assert view.edges == []
+    assert view.layout_edges == []
 
 
 def test_build_job_graph_view_emits_group_container_with_rolled_up_status():
