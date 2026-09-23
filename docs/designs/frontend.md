@@ -248,9 +248,9 @@ neither the session hooks nor `live_events` branch on the backend. Layers
 watched tables, many through raw SQL. Hooking the `Session` catches ORM
 flushes (`before_flush`), Core DML like `update(Task)` and raw `text()`
 statements (`do_orm_execute`) in one place, and covers sites not written
-yet. A textual or Core write flags only when its row count is non-zero:
-idle workers run the Postgres claim every second, and an empty claim must not
-signal. The flag lives in `session.info`; `after_rollback` discards it. The
+yet. A textual or Core write flags only when it changed rows, so an idle
+worker's empty claim (every second on Postgres) does not signal. The flag
+lives in `session.info`; `after_rollback` discards it. The
 listeners are process-global, so `register_session_hooks()` (idempotent) is
 called explicitly from the two entry points every writer passes through:
 `orch_context()` and `BackgroundWorker.start()`.
