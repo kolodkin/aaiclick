@@ -13,6 +13,42 @@ Remove each item from that file as it lands; delete the file when empty.
 
 ---
 
+# Commit a Task's Completion and Its Job Rollup Together
+
+On success the worker (`_handle_task_result` in
+`aaiclick/orchestration/execution/execution_worker.py`) commits the task's
+COMPLETED status through `update_task_status`, then runs `roll_up_job` in a
+second transaction. Two consequences:
+
+- **Crash window.** A worker that dies between the two commits leaves every
+  task COMPLETED and the job RUNNING for good. The success path is the only
+  completer of a successful job, and the dead-worker sweep only recovers
+  tasks still marked RUNNING.
+- **Two change signals per completion.** Each commit signals, so every open
+  live view refetches twice. The web e2e no-polling tests wait for the job
+  to be terminal because of this.
+
+Add `complete_task_and_roll_up(task_id, result, expected_epoch)` next to
+`update_task_status` in `claiming.py`: one transaction that applies the
+epoch and cancelling guards, writes COMPLETED, runs the rollup, and runs
+`complete_job.sql` when nothing is left. `update_task_status` stays for the
+RUNNING transition and the in-process test runner.
+
+Lock the job row before the task row. Without the job lock, two sibling
+tasks finishing concurrently on Postgres each read the other as still
+RUNNING (write skew), both commit, and nobody completes the job. Job first
+matches `cancel_job` (job, then tasks), so the two cannot deadlock; the
+claim CTE locks task then job but only for a PENDING task, which a
+completion never touches. Cost: completions within one job serialize on the
+job row for the length of the rollup query — latency at high fan-out, no
+extra total work.
+
+Tests: one signal per completion; a fenced write does not roll up; the last
+task completes the job in the same commit; and a Postgres test completing
+two siblings concurrently that asserts the job ends COMPLETED.
+
+---
+
 # `foreach()` — Side-Effect Flavor of `map()`
 
 `map()` (`aaiclick/orchestration/operators.py`) allocates an output Object
