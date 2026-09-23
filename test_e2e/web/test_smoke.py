@@ -24,7 +24,16 @@ import uuid
 from pathlib import Path
 
 import pytest
-from helpers import TaskRow, job_tasks, login_if_needed, open_page, run_in_process, submit_job, wait_for_task
+from helpers import (
+    TaskRow,
+    job_tasks,
+    login_if_needed,
+    open_page,
+    run_in_process,
+    submit_job,
+    wait_for_job,
+    wait_for_task,
+)
 
 # Guard 1: the SPA build must exist.
 STATIC = Path(__file__).resolve().parents[2] / "aaiclick" / "server" / "static" / "index.html"
@@ -45,6 +54,20 @@ _spa_built = pytest.mark.skipif(not STATIC.is_file(), reason="SPA build missing;
 _MAIN_TSX = Path(__file__).resolve().parents[2] / "src" / "main.tsx"
 _FALLBACK_MATCH = re.search(r"isLiveConnected\(\)\s*\?\s*false\s*:\s*(\d+)", _MAIN_TSX.read_text())
 POLL_FALLBACK_MS = int(_FALLBACK_MATCH.group(1)) if _FALLBACK_MATCH else 5000
+# Well above the NOTIFY → /events → refetch round trip.
+SIGNAL_SETTLE_MS = 1000
+
+
+def _settle_after_job_terminal(page, job_id: str) -> None:
+    """Let the job's own completion signal land before an idle window opens.
+
+    The worker commits the task's final status, then the job rollup in a
+    second transaction, and each commit signals. The rollup's refetch can land
+    after the task already reads COMPLETED on screen, so an idle window opened
+    then would count a signal-driven fetch as polling.
+    """
+    wait_for_job(job_id)
+    page.wait_for_timeout(SIGNAL_SETTLE_MS)
 
 
 @_spa_built
@@ -301,8 +324,9 @@ def test_job_graph_updates_live_without_polling(page, base_url: str, shot) -> No
     graph_fetches = [u for u in requests[seen:] if "/graph" in u]
     assert graph_fetches, "the graph never refetched, so nothing could have changed on screen"
     # One refetch per change signal is expected; a *timer* would keep firing
-    # after the task finished, so the proof is the absence of polling in the
+    # after the job finished, so the proof is the absence of polling in the
     # idle window below rather than the count here.
+    _settle_after_job_terminal(page, job_id)
     seen = len(requests)
     page.wait_for_timeout(POLL_FALLBACK_MS + 500)
     idle = [u for u in requests[seen:] if "/graph" in u]
@@ -320,7 +344,7 @@ def test_task_view_separates_streamed_status_from_polled_logs(page, base_url: st
     own 2 s timer. Asserting both in one test keeps the distinction from
     quietly regressing into "everything polls" or "everything streams".
     """
-    _, task = _submit_slow_job()
+    job_id, task = _submit_slow_job()
     task_id = task.id
 
     requests: list[str] = []
@@ -349,10 +373,11 @@ def test_task_view_separates_streamed_status_from_polled_logs(page, base_url: st
     page.get_by_text(f"step {SLOW_TASK_STEPS} of {SLOW_TASK_STEPS}").wait_for(timeout=10000)
     shot("sse-task-completed")
 
-    # Terminal now, so nothing commits and no signal fires — and neither half
-    # may fetch anyway. A timer would keep going regardless, which is exactly
-    # the difference under test. (This says nothing about the stream being
-    # down: the fallback interval is inert here because the stream is up.)
+    # Once the job is terminal too, nothing commits and no signal fires — and
+    # neither half may fetch anyway. A timer would keep going regardless, which
+    # is exactly the difference under test. (This says nothing about the stream
+    # being down: the fallback interval is inert here because the stream is up.)
+    _settle_after_job_terminal(page, job_id)
     seen = len(requests)
     page.wait_for_timeout(POLL_FALLBACK_MS + 500)
     idle = [u for u in requests[seen:] if f"/tasks/{task_id}" in u]
