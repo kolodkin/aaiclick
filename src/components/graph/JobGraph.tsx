@@ -47,6 +47,7 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
 
   const rawNodes = useMemo(() => data?.nodes ?? [], [data]);
   const allEdges = useMemo(() => data?.edges ?? [], [data]);
+  const rawLayoutEdges = useMemo(() => data?.layout_edges ?? [], [data]);
   const taskCount = useMemo(() => rawNodes.filter((n) => n.kind === "task").length, [rawNodes]);
 
   // The server classifies edges (`kind`, `attaches_build`) — which edges a
@@ -87,10 +88,11 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
   // routes around nodes rather than through — and because the input never
   // changes, toggling moves nothing. The server sends these task-level: dagre
   // cannot anchor an edge on a container, so a group edge arrives here once
-  // per member, while `allEdges` draws it once, into the frame.
+  // per member, while `allEdges` draws it once, into the frame. That drawn
+  // edge has no waypoints of its own and falls back to a plain bezier.
   const layoutEdges = useMemo(
-    () => (data?.layout_edges ?? []).map((e) => ({ source: String(e.source_id), target: String(e.target_id) })),
-    [data],
+    () => rawLayoutEdges.map((e) => ({ source: String(e.source_id), target: String(e.target_id) })),
+    [rawLayoutEdges],
   );
 
   const key = useMemo(() => structuralKey(layoutNodes, layoutEdges), [layoutNodes, layoutEdges]);

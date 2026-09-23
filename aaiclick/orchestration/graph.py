@@ -88,26 +88,15 @@ def rollup_status(statuses: Iterable[TaskStatus]) -> TaskStatus:
 
 
 def _member_edges(dep: DependencyRow, group_members: Mapping[int, set[int]]) -> set[GraphEdge]:
-    """``dep`` rewritten onto task ids, a group standing for its direct members."""
+    """``dep`` rewritten onto task ids, a group standing for its direct members.
+
+    ``A >> G`` becomes A → every member of G, ``G >> B`` every member → B.
+    Tasks in a nested group are not members of the parent — the scheduler's
+    rule, see ``dependency_graph.py``.
+    """
     heads = group_members.get(dep.previous_id, set()) if dep.previous_type == DEPENDENCY_GROUP else {dep.previous_id}
     tails = group_members.get(dep.next_id, set()) if dep.next_type == DEPENDENCY_GROUP else {dep.next_id}
     return {GraphEdge(head, tail) for head in heads for tail in tails if head != tail}
-
-
-def expand_dependencies(
-    dependencies: Sequence[DependencyRow],
-    group_members: Mapping[int, set[int]],
-) -> list[GraphEdge]:
-    """Rewrite group-touching dependencies onto the group's direct member tasks.
-
-    ``A >> G`` becomes A → every member of G, ``G >> B`` every member → B, and
-    ``G >> H`` every member of G → every member of H. Tasks in a nested group
-    are not members of the parent, matching the scheduler.
-    """
-    edges: set[GraphEdge] = set()
-    for dep in dependencies:
-        edges |= _member_edges(dep, group_members)
-    return sorted(edges)
 
 
 def drop_cycle_edges(edges: Sequence[GraphEdge]) -> tuple[list[GraphEdge], int]:
@@ -165,7 +154,8 @@ def build_graph_edges(
     A dependency is drawn only while layout keeps at least one of its member
     edges — an empty group or a cycle-dropped edge has nothing to anchor it.
     """
-    layout, dropped = drop_cycle_edges(expand_dependencies(dependencies, group_members))
+    expanded = [(GraphEdge(d.previous_id, d.next_id), _member_edges(d, group_members)) for d in dependencies]
+    layout, dropped = drop_cycle_edges(sorted(set().union(*(members for _, members in expanded))))
     kept = set(layout)
-    drawn = {GraphEdge(d.previous_id, d.next_id) for d in dependencies if _member_edges(d, group_members) & kept}
+    drawn = {edge for edge, members in expanded if members & kept}
     return GraphEdges(sorted(drawn), layout, dropped)

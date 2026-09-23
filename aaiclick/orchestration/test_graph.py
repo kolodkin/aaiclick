@@ -9,7 +9,6 @@ from .graph import (
     GraphEdge,
     build_graph_edges,
     drop_cycle_edges,
-    expand_dependencies,
     group_member_tasks,
     rollup_status,
 )
@@ -33,7 +32,7 @@ def _task_dep(previous_id: int, next_id: int) -> DependencyRow:
 
 
 def test_task_to_task_dependencies_pass_through():
-    edges = expand_dependencies([_task_dep(1, 2)], {})
+    edges = build_graph_edges([_task_dep(1, 2)], {}).layout
 
     assert edges == [GraphEdge(1, 2)]
 
@@ -68,7 +67,7 @@ def test_group_edges_expand_to_every_member_like_the_scheduler(group_dep, expect
     """Intra-group ordering does not narrow a group edge: the scheduler makes every member wait."""
     dependencies = [_task_dep(1, 2), _task_dep(4, 5), group_dep]
 
-    edges = expand_dependencies(dependencies, {10: {1, 2}, 11: {4, 5}})
+    edges = build_graph_edges(dependencies, {10: {1, 2}, 11: {4, 5}}).layout
 
     assert set(edges) == {GraphEdge(1, 2), GraphEdge(4, 5)} | expected
 
@@ -77,7 +76,7 @@ def test_group_edge_does_not_reach_nested_group_tasks():
     """The scheduler matches ``tasks.group_id`` only, so a child group's tasks do not wait."""
     dependencies = [DependencyRow(3, DEPENDENCY_TASK, 10, DEPENDENCY_GROUP)]
 
-    edges = expand_dependencies(dependencies, {10: {1}, 11: {2}})
+    edges = build_graph_edges(dependencies, {10: {1}, 11: {2}}).layout
 
     assert edges == [GraphEdge(3, 1)]
 
@@ -85,7 +84,7 @@ def test_group_edge_does_not_reach_nested_group_tasks():
 def test_empty_group_contributes_no_edges():
     dependencies = [DependencyRow(10, DEPENDENCY_GROUP, 3, DEPENDENCY_TASK)]
 
-    edges = expand_dependencies(dependencies, {10: set()})
+    edges = build_graph_edges(dependencies, {10: set()}).layout
 
     assert edges == []
 
@@ -93,7 +92,7 @@ def test_empty_group_contributes_no_edges():
 def test_expansion_deduplicates_edges():
     dependencies = [_task_dep(1, 2), _task_dep(1, 2)]
 
-    edges = expand_dependencies(dependencies, {})
+    edges = build_graph_edges(dependencies, {}).layout
 
     assert edges == [GraphEdge(1, 2)]
 
