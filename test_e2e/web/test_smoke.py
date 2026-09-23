@@ -59,12 +59,10 @@ SIGNAL_SETTLE_MS = 1000
 
 
 def _settle_after_job_terminal(page, job_id: str) -> None:
-    """Let the job's own completion signal land before an idle window opens.
+    """Wait out the job-rollup commit's signal, which lands after the task reads COMPLETED.
 
-    The worker commits the task's final status, then the job rollup in a
-    second transaction, and each commit signals. The rollup's refetch can land
-    after the task already reads COMPLETED on screen, so an idle window opened
-    then would count a signal-driven fetch as polling.
+    Remove once docs/designs/future.md "Commit a Task's Completion and Its Job
+    Rollup Together" lands; the task reading COMPLETED is then enough.
     """
     wait_for_job(job_id)
     page.wait_for_timeout(SIGNAL_SETTLE_MS)
@@ -373,10 +371,10 @@ def test_task_view_separates_streamed_status_from_polled_logs(page, base_url: st
     page.get_by_text(f"step {SLOW_TASK_STEPS} of {SLOW_TASK_STEPS}").wait_for(timeout=10000)
     shot("sse-task-completed")
 
-    # Once the job is terminal too, nothing commits and no signal fires — and
-    # neither half may fetch anyway. A timer would keep going regardless, which
-    # is exactly the difference under test. (This says nothing about the stream
-    # being down: the fallback interval is inert here because the stream is up.)
+    # Nothing commits now and no signal fires — and neither half may fetch
+    # anyway. A timer would keep going regardless, which is exactly the
+    # difference under test. (This says nothing about the stream being down:
+    # the fallback interval is inert here because the stream is up.)
     _settle_after_job_terminal(page, job_id)
     seen = len(requests)
     page.wait_for_timeout(POLL_FALLBACK_MS + 500)

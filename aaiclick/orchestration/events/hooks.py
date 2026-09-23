@@ -1,4 +1,4 @@
-"""Session listeners that turn a job/task/group write into a change signal.
+"""Session listeners that turn a job/task/group write that changes rows into a change signal.
 
 Detection hooks the SQLAlchemy ``Session`` rather than each write site:
 roughly twenty call sites mutate these tables, many through raw SQL, and a
@@ -32,7 +32,8 @@ _WATCHED_MODELS = (Job, Task, Group)
 WATCHED_TABLES = tuple(model.__tablename__ for model in _WATCHED_MODELS)
 # Unanchored: the packaged ``sql/*.sql`` statements open with a comment
 # header, and the Postgres claim is a data-modifying CTE, so the write verb
-# is rarely the first token. A read never puts a write verb before a table.
+# is rarely the first token. Only a write puts that verb before a watched
+# table, so keep such phrases out of SQL comments.
 _WRITE_RE = re.compile(
     r"\b(?:insert\s+into|update|delete\s+from)\s+\"?(?:" + "|".join(WATCHED_TABLES) + r")\b",
     re.IGNORECASE,
@@ -60,9 +61,10 @@ def _statement_writes_watched(statement: object) -> bool:
 def _flag_statement_writes(state: ORMExecuteState) -> Result | None:
     if not _statement_writes_watched(state.statement):
         return None
-    # Run it here to read the row count: a write that matched nothing, like an
-    # idle worker's claim poll every second, has nothing for a viewer to see.
-    # -1 (unknown, e.g. executemany) still counts as a change.
+    # A write that matched nothing (an idle worker's claim poll, every second)
+    # has nothing to show. For a CTE this is the outer statement's row count,
+    # so its final SELECT must return the written rows. No rowcount, or -1
+    # (unknown), still counts as a change.
     result = state.invoke_statement()
     if getattr(result, "rowcount", -1) != 0:
         state.session.info[_DIRTY_KEY] = True

@@ -26,7 +26,8 @@ second transaction. Two consequences:
   tasks still marked RUNNING.
 - **Two change signals per completion.** Each commit signals, so every open
   live view refetches twice. The web e2e no-polling tests wait for the job
-  to be terminal because of this.
+  to be terminal because of this (`_settle_after_job_terminal` in
+  `test_e2e/web/test_smoke.py`; delete it with this change).
 
 Add `complete_task_and_roll_up(task_id, result, expected_epoch)` next to
 `update_task_status` in `claiming.py`: one transaction that applies the
@@ -105,7 +106,7 @@ as its docstring promises. One `validate_runner_fields(runner_mode, ...)` in
 `runner_config.py`, next to `validate_image_exclusivity`, should cover
 registration and the kubernetes trio. Two preconditions: move `RUNNER_*` and
 `RunnerMode` from `models.py` into `runner_config.py` (`models.py` already
-imports it, so the validator cannot import back), and decide to reject the
+imports `runner_config.py`, so the validator cannot import back), and decide to reject the
 kubernetes overrides instead of documenting them as ignored.
 
 ---
@@ -118,9 +119,8 @@ rather than the effect: `test_delete_job_data_exempts_persistent_tables` and
 `aaiclick/orchestration/background/test_cleanup.py`, and
 `test_worker_skips_persistent_tables_on_cleanup` in
 `aaiclick/data/data_context/test_table_worker.py`.
-They break on harmless rewording of the SQL. Replace the mock with a fake
-client that tracks a set of existing tables, or run against the local chdb
-backend, and assert which tables remain.
+They break on harmless rewording of the SQL; assert which tables remain
+instead, with a fake client tracking existing tables or the local chdb backend.
 
 ---
 

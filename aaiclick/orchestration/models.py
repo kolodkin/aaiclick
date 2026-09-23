@@ -276,7 +276,8 @@ class _DependencyOps:
     def link_previous(self, previous_id: int, previous_type: DependencyType) -> None:
         """Append a Dependency on ``(previous_id, previous_type)`` unless one exists.
 
-        ``dependencies`` has a composite primary key, so every edge writer goes through here.
+        ``dependencies`` has a composite primary key, so every edge onto an in-memory
+        node goes through here; edges onto committed rows ride ``commit_tasks(extra_dependencies=...)``.
         """
         node = self._node()
         if any(d.previous_id == previous_id and d.previous_type == previous_type for d in node.previous_dependencies):
