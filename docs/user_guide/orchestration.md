@@ -61,6 +61,10 @@ for tasks alone, and `task_result(data=..., tasks=[...])` when the task also
 returns data. See
 [Examples: Orchestration Dynamic](../examples/orchestration_dynamic.md).
 
+Consumers of a task that returns `task_result(data=..., tasks=[...])` start only
+once every returned task has completed as well: the data is usually an Object
+the children fill. `tasks_list(...)` carries no data and does not hold consumers.
+
 !!! warning "A list carries tasks only, unnested"
     `return [obj, group]` raises `TypeError` — use
     `task_result(data=obj, tasks=[group])` to return data alongside tasks. So
@@ -395,15 +399,18 @@ python -m aaiclick run-job <name> --entry-type shell --command 'python main.py' 
 (`aaiclick/orchestration/operators.py`):
 
 - `map(cbk, obj, partition=5000)` — partitions the Object and creates one
-  child task per partition; `cbk(row, *args, **kwargs)` is applied to each row.
+  child task per partition; `cbk(row, *args, **kwargs)` is applied to each row
+  and its return value is appended to the output Object. A `None` return adds
+  no row. Output schema equals input schema.
 - `reduce(cbk, obj, partition=5000)` — layered parallel reduction; each layer
   reduces partitions down until a single row remains. `cbk(partition, output)`
   receives an input partition and a pre-allocated output Object and writes via
   `output.insert()`. The callback must be homomorphic: output schema equals
   input schema.
 
-Both accept a `Task` or an `Object` as input and return a `Group` that
-downstream tasks can depend on. See
+Both accept a `Task` or an `Object` as input and return the expander `Task`.
+Its result is the output Object; a task that consumes it waits for every
+partition task. See
 [Examples: Orchestration Operators](../examples/orchestration_operators.md).
 
 # Managing Jobs

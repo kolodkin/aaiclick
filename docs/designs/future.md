@@ -15,18 +15,6 @@ internal ordering; if not, render all members like the runtime does.
 
 ---
 
-# `map()` Has No Output Path
-
-`_expand_map()` (`aaiclick/orchestration/operators.py`) creates `out` and the
-`_map_part` children write into it, but nothing returns `out`: it is not the
-expander's result and the map group has no `_result_task`. Once the children
-finish, `out` has no refs and the sweep drops it. Decide how a consumer reaches
-it — return `out` as the expander's `TaskResult.data` (then a
-`group_results_ref` read of the map group yields it alongside the children's
-`None` results), or set `group._result_task` like `reduce()` does.
-
----
-
 # Code Review Backlog
 
 `docs/designs/code_review_2026_09.md` — findings from the whole-project
