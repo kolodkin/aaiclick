@@ -1,28 +1,14 @@
 """``map()`` and ``reduce()`` pipelines with a consumer task, for the web e2e graph tests.
 
-Module-level so a worker can import every task by entrypoint. Each job's
-result is the consumer's read of the operator output, which is only correct
-if the consumer ran after the finalize task.
+Module-level so a worker can import every task by entrypoint. The source and
+callback tasks come from the operators example; each job's result is the
+consumer's read of the operator output, which is only correct if the consumer
+ran after the finalize task.
 """
 
-from aaiclick import Object, create_object_from_value
+from aaiclick import Object
 from aaiclick.orchestration import job, map, reduce, task, task_result
-
-
-@task
-async def create_values() -> Object:
-    """Five rows; aai_id=True gives the partitioner a stable row order."""
-    return await create_object_from_value([1, 2, 3, 4, 5], aai_id=True)
-
-
-@task
-async def double(row: int) -> int:
-    return row * 2
-
-
-@task
-async def sum_partition(partition: Object, output: Object) -> None:
-    await output.insert(int(sum(await partition.data())))
+from aaiclick.orchestration.examples.orchestration_operators import create_values, double, sum_partition
 
 
 @task

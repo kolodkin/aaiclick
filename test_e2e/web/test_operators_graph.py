@@ -41,14 +41,13 @@ class Scenario(NamedTuple):
 
 
 # Five rows at partition=2: map makes 3 parts in one group; reduce makes layers
-# of 3, 2 and 1 parts. Task nodes are the entry task, create_values, the
-# expander, the parts, the finalize task and the consumer.
+# of 3, 2 and 1 parts.
 MAP = Scenario("map_pipeline", "_map_part", 3, ["map"], [2, 4, 6, 8, 10])
 REDUCE = Scenario("reduce_pipeline", "_reduce_part", 6, ["layer_0", "layer_1", "layer_2"], [15])
 
-
-def _task_count(scenario: Scenario) -> int:
-    return 5 + scenario.part_count
+# Task nodes besides the parts: the entry task, create_values, the expander,
+# the finalize task and the consumer.
+_FIXED_TASKS = 5
 
 
 @pytest.mark.parametrize("scenario", [MAP, REDUCE], ids=["map", "reduce"])
@@ -57,7 +56,7 @@ def test_operator_graph_draws_the_run(page, base_url: str, shot, scenario: Scena
     node: the parts inside their group frames, the finalize join, and the hold
     edge from finalize to the consumer."""
     job_id = submit_job(scenario.job, f"{_PIPELINES}.{scenario.job}")
-    wait_for_job(job_id, JOB_COMPLETED)
+    assert wait_for_job(job_id) == JOB_COMPLETED
 
     assert job_result(job_id) == scenario.result
 
@@ -75,11 +74,11 @@ def test_operator_graph_draws_the_run(page, base_url: str, shot, scenario: Scena
     page.wait_for_selector("[data-testid='job-graph']", timeout=15000)
     page.wait_for_function(
         "count => document.querySelectorAll('.gnode-COMPLETED').length === count",
-        arg=_task_count(scenario),
+        arg=_FIXED_TASKS + scenario.part_count,
         timeout=15000,
     )
     shot(f"graph-{scenario.job}")
 
-    assert page.locator(".gnode").count() == _task_count(scenario)
+    assert page.locator(".gnode").count() == _FIXED_TASKS + scenario.part_count
     assert page.locator("[data-testid='group-node']").count() == len(scenario.groups)
     assert page.locator(".ggroup-COMPLETED").count() == len(scenario.groups)

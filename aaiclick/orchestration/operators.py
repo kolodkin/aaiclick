@@ -32,10 +32,7 @@ from collections.abc import Callable
 from math import ceil, log
 from typing import Any
 
-from aaiclick.data.data_context import (
-    create_object,
-    get_ch_client,
-)
+from aaiclick.data.data_context import create_object
 from aaiclick.data.models import ORIENT_RECORDS
 from aaiclick.data.object import Object, View
 from aaiclick.data.object.refs import ViewRef
@@ -113,12 +110,11 @@ async def _finalize(out: Object) -> Object:
 
 
 def _partition_refs(src: Object | View, partition: int, rows: int) -> list[dict]:
-    """Serialized View refs slicing the ``rows`` rows of ``src`` into LIMIT/OFFSET partitions.
+    """Serialized LIMIT/OFFSET refs covering the ``rows`` rows of ``src``.
 
-    A View source keeps its WHERE, field selection and renames, and each slice
-    is offset within the View's own window, so partitions cover exactly the
-    rows the View selects. LIMIT/OFFSET needs a stable ordering for the slices
-    to be disjoint: honour the source's order_by, falling back to tuple() (no-op).
+    A View keeps its WHERE, field selection and renames, and slices are offset
+    within its window. Slices need a stable order to be disjoint: the source's
+    order_by, else tuple().
     """
     base = ViewRef.model_validate(src._serialize_ref()) if isinstance(src, View) else ViewRef(table=src.table)
     start = base.offset or 0
@@ -238,8 +234,6 @@ async def _expand_reduce(
     children and, as data, the ``_finalize`` task that hands on the final
     Object once the last layer is done.
     """
-    ch = get_ch_client()
-
     count = await obj.count().data()
 
     if count == 0:
@@ -248,10 +242,8 @@ async def _expand_reduce(
     num_layers = _reduce_num_layers(count, partition)
 
     if num_layers == 0:
-        # Input already has 1 row — copy to a fresh Object
-        result_obj = await create_object(obj.schema)
-        await ch.command(f"INSERT INTO {result_obj.table} SELECT * FROM {obj.table}")
-        return data_list(result_obj)
+        # Input already has 1 row. copy() honours a View's filter and fields.
+        return data_list(await obj.copy())
 
     # Pre-allocate all layer Objects. Registration pins each layer for the
     # part tasks that reference it; the last layer is also pinned for the

@@ -583,13 +583,12 @@ def _tasks_from(items: Any) -> list[Task | Group]:
 async def _hold_dependencies(data_task: Task, parent_task_id: int) -> list[Dependency]:
     """Copy every edge leaving the parent (or its group) onto ``data_task``.
 
-    A parent whose data is one of its returned tasks has a result that is not
-    ready until that task completes, so its consumers must wait for it. A group
-    consumer stays a group edge, so members it gains later are held too. Called
+    The parent's result is not ready until ``data_task`` completes. A group
+    consumer stays a group edge, so members it gains later are held too. Runs
     before the children are committed, so they are not successors yet.
     """
     async with get_sql_session() as session:
-        targets = await successor_edges(session, parent_task_id)
+        targets = await successor_edges(session, {parent_task_id})
     return [
         Dependency(
             previous_id=data_task.id,
@@ -658,14 +657,14 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
 
     # Wire dependency: each returned item depends on the parent task
     for item in task_items:
-        if isinstance(item, (Task, Group)):
-            dep = Dependency(
+        item.previous_dependencies.append(
+            Dependency(
                 previous_id=parent_task_id,
-                previous_type="task",
+                previous_type=DEPENDENCY_TASK,
                 next_id=item.id,
-                next_type="task" if isinstance(item, Task) else "group",
+                next_type=item._dep_next_type,
             )
-            item.previous_dependencies.append(dep)
+        )
 
     await commit_tasks(task_items, job_id, extra_dependencies=hold_rows)
     await _pin_child_inputs(task_items)

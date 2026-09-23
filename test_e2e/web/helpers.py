@@ -9,6 +9,7 @@ from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import NamedTuple, TypeVar
 
+from aaiclick import cli_wait
 from aaiclick.internal_api.jobs import get_job_graph
 from aaiclick.orchestration import get_job_result
 from aaiclick.orchestration.factories import create_job, create_task
@@ -116,20 +117,14 @@ def wait_for_task(job_id: str, status: str | None = None, timeout: float = 30.0)
     return run_in_process(go)
 
 
-def wait_for_job(job_id: str, status: str, timeout: float = 120.0) -> None:
-    """Block until the job row reaches ``status``."""
+def wait_for_job(job_id: str, timeout: float = 120.0) -> str:
+    """Block until the job reaches a terminal status and return it."""
 
-    async def go() -> None:
+    async def go() -> str:
         async with orch_context(with_ch=False):
-            deadline = time.monotonic() + timeout
-            while time.monotonic() < deadline:
-                job = await get_job(int(job_id))
-                if job is not None and job.status == status:
-                    return
-                await asyncio.sleep(0.2)
-            raise AssertionError(f"job {job_id}: did not reach {status} within {timeout} s")
+            return (await cli_wait.wait_for_job(int(job_id), timeout=timeout)).job_status
 
-    run_in_process(go)
+    return run_in_process(go)
 
 
 def job_result(job_id: str):

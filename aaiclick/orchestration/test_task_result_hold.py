@@ -1,5 +1,7 @@
 """Execution tests: consumers of task_result(data=..., tasks=[...]) wait for the tasks."""
 
+import pytest
+
 from aaiclick.orchestration import get_job_result, task_result, tasks_list
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution.debug import ajob_test
@@ -35,11 +37,15 @@ async def consume(value) -> int:
     return value
 
 
-@job("test_hold_child_data")
-def hold_child_data():
-    parent = parent_with_child_data()
+def _parent_then_consume(parent):
+    """``consume`` reads ``parent``'s result; the job result is what it saw."""
     seen = consume(value=parent)
     return task_result(data=seen, tasks=[parent, seen])
+
+
+@job("test_hold_child_data")
+def hold_child_data():
+    return _parent_then_consume(parent_with_child_data())
 
 
 @job("test_hold_group_successor")
@@ -54,49 +60,30 @@ def hold_group_successor():
 
 @job("test_no_hold_without_data")
 def no_hold_without_data():
-    parent = parent_without_data()
-    seen = consume(value=parent)
-    return task_result(data=seen, tasks=[parent, seen])
+    return _parent_then_consume(parent_without_data())
 
 
 @job("test_no_hold_plain_data")
 def no_hold_plain_data():
-    parent = parent_with_plain_data()
-    seen = consume(value=parent)
-    return task_result(data=seen, tasks=[parent, seen])
+    return _parent_then_consume(parent_with_plain_data())
 
 
-async def test_consumer_waits_for_child_named_as_data(orch_ctx):
-    """The parent's result is an upstream ref to a PENDING child; the consumer must not run yet."""
-    j = await hold_child_data()
-    await ajob_test(j)
-
-    assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
-    assert await get_job_result(j) == 7
-
-
-async def test_consumer_of_parent_group_waits_for_children(orch_ctx):
-    """G >> consumer with the parent a member of G: the returned child holds the consumer too."""
-    j = await hold_group_successor()
-    await ajob_test(j)
-
-    assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
-    assert await get_job_result(j) == 7
-
-
-async def test_tasks_list_does_not_hold(orch_ctx):
-    """tasks_list carries no data, so the consumer starts after the parent alone and sees None."""
-    j = await no_hold_without_data()
-    await ajob_test(j)
+@pytest.mark.parametrize(
+    "pipeline, expected",
+    [
+        # The parent's result is an upstream ref to a PENDING child: the consumer must wait for it.
+        pytest.param(hold_child_data, 7, id="data-task"),
+        # G >> consumer with the parent a member of G: the data task holds the consumer too.
+        pytest.param(hold_group_successor, 7, id="group-successor"),
+        # tasks_list carries no data: the consumer starts after the parent alone and sees None.
+        pytest.param(no_hold_without_data, None, id="tasks-list"),
+        # Data that is not a returned task is readable as soon as the parent completes.
+        pytest.param(no_hold_plain_data, 3, id="plain-data"),
+    ],
+)
+async def test_consumer_reads_parent_result(orch_ctx, pipeline, expected):
+    """A consumer of a task returning children reads the right value, held only when data is a returned task."""
+    j = await ajob_test(pipeline)
 
     assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
-    assert await get_job_result(j) is None
-
-
-async def test_plain_data_does_not_hold(orch_ctx):
-    """A value that is not a returned task is readable as soon as the parent completes."""
-    j = await no_hold_plain_data()
-    await ajob_test(j)
-
-    assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
-    assert await get_job_result(j) == 3
+    assert await get_job_result(j) == expected

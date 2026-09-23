@@ -1,5 +1,7 @@
 """Execution tests for reduce() via ajob_test."""
 
+import pytest
+
 from aaiclick.data.data_context import create_object_from_value, data_context
 from aaiclick.data.object import Object, View
 from aaiclick.orchestration import get_job_result, task_result
@@ -61,12 +63,16 @@ async def read_total(total: Object) -> list:
     return await total.data()
 
 
-@job("test_reduce_consumer")
-def reduce_consumer(values: list, partition_size: int):
-    data = create_test_object(values=values)
-    reduced = reduce(sum_reduce, data, partition=partition_size)
+def _reduce_then_read(data, partition: int):
+    """Reduce ``data`` and hand the result to ``read_total``; the job result is the read."""
+    reduced = reduce(sum_reduce, data, partition=partition)
     seen = read_total(total=reduced)
     return task_result(data=seen, tasks=[data, reduced, seen])
+
+
+@job("test_reduce_consumer")
+def reduce_consumer(values: list, partition_size: int):
+    return _reduce_then_read(create_test_object(values=values), partition_size)
 
 
 @task
@@ -77,10 +83,7 @@ async def create_filtered_view(values: list, where: str) -> View:
 
 @job("test_reduce_view")
 def reduce_view_pipeline(values: list, where: str, partition_size: int):
-    data = create_filtered_view(values=values, where=where)
-    reduced = reduce(sum_reduce, data, partition=partition_size)
-    seen = read_total(total=reduced)
-    return task_result(data=seen, tasks=[data, reduced, seen])
+    return _reduce_then_read(create_filtered_view(values=values, where=where), partition_size)
 
 
 # --- Tests ---
@@ -145,10 +148,18 @@ async def test_reduce_consumer_sees_filled_result(orch_ctx):
     assert await get_job_result(j) == [15]
 
 
-async def test_reduce_over_filtered_view_sums_only_its_rows(orch_ctx):
-    """Layer-0 partitions slice the View, not its base table."""
-    j = await reduce_view_pipeline(values=[1, 2, 3, 4, 5], where="value >= 3", partition_size=2)
+@pytest.mark.parametrize(
+    "where, expected",
+    [
+        pytest.param("value >= 3", [12], id="layered"),
+        # One selected row takes the no-layer shortcut, which copies the input.
+        pytest.param("value >= 5", [5], id="single-row"),
+    ],
+)
+async def test_reduce_over_filtered_view_sums_only_its_rows(orch_ctx, where, expected):
+    """reduce() over a View reads the View's rows, not its base table."""
+    j = await reduce_view_pipeline(values=[1, 2, 3, 4, 5], where=where, partition_size=2)
     await ajob_test(j)
 
     assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
-    assert await get_job_result(j) == [12]
+    assert await get_job_result(j) == expected

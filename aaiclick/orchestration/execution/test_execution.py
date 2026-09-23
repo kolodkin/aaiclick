@@ -18,6 +18,7 @@ from aaiclick.orchestration.examples.orchestration_dynamic import (
     chain_pipeline,
     dynamic_pipeline,
 )
+from aaiclick.orchestration.execution.claiming import update_task_status
 from aaiclick.orchestration.execution.db_handler import DEPENDENCY_WHERE
 from aaiclick.orchestration.execution.debug import ajob_test
 from aaiclick.orchestration.execution.runner import (
@@ -592,14 +593,6 @@ async def test_register_returned_tasks_holds_group_successor(orch_ctx):
     assert await _dependency_pairs(consumer.id) == {(parent_group.id, "group"), (finalize.id, "task")}
 
 
-async def _set_status(task_id: int, status: str) -> None:
-    async with get_sql_session() as session:
-        await session.execute(
-            text("UPDATE tasks SET status = :status WHERE id = :id"), {"status": status, "id": task_id}
-        )
-        await session.commit()
-
-
 async def _is_ready(task_id: int) -> bool:
     """Whether the scheduler's dependency check lets ``task_id`` be claimed."""
     async with get_sql_session() as session:
@@ -624,10 +617,10 @@ async def test_hold_covers_members_added_to_a_successor_group_later(orch_ctx):
     member = create_task("mod.member")
     member.group_id = group.id
     await commit_tasks([member], job_id=job.id)
-    await _set_status(parent.id, TASK_COMPLETED)
+    await update_task_status(parent.id, TASK_COMPLETED)
 
     assert not await _is_ready(member.id)
-    await _set_status(child.id, TASK_COMPLETED)
+    await update_task_status(child.id, TASK_COMPLETED)
     assert await _is_ready(member.id)
 
 

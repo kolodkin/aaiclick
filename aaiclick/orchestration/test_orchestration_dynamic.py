@@ -123,40 +123,37 @@ def map_partitions_pipeline(output_file: str):
     return tasks_list(data, mapped)
 
 
-def _map_then_read(source, cbk, reader, partition: int, kwargs: dict | None = None):
-    """Map ``source`` through ``cbk`` and hand the output to ``reader``; the job result is the read."""
-    data = source()
+def _map_then_read(data, cbk, reader, partition: int, kwargs: dict | None = None):
+    """Map ``data`` through ``cbk`` and hand the output to ``reader``; the job result is the read."""
     mapped = map(cbk=cbk, obj=data, partition=partition, kwargs=kwargs or {})
     seen = reader(values=mapped)
     return task_result(data=seen, tasks=[data, mapped, seen])
 
 
 @job("test_map_output")
-def map_output_pipeline(factor: int):
-    return _map_then_read(create_test_data, scale, read_values, partition=2, kwargs={"factor": factor})
+def map_output_pipeline():
+    return _map_then_read(create_test_data(), scale, read_values, partition=2, kwargs={"factor": 2})
 
 
 @job("test_map_filter")
 def map_filter_pipeline():
-    return _map_then_read(create_test_data, keep_large, read_values, partition=2)
+    return _map_then_read(create_test_data(), keep_large, read_values, partition=2)
 
 
 @job("test_map_records")
 def map_records_pipeline():
-    return _map_then_read(create_test_records, swap, read_pairs, partition=1)
+    return _map_then_read(create_test_records(), swap, read_pairs, partition=1)
 
 
 @job("test_map_cast")
 def map_cast_pipeline():
-    return _map_then_read(create_test_data, quarter, read_values, partition=2)
+    return _map_then_read(create_test_data(), quarter, read_values, partition=2)
 
 
 @job("test_map_view")
 def map_view_pipeline(where: str | None, offset: int | None, limit: int | None):
     data = create_test_view(where=where, offset=offset, limit=limit)
-    mapped = map(cbk=scale, obj=data, partition=1, kwargs={"factor": 2})
-    seen = read_values(values=mapped)
-    return task_result(data=seen, tasks=[data, mapped, seen])
+    return _map_then_read(data, scale, read_values, partition=1, kwargs={"factor": 2})
 
 
 # --- Execution tests ---
@@ -198,44 +195,26 @@ async def test_map_execution_multiple_partitions(orch_ctx, monkeypatch):
         assert sorted(lines) == ["10", "20", "30", "40", "50"]
 
 
-async def test_map_output_is_callback_returns(orch_ctx):
-    """A consumer of map() reads the callback's return values, after every partition."""
-    j = await map_output_pipeline(factor=2)
-    await ajob_test(j)
+@pytest.mark.parametrize(
+    "pipeline, expected",
+    [
+        # A consumer reads the callback's return values, after every partition.
+        pytest.param(map_output_pipeline, [20, 40, 60, 80, 100], id="returns"),
+        # A None return contributes no row, so map() doubles as a filter.
+        pytest.param(map_filter_pipeline, [30, 40, 50], id="none-drops-row"),
+        # A multi-column Object hands the callback one record per row.
+        pytest.param(map_records_pipeline, [[3, 1], [4, 2]], id="records"),
+        # Returns are cast to the input column type: fractions truncate into an integer column.
+        pytest.param(map_cast_pipeline, [2, 5, 7, 10, 12], id="cast"),
+    ],
+)
+async def test_map_output(orch_ctx, pipeline, expected):
+    """The consumer of map() reads the collected callback returns."""
+    j = await ajob_test(pipeline)
 
     assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
     async with data_context():
-        assert await get_job_result(j) == [20, 40, 60, 80, 100]
-
-
-async def test_map_none_return_drops_row(orch_ctx):
-    """A None return contributes no row, so map() doubles as a filter."""
-    j = await map_filter_pipeline()
-    await ajob_test(j)
-
-    assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
-    async with data_context():
-        assert await get_job_result(j) == [30, 40, 50]
-
-
-async def test_map_dict_schema_rows_are_records(orch_ctx):
-    """A multi-column Object hands the callback one record per row, and the returns land as rows."""
-    j = await map_records_pipeline()
-    await ajob_test(j)
-
-    assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
-    async with data_context():
-        assert await get_job_result(j) == [[3, 1], [4, 2]]
-
-
-async def test_map_casts_returns_to_input_column_type(orch_ctx):
-    """Returns are cast to the input column type on insert: fractions truncate into an integer column."""
-    j = await map_cast_pipeline()
-    await ajob_test(j)
-
-    assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
-    async with data_context():
-        assert await get_job_result(j) == [2, 5, 7, 10, 12]
+        assert await get_job_result(j) == expected
 
 
 @pytest.mark.parametrize(
@@ -248,8 +227,7 @@ async def test_map_casts_returns_to_input_column_type(orch_ctx):
 )
 async def test_map_over_view_sees_only_its_rows(orch_ctx, where, offset, limit, expected):
     """Partitions slice the View, not its base table."""
-    j = await map_view_pipeline(where=where, offset=offset, limit=limit)
-    await ajob_test(j)
+    j = await ajob_test(map_view_pipeline, where=where, offset=offset, limit=limit)
 
     assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
     async with data_context():

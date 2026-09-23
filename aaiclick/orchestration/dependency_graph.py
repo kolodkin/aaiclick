@@ -14,7 +14,7 @@ from typing import NamedTuple
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import DependencyType
+from .models import DEPENDENCY_TASK, DependencyType
 from .sql_utils import in_clause
 
 
@@ -25,12 +25,12 @@ class EdgeTarget(NamedTuple):
     type: DependencyType
 
 
-async def successor_task_ids(session: AsyncSession, task_ids: set[int]) -> set[int]:
-    """Task ids one dependency hop downstream of ``task_ids``.
+async def successor_edges(session: AsyncSession, task_ids: set[int]) -> set[EdgeTarget]:
+    """Targets of the edges leaving ``task_ids`` and the groups they belong to, unexpanded.
 
-    Follows edges leaving the tasks and the groups they belong to, expanding
-    group targets to their members. The result never contains a task from
-    ``task_ids``: parallel siblings are not downstream of one another.
+    A group target stays the group, so an edge copied onto another source
+    covers the members the group has when a consumer is claimed, including
+    members added after the copy.
     """
     if not task_ids:
         return set()
@@ -44,31 +44,22 @@ async def successor_task_ids(session: AsyncSession, task_ids: set[int]) -> set[i
         ),
         params,
     )
+    return {EdgeTarget(next_id, next_type) for next_id, next_type in edges}
+
+
+async def successor_task_ids(session: AsyncSession, task_ids: set[int]) -> set[int]:
+    """Task ids one dependency hop downstream of ``task_ids``.
+
+    ``successor_edges`` with group targets expanded to their members. The
+    result never contains a task from ``task_ids``: parallel siblings are not
+    downstream of one another.
+    """
     successors: set[int] = set()
     group_ids: set[int] = set()
-    for next_id, next_type in edges:
-        (successors if next_type == "task" else group_ids).add(next_id)
+    for target in await successor_edges(session, task_ids):
+        (successors if target.type == DEPENDENCY_TASK else group_ids).add(target.id)
     if group_ids:
         gph, gparams = in_clause(sorted(group_ids), "g")
         members = await session.execute(text(f"SELECT id FROM tasks WHERE group_id IN ({gph})"), gparams)
         successors.update(row[0] for row in members)
     return successors - task_ids
-
-
-async def successor_edges(session: AsyncSession, task_id: int) -> set[EdgeTarget]:
-    """Targets of the edges leaving ``task_id`` and its group, group targets unexpanded.
-
-    Unlike ``successor_task_ids`` this keeps a group target as the group, so an
-    edge copied onto another source covers the members the group has when a
-    consumer is claimed, including members added after the copy.
-    """
-    edges = await session.execute(
-        text(
-            "SELECT next_id, next_type FROM dependencies "
-            "WHERE (previous_type = 'task' AND previous_id = :task_id) "
-            "OR (previous_type = 'group' AND previous_id = "
-            "(SELECT group_id FROM tasks WHERE id = :task_id AND group_id IS NOT NULL))"
-        ),
-        {"task_id": task_id},
-    )
-    return {EdgeTarget(next_id, next_type) for next_id, next_type in edges}
