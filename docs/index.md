@@ -43,7 +43,7 @@ async def report(summary: dict):
 @job("sales_pipeline")
 def sales_pipeline():
     sales = load_sales()                # a Task, not data — nothing runs yet
-    summary = analyze(sales=sales)      # gets the sales task's return value at runtime; returns a Python dict
+    summary = analyze(sales=sales)      # gets the sales task's return value at runtime
     return report(summary=summary)      # the dict flows to report()
 
 if __name__ == "__main__":
