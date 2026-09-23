@@ -24,8 +24,7 @@ def pipeline(x: int, y: int):
     product = multiply(x=x, y=y)
     return TaskResult(tasks=[sum_result, product])
 
-j = pipeline(x=3, y=4)
-job_test(j)  # execute synchronously (testing/local)
+job_test(pipeline, x=3, y=4)  # create the job and execute it synchronously
 ```
 
 Passing one task's result as another task's argument creates the dependency
@@ -61,6 +60,12 @@ for tasks alone, and `task_result(data=..., tasks=[...])` when the task also
 returns data. See
 [Examples: Orchestration Dynamic](../examples/orchestration_dynamic.md).
 
+When `data` is one of the returned tasks, consumers of the parent wait for that
+task. So when the data is something the children produce, return it through a
+task that depends on them: `map()` and `reduce()` return a finalize task that
+runs after the partition tasks and hands the output Object on. Any other `data`
+is readable as soon as the parent completes.
+
 !!! warning "A list carries tasks only, unnested"
     `return [obj, group]` raises `TypeError` — use
     `task_result(data=obj, tasks=[group])` to return data alongside tasks. So
@@ -91,7 +96,9 @@ See [Examples: Orchestration Groups](../examples/orchestration_groups.md).
 
 `job_test(j)` (sync) and `await ajob_test(j)` (async) execute every task of a
 job in dependency order in the current process — ideal for developing and
-debugging a pipeline before handing it to workers.
+debugging a pipeline before handing it to workers. Both also accept the `@job`
+function itself, plus its kwargs, and create the job first:
+`job_test(pipeline, x=3, y=4)`. Both return the executed `Job`.
 
 # Deployment Modes
 
@@ -395,16 +402,27 @@ python -m aaiclick run-job <name> --entry-type shell --command 'python main.py' 
 (`aaiclick/orchestration/operators.py`):
 
 - `map(cbk, obj, partition=5000)` — partitions the Object and creates one
-  child task per partition; `cbk(row, *args, **kwargs)` is applied to each row.
+  child task per partition; `cbk(row, *args, **kwargs)` is applied to each row
+  (a value for single-column Objects, a `dict` for multi-column ones) and its
+  return value is appended to the output Object. A `None` return adds no row.
+  Output rows land in partition-completion order, not input order.
 - `reduce(cbk, obj, partition=5000)` — layered parallel reduction; each layer
   reduces partitions down until a single row remains. `cbk(partition, output)`
   receives an input partition and a pre-allocated output Object and writes via
   `output.insert()`. The callback must be homomorphic: output schema equals
   input schema.
 
-Both accept a `Task` or an `Object` as input and return a `Group` that
-downstream tasks can depend on. See
+Both accept a `Task` or an `Object` as input and return the expander `Task`.
+Its result is the output Object, produced by a finalize task that runs after
+every partition task, so a consumer sees it filled. See
 [Examples: Orchestration Operators](../examples/orchestration_operators.md).
+
+!!! warning "Output schema equals input schema"
+    Both operators allocate the output from the input's schema, and ClickHouse
+    casts returned values to it on insert: a `map()` callback returning `2.5`
+    for an integer column stores `2`. Map over a float column, or convert in
+    the callback, when the type changes. Create the input with `aai_id=True`
+    (or an `order_by` view) so the LIMIT/OFFSET partitions are disjoint.
 
 # Managing Jobs
 

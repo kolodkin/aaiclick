@@ -18,6 +18,8 @@ from aaiclick.orchestration.examples.orchestration_dynamic import (
     chain_pipeline,
     dynamic_pipeline,
 )
+from aaiclick.orchestration.execution.claiming import update_task_status
+from aaiclick.orchestration.execution.db_handler import DEPENDENCY_WHERE
 from aaiclick.orchestration.execution.debug import ajob_test
 from aaiclick.orchestration.execution.runner import (
     _materialize_lazies,
@@ -47,6 +49,7 @@ from aaiclick.orchestration.models import (
 )
 from aaiclick.orchestration.orch_context import commit_tasks, get_sql_session
 from aaiclick.orchestration.result import TaskResult, data_list, task_result, tasks_list
+from aaiclick.snowflake import get_snowflake_id
 from aaiclick.testing import seed_registry_row
 
 # Logging tests
@@ -483,8 +486,6 @@ def test_task_result_data_only():
 
 def test_task_result_both(orch_ctx):
     """TaskResult with both data and tasks."""
-    from aaiclick.snowflake import get_snowflake_id
-
     t = create_task("mod.func")
     g = Group(id=get_snowflake_id(), name="g1")
     r = task_result(data="result", tasks=[t, g])
@@ -495,8 +496,6 @@ def test_task_result_both(orch_ctx):
 
 def test_task_result_preserves_explicit_dependency(orch_ctx):
     """Explicit >> dependency on tasks inside TaskResult is preserved."""
-    from aaiclick.snowflake import get_snowflake_id
-
     t1 = create_task("mod.step1")
     t2 = create_task("mod.step2")
     g = Group(id=get_snowflake_id(), name="g1")
@@ -547,6 +546,110 @@ async def test_register_returned_tasks_task_result_tasks_only(orch_ctx):
         dep = result.scalar_one()
         assert dep.previous_type == "task"
         assert dep.next_type == "task"
+
+
+async def _dependency_pairs(next_id: int) -> set[tuple[int, str]]:
+    """(previous_id, previous_type) of every edge pointing at ``next_id``."""
+    async with get_sql_session() as session:
+        rows = await session.execute(
+            select(Dependency.previous_id, Dependency.previous_type).where(Dependency.next_id == next_id)
+        )
+        return {(previous_id, previous_type) for previous_id, previous_type in rows.all()}
+
+
+async def test_register_returned_tasks_holds_on_data_task(orch_ctx):
+    """task_result(data=child, tasks=[child]) with parent >> consumer adds child >> consumer."""
+    job = await create_job("hold_direct", "mod.func")
+    parent = create_task("mod.parent")
+    consumer = create_task("mod.consumer")
+    parent >> consumer
+    await commit_tasks([parent, consumer], job_id=job.id)
+
+    child = create_task("mod.child")
+    await register_returned_tasks(task_result(data=child, tasks=[child]), parent_task_id=parent.id, job_id=job.id)
+
+    assert await _dependency_pairs(consumer.id) == {(parent.id, "task"), (child.id, "task")}
+
+
+async def test_register_returned_tasks_holds_group_successor(orch_ctx):
+    """Parent in G with G >> consumer: the data task holds the consumer too."""
+    job = await create_job("hold_group", "mod.func")
+    parent_group = Group(id=get_snowflake_id(), name="pg")
+    parent = create_task("mod.parent")
+    parent_group.add_task(parent)
+    consumer = create_task("mod.consumer")
+    parent_group >> consumer
+    await commit_tasks([parent_group, parent, consumer], job_id=job.id)
+
+    layer = Group(id=get_snowflake_id(), name="layer")
+    member = create_task("mod.member")
+    layer.add_task(member)
+    finalize = create_task("mod.finalize")
+    layer >> finalize
+    await register_returned_tasks(
+        task_result(data=finalize, tasks=[layer, finalize]), parent_task_id=parent.id, job_id=job.id
+    )
+
+    assert await _dependency_pairs(consumer.id) == {(parent_group.id, "group"), (finalize.id, "task")}
+
+
+async def _is_ready(task_id: int) -> bool:
+    """Whether the scheduler's dependency check lets ``task_id`` be claimed."""
+    async with get_sql_session() as session:
+        row = await session.execute(
+            text(f"SELECT t.id FROM tasks t WHERE t.id = :task_id {DEPENDENCY_WHERE}"),
+            {"task_id": task_id, "completed_status": TASK_COMPLETED},
+        )
+        return row.first() is not None
+
+
+async def test_hold_covers_members_added_to_a_successor_group_later(orch_ctx):
+    """parent >> G with G empty at registration: a member added afterwards still waits for the data task."""
+    job = await create_job("hold_late_member", "mod.func")
+    parent = create_task("mod.parent")
+    group = Group(id=get_snowflake_id(), name="later")
+    parent >> group
+    await commit_tasks([parent, group], job_id=job.id)
+
+    child = create_task("mod.child")
+    await register_returned_tasks(task_result(data=child, tasks=[child]), parent_task_id=parent.id, job_id=job.id)
+
+    member = create_task("mod.member")
+    member.group_id = group.id
+    await commit_tasks([member], job_id=job.id)
+    await update_task_status(parent.id, TASK_COMPLETED)
+
+    assert not await _is_ready(member.id)
+    await update_task_status(child.id, TASK_COMPLETED)
+    assert await _is_ready(member.id)
+
+
+async def test_register_returned_tasks_no_hold_for_plain_data(orch_ctx):
+    """Data that is not a returned task does not depend on the children, so consumers start after the parent."""
+    job = await create_job("hold_plain", "mod.func")
+    parent = create_task("mod.parent")
+    consumer = create_task("mod.consumer")
+    parent >> consumer
+    await commit_tasks([parent, consumer], job_id=job.id)
+
+    child = create_task("mod.child")
+    await register_returned_tasks(task_result(data="x", tasks=[child]), parent_task_id=parent.id, job_id=job.id)
+
+    assert await _dependency_pairs(consumer.id) == {(parent.id, "task")}
+
+
+async def test_register_returned_tasks_no_hold_without_data(orch_ctx):
+    """tasks_list(...) carries no data, so consumers are not held."""
+    job = await create_job("hold_none", "mod.func")
+    parent = create_task("mod.parent")
+    consumer = create_task("mod.consumer")
+    parent >> consumer
+    await commit_tasks([parent, consumer], job_id=job.id)
+
+    child = create_task("mod.child")
+    await register_returned_tasks(tasks_list(child), parent_task_id=parent.id, job_id=job.id)
+
+    assert await _dependency_pairs(consumer.id) == {(parent.id, "task")}
 
 
 async def test_register_returned_tasks_pins_child_input_tables(orch_ctx):

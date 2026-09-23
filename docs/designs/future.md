@@ -5,33 +5,56 @@ Planned work across aaiclick, ordered by priority.
 
 ---
 
-# Graph Rendering Expands Group Edges Differently From the Runtime
-
-`expand_dependencies()` in `graph.py` expands `A >> G` to G's source tasks and
-`G >> B` to G's sinks, while `successor_task_ids()` and the scheduler treat a
-group target as all of its members. The rendered DAG therefore does not match
-which tasks the runtime waits on or pins for. Decide once whether groups have
-internal ordering; if not, render all members like the runtime does.
-
----
-
-# `map()` Has No Output Path
-
-`_expand_map()` (`aaiclick/orchestration/operators.py`) creates `out` and the
-`_map_part` children write into it, but nothing returns `out`: it is not the
-expander's result and the map group has no `_result_task`. Once the children
-finish, `out` has no refs and the sweep drops it. Decide how a consumer reaches
-it — return `out` as the expander's `TaskResult.data` (then a
-`group_results_ref` read of the map group yields it alongside the children's
-`None` results), or set `group._result_task` like `reduce()` does.
-
----
-
 # Code Review Backlog
 
 `docs/designs/code_review_2026_09.md` — findings from the whole-project
 review at commit `db56ac4`, grouped by severity with a suggested fix order.
 Remove each item from that file as it lands; delete the file when empty.
+
+---
+
+# `foreach()` — Side-Effect Flavor of `map()`
+
+`map()` (`aaiclick/orchestration/operators.py`) allocates an output Object
+from the input schema and collects the callback's return values into it. A
+callback that only has side effects (writes a file, calls an API) returns
+`None`, so the output stays empty and is created and swept for nothing.
+
+Add `foreach(cbk, obj, partition=5000, args=(), kwargs=None) -> Task` with the
+same expander shape and no output: `_expand_map` takes `out: Object | None`,
+the parts skip the insert when there is no output, and the `_finalize` task
+returns `None`. Because the expander's data is still a returned task, a
+consumer of `foreach(...)` waits for every partition as it does for `map()`.
+Share `_partition_refs` and the parts group; the only new public symbol is
+`foreach`. Defer until a side-effect-only pipeline shows up in practice.
+
+---
+
+# Draw a `map()` / `reduce()` Call as One Graph Frame
+
+In the job graph the expander and `_finalize` sit outside the frame of the
+parts (`map` group, or `layer_N` groups for `reduce()`). The expander cannot
+be a member of a group it creates at runtime, and `_finalize` cannot be a
+member of the group it waits on (`group >> finalize` would wait on itself).
+
+Wrap the whole call in an outer group created at definition time:
+
+- `map()` / `reduce()` create an outer `map` / `reduce` group and add the
+  expander to it, passing its id to the expander.
+- The expander creates the parts group(s) with `parent_group_id` set to the
+  outer group, and adds `_finalize` as a direct member of the outer group.
+
+Presentation only: scheduling resolves a group edge to its direct members
+(`DEPENDENCY_WHERE`, `successor_task_ids`), nothing has an edge to or from the
+outer group, and consumers already depend on `_finalize` through the hold. The
+graph view and UI already nest frames (`group_member_tasks`, `nestByGroup`).
+
+One prerequisite: `_collect_from_registry` (`orch_context.py`) walks
+dependency edges only, so a definition-time group whose only link is a
+member's `group_id` is never committed. Visit a task's group, and a group's
+parent, before the node itself. Cover it with a job test on the committed
+group tree and an assertion on the nested frames in
+`test_e2e/web/test_operators_graph.py`.
 
 ---
 
@@ -184,6 +207,22 @@ See `viewer.md` for the shipped design.
 - **Dashboard authoring in the UI**: `@dashboard` picks and runs; HTML and
   panel queries are written through MCP, REST, or `view dashboards save`.
 
+## Job Graph — Collapsible Groups
+
+Group containers are fixed frames (`GroupNode.tsx`), so a wide group — e.g.
+`map()`'s per-partition children — always takes its full size. Collapsing is
+client-only; the graph response already carries every group and its members.
+
+- A collapsed group is one node (name, rolled-up status, member count). Edges
+  touching a member re-point to it and are deduplicated; intra-group edges
+  are hidden. Collapsing a parent hides nested groups.
+- A chevron in the header toggles it; groups start expanded, state kept in
+  the URL or `localStorage`.
+- Collapsing re-runs dagre, so positions change — unlike the build-edge
+  toggle, the point is to reclaim space.
+
+**When to revisit**: when a real job's group makes the graph unreadable.
+
 ## Lineage — Tier 2 Full Replay
 
 The Tier 1 tools are built (`aaiclick/ai/agents/lineage_tools.py` —
@@ -199,3 +238,20 @@ that cleanup has already dropped.
 ## Changelog
 
 `docs/changelog.md` — version history in Keep a Changelog format. Introduce with v1.0.0 release.
+
+## Reconsider the `>>` Dependency Syntax
+
+`a >> b` records a dependency as a side effect of `Task.__rshift__`
+(`aaiclick/orchestration/models.py`), so linters read it as a discarded value.
+Pyright's `reportUnusedExpression` is purely syntactic and cannot be scoped to
+`Task`/`Group`, so `pyrightconfig.json` turns it off globally, which also hides
+real unused expressions elsewhere. Open a design discussion on the dependency API
+before growing it further:
+
+- Keep `>>` / `<<` (Airflow-style) and accept the global ignore
+- Add or prefer an explicit call (`b.depends_on(a)`, `chain(a, b, c)`), which
+  linters accept and which reads as an action
+- Whether a `@job` body should need explicit edges at all, given that passing a
+  task as a kwarg already wires the dependency
+
+Decide on one taught form, then restore `reportUnusedExpression` if `>>` goes.

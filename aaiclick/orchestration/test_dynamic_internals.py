@@ -13,18 +13,15 @@ async def _dummy_func(row):
     pass
 
 
-def test_map_creates_group_with_expander(orch_ctx):
-    """map() returns a Group containing an expander Task with correct kwargs."""
+def test_map_returns_expander(orch_ctx):
+    """map() returns the expander Task with correct kwargs."""
     obj_task = create_task("mymodule.load_data")
 
-    group = map(cbk=_dummy_func, obj=obj_task, partition=500, args=(10,), kwargs={"factor": 2})
+    expander = map(cbk=_dummy_func, obj=obj_task, partition=500, args=(10,), kwargs={"factor": 2})
 
-    assert isinstance(group, Group)
-    expander = group.get_tasks()[0]
     assert isinstance(expander, Task)
     assert expander.entrypoint == "aaiclick.orchestration.operators._expand_map"
     assert expander.kwargs["partition"] == 500
-    assert expander.kwargs["group_id"] == group.id
     assert expander.kwargs["cbk_args"] == [10]
     assert expander.kwargs["cbk_kwargs"]["factor"] == 2
     # obj Task creates upstream ref + dependency
@@ -68,14 +65,12 @@ def test_map_args_with_object_and_task(orch_ctx):
     lookup = Object(table="t_lookup")
 
     # Object in kwargs
-    group = map(cbk=_dummy_func, obj=obj_task, kwargs={"lookup": lookup})
-    expander = group.get_tasks()[0]
+    expander = map(cbk=_dummy_func, obj=obj_task, kwargs={"lookup": lookup})
     assert expander.kwargs["cbk_kwargs"]["lookup"]["object_type"] == "object"
     assert expander.kwargs["cbk_kwargs"]["lookup"]["table"] == "t_lookup"
 
     # Task in args creates dependency
-    group2 = map(cbk=_dummy_func, obj=obj_task, args=(extra_task,))
-    expander2 = group2.get_tasks()[0]
+    expander2 = map(cbk=_dummy_func, obj=obj_task, args=(extra_task,))
     dep_ids = {d.previous_id for d in expander2.previous_dependencies}
     assert obj_task.id in dep_ids
     assert extra_task.id in dep_ids

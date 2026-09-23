@@ -49,6 +49,7 @@ from aaiclick.snowflake import get_snowflake_id
 
 from ...datetime_utils import utc_now
 from ..decorators import JobFactory, TaskFactory
+from ..dependency_graph import successor_edges
 from ..logging import _ChLogSink, _SinkFlusher, capture_task_output
 from ..models import (
     DEPENDENCY_TASK,
@@ -59,6 +60,7 @@ from ..models import (
     TASK_FAILED,
     TASK_PENDING,
     TASK_RUNNING,
+    Dependency,
     Group,
     Job,
     Task,
@@ -178,7 +180,7 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
     if value.get(REF_TYPE) == CALLABLE:
         return import_callback(value["entrypoint"])
 
-    # from reduce() collecting map results
+    # A Group passed as a kwarg: the members' results, in task order
     if value.get(REF_TYPE) == GROUP_RESULTS:
         group_id = value["group_id"]
         result = await session.execute(
@@ -545,8 +547,8 @@ def _contains_dag_node(item: Any) -> bool:
     return False
 
 
-def _tasks_from(items: Any) -> list:
-    """Return the Task/Group items of a tasks position, one level deep.
+def _tasks_from(items: Any) -> list[Task | Group]:
+    """Validate a tasks position and expand it one level deep.
 
     A Group also contributes its member tasks. Nothing beyond that one level is
     flattened: nesting carries no meaning in the graph, so flattening it would
@@ -556,7 +558,7 @@ def _tasks_from(items: Any) -> list:
     Raises:
         TypeError: if the position holds anything but Tasks and Groups.
     """
-    tasks: list = []
+    tasks: list[Task | Group] = []
 
     for item in items if isinstance(items, (list, tuple)) else [items]:
         if isinstance(item, Task):
@@ -578,6 +580,26 @@ def _tasks_from(items: Any) -> list:
     return tasks
 
 
+async def _hold_dependencies(data_task: Task, parent_task_id: int) -> list[Dependency]:
+    """Copy every edge leaving the parent (or its group) onto ``data_task``.
+
+    The parent's result is not ready until ``data_task`` completes. A group
+    consumer stays a group edge, so members it gains later are held too. Runs
+    before the children are committed, so they are not successors yet.
+    """
+    async with get_sql_session() as session:
+        targets = await successor_edges(session, {parent_task_id})
+    return [
+        Dependency(
+            previous_id=data_task.id,
+            previous_type=DEPENDENCY_TASK,
+            next_id=target.id,
+            next_type=target.type,
+        )
+        for target in sorted(targets)
+    ]
+
+
 async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int) -> Any:
     """Register dynamic child tasks returned from a task function.
 
@@ -587,6 +609,10 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
     - Task / Group                  → register it, return None
     - flat list/tuple of Task/Group → register all, return None
     - Any other value               → pure data, return as-is
+
+    When ``data`` is one of the returned tasks, the parent's existing consumers
+    wait for it (see ``_hold_dependencies``): return data that the children
+    produce through a task that depends on them.
 
     The list/tuple must be flat and hold nothing but Tasks and Groups. Mixing
     in data is rejected — that is what ``task_result(data=..., tasks=[...])``
@@ -627,12 +653,13 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
     if not task_items:
         return data_result
 
+    hold_rows = await _hold_dependencies(data_result, parent_task_id) if isinstance(data_result, Task) else []
+
     # Wire dependency: each returned item depends on the parent task
     for item in task_items:
-        if isinstance(item, (Task, Group)):
-            item.link_previous(parent_task_id, DEPENDENCY_TASK)
+        item.link_previous(parent_task_id, DEPENDENCY_TASK)
 
-    await commit_tasks(task_items, job_id)
+    await commit_tasks(task_items, job_id, extra_dependencies=hold_rows)
     await _pin_child_inputs(task_items)
 
     return data_result

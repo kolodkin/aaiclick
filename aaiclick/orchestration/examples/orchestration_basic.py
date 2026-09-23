@@ -64,10 +64,8 @@ def basic_pipeline(x: int = 5, y: int = 6):
 async def amain():
     """Run the basic orchestration example."""
     # --8<-- [start:run]
-    pipeline = await basic_pipeline()
-    print(f"Created job: {pipeline.name} (ID: {pipeline.id})")
-
-    await ajob_test(pipeline)
+    pipeline = await ajob_test(basic_pipeline)
+    print(f"Ran job: {pipeline.name} (ID: {pipeline.id})")
     assert pipeline.status == JOB_COMPLETED, f"Expected COMPLETED, got {pipeline.status}"
     print(f"Job status: {pipeline.status}")
     # --8<-- [end:run]
