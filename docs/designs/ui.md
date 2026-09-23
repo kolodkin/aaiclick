@@ -107,12 +107,11 @@ dependency graph. The prompt carries the mode — `@job <name> graph` — so the
 view stays shareable as a URL.
 
 One edge is drawn per dependency, so a `Group` dependency is a single edge
-into or out of the group's container: every member waits, which is the rule the
-scheduler enforces (`successor_task_ids`). dagre cannot anchor an edge on a
-container, so the response also carries `layout_edges` — each group edge
-expanded onto the group's direct member tasks — used for positioning only.
-Node colour follows task status, and an image-build task and its outgoing
-edges are styled distinctly.
+on the group's container — every member waits, as the scheduler enforces
+(`successor_task_ids`). dagre cannot anchor an edge on a container, so
+`layout_edges` carries each group edge expanded onto its direct members, for
+positioning only. Node colour follows task status; image-build tasks and
+their edges are styled distinctly.
 
 Groups render as nested containers around their members: `"group"` nodes with
 a status rolled up server-side from every task beneath them (activity outranks
