@@ -595,13 +595,11 @@ def _hold_sources(items: Any) -> list[Task | Group]:
 async def _hold_successors(items: list[Task | Group], parent_task_id: int) -> None:
     """Insert ``item >> successor`` for every returned item and existing successor.
 
-    Consumers of a task that returned data alongside children must not start
-    until the children have completed: the data usually is an Object the
-    children fill. Runs before the children are committed, so they are not
-    yet successors of the parent and never hold one another; a hold row whose
-    child is then never committed is inert, since the scheduler's dependency
-    check joins on the tasks table. Returned items are fresh, so no existing
-    row can collide.
+    The data returned alongside children is usually an Object the children
+    fill, so their consumers must wait for them. Runs before the children are
+    committed: they cannot hold one another, and a row whose child never lands
+    is inert because the dependency check joins on the tasks table. Fresh item
+    ids cannot collide with existing rows.
     """
     if not items:
         return

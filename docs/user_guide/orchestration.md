@@ -60,9 +60,9 @@ for tasks alone, and `task_result(data=..., tasks=[...])` when the task also
 returns data. See
 [Examples: Orchestration Dynamic](../examples/orchestration_dynamic.md).
 
-Consumers of a task that returns `task_result(data=..., tasks=[...])` start only
-once every returned task has completed as well: the data is usually an Object
-the children fill. `tasks_list(...)` carries no data and does not hold consumers.
+Consumers of a task that returns `task_result(data=..., tasks=[...])` also wait
+for every returned task, since the data is usually an Object the children fill.
+`tasks_list(...)` carries no data and does not hold consumers.
 
 !!! warning "A list carries tasks only, unnested"
     `return [obj, group]` raises `TypeError` — use

@@ -11,7 +11,7 @@ Usage:
         ...
 
     @task
-    async def aggregate(partition: Object) -> Object:
+    async def aggregate(partition: Object, output: Object) -> None:
         ...
 
     @job("parallel_pipeline")
@@ -55,23 +55,20 @@ def map(
 ) -> Task:
     """Create a parallel map over partitions of an Object.
 
-    Returns the expander Task. At runtime it queries the row count and
-    creates one ``_map_part`` child per partition. Its result is the output
-    Object holding every value the callback returned, and tasks that consume
-    it wait for every partition to finish.
-
     Args:
         cbk: Callback applied to each row: ``cbk(row, *args, **kwargs)``.
             Its return value is appended to the output; ``None`` adds no row.
             The output schema equals the input schema, and returns are cast
             to it on insert.
         obj: Task or Object to partition. If Task, the expander waits for it.
-        partition: Number of rows per partition (default 5000).
+        partition: Number of rows per partition.
         args: Extra positional arguments forwarded to cbk after row.
         kwargs: Extra keyword arguments forwarded to cbk.
 
     Returns:
-        The expander Task; its result is the output Object.
+        The expander Task. At runtime it creates one ``_map_part`` child per
+        partition; its result is the output Object, and tasks that consume it
+        wait for every partition.
     """
     if kwargs is None:
         kwargs = {}
@@ -162,22 +159,19 @@ def reduce(
 ) -> Task:
     """Create a layered parallel reduction over an Object.
 
-    Returns the expander Task. At runtime it queries the row count,
-    pre-allocates every layer Object, and registers all layer groups and
-    partition tasks at once. Its result is the final single-row Object, and
-    tasks that consume it wait for every layer to finish.
-
     Args:
-        cbk: Callback applied to each partition. Must be homomorphic:
-             output schema must match input schema. Returns 1 row.
+        cbk: Callback applied to each partition; writes one row into
+             ``output`` with the input schema (homomorphic).
              Signature: async def f(partition: Object, output: Object, *args, **kwargs) -> None
         obj: Task or Object to reduce. If Task, the expander waits for it.
-        partition: Max rows per partition task (default 5000).
+        partition: Max rows per partition task.
         args: Extra positional arguments forwarded to cbk.
         kwargs: Extra keyword arguments forwarded to cbk.
 
     Returns:
-        The expander Task; its result is the final single-row Object.
+        The expander Task. At runtime it pre-allocates every layer Object and
+        registers all layer groups at once; its result is the final
+        single-row Object, and tasks that consume it wait for every layer.
     """
     if kwargs is None:
         kwargs = {}
