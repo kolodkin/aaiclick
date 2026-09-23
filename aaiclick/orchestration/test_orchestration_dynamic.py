@@ -81,8 +81,7 @@ async def test_map_execution_basic(orch_ctx, monkeypatch):
     with tempfile.TemporaryDirectory() as tmpdir:
         output_file = str(Path(tmpdir) / "output.txt")
 
-        j = await map_basic_pipeline(output_file=output_file)
-        await ajob_test(j)
+        j = await ajob_test(map_basic_pipeline, output_file=output_file)
 
         assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
         lines = Path(output_file).read_text().strip().split("\n")
@@ -94,8 +93,7 @@ async def test_map_execution_with_kwargs(orch_ctx, monkeypatch):
     with tempfile.TemporaryDirectory() as tmpdir:
         output_file = str(Path(tmpdir) / "output.txt")
 
-        j = await map_kwargs_pipeline(output_file=output_file, factor=3)
-        await ajob_test(j)
+        j = await ajob_test(map_kwargs_pipeline, output_file=output_file, factor=3)
 
         assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
         lines = Path(output_file).read_text().strip().split("\n")
@@ -107,8 +105,7 @@ async def test_map_execution_multiple_partitions(orch_ctx, monkeypatch):
     with tempfile.TemporaryDirectory() as tmpdir:
         output_file = str(Path(tmpdir) / "output.txt")
 
-        j = await map_partitions_pipeline(output_file=output_file)
-        await ajob_test(j)
+        j = await ajob_test(map_partitions_pipeline, output_file=output_file)
 
         assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
         lines = Path(output_file).read_text().strip().split("\n")

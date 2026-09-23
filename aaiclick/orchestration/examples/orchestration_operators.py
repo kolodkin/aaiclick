@@ -71,15 +71,13 @@ async def amain():
     async with data_context():
         print("\nmap(): callback per row, one task per partition")
         print("-" * 50)
-        job1 = await map_job()
-        await ajob_test(job1)
+        job1 = await ajob_test(map_job)
         print(f"Job status: {job1.status}")
         assert job1.status == JOB_COMPLETED, f"Expected COMPLETED, got {job1.status}: {job1.error}"
 
         print("\nreduce(): layered sum down to one row")
         print("-" * 50)
-        job2 = await reduce_job()
-        await ajob_test(job2)
+        job2 = await ajob_test(reduce_job)
         print(f"Job status: {job2.status}")
         assert job2.status == JOB_COMPLETED, f"Expected COMPLETED, got {job2.status}: {job2.error}"
         async with orch_context():
