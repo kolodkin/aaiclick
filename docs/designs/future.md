@@ -157,3 +157,20 @@ that cleanup has already dropped.
 ## Changelog
 
 `docs/changelog.md` — version history in Keep a Changelog format. Introduce with v1.0.0 release.
+
+## Reconsider the `>>` Dependency Syntax
+
+`a >> b` records a dependency as a side effect of `Task.__rshift__`
+(`aaiclick/orchestration/models.py`), so linters read it as a discarded value.
+Pyright's `reportUnusedExpression` is purely syntactic and cannot be scoped to
+`Task`/`Group`, so `pyrightconfig.json` turns it off globally, which also hides
+real unused expressions elsewhere. Open a design discussion on the dependency API
+before growing it further:
+
+- Keep `>>` / `<<` (Airflow-style) and accept the global ignore
+- Add or prefer an explicit call (`b.depends_on(a)`, `chain(a, b, c)`), which
+  linters accept and which reads as an action
+- Whether a `@job` body should need explicit edges at all, given that passing a
+  task as a kwarg already wires the dependency
+
+Decide on one taught form, then restore `reportUnusedExpression` if `>>` goes.
