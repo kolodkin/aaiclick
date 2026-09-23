@@ -49,8 +49,11 @@ from aaiclick.snowflake import get_snowflake_id
 
 from ...datetime_utils import utc_now
 from ..decorators import JobFactory, TaskFactory
+from ..dependency_graph import successor_task_ids
 from ..logging import _ChLogSink, _SinkFlusher, capture_task_output
 from ..models import (
+    DEPENDENCY_GROUP,
+    DEPENDENCY_TASK,
     JOB_COMPLETED,
     JOB_FAILED,
     JOB_RUNNING,
@@ -578,6 +581,47 @@ def _tasks_from(items: Any) -> list:
     return tasks
 
 
+def _hold_sources(items: Any) -> list:
+    """Top-level Task/Group items of a tasks position, unexpanded.
+
+    A returned Group holds its consumers as one ``group >> consumer`` edge;
+    its members are covered by the group edge and need no rows of their own.
+    """
+    return [
+        item for item in (items if isinstance(items, (list, tuple)) else [items]) if isinstance(item, (Task, Group))
+    ]
+
+
+async def _existing_successor_ids(parent_task_id: int) -> set[int]:
+    """Task ids one hop downstream of the parent, through direct and group edges."""
+    async with get_sql_session() as session:
+        return await successor_task_ids(session, {parent_task_id})
+
+
+async def _hold_successors(items: list, successor_ids: set[int]) -> None:
+    """Insert ``item >> successor`` for every returned item and existing successor.
+
+    Consumers of a task that returned data alongside children must not start
+    until the children have completed: the data usually is an Object the
+    children fill. Returned items are fresh, so no existing row can collide.
+    """
+    if not items or not successor_ids:
+        return
+    async with get_sql_session() as session:
+        for item in items:
+            previous_type = DEPENDENCY_TASK if isinstance(item, Task) else DEPENDENCY_GROUP
+            for successor_id in sorted(successor_ids):
+                session.add(
+                    Dependency(
+                        previous_id=item.id,
+                        previous_type=previous_type,
+                        next_id=successor_id,
+                        next_type=DEPENDENCY_TASK,
+                    )
+                )
+        await session.commit()
+
+
 async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int) -> Any:
     """Register dynamic child tasks returned from a task function.
 
@@ -587,6 +631,9 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
     - Task / Group                  → register it, return None
     - flat list/tuple of Task/Group → register all, return None
     - Any other value               → pure data, return as-is
+
+    A TaskResult with data also holds the parent's existing consumers until
+    every returned task completes (see ``_hold_successors``).
 
     The list/tuple must be flat and hold nothing but Tasks and Groups. Mixing
     in data is rejected — that is what ``task_result(data=..., tasks=[...])``
@@ -605,12 +652,15 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
     Raises:
         TypeError: if a returned list/tuple is nested or holds non-Task items.
     """
+    hold_items: list = []
     if result is None:
         return None
 
     elif isinstance(result, TaskResult):
         task_items = _tasks_from(result.tasks)
         data_result = result.data
+        if data_result is not None:
+            hold_items = _hold_sources(result.tasks)
     elif isinstance(result, (Task, Group)):
         # Job entry tasks can return a single Task or Group directly
         task_items = _tasks_from(result)
@@ -627,6 +677,11 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
     if not task_items:
         return data_result
 
+    # Successors that exist now, before the children are committed: the
+    # children themselves become successors of the parent below and must
+    # not hold one another.
+    successor_ids = await _existing_successor_ids(parent_task_id) if hold_items else set()
+
     # Wire dependency: each returned item depends on the parent task
     for item in task_items:
         if isinstance(item, (Task, Group)):
@@ -639,6 +694,7 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
             item.previous_dependencies.append(dep)
 
     await commit_tasks(task_items, job_id)
+    await _hold_successors(hold_items, successor_ids)
     await _pin_child_inputs(task_items)
 
     return data_result
