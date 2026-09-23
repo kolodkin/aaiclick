@@ -388,13 +388,14 @@ python -m aaiclick registered-job list        # List registered jobs
 
 **Implementation**: `aaiclick/orchestration/operators.py`
 
-| Operator                                                  | Description                                                                 |
-|-----------------------------------------------------------|-----------------------------------------------------------------------------|
-| `map(cbk, obj, partition, args, kwargs) -> Group`         | Partitions Object into Views, creates N `_map_part` child tasks.            |
-| `_map_part(cbk, part, out) -> None`                       | Applies `cbk(row, *args, **kwargs)` to each row in a partition View.        |
-| `reduce(cbk, obj, partition, args, kwargs) -> Group`      | Layered parallel reduction. Each layer reduces partitions into one row.     |
-| `_expand_reduce(cbk, obj, ...) -> (Object, [Groups])`     | Pre-allocates all layer Objects and tasks at once.                          |
-| `_reduce_part(cbk, part, layer_obj) -> None`              | Calls `cbk(partition, output)` — callback writes directly into `layer_obj`. |
+| Operator                                              | Description                                                                                        |
+|-------------------------------------------------------|----------------------------------------------------------------------------------------------------|
+| `map(cbk, obj, partition, args, kwargs) -> Task`      | Expander Task. Partitions Object into Views, creates N `_map_part` children; result is the output. |
+| `_map_part(cbk, part, out) -> None`                   | Applies `cbk(row, *args, **kwargs)` to each record; non-None returns are inserted into `out`.      |
+| `_finalize(out) -> Object`                            | Join task after the parts (or the last layer); the expander returns it as data.                    |
+| `reduce(cbk, obj, partition, args, kwargs) -> Task`   | Expander Task. Layered parallel reduction; result is the final single-row Object.                  |
+| `_expand_reduce(cbk, obj, ...) -> (Task, [Groups])`   | Pre-allocates all layer Objects and tasks at once.                                                 |
+| `_reduce_part(cbk, part, layer_obj) -> None`          | Calls `cbk(partition, output)` — callback writes directly into `layer_obj`.                        |
 
 ## reduce()
 
@@ -407,6 +408,13 @@ Layer 1  input=⌈N/P⌉  tasks=⌈.../P⌉ → layer_1_obj
 ```
 
 Empty input raises `TypeError("reduce() of empty sequence with no initial value")`.
+
+Consumers of the expander wait for every layer: the expander's data is a
+`_finalize` task after the last layer, and `register_returned_tasks` copies every
+edge leaving the expander (or its group) onto `_finalize` (see
+`_hold_dependencies` in `runner.py`). A group consumer stays a group edge, so
+members it gains later are held too. The same hold applies to any `task_result`
+whose data is one of its returned tasks.
 
 # Distributed Object Lifecycle
 
