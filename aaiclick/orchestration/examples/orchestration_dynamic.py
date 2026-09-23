@@ -111,9 +111,8 @@ async def amain():
         print("\nTask returning child tasks (implicit + explicit deps)")
         print("-" * 50)
 
-        job1 = await dynamic_tasks_job()
-        print(f"Created job: {job1.name} (ID: {job1.id})")
-        await ajob_test(job1)
+        job1 = await ajob_test(dynamic_tasks_job)
+        print(f"Ran job: {job1.name} (ID: {job1.id})")
         print(f"Job status: {job1.status}")
         if job1.error:
             print(f"Error: {job1.error}")

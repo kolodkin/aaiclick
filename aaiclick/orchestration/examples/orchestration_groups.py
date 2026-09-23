@@ -78,15 +78,13 @@ async def amain():
     async with data_context():
         print("\nGroup as a kwarg (fan-in of member results)")
         print("-" * 50)
-        job1 = await fan_in_job()
-        await ajob_test(job1)
+        job1 = await ajob_test(fan_in_job)
         print(f"Job status: {job1.status}")
         assert job1.status == JOB_COMPLETED, f"Expected COMPLETED, got {job1.status}: {job1.error}"
 
         print("\nOrdering edges on a Group (task >> group >> task)")
         print("-" * 50)
-        job2 = await ordering_job()
-        await ajob_test(job2)
+        job2 = await ajob_test(ordering_job)
         print(f"Job status: {job2.status}")
         assert job2.status == JOB_COMPLETED, f"Expected COMPLETED, got {job2.status}: {job2.error}"
 

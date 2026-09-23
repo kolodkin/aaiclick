@@ -61,8 +61,7 @@ def reduce_single_row():
 
 async def test_reduce_single_layer(orch_ctx):
     """reduce() with all rows in one partition produces correct sum."""
-    j = await reduce_single_layer(values=[1, 2, 3, 4, 5])
-    await ajob_test(j)
+    j = await ajob_test(reduce_single_layer, values=[1, 2, 3, 4, 5])
 
     assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
     async with data_context():
@@ -74,8 +73,7 @@ async def test_reduce_multi_layer(orch_ctx):
     """reduce() with partition=2 creates multiple layers for [1,2,3,4,5]."""
     # partition=2: layer 0 has ceil(5/2)=3 tasks, layer 1 has ceil(3/2)=2,
     # layer 2 has ceil(2/2)=1 → 3 layers total
-    j = await reduce_multi_layer(values=[1, 2, 3, 4, 5], partition_size=2)
-    await ajob_test(j)
+    j = await ajob_test(reduce_multi_layer, values=[1, 2, 3, 4, 5], partition_size=2)
 
     assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
     async with data_context():
@@ -85,8 +83,7 @@ async def test_reduce_multi_layer(orch_ctx):
 
 async def test_reduce_empty_raises(orch_ctx):
     """reduce() of empty Object without initializer fails with TypeError."""
-    j = await reduce_empty()
-    await ajob_test(j)
+    j = await ajob_test(reduce_empty)
 
     assert j.status == JOB_FAILED
     assert "reduce() of empty sequence" in (j.error or "")
@@ -94,8 +91,7 @@ async def test_reduce_empty_raises(orch_ctx):
 
 async def test_reduce_single_row(orch_ctx):
     """reduce() of a single-row Object returns that row unchanged."""
-    j = await reduce_single_row()
-    await ajob_test(j)
+    j = await ajob_test(reduce_single_row)
 
     assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
     async with data_context():
@@ -105,8 +101,7 @@ async def test_reduce_single_row(orch_ctx):
 
 async def test_reduce_native_api(orch_ctx):
     """reduce() with native API callback (partition.data() + sum()) completes successfully."""
-    j = await reduce_single_layer(values=[10, 20, 30, 40])
-    await ajob_test(j)
+    j = await ajob_test(reduce_single_layer, values=[10, 20, 30, 40])
 
     assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
     async with data_context():
