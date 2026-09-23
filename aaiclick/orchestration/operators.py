@@ -36,6 +36,7 @@ from aaiclick.data.data_context import (
     create_object,
     get_ch_client,
 )
+from aaiclick.data.models import ORIENT_RECORDS
 from aaiclick.data.object import Object, View
 from aaiclick.data.object.refs import ViewRef
 from aaiclick.snowflake import get_snowflake_id
@@ -140,14 +141,31 @@ async def _map_part(
     if cbk_kwargs is None:
         cbk_kwargs = {}
     is_async = inspect.iscoroutinefunction(cbk)
-    rows = await part.data()
+    rows = await part.data(orient=ORIENT_RECORDS)
     results = []
     for row in rows:
         value = await cbk(row, *cbk_args, **cbk_kwargs) if is_async else cbk(row, *cbk_args, **cbk_kwargs)
         if value is not None:
             results.append(value)
     if results:
+        _check_integer_columns(out, results)
         await out.insert(results)
+
+
+_INTEGER_TYPE_PREFIXES = ("Int", "UInt")
+
+
+def _check_integer_columns(out: Object, results: list) -> None:
+    """Refuse a float with a fraction bound for an integer column: the insert would truncate it silently."""
+    integer_columns = {name for name, col in out.schema.columns.items() if col.type.startswith(_INTEGER_TYPE_PREFIXES)}
+    for value in results:
+        cells = value.items() if isinstance(value, dict) else [("value", value)]
+        for column, cell in cells:
+            if column in integer_columns and isinstance(cell, float) and not cell.is_integer():
+                raise TypeError(
+                    f"map() callback returned {cell!r} for integer column {column!r}: "
+                    "the output schema equals the input schema"
+                )
 
 
 def reduce(

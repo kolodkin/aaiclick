@@ -181,7 +181,7 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
     if value.get(REF_TYPE) == CALLABLE:
         return import_callback(value["entrypoint"])
 
-    # from reduce() collecting map results
+    # A Group passed as a kwarg: the members' results, in task order
     if value.get(REF_TYPE) == GROUP_RESULTS:
         group_id = value["group_id"]
         result = await session.execute(
@@ -581,7 +581,7 @@ def _tasks_from(items: Any) -> list:
     return tasks
 
 
-def _hold_sources(items: Any) -> list:
+def _hold_sources(items: Any) -> list[Task | Group]:
     """Top-level Task/Group items of a tasks position, unexpanded.
 
     A returned Group holds its consumers as one ``group >> consumer`` edge;
@@ -592,22 +592,21 @@ def _hold_sources(items: Any) -> list:
     ]
 
 
-async def _existing_successor_ids(parent_task_id: int) -> set[int]:
-    """Task ids one hop downstream of the parent, through direct and group edges."""
-    async with get_sql_session() as session:
-        return await successor_task_ids(session, {parent_task_id})
-
-
-async def _hold_successors(items: list, successor_ids: set[int]) -> None:
+async def _hold_successors(items: list[Task | Group], parent_task_id: int) -> None:
     """Insert ``item >> successor`` for every returned item and existing successor.
 
     Consumers of a task that returned data alongside children must not start
     until the children have completed: the data usually is an Object the
-    children fill. Returned items are fresh, so no existing row can collide.
+    children fill. Runs before the children are committed, so they are not
+    yet successors of the parent and never hold one another; a hold row whose
+    child is then never committed is inert, since the scheduler's dependency
+    check joins on the tasks table. Returned items are fresh, so no existing
+    row can collide.
     """
-    if not items or not successor_ids:
+    if not items:
         return
     async with get_sql_session() as session:
+        successor_ids = await successor_task_ids(session, {parent_task_id})
         for item in items:
             previous_type = DEPENDENCY_TASK if isinstance(item, Task) else DEPENDENCY_GROUP
             for successor_id in sorted(successor_ids):
@@ -652,7 +651,7 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
     Raises:
         TypeError: if a returned list/tuple is nested or holds non-Task items.
     """
-    hold_items: list = []
+    hold_items: list[Task | Group] = []
     if result is None:
         return None
 
@@ -677,10 +676,7 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
     if not task_items:
         return data_result
 
-    # Successors that exist now, before the children are committed: the
-    # children themselves become successors of the parent below and must
-    # not hold one another.
-    successor_ids = await _existing_successor_ids(parent_task_id) if hold_items else set()
+    await _hold_successors(hold_items, parent_task_id)
 
     # Wire dependency: each returned item depends on the parent task
     for item in task_items:
@@ -694,7 +690,6 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
             item.previous_dependencies.append(dep)
 
     await commit_tasks(task_items, job_id)
-    await _hold_successors(hold_items, successor_ids)
     await _pin_child_inputs(task_items)
 
     return data_result

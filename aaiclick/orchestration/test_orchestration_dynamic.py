@@ -8,7 +8,7 @@ from aaiclick.data.object import Object
 from aaiclick.orchestration import get_job_result, task_result, tasks_list
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution.debug import ajob_test
-from aaiclick.orchestration.models import JOB_COMPLETED
+from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED
 from aaiclick.orchestration.operators import map
 
 # --- Task fixtures ---
@@ -51,6 +51,28 @@ async def keep_large(row: int) -> int | None:
 @task
 async def read_values(values: Object) -> list:
     return sorted(await values.data())
+
+
+@task
+async def create_test_records() -> Object:
+    """Two-column Object; aai_id=True for stable partition slicing."""
+    return await create_object_from_value({"a": [1, 2], "b": [3, 4]}, aai_id=True)
+
+
+@task
+async def swap(row: dict) -> dict:
+    return {"a": row["b"], "b": row["a"]}
+
+
+@task
+async def quarter(row: int) -> float:
+    return row / 4
+
+
+@task
+async def read_pairs(values: Object) -> list:
+    data = await values.data()
+    return sorted(zip(data["a"], data["b"], strict=True))
 
 
 # --- Job pipelines (must be module-level for entrypoint resolution) ---
@@ -106,6 +128,21 @@ def map_filter_pipeline():
     mapped = map(cbk=keep_large, obj=data, partition=2)
     seen = read_values(values=mapped)
     return task_result(data=seen, tasks=[data, mapped, seen])
+
+
+@job("test_map_records")
+def map_records_pipeline():
+    data = create_test_records()
+    mapped = map(cbk=swap, obj=data, partition=1)
+    seen = read_pairs(values=mapped)
+    return task_result(data=seen, tasks=[data, mapped, seen])
+
+
+@job("test_map_truncation")
+def map_truncation_pipeline():
+    data = create_test_data()
+    mapped = map(cbk=quarter, obj=data, partition=2)
+    return task_result(data=mapped, tasks=[data, mapped])
 
 
 # --- Execution tests ---
@@ -168,3 +205,22 @@ async def test_map_none_return_drops_row(orch_ctx):
     assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
     async with data_context():
         assert await get_job_result(j) == [30, 40, 50]
+
+
+async def test_map_dict_schema_rows_are_records(orch_ctx):
+    """A multi-column Object hands the callback one record per row, and the returns land as rows."""
+    j = await map_records_pipeline()
+    await ajob_test(j)
+
+    assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
+    async with data_context():
+        assert await get_job_result(j) == [[3, 1], [4, 2]]
+
+
+async def test_map_rejects_fraction_into_integer_column(orch_ctx):
+    """A float with a fraction is refused rather than truncated into the integer output column."""
+    j = await map_truncation_pipeline()
+    await ajob_test(j)
+
+    assert j.status == JOB_FAILED
+    assert "integer column 'value'" in (j.error or "")

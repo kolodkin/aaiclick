@@ -400,8 +400,9 @@ python -m aaiclick run-job <name> --entry-type shell --command 'python main.py' 
 
 - `map(cbk, obj, partition=5000)` — partitions the Object and creates one
   child task per partition; `cbk(row, *args, **kwargs)` is applied to each row
-  and its return value is appended to the output Object. A `None` return adds
-  no row. Output schema equals input schema.
+  (a value for single-column Objects, a `dict` for multi-column ones) and its
+  return value is appended to the output Object. A `None` return adds no row.
+  Output rows land in partition-completion order, not input order.
 - `reduce(cbk, obj, partition=5000)` — layered parallel reduction; each layer
   reduces partitions down until a single row remains. `cbk(partition, output)`
   receives an input partition and a pre-allocated output Object and writes via
@@ -412,6 +413,13 @@ Both accept a `Task` or an `Object` as input and return the expander `Task`.
 Its result is the output Object; a task that consumes it waits for every
 partition task. See
 [Examples: Orchestration Operators](../examples/orchestration_operators.md).
+
+!!! warning "Output schema equals input schema"
+    Both operators allocate the output from the input's schema. A `map()`
+    callback that returns a fraction for an integer column raises `TypeError`
+    rather than truncating; other type changes are cast by ClickHouse on
+    insert. Create the input with `aai_id=True` (or an `order_by` view) so the
+    LIMIT/OFFSET partitions are disjoint.
 
 # Managing Jobs
 

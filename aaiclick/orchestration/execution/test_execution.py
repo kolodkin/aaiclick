@@ -18,6 +18,7 @@ from aaiclick.orchestration.examples.orchestration_dynamic import (
     chain_pipeline,
     dynamic_pipeline,
 )
+from aaiclick.orchestration.execution import runner as runner_module
 from aaiclick.orchestration.execution.debug import ajob_test
 from aaiclick.orchestration.execution.runner import (
     _materialize_lazies,
@@ -585,6 +586,29 @@ async def test_register_returned_tasks_holds_group_successor(orch_ctx):
     await register_returned_tasks(task_result(data="x", tasks=[layer]), parent_task_id=parent.id, job_id=job.id)
 
     assert await _dependency_pairs(consumer.id) == {(parent_group.id, "group"), (layer.id, "group")}
+
+
+async def test_register_returned_tasks_holds_before_children_commit(orch_ctx, monkeypatch):
+    """Hold rows land before the children, so a failed child commit never leaves unheld children.
+
+    An orphan hold row whose previous task never exists is inert: the
+    scheduler's dependency check joins on the tasks table.
+    """
+    job = await create_job("hold_first", "mod.func")
+    parent = create_task("mod.parent")
+    consumer = create_task("mod.consumer")
+    parent >> consumer
+    await commit_tasks([parent, consumer], job_id=job.id)
+
+    async def failing_commit(items, job_id):
+        raise RuntimeError("commit failed")
+
+    monkeypatch.setattr(runner_module, "commit_tasks", failing_commit)
+    child = create_task("mod.child")
+    with pytest.raises(RuntimeError, match="commit failed"):
+        await register_returned_tasks(task_result(data="x", tasks=[child]), parent_task_id=parent.id, job_id=job.id)
+
+    assert await _dependency_pairs(consumer.id) == {(parent.id, "task"), (child.id, "task")}
 
 
 async def test_register_returned_tasks_no_hold_without_data(orch_ctx):
