@@ -23,8 +23,7 @@ def pipeline(x: int, y: int):
     product = multiply(x=x, y=y)
     return TaskResult(tasks=[sum_result, product])
 
-j = pipeline(x=3, y=4)
-job_test(j)  # execute synchronously (testing/local)
+job_test(pipeline, x=3, y=4)  # create the job and execute it synchronously
 ```
 
 See `aaiclick/orchestration/examples/orchestration_basic.py` for a full example.
@@ -43,7 +42,7 @@ Wraps an async function into a `TaskFactory`. Parameters: `name` (default: funct
 
 Wraps a workflow function into a `JobFactory`. Auto-manages `orch_context()` and commits all tasks to SQL. Use `@job("name")`, `@job(name="name")`, or bare `@job`.
 
-**Job testing**: `job_test(job)` and `ajob_test(job)` execute synchronously (`aaiclick/orchestration/execution/debug.py`).
+**Job testing**: `job_test(job)` and `ajob_test(job)` execute synchronously; either takes a `Job` or a `@job` factory plus its kwargs (`aaiclick/orchestration/execution/debug.py`).
 
 # Topology
 

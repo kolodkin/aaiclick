@@ -24,8 +24,7 @@ def pipeline(x: int, y: int):
     product = multiply(x=x, y=y)
     return TaskResult(tasks=[sum_result, product])
 
-j = pipeline(x=3, y=4)
-job_test(j)  # execute synchronously (testing/local)
+job_test(pipeline, x=3, y=4)  # create the job and execute it synchronously
 ```
 
 Passing one task's result as another task's argument creates the dependency
@@ -91,7 +90,9 @@ See [Examples: Orchestration Groups](../examples/orchestration_groups.md).
 
 `job_test(j)` (sync) and `await ajob_test(j)` (async) execute every task of a
 job in dependency order in the current process — ideal for developing and
-debugging a pipeline before handing it to workers.
+debugging a pipeline before handing it to workers. Both also accept the `@job`
+function itself, plus its kwargs, and create the job first:
+`job_test(pipeline, x=3, y=4)`. Both return the executed `Job`.
 
 # Deployment Modes
 
