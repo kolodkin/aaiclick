@@ -553,7 +553,7 @@ async def _dependency_pairs(next_id: int) -> set[tuple[int, str]]:
         rows = await session.execute(
             select(Dependency.previous_id, Dependency.previous_type).where(Dependency.next_id == next_id)
         )
-        return set(rows.all())
+        return {(previous_id, previous_type) for previous_id, previous_type in rows.all()}
 
 
 async def test_register_returned_tasks_holds_direct_successor(orch_ctx):
