@@ -144,6 +144,25 @@ See `viewer.md` for the shipped design.
 - **Dashboard authoring in the UI**: `@dashboard` picks and runs; HTML and
   panel queries are written through MCP, REST, or `view dashboards save`.
 
+## Job Graph — Collapsible Groups
+
+Group containers are fixed frames (`src/components/graph/GroupNode.tsx`), and
+the server expands a group edge onto every member, so a wide group draws one
+edge per member. Collapsing is client-only — the graph response already
+carries every group and its members:
+
+- A collapsed group renders as one node (name, rolled-up status, member
+  count). Edges touching a member re-point to it and are deduplicated;
+  intra-group edges are hidden. Collapsing a parent hides nested groups.
+- A chevron in the group header toggles it; clicking the rest of the frame
+  still does nothing. Groups start expanded; the state lives in the URL or
+  `localStorage`.
+- Collapsing re-runs dagre — unlike the build-edge toggle, the point is to
+  reclaim space, so node positions change when the toggle flips.
+
+**When to revisit**: when a real job's group — e.g. `map()`'s per-partition
+children — makes the graph unreadable.
+
 ## Lineage — Tier 2 Full Replay
 
 The Tier 1 tools are built (`aaiclick/ai/agents/lineage_tools.py` —
