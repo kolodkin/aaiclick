@@ -235,7 +235,7 @@ def test_task_logs_view_with_lines():
     assert [(line.stream, line.text) for line in view.lines] == [("stdout", "a"), ("stderr", "b")]
 
 
-def test_build_job_graph_view_expands_group_dependency_onto_sink_task():
+def test_build_job_graph_view_expands_group_dependency_onto_every_member():
     """A group→task dependency must reach the graph as a task→task edge."""
     job = Job(id=1, name="graph_job")
     tasks = [
@@ -253,8 +253,7 @@ def test_build_job_graph_view_expands_group_dependency_onto_sink_task():
 
     assert {n.id for n in view.nodes if n.kind == GRAPH_NODE_TASK} == {101, 102, 103}
     edges = {(e.source_id, e.target_id) for e in view.edges}
-    assert (102, 103) in edges
-    assert (101, 103) not in edges
+    assert edges == {(101, 102), (101, 103), (102, 103)}
     assert view.dropped_cycle_edges == 0
 
 

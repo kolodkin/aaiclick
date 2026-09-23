@@ -5,16 +5,6 @@ Planned work across aaiclick, ordered by priority.
 
 ---
 
-# Graph Rendering Expands Group Edges Differently From the Runtime
-
-`expand_dependencies()` in `graph.py` expands `A >> G` to G's source tasks and
-`G >> B` to G's sinks, while `successor_task_ids()` and the scheduler treat a
-group target as all of its members. The rendered DAG therefore does not match
-which tasks the runtime waits on or pins for. Decide once whether groups have
-internal ordering; if not, render all members like the runtime does.
-
----
-
 # `map()` Has No Output Path
 
 `_expand_map()` (`aaiclick/orchestration/operators.py`) creates `out` and the

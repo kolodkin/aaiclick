@@ -336,7 +336,7 @@ def build_job_graph_view(
             group_children.setdefault(group.parent_group_id, set()).add(group.id)
 
     rows = [DependencyRow(d.previous_id, d.previous_type, d.next_id, d.next_type) for d in dependencies]
-    edges, dropped = build_graph_edges(rows, group_members, group_children)
+    edges, dropped = build_graph_edges(rows, group_members)
 
     # A dependency row can reference a task removed by a retention sweep;
     # React Flow throws on an edge whose endpoint is missing.

@@ -33,7 +33,7 @@ def _task_dep(previous_id: int, next_id: int) -> DependencyRow:
 
 
 def test_task_to_task_dependencies_pass_through():
-    edges = expand_dependencies([_task_dep(1, 2)], {}, {})
+    edges = expand_dependencies([_task_dep(1, 2)], {})
 
     assert edges == [GraphEdge(1, 2)]
 
@@ -44,50 +44,48 @@ def test_group_member_tasks_includes_nested_children():
     assert members == {1, 2, 3}
 
 
-def test_group_as_previous_expands_to_sink_tasks():
-    """``G >> B`` means B waits for all of G, so only G's sinks gain an edge."""
-    dependencies = [
-        _task_dep(1, 2),
-        DependencyRow(10, DEPENDENCY_GROUP, 3, DEPENDENCY_TASK),
-    ]
+@pytest.mark.parametrize(
+    "group_dep, expected",
+    [
+        pytest.param(
+            DependencyRow(10, DEPENDENCY_GROUP, 3, DEPENDENCY_TASK),
+            {GraphEdge(1, 3), GraphEdge(2, 3)},
+            id="group-to-task-from-every-member",
+        ),
+        pytest.param(
+            DependencyRow(3, DEPENDENCY_TASK, 10, DEPENDENCY_GROUP),
+            {GraphEdge(3, 1), GraphEdge(3, 2)},
+            id="task-to-group-into-every-member",
+        ),
+        pytest.param(
+            DependencyRow(10, DEPENDENCY_GROUP, 11, DEPENDENCY_GROUP),
+            {GraphEdge(1, 4), GraphEdge(1, 5), GraphEdge(2, 4), GraphEdge(2, 5)},
+            id="group-to-group-every-pair",
+        ),
+    ],
+)
+def test_group_edges_expand_to_every_member_like_the_scheduler(group_dep, expected):
+    """Intra-group ordering does not narrow a group edge: the scheduler makes every member wait."""
+    dependencies = [_task_dep(1, 2), _task_dep(4, 5), group_dep]
 
-    edges = expand_dependencies(dependencies, {10: {1, 2}}, {})
+    edges = expand_dependencies(dependencies, {10: {1, 2}, 11: {4, 5}})
 
-    assert GraphEdge(2, 3) in edges
-    assert GraphEdge(1, 3) not in edges
-
-
-def test_group_as_next_expands_to_source_tasks():
-    """``A >> G`` means all of G waits for A, so only G's sources gain an edge."""
-    dependencies = [
-        _task_dep(1, 2),
-        DependencyRow(3, DEPENDENCY_TASK, 10, DEPENDENCY_GROUP),
-    ]
-
-    edges = expand_dependencies(dependencies, {10: {1, 2}}, {})
-
-    assert GraphEdge(3, 1) in edges
-    assert GraphEdge(3, 2) not in edges
+    assert set(edges) == {GraphEdge(1, 2), GraphEdge(4, 5)} | expected
 
 
-def test_group_to_group_connects_sinks_to_sources():
-    dependencies = [
-        _task_dep(1, 2),
-        _task_dep(3, 4),
-        DependencyRow(10, DEPENDENCY_GROUP, 11, DEPENDENCY_GROUP),
-    ]
+def test_group_edge_does_not_reach_nested_group_tasks():
+    """The scheduler matches ``tasks.group_id`` only, so a child group's tasks do not wait."""
+    dependencies = [DependencyRow(3, DEPENDENCY_TASK, 10, DEPENDENCY_GROUP)]
 
-    edges = expand_dependencies(dependencies, {10: {1, 2}, 11: {3, 4}}, {})
+    edges = expand_dependencies(dependencies, {10: {1}, 11: {2}})
 
-    assert GraphEdge(2, 3) in edges
-    assert GraphEdge(2, 4) not in edges
-    assert GraphEdge(1, 3) not in edges
+    assert edges == [GraphEdge(3, 1)]
 
 
 def test_empty_group_contributes_no_edges():
     dependencies = [DependencyRow(10, DEPENDENCY_GROUP, 3, DEPENDENCY_TASK)]
 
-    edges = expand_dependencies(dependencies, {10: set()}, {})
+    edges = expand_dependencies(dependencies, {10: set()})
 
     assert edges == []
 
@@ -95,7 +93,7 @@ def test_empty_group_contributes_no_edges():
 def test_expansion_deduplicates_edges():
     dependencies = [_task_dep(1, 2), _task_dep(1, 2)]
 
-    edges = expand_dependencies(dependencies, {}, {})
+    edges = expand_dependencies(dependencies, {})
 
     assert edges == [GraphEdge(1, 2)]
 
@@ -129,7 +127,7 @@ def test_drop_cycle_edges_handles_deep_chain_without_recursion_error():
 def test_build_graph_edges_expands_then_drops_cycles():
     dependencies = [_task_dep(1, 2), _task_dep(2, 1)]
 
-    edges, dropped = build_graph_edges(dependencies, {}, {})
+    edges, dropped = build_graph_edges(dependencies, {})
 
     assert dropped == 1
     assert len(edges) == 1
