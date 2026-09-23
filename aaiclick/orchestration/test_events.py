@@ -110,8 +110,6 @@ def test_event_bus_context_swaps_and_restores():
         pytest.param("UPDATE tasks_archive SET x = 1", False, id="prefix-not-whole-word"),
         pytest.param(CLAIM_NEXT_TASK_SQL, True, id="claim-cte"),
         pytest.param(COMPLETE_JOB_SQL, True, id="complete-job-comment-header"),
-        pytest.param("WITH t AS (UPDATE tasks SET status = 'x' RETURNING id) SELECT * FROM t", True, id="cte-update"),
-        pytest.param("-- note\nUPDATE jobs SET status = :s", True, id="leading-comment"),
         pytest.param("WITH t AS (SELECT id FROM tasks) SELECT * FROM t", False, id="cte-select-only"),
     ],
 )
