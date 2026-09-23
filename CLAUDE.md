@@ -18,6 +18,8 @@ If any workflows fail, analyze the error logs and fix issues automatically.
 
 Use the `python-testing-style` skill for test layout, async test rules, Object API alignment, what NOT to test, when to parametrize input/expected clusters, and when a redundant test is safe to delete.
 
+- **Do not test SQL text.** Assert outcomes — rows returned, tables remaining, state after the call — not the statement string sent to a client. Exceptions: the user explicitly asks for it, or the test docstring states that the SQL shape is the contract (e.g. a function whose return value is SQL).
+
 # Coding Guidelines
 
 - **No history comments**: Do NOT add comments about removed code (e.g., `# Removed: ...`)

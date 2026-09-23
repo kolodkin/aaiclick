@@ -44,6 +44,7 @@ Python is already tested — trust it.
 - Asserting default values of dataclass / Pydantic / NamedTuple fields (`assert obj.x is None`).
 - Decorator tests that only check `@task(name="x")` stores `name == "x"`.
 - Trivial factory passthrough (`factory(a, b)` → assert fields match `a`, `b`).
+- SQL text sent to a (mocked) client. Assert the outcome — rows, tables remaining, state — unless the user explicitly asks for it or the test docstring says the SQL shape is the contract (e.g. `select_sql()` returns SQL).
 
 **Test real behavior**: branching logic, computations, validation errors, DB round-trips, schema inference, format output, ID uniqueness, env-var parsing.
 

@@ -35,6 +35,22 @@ Remove each item from that file as it lands; delete the file when empty.
 
 ---
 
+# One Runner-Mode Validator for Container-Only Fields
+
+`run_job` (`aaiclick/orchestration/registered_jobs.py`) rejects `image`,
+`git_*`, and `dockerfile` for subprocess jobs, but the same silent drop
+survives in two places: `register_job` / `upsert_registered_job` store those
+fields on a subprocess registration where nothing reads them, and `run_job`
+ignores `namespace` / `service_account` / `image_pull_secret` off kubernetes,
+as its docstring promises. One `validate_runner_fields(runner_mode, ...)` in
+`runner_config.py`, next to `validate_image_exclusivity`, should cover
+registration and the kubernetes trio. Two preconditions: move `RUNNER_*` and
+`RunnerMode` from `models.py` into `runner_config.py` (`models.py` already
+imports it, so the validator cannot import back), and decide to reject the
+kubernetes overrides instead of documenting them as ignored.
+
+---
+
 # Tests That Assert SQL Text Instead of Outcomes
 
 A few tests pin the exact command string sent to a mocked ClickHouse client
