@@ -70,9 +70,7 @@ async def report(summary: dict):
 @job("sales_pipeline")
 def sales_pipeline():
     sales = load_sales()                # a Task, not data — nothing runs yet
-    # dependencies resolved from arguments; at runtime analyze()
-    # receives load_sales()'s return value (the Object), not the Task
-    summary = analyze(sales=sales)      # returns a Python dict
+    summary = analyze(sales=sales)      # gets the sales task's return value at runtime; returns a Python dict
     return report(summary=summary)      # the dict flows to report()
 
 if __name__ == "__main__":
