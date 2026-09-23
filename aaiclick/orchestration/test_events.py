@@ -277,6 +277,15 @@ async def test_unrelated_write_publishes_nothing(orch_ctx, live_bus):
     assert signals == []
 
 
+async def test_write_matching_no_row_publishes_nothing(orch_ctx, live_bus):
+    """An idle worker's claim poll commits a watched write that changes nothing; it must not signal."""
+    async with recording(live_bus) as signals:
+        async with get_sql_session() as session:
+            await session.execute(text("UPDATE tasks SET status = :status WHERE id = -1"), {"status": TASK_RUNNING})
+            await session.commit()
+    assert signals == []
+
+
 async def test_rolled_back_write_publishes_nothing(orch_ctx, live_bus):
     job = await create_job("events_rollback", SAMPLE_TASK)
     await asyncio.sleep(SETTLE)

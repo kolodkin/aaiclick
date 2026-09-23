@@ -17,6 +17,7 @@ import re
 from itertools import chain
 
 from sqlalchemy import event
+from sqlalchemy.engine import Result
 from sqlalchemy.orm import ORMExecuteState, Session, UOWTransaction
 from sqlalchemy.sql import TableClause
 from sqlalchemy.sql.dml import UpdateBase
@@ -56,9 +57,16 @@ def _statement_writes_watched(statement: object) -> bool:
     return False
 
 
-def _flag_statement_writes(state: ORMExecuteState) -> None:
-    if _statement_writes_watched(state.statement):
+def _flag_statement_writes(state: ORMExecuteState) -> Result | None:
+    if not _statement_writes_watched(state.statement):
+        return None
+    # Run it here to read the row count: a write that matched nothing, like an
+    # idle worker's claim poll every second, has nothing for a viewer to see.
+    # -1 (unknown, e.g. executemany) still counts as a change.
+    result = state.invoke_statement()
+    if getattr(result, "rowcount", -1) != 0:
         state.session.info[_DIRTY_KEY] = True
+    return result
 
 
 def _flag_orm_writes(session: Session, flush_context: UOWTransaction, instances: object) -> None:
