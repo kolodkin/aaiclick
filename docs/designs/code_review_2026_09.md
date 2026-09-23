@@ -81,6 +81,13 @@ is fixed.
   `aaiclick/orchestration/orch_context.py`.
 - **Stale reference** to `_pod_manifest()` (real name `_build_pod_manifest`)
   — `docs/designs/java-sdk.md`.
+- **Container-only fields accepted where nothing reads them** —
+  `aaiclick/orchestration/registered_jobs.py`. `register_job` stores `image`
+  / `dockerfile` / `git_remote` on a subprocess registration, and `run_job`
+  ignores `namespace` / `service_account` / `image_pull_secret` off
+  kubernetes. `run_job` now rejects the build fields for subprocess jobs; one
+  validator taking `runner_mode` should cover registration and the kubernetes
+  trio too (needs `RUNNER_*` moved out of `models.py` to avoid a cycle).
 - **Schema-fixture CI step duplicated verbatim** between `publish.yaml` and
   `test.yaml`; extract to a composite action.
 

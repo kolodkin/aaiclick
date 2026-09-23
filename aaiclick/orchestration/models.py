@@ -274,11 +274,9 @@ class _DependencyOps:
         return cast(Union["Task", "Group"], self)
 
     def link_previous(self, previous_id: int, previous_type: DependencyType) -> None:
-        """Record that this item runs after ``previous_id``; a repeat is a no-op.
+        """Append a Dependency on ``(previous_id, previous_type)`` unless one exists.
 
-        ``dependencies`` has a composite primary key, so every edge writer
-        (``>>``, kwargs of a ``@task`` call, dynamic task returns) goes through
-        here to keep a second identical edge from failing the commit.
+        ``dependencies`` has a composite primary key, so every edge writer goes through here.
         """
         node = self._node()
         if any(d.previous_id == previous_id and d.previous_type == previous_type for d in node.previous_dependencies):

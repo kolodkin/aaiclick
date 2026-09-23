@@ -5,51 +5,38 @@ aaiclick.oplog.cleanup - Table cleanup helpers.
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, NamedTuple
+from collections.abc import Iterable
 
-if TYPE_CHECKING:
-    from aaiclick.data.data_context.ch_client import ChClient
+from aaiclick.data.data_context.ch_client import ChClient
 
 logger = logging.getLogger(__name__)
 
-
-class TableOwner(NamedTuple):
-    """Ownership metadata for a table, copied from table_registry."""
-
-    job_id: int | None = None
-    task_id: int | None = None
-    run_id: int | None = None
+# A sweep gives up after this many failed drops in a row: an unreachable
+# ClickHouse would otherwise cost one connect timeout per eligible table per
+# poll. The untried tables stay registered and the next sweep picks them up.
+MAX_CONSECUTIVE_DROP_FAILURES = 3
 
 
-async def lineage_aware_drop(
-    ch_client: ChClient,
-    table_name: str,
-    owner: TableOwner | None = None,
-) -> None:
-    """Drop a table. Exceptions propagate.
+async def drop_tables(ch_client: ChClient, table_names: Iterable[str]) -> list[str]:
+    """Best-effort ``DROP TABLE IF EXISTS`` over ``table_names``; returns the names dropped.
 
-    Args:
-        ch_client: Async ClickHouse client.
-        table_name: Table to drop.
-        owner: Ownership metadata (reserved for future use).
-    """
-    await ch_client.command(f"DROP TABLE IF EXISTS {table_name}")
-
-
-async def drop_tables(ch_client: ChClient, owners: Mapping[str, TableOwner | None]) -> list[str]:
-    """Best-effort drop of several tables; returns the names actually dropped.
-
-    A sweep deletes registry and ref rows only for the returned names, so a
-    table whose DROP failed is seen again on the next pass instead of
-    leaking. Each failure is logged at warning level.
+    Callers delete registry and ref rows only for the returned names, so a
+    table whose DROP failed is seen again on the next pass instead of leaking.
+    The first failure of a run is logged with its traceback, later ones at debug.
     """
     dropped: list[str] = []
-    for table_name, owner in owners.items():
+    consecutive_failures = 0
+    for table_name in table_names:
         try:
-            await lineage_aware_drop(ch_client, table_name, owner=owner)
+            await ch_client.command(f"DROP TABLE IF EXISTS {table_name}")
         except Exception:
-            logger.warning("Failed to drop CH table %s", table_name, exc_info=True)
+            consecutive_failures += 1
+            level = logging.WARNING if consecutive_failures == 1 else logging.DEBUG
+            logger.log(level, "Failed to drop CH table %s", table_name, exc_info=True)
+            if consecutive_failures >= MAX_CONSECUTIVE_DROP_FAILURES:
+                logger.warning("Giving up on this sweep after %d consecutive failed drops", consecutive_failures)
+                break
             continue
+        consecutive_failures = 0
         dropped.append(table_name)
     return dropped
