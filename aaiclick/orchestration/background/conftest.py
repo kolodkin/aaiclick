@@ -1,37 +1,21 @@
-"""Shared test fixtures for background worker tests."""
+"""Shared helpers for background worker tests.
+
+The ``bg_db`` engine fixture lives in ``aaiclick/orchestration/conftest.py``.
+"""
 
 from __future__ import annotations
 
-import os
-import shutil
-import tempfile
 from unittest.mock import AsyncMock
 
-import pytest
-from sqlalchemy import create_engine, text
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from aaiclick.data.data_context import ChClient
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
-from aaiclick.orchestration.models import SQLModel
 from aaiclick.snowflake import get_snowflake_id
 
 from ...datetime_utils import utc_now
-
-
-@pytest.fixture
-async def bg_db():
-    """Create a temp SQLite DB with schema, yield (async_engine, tmpdir), then cleanup."""
-    tmpdir = tempfile.mkdtemp(prefix="aaiclick_bgtest_")
-    db_path = os.path.join(tmpdir, "test.db")
-    sync_engine = create_engine(f"sqlite:///{db_path}")
-    SQLModel.metadata.create_all(sync_engine)
-    sync_engine.dispose()
-    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
-    yield engine
-    await engine.dispose()
-    shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 def make_worker(engine, ch_client: ChClient | None = None) -> BackgroundWorker:

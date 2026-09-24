@@ -12,10 +12,10 @@ from sqlalchemy import text
 
 from aaiclick.backend import is_postgres
 
-from .events import EventBus, get_transport
-from .events import postgres as postgres_transport
-from .events.postgres import PostgresTransport
-from .orch_context import get_sql_session
+from ..orch_context import get_sql_session
+from . import EventBus, get_transport
+from . import postgres as postgres_transport
+from .postgres import PostgresTransport
 from .test_events import SETTLE, _wait_listening, recording
 
 pytestmark = pytest.mark.skipif(not is_postgres(), reason="Postgres backend only")

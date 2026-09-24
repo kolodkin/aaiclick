@@ -11,8 +11,15 @@ from sqlmodel import col
 
 from aaiclick.backend import is_postgres
 
-from .background.handler import COMPLETE_JOB_SQL
-from .events import (
+from ..background.handler import COMPLETE_JOB_SQL
+from ..execution.claiming import cancel_job, update_task_status
+from ..execution.execution_worker import register_execution_worker
+from ..execution.pg_handler import CLAIM_NEXT_TASK_SQL
+from ..factories import create_job
+from ..jobs import get_tasks_for_job
+from ..models import TASK_RUNNING, Task
+from ..orch_context import get_sql_session
+from . import (
     STATE_LISTENING,
     EventBus,
     SignalTransport,
@@ -23,17 +30,10 @@ from .events import (
     signal_transport,
     unregister_session_hooks,
 )
-from .events import transport as transport_module
-from .events.hooks import statement_touches_watched
-from .events.local import LocalTransport
-from .events.state import TransportState
-from .execution.claiming import cancel_job, update_task_status
-from .execution.execution_worker import register_execution_worker
-from .execution.pg_handler import CLAIM_NEXT_TASK_SQL
-from .factories import create_job
-from .jobs import get_tasks_for_job
-from .models import TASK_RUNNING, Task
-from .orch_context import get_sql_session
+from . import transport as transport_module
+from .hooks import statement_touches_watched
+from .local import LocalTransport
+from .state import TransportState
 
 SAMPLE_TASK = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
 
