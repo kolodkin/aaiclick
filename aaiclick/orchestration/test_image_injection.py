@@ -139,21 +139,19 @@ async def test_commit_tasks_stamps_and_injects_for_docker_job(orch_ctx_no_ch, mo
     """commit_tasks on a docker job: undeclared tasks inherit the committing
     task's image, and a build task + edges appear in the same commit."""
     monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
-    job = await create_job("j", "m.entry")
+    job_id = await _create_docker_job()
     async with get_sql_session() as session:
-        row = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
-        row.runner_mode = RUNNER_DOCKER
-        entry = (await session.execute(select(Task).where(Task.job_id == job.id))).scalar_one()
+        entry = (await session.execute(select(Task).where(Task.job_id == job_id))).scalar_one()
         entry.image_source = BUILD_A
         await session.commit()
         entry_id = entry.id
 
-    set_current_task_info(task_id=entry_id, job_id=job.id, image_source=BUILD_A)
+    set_current_task_info(task_id=entry_id, job_id=job_id, image_source=BUILD_A)
     child = create_task("m.child")
-    await commit_tasks(child, job.id)
+    await commit_tasks(child, job_id)
 
     async with get_sql_session() as session:
-        rows = (await session.execute(select(Task).where(Task.job_id == job.id))).scalars().all()
+        rows = (await session.execute(select(Task).where(Task.job_id == job_id))).scalars().all()
     by_entry = {t.entrypoint: t for t in rows}
     assert by_entry["m.child"].image_source == BUILD_A
     build = by_entry[IMAGE_BUILD_ENTRYPOINT]

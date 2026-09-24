@@ -150,31 +150,21 @@ async def test_resolve_launch_image_rejects_missing_source():
         await resolve_launch_image(None, task_id=42)
 
 
-async def test_resolve_launch_image_never_builds_without_registry(monkeypatch):
-    """The build task in the graph owns the build in both modes; launch only
-    computes the tag."""
-    calls = []
-
-    async def fake_build(source, image_tag):
-        calls.append(image_tag)
-
-    monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
-    monkeypatch.setattr(docker_build, "build_image_to_tag", fake_build)
+@pytest.mark.parametrize(
+    "registry, expected_tag",
+    [
+        # Empty reads as unset (``get_registry``): the local-build mode.
+        pytest.param("", "aaiclick-job:" + "a" * 40, id="no-registry"),
+        pytest.param("registry.example:5000", "registry.example:5000/aaiclick-job:" + "a" * 40, id="registry"),
+    ],
+)
+async def test_resolve_launch_image_never_builds(monkeypatch, registry, expected_tag):
+    """The build task in the graph owns the build in both modes (its dependency
+    edge guaranteed the push); launch only computes the tag."""
+    build = AsyncMock()
+    monkeypatch.setenv("AAICLICK_REGISTRY", registry)
+    monkeypatch.setattr(docker_build, "build_image_to_tag", build)
     source = ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40)
-    tag = await resolve_launch_image(source, task_id=1)
-    assert calls == []
-    assert tag == "aaiclick-job:" + "a" * 40
 
-
-async def test_resolve_launch_image_skips_build_with_registry(monkeypatch):
-    calls = []
-
-    async def fake_build(source, image_tag):
-        calls.append(image_tag)
-
-    monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
-    monkeypatch.setattr(docker_build, "build_image_to_tag", fake_build)
-    source = ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40)
-    tag = await resolve_launch_image(source, task_id=1)
-    assert calls == []  # the dependency edge guaranteed the push
-    assert tag == "registry.example:5000/aaiclick-job:" + "a" * 40
+    assert await resolve_launch_image(source, task_id=1) == expected_tag
+    build.assert_not_awaited()

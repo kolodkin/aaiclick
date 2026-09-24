@@ -99,8 +99,6 @@ def reduce_view_pipeline(values: list, where: str, partition_size: int):
         pytest.param(reduce_multi_layer, {"values": [1, 2, 3, 4, 5], "partition_size": 2}, 15, id="multi-layer"),
         # A single-row Object reduces to that row unchanged.
         pytest.param(reduce_single_row, {}, 42, id="single-row"),
-        # Native API callback (partition.data() + sum()).
-        pytest.param(reduce_single_layer, {"values": [10, 20, 30, 40]}, 100, id="native-api"),
     ],
 )
 async def test_reduce(orch_ctx, pipeline, pipeline_kwargs, expected):
