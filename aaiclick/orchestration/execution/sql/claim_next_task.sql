@@ -10,6 +10,10 @@
 --   allow_image_tasks    false pins the worker to host-subprocess tasks
 --                         (image_source both SQL NULL and JSON null mean
 --                         "no image" — SQLAlchemy writes the latter)
+--
+-- The final SELECT must return every claimed row: the change-signal hook
+-- (events/hooks.py) reads this statement's row count and signals only when
+-- it is non-zero.
 WITH claimed_task AS (
     UPDATE tasks
     SET

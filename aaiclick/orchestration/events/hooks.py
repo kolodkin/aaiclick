@@ -1,4 +1,4 @@
-"""Session listeners that turn a job/task/group write into a change signal.
+"""Session listeners that turn a job/task/group write that changes rows into a change signal.
 
 Detection hooks the SQLAlchemy ``Session`` rather than each write site:
 roughly twenty call sites mutate these tables, many through raw SQL, and a
@@ -17,6 +17,7 @@ import re
 from itertools import chain
 
 from sqlalchemy import event
+from sqlalchemy.engine import Result
 from sqlalchemy.orm import ORMExecuteState, Session, UOWTransaction
 from sqlalchemy.sql import TableClause
 from sqlalchemy.sql.dml import UpdateBase
@@ -29,8 +30,13 @@ _WATCHED_MODELS = (Job, Task, Group)
 # Derived, so adding a model to the tuple above updates the regex and the
 # Core-statement check together.
 WATCHED_TABLES = tuple(model.__tablename__ for model in _WATCHED_MODELS)
+# Unanchored: packaged ``sql/*.sql`` files open with a comment header and the
+# Postgres claim is a CTE. Comments are stripped before matching.
+_SQL_COMMENT_RE = re.compile(r"--[^\n]*|/\*.*?\*/", re.DOTALL)
 _WRITE_RE = re.compile(
-    r"^\s*(?:insert\s+into|update|delete\s+from)\s+\"?(?:" + "|".join(WATCHED_TABLES) + r")\b",
+    r"\b(?:insert\s+into|update|delete\s+from)\s+(?:only\s+)?(?:\"?\w+\"?\.)?\"?(?:"
+    + "|".join(WATCHED_TABLES)
+    + r")\b",
     re.IGNORECASE,
 )
 _DIRTY_KEY = "aaiclick_events_dirty"
@@ -39,7 +45,7 @@ _TRANSPORT_KEY = "aaiclick_events_transport"
 
 def statement_touches_watched(sql: str) -> bool:
     """True for a textual INSERT / UPDATE / DELETE against a watched table."""
-    return _WRITE_RE.match(sql) is not None
+    return _WRITE_RE.search(_SQL_COMMENT_RE.sub(" ", sql)) is not None
 
 
 def _statement_writes_watched(statement: object) -> bool:
@@ -53,9 +59,16 @@ def _statement_writes_watched(statement: object) -> bool:
     return False
 
 
-def _flag_statement_writes(state: ORMExecuteState) -> None:
-    if _statement_writes_watched(state.statement):
+def _flag_statement_writes(state: ORMExecuteState) -> Result | None:
+    if not _statement_writes_watched(state.statement):
+        return None
+    # An empty write (an idle worker's claim poll, every second) has nothing to
+    # show. A CTE reports its final SELECT's count, which must be the written
+    # rows. No rowcount, or -1 (unknown), counts as a change.
+    result = state.invoke_statement()
+    if getattr(result, "rowcount", -1) != 0:
         state.session.info[_DIRTY_KEY] = True
+    return result
 
 
 def _flag_orm_writes(session: Session, flush_context: UOWTransaction, instances: object) -> None:

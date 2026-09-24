@@ -21,7 +21,7 @@ from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHan
 from aaiclick.orchestration.env import get_db_url
 
 from ...datetime_utils import utc_now
-from .conftest import get_run_refs, insert_job, insert_pin_ref, insert_run_ref
+from .conftest import get_run_refs, insert_job, insert_pin_ref, insert_run_ref, make_worker
 
 
 async def _insert_task(
@@ -82,15 +82,6 @@ async def _get_job_status(engine, job_id):
         return row[0] if row else None
 
 
-def _make_worker(engine):
-    """Create a BackgroundWorker wired to the given engine."""
-    worker = BackgroundWorker()
-    worker._engine = engine
-    worker._handler = SqliteBackgroundHandler()
-    worker._ch_client = AsyncMock()
-    return worker
-
-
 async def run_cleanup_pass(pass_fn: Callable[[BackgroundWorker], Awaitable[None]]) -> None:
     """Run one BackgroundWorker pass against the current orch_context DB.
 
@@ -127,7 +118,7 @@ async def test_failure_cleanup_transitions_to_pending_with_retries(bg_db):
     )
     await insert_run_ref(bg_db, "t_intermediate", "111")
 
-    await _make_worker(bg_db)._process_failure_cleanup()
+    await make_worker(bg_db)._process_failure_cleanup()
 
     row = await _get_task_status(bg_db, 100)
     status, attempt, retry_after, error, execution_worker_id, completed_at = row
@@ -154,7 +145,7 @@ async def test_failure_cleanup_transitions_to_failed_no_retries(bg_db):
     )
     await insert_run_ref(bg_db, "t_table", "111")
 
-    await _make_worker(bg_db)._process_failure_cleanup()
+    await make_worker(bg_db)._process_failure_cleanup()
 
     row = await _get_task_status(bg_db, 100)
     status, attempt, retry_after, error, execution_worker_id, completed_at = row
@@ -181,7 +172,7 @@ async def test_failure_cleanup_cleans_pin_refs(bg_db):
     await insert_pin_ref(bg_db, "t_other_data", 100)
     await insert_pin_ref(bg_db, "t_upstream_data", 200)
 
-    await _make_worker(bg_db)._process_failure_cleanup()
+    await make_worker(bg_db)._process_failure_cleanup()
 
     assert await _get_pin_refs(bg_db, 100) == set()
     assert await _get_pin_refs(bg_db, 200) == {"t_upstream_data"}
@@ -202,7 +193,7 @@ async def test_failure_cleanup_completes_job_when_all_failed(bg_db):
         error="oops",
     )
 
-    await _make_worker(bg_db)._process_failure_cleanup()
+    await make_worker(bg_db)._process_failure_cleanup()
 
     assert await _get_job_status(bg_db, 1000) == "FAILED"
 
@@ -221,7 +212,7 @@ async def test_failure_cleanup_does_not_complete_job_with_retries(bg_db):
         error="will retry",
     )
 
-    await _make_worker(bg_db)._process_failure_cleanup()
+    await make_worker(bg_db)._process_failure_cleanup()
 
     assert await _get_job_status(bg_db, 1000) == "RUNNING"
 
@@ -241,7 +232,7 @@ async def test_failure_cleanup_retry_backoff(bg_db):
     )
 
     before = utc_now()
-    await _make_worker(bg_db)._process_failure_cleanup()
+    await make_worker(bg_db)._process_failure_cleanup()
 
     row = await _get_task_status(bg_db, 100)
     status, attempt, retry_after_str, error, execution_worker_id, completed_at = row
@@ -279,7 +270,7 @@ async def test_failure_cleanup_bumps_run_epoch(bg_db, max_retries, expected_stat
     await _insert_task(bg_db, 100, 1000, status="PENDING_FAILURE_CLEANUP", max_retries=max_retries, run_ids="[111]")
     assert await _get_run_epoch(bg_db, 100) == 0
 
-    await _make_worker(bg_db)._process_failure_cleanup()
+    await make_worker(bg_db)._process_failure_cleanup()
 
     assert (await _get_task_status(bg_db, 100))[0] == expected_status
     assert await _get_run_epoch(bg_db, 100) == 1

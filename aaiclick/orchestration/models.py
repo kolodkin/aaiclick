@@ -273,6 +273,24 @@ class _DependencyOps:
     def _node(self) -> Union["Task", "Group"]:
         return cast(Union["Task", "Group"], self)
 
+    def link_previous(self, previous_id: int, previous_type: DependencyType) -> None:
+        """Append a Dependency on ``(previous_id, previous_type)`` unless one exists.
+
+        ``dependencies`` has a composite primary key, so every edge onto an in-memory
+        node goes through here; edges onto committed rows ride ``commit_tasks(extra_dependencies=...)``.
+        """
+        node = self._node()
+        if any(d.previous_id == previous_id and d.previous_type == previous_type for d in node.previous_dependencies):
+            return
+        node.previous_dependencies.append(
+            Dependency(
+                previous_id=previous_id,
+                previous_type=previous_type,
+                next_id=node.id,
+                next_type=node._dep_next_type,
+            )
+        )
+
     def depends_on(self, other: Union["Task", "Group"]) -> Union["Task", "Group"]:
         """
         Declare that this item depends on a task or group.
@@ -285,15 +303,8 @@ class _DependencyOps:
         Returns:
             self (for chaining)
         """
-        node = self._node()
-        dependency = Dependency(
-            previous_id=other.id,
-            previous_type=DEPENDENCY_TASK if isinstance(other, Task) else DEPENDENCY_GROUP,
-            next_id=node.id,
-            next_type=node._dep_next_type,
-        )
-        node.previous_dependencies.append(dependency)
-        return node
+        self.link_previous(other.id, DEPENDENCY_TASK if isinstance(other, Task) else DEPENDENCY_GROUP)
+        return self._node()
 
     def __rshift__(
         self, other: Union["Task", "Group", Sequence[Union["Task", "Group"]]]

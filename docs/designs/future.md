@@ -13,6 +13,41 @@ Remove each item from that file as it lands; delete the file when empty.
 
 ---
 
+# Commit a Task's Completion and Its Job Rollup Together
+
+On success the worker (`_handle_task_result` in
+`aaiclick/orchestration/execution/execution_worker.py`) commits the task's
+COMPLETED status, then runs `roll_up_job` in a second transaction:
+
+- **Crash window.** A worker dying between the commits leaves the job RUNNING
+  for good: only the success path completes a successful job, and the
+  dead-worker sweep only recovers RUNNING tasks.
+- **Two signals per completion.** Every open live view refetches twice. The
+  web e2e no-polling tests wait out the second one with
+  `_settle_after_job_terminal` (`test_e2e/web/test_smoke.py`); delete it with
+  this change.
+
+Add `complete_task_and_roll_up(task_id, result, expected_epoch)` to
+`claiming.py`: one transaction that applies the epoch and cancelling guards,
+writes COMPLETED, rolls up, and runs `complete_job.sql` when nothing is left.
+`update_task_status` stays for RUNNING and the in-process test runner.
+
+Lock the job row, then the task row:
+
+- Without the job lock, two siblings finishing together on Postgres each read
+  the other as RUNNING (write skew), and nobody completes the job.
+- Job then task matches `cancel_job`, so the two cannot deadlock. The claim
+  CTE locks task then job, but only for a PENDING task, which a completion
+  never touches.
+- Cost: completions within one job serialize on the job row for the rollup
+  query — latency at high fan-out, no extra work.
+
+Tests: one signal per completion; a fenced write does not roll up; the last
+task completes the job in the same commit; two siblings completing
+concurrently on Postgres leave the job COMPLETED.
+
+---
+
 # `foreach()` — Side-Effect Flavor of `map()`
 
 `map()` (`aaiclick/orchestration/operators.py`) allocates an output Object
@@ -55,6 +90,36 @@ member's `group_id` is never committed. Visit a task's group, and a group's
 parent, before the node itself. Cover it with a job test on the committed
 group tree and an assertion on the nested frames in
 `test_e2e/web/test_operators_graph.py`.
+
+---
+
+# One Runner-Mode Validator for Container-Only Fields
+
+`run_job` (`aaiclick/orchestration/registered_jobs.py`) rejects `image`,
+`git_*`, and `dockerfile` on subprocess jobs, but the same silent drop
+survives twice: `register_job` / `upsert_registered_job` store those fields
+on subprocess registrations that never read them, and `run_job` ignores
+`namespace` / `service_account` / `image_pull_secret` off kubernetes, as
+documented. Add one `validate_runner_fields(runner_mode, ...)` next to
+`validate_image_exclusivity` in `runner_config.py` for both. Preconditions:
+
+- Move `RUNNER_*` and `RunnerMode` from `models.py` into `runner_config.py`;
+  `models.py` already imports it, so the validator cannot import back.
+- Decide to reject the kubernetes overrides instead of documenting them as
+  ignored.
+
+---
+
+# Tests That Assert SQL Text Instead of Outcomes
+
+These tests assert the command string sent to a mocked ClickHouse client, so
+harmless SQL rewording breaks them:
+`test_delete_job_data_exempts_persistent_tables` and
+`test_delete_job_data_purges_ch_log_tables` in
+`aaiclick/orchestration/background/test_cleanup.py`, and
+`test_worker_skips_persistent_tables_on_cleanup` in
+`aaiclick/data/data_context/test_table_worker.py`. Assert which tables remain
+instead, with a fake client that tracks tables or the local chdb backend.
 
 ---
 

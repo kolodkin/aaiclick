@@ -5,37 +5,38 @@ aaiclick.oplog.cleanup - Table cleanup helpers.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, NamedTuple
+from collections.abc import Iterable
 
-if TYPE_CHECKING:
-    from aaiclick.data.data_context.ch_client import ChClient
+from aaiclick.data.data_context.ch_client import ChClient
 
 logger = logging.getLogger(__name__)
 
-
-class TableOwner(NamedTuple):
-    """Ownership metadata for a table, copied from table_registry."""
-
-    job_id: int | None = None
-    task_id: int | None = None
-    run_id: int | None = None
+# A sweep gives up after this many failed drops in a row: an unreachable
+# ClickHouse would otherwise cost one connect timeout per eligible table per
+# poll. The untried tables stay registered and the next sweep picks them up.
+MAX_CONSECUTIVE_DROP_FAILURES = 3
 
 
-async def lineage_aware_drop(
-    ch_client: ChClient,
-    table_name: str,
-    owner: TableOwner | None = None,
-) -> None:
-    """Drop a table.
+async def drop_tables(ch_client: ChClient, table_names: Iterable[str]) -> list[str]:
+    """Best-effort ``DROP TABLE IF EXISTS`` over ``table_names``; returns the names dropped.
 
-    Best effort — exceptions are logged but do not propagate.
-
-    Args:
-        ch_client: Async ClickHouse client.
-        table_name: Table to drop.
-        owner: Ownership metadata (reserved for future use).
+    Callers delete registry and ref rows only for the returned names, so a
+    table whose DROP failed is seen again on the next pass instead of leaking.
+    The first failure of a run is logged with its traceback, later ones at debug.
     """
-    try:
-        await ch_client.command(f"DROP TABLE IF EXISTS {table_name}")
-    except Exception:
-        logger.debug("Failed to drop %s", table_name, exc_info=True)
+    dropped: list[str] = []
+    consecutive_failures = 0
+    for table_name in table_names:
+        try:
+            await ch_client.command(f"DROP TABLE IF EXISTS {table_name}")
+        except Exception:
+            consecutive_failures += 1
+            level = logging.WARNING if consecutive_failures == 1 else logging.DEBUG
+            logger.log(level, "Failed to drop CH table %s", table_name, exc_info=True)
+            if consecutive_failures >= MAX_CONSECUTIVE_DROP_FAILURES:
+                logger.warning("Giving up on this sweep after %d consecutive failed drops", consecutive_failures)
+                break
+            continue
+        consecutive_failures = 0
+        dropped.append(table_name)
+    return dropped
