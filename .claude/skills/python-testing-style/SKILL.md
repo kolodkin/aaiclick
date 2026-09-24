@@ -102,13 +102,11 @@ When several tests drive the same call and differ only in inputs and expected va
 
 1. **One call shape** — same function or method; only literal arguments and expected values differ.
 2. **One outcome kind** — never merge tests asserting a returned value with tests asserting a raised exception. `pytest.raises` clusters parametrize separately.
-3. **Zero added logic** — no `if`, loop, `getattr`, or operator indirection introduced to absorb the variants. Needing one means don't consolidate.
+3. **Zero added logic** — the body makes one call; no `if`, loop, `match`, dispatch helper, or `getattr(obj, name)` absorbs the variants. When the variants are operators or methods, the callable itself is the param (`pytest.param(operator.add, 15, id="add")` with `op(obj, 5)`, or `Object.with_year` with `op(obj, "ts")`) — that is one call shape.
 4. **Same fixtures and decorators.**
 5. **Intent survives** — every case gets a descriptive `id=`, and a docstring that explained one case becomes a comment on its param.
 
-Leave alone: different methods (`match` vs `like` — would need `getattr`), different call chains (`having` vs `or_having`), and tests whose setup bodies differ.
-
-**Operator tables** — when the variants are operators or methods, pass the callable as the param and call it: `pytest.param(operator.add, 15, id="add")` with `result = op(obj, 5)`, or `Object.with_year` with `op(obj, "ts")`. That is one call shape, not indirection. A `match`, `if op == …`, dispatch helper, or `getattr(obj, name)` in the body is not.
+Leave alone: different call chains (`having` vs `or_having`) and tests whose setup bodies differ.
 
 ```python
 # GOOD — one call, only literals vary, ids carry the intent
@@ -148,4 +146,4 @@ Looking trivial is not proof. Check first whether the test covers the negative b
 
 `pyproject.toml` sets `filterwarnings = ["error"]`, so any unhandled warning fails the test. When a third-party library emits a known warning, suppress it with `warnings.catch_warnings()` scoped around the call that triggers it.
 
-A warning raised at garbage collection or teardown (an unawaited coroutine, `PytestUnraisableExceptionWarning`) fires after the call returns, so no `catch_warnings()` block can catch it. Ignore it with a `pytest.mark.filterwarnings` mark matching the exact message, attached only to the affected tests (see `aaiclick/ai/conftest.py`).
+A warning raised at garbage collection or teardown (an unawaited coroutine, `PytestUnraisableExceptionWarning`) fires after the call returns, so no `catch_warnings()` block can catch it. Fix it when it comes from our code or our mocks. Only a third-party leak may be filtered: an exact-message `pytest.mark.filterwarnings` added to the affected tests in one place, with an upstream reference and a TODO (see `aaiclick/ai/conftest.py`).
