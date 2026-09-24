@@ -94,7 +94,7 @@ async def test_same_upstream_in_two_kwargs_runs(orch_ctx):
         assert await get_job_result(j) == 42
 ```
 
-Internal tests are fine only when an end-to-end run can't reach the case: crash recovery, race windows, dead-worker cleanup, retry and backoff timing, or a pure function whose output *is* the contract (a parser, a SQL param set).
+Internal tests are fine only when an end-to-end run can't reach the case: crash recovery, race windows, dead-worker cleanup, retry and backoff timing, or a pure function whose output *is* the contract (a parser, a SQL param set). Say which in the test's docstring (e.g. "pure function: the returned schema is the contract") so a reviewer doesn't flag it.
 
 ## Parametrize input/expected clusters
 
@@ -107,6 +107,8 @@ When several tests drive the same call and differ only in inputs and expected va
 5. **Intent survives** — every case gets a descriptive `id=`, and a docstring that explained one case becomes a comment on its param.
 
 Leave alone: different methods (`match` vs `like` — would need `getattr`), different call chains (`having` vs `or_having`), and tests whose setup bodies differ.
+
+**Operator tables** — when the variants are operators or methods, pass the callable as the param and call it: `pytest.param(operator.add, 15, id="add")` with `result = op(obj, 5)`, or `Object.with_year` with `op(obj, "ts")`. That is one call shape, not indirection. A `match`, `if op == …`, dispatch helper, or `getattr(obj, name)` in the body is not.
 
 ```python
 # GOOD — one call, only literals vary, ids carry the intent
@@ -145,3 +147,5 @@ Looking trivial is not proof. Check first whether the test covers the negative b
 ## Warnings — `filterwarnings = ["error"]` turns warnings into failures
 
 `pyproject.toml` sets `filterwarnings = ["error"]`, so any unhandled warning fails the test. When a third-party library emits a known warning, suppress it with `warnings.catch_warnings()` scoped around the call that triggers it.
+
+A warning raised at garbage collection or teardown (an unawaited coroutine, `PytestUnraisableExceptionWarning`) fires after the call returns, so no `catch_warnings()` block can catch it. Ignore it with a `pytest.mark.filterwarnings` mark matching the exact message, attached only to the affected tests (see `aaiclick/ai/conftest.py`).
