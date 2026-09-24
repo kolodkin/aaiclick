@@ -22,38 +22,28 @@ from aaiclick.view_models import (
 from . import errors, setup
 
 
+class _FakeChdbSession:
+    def query(self, _sql):
+        return None
+
+
 def _stub_chdb(monkeypatch):
     """Stub chdb's per-process singleton Session so ``setup()`` leaves it alone."""
-
-    class _FakeSession:
-        def query(self, _sql):
-            return None
-
-    monkeypatch.setattr(setup, "get_shared_session", lambda _path: _FakeSession())
+    monkeypatch.setattr(setup, "get_shared_session", lambda _path: _FakeChdbSession())
 
 
-def _stub_chdb_and_sqlalchemy(monkeypatch):
-    """Replace chdb Session + SQLAlchemy DDL so ``setup()`` has no side effects.
-
-    The SQLAlchemy stub avoids touching the test DB, whose schema is owned by
-    the fixture-run alembic migration.
-    """
-
-    class _FakeEngine:
-        def dispose(self):
-            return None
-
-    _stub_chdb(monkeypatch)
-    monkeypatch.setattr(setup, "create_engine", lambda _url: _FakeEngine())
-    monkeypatch.setattr(setup.SQLModel.metadata, "create_all", lambda _engine: None)
-
-
-def test_setup_local_writes_marker_and_returns_ok_steps(tmp_path, monkeypatch):
+@pytest.fixture
+def local_db(tmp_path, monkeypatch):
+    """Point aaiclick at an empty local root and yield its ``local.db`` path."""
+    db = tmp_path / "local.db"
     monkeypatch.setenv("AAICLICK_LOCAL_ROOT", str(tmp_path))
-    monkeypatch.delenv("AAICLICK_SQL_URL", raising=False)
+    monkeypatch.setenv("AAICLICK_SQL_URL", f"sqlite+aiosqlite:///{db}")
     monkeypatch.delenv("AAICLICK_CH_URL", raising=False)
-    _stub_chdb_and_sqlalchemy(monkeypatch)
+    _stub_chdb(monkeypatch)
+    return db
 
+
+def test_setup_local_writes_marker_and_returns_ok_steps(local_db, tmp_path):
     result = setup.setup()
 
     assert isinstance(result, SetupResult)
@@ -63,6 +53,8 @@ def test_setup_local_writes_marker_and_returns_ok_steps(tmp_path, monkeypatch):
     assert "chdb" in step_names and "sqlite" in step_names
     assert all(s.status == "ok" for s in result.steps if s.name in {"chdb", "sqlite"})
     assert setup.is_setup_done() is True
+    assert setup.stale_local_db() == []
+    assert setup.missing_local_tables() == []
 
 
 def test_setup_distributed_skips_local_steps(tmp_path, monkeypatch):
@@ -79,12 +71,8 @@ def test_setup_distributed_skips_local_steps(tmp_path, monkeypatch):
     assert (tmp_path / "setup_done").exists()
 
 
-def test_setup_with_ai_non_ollama_populates_ollama_field(tmp_path, monkeypatch):
-    monkeypatch.setenv("AAICLICK_LOCAL_ROOT", str(tmp_path))
-    monkeypatch.delenv("AAICLICK_SQL_URL", raising=False)
-    monkeypatch.delenv("AAICLICK_CH_URL", raising=False)
+def test_setup_with_ai_non_ollama_populates_ollama_field(local_db, monkeypatch):
     monkeypatch.setenv("AAICLICK_AI_MODEL", "openai/gpt-4")
-    _stub_chdb_and_sqlalchemy(monkeypatch)
 
     result = setup.setup(ai=True)
 
@@ -98,19 +86,6 @@ def test_is_setup_done_false_without_marker(tmp_path, monkeypatch):
     assert setup.is_setup_done() is False
 
 
-def test_migrate_upgrade_invokes_alembic(monkeypatch):
-    calls: list[tuple] = []
-    monkeypatch.setattr(setup, "get_alembic_config", lambda: object())
-    monkeypatch.setattr(setup.command, "upgrade", lambda config, revision: calls.append(("upgrade", revision)))
-    monkeypatch.setattr(setup, "ch_upgrade_standalone", lambda: [])
-
-    result = setup.migrate(MIGRATE_UPGRADE)
-
-    assert result.action == MIGRATE_UPGRADE
-    assert result.revision == "head"
-    assert calls == [("upgrade", "head")]
-
-
 def test_migrate_upgrade_runs_alembic_then_ch(monkeypatch):
     calls: list[tuple] = []
     monkeypatch.setattr(setup, "get_alembic_config", lambda: object())
@@ -119,39 +94,39 @@ def test_migrate_upgrade_runs_alembic_then_ch(monkeypatch):
 
     result = setup.migrate(MIGRATE_UPGRADE)
 
+    assert result.action == MIGRATE_UPGRADE
+    assert result.revision == "head"
     assert calls == [("alembic", "head"), ("ch",)]
     assert result.ch_versions_applied == ["0001"]
 
 
-def test_migrate_current_reports_ch_versions(monkeypatch):
+@pytest.mark.parametrize(
+    "action, alembic_command, ch_states, expected",
+    [
+        pytest.param(
+            MIGRATE_CURRENT,
+            "current",
+            [ChVersionState(version="0001", applied=True), ChVersionState(version="0002", applied=False)],
+            [ChVersionStatus(version="0001", applied=True), ChVersionStatus(version="0002", applied=False)],
+            id="current",
+        ),
+        pytest.param(
+            MIGRATE_HISTORY,
+            "history",
+            [ChVersionState(version="0001", applied=True)],
+            [ChVersionStatus(version="0001", applied=True)],
+            id="history",
+        ),
+    ],
+)
+def test_migrate_reports_ch_versions(monkeypatch, action, alembic_command, ch_states, expected):
     monkeypatch.setattr(setup, "get_alembic_config", lambda: object())
-    monkeypatch.setattr(setup.command, "current", lambda config, verbose: None)
-    monkeypatch.setattr(
-        setup,
-        "ch_status_standalone",
-        lambda: [ChVersionState(version="0001", applied=True), ChVersionState(version="0002", applied=False)],
-    )
+    monkeypatch.setattr(setup.command, alembic_command, lambda config, verbose: None)
+    monkeypatch.setattr(setup, "ch_status_standalone", lambda: ch_states)
 
-    result = setup.migrate(MIGRATE_CURRENT)
+    result = setup.migrate(action)
 
-    assert result.ch_versions == [
-        ChVersionStatus(version="0001", applied=True),
-        ChVersionStatus(version="0002", applied=False),
-    ]
-
-
-def test_migrate_history_reports_ch_versions(monkeypatch):
-    monkeypatch.setattr(setup, "get_alembic_config", lambda: object())
-    monkeypatch.setattr(setup.command, "history", lambda config, verbose: None)
-    monkeypatch.setattr(
-        setup,
-        "ch_status_standalone",
-        lambda: [ChVersionState(version="0001", applied=True)],
-    )
-
-    result = setup.migrate(MIGRATE_HISTORY)
-
-    assert result.ch_versions == [ChVersionStatus(version="0001", applied=True)]
+    assert result.ch_versions == expected
 
 
 def test_migrate_downgrade_stays_alembic_only(monkeypatch):
@@ -166,20 +141,18 @@ def test_migrate_downgrade_stays_alembic_only(monkeypatch):
     assert result.ch_versions_applied == []
 
 
-def test_migrate_downgrade_requires_revision(monkeypatch):
+@pytest.mark.parametrize(
+    "action",
+    [
+        pytest.param(MIGRATE_DOWNGRADE, id="downgrade"),
+        pytest.param(MIGRATE_SHOW, id="show"),
+    ],
+)
+def test_migrate_requires_revision(monkeypatch, action):
     monkeypatch.setattr(setup, "get_alembic_config", lambda: object())
-    monkeypatch.setattr(setup.command, "downgrade", lambda *a, **k: None)
 
-    with pytest.raises(errors.Invalid):
-        setup.migrate(MIGRATE_DOWNGRADE)
-
-
-def test_migrate_show_requires_revision(monkeypatch):
-    monkeypatch.setattr(setup, "get_alembic_config", lambda: object())
-    monkeypatch.setattr(setup.command, "show", lambda *a, **k: None)
-
-    with pytest.raises(errors.Invalid):
-        setup.migrate(MIGRATE_SHOW)
+    with pytest.raises(errors.Invalid, match="requires a revision"):
+        setup.migrate(action)
 
 
 def test_migrate_current_runs_without_revision(monkeypatch):
@@ -203,17 +176,6 @@ _INSERT_JOB = (
     "INSERT INTO jobs (id, name, status, run_type, preservation_mode, runner_mode, created_at) "
     "VALUES (1, :name, 'pending', 'flat', 'NONE', 'subprocess', '2024-01-01')"
 )
-
-
-@pytest.fixture
-def local_db(tmp_path, monkeypatch):
-    """Point aaiclick at an empty local root and yield its ``local.db`` path."""
-    db = tmp_path / "local.db"
-    monkeypatch.setenv("AAICLICK_LOCAL_ROOT", str(tmp_path))
-    monkeypatch.setenv("AAICLICK_SQL_URL", f"sqlite+aiosqlite:///{db}")
-    monkeypatch.delenv("AAICLICK_CH_URL", raising=False)
-    _stub_chdb(monkeypatch)
-    return db
 
 
 def _current_sqlite_db(path, *, job_name: str | None = None):

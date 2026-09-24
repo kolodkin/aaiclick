@@ -68,9 +68,16 @@ async def test_list_objects_limit_paginates_but_keeps_total():
     assert len(page.items) == 2
 
 
-async def test_list_objects_rejects_non_global_scope():
+@pytest.mark.parametrize(
+    "object_filter",
+    [
+        pytest.param(ObjectFilter(scope="temp"), id="non_global_scope"),
+        pytest.param(ObjectFilter(scope="job"), id="job_scope_without_job"),
+    ],
+)
+async def test_list_objects_invalid_filter_raises(object_filter):
     with pytest.raises(errors.Invalid):
-        await objects.list_objects(ObjectFilter(scope="temp"))
+        await objects.list_objects(object_filter)
 
 
 async def test_get_object_returns_detail_with_schema():
@@ -127,8 +134,3 @@ async def test_list_objects_job_scope_by_ref():
     assert detail.table == f"j_{job.id}_result"
     with pytest.raises(errors.NotFound):
         await objects.get_object("persist", job=job.id)
-
-
-async def test_list_objects_job_scope_requires_job():
-    with pytest.raises(errors.Invalid):
-        await objects.list_objects(ObjectFilter(scope="job"))

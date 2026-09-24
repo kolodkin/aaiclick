@@ -7,9 +7,7 @@ the ASGI scope reaches the FastMCP middleware and filters / gates tools.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-from typing import Any
+from typing import TypedDict
 
 import httpx
 import pytest
@@ -21,11 +19,38 @@ from aaiclick.internal_api.errors import Forbidden
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 
-from .auth import Principal, PrincipalAuthMiddleware
+from .auth import Principal
+from .conftest import mcp_http
 from .mcp import mcp
 from .mcp_rbac import TAG_ADMIN, TAG_READ, TAG_WRITE, authorize_tool
 
-MCP_HEADERS = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
+JsonObject = dict[str, object]
+
+
+class _Tool(TypedDict):
+    name: str
+
+
+class _ToolsListResult(TypedDict):
+    tools: list[_Tool]
+
+
+class _ToolsListResponse(TypedDict):
+    result: _ToolsListResult
+
+
+class _TextContent(TypedDict):
+    text: str
+
+
+class _ToolCallResult(TypedDict):
+    isError: bool
+    content: list[_TextContent]
+    structuredContent: JsonObject
+
+
+class _ToolCallResponse(TypedDict):
+    result: _ToolCallResult
 
 
 def _principal(*, role: Role = ROLE_ADMIN, scope: ScopeLevel = SCOPE_ADMIN):
@@ -36,22 +61,28 @@ def _principal(*, role: Role = ROLE_ADMIN, scope: ScopeLevel = SCOPE_ADMIN):
 
 
 @pytest.mark.parametrize(
-    ("principal", "tags", "expect"),
+    ("principal", "tags"),
     [
-        pytest.param(_principal(role="viewer", scope="read"), {TAG_READ}, "ok", id="read-token-reads"),
-        pytest.param(_principal(role="viewer", scope="read"), {TAG_WRITE}, Forbidden, id="read-token-no-write"),
-        pytest.param(_principal(role="member", scope="write"), {TAG_WRITE}, "ok", id="member-writes"),
-        pytest.param(_principal(role="member", scope="write"), {TAG_ADMIN}, Forbidden, id="member-no-admin"),
-        pytest.param(_principal(role="admin", scope="admin"), {TAG_ADMIN}, "ok", id="admin-token-admins"),
-        pytest.param(_principal(role="admin", scope="admin"), {TAG_READ}, "ok", id="admin-reads-too"),
+        pytest.param(_principal(role="viewer", scope="read"), {TAG_READ}, id="read-token-reads"),
+        pytest.param(_principal(role="member", scope="write"), {TAG_WRITE}, id="member-writes"),
+        pytest.param(_principal(role="admin", scope="admin"), {TAG_ADMIN}, id="admin-token-admins"),
+        pytest.param(_principal(role="admin", scope="admin"), {TAG_READ}, id="admin-reads-too"),
     ],
 )
-def test_authorize_tool_matrix(enabled, principal, tags, expect):
-    if expect == "ok":
+def test_authorize_tool_allows(enabled, principal, tags):
+    authorize_tool(principal, tags)
+
+
+@pytest.mark.parametrize(
+    ("principal", "tags"),
+    [
+        pytest.param(_principal(role="viewer", scope="read"), {TAG_WRITE}, id="read-token-no-write"),
+        pytest.param(_principal(role="member", scope="write"), {TAG_ADMIN}, id="member-no-admin"),
+    ],
+)
+def test_authorize_tool_forbids(enabled, principal, tags):
+    with pytest.raises(Forbidden):
         authorize_tool(principal, tags)
-    else:
-        with pytest.raises(expect):
-            authorize_tool(principal, tags)
 
 
 def test_authorize_tool_local_mode_is_admin():
@@ -68,22 +99,6 @@ async def test_every_tool_has_exactly_one_rbac_tag():
 # --- through the HTTP mount ---------------------------------------------
 
 
-@asynccontextmanager
-async def _mcp_http() -> AsyncIterator[httpx.AsyncClient]:
-    """The FastMCP app behind the mount middleware, stateless + JSON so a plain
-    POST answers with a JSON-RPC body instead of an SSE stream.
-
-    A context manager rather than a fixture: the session manager's lifespan
-    opens an anyio task group, which must be exited in the task that entered
-    it — pytest-asyncio tears async fixtures down in a different task.
-    """
-    http_app = mcp.http_app(path="/", stateless_http=True, json_response=True)
-    async with http_app.lifespan(http_app):
-        transport = httpx.ASGITransport(app=PrincipalAuthMiddleware(http_app))
-        async with httpx.AsyncClient(transport=transport, base_url="http://mcp", headers=MCP_HEADERS) as client:
-            yield client
-
-
 async def _api_token(scope: ScopeLevel, *, role: Role = ROLE_ADMIN) -> str:
     """Mint a real token — the mount takes API tokens only, never a session JWT."""
     user = await users.create_user(CreateUserRequest(username=f"t_{scope}_{role}", password="pw", role=role))
@@ -91,22 +106,32 @@ async def _api_token(scope: ScopeLevel, *, role: Role = ROLE_ADMIN) -> str:
     return created.token
 
 
-async def _rpc(client: httpx.AsyncClient, method: str, params: dict[str, Any], headers: dict[str, str]) -> Any:
+async def _rpc(client: httpx.AsyncClient, method: str, params: JsonObject, headers: dict[str, str]) -> httpx.Response:
     res = await client.post("/", json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params}, headers=headers)
     assert res.status_code == 200, res.text
-    return res.json()
+    return res
+
+
+async def _tool_names(client: httpx.AsyncClient, headers: dict[str, str]) -> set[str]:
+    body: _ToolsListResponse = (await _rpc(client, "tools/list", {}, headers)).json()
+    return {t["name"] for t in body["result"]["tools"]}
+
+
+async def _call_tool(
+    client: httpx.AsyncClient, name: str, arguments: JsonObject, headers: dict[str, str]
+) -> _ToolCallResult:
+    body: _ToolCallResponse = (await _rpc(client, "tools/call", {"name": name, "arguments": arguments}, headers)).json()
+    return body["result"]
 
 
 async def test_tools_list_is_filtered_by_role(orch_ctx, enabled):
     member = {"Authorization": f"Bearer {await _api_token(SCOPE_WRITE, role=ROLE_MEMBER)}"}
     admin = {"Authorization": f"Bearer {await _api_token(SCOPE_ADMIN)}"}
-    async with _mcp_http() as client:
-        body = await _rpc(client, "tools/list", {}, member)
-        names = {t["name"] for t in body["result"]["tools"]}
+    async with mcp_http() as client:
+        names = await _tool_names(client, member)
         assert "list_jobs" in names and "run_job" not in names and "setup" not in names
 
-        body = await _rpc(client, "tools/list", {}, admin)
-        names = {t["name"] for t in body["result"]["tools"]}
+        names = await _tool_names(client, admin)
         assert {"list_jobs", "run_job", "setup"} <= names
         assert len(names) == len(await mcp.list_tools(run_middleware=False))
 
@@ -115,17 +140,17 @@ async def test_member_can_read_but_not_admin(orch_ctx, enabled):
     """A member reads and makes their own writes; job mutations need admin."""
     member = {"Authorization": f"Bearer {await _api_token(SCOPE_WRITE, role=ROLE_MEMBER)}"}
     job = await create_job("mcp_rbac_job", simple_task)
-    async with _mcp_http() as client:
-        ok = await _rpc(client, "tools/call", {"name": "get_job", "arguments": {"ref": job.id}}, member)
-        assert ok["result"]["structuredContent"]["name"] == "mcp_rbac_job"
+    async with mcp_http() as client:
+        ok = await _call_tool(client, "get_job", {"ref": job.id}, member)
+        assert ok["structuredContent"]["name"] == "mcp_rbac_job"
 
-        denied = await _rpc(client, "tools/call", {"name": "cancel_job", "arguments": {"ref": job.id}}, member)
-        assert denied["result"]["isError"] is True
-        assert "'admin' scope required" in denied["result"]["content"][0]["text"]
+        denied = await _call_tool(client, "cancel_job", {"ref": job.id}, member)
+        assert denied["isError"] is True
+        assert "'admin' scope required" in denied["content"][0]["text"]
 
 
 async def test_anonymous_gets_401_problem(orch_ctx, enabled):
-    async with _mcp_http() as client:
+    async with mcp_http() as client:
         res = await client.post("/", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
     assert res.status_code == 401 and res.json()["code"] == "unauthorized"
     assert res.headers["www-authenticate"] == "Bearer"

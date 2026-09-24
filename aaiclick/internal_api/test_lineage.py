@@ -2,9 +2,9 @@
 Tests for the AI-independent lineage internal_api primitives.
 
 The underlying ``oplog_subgraph`` and the SQL-safety / scope helpers have
-their own test modules; here we only assert the wrappers correctly delegate,
-pass kwargs through, and translate ``ToolError`` results into ``Invalid`` /
-``NotFound`` exceptions.
+their own test modules; here we run each wrapper against real tables and
+their recorded lineage, and assert it translates ``ToolError`` results into
+``Invalid`` / ``NotFound`` exceptions.
 
 Tests for the AI-backed wrappers (``explain_lineage`` / ``debug_result``)
 live in ``aaiclick/ai/agents/test_lineage_internal_api.py`` so they only
@@ -13,94 +13,89 @@ run in matrices that install the ``ai`` extra.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
-
 import pytest
 
-from aaiclick.ai.agents.lineage_tools import ColumnSchema, QueryResult, TableSchema
+from aaiclick.data.data_context import create_object_from_value
 from aaiclick.internal_api import lineage as lineage_api
+from aaiclick.internal_api import objects
 from aaiclick.internal_api.errors import Invalid, NotFound
-from aaiclick.testing import make_oplog_graph
+from aaiclick.oplog.lineage import lineage_context
+from aaiclick.orchestration.orch_context import task_scope
 
-REVENUE_LINEAGE = "aaiclick.internal_api.lineage._oplog_subgraph"
+_REVENUE = "lineage_api_revenue"
+REVENUE_TABLE = f"p_{_REVENUE}"
 
 
 @pytest.fixture
-def revenue_lineage():
-    """Every target's lineage is the one-table graph ``p_revenue``."""
-    with patch(REVENUE_LINEAGE, new=AsyncMock(return_value=make_oplog_graph("p_revenue"))) as mock:
-        yield mock
+async def revenue_table(orch_ctx):
+    """A persistent ``[1, 2]`` object with recorded lineage; returns its table name."""
+    async with task_scope(task_id=1, job_id=1, run_id=100):
+        await create_object_from_value([1, 2], name=_REVENUE, scope="global")
+    return REVENUE_TABLE
 
 
-async def test_oplog_subgraph_returns_graph_and_passes_kwargs():
-    graph = make_oplog_graph("result")
-    mock_subgraph = AsyncMock(return_value=graph)
+async def test_oplog_subgraph_follows_direction_and_depth(orch_ctx):
+    async with task_scope(task_id=1, job_id=1, run_id=100):
+        a = await create_object_from_value([1, 2, 3])
+        b = await create_object_from_value([4, 5, 6])
+        result = await a.concat(b)
 
-    with patch(REVENUE_LINEAGE, new=mock_subgraph):
-        result = await lineage_api.oplog_subgraph("result", direction="forward", max_depth=3)
+    async with lineage_context():
+        graph = await lineage_api.oplog_subgraph(a.table, direction="forward", max_depth=3)
 
-    assert result is graph
-    mock_subgraph.assert_awaited_once_with("result", direction="forward", max_depth=3)
+    assert {n.table for n in graph.nodes} == {a.table, result.table}
+    assert {(e.source, e.target) for e in graph.edges} == {(a.table, result.table), (b.table, result.table)}
 
 
-async def test_query_table_runs_validated_select(orch_ctx, revenue_lineage):
-    qr = QueryResult(columns=["id"], rows=[[1], [2]], truncated=False)
-    mock_run = AsyncMock(return_value=qr)
+async def test_query_table_runs_validated_select(revenue_table):
+    result = await lineage_api.query_table(
+        f"SELECT value FROM {revenue_table} ORDER BY value",
+        target_table=revenue_table,
+        row_limit=50,
+        direction="forward",
+        max_depth=3,
+    )
 
-    with patch("aaiclick.internal_api.lineage.run_select", new=mock_run):
-        result = await lineage_api.query_table(
-            "SELECT id FROM p_revenue",
-            target_table="p_revenue",
-            row_limit=50,
-            direction="forward",
-            max_depth=3,
-        )
-
-    assert result is qr
-    revenue_lineage.assert_awaited_once_with("p_revenue", direction="forward", max_depth=3)
-    mock_run.assert_awaited_once_with("SELECT id FROM p_revenue", 50)
+    assert result.columns == ["value"]
+    assert result.rows == [[1], [2]]
+    assert result.truncated is False
 
 
 @pytest.mark.parametrize(
     "sql",
     [
-        pytest.param("DROP TABLE p_revenue", id="ddl"),
+        pytest.param(f"DROP TABLE {REVENUE_TABLE}", id="ddl"),
         pytest.param("SELECT * FROM p_secret", id="out-of-scope"),
     ],
 )
-async def test_query_table_raises_invalid(orch_ctx, revenue_lineage, sql):
+async def test_query_table_raises_invalid(revenue_table, sql):
     """The scope is the target's lineage, looked up here — a caller cannot
     widen it by naming extra tables."""
     with pytest.raises(Invalid):
-        await lineage_api.query_table(sql, target_table="p_revenue")
+        await lineage_api.query_table(sql, target_table=revenue_table)
 
 
 async def test_query_table_without_lineage_raises_not_found(orch_ctx):
     """A target no operation produced has an empty graph, so nothing is in scope."""
-    with patch(REVENUE_LINEAGE, new=AsyncMock(return_value=make_oplog_graph())):
-        with pytest.raises(NotFound):
-            await lineage_api.query_table("SELECT 1", target_table="p_nowhere")
+    with pytest.raises(NotFound):
+        await lineage_api.query_table("SELECT 1", target_table="p_nowhere")
 
 
-async def test_get_table_schema_returns_describe_result(revenue_lineage):
-    schema = TableSchema(table="p_revenue", columns=[ColumnSchema(name="id", type="UInt64")])
-    mock_describe = AsyncMock(return_value=schema)
+async def test_get_table_schema_returns_describe_result(revenue_table):
+    schema = await lineage_api.get_table_schema(revenue_table, target_table=revenue_table)
 
-    with patch("aaiclick.internal_api.lineage.describe_table", new=mock_describe):
-        result = await lineage_api.get_table_schema("p_revenue", target_table="p_revenue")
-
-    assert result is schema
-    mock_describe.assert_awaited_once_with("p_revenue")
+    assert schema.table == revenue_table
+    assert "value" in [c.name for c in schema.columns]
 
 
-async def test_get_table_schema_raises_invalid_when_out_of_scope(revenue_lineage):
+async def test_get_table_schema_raises_invalid_when_out_of_scope(revenue_table):
     with pytest.raises(Invalid):
-        await lineage_api.get_table_schema("p_secret", target_table="p_revenue")
+        await lineage_api.get_table_schema("p_secret", target_table=revenue_table)
 
 
-async def test_get_table_schema_raises_not_found_when_describe_fails(revenue_lineage):
-    mock_describe = AsyncMock(side_effect=RuntimeError("table dropped"))
+async def test_get_table_schema_raises_not_found_when_describe_fails(revenue_table):
+    """The table was dropped after its lineage was recorded."""
+    await objects.delete_object(_REVENUE)
 
-    with patch("aaiclick.internal_api.lineage.describe_table", new=mock_describe):
-        with pytest.raises(NotFound):
-            await lineage_api.get_table_schema("p_revenue", target_table="p_revenue")
+    with pytest.raises(NotFound):
+        await lineage_api.get_table_schema(revenue_table, target_table=revenue_table)

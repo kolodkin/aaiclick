@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import httpx
 import pytest
@@ -9,8 +10,12 @@ from aaiclick.auth import config, security
 from aaiclick.auth.models import ROLE_ADMIN, ROLE_VIEWER, Role
 
 from .app import API_PREFIX, app
+from .auth import PrincipalAuthMiddleware
+from .mcp import mcp
 
 TEST_JWT_SECRET = "server-test-jwt-secret-key-at-least-32-bytes-long"
+
+MCP_HEADERS = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
 
 
 @pytest.fixture
@@ -63,3 +68,19 @@ async def anon_client() -> AsyncIterator[httpx.AsyncClient]:
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         yield client
+
+
+@asynccontextmanager
+async def mcp_http() -> AsyncIterator[httpx.AsyncClient]:
+    """The FastMCP app behind the mount middleware, stateless + JSON so a plain
+    POST answers with a JSON-RPC body instead of an SSE stream.
+
+    A context manager rather than a fixture: the session manager's lifespan
+    opens an anyio task group, which must be exited in the task that entered
+    it — pytest-asyncio tears async fixtures down in a different task.
+    """
+    http_app = mcp.http_app(path="/", stateless_http=True, json_response=True)
+    async with http_app.lifespan(http_app):
+        transport = httpx.ASGITransport(app=PrincipalAuthMiddleware(http_app))
+        async with httpx.AsyncClient(transport=transport, base_url="http://mcp", headers=MCP_HEADERS) as client:
+            yield client

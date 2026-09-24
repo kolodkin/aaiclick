@@ -2,14 +2,15 @@
 
 ``resolve_principal`` is shared by the REST dependency and the ``/mcp`` ASGI
 middleware. HTTP end-to-end coverage (login -> access -> protected route, RBAC
-403s) lives in the router tests; here we exercise the core resolver and the
-middleware directly so they do not depend on the MCP session-manager lifespan.
+403s) lives in the router tests; here we exercise the core resolver directly
+and drive the middleware through the real ``/mcp`` FastMCP app.
 """
 
 from __future__ import annotations
 
 from unittest.mock import patch
 
+import httpx
 import jwt
 import pytest
 
@@ -17,13 +18,16 @@ from aaiclick.auth import security
 from aaiclick.auth.view_models import CreateApiTokenRequest, CreateUserRequest
 from aaiclick.internal_api import api_tokens, users
 from aaiclick.internal_api.errors import Forbidden, Unauthorized
+from aaiclick.view_models import Problem, ProblemCode
 
 from . import auth
-from .auth import PrincipalAuthMiddleware, warn_if_open
-from .conftest import TEST_JWT_SECRET
-from .request_state import audit_state
+from .app import API_PREFIX
+from .auth import warn_if_open
+from .conftest import TEST_JWT_SECRET, mcp_http
 
 OTHER_SECRET = "a-different-secret-also-32-plus-bytes-long"
+
+_TOOLS_LIST = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
 
 
 def _bearer(token: str) -> str:
@@ -44,10 +48,11 @@ async def test_enabled_missing_token_unauthorized(enabled):
         await auth.resolve_principal(authorization=None)
 
 
-async def test_enabled_bad_signature_unauthorized(enabled):
+async def test_enabled_bad_signature_unauthorized(orch_ctx, enabled, anon_client):
     token = jwt.encode({"sub": "1", "type": "access", "role": "admin"}, OTHER_SECRET, algorithm="HS256")
-    with pytest.raises(Unauthorized):
-        await auth.resolve_principal(authorization=_bearer(token))
+    res = await anon_client.get(f"{API_PREFIX}/auth/me", headers={"Authorization": _bearer(token)})
+    assert res.status_code == 401
+    assert Problem.model_validate(res.json()).code is ProblemCode.UNAUTHORIZED
 
 
 async def test_api_token_resolves_live_owner_state(enabled, orch_ctx):
@@ -71,22 +76,29 @@ async def test_unknown_api_token_unauthorized(enabled, orch_ctx):
 
 
 @pytest.mark.parametrize(
-    "held, required, allowed",
+    "held, required",
     [
-        pytest.param("read", "read", True, id="read-reads"),
-        pytest.param("read", "write", False, id="read-cannot-write"),
-        pytest.param("write", "admin", False, id="write-cannot-admin"),
-        pytest.param("admin", "write", True, id="admin-can-write"),
-        pytest.param("admin", "admin", True, id="admin-can-admin"),
+        pytest.param("read", "read", id="read-reads"),
+        pytest.param("admin", "write", id="admin-can-write"),
+        pytest.param("admin", "admin", id="admin-can-admin"),
     ],
 )
-def test_check_scope_walks_the_ladder(held, required, allowed):
+def test_check_scope_admits_down_the_ladder(held, required):
     principal = auth.Principal(user_id=1, role="viewer", scope=held, kind="token")
-    if allowed:
+    auth.check_scope(principal, required)
+
+
+@pytest.mark.parametrize(
+    "held, required",
+    [
+        pytest.param("read", "write", id="read-cannot-write"),
+        pytest.param("write", "admin", id="write-cannot-admin"),
+    ],
+)
+def test_check_scope_forbids_up_the_ladder(held, required):
+    principal = auth.Principal(user_id=1, role="viewer", scope=held, kind="token")
+    with pytest.raises(Forbidden):
         auth.check_scope(principal, required)
-    else:
-        with pytest.raises(Forbidden):
-            auth.check_scope(principal, required)
 
 
 def test_unscoped_principal_is_bounded_by_role_alone():
@@ -119,57 +131,43 @@ def test_check_scope_forbids_too_little():
     auth.check_scope(auth.Principal(user_id=5, role="member"), "write")
 
 
-def test_session_principal_is_unscoped():
-    session = auth.Principal(user_id=1, role="admin", kind="session")
-    assert session.scope is None
-
-
 # --- PrincipalAuthMiddleware ---------------------------------------------
 
 
-async def _drive(scope, middleware_inner_flag):
-    sent: list[dict] = []
-
-    async def send(message):
-        sent.append(message)
-
-    async def receive():
-        return {"type": "http.request"}
-
-    async def inner(scope, receive, send):
-        middleware_inner_flag.append(True)
-
-    await PrincipalAuthMiddleware(inner)(scope, receive, send)
-    return sent
+async def _tools_list(headers: dict[str, str]) -> httpx.Response:
+    async with mcp_http() as client:
+        return await client.post("/", json=_TOOLS_LIST, headers=headers)
 
 
 async def test_mcp_mount_admits_an_api_token_and_stores_it(orch_ctx, enabled):
-    """Per-tool RBAC lives in mcp_rbac.py — the mount only needs a principal."""
-    called: list[bool] = []
+    """Per-tool RBAC lives in mcp_rbac.py — the mount only needs a principal.
+    The stored principal is what FastMCP filters on: a read token sees no
+    write tools."""
     user = await users.create_user(CreateUserRequest(username="m", password="pw"))
     created = await api_tokens.create_token(user.id, CreateApiTokenRequest(name="m", scope="read"))
-    scope = {"type": "http", "headers": [(b"authorization", f"Bearer {created.token}".encode())]}
-    await _drive(scope, called)
-    assert called == [True]
-    recorded = audit_state(scope).principal
-    assert recorded is not None and recorded.user_id == user.id
+
+    res = await _tools_list({"Authorization": _bearer(created.token)})
+
+    assert res.status_code == 200, res.text
+    names = {t["name"] for t in res.json()["result"]["tools"]}
+    assert "list_jobs" in names and "run_job" not in names
 
 
 async def test_mcp_mount_refuses_a_session_jwt(enabled):
     """MCP is the machine door; a session JWT belongs on REST."""
-    called: list[bool] = []
     token = security.encode_access_token(user_id=2, role="admin", secret=TEST_JWT_SECRET, ttl=60)
-    scope = {"type": "http", "headers": [(b"authorization", f"Bearer {token}".encode())]}
-    sent = await _drive(scope, called)
-    assert not called
-    assert sent[0]["status"] == 401
+
+    res = await _tools_list({"Authorization": _bearer(token)})
+
+    assert res.status_code == 401
 
 
 async def test_mcp_middleware_open_in_local_mode(monkeypatch):
     monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
-    called: list[bool] = []
-    await _drive({"type": "http", "headers": []}, called)
-    assert called == [True]
+
+    res = await _tools_list({})
+
+    assert res.status_code == 200, res.text
 
 
 # --- warn_if_open --------------------------------------------------------

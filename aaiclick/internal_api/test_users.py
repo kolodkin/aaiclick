@@ -14,10 +14,13 @@ async def _logged_in(username: str) -> tuple[UserView, str]:
     return view, pair.refresh_token
 
 
-async def test_create_user_returns_view(orch_ctx):
+async def test_create_user_round_trips_through_get_user(orch_ctx):
     view = await users.create_user(CreateUserRequest(username="alice", password="pw", role="admin"))
-    assert isinstance(view, UserView)
-    assert view.username == "alice" and view.role == "admin"
+
+    fetched = await users.get_user(view.id)
+
+    assert fetched == view
+    assert fetched.username == "alice" and fetched.role == "admin"
 
 
 async def test_create_duplicate_raises_conflict(orch_ctx):
