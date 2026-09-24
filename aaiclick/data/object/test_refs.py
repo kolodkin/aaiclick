@@ -10,6 +10,8 @@ behavior, covered upstream.
 
 from __future__ import annotations
 
+import pytest
+
 from aaiclick.data.object.refs import (
     ObjectRef,
     UpstreamRef,
@@ -19,30 +21,33 @@ from aaiclick.data.object.refs import (
 )
 
 
-def test_object_ref_ephemeral_omits_persistent():
-    """Ephemeral Object refs have no ``persistent`` key — the wire
-    format stays minimal for the common case."""
-    assert ObjectRef(table="t_123").to_dict() == {
-        "object_type": "object",
-        "table": "t_123",
-    }
-
-
-def test_object_ref_persistent_emits_flag():
-    assert ObjectRef(table="p_kev", persistent=True).to_dict() == {
-        "object_type": "object",
-        "table": "p_kev",
-        "persistent": True,
-    }
-
-
-def test_object_ref_persistent_false_still_omits():
-    """``persistent=False`` serializes identically to ``persistent=None``
-    — the flag only appears on the wire when truthy."""
-    assert ObjectRef(table="t_1", persistent=False).to_dict() == {
-        "object_type": "object",
-        "table": "t_1",
-    }
+@pytest.mark.parametrize(
+    "ref, expected",
+    [
+        # Ephemeral Object refs have no ``persistent`` key — the wire format
+        # stays minimal for the common case.
+        pytest.param(
+            ObjectRef(table="t_123"),
+            {"object_type": "object", "table": "t_123"},
+            id="ephemeral-omits-persistent",
+        ),
+        pytest.param(
+            ObjectRef(table="p_kev", persistent=True),
+            {"object_type": "object", "table": "p_kev", "persistent": True},
+            id="persistent-emits-flag",
+        ),
+        # ``persistent=False`` serializes identically to ``persistent=None`` —
+        # the flag only appears on the wire when truthy.
+        pytest.param(
+            ObjectRef(table="t_1", persistent=False),
+            {"object_type": "object", "table": "t_1"},
+            id="persistent-false-still-omits",
+        ),
+    ],
+)
+def test_object_ref_to_dict(ref, expected):
+    """Pure function: the hand-written wire dict is the contract."""
+    assert ref.to_dict() == expected
 
 
 def test_view_ref_with_modifiers():

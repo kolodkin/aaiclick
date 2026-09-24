@@ -14,24 +14,26 @@ from aaiclick import cast, create_object_from_value, literal, split_by_char
 # =============================================================================
 
 
-async def test_year_scalar(ctx):
-    """Extract year from a scalar DateTime."""
-    dt = datetime(2024, 6, 15, 10, 30, 0, tzinfo=timezone.utc)
-    obj = await create_object_from_value(dt)
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        pytest.param(datetime(2024, 6, 15, 10, 30, 0, tzinfo=timezone.utc), 2024, id="scalar"),
+        pytest.param(
+            [
+                datetime(2023, 1, 1, tzinfo=timezone.utc),
+                datetime(2024, 6, 15, tzinfo=timezone.utc),
+                datetime(2025, 12, 31, tzinfo=timezone.utc),
+            ],
+            [2023, 2024, 2025],
+            id="array",
+        ),
+    ],
+)
+async def test_year(ctx, value, expected):
+    """Extract year from DateTime values."""
+    obj = await create_object_from_value(value)
     result = await obj.year()
-    assert await result.data() == 2024
-
-
-async def test_year_array(ctx):
-    """Extract year from an array of DateTimes."""
-    dates = [
-        datetime(2023, 1, 1, tzinfo=timezone.utc),
-        datetime(2024, 6, 15, tzinfo=timezone.utc),
-        datetime(2025, 12, 31, tzinfo=timezone.utc),
-    ]
-    obj = await create_object_from_value(dates)
-    result = await obj.year()
-    assert await result.data() == [2023, 2024, 2025]
+    assert await result.data() == expected
 
 
 async def test_month_array(ctx):
@@ -170,48 +172,18 @@ async def test_chain_length_then_max(ctx):
 # =============================================================================
 
 
-async def test_cast_nullable(ctx):
-    obj = await create_object_from_value([{"n": "42"}, {"n": "abc"}, {"n": "100"}])
-    result = await obj.with_columns({"n_int": cast("n", "UInt32")}).data()
-    assert result["n_int"] == [42, None, 100]
-
-
-async def test_cast_not_nullable(ctx):
-    obj = await create_object_from_value([{"n": "42"}, {"n": "100"}])
-    result = await obj.with_columns({"n_int": cast("n", "UInt32", nullable=False)}).data()
-    assert result["n_int"] == [42, 100]
-
-
 @pytest.mark.parametrize(
-    "to_type, nullable, expected_type, expected_expr",
+    "records, nullable, expected",
     [
-        pytest.param("UInt32", True, "Nullable(UInt32)", "toUInt32OrNull(col)", id="nullable"),
-        pytest.param("Float64", False, "Float64", "toFloat64(col)", id="not-nullable"),
+        # Unparseable values become NULL under the nullable cast.
+        pytest.param([{"n": "42"}, {"n": "abc"}, {"n": "100"}], True, [42, None, 100], id="nullable"),
+        pytest.param([{"n": "42"}, {"n": "100"}], False, [42, 100], id="not-nullable"),
     ],
 )
-def test_cast_returns_computed(to_type, nullable, expected_type, expected_expr):
-    c = cast("col", to_type, nullable=nullable)
-    assert c.type == expected_type
-    assert c.expression == expected_expr
-
-
-@pytest.mark.parametrize(
-    "col, element_type, expected_type, expected_expr",
-    [
-        pytest.param("genres", "String", "Array(String)", "splitByChar(',', genres)", id="default"),
-        pytest.param(
-            "tags",
-            "LowCardinality(String)",
-            "Array(LowCardinality(String))",
-            "splitByChar(',', tags)",
-            id="low-cardinality",
-        ),
-    ],
-)
-def test_split_by_char_returns_computed(col, element_type, expected_type, expected_expr):
-    c = split_by_char(col, ",", element_type=element_type)
-    assert c.type == expected_type
-    assert c.expression == expected_expr
+async def test_cast(ctx, records, nullable, expected):
+    obj = await create_object_from_value(records)
+    result = await obj.with_columns({"n_int": cast("n", "UInt32", nullable=nullable)}).data()
+    assert result["n_int"] == expected
 
 
 async def test_split_by_char_explode(ctx):
@@ -261,32 +233,14 @@ async def test_with_split_by_char_method_alias(ctx):
 
 
 @pytest.mark.parametrize(
-    "value, ch_type, expected_expr",
-    [
-        pytest.param("hello", "String", "'hello'", id="string"),
-        pytest.param(42, "UInt32", "42", id="int"),
-        pytest.param(3.14, "Float64", "3.14", id="float"),
-        pytest.param(True, "UInt8", "true", id="bool-true"),
-        pytest.param(False, "UInt8", "false", id="bool-false"),
-    ],
-)
-def test_literal_returns_computed(value, ch_type, expected_expr):
-    c = literal(value, ch_type)
-    assert c.type == ch_type
-    assert c.expression == expected_expr
-
-
-def test_literal_string_escapes_quotes():
-    c = literal("it's", "String")
-    assert c.expression == r"'it\'s'"
-
-
-@pytest.mark.parametrize(
     "col_name, value, ch_type, expected",
     [
         pytest.param("source", "dataset_a", "String", ["dataset_a", "dataset_a"], id="string"),
         pytest.param("flag", 1, "UInt8", [1, 1], id="int"),
         pytest.param("active", True, "UInt8", [1, 1], id="bool"),
+        pytest.param("inactive", False, "UInt8", [0, 0], id="bool-false"),
+        # Single quotes are escaped inside the emitted string literal.
+        pytest.param("quoted", "it's", "String", ["it's", "it's"], id="string-escapes-quotes"),
         pytest.param("pi", 3.14, "Float64", [3.14, 3.14], id="float"),
     ],
 )

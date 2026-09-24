@@ -147,27 +147,18 @@ async def test_url_single_column(ctx, fileserver):
 
 
 async def test_url_multi_column(ctx, fileserver):
-    """Multi-column load creates a dict Object with original column names."""
+    """Multi-column load creates a FIELDTYPE_DICT Object with original column names."""
     obj = await create_object_from_url(
         f"{fileserver}/sample.parquet",
         columns=["name", "price"],
         format="Parquet",
     )
+    assert obj.schema.fieldtype == FIELDTYPE_DICT
     data = await obj.data()
     assert isinstance(data, dict)
     assert "name" in data
     assert "price" in data
     assert len(data["name"]) == _NUM_ROWS
-
-
-async def test_url_multi_column_is_dict_fieldtype(ctx, fileserver):
-    """Multi-column URL object has FIELDTYPE_DICT schema (not FIELDTYPE_ARRAY)."""
-    obj = await create_object_from_url(
-        f"{fileserver}/sample.parquet",
-        columns=["name", "price"],
-        format="Parquet",
-    )
-    assert obj._schema.fieldtype == FIELDTYPE_DICT
 
 
 async def test_url_with_limit(ctx, fileserver):
@@ -228,52 +219,33 @@ async def test_url_aggregation_on_result(ctx, fileserver):
 # =============================================================================
 
 
-async def test_insert_from_url_invalid_scheme(ctx, fileserver):
-    """insert_from_url rejects non-HTTP URLs."""
+@pytest.mark.parametrize(
+    "url, kwargs, match",
+    [
+        pytest.param("ftp://example.com/data.parquet", {}, "http or https", id="invalid-scheme"),
+        pytest.param(
+            "https://example.com/data.parquet",
+            {"format": "InvalidFormat"},
+            "Unsupported format",
+            id="unsupported-format",
+        ),
+        pytest.param("https://example.com/data.parquet", {"limit": -1}, "positive integer", id="negative-limit"),
+        # Semicolons in WHERE are rejected as SQL injection.
+        pytest.param(
+            "https://example.com/data.parquet",
+            {"where": "1=1; DROP TABLE users"},
+            "must not contain",
+            id="where-with-semicolon",
+        ),
+    ],
+)
+async def test_insert_from_url_validation_raises(ctx, fileserver, url, kwargs, match):
+    """insert_from_url validates its inputs before fetching anything."""
     obj = await create_object_from_url(
         f"{fileserver}/sample.parquet", columns=["id", "price"], format="Parquet", limit=1
     )
-    with pytest.raises(ValueError, match="http or https"):
-        await obj.insert_from_url("ftp://example.com/data.parquet")
-
-
-async def test_insert_from_url_unsupported_format(ctx, fileserver):
-    """insert_from_url rejects unsupported formats."""
-    obj = await create_object_from_url(
-        f"{fileserver}/sample.parquet", columns=["id", "price"], format="Parquet", limit=1
-    )
-    with pytest.raises(ValueError, match="Unsupported format"):
-        await obj.insert_from_url(
-            f"{fileserver}/sample.parquet",
-            columns=["id", "price"],
-            format="InvalidFormat",
-        )
-
-
-async def test_insert_from_url_invalid_limit(ctx, fileserver):
-    """insert_from_url rejects invalid limit values."""
-    obj = await create_object_from_url(
-        f"{fileserver}/sample.parquet", columns=["id", "price"], format="Parquet", limit=1
-    )
-    with pytest.raises(ValueError, match="positive integer"):
-        await obj.insert_from_url(
-            f"{fileserver}/sample.parquet",
-            columns=["id", "price"],
-            limit=-1,
-        )
-
-
-async def test_insert_from_url_where_with_semicolon(ctx, fileserver):
-    """insert_from_url rejects WHERE with semicolons (SQL injection)."""
-    obj = await create_object_from_url(
-        f"{fileserver}/sample.parquet", columns=["id", "price"], format="Parquet", limit=1
-    )
-    with pytest.raises(ValueError, match="must not contain"):
-        await obj.insert_from_url(
-            f"{fileserver}/sample.parquet",
-            columns=["id", "price"],
-            where="1=1; DROP TABLE users",
-        )
+    with pytest.raises(ValueError, match=match):
+        await obj.insert_from_url(url, columns=["id", "price"], **kwargs)
 
 
 # =============================================================================
@@ -380,6 +352,7 @@ async def test_insert_from_url_with_where(ctx, fileserver):
     ],
 )
 def test_json_extract_expr(field, col_info, expected):
+    """The generated JSONExtract SQL expression is the contract of this pure function."""
     assert _json_extract_expr(field, col_info) == expected
 
 

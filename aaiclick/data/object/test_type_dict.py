@@ -4,6 +4,8 @@ Tests for dict data type - creation, data() with orient options.
 Dict type stores multiple named columns in a single row.
 """
 
+import pytest
+
 from aaiclick import ORIENT_DICT, ORIENT_RECORDS, create_object_from_value
 
 # =============================================================================
@@ -11,56 +13,25 @@ from aaiclick import ORIENT_DICT, ORIENT_RECORDS, create_object_from_value
 # =============================================================================
 
 
-async def test_dict_creation_simple(ctx):
-    """Test creating a dict object with simple values."""
-    obj = await create_object_from_value({"id": 1, "name": "Alice", "age": 30})
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param({"id": 1, "name": "Alice", "age": 30}, id="simple"),
+        pytest.param({"count": 42, "price": 19.99, "name": "item"}, id="mixed-types"),
+        pytest.param({"x": 10, "y": 20, "z": 30}, id="all-int"),
+        pytest.param({"a": 1.1, "b": 2.2, "c": 3.3}, id="all-float"),
+        pytest.param({"first": "hello", "second": "world", "third": "test"}, id="all-string"),
+        pytest.param({"only": 42}, id="single-field"),
+        pytest.param({"name": "", "value": 123}, id="empty-string"),
+        pytest.param({"zero_int": 0, "zero_float": 0.0}, id="zero-values"),
+    ],
+)
+async def test_dict_creation(ctx, value):
+    obj = await create_object_from_value(value)
 
     data = await obj.data()
 
-    assert isinstance(data, dict)
-    assert data["id"] == 1
-    assert data["name"] == "Alice"
-    assert data["age"] == 30
-
-
-async def test_dict_creation_mixed_types(ctx):
-    """Test creating a dict with mixed value types."""
-    obj = await create_object_from_value({"count": 42, "price": 19.99, "name": "item"})
-
-    data = await obj.data()
-
-    assert data["count"] == 42
-    assert data["price"] == 19.99
-    assert data["name"] == "item"
-
-
-async def test_dict_creation_all_int(ctx):
-    """Test creating a dict with all integer values."""
-    obj = await create_object_from_value({"x": 10, "y": 20, "z": 30})
-
-    data = await obj.data()
-
-    assert data == {"x": 10, "y": 20, "z": 30}
-
-
-async def test_dict_creation_all_float(ctx):
-    """Test creating a dict with all float values."""
-    obj = await create_object_from_value({"a": 1.1, "b": 2.2, "c": 3.3})
-
-    data = await obj.data()
-
-    assert data == {"a": 1.1, "b": 2.2, "c": 3.3}
-
-
-async def test_dict_creation_all_string(ctx):
-    """Test creating a dict with all string values."""
-    obj = await create_object_from_value({"first": "hello", "second": "world", "third": "test"})
-
-    data = await obj.data()
-
-    assert data["first"] == "hello"
-    assert data["second"] == "world"
-    assert data["third"] == "test"
+    assert data == value
 
 
 # =============================================================================
@@ -100,53 +71,24 @@ async def test_dict_default_orient_is_dict(ctx):
 
 
 # =============================================================================
-# Edge Cases
-# =============================================================================
-
-
-async def test_dict_single_field(ctx):
-    """Test dict with a single field."""
-    obj = await create_object_from_value({"only": 42})
-
-    data = await obj.data()
-
-    assert data == {"only": 42}
-
-
-async def test_dict_with_empty_string(ctx):
-    """Test dict containing empty string value."""
-    obj = await create_object_from_value({"name": "", "value": 123})
-
-    data = await obj.data()
-
-    assert data["name"] == ""
-    assert data["value"] == 123
-
-
-async def test_dict_with_zero_values(ctx):
-    """Test dict containing zero values."""
-    obj = await create_object_from_value({"zero_int": 0, "zero_float": 0.0})
-
-    data = await obj.data()
-
-    assert data["zero_int"] == 0
-    assert data["zero_float"] == 0.0
-
-
-# =============================================================================
 # Dict of Arrays Tests
 # =============================================================================
 
 
-async def test_dict_of_arrays_creation(ctx):
-    """Test creating a dict with array values."""
-    obj = await create_object_from_value({"id": [1, 2, 3], "value": [10, 20, 30]})
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param({"id": [1, 2, 3], "value": [10, 20, 30]}, id="int-arrays"),
+        pytest.param({"x": [1.5, 2.5, 3.5], "y": [4.5, 5.5, 6.5]}, id="float-arrays"),
+        pytest.param({"first": ["John", "Jane"], "last": ["Doe", "Smith"]}, id="string-arrays"),
+    ],
+)
+async def test_dict_of_arrays_creation(ctx, value):
+    obj = await create_object_from_value(value)
 
     data = await obj.data()
 
-    assert isinstance(data, dict)
-    assert data["id"] == [1, 2, 3]
-    assert data["value"] == [10, 20, 30]
+    assert data == value
 
 
 async def test_dict_of_arrays_orient_dict(ctx):
@@ -171,26 +113,6 @@ async def test_dict_of_arrays_orient_records(ctx):
     assert data[0] == {"name": "Alice", "age": 30}
     assert data[1] == {"name": "Bob", "age": 25}
     assert data[2] == {"name": "Charlie", "age": 35}
-
-
-async def test_dict_of_arrays_floats(ctx):
-    """Test dict with float arrays."""
-    obj = await create_object_from_value({"x": [1.5, 2.5, 3.5], "y": [4.5, 5.5, 6.5]})
-
-    data = await obj.data()
-
-    assert data["x"] == [1.5, 2.5, 3.5]
-    assert data["y"] == [4.5, 5.5, 6.5]
-
-
-async def test_dict_of_arrays_strings(ctx):
-    """Test dict with string arrays."""
-    obj = await create_object_from_value({"first": ["John", "Jane"], "last": ["Doe", "Smith"]})
-
-    data = await obj.data()
-
-    assert data["first"] == ["John", "Jane"]
-    assert data["last"] == ["Doe", "Smith"]
 
 
 async def test_dict_of_arrays_records_preserves_order(ctx):

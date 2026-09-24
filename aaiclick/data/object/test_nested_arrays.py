@@ -95,69 +95,31 @@ async def test_nested_records_orient_dict(ctx):
 
 
 # =============================================================================
-# Nested with Scalar-Only Sub-Fields
+# Nested Sub-Field Shapes
 # =============================================================================
 
 
-async def test_nested_scalar_sub_fields(ctx):
-    """Nested objects with only scalar fields."""
-    obj = await create_object_from_value(
-        {
-            "name": "test",
-            "items": [{"x": 1, "y": 2}, {"x": 3, "y": 4}],
-        }
-    )
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(
+            {"name": "test", "items": [{"x": 1, "y": 2}, {"x": 3, "y": 4}]},
+            id="scalar-only-sub-fields",
+        ),
+        # Array sub-fields are stored as Array(Array(T)).
+        pytest.param(
+            {"id": 1, "groups": [{"tags": ["a", "b"], "score": 10}, {"tags": ["c"], "score": 20}]},
+            id="array-sub-fields",
+        ),
+        pytest.param({"a": 1, "b": [{"c": 10}]}, id="single-element-array"),
+    ],
+)
+async def test_nested_sub_fields_round_trip(ctx, value):
+    obj = await create_object_from_value(value)
 
     data = await obj.data()
 
-    assert data["name"] == "test"
-    assert data["items"] == [{"x": 1, "y": 2}, {"x": 3, "y": 4}]
-
-
-# =============================================================================
-# Nested with Array Sub-Fields
-# =============================================================================
-
-
-async def test_nested_array_sub_fields(ctx):
-    """Nested objects with array fields stored as Array(Array(T))."""
-    obj = await create_object_from_value(
-        {
-            "id": 1,
-            "groups": [
-                {"tags": ["a", "b"], "score": 10},
-                {"tags": ["c"], "score": 20},
-            ],
-        }
-    )
-
-    data = await obj.data()
-
-    assert data["id"] == 1
-    assert data["groups"] == [
-        {"tags": ["a", "b"], "score": 10},
-        {"tags": ["c"], "score": 20},
-    ]
-
-
-# =============================================================================
-# Edge Cases
-# =============================================================================
-
-
-async def test_nested_single_element_array(ctx):
-    """Nested array with a single element."""
-    obj = await create_object_from_value(
-        {
-            "a": 1,
-            "b": [{"c": 10}],
-        }
-    )
-
-    data = await obj.data()
-
-    assert data["a"] == 1
-    assert data["b"] == [{"c": 10}]
+    assert data == value
 
 
 async def test_nested_many_elements(ctx):
@@ -222,9 +184,21 @@ async def test_deep_nested_two_levels(ctx):
     assert data["level1"][1]["level2"] == [{"val": 30}]
 
 
-async def test_list_of_lists_of_dicts(ctx):
-    """Doubly-nested lists of dicts flatten with one star per list level."""
-    value = {"a": [[{"x": 1}], [{"x": 2}, {"x": 3}]]}
+@pytest.mark.parametrize(
+    "value",
+    [
+        # Doubly-nested lists of dicts flatten with one star per list level.
+        pytest.param({"a": [[{"x": 1}], [{"x": 2}, {"x": 3}]]}, id="list-of-lists-of-dicts"),
+        # Three list levels stack three stars.
+        pytest.param({"a": [[[{"x": 1}, {"x": 2}]], [[{"x": 3}]]]}, id="triple-nested-lists-of-dicts"),
+        # A dict below two list levels can itself hold a list of dicts.
+        pytest.param(
+            {"a": [[{"name": "n", "inner": [{"v": 1}, {"v": 2}]}]]},
+            id="double-star-with-inner-list-of-dicts",
+        ),
+    ],
+)
+async def test_multi_level_lists_of_dicts_round_trip(ctx, value):
     obj = await create_object_from_value(value)
 
     data = await obj.data()
@@ -256,26 +230,6 @@ async def test_list_of_lists_of_dicts_in_records(ctx):
     data = await obj.data(orient=ORIENT_RECORDS)
 
     assert data == records
-
-
-async def test_triple_nested_lists_of_dicts(ctx):
-    """Three list levels stack three stars."""
-    value = {"a": [[[{"x": 1}, {"x": 2}]], [[{"x": 3}]]]}
-    obj = await create_object_from_value(value)
-
-    data = await obj.data()
-
-    assert data == value
-
-
-async def test_double_star_with_inner_list_of_dicts(ctx):
-    """A dict below two list levels can itself hold a list of dicts."""
-    value = {"a": [[{"name": "n", "inner": [{"v": 1}, {"v": 2}]}]]}
-    obj = await create_object_from_value(value)
-
-    data = await obj.data()
-
-    assert data == value
 
 
 async def test_empty_dict_below_double_list_raises(ctx):

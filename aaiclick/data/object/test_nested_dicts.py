@@ -28,24 +28,22 @@ async def test_singleton_dict_schema(ctx):
     assert int(schema.columns["x.y.z"].array) == 0
 
 
-async def test_dict_inside_array_items_schema(ctx):
-    """A dict inside list-of-dicts items extends the name after the star."""
-    obj = await create_object_from_value({"b": [{"c": {"d": 5}}, {"c": {"d": 10}}]})
+@pytest.mark.parametrize(
+    "value, column",
+    [
+        # A dict inside list-of-dicts items extends the name after the star.
+        pytest.param({"b": [{"c": {"d": 5}}, {"c": {"d": 10}}]}, "b.*.c.d", id="dict-inside-array-items"),
+        # A list-of-dicts inside a dict gets the star after the dot prefix.
+        pytest.param({"x": {"y": [{"z": 1}, {"z": 2}]}}, "x.y.*.z", id="array-of-objects-inside-dict"),
+    ],
+)
+async def test_mixed_nesting_schema(ctx, value, column):
+    obj = await create_object_from_value(value)
 
     schema = obj.schema
-    assert "b.*.c.d" in schema.columns
-    assert schema.columns["b.*.c.d"].type == "Int64"
-    assert int(schema.columns["b.*.c.d"].array) == 1
-
-
-async def test_array_of_objects_inside_dict_schema(ctx):
-    """A list-of-dicts inside a dict gets the star after the dot prefix."""
-    obj = await create_object_from_value({"x": {"y": [{"z": 1}, {"z": 2}]}})
-
-    schema = obj.schema
-    assert "x.y.*.z" in schema.columns
-    assert schema.columns["x.y.*.z"].type == "Int64"
-    assert int(schema.columns["x.y.*.z"].array) == 1
+    assert column in schema.columns
+    assert schema.columns[column].type == "Int64"
+    assert int(schema.columns[column].array) == 1
 
 
 # =============================================================================
@@ -53,13 +51,25 @@ async def test_array_of_objects_inside_dict_schema(ctx):
 # =============================================================================
 
 
-async def test_singleton_dict_round_trip(ctx):
-    """Deep plain nesting reconstructs exactly."""
-    obj = await create_object_from_value({"a": 2, "x": {"y": {"z": 1}}})
+@pytest.mark.parametrize(
+    "value",
+    [
+        # Deep plain nesting reconstructs exactly.
+        pytest.param({"a": 2, "x": {"y": {"z": 1}}}, id="singleton-dict"),
+        # Mixed notation x.y.*.z reconstructs dict-of-list-of-dicts.
+        pytest.param({"x": {"y": [{"z": 1}, {"z": 2}]}}, id="array-of-objects-inside-dict"),
+        # Mixed notation b.*.c.d reconstructs list-of-dicts-of-dicts.
+        pytest.param({"b": [{"c": {"d": 5}}, {"c": {"d": 10}}]}, id="dict-inside-array-items"),
+        # A plain-dot sibling and a star group under the same prefix merge correctly.
+        pytest.param({"x": {"w": 1, "y": [{"z": 1}, {"z": 2}]}}, id="star-group-and-plain-column-share-prefix"),
+    ],
+)
+async def test_nested_dict_round_trip(ctx, value):
+    obj = await create_object_from_value(value)
 
     data = await obj.data()
 
-    assert data == {"a": 2, "x": {"y": {"z": 1}}}
+    assert data == value
 
 
 async def test_records_with_dict_field_round_trip(ctx):
@@ -79,24 +89,6 @@ async def test_records_with_dict_field_round_trip(ctx):
         {"source": "s1", "score": 0.5},
         {"source": "s2", "score": 0.75},
     ]
-
-
-async def test_array_of_objects_inside_dict_round_trip(ctx):
-    """Mixed notation x.y.*.z reconstructs dict-of-list-of-dicts."""
-    obj = await create_object_from_value({"x": {"y": [{"z": 1}, {"z": 2}]}})
-
-    data = await obj.data()
-
-    assert data == {"x": {"y": [{"z": 1}, {"z": 2}]}}
-
-
-async def test_dict_inside_array_items_round_trip(ctx):
-    """Mixed notation b.*.c.d reconstructs list-of-dicts-of-dicts."""
-    obj = await create_object_from_value({"b": [{"c": {"d": 5}}, {"c": {"d": 10}}]})
-
-    data = await obj.data()
-
-    assert data == {"b": [{"c": {"d": 5}}, {"c": {"d": 10}}]}
 
 
 # =============================================================================
@@ -124,17 +116,8 @@ async def test_invalid_nested_value_raises(ctx, value, match):
 
 
 # =============================================================================
-# Composition — overlapping prefixes, explicit Schema
+# Composition — explicit Schema
 # =============================================================================
-
-
-async def test_star_group_and_plain_column_share_prefix_round_trip(ctx):
-    """A plain-dot sibling and a star group under the same prefix merge correctly."""
-    obj = await create_object_from_value({"x": {"w": 1, "y": [{"z": 1}, {"z": 2}]}})
-
-    data = await obj.data()
-
-    assert data == {"x": {"w": 1, "y": [{"z": 1}, {"z": 2}]}}
 
 
 async def test_explicit_schema_dotted_column_round_trip(ctx):

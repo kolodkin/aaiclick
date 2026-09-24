@@ -12,64 +12,35 @@ from aaiclick import ORIENT_DICT, ORIENT_RECORDS, create_object_from_value
 # =============================================================================
 
 
-async def test_records_with_array_and_scalar_fields(ctx):
-    """List of dicts where some fields are arrays, some are scalars."""
-    obj = await create_object_from_value(
-        [
-            {"a": [1, 2, 3], "b": 10},
-            {"a": [4, 5, 6], "b": 20},
-        ]
-    )
+@pytest.mark.parametrize(
+    "records, expected",
+    [
+        # Some fields are arrays, some are scalars.
+        pytest.param(
+            [{"a": [1, 2, 3], "b": 10}, {"a": [4, 5, 6], "b": 20}],
+            {"a": [[1, 2, 3], [4, 5, 6]], "b": [10, 20]},
+            id="array-and-scalar-fields",
+        ),
+        pytest.param(
+            [{"x": [1, 2], "y": [3, 4]}, {"x": [5, 6], "y": [7, 8]}],
+            {"x": [[1, 2], [5, 6]], "y": [[3, 4], [7, 8]]},
+            id="all-array-fields",
+        ),
+        # No Array columns at all.
+        pytest.param(
+            [{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}],
+            {"name": ["Alice", "Bob"], "age": [30, 25]},
+            id="all-scalar-fields",
+        ),
+        pytest.param([{"a": [1, 2, 3], "b": 42}], {"a": [[1, 2, 3]], "b": [42]}, id="single-record"),
+    ],
+)
+async def test_records_creation(ctx, records, expected):
+    obj = await create_object_from_value(records)
 
     data = await obj.data()
 
-    assert isinstance(data, dict)
-    assert data["a"] == [[1, 2, 3], [4, 5, 6]]
-    assert data["b"] == [10, 20]
-
-
-async def test_records_with_all_array_fields(ctx):
-    """List of dicts where all fields are arrays."""
-    obj = await create_object_from_value(
-        [
-            {"x": [1, 2], "y": [3, 4]},
-            {"x": [5, 6], "y": [7, 8]},
-        ]
-    )
-
-    data = await obj.data()
-
-    assert data["x"] == [[1, 2], [5, 6]]
-    assert data["y"] == [[3, 4], [7, 8]]
-
-
-async def test_records_with_all_scalar_fields(ctx):
-    """List of dicts where all fields are scalars (no Array columns)."""
-    obj = await create_object_from_value(
-        [
-            {"name": "Alice", "age": 30},
-            {"name": "Bob", "age": 25},
-        ]
-    )
-
-    data = await obj.data()
-
-    assert data["name"] == ["Alice", "Bob"]
-    assert data["age"] == [30, 25]
-
-
-async def test_records_single_record(ctx):
-    """Single record in the list."""
-    obj = await create_object_from_value(
-        [
-            {"a": [1, 2, 3], "b": 42},
-        ]
-    )
-
-    data = await obj.data()
-
-    assert data["a"] == [[1, 2, 3]]
-    assert data["b"] == [42]
+    assert data == expected
 
 
 # =============================================================================
@@ -115,36 +86,23 @@ async def test_records_orient_records(ctx):
 # =============================================================================
 
 
-async def test_records_different_array_lengths(ctx):
-    """Different records can have arrays of different lengths."""
-    obj = await create_object_from_value(
-        [
-            {"a": [1, 2, 3], "b": 10},
-            {"a": [4, 5], "b": 20},
-            {"a": [6], "b": 30},
-        ]
-    )
+@pytest.mark.parametrize(
+    "records",
+    [
+        # Different records can have arrays of different lengths.
+        pytest.param(
+            [{"a": [1, 2, 3], "b": 10}, {"a": [4, 5], "b": 20}, {"a": [6], "b": 30}],
+            id="different-array-lengths",
+        ),
+        pytest.param([{"a": [], "b": 10}, {"a": [1, 2], "b": 20}], id="empty-array-field"),
+    ],
+)
+async def test_records_variable_length_arrays(ctx, records):
+    obj = await create_object_from_value(records)
 
     data = await obj.data(orient=ORIENT_RECORDS)
 
-    assert data[0] == {"a": [1, 2, 3], "b": 10}
-    assert data[1] == {"a": [4, 5], "b": 20}
-    assert data[2] == {"a": [6], "b": 30}
-
-
-async def test_records_empty_array_field(ctx):
-    """Record with an empty list field."""
-    obj = await create_object_from_value(
-        [
-            {"a": [], "b": 10},
-            {"a": [1, 2], "b": 20},
-        ]
-    )
-
-    data = await obj.data(orient=ORIENT_RECORDS)
-
-    assert data[0] == {"a": [], "b": 10}
-    assert data[1] == {"a": [1, 2], "b": 20}
+    assert data == records
 
 
 # =============================================================================
