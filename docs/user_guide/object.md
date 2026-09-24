@@ -463,7 +463,7 @@ result = await (a.view(order_by="value") + b.view(order_by="value"))
 print(await result.data(order_by="value"))  # → [11, 22, 33]
 ```
 
-Same-table ops (`a + a`), scalar broadcast (`a + 10`), and aggregations don't need the contract — they have a natural alignment.
+Ops over the same rows (`a + a`, `v['x'] + v['y']`), scalar broadcast (`a + 10`), and aggregations skip the contract — they align naturally. Fields of two different Views of one table (e.g. a `with_columns()` View and its source) still need it.
 
 !!! warning "Cross-table array ops need `order_by`"
     `a + b` between two array Objects from different tables raises `TypeError` unless both sides are wrapped with `.view(order_by=...)`. Row order is opt-in, not implicit.

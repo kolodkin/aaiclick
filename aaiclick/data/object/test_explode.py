@@ -275,3 +275,27 @@ async def test_explode_computed_column_copy(ctx):
     assert len(result["genre"]) == 3
     # genre should be scalar String, not Array
     assert materialized.schema.columns["genre"].array == 0
+
+
+async def test_explode_computed_column_keeps_column_order(ctx):
+    """An exploded computed column declared before a non-exploded one keeps
+    its own values — data() maps result columns in declaration order."""
+    obj = await create_object_from_value({"csv": ["a,b", "c"], "n": [1, 2]})
+    view = obj.with_columns(
+        {
+            "parts": Computed("Array(String)", "splitByChar(',', csv)"),
+            "n10": Computed("Int64", "n * 10"),
+        }
+    ).explode("parts")
+
+    result = await view.data()
+
+    assert sorted(zip(result["parts"], result["n10"], strict=True)) == [("a", 10), ("b", 10), ("c", 20)]
+
+
+async def test_exploded_fields_combine_on_same_view(ctx):
+    """Two fields of one exploded View pair per exploded row."""
+    obj = await create_object_from_value({"x": [1, 2], "arr": [[1, 2], [3]]})
+    v = obj.explode("arr")
+
+    assert sorted(await (v["arr"] + v["x"]).data()) == [2, 3, 5]
