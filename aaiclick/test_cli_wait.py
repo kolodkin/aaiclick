@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from aaiclick.cli_renderers import render_job_failure
 from aaiclick.cli_wait import JobWaitTimeout, _wake_interval, wait_for_job
 from aaiclick.orchestration.events import (
     STATE_IDLE,
@@ -121,26 +120,6 @@ async def test_timeout_carries_the_stats_for_diagnosis():
     assert [t.entrypoint for t in exc.value.stats.tasks] == ["mod.stuck"]
 
 
-def test_render_job_failure_shows_full_error_not_the_table_truncation(capsys):
-    """``render_job_stats`` clips errors to 60 chars for its table; the final
-    failure message must not, or the traceback is unusable."""
-    long_error = "ValueError: " + "x" * 200
-    stats = _stats(
-        "FAILED",
-        {"FAILED": 1, "COMPLETED": 1},
-        [
-            TaskStatsView(id=7, entrypoint="mod.boom", status="FAILED", error=long_error),
-            TaskStatsView(id=8, entrypoint="mod.ok", status="COMPLETED"),
-        ],
-    )
-    render_job_failure(stats)
-    out = capsys.readouterr().out
-
-    assert long_error in out
-    assert "mod.ok" not in out
-    assert "task get 7" in out
-
-
 async def test_wait_resolves_a_real_job_through_the_internal_api(orch_ctx):
     """Guards the seam the mocked tests cannot: ref resolution and the real
     ``JobStatsView`` shape coming back from a DB round-trip."""
@@ -157,42 +136,6 @@ async def test_wait_resolves_a_real_job_through_the_internal_api(orch_ctx):
     assert stats.job_id == job.id
     assert stats.job_status == JOB_COMPLETED
     assert stats.total_tasks == 1
-
-
-def test_render_job_failure_is_not_silent_on_a_cascade_only_failure(capsys):
-    """A cancelled origin leaves no directly-FAILED task, but the rollup still
-    fails the job — the block must still name what went wrong."""
-    stats = _stats(
-        "FAILED",
-        {"UPSTREAM_FAILED": 1, "CANCELLED": 1},
-        [
-            TaskStatsView(id=9, entrypoint="mod.downstream", status="UPSTREAM_FAILED", error="Upstream task failed"),
-            TaskStatsView(id=8, entrypoint="mod.origin", status="CANCELLED"),
-        ],
-    )
-    render_job_failure(stats)
-    out = capsys.readouterr().out
-
-    assert "mod.downstream" in out
-    assert "mod.origin" in out
-
-
-def test_render_job_failure_hides_cascade_victims_when_a_real_failure_exists(capsys):
-    """A wide fan-out can cascade to hundreds of UPSTREAM_FAILED tasks whose
-    error is one constant string — noise next to the task that actually broke."""
-    stats = _stats(
-        "FAILED",
-        {"FAILED": 1, "UPSTREAM_FAILED": 1},
-        [
-            TaskStatsView(id=7, entrypoint="mod.boom", status="FAILED", error="ValueError: real"),
-            TaskStatsView(id=9, entrypoint="mod.downstream", status="UPSTREAM_FAILED", error="Upstream task failed"),
-        ],
-    )
-    render_job_failure(stats)
-    out = capsys.readouterr().out
-
-    assert "mod.boom" in out
-    assert "mod.downstream" not in out
 
 
 class _SignallingTransport:

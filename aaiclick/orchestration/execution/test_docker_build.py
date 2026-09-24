@@ -7,10 +7,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 from .. import docker_config
-from ..docker_config import resolve_image_source
-from ..models import RegisteredJob
-from ..runner_config import ImageBuild
+from ..runner_config import ImageBuild, ImagePrebuilt
 from . import docker_build
+from .docker_build import resolve_launch_image
 
 
 async def test_collect_build_args_omits_unset_values(monkeypatch):
@@ -141,35 +140,41 @@ async def test_build_image_to_tag_preflights_docker(monkeypatch):
     require.assert_awaited_once()
 
 
-async def test_resolve_image_source_kwargs_override_registered_defaults(
-    monkeypatch,
-):
-    """The three-layer resolve picks the right value at each level."""
+async def test_resolve_launch_image_prebuilt_tag_verbatim():
+    source = ImagePrebuilt(image_tag="ghcr.io/x/y:1")
+    assert await resolve_launch_image(source, task_id=1) == "ghcr.io/x/y:1"
+
+
+async def test_resolve_launch_image_rejects_missing_source():
+    with pytest.raises(ValueError, match="no image_source"):
+        await resolve_launch_image(None, task_id=42)
+
+
+async def test_resolve_launch_image_never_builds_without_registry(monkeypatch):
+    """The build task in the graph owns the build in both modes; launch only
+    computes the tag."""
+    calls = []
+
+    async def fake_build(source, image_tag):
+        calls.append(image_tag)
+
     monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
-    monkeypatch.setattr(docker_config, "auto_detect_git_branch", AsyncMock(return_value="auto-branch"))
+    monkeypatch.setattr(docker_build, "build_image_to_tag", fake_build)
+    source = ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40)
+    tag = await resolve_launch_image(source, task_id=1)
+    assert calls == []
+    assert tag == "aaiclick-job:" + "a" * 40
 
-    registered = RegisteredJob(
-        id=1,
-        name="r",
-        entrypoint="x.y",
-        runner_mode="docker",
-        git_remote="git@registered.example:repo.git",
-        dockerfile="Dockerfile.default",
-    )
 
-    source = await resolve_image_source(
-        registered,
-        image=None,
-        git_remote="git@override.example:repo.git",
-        git_sha="b" * 40,
-        git_branch=None,
-        dockerfile=None,
-    )
+async def test_resolve_launch_image_skips_build_with_registry(monkeypatch):
+    calls = []
 
-    assert isinstance(source, ImageBuild)
-    assert source.git_remote == "git@override.example:repo.git"
-    assert source.git_sha == "b" * 40
-    # git_branch falls back to auto-detect since kwarg is None
-    assert source.git_branch == "auto-branch"
-    # dockerfile inherits the registered default since kwarg is None
-    assert source.dockerfile == "Dockerfile.default"
+    async def fake_build(source, image_tag):
+        calls.append(image_tag)
+
+    monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
+    monkeypatch.setattr(docker_build, "build_image_to_tag", fake_build)
+    source = ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40)
+    tag = await resolve_launch_image(source, task_id=1)
+    assert calls == []  # the dependency edge guaranteed the push
+    assert tag == "registry.example:5000/aaiclick-job:" + "a" * 40

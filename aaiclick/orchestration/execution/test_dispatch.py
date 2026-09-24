@@ -8,8 +8,7 @@ import pytest
 
 from ..models import RUNNER_DOCKER, RUNNER_KUBERNETES, RUNNER_SUBPROCESS, Task
 from ..runner_config import ImageBuild, ImagePrebuilt, dump_image_source
-from . import dispatch, docker_build
-from .docker_build import resolve_launch_image
+from . import dispatch
 from .execution_worker import JobDispatch
 
 BUILD_A = dump_image_source(ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40))
@@ -70,46 +69,6 @@ async def test_prebuilt_image_source_dispatches_docker_with_source(monkeypatch):
     resolved = await dispatch._resolve_dispatch(user_task)
     assert resolved.runner_mode == RUNNER_DOCKER
     assert isinstance(resolved.image_source, ImagePrebuilt)
-
-
-async def test_resolve_launch_image_prebuilt_tag_verbatim():
-    source = ImagePrebuilt(image_tag="ghcr.io/x/y:1")
-    assert await resolve_launch_image(source, task_id=1) == "ghcr.io/x/y:1"
-
-
-async def test_resolve_launch_image_rejects_missing_source():
-    with pytest.raises(ValueError, match="no image_source"):
-        await resolve_launch_image(None, task_id=42)
-
-
-async def test_resolve_launch_image_never_builds_without_registry(monkeypatch):
-    """The build task in the graph owns the build in both modes; launch only
-    computes the tag."""
-    calls = []
-
-    async def fake_build(source, image_tag):
-        calls.append(image_tag)
-
-    monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
-    monkeypatch.setattr(docker_build, "build_image_to_tag", fake_build)
-    source = ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40)
-    tag = await resolve_launch_image(source, task_id=1)
-    assert calls == []
-    assert tag == "aaiclick-job:" + "a" * 40
-
-
-async def test_resolve_launch_image_skips_build_with_registry(monkeypatch):
-    calls = []
-
-    async def fake_build(source, image_tag):
-        calls.append(image_tag)
-
-    monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
-    monkeypatch.setattr(docker_build, "build_image_to_tag", fake_build)
-    source = ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40)
-    tag = await resolve_launch_image(source, task_id=1)
-    assert calls == []  # the dependency edge guaranteed the push
-    assert tag == "registry.example:5000/aaiclick-job:" + "a" * 40
 
 
 @pytest.mark.parametrize(

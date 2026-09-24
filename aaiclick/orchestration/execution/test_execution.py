@@ -2,7 +2,6 @@
 
 import asyncio
 import inspect
-import sys
 import time
 
 import pytest
@@ -37,7 +36,7 @@ from aaiclick.orchestration.execution.runner import (
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.jobs import get_job_result, get_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
-from aaiclick.orchestration.logging import capture_task_output, read_task_logs
+from aaiclick.orchestration.logging import read_task_logs
 from aaiclick.orchestration.models import (
     JOB_COMPLETED,
     JOB_FAILED,
@@ -172,29 +171,7 @@ def explicit_dependency_job():
     return tasks_list(second)  # only ``second`` is returned; the >> edge must pull ``first`` in
 
 
-# Logging tests
-
-
-async def test_capture_task_output_stdout(orch_ctx):
-    """stdout printed inside the capture scope lands in CH task_logs."""
-    task_id, job_id, run_id = 12345, 99, 555
-
-    async with capture_task_output(task_id, job_id, run_id):
-        print("Hello, world!")
-
-    lines = await read_task_logs(task_id, run_id)
-    assert any(line.text == "Hello, world!" and line.stream == "stdout" for line in lines)
-
-
-async def test_capture_task_output_stderr(orch_ctx):
-    """stderr printed inside the capture scope lands in CH task_logs."""
-    task_id, job_id, run_id = 12346, 99, 556
-
-    async with capture_task_output(task_id, job_id, run_id):
-        print("Error message", file=sys.stderr)
-
-    lines = await read_task_logs(task_id, run_id)
-    assert any(line.text == "Error message" and line.stream == "stderr" for line in lines)
+# Shell task output streaming
 
 
 async def _persisted_shell_task(command, command_env=None) -> Task:
@@ -245,23 +222,6 @@ async def test_execute_shell_task_splits_streams(orch_ctx):
         ("stdout", "INFO", "out line"),
         ("stderr", "WARNING", "err line"),
     }
-
-
-async def test_capture_task_output_streams_mid_run(orch_ctx, monkeypatch):
-    """Completed lines are readable from task_logs while the task body is still running."""
-    monkeypatch.setattr("aaiclick.orchestration.logging.LOG_FLUSH_INTERVAL", 0.05)
-    task_id, job_id, run_id = 71, 1, 9101
-    mid_run_lines: list[str] = []
-    async with capture_task_output(task_id, job_id, run_id):
-        print("early line")
-        deadline = time.monotonic() + 30
-        while not (mid_run_lines := [line.text for line in await read_task_logs(task_id, run_id)]):
-            assert time.monotonic() < deadline, "'early line' was never flushed to task_logs"
-            await asyncio.sleep(0.05)
-        print("late line")
-    assert mid_run_lines == ["early line"]
-    final = [line.text for line in await read_task_logs(task_id, run_id)]
-    assert final == ["early line", "late line"]
 
 
 async def test_register_run_appends_run_ids_and_statuses(orch_ctx):
