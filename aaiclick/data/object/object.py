@@ -90,8 +90,8 @@ def _require_explicit_order_for_cross_table(a: QueryInfo, b: QueryInfo) -> None:
 
     Binary elementwise ops between two array Objects from different tables
     need an explicit row order on both sides — otherwise the JOIN
-    ``row_number() OVER ()`` pairs rows arbitrarily. Same-table ops and
-    scalar broadcast skip the check (they have a natural alignment).
+    ``row_number() OVER ()`` pairs rows arbitrarily. Operands over the same
+    rows and scalar broadcast skip the check (they have a natural alignment).
 
     Takes the operands' ``QueryInfo`` — what the operator SQL consumes — so
     the check at plan time and at materialize time (where a Python operand
@@ -99,12 +99,12 @@ def _require_explicit_order_for_cross_table(a: QueryInfo, b: QueryInfo) -> None:
     """
     if a.fieldtype != FIELDTYPE_ARRAY or b.fieldtype != FIELDTYPE_ARRAY:
         return
-    if a.same_table_as(b):
+    if a.same_rows_as(b):
         return
     if a.order_by is not None and b.order_by is not None:
         return
     raise TypeError(
-        "Binary elementwise ops on array Objects from different sources "
+        "Binary elementwise ops on array Objects over different rows "
         "require an explicit row order. Wrap both sides with "
         ".view(order_by=...) before combining.\n"
         f"  Got: {a.source} + {b.source}"
@@ -325,12 +325,16 @@ class Object:
         subquery — aggregations, GROUP BY, and other order-insensitive
         consumers select directly from the table.
         """
+        return self.has_row_constraints or bool(self.selected_fields)
+
+    @property
+    def has_row_constraints(self) -> bool:
+        """``has_constraints`` minus field selection: anything shaping the rows or their columns."""
         return bool(
             self.where_clauses
             or self.limit is not None
             or self.offset is not None
             or self._explicit_order_by
-            or self.selected_fields
             or self.computed_columns
             or self.renamed_columns
             or self.exploded_columns
@@ -358,12 +362,12 @@ class Object:
                 parts.append(f"{connector} ({condition})")
         return " ".join(parts)
 
-    def _select_head(self, columns: str) -> str:
+    def _select_head(self, columns: str, *, all_fields: bool = False) -> str:
         """SELECT head (projection + FROM, before WHERE).
 
         View overrides this to apply field selection, renames, computed
         columns, and ARRAY JOIN; the WHERE/ORDER BY/LIMIT/OFFSET tail in
-        ``_build_select`` is shared.
+        ``_build_select`` is shared. ``all_fields`` drops the field selection.
         """
         return f"SELECT {columns} FROM {self.table}"
 
@@ -376,6 +380,7 @@ class Object:
         order_by: Any = _UNSET,
         limit: Any = _UNSET,
         offset: Any = _UNSET,
+        all_fields: bool = False,
     ) -> str:
         """
         Build a SELECT query with view constraints applied.
@@ -389,6 +394,8 @@ class Object:
                 used in place of the View's stored attributes. Lets
                 ``data(order_by=..., limit=..., offset=...)`` override the
                 View it's called on without mutating the View itself.
+            all_fields: If True, project every column (renames, computed and
+                exploded columns included) instead of the selected fields.
 
         Returns:
             str: SELECT query string with WHERE/LIMIT/OFFSET/ORDER BY applied
@@ -404,7 +411,7 @@ class Object:
         if eff_limit is not None or eff_offset is not None:
             skip_order_by = False
 
-        query = self._select_head(columns)
+        query = self._select_head(columns, all_fields=all_fields)
         where = self._build_where()
         if where:
             query += f" WHERE {where}"
@@ -445,18 +452,11 @@ class Object:
         """
         source = f"({self._build_select()})" if self.has_constraints else self.table
         value_column = self.selected_fields[0] if self.is_single_field and self.selected_fields else "value"
+        fieldtype = FIELDTYPE_ARRAY if self.is_single_field else self._schema.fieldtype
+        # A single-field selection surfaces as "value" in _effective_columns.
+        col_def = self._effective_columns.get("value", ColumnInfo("Float64"))
 
-        if self.is_single_field:
-            fieldtype = FIELDTYPE_ARRAY
-            col_def = self._schema.columns.get(value_column, ColumnInfo("Float64"))
-        else:
-            fieldtype = self._schema.fieldtype
-            col_def = self._schema.columns.get("value", ColumnInfo("Float64"))
-
-        # Build constraint suffix (WHERE/ORDER BY/LIMIT/OFFSET) for same-table
-        # operator optimization. Two views from the same table with identical
-        # constraint_sql reference the same rows and can share a single SELECT.
-        constraint_sql = self._build_constraint_sql()
+        row_source = f"({self._build_select(all_fields=True)})" if self.has_row_constraints else self.table
 
         return QueryInfo(
             source=source,
@@ -465,29 +465,10 @@ class Object:
             fieldtype=fieldtype,
             value_type=col_def.type,
             nullable=col_def.nullable,
-            constraint_sql=constraint_sql,
+            row_source=row_source,
             order_by=self.order_by,
             aai_id_info=self._schema.columns.get(AAI_ID_COLUMN),
         )
-
-    def _build_constraint_sql(self) -> str:
-        """Build the non-column constraints (WHERE/ORDER BY/LIMIT/OFFSET) as SQL suffix.
-
-        Used by _apply_operator_db to detect when two views from the same table
-        share identical constraints and can be combined into a single SELECT.
-        Returns empty string for unconstrained Objects (no WHERE/LIMIT/etc).
-        """
-        parts = []
-        where = self._build_where()
-        if where:
-            parts.append(f"WHERE {where}")
-        if self.order_by:
-            parts.append(f"ORDER BY {self.order_by}")
-        if self.limit is not None:
-            parts.append(f"LIMIT {self.limit}")
-        if self.offset is not None:
-            parts.append(f"OFFSET {self.offset}")
-        return " ".join(parts)
 
     def _get_ingest_query_info(self) -> IngestQueryInfo:
         """
@@ -2522,48 +2503,31 @@ class View(Object):
         Cached because View instances are immutable — all fields are set at
         init and never mutated in place.
         """
-        orig = self._schema.columns
         renames = self._renamed_columns or {}
-        inv_renames = self._inv_renames
+        full = {renames.get(name, name): info for name, info in self._schema.columns.items()}
+        computed = self._computed_columns or {}
+        for name, comp in computed.items():
+            full[name] = parse_ch_type(comp.type)
+        for col_name in self._exploded_columns:
+            name = renames.get(col_name, col_name)
+            if name in full:
+                old_info = full[name]
+                full[name] = ColumnInfo(
+                    type=old_info.type,
+                    nullable=old_info.nullable,
+                    array=max(0, int(old_info.array) - 1),
+                    low_cardinality=old_info.low_cardinality,
+                )
 
-        # selected_fields hold post-rename names; map them back to source
-        # column names via the inverse rename when looking up types in
-        # ``orig``.
+        # Field selection narrows to the selected (post-rename) names; a single
+        # field is exposed as "value". Computed columns stay — the SELECT
+        # always projects them.
+        computed_infos = {name: full[name] for name in computed}
         if self._selected_fields and self.is_single_field:
-            field = self._selected_fields[0]
-            src_name = inv_renames.get(field, field)
-            col_def = orig.get(src_name, ColumnInfo("Float64"))
-            columns = {"value": col_def}
-        elif self._selected_fields:
-            columns = {}
-            for f in self._selected_fields:
-                src_name = inv_renames.get(f, f)
-                columns[f] = orig[src_name]
-        else:
-            columns = {renames.get(name, name): info for name, info in orig.items()}
-
-        if self._computed_columns:
-            for name, comp in self._computed_columns.items():
-                columns[name] = parse_ch_type(comp.type)
-
-        if self._exploded_columns:
-            renames = self._renamed_columns or {}
-            for col_name in self._exploded_columns:
-                if self._selected_fields and self.is_single_field:
-                    effective_name = "value" if col_name == self._selected_fields[0] else col_name
-                else:
-                    effective_name = renames.get(col_name, col_name)
-                if effective_name in columns:
-                    old_info = columns[effective_name]
-                    new_depth = max(0, int(old_info.array) - 1)
-                    columns[effective_name] = ColumnInfo(
-                        type=old_info.type,
-                        nullable=old_info.nullable,
-                        array=new_depth,
-                        low_cardinality=old_info.low_cardinality,
-                    )
-
-        return columns
+            return {"value": full.get(self._selected_fields[0], ColumnInfo("Float64")), **computed_infos}
+        if self._selected_fields:
+            return {f: full[f] for f in self._selected_fields} | computed_infos
+        return full
 
     def _serialize_ref(self) -> dict:
         """Serialize this View to a reference dict for task kwargs/results."""
@@ -2661,7 +2625,7 @@ class View(Object):
         merged.update(columns)
         return View(self, computed_columns=merged)
 
-    def _select_head(self, columns: str) -> str:
+    def _select_head(self, columns: str, *, all_fields: bool = False) -> str:
         """SELECT head with View projections applied (before the shared tail).
 
         For single-field selection, renames the field as 'value' for array compatibility.
@@ -2670,8 +2634,9 @@ class View(Object):
         Computed columns are appended as ``expr AS name`` aliases.
         Renamed columns are emitted as ``old_name AS new_name`` aliases.
         Exploded columns append an ARRAY JOIN clause.
+        ``all_fields`` ignores the field selection.
         """
-        if self.selected_fields:
+        if self.selected_fields and not all_fields:
             # Carry aai_id through field-selected subqueries so binary
             # operators can propagate it onto the result table — without
             # this, ``(obj["x"] + array_b)`` would build a source subquery
@@ -2713,20 +2678,16 @@ class View(Object):
             else set()
         )
 
-        # Append non-exploded computed column expressions to SELECT.
-        # Exploded computed columns go into the ARRAY JOIN clause instead,
-        # but their aliases still need to appear in the SELECT list so they
-        # are included in the result (ClickHouse SELECT * does not automatically
-        # include ARRAY JOIN aliases).
+        # Dict order, matching _effective_columns — data() maps columns by
+        # position. Exploded ones are defined in ARRAY JOIN; SELECT names the alias.
         if self._computed_columns:
-            computed_parts = []
-            for name, comp in self._computed_columns.items():
-                if name not in exploded_computed:
-                    computed_parts.append(f"{comp.expression} AS {quote_identifier(name)}")
-            for name in exploded_computed:
-                computed_parts.append(quote_identifier(name))
-            if computed_parts:
-                select_cols += ", " + ", ".join(computed_parts)
+            computed_parts = [
+                quote_identifier(name)
+                if name in exploded_computed
+                else f"{comp.expression} AS {quote_identifier(name)}"
+                for name, comp in self._computed_columns.items()
+            ]
+            select_cols += ", " + ", ".join(computed_parts)
 
         query = f"SELECT {select_cols} FROM {self.table}"
         if self._exploded_columns:

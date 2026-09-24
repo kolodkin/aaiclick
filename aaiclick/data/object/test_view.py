@@ -192,6 +192,24 @@ async def test_view_getitem_preserves_computed_columns(ctx):
     assert result == [3, 4, 5]
 
 
+async def test_computed_field_combines_with_source_field(ctx):
+    """A computed field and a plain field of the same View pair row-for-row."""
+    obj = await create_object_from_value({"x": [1, 2], "y": [10, 20]})
+    v = obj.with_columns({"d": Computed("Int64", "x * 100")})
+
+    assert await (v["d"] + v["x"]).data() == [101, 202]
+
+
+async def test_computed_field_with_other_projection_needs_row_order(ctx):
+    """A computed field and a field of the un-projected source read different
+    projections, so pairing them needs an explicit row order."""
+    obj = await create_object_from_value({"x": [1, 2], "y": [10, 20]})
+    v = obj.with_columns({"d": Computed("Int64", "x * 100")})
+
+    with pytest.raises(TypeError, match="explicit row order"):
+        v["d"] + obj["y"]
+
+
 async def test_view_where_getitem_count(ctx):
     """Chaining where() + __getitem__ + count() returns filtered count."""
     obj = await create_object_from_value(
@@ -238,3 +256,13 @@ async def test_view_or_where_with_group_by(ctx):
     assert pairs["A"] == 15
     assert pairs["B"] == 20
     assert pairs["C"] == 100
+
+
+async def test_views_differing_only_in_order_pair_by_position(ctx):
+    """Views that differ only in order_by read rows in different orders, so
+    they pair by position rather than row-for-row."""
+    obj = await create_object_from_value([1, 2, 3])
+
+    result = obj.view(order_by="value ASC") + obj.view(order_by="value DESC")
+
+    assert await result.data() == [4, 4, 4]

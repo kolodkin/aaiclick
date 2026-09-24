@@ -310,6 +310,26 @@ async def test_coalesce_with_object(ctx):
     assert data == [1, 20, 3]
 
 
+async def test_coalesce_fields_of_one_ordered_view(ctx):
+    """Two fields of one ordered View coalesce row-for-row, even when the
+    order column is not one of them."""
+    schema = Schema(
+        fieldtype=FIELDTYPE_DICT,
+        columns={
+            "a": ColumnInfo("Int64", nullable=True, fieldtype=FIELDTYPE_ARRAY),
+            "b": ColumnInfo("Int64", fieldtype=FIELDTYPE_ARRAY),
+            "k": ColumnInfo("Int64", fieldtype=FIELDTYPE_ARRAY),
+        },
+    )
+    obj = await create_object(schema)
+    await get_ch_client().command(f"INSERT INTO {obj.table} (a, b, k) VALUES (1, 10, 3), (NULL, 20, 2), (3, 30, 1)")
+    v = obj.view(order_by="k")
+
+    filled = await v["a"].coalesce(v["b"])
+
+    assert sorted(await filled.data()) == [1, 3, 20]
+
+
 # --- Concat with nullable ---
 
 
