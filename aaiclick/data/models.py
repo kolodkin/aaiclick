@@ -282,18 +282,11 @@ class QueryInfo:
     order_by: str | None = None  # Populated from View._order_by — cross-table row_number() uses it
     aai_id_info: Optional["ColumnInfo"] = None  # Source's aai_id ColumnInfo when present — operators propagate it
 
-    def same_table_as(self, other: "QueryInfo") -> bool:
-        """True when both operands read the same base table.
-
-        A literal operand has no table (empty ``base_table``) and never
-        matches — not even another literal.
-        """
-        return bool(self.base_table) and self.base_table == other.base_table
-
     def same_rows_as(self, other: "QueryInfo") -> bool:
         """True when both operands read the same rows through the same projection.
 
         Such operands pair row-for-row in a single SELECT over ``row_source``.
+        A literal has no ``row_source`` and never matches — not even another literal.
         """
         return bool(self.row_source) and self.row_source == other.row_source
 

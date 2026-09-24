@@ -42,6 +42,6 @@ def literal_query_info(value: ValueScalarType | list) -> QueryInfo | None:
         source = f"(SELECT arrayJoin(CAST([{items}] AS Array({value_type}))) AS value)"
     else:
         source = f"(SELECT CAST({sql_literal(value)} AS {value_type}) AS value)"
-    # A literal has no table: ``base_table`` stays empty, so ``same_table_as``
-    # never matches it and oplog lineage leaves it out.
+    # A literal has no table: ``base_table`` and ``row_source`` stay empty, so
+    # ``same_rows_as`` never matches it and oplog lineage leaves it out.
     return QueryInfo(source=source, base_table="", value_column="value", fieldtype=fieldtype, value_type=value_type)

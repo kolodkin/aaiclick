@@ -999,11 +999,20 @@ async def coalesce_op(
     result = await create_object(schema, name=name, scope=scope)
 
     if a_is_array and b_is_array:
-        # Cross-table contract enforced by Object.coalesce — both operands must
-        # be Views with explicit order_by. Same-base-table coalesce is legal
-        # without views (matching source rows 1:1).
-        same_table = info_a.same_table_as(info_b)
-        assert same_table or (info_a.order_by and info_b.order_by), (
+        if info_a.same_rows_as(info_b):
+            col_a = quote_identifier(info_a.value_column)
+            col_b = quote_identifier(info_b.value_column)
+            result._stats = await execute_for_stats(
+                f"""
+                INSERT INTO {result.table} (value)
+                SELECT coalesce({col_a}, {col_b}) AS value FROM {info_a.row_source}
+            """,
+                client=ch_client,
+            )
+            return result
+
+        # Cross-table contract (Object.coalesce) guarantees order_by on both sides.
+        assert info_a.order_by and info_b.order_by, (
             "cross-table coalesce reached operator SQL without order_by — the "
             "contract check in Object.coalesce should have rejected it"
         )
@@ -1016,8 +1025,8 @@ async def coalesce_op(
                 info_b.source,
                 info_b.value_type,
                 ch_client,
-                order_a=info_a.order_by or "tuple()",
-                order_b=info_b.order_by or "tuple()",
+                order_a=info_a.order_by,
+                order_b=info_b.order_by,
             )
             try:
                 result._stats = await execute_for_stats(
@@ -1031,14 +1040,12 @@ async def coalesce_op(
                 await ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
         else:
             await _validate_array_lengths(info_a.source, info_b.source, ch_client)
-            order_a = info_a.order_by or "tuple()"
-            order_b = info_b.order_by or "tuple()"
             result._stats = await execute_for_stats(
                 f"""
                 INSERT INTO {result.table} (value)
                 SELECT coalesce(a.value, b.value) AS value
-                FROM (SELECT row_number() OVER (ORDER BY {order_a}) AS rn, value FROM {info_a.source}) AS a
-                INNER JOIN (SELECT row_number() OVER (ORDER BY {order_b}) AS rn, value FROM {info_b.source}) AS b
+                FROM (SELECT row_number() OVER (ORDER BY {info_a.order_by}) AS rn, value FROM {info_a.source}) AS a
+                INNER JOIN (SELECT row_number() OVER (ORDER BY {info_b.order_by}) AS rn, value FROM {info_b.source}) AS b
                 ON a.rn = b.rn
             """,
                 client=ch_client,
