@@ -5,8 +5,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, update
 from sqlalchemy.orm import Session
+from sqlmodel import col
 
 from aaiclick.backend import is_postgres
 
@@ -27,11 +28,11 @@ from .events.hooks import statement_touches_watched
 from .events.local import LocalTransport
 from .events.state import TransportState
 from .execution.claiming import cancel_job, update_task_status
-from .execution.execution_worker import _set_pending_failure_cleanup, register_execution_worker
+from .execution.execution_worker import register_execution_worker
 from .execution.pg_handler import CLAIM_NEXT_TASK_SQL
 from .factories import create_job
 from .jobs import get_tasks_for_job
-from .models import TASK_RUNNING
+from .models import TASK_RUNNING, Task
 from .orch_context import get_sql_session
 
 SAMPLE_TASK = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
@@ -80,13 +81,18 @@ async def test_burst_collapses_into_one_pending_signal():
     assert len(signals) == 1
 
 
-@pytest.mark.parametrize("publish_after_close", [False, True], ids=["close-only", "publish-after-close"])
-async def test_closed_bus_yields_no_signal(publish_after_close):
+async def test_closed_bus_yields_no_signal():
     bus = EventBus()
     async with recording(bus) as signals:
         bus.close()
-        if publish_after_close:
-            bus.publish()
+    assert signals == []
+
+
+async def test_publish_after_close_yields_no_signal():
+    bus = EventBus()
+    async with recording(bus) as signals:
+        bus.close()
+        bus.publish()
     assert signals == []
 
 
@@ -263,7 +269,9 @@ async def test_orm_update_statement_publishes(orch_ctx, live_bus):
     task = (await get_tasks_for_job(job.id))[0]
     await asyncio.sleep(SETTLE)
     async with recording(live_bus) as signals:
-        await _set_pending_failure_cleanup(task.id, "boom")
+        async with get_sql_session() as session:
+            await session.execute(update(Task).where(col(Task.id) == task.id).values(status=TASK_RUNNING))
+            await session.commit()
     assert len(signals) == 1
 
 

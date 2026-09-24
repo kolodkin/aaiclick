@@ -9,6 +9,7 @@ from sqlalchemy import text
 from aaiclick import create_object_from_value
 from aaiclick.data.object import ingest as ingest_mod
 from aaiclick.locks import _advisory_id_cache, load_advisory_id, table_insert_lock
+from aaiclick.orchestration import sql_context
 from aaiclick.orchestration.sql_context import get_sql_session
 
 # Module-object import bypasses aaiclick.data.data_context.__init__'s
@@ -122,8 +123,6 @@ class _RecordingEngine:
 
 async def test_table_insert_lock_distributed_issues_lock_unlock(monkeypatch):
     """Distributed mode: acquires then releases the advisory lock around yield."""
-    from aaiclick.orchestration import sql_context
-
     monkeypatch.setattr("aaiclick.locks.is_distributed", lambda: True)
     engine = _RecordingEngine()
     token = sql_context._sql_engine_var.set(engine)  # type: ignore[arg-type]
@@ -143,8 +142,6 @@ async def test_table_insert_lock_distributed_issues_lock_unlock(monkeypatch):
 
 async def test_table_insert_lock_releases_on_body_exception(monkeypatch):
     """Unlock fires even when the wrapped code raises."""
-    from aaiclick.orchestration import sql_context
-
     monkeypatch.setattr("aaiclick.locks.is_distributed", lambda: True)
     engine = _RecordingEngine()
     token = sql_context._sql_engine_var.set(engine)  # type: ignore[arg-type]

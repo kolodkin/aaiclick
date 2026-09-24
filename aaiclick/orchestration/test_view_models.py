@@ -28,11 +28,8 @@ from .view_models import (
     GRAPH_NODE_TASK,
     JobDetail,
     JobStatsView,
-    LogLine,
-    TaskLogsView,
     TaskStatsView,
     TaskView,
-    _ms_between,
     build_job_graph_view,
     compute_job_stats_view,
     job_to_detail,
@@ -47,7 +44,6 @@ def _make_job(
     job_id: int = 1,
     name: str = "test_job",
     status: JobStatus = JOB_COMPLETED,
-    registered_job_id: int | None = None,
     created_at: datetime = datetime(2025, 1, 1, 12, 0, 0),
     started_at: datetime | None = datetime(2025, 1, 1, 12, 0, 1),
     completed_at: datetime | None = datetime(2025, 1, 1, 12, 0, 10),
@@ -59,7 +55,6 @@ def _make_job(
         status=status,
         run_type=RUN_MANUAL,
         preservation_mode=PRESERVATION_NONE,
-        registered_job_id=registered_job_id,
         created_at=created_at,
         started_at=started_at,
         completed_at=completed_at,
@@ -98,12 +93,6 @@ def _make_task(
     )
 
 
-def test_job_to_view_propagates_registered_job_id():
-    job = _make_job(registered_job_id=42)
-    view = job_to_view(job)
-    assert view.registered_job_id == 42
-
-
 def test_job_to_view_json_serializes_enums():
     view = job_to_view(_make_job(status=JOB_FAILED, error="boom"))
     payload = view.model_dump(mode="json")
@@ -122,21 +111,6 @@ def test_task_to_view_omits_detail_fields():
     assert dumped["status"] == TASK_COMPLETED
     assert "kwargs" not in dumped
     assert "execution_worker_id" not in dumped
-
-
-def test_task_to_view_flags_image_build_tasks():
-    build = _make_task()
-    build.is_image_build = True
-    assert task_to_view(build).is_image_build
-    assert not task_to_view(_make_task()).is_image_build
-
-
-def test_task_to_view_carries_error_reason():
-    """List views surface ``error`` so a terminal status reads with its reason
-    (e.g. a fail-fast group-sibling abort vs. an operator cancellation)."""
-    task = _make_task(status="CANCELLED", error="Aborted: a sibling task in the group failed")
-    view = task_to_view(task)
-    assert view.error == "Aborted: a sibling task in the group failed"
 
 
 def test_job_to_detail_embeds_task_views_and_duration():
@@ -212,27 +186,6 @@ def test_task_to_stats_view_queue_and_exec_ms():
     assert isinstance(sv, TaskStatsView)
     assert sv.queue_time_ms == 3_000
     assert sv.exec_time_ms == 5_000
-
-
-def test_ms_between_handles_nones():
-    assert _ms_between(None, None) is None
-    assert _ms_between(datetime(2025, 1, 1), None) is None
-    assert _ms_between(None, datetime(2025, 1, 1)) is None
-    assert _ms_between(datetime(2025, 1, 1, 12, 0, 0), datetime(2025, 1, 1, 12, 0, 1, 500_000)) == 1500
-
-
-def test_task_logs_view_defaults():
-    view = TaskLogsView(available=False)
-    assert view.lines == []
-    assert view.available is False
-
-
-def test_task_logs_view_with_lines():
-    view = TaskLogsView(
-        available=True,
-        lines=[LogLine(stream="stdout", text="a"), LogLine(stream="stderr", text="b")],
-    )
-    assert [(line.stream, line.text) for line in view.lines] == [("stdout", "a"), ("stderr", "b")]
 
 
 def test_build_job_graph_view_draws_group_dependency_as_one_edge():

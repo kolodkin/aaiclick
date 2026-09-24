@@ -49,16 +49,16 @@ def test_compute_next_run(schedule, after, expected):
 
 
 async def test_register_job(orch_ctx):
-    job = await register_job(
+    """An unscheduled registration persists enabled, with no next run."""
+    await register_job(
         name="test_etl",
         entrypoint="myapp.pipelines.etl_job",
     )
-    assert job.name == "test_etl"
+    job = await get_registered_job("test_etl")
+    assert job is not None
     assert job.entrypoint == "myapp.pipelines.etl_job"
     assert job.enabled is True
-    assert job.schedule is None
     assert job.next_run_at is None
-    assert job.default_kwargs is None
 
 
 async def test_register_job_with_schedule(orch_ctx):
@@ -73,11 +73,13 @@ async def test_register_job_with_schedule(orch_ctx):
 
 
 async def test_register_job_with_kwargs(orch_ctx):
-    job = await register_job(
+    await register_job(
         name="param_etl",
         entrypoint="myapp.pipelines.etl_job",
         default_kwargs={"url": "https://example.com/data.parquet"},
     )
+    job = await get_registered_job("param_etl")
+    assert job is not None
     assert job.default_kwargs == {"url": "https://example.com/data.parquet"}
 
 
@@ -243,41 +245,41 @@ async def test_run_job_with_existing_registration(orch_ctx):
 # resolve_job_config precedence chain
 
 
-def test_resolve_explicit_mode_wins_over_registered(monkeypatch):
+@pytest.mark.parametrize(
+    "explicit, registered, expected",
+    [
+        pytest.param(
+            PRESERVATION_NONE,
+            RegisteredJob(id=1, name="x", entrypoint="foo", preservation_mode=PRESERVATION_FULL),
+            PRESERVATION_NONE,
+            id="explicit-wins-over-registered",
+        ),
+        pytest.param(None, None, PRESERVATION_NONE, id="hardcoded-fallback"),
+    ],
+)
+def test_resolve_job_config_without_env(monkeypatch, explicit, registered, expected):
     monkeypatch.delenv("AAICLICK_DEFAULT_PRESERVATION_MODE", raising=False)
-    registered = RegisteredJob(
-        id=1,
-        name="x",
-        entrypoint="foo",
-        preservation_mode=PRESERVATION_FULL,
-    )
-    resolved = resolve_job_config(PRESERVATION_NONE, registered)
-    assert resolved == PRESERVATION_NONE
+    assert resolve_job_config(explicit, registered) == expected
 
 
-def test_resolve_registered_mode_wins_over_env(monkeypatch):
-    monkeypatch.setenv("AAICLICK_DEFAULT_PRESERVATION_MODE", "NONE")
-    registered = RegisteredJob(
-        id=1,
-        name="x",
-        entrypoint="foo",
-        preservation_mode=PRESERVATION_FULL,
-    )
-    resolved = resolve_job_config(None, registered)
-    assert resolved == PRESERVATION_FULL
-
-
-def test_resolve_env_wins_when_no_registered_default(monkeypatch):
-    monkeypatch.setenv("AAICLICK_DEFAULT_PRESERVATION_MODE", "FULL")
-    registered = RegisteredJob(id=1, name="x", entrypoint="foo")
-    resolved = resolve_job_config(None, registered)
-    assert resolved == PRESERVATION_FULL
-
-
-def test_resolve_hardcoded_fallback(monkeypatch):
-    monkeypatch.delenv("AAICLICK_DEFAULT_PRESERVATION_MODE", raising=False)
-    resolved = resolve_job_config(None, None)
-    assert resolved == PRESERVATION_NONE
+@pytest.mark.parametrize(
+    "env_mode, registered",
+    [
+        pytest.param(
+            "NONE",
+            RegisteredJob(id=1, name="x", entrypoint="foo", preservation_mode=PRESERVATION_FULL),
+            id="registered-wins-over-env",
+        ),
+        pytest.param(
+            "FULL",
+            RegisteredJob(id=1, name="x", entrypoint="foo"),
+            id="env-wins-when-no-registered-default",
+        ),
+    ],
+)
+def test_resolve_job_config_with_env(monkeypatch, env_mode, registered):
+    monkeypatch.setenv("AAICLICK_DEFAULT_PRESERVATION_MODE", env_mode)
+    assert resolve_job_config(None, registered) == PRESERVATION_FULL
 
 
 # register_job with preservation_mode

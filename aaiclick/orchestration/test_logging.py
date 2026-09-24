@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import pytest
+
 from aaiclick.log_models import STDERR_STREAM, STDOUT_STREAM
 from aaiclick.orchestration.logging import _ChLogSink
 
@@ -35,18 +37,18 @@ def test_sink_stamps_each_line_with_created_at():
     assert all(isinstance(line.created_at, datetime) for line in lines)
 
 
-def test_sink_record_drops_trailing_newline():
+@pytest.mark.parametrize(
+    "message, expected",
+    [
+        pytest.param("msg\n", ["msg"], id="drops-trailing-newline"),
+        pytest.param("a\n\nb", ["a", "", "b"], id="preserves-internal-blank-lines"),
+    ],
+)
+def test_sink_record_splits_lines(message, expected):
     sink = _ChLogSink()
-    sink.record("INFO", "msg\n")
+    sink.record("INFO", message)
     lines = sink.finalize()
-    assert [line.text for line in lines] == ["msg"]
-
-
-def test_sink_record_preserves_internal_blank_lines():
-    sink = _ChLogSink()
-    sink.record("INFO", "a\n\nb")
-    lines = sink.finalize()
-    assert [line.text for line in lines] == ["a", "", "b"]
+    assert [line.text for line in lines] == expected
 
 
 def test_sink_drain_returns_completed_lines_and_clears():

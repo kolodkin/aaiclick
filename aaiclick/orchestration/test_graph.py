@@ -31,10 +31,23 @@ def _task_dep(previous_id: int, next_id: int) -> DependencyRow:
     return DependencyRow(previous_id, DEPENDENCY_TASK, next_id, DEPENDENCY_TASK)
 
 
-def test_task_to_task_dependencies_pass_through():
-    edges = build_graph_edges([_task_dep(1, 2)], {}).layout
-
-    assert edges == [GraphEdge(1, 2)]
+@pytest.mark.parametrize(
+    "dependencies, group_tasks, expected",
+    [
+        pytest.param([_task_dep(1, 2)], {}, [GraphEdge(1, 2)], id="task-to-task-passes-through"),
+        # The scheduler matches ``tasks.group_id`` only, so a child group's tasks do not wait.
+        pytest.param(
+            [DependencyRow(3, DEPENDENCY_TASK, 10, DEPENDENCY_GROUP)],
+            {10: {1}, 11: {2}},
+            [GraphEdge(3, 1)],
+            id="group-edge-skips-nested-group-tasks",
+        ),
+        pytest.param([DependencyRow(10, DEPENDENCY_GROUP, 3, DEPENDENCY_TASK)], {10: set()}, [], id="empty-group"),
+        pytest.param([_task_dep(1, 2), _task_dep(1, 2)], {}, [GraphEdge(1, 2)], id="duplicates-collapse"),
+    ],
+)
+def test_build_graph_edges_layout(dependencies, group_tasks, expected):
+    assert build_graph_edges(dependencies, group_tasks).layout == expected
 
 
 def test_group_member_tasks_includes_nested_children():
@@ -70,31 +83,6 @@ def test_group_edges_expand_to_every_member_like_the_scheduler(group_dep, expect
     edges = build_graph_edges(dependencies, {10: {1, 2}, 11: {4, 5}}).layout
 
     assert set(edges) == {GraphEdge(1, 2), GraphEdge(4, 5)} | expected
-
-
-def test_group_edge_does_not_reach_nested_group_tasks():
-    """The scheduler matches ``tasks.group_id`` only, so a child group's tasks do not wait."""
-    dependencies = [DependencyRow(3, DEPENDENCY_TASK, 10, DEPENDENCY_GROUP)]
-
-    edges = build_graph_edges(dependencies, {10: {1}, 11: {2}}).layout
-
-    assert edges == [GraphEdge(3, 1)]
-
-
-def test_empty_group_contributes_no_edges():
-    dependencies = [DependencyRow(10, DEPENDENCY_GROUP, 3, DEPENDENCY_TASK)]
-
-    edges = build_graph_edges(dependencies, {10: set()}).layout
-
-    assert edges == []
-
-
-def test_expansion_deduplicates_edges():
-    dependencies = [_task_dep(1, 2), _task_dep(1, 2)]
-
-    edges = build_graph_edges(dependencies, {}).layout
-
-    assert edges == [GraphEdge(1, 2)]
 
 
 def test_drop_cycle_edges_removes_back_edge_and_counts_it():

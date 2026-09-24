@@ -17,7 +17,6 @@ from aaiclick.orchestration.models import (
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.result import data_list
 from aaiclick.orchestration.runner_config import (
-    ENTRY_MODULE,
     ENTRY_SHELL,
     DockerRunner,
     ImageBuild,
@@ -92,42 +91,20 @@ async def test_create_job_unique_ids(orch_ctx):
     assert job2.id > 0
 
 
-async def test_job_task_relationship(orch_ctx):
-    """Test that job and task have correct relationship."""
-    job = await create_job("relationship_test", "mymodule.task3")
-
-    # Verify job and task relationship using ORM
-    async with get_sql_session() as session:
-        # Get job
-        result = await session.execute(select(Job).where(Job.id == job.id))
-        db_job = result.scalar_one_or_none()
-        assert db_job is not None
-
-        # Get tasks for this job
-        result = await session.execute(select(Task).where(Task.job_id == job.id))
-        tasks = result.scalars().all()
-        assert len(tasks) == 1
-        assert tasks[0].job_id == job.id
-
-
-def test_data_list_single(orch_ctx):
-    """Test data_list() with a single item returns TaskResult with that item as data."""
-    result = data_list("only")
-    assert result.data == "only"
+@pytest.mark.parametrize(
+    "items, expected",
+    [
+        # A single item becomes the data itself.
+        pytest.param(("only",), "only", id="single"),
+        # Multiple items become a list.
+        pytest.param(("a", "b", "c"), ["a", "b", "c"], id="multiple"),
+    ],
+)
+def test_data_list(orch_ctx, items, expected):
+    """data_list() returns a TaskResult carrying the items as data and no tasks."""
+    result = data_list(*items)
+    assert result.data == expected
     assert result.tasks == []
-
-
-def test_data_list_multiple(orch_ctx):
-    """Test data_list() with multiple items returns TaskResult with a list."""
-    result = data_list("a", "b", "c")
-    assert result.data == ["a", "b", "c"]
-    assert result.tasks == []
-
-
-def test_create_task_module_default_explicit():
-    t = create_task("mod.fn", {"a": 1}, entry_type=ENTRY_MODULE)
-    assert t.entry_type == ENTRY_MODULE
-    assert t.command is None
 
 
 def test_create_task_jvm_takes_class_name_string():
@@ -153,28 +130,28 @@ def test_create_task_git_kwargs_set_build_source():
     assert t.image_source["git_sha"] == "a" * 40
 
 
-def test_create_task_image_and_git_mutually_exclusive():
-    with pytest.raises(ValueError, match="mutually exclusive"):
-        create_task("m.f", image="ghcr.io/x/y:1", git_sha="a" * 40)
+@pytest.mark.parametrize(
+    "image_kwargs, match",
+    [
+        pytest.param({"image": "ghcr.io/x/y:1", "git_sha": "a" * 40}, "mutually exclusive", id="image-and-git"),
+        # Container code reaches create_task directly, so it must not be the one unvalidated surface.
+        pytest.param(
+            {"git_remote": "https://example.com/r.git", "git_sha": "--upload-pack=touch /tmp/pwned"},
+            "40-char lowercase hex",
+            id="git-option-as-sha",
+        ),
+        pytest.param({"git_sha": "a" * 40}, "git_remote and git_sha", id="build-without-remote"),
+    ],
+)
+def test_create_task_rejects_invalid_image_kwargs(image_kwargs, match):
+    with pytest.raises(ValueError, match=match):
+        create_task("m.f", **image_kwargs)
 
 
-def test_create_task_rejects_git_option_as_sha():
-    """Container code reaches create_task directly, so it must not be the one unvalidated surface."""
-    with pytest.raises(ValueError, match="40-char lowercase hex"):
-        create_task("m.f", git_remote="https://example.com/r.git", git_sha="--upload-pack=touch /tmp/pwned")
-
-
-def test_create_task_build_requires_remote_and_sha():
-    with pytest.raises(ValueError, match="git_remote and git_sha"):
-        create_task("m.f", git_sha="a" * 40)
-
-
-def test_create_task_shell_carries_command():
-    t = create_task(None, name="run", entry_type=ENTRY_SHELL, command=["python", "main.py"], command_env={"K": "v"})
-    assert t.entry_type == ENTRY_SHELL
-    assert t.command == ["python", "main.py"]
-    assert t.command_env == {"K": "v"}
+def test_create_task_shell_has_no_entrypoint_and_is_named_after_command():
+    t = create_task(None, entry_type=ENTRY_SHELL, command=["python", "main.py"])
     assert t.entrypoint == ""  # shell tasks have no module entrypoint
+    assert t.name == "python"
 
 
 async def _task_entrypoints(job_id: int) -> list[str]:

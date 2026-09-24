@@ -89,26 +89,28 @@ def reduce_view_pipeline(values: list, where: str, partition_size: int):
 # --- Tests ---
 
 
-async def test_reduce_single_layer(orch_ctx):
-    """reduce() with all rows in one partition produces correct sum."""
-    j = await ajob_test(reduce_single_layer, values=[1, 2, 3, 4, 5])
+@pytest.mark.parametrize(
+    "pipeline, pipeline_kwargs, expected",
+    [
+        # All rows fit in one partition.
+        pytest.param(reduce_single_layer, {"values": [1, 2, 3, 4, 5]}, 15, id="single-layer"),
+        # partition=2 over 5 rows: layer 0 has ceil(5/2)=3 tasks, layer 1 has
+        # ceil(3/2)=2, layer 2 has ceil(2/2)=1 → 3 layers total.
+        pytest.param(reduce_multi_layer, {"values": [1, 2, 3, 4, 5], "partition_size": 2}, 15, id="multi-layer"),
+        # A single-row Object reduces to that row unchanged.
+        pytest.param(reduce_single_row, {}, 42, id="single-row"),
+        # Native API callback (partition.data() + sum()).
+        pytest.param(reduce_single_layer, {"values": [10, 20, 30, 40]}, 100, id="native-api"),
+    ],
+)
+async def test_reduce(orch_ctx, pipeline, pipeline_kwargs, expected):
+    """reduce() folds every row of the Object into a single result row."""
+    j = await ajob_test(pipeline, **pipeline_kwargs)
 
     assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
     async with data_context():
         result_obj = await get_job_result(j)
-        assert (await result_obj.data())[0] == 15
-
-
-async def test_reduce_multi_layer(orch_ctx):
-    """reduce() with partition=2 creates multiple layers for [1,2,3,4,5]."""
-    # partition=2: layer 0 has ceil(5/2)=3 tasks, layer 1 has ceil(3/2)=2,
-    # layer 2 has ceil(2/2)=1 → 3 layers total
-    j = await ajob_test(reduce_multi_layer, values=[1, 2, 3, 4, 5], partition_size=2)
-
-    assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
-    async with data_context():
-        result_obj = await get_job_result(j)
-        assert (await result_obj.data())[0] == 15
+        assert (await result_obj.data())[0] == expected
 
 
 async def test_reduce_empty_raises(orch_ctx):
@@ -117,26 +119,6 @@ async def test_reduce_empty_raises(orch_ctx):
 
     assert j.status == JOB_FAILED
     assert "reduce() of empty sequence" in (j.error or "")
-
-
-async def test_reduce_single_row(orch_ctx):
-    """reduce() of a single-row Object returns that row unchanged."""
-    j = await ajob_test(reduce_single_row)
-
-    assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
-    async with data_context():
-        result_obj = await get_job_result(j)
-        assert (await result_obj.data())[0] == 42
-
-
-async def test_reduce_native_api(orch_ctx):
-    """reduce() with native API callback (partition.data() + sum()) completes successfully."""
-    j = await ajob_test(reduce_single_layer, values=[10, 20, 30, 40])
-
-    assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
-    async with data_context():
-        result_obj = await get_job_result(j)
-        assert (await result_obj.data())[0] == 100
 
 
 async def test_reduce_consumer_sees_filled_result(orch_ctx):

@@ -27,6 +27,11 @@ async def create_test_data() -> Object:
 
 
 @task
+async def make_factor() -> int:
+    return 3
+
+
+@task
 async def row_writer(row, output_file: str):
     """Write each row value to a file, one per line."""
     with Path(output_file).open("a") as f:
@@ -111,6 +116,20 @@ def map_kwargs_pipeline(output_file: str, factor: int):
     return tasks_list(data, mapped)
 
 
+@job("test_map_task_arg")
+def map_task_arg_pipeline(output_file: str):
+    data = create_test_data()
+    factor = make_factor()
+    mapped = map(
+        cbk=row_writer_with_factor,
+        obj=data,
+        partition=5000,
+        args=(factor,),
+        kwargs={"output_file": output_file},
+    )
+    return tasks_list(data, factor, mapped)
+
+
 @job("test_map_partitions")
 def map_partitions_pipeline(output_file: str):
     data = create_test_data()
@@ -159,40 +178,29 @@ def map_view_pipeline(where: str | None, offset: int | None, limit: int | None):
 # --- Execution tests ---
 
 
-async def test_map_execution_basic(orch_ctx, monkeypatch):
-    """map() end-to-end: creates partitions, runs callback on each row."""
+@pytest.mark.parametrize(
+    "pipeline, pipeline_kwargs, expected",
+    [
+        # Creates partitions, runs the callback on each row.
+        pytest.param(map_basic_pipeline, {}, [10, 20, 30, 40, 50], id="basic"),
+        # Extra kwargs are forwarded to the callback.
+        pytest.param(map_kwargs_pipeline, {"factor": 3}, [30, 60, 90, 120, 150], id="kwargs"),
+        # A Task in args makes the expander wait for it and forwards its result.
+        pytest.param(map_task_arg_pipeline, {}, [30, 60, 90, 120, 150], id="task-in-args"),
+        # A small partition size creates multiple _map_part tasks.
+        pytest.param(map_partitions_pipeline, {}, [10, 20, 30, 40, 50], id="multiple-partitions"),
+    ],
+)
+async def test_map_execution(orch_ctx, pipeline, pipeline_kwargs, expected):
+    """map() end-to-end: the callback runs once per row of the mapped Object."""
     with tempfile.TemporaryDirectory() as tmpdir:
         output_file = str(Path(tmpdir) / "output.txt")
 
-        j = await ajob_test(map_basic_pipeline, output_file=output_file)
+        j = await ajob_test(pipeline, output_file=output_file, **pipeline_kwargs)
 
         assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
         lines = Path(output_file).read_text().strip().split("\n")
-        assert sorted(lines) == ["10", "20", "30", "40", "50"]
-
-
-async def test_map_execution_with_kwargs(orch_ctx, monkeypatch):
-    """map() forwards extra kwargs to callback."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        output_file = str(Path(tmpdir) / "output.txt")
-
-        j = await ajob_test(map_kwargs_pipeline, output_file=output_file, factor=3)
-
-        assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
-        lines = Path(output_file).read_text().strip().split("\n")
-        assert sorted(lines, key=int) == ["30", "60", "90", "120", "150"]
-
-
-async def test_map_execution_multiple_partitions(orch_ctx, monkeypatch):
-    """map() with small partition size creates multiple _map_part tasks."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        output_file = str(Path(tmpdir) / "output.txt")
-
-        j = await ajob_test(map_partitions_pipeline, output_file=output_file)
-
-        assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
-        lines = Path(output_file).read_text().strip().split("\n")
-        assert sorted(lines) == ["10", "20", "30", "40", "50"]
+        assert sorted(int(line) for line in lines) == expected
 
 
 @pytest.mark.parametrize(

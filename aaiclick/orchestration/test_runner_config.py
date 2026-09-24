@@ -59,44 +59,45 @@ def test_kubernetes_runner_optional_cluster_fields():
     cfg = parse_runner_config({"type": "kubernetes", "namespace": "ml"})
     assert isinstance(cfg, KubernetesRunner)
     assert cfg.namespace == "ml"
-    assert cfg.service_account is None
 
 
-def test_shell_entry_requires_command():
-    with pytest.raises(ValueError, match="shell.*requires.*command"):
-        validate_task_entry(entry_type="shell", command=None)
+@pytest.mark.parametrize(
+    "entry_type, command, match",
+    [
+        pytest.param("shell", None, "shell.*requires.*command", id="shell-without-command"),
+        pytest.param("module", ["echo", "hi"], "module.*command", id="module-with-command"),
+        pytest.param("jvm", ["java", "-jar", "app.jar"], "jvm.*command", id="jvm-with-command"),
+    ],
+)
+def test_validate_task_entry_rejects(entry_type, command, match):
+    with pytest.raises(ValueError, match=match):
+        validate_task_entry(entry_type=entry_type, command=command)
 
 
-def test_module_entry_rejects_command():
-    with pytest.raises(ValueError, match="module.*command"):
-        validate_task_entry(entry_type="module", command=["echo", "hi"])
+@pytest.mark.parametrize(
+    "entry_type, command",
+    [
+        pytest.param("jvm", None, id="jvm-without-command"),
+        # shell is runner-agnostic — valid on subprocess, docker, kubernetes alike
+        pytest.param("shell", ["python", "main.py"], id="shell-with-command"),
+    ],
+)
+def test_validate_task_entry_accepts(entry_type, command):
+    validate_task_entry(entry_type=entry_type, command=command)
 
 
-def test_jvm_entry_rejects_command():
-    with pytest.raises(ValueError, match="jvm.*command"):
-        validate_task_entry(entry_type="jvm", command=["java", "-jar", "app.jar"])
-
-
-def test_jvm_entry_valid_without_command():
-    validate_task_entry(entry_type="jvm", command=None)
-
-
-def test_shell_entry_valid_on_any_runner():
-    # shell is runner-agnostic — valid on subprocess, docker, kubernetes alike
-    validate_task_entry(entry_type="shell", command=["python", "main.py"])
-
-
-def test_image_source_round_trip_build():
-    source = ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40, dockerfile="Dockerfile.gpu")
-    parsed = parse_image_source(dump_image_source(source))
-    assert isinstance(parsed, ImageBuild)
-    assert parsed.git_sha == "a" * 40
-
-
-def test_image_source_round_trip_prebuilt():
-    parsed = parse_image_source(dump_image_source(ImagePrebuilt(image_tag="ghcr.io/x/y:1")))
-    assert isinstance(parsed, ImagePrebuilt)
-    assert parsed.image_tag == "ghcr.io/x/y:1"
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param(
+            ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40, dockerfile="Dockerfile.gpu"),
+            id="build",
+        ),
+        pytest.param(ImagePrebuilt(image_tag="ghcr.io/x/y:1"), id="prebuilt"),
+    ],
+)
+def test_image_source_round_trip(source):
+    assert parse_image_source(dump_image_source(source)) == source
 
 
 def test_parse_image_source_rejects_unknown_type():

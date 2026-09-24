@@ -1,5 +1,6 @@
-"""Tests for dependency operators."""
+"""Tests for dependency operators, asserted on the ``Dependency`` rows ``commit_tasks`` persists."""
 
+import pytest
 from sqlmodel import select
 
 from ..data.data_context import data_context
@@ -9,8 +10,12 @@ from .decorators import job, task
 from .execution.debug import ajob_test
 from .factories import create_job, create_task
 from .jobs import get_task
-from .models import DEPENDENCY_GROUP, DEPENDENCY_TASK, JOB_COMPLETED, Dependency, Group
+from .models import DEPENDENCY_GROUP, DEPENDENCY_TASK, JOB_COMPLETED, Dependency, Group, Task
 from .orch_context import commit_tasks, get_sql_session
+
+SAMPLE_TASK = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
+
+Edge = tuple[int, str, int, str]
 
 
 @task
@@ -19,230 +24,116 @@ def produce(value: int) -> int:
 
 
 @task
-def add(left: int, right: list[int]) -> int:
-    return left + right[0]
+def add(left: int, right: list[int], extra: dict[str, int]) -> int:
+    return left + right[0] + extra["nested"]
 
 
 @job("test_same_upstream_twice")
 def same_upstream_twice_pipeline(value: int):
     upstream = produce(value=value)
-    consumer = add(left=upstream, right=[upstream])
+    consumer = add(left=upstream, right=[upstream], extra={"nested": upstream})
     upstream >> consumer
     return task_result(data=consumer, tasks=[upstream, consumer])
 
 
-async def test_task_rshift_creates_dependency():
-    """Test that >> operator creates dependency (A >> B means B depends on A)."""
-    task1 = create_task("module.func1")
-    task2 = create_task("module.func2")
-
-    result = task1 >> task2
-
-    # Result should be the right operand
-    assert result is task2
-
-    # task2 should have a pending dependency on task1
-    deps = task2.previous_dependencies
-    assert len(deps) == 1
-    dep = deps[0]
-    assert dep.previous_id == task1.id
-    assert dep.previous_type == DEPENDENCY_TASK
-    assert dep.next_id == task2.id
-    assert dep.next_type == DEPENDENCY_TASK
+def _new_task() -> Task:
+    return create_task(SAMPLE_TASK)
 
 
-async def test_task_lshift_creates_dependency():
-    """Test that << operator creates dependency (A << B means A depends on B)."""
-    task1 = create_task("module.func1")
-    task2 = create_task("module.func2")
-
-    result = task1 << task2
-
-    # Result should be the left operand
-    assert result is task1
-
-    # task1 should have a pending dependency on task2
-    deps = task1.previous_dependencies
-    assert len(deps) == 1
-    dep = deps[0]
-    assert dep.previous_id == task2.id
-    assert dep.previous_type == DEPENDENCY_TASK
-    assert dep.next_id == task1.id
-    assert dep.next_type == DEPENDENCY_TASK
+def _new_group() -> Group:
+    return Group(id=get_snowflake_id(), name="group")
 
 
-async def test_task_chained_rshift():
-    """Test chained >> operators (A >> B >> C)."""
-    task1 = create_task("module.func1")
-    task2 = create_task("module.func2")
-    task3 = create_task("module.func3")
-
-    task1 >> task2 >> task3
-
-    # task2 depends on task1
-    deps2 = task2.previous_dependencies
-    assert len(deps2) == 1
-    assert deps2[0].previous_id == task1.id
-
-    # task3 depends on task2
-    deps3 = task3.previous_dependencies
-    assert len(deps3) == 1
-    assert deps3[0].previous_id == task2.id
+async def _persisted_edges() -> set[Edge]:
+    """Every persisted dependency as ``(previous_id, previous_type, next_id, next_type)``."""
+    async with get_sql_session() as session:
+        rows = (await session.execute(select(Dependency))).scalars().all()
+    return {(d.previous_id, d.previous_type, d.next_id, d.next_type) for d in rows}
 
 
-async def test_task_fanout():
-    """Test fan-out: A >> [B, C, D] means B, C, D all depend on A."""
-    task1 = create_task("module.func1")
-    task2 = create_task("module.func2")
-    task3 = create_task("module.func3")
-    task4 = create_task("module.func4")
+@pytest.mark.parametrize(
+    "make_previous, make_next, previous_type, next_type",
+    [
+        pytest.param(_new_task, _new_task, DEPENDENCY_TASK, DEPENDENCY_TASK, id="task-to-task"),
+        pytest.param(_new_group, _new_task, DEPENDENCY_GROUP, DEPENDENCY_TASK, id="group-to-task"),
+        pytest.param(_new_task, _new_group, DEPENDENCY_TASK, DEPENDENCY_GROUP, id="task-to-group"),
+        pytest.param(_new_group, _new_group, DEPENDENCY_GROUP, DEPENDENCY_GROUP, id="group-to-group"),
+    ],
+)
+async def test_rshift_persists_dependency(orch_ctx, make_previous, make_next, previous_type, next_type):
+    """``A >> B`` means B depends on A and returns the right operand."""
+    job = await create_job("test_rshift_job", SAMPLE_TASK)
+    previous, next_ = make_previous(), make_next()
 
-    task1 >> [task2, task3, task4]
+    assert (previous >> next_) is next_
 
-    # All tasks should depend on task1
-    for downstream in [task2, task3, task4]:
-        deps = downstream.previous_dependencies
-        assert len(deps) == 1
-        assert deps[0].previous_id == task1.id
-
-
-async def test_task_fanin():
-    """Test fan-in: [A, B, C] >> D means D depends on A, B, and C."""
-    task1 = create_task("module.func1")
-    task2 = create_task("module.func2")
-    task3 = create_task("module.func3")
-    task4 = create_task("module.func4")
-
-    [task1, task2, task3] >> task4
-
-    # task4 should depend on all three
-    deps = task4.previous_dependencies
-    assert len(deps) == 3
-    dep_ids = {dep.previous_id for dep in deps}
-    assert dep_ids == {task1.id, task2.id, task3.id}
+    await commit_tasks([previous, next_], job_id=job.id)
+    assert await _persisted_edges() == {(previous.id, previous_type, next_.id, next_type)}
 
 
-async def test_group_rshift_creates_dependency():
-    """Test that >> operator works with groups."""
-    group1 = Group(id=get_snowflake_id(), name="group1")
-    task1 = create_task("module.func1")
+async def test_lshift_persists_dependency(orch_ctx):
+    """``A << B`` means A depends on B and returns the left operand."""
+    job = await create_job("test_lshift_job", SAMPLE_TASK)
+    task1, task2 = _new_task(), _new_task()
 
-    group1 >> task1
+    assert (task1 << task2) is task1
 
-    # task1 depends on group1
-    deps = task1.previous_dependencies
-    assert len(deps) == 1
-    dep = deps[0]
-    assert dep.previous_id == group1.id
-    assert dep.previous_type == DEPENDENCY_GROUP
-    assert dep.next_id == task1.id
-    assert dep.next_type == DEPENDENCY_TASK
+    await commit_tasks([task1, task2], job_id=job.id)
+    assert await _persisted_edges() == {(task2.id, DEPENDENCY_TASK, task1.id, DEPENDENCY_TASK)}
 
 
-async def test_task_rshift_to_group():
-    """Test task >> group creates dependency."""
-    task1 = create_task("module.func1")
-    group1 = Group(id=get_snowflake_id(), name="group1")
+async def test_fanout_persists_dependency_per_target(orch_ctx):
+    """``A >> [B, C, D]`` means B, C and D all depend on A."""
+    job = await create_job("test_fanout_job", SAMPLE_TASK)
+    source = _new_task()
+    targets: list[Task | Group] = [_new_task(), _new_task(), _new_task()]
 
-    task1 >> group1
+    source >> targets
 
-    # group1 depends on task1
-    deps = group1.previous_dependencies
-    assert len(deps) == 1
-    dep = deps[0]
-    assert dep.previous_id == task1.id
-    assert dep.previous_type == DEPENDENCY_TASK
-    assert dep.next_id == group1.id
-    assert dep.next_type == DEPENDENCY_GROUP
+    await commit_tasks(targets, job_id=job.id)
+    assert await _persisted_edges() == {(source.id, DEPENDENCY_TASK, t.id, DEPENDENCY_TASK) for t in targets}
 
 
-async def test_group_to_group_dependency():
-    """Test group >> group creates dependency."""
-    group1 = Group(id=get_snowflake_id(), name="group1")
-    group2 = Group(id=get_snowflake_id(), name="group2")
+async def test_fanin_persists_dependency_per_source(orch_ctx):
+    """``[A, B, C] >> D`` means D depends on A, B and C."""
+    job = await create_job("test_fanin_job", SAMPLE_TASK)
+    sources = [_new_task(), _new_task(), _new_task()]
+    sink = _new_task()
 
-    group1 >> group2
+    sources >> sink
 
-    # group2 depends on group1
-    deps = group2.previous_dependencies
-    assert len(deps) == 1
-    dep = deps[0]
-    assert dep.previous_id == group1.id
-    assert dep.previous_type == DEPENDENCY_GROUP
-    assert dep.next_id == group2.id
-    assert dep.next_type == DEPENDENCY_GROUP
+    await commit_tasks(sink, job_id=job.id)
+    assert await _persisted_edges() == {(s.id, DEPENDENCY_TASK, sink.id, DEPENDENCY_TASK) for s in sources}
 
 
 async def test_commit_tasks_persists_upstream_graph(orch_ctx):
-    """Passing only the terminal task to commit_tasks() should persist all upstream tasks.
+    """Passing only the terminal task of a ``>>`` chain to commit_tasks() should
+    persist all upstream tasks and every edge of the chain.
 
     This is a regression test for the bug where intermediate tasks were never
     saved to the DB when the developer only returned the terminal task from a
     @job function, causing workers to fail with 'Upstream task not found'.
     """
-    job = await create_job(
-        "test_graph_persist_job",
-        "aaiclick.orchestration.fixtures.sample_tasks.simple_task",
-    )
+    job = await create_job("test_graph_persist_job", SAMPLE_TASK)
 
-    # Build a three-task pipeline: raw >> transform >> report
-    raw = create_task("aaiclick.orchestration.fixtures.sample_tasks.simple_task")
-    transform = create_task("aaiclick.orchestration.fixtures.sample_tasks.simple_task")
-    report = create_task("aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+    raw, transform, report = _new_task(), _new_task(), _new_task()
     raw >> transform >> report
 
     # Only pass the terminal task — framework must auto-collect the full graph
     await commit_tasks(report, job_id=job.id)
 
-    # All three tasks must exist in the DB
     for node in (raw, transform, report):
         assert await get_task(node.id) is not None, f"Task {node.id} ({node.entrypoint}) was not persisted"
 
-    # Dependencies must also be saved
-    async with get_sql_session() as session:
-        dep1 = await session.execute(
-            select(Dependency).where(Dependency.previous_id == raw.id, Dependency.next_id == transform.id)
-        )
-        assert dep1.scalar_one_or_none() is not None
-
-        dep2 = await session.execute(
-            select(Dependency).where(Dependency.previous_id == transform.id, Dependency.next_id == report.id)
-        )
-        assert dep2.scalar_one_or_none() is not None
+    assert await _persisted_edges() == {
+        (raw.id, DEPENDENCY_TASK, transform.id, DEPENDENCY_TASK),
+        (transform.id, DEPENDENCY_TASK, report.id, DEPENDENCY_TASK),
+    }
 
 
-async def test_apply_saves_dependencies(orch_ctx):
-    """Test that commit_tasks() saves dependencies to database."""
-    # Create job
-    job = await create_job(
-        "test_deps_job",
-        "aaiclick.orchestration.fixtures.sample_tasks.simple_task",
-    )
-
-    # Create tasks with dependency
-    task1 = create_task("aaiclick.orchestration.fixtures.sample_tasks.simple_task")
-    task2 = create_task("aaiclick.orchestration.fixtures.sample_tasks.async_task")
-    task1 >> task2  # task2 depends on task1
-
-    # Apply tasks to job
-    await commit_tasks([task1, task2], job_id=job.id)
-
-    # Verify dependency was saved
-    async with get_sql_session() as session:
-        result = await session.execute(
-            select(Dependency).where(
-                Dependency.previous_id == task1.id,
-                Dependency.next_id == task2.id,
-            )
-        )
-        dep = result.scalar_one_or_none()
-        assert dep is not None
-        assert dep.previous_type == DEPENDENCY_TASK
-        assert dep.next_type == DEPENDENCY_TASK
-
-
-async def test_same_upstream_in_two_kwargs_runs(orch_ctx):
-    """A job passing one upstream to two kwargs (and wiring it with ``>>``) runs.
+async def test_same_upstream_in_several_kwargs_runs(orch_ctx):
+    """A job passing one upstream to three kwargs (bare, in a list, in a dict) and
+    wiring it with ``>>`` runs.
 
     Each would add a ``Dependency`` on the same edge; a duplicate row collides
     on the composite primary key and fails the commit with ``IntegrityError``.
@@ -251,7 +142,7 @@ async def test_same_upstream_in_two_kwargs_runs(orch_ctx):
 
     assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
     async with data_context():
-        assert await get_job_result(j) == 42
+        assert await get_job_result(j) == 63
 
 
 async def test_commit_tasks_persists_group_members(orch_ctx):
@@ -260,12 +151,12 @@ async def test_commit_tasks_persists_group_members(orch_ctx):
     ``add_task`` is the only membership call; the member rows must still carry
     the group id so the scheduler and pin fan-out see them.
     """
-    job = await create_job("test_group_members_job", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+    job = await create_job("test_group_members_job", SAMPLE_TASK)
     group = Group(id=get_snowflake_id(), name="producers")
-    members = [create_task("aaiclick.orchestration.fixtures.sample_tasks.simple_task") for _ in range(2)]
+    members = [_new_task() for _ in range(2)]
     for member in members:
         group.add_task(member)
-    consumer = create_task("aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+    consumer = _new_task()
     group >> consumer
 
     await commit_tasks(consumer, job_id=job.id)
