@@ -1,16 +1,15 @@
 """
 Tests for insert operations.
 
-Covers type compatibility checking internals, parametrized insert across data types,
+Covers type compatibility contracts, schema recovery, parametrized insert across data types,
 view inserts with filters/computed columns, and subset column handling.
 """
 
 import pytest
 
-from aaiclick import create_object, create_object_from_value
-from aaiclick.data.data_context import get_ch_client
+from aaiclick import create_object, create_object_from_value, delete_persistent_object, open_object
 from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FIELDTYPE_SCALAR, ColumnInfo, Computed, Schema
-from aaiclick.data.object.ingest import _are_types_castable, _are_types_compatible, _get_table_schema
+from aaiclick.data.object.ingest import _are_types_castable, _are_types_compatible
 
 THRESHOLD = 1e-5
 
@@ -50,6 +49,7 @@ THRESHOLD = 1e-5
     ],
 )
 def test_are_types_compatible(left, right, expected):
+    """Pure function: the returned compatibility verdict is the contract."""
     assert _are_types_compatible(left, right) is expected
 
 
@@ -81,43 +81,45 @@ def test_are_types_compatible(left, right, expected):
     ],
 )
 def test_are_types_castable(left, right, expected):
+    """Pure function: the returned castability verdict is the contract."""
     assert _are_types_castable(left, right) is expected
 
 
 # =============================================================================
-# _get_table_schema — fieldtype recovery for ARRAY, DICT, SCALAR objects
+# Schema recovery — fieldtype and columns survive open_object()
 # =============================================================================
 
 
-async def test_get_table_schema_array_object(ctx):
-    """ARRAY Objects (single-value list) round-trip as FIELDTYPE_ARRAY."""
-    obj = await create_object_from_value([1, 2, 3], aai_id=True)
-    fieldtype, columns = await _get_table_schema(obj.table, get_ch_client())
-    assert fieldtype == FIELDTYPE_ARRAY
+@pytest.mark.parametrize(
+    "value, name, expected_fieldtype",
+    [
+        pytest.param([1, 2, 3], "schema_rt_array", FIELDTYPE_ARRAY, id="array"),
+        pytest.param({"x": [1, 2], "y": [3, 4]}, "schema_rt_dict", FIELDTYPE_DICT, id="dict"),
+        pytest.param(42, "schema_rt_scalar", FIELDTYPE_SCALAR, id="scalar"),
+    ],
+)
+async def test_open_object_recovers_fieldtype(ctx, value, name, expected_fieldtype):
+    """ARRAY, DICT and SCALAR Objects reopen with the fieldtype they were created with."""
+    await create_object_from_value(value, name=name, scope="global", aai_id=True)
+    try:
+        reopened = await open_object(name, scope="global")
+        assert reopened.schema.fieldtype == expected_fieldtype
+    finally:
+        await delete_persistent_object(name, scope="global")
 
 
-async def test_get_table_schema_dict_object(ctx):
-    """DICT Objects (multi-column) round-trip as FIELDTYPE_DICT."""
-    obj = await create_object_from_value({"x": [1, 2], "y": [3, 4]}, aai_id=True)
-    fieldtype, columns = await _get_table_schema(obj.table, get_ch_client())
-    assert fieldtype == FIELDTYPE_DICT
-
-
-async def test_get_table_schema_scalar_object(ctx):
-    """SCALAR Objects round-trip as FIELDTYPE_SCALAR."""
-    obj = await create_object_from_value(42, aai_id=True)
-    fieldtype, columns = await _get_table_schema(obj.table, get_ch_client())
-    assert fieldtype == FIELDTYPE_SCALAR
-
-
-async def test_get_table_schema_dict_columns_preserved(ctx):
-    """Column names are preserved correctly for DICT objects."""
-    obj = await create_object_from_value({"a": [1, 2], "b": ["x", "y"]})
-    fieldtype, columns = await _get_table_schema(obj.table, get_ch_client())
-    assert fieldtype == FIELDTYPE_DICT
-    assert "a" in columns
-    assert "b" in columns
-    assert "aai_id" not in columns
+async def test_open_object_preserves_dict_columns(ctx):
+    """Column names are preserved for DICT objects, without the internal aai_id column."""
+    name = "schema_rt_dict_columns"
+    await create_object_from_value({"a": [1, 2], "b": ["x", "y"]}, name=name, scope="global")
+    try:
+        reopened = await open_object(name, scope="global")
+        assert reopened.schema.fieldtype == FIELDTYPE_DICT
+        assert "a" in reopened.schema.columns
+        assert "b" in reopened.schema.columns
+        assert "aai_id" not in reopened.schema.columns
+    finally:
+        await delete_persistent_object(name, scope="global")
 
 
 # =============================================================================
@@ -131,21 +133,19 @@ async def test_get_table_schema_dict_columns_preserved(ctx):
         pytest.param([1, 2, 3], [4, 5, 6], [1, 2, 3, 4, 5, 6], id="int"),
         pytest.param([1.5, 2.5], [3.5, 4.5], [1.5, 2.5, 3.5, 4.5], id="float"),
         pytest.param(["hello", "world"], ["foo", "bar"], ["hello", "world", "foo", "bar"], id="str"),
+        pytest.param([5.5, 6.6], [7.7, 8.8], [5.5, 6.6, 7.7, 8.8], id="float-two-each"),
+        pytest.param(["a", "b"], ["c", "d"], ["a", "b", "c", "d"], id="str-two-each"),
     ],
 )
 async def test_array_insert(ctx, array_a, array_b, expected_result):
-    """Test inserting arrays of the same type in place."""
+    """Test inserting arrays of the same type in place preserves every row from both sides."""
     obj_a = await create_object_from_value(array_a, aai_id=True)
     obj_b = await create_object_from_value(array_b, aai_id=True)
 
     await obj_a.insert(obj_b)
     data = await obj_a.data()
 
-    if isinstance(expected_result[0], float):
-        for i, val in enumerate(data):
-            assert abs(val - expected_result[i]) < THRESHOLD
-    else:
-        assert data == expected_result
+    assert data == pytest.approx(expected_result, abs=THRESHOLD)
 
 
 # =============================================================================
@@ -168,11 +168,7 @@ async def test_array_insert_with_scalar_value(ctx, array, scalar_value, expected
     await obj.insert(scalar_value)
     data = await obj.data()
 
-    if isinstance(expected_result[0], float):
-        for i, val in enumerate(data):
-            assert abs(val - expected_result[i]) < THRESHOLD
-    else:
-        assert data == expected_result
+    assert data == pytest.approx(expected_result, abs=THRESHOLD)
 
 
 # =============================================================================
@@ -186,6 +182,8 @@ async def test_array_insert_with_scalar_value(ctx, array, scalar_value, expected
         pytest.param([1, 2, 3], [4, 5, 6], [1, 2, 3, 4, 5, 6], id="int"),
         pytest.param([1.5, 2.5], [3.5, 4.5], [1.5, 2.5, 3.5, 4.5], id="float"),
         pytest.param(["hello"], ["world", "test"], ["hello", "world", "test"], id="str"),
+        # Inserting an empty list leaves the array unchanged
+        pytest.param([1, 2, 3], [], [1, 2, 3], id="empty-list"),
     ],
 )
 async def test_array_insert_with_list_value(ctx, array, list_value, expected_result):
@@ -195,26 +193,7 @@ async def test_array_insert_with_list_value(ctx, array, list_value, expected_res
     await obj.insert(list_value)
     data = await obj.data()
 
-    if isinstance(expected_result[0], float):
-        for i, val in enumerate(data):
-            assert abs(val - expected_result[i]) < THRESHOLD
-    else:
-        assert data == expected_result
-
-
-# =============================================================================
-# Insert with Empty List Tests
-# =============================================================================
-
-
-async def test_array_insert_with_empty_list(ctx):
-    """Test inserting empty list into array (should remain unchanged)."""
-    obj = await create_object_from_value([1, 2, 3], aai_id=True)
-
-    await obj.insert([])
-    data = await obj.data()
-
-    assert data == [1, 2, 3]
+    assert data == pytest.approx(expected_result, abs=THRESHOLD)
 
 
 # =============================================================================
@@ -272,38 +251,6 @@ async def test_scalar_insert_fails(ctx, scalar_value, array_value):
 
     with pytest.raises(ValueError, match="insert requires target table to have array fieldtype"):
         await scalar_obj.insert(array_obj)
-
-
-# =============================================================================
-# Data Integrity Tests
-# =============================================================================
-
-
-@pytest.mark.parametrize(
-    "array_a,array_b",
-    [
-        pytest.param([1, 2, 3], [4, 5, 6], id="int"),
-        pytest.param([5.5, 6.6], [7.7, 8.8], id="float"),
-        pytest.param(["a", "b"], ["c", "d"], id="str"),
-    ],
-)
-async def test_insert_preserves_data_integrity(ctx, array_a, array_b):
-    """Test that insert preserves all data from both arrays."""
-    obj_a = await create_object_from_value(array_a, aai_id=True)
-    obj_b = await create_object_from_value(array_b, aai_id=True)
-
-    await obj_a.insert(obj_b)
-    data = await obj_a.data()
-
-    assert len(data) == len(array_a) + len(array_b)
-
-    if isinstance(array_a[0], (int, float)):
-        expected_sum = sum(array_a) + sum(array_b)
-        actual_sum = sum(data)
-        if isinstance(expected_sum, float):
-            assert abs(actual_sum - expected_sum) < THRESHOLD
-        else:
-            assert actual_sum == expected_sum
 
 
 # =============================================================================

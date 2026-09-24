@@ -5,6 +5,8 @@ Verifies that Object operators work with Python scalar operands (int, float)
 on both left and right sides, for both scalar and array Objects.
 """
 
+import operator
+
 import pytest
 
 from aaiclick import create_object_from_value
@@ -18,40 +20,25 @@ THRESHOLD = 1e-5
 
 
 @pytest.mark.parametrize(
-    "obj_val,scalar,operator,expected",
+    "obj_val,scalar,op,expected",
     [
         # Arithmetic
-        pytest.param(10, 5, "+", 15, id="add"),
-        pytest.param(10, 3, "-", 7, id="sub"),
-        pytest.param(10, 3, "*", 30, id="mul"),
-        pytest.param(10.0, 4.0, "/", 2.5, id="div"),
-        pytest.param(10, 3, "//", 3, id="floordiv"),
-        pytest.param(10, 3, "%", 1, id="mod"),
-        pytest.param(2.0, 3.0, "**", 8.0, id="pow"),
+        pytest.param(10, 5, operator.add, 15, id="add"),
+        pytest.param(10, 3, operator.sub, 7, id="sub"),
+        pytest.param(10, 3, operator.mul, 30, id="mul"),
+        pytest.param(10.0, 4.0, operator.truediv, 2.5, id="div"),
+        pytest.param(10, 3, operator.floordiv, 3, id="floordiv"),
+        pytest.param(10, 3, operator.mod, 1, id="mod"),
+        pytest.param(2.0, 3.0, operator.pow, 8.0, id="pow"),
     ],
 )
-async def test_scalar_obj_op_scalar(ctx, obj_val, scalar, operator, expected):
+async def test_scalar_obj_op_scalar(ctx, obj_val, scalar, op, expected):
     """Test scalar Object <op> Python scalar."""
     obj = await create_object_from_value(obj_val, aai_id=True)
 
-    match operator:
-        case "+":
-            result = obj + scalar
-        case "-":
-            result = obj - scalar
-        case "*":
-            result = obj * scalar
-        case "/":
-            result = obj / scalar
-        case "//":
-            result = obj // scalar
-        case "%":
-            result = obj % scalar
-        case "**":
-            result = obj**scalar
+    result = op(obj, scalar)
 
-    data = await result.data()
-    assert abs(data - expected) < THRESHOLD
+    assert await result.data() == pytest.approx(expected, abs=THRESHOLD)
 
 
 # =============================================================================
@@ -60,39 +47,24 @@ async def test_scalar_obj_op_scalar(ctx, obj_val, scalar, operator, expected):
 
 
 @pytest.mark.parametrize(
-    "scalar,obj_val,operator,expected",
+    "scalar,obj_val,op,expected",
     [
-        pytest.param(5, 10, "+", 15, id="radd"),
-        pytest.param(20, 7, "-", 13, id="rsub"),
-        pytest.param(3, 10, "*", 30, id="rmul"),
-        pytest.param(10.0, 4.0, "/", 2.5, id="rtruediv"),
-        pytest.param(10, 3, "//", 3, id="rfloordiv"),
-        pytest.param(10, 3, "%", 1, id="rmod"),
-        pytest.param(2.0, 3.0, "**", 8.0, id="rpow"),
+        pytest.param(5, 10, operator.add, 15, id="radd"),
+        pytest.param(20, 7, operator.sub, 13, id="rsub"),
+        pytest.param(3, 10, operator.mul, 30, id="rmul"),
+        pytest.param(10.0, 4.0, operator.truediv, 2.5, id="rtruediv"),
+        pytest.param(10, 3, operator.floordiv, 3, id="rfloordiv"),
+        pytest.param(10, 3, operator.mod, 1, id="rmod"),
+        pytest.param(2.0, 3.0, operator.pow, 8.0, id="rpow"),
     ],
 )
-async def test_scalar_reverse_op(ctx, scalar, obj_val, operator, expected):
+async def test_scalar_reverse_op(ctx, scalar, obj_val, op, expected):
     """Test Python scalar <op> scalar Object (reverse operators)."""
     obj = await create_object_from_value(obj_val, aai_id=True)
 
-    match operator:
-        case "+":
-            result = scalar + obj
-        case "-":
-            result = scalar - obj
-        case "*":
-            result = scalar * obj
-        case "/":
-            result = scalar / obj
-        case "//":
-            result = scalar // obj
-        case "%":
-            result = scalar % obj
-        case "**":
-            result = scalar**obj
+    result = op(scalar, obj)
 
-    data = await result.data()
-    assert abs(data - expected) < THRESHOLD
+    assert await result.data() == pytest.approx(expected, abs=THRESHOLD)
 
 
 # =============================================================================
@@ -101,40 +73,24 @@ async def test_scalar_reverse_op(ctx, scalar, obj_val, operator, expected):
 
 
 @pytest.mark.parametrize(
-    "arr,scalar,operator,expected",
+    "arr,scalar,op,expected",
     [
-        pytest.param([1, 2, 3], 10, "+", [11, 12, 13], id="add"),
-        pytest.param([10, 20, 30], 5, "-", [5, 15, 25], id="sub"),
-        pytest.param([1, 2, 3], 10, "*", [10, 20, 30], id="mul"),
-        pytest.param([10.0, 20.0, 30.0], 10.0, "/", [1.0, 2.0, 3.0], id="div"),
-        pytest.param([10, 25, 30], 7, "//", [1, 3, 4], id="floordiv"),
-        pytest.param([10, 25, 30], 7, "%", [3, 4, 2], id="mod"),
-        pytest.param([2.0, 3.0, 4.0], 2.0, "**", [4.0, 9.0, 16.0], id="pow"),
+        pytest.param([1, 2, 3], 10, operator.add, [11, 12, 13], id="add"),
+        pytest.param([10, 20, 30], 5, operator.sub, [5, 15, 25], id="sub"),
+        pytest.param([1, 2, 3], 10, operator.mul, [10, 20, 30], id="mul"),
+        pytest.param([10.0, 20.0, 30.0], 10.0, operator.truediv, [1.0, 2.0, 3.0], id="div"),
+        pytest.param([10, 25, 30], 7, operator.floordiv, [1, 3, 4], id="floordiv"),
+        pytest.param([10, 25, 30], 7, operator.mod, [3, 4, 2], id="mod"),
+        pytest.param([2.0, 3.0, 4.0], 2.0, operator.pow, [4.0, 9.0, 16.0], id="pow"),
     ],
 )
-async def test_array_obj_op_scalar(ctx, arr, scalar, operator, expected):
+async def test_array_obj_op_scalar(ctx, arr, scalar, op, expected):
     """Test array Object <op> Python scalar (broadcast)."""
     obj = await create_object_from_value(arr, aai_id=True)
 
-    match operator:
-        case "+":
-            result = obj + scalar
-        case "-":
-            result = obj - scalar
-        case "*":
-            result = obj * scalar
-        case "/":
-            result = obj / scalar
-        case "//":
-            result = obj // scalar
-        case "%":
-            result = obj % scalar
-        case "**":
-            result = obj**scalar
+    result = op(obj, scalar)
 
-    data = await result.data()
-    for i, val in enumerate(data):
-        assert abs(val - expected[i]) < THRESHOLD
+    assert await result.data() == pytest.approx(expected, abs=THRESHOLD)
 
 
 # =============================================================================
@@ -143,40 +99,24 @@ async def test_array_obj_op_scalar(ctx, arr, scalar, operator, expected):
 
 
 @pytest.mark.parametrize(
-    "scalar,arr,operator,expected",
+    "scalar,arr,op,expected",
     [
-        pytest.param(10, [1, 2, 3], "+", [11, 12, 13], id="radd"),
-        pytest.param(100, [10, 20, 30], "-", [90, 80, 70], id="rsub"),
-        pytest.param(10, [1, 2, 3], "*", [10, 20, 30], id="rmul"),
-        pytest.param(100.0, [10.0, 20.0, 50.0], "/", [10.0, 5.0, 2.0], id="rtruediv"),
-        pytest.param(100, [7, 13, 33], "//", [14, 7, 3], id="rfloordiv"),
-        pytest.param(10, [3, 4, 7], "%", [1, 2, 3], id="rmod"),
-        pytest.param(2.0, [1.0, 2.0, 3.0], "**", [2.0, 4.0, 8.0], id="rpow"),
+        pytest.param(10, [1, 2, 3], operator.add, [11, 12, 13], id="radd"),
+        pytest.param(100, [10, 20, 30], operator.sub, [90, 80, 70], id="rsub"),
+        pytest.param(10, [1, 2, 3], operator.mul, [10, 20, 30], id="rmul"),
+        pytest.param(100.0, [10.0, 20.0, 50.0], operator.truediv, [10.0, 5.0, 2.0], id="rtruediv"),
+        pytest.param(100, [7, 13, 33], operator.floordiv, [14, 7, 3], id="rfloordiv"),
+        pytest.param(10, [3, 4, 7], operator.mod, [1, 2, 3], id="rmod"),
+        pytest.param(2.0, [1.0, 2.0, 3.0], operator.pow, [2.0, 4.0, 8.0], id="rpow"),
     ],
 )
-async def test_scalar_op_array_obj(ctx, scalar, arr, operator, expected):
+async def test_scalar_op_array_obj(ctx, scalar, arr, op, expected):
     """Test Python scalar <op> array Object (reverse broadcast)."""
     obj = await create_object_from_value(arr, aai_id=True)
 
-    match operator:
-        case "+":
-            result = scalar + obj
-        case "-":
-            result = scalar - obj
-        case "*":
-            result = scalar * obj
-        case "/":
-            result = scalar / obj
-        case "//":
-            result = scalar // obj
-        case "%":
-            result = scalar % obj
-        case "**":
-            result = scalar**obj
+    result = op(scalar, obj)
 
-    data = await result.data()
-    for i, val in enumerate(data):
-        assert abs(val - expected[i]) < THRESHOLD
+    assert await result.data() == pytest.approx(expected, abs=THRESHOLD)
 
 
 # =============================================================================
@@ -185,33 +125,21 @@ async def test_scalar_op_array_obj(ctx, scalar, arr, operator, expected):
 
 
 @pytest.mark.parametrize(
-    "arr,scalar,operator,expected",
+    "arr,scalar,op,expected",
     [
-        pytest.param([1, 5, 10], 5, "==", [0, 1, 0], id="eq"),
-        pytest.param([1, 5, 10], 5, "!=", [1, 0, 1], id="ne"),
-        pytest.param([1, 5, 10], 5, "<", [1, 0, 0], id="lt"),
-        pytest.param([1, 5, 10], 5, "<=", [1, 1, 0], id="le"),
-        pytest.param([1, 5, 10], 5, ">", [0, 0, 1], id="gt"),
-        pytest.param([1, 5, 10], 5, ">=", [0, 1, 1], id="ge"),
+        pytest.param([1, 5, 10], 5, operator.eq, [0, 1, 0], id="eq"),
+        pytest.param([1, 5, 10], 5, operator.ne, [1, 0, 1], id="ne"),
+        pytest.param([1, 5, 10], 5, operator.lt, [1, 0, 0], id="lt"),
+        pytest.param([1, 5, 10], 5, operator.le, [1, 1, 0], id="le"),
+        pytest.param([1, 5, 10], 5, operator.gt, [0, 0, 1], id="gt"),
+        pytest.param([1, 5, 10], 5, operator.ge, [0, 1, 1], id="ge"),
     ],
 )
-async def test_comparison_with_scalar(ctx, arr, scalar, operator, expected):
+async def test_comparison_with_scalar(ctx, arr, scalar, op, expected):
     """Test comparison operators with scalar broadcast."""
     obj = await create_object_from_value(arr, aai_id=True)
 
-    match operator:
-        case "==":
-            result = obj == scalar
-        case "!=":
-            result = obj != scalar
-        case "<":
-            result = obj < scalar
-        case "<=":
-            result = obj <= scalar
-        case ">":
-            result = obj > scalar
-        case ">=":
-            result = obj >= scalar
+    result = op(obj, scalar)
 
     data = await result.data()
     assert data == expected
@@ -235,10 +163,7 @@ async def test_normalize_with_scalar_broadcast(ctx):
     obj = await create_object_from_value([2.0, 4.0, 6.0, 8.0], aai_id=True)
     total = await obj.sum()
     normalized = obj / total
-    data = await normalized.data()
-    expected = [0.1, 0.2, 0.3, 0.4]
-    for i, val in enumerate(data):
-        assert abs(val - expected[i]) < THRESHOLD
+    assert await normalized.data() == pytest.approx([0.1, 0.2, 0.3, 0.4], abs=THRESHOLD)
 
 
 async def test_scalar_sub_is_noncommutative(ctx):
@@ -265,10 +190,8 @@ async def test_scalar_div_is_noncommutative(ctx):
     forward_data = await forward.data()
     reverse_data = await reverse.data()
 
-    for i, val in enumerate(forward_data):
-        assert abs(val - [0.2, 0.4, 0.5][i]) < THRESHOLD
-    for i, val in enumerate(reverse_data):
-        assert abs(val - [5.0, 2.5, 2.0][i]) < THRESHOLD
+    assert forward_data == pytest.approx([0.2, 0.4, 0.5], abs=THRESHOLD)
+    assert reverse_data == pytest.approx([5.0, 2.5, 2.0], abs=THRESHOLD)
 
 
 # =============================================================================

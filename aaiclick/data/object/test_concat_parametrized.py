@@ -23,21 +23,19 @@ THRESHOLD = 1e-5
         pytest.param([1, 2, 3], [4, 5, 6], [1, 2, 3, 4, 5, 6], id="int"),
         pytest.param([1.5, 2.5], [3.5, 4.5, 5.5], [1.5, 2.5, 3.5, 4.5, 5.5], id="float"),
         pytest.param(["hello", "world"], ["foo", "bar", "baz"], ["hello", "world", "foo", "bar", "baz"], id="str"),
+        pytest.param([5.5, 6.6], [7.7, 8.8], [5.5, 6.6, 7.7, 8.8], id="float-equal-length"),
+        pytest.param(["a", "b"], ["c", "d"], ["a", "b", "c", "d"], id="str-equal-length"),
     ],
 )
 async def test_array_concat(ctx, array_a, array_b, expected_result):
-    """Test concatenating arrays of the same type."""
+    """Test concatenating arrays of the same type preserves every row from both sides."""
     obj_a = await create_object_from_value(array_a)
     obj_b = await create_object_from_value(array_b)
 
     result = await obj_a.concat(obj_b)
     data = await result.data()
 
-    if isinstance(expected_result[0], float):
-        for i, val in enumerate(data):
-            assert abs(val - expected_result[i]) < THRESHOLD
-    else:
-        assert data == expected_result
+    assert data == pytest.approx(expected_result, abs=THRESHOLD)
 
 
 # =============================================================================
@@ -60,11 +58,7 @@ async def test_array_concat_with_scalar_value(ctx, array, scalar_value, expected
     result = await obj.concat(scalar_value)
     data = await result.data()
 
-    if isinstance(expected_result[0], float):
-        for i, val in enumerate(data):
-            assert abs(val - expected_result[i]) < THRESHOLD
-    else:
-        assert data == expected_result
+    assert data == pytest.approx(expected_result, abs=THRESHOLD)
 
 
 # =============================================================================
@@ -78,35 +72,18 @@ async def test_array_concat_with_scalar_value(ctx, array, scalar_value, expected
         pytest.param([1, 2, 3], [4, 5, 6], [1, 2, 3, 4, 5, 6], id="int"),
         pytest.param([1.5, 2.5], [3.5, 4.5], [1.5, 2.5, 3.5, 4.5], id="float"),
         pytest.param(["hello"], ["world", "test"], ["hello", "world", "test"], id="str"),
+        # Concatenating an empty list returns the same data
+        pytest.param([1, 2, 3], [], [1, 2, 3], id="empty-list"),
     ],
 )
 async def test_array_concat_with_list_value(ctx, array, list_value, expected_result):
-    """Test concatenating array with list value."""
+    """Test concatenating array with list value: self first, then the value."""
     obj = await create_object_from_value(array)
 
     result = await obj.concat(list_value)
     data = await result.data()
 
-    if isinstance(expected_result[0], float):
-        for i, val in enumerate(data):
-            assert abs(val - expected_result[i]) < THRESHOLD
-    else:
-        assert data == expected_result
-
-
-# =============================================================================
-# Concat with Empty List Tests
-# =============================================================================
-
-
-async def test_array_concat_with_empty_list(ctx):
-    """Test concatenating array with empty list (should return same data)."""
-    obj = await create_object_from_value([1, 2, 3])
-
-    result = await obj.concat([])
-    data = await result.data()
-
-    assert data == [1, 2, 3]
+    assert data == pytest.approx(expected_result, abs=THRESHOLD)
 
 
 # =============================================================================
@@ -133,52 +110,8 @@ async def test_scalar_concat_fails(ctx, scalar_value, array_value):
 
 
 # =============================================================================
-# Order Preservation Tests
-# =============================================================================
-
-
-@pytest.mark.parametrize(
-    "array_a,array_b",
-    [
-        pytest.param([1, 2, 3], [4, 5, 6], id="int"),
-        pytest.param([5.5, 6.6], [7.7, 8.8], id="float"),
-        pytest.param(["a", "b"], ["c", "d"], id="str"),
-    ],
-)
-async def test_concat_preserves_data_integrity(ctx, array_a, array_b):
-    """Test that concat preserves all data from both arrays."""
-    obj_a = await create_object_from_value(array_a)
-    obj_b = await create_object_from_value(array_b)
-
-    result = await obj_a.concat(obj_b)
-    data = await result.data()
-
-    assert len(data) == len(array_a) + len(array_b)
-
-    if isinstance(array_a[0], (int, float)):
-        expected_sum = sum(array_a) + sum(array_b)
-        actual_sum = sum(data)
-        if isinstance(expected_sum, float):
-            assert abs(actual_sum - expected_sum) < THRESHOLD
-        else:
-            assert actual_sum == expected_sum
-
-
-# =============================================================================
 # Multi-Argument Concat Tests (*args)
 # =============================================================================
-
-
-async def test_array_concat_multiple_objects(ctx):
-    """Test concatenating multiple objects with *args."""
-    obj_a = await create_object_from_value([1, 2])
-    obj_b = await create_object_from_value([3, 4])
-    obj_c = await create_object_from_value([5, 6])
-
-    result = await obj_a.concat(obj_b, obj_c)
-    data = await result.data()
-
-    assert data == [1, 2, 3, 4, 5, 6]
 
 
 async def test_array_concat_mixed_types(ctx):

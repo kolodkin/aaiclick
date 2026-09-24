@@ -26,15 +26,24 @@ async def test_dict_selector_basic(ctx):
 
 
 @pytest.mark.parametrize(
-    "field, expected",
+    "value, field, expected",
     [
-        pytest.param("param1", [10, 20, 30], id="first-field"),
-        pytest.param("param2", [40, 50, 60], id="second-field"),
+        pytest.param({"param1": [10, 20, 30], "param2": [40, 50, 60]}, "param1", [10, 20, 30], id="first-field"),
+        pytest.param({"param1": [10, 20, 30], "param2": [40, 50, 60]}, "param2", [40, 50, 60], id="second-field"),
+        # Single element arrays
+        pytest.param({"a": [42], "b": [100]}, "a", [42], id="single-element"),
+        # Selector preserves original (unsorted) array order
+        pytest.param(
+            {"letters": ["z", "a", "m", "b"], "numbers": [4, 1, 3, 2]},
+            "letters",
+            ["z", "a", "m", "b"],
+            id="preserves-order",
+        ),
     ],
 )
-async def test_dict_selector_data(ctx, field, expected):
+async def test_dict_selector_data(ctx, value, field, expected):
     """Test that selecting a field returns the correct data."""
-    obj = await create_object_from_value({"param1": [10, 20, 30], "param2": [40, 50, 60]}, aai_id=True)
+    obj = await create_object_from_value(value, aai_id=True)
 
     view = obj[field]
     data = await view.data()
@@ -74,34 +83,21 @@ async def test_dict_selector_copy(ctx):
     assert await arr.data() == [1, 2, 3]
 
 
-async def test_dict_selector_copy_second_field(ctx):
-    """Test copying the second field."""
-    obj = await create_object_from_value({"param1": [10, 20], "param2": [30, 40]}, aai_id=True)
+@pytest.mark.parametrize(
+    "value, field, expected",
+    [
+        pytest.param({"param1": [10, 20], "param2": [30, 40]}, "param2", [30, 40], id="second-field"),
+        pytest.param({"floats": [1.5, 2.5, 3.5], "ints": [1, 2, 3]}, "floats", [1.5, 2.5, 3.5], id="float"),
+        pytest.param({"names": ["Alice", "Bob"], "ages": [30, 25]}, "names", ["Alice", "Bob"], id="string"),
+    ],
+)
+async def test_dict_selector_copy_field(ctx, value, field, expected):
+    """Test copying a selected field of various types."""
+    obj = await create_object_from_value(value, aai_id=True)
 
-    view = obj["param2"]
-    arr = await view.copy()
+    arr = await obj[field].copy()
 
-    assert await arr.data() == [30, 40]
-
-
-async def test_dict_selector_copy_float(ctx):
-    """Test copying a float field."""
-    obj = await create_object_from_value({"floats": [1.5, 2.5, 3.5], "ints": [1, 2, 3]}, aai_id=True)
-
-    view = obj["floats"]
-    arr = await view.copy()
-
-    assert await arr.data() == [1.5, 2.5, 3.5]
-
-
-async def test_dict_selector_copy_string(ctx):
-    """Test copying a string field."""
-    obj = await create_object_from_value({"names": ["Alice", "Bob"], "ages": [30, 25]}, aai_id=True)
-
-    view = obj["names"]
-    arr = await view.copy()
-
-    assert await arr.data() == ["Alice", "Bob"]
+    assert await arr.data() == expected
 
 
 # =============================================================================
@@ -199,32 +195,6 @@ async def test_dict_selector_repr(ctx):
 
     repr_str = repr(view)
     assert "selected_fields=['param1']" in repr_str
-
-
-# =============================================================================
-# Edge Cases
-# =============================================================================
-
-
-async def test_dict_selector_single_element(ctx):
-    """Test dict selector with single element arrays."""
-    obj = await create_object_from_value({"a": [42], "b": [100]}, aai_id=True)
-
-    view = obj["a"]
-    data = await view.data()
-
-    assert data == [42]
-
-
-async def test_dict_selector_preserves_order(ctx):
-    """Test that dict selector preserves original array order."""
-    obj = await create_object_from_value({"letters": ["z", "a", "m", "b"], "numbers": [4, 1, 3, 2]}, aai_id=True)
-
-    view = obj["letters"]
-    data = await view.data()
-
-    # Order should match original array order
-    assert data == ["z", "a", "m", "b"]
 
 
 # =============================================================================

@@ -3,8 +3,6 @@
 import pytest
 
 from aaiclick import create_object_from_value
-from aaiclick.data.data_context import create_object
-from aaiclick.data.models import FIELDTYPE_ARRAY, ColumnInfo, Schema
 
 
 @pytest.mark.parametrize(
@@ -49,19 +47,8 @@ async def test_count_if_dict(ctx, conditions, expected):
 
 async def test_count_if_dict_on_dict_object(ctx):
     """count_if works on dict Objects with named columns."""
-    schema = Schema(
-        fieldtype=FIELDTYPE_ARRAY,
-        columns={
-            "name": ColumnInfo("String"),
-            "score": ColumnInfo("Float64"),
-        },
-    )
-    obj = await create_object(schema)
-    from aaiclick.data.data_context import get_ch_client
-
-    ch = get_ch_client()
-    await ch.command(
-        f"INSERT INTO {obj.table} (name, score) VALUES ('alice', 90), ('bob', 45), ('carol', 80), ('dave', 30)"
+    obj = await create_object_from_value(
+        {"name": ["alice", "bob", "carol", "dave"], "score": [90.0, 45.0, 80.0, 30.0]},
     )
 
     result = await obj.count_if(
@@ -70,9 +57,7 @@ async def test_count_if_dict_on_dict_object(ctx):
             "failing": "score < 50",
         }
     )
-    data = await result.data()
-    assert data["passing"] == 2
-    assert data["failing"] == 2
+    assert await result.data() == {"passing": 2, "failing": 2}
 
 
 async def test_count_if_on_view_with_where(ctx):

@@ -84,30 +84,20 @@ async def test_field_spec_records(ctx):
     assert data["city"] == ["NYC", "LA"]
 
 
-# --- List of scalars ---
+# --- List of scalars / scalar ---
 
 
-async def test_field_spec_list_scalars(ctx):
-    """FieldSpec works with list-of-scalars via the 'value' column."""
-    obj = await create_object_from_value(
-        [10, 20, 30],
-        fields={"value": FieldSpec(nullable=True)},
-    )
-    schema = obj.schema
-    assert schema.columns["value"].nullable is True
-
-
-# --- Scalar ---
-
-
-async def test_field_spec_scalar(ctx):
-    """FieldSpec works with scalar input via the 'value' column."""
-    obj = await create_object_from_value(
-        42,
-        fields={"value": FieldSpec(nullable=True)},
-    )
-    schema = obj.schema
-    assert schema.columns["value"].nullable is True
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param([10, 20, 30], id="list-of-scalars"),
+        pytest.param(42, id="scalar"),
+    ],
+)
+async def test_field_spec_value_column(ctx, value):
+    """FieldSpec works with list-of-scalars and scalar input via the 'value' column."""
+    obj = await create_object_from_value(value, fields={"value": FieldSpec(nullable=True)})
+    assert obj.schema.columns["value"].nullable is True
 
 
 # --- Validation ---
@@ -203,60 +193,52 @@ async def test_field_spec_nullable_admits_none_in_records(ctx):
     assert data == {"a": [1, 2], "score": [0.5, None]}
 
 
-async def test_field_spec_nullable_admits_missing_key(ctx):
-    """A key missing from some records reads back as None when marked nullable."""
-    obj = await create_object_from_value(
-        [{"a": 1, "b": 2}, {"a": 2}],
-        fields={"b": FieldSpec(nullable=True)},
-    )
+@pytest.mark.parametrize(
+    "value, fields, expected",
+    [
+        # A key missing from some records reads back as None
+        pytest.param(
+            [{"a": 1, "b": 2}, {"a": 2}],
+            {"b": FieldSpec(nullable=True)},
+            {"a": [1, 2], "b": [2, None]},
+            id="missing-key",
+        ),
+        # Dot-notation leaves accept None
+        pytest.param(
+            [{"a": 1, "m": {"x": 10}}, {"a": 2, "m": {"x": None}}],
+            {"m.x": FieldSpec(nullable=True)},
+            {"a": [1, 2], "m": [{"x": 10}, {"x": None}]},
+            id="nested-leaf",
+        ),
+        # Leaves inside list-of-dicts items accept None
+        pytest.param(
+            {"b": [{"c": 1}, {"c": None}]},
+            {"b.*.c": FieldSpec(nullable=True)},
+            {"b": [{"c": 1}, {"c": None}]},
+            id="star-leaf",
+        ),
+    ],
+)
+async def test_field_spec_nullable_admits_none(ctx, value, fields, expected):
+    """Columns marked nullable read back missing/None values as None."""
+    obj = await create_object_from_value(value, fields=fields)
+    assert await obj.data() == expected
 
-    data = await obj.data()
-    assert data == {"a": [1, 2], "b": [2, None]}
 
-
-async def test_field_spec_nullable_nested_leaf(ctx):
-    """Dot-notation leaves accept None when marked nullable."""
-    obj = await create_object_from_value(
-        [{"a": 1, "m": {"x": 10}}, {"a": 2, "m": {"x": None}}],
-        fields={"m.x": FieldSpec(nullable=True)},
-    )
-
-    data = await obj.data()
-    assert data == {"a": [1, 2], "m": [{"x": 10}, {"x": None}]}
-
-
-async def test_field_spec_nullable_star_leaf(ctx):
-    """Leaves inside list-of-dicts items accept None when marked nullable."""
-    obj = await create_object_from_value(
-        {"b": [{"c": 1}, {"c": None}]},
-        fields={"b.*.c": FieldSpec(nullable=True)},
-    )
-
-    assert await obj.data() == {"b": [{"c": 1}, {"c": None}]}
-
-
-async def test_field_spec_unmarked_none_still_raises(ctx):
-    """Only columns explicitly marked nullable admit None — others stay strict."""
+@pytest.mark.parametrize(
+    "value, fields",
+    [
+        # Only columns explicitly marked nullable admit None — others stay strict
+        pytest.param([{"a": 1, "b": 2}, {"a": None, "b": 3}], {"b": FieldSpec(nullable=True)}, id="unmarked-column"),
+        # A None nested dict cannot round-trip — nullable leaves don't rescue it
+        pytest.param(
+            [{"a": 1, "m": {"x": 10}}, {"a": 2, "m": None}], {"m.x": FieldSpec(nullable=True)}, id="null-dict"
+        ),
+        # A None item inside a list of dicts still raises — no record fabrication
+        pytest.param({"b": [{"c": 1}, None]}, {"b.*.c": FieldSpec(nullable=True)}, id="null-list-item"),
+    ],
+)
+async def test_field_spec_nullable_rejects_none(ctx, value, fields):
+    """None outside a nullable leaf still fails the identical-keys check."""
     with pytest.raises(ValueError, match="identical keys"):
-        await create_object_from_value(
-            [{"a": 1, "b": 2}, {"a": None, "b": 3}],
-            fields={"b": FieldSpec(nullable=True)},
-        )
-
-
-async def test_field_spec_nullable_does_not_admit_null_dict(ctx):
-    """A None nested dict cannot round-trip — nullable leaves don't rescue it."""
-    with pytest.raises(ValueError, match="identical keys"):
-        await create_object_from_value(
-            [{"a": 1, "m": {"x": 10}}, {"a": 2, "m": None}],
-            fields={"m.x": FieldSpec(nullable=True)},
-        )
-
-
-async def test_field_spec_nullable_does_not_admit_null_list_item(ctx):
-    """A None item inside a list of dicts still raises — no record fabrication."""
-    with pytest.raises(ValueError, match="identical keys"):
-        await create_object_from_value(
-            {"b": [{"c": 1}, None]},
-            fields={"b.*.c": FieldSpec(nullable=True)},
-        )
+        await create_object_from_value(value, fields=fields)

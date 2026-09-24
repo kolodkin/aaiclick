@@ -6,6 +6,8 @@ These operators reduce arrays to scalar values.
 String type does not support aggregation.
 """
 
+import operator
+
 import numpy as np
 import pytest
 
@@ -46,10 +48,7 @@ async def test_array_min(ctx, values, expected_result):
     result_obj = await obj.min()
     result = await result_obj.data()
 
-    if isinstance(expected_result, float):
-        assert abs(result - expected_result) < THRESHOLD
-    else:
-        assert result == expected_result
+    assert result == pytest.approx(expected_result, abs=THRESHOLD)
 
 
 # =============================================================================
@@ -84,10 +83,7 @@ async def test_array_max(ctx, values, expected_result):
     result_obj = await obj.max()
     result = await result_obj.data()
 
-    if isinstance(expected_result, float):
-        assert abs(result - expected_result) < THRESHOLD
-    else:
-        assert result == expected_result
+    assert result == pytest.approx(expected_result, abs=THRESHOLD)
 
 
 # =============================================================================
@@ -122,10 +118,7 @@ async def test_array_sum(ctx, values, expected_result):
     result_obj = await obj.sum()
     result = await result_obj.data()
 
-    if isinstance(expected_result, float):
-        assert abs(result - expected_result) < THRESHOLD
-    else:
-        assert result == expected_result
+    assert result == pytest.approx(expected_result, abs=THRESHOLD)
 
 
 # =============================================================================
@@ -201,136 +194,74 @@ async def test_array_std(ctx, values):
 
 
 @pytest.mark.parametrize(
-    "array_a,array_b,operator",
+    "array_a,array_b,op",
     [
         # Integer operations
-        pytest.param([10, 20, 30], [5, 10, 15], "+", id="int-add"),
-        pytest.param([100, 200, 300], [10, 20, 30], "-", id="int-sub"),
-        pytest.param([1, 2, 3], [10, 20, 30], "+", id="int-add-small"),
+        pytest.param([10, 20, 30], [5, 10, 15], operator.add, id="int-add"),
+        pytest.param([100, 200, 300], [10, 20, 30], operator.sub, id="int-sub"),
+        pytest.param([1, 2, 3], [10, 20, 30], operator.add, id="int-add-small"),
         # Float operations
-        pytest.param([10.0, 20.0, 30.0], [5.0, 10.0, 15.0], "+", id="float-add"),
-        pytest.param([100.5, 200.5, 300.5], [10.5, 20.5, 30.5], "-", id="float-sub"),
-        pytest.param([1.5, 2.5], [3.5, 4.5], "+", id="float-add-small"),
+        pytest.param([10.0, 20.0, 30.0], [5.0, 10.0, 15.0], operator.add, id="float-add"),
+        pytest.param([100.5, 200.5, 300.5], [10.5, 20.5, 30.5], operator.sub, id="float-sub"),
+        pytest.param([1.5, 2.5], [3.5, 4.5], operator.add, id="float-add-small"),
     ],
 )
-async def test_statistics_after_operation(ctx, array_a, array_b, operator):
+async def test_statistics_after_operation(ctx, array_a, array_b, op):
     """Test statistics on result of arithmetic operations. Returns Objects, use .data() to extract values."""
     obj_a = await create_object_from_value(array_a, aai_id=True)
     obj_b = await create_object_from_value(array_b, aai_id=True)
 
-    if operator == "+":
-        result = obj_a + obj_b
-    elif operator == "-":
-        result = obj_a - obj_b
-    else:
-        raise ValueError(f"Unsupported operator: {operator}")
+    result = op(obj_a, obj_b)
+    expected_values = op(np.array(array_a), np.array(array_b))
 
-    # Calculate expected values
-    if operator == "+":
-        expected_values = np.array(array_a) + np.array(array_b)
-    else:
-        expected_values = np.array(array_a) - np.array(array_b)
-
-    # Test all statistics (now return Objects, use .data() to extract values)
-    assert abs(await result.min().data() - np.min(expected_values)) < THRESHOLD
-    assert abs(await result.max().data() - np.max(expected_values)) < THRESHOLD
-    assert abs(await result.sum().data() - np.sum(expected_values)) < THRESHOLD
-    assert abs(await result.mean().data() - np.mean(expected_values)) < THRESHOLD
-    assert abs(await result.std().data() - np.std(expected_values, ddof=0)) < THRESHOLD
+    assert await result.min().data() == pytest.approx(np.min(expected_values), abs=THRESHOLD)
+    assert await result.max().data() == pytest.approx(np.max(expected_values), abs=THRESHOLD)
+    assert await result.sum().data() == pytest.approx(np.sum(expected_values), abs=THRESHOLD)
+    assert await result.mean().data() == pytest.approx(np.mean(expected_values), abs=THRESHOLD)
+    assert await result.std().data() == pytest.approx(np.std(expected_values, ddof=0), abs=THRESHOLD)
 
 
 # =============================================================================
-# Single Value Statistics Tests
-# =============================================================================
-
-
-@pytest.mark.parametrize(
-    "value",
-    [
-        # Single element arrays
-        pytest.param([42], id="int-positive"),
-        pytest.param([42.5], id="float-positive"),
-        pytest.param([0], id="int-zero"),
-        pytest.param([0.0], id="float-zero"),
-        pytest.param([-100], id="int-negative"),
-        pytest.param([-100.5], id="float-negative"),
-    ],
-)
-async def test_single_value_statistics(ctx, value):
-    """Test statistics on single-element arrays. Returns Objects, use .data() to extract values."""
-    obj = await create_object_from_value(value)
-
-    expected_val = float(value[0])
-
-    assert abs(await obj.min().data() - expected_val) < THRESHOLD
-    assert abs(await obj.max().data() - expected_val) < THRESHOLD
-    assert abs(await obj.sum().data() - expected_val) < THRESHOLD
-    assert abs(await obj.mean().data() - expected_val) < THRESHOLD
-    assert abs(await obj.std().data() - 0.0) < THRESHOLD
-
-
-# =============================================================================
-# Special Cases Tests
-# =============================================================================
-
-
-@pytest.mark.parametrize(
-    "values,expected_min,expected_max,expected_sum,expected_mean,expected_std",
-    [
-        # All same values (std should be 0)
-        pytest.param([5, 5, 5, 5], 5, 5, 20, 5.0, 0.0, id="int-all-same"),
-        pytest.param([10.5, 10.5, 10.5], 10.5, 10.5, 31.5, 10.5, 0.0, id="float-all-same"),
-        # All True boolean array
-        pytest.param([True, True, True], 1, 1, 3, 1.0, 0.0, id="bool-all-true"),
-        # All False boolean array
-        pytest.param([False, False, False], 0, 0, 0, 0.0, 0.0, id="bool-all-false"),
-        # Mixed zeros and non-zeros
-        pytest.param([0, 5, 0, 5], 0, 5, 10, 2.5, 2.5, id="int-mixed-zeros"),
-    ],
-)
-async def test_special_cases(ctx, values, expected_min, expected_max, expected_sum, expected_mean, expected_std):
-    """Test statistics on special case arrays. Returns Objects, use .data() to extract values."""
-    obj = await create_object_from_value(values)
-
-    assert abs(await obj.min().data() - expected_min) < THRESHOLD
-    assert abs(await obj.max().data() - expected_max) < THRESHOLD
-    assert abs(await obj.sum().data() - expected_sum) < THRESHOLD
-    assert abs(await obj.mean().data() - expected_mean) < THRESHOLD
-    assert abs(await obj.std().data() - expected_std) < THRESHOLD
-
-
-# =============================================================================
-# Negative Numbers Tests
+# Statistics Tests
 # =============================================================================
 
 
 @pytest.mark.parametrize(
     "values",
     [
-        # All negative integers
+        # Single-element arrays: min == max == sum == mean, std == 0
+        pytest.param([42], id="single-int-positive"),
+        pytest.param([42.5], id="single-float-positive"),
+        pytest.param([0], id="single-int-zero"),
+        pytest.param([0.0], id="single-float-zero"),
+        pytest.param([-100], id="single-int-negative"),
+        pytest.param([-100.5], id="single-float-negative"),
+        # All same values (std should be 0)
+        pytest.param([5, 5, 5, 5], id="int-all-same"),
+        pytest.param([10.5, 10.5, 10.5], id="float-all-same"),
+        # All True / all False boolean arrays
+        pytest.param([True, True, True], id="bool-all-true"),
+        pytest.param([False, False, False], id="bool-all-false"),
+        # Mixed zeros and non-zeros
+        pytest.param([0, 5, 0, 5], id="int-mixed-zeros"),
+        # All negative
         pytest.param([-10, -20, -30, -40], id="int-all-negative"),
-        # All negative floats
         pytest.param([-1.5, -2.5, -3.5], id="float-all-negative"),
         # Mixed positive and negative
-        pytest.param([-5, 5, -10, 10], id="int-mixed"),
-        pytest.param([-2.5, 2.5, -5.0, 5.0], id="float-mixed"),
+        pytest.param([-5, 5, -10, 10], id="int-mixed-sign"),
+        pytest.param([-2.5, 2.5, -5.0, 5.0], id="float-mixed-sign"),
     ],
 )
-async def test_negative_numbers_statistics(ctx, values):
-    """Test statistics with negative numbers. Returns Objects, use .data() to extract values."""
+async def test_statistics(ctx, values):
+    """Test min/max/sum/mean/std together against numpy. Returns Objects, use .data() to extract values."""
     obj = await create_object_from_value(values)
+    expected = np.array(values, dtype=float)
 
-    expected_min = np.min(values)
-    expected_max = np.max(values)
-    expected_sum = np.sum(values)
-    expected_mean = np.mean(values)
-    expected_std = np.std(values, ddof=0)
-
-    assert abs(await obj.min().data() - expected_min) < THRESHOLD
-    assert abs(await obj.max().data() - expected_max) < THRESHOLD
-    assert abs(await obj.sum().data() - expected_sum) < THRESHOLD
-    assert abs(await obj.mean().data() - expected_mean) < THRESHOLD
-    assert abs(await obj.std().data() - expected_std) < THRESHOLD
+    assert await obj.min().data() == pytest.approx(np.min(expected), abs=THRESHOLD)
+    assert await obj.max().data() == pytest.approx(np.max(expected), abs=THRESHOLD)
+    assert await obj.sum().data() == pytest.approx(np.sum(expected), abs=THRESHOLD)
+    assert await obj.mean().data() == pytest.approx(np.mean(expected), abs=THRESHOLD)
+    assert await obj.std().data() == pytest.approx(np.std(expected, ddof=0), abs=THRESHOLD)
 
 
 # =============================================================================

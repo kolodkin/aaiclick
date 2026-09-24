@@ -40,15 +40,6 @@ async def test_insert_follows_argument_order(ctx, target, source, expected):
     assert data == expected
 
 
-async def test_concat_with_value_follows_argument_order(ctx):
-    """Concat with inline value: self first, then value."""
-    obj_a = await create_object_from_value([1, 2, 3])
-
-    result = await obj_a.concat([4, 5, 6])
-    data = await result.data()
-    assert data == [1, 2, 3, 4, 5, 6]
-
-
 async def test_insert_with_value_follows_argument_order(ctx):
     """Insert with inline value: existing data first, then value."""
     obj_a = await create_object_from_value([1, 2, 3])

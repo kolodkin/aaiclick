@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from aaiclick import create_object_from_value
+from aaiclick import Object, create_object_from_value
 
 # =============================================================================
 # Date / time helpers: with_year, with_month, with_day_of_week
@@ -26,15 +26,15 @@ DATES = [
 @pytest.mark.parametrize(
     "helper,expected_col,expected",
     [
-        pytest.param("with_year", "ts_year", [2023, 2024, 2025], id="year"),
-        pytest.param("with_month", "ts_month", [1, 6, 12], id="month"),
-        pytest.param("with_day_of_week", "ts_dow", [1, 6, 3], id="day_of_week"),
+        pytest.param(Object.with_year, "ts_year", [2023, 2024, 2025], id="year"),
+        pytest.param(Object.with_month, "ts_month", [1, 6, 12], id="month"),
+        pytest.param(Object.with_day_of_week, "ts_dow", [1, 6, 3], id="day_of_week"),
     ],
 )
 async def test_date_helpers(ctx, helper, expected_col, expected):
     """with_year, with_month, with_day_of_week extract correct values."""
     obj = await create_object_from_value({"ts": DATES})
-    view = getattr(obj, helper)("ts")
+    view = helper(obj, "ts")
     result = await view.data()
     assert result[expected_col] == expected
 
@@ -79,16 +79,16 @@ async def test_with_date_diff_custom_alias(ctx):
 @pytest.mark.parametrize(
     "helper,input_vals,col,expected_col,expected",
     [
-        pytest.param("with_lower", ["Hello", "WORLD"], "name", "name_lower", ["hello", "world"], id="lower"),
-        pytest.param("with_upper", ["hello", "world"], "name", "name_upper", ["HELLO", "WORLD"], id="upper"),
-        pytest.param("with_length", ["", "hi", "hey"], "name", "name_length", [0, 2, 3], id="length"),
-        pytest.param("with_trim", [" a ", " b"], "name", "name_trimmed", ["a", "b"], id="trim"),
+        pytest.param(Object.with_lower, ["Hello", "WORLD"], "name", "name_lower", ["hello", "world"], id="lower"),
+        pytest.param(Object.with_upper, ["hello", "world"], "name", "name_upper", ["HELLO", "WORLD"], id="upper"),
+        pytest.param(Object.with_length, ["", "hi", "hey"], "name", "name_length", [0, 2, 3], id="length"),
+        pytest.param(Object.with_trim, [" a ", " b"], "name", "name_trimmed", ["a", "b"], id="trim"),
     ],
 )
 async def test_string_helpers(ctx, helper, input_vals, col, expected_col, expected):
     """String domain helpers produce correctly named and typed columns."""
     obj = await create_object_from_value({col: input_vals})
-    view = getattr(obj, helper)(col)
+    view = helper(obj, col)
     result = await view.data()
     assert result[expected_col] == expected
 
@@ -107,20 +107,19 @@ async def test_string_helpers_custom_alias(ctx):
 
 
 @pytest.mark.parametrize(
-    "helper,input_vals,expected",
+    "helper,input_vals,expected_col,expected",
     [
-        pytest.param("with_abs", [-3, 0, 5], [3.0, 0.0, 5.0], id="abs"),
-        pytest.param("with_log2", [1, 2, 4, 8], [0.0, 1.0, 2.0, 3.0], id="log2"),
-        pytest.param("with_sqrt", [0, 1, 4, 9, 16], [0.0, 1.0, 2.0, 3.0, 4.0], id="sqrt"),
+        pytest.param(Object.with_abs, [-3, 0, 5], "x_abs", [3.0, 0.0, 5.0], id="abs"),
+        pytest.param(Object.with_log2, [1, 2, 4, 8], "x_log2", [0.0, 1.0, 2.0, 3.0], id="log2"),
+        pytest.param(Object.with_sqrt, [0, 1, 4, 9, 16], "x_sqrt", [0.0, 1.0, 2.0, 3.0, 4.0], id="sqrt"),
     ],
 )
-async def test_math_helpers(ctx, helper, input_vals, expected):
+async def test_math_helpers(ctx, helper, input_vals, expected_col, expected):
     """Math domain helpers produce correctly typed columns."""
     obj = await create_object_from_value({"x": input_vals})
-    view = getattr(obj, helper)("x")
+    view = helper(obj, "x")
     result = await view.data()
-    col = f"x_{helper.removeprefix('with_')}"
-    assert result[col] == expected
+    assert result[expected_col] == expected
 
 
 # =============================================================================

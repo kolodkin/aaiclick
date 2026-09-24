@@ -6,23 +6,11 @@ Array-field bitwise via array_map is covered in test_array_map.py.
 Scalar broadcast is covered in test_arithmetic_broadcast.py.
 """
 
+import operator
+
 import pytest
 
 from aaiclick import create_object_from_value
-
-
-def apply_bitwise(a, b, operator: str):
-    """Apply a bitwise operator to two Objects, returning a LazyOperator."""
-    match operator:
-        case "&":
-            return a & b
-        case "|":
-            return a | b
-        case "^":
-            return a ^ b
-        case _:
-            raise ValueError(f"Unsupported operator: {operator}")
-
 
 # =============================================================================
 # Scalar Object bitwise
@@ -30,21 +18,21 @@ def apply_bitwise(a, b, operator: str):
 
 
 @pytest.mark.parametrize(
-    "val_a,val_b,operator,expected",
+    "val_a,val_b,op,expected",
     [
-        pytest.param(0b1100, 0b1010, "&", 0b1000, id="and-scalar"),
-        pytest.param(0b1100, 0b1010, "|", 0b1110, id="or-scalar"),
-        pytest.param(0b1100, 0b1010, "^", 0b0110, id="xor-scalar"),
-        pytest.param(0b1111, 0b0000, "&", 0b0000, id="and-zero"),
-        pytest.param(0b0000, 0b1111, "|", 0b1111, id="or-ones"),
-        pytest.param(0b1111, 0b1111, "^", 0b0000, id="xor-same"),
+        pytest.param(0b1100, 0b1010, operator.and_, 0b1000, id="and-scalar"),
+        pytest.param(0b1100, 0b1010, operator.or_, 0b1110, id="or-scalar"),
+        pytest.param(0b1100, 0b1010, operator.xor, 0b0110, id="xor-scalar"),
+        pytest.param(0b1111, 0b0000, operator.and_, 0b0000, id="and-zero"),
+        pytest.param(0b0000, 0b1111, operator.or_, 0b1111, id="or-ones"),
+        pytest.param(0b1111, 0b1111, operator.xor, 0b0000, id="xor-same"),
     ],
 )
-async def test_scalar_bitwise(ctx, val_a, val_b, operator, expected):
+async def test_scalar_bitwise(ctx, val_a, val_b, op, expected):
     """Test bitwise operators on scalar Objects."""
     obj_a = await create_object_from_value(val_a, aai_id=True)
     obj_b = await create_object_from_value(val_b, aai_id=True)
-    result = apply_bitwise(obj_a, obj_b, operator)
+    result = op(obj_a, obj_b)
     assert await result.data() == expected
 
 
@@ -54,18 +42,24 @@ async def test_scalar_bitwise(ctx, val_a, val_b, operator, expected):
 
 
 @pytest.mark.parametrize(
-    "vals_a,vals_b,operator,expected",
+    "vals_a,vals_b,op,expected",
     [
-        pytest.param([0b1100, 0b1010, 0b1111], [0b1010, 0b0110, 0b0000], "&", [0b1000, 0b0010, 0b0000], id="and-array"),
-        pytest.param([0b1100, 0b1010, 0b0000], [0b1010, 0b0110, 0b1111], "|", [0b1110, 0b1110, 0b1111], id="or-array"),
-        pytest.param([0b1100, 0b1010, 0b1111], [0b1010, 0b0110, 0b1111], "^", [0b0110, 0b1100, 0b0000], id="xor-array"),
+        pytest.param(
+            [0b1100, 0b1010, 0b1111], [0b1010, 0b0110, 0b0000], operator.and_, [0b1000, 0b0010, 0b0000], id="and-array"
+        ),
+        pytest.param(
+            [0b1100, 0b1010, 0b0000], [0b1010, 0b0110, 0b1111], operator.or_, [0b1110, 0b1110, 0b1111], id="or-array"
+        ),
+        pytest.param(
+            [0b1100, 0b1010, 0b1111], [0b1010, 0b0110, 0b1111], operator.xor, [0b0110, 0b1100, 0b0000], id="xor-array"
+        ),
     ],
 )
-async def test_array_bitwise(ctx, vals_a, vals_b, operator, expected):
+async def test_array_bitwise(ctx, vals_a, vals_b, op, expected):
     """Test bitwise operators on array Objects."""
     obj_a = await create_object_from_value(vals_a, aai_id=True)
     obj_b = await create_object_from_value(vals_b, aai_id=True)
-    result = apply_bitwise(obj_a, obj_b, operator)
+    result = op(obj_a, obj_b)
     assert await result.data() == expected
 
 
@@ -75,23 +69,17 @@ async def test_array_bitwise(ctx, vals_a, vals_b, operator, expected):
 
 
 @pytest.mark.parametrize(
-    "scalar,val,operator,expected",
+    "scalar,val,op,expected",
     [
-        pytest.param(0b1100, 0b1010, "&", 0b1000, id="rand"),
-        pytest.param(0b1100, 0b1010, "|", 0b1110, id="ror"),
-        pytest.param(0b1100, 0b1010, "^", 0b0110, id="rxor"),
+        pytest.param(0b1100, 0b1010, operator.and_, 0b1000, id="rand"),
+        pytest.param(0b1100, 0b1010, operator.or_, 0b1110, id="ror"),
+        pytest.param(0b1100, 0b1010, operator.xor, 0b0110, id="rxor"),
     ],
 )
-async def test_reverse_bitwise(ctx, scalar, val, operator, expected):
+async def test_reverse_bitwise(ctx, scalar, val, op, expected):
     """Test reverse bitwise operators (scalar <op> obj)."""
     obj = await create_object_from_value(val, aai_id=True)
-    match operator:
-        case "&":
-            result = scalar & obj
-        case "|":
-            result = scalar | obj
-        case "^":
-            result = scalar ^ obj
+    result = op(scalar, obj)
     assert await result.data() == expected
 
 

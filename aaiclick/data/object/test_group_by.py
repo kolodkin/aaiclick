@@ -8,7 +8,7 @@ methods (sum, mean, min, max, count, std, var, agg).
 import pytest
 
 from aaiclick import create_object_from_value, delete_persistent_object
-from aaiclick.data.models import GB_GROUP_ARRAY_DISTINCT, Agg
+from aaiclick.data.models import Agg
 
 THRESHOLD = 1e-5
 
@@ -690,11 +690,6 @@ async def test_group_array_distinct_convenience(ctx):
     lookup = dict(zip(data["category"], data["label"], strict=False))
     assert sorted(lookup["X"]) == ["p"]  # both "p", deduplicated to one
     assert sorted(lookup["Y"]) == ["q", "r"]
-
-
-def test_group_array_distinct_gb_constant():
-    """GB_GROUP_ARRAY_DISTINCT constant equals the string literal."""
-    assert GB_GROUP_ARRAY_DISTINCT == "group_array_distinct"
 
 
 # =============================================================================

@@ -46,11 +46,7 @@ async def test_scalar_copy(ctx, input_value, expected_output):
     copy = await obj.copy()
     data = await copy.data()
 
-    # Verify data matches
-    if isinstance(expected_output, float):
-        assert abs(data - expected_output) < THRESHOLD
-    else:
-        assert data == expected_output
+    assert data == pytest.approx(expected_output, abs=THRESHOLD)
 
     # Verify tables are different
     assert copy.table != obj.table
@@ -84,6 +80,10 @@ async def test_scalar_copy(ctx, input_value, expected_output):
         pytest.param(["single"], ["single"], id="str-single"),
         pytest.param(["hello", "world"], ["hello", "world"], id="str-pair"),
         pytest.param(["a", "", "b"], ["a", "", "b"], id="str-with-empty"),
+        # Unsorted input: copy preserves the original array order
+        pytest.param([5, 1, 9, 3, 7], [5, 1, 9, 3, 7], id="int-unsorted"),
+        pytest.param([5.5, 1.1, 9.9, 3.3], [5.5, 1.1, 9.9, 3.3], id="float-unsorted"),
+        pytest.param(["z", "a", "m", "b", "y"], ["z", "a", "m", "b", "y"], id="str-unsorted"),
     ],
 )
 async def test_array_copy(ctx, input_value, expected_output):
@@ -93,42 +93,7 @@ async def test_array_copy(ctx, input_value, expected_output):
     copy = await obj.copy()
     data = await copy.data()
 
-    # Verify data matches
-    if len(expected_output) > 0 and isinstance(expected_output[0], float):
-        for i, val in enumerate(data):
-            assert abs(val - expected_output[i]) < THRESHOLD
-    else:
-        assert data == expected_output
-
-    # Verify tables are different
-    assert copy.table != obj.table
-
-
-# =============================================================================
-# Copy Preserves Order Tests
-# =============================================================================
-
-
-@pytest.mark.parametrize(
-    "input_value",
-    [
-        # Unsorted integer array
-        pytest.param([5, 1, 9, 3, 7], id="int-unsorted"),
-        # Unsorted float array
-        pytest.param([5.5, 1.1, 9.9, 3.3], id="float-unsorted"),
-        # Unsorted string array
-        pytest.param(["z", "a", "m", "b", "y"], id="str-unsorted"),
-    ],
-)
-async def test_copy_preserves_order(ctx, input_value):
-    """Test that copy preserves original array order."""
-    obj = await create_object_from_value(input_value)
-
-    copy = await obj.copy()
-    data = await copy.data()
-
-    # Verify order is preserved
-    assert data == input_value
+    assert data == pytest.approx(expected_output, abs=THRESHOLD)
 
     # Verify tables are different
     assert copy.table != obj.table

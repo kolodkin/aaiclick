@@ -8,6 +8,8 @@ explicit schema usage in create_object.
 
 from datetime import datetime, timezone
 
+import pytest
+
 from aaiclick import (
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
@@ -25,58 +27,28 @@ DT_MILLIS = datetime(2024, 3, 10, 8, 15, 30, 123000, tzinfo=timezone.utc)
 
 
 # =============================================================================
-# Scalar Creation Tests
+# Scalar and Array Creation Tests
 # =============================================================================
 
 
-async def test_scalar_datetime(ctx):
-    """Datetime scalar is auto-detected and round-trips correctly."""
-    obj = await create_object_from_value(DT_2024, aai_id=True)
-    data = await obj.data()
-    assert data == DT_2024
-
-
-async def test_scalar_datetime_with_millis(ctx):
-    """Datetime with millisecond precision is preserved."""
-    obj = await create_object_from_value(DT_MILLIS, aai_id=True)
-    data = await obj.data()
-    assert data == DT_MILLIS
-
-
-async def test_scalar_datetime_epoch(ctx):
-    """Unix epoch datetime round-trips correctly."""
-    obj = await create_object_from_value(DT_EPOCH, aai_id=True)
-    data = await obj.data()
-    assert data == DT_EPOCH
-
-
-# =============================================================================
-# Array Creation Tests
-# =============================================================================
-
-
-async def test_array_datetime(ctx):
-    """List of datetimes is auto-detected and preserves order."""
-    values = [DT_2024, DT_2025, DT_EPOCH]
-    obj = await create_object_from_value(values, aai_id=True)
-    data = await obj.data()
-    assert data == values
-
-
-async def test_array_datetime_with_millis(ctx):
-    """List of datetimes with millisecond precision is preserved."""
-    values = [DT_MILLIS, DT_2024]
-    obj = await create_object_from_value(values, aai_id=True)
-    data = await obj.data()
-    assert data == values
-
-
-async def test_array_datetime_single(ctx):
-    """Single-element datetime list works."""
-    values = [DT_2024]
-    obj = await create_object_from_value(values, aai_id=True)
-    data = await obj.data()
-    assert data == values
+@pytest.mark.parametrize(
+    "value",
+    [
+        # Datetime scalar is auto-detected
+        pytest.param(DT_2024, id="scalar"),
+        # Millisecond precision is preserved
+        pytest.param(DT_MILLIS, id="scalar-millis"),
+        pytest.param(DT_EPOCH, id="scalar-epoch"),
+        # List of datetimes is auto-detected and preserves order
+        pytest.param([DT_2024, DT_2025, DT_EPOCH], id="array"),
+        pytest.param([DT_MILLIS, DT_2024], id="array-millis"),
+        pytest.param([DT_2024], id="array-single"),
+    ],
+)
+async def test_datetime_round_trip(ctx, value):
+    """Datetime scalars and lists round-trip through create_object_from_value."""
+    obj = await create_object_from_value(value, aai_id=True)
+    assert await obj.data() == value
 
 
 # =============================================================================
