@@ -1,6 +1,6 @@
 ---
 name: python-testing-style
-description: Project conventions for writing pytest tests in aaiclick — file layout, flat structure, async test rules, what NOT to test, Object API alignment, when to parametrize, when a test is safe to delete. TRIGGER when creating or editing `test_*.py` files, `conftest.py`, or when asked to write, review, consolidate, parametrize, deduplicate, or remove tests.
+description: Project conventions for writing pytest tests in aaiclick — file layout, flat structure, async test rules, prefer end-to-end over internal tests, what NOT to test, Object API alignment, when to parametrize, when a test is safe to delete. TRIGGER when creating or editing `test_*.py` files, `conftest.py`, or when asked to write, review, consolidate, parametrize, deduplicate, or remove tests.
 ---
 
 # python-testing-style
@@ -64,6 +64,37 @@ def test_data_list_single_vs_multiple():
     assert data_list("only").data == "only"
     assert data_list("a", "b").data == ["a", "b"]
 ```
+
+## Avoid internal tests — prefer end-to-end
+
+Test through the surface a user touches, not the implementation behind it. A test that asserts on private helpers (`_foo()`), private attributes, in-memory wiring (`task.previous_dependencies`), serialized dict shapes, or generated SQL text breaks on every refactor and can pass while the real flow is broken.
+
+Pick the highest public entry point that exercises the behavior:
+
+| Area | Entry point | Assert on |
+|------|-------------|-----------|
+| Orchestration | a real `@job` / `@task` pipeline run with `ajob_test` | job status, `get_job_result`, persisted rows |
+| Object API | `create_object_from_value` inside `data_context()` + the operator | `await obj.data()`, schema |
+| Server / API | an HTTP request against the app, or an `internal_api` call on a real DB | status code, response body |
+| CLI | the CLI entry point | output, exit code |
+
+A bug fix gets an end-to-end test that reproduces the user-visible failure. Run it against the unfixed code and confirm it fails before you commit.
+
+```python
+# BAD — checks in-memory wiring; says nothing about whether the job runs
+def test_same_upstream_twice():
+    consumer = add(left=upstream, right=[upstream])
+    assert len(consumer.previous_dependencies) == 1
+
+# GOOD — runs the pipeline the user wrote and checks what they get back
+async def test_same_upstream_in_two_kwargs_runs(orch_ctx):
+    j = await ajob_test(same_upstream_twice_pipeline, value=21)
+    assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
+    async with data_context():
+        assert await get_job_result(j) == 42
+```
+
+Internal tests are fine only when an end-to-end run can't reach the case: crash recovery, race windows, dead-worker cleanup, retry and backoff timing, or a pure function whose output *is* the contract (a parser, a SQL param set).
 
 ## Parametrize input/expected clusters
 

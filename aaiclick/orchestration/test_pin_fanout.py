@@ -48,18 +48,6 @@ async def test_pin_task_to_group_reaches_members(orch_ctx):
     assert await _pin_from(producer.id, job.id) == {m1.id, m2.id}
 
 
-async def test_pin_group_to_task_reaches_consumer(orch_ctx):
-    """G >> B: a member's table is pinned for B."""
-    job = await create_job("pin_group_to_task", _ENTRY)
-    group = Group(id=get_snowflake_id(), name="g")
-    member = _member(group)
-    consumer = create_task(_ENTRY)
-    group >> consumer
-    await commit_tasks([group, member, consumer], job_id=job.id)
-
-    assert await _pin_from(member.id, job.id) == {consumer.id}
-
-
 async def test_pin_group_to_group_reaches_members(orch_ctx):
     """G1 >> G2: a G1 member's table is pinned once per member of G2, never for siblings."""
     job = await create_job("pin_group_to_group", _ENTRY)

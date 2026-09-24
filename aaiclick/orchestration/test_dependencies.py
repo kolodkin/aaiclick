@@ -2,11 +2,33 @@
 
 from sqlmodel import select
 
+from ..data.data_context import data_context
 from ..snowflake import get_snowflake_id
+from . import get_job_result, task_result
+from .decorators import job, task
+from .execution.debug import ajob_test
 from .factories import create_job, create_task
 from .jobs import get_task
-from .models import DEPENDENCY_GROUP, DEPENDENCY_TASK, Dependency, Group
+from .models import DEPENDENCY_GROUP, DEPENDENCY_TASK, JOB_COMPLETED, Dependency, Group
 from .orch_context import commit_tasks, get_sql_session
+
+
+@task
+def produce(value: int) -> int:
+    return value
+
+
+@task
+def add(left: int, right: list[int]) -> int:
+    return left + right[0]
+
+
+@job("test_same_upstream_twice")
+def same_upstream_twice_pipeline(value: int):
+    upstream = produce(value=value)
+    consumer = add(left=upstream, right=[upstream])
+    upstream >> consumer
+    return task_result(data=consumer, tasks=[upstream, consumer])
 
 
 async def test_task_rshift_creates_dependency():
@@ -49,17 +71,6 @@ async def test_task_lshift_creates_dependency():
     assert dep.next_type == DEPENDENCY_TASK
 
 
-async def test_repeated_edge_is_recorded_once():
-    """``a >> b`` twice, or ``a >> [b, b]``, yields one Dependency (composite PK)."""
-    task1 = create_task("module.func1")
-    task2 = create_task("module.func2")
-
-    task1 >> task2
-    task1 >> [task2, task2]
-
-    assert [d.previous_id for d in task2.previous_dependencies] == [task1.id]
-
-
 async def test_task_chained_rshift():
     """Test chained >> operators (A >> B >> C)."""
     task1 = create_task("module.func1")
@@ -89,8 +100,8 @@ async def test_task_fanout():
     task1 >> [task2, task3, task4]
 
     # All tasks should depend on task1
-    for task in [task2, task3, task4]:
-        deps = task.previous_dependencies
+    for downstream in [task2, task3, task4]:
+        deps = downstream.previous_dependencies
         assert len(deps) == 1
         assert deps[0].previous_id == task1.id
 
@@ -184,8 +195,8 @@ async def test_commit_tasks_persists_upstream_graph(orch_ctx):
     await commit_tasks(report, job_id=job.id)
 
     # All three tasks must exist in the DB
-    for task in (raw, transform, report):
-        assert await get_task(task.id) is not None, f"Task {task.id} ({task.entrypoint}) was not persisted"
+    for node in (raw, transform, report):
+        assert await get_task(node.id) is not None, f"Task {node.id} ({node.entrypoint}) was not persisted"
 
     # Dependencies must also be saved
     async with get_sql_session() as session:
@@ -228,6 +239,19 @@ async def test_apply_saves_dependencies(orch_ctx):
         assert dep is not None
         assert dep.previous_type == DEPENDENCY_TASK
         assert dep.next_type == DEPENDENCY_TASK
+
+
+async def test_same_upstream_in_two_kwargs_runs(orch_ctx):
+    """A job passing one upstream to two kwargs (and wiring it with ``>>``) runs.
+
+    Each would add a ``Dependency`` on the same edge; a duplicate row collides
+    on the composite primary key and fails the commit with ``IntegrityError``.
+    """
+    j = await ajob_test(same_upstream_twice_pipeline, value=21)
+
+    assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
+    async with data_context():
+        assert await get_job_result(j) == 42
 
 
 async def test_commit_tasks_persists_group_members(orch_ctx):

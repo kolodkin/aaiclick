@@ -128,3 +128,4 @@ async def test_anonymous_gets_401_problem(orch_ctx, enabled):
     async with _mcp_http() as client:
         res = await client.post("/", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
     assert res.status_code == 401 and res.json()["code"] == "unauthorized"
+    assert res.headers["www-authenticate"] == "Bearer"

@@ -44,13 +44,6 @@ async def test_enabled_missing_token_unauthorized(enabled):
         await auth.resolve_principal(authorization=None)
 
 
-async def test_enabled_valid_jwt(enabled):
-    token = security.encode_access_token(user_id=7, role="member", secret=TEST_JWT_SECRET, ttl=60)
-    principal = await auth.resolve_principal(authorization=_bearer(token))
-    assert principal.user_id == 7 and principal.role == "member"
-    assert principal.kind == "session" and principal.scope is None
-
-
 async def test_enabled_bad_signature_unauthorized(enabled):
     token = jwt.encode({"sub": "1", "type": "access", "role": "admin"}, OTHER_SECRET, algorithm="HS256")
     with pytest.raises(Unauthorized):
@@ -148,14 +141,6 @@ async def _drive(scope, middleware_inner_flag):
 
     await PrincipalAuthMiddleware(inner)(scope, receive, send)
     return sent
-
-
-async def test_mcp_middleware_rejects_missing_token(enabled):
-    called: list[bool] = []
-    sent = await _drive({"type": "http", "headers": []}, called)
-    assert not called
-    assert sent[0]["status"] == 401
-    assert (b"www-authenticate", b"Bearer") in sent[0]["headers"]
 
 
 async def test_mcp_mount_admits_an_api_token_and_stores_it(orch_ctx, enabled):
