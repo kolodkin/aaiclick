@@ -1,14 +1,14 @@
 """
 Tests for insert operations.
 
-Covers type compatibility contracts, schema recovery, parametrized insert across data types,
+Covers type compatibility contracts, parametrized insert across data types,
 view inserts with filters/computed columns, and subset column handling.
 """
 
 import pytest
 
-from aaiclick import create_object, create_object_from_value, delete_persistent_object, open_object
-from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FIELDTYPE_SCALAR, ColumnInfo, Computed, Schema
+from aaiclick import create_object, create_object_from_value
+from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, ColumnInfo, Computed, Schema
 from aaiclick.data.object.ingest import _are_types_castable, _are_types_compatible
 
 THRESHOLD = 1e-5
@@ -86,43 +86,6 @@ def test_are_types_castable(left, right, expected):
 
 
 # =============================================================================
-# Schema recovery — fieldtype and columns survive open_object()
-# =============================================================================
-
-
-@pytest.mark.parametrize(
-    "value, name, expected_fieldtype",
-    [
-        pytest.param([1, 2, 3], "schema_rt_array", FIELDTYPE_ARRAY, id="array"),
-        pytest.param({"x": [1, 2], "y": [3, 4]}, "schema_rt_dict", FIELDTYPE_DICT, id="dict"),
-        pytest.param(42, "schema_rt_scalar", FIELDTYPE_SCALAR, id="scalar"),
-    ],
-)
-async def test_open_object_recovers_fieldtype(ctx, value, name, expected_fieldtype):
-    """ARRAY, DICT and SCALAR Objects reopen with the fieldtype they were created with."""
-    await create_object_from_value(value, name=name, scope="global", aai_id=True)
-    try:
-        reopened = await open_object(name, scope="global")
-        assert reopened.schema.fieldtype == expected_fieldtype
-    finally:
-        await delete_persistent_object(name, scope="global")
-
-
-async def test_open_object_preserves_dict_columns(ctx):
-    """Column names are preserved for DICT objects, without the internal aai_id column."""
-    name = "schema_rt_dict_columns"
-    await create_object_from_value({"a": [1, 2], "b": ["x", "y"]}, name=name, scope="global")
-    try:
-        reopened = await open_object(name, scope="global")
-        assert reopened.schema.fieldtype == FIELDTYPE_DICT
-        assert "a" in reopened.schema.columns
-        assert "b" in reopened.schema.columns
-        assert "aai_id" not in reopened.schema.columns
-    finally:
-        await delete_persistent_object(name, scope="global")
-
-
-# =============================================================================
 # Basic Array Insert Tests
 # =============================================================================
 
@@ -133,12 +96,12 @@ async def test_open_object_preserves_dict_columns(ctx):
         pytest.param([1, 2, 3], [4, 5, 6], [1, 2, 3, 4, 5, 6], id="int"),
         pytest.param([1.5, 2.5], [3.5, 4.5], [1.5, 2.5, 3.5, 4.5], id="float"),
         pytest.param(["hello", "world"], ["foo", "bar"], ["hello", "world", "foo", "bar"], id="str"),
-        pytest.param([5.5, 6.6], [7.7, 8.8], [5.5, 6.6, 7.7, 8.8], id="float-two-each"),
-        pytest.param(["a", "b"], ["c", "d"], ["a", "b", "c", "d"], id="str-two-each"),
+        # Target rows stay first even when the source holds smaller values.
+        pytest.param([4, 5, 6], [1, 2, 3], [4, 5, 6, 1, 2, 3], id="reversed"),
     ],
 )
 async def test_array_insert(ctx, array_a, array_b, expected_result):
-    """Test inserting arrays of the same type in place preserves every row from both sides."""
+    """Inserting arrays of the same type in place keeps the target rows first, then the source rows."""
     obj_a = await create_object_from_value(array_a, aai_id=True)
     obj_b = await create_object_from_value(array_b, aai_id=True)
 
@@ -575,34 +538,8 @@ async def test_mixed_insert_float_into_int_succeeds(ctx, value, expected):
 
 
 # =============================================================================
-# Argument order: target rows first, then sources left-to-right
+# Repeated source
 # =============================================================================
-
-
-@pytest.mark.parametrize(
-    "target, source, expected",
-    [
-        pytest.param([1, 2, 3], [4, 5, 6], [1, 2, 3, 4, 5, 6], id="ascending"),
-        pytest.param([4, 5, 6], [1, 2, 3], [4, 5, 6, 1, 2, 3], id="reversed"),
-    ],
-)
-async def test_insert_follows_argument_order(ctx, target, source, expected):
-    """Insert preserves target data first, then appends the source."""
-    obj_a = await create_object_from_value(target)
-    obj_b = await create_object_from_value(source)
-
-    await obj_a.insert(obj_b)
-    data = await obj_a.data()
-    assert data == expected
-
-
-async def test_insert_with_value_follows_argument_order(ctx):
-    """Insert with inline value: existing data first, then value."""
-    obj_a = await create_object_from_value([1, 2, 3])
-
-    await obj_a.insert([4, 5, 6])
-    data = await obj_a.data()
-    assert data == [1, 2, 3, 4, 5, 6]
 
 
 async def test_insert_same_source_twice_preserves_all_rows(ctx):

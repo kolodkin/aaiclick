@@ -12,7 +12,7 @@ import operator
 import numpy as np
 import pytest
 
-from aaiclick import create_object_from_value
+from aaiclick import Object, create_object_from_value
 
 THRESHOLD = 1e-5
 
@@ -233,19 +233,6 @@ async def test_statistics_after_operation(ctx, array_a, array_b, op):
 @pytest.mark.parametrize(
     "values",
     [
-        # Single-element arrays: min == max == sum == mean, std == 0
-        pytest.param([42], id="single-int-positive"),
-        pytest.param([42.5], id="single-float-positive"),
-        pytest.param([0], id="single-int-zero"),
-        pytest.param([0.0], id="single-float-zero"),
-        pytest.param([-100], id="single-int-negative"),
-        pytest.param([-100.5], id="single-float-negative"),
-        # All same values (std should be 0)
-        pytest.param([5, 5, 5, 5], id="int-all-same"),
-        pytest.param([10.5, 10.5, 10.5], id="float-all-same"),
-        # All True / all False boolean arrays
-        pytest.param([True, True, True], id="bool-all-true"),
-        pytest.param([False, False, False], id="bool-all-false"),
         # Mixed zeros and non-zeros
         pytest.param([0, 5, 0, 5], id="int-mixed-zeros"),
         # All negative
@@ -257,7 +244,7 @@ async def test_statistics_after_operation(ctx, array_a, array_b, op):
     ],
 )
 async def test_statistics(ctx, values):
-    """Test min/max/sum/mean/std together against numpy. Returns Objects, use .data() to extract values."""
+    """min/max/sum/mean/std together against numpy for sign mixes the per-aggregation tests skip."""
     obj = await create_object_from_value(values)
     expected = np.array(values, dtype=float)
 
@@ -405,85 +392,23 @@ async def test_sum_of_comparison_does_not_wrap(ctx):
 # =============================================================================
 
 
-async def test_min_int(ctx):
-    """Test min() on large int array (10k items)."""
-    # Create array with known min
-    int_array = list(range(100, NUM_ITEMS + 100))  # [100, 101, ..., 10099]
+@pytest.mark.parametrize(
+    "values, agg, expected",
+    [
+        pytest.param(list(range(100, NUM_ITEMS + 100)), Object.min, 100, id="min-int"),
+        pytest.param([float(i) * 0.1 for i in range(NUM_ITEMS)], Object.max, 999.9, id="max-float"),
+        pytest.param([1.5] * NUM_ITEMS, Object.sum, 1.5 * NUM_ITEMS, id="sum-float"),
+        pytest.param(list(range(NUM_ITEMS)), Object.mean, (NUM_ITEMS - 1) / 2.0, id="mean-int"),
+        # Population std of 0..N-1 is sqrt((N^2 - 1) / 12).
+        pytest.param(
+            [float(i) for i in range(NUM_ITEMS)], Object.std, math.sqrt((NUM_ITEMS**2 - 1) / 12.0), id="std-float"
+        ),
+    ],
+)
+async def test_large_array_aggregation(ctx, values, agg, expected):
+    """Aggregations over NUM_ITEMS rows."""
+    obj = await create_object_from_value(values, aai_id=True)
 
-    # Create object
-    obj = await create_object_from_value(int_array, aai_id=True)
+    result = await agg(obj)
 
-    # Get minimum (returns Object, use .data() to extract value)
-    min_obj = await obj.min()
-    min_val = await min_obj.data()
-
-    # Verify
-    assert min_val == 100
-
-
-async def test_max_float(ctx):
-    """Test max() on large float array (10k items)."""
-    # Create array with known max
-    float_array = [float(i) * 0.1 for i in range(NUM_ITEMS)]  # [0.0, 0.1, ..., 999.9]
-
-    # Create object
-    obj = await create_object_from_value(float_array, aai_id=True)
-
-    # Get maximum (returns Object, use .data() to extract value)
-    max_obj = await obj.max()
-    max_val = await max_obj.data()
-
-    # Verify (allowing for floating point precision)
-    assert abs(max_val - 999.9) < 0.001
-
-
-async def test_sum_float(ctx):
-    """Test sum() on large float array (10k items)."""
-    # Create simple array for easy sum calculation
-    float_array = [1.5] * NUM_ITEMS  # All elements are 1.5
-
-    # Create object
-    obj = await create_object_from_value(float_array, aai_id=True)
-
-    # Get sum (returns Object, use .data() to extract value)
-    sum_obj = await obj.sum()
-    sum_val = await sum_obj.data()
-
-    # Verify
-    expected_sum = 1.5 * NUM_ITEMS  # 15000.0
-    assert abs(sum_val - expected_sum) < 0.001
-
-
-async def test_mean_int(ctx):
-    """Test mean() on large int array (10k items)."""
-    # Create array with known mean
-    int_array = list(range(NUM_ITEMS))  # [0, 1, 2, ..., 9999]
-
-    # Create object
-    obj = await create_object_from_value(int_array, aai_id=True)
-
-    # Get mean (returns Object, use .data() to extract value)
-    mean_obj = await obj.mean()
-    mean_val = await mean_obj.data()
-
-    # Verify: mean of 0..9999 is 4999.5
-    expected_mean = (NUM_ITEMS - 1) / 2.0
-    assert abs(mean_val - expected_mean) < 0.001
-
-
-async def test_std_float(ctx):
-    """Test std() (standard deviation) on large float array (10k items)."""
-    # Create array with known values
-    float_array = [float(i) for i in range(NUM_ITEMS)]  # [0.0, 1.0, 2.0, ..., 9999.0]
-
-    # Create object
-    obj = await create_object_from_value(float_array, aai_id=True)
-
-    # Get standard deviation (returns Object, use .data() to extract value)
-    std_obj = await obj.std()
-    std_val = await std_obj.data()
-
-    # Verify: std of 0..9999 should be approximately 2886.75
-    # For a uniform distribution from 0 to N-1, std = sqrt((N^2 - 1) / 12)
-    expected_std = math.sqrt((NUM_ITEMS**2 - 1) / 12.0)
-    assert abs(std_val - expected_std) < 1.0  # Allow small variance
+    assert await result.data() == pytest.approx(expected)

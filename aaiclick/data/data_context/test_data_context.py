@@ -6,12 +6,8 @@ from __future__ import annotations
 
 import pytest
 
-from aaiclick import (
-    create_object_from_value,
-)
-from aaiclick.data.data_context import delete_object, get_ch_client, open_object
-from aaiclick.data.data_context.lifecycle import get_data_lifecycle
-from aaiclick.data.models import FIELDTYPE_ARRAY
+from aaiclick import Object, create_object_from_value
+from aaiclick.data.data_context import delete_object, get_ch_client
 
 # DDL and registry persistence
 
@@ -31,22 +27,6 @@ async def test_create_object_emits_no_comment_clauses(ctx):
     result = await ch_client.query(f"SELECT name, comment FROM system.columns WHERE table = '{obj.table}'")
     for name, comment in result.result_rows:
         assert comment == "", f"column {name} has unexpected comment {comment!r}"
-
-
-async def test_create_object_schema_survives_reopen(ctx):
-    """The registry's ``schema_doc`` is what ``open_object`` rebuilds the schema from."""
-    await create_object_from_value([1, 2, 3], name="reopened", scope="global")
-    # Registry write goes through the DBLifecycleHandler queue; flush so the
-    # INSERT has committed before we read.
-    lifecycle = get_data_lifecycle()
-    assert lifecycle is not None
-    await lifecycle.flush()
-
-    schema = (await open_object("reopened", scope="global")).schema
-
-    assert schema.fieldtype == FIELDTYPE_ARRAY
-    assert list(schema.columns) == ["value"]
-    assert schema.columns["value"].fieldtype == FIELDTYPE_ARRAY
 
 
 async def test_create_object_allows_user_column_named_aai_id(ctx):
@@ -123,30 +103,21 @@ async def test_stale_object_prevents_aggregates(ctx):
         await obj.std()
 
 
-async def test_stale_object_prevents_copy(ctx):
+@pytest.mark.parametrize(
+    "method, args",
+    [
+        pytest.param(Object.copy, (), id="copy"),
+        pytest.param(Object.concat, ([4, 5, 6],), id="concat"),
+        pytest.param(Object.insert, ([4, 5, 6],), id="insert"),
+    ],
+)
+async def test_stale_object_prevents_table_methods(ctx, method, args):
+    """copy / concat / insert refuse to run on a stale Object."""
     obj = await create_object_from_value([1, 2, 3])
     await delete_object(obj)
 
     with pytest.raises(RuntimeError, match="Cannot use stale Object"):
-        await obj.copy()
-
-
-async def test_stale_object_prevents_concat(ctx):
-    obj1 = await create_object_from_value([1, 2, 3])
-    obj2 = await create_object_from_value([4, 5, 6])
-    await delete_object(obj1)
-
-    with pytest.raises(RuntimeError, match="Cannot use stale Object"):
-        await obj1.concat(obj2)
-
-
-async def test_stale_object_prevents_insert(ctx):
-    obj1 = await create_object_from_value([1, 2, 3])
-    obj2 = await create_object_from_value([4, 5, 6])
-    await delete_object(obj1)
-
-    with pytest.raises(RuntimeError, match="Cannot use stale Object"):
-        await obj1.insert(obj2)
+        await method(obj, *args)
 
 
 async def test_stale_object_allows_property_access(ctx):

@@ -15,11 +15,12 @@ from aaiclick import (
     ObjectNotFoundError,
     Schema,
     create_object_from_value,
+    delete_persistent_object,
     open_object,
 )
 from aaiclick.data.data_context import get_ch_client
+from aaiclick.data.data_context.lifecycle import get_data_lifecycle
 from aaiclick.data.models import ViewSchema
-from aaiclick.testing import seed_registry_row
 
 # =============================================================================
 # Basic Schema Tests
@@ -193,17 +194,36 @@ async def test_schema_value_types(ctx, value, expected_fieldtype, expected_type)
 # =============================================================================
 
 
-async def test_open_object_reads_schema_from_registry(orch_ctx):
-    """``open_object`` hydrates the schema from ``table_registry.schema_doc``."""
-    ch_client = get_ch_client()
-    await ch_client.command("CREATE TABLE p_registry_read (value Int64) ENGINE = Memory")
-    await seed_registry_row("p_registry_read", fieldtype=FIELDTYPE_ARRAY)
+@pytest.mark.parametrize(
+    "value, name, expected_fieldtype, expected_columns",
+    [
+        pytest.param([1, 2, 3], "reopen_array", FIELDTYPE_ARRAY, {"value": FIELDTYPE_ARRAY}, id="array"),
+        pytest.param(
+            {"a": [1, 2], "b": ["x", "y"]},
+            "reopen_dict",
+            FIELDTYPE_DICT,
+            {"a": FIELDTYPE_ARRAY, "b": FIELDTYPE_ARRAY},
+            id="dict",
+        ),
+        pytest.param(42, "reopen_scalar", FIELDTYPE_SCALAR, {"value": FIELDTYPE_SCALAR}, id="scalar"),
+    ],
+)
+async def test_open_object_reads_schema_from_registry(ctx, value, name, expected_fieldtype, expected_columns):
+    """``open_object`` rebuilds the fieldtype and columns from ``table_registry.schema_doc``."""
+    await create_object_from_value(value, name=name, scope="global")
+    try:
+        # Registry write goes through the DBLifecycleHandler queue; flush so the
+        # INSERT has committed before we read.
+        lifecycle = get_data_lifecycle()
+        assert lifecycle is not None
+        await lifecycle.flush()
 
-    schema = (await open_object("registry_read", scope="global")).schema
+        schema = (await open_object(name, scope="global")).schema
 
-    assert schema.fieldtype == FIELDTYPE_ARRAY
-    assert set(schema.columns) == {"value"}
-    assert schema.columns["value"].fieldtype == FIELDTYPE_ARRAY
+        assert schema.fieldtype == expected_fieldtype
+        assert {col: info.fieldtype for col, info in schema.columns.items()} == expected_columns
+    finally:
+        await delete_persistent_object(name, scope="global")
 
 
 async def test_open_object_without_registry_row_raises(orch_ctx):

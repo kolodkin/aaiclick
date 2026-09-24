@@ -113,6 +113,8 @@ async def test_string_helpers_custom_alias(ctx):
         pytest.param(Object.with_abs, [-3, 0, 5], "x_abs", [3.0, 0.0, 5.0], id="abs"),
         pytest.param(Object.with_log2, [1, 2, 4, 8], "x_log2", [0.0, 1.0, 2.0, 3.0], id="log2"),
         pytest.param(Object.with_sqrt, [0, 1, 4, 9, 16], "x_sqrt", [0.0, 1.0, 2.0, 3.0, 4.0], id="sqrt"),
+        # sqrt of a negative number is NaN, not an error.
+        pytest.param(Object.with_sqrt, [4, 9, -16], "x_sqrt", [2.0, 3.0, math.nan], id="sqrt-negative-nan"),
     ],
 )
 async def test_math_helpers(ctx, helper, input_vals, expected_col, expected):
@@ -120,7 +122,7 @@ async def test_math_helpers(ctx, helper, input_vals, expected_col, expected):
     obj = await create_object_from_value({"x": input_vals})
     view = helper(obj, "x")
     result = await view.data()
-    assert result[expected_col] == expected
+    assert result[expected_col] == pytest.approx(expected, nan_ok=True)
 
 
 # =============================================================================
@@ -253,7 +255,7 @@ async def test_with_split_by_char_custom_alias(ctx):
 
 
 # =============================================================================
-# with_cast / with_split_by_char method helpers
+# with_cast
 # =============================================================================
 
 
@@ -280,25 +282,13 @@ async def test_with_cast_method(ctx, records, to_type, nullable, alias, out_colu
     assert result[out_column] == expected
 
 
-async def test_with_split_by_char_method(ctx):
-    obj = await create_object_from_value([{"genres": "Drama,Comedy"}, {"genres": "Action"}])
-    result = await obj.with_split_by_char("genres", ",").explode("genres_parts").data()
-    assert sorted(result["genres_parts"]) == ["Action", "Comedy", "Drama"]
-
-
-async def test_with_split_by_char_method_alias(ctx):
-    obj = await create_object_from_value([{"genres": "Drama,Comedy"}])
-    result = await obj.with_split_by_char("genres", ",", alias="genre").explode("genre").data()
-    assert sorted(result["genre"]) == ["Comedy", "Drama"]
-
-
 # =============================================================================
-# Helper chaining, aliasing, and composition with where / group_by
+# Helper chaining and composition with where / group_by
 # =============================================================================
 
 
 async def test_string_helpers_chained(ctx):
-    """with_lower, with_upper, with_length, with_trim."""
+    """String helpers chain: each adds its column from the original input."""
     obj = await create_object_from_value({"name": ["  Alice ", "BOB", " x"]})
     view = obj.with_lower("name").with_upper("name").with_length("name").with_trim("name")
     result = await view.data()
@@ -308,46 +298,18 @@ async def test_string_helpers_chained(ctx):
     assert result["name_trimmed"] == ["Alice", "BOB", "x"]
 
 
-async def test_numeric_helpers(ctx):
-    """with_abs and with_sqrt."""
-    obj = await create_object_from_value({"x": [-3, 0, 5]})
-    view_abs = obj.with_abs("x")
-    r_abs = await view_abs.data()
-    assert r_abs["x_abs"] == [3.0, 0.0, 5.0]
-
-    obj2 = await create_object_from_value({"x": [4, 9, -16]})
-    view_sqrt = obj2.with_sqrt("x")
-    r_sqrt = await view_sqrt.data()
-    assert r_sqrt["x_sqrt"][:2] == [2.0, 3.0]
-    assert math.isnan(r_sqrt["x_sqrt"][2])
-
-
-async def test_with_if_and_cast(ctx):
-    """with_if() conditional and with_cast() type conversion."""
-    obj = await create_object_from_value({"val": [1, 5, 10]})
-    view = obj.with_if("val > 3", "'high'", "'low'", alias="level").with_cast("val", "String")
-    result = await view.data()
-    assert result["level"] == ["low", "high", "high"]
-    assert result["val_string"] == ["1", "5", "10"]
-
-
-async def test_helper_alias_chaining_and_where(ctx):
-    """Custom alias, chaining, and WHERE interaction."""
+async def test_helper_chaining_after_where(ctx):
+    """Helpers chained after where() compute only over the filtered rows."""
     obj = await create_object_from_value(
         {
             "name": ["Alice", "Bob", "Charlie"],
             "score": [90, 40, 70],
         }
     )
-    # Custom alias
-    view = obj.with_lower("name", alias="lc_name")
-    r = await view.data()
-    assert r["lc_name"] == ["alice", "bob", "charlie"]
-    # Chaining + WHERE
-    view2 = obj.where("score > 50").with_lower("name").with_bucket("score", 50)
-    r2 = await view2.data()
-    assert r2["name_lower"] == ["alice", "charlie"]
-    assert r2["score_bucket"] == [1, 1]
+    view = obj.where("score > 50").with_lower("name").with_bucket("score", 50)
+    result = await view.data()
+    assert result["name_lower"] == ["alice", "charlie"]
+    assert result["score_bucket"] == [1, 1]
 
 
 async def test_with_bucket_group_by(ctx):

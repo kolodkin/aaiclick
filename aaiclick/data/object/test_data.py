@@ -21,18 +21,18 @@ from aaiclick.data.models import ORIENT_DICT, ORIENT_RECORDS
 
 
 @pytest.mark.parametrize(
-    "value,expected",
+    "value",
     [
-        pytest.param(42, 42, id="int-scalar"),
-        pytest.param(3.14, 3.14, id="float-scalar"),
-        pytest.param(True, True, id="bool-scalar"),
-        pytest.param("hello", "hello", id="str-scalar"),
+        pytest.param(42, id="int-scalar"),
+        pytest.param(3.14, id="float-scalar"),
+        pytest.param(True, id="bool-scalar"),
+        pytest.param("hello", id="str-scalar"),
     ],
 )
-async def test_scalar_returns_value(ctx, value, expected):
+async def test_scalar_returns_value(ctx, value):
     """Scalar Object.data() returns the bare Python value."""
     obj = await create_object_from_value(value)
-    assert await obj.data() == expected
+    assert await obj.data() == value
 
 
 @pytest.mark.parametrize(
@@ -53,34 +53,52 @@ async def test_array_returns_list(ctx, values):
 
 
 # =============================================================================
-# Dict orient modes
+# Dict orient modes — Objects and Views
 # =============================================================================
 
 
-async def test_dict_default_orient(ctx):
-    """dict Object.data() default is ORIENT_DICT — dict of lists."""
-    obj = await create_object_from_value({"x": [1, 2], "y": [3, 4]})
-    result = await obj.data()
-    assert isinstance(result, dict)
-    assert result["x"] == [1, 2]
-    assert result["y"] == [3, 4]
-
-
-async def test_dict_explicit_orient_dict(ctx):
-    """data(orient=ORIENT_DICT) returns dict of lists."""
-    obj = await create_object_from_value({"a": [10, 20], "b": [30, 40]})
-    result = await obj.data(orient=ORIENT_DICT)
-    assert result == {"a": [10, 20], "b": [30, 40]}
-
-
-async def test_dict_orient_records(ctx):
-    """data(orient=ORIENT_RECORDS) returns list of dicts."""
-    obj = await create_object_from_value({"a": [10, 20], "b": [30, 40]})
-    result = await obj.data(orient=ORIENT_RECORDS)
-    assert isinstance(result, list)
-    assert len(result) == 2
-    assert result[0] == {"a": 10, "b": 30}
-    assert result[1] == {"a": 20, "b": 40}
+@pytest.mark.parametrize(
+    "value, select, kwargs, expected",
+    [
+        # Default orient is ORIENT_DICT — dict of lists.
+        pytest.param(
+            {"x": [1, 2], "y": [3, 4]}, lambda obj: obj, {}, {"x": [1, 2], "y": [3, 4]}, id="object-default-orient"
+        ),
+        pytest.param(
+            {"a": [10, 20], "b": [30, 40]},
+            lambda obj: obj,
+            {"orient": ORIENT_DICT},
+            {"a": [10, 20], "b": [30, 40]},
+            id="object-orient-dict",
+        ),
+        # ORIENT_RECORDS — list of dicts.
+        pytest.param(
+            {"a": [10, 20], "b": [30, 40]},
+            lambda obj: obj,
+            {"orient": ORIENT_RECORDS},
+            [{"a": 10, "b": 30}, {"a": 20, "b": 40}],
+            id="object-orient-records",
+        ),
+        pytest.param(
+            {"x": [1, 2, 3, 4], "y": [10, 20, 30, 40]},
+            lambda obj: obj.where("x > 2"),
+            {"orient": ORIENT_RECORDS},
+            [{"x": 3, "y": 30}, {"x": 4, "y": 40}],
+            id="view-orient-records",
+        ),
+        pytest.param(
+            {"x": [1, 2, 3], "y": [10, 20, 30]},
+            lambda obj: obj.view(limit=2),
+            {"orient": ORIENT_DICT},
+            {"x": [1, 2], "y": [10, 20]},
+            id="view-orient-dict",
+        ),
+    ],
+)
+async def test_dict_data_orient(ctx, value, select, kwargs, expected):
+    """dict Object / View data() honours ``orient``."""
+    obj = await create_object_from_value(value)
+    assert await select(obj).data(**kwargs) == expected
 
 
 @pytest.mark.parametrize(
@@ -95,27 +113,6 @@ async def test_orient_records_round_trip(ctx, rows):
     obj = await create_object_from_value(rows)
     result = await obj.data(orient=ORIENT_RECORDS)
     assert result == rows
-
-
-# =============================================================================
-# data() on Views
-# =============================================================================
-
-
-async def test_view_data_orient_records(ctx):
-    """data(orient=ORIENT_RECORDS) works on Views too."""
-    obj = await create_object_from_value({"x": [1, 2, 3, 4], "y": [10, 20, 30, 40]})
-    view = obj.where("x > 2")
-    result = await view.data(orient=ORIENT_RECORDS)
-    assert result == [{"x": 3, "y": 30}, {"x": 4, "y": 40}]
-
-
-async def test_view_data_orient_dict(ctx):
-    """data(orient=ORIENT_DICT) works on Views."""
-    obj = await create_object_from_value({"x": [1, 2, 3], "y": [10, 20, 30]})
-    view = obj.view(limit=2)
-    result = await view.data(orient=ORIENT_DICT)
-    assert result == {"x": [1, 2], "y": [10, 20]}
 
 
 # =============================================================================

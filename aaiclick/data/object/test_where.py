@@ -49,35 +49,20 @@ async def test_view_where_and_or_mixed(ctx):
     assert result == [4, 5, 6, 10]
 
 
-async def test_view_or_where_without_where_raises(ctx):
-    """or_where() without prior where() raises ValueError."""
+@pytest.mark.parametrize(
+    "call, match",
+    [
+        pytest.param(lambda obj: obj.view(limit=2).or_where("value > 1"), "prior where", id="view-or-where-no-prior"),
+        pytest.param(lambda obj: obj.or_where("value > 1"), "prior where", id="object-or-where-no-prior"),
+        pytest.param(lambda obj: obj.view(where="value > 1").where(""), "non-empty", id="where-empty"),
+        pytest.param(lambda obj: obj.view(where="value > 1").or_where(""), "non-empty", id="or-where-empty"),
+    ],
+)
+async def test_where_invalid_raises(ctx, call, match):
+    """or_where() needs a prior where(); both reject an empty condition."""
     obj = await create_object_from_value([1, 2, 3], aai_id=True)
-    view = obj.view(limit=2)
-    with pytest.raises(ValueError, match="prior where"):
-        view.or_where("value > 1")
-
-
-async def test_view_where_empty_string_raises(ctx):
-    """Empty string raises ValueError."""
-    obj = await create_object_from_value([1, 2, 3], aai_id=True)
-    view = obj.view(where="value > 1")
-    with pytest.raises(ValueError, match="non-empty"):
-        view.where("")
-
-
-async def test_view_or_where_empty_string_raises(ctx):
-    """or_where() with empty string raises ValueError."""
-    obj = await create_object_from_value([1, 2, 3], aai_id=True)
-    view = obj.view(where="value > 1")
-    with pytest.raises(ValueError, match="non-empty"):
-        view.or_where("")
-
-
-async def test_object_or_where_raises(ctx):
-    """or_where() on Object raises ValueError (no prior where)."""
-    obj = await create_object_from_value([1, 2, 3], aai_id=True)
-    with pytest.raises(ValueError, match="prior where"):
-        obj.or_where("value > 1")
+    with pytest.raises(ValueError, match=match):
+        call(obj)
 
 
 async def test_view_where_with_dict_object(ctx):

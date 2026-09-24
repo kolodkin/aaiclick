@@ -13,61 +13,42 @@ import pytest
 from aaiclick import create_object_from_value
 
 # =============================================================================
-# Scalar Object comparisons
+# Object <op> Object — scalar and array operands
 # =============================================================================
 
 
 @pytest.mark.parametrize(
     "val_a,val_b,op,expected",
     [
-        pytest.param(5, 5, operator.eq, 1, id="eq-equal"),
-        pytest.param(5, 6, operator.eq, 0, id="eq-not-equal"),
-        pytest.param(5, 5, operator.ne, 0, id="ne-equal"),
-        pytest.param(5, 6, operator.ne, 1, id="ne-not-equal"),
-        pytest.param(3, 5, operator.lt, 1, id="lt-true"),
-        pytest.param(5, 3, operator.lt, 0, id="lt-false"),
-        pytest.param(5, 5, operator.le, 1, id="le-equal"),
-        pytest.param(4, 5, operator.le, 1, id="le-less"),
-        pytest.param(6, 5, operator.le, 0, id="le-greater"),
-        pytest.param(5, 3, operator.gt, 1, id="gt-true"),
-        pytest.param(3, 5, operator.gt, 0, id="gt-false"),
-        pytest.param(5, 5, operator.ge, 1, id="ge-equal"),
-        pytest.param(6, 5, operator.ge, 1, id="ge-greater"),
-        pytest.param(4, 5, operator.ge, 0, id="ge-less"),
+        pytest.param(5, 5, operator.eq, 1, id="scalar-eq-equal"),
+        pytest.param(5, 6, operator.eq, 0, id="scalar-eq-not-equal"),
+        pytest.param(5, 5, operator.ne, 0, id="scalar-ne-equal"),
+        pytest.param(5, 6, operator.ne, 1, id="scalar-ne-not-equal"),
+        pytest.param(3, 5, operator.lt, 1, id="scalar-lt-true"),
+        pytest.param(5, 3, operator.lt, 0, id="scalar-lt-false"),
+        pytest.param(5, 5, operator.le, 1, id="scalar-le-equal"),
+        pytest.param(4, 5, operator.le, 1, id="scalar-le-less"),
+        pytest.param(6, 5, operator.le, 0, id="scalar-le-greater"),
+        pytest.param(5, 3, operator.gt, 1, id="scalar-gt-true"),
+        pytest.param(3, 5, operator.gt, 0, id="scalar-gt-false"),
+        pytest.param(5, 5, operator.ge, 1, id="scalar-ge-equal"),
+        pytest.param(6, 5, operator.ge, 1, id="scalar-ge-greater"),
+        pytest.param(4, 5, operator.ge, 0, id="scalar-ge-less"),
+        pytest.param([1, 2, 3], [1, 3, 2], operator.eq, [1, 0, 0], id="array-eq"),
+        pytest.param([1, 2, 3], [1, 3, 2], operator.ne, [0, 1, 1], id="array-ne"),
+        pytest.param([1, 5, 3], [2, 4, 3], operator.lt, [1, 0, 0], id="array-lt"),
+        pytest.param([1, 5, 3], [2, 4, 3], operator.le, [1, 0, 1], id="array-le"),
+        pytest.param([1, 5, 3], [2, 4, 3], operator.gt, [0, 1, 0], id="array-gt"),
+        pytest.param([1, 5, 3], [2, 4, 3], operator.ge, [0, 1, 1], id="array-ge"),
+        pytest.param([1.5, 2.5], [2.5, 1.5], operator.lt, [1, 0], id="array-float-lt"),
+        pytest.param([1.0, 1.0], [1.0, 2.0], operator.le, [1, 1], id="array-float-le"),
+        pytest.param([3.14, 2.71], [2.71, 3.14], operator.gt, [1, 0], id="array-float-gt"),
     ],
 )
-async def test_scalar_comparison(ctx, val_a, val_b, op, expected):
-    """Test comparison operators on scalar Objects."""
+async def test_comparison(ctx, val_a, val_b, op, expected):
+    """Comparison operators on scalar and array Objects."""
     obj_a = await create_object_from_value(val_a, aai_id=True)
     obj_b = await create_object_from_value(val_b, aai_id=True)
-    result = op(obj_a, obj_b)
-    assert await result.data() == expected
-
-
-# =============================================================================
-# Array Object comparisons
-# =============================================================================
-
-
-@pytest.mark.parametrize(
-    "vals_a,vals_b,op,expected",
-    [
-        pytest.param([1, 2, 3], [1, 3, 2], operator.eq, [1, 0, 0], id="eq"),
-        pytest.param([1, 2, 3], [1, 3, 2], operator.ne, [0, 1, 1], id="ne"),
-        pytest.param([1, 5, 3], [2, 4, 3], operator.lt, [1, 0, 0], id="lt"),
-        pytest.param([1, 5, 3], [2, 4, 3], operator.le, [1, 0, 1], id="le"),
-        pytest.param([1, 5, 3], [2, 4, 3], operator.gt, [0, 1, 0], id="gt"),
-        pytest.param([1, 5, 3], [2, 4, 3], operator.ge, [0, 1, 1], id="ge"),
-        # Float arrays
-        pytest.param([1.5, 2.5], [2.5, 1.5], operator.lt, [1, 0], id="float-lt"),
-        pytest.param([1.0, 1.0], [1.0, 2.0], operator.le, [1, 1], id="float-le"),
-        pytest.param([3.14, 2.71], [2.71, 3.14], operator.gt, [1, 0], id="float-gt"),
-    ],
-)
-async def test_array_comparison(ctx, vals_a, vals_b, op, expected):
-    """Test comparison operators on array Objects."""
-    obj_a = await create_object_from_value(vals_a, aai_id=True)
-    obj_b = await create_object_from_value(vals_b, aai_id=True)
     result = op(obj_a, obj_b)
     assert await result.data() == expected
 

@@ -15,25 +15,31 @@ THRESHOLD = 1e-5
 
 
 # =============================================================================
-# Scalar Object + Python scalar (obj + 5, obj * 2, etc.)
+# Object <op> Python scalar (obj + 5, arr * 2, etc.)
 # =============================================================================
 
 
 @pytest.mark.parametrize(
     "obj_val,scalar,op,expected",
     [
-        # Arithmetic
-        pytest.param(10, 5, operator.add, 15, id="add"),
-        pytest.param(10, 3, operator.sub, 7, id="sub"),
-        pytest.param(10, 3, operator.mul, 30, id="mul"),
-        pytest.param(10.0, 4.0, operator.truediv, 2.5, id="div"),
-        pytest.param(10, 3, operator.floordiv, 3, id="floordiv"),
-        pytest.param(10, 3, operator.mod, 1, id="mod"),
-        pytest.param(2.0, 3.0, operator.pow, 8.0, id="pow"),
+        pytest.param(10, 5, operator.add, 15, id="scalar-add"),
+        pytest.param(10, 3, operator.sub, 7, id="scalar-sub"),
+        pytest.param(10, 3, operator.mul, 30, id="scalar-mul"),
+        pytest.param(10.0, 4.0, operator.truediv, 2.5, id="scalar-div"),
+        pytest.param(10, 3, operator.floordiv, 3, id="scalar-floordiv"),
+        pytest.param(10, 3, operator.mod, 1, id="scalar-mod"),
+        pytest.param(2.0, 3.0, operator.pow, 8.0, id="scalar-pow"),
+        pytest.param([1, 2, 3], 10, operator.add, [11, 12, 13], id="array-add"),
+        pytest.param([10, 20, 30], 5, operator.sub, [5, 15, 25], id="array-sub"),
+        pytest.param([1, 2, 3], 10, operator.mul, [10, 20, 30], id="array-mul"),
+        pytest.param([10.0, 20.0, 30.0], 10.0, operator.truediv, [1.0, 2.0, 3.0], id="array-div"),
+        pytest.param([10, 25, 30], 7, operator.floordiv, [1, 3, 4], id="array-floordiv"),
+        pytest.param([10, 25, 30], 7, operator.mod, [3, 4, 2], id="array-mod"),
+        pytest.param([2.0, 3.0, 4.0], 2.0, operator.pow, [4.0, 9.0, 16.0], id="array-pow"),
     ],
 )
-async def test_scalar_obj_op_scalar(ctx, obj_val, scalar, op, expected):
-    """Test scalar Object <op> Python scalar."""
+async def test_obj_op_scalar(ctx, obj_val, scalar, op, expected):
+    """Scalar or array Object <op> Python scalar (broadcast)."""
     obj = await create_object_from_value(obj_val, aai_id=True)
 
     result = op(obj, scalar)
@@ -42,77 +48,32 @@ async def test_scalar_obj_op_scalar(ctx, obj_val, scalar, op, expected):
 
 
 # =============================================================================
-# Python scalar + Scalar Object (5 + obj, 2 * obj, etc.) - reverse operators
+# Python scalar <op> Object (5 + obj, 2 * arr, etc.) — reverse operators
 # =============================================================================
 
 
 @pytest.mark.parametrize(
     "scalar,obj_val,op,expected",
     [
-        pytest.param(5, 10, operator.add, 15, id="radd"),
-        pytest.param(20, 7, operator.sub, 13, id="rsub"),
-        pytest.param(3, 10, operator.mul, 30, id="rmul"),
-        pytest.param(10.0, 4.0, operator.truediv, 2.5, id="rtruediv"),
-        pytest.param(10, 3, operator.floordiv, 3, id="rfloordiv"),
-        pytest.param(10, 3, operator.mod, 1, id="rmod"),
-        pytest.param(2.0, 3.0, operator.pow, 8.0, id="rpow"),
+        pytest.param(5, 10, operator.add, 15, id="scalar-radd"),
+        pytest.param(20, 7, operator.sub, 13, id="scalar-rsub"),
+        pytest.param(3, 10, operator.mul, 30, id="scalar-rmul"),
+        pytest.param(10.0, 4.0, operator.truediv, 2.5, id="scalar-rtruediv"),
+        pytest.param(10, 3, operator.floordiv, 3, id="scalar-rfloordiv"),
+        pytest.param(10, 3, operator.mod, 1, id="scalar-rmod"),
+        pytest.param(2.0, 3.0, operator.pow, 8.0, id="scalar-rpow"),
+        pytest.param(10, [1, 2, 3], operator.add, [11, 12, 13], id="array-radd"),
+        pytest.param(100, [10, 20, 30], operator.sub, [90, 80, 70], id="array-rsub"),
+        pytest.param(10, [1, 2, 3], operator.mul, [10, 20, 30], id="array-rmul"),
+        pytest.param(100.0, [10.0, 20.0, 50.0], operator.truediv, [10.0, 5.0, 2.0], id="array-rtruediv"),
+        pytest.param(100, [7, 13, 33], operator.floordiv, [14, 7, 3], id="array-rfloordiv"),
+        pytest.param(10, [3, 4, 7], operator.mod, [1, 2, 3], id="array-rmod"),
+        pytest.param(2.0, [1.0, 2.0, 3.0], operator.pow, [2.0, 4.0, 8.0], id="array-rpow"),
     ],
 )
-async def test_scalar_reverse_op(ctx, scalar, obj_val, op, expected):
-    """Test Python scalar <op> scalar Object (reverse operators)."""
+async def test_scalar_op_obj(ctx, scalar, obj_val, op, expected):
+    """Python scalar <op> scalar or array Object (reverse operators)."""
     obj = await create_object_from_value(obj_val, aai_id=True)
-
-    result = op(scalar, obj)
-
-    assert await result.data() == pytest.approx(expected, abs=THRESHOLD)
-
-
-# =============================================================================
-# Array Object + Python scalar (broadcast scalar across array)
-# =============================================================================
-
-
-@pytest.mark.parametrize(
-    "arr,scalar,op,expected",
-    [
-        pytest.param([1, 2, 3], 10, operator.add, [11, 12, 13], id="add"),
-        pytest.param([10, 20, 30], 5, operator.sub, [5, 15, 25], id="sub"),
-        pytest.param([1, 2, 3], 10, operator.mul, [10, 20, 30], id="mul"),
-        pytest.param([10.0, 20.0, 30.0], 10.0, operator.truediv, [1.0, 2.0, 3.0], id="div"),
-        pytest.param([10, 25, 30], 7, operator.floordiv, [1, 3, 4], id="floordiv"),
-        pytest.param([10, 25, 30], 7, operator.mod, [3, 4, 2], id="mod"),
-        pytest.param([2.0, 3.0, 4.0], 2.0, operator.pow, [4.0, 9.0, 16.0], id="pow"),
-    ],
-)
-async def test_array_obj_op_scalar(ctx, arr, scalar, op, expected):
-    """Test array Object <op> Python scalar (broadcast)."""
-    obj = await create_object_from_value(arr, aai_id=True)
-
-    result = op(obj, scalar)
-
-    assert await result.data() == pytest.approx(expected, abs=THRESHOLD)
-
-
-# =============================================================================
-# Python scalar + Array Object (broadcast with reverse operators)
-# =============================================================================
-
-
-@pytest.mark.parametrize(
-    "scalar,arr,op,expected",
-    [
-        pytest.param(10, [1, 2, 3], operator.add, [11, 12, 13], id="radd"),
-        pytest.param(100, [10, 20, 30], operator.sub, [90, 80, 70], id="rsub"),
-        pytest.param(10, [1, 2, 3], operator.mul, [10, 20, 30], id="rmul"),
-        pytest.param(100.0, [10.0, 20.0, 50.0], operator.truediv, [10.0, 5.0, 2.0], id="rtruediv"),
-        pytest.param(100, [7, 13, 33], operator.floordiv, [14, 7, 3], id="rfloordiv"),
-        pytest.param(10, [3, 4, 7], operator.mod, [1, 2, 3], id="rmod"),
-        pytest.param(2.0, [1.0, 2.0, 3.0], operator.pow, [2.0, 4.0, 8.0], id="rpow"),
-    ],
-)
-async def test_scalar_op_array_obj(ctx, scalar, arr, op, expected):
-    """Test Python scalar <op> array Object (reverse broadcast)."""
-    obj = await create_object_from_value(arr, aai_id=True)
 
     result = op(scalar, obj)
 

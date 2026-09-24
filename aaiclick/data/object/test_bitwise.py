@@ -13,52 +13,34 @@ import pytest
 from aaiclick import create_object_from_value
 
 # =============================================================================
-# Scalar Object bitwise
+# Object <op> Object — scalar and array operands
 # =============================================================================
 
 
 @pytest.mark.parametrize(
     "val_a,val_b,op,expected",
     [
-        pytest.param(0b1100, 0b1010, operator.and_, 0b1000, id="and-scalar"),
-        pytest.param(0b1100, 0b1010, operator.or_, 0b1110, id="or-scalar"),
-        pytest.param(0b1100, 0b1010, operator.xor, 0b0110, id="xor-scalar"),
-        pytest.param(0b1111, 0b0000, operator.and_, 0b0000, id="and-zero"),
-        pytest.param(0b0000, 0b1111, operator.or_, 0b1111, id="or-ones"),
-        pytest.param(0b1111, 0b1111, operator.xor, 0b0000, id="xor-same"),
+        pytest.param(0b1100, 0b1010, operator.and_, 0b1000, id="scalar-and"),
+        pytest.param(0b1100, 0b1010, operator.or_, 0b1110, id="scalar-or"),
+        pytest.param(0b1100, 0b1010, operator.xor, 0b0110, id="scalar-xor"),
+        pytest.param(0b1111, 0b0000, operator.and_, 0b0000, id="scalar-and-zero"),
+        pytest.param(0b0000, 0b1111, operator.or_, 0b1111, id="scalar-or-ones"),
+        pytest.param(0b1111, 0b1111, operator.xor, 0b0000, id="scalar-xor-same"),
+        pytest.param(
+            [0b1100, 0b1010, 0b1111], [0b1010, 0b0110, 0b0000], operator.and_, [0b1000, 0b0010, 0b0000], id="array-and"
+        ),
+        pytest.param(
+            [0b1100, 0b1010, 0b0000], [0b1010, 0b0110, 0b1111], operator.or_, [0b1110, 0b1110, 0b1111], id="array-or"
+        ),
+        pytest.param(
+            [0b1100, 0b1010, 0b1111], [0b1010, 0b0110, 0b1111], operator.xor, [0b0110, 0b1100, 0b0000], id="array-xor"
+        ),
     ],
 )
-async def test_scalar_bitwise(ctx, val_a, val_b, op, expected):
-    """Test bitwise operators on scalar Objects."""
+async def test_bitwise(ctx, val_a, val_b, op, expected):
+    """Bitwise operators on scalar and array Objects."""
     obj_a = await create_object_from_value(val_a, aai_id=True)
     obj_b = await create_object_from_value(val_b, aai_id=True)
-    result = op(obj_a, obj_b)
-    assert await result.data() == expected
-
-
-# =============================================================================
-# Array Object bitwise
-# =============================================================================
-
-
-@pytest.mark.parametrize(
-    "vals_a,vals_b,op,expected",
-    [
-        pytest.param(
-            [0b1100, 0b1010, 0b1111], [0b1010, 0b0110, 0b0000], operator.and_, [0b1000, 0b0010, 0b0000], id="and-array"
-        ),
-        pytest.param(
-            [0b1100, 0b1010, 0b0000], [0b1010, 0b0110, 0b1111], operator.or_, [0b1110, 0b1110, 0b1111], id="or-array"
-        ),
-        pytest.param(
-            [0b1100, 0b1010, 0b1111], [0b1010, 0b0110, 0b1111], operator.xor, [0b0110, 0b1100, 0b0000], id="xor-array"
-        ),
-    ],
-)
-async def test_array_bitwise(ctx, vals_a, vals_b, op, expected):
-    """Test bitwise operators on array Objects."""
-    obj_a = await create_object_from_value(vals_a, aai_id=True)
-    obj_b = await create_object_from_value(vals_b, aai_id=True)
     result = op(obj_a, obj_b)
     assert await result.data() == expected
 
