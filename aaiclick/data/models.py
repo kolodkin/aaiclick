@@ -295,7 +295,7 @@ class QueryInfo:
 
         Such operands pair row-for-row in a single SELECT over ``row_source``.
         """
-        return self.same_table_as(other) and self.row_source == other.row_source
+        return bool(self.row_source) and self.row_source == other.row_source
 
 
 @dataclass

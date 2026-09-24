@@ -256,3 +256,13 @@ async def test_view_or_where_with_group_by(ctx):
     assert pairs["A"] == 15
     assert pairs["B"] == 20
     assert pairs["C"] == 100
+
+
+async def test_views_differing_only_in_order_pair_by_position(ctx):
+    """Views that differ only in order_by read rows in different orders, so
+    they pair by position rather than row-for-row."""
+    obj = await create_object_from_value([1, 2, 3])
+
+    result = obj.view(order_by="value ASC") + obj.view(order_by="value DESC")
+
+    assert await result.data() == [4, 4, 4]

@@ -325,12 +325,16 @@ class Object:
         subquery — aggregations, GROUP BY, and other order-insensitive
         consumers select directly from the table.
         """
+        return self.has_row_constraints or bool(self.selected_fields)
+
+    @property
+    def has_row_constraints(self) -> bool:
+        """``has_constraints`` minus field selection: anything shaping the rows or their columns."""
         return bool(
             self.where_clauses
             or self.limit is not None
             or self.offset is not None
             or self._explicit_order_by
-            or self.selected_fields
             or self.computed_columns
             or self.renamed_columns
             or self.exploded_columns
@@ -449,14 +453,10 @@ class Object:
         source = f"({self._build_select()})" if self.has_constraints else self.table
         value_column = self.selected_fields[0] if self.is_single_field and self.selected_fields else "value"
         fieldtype = FIELDTYPE_ARRAY if self.is_single_field else self._schema.fieldtype
-        # _effective_columns maps a single-field selection to "value" with the
-        # rename, computed-column, and explode adjustments already applied.
+        # A single-field selection surfaces as "value" in _effective_columns.
         col_def = self._effective_columns.get("value", ColumnInfo("Float64"))
 
-        # Two operands with the same row_source read the same rows with the
-        # same projection, so an operator can pair them in a single SELECT.
-        all_fields_sql = self._build_select(all_fields=True)
-        row_source = self.table if all_fields_sql == f"SELECT * FROM {self.table}" else f"({all_fields_sql})"
+        row_source = f"({self._build_select(all_fields=True)})" if self.has_row_constraints else self.table
 
         return QueryInfo(
             source=source,
@@ -2503,50 +2503,31 @@ class View(Object):
         Cached because View instances are immutable — all fields are set at
         init and never mutated in place.
         """
-        orig = self._schema.columns
         renames = self._renamed_columns or {}
-        inv_renames = self._inv_renames
+        full = {renames.get(name, name): info for name, info in self._schema.columns.items()}
+        computed = self._computed_columns or {}
+        for name, comp in computed.items():
+            full[name] = parse_ch_type(comp.type)
+        for col_name in self._exploded_columns:
+            name = renames.get(col_name, col_name)
+            if name in full:
+                old_info = full[name]
+                full[name] = ColumnInfo(
+                    type=old_info.type,
+                    nullable=old_info.nullable,
+                    array=max(0, int(old_info.array) - 1),
+                    low_cardinality=old_info.low_cardinality,
+                )
 
-        # selected_fields hold post-rename names; map them back to source
-        # column names via the inverse rename when looking up types in
-        # ``orig``.
+        # Field selection narrows to the selected (post-rename) names; a single
+        # field is exposed as "value". Computed columns stay — the SELECT
+        # always projects them.
+        computed_infos = {name: full[name] for name in computed}
         if self._selected_fields and self.is_single_field:
-            field = self._selected_fields[0]
-            if self._computed_columns and field in self._computed_columns:
-                col_def = parse_ch_type(self._computed_columns[field].type)
-            else:
-                col_def = orig.get(inv_renames.get(field, field), ColumnInfo("Float64"))
-            columns = {"value": col_def}
-        elif self._selected_fields:
-            columns = {}
-            for f in self._selected_fields:
-                src_name = inv_renames.get(f, f)
-                columns[f] = orig[src_name]
-        else:
-            columns = {renames.get(name, name): info for name, info in orig.items()}
-
-        if self._computed_columns:
-            for name, comp in self._computed_columns.items():
-                columns[name] = parse_ch_type(comp.type)
-
-        if self._exploded_columns:
-            renames = self._renamed_columns or {}
-            for col_name in self._exploded_columns:
-                if self._selected_fields and self.is_single_field:
-                    effective_name = "value" if col_name == self._selected_fields[0] else col_name
-                else:
-                    effective_name = renames.get(col_name, col_name)
-                if effective_name in columns:
-                    old_info = columns[effective_name]
-                    new_depth = max(0, int(old_info.array) - 1)
-                    columns[effective_name] = ColumnInfo(
-                        type=old_info.type,
-                        nullable=old_info.nullable,
-                        array=new_depth,
-                        low_cardinality=old_info.low_cardinality,
-                    )
-
-        return columns
+            return {"value": full.get(self._selected_fields[0], ColumnInfo("Float64")), **computed_infos}
+        if self._selected_fields:
+            return {f: full[f] for f in self._selected_fields} | computed_infos
+        return full
 
     def _serialize_ref(self) -> dict:
         """Serialize this View to a reference dict for task kwargs/results."""
@@ -2697,11 +2678,8 @@ class View(Object):
             else set()
         )
 
-        # Append computed columns to SELECT in dict order — _effective_columns
-        # lists them in that order and data() maps result columns positionally.
-        # Exploded computed columns are defined in the ARRAY JOIN clause, so
-        # SELECT only references their alias (ClickHouse SELECT * does not
-        # include ARRAY JOIN aliases).
+        # Dict order, matching _effective_columns — data() maps columns by
+        # position. Exploded ones are defined in ARRAY JOIN; SELECT names the alias.
         if self._computed_columns:
             computed_parts = [
                 quote_identifier(name)
