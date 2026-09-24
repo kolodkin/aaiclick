@@ -580,6 +580,8 @@ Returns: scalar → value, array → list, dict → dict or list of dicts.
 
 Returns data as a plain-text markdown table with auto-sized columns. Optional `truncate: dict[str, int]` caps column widths. Floats → 2dp, None → `N/A`.
 
+**Tests**: `aaiclick/data/object/test_markdown.py`
+
 ## execute()
 
 Runs the query this Object/View describes, discards every row server-side (`FORMAT Null`), and returns a `QueryStats`. Forces full compute without paying for transport — benchmark a View, warm caches, or assert a query *runs* without checking its output.
