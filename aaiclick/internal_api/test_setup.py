@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import pytest
 from sqlalchemy import create_engine as sa_create_engine
 from sqlalchemy import text as sa_text
@@ -22,24 +24,17 @@ from aaiclick.view_models import (
 from . import errors, setup
 
 
-class _FakeChdbSession:
-    def query(self, _sql):
-        return None
-
-
-def _stub_chdb(monkeypatch):
-    """Stub chdb's per-process singleton Session so ``setup()`` leaves it alone."""
-    monkeypatch.setattr(setup, "get_shared_session", lambda _path: _FakeChdbSession())
-
-
 @pytest.fixture
 def local_db(tmp_path, monkeypatch):
-    """Point aaiclick at an empty local root and yield its ``local.db`` path."""
+    """Point aaiclick at an empty local root and yield its ``local.db`` path.
+
+    The chdb step is stubbed — chdb allows one session per process, so it isn't covered here.
+    """
     db = tmp_path / "local.db"
     monkeypatch.setenv("AAICLICK_LOCAL_ROOT", str(tmp_path))
     monkeypatch.setenv("AAICLICK_SQL_URL", f"sqlite+aiosqlite:///{db}")
     monkeypatch.delenv("AAICLICK_CH_URL", raising=False)
-    _stub_chdb(monkeypatch)
+    monkeypatch.setattr(setup, "get_shared_session", lambda _path: MagicMock())
     return db
 
 
@@ -101,31 +96,25 @@ def test_migrate_upgrade_runs_alembic_then_ch(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "action, alembic_command, ch_states, expected",
+    "action, alembic_command, ch_states",
     [
         pytest.param(
             MIGRATE_CURRENT,
             "current",
             [ChVersionState(version="0001", applied=True), ChVersionState(version="0002", applied=False)],
-            [ChVersionStatus(version="0001", applied=True), ChVersionStatus(version="0002", applied=False)],
             id="current",
         ),
-        pytest.param(
-            MIGRATE_HISTORY,
-            "history",
-            [ChVersionState(version="0001", applied=True)],
-            [ChVersionStatus(version="0001", applied=True)],
-            id="history",
-        ),
+        pytest.param(MIGRATE_HISTORY, "history", [ChVersionState(version="0001", applied=True)], id="history"),
     ],
 )
-def test_migrate_reports_ch_versions(monkeypatch, action, alembic_command, ch_states, expected):
+def test_migrate_reports_ch_versions(monkeypatch, action, alembic_command, ch_states):
     monkeypatch.setattr(setup, "get_alembic_config", lambda: object())
     monkeypatch.setattr(setup.command, alembic_command, lambda config, verbose: None)
     monkeypatch.setattr(setup, "ch_status_standalone", lambda: ch_states)
 
     result = setup.migrate(action)
 
+    expected = [ChVersionStatus(version=s.version, applied=s.applied) for s in ch_states]
     assert result.ch_versions == expected
 
 

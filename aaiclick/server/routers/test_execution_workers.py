@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-from aaiclick.auth import security
 from aaiclick.internal_api import execution_workers as execution_workers_api
 from aaiclick.internal_api.errors import ExecutionWorkerSpawnFailed
 from aaiclick.orchestration.execution.execution_worker import register_execution_worker
@@ -11,25 +10,19 @@ from aaiclick.orchestration.view_models import ExecutionWorkerView
 from aaiclick.view_models import Page, Problem, ProblemCode
 
 from ..app import API_PREFIX
-
-RBAC_SECRET = "rbac-execution_workers-test-secret-key-32-plus-bytes"
+from ..conftest import bearer
 
 
 @pytest.mark.parametrize(
-    "user_id, role",
+    "role",
     [
-        pytest.param(2, "viewer", id="viewer"),
+        pytest.param("viewer", id="viewer"),
         # Workers are the installation's infrastructure: admin only.
-        pytest.param(3, "member", id="member"),
+        pytest.param("member", id="member"),
     ],
 )
-async def test_start_worker_forbidden_for_non_admin(orch_ctx, app_client, monkeypatch, user_id, role):
-    monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: False)
-    monkeypatch.setenv("AAICLICK_JWT_SECRET", RBAC_SECRET)
-    token = security.encode_access_token(user_id=user_id, role=role, secret=RBAC_SECRET, ttl=60)
-    res = await app_client.post(
-        f"{API_PREFIX}/execution-workers", json={}, headers={"Authorization": f"Bearer {token}"}
-    )
+async def test_start_worker_forbidden_for_non_admin(orch_ctx, enabled, app_client, role):
+    res = await app_client.post(f"{API_PREFIX}/execution-workers", json={}, headers=bearer(2, role=role))
     assert res.status_code == 403
     assert Problem.model_validate(res.json()).code is ProblemCode.FORBIDDEN
 

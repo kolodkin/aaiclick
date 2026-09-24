@@ -16,21 +16,16 @@ from aaiclick.orchestration.events import (
     get_event_bus,
     signal_transport,
 )
-from aaiclick.orchestration.models import JOB_COMPLETED, Job, JobStatus
+from aaiclick.orchestration.models import JOB_COMPLETED, Job, TaskStatus
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import run_job
 from aaiclick.orchestration.view_models import JobStatsView, TaskStatsView
+from aaiclick.testing import make_job_stats
 
 
-def _stats(job_status: JobStatus, counts: dict[str, int], tasks: list[TaskStatsView] | None = None) -> JobStatsView:
-    return JobStatsView(
-        job_id=1,
-        job_name="j",
-        job_status=job_status,
-        total_tasks=sum(counts.values()),
-        status_counts=counts,
-        tasks=tasks or [],
-    )
+def _tasks(*statuses: TaskStatus) -> list[TaskStatsView]:
+    """One placeholder task per status; ``wait_for_job`` reads only their counts."""
+    return [TaskStatsView(id=i, entrypoint="mod.t", status=s) for i, s in enumerate(statuses, start=1)]
 
 
 @contextmanager
@@ -54,7 +49,7 @@ def _patch_stats(*returns: JobStatsView):
 
 
 async def test_wait_returns_immediately_when_job_already_terminal():
-    with _patch_stats(_stats("COMPLETED", {"COMPLETED": 2})) as stats:
+    with _patch_stats(make_job_stats("COMPLETED", _tasks("COMPLETED", "COMPLETED"))) as stats:
         result = await wait_for_job(1, timeout=5.0, poll_interval=0)
 
     assert result.job_status == "COMPLETED"
@@ -63,9 +58,9 @@ async def test_wait_returns_immediately_when_job_already_terminal():
 
 async def test_wait_polls_until_job_reaches_terminal_status():
     with _patch_stats(
-        _stats("RUNNING", {"RUNNING": 1}),
-        _stats("RUNNING", {"COMPLETED": 1, "RUNNING": 1}),
-        _stats("COMPLETED", {"COMPLETED": 2}),
+        make_job_stats("RUNNING", _tasks("RUNNING")),
+        make_job_stats("RUNNING", _tasks("COMPLETED", "RUNNING")),
+        make_job_stats("COMPLETED", _tasks("COMPLETED", "COMPLETED")),
     ) as stats:
         result = await wait_for_job(1, timeout=5.0, poll_interval=0)
 
@@ -75,14 +70,14 @@ async def test_wait_polls_until_job_reaches_terminal_status():
 
 async def test_wait_treats_cancelled_as_terminal():
     """A cancelled job must end the loop — otherwise the CLI hangs until timeout."""
-    with _patch_stats(_stats("CANCELLED", {"CANCELLED": 1})):
+    with _patch_stats(make_job_stats("CANCELLED", _tasks("CANCELLED"))):
         result = await wait_for_job(1, timeout=5.0, poll_interval=0)
 
     assert result.job_status == "CANCELLED"
 
 
 async def test_wait_raises_timeout_when_job_never_finishes():
-    with _patch_stats(_stats("RUNNING", {"RUNNING": 1})):
+    with _patch_stats(make_job_stats("RUNNING", _tasks("RUNNING"))):
         with pytest.raises(JobWaitTimeout, match="did not reach a terminal"):
             await wait_for_job(1, timeout=0.0, poll_interval=0)
 
@@ -92,10 +87,10 @@ async def test_on_change_fires_only_when_status_counts_change():
     identical tables."""
     seen: list[str] = []
     with _patch_stats(
-        _stats("RUNNING", {"RUNNING": 1}),
-        _stats("RUNNING", {"RUNNING": 1}),
-        _stats("RUNNING", {"RUNNING": 1}),
-        _stats("COMPLETED", {"COMPLETED": 1}),
+        make_job_stats("RUNNING", _tasks("RUNNING")),
+        make_job_stats("RUNNING", _tasks("RUNNING")),
+        make_job_stats("RUNNING", _tasks("RUNNING")),
+        make_job_stats("COMPLETED", _tasks("COMPLETED")),
     ):
         await wait_for_job(1, timeout=5.0, poll_interval=0, on_change=lambda s: seen.append(s.job_status))
 
@@ -103,7 +98,7 @@ async def test_on_change_fires_only_when_status_counts_change():
 
 
 async def test_no_output_without_a_callback(capsys):
-    with _patch_stats(_stats("COMPLETED", {"COMPLETED": 1})):
+    with _patch_stats(make_job_stats("COMPLETED", _tasks("COMPLETED"))):
         await wait_for_job(1, timeout=5.0, poll_interval=0)
 
     assert capsys.readouterr().out == ""
@@ -113,7 +108,7 @@ async def test_timeout_carries_the_stats_for_diagnosis():
     """A timeout is only actionable if it names the stuck task, so the caller
     gets the last stats rather than a bare message."""
     tasks = [TaskStatsView(id=7, entrypoint="mod.stuck", status="RUNNING")]
-    with _patch_stats(_stats("RUNNING", {"RUNNING": 1}, tasks)):
+    with _patch_stats(make_job_stats("RUNNING", tasks)):
         with pytest.raises(JobWaitTimeout) as exc:
             await wait_for_job(1, timeout=0.0, poll_interval=0)
 
@@ -204,7 +199,7 @@ def test_wake_interval(cross_process, state, expected):
 
 async def test_signal_advances_loop_without_waiting_slow_poll():
     """Both intervals are 30s, so only a signal can finish this inside 2s."""
-    with _patch_stats(_stats("RUNNING", {"RUNNING": 1}), _stats("COMPLETED", {"COMPLETED": 1})):
+    with _patch_stats(make_job_stats("RUNNING", _tasks("RUNNING")), make_job_stats("COMPLETED", _tasks("COMPLETED"))):
         with signal_transport(_SignallingTransport()):
             result = await asyncio.wait_for(
                 wait_for_job(1, timeout=30.0, poll_interval=30.0, signal_poll_interval=30.0),
@@ -223,8 +218,8 @@ async def test_signal_published_during_fetch_is_not_lost():
         if len(seen) == 1:
             # A commit lands while this very fetch is in flight.
             get_event_bus().publish()
-            return _stats("RUNNING", {"RUNNING": 1})
-        return _stats("COMPLETED", {"COMPLETED": 1})
+            return make_job_stats("RUNNING", _tasks("RUNNING"))
+        return make_job_stats("COMPLETED", _tasks("COMPLETED"))
 
     with patch.multiple(
         "aaiclick.cli_wait.internal_api",
@@ -247,7 +242,7 @@ async def test_feed_is_torn_down_when_the_wait_times_out():
     would raise before the feed task was ever scheduled.
     """
     transport = _SilentTransport()
-    with _patch_stats(_stats("RUNNING", {"RUNNING": 1})):
+    with _patch_stats(make_job_stats("RUNNING", _tasks("RUNNING"))):
         with signal_transport(transport):
             with pytest.raises(JobWaitTimeout):
                 await wait_for_job(1, timeout=0.05, poll_interval=0.01, signal_poll_interval=0.01)
@@ -257,7 +252,7 @@ async def test_feed_is_torn_down_when_the_wait_times_out():
 
 async def test_no_feed_started_when_transport_is_not_cross_process():
     transport = _LocalLikeTransport()
-    with _patch_stats(_stats("COMPLETED", {"COMPLETED": 1})):
+    with _patch_stats(make_job_stats("COMPLETED", _tasks("COMPLETED"))):
         with signal_transport(transport):
             await wait_for_job(1, timeout=5.0, poll_interval=0)
     assert transport.feed_started is False

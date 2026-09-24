@@ -1,6 +1,5 @@
 """Tests for the argparse CLI: parsers, ``main()`` dispatch, and handler output."""
 
-import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -19,21 +18,11 @@ from aaiclick.data.data_context.ch_client import get_ch_client
 from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, TASK_FAILED, Job, JobStatus, RegisteredJob, Task
 from aaiclick.orchestration.registered_jobs import run_job
 from aaiclick.orchestration.sql_context import get_sql_session
+from aaiclick.testing import run_cli
 from aaiclick.view_models import LineageAnswer
 
 # A real importable callable, so ``register-job`` passes entrypoint validation.
 _VALID_ENTRYPOINT = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
-
-
-async def _run_cli(*argv: str) -> None:
-    """Run ``main()`` with ``argv`` against the test database.
-
-    ``main()`` calls ``asyncio.run``, so it cannot share the test's running
-    loop. ``run_in_executor`` gives it a thread with an empty context, so the
-    CLI opens its own ``orch_context`` on the database ``orch_ctx`` just reset.
-    """
-    with patch("sys.argv", ["aaiclick", *argv]):
-        await asyncio.get_running_loop().run_in_executor(None, main)
 
 
 async def _only_task() -> Task:
@@ -83,7 +72,7 @@ def test_parse_command_env_rejects_missing_equals():
 
 
 async def test_run_job_persists_shell_flags(orch_ctx):
-    await _run_cli(
+    await run_cli(
         "run-job",
         "j",
         "--entry-type",
@@ -104,11 +93,11 @@ async def test_run_job_forwards_image_to_the_runner_check(orch_ctx):
     """``--image`` reaches ``run_job``, whose subprocess runner has no image to
     run and refuses it rather than silently dropping it."""
     with pytest.raises(ValueError, match="image require a docker/kubernetes registered job"):
-        await _run_cli("run-job", "j", "--entry-type", "shell", "--command", "true", "--image", "python:3.12")
+        await run_cli("run-job", "j", "--entry-type", "shell", "--command", "true", "--image", "python:3.12")
 
 
 async def test_register_job_persists_image(orch_ctx, capsys):
-    await _run_cli("register-job", "myapp.jobs.etl", "--image", "myrepo/img:1")
+    await run_cli("register-job", "myapp.jobs.etl", "--image", "myrepo/img:1")
 
     registered = await _only_registered_job()
     assert registered.image == "myrepo/img:1"
@@ -220,7 +209,7 @@ def _fake_lineage_ai() -> MagicMock:
 async def test_explain_forwards_question_and_prints_answer(orch_ctx, capsys):
     lineage_ai = _fake_lineage_ai()
     with patch("aaiclick.__main__._load_lineage_ai", return_value=lineage_ai):
-        await _run_cli("explain", "p_revenue", "Which join fed this?")
+        await run_cli("explain", "p_revenue", "Which join fed this?")
 
     lineage_ai.explain_lineage.assert_awaited_once_with("p_revenue", question="Which join fed this?")
     assert capsys.readouterr().out == "explain-answer\n"
@@ -229,7 +218,7 @@ async def test_explain_forwards_question_and_prints_answer(orch_ctx, capsys):
 async def test_debug_forwards_max_iterations_and_prints_answer(orch_ctx, capsys):
     lineage_ai = _fake_lineage_ai()
     with patch("aaiclick.__main__._load_lineage_ai", return_value=lineage_ai):
-        await _run_cli("debug", "p_revenue", "Why?", "--max-iterations", "3")
+        await run_cli("debug", "p_revenue", "Why?", "--max-iterations", "3")
 
     lineage_ai.debug_result.assert_awaited_once_with("p_revenue", question="Why?", max_iterations=3)
     assert capsys.readouterr().out == "debug-answer\n"
@@ -301,13 +290,13 @@ def test_parse_set_kwargs_rejects_missing_equals():
 
 async def test_run_job_set_takes_precedence_over_kwargs_json(orch_ctx):
     """Documented precedence: default_kwargs < --kwargs < --set."""
-    await _run_cli("run-job", "j", "--kwargs", '{"corpus_size": 10, "keep": 1}', "--set", "corpus_size=300")
+    await run_cli("run-job", "j", "--kwargs", '{"corpus_size": 10, "keep": 1}', "--set", "corpus_size=300")
 
     assert (await _only_task()).kwargs == {"corpus_size": 300, "keep": 1}
 
 
 async def test_register_job_set_merges_into_default_kwargs(orch_ctx):
-    await _run_cli("register-job", _VALID_ENTRYPOINT, "--set", "corpus_size=300")
+    await run_cli("register-job", _VALID_ENTRYPOINT, "--set", "corpus_size=300")
 
     assert (await _only_registered_job()).default_kwargs == {"corpus_size": 300}
 
@@ -337,7 +326,7 @@ async def test_job_wait_exits_nonzero_and_reports_the_failed_task(orch_ctx, caps
     job_id = await _seed_job(JOB_FAILED, "mod.exploding_task", task_error="boom")
 
     with pytest.raises(SystemExit) as exc:
-        await _run_cli("job", "wait", str(job_id))
+        await run_cli("job", "wait", str(job_id))
 
     assert exc.value.code == 1
     assert "exploding_task" in capsys.readouterr().out
@@ -346,14 +335,14 @@ async def test_job_wait_exits_nonzero_and_reports_the_failed_task(orch_ctx, caps
 async def test_job_wait_returns_cleanly_when_job_completed(orch_ctx):
     job_id = await _seed_job(JOB_COMPLETED, "mod.ok")
 
-    await _run_cli("job", "wait", str(job_id))
+    await run_cli("job", "wait", str(job_id))
 
 
 async def test_job_wait_timeout_exits_nonzero(orch_ctx, capsys):
     job_id = await _seed_job(None, "mod.stuck_task")
 
     with pytest.raises(SystemExit) as exc:
-        await _run_cli("job", "wait", str(job_id), "--timeout", "0")
+        await run_cli("job", "wait", str(job_id), "--timeout", "0")
 
     assert exc.value.code == 1
     assert "did not reach a terminal" in capsys.readouterr().err
@@ -362,7 +351,7 @@ async def test_job_wait_timeout_exits_nonzero(orch_ctx, capsys):
 async def test_run_job_does_not_block_without_progress(orch_ctx):
     """``run-job`` stays fire-and-forget by default."""
     with patch("aaiclick.__main__.cli_wait.wait_for_job") as waiter:
-        await _run_cli("run-job", "j")
+        await run_cli("run-job", "j")
 
     waiter.assert_not_called()
 
@@ -373,7 +362,7 @@ async def test_job_wait_json_output_stays_parseable_on_failure(orch_ctx, capsys)
     job_id = await _seed_job(JOB_FAILED, "mod.exploding_task", task_error="boom")
 
     with pytest.raises(SystemExit):
-        await _run_cli("job", "wait", str(job_id), "--json")
+        await run_cli("job", "wait", str(job_id), "--json")
 
     json.loads(capsys.readouterr().out)
 
@@ -384,7 +373,7 @@ async def test_job_wait_json_timeout_keeps_stdout_clean_and_diagnoses_on_stderr(
     job_id = await _seed_job(None, "mod.stuck_task")
 
     with pytest.raises(SystemExit):
-        await _run_cli("job", "wait", str(job_id), "--json", "--timeout", "0")
+        await run_cli("job", "wait", str(job_id), "--json", "--timeout", "0")
 
     captured = capsys.readouterr()
     assert captured.out == ""

@@ -10,11 +10,10 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import httpx
 import jwt
 import pytest
 
-from aaiclick.auth import security
+from aaiclick.auth.models import ROLE_ADMIN, ROLE_VIEWER, SCOPE_READ
 from aaiclick.auth.view_models import CreateApiTokenRequest, CreateUserRequest
 from aaiclick.internal_api import api_tokens, users
 from aaiclick.internal_api.errors import Forbidden, Unauthorized
@@ -23,16 +22,9 @@ from aaiclick.view_models import Problem, ProblemCode
 from . import auth
 from .app import API_PREFIX
 from .auth import warn_if_open
-from .conftest import TEST_JWT_SECRET, mcp_http
+from .conftest import api_token_headers, bearer, mcp_http, mcp_rpc, mcp_tool_names
 
 OTHER_SECRET = "a-different-secret-also-32-plus-bytes-long"
-
-_TOOLS_LIST = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
-
-
-def _bearer(token: str) -> str:
-    return f"Bearer {token}"
-
 
 # --- resolve_principal ---------------------------------------------------
 
@@ -50,7 +42,7 @@ async def test_enabled_missing_token_unauthorized(enabled):
 
 async def test_enabled_bad_signature_unauthorized(orch_ctx, enabled, anon_client):
     token = jwt.encode({"sub": "1", "type": "access", "role": "admin"}, OTHER_SECRET, algorithm="HS256")
-    res = await anon_client.get(f"{API_PREFIX}/auth/me", headers={"Authorization": _bearer(token)})
+    res = await anon_client.get(f"{API_PREFIX}/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert res.status_code == 401
     assert Problem.model_validate(res.json()).code is ProblemCode.UNAUTHORIZED
 
@@ -61,18 +53,18 @@ async def test_api_token_resolves_live_owner_state(enabled, orch_ctx):
     user = await users.create_user(CreateUserRequest(username="bot", password="pw", role="member"))
     created = await api_tokens.create_token(user.id, CreateApiTokenRequest(name="ci", scope="read"))
 
-    principal = await auth.resolve_principal(authorization=_bearer(created.token))
+    principal = await auth.resolve_principal(authorization=f"Bearer {created.token}")
     assert principal.user_id == user.id and principal.kind == "token" and principal.scope == "read"
     assert principal.role == "member"
 
     await users.disable_user(user.id, True)
     with pytest.raises(Unauthorized):
-        await auth.resolve_principal(authorization=_bearer(created.token))
+        await auth.resolve_principal(authorization=f"Bearer {created.token}")
 
 
 async def test_unknown_api_token_unauthorized(enabled, orch_ctx):
     with pytest.raises(Unauthorized):
-        await auth.resolve_principal(authorization=_bearer("aaic_not-a-real-token"))
+        await auth.resolve_principal(authorization="Bearer aaic_not-a-real-token")
 
 
 @pytest.mark.parametrize(
@@ -134,30 +126,22 @@ def test_check_scope_forbids_too_little():
 # --- PrincipalAuthMiddleware ---------------------------------------------
 
 
-async def _tools_list(headers: dict[str, str]) -> httpx.Response:
-    async with mcp_http() as client:
-        return await client.post("/", json=_TOOLS_LIST, headers=headers)
-
-
 async def test_mcp_mount_admits_an_api_token_and_stores_it(orch_ctx, enabled):
     """Per-tool RBAC lives in mcp_rbac.py — the mount only needs a principal.
     The stored principal is what FastMCP filters on: a read token sees no
     write tools."""
-    user = await users.create_user(CreateUserRequest(username="m", password="pw"))
-    created = await api_tokens.create_token(user.id, CreateApiTokenRequest(name="m", scope="read"))
+    headers = await api_token_headers(SCOPE_READ, role=ROLE_VIEWER)
 
-    res = await _tools_list({"Authorization": _bearer(created.token)})
+    async with mcp_http() as client:
+        names = await mcp_tool_names(client, headers)
 
-    assert res.status_code == 200, res.text
-    names = {t["name"] for t in res.json()["result"]["tools"]}
     assert "list_jobs" in names and "run_job" not in names
 
 
 async def test_mcp_mount_refuses_a_session_jwt(enabled):
     """MCP is the machine door; a session JWT belongs on REST."""
-    token = security.encode_access_token(user_id=2, role="admin", secret=TEST_JWT_SECRET, ttl=60)
-
-    res = await _tools_list({"Authorization": _bearer(token)})
+    async with mcp_http() as client:
+        res = await mcp_rpc(client, "tools/list", headers=bearer(2, role=ROLE_ADMIN))
 
     assert res.status_code == 401
 
@@ -165,7 +149,8 @@ async def test_mcp_mount_refuses_a_session_jwt(enabled):
 async def test_mcp_middleware_open_in_local_mode(monkeypatch):
     monkeypatch.setattr("aaiclick.auth.config.is_local", lambda: True)
 
-    res = await _tools_list({})
+    async with mcp_http() as client:
+        res = await mcp_rpc(client, "tools/list")
 
     assert res.status_code == 200, res.text
 

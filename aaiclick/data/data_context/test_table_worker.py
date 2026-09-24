@@ -5,14 +5,9 @@ Tests for AsyncTableWorker async task lifecycle management.
 import asyncio
 from unittest.mock import AsyncMock
 
-from aaiclick.data.data_context import ChClient, get_ch_client
+from aaiclick.data.data_context import get_ch_client
 from aaiclick.data.data_context.table_worker import AsyncTableWorker
-from aaiclick.testing import list_ch_tables
-
-
-async def _create_tables(ch: ChClient, *table_names: str) -> None:
-    for table_name in table_names:
-        await ch.command(f"CREATE TABLE {table_name} (x UInt8) ENGINE = Memory")
+from aaiclick.testing import create_ch_tables, list_ch_tables
 
 
 def test_worker_incref_noop_before_start():
@@ -30,7 +25,7 @@ def test_worker_decref_noop_before_start():
 async def test_worker_refcount_drops_only_at_zero(ctx):
     """Table is dropped only when refcount reaches zero, not before."""
     ch = get_ch_client()
-    await _create_tables(ch, "t_a")
+    await create_ch_tables(ch, "t_a")
     worker = AsyncTableWorker(ch)
     await worker.start()
 
@@ -52,7 +47,7 @@ async def test_worker_refcount_drops_only_at_zero(ctx):
 async def test_worker_stop_drops_tracked_tables(ctx):
     """stop() drops every table still holding a reference."""
     ch = get_ch_client()
-    await _create_tables(ch, "t_x", "t_y", "t_untracked")
+    await create_ch_tables(ch, "t_x", "t_y", "t_untracked")
     worker = AsyncTableWorker(ch)
     await worker.start()
 
@@ -88,7 +83,7 @@ async def test_worker_never_drops_persistent_tables(ctx):
     """``p_*`` and ``j_<id>_*`` tables survive both refcount zero and shutdown."""
     ch = get_ch_client()
     persistent = {"p_released", "j_1_released", "p_held", "j_1_held"}
-    await _create_tables(ch, *persistent, "t_held")
+    await create_ch_tables(ch, *persistent, "t_held")
     worker = AsyncTableWorker(ch)
     await worker.start()
 

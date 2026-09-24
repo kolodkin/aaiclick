@@ -18,14 +18,17 @@ import os
 import shutil
 import subprocess
 import tempfile
+from collections import Counter
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from alembic import command
 from sqlalchemy import create_engine, text
 
+from aaiclick.__main__ import main
 from aaiclick.backend import is_chdb, is_local, parse_ch_url
 from aaiclick.data.data_context import ChClient, get_ch_client
 from aaiclick.data.models import FIELDTYPE_ARRAY
@@ -33,8 +36,9 @@ from aaiclick.oplog.lineage import OplogNode
 from aaiclick.oplog.migrate import ch_upgrade
 from aaiclick.oplog.models import clear_schema_cache
 from aaiclick.orchestration.migrate import get_alembic_config
-from aaiclick.orchestration.models import SQLModel
+from aaiclick.orchestration.models import JobStatus, SQLModel
 from aaiclick.orchestration.orch_context import get_sql_session, orch_context, task_scope
+from aaiclick.orchestration.view_models import JobStatsView, TaskStatsView
 from aaiclick.snowflake import get_snowflake_id
 
 from .datetime_utils import utc_now
@@ -105,6 +109,12 @@ async def list_ch_tables(ch: ChClient) -> set[str]:
     """Names of the tables in the active CH database."""
     result = await ch.query("SELECT name FROM system.tables WHERE database = currentDatabase()")
     return {row[0] for row in result.result_rows}
+
+
+async def create_ch_tables(ch: ChClient, *names: str) -> None:
+    """Create a throwaway single-column ``Memory`` table for each name."""
+    for name in names:
+        await ch.command(f"CREATE TABLE {name} (x UInt8) ENGINE = Memory")
 
 
 async def wait_for_ch_mutations(ch: ChClient, timeout: float = 10.0) -> None:
@@ -222,6 +232,29 @@ def make_oplog_node(
         sql_template=None,
         task_id=None,
         job_id=None,
+    )
+
+
+async def run_cli(*argv: str) -> None:
+    """Run ``main()`` with ``argv`` against the test database.
+
+    ``main()`` calls ``asyncio.run``, so it cannot share the test's running
+    loop. ``run_in_executor`` gives it a thread with an empty context, so the
+    CLI opens its own ``orch_context`` on the database ``orch_ctx`` just reset.
+    """
+    with patch("sys.argv", ["aaiclick", *argv]):
+        await asyncio.get_running_loop().run_in_executor(None, main)
+
+
+def make_job_stats(job_status: JobStatus, tasks: list[TaskStatsView]) -> JobStatsView:
+    """A ``JobStatsView`` whose ``status_counts`` and ``total_tasks`` match ``tasks``."""
+    return JobStatsView(
+        job_id=1,
+        job_name="j",
+        job_status=job_status,
+        total_tasks=len(tasks),
+        status_counts=dict(Counter(t.status for t in tasks)),
+        tasks=tasks,
     )
 
 

@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aaiclick.data.data_context import ChClient, get_ch_client
 from aaiclick.orchestration.background.handler import BackgroundHandler
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
-from aaiclick.testing import list_ch_tables, wait_for_ch_mutations
+from aaiclick.testing import create_ch_tables, list_ch_tables, wait_for_ch_mutations
 
 from .conftest import (
     get_run_refs,
@@ -230,8 +230,8 @@ async def test_delete_job_data_exempts_persistent_tables(bg_db, orch_ctx):
     await insert_job(bg_db, job_id, preservation_mode="NONE")
     ch = get_ch_client()
     job_tables = {"p_user_catalog", "j_555_intermediate", "t_scratch"}
+    await create_ch_tables(ch, *job_tables)
     for table_name in job_tables:
-        await ch.command(f"CREATE TABLE {table_name} (x UInt8) ENGINE = Memory")
         await insert_table_registry(bg_db, table_name, job_id=job_id)
 
     worker = make_worker(bg_db, ch)
