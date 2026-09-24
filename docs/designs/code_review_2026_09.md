@@ -11,21 +11,6 @@ is fixed.
 
 # Medium
 
-## Data correctness
-
-- **Renamed-then-selected field falls back to non-nullable Float64** —
-  `aaiclick/data/object/object.py`, `Object._get_query_info()`. Looks up the
-  post-rename name in the source schema. `obj.rename({'a': 'x'})['x'] + 1`
-  returns floats; nullable sources get NULLs inserted into a non-nullable
-  column.
-- **Same-table fast path ignores computed columns, renames, and ARRAY JOIN**
-  — `aaiclick/data/object/operators.py`, `_apply_operator_db()`.
-  `v['d'] + obj['x']` with `d` computed emits `SELECT d + x FROM base_table`.
-- **Exploded computed columns are emitted last but mapped positionally in
-  dict order** — `aaiclick/data/object/object.py`, `View._select_head()` vs
-  `View._effective_columns()`. With two computed columns and one exploded,
-  `data()` assigns values to the wrong keys.
-
 ## Java SDK
 
 - **`KwargsResolver.resolve` is applied to the whole kwargs object** —
@@ -105,5 +90,5 @@ is fixed.
 
 # Fix Order
 
-Remaining Mediums are grouped by area above; the Java SDK attempt and
-validation items share the jvm launch path.
+The remaining Mediums are the Java SDK items; the attempt and validation
+items share the jvm launch path.

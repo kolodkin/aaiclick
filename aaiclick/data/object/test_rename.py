@@ -323,3 +323,27 @@ async def test_copy_remaps_multi_key_order_by(ctx):
 
     view = obj.rename({"a": "x", "b": "y"}).view(order_by="a ASC, b DESC", limit=3)
     assert (await (await view.copy()).data())["y"] == [30, 10, 20]
+
+
+async def test_renamed_field_operator_keeps_source_type(ctx):
+    """Selecting a renamed field keeps the source column's type and nullability
+    — not the Float64 fallback — so NULLs survive arithmetic."""
+    schema = Schema(
+        fieldtype=FIELDTYPE_DICT,
+        columns={"a": ColumnInfo("Int64", nullable=True, fieldtype=FIELDTYPE_ARRAY)},
+    )
+    obj = await create_object(schema)
+    await obj.ch_client.command(f"INSERT INTO {obj.table} (a) VALUES (1), (NULL)")
+
+    result = await (obj.rename({"a": "x"})["x"] + 1)
+
+    assert result.schema.columns["value"] == ColumnInfo("Int64", nullable=True)
+    assert sorted(await result.data(), key=lambda v: v is None) == [2, None]
+
+
+async def test_renamed_fields_combine_on_same_view(ctx):
+    """Two fields of one renamed View combine through their post-rename names."""
+    obj = await create_object_from_value({"x": [1, 2], "y": [10, 20]})
+    v = obj.rename({"y": "z"})
+
+    assert await (v["z"] + v["x"]).data() == [11, 22]

@@ -359,29 +359,17 @@ async def _apply_operator_db(
 
     # Insert data based on fieldtype combinations
     if a_is_array and b_is_array:
-        # Same-table optimization: when both operands are field selections from
-        # the same table with identical constraints, emit a single SELECT instead
-        # of the expensive INNER JOIN on row_number().
-        same_table = (
-            info_a.same_table_as(info_b)
-            and info_a.value_column != "value"
-            and info_b.value_column != "value"
-            and info_a.constraint_sql == info_b.constraint_sql
-        )
-
-        if same_table:
+        # Operands over the same rows (same filters, renames, computed and
+        # exploded columns) pair in a single SELECT instead of the expensive
+        # INNER JOIN on row_number().
+        if info_a.same_rows_as(info_b):
             col_a = quote_identifier(info_a.value_column)
             col_b = quote_identifier(info_b.value_column)
             expr = expression.replace("a.value", col_a).replace("b.value", col_b)
-            suffix = info_a.constraint_sql
-            if suffix:
-                source_sql = f"(SELECT {col_a}, {col_b}{proj.inner} FROM {info_a.base_table} {suffix})"
-            else:
-                source_sql = info_a.base_table
             result._stats = await execute_for_stats(
                 f"""
                 INSERT INTO {result.table} {proj.insert_cols}
-                SELECT {expr} AS value{proj.inner} FROM {source_sql}
+                SELECT {expr} AS value{proj.inner} FROM {info_a.row_source}
             """,
                 client=ch_client,
             )
