@@ -12,6 +12,7 @@ implementations here avoids copy-paste across
 
 from __future__ import annotations
 
+import asyncio
 import gc
 import os
 import shutil
@@ -26,7 +27,7 @@ from alembic import command
 from sqlalchemy import create_engine, text
 
 from aaiclick.backend import is_chdb, is_local, parse_ch_url
-from aaiclick.data.data_context import get_ch_client
+from aaiclick.data.data_context import ChClient, get_ch_client
 from aaiclick.data.models import FIELDTYPE_ARRAY
 from aaiclick.oplog.lineage import OplogGraph, OplogNode
 from aaiclick.oplog.migrate import ch_upgrade
@@ -100,6 +101,30 @@ async def reset_sql_tables() -> None:
         await session.commit()
 
 
+async def list_ch_tables(ch: ChClient) -> set[str]:
+    """Names of the tables in the active CH database."""
+    result = await ch.query("SELECT name FROM system.tables WHERE database = currentDatabase()")
+    return {row[0] for row in result.result_rows}
+
+
+async def wait_for_ch_mutations(ch: ChClient, timeout: float = 10.0) -> None:
+    """Wait until every ``ALTER TABLE ... DELETE`` in the active CH database is applied.
+
+    A ClickHouse server runs mutations in the background; chdb applies them
+    before the command returns, so this returns at once there.
+    """
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        result = await ch.query(
+            "SELECT count() FROM system.mutations WHERE database = currentDatabase() AND NOT is_done"
+        )
+        if result.result_rows[0][0] == 0:
+            return
+        if asyncio.get_running_loop().time() > deadline:
+            raise TimeoutError(f"CH mutations still pending after {timeout}s")
+        await asyncio.sleep(0.05)
+
+
 async def drop_all_ch_tables() -> None:
     """Drop every table in the active CH database, then re-apply migrations.
 
@@ -111,9 +136,8 @@ async def drop_all_ch_tables() -> None:
     database, so this never touches another worker's tables.
     """
     ch = get_ch_client()
-    result = await ch.query("SELECT name FROM system.tables WHERE database = currentDatabase()")
-    for row in result.result_rows:
-        await ch.command(f"DROP TABLE IF EXISTS `{row[0]}`")
+    for table_name in await list_ch_tables(ch):
+        await ch.command(f"DROP TABLE IF EXISTS `{table_name}`")
     # Column types cached from the dropped tables must not leak into the
     # next test (which may recreate them with a different shape).
     clear_schema_cache()

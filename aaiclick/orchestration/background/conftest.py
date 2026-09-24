@@ -11,6 +11,7 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
+from aaiclick.data.data_context import ChClient
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 from aaiclick.orchestration.models import SQLModel
@@ -33,12 +34,12 @@ async def bg_db():
     shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-def make_worker(engine) -> BackgroundWorker:
-    """A BackgroundWorker on ``engine`` with a mocked ClickHouse client."""
+def make_worker(engine, ch_client: ChClient | None = None) -> BackgroundWorker:
+    """A BackgroundWorker on ``engine`` with ``ch_client``, or a mocked ClickHouse client."""
     worker = BackgroundWorker()
     worker._engine = engine
     worker._handler = SqliteBackgroundHandler()
-    worker._ch_client = AsyncMock()
+    worker._ch_client = ch_client if ch_client is not None else AsyncMock()
     return worker
 
 

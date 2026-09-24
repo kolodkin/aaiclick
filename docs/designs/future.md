@@ -110,19 +110,6 @@ documented. Add one `validate_runner_fields(runner_mode, ...)` next to
 
 ---
 
-# Tests That Assert SQL Text Instead of Outcomes
-
-These tests assert the command string sent to a mocked ClickHouse client, so
-harmless SQL rewording breaks them:
-`test_delete_job_data_exempts_persistent_tables` and
-`test_delete_job_data_purges_ch_log_tables` in
-`aaiclick/orchestration/background/test_cleanup.py`, and
-`test_worker_skips_persistent_tables_on_cleanup` in
-`aaiclick/data/data_context/test_table_worker.py`. Assert which tables remain
-instead, with a fake client that tracks tables or the local chdb backend.
-
----
-
 # Deferred
 
 Items deferred until preconditions are met.
