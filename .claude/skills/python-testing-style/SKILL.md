@@ -94,7 +94,7 @@ async def test_same_upstream_in_two_kwargs_runs(orch_ctx):
         assert await get_job_result(j) == 42
 ```
 
-Internal tests are fine only when an end-to-end run can't reach the case: crash recovery, race windows, dead-worker cleanup, retry and backoff timing, or a pure function whose output *is* the contract (a parser, a SQL param set). Say which in the test's docstring (e.g. "pure function: the returned schema is the contract") so a reviewer doesn't flag it.
+Internal tests are fine only when an end-to-end run can't reach the case: crash recovery, race windows, dead-worker cleanup, retry and backoff timing, or a pure function whose output *is* the contract (a parser, a SQL param set). Say which in the docstring (e.g. "pure function: the returned schema is the contract").
 
 ## Parametrize input/expected clusters
 
@@ -146,4 +146,4 @@ Looking trivial is not proof. Check first whether the test covers the negative b
 
 `pyproject.toml` sets `filterwarnings = ["error"]`, so any unhandled warning fails the test. When a third-party library emits a known warning, suppress it with `warnings.catch_warnings()` scoped around the call that triggers it.
 
-A warning raised at garbage collection or teardown (an unawaited coroutine, `PytestUnraisableExceptionWarning`) fires after the call returns, so no `catch_warnings()` block can catch it. Fix it when it comes from our code or our mocks. Only a third-party leak may be filtered: an exact-message `pytest.mark.filterwarnings` added to the affected tests in one place, with an upstream reference and a TODO (see `aaiclick/ai/conftest.py`).
+A warning raised at garbage collection or teardown (an unawaited coroutine, `PytestUnraisableExceptionWarning`) fires after the call returns, so `catch_warnings()` can't catch it. Fix ours (our code, our mocks). Filter only a third-party leak: an exact-message `filterwarnings` mark on the affected tests, applied in one place with an upstream reference and a TODO (see `aaiclick/ai/conftest.py`).
