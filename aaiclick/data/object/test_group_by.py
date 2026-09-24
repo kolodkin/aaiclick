@@ -897,16 +897,13 @@ async def test_group_by_having_on_nested_dot_column(ctx):
 
 # =============================================================================
 # Aggregation table pattern: multi-source insert() collapsed via group_by().agg(any)
-#
-# Several sources with different schemas insert() into a shared table (missing
-# nullable columns auto-fill with NULL), then group_by().agg() with any() merges
-# them into one row per key.
+# Sources with different schemas insert() into one table (missing nullable columns
+# fill NULL); group_by().agg() with any() merges them into one row per key.
 # =============================================================================
 
 
 async def test_aggregation_table_two_sources(ctx):
     """Two sources insert into shared table, collapse picks non-NULL values."""
-    # Source A: has name and score
     source_a = await create_object_from_value(
         {
             "key": ["CVE-1", "CVE-2"],
@@ -915,7 +912,6 @@ async def test_aggregation_table_two_sources(ctx):
         }
     )
 
-    # Source B: has key and label (different columns)
     source_b = await create_object_from_value(
         {
             "key": ["CVE-1", "CVE-3"],
@@ -923,7 +919,6 @@ async def test_aggregation_table_two_sources(ctx):
         }
     )
 
-    # Create aggregation table with all columns
     schema = Schema(
         fieldtype=FIELDTYPE_ARRAY,
         columns={

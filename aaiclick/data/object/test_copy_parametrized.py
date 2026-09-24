@@ -200,15 +200,13 @@ async def test_copy_selected_fields_applies_order_by_before_limit(ctx):
 
 
 async def test_dict_selector_copy(ctx):
-    """Test that copy() materializes a view as a new array Object."""
+    """copy() materializes a view as a new array Object."""
     obj = await create_object_from_value({"param1": [1, 2, 3], "param2": [4, 5, 6]}, aai_id=True)
 
     view = obj["param1"]
     arr = await view.copy()
 
-    # Should be a new Object, not a View
     assert not isinstance(arr, View)
-    # Should have a different table (copy creates new table)
     assert arr.table != obj.table
     assert await arr.data() == [1, 2, 3]
 
@@ -222,7 +220,7 @@ async def test_dict_selector_copy(ctx):
     ],
 )
 async def test_dict_selector_copy_field(ctx, value, field, expected):
-    """Test copying a selected field of various types."""
+    """Copying a selected field of various types."""
     obj = await create_object_from_value(value, aai_id=True)
 
     arr = await obj[field].copy()
@@ -231,7 +229,7 @@ async def test_dict_selector_copy_field(ctx, value, field, expected):
 
 
 async def test_multi_field_selector_copy(ctx):
-    """Test copying a multi-field view creates dict Object."""
+    """Copying a multi-field view creates a dict Object."""
     obj = await create_object_from_value({"x": [1, 2, 3], "y": [4, 5, 6], "z": [7, 8, 9]}, aai_id=True)
 
     view = obj[["x", "y"]]
@@ -240,7 +238,6 @@ async def test_multi_field_selector_copy(ctx):
     data = await cloned.data()
     assert data == {"x": [1, 2, 3], "y": [4, 5, 6]}
 
-    # Verify cloned is a dict Object
     schema = cloned.schema
     assert "x" in schema.columns
     assert "y" in schema.columns

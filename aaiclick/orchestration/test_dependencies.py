@@ -107,8 +107,7 @@ async def test_fanin_persists_dependency_per_source(orch_ctx):
 
 
 async def test_commit_tasks_persists_upstream_graph(orch_ctx):
-    """Passing only the terminal task of a ``>>`` chain to commit_tasks() should
-    persist all upstream tasks and every edge of the chain.
+    """commit_tasks() on only the terminal task of a ``>>`` chain persists every upstream task and edge.
 
     This is a regression test for the bug where intermediate tasks were never
     saved to the DB when the developer only returned the terminal task from a
@@ -132,8 +131,7 @@ async def test_commit_tasks_persists_upstream_graph(orch_ctx):
 
 
 async def test_same_upstream_in_several_kwargs_runs(orch_ctx):
-    """A job passing one upstream to three kwargs (bare, in a list, in a dict) and
-    wiring it with ``>>`` runs.
+    """One upstream passed to three kwargs (bare, in a list, in a dict) and wired with ``>>`` runs.
 
     Each would add a ``Dependency`` on the same edge; a duplicate row collides
     on the composite primary key and fails the commit with ``IntegrityError``.

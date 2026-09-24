@@ -184,12 +184,10 @@ def test_debug_parser_requires_question():
 
 
 def _fake_lineage_ai() -> MagicMock:
-    """Stand-in for ``internal_api.lineage_ai`` — the LLM seam — so these tests
-    need no ``ai`` extra and no model.
+    """Fakes ``internal_api.lineage_ai`` (the LLM seam), so no ``ai`` extra or model is needed.
 
-    Each fake reads ``get_ch_client()`` before answering: the oplog graph and
-    the debug agent's live queries read ClickHouse, so the CLI must run them
-    with ClickHouse attached or the fake raises.
+    Each fake reads ``get_ch_client()``, as the real oplog graph and debug agent do, so the
+    CLI must run them with ClickHouse attached or the fake raises.
     """
 
     async def explain_lineage(table: str, *, question: str | None = None) -> LineageAnswer:

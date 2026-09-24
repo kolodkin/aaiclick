@@ -78,8 +78,7 @@ async def test_debug_result_direct_answer():
 
 
 async def test_debug_result_invokes_lineage_tool():
-    """Tool call loop: model calls query_table with JSON arguments parsed into a dict,
-    receives the result, then gives the final answer."""
+    """Tool-call loop: query_table receives its JSON arguments as a dict, then the model answers."""
     graph = _mock_graph(make_oplog_node(TARGET, "filter", {"input": INPUT}))
     tool_resp = _tool_response("query_table", f'{{"sql": "SELECT count() FROM {TARGET}"}}')
     final_resp = _stop_response("3 rows remain after filter.")

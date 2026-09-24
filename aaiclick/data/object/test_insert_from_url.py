@@ -352,7 +352,7 @@ async def test_insert_from_url_with_where(ctx, fileserver):
     ],
 )
 def test_json_extract_expr(field, col_info, expected):
-    """The generated JSONExtract SQL expression is the contract of this pure function."""
+    """Pure function: the generated JSONExtract SQL expression is the contract."""
     assert _json_extract_expr(field, col_info) == expected
 
 

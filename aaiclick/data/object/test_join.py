@@ -41,7 +41,7 @@ from aaiclick.data.object.join import (
     ],
 )
 def test_resolve_join_keys(kwargs, expected):
-    """The normalized JoinKeys returned by this pure function are its contract."""
+    """Pure function: the normalized JoinKeys are the contract."""
     assert resolve_join_keys(**kwargs) == expected
 
 
@@ -97,9 +97,7 @@ def test_resolve_join_keys_errors(kwargs, match):
 
 # =============================================================================
 # Phase 2: build_join_schema
-#
-# build_join_schema is a pure function: the Schema and projection lists it
-# returns are its contract, so these tests assert them directly.
+# Pure function: the returned Schema and projection lists are the contract.
 # =============================================================================
 
 

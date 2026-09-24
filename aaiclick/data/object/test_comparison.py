@@ -122,7 +122,7 @@ async def test_comparison_result_is_uint8(ctx, rows, rhs):
     ],
 )
 async def test_comparison_with_scalar(ctx, arr, scalar, op, expected):
-    """Test comparison operators with scalar broadcast."""
+    """Comparison operators with scalar broadcast."""
     obj = await create_object_from_value(arr, aai_id=True)
 
     result = op(obj, scalar)

@@ -36,11 +36,9 @@ BINARY_OPERATORS = [
 
 
 async def assert_preview_matches_materialized(lazy):
-    """The core LazyOperator contract: the schema computed at plan time is the
-    schema the materialized result actually has.
+    """Core LazyOperator contract: the plan-time schema is the materialized result's schema.
 
-    Compares only what the preview is responsible for — fieldtype and columns.
-    Table name and engine are set by create_object and are not part of preview.
+    Compares only fieldtype and columns; table name and engine come from create_object.
     """
     preview = lazy.schema
     materialized = await lazy

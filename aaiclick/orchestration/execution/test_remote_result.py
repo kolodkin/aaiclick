@@ -111,14 +111,11 @@ def test_collect_remote_result_returns_payload():
             "container exited with code 137 but wrote no result row",
             id="synthesizes_failure_when_row_missing",
         ),
-        # Even if the container managed to write a success row before being
-        # killed, a cancellation flag must override it — the host's explicit
-        # kill is the source of truth.
+        # A cancellation flag overrides a success row written before the kill — the host's kill wins.
         pytest.param(
             137, None, True, RunnerResult(True, {}, None), "pod", "cancelled", id="cancellation_overrides_payload"
         ),
-        # Timeout error from the vehicle wait takes precedence over the row —
-        # same reasoning as cancellation.
+        # A vehicle-wait timeout overrides the row for the same reason.
         pytest.param(
             -1,
             "Task timed out after 60.0s",

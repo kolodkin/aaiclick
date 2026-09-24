@@ -1,9 +1,5 @@
-"""Postgres-only transport tests: need asyncpg and a live ``LISTEN`` connection.
-
-Kept apart from ``test_events.py`` because importing the Postgres transport
-needs asyncpg; the module skips itself when the ``distributed`` extra is
-absent.
-"""
+"""Postgres transport tests (asyncpg + live ``LISTEN``); kept out of ``test_events.py`` so
+only this module skips when the ``distributed`` extra is absent."""
 
 import asyncio
 

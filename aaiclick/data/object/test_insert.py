@@ -101,7 +101,7 @@ def test_are_types_castable(left, right, expected):
     ],
 )
 async def test_array_insert(ctx, array_a, array_b, expected_result):
-    """Inserting arrays of the same type in place keeps the target rows first, then the source rows."""
+    """Same-type insert keeps the target rows first, then the source rows."""
     obj_a = await create_object_from_value(array_a, aai_id=True)
     obj_b = await create_object_from_value(array_b, aai_id=True)
 
@@ -512,7 +512,7 @@ async def test_mixed_numeric_insert_succeeds(ctx, target, source, expected):
 
 
 async def test_mixed_int_string_insert_fails(ctx):
-    """Test that inserting string array into int array fails with type error."""
+    """Inserting a string array into an int array raises a type error."""
     a = await create_object_from_value([1, 2, 3], aai_id=True)
     b = await create_object_from_value(["a", "b", "c"], aai_id=True)
 

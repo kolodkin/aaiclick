@@ -44,11 +44,9 @@ SETTLE = 0.3
 
 @asynccontextmanager
 async def recording(bus: EventBus) -> AsyncIterator[list[None]]:
-    """Subscribe before the block runs; on exit settle, close the bus and
-    hand back every signal the block produced.
+    """Subscribe, run the block, then settle, close the bus and return its signals.
 
-    A signal published with no subscriber is dropped, so the subscription must
-    already exist when the write under test commits."""
+    Subscribing first matters: a signal published with no subscriber is dropped."""
     signals: list[None] = []
 
     async def consume() -> None:
@@ -165,9 +163,8 @@ def test_get_transport_is_local():
 def test_transport_follows_the_session_not_the_configured_backend(monkeypatch):
     """``AAICLICK_SQL_URL`` describes the process, not every session in it.
 
-    Test harnesses bind their own SQLite engine while the env var names
-    Postgres; picking the transport from the env var then runs ``pg_notify``
-    against SQLite, which is a hard error rather than a no-op."""
+    Harnesses bind SQLite while the env var names Postgres, and ``pg_notify`` against
+    SQLite is a hard error, not a no-op."""
     monkeypatch.setattr(transport_module, "is_postgres", lambda: True)
     engine = create_engine("sqlite://")
     try:

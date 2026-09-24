@@ -127,9 +127,7 @@ def test_check_scope_forbids_too_little():
 
 
 async def test_mcp_mount_admits_an_api_token_and_stores_it(orch_ctx, enabled):
-    """Per-tool RBAC lives in mcp_rbac.py — the mount only needs a principal.
-    The stored principal is what FastMCP filters on: a read token sees no
-    write tools."""
+    """The mount only needs a principal (per-tool RBAC is in mcp_rbac.py); a read token sees no write tools."""
     headers = await api_token_headers(SCOPE_READ, role=ROLE_VIEWER)
 
     async with mcp_http() as client:

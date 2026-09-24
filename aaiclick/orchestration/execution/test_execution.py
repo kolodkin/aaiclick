@@ -757,8 +757,7 @@ async def test_chain_pipeline_execution(orch_ctx):
 @pytest.mark.parametrize(
     "value, expected",
     [
-        # Regression: DICT Objects received as task parameters were
-        # reconstructed as FIELDTYPE_ARRAY, causing explode() to fail.
+        # Regression: DICT task params were rebuilt as FIELDTYPE_ARRAY, breaking explode().
         pytest.param({"x": [1, 2, 3], "y": ["a", "b", "c"]}, FIELDTYPE_DICT, id="dict"),
         pytest.param([10, 20, 30], FIELDTYPE_ARRAY, id="array"),
     ],

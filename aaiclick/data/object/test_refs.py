@@ -24,8 +24,7 @@ from aaiclick.data.object.refs import (
 @pytest.mark.parametrize(
     "ref, expected",
     [
-        # Ephemeral Object refs have no ``persistent`` key — the wire format
-        # stays minimal for the common case.
+        # Ephemeral refs omit ``persistent`` to keep the wire format minimal.
         pytest.param(
             ObjectRef(table="t_123"),
             {"object_type": "object", "table": "t_123"},
@@ -36,8 +35,7 @@ from aaiclick.data.object.refs import (
             {"object_type": "object", "table": "p_kev", "persistent": True},
             id="persistent-emits-flag",
         ),
-        # ``persistent=False`` serializes identically to ``persistent=None`` —
-        # the flag only appears on the wire when truthy.
+        # ``persistent=False`` serializes like ``None`` — the flag appears only when truthy.
         pytest.param(
             ObjectRef(table="t_1", persistent=False),
             {"object_type": "object", "table": "t_1"},

@@ -54,7 +54,7 @@ async def test_array_map_arithmetic(ctx, a_vals, b_vals, operator, expected):
     ],
 )
 async def test_array_map_comparison_bitwise(ctx, a_vals, b_vals, operator, expected):
-    """Test array_map with comparison and bitwise operators (exact integer results)."""
+    """array_map with comparison and bitwise operators (exact integer results)."""
     a = await create_object_from_value(a_vals)
     b = await create_object_from_value(b_vals)
     result = await a.array_map(b, operator)

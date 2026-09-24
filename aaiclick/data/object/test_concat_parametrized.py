@@ -26,7 +26,7 @@ THRESHOLD = 1e-5
     ],
 )
 async def test_array_concat(ctx, array_a, array_b, expected_result):
-    """Test concatenating arrays of the same type preserves every row from both sides."""
+    """Same-type concat preserves every row from both sides."""
     obj_a = await create_object_from_value(array_a)
     obj_b = await create_object_from_value(array_b)
 
@@ -75,7 +75,7 @@ async def test_array_concat_with_scalar_value(ctx, array, scalar_value, expected
     ],
 )
 async def test_array_concat_with_list_value(ctx, array, list_value, expected_result):
-    """Test concatenating array with list value: self first, then the value."""
+    """Concat with a list value: self first, then the value."""
     obj = await create_object_from_value(array)
 
     result = await obj.concat(list_value)
@@ -309,7 +309,7 @@ async def test_concat_nested_dot_column(ctx):
     ],
 )
 async def test_mixed_type_concat_fails(ctx, arr_a, arr_b):
-    """Test that concatenating incompatible types fails with type error."""
+    """Concatenating incompatible types raises a type error."""
     a = await create_object_from_value(arr_a, aai_id=True)
     b = await create_object_from_value(arr_b, aai_id=True)
 

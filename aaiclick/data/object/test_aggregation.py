@@ -16,7 +16,6 @@ from aaiclick import Object, create_object_from_value
 
 THRESHOLD = 1e-5
 
-# Number of items for large array tests
 NUM_ITEMS = 10000
 
 
@@ -233,9 +232,7 @@ async def test_statistics_after_operation(ctx, array_a, array_b, op):
 @pytest.mark.parametrize(
     "values",
     [
-        # Mixed zeros and non-zeros
         pytest.param([0, 5, 0, 5], id="int-mixed-zeros"),
-        # All negative
         pytest.param([-10, -20, -30, -40], id="int-all-negative"),
         pytest.param([-1.5, -2.5, -3.5], id="float-all-negative"),
         # Mixed positive and negative

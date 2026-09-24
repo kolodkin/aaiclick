@@ -212,8 +212,7 @@ async def test_open_object_reads_schema_from_registry(ctx, value, name, expected
     """``open_object`` rebuilds the fieldtype and columns from ``table_registry.schema_doc``."""
     await create_object_from_value(value, name=name, scope="global")
     try:
-        # Registry write goes through the DBLifecycleHandler queue; flush so the
-        # INSERT has committed before we read.
+        # Registry writes queue through DBLifecycleHandler; flush so the INSERT commits before the read.
         lifecycle = get_data_lifecycle()
         assert lifecycle is not None
         await lifecycle.flush()

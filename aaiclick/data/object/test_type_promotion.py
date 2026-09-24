@@ -68,10 +68,7 @@ OPERATOR_CASES = [
 
 @pytest.mark.parametrize("op,ch_func,type_a,type_b", OPERATOR_CASES)
 async def test_operator_result_type(ctx, op, ch_func, type_a, type_b):
-    """Verify _result_value_type matches ClickHouse toTypeName().
-
-    Pure function: the returned type name is the contract, pinned against the engine.
-    """
+    """Pure function: _result_value_type must match ClickHouse toTypeName()."""
     ch = get_ch_client()
     result = await ch.query(f"SELECT toTypeName({ch_func}(CAST(1, '{type_a}'), CAST(1, '{type_b}')))")
     ch_type = result.result_rows[0][0]
@@ -108,10 +105,7 @@ AGG_CASES = [
 
 @pytest.mark.parametrize("agg_func,ch_func,source_type", AGG_CASES)
 async def test_agg_type_promotion(ctx, agg_func, ch_func, source_type):
-    """Verify _determine_agg_result_type matches ClickHouse toTypeName().
-
-    Pure function: the returned type name is the contract, pinned against the engine.
-    """
+    """Pure function: _determine_agg_result_type must match ClickHouse toTypeName()."""
     ch = get_ch_client()
     result = await ch.query(f"SELECT toTypeName({ch_func}(x)) FROM (SELECT CAST(1, '{source_type}') AS x)")
     ch_type = result.result_rows[0][0]
