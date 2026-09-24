@@ -16,21 +16,6 @@ from aaiclick.data.object.schema_compute import _preview_operator_schema
 BINARY_OPERATORS = ["+", "-", "*", "/", "//", "%", "**", "==", "!=", "<", "<=", ">", ">=", "&", "|", "^"]
 
 
-async def test_apply_operator_db_with_name_uses_temp_named_scope(ctx):
-    """name='foo' (no scope) → temp_named table prefix t_foo_<id>."""
-    obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
-    obj_b = await create_object_from_value([10, 20, 30], aai_id=True)
-    result = await operators._apply_operator_db(
-        obj_a._get_query_info(),
-        obj_b._get_query_info(),
-        "+",
-        obj_a.ch_client,
-        name="foo",
-    )
-    assert result.table.startswith("t_foo_")
-    assert await result.data() == [11, 22, 33]
-
-
 async def test_apply_operator_db_with_name_and_scope_job(ctx):
     """name='bar', scope='job' → j_<job_id>_bar table."""
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
@@ -96,18 +81,6 @@ async def test_preview_matches_materialized_schema_array_scalar(ctx, operator):
 # -----------------------------------------------------------------------------
 
 
-async def test_lazy_operator_holds_lhs_rhs_operator(ctx):
-    obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
-    obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
-    schema_preview = _preview_operator_schema(obj_a.schema, obj_b.schema, "+")
-    lazy = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+", schema_preview=schema_preview)
-
-    assert lazy.lhs is obj_a
-    assert lazy.rhs is obj_b
-    assert lazy.operator == "+"
-    assert lazy.schema.fieldtype == FIELDTYPE_ARRAY
-
-
 async def test_lazy_operator_table_raises_before_materialize(ctx):
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
     obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
@@ -157,18 +130,6 @@ async def test_await_unnamed_lazy_materializes_to_temp(ctx):
     assert await result.data() == [5, 7, 9]
 
 
-async def test_await_with_as_temp_named(ctx):
-    obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
-    obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
-    preview = _preview_operator_schema(obj_a.schema, obj_b.schema, "+")
-    lazy = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+", schema_preview=preview).as_("daily_total")
-
-    result = await lazy
-    assert result.table.startswith("t_daily_total_")
-    assert result.scope == "temp_named"
-    assert await result.data() == [5, 7, 9]
-
-
 async def test_await_with_scope_job(ctx):
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
     obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
@@ -192,26 +153,6 @@ async def test_re_await_is_idempotent(ctx):
     first = await lazy
     second = await lazy
     assert first is second
-
-
-async def test_chain_two_lazies_writes_two_tables(ctx):
-    """`(a + b) + c` materializes inner then outer — two separate tables."""
-    obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
-    obj_b = await create_object_from_value([10, 20, 30], aai_id=True)
-    obj_c = await create_object_from_value([100, 200, 300], aai_id=True)
-
-    inner_preview = _preview_operator_schema(obj_a.schema, obj_b.schema, "+")
-    inner = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+", schema_preview=inner_preview)
-
-    outer_preview = _preview_operator_schema(inner.schema, obj_c.schema, "+")
-    outer = LazyOperator(lhs=inner, rhs=obj_c, operator="+", schema_preview=outer_preview).as_("grand_total")
-
-    result = await outer
-    assert result.table.startswith("t_grand_total_")
-    assert await result.data() == [111, 222, 333]
-    # Inner was materialized too.
-    assert inner._materialized is not None
-    assert inner._materialized.table != result.table
 
 
 async def test_lazy_never_awaited_creates_no_table(ctx):

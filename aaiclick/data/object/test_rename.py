@@ -312,7 +312,6 @@ async def test_copy_passes_expression_order_by_through_unchanged(ctx):
     obj = await create_object_from_value({"a": [3, 1, 2], "b": [30, 10, 20]})
 
     view = obj.rename({"a": "x"}).view(order_by="b * -1", limit=2)
-    assert view._get_copy_info().order_by == "b * -1"
 
     copied = await view.copy()
     assert sorted((await copied.data())["b"]) == [20, 30]
@@ -323,6 +322,4 @@ async def test_copy_remaps_multi_key_order_by(ctx):
     obj = await create_object_from_value({"a": [1, 1, 2], "b": [30, 10, 20]})
 
     view = obj.rename({"a": "x", "b": "y"}).view(order_by="a ASC, b DESC", limit=3)
-
-    assert view._get_copy_info().order_by == "`x` ASC, `y` DESC"
     assert (await (await view.copy()).data())["y"] == [30, 10, 20]

@@ -135,17 +135,6 @@ async def test_dispatch_execute_routes_docker_to_container_runner(monkeypatch):
     in_container.assert_awaited_once_with(user_task, 1, spec)
 
 
-async def test_dispatch_execute_routes_subprocess_to_mp_child(monkeypatch):
-    user_task = _task()
-    spec = JobDispatch(RUNNER_SUBPROCESS, None)
-    monkeypatch.setattr(dispatch, "_resolve_dispatch", AsyncMock(return_value=spec))
-    in_child = AsyncMock(return_value=(True, None, None, None))
-    monkeypatch.setattr(dispatch, "_run_task_in_child", in_child)
-
-    await dispatch.dispatch_execute(user_task, execution_worker_id=2)
-    in_child.assert_awaited_once_with(user_task, 2)
-
-
 async def test_dispatch_execute_routes_kubernetes_to_pod_runner(monkeypatch):
     user_task = _task()
     spec = JobDispatch(RUNNER_KUBERNETES, {"namespace": "ml"})

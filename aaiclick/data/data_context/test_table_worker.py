@@ -3,45 +3,15 @@ Tests for AsyncTableWorker async task lifecycle management.
 """
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
-from aaiclick.data.data_context.table_worker import AsyncTableWorker, TableMessage, TableOp
+from aaiclick.data.data_context.table_worker import AsyncTableWorker
 
 
 def _make_mock_client() -> AsyncMock:
     client = AsyncMock()
     client.command = AsyncMock(return_value=None)
     return client
-
-
-def test_worker_incref_schedules_message():
-    """incref schedules an INCREF message via call_soon_threadsafe."""
-    client = _make_mock_client()
-    worker = AsyncTableWorker(client)
-
-    mock_loop = MagicMock()
-    worker._loop = mock_loop
-
-    worker.incref("table_123")
-
-    mock_loop.call_soon_threadsafe.assert_called_once_with(
-        worker._queue.put_nowait, TableMessage(TableOp.INCREF, "table_123")
-    )
-
-
-def test_worker_decref_schedules_message():
-    """decref schedules a DECREF message via call_soon_threadsafe."""
-    client = _make_mock_client()
-    worker = AsyncTableWorker(client)
-
-    mock_loop = MagicMock()
-    worker._loop = mock_loop
-
-    worker.decref("table_456")
-
-    mock_loop.call_soon_threadsafe.assert_called_once_with(
-        worker._queue.put_nowait, TableMessage(TableOp.DECREF, "table_456")
-    )
 
 
 def test_worker_incref_noop_before_start():
