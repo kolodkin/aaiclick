@@ -186,6 +186,27 @@ jobs:
             --strict-markers
           report-name: "Docker Runner E2E (${{ inputs.wheel_source }})"
 
+      - name: Dump task diagnostics on failure
+        if: failure()
+        run: |
+          echo "===== tasks / jobs table ====="
+          uv run --no-project python - <<'PY' || true
+          import asyncio, asyncpg
+          async def main():
+              c = await asyncpg.connect("postgresql://aaiclick:secret@localhost:5432/aaiclick")
+              for r in await c.fetch("select id,name,status,error from jobs order by id"):
+                  print("JOB", dict(r))
+              for r in await c.fetch("select id,entrypoint,status,error from tasks order by id"):
+                  print("TASK", dict(r))
+              for r in await c.fetch("select task_id,run_epoch,success,error from remote_task_results order by task_id"):
+                  print("RESULT", dict(r))
+              await c.close()
+          asyncio.run(main())
+          PY
+          echo "===== task_logs (ClickHouse) ====="
+          curl -fsSL --user default:click123 "http://localhost:8123/" \
+            --data-binary "SELECT task_id, run_id, seq, stream, level, line FROM task_logs ORDER BY task_id, run_id, seq FORMAT TSV" || true
+
       - name: Cleanup docker resources
         if: always()
         run: docker system prune -af
