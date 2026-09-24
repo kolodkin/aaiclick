@@ -5,11 +5,14 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
+from aaiclick.orchestration.background.background_worker import BackgroundWorker
+from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 from aaiclick.orchestration.models import SQLModel
 from aaiclick.snowflake import get_snowflake_id
 
@@ -30,14 +33,23 @@ async def bg_db():
     shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-async def insert_job(engine, job_id, *, status="RUNNING"):
+def make_worker(engine) -> BackgroundWorker:
+    """A BackgroundWorker on ``engine`` with a mocked ClickHouse client."""
+    worker = BackgroundWorker()
+    worker._engine = engine
+    worker._handler = SqliteBackgroundHandler()
+    worker._ch_client = AsyncMock()
+    return worker
+
+
+async def insert_job(engine, job_id, *, status="RUNNING", preservation_mode="NONE"):
     async with AsyncSession(engine) as session:
         await session.execute(
             text(
-                "INSERT INTO jobs (id, name, status, run_type, created_at) "
-                "VALUES (:id, 'test_job', :status, 'MANUAL', :now)"
+                "INSERT INTO jobs (id, name, status, run_type, preservation_mode, created_at) "
+                "VALUES (:id, 'test_job', :status, 'MANUAL', :mode, :now)"
             ),
-            {"id": job_id, "status": status, "now": utc_now()},
+            {"id": job_id, "status": status, "mode": preservation_mode, "now": utc_now()},
         )
         await session.commit()
 

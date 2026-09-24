@@ -345,6 +345,20 @@ async def test_run_job_image_and_git_mutually_exclusive():
         await run_job("j", "m.f", image="python:3.12", git_sha="a" * 40)
 
 
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        pytest.param({"image": "python:3.12"}, id="image"),
+        pytest.param({"git_sha": "a" * 40}, id="git-sha"),
+        pytest.param({"dockerfile": "docker/Dockerfile"}, id="dockerfile"),
+    ],
+)
+async def test_run_job_rejects_image_overrides_without_container_runner(orch_ctx, overrides):
+    # No registration ⇒ subprocess runner; the override has nowhere to go.
+    with pytest.raises(ValueError, match="docker/kubernetes"):
+        await run_job("no_reg", "myapp.no_reg", **overrides)
+
+
 async def test_run_job_shell_creates_shell_task(orch_ctx):
     job = await run_job(
         "shell_task",

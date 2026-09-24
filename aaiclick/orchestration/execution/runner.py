@@ -657,14 +657,7 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
 
     # Wire dependency: each returned item depends on the parent task
     for item in task_items:
-        item.previous_dependencies.append(
-            Dependency(
-                previous_id=parent_task_id,
-                previous_type=DEPENDENCY_TASK,
-                next_id=item.id,
-                next_type=item._dep_next_type,
-            )
-        )
+        item.link_previous(parent_task_id, DEPENDENCY_TASK)
 
     await commit_tasks(task_items, job_id, extra_dependencies=hold_rows)
     await _pin_child_inputs(task_items)

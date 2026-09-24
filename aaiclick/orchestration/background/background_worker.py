@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engin
 
 from aaiclick.async_wait import wait_or_timeout
 from aaiclick.backend import is_chdb, parse_ch_url
-from aaiclick.oplog.cleanup import TableOwner, lineage_aware_drop
+from aaiclick.oplog.cleanup import drop_tables
 
 from ...datetime_utils import utc_now
 from ..env import get_db_url
@@ -72,6 +72,14 @@ async def _delete_table_refs(session: AsyncSession, table_names: list[str]) -> N
             text(f"DELETE FROM {ref_table} WHERE table_name IN ({ph})"),
             params,
         )
+
+
+async def _delete_registry_rows(session: AsyncSession, table_names: list[str]) -> None:
+    """Forget dropped tables in ``table_registry``."""
+    if not table_names:
+        return
+    ph, params = in_clause(table_names, "tn")
+    await session.execute(text(f"DELETE FROM table_registry WHERE table_name IN ({ph})"), params)
 
 
 class BackgroundWorker:
@@ -232,14 +240,12 @@ class BackgroundWorker:
         run_refs remain.
 
         Joins table_registry and jobs in a single SQL query to skip
-        FULL-preservation jobs in-database. Owner metadata flows through
-        to lineage_aware_drop so any sample tables it creates inherit
-        the job_id and get cleaned up when the job expires.
+        FULL-preservation jobs in-database.
         """
         async with AsyncSession(self._engine) as session:
             result = await session.execute(
                 text(
-                    "SELECT DISTINCT tcr.table_name, tr.job_id, tr.task_id, tr.run_id "
+                    "SELECT DISTINCT tcr.table_name "
                     "FROM table_context_refs tcr "
                     "LEFT JOIN table_registry tr ON tr.table_name = tcr.table_name "
                     "LEFT JOIN jobs j ON j.id = tr.job_id "
@@ -257,40 +263,14 @@ class BackgroundWorker:
                 ),
                 {"full_mode": PRESERVATION_FULL},
             )
-            rows = result.fetchall()
-            if not rows:
+            table_names = [row[0] for row in result.fetchall()]
+            if not table_names:
                 return
 
-            dropped_tables: list[str] = []
-            for table_name, job_id, task_id, run_id in rows:
-                owner = TableOwner(job_id=job_id, task_id=task_id, run_id=run_id)
-                try:
-                    await lineage_aware_drop(self._ch_client, table_name, owner=owner)
-                except Exception:
-                    logger.warning("Failed to drop CH table %s", table_name, exc_info=True)
-                dropped_tables.append(table_name)
-
-            if dropped_tables:
-                await _delete_table_refs(session, dropped_tables)
-                ph, params = in_clause(dropped_tables, "tn")
-                await session.execute(
-                    text(f"DELETE FROM table_registry WHERE table_name IN ({ph})"),
-                    params,
-                )
-
+            dropped_tables = await drop_tables(self._ch_client, table_names)
+            await _delete_table_refs(session, dropped_tables)
+            await _delete_registry_rows(session, dropped_tables)
             await session.commit()
-
-    async def _lookup_table_owners(self, table_names: list[str]) -> dict[str, TableOwner]:
-        """Look up ownership metadata from table_registry for a list of table names."""
-        if not table_names:
-            return {}
-        async with AsyncSession(self._engine) as session:
-            ph, params = in_clause(table_names, "tn")
-            result = await session.execute(
-                text(f"SELECT table_name, job_id, task_id, run_id FROM table_registry WHERE table_name IN ({ph})"),
-                params,
-            )
-            return {row[0]: TableOwner(job_id=row[1], task_id=row[2], run_id=row[3]) for row in result.fetchall()}
 
     async def _cleanup_expired_jobs(self) -> None:
         """Delete all data for expired jobs and orphaned resources.
@@ -348,21 +328,22 @@ class BackgroundWorker:
             )
             table_names = [row[0] for row in result.fetchall()]
 
-            # 2. Drop all non-global CH tables (includes samples registered in table_registry)
-            for table_name in table_names:
-                try:
-                    await self._ch_client.command(f"DROP TABLE IF EXISTS {table_name}")
-                except Exception:
-                    logger.debug("Failed to drop table %s", table_name, exc_info=True)
+            # 2. Drop all non-global CH tables (includes samples registered in
+            #    table_registry). Forget the ones that are gone; keep the job
+            #    until the rest drop, so nothing is orphaned behind a failure.
+            dropped_tables = await drop_tables(self._ch_client, table_names)
+            if len(dropped_tables) < len(table_names):
+                await _delete_registry_rows(session, dropped_tables)
+                await session.commit()
+                raise RuntimeError(f"{len(table_names) - len(dropped_tables)} table(s) of job {job_id} not dropped yet")
 
-            # operation_log and task_logs live on CH, not SQL. Let a failure
-            # propagate: _cleanup_expired_jobs logs it and retries the whole
-            # (idempotent) deletion next cycle — better than committing the SQL
-            # deletes while the CH rows are orphaned behind a swallowed error.
+            # 3. Purge CH log rows. A failure propagates: _cleanup_expired_jobs
+            #    logs it and retries the whole (idempotent) deletion next cycle
+            #    rather than committing the SQL deletes over orphaned CH rows.
             await self._ch_client.command(f"ALTER TABLE operation_log DELETE WHERE job_id = {job_id}")
             await self._ch_client.command(f"ALTER TABLE task_logs DELETE WHERE job_id = {job_id}")
 
-            # 4. Delete SQL metadata
+            # 4. Delete SQL metadata (registry rows for the exempt p_* tables too)
             await session.execute(
                 text("DELETE FROM table_registry WHERE job_id = :job_id"),
                 {"job_id": job_id},
@@ -441,17 +422,8 @@ class BackgroundWorker:
             )
             orphan_tables = [row[0] for row in result.fetchall()]
 
-            for table_name in orphan_tables:
-                try:
-                    await self._ch_client.command(f"DROP TABLE IF EXISTS {table_name}")
-                    logger.debug("Dropped orphaned table %s", table_name)
-                except Exception:
-                    logger.debug("Failed to drop orphaned table %s", table_name, exc_info=True)
-
-            await session.execute(
-                text("DELETE FROM table_registry WHERE job_id IS NULL AND created_at < :cutoff"),
-                {"cutoff": cutoff},
-            )
+            dropped_tables = await drop_tables(self._ch_client, orphan_tables)
+            await _delete_registry_rows(session, dropped_tables)
             await session.commit()
 
         # operation_log still lives on CH — prune orphaned rows there.

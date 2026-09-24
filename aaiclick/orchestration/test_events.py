@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from aaiclick.backend import is_postgres
 
+from .background.handler import COMPLETE_JOB_SQL
 from .events import (
     STATE_LISTENING,
     EventBus,
@@ -27,6 +28,7 @@ from .events.local import LocalTransport
 from .events.state import TransportState
 from .execution.claiming import cancel_job, update_task_status
 from .execution.execution_worker import _set_pending_failure_cleanup, register_execution_worker
+from .execution.pg_handler import CLAIM_NEXT_TASK_SQL
 from .factories import create_job
 from .jobs import get_tasks_for_job
 from .models import TASK_RUNNING
@@ -106,6 +108,13 @@ def test_event_bus_context_swaps_and_restores():
         pytest.param("INSERT INTO table_run_refs (table_name) VALUES ('t')", False, id="unwatched-table"),
         pytest.param("SELECT id FROM tasks WHERE status = :s", False, id="select-only"),
         pytest.param("UPDATE tasks_archive SET x = 1", False, id="prefix-not-whole-word"),
+        pytest.param(CLAIM_NEXT_TASK_SQL, True, id="claim-cte"),
+        pytest.param(COMPLETE_JOB_SQL, True, id="complete-job-comment-header"),
+        pytest.param("WITH t AS (SELECT id FROM tasks) SELECT * FROM t", False, id="cte-select-only"),
+        pytest.param("-- callers then update tasks\nSELECT id FROM tasks", False, id="write-only-in-line-comment"),
+        pytest.param("/* delete from jobs later */ SELECT 1", False, id="write-only-in-block-comment"),
+        pytest.param("UPDATE public.tasks SET status = 'x'", True, id="schema-qualified"),
+        pytest.param('UPDATE ONLY "public"."jobs" SET status = \'x\'', True, id="only-quoted-schema"),
     ],
 )
 def test_statement_touches_watched(sql, expected):
@@ -269,6 +278,15 @@ async def test_cancel_job_publishes(orch_ctx, live_bus):
 async def test_unrelated_write_publishes_nothing(orch_ctx, live_bus):
     async with recording(live_bus) as signals:
         await register_execution_worker()
+    assert signals == []
+
+
+async def test_write_matching_no_row_publishes_nothing(orch_ctx, live_bus):
+    """An idle worker's claim poll commits a watched write that changes nothing; it must not signal."""
+    async with recording(live_bus) as signals:
+        async with get_sql_session() as session:
+            await session.execute(text("UPDATE tasks SET status = :status WHERE id = -1"), {"status": TASK_RUNNING})
+            await session.commit()
     assert signals == []
 
 

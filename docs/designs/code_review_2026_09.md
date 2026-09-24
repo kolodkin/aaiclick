@@ -11,18 +11,6 @@ is fixed.
 
 # Medium
 
-## Orchestration correctness
-
-- **The Postgres claim CTE never triggers change signals** —
-  `aaiclick/orchestration/events/hooks.py`, `_WRITE_RE`. Matches only
-  statements starting with INSERT/UPDATE/DELETE; `claim_next_task.sql` starts
-  with `WITH`. No `pg_notify` for claims or job start on Postgres.
-- **`run_job` silently drops `image` / `git_*` for unregistered names** —
-  `aaiclick/orchestration/registered_jobs.py`, `run_job()`.
-- **`_cleanup_unreferenced_tables` deletes registry rows even when the DROP
-  failed** — `aaiclick/orchestration/background/background_worker.py`. The
-  table is then invisible to every future sweep.
-
 ## Data correctness
 
 - **Renamed-then-selected field falls back to non-nullable Float64** —

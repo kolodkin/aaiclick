@@ -16,13 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 
 from ...datetime_utils import utc_now
-from .conftest import get_run_refs, insert_job, insert_pin_ref, insert_run_ref
+from .conftest import get_run_refs, insert_job, insert_pin_ref, insert_run_ref, make_worker
 from .test_failure_cleanup import (
     _get_job_status,
     _get_pin_refs,
     _get_task_status,
     _insert_task,
-    _make_worker,
     run_cleanup_pass,
 )
 
@@ -61,7 +60,7 @@ async def test_cancelled_cleanup_settles_unowned_task(bg_db):
     await insert_pin_ref(bg_db, "t_upstream", 100)
     await insert_pin_ref(bg_db, "t_upstream", 200)
 
-    await _make_worker(bg_db)._process_cancelled_cleanup()
+    await make_worker(bg_db)._process_cancelled_cleanup()
 
     status, _, _, _, _, completed_at = await _get_task_status(bg_db, 100)
     assert status == "CANCELLED"
@@ -82,7 +81,7 @@ async def test_cancelled_cleanup_waits_for_owning_worker(bg_db):
     await insert_run_ref(bg_db, "t_partial", "111")
     await insert_pin_ref(bg_db, "t_upstream", 100)
 
-    await _make_worker(bg_db)._process_cancelled_cleanup()
+    await make_worker(bg_db)._process_cancelled_cleanup()
 
     status, _, _, _, _, _ = await _get_task_status(bg_db, 100)
     assert status == "PENDING_CANCELLED_CLEANUP"
@@ -97,7 +96,7 @@ async def test_cancelled_cleanup_fails_job_after_sibling_abort(bg_db):
     await _insert_task(bg_db, 100, 1000, status="FAILED")
     await _insert_task(bg_db, 101, 1000, status="PENDING_CANCELLED_CLEANUP")
 
-    await _make_worker(bg_db)._process_cancelled_cleanup()
+    await make_worker(bg_db)._process_cancelled_cleanup()
 
     status, _, _, _, _, _ = await _get_task_status(bg_db, 101)
     assert status == "CANCELLED"
@@ -112,7 +111,7 @@ async def test_dead_worker_releases_cancelled_task(bg_db):
     await _insert_task(
         bg_db, 100, 1000, status="PENDING_CANCELLED_CLEANUP", run_ids="[111]", execution_worker_id=DEAD_WORKER_ID
     )
-    worker = _make_worker(bg_db)
+    worker = make_worker(bg_db)
 
     await worker._cleanup_dead_workers()
     assert await _get_worker_ownership(bg_db, 100) is None

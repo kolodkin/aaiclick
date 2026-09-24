@@ -67,7 +67,7 @@ Graph traversal over `operation_log`. `backward_oplog()` traces upstream lineage
 
 # Table Lifecycle & Cleanup
 
-**Implementation**: `aaiclick/oplog/cleanup.py` — see `lineage_aware_drop()`, `aaiclick/orchestration/background/background_worker.py` — see `BackgroundWorker._cleanup_unreferenced_tables()` and `BackgroundWorker._cleanup_expired_jobs()`
+**Implementation**: `aaiclick/oplog/cleanup.py` — see `drop_tables()`, `aaiclick/orchestration/background/background_worker.py` — see `BackgroundWorker._cleanup_unreferenced_tables()` and `BackgroundWorker._cleanup_expired_jobs()`
 
 All cleanup is job-driven. The per-job `preservation_mode` gates what cleanup does:
 
