@@ -29,7 +29,7 @@ from sqlalchemy import create_engine, text
 from aaiclick.backend import is_chdb, is_local, parse_ch_url
 from aaiclick.data.data_context import ChClient, get_ch_client
 from aaiclick.data.models import FIELDTYPE_ARRAY
-from aaiclick.oplog.lineage import OplogGraph, OplogNode
+from aaiclick.oplog.lineage import OplogNode
 from aaiclick.oplog.migrate import ch_upgrade
 from aaiclick.oplog.models import clear_schema_cache
 from aaiclick.orchestration.migrate import get_alembic_config
@@ -223,11 +223,6 @@ def make_oplog_node(
         task_id=None,
         job_id=None,
     )
-
-
-def make_oplog_graph(*tables: str) -> OplogGraph:
-    """An edgeless graph whose nodes are ``tables`` — enough to define a scope."""
-    return OplogGraph(nodes=[make_oplog_node(t, "add") for t in tables], edges=[])
 
 
 def _pg_connect(dbname: str):
