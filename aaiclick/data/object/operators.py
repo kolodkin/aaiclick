@@ -27,7 +27,7 @@ Every value-column operator follows the same two-stage pattern:
   ``literals.py`` — so no table is created for it.
 
 Shared schema-computation helpers (``_compute_operator_schema``,
-``_preview_operator_schema``, ``_result_value_type``) live in the neutral
+``_result_value_type``) live in the neutral
 ``schema_compute.py`` module so
 both ``_plan_operator`` (preview) and ``_apply_operator_db`` (materialize)
 hit the same code — no drift between preview and result schemas.

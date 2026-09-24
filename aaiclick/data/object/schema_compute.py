@@ -93,8 +93,8 @@ def _compute_operator_schema(
     "b") whose ``aai_id`` column propagates — or ``None`` when neither does.
 
     Single source of truth for fieldtype/type/nullable promotion and aai_id
-    routing, shared between ``_preview_operator_schema`` (sync
-    pre-materialize preview) and ``_apply_operator_db`` (materialize-time).
+    routing, shared between ``_plan_operator`` (sync pre-materialize preview)
+    and ``_apply_operator_db`` (materialize-time).
     """
     a_is_array = fieldtype_a == FIELDTYPE_ARRAY
     b_is_array = fieldtype_b == FIELDTYPE_ARRAY
@@ -236,29 +236,6 @@ def _preview_unique_schema(input_value_type: str, input_nullable: bool) -> Schem
 def _preview_nunique_schema() -> Schema:
     """Sync preview of ``operators.nunique_agg`` — scalar UInt64 count."""
     return Schema(fieldtype=FIELDTYPE_SCALAR, columns={"value": ColumnInfo("UInt64")})
-
-
-def _preview_operator_schema(schema_a: Schema, schema_b: Schema, operator: str) -> Schema:
-    """Sync preview of the Schema that ``_apply_operator_db`` will produce.
-
-    Thin wrapper that adapts ``Schema`` operands to ``_compute_operator_schema``
-    — the actual promotion/aai_id logic lives there so preview can't drift
-    from materialize.
-    """
-    col_a = schema_a.columns.get("value")
-    col_b = schema_b.columns.get("value")
-    schema, _ = _compute_operator_schema(
-        fieldtype_a=schema_a.fieldtype,
-        fieldtype_b=schema_b.fieldtype,
-        type_a=col_a.type if col_a is not None else "Float64",
-        type_b=col_b.type if col_b is not None else "Float64",
-        nullable_a=col_a.nullable if col_a is not None else False,
-        nullable_b=col_b.nullable if col_b is not None else False,
-        aai_id_a=schema_a.columns.get(AAI_ID_COLUMN),
-        aai_id_b=schema_b.columns.get(AAI_ID_COLUMN),
-        operator=operator,
-    )
-    return schema
 
 
 # String/regex operator key → (SQL expression template, result type) — single
