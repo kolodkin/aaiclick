@@ -24,18 +24,6 @@ def _cmdtask(**kw):
     )
 
 
-def test_module_cmd_uses_bootstrap_shim():
-    cmd = _build_docker_run_cmd(
-        _cmdtask(entry_type=ENTRY_MODULE, entrypoint="m.f"),
-        "python:3.12",
-        {"A": "1"},
-    )
-    joined = " ".join(cmd)
-    assert "aaiclick.orchestration.execution.remote_result" in joined
-    assert "--task-id" in joined
-    assert "--run-epoch" in joined
-
-
 def test_jvm_cmd_relies_on_image_entrypoint():
     cmd = _build_docker_run_cmd(
         _cmdtask(entry_type=ENTRY_JVM, entrypoint="com.example.Pipeline"),

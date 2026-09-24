@@ -131,30 +131,27 @@ async def test_try_complete_job_empty_job_is_noop(bg_db):
     assert error is None
 
 
-async def test_try_complete_job_all_completed_marks_completed(bg_db):
-    """All tasks COMPLETED → job COMPLETED with completed_at set."""
+@pytest.mark.parametrize(
+    "statuses, expected_status, expected_error",
+    [
+        pytest.param(["COMPLETED", "COMPLETED", "COMPLETED"], "COMPLETED", None, id="all_completed"),
+        # Any FAILED task among terminal statuses → job FAILED with error message.
+        pytest.param(["COMPLETED", "FAILED", "COMPLETED"], "FAILED", JOB_FAILED_ERROR, id="any_failed"),
+        # CANCELLED tasks are terminal and not failed → job COMPLETED.
+        pytest.param(["COMPLETED", "CANCELLED"], "COMPLETED", None, id="cancelled_is_terminal_non_failed"),
+    ],
+)
+async def test_try_complete_job_all_terminal(bg_db, statuses, expected_status, expected_error):
+    """All tasks terminal → job COMPLETED, or FAILED if any task failed; completed_at set."""
     await insert_job(bg_db, 1)
-    await _insert_tasks(bg_db, 1, ["COMPLETED", "COMPLETED", "COMPLETED"])
+    await _insert_tasks(bg_db, 1, statuses)
 
     await _run_try_complete(bg_db, 1)
 
     status, completed_at, error = await _get_job(bg_db, 1)
-    assert status == "COMPLETED"
+    assert status == expected_status
     assert completed_at is not None
-    assert error is None
-
-
-async def test_try_complete_job_any_failed_marks_failed(bg_db):
-    """Any FAILED task among terminal statuses → job FAILED with error message."""
-    await insert_job(bg_db, 1)
-    await _insert_tasks(bg_db, 1, ["COMPLETED", "FAILED", "COMPLETED"])
-
-    await _run_try_complete(bg_db, 1)
-
-    status, completed_at, error = await _get_job(bg_db, 1)
-    assert status == "FAILED"
-    assert completed_at is not None
-    assert error == JOB_FAILED_ERROR
+    assert error == expected_error
 
 
 @pytest.mark.parametrize(
@@ -172,42 +169,27 @@ async def test_try_complete_job_non_terminal_is_noop(bg_db, non_terminal):
     assert completed_at is None
 
 
-async def test_try_complete_job_cancelled_counts_as_terminal_non_failed(bg_db):
-    """CANCELLED tasks are terminal and not failed → job COMPLETED."""
-    await insert_job(bg_db, 1)
-    await _insert_tasks(bg_db, 1, ["COMPLETED", "CANCELLED"])
-
-    await _run_try_complete(bg_db, 1)
-
-    status, _, _ = await _get_job(bg_db, 1)
-    assert status == "COMPLETED"
-
-
 # --- Cascade UPSTREAM_FAILED tests ---
 
 
-async def test_roll_up_job_all_completed_marks_completed(bg_db):
-    """The shared worker recipe: all tasks terminal → job COMPLETED."""
+@pytest.mark.parametrize(
+    "statuses, expected_status, expected_error",
+    [
+        pytest.param(["COMPLETED", "COMPLETED"], "COMPLETED", None, id="all_completed"),
+        pytest.param(["COMPLETED", "FAILED"], "FAILED", JOB_FAILED_ERROR, id="any_failed"),
+    ],
+)
+async def test_roll_up_job_all_terminal(bg_db, statuses, expected_status, expected_error):
+    """The shared worker recipe: all tasks terminal → job COMPLETED, or FAILED if any task failed."""
     await insert_job(bg_db, 61)
-    await _insert_tasks(bg_db, 61, ["COMPLETED", "COMPLETED"])
+    await _insert_tasks(bg_db, 61, statuses)
 
     await _run_roll_up(bg_db, 61)
 
     status, completed_at, error = await _get_job(bg_db, 61)
-    assert status == "COMPLETED"
+    assert status == expected_status
     assert completed_at is not None
-    assert error is None
-
-
-async def test_roll_up_job_any_failed_marks_failed(bg_db):
-    await insert_job(bg_db, 62)
-    await _insert_tasks(bg_db, 62, ["COMPLETED", "FAILED"])
-
-    await _run_roll_up(bg_db, 62)
-
-    status, _, error = await _get_job(bg_db, 62)
-    assert status == "FAILED"
-    assert error == JOB_FAILED_ERROR
+    assert error == expected_error
 
 
 async def test_roll_up_job_non_terminal_is_noop(bg_db):

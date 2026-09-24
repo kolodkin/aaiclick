@@ -1,8 +1,10 @@
 """Tests for scheduled job creation in BackgroundWorker."""
 
 import json
+import os
 from datetime import datetime, timedelta
 
+import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -16,8 +18,6 @@ from ...datetime_utils import utc_now
 
 async def _get_engine(orch_ctx):
     """Create a standalone async engine matching the test DB."""
-    import os
-
     url = os.environ["AAICLICK_SQL_URL"]
     return create_async_engine(url, echo=False)
 
@@ -133,39 +133,19 @@ async def test_check_schedules_optimistic_lock_prevents_duplicates(orch_ctx):
     await worker._engine.dispose()
 
 
-async def test_check_schedules_skips_disabled_jobs(orch_ctx):
-    """Disabled registered jobs should not create runs."""
-    reg = await register_job(
-        name="disabled_sched",
-        entrypoint="myapp.disabled",
-        schedule="* * * * *",
-        enabled=False,
-    )
-
-    worker = BackgroundWorker()
-    worker._engine = await _get_engine(orch_ctx)
-    worker._ch_client = None
-
-    await worker._check_schedules()
-
-    async with get_sql_session() as session:
-        result = await session.execute(
-            text("SELECT COUNT(*) FROM jobs WHERE registered_job_id = :reg_id"),
-            {"reg_id": reg.id},
-        )
-        count = result.scalar_one()
-
-    assert count == 0
-
-    await worker._engine.dispose()
-
-
-async def test_check_schedules_skips_no_schedule_jobs(orch_ctx):
-    """Registered jobs without a schedule should not create runs."""
-    reg = await register_job(
-        name="no_sched",
-        entrypoint="myapp.no_sched",
-    )
+@pytest.mark.parametrize(
+    "registration",
+    [
+        pytest.param(
+            {"name": "disabled_sched", "entrypoint": "myapp.disabled", "schedule": "* * * * *", "enabled": False},
+            id="disabled",
+        ),
+        pytest.param({"name": "no_sched", "entrypoint": "myapp.no_sched"}, id="no_schedule"),
+    ],
+)
+async def test_check_schedules_skips_unschedulable_jobs(orch_ctx, registration):
+    """Disabled registered jobs and ones without a schedule should not create runs."""
+    reg = await register_job(**registration)
 
     worker = BackgroundWorker()
     worker._engine = await _get_engine(orch_ctx)

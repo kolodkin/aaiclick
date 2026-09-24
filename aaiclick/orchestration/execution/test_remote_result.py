@@ -9,6 +9,7 @@ container. See the chdb single-session constraint in
 
 from __future__ import annotations
 
+import pytest
 from sqlmodel import select
 
 from ..factories import create_job
@@ -98,25 +99,37 @@ def test_collect_remote_result_returns_payload():
     assert result == payload
 
 
-def test_collect_remote_result_synthesizes_failure_when_row_missing():
-    result = collect_remote_result(137, None, False, None, "container")
-    assert result.success is False
-    assert result.error and "exited with code 137" in result.error
-
-
-def test_collect_remote_result_cancellation_overrides_payload():
-    """Even if the container managed to write a success row before being
-    killed, a cancellation flag must override it — the host's explicit
-    kill is the source of truth."""
-    payload = RunnerResult(True, {}, None)
-    result = collect_remote_result(137, None, True, payload, "pod")
-    assert result.success is False
-    assert result.error == "cancelled"
-
-
-def test_collect_remote_result_vehicle_error_overrides_payload():
-    """Timeout error from the vehicle wait takes precedence over the row —
-    same reasoning as cancellation."""
-    result = collect_remote_result(-1, "Task timed out after 60.0s", False, None, "container")
-    assert result.success is False
-    assert "timed out" in (result.error or "")
+@pytest.mark.parametrize(
+    "exit_code, error, was_cancelled, payload, vehicle_name, expected_error",
+    [
+        pytest.param(
+            137,
+            None,
+            False,
+            None,
+            "container",
+            "container exited with code 137 but wrote no result row",
+            id="synthesizes_failure_when_row_missing",
+        ),
+        # Even if the container managed to write a success row before being
+        # killed, a cancellation flag must override it — the host's explicit
+        # kill is the source of truth.
+        pytest.param(
+            137, None, True, RunnerResult(True, {}, None), "pod", "cancelled", id="cancellation_overrides_payload"
+        ),
+        # Timeout error from the vehicle wait takes precedence over the row —
+        # same reasoning as cancellation.
+        pytest.param(
+            -1,
+            "Task timed out after 60.0s",
+            False,
+            None,
+            "container",
+            "Task timed out after 60.0s",
+            id="vehicle_error_overrides_payload",
+        ),
+    ],
+)
+def test_collect_remote_result_failure(exit_code, error, was_cancelled, payload, vehicle_name, expected_error):
+    result = collect_remote_result(exit_code, error, was_cancelled, payload, vehicle_name)
+    assert result == RunnerResult(False, None, expected_error)
