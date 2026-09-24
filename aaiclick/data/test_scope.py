@@ -63,16 +63,16 @@ def test_temp_named_regex():
     assert not TEMP_NAMED_RE.match("t_1foo_42")
 
 
-def test_make_scoped_table_name_global():
-    assert make_scoped_table_name("global", "foo") == "p_foo"
-
-
-def test_make_scoped_table_name_job():
-    assert make_scoped_table_name("job", "foo", job_id=42) == "j_42_foo"
-
-
-def test_make_scoped_table_name_temp_named():
-    assert make_scoped_table_name("temp_named", "foo", snowid=42) == "t_foo_42"
+@pytest.mark.parametrize(
+    "scope, ids, expected",
+    [
+        pytest.param("global", {}, "p_foo", id="global"),
+        pytest.param("job", {"job_id": 42}, "j_42_foo", id="job"),
+        pytest.param("temp_named", {"snowid": 42}, "t_foo_42", id="temp-named"),
+    ],
+)
+def test_make_scoped_table_name(scope, ids, expected):
+    assert make_scoped_table_name(scope, "foo", **ids) == expected
 
 
 @pytest.mark.parametrize(

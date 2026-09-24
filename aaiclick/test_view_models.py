@@ -12,7 +12,14 @@ from aaiclick.view_models import ExecutionWorkerFilter, JobListFilter, ObjectFil
 from aaiclick.viewer.view_models import SavedQueryFilter
 
 
-def test_import_order_independent_of_orchestration():
+@pytest.mark.parametrize(
+    "stmt",
+    [
+        pytest.param("import aaiclick.view_models", id="view-models-alone"),
+        pytest.param("import aaiclick.ai.ollama, aaiclick.view_models", id="ai-stack-first"),
+    ],
+)
+def test_import_order_independent_of_orchestration(stmt):
     """``view_models`` must be importable before ``orchestration``.
 
     Regression for the old ``view_models`` ↔ ``orchestration`` cycle: any
@@ -21,24 +28,20 @@ def test_import_order_independent_of_orchestration():
     fresh interpreter because import-order bugs are invisible once the modules
     are cached in this process.
     """
-    for stmt in (
-        "import aaiclick.view_models",
-        "import aaiclick.ai.ollama, aaiclick.view_models",
-    ):
-        proc = subprocess.run([sys.executable, "-c", stmt], capture_output=True, text=True)
-        assert proc.returncode == 0, proc.stderr
+    proc = subprocess.run([sys.executable, "-c", stmt], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
 
 
 @pytest.mark.parametrize(
     "model",
     [
-        JobListFilter,
-        RegisteredJobFilter,
-        ExecutionWorkerFilter,
-        ObjectFilter,
-        UserListFilter,
-        AuditListFilter,
-        SavedQueryFilter,
+        pytest.param(JobListFilter, id="job-list"),
+        pytest.param(RegisteredJobFilter, id="registered-job"),
+        pytest.param(ExecutionWorkerFilter, id="execution-worker"),
+        pytest.param(ObjectFilter, id="object"),
+        pytest.param(UserListFilter, id="user-list"),
+        pytest.param(AuditListFilter, id="audit-list"),
+        pytest.param(SavedQueryFilter, id="saved-query"),
     ],
 )
 def test_every_list_filter_bounds_its_limit(model):
@@ -50,7 +53,14 @@ def test_every_list_filter_bounds_its_limit(model):
 
 
 @pytest.mark.parametrize(
-    "model", [JobListFilter, RegisteredJobFilter, ExecutionWorkerFilter, UserListFilter, AuditListFilter]
+    "model",
+    [
+        pytest.param(JobListFilter, id="job-list"),
+        pytest.param(RegisteredJobFilter, id="registered-job"),
+        pytest.param(ExecutionWorkerFilter, id="execution-worker"),
+        pytest.param(UserListFilter, id="user-list"),
+        pytest.param(AuditListFilter, id="audit-list"),
+    ],
 )
 def test_every_offset_filter_rejects_negative_offset(model):
     """A negative OFFSET is a Postgres error (500) — refuse it on input."""

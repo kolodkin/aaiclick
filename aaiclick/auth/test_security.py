@@ -21,9 +21,9 @@ def test_password_longer_than_bcrypt_limit_round_trips():
     assert security.verify_password("q" * 100, h) is False
 
 
-def test_sha256_hex_stable():
-    assert security.sha256_hex("abc") == security.sha256_hex("abc")
-    assert security.sha256_hex("abc") != security.sha256_hex("abd")
+def test_sha256_hex_matches_known_digest():
+    """Stored token hashes must match across releases, so pin the FIPS 180-2 "abc" vector."""
+    assert security.sha256_hex("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
 
 
 def test_generate_secret_unique():

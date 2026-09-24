@@ -54,23 +54,27 @@ def test_list_migration_files_rejects_bad_names(tmp_path):
         list_migration_files(tmp_path)
 
 
-def test_split_statements_on_trailing_semicolon():
-    sql = "CREATE TABLE a (x UInt64) ENGINE = MergeTree ORDER BY x;\nCREATE TABLE b (y String) ENGINE = Memory;\n"
-
-    assert split_statements(sql) == [
-        "CREATE TABLE a (x UInt64) ENGINE = MergeTree ORDER BY x",
-        "CREATE TABLE b (y String) ENGINE = Memory",
-    ]
-
-
-def test_split_statements_strips_comments_and_blanks():
-    sql = "-- create the table\nCREATE TABLE a (\n    x UInt64  -- the key\n) ENGINE = Memory;\n\n"
-
-    assert split_statements(sql) == ["CREATE TABLE a (\n    x UInt64\n) ENGINE = Memory"]
-
-
-def test_split_statements_last_statement_without_semicolon():
-    assert split_statements("SELECT 1") == ["SELECT 1"]
+@pytest.mark.parametrize(
+    "sql, expected",
+    [
+        pytest.param(
+            "CREATE TABLE a (x UInt64) ENGINE = MergeTree ORDER BY x;\nCREATE TABLE b (y String) ENGINE = Memory;\n",
+            [
+                "CREATE TABLE a (x UInt64) ENGINE = MergeTree ORDER BY x",
+                "CREATE TABLE b (y String) ENGINE = Memory",
+            ],
+            id="trailing-semicolon",
+        ),
+        pytest.param(
+            "-- create the table\nCREATE TABLE a (\n    x UInt64  -- the key\n) ENGINE = Memory;\n\n",
+            ["CREATE TABLE a (\n    x UInt64\n) ENGINE = Memory"],
+            id="strips-comments-and-blanks",
+        ),
+        pytest.param("SELECT 1", ["SELECT 1"], id="last-statement-without-semicolon"),
+    ],
+)
+def test_split_statements(sql, expected):
+    assert split_statements(sql) == expected
 
 
 async def _fresh_tracking(ch) -> None:
