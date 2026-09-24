@@ -1,13 +1,12 @@
 """
-Tests for Object unary transform operators (year, month, lower, abs, etc.)
-and computed column helper functions (cast, split_by_char).
+Tests for Object unary transform operators (year, month, lower, abs, etc.).
 """
 
 from datetime import datetime, timezone
 
 import pytest
 
-from aaiclick import cast, create_object_from_value, literal, split_by_char
+from aaiclick import create_object_from_value
 
 # =============================================================================
 # Date/time transforms
@@ -165,91 +164,3 @@ async def test_chain_length_then_max(ctx):
     lengths = await obj.length()
     result = await lengths.max()
     assert await result.data() == 4
-
-
-# =============================================================================
-# Computed column helper functions (cast, split_by_char)
-# =============================================================================
-
-
-@pytest.mark.parametrize(
-    "records, nullable, expected",
-    [
-        # Unparseable values become NULL under the nullable cast.
-        pytest.param([{"n": "42"}, {"n": "abc"}, {"n": "100"}], True, [42, None, 100], id="nullable"),
-        pytest.param([{"n": "42"}, {"n": "100"}], False, [42, 100], id="not-nullable"),
-    ],
-)
-async def test_cast(ctx, records, nullable, expected):
-    obj = await create_object_from_value(records)
-    result = await obj.with_columns({"n_int": cast("n", "UInt32", nullable=nullable)}).data()
-    assert result["n_int"] == expected
-
-
-async def test_split_by_char_explode(ctx):
-    obj = await create_object_from_value([{"s": "a,b,c"}, {"s": "d,e"}])
-    result = await obj.with_columns({"parts": split_by_char("s", ",")}).explode("parts").data()
-    assert sorted(result["parts"]) == ["a", "b", "c", "d", "e"]
-
-
-@pytest.mark.parametrize(
-    "records, to_type, nullable, alias, out_column, expected",
-    [
-        pytest.param(
-            [{"n": "42"}, {"n": "bad"}, {"n": "7"}],
-            "UInt32",
-            True,
-            None,
-            "n_uint32",
-            [42, None, 7],
-            id="nullable",
-        ),
-        pytest.param([{"n": "42"}, {"n": "7"}], "UInt32", False, None, "n_uint32", [42, 7], id="not-nullable"),
-        pytest.param([{"n": 42}, {"n": 7}], "String", False, None, "n_string", ["42", "7"], id="to-string"),
-        pytest.param([{"n": "10"}, {"n": "20"}], "UInt32", False, "n_int", "n_int", [10, 20], id="alias"),
-    ],
-)
-async def test_with_cast_method(ctx, records, to_type, nullable, alias, out_column, expected):
-    obj = await create_object_from_value(records)
-    result = await obj.with_cast("n", to_type, nullable=nullable, alias=alias).data()
-    assert result[out_column] == expected
-
-
-async def test_with_split_by_char_method(ctx):
-    obj = await create_object_from_value([{"genres": "Drama,Comedy"}, {"genres": "Action"}])
-    result = await obj.with_split_by_char("genres", ",").explode("genres_parts").data()
-    assert sorted(result["genres_parts"]) == ["Action", "Comedy", "Drama"]
-
-
-async def test_with_split_by_char_method_alias(ctx):
-    obj = await create_object_from_value([{"genres": "Drama,Comedy"}])
-    result = await obj.with_split_by_char("genres", ",", alias="genre").explode("genre").data()
-    assert sorted(result["genre"]) == ["Comedy", "Drama"]
-
-
-# =============================================================================
-# Computed column helper: literal()
-# =============================================================================
-
-
-@pytest.mark.parametrize(
-    "col_name, value, ch_type, expected",
-    [
-        pytest.param("source", "dataset_a", "String", ["dataset_a", "dataset_a"], id="string"),
-        pytest.param("flag", 1, "UInt8", [1, 1], id="int"),
-        pytest.param("active", True, "UInt8", [1, 1], id="bool"),
-        pytest.param("inactive", False, "UInt8", [0, 0], id="bool-false"),
-        # Single quotes are escaped inside the emitted string literal.
-        pytest.param("quoted", "it's", "String", ["it's", "it's"], id="string-escapes-quotes"),
-        pytest.param("pi", 3.14, "Float64", [3.14, 3.14], id="float"),
-    ],
-)
-async def test_literal_with_columns(ctx, col_name, value, ch_type, expected):
-    obj = await create_object_from_value([{"x": 1}, {"x": 2}])
-    result = await obj.with_columns({col_name: literal(value, ch_type)}).data()
-    assert result[col_name] == expected
-
-
-def test_literal_unsupported_type():
-    with pytest.raises(TypeError, match="Unsupported literal type"):
-        literal([1, 2], "Array(UInt8)")

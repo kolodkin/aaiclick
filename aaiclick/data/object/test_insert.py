@@ -492,11 +492,126 @@ async def test_insert_dot_star_column(ctx):
     assert await target.data() == {"a": [1, 2], "b": [[{"x": 10}], [{"x": 20}]]}
 
 
-async def test_concat_nested_dot_column(ctx):
-    """concat() builds its own CAST list — dotted names must be quoted there too."""
-    left = await create_object_from_value([{"a": 1, "m": {"x": 10}}])
-    right = await create_object_from_value([{"a": 2, "m": {"x": 20}}])
+# =============================================================================
+# Subset insert from a schema-created source
+# =============================================================================
 
-    result = await left.concat(right)
 
-    assert await result.data() == {"a": [1, 2], "m": [{"x": 10}, {"x": 20}]}
+async def test_insert_skips_extra_source_columns_of_schema_created_source(ctx):
+    """insert() silently skips source columns not present in target."""
+    src_schema = Schema(
+        fieldtype=FIELDTYPE_DICT,
+        columns={
+            "shared": ColumnInfo("Int32", fieldtype=FIELDTYPE_ARRAY),
+            "extra_col": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
+        },
+    )
+    src = await create_object(src_schema)
+    ch = src.ch_client
+    await ch.command(f"INSERT INTO {src.table} (shared, extra_col) VALUES (99, 'ignored')")
+
+    tgt_schema = Schema(
+        fieldtype=FIELDTYPE_DICT,
+        columns={
+            "shared": ColumnInfo("Int32", fieldtype=FIELDTYPE_ARRAY),
+        },
+    )
+    tgt = await create_object(tgt_schema)
+    await tgt.insert(src)
+
+    data = await tgt.data()
+    assert data["shared"] == [99]
+
+
+# =============================================================================
+# Insert Tests with Mixed Types
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    "target, source, expected",
+    [
+        # Float values get truncated when cast to int.
+        pytest.param([1, 2, 3], [4.5, 5.5, 6.5], [1, 2, 3, 4, 5, 6], id="float-into-int"),
+        # Int values get converted to float.
+        pytest.param([1.5, 2.5, 3.5], [4, 5, 6], [1.5, 2.5, 3.5, 4.0, 5.0, 6.0], id="int-into-float"),
+    ],
+)
+async def test_mixed_numeric_insert_succeeds(ctx, target, source, expected):
+    """Inserting a numeric array of the other kind succeeds (ClickHouse allows casting)."""
+    a = await create_object_from_value(target, aai_id=True)
+    b = await create_object_from_value(source, aai_id=True)
+
+    await a.insert(b)
+    data = await a.data()
+
+    assert data == expected
+
+
+async def test_mixed_int_string_insert_fails(ctx):
+    """Test that inserting string array into int array fails with type error."""
+    a = await create_object_from_value([1, 2, 3], aai_id=True)
+    b = await create_object_from_value(["a", "b", "c"], aai_id=True)
+
+    with pytest.raises(ValueError, match="types are incompatible"):
+        await a.insert(b)
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        pytest.param(4.5, [1, 2, 3, 4], id="float-value"),
+        pytest.param([4.5, 5.5], [1, 2, 3, 4, 5], id="float-list"),
+    ],
+)
+async def test_mixed_insert_float_into_int_succeeds(ctx, value, expected):
+    """Inserting a Python float value or list into an int array truncates when cast to int."""
+    a = await create_object_from_value([1, 2, 3], aai_id=True)
+
+    await a.insert(value)
+    data = await a.data()
+
+    assert data == expected
+
+
+# =============================================================================
+# Argument order: target rows first, then sources left-to-right
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    "target, source, expected",
+    [
+        pytest.param([1, 2, 3], [4, 5, 6], [1, 2, 3, 4, 5, 6], id="ascending"),
+        pytest.param([4, 5, 6], [1, 2, 3], [4, 5, 6, 1, 2, 3], id="reversed"),
+    ],
+)
+async def test_insert_follows_argument_order(ctx, target, source, expected):
+    """Insert preserves target data first, then appends the source."""
+    obj_a = await create_object_from_value(target)
+    obj_b = await create_object_from_value(source)
+
+    await obj_a.insert(obj_b)
+    data = await obj_a.data()
+    assert data == expected
+
+
+async def test_insert_with_value_follows_argument_order(ctx):
+    """Insert with inline value: existing data first, then value."""
+    obj_a = await create_object_from_value([1, 2, 3])
+
+    await obj_a.insert([4, 5, 6])
+    data = await obj_a.data()
+    assert data == [1, 2, 3, 4, 5, 6]
+
+
+async def test_insert_same_source_twice_preserves_all_rows(ctx):
+    """Inserting the same source twice produces the full row set."""
+    obj_a = await create_object_from_value([1, 2])
+    obj_b = await create_object_from_value([3, 4])
+
+    await obj_a.insert(obj_b)
+    await obj_a.insert(obj_b)
+
+    data = await obj_a.data()
+    assert sorted(data) == [1, 2, 3, 3, 4, 4]

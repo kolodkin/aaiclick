@@ -280,3 +280,95 @@ async def test_concat_with_name_temp_scope(ctx):
 
     assert result.table.startswith("t_concat_named_temp_")
     assert await result.data() == [1, 2, 3, 4]
+
+
+# =============================================================================
+# Dot-notation column names (nested-dict ingest)
+# =============================================================================
+
+
+async def test_concat_nested_dot_column(ctx):
+    """concat() builds its own CAST list — dotted names must be quoted there too."""
+    left = await create_object_from_value([{"a": 1, "m": {"x": 10}}])
+    right = await create_object_from_value([{"a": 2, "m": {"x": 20}}])
+
+    result = await left.concat(right)
+
+    assert await result.data() == {"a": [1, 2], "m": [{"x": 10}, {"x": 20}]}
+
+
+# =============================================================================
+# Concat Tests with Mixed Types
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    "arr_a,arr_b",
+    [
+        pytest.param([1, 2, 3], [4.5, 5.5, 6.5], id="int-float"),
+        pytest.param([1.5, 2.5, 3.5], [4, 5, 6], id="float-int"),
+        pytest.param([1, 2, 3], ["a", "b", "c"], id="int-str"),
+    ],
+)
+async def test_mixed_type_concat_fails(ctx, arr_a, arr_b):
+    """Test that concatenating incompatible types fails with type error."""
+    a = await create_object_from_value(arr_a, aai_id=True)
+    b = await create_object_from_value(arr_b, aai_id=True)
+
+    with pytest.raises(ValueError, match="incompatible type"):
+        await a.concat(b)
+
+
+# =============================================================================
+# Argument order: self first, then args left-to-right
+# =============================================================================
+
+
+async def test_concat_follows_argument_order(ctx):
+    """Concat result follows argument order: self, then args left-to-right."""
+    obj_a = await create_object_from_value([1, 2, 3])
+    obj_b = await create_object_from_value([4, 5, 6])
+
+    result = await obj_a.concat(obj_b)
+    data = await result.data()
+    assert data == [1, 2, 3, 4, 5, 6]
+
+    result = await obj_b.concat(obj_a)
+    data = await result.data()
+    assert data == [4, 5, 6, 1, 2, 3]
+
+
+async def test_multiple_concat_preserves_argument_order(ctx):
+    """Chained concat preserves argument order at each step."""
+    obj1 = await create_object_from_value([1, 2])
+    obj2 = await create_object_from_value([3, 4])
+    obj3 = await create_object_from_value([5, 6])
+
+    result = await obj1.concat(obj2)
+    result = await result.concat(obj3)
+    data = await result.data()
+    assert data == [1, 2, 3, 4, 5, 6]
+
+
+async def test_concat_multi_arg_order(ctx):
+    """Multi-arg concat: self, then each arg in order."""
+    obj1 = await create_object_from_value([1, 2])
+    obj2 = await create_object_from_value([3, 4])
+    obj3 = await create_object_from_value([5, 6])
+
+    result = await obj1.concat(obj2, obj3)
+    data = await result.data()
+    assert data == [1, 2, 3, 4, 5, 6]
+
+    result = await obj3.concat(obj1, obj2)
+    data = await result.data()
+    assert data == [5, 6, 1, 2, 3, 4]
+
+
+async def test_concat_same_source_twice_preserves_all_rows(ctx):
+    """Concatenating the same source twice produces the full row set."""
+    obj = await create_object_from_value([1, 2])
+
+    result = await obj.concat(obj)
+    data = await result.data()
+    assert sorted(data) == [1, 1, 2, 2]

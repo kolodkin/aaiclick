@@ -111,32 +111,6 @@ async def test_rename_invalid_mapping_raises(ctx, mapping, match):
         obj.rename(mapping)
 
 
-async def test_insert_skips_extra_source_columns(ctx):
-    """insert() silently skips source columns not present in target."""
-    src_schema = Schema(
-        fieldtype=FIELDTYPE_DICT,
-        columns={
-            "shared": ColumnInfo("Int32", fieldtype=FIELDTYPE_ARRAY),
-            "extra_col": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
-        },
-    )
-    src = await create_object(src_schema)
-    ch = src.ch_client
-    await ch.command(f"INSERT INTO {src.table} (shared, extra_col) VALUES (99, 'ignored')")
-
-    tgt_schema = Schema(
-        fieldtype=FIELDTYPE_DICT,
-        columns={
-            "shared": ColumnInfo("Int32", fieldtype=FIELDTYPE_ARRAY),
-        },
-    )
-    tgt = await create_object(tgt_schema)
-    await tgt.insert(src)
-
-    data = await tgt.data()
-    assert data["shared"] == [99]
-
-
 async def test_rename_duplicate_new_names_raises(ctx):
     """Duplicate new names in rename mapping raises."""
     schema = Schema(

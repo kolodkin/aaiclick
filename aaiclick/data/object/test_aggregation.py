@@ -6,6 +6,7 @@ These operators reduce arrays to scalar values.
 String type does not support aggregation.
 """
 
+import math
 import operator
 
 import numpy as np
@@ -14,6 +15,9 @@ import pytest
 from aaiclick import create_object_from_value
 
 THRESHOLD = 1e-5
+
+# Number of items for large array tests
+NUM_ITEMS = 10000
 
 
 # =============================================================================
@@ -394,3 +398,92 @@ async def test_sum_of_comparison_does_not_wrap(ctx):
     obj_b = await create_object_from_value(values, aai_id=True)
 
     assert await (await (obj_a == obj_b).sum()).data() == 300
+
+
+# =============================================================================
+# Large-array aggregation tests (NUM_ITEMS rows)
+# =============================================================================
+
+
+async def test_min_int(ctx):
+    """Test min() on large int array (10k items)."""
+    # Create array with known min
+    int_array = list(range(100, NUM_ITEMS + 100))  # [100, 101, ..., 10099]
+
+    # Create object
+    obj = await create_object_from_value(int_array, aai_id=True)
+
+    # Get minimum (returns Object, use .data() to extract value)
+    min_obj = await obj.min()
+    min_val = await min_obj.data()
+
+    # Verify
+    assert min_val == 100
+
+
+async def test_max_float(ctx):
+    """Test max() on large float array (10k items)."""
+    # Create array with known max
+    float_array = [float(i) * 0.1 for i in range(NUM_ITEMS)]  # [0.0, 0.1, ..., 999.9]
+
+    # Create object
+    obj = await create_object_from_value(float_array, aai_id=True)
+
+    # Get maximum (returns Object, use .data() to extract value)
+    max_obj = await obj.max()
+    max_val = await max_obj.data()
+
+    # Verify (allowing for floating point precision)
+    assert abs(max_val - 999.9) < 0.001
+
+
+async def test_sum_float(ctx):
+    """Test sum() on large float array (10k items)."""
+    # Create simple array for easy sum calculation
+    float_array = [1.5] * NUM_ITEMS  # All elements are 1.5
+
+    # Create object
+    obj = await create_object_from_value(float_array, aai_id=True)
+
+    # Get sum (returns Object, use .data() to extract value)
+    sum_obj = await obj.sum()
+    sum_val = await sum_obj.data()
+
+    # Verify
+    expected_sum = 1.5 * NUM_ITEMS  # 15000.0
+    assert abs(sum_val - expected_sum) < 0.001
+
+
+async def test_mean_int(ctx):
+    """Test mean() on large int array (10k items)."""
+    # Create array with known mean
+    int_array = list(range(NUM_ITEMS))  # [0, 1, 2, ..., 9999]
+
+    # Create object
+    obj = await create_object_from_value(int_array, aai_id=True)
+
+    # Get mean (returns Object, use .data() to extract value)
+    mean_obj = await obj.mean()
+    mean_val = await mean_obj.data()
+
+    # Verify: mean of 0..9999 is 4999.5
+    expected_mean = (NUM_ITEMS - 1) / 2.0
+    assert abs(mean_val - expected_mean) < 0.001
+
+
+async def test_std_float(ctx):
+    """Test std() (standard deviation) on large float array (10k items)."""
+    # Create array with known values
+    float_array = [float(i) for i in range(NUM_ITEMS)]  # [0.0, 1.0, 2.0, ..., 9999.0]
+
+    # Create object
+    obj = await create_object_from_value(float_array, aai_id=True)
+
+    # Get standard deviation (returns Object, use .data() to extract value)
+    std_obj = await obj.std()
+    std_val = await std_obj.data()
+
+    # Verify: std of 0..9999 should be approximately 2886.75
+    # For a uniform distribution from 0 to N-1, std = sqrt((N^2 - 1) / 12)
+    expected_std = math.sqrt((NUM_ITEMS**2 - 1) / 12.0)
+    assert abs(std_val - expected_std) < 1.0  # Allow small variance

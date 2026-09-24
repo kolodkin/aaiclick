@@ -574,6 +574,8 @@ Returns: scalar → value, array → list, dict → dict or list of dicts.
 | `ORIENT_DICT`    | `'dict'`    | Dict with arrays as values (default)         |
 | `ORIENT_RECORDS` | `'records'` | List of dicts (one per row)                  |
 
+**Tests**: `aaiclick/data/object/test_data.py`
+
 ## markdown()
 
 Returns data as a plain-text markdown table with auto-sized columns. Optional `truncate: dict[str, int]` caps column widths. Floats → 2dp, None → `N/A`.
@@ -727,6 +729,8 @@ Read-only filtered projection of an Object — same table, no data copy. Created
 !!! warning "`or_where()` requires a prior `where()`"
     Calling `or_where()` without a preceding `where()` raises `ValueError`.
     Same applies to `or_having()` on `GroupByQuery`.
+
+**Tests**: `aaiclick/data/object/test_where.py`
 
 ## Column Selection
 

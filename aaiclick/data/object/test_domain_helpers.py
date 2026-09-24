@@ -1,10 +1,11 @@
 """
-Parametrized tests for Object domain helper methods.
+Tests for Object domain helper methods (with_year, with_lower, with_bucket, with_cast, ...).
 
 Each helper is a shortcut for a common with_columns() pattern.
 Full with_columns() tests are in test_with_columns.py.
 """
 
+import math
 from datetime import datetime, timezone
 
 import pytest
@@ -132,6 +133,8 @@ async def test_math_helpers(ctx, helper, input_vals, expected_col, expected):
     [
         pytest.param([0, 5, 10, 15, 24], 10, [0, 0, 1, 1, 2], id="size-10"),
         pytest.param([0, 99, 100, 199], 100, [0, 0, 1, 1], id="size-100"),
+        # with_bucket() does integer division bucketing: one value per bucket.
+        pytest.param([5, 15, 25, 35], 10, [0, 1, 2, 3], id="one-per-bucket"),
     ],
 )
 async def test_with_bucket(ctx, scores, bucket_size, expected_buckets):
@@ -247,3 +250,118 @@ async def test_with_split_by_char_custom_alias(ctx):
     view = obj.with_split_by_char("csv", ":", alias="parts")
     result = await view.data()
     assert result["parts"] == [["x", "y"], ["z"]]
+
+
+# =============================================================================
+# with_cast / with_split_by_char method helpers
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    "records, to_type, nullable, alias, out_column, expected",
+    [
+        pytest.param(
+            [{"n": "42"}, {"n": "bad"}, {"n": "7"}],
+            "UInt32",
+            True,
+            None,
+            "n_uint32",
+            [42, None, 7],
+            id="nullable",
+        ),
+        pytest.param([{"n": "42"}, {"n": "7"}], "UInt32", False, None, "n_uint32", [42, 7], id="not-nullable"),
+        pytest.param([{"n": 42}, {"n": 7}], "String", False, None, "n_string", ["42", "7"], id="to-string"),
+        pytest.param([{"n": "10"}, {"n": "20"}], "UInt32", False, "n_int", "n_int", [10, 20], id="alias"),
+    ],
+)
+async def test_with_cast_method(ctx, records, to_type, nullable, alias, out_column, expected):
+    obj = await create_object_from_value(records)
+    result = await obj.with_cast("n", to_type, nullable=nullable, alias=alias).data()
+    assert result[out_column] == expected
+
+
+async def test_with_split_by_char_method(ctx):
+    obj = await create_object_from_value([{"genres": "Drama,Comedy"}, {"genres": "Action"}])
+    result = await obj.with_split_by_char("genres", ",").explode("genres_parts").data()
+    assert sorted(result["genres_parts"]) == ["Action", "Comedy", "Drama"]
+
+
+async def test_with_split_by_char_method_alias(ctx):
+    obj = await create_object_from_value([{"genres": "Drama,Comedy"}])
+    result = await obj.with_split_by_char("genres", ",", alias="genre").explode("genre").data()
+    assert sorted(result["genre"]) == ["Comedy", "Drama"]
+
+
+# =============================================================================
+# Helper chaining, aliasing, and composition with where / group_by
+# =============================================================================
+
+
+async def test_string_helpers_chained(ctx):
+    """with_lower, with_upper, with_length, with_trim."""
+    obj = await create_object_from_value({"name": ["  Alice ", "BOB", " x"]})
+    view = obj.with_lower("name").with_upper("name").with_length("name").with_trim("name")
+    result = await view.data()
+    assert result["name_lower"] == ["  alice ", "bob", " x"]
+    assert result["name_upper"] == ["  ALICE ", "BOB", " X"]
+    assert result["name_length"] == [8, 3, 2]
+    assert result["name_trimmed"] == ["Alice", "BOB", "x"]
+
+
+async def test_numeric_helpers(ctx):
+    """with_abs and with_sqrt."""
+    obj = await create_object_from_value({"x": [-3, 0, 5]})
+    view_abs = obj.with_abs("x")
+    r_abs = await view_abs.data()
+    assert r_abs["x_abs"] == [3.0, 0.0, 5.0]
+
+    obj2 = await create_object_from_value({"x": [4, 9, -16]})
+    view_sqrt = obj2.with_sqrt("x")
+    r_sqrt = await view_sqrt.data()
+    assert r_sqrt["x_sqrt"][:2] == [2.0, 3.0]
+    assert math.isnan(r_sqrt["x_sqrt"][2])
+
+
+async def test_with_if_and_cast(ctx):
+    """with_if() conditional and with_cast() type conversion."""
+    obj = await create_object_from_value({"val": [1, 5, 10]})
+    view = obj.with_if("val > 3", "'high'", "'low'", alias="level").with_cast("val", "String")
+    result = await view.data()
+    assert result["level"] == ["low", "high", "high"]
+    assert result["val_string"] == ["1", "5", "10"]
+
+
+async def test_helper_alias_chaining_and_where(ctx):
+    """Custom alias, chaining, and WHERE interaction."""
+    obj = await create_object_from_value(
+        {
+            "name": ["Alice", "Bob", "Charlie"],
+            "score": [90, 40, 70],
+        }
+    )
+    # Custom alias
+    view = obj.with_lower("name", alias="lc_name")
+    r = await view.data()
+    assert r["lc_name"] == ["alice", "bob", "charlie"]
+    # Chaining + WHERE
+    view2 = obj.where("score > 50").with_lower("name").with_bucket("score", 50)
+    r2 = await view2.data()
+    assert r2["name_lower"] == ["alice", "charlie"]
+    assert r2["score_bucket"] == [1, 1]
+
+
+async def test_with_bucket_group_by(ctx):
+    """with_bucket() + group_by() for binned aggregation."""
+    obj = await create_object_from_value(
+        {
+            "score": [5, 15, 25, 12, 22, 8],
+            "amount": [100, 200, 300, 150, 250, 50],
+        }
+    )
+    view = obj.with_bucket("score", 10)
+    result = await view.group_by("score_bucket").sum("amount")
+    data = await result.data()
+    pairs = dict(zip(data["score_bucket"], data["amount"], strict=False))
+    assert pairs[0] == 150  # scores 5, 8
+    assert pairs[1] == 350  # scores 15, 12
+    assert pairs[2] == 550  # scores 25, 22

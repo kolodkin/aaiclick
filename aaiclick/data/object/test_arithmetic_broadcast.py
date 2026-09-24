@@ -120,32 +120,6 @@ async def test_scalar_op_array_obj(ctx, scalar, arr, op, expected):
 
 
 # =============================================================================
-# Comparison operators with scalar broadcast
-# =============================================================================
-
-
-@pytest.mark.parametrize(
-    "arr,scalar,op,expected",
-    [
-        pytest.param([1, 5, 10], 5, operator.eq, [0, 1, 0], id="eq"),
-        pytest.param([1, 5, 10], 5, operator.ne, [1, 0, 1], id="ne"),
-        pytest.param([1, 5, 10], 5, operator.lt, [1, 0, 0], id="lt"),
-        pytest.param([1, 5, 10], 5, operator.le, [1, 1, 0], id="le"),
-        pytest.param([1, 5, 10], 5, operator.gt, [0, 0, 1], id="gt"),
-        pytest.param([1, 5, 10], 5, operator.ge, [0, 1, 1], id="ge"),
-    ],
-)
-async def test_comparison_with_scalar(ctx, arr, scalar, op, expected):
-    """Test comparison operators with scalar broadcast."""
-    obj = await create_object_from_value(arr, aai_id=True)
-
-    result = op(obj, scalar)
-
-    data = await result.data()
-    assert data == expected
-
-
-# =============================================================================
 # Chained operations mixing scalars and Objects
 # =============================================================================
 

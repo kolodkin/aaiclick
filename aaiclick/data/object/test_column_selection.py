@@ -65,42 +65,6 @@ async def test_dict_selector_multiple_fields(ctx):
 
 
 # =============================================================================
-# Copy Tests
-# =============================================================================
-
-
-async def test_dict_selector_copy(ctx):
-    """Test that copy() materializes a view as a new array Object."""
-    obj = await create_object_from_value({"param1": [1, 2, 3], "param2": [4, 5, 6]}, aai_id=True)
-
-    view = obj["param1"]
-    arr = await view.copy()
-
-    # Should be a new Object, not a View
-    assert not isinstance(arr, View)
-    # Should have a different table (copy creates new table)
-    assert arr.table != obj.table
-    assert await arr.data() == [1, 2, 3]
-
-
-@pytest.mark.parametrize(
-    "value, field, expected",
-    [
-        pytest.param({"param1": [10, 20], "param2": [30, 40]}, "param2", [30, 40], id="second-field"),
-        pytest.param({"floats": [1.5, 2.5, 3.5], "ints": [1, 2, 3]}, "floats", [1.5, 2.5, 3.5], id="float"),
-        pytest.param({"names": ["Alice", "Bob"], "ages": [30, 25]}, "names", ["Alice", "Bob"], id="string"),
-    ],
-)
-async def test_dict_selector_copy_field(ctx, value, field, expected):
-    """Test copying a selected field of various types."""
-    obj = await create_object_from_value(value, aai_id=True)
-
-    arr = await obj[field].copy()
-
-    assert await arr.data() == expected
-
-
-# =============================================================================
 # Operator Tests with Dict Selector
 # =============================================================================
 
@@ -221,23 +185,6 @@ async def test_multi_field_selector_data(ctx):
     data = await view.data()
 
     assert data == {"x": [1, 2, 3], "z": [7, 8, 9]}
-
-
-async def test_multi_field_selector_copy(ctx):
-    """Test copying a multi-field view creates dict Object."""
-    obj = await create_object_from_value({"x": [1, 2, 3], "y": [4, 5, 6], "z": [7, 8, 9]}, aai_id=True)
-
-    view = obj[["x", "y"]]
-    cloned = await view.copy()
-
-    data = await cloned.data()
-    assert data == {"x": [1, 2, 3], "y": [4, 5, 6]}
-
-    # Verify cloned is a dict Object
-    schema = cloned.schema
-    assert "x" in schema.columns
-    assert "y" in schema.columns
-    assert "z" not in schema.columns
 
 
 async def test_multi_field_selector_repr(ctx):
