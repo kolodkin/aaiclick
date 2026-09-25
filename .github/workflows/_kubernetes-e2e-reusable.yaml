@@ -157,7 +157,6 @@ jobs:
           AAICLICK_PIP_INDEX_URL: "http://host.docker.internal:8080/simple/"
           AAICLICK_PIP_TRUSTED_HOST: "host.docker.internal"
           AAICLICK_DOCKER_BUILD_ADD_HOST: "host.docker.internal:host-gateway"
-          AAICLICK_LOG_DIR: "${{ github.workspace }}/tmp/aaiclick-logs"
         uses: ./.github/actions/run-pytest
         with:
           command: >-
@@ -181,10 +180,9 @@ jobs:
             echo "===== describe $p ====="; kubectl describe "$p" || true
             echo "===== logs $p ====="; kubectl logs "$p" --tail=80 || true
           done
-          echo "===== captured pod task logs (host side) ====="
-          find "${{ github.workspace }}/tmp/aaiclick-logs" -name '*.log' 2>/dev/null | while read -r f; do
-            echo "----- $f -----"; cat "$f" || true
-          done
+          echo "===== task logs (ClickHouse task_logs) ====="
+          curl -s "http://default:click123@aaiclick-clickhouse:8123/" --data \
+            "SELECT task_id, run_id, seq, stream, level, line FROM task_logs ORDER BY task_id, run_id, seq FORMAT TSVWithNames" || true
           echo "===== tasks / jobs table ====="
           uv run --no-project python - <<'PY' || true
           import asyncio, asyncpg
@@ -194,7 +192,7 @@ jobs:
                   print("JOB", dict(r))
               for r in await c.fetch("select id,entrypoint,status,error from tasks order by id"):
                   print("TASK", dict(r))
-              for r in await c.fetch("select task_id,run_epoch,success,error from task_run_results order by task_id"):
+              for r in await c.fetch("select task_id,run_epoch,success,error from remote_task_results order by task_id"):
                   print("RESULT", dict(r))
               await c.close()
           asyncio.run(main())
