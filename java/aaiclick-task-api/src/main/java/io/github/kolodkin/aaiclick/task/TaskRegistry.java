@@ -25,7 +25,7 @@ public final class TaskRegistry {
 
         Class<?> cls;
         try {
-            cls = Class.forName(className);
+            cls = Class.forName(className, true, taskClassLoader());
         } catch (ClassNotFoundException e) {
             throw new IllegalArgumentException("Task class not found on the classpath: " + className, e);
         }
@@ -59,5 +59,12 @@ public final class TaskRegistry {
             throw new IllegalArgumentException("@AaiTask method must be public static: " + method);
         }
         return method;
+    }
+
+    /** The thread context classloader, as Spring Boot and layered fat-jar
+     * launchers install theirs there; the SDK's own loader otherwise. */
+    private static ClassLoader taskClassLoader() {
+        ClassLoader context = Thread.currentThread().getContextClassLoader();
+        return context != null ? context : TaskRegistry.class.getClassLoader();
     }
 }
