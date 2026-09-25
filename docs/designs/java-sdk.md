@@ -89,7 +89,7 @@ Mirror of the Python layer-2 bootstrap
    name (requires `-parameters` compilation; the shim reports a clear error
    when parameter names were compiled away). Missing or extra keys are
    errors, mirroring Python's `TypeError` on bad kwargs; so is `null` for a
-   primitive parameter. The class loads through the thread context
+   primitive at any depth. The class loads through the thread context
    classloader (Spring Boot, layered fat jars).
 5. Invoke the method; serialize the return value with Jackson and write the
    `remote_task_results` row keyed `(task_id, run_epoch)`:

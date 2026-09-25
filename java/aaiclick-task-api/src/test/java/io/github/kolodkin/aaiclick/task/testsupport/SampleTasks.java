@@ -1,5 +1,6 @@
 package io.github.kolodkin.aaiclick.task.testsupport;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -19,6 +20,11 @@ public final class SampleTasks {
     @AaiTask
     public static double sum(List<Double> values) {
         return values.stream().mapToDouble(Double::doubleValue).sum();
+    }
+
+    @AaiTask
+    public static int total(int[] counts) {
+        return Arrays.stream(counts).sum();
     }
 
     @AaiTask

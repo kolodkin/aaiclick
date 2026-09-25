@@ -45,7 +45,7 @@ public class KwargsResolver {
         return out;
     }
 
-    public JsonNode resolve(JsonNode node) {
+    private JsonNode resolve(JsonNode node) {
         if (node.isArray()) {
             ArrayNode out = mapper.createArrayNode();
             for (JsonNode item : node) {
@@ -71,11 +71,7 @@ public class KwargsResolver {
             throw new IllegalStateException(
                 "Pydantic refs are not supported in jvm task kwargs (plain values only)");
         }
-        ObjectNode out = mapper.createObjectNode();
-        for (Map.Entry<String, JsonNode> field : obj.properties()) {
-            out.set(field.getKey(), resolve(field.getValue()));
-        }
-        return out;
+        return resolveKwargs(obj);
     }
 
     private JsonNode resolveRef(ObjectNode obj) {
