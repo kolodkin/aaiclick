@@ -7,7 +7,7 @@ import pytest
 
 from aaiclick.data.data_context import create_object_from_value, data_context
 from aaiclick.data.object import Object, View
-from aaiclick.orchestration import get_job_result, task_result, tasks_list
+from aaiclick.orchestration import get_job_result, task_result
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution.debug import ajob_test
 from aaiclick.orchestration.models import JOB_COMPLETED
@@ -92,56 +92,6 @@ async def create_test_view(where: str | None, offset: int | None, limit: int | N
 # --- Job pipelines (must be module-level for entrypoint resolution) ---
 
 
-@job("test_foreach_basic")
-def foreach_basic_pipeline(output_file: str):
-    data = create_test_data()
-    mapped = foreach(
-        cbk=row_writer,
-        obj=data,
-        partition=5000,
-        kwargs={"output_file": output_file},
-    )
-    return tasks_list(data, mapped)
-
-
-@job("test_foreach_kwargs")
-def foreach_kwargs_pipeline(output_file: str, factor: int):
-    data = create_test_data()
-    mapped = foreach(
-        cbk=row_writer_with_factor,
-        obj=data,
-        partition=5000,
-        kwargs={"factor": factor, "output_file": output_file},
-    )
-    return tasks_list(data, mapped)
-
-
-@job("test_foreach_task_arg")
-def foreach_task_arg_pipeline(output_file: str):
-    data = create_test_data()
-    factor = make_factor()
-    mapped = foreach(
-        cbk=row_writer_with_factor,
-        obj=data,
-        partition=5000,
-        args=(factor,),
-        kwargs={"output_file": output_file},
-    )
-    return tasks_list(data, factor, mapped)
-
-
-@job("test_foreach_partitions")
-def foreach_partitions_pipeline(output_file: str):
-    data = create_test_data()
-    mapped = foreach(
-        cbk=row_writer,
-        obj=data,
-        partition=2,
-        kwargs={"output_file": output_file},
-    )
-    return tasks_list(data, mapped)
-
-
 @task
 async def read_written(done: None, output_file: str) -> dict:
     """Consumer of foreach(): reads the file every partition has written to."""
@@ -149,12 +99,37 @@ async def read_written(done: None, output_file: str) -> dict:
     return {"done": done, "rows": sorted(int(line) for line in lines)}
 
 
-@job("test_foreach_consumer")
-def foreach_consumer_pipeline(output_file: str):
-    data = create_test_data()
-    written = foreach(cbk=row_writer, obj=data, partition=2, kwargs={"output_file": output_file})
+def _foreach_then_read(data, cbk, output_file: str, partition: int, args: tuple = (), kwargs: dict | None = None):
+    """Run ``cbk`` over ``data`` and read what it wrote; the job result is the read."""
+    written = foreach(
+        cbk=cbk, obj=data, partition=partition, args=args, kwargs={"output_file": output_file, **(kwargs or {})}
+    )
     seen = read_written(done=written, output_file=output_file)
     return task_result(data=seen, tasks=[data, written, seen])
+
+
+@job("test_foreach_basic")
+def foreach_basic_pipeline(output_file: str):
+    return _foreach_then_read(create_test_data(), row_writer, output_file, partition=5000)
+
+
+@job("test_foreach_kwargs")
+def foreach_kwargs_pipeline(output_file: str, factor: int):
+    return _foreach_then_read(
+        create_test_data(), row_writer_with_factor, output_file, partition=5000, kwargs={"factor": factor}
+    )
+
+
+@job("test_foreach_task_arg")
+def foreach_task_arg_pipeline(output_file: str):
+    return _foreach_then_read(
+        create_test_data(), row_writer_with_factor, output_file, partition=5000, args=(make_factor(),)
+    )
+
+
+@job("test_foreach_partitions")
+def foreach_partitions_pipeline(output_file: str):
+    return _foreach_then_read(create_test_data(), row_writer, output_file, partition=2)
 
 
 def _map_then_read(data, cbk, reader, partition: int, kwargs: dict | None = None):
@@ -207,27 +182,13 @@ def map_view_pipeline(where: str | None, offset: int | None, limit: int | None):
     ],
 )
 async def test_foreach_execution(orch_ctx, pipeline, pipeline_kwargs, expected):
-    """foreach() end-to-end: the callback runs once per row of the Object."""
+    """foreach() runs the callback once per row; its consumer runs after every partition and gets ``None``."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        output_file = str(Path(tmpdir) / "output.txt")
-
-        j = await ajob_test(pipeline, output_file=output_file, **pipeline_kwargs)
-
-        assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
-        lines = Path(output_file).read_text().strip().split("\n")
-        assert sorted(int(line) for line in lines) == expected
-
-
-async def test_foreach_consumer_waits_for_every_partition(orch_ctx):
-    """A consumer of foreach() runs after every partition and receives ``None``."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        output_file = str(Path(tmpdir) / "output.txt")
-
-        j = await ajob_test(foreach_consumer_pipeline, output_file=output_file)
+        j = await ajob_test(pipeline, output_file=str(Path(tmpdir) / "output.txt"), **pipeline_kwargs)
 
         assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
         async with data_context():
-            assert await get_job_result(j) == {"done": None, "rows": [10, 20, 30, 40, 50]}
+            assert await get_job_result(j) == {"done": None, "rows": expected}
 
 
 @pytest.mark.parametrize(

@@ -63,9 +63,8 @@ returns data. See
 When `data` is one of the returned tasks, consumers of the parent wait for that
 task. So when the data is something the children produce, return it through a
 task that depends on them: `map()`, `foreach()` and `reduce()` return a
-finalize task that runs after the partition tasks and hands the output Object
-on. Any other `data`
-is readable as soon as the parent completes.
+finalize task that runs after the partition tasks and hands their result on.
+Any other `data` is readable as soon as the parent completes.
 
 !!! warning "A list carries tasks only, unnested"
     `return [obj, group]` raises `TypeError` — use
@@ -419,8 +418,7 @@ python -m aaiclick run-job <name> --entry-type shell --command 'python main.py' 
 All three accept a `Task` or an `Object` as input and return the expander
 `Task`. Its result is the output Object (`None` for `foreach`), produced by a
 finalize task that runs after every partition task, so a consumer sees it
-filled. See
-[Examples: Orchestration Operators](../examples/orchestration_operators.md).
+filled. See [Examples: Orchestration Operators](../examples/orchestration_operators.md).
 
 !!! warning "Output schema equals input schema"
     Both operators allocate the output from the input's schema, and ClickHouse

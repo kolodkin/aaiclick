@@ -68,16 +68,8 @@ def map(
         partition; its result is the output Object, and tasks that consume it
         wait for every partition.
     """
-    if kwargs is None:
-        kwargs = {}
-
     return _expand_map(
-        cbk=cbk,
-        obj=obj,
-        partition=partition,
-        cbk_args=list(args),
-        cbk_kwargs=kwargs,
-        collect=True,
+        cbk=cbk, obj=obj, partition=partition, cbk_args=list(args), cbk_kwargs=kwargs or {}, collect=True
     )
 
 
@@ -90,31 +82,15 @@ def foreach(
 ) -> Task:
     """Run a side-effect callback over every row of an Object, in parallel partitions.
 
-    Like ``map()``, but the callback's return value is discarded and no output
-    Object is allocated.
-
-    Args:
-        cbk: Callback applied to each row: ``cbk(row, *args, **kwargs)``.
-        obj: Task or Object to partition. If Task, the expander waits for it.
-        partition: Number of rows per partition.
-        args: Extra positional arguments forwarded to cbk after row.
-        kwargs: Extra keyword arguments forwarded to cbk.
+    Takes the same arguments as ``map()``, but discards the callback's return
+    value and allocates no output Object.
 
     Returns:
-        The expander Task. At runtime it creates one ``_map_part`` child per
-        partition; its result is ``None``, and tasks that consume it wait for
-        every partition.
+        The expander Task. Its result is ``None``; tasks that consume it wait
+        for every partition.
     """
-    if kwargs is None:
-        kwargs = {}
-
     return _expand_map(
-        cbk=cbk,
-        obj=obj,
-        partition=partition,
-        cbk_args=list(args),
-        cbk_kwargs=kwargs,
-        collect=False,
+        cbk=cbk, obj=obj, partition=partition, cbk_args=list(args), cbk_kwargs=kwargs or {}, collect=False
     )
 
 
@@ -198,7 +174,7 @@ async def _map_part(
     results = []
     for row in rows:
         value = await cbk(row, *cbk_args, **cbk_kwargs) if is_async else cbk(row, *cbk_args, **cbk_kwargs)
-        if value is not None:
+        if out is not None and value is not None:
             results.append(value)
     if out is not None:
         await out.insert(results)
