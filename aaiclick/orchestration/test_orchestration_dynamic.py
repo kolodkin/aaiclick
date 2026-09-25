@@ -1,4 +1,4 @@
-"""Execution tests for dynamic task creation (map) via ajob_test."""
+"""Execution tests for dynamic task creation (map, foreach) via ajob_test."""
 
 import tempfile
 from pathlib import Path
@@ -11,7 +11,7 @@ from aaiclick.orchestration import get_job_result, task_result, tasks_list
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution.debug import ajob_test
 from aaiclick.orchestration.models import JOB_COMPLETED
-from aaiclick.orchestration.operators import map
+from aaiclick.orchestration.operators import foreach, map
 
 # --- Task fixtures ---
 
@@ -92,10 +92,10 @@ async def create_test_view(where: str | None, offset: int | None, limit: int | N
 # --- Job pipelines (must be module-level for entrypoint resolution) ---
 
 
-@job("test_map_basic")
-def map_basic_pipeline(output_file: str):
+@job("test_foreach_basic")
+def foreach_basic_pipeline(output_file: str):
     data = create_test_data()
-    mapped = map(
+    mapped = foreach(
         cbk=row_writer,
         obj=data,
         partition=5000,
@@ -104,10 +104,10 @@ def map_basic_pipeline(output_file: str):
     return tasks_list(data, mapped)
 
 
-@job("test_map_kwargs_exec")
-def map_kwargs_pipeline(output_file: str, factor: int):
+@job("test_foreach_kwargs")
+def foreach_kwargs_pipeline(output_file: str, factor: int):
     data = create_test_data()
-    mapped = map(
+    mapped = foreach(
         cbk=row_writer_with_factor,
         obj=data,
         partition=5000,
@@ -116,11 +116,11 @@ def map_kwargs_pipeline(output_file: str, factor: int):
     return tasks_list(data, mapped)
 
 
-@job("test_map_task_arg")
-def map_task_arg_pipeline(output_file: str):
+@job("test_foreach_task_arg")
+def foreach_task_arg_pipeline(output_file: str):
     data = create_test_data()
     factor = make_factor()
-    mapped = map(
+    mapped = foreach(
         cbk=row_writer_with_factor,
         obj=data,
         partition=5000,
@@ -130,16 +130,31 @@ def map_task_arg_pipeline(output_file: str):
     return tasks_list(data, factor, mapped)
 
 
-@job("test_map_partitions")
-def map_partitions_pipeline(output_file: str):
+@job("test_foreach_partitions")
+def foreach_partitions_pipeline(output_file: str):
     data = create_test_data()
-    mapped = map(
+    mapped = foreach(
         cbk=row_writer,
         obj=data,
         partition=2,
         kwargs={"output_file": output_file},
     )
     return tasks_list(data, mapped)
+
+
+@task
+async def read_written(done: None, output_file: str) -> dict:
+    """Consumer of foreach(): reads the file every partition has written to."""
+    lines = Path(output_file).read_text().split()
+    return {"done": done, "rows": sorted(int(line) for line in lines)}
+
+
+@job("test_foreach_consumer")
+def foreach_consumer_pipeline(output_file: str):
+    data = create_test_data()
+    written = foreach(cbk=row_writer, obj=data, partition=2, kwargs={"output_file": output_file})
+    seen = read_written(done=written, output_file=output_file)
+    return task_result(data=seen, tasks=[data, written, seen])
 
 
 def _map_then_read(data, cbk, reader, partition: int, kwargs: dict | None = None):
@@ -182,17 +197,17 @@ def map_view_pipeline(where: str | None, offset: int | None, limit: int | None):
     "pipeline, pipeline_kwargs, expected",
     [
         # Creates partitions, runs the callback on each row.
-        pytest.param(map_basic_pipeline, {}, [10, 20, 30, 40, 50], id="basic"),
+        pytest.param(foreach_basic_pipeline, {}, [10, 20, 30, 40, 50], id="basic"),
         # Extra kwargs are forwarded to the callback.
-        pytest.param(map_kwargs_pipeline, {"factor": 3}, [30, 60, 90, 120, 150], id="kwargs"),
+        pytest.param(foreach_kwargs_pipeline, {"factor": 3}, [30, 60, 90, 120, 150], id="kwargs"),
         # A Task in args makes the expander wait for it and forwards its result.
-        pytest.param(map_task_arg_pipeline, {}, [30, 60, 90, 120, 150], id="task-in-args"),
+        pytest.param(foreach_task_arg_pipeline, {}, [30, 60, 90, 120, 150], id="task-in-args"),
         # A small partition size creates multiple _map_part tasks.
-        pytest.param(map_partitions_pipeline, {}, [10, 20, 30, 40, 50], id="multiple-partitions"),
+        pytest.param(foreach_partitions_pipeline, {}, [10, 20, 30, 40, 50], id="multiple-partitions"),
     ],
 )
-async def test_map_execution(orch_ctx, pipeline, pipeline_kwargs, expected):
-    """map() end-to-end: the callback runs once per row of the mapped Object."""
+async def test_foreach_execution(orch_ctx, pipeline, pipeline_kwargs, expected):
+    """foreach() end-to-end: the callback runs once per row of the Object."""
     with tempfile.TemporaryDirectory() as tmpdir:
         output_file = str(Path(tmpdir) / "output.txt")
 
@@ -201,6 +216,18 @@ async def test_map_execution(orch_ctx, pipeline, pipeline_kwargs, expected):
         assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
         lines = Path(output_file).read_text().strip().split("\n")
         assert sorted(int(line) for line in lines) == expected
+
+
+async def test_foreach_consumer_waits_for_every_partition(orch_ctx):
+    """A consumer of foreach() runs after every partition and receives ``None``."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_file = str(Path(tmpdir) / "output.txt")
+
+        j = await ajob_test(foreach_consumer_pipeline, output_file=output_file)
+
+        assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
+        async with data_context():
+            assert await get_job_result(j) == {"done": None, "rows": [10, 20, 30, 40, 50]}
 
 
 @pytest.mark.parametrize(

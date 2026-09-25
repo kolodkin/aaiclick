@@ -62,8 +62,9 @@ returns data. See
 
 When `data` is one of the returned tasks, consumers of the parent wait for that
 task. So when the data is something the children produce, return it through a
-task that depends on them: `map()` and `reduce()` return a finalize task that
-runs after the partition tasks and hands the output Object on. Any other `data`
+task that depends on them: `map()`, `foreach()` and `reduce()` return a
+finalize task that runs after the partition tasks and hands the output Object
+on. Any other `data`
 is readable as soon as the parent completes.
 
 !!! warning "A list carries tasks only, unnested"
@@ -398,23 +399,27 @@ python -m aaiclick run-job <name> --entry-type shell --command 'python main.py' 
 
 # Parallel Operators
 
-`map` and `reduce` fan a computation out over partitions of an `Object`
-(`aaiclick/orchestration/operators.py`):
+`map`, `foreach` and `reduce` fan a computation out over partitions of an
+`Object` (`aaiclick/orchestration/operators.py`):
 
 - `map(cbk, obj, partition=5000)` — partitions the Object and creates one
   child task per partition; `cbk(row, *args, **kwargs)` is applied to each row
   (a value for single-column Objects, a `dict` for multi-column ones) and its
   return value is appended to the output Object. A `None` return adds no row.
   Output rows land in partition-completion order, not input order.
+- `foreach(cbk, obj, partition=5000)` — `map()` for side effects (write a
+  file, call an API): the return value is discarded, no output Object is
+  allocated, and the expander's result is `None`.
 - `reduce(cbk, obj, partition=5000)` — layered parallel reduction; each layer
   reduces partitions down until a single row remains. `cbk(partition, output)`
   receives an input partition and a pre-allocated output Object and writes via
   `output.insert()`. The callback must be homomorphic: output schema equals
   input schema.
 
-Both accept a `Task` or an `Object` as input and return the expander `Task`.
-Its result is the output Object, produced by a finalize task that runs after
-every partition task, so a consumer sees it filled. See
+All three accept a `Task` or an `Object` as input and return the expander
+`Task`. Its result is the output Object (`None` for `foreach`), produced by a
+finalize task that runs after every partition task, so a consumer sees it
+filled. See
 [Examples: Orchestration Operators](../examples/orchestration_operators.md).
 
 !!! warning "Output schema equals input schema"

@@ -48,23 +48,6 @@ concurrently on Postgres leave the job COMPLETED.
 
 ---
 
-# `foreach()` — Side-Effect Flavor of `map()`
-
-`map()` (`aaiclick/orchestration/operators.py`) allocates an output Object
-from the input schema and collects the callback's return values into it. A
-callback that only has side effects (writes a file, calls an API) returns
-`None`, so the output stays empty and is created and swept for nothing.
-
-Add `foreach(cbk, obj, partition=5000, args=(), kwargs=None) -> Task` with the
-same expander shape and no output: `_expand_map` takes `out: Object | None`,
-the parts skip the insert when there is no output, and the `_finalize` task
-returns `None`. Because the expander's data is still a returned task, a
-consumer of `foreach(...)` waits for every partition as it does for `map()`.
-Share `_partition_refs` and the parts group; the only new public symbol is
-`foreach`. Defer until a side-effect-only pipeline shows up in practice.
-
----
-
 # Draw a `map()` / `reduce()` Call as One Graph Frame
 
 In the job graph the expander and `_finalize` sit outside the frame of the
