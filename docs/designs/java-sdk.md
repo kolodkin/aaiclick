@@ -24,11 +24,16 @@ framework-trusted, unlike a vanilla `shell` image), waits, and reads the
 `remote_task_results` row back. The only difference is the container command:
 the runner passes just `--task-id N --run-epoch M` as *arguments*, so the
 image's `ENTRYPOINT` — which the user points at the SDK bootstrap — receives
-them. The runner cannot know a JVM classpath; the image owns it.
+them. The runner cannot know a JVM classpath; the image owns it. The shim
+never touches `run_ids`, so the host registers each jvm attempt
+(`register_run`) before launch. Docker passes the runner env as `-e KEY` names
+with values in the CLI's own environment, keeping DB URLs out of `ps`.
 
-**Implementation**: `aaiclick/orchestration/execution/docker_worker.py` — see
-`_build_docker_run_cmd()`; `aaiclick/orchestration/execution/kubernetes_worker.py`
-— see `_pod_manifest()`.
+**Implementation**: `aaiclick/orchestration/execution/dispatch.py` — see
+`dispatch_execute()`; `aaiclick/orchestration/execution/docker_worker.py` —
+see `_build_docker_run_cmd()`, `_env_flags()`;
+`aaiclick/orchestration/execution/kubernetes_worker.py` — see
+`_build_pod_manifest()`.
 
 ## `jvm` entry type
 
@@ -52,9 +57,10 @@ Enforced at commit points alongside `validate_image_sources()`
 submission surface (`aaiclick/orchestration/registered_jobs.py` — see
 `run_job()`):
 
-- A `jvm` task must not receive Object/View refs as kwargs — the shim has no
-  ClickHouse data plane. Any nested kwargs dict carrying `object_type` is
-  rejected at commit.
+- A `jvm` task's kwargs may carry only plain values, `native_value`
+  wrappers, and upstream refs — the shim has no ClickHouse data plane.
+  Object/View, pydantic, callable, and group refs at any depth are rejected at
+  commit (each kwarg checked on its own, as the shim resolves them).
 - A `jvm` task requires its own `image_source` on a docker/kubernetes job —
   there is no host-subprocess JVM contract, so a `jvm` task that would fall
   back to the subprocess runner is rejected. It never inherits the committing

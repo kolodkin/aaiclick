@@ -1,4 +1,4 @@
-"""Execution tests for dynamic task creation (map) via ajob_test."""
+"""Execution tests for dynamic task creation (map, foreach) via ajob_test."""
 
 import tempfile
 from pathlib import Path
@@ -7,11 +7,11 @@ import pytest
 
 from aaiclick.data.data_context import create_object_from_value, data_context
 from aaiclick.data.object import Object, View
-from aaiclick.orchestration import get_job_result, task_result, tasks_list
+from aaiclick.orchestration import get_job_result, task_result
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution.debug import ajob_test
 from aaiclick.orchestration.models import JOB_COMPLETED
-from aaiclick.orchestration.operators import map
+from aaiclick.orchestration.operators import foreach, map
 
 # --- Task fixtures ---
 
@@ -92,54 +92,44 @@ async def create_test_view(where: str | None, offset: int | None, limit: int | N
 # --- Job pipelines (must be module-level for entrypoint resolution) ---
 
 
-@job("test_map_basic")
-def map_basic_pipeline(output_file: str):
-    data = create_test_data()
-    mapped = map(
-        cbk=row_writer,
-        obj=data,
-        partition=5000,
-        kwargs={"output_file": output_file},
+@task
+async def read_written(done: None, output_file: str) -> dict:
+    """Consumer of foreach(): reads the file every partition has written to."""
+    lines = Path(output_file).read_text().split()
+    return {"done": done, "rows": sorted(int(line) for line in lines)}
+
+
+def _foreach_then_read(data, cbk, output_file: str, partition: int, args: tuple = (), kwargs: dict | None = None):
+    """Run ``cbk`` over ``data`` and read what it wrote; the job result is the read."""
+    written = foreach(
+        cbk=cbk, obj=data, partition=partition, args=args, kwargs={"output_file": output_file, **(kwargs or {})}
     )
-    return tasks_list(data, mapped)
+    seen = read_written(done=written, output_file=output_file)
+    return task_result(data=seen, tasks=[data, written, seen])
 
 
-@job("test_map_kwargs_exec")
-def map_kwargs_pipeline(output_file: str, factor: int):
-    data = create_test_data()
-    mapped = map(
-        cbk=row_writer_with_factor,
-        obj=data,
-        partition=5000,
-        kwargs={"factor": factor, "output_file": output_file},
+@job("test_foreach_basic")
+def foreach_basic_pipeline(output_file: str):
+    return _foreach_then_read(create_test_data(), row_writer, output_file, partition=5000)
+
+
+@job("test_foreach_kwargs")
+def foreach_kwargs_pipeline(output_file: str, factor: int):
+    return _foreach_then_read(
+        create_test_data(), row_writer_with_factor, output_file, partition=5000, kwargs={"factor": factor}
     )
-    return tasks_list(data, mapped)
 
 
-@job("test_map_task_arg")
-def map_task_arg_pipeline(output_file: str):
-    data = create_test_data()
-    factor = make_factor()
-    mapped = map(
-        cbk=row_writer_with_factor,
-        obj=data,
-        partition=5000,
-        args=(factor,),
-        kwargs={"output_file": output_file},
+@job("test_foreach_task_arg")
+def foreach_task_arg_pipeline(output_file: str):
+    return _foreach_then_read(
+        create_test_data(), row_writer_with_factor, output_file, partition=5000, args=(make_factor(),)
     )
-    return tasks_list(data, factor, mapped)
 
 
-@job("test_map_partitions")
-def map_partitions_pipeline(output_file: str):
-    data = create_test_data()
-    mapped = map(
-        cbk=row_writer,
-        obj=data,
-        partition=2,
-        kwargs={"output_file": output_file},
-    )
-    return tasks_list(data, mapped)
+@job("test_foreach_partitions")
+def foreach_partitions_pipeline(output_file: str):
+    return _foreach_then_read(create_test_data(), row_writer, output_file, partition=2)
 
 
 def _map_then_read(data, cbk, reader, partition: int, kwargs: dict | None = None):
@@ -182,25 +172,23 @@ def map_view_pipeline(where: str | None, offset: int | None, limit: int | None):
     "pipeline, pipeline_kwargs, expected",
     [
         # Creates partitions, runs the callback on each row.
-        pytest.param(map_basic_pipeline, {}, [10, 20, 30, 40, 50], id="basic"),
+        pytest.param(foreach_basic_pipeline, {}, [10, 20, 30, 40, 50], id="basic"),
         # Extra kwargs are forwarded to the callback.
-        pytest.param(map_kwargs_pipeline, {"factor": 3}, [30, 60, 90, 120, 150], id="kwargs"),
+        pytest.param(foreach_kwargs_pipeline, {"factor": 3}, [30, 60, 90, 120, 150], id="kwargs"),
         # A Task in args makes the expander wait for it and forwards its result.
-        pytest.param(map_task_arg_pipeline, {}, [30, 60, 90, 120, 150], id="task-in-args"),
+        pytest.param(foreach_task_arg_pipeline, {}, [30, 60, 90, 120, 150], id="task-in-args"),
         # A small partition size creates multiple _map_part tasks.
-        pytest.param(map_partitions_pipeline, {}, [10, 20, 30, 40, 50], id="multiple-partitions"),
+        pytest.param(foreach_partitions_pipeline, {}, [10, 20, 30, 40, 50], id="multiple-partitions"),
     ],
 )
-async def test_map_execution(orch_ctx, pipeline, pipeline_kwargs, expected):
-    """map() end-to-end: the callback runs once per row of the mapped Object."""
+async def test_foreach_execution(orch_ctx, pipeline, pipeline_kwargs, expected):
+    """foreach() runs the callback once per row; its consumer runs after every partition and gets ``None``."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        output_file = str(Path(tmpdir) / "output.txt")
-
-        j = await ajob_test(pipeline, output_file=output_file, **pipeline_kwargs)
+        j = await ajob_test(pipeline, output_file=str(Path(tmpdir) / "output.txt"), **pipeline_kwargs)
 
         assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
-        lines = Path(output_file).read_text().strip().split("\n")
-        assert sorted(int(line) for line in lines) == expected
+        async with data_context():
+            assert await get_job_result(j) == {"done": None, "rows": expected}
 
 
 @pytest.mark.parametrize(
