@@ -21,9 +21,8 @@ import tempfile
 from collections import Counter
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import NamedTuple
 from unittest.mock import patch
 
 import pytest
@@ -107,10 +106,15 @@ async def reset_sql_tables() -> None:
         await session.commit()
 
 
+async def ch_table_ddl(ch: ChClient) -> dict[str, str]:
+    """``create_table_query`` of each table in the active CH database, by name."""
+    result = await ch.query("SELECT name, create_table_query FROM system.tables WHERE database = currentDatabase()")
+    return {row[0]: row[1] for row in result.result_rows}
+
+
 async def list_ch_tables(ch: ChClient) -> set[str]:
     """Names of the tables in the active CH database."""
-    result = await ch.query("SELECT name FROM system.tables WHERE database = currentDatabase()")
-    return {row[0] for row in result.result_rows}
+    return set(await ch_table_ddl(ch))
 
 
 async def create_ch_tables(ch: ChClient, *names: str) -> None:
@@ -119,62 +123,47 @@ async def create_ch_tables(ch: ChClient, *names: str) -> None:
         await ch.command(f"CREATE TABLE {name} (x UInt8) ENGINE = Memory")
 
 
-class _MigratedSchema(NamedTuple):
+@dataclass
+class _MigratedSchema:
     """The CH database as ``ch_upgrade`` leaves an empty one."""
 
-    tables: dict[str, str]  # name -> create_table_query
-    versions: list[str]
-
-
-@dataclass
-class _MigratedSchemaCache:
-    snapshot: _MigratedSchema | None = None
+    tables: dict[str, str] = field(default_factory=dict)  # name -> create_table_query
+    versions: list[str] | None = None  # None until the first full rebuild
 
 
 # Process-wide rather than a ContextVar: each test's reset runs in its own
 # context yet must reuse the snapshot an earlier reset took.
-_migrated_schema_cache = _MigratedSchemaCache()
+_migrated_schema = _MigratedSchema()
 
 
-async def _ch_table_ddl(ch: ChClient) -> dict[str, str]:
-    result = await ch.query("SELECT name, create_table_query FROM system.tables WHERE database = currentDatabase()")
-    return {row[0]: row[1] for row in result.result_rows}
-
-
-async def _matches_migrated_schema(ch: ChClient, tables: dict[str, str], snapshot: _MigratedSchema) -> bool:
-    if any(tables.get(name) != ddl for name, ddl in snapshot.tables.items()):
+async def _matches_migrated_schema(ch: ChClient, tables: dict[str, str]) -> bool:
+    if _migrated_schema.versions is None:
+        return False
+    if any(tables.get(name) != ddl for name, ddl in _migrated_schema.tables.items()):
         return False
     # The DDL matched, so schema_migrations exists — skip ch_applied_versions' CREATE.
     result = await ch.query("SELECT version FROM schema_migrations ORDER BY version")
-    return [row[0] for row in result.result_rows] == snapshot.versions
+    return [row[0] for row in result.result_rows] == _migrated_schema.versions
 
 
 async def drop_all_ch_tables() -> None:
     """Reset the active CH database to its freshly migrated, empty state.
 
-    Migration-created tables are only truncated while their DDL and the
-    applied versions still match the snapshot taken after the last full
-    rebuild — recreating them costs most of a test's reset. Anything else
-    (a test that altered, dropped or re-versioned them) forces the full
-    rebuild: drop every table, then re-apply migrations. The re-apply keeps
-    distributed mode working: ``init_oplog_tables`` never writes there (it
-    demands ``aaiclick migrate upgrade``). Safe against real CH because
-    ``ch_worker_setup`` gives each xdist worker its own database, so this
-    never touches another worker's tables.
+    Truncates the migration-created tables while they match the last full
+    rebuild; otherwise drops everything and re-applies migrations (see
+    ``docs/designs/testing.md``).
     """
     ch = get_ch_client()
-    tables = await _ch_table_ddl(ch)
-    snapshot = _migrated_schema_cache.snapshot
-    if snapshot is not None and await _matches_migrated_schema(ch, tables, snapshot):
-        for table_name in tables.keys() - snapshot.tables.keys():
-            await ch.command(f"DROP TABLE IF EXISTS `{table_name}`")
-        for table_name in snapshot.tables.keys() - {"schema_migrations"}:
-            await ch.command(f"TRUNCATE TABLE `{table_name}`")
-    else:
-        for table_name in tables:
-            await ch.command(f"DROP TABLE IF EXISTS `{table_name}`")
+    tables = await ch_table_ddl(ch)
+    keep = _migrated_schema.tables.keys() if await _matches_migrated_schema(ch, tables) else set()
+    if dropped := tables.keys() - keep:
+        await ch.command("DROP TABLE IF EXISTS " + ", ".join(f"`{name}`" for name in dropped))
+    for table_name in keep - {"schema_migrations"}:
+        await ch.command(f"TRUNCATE TABLE `{table_name}`")
+    if not keep:
         await ch_upgrade(ch)
-        _migrated_schema_cache.snapshot = _MigratedSchema(await _ch_table_ddl(ch), await ch_applied_versions(ch))
+        _migrated_schema.tables = await ch_table_ddl(ch)
+        _migrated_schema.versions = await ch_applied_versions(ch)
     # Column types cached from the dropped tables must not leak into the
     # next test (which may recreate them with a different shape).
     clear_schema_cache()

@@ -247,8 +247,7 @@ async def _log_job_ids(ch: ChClient, table: str) -> set[int]:
 
 
 async def test_delete_job_data_purges_ch_log_tables(bg_db, orch_ctx):
-    """``_delete_job_data`` deletes the job's operation_log and task_logs rows, and no other job's,
-    before it returns — no waiting on a ClickHouse server's background mutations."""
+    """``_delete_job_data`` synchronously deletes the job's operation_log and task_logs rows, and no other job's."""
     job_id, other_job_id = 556, 557
     await insert_job(bg_db, job_id, preservation_mode="NONE")
     ch = get_ch_client()
