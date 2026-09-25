@@ -9,22 +9,6 @@ is fixed.
 
 ---
 
-# Medium
-
-## Java SDK
-
-- **jvm attempts are never registered via `register_run`** —
-  `aaiclick/orchestration/execution/docker_worker.py` and the kubernetes
-  path. `Task.run_ids` / `run_statuses` stay empty.
-- **Commit-time validation rejects only object refs** —
-  `aaiclick/orchestration/image_injection.py`, `validate_jvm_tasks()`.
-  Callable, group, and pydantic refs pass and fail inside the container.
-- **Runner secrets on the `docker run` command line** —
-  `aaiclick/orchestration/execution/docker_worker.py`, `-e KEY=VALUE` with DB
-  URLs is visible in `ps`.
-
----
-
 # Low
 
 - **Login timing oracle**: short-circuit before bcrypt for unknown users —
@@ -58,8 +42,6 @@ is fixed.
   `registered_job_id`** — `aaiclick/orchestration/decorators.py`.
 - **`task_scope` orphans the lifecycle loop** if oplog init raises —
   `aaiclick/orchestration/orch_context.py`.
-- **Stale reference** to `_pod_manifest()` (real name `_build_pod_manifest`)
-  — `docs/designs/java-sdk.md`.
 - **Schema-fixture CI step duplicated verbatim** between `publish.yaml` and
   `test.yaml`; extract to a composite action.
 
@@ -84,5 +66,4 @@ is fixed.
 
 # Fix Order
 
-The remaining Mediums are the host-side Java SDK items; the attempt and
-validation items share the jvm launch path.
+All Highs and Mediums are closed; the Lows and convention violations remain.

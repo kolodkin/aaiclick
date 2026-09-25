@@ -3,6 +3,8 @@
 import pytest
 from sqlmodel import select
 
+from aaiclick.data.object.refs import callable_ref, group_results_ref, native_value_ref, upstream_ref
+
 from .execution.execution_worker_context import set_current_task_info
 from .execution.image_build_task import IMAGE_BUILD_ENTRYPOINT
 from .factories import create_job, create_task
@@ -55,15 +57,29 @@ def _jvm_task(kwargs: dict | None = None, image_source: dict | None = PREBUILT) 
     return t
 
 
-def test_validate_jvm_accepts_plain_kwargs():
-    validate_jvm_tasks([_jvm_task({"date": "2026-08-20", "window": 7})])
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        pytest.param({"date": "2026-08-20", "window": 7}, id="plain"),
+        pytest.param({"rows": [upstream_ref(5)]}, id="nested-upstream-ref"),
+        # The kwargs map is never a ref, so a parameter may carry a ref key's name.
+        pytest.param({"object_type": "csv", "ref_type": "x"}, id="ref-key-as-param-name"),
+        # native_value is opaque to the shim, like to Python's deserializer.
+        pytest.param({"cfg": native_value_ref(OBJECT_REF)}, id="native-value-wrapper"),
+    ],
+)
+def test_validate_jvm_accepts(kwargs):
+    validate_jvm_tasks([_jvm_task(kwargs)])
 
 
 @pytest.mark.parametrize(
     "kwargs, image_source, match",
     [
         pytest.param(None, None, "image_source", id="no-image-source"),
-        pytest.param({"inputs": [{"nested": OBJECT_REF}]}, PREBUILT, "plain values only", id="nested-object-ref"),
+        pytest.param({"inputs": [{"nested": OBJECT_REF}]}, PREBUILT, "Object/View ref", id="nested-object-ref"),
+        pytest.param({"fn": callable_ref("m.f")}, PREBUILT, "callable ref in kwarg 'fn'", id="callable-ref"),
+        pytest.param({"parts": group_results_ref(9)}, PREBUILT, "group_results ref", id="group-ref"),
+        pytest.param({"m": {"pydantic_type": "m.M", "pydantic_data": {}}}, PREBUILT, "pydantic ref", id="pydantic-ref"),
     ],
 )
 def test_validate_jvm_rejects(kwargs, image_source, match):

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import Iterable
 from typing import NamedTuple
 
 from ..docker_config import add_host_flags, get_registry
@@ -49,6 +50,13 @@ def _docker_bin() -> str:
 # ---------------------------------------------------------------------------
 
 
+def _env_flags(keys: Iterable[str]) -> list[str]:
+    """``-e KEY`` flags, name only: docker reads each value from the CLI's own
+    environment, so values (DB URLs with passwords) never reach the argv that
+    ``ps`` shows. The caller supplies the values as the CLI process's env."""
+    return [flag for key in keys for flag in ("-e", key)]
+
+
 def _shell_container_name(task: Task) -> str:
     """Unique-per-attempt container name so cleanup can address it."""
     return f"aaiclick-task-{task.id}-{task.run_epoch}"
@@ -57,7 +65,8 @@ def _shell_container_name(task: Task) -> str:
 def build_shell_run_spec(task: Task, image_tag: str) -> ShellSpec:
     """Wrap a shell task's argv as a foreground ``docker run``.
 
-    Only ``command_env`` is injected — no IPC mount, no runner env, so no
+    Only ``command_env`` is injected (values via ``ShellSpec.env``, see
+    ``_env_flags``) — no IPC mount, no runner env, so no
     aaiclick secrets reach a vanilla user image. ``--rm`` is safe here
     (unlike module tasks' detached run): the docker CLI is the wrapper
     process, so its own exit code *is* the container's — no ``docker wait``
@@ -72,12 +81,11 @@ def build_shell_run_spec(task: Task, image_tag: str) -> ShellSpec:
         "--name",
         name,
         *add_host_flags("AAICLICK_DOCKER_RUN_ADD_HOST"),
+        *_env_flags(task.command_env or {}),
+        image_tag,
+        *(task.command or []),
     ]
-    for key, value in (task.command_env or {}).items():
-        argv.extend(["-e", f"{key}={value}"])
-    argv.append(image_tag)
-    argv.extend(task.command or [])
-    return ShellSpec(argv, None, cleanup_argv=[_docker_bin(), "kill", name])
+    return ShellSpec(argv, task.command_env or None, cleanup_argv=[_docker_bin(), "kill", name])
 
 
 def _build_docker_run_cmd(
@@ -86,7 +94,8 @@ def _build_docker_run_cmd(
     env: dict[str, str],
 ) -> list[str]:
     """Construct the detached ``docker run`` command line for a module or jvm
-    task: inject the full runner env and run the in-container bootstrap shim.
+    task: inject the full runner env (names only — ``_docker_run_detached``
+    passes the values) and run the in-container bootstrap shim.
     For ``module`` that is the shared Python entrypoint
     (``python -m ...remote_result --task-id N --run-epoch M``); for ``jvm``
     only the ``--task-id``/``--run-epoch`` arguments are passed — the image's
@@ -108,9 +117,8 @@ def _build_docker_run_cmd(
         "run",
         "--detach",
         *add_host_flags("AAICLICK_DOCKER_RUN_ADD_HOST"),
+        *_env_flags(env),
     ]
-    for key, value in env.items():
-        cmd.extend(["-e", f"{key}={value}"])
     entrypoint = [] if task.entry_type == ENTRY_JVM else REMOTE_ENTRYPOINT
     cmd.extend(
         [
@@ -131,9 +139,10 @@ async def _docker_pull_if_registered(image_tag: str) -> None:
     await cli.run(_docker_bin(), "pull", image_tag, check=False, stream=False)
 
 
-async def _docker_run_detached(cmd: list[str]) -> str:
-    """Run ``docker run --detach``; returns the container id."""
-    rc, stdout, stderr = await cli.run(*cmd, check=False, stream=False)
+async def _docker_run_detached(cmd: list[str], env: dict[str, str]) -> str:
+    """Run ``docker run --detach`` with ``env`` in the CLI's environment
+    (the values behind ``_env_flags``); returns the container id."""
+    rc, stdout, stderr = await cli.run(*cmd, check=False, stream=False, env=env)
     if rc != 0:
         raise RuntimeError(f"docker run failed (exit {rc}): {stderr.strip() or stdout.strip()}")
     container_id = stdout.strip().splitlines()[-1]
@@ -213,7 +222,7 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", "RunnerResult | None"]):
 
     async def launch(self, task: Task, execution_worker_id: int) -> _DockerHandle:
         cmd = _build_docker_run_cmd(task, self._image_tag, self._env)
-        container_id = await _docker_run_detached(cmd)
+        container_id = await _docker_run_detached(cmd, self._env)
         return _DockerHandle(container_id, task.id, task.run_epoch)
 
     async def wait(self, handle: _DockerHandle, timeout: float | None) -> tuple[int, str | None, RunnerResult | None]:
