@@ -1514,9 +1514,9 @@ def _subcommand_parsers(parser: argparse.ArgumentParser) -> dict[str, argparse.A
 def main():
     """Main CLI entry point.
 
-    An ``internal_api`` error prints its message and exits 1. Any other
-    exception prints ``error: <Type>: <message>`` and exits 1; set
-    ``AAICLICK_DEBUG=1`` for the full traceback instead.
+    Any exception exits 1: an ``internal_api`` error prints its message,
+    anything else ``error: <Type>: <message>`` (``AAICLICK_DEBUG=1`` re-raises
+    it for the traceback).
     """
     try:
         _dispatch()

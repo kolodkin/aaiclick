@@ -272,9 +272,8 @@ async def test_delete_job_data_purges_ch_log_tables(bg_db, orch_ctx):
 async def test_delete_job_data_keeps_job_when_log_purge_fails(bg_db, orch_ctx):
     """A log-purge mutation that fails while running keeps the job's SQL rows for the next cycle.
 
-    The ``throwIf`` alias passes the ALTER's analysis and only raises once the
-    mutation executes — after the ALTER has returned, on a ClickHouse server
-    that does not wait for it.
+    The ``throwIf`` alias raises only when the mutation executes, which a
+    ClickHouse server does after the ALTER has returned.
     """
     job_id = 558
     await insert_job(bg_db, job_id, status="COMPLETED")
