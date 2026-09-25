@@ -99,6 +99,22 @@ async def test_run_job_rejects_image_on_the_subprocess_runner(orch_ctx, capsys):
     assert "image require a docker/kubernetes registered job" in capsys.readouterr().err
 
 
+async def test_cli_reports_an_unexpected_error_without_a_traceback(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        await run_cli("run-job", "j", "--command-env", "bad")
+
+    assert exc_info.value.code == 1
+    err = capsys.readouterr().err
+    assert err == "error: ValueError: --command-env expects KEY=VALUE, got 'bad'\n"
+
+
+async def test_cli_debug_env_reraises_for_the_traceback(monkeypatch):
+    monkeypatch.setenv("AAICLICK_DEBUG", "1")
+
+    with pytest.raises(ValueError, match="KEY=VALUE"):
+        await run_cli("run-job", "j", "--command-env", "bad")
+
+
 async def test_register_job_persists_image(orch_ctx, capsys):
     await run_cli("register-job", "myapp.jobs.etl", "--image", "myrepo/img:1")
 

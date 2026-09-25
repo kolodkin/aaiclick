@@ -40,6 +40,7 @@ Usage:
 import argparse
 import asyncio
 import json
+import os
 import shlex
 import sys
 from contextlib import closing, redirect_stdout
@@ -1524,7 +1525,22 @@ def _subcommand_parsers(parser: argparse.ArgumentParser) -> dict[str, argparse.A
 
 
 def main():
-    """Main CLI entry point."""
+    """Main CLI entry point.
+
+    An unexpected exception prints ``error: <Type>: <message>`` and exits 1;
+    set ``AAICLICK_DEBUG=1`` for the full traceback instead.
+    """
+    try:
+        _dispatch()
+    except Exception as exc:
+        if os.environ.get("AAICLICK_DEBUG"):
+            raise
+        print(f"error: {type(exc).__name__}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _dispatch() -> None:
+    """Parse ``sys.argv`` and run the chosen subcommand."""
     parser = build_parser()
     subcommands = _subcommand_parsers(parser)
     args = parser.parse_args()
