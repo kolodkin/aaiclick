@@ -20,7 +20,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aaiclick.data.object.refs import NATIVE_VALUE, OBJECT_TYPE, PYDANTIC_TYPE, REF_TYPE, UPSTREAM
+from aaiclick.data.object.refs import OBJECT_TYPE, PYDANTIC_TYPE, REF_TYPE, is_native_value_ref, is_upstream_ref
 
 from ..datetime_utils import utc_now
 from ..snowflake import get_snowflake_id
@@ -69,30 +69,29 @@ def _unsupported_jvm_ref(value: Any) -> str | None:
     """Name of the first ref in a serialized kwarg value the JVM shim cannot
     resolve, or None. Mirrors ``KwargsResolver.resolve``: only upstream refs
     and ``native_value`` wrappers (opaque, like the shim) are allowed."""
-    if isinstance(value, list):
-        return next((r for r in map(_unsupported_jvm_ref, value) if r), None)
-    if not isinstance(value, dict):
+    if isinstance(value, dict):
+        if REF_TYPE in value:
+            return None if is_upstream_ref(value) else f"{value[REF_TYPE]} ref"
+        if is_native_value_ref(value):
+            return None
+        if OBJECT_TYPE in value:
+            return "Object/View ref"
+        if PYDANTIC_TYPE in value:
+            return "pydantic ref"
+        value = list(value.values())
+    if not isinstance(value, list):
         return None
-    if REF_TYPE in value:
-        return None if value[REF_TYPE] == UPSTREAM else f"{value[REF_TYPE]} ref"
-    if NATIVE_VALUE in value and len(value) == 1:
-        return None
-    if OBJECT_TYPE in value:
-        return "Object/View ref"
-    if PYDANTIC_TYPE in value:
-        return "pydantic ref"
-    return next((r for r in map(_unsupported_jvm_ref, value.values()) if r), None)
+    return next((r for r in map(_unsupported_jvm_ref, value) if r), None)
 
 
 def validate_jvm_tasks(tasks: list[Task]) -> None:
     """Enforce the ``jvm`` commit-point rules (spec: docs/designs/java-sdk.md
     "Validation"); raises ``ValueError``.
 
-    The shim jar resolves only plain values and upstream refs, so Object/View,
-    pydantic, callable, and group refs are rejected here rather than inside
-    the container; and there is no host-subprocess JVM contract, so a jvm task
-    must carry an image (docker/kubernetes jobs only — implied by
-    ``validate_image_sources`` once the image is required)."""
+    The shim resolves only plain values and upstream refs, so any other ref
+    fails here, not inside the container. There is no host-subprocess JVM
+    contract, so a jvm task must carry an image (docker/kubernetes only —
+    implied by ``validate_image_sources``)."""
     for task in tasks:
         if task.entry_type != ENTRY_JVM:
             continue

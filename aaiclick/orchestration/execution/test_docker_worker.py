@@ -52,11 +52,9 @@ def test_build_shell_run_spec_wraps_argv():
     assert spec.argv[:2] == ["docker", "run"]
     assert "--rm" in spec.argv
     assert "--name" in spec.argv and "aaiclick-task-7-2" in spec.argv
-    # Name only on the argv; the value rides in the CLI's env (not in ``ps``).
-    assert ["-e", "K"] == spec.argv[spec.argv.index("-e") : spec.argv.index("-e") + 2]
-    assert "v" not in spec.argv
+    assert ["-e", "K=v"] == spec.argv[spec.argv.index("-e") : spec.argv.index("-e") + 2]
     assert spec.argv[-3:] == ["img:tag", "echo", "hi"]
-    assert spec.env == {"K": "v"}
+    assert spec.env is None
     assert spec.cleanup_argv == ["docker", "kill", "aaiclick-task-7-2"]
 
 

@@ -52,8 +52,7 @@ def _docker_bin() -> str:
 
 def _env_flags(keys: Iterable[str]) -> list[str]:
     """``-e KEY`` flags, name only: docker reads each value from the CLI's own
-    environment, so values (DB URLs with passwords) never reach the argv that
-    ``ps`` shows. The caller supplies the values as the CLI process's env."""
+    env, keeping values (DB passwords) out of ``ps``."""
     return [flag for key in keys for flag in ("-e", key)]
 
 
@@ -65,9 +64,10 @@ def _shell_container_name(task: Task) -> str:
 def build_shell_run_spec(task: Task, image_tag: str) -> ShellSpec:
     """Wrap a shell task's argv as a foreground ``docker run``.
 
-    Only ``command_env`` is injected (values via ``ShellSpec.env``, see
-    ``_env_flags``) — no IPC mount, no runner env, so no
-    aaiclick secrets reach a vanilla user image. ``--rm`` is safe here
+    Only ``command_env`` is injected — no IPC mount, no runner env, so no
+    aaiclick secrets reach a vanilla user image. Unlike ``_env_flags``, values
+    stay on the argv: on the CLI's own env, ``PATH`` / ``DOCKER_HOST`` would
+    redirect the host CLI. ``--rm`` is safe here
     (unlike module tasks' detached run): the docker CLI is the wrapper
     process, so its own exit code *is* the container's — no ``docker wait``
     race. ``cleanup_argv`` kills the container by name for the
@@ -81,11 +81,12 @@ def build_shell_run_spec(task: Task, image_tag: str) -> ShellSpec:
         "--name",
         name,
         *add_host_flags("AAICLICK_DOCKER_RUN_ADD_HOST"),
-        *_env_flags(task.command_env or {}),
-        image_tag,
-        *(task.command or []),
     ]
-    return ShellSpec(argv, task.command_env or None, cleanup_argv=[_docker_bin(), "kill", name])
+    for key, value in (task.command_env or {}).items():
+        argv.extend(["-e", f"{key}={value}"])
+    argv.append(image_tag)
+    argv.extend(task.command or [])
+    return ShellSpec(argv, None, cleanup_argv=[_docker_bin(), "kill", name])
 
 
 def _build_docker_run_cmd(
@@ -140,8 +141,8 @@ async def _docker_pull_if_registered(image_tag: str) -> None:
 
 
 async def _docker_run_detached(cmd: list[str], env: dict[str, str]) -> str:
-    """Run ``docker run --detach`` with ``env`` in the CLI's environment
-    (the values behind ``_env_flags``); returns the container id."""
+    """Run ``docker run --detach`` with ``env`` (the ``_env_flags`` values)
+    in the CLI's env; returns the container id."""
     rc, stdout, stderr = await cli.run(*cmd, check=False, stream=False, env=env)
     if rc != 0:
         raise RuntimeError(f"docker run failed (exit {rc}): {stderr.strip() or stdout.strip()}")

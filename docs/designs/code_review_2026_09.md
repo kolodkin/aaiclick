@@ -42,6 +42,11 @@ is fixed.
   `registered_job_id`** — `aaiclick/orchestration/decorators.py`.
 - **`task_scope` orphans the lifecycle loop** if oplog init raises —
   `aaiclick/orchestration/orch_context.py`.
+- **Shell `command_env` values on the wrapper argv** (visible in `ps`) —
+  `docker_worker.py` `build_shell_run_spec()` (`-e K=V`) and
+  `kubernetes_worker.py` `build_shell_pod_spec()` (`--overrides`). Needs an
+  env file: overlaying them on the CLI's env would let `PATH` / `DOCKER_HOST`
+  redirect the host CLI.
 - **Schema-fixture CI step duplicated verbatim** between `publish.yaml` and
   `test.yaml`; extract to a composite action.
 

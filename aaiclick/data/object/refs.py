@@ -234,6 +234,11 @@ def is_upstream_ref(value: Any) -> bool:
     return isinstance(value, dict) and value.get(REF_TYPE) == UPSTREAM
 
 
+def is_native_value_ref(value: Any) -> bool:
+    """True iff ``value`` is a ``native_value`` wrapper (the key alone)."""
+    return isinstance(value, dict) and NATIVE_VALUE in value and len(value) == 1
+
+
 def is_persistent_object_ref(value: Any) -> bool:
     """True iff ``value`` is a serialized persistent Object reference."""
     return (

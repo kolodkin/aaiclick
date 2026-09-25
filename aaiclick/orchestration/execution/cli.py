@@ -41,6 +41,11 @@ async def _stream(reader: asyncio.StreamReader, sink: TextIO) -> bytes:
     return b"".join(chunks)
 
 
+def overlay_env(extra: dict[str, str] | None) -> dict[str, str] | None:
+    """This process's env with ``extra`` on top; None (inherit) when empty."""
+    return {**os.environ, **extra} if extra else None
+
+
 async def run(
     *cmd: str,
     check: bool = True,
@@ -58,7 +63,7 @@ async def run(
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         cwd=cwd,
-        env={**os.environ, **env} if env else None,
+        env=overlay_env(env),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )

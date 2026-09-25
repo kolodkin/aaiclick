@@ -7,7 +7,6 @@ import importlib
 import inspect
 import logging
 import math
-import os
 from collections.abc import Callable
 from contextlib import suppress
 from typing import Any, NamedTuple
@@ -40,6 +39,7 @@ from aaiclick.data.object.refs import (
     VIEW,
     ObjectRef,
     ViewRef,
+    is_native_value_ref,
     native_value_ref,
     upstream_ref,
 )
@@ -69,6 +69,7 @@ from ..orch_context import commit_tasks, get_sql_session, task_scope
 from ..result import TaskResult
 from ..runner_config import ENTRY_JVM, ENTRY_SHELL
 from .claiming import update_job_status, update_task_status
+from .cli import overlay_env
 from .db_handler import DEPENDENCY_WHERE
 from .execution_worker_context import set_current_task_info
 
@@ -197,7 +198,7 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
             deserialized.append(await _deserialize_value(task_result, session))
         return deserialized
 
-    if NATIVE_VALUE in value and len(value) == 1:
+    if is_native_value_ref(value):
         return value[NATIVE_VALUE]
 
     if PYDANTIC_TYPE in value:
@@ -366,12 +367,11 @@ async def start_shell_process(
     stream (the docker / kubectl wrappers preserve the split for non-TTY
     runs). :func:`execute_shell_task` pumps both.
     """
-    env = {**os.environ, **command_env} if command_env else None
     return await asyncio.create_subprocess_exec(
         *(command or []),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        env=env,
+        env=overlay_env(command_env),
     )
 
 
