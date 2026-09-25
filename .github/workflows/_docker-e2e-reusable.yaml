@@ -175,7 +175,7 @@ jobs:
         uses: ./.github/actions/run-pytest
         with:
           command: >-
-            uv run --no-project pytest test_e2e/docker/ -m docker_e2e -n 0 -v
+            uv run --no-project pytest test_e2e/docker/ -m docker_e2e -n 0 -v -x
             -o asyncio_mode=auto
             -o asyncio_default_fixture_loop_scope=module
             -o asyncio_default_test_loop_scope=module
