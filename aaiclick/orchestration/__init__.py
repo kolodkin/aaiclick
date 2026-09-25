@@ -32,7 +32,7 @@ from .execution import ajob_test, cancel_job, job_test  # noqa: I001
 from .result import TaskResult, data_list, task_result, tasks_list
 from .orch_context import commit_tasks, get_sql_session, orch_context
 from .decorators import JobFactory, TaskFactory, job, task
-from .operators import map, reduce
+from .operators import foreach, map, reduce
 from .jobs import (
     count_jobs,
     get_job,
