@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from ...datetime_utils import utc_now
-from ..background.handler import cancelling_transition
+from ..background.handler import cancelling_transition, roll_up_job
 from ..dependency_graph import successor_task_ids
 from ..models import (
     CANCELLING_TASK_STATUSES,
@@ -105,20 +105,57 @@ async def update_task_status(
         if expected_epoch is not None and task.run_epoch != expected_epoch:
             return False
 
-        task.status = status
-        if status == TASK_RUNNING:
-            task.started_at = utc_now()
-        elif status in (TASK_COMPLETED, TASK_FAILED):
-            task.completed_at = utc_now()
-            if error:
-                task.error = error
-            if result:
-                task.result = result
-
-        if task.run_statuses:
-            task.run_statuses = [*task.run_statuses[:-1], status]
-
+        _apply_task_status(task, status, error, result)
         session.add(task)
+        await session.commit()
+        return True
+
+
+def _apply_task_status(task: Task, status: TaskStatus, error: str | None, result: dict | None) -> None:
+    """Write ``status`` and its timestamps onto ``task``, mirroring it into ``run_statuses``."""
+    task.status = status
+    if status == TASK_RUNNING:
+        task.started_at = utc_now()
+    elif status in (TASK_COMPLETED, TASK_FAILED):
+        task.completed_at = utc_now()
+        if error:
+            task.error = error
+        if result:
+            task.result = result
+
+    if task.run_statuses:
+        task.run_statuses = [*task.run_statuses[:-1], status]
+
+
+async def complete_task_and_roll_up(task_id: int, result: dict | None, expected_epoch: int) -> bool:
+    """Mark a task COMPLETED and roll its job up, in one transaction.
+
+    The worker's success path. One commit means one change signal, and no
+    crash window between the task reading COMPLETED and its job completing.
+
+    Locks the job row, then the task row — the order ``cancel_job`` uses. The
+    job lock serializes sibling completions: without it, two tasks finishing
+    together on Postgres each read the other as RUNNING and nobody completes
+    the job.
+
+    Returns False without writing when the task is missing, cancelling or
+    cancelled, or its ``run_epoch`` no longer matches ``expected_epoch``.
+    """
+    handler = get_db_handler()
+    async with get_sql_session() as session:
+        job_id = (await session.execute(select(Task.job_id).where(Task.id == task_id))).scalar_one_or_none()
+        if job_id is None:
+            return False
+        await session.execute(handler.lock_query(select(Job.id).where(Job.id == job_id)))
+        task = (await session.execute(handler.lock_query(select(Task).where(Task.id == task_id)))).scalar_one()
+
+        if task.status in CANCELLING_TASK_STATUSES or task.run_epoch != expected_epoch:
+            return False
+
+        _apply_task_status(task, TASK_COMPLETED, None, result)
+        session.add(task)
+        await session.flush()
+        await roll_up_job(session, job_id)
         await session.commit()
         return True
 
