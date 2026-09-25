@@ -4,19 +4,10 @@ automatic Object cleanup, and stale-object guarantees after context exit.
 
 from __future__ import annotations
 
-import json
-
 import pytest
-from sqlmodel import select
 
-from aaiclick import (
-    create_object_from_value,
-)
+from aaiclick import Object, create_object_from_value
 from aaiclick.data.data_context import delete_object, get_ch_client
-from aaiclick.data.data_context.lifecycle import get_data_lifecycle
-from aaiclick.data.models import FIELDTYPE_ARRAY
-from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
-from aaiclick.orchestration.sql_context import get_sql_session
 
 # DDL and registry persistence
 
@@ -36,23 +27,6 @@ async def test_create_object_emits_no_comment_clauses(ctx):
     result = await ch_client.query(f"SELECT name, comment FROM system.columns WHERE table = '{obj.table}'")
     for name, comment in result.result_rows:
         assert comment == "", f"column {name} has unexpected comment {comment!r}"
-
-
-async def test_create_object_writes_schema_doc(ctx):
-    obj = await create_object_from_value([1, 2, 3])
-    # Registry write goes through the DBLifecycleHandler queue; flush so the
-    # INSERT has committed before we read.
-    lifecycle = get_data_lifecycle()
-    assert lifecycle is not None
-    await lifecycle.flush()
-    async with get_sql_session() as sess:
-        result = await sess.execute(select(TableRegistry.schema_doc).where(TableRegistry.table_name == obj.table))
-        raw = result.scalar_one()
-    assert raw is not None
-    parsed = json.loads(raw)
-    assert parsed["fieldtype"] == FIELDTYPE_ARRAY
-    assert list(parsed["columns"]) == ["value"]
-    assert parsed["columns"]["value"]["fieldtype"] == FIELDTYPE_ARRAY
 
 
 async def test_create_object_allows_user_column_named_aai_id(ctx):
@@ -75,17 +49,6 @@ async def test_context_object_stale_flag(ctx):
 
     await delete_object(obj)
     assert obj.stale
-
-
-async def test_context_client_usage(ctx):
-    """Test that context can use global client."""
-    # Context should have a working client
-    ch = get_ch_client()
-    assert ch is not None
-
-    obj = await create_object_from_value([1, 2, 3])
-    data = await obj.data()
-    assert data == [1, 2, 3]
 
 
 # Stale-object guards
@@ -140,20 +103,21 @@ async def test_stale_object_prevents_aggregates(ctx):
         await obj.std()
 
 
-@pytest.mark.parametrize("method", ["copy", "concat", "insert"])
-async def test_stale_object_prevents_operations(ctx, method):
-    """Test that stale objects prevent copy, concat, and insert operations."""
-    obj1 = await create_object_from_value([1, 2, 3])
-    obj2 = await create_object_from_value([4, 5, 6])
+@pytest.mark.parametrize(
+    "method, args",
+    [
+        pytest.param(Object.copy, (), id="copy"),
+        pytest.param(Object.concat, ([4, 5, 6],), id="concat"),
+        pytest.param(Object.insert, ([4, 5, 6],), id="insert"),
+    ],
+)
+async def test_stale_object_prevents_table_methods(ctx, method, args):
+    """copy / concat / insert refuse to run on a stale Object."""
+    obj = await create_object_from_value([1, 2, 3])
+    await delete_object(obj)
 
-    await delete_object(obj1)
     with pytest.raises(RuntimeError, match="Cannot use stale Object"):
-        if method == "copy":
-            await obj1.copy()
-        elif method == "concat":
-            await obj1.concat(obj2)
-        elif method == "insert":
-            await obj1.insert(obj2)
+        await method(obj, *args)
 
 
 async def test_stale_object_allows_property_access(ctx):

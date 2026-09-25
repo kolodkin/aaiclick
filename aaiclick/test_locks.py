@@ -9,6 +9,7 @@ from sqlalchemy import text
 from aaiclick import create_object_from_value
 from aaiclick.data.object import ingest as ingest_mod
 from aaiclick.locks import _advisory_id_cache, load_advisory_id, table_insert_lock
+from aaiclick.orchestration import sql_context
 from aaiclick.orchestration.sql_context import get_sql_session
 
 # Module-object import bypasses aaiclick.data.data_context.__init__'s
@@ -50,8 +51,7 @@ async def test_load_advisory_id_mints_sentinel_row_when_missing(orch_ctx):
         )
         rows = result.fetchall()
 
-    # Sentinel context_id is negative (out of band vs positive Snowflake IDs);
-    # exact value is an implementation detail.
+    # Sentinel is negative (out of band vs Snowflake IDs); its exact value is an implementation detail.
     assert len(rows) == 1
     assert rows[0][0] < 0
     assert rows[0][1] == advisory_id
@@ -81,18 +81,14 @@ async def test_table_insert_lock_none_advisory_id_is_noop():
 
 async def test_table_insert_lock_local_mode_is_noop(orch_ctx):
     """In local (SQLite) mode the lock yields without acquiring anything."""
-    # No assertions on PG state — local mode never opens a PG connection.
-    # The test passes as long as the context manager yields cleanly.
+    # Local mode never opens a PG connection; yielding cleanly is the pass condition.
     async with table_insert_lock(123):
         pass
 
 
 # ---------------------------------------------------------------------------
-# Mock tests for the distributed-mode lock path.
-#
-# Local tests cannot execute `SELECT pg_advisory_lock(...)` against SQLite,
-# so we stub `is_distributed()` + inject a recording engine. These verify
-# the exact SQL call sequence: acquire → body → release.
+# Distributed-mode lock path: SQLite can't run pg_advisory_lock, so stub
+# is_distributed() and inject a recording engine to check acquire → body → release.
 # ---------------------------------------------------------------------------
 
 
@@ -122,8 +118,6 @@ class _RecordingEngine:
 
 async def test_table_insert_lock_distributed_issues_lock_unlock(monkeypatch):
     """Distributed mode: acquires then releases the advisory lock around yield."""
-    from aaiclick.orchestration import sql_context
-
     monkeypatch.setattr("aaiclick.locks.is_distributed", lambda: True)
     engine = _RecordingEngine()
     token = sql_context._sql_engine_var.set(engine)  # type: ignore[arg-type]
@@ -143,8 +137,6 @@ async def test_table_insert_lock_distributed_issues_lock_unlock(monkeypatch):
 
 async def test_table_insert_lock_releases_on_body_exception(monkeypatch):
     """Unlock fires even when the wrapped code raises."""
-    from aaiclick.orchestration import sql_context
-
     monkeypatch.setattr("aaiclick.locks.is_distributed", lambda: True)
     engine = _RecordingEngine()
     token = sql_context._sql_engine_var.set(engine)  # type: ignore[arg-type]
@@ -161,18 +153,13 @@ async def test_table_insert_lock_releases_on_body_exception(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Wrap-site coverage: spy on table_insert_lock to verify every insert code
-# path that should serialize actually routes through it. Catches "someone
-# added a new insert path and forgot to wrap it" regressions without needing
-# a real Postgres server.
+# Wrap-site coverage: spy on table_insert_lock so a new insert path that
+# forgets the lock fails here, without a real Postgres.
 # ---------------------------------------------------------------------------
 
 
 def _install_lock_spy(monkeypatch, module) -> list[int | None]:
-    """Replace ``table_insert_lock`` on ``module`` with a recording no-op.
-
-    Returns the list of advisory_ids the code under test tried to lock on.
-    """
+    """Replace ``table_insert_lock`` on ``module`` with a recording no-op; return the ids it was asked to lock."""
     calls: list[int | None] = []
 
     @asynccontextmanager

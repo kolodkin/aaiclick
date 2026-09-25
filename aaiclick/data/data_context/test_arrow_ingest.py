@@ -51,6 +51,14 @@ def test_schema_unifies_across_all_records():
         pytest.param([{"b": [{"c": 1}, {"c": 2, "d": 3}]}], id="missing-key-inside-list-items"),
         # A dict field that is None in some records is rejected.
         pytest.param([{"m": {"c": 1}}, {"m": None}], id="none-dict-value"),
+        # A None at an intermediate list level is rejected, not embedded.
+        pytest.param([{"m": [[1, 2], None, [3]]}], id="intermediate-list-null"),
+        # A None element inside a typed list is rejected.
+        pytest.param([{"tags": [1, None]}], id="scalar-null-inside-list"),
+        # An explicit None item inside a list of dicts is rejected, not fabricated.
+        pytest.param([{"b": [{"c": 1}, None]}], id="none-item-in-list-of-dicts"),
+        # A None item is rejected even when the only leaf is itself all-null.
+        pytest.param([{"b": [{"c": None}, None]}], id="none-item-with-all-null-leaf"),
     ],
 )
 def test_struct_array_to_columns_non_identical_keys_raises(records):
@@ -122,46 +130,18 @@ def test_leaf_column_info_mapping():
     assert int(leaf_column_info(pa.int64(), array_depth=2).array) == 2
 
 
-def test_list_of_scalars_extraction():
-    """Plain list fields extract as per-row lists."""
-    arr = infer_struct_array([{"tags": [1, 2]}, {"tags": [3]}])
-    cols = struct_array_to_columns(arr)
-    assert cols["tags"].to_pylist() == [[1, 2], [3]]
-
-
-def test_nested_list_of_scalars_extraction():
-    """list<list<T>> extracts with both levels intact."""
-    arr = infer_struct_array([{"m": [[1, 2], [3]]}])
-    cols = struct_array_to_columns(arr)
-    assert cols["m"].to_pylist() == [[[1, 2], [3]]]
-
-
-def test_intermediate_list_null_raises():
-    """A None at an intermediate list level is rejected, not embedded."""
-    arr = infer_struct_array([{"m": [[1, 2], None, [3]]}])
-    with pytest.raises(ValueError, match="identical keys"):
-        struct_array_to_columns(arr)
-
-
-def test_scalar_null_inside_list_raises():
-    """A None element inside a typed list is rejected."""
-    arr = infer_struct_array([{"tags": [1, None]}])
-    with pytest.raises(ValueError, match="identical keys"):
-        struct_array_to_columns(arr)
-
-
-def test_none_item_in_list_of_dicts_raises():
-    """An explicit None item inside a list of dicts is rejected, not fabricated."""
-    arr = infer_struct_array([{"b": [{"c": 1}, None]}])
-    with pytest.raises(ValueError, match="identical keys"):
-        struct_array_to_columns(arr)
-
-
-def test_none_item_with_all_null_leaf_raises():
-    """A None item is rejected even when the only leaf is itself all-null."""
-    arr = infer_struct_array([{"b": [{"c": None}, None]}])
-    with pytest.raises(ValueError, match="identical keys"):
-        struct_array_to_columns(arr)
+@pytest.mark.parametrize(
+    "records, column, expected",
+    [
+        # Plain list fields extract as per-row lists.
+        pytest.param([{"tags": [1, 2]}, {"tags": [3]}], "tags", [[1, 2], [3]], id="list-of-scalars"),
+        # list<list<T>> extracts with both levels intact.
+        pytest.param([{"m": [[1, 2], [3]]}], "m", [[[1, 2], [3]]], id="nested-list-of-scalars"),
+    ],
+)
+def test_list_extraction(records, column, expected):
+    cols = struct_array_to_columns(infer_struct_array(records))
+    assert cols[column].to_pylist() == expected
 
 
 def test_arrow_table_matching_types_pass_through():

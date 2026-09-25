@@ -26,18 +26,14 @@ THRESHOLD = 1e-5
     ],
 )
 async def test_array_concat(ctx, array_a, array_b, expected_result):
-    """Test concatenating arrays of the same type."""
+    """Same-type concat preserves every row from both sides."""
     obj_a = await create_object_from_value(array_a)
     obj_b = await create_object_from_value(array_b)
 
     result = await obj_a.concat(obj_b)
     data = await result.data()
 
-    if isinstance(expected_result[0], float):
-        for i, val in enumerate(data):
-            assert abs(val - expected_result[i]) < THRESHOLD
-    else:
-        assert data == expected_result
+    assert data == pytest.approx(expected_result, abs=THRESHOLD)
 
 
 # =============================================================================
@@ -60,11 +56,7 @@ async def test_array_concat_with_scalar_value(ctx, array, scalar_value, expected
     result = await obj.concat(scalar_value)
     data = await result.data()
 
-    if isinstance(expected_result[0], float):
-        for i, val in enumerate(data):
-            assert abs(val - expected_result[i]) < THRESHOLD
-    else:
-        assert data == expected_result
+    assert data == pytest.approx(expected_result, abs=THRESHOLD)
 
 
 # =============================================================================
@@ -78,35 +70,18 @@ async def test_array_concat_with_scalar_value(ctx, array, scalar_value, expected
         pytest.param([1, 2, 3], [4, 5, 6], [1, 2, 3, 4, 5, 6], id="int"),
         pytest.param([1.5, 2.5], [3.5, 4.5], [1.5, 2.5, 3.5, 4.5], id="float"),
         pytest.param(["hello"], ["world", "test"], ["hello", "world", "test"], id="str"),
+        # Concatenating an empty list returns the same data
+        pytest.param([1, 2, 3], [], [1, 2, 3], id="empty-list"),
     ],
 )
 async def test_array_concat_with_list_value(ctx, array, list_value, expected_result):
-    """Test concatenating array with list value."""
+    """Concat with a list value: self first, then the value."""
     obj = await create_object_from_value(array)
 
     result = await obj.concat(list_value)
     data = await result.data()
 
-    if isinstance(expected_result[0], float):
-        for i, val in enumerate(data):
-            assert abs(val - expected_result[i]) < THRESHOLD
-    else:
-        assert data == expected_result
-
-
-# =============================================================================
-# Concat with Empty List Tests
-# =============================================================================
-
-
-async def test_array_concat_with_empty_list(ctx):
-    """Test concatenating array with empty list (should return same data)."""
-    obj = await create_object_from_value([1, 2, 3])
-
-    result = await obj.concat([])
-    data = await result.data()
-
-    assert data == [1, 2, 3]
+    assert data == pytest.approx(expected_result, abs=THRESHOLD)
 
 
 # =============================================================================
@@ -133,52 +108,8 @@ async def test_scalar_concat_fails(ctx, scalar_value, array_value):
 
 
 # =============================================================================
-# Order Preservation Tests
-# =============================================================================
-
-
-@pytest.mark.parametrize(
-    "array_a,array_b",
-    [
-        pytest.param([1, 2, 3], [4, 5, 6], id="int"),
-        pytest.param([5.5, 6.6], [7.7, 8.8], id="float"),
-        pytest.param(["a", "b"], ["c", "d"], id="str"),
-    ],
-)
-async def test_concat_preserves_data_integrity(ctx, array_a, array_b):
-    """Test that concat preserves all data from both arrays."""
-    obj_a = await create_object_from_value(array_a)
-    obj_b = await create_object_from_value(array_b)
-
-    result = await obj_a.concat(obj_b)
-    data = await result.data()
-
-    assert len(data) == len(array_a) + len(array_b)
-
-    if isinstance(array_a[0], (int, float)):
-        expected_sum = sum(array_a) + sum(array_b)
-        actual_sum = sum(data)
-        if isinstance(expected_sum, float):
-            assert abs(actual_sum - expected_sum) < THRESHOLD
-        else:
-            assert actual_sum == expected_sum
-
-
-# =============================================================================
 # Multi-Argument Concat Tests (*args)
 # =============================================================================
-
-
-async def test_array_concat_multiple_objects(ctx):
-    """Test concatenating multiple objects with *args."""
-    obj_a = await create_object_from_value([1, 2])
-    obj_b = await create_object_from_value([3, 4])
-    obj_c = await create_object_from_value([5, 6])
-
-    result = await obj_a.concat(obj_b, obj_c)
-    data = await result.data()
-
-    assert data == [1, 2, 3, 4, 5, 6]
 
 
 async def test_array_concat_mixed_types(ctx):
@@ -347,3 +278,87 @@ async def test_concat_with_name_temp_scope(ctx):
 
     assert result.table.startswith("t_concat_named_temp_")
     assert await result.data() == [1, 2, 3, 4]
+
+
+# =============================================================================
+# Dot-notation column names (nested-dict ingest)
+# =============================================================================
+
+
+async def test_concat_nested_dot_column(ctx):
+    """concat() builds its own CAST list — dotted names must be quoted there too."""
+    left = await create_object_from_value([{"a": 1, "m": {"x": 10}}])
+    right = await create_object_from_value([{"a": 2, "m": {"x": 20}}])
+
+    result = await left.concat(right)
+
+    assert await result.data() == {"a": [1, 2], "m": [{"x": 10}, {"x": 20}]}
+
+
+# =============================================================================
+# Concat Tests with Mixed Types
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    "arr_a,arr_b",
+    [
+        pytest.param([1, 2, 3], [4.5, 5.5, 6.5], id="int-float"),
+        pytest.param([1.5, 2.5, 3.5], [4, 5, 6], id="float-int"),
+        pytest.param([1, 2, 3], ["a", "b", "c"], id="int-str"),
+    ],
+)
+async def test_mixed_type_concat_fails(ctx, arr_a, arr_b):
+    """Concatenating incompatible types raises a type error."""
+    a = await create_object_from_value(arr_a, aai_id=True)
+    b = await create_object_from_value(arr_b, aai_id=True)
+
+    with pytest.raises(ValueError, match="incompatible type"):
+        await a.concat(b)
+
+
+# =============================================================================
+# Argument order: self first, then args left-to-right
+# =============================================================================
+
+
+async def test_concat_follows_argument_order(ctx):
+    """Concat puts self first even when self was created after the argument."""
+    obj_a = await create_object_from_value([1, 2, 3])
+    obj_b = await create_object_from_value([4, 5, 6])
+
+    result = await obj_b.concat(obj_a)
+    data = await result.data()
+    assert data == [4, 5, 6, 1, 2, 3]
+
+
+async def test_multiple_concat_preserves_argument_order(ctx):
+    """Chained concat preserves argument order at each step."""
+    obj1 = await create_object_from_value([1, 2])
+    obj2 = await create_object_from_value([3, 4])
+    obj3 = await create_object_from_value([5, 6])
+
+    result = await obj1.concat(obj2)
+    result = await result.concat(obj3)
+    data = await result.data()
+    assert data == [1, 2, 3, 4, 5, 6]
+
+
+async def test_concat_multi_arg_order(ctx):
+    """Multi-arg concat: self, then each arg in order, regardless of creation order."""
+    obj1 = await create_object_from_value([1, 2])
+    obj2 = await create_object_from_value([3, 4])
+    obj3 = await create_object_from_value([5, 6])
+
+    result = await obj3.concat(obj1, obj2)
+    data = await result.data()
+    assert data == [5, 6, 1, 2, 3, 4]
+
+
+async def test_concat_same_source_twice_preserves_all_rows(ctx):
+    """Concatenating the same source twice produces the full row set."""
+    obj = await create_object_from_value([1, 2])
+
+    result = await obj.concat(obj)
+    data = await result.data()
+    assert sorted(data) == [1, 1, 2, 2]

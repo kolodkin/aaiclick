@@ -3,77 +3,66 @@
 See ``docs/user_guide/object.md`` — "Lazy Operator Results".
 """
 
+import operator
+
 import pytest
 
-from aaiclick import create_object_from_value
+import aaiclick
+from aaiclick import Object, create_object_from_value, delete_persistent_object
 from aaiclick.data.models import (
     FIELDTYPE_ARRAY,
     FIELDTYPE_SCALAR,
 )
-from aaiclick.data.object import LazyOperator, operators
-from aaiclick.data.object.schema_compute import _preview_operator_schema
+from aaiclick.data.object import LazyOperator
 
-BINARY_OPERATORS = ["+", "-", "*", "/", "//", "%", "**", "==", "!=", "<", "<=", ">", ">=", "&", "|", "^"]
-
-
-async def test_apply_operator_db_with_name_and_scope_job(ctx):
-    """name='bar', scope='job' → j_<job_id>_bar table."""
-    obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
-    obj_b = await create_object_from_value([10, 20, 30], aai_id=True)
-    result = await operators._apply_operator_db(
-        obj_a._get_query_info(),
-        obj_b._get_query_info(),
-        "+",
-        obj_a.ch_client,
-        name="bar",
-        scope="job",
-    )
-    assert result.table.startswith("j_")
-    assert result.table.endswith("_bar")
-    assert result.persistent is True
-    assert await result.data() == [11, 22, 33]
+BINARY_OPERATORS = [
+    pytest.param(operator.add, id="+"),
+    pytest.param(operator.sub, id="-"),
+    pytest.param(operator.mul, id="*"),
+    pytest.param(operator.truediv, id="/"),
+    pytest.param(operator.floordiv, id="//"),
+    pytest.param(operator.mod, id="%"),
+    pytest.param(operator.pow, id="**"),
+    pytest.param(operator.eq, id="=="),
+    pytest.param(operator.ne, id="!="),
+    pytest.param(operator.lt, id="<"),
+    pytest.param(operator.le, id="<="),
+    pytest.param(operator.gt, id=">"),
+    pytest.param(operator.ge, id=">="),
+    pytest.param(operator.and_, id="&"),
+    pytest.param(operator.or_, id="|"),
+    pytest.param(operator.xor, id="^"),
+]
 
 
-@pytest.mark.parametrize("operator", BINARY_OPERATORS)
-async def test_preview_matches_materialized_schema_array_array(ctx, operator):
+async def assert_preview_matches_materialized(lazy):
+    """Core LazyOperator contract: the plan-time schema is the materialized result's schema.
+
+    Compares only fieldtype and columns; table name and engine come from create_object.
+    """
+    preview = lazy.schema
+    materialized = await lazy
+    assert preview.fieldtype == materialized.schema.fieldtype
+    assert set(preview.columns) == set(materialized.schema.columns)
+    for col in preview.columns:
+        assert preview.columns[col].type == materialized.schema.columns[col].type
+        assert preview.columns[col].nullable == materialized.schema.columns[col].nullable
+
+
+@pytest.mark.parametrize("op", BINARY_OPERATORS)
+async def test_preview_matches_materialized_schema_array_array(ctx, op):
     """Pre-materialize schema preview must match the schema of the materialized result."""
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
     obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
-
-    preview = _preview_operator_schema(obj_a.schema, obj_b.schema, operator)
-    materialized = await operators._apply_operator_db(
-        obj_a._get_query_info(),
-        obj_b._get_query_info(),
-        operator,
-        obj_a.ch_client,
-    )
-
-    # Compare the bits that the preview is responsible for: fieldtype + columns.
-    # Table name and engine are set by create_object and are not part of preview.
-    assert preview.fieldtype == materialized.schema.fieldtype
-    assert set(preview.columns.keys()) == set(materialized.schema.columns.keys())
-    for col_name in preview.columns:
-        assert preview.columns[col_name].type == materialized.schema.columns[col_name].type
-        assert preview.columns[col_name].nullable == materialized.schema.columns[col_name].nullable
+    await assert_preview_matches_materialized(op(obj_a, obj_b))
 
 
-@pytest.mark.parametrize("operator", BINARY_OPERATORS)
-async def test_preview_matches_materialized_schema_array_scalar(ctx, operator):
+@pytest.mark.parametrize("op", BINARY_OPERATORS)
+async def test_preview_matches_materialized_schema_array_scalar(ctx, op):
     """Scalar broadcast must produce a matching preview schema."""
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
     obj_b = await create_object_from_value(7)
-
-    preview = _preview_operator_schema(obj_a.schema, obj_b.schema, operator)
-    materialized = await operators._apply_operator_db(
-        obj_a._get_query_info(),
-        obj_b._get_query_info(),
-        operator,
-        obj_a.ch_client,
-    )
-
-    assert preview.fieldtype == materialized.schema.fieldtype
-    for col_name in preview.columns:
-        assert preview.columns[col_name].type == materialized.schema.columns[col_name].type
+    await assert_preview_matches_materialized(op(obj_a, obj_b))
 
 
 # -----------------------------------------------------------------------------
@@ -84,47 +73,34 @@ async def test_preview_matches_materialized_schema_array_scalar(ctx, operator):
 async def test_lazy_operator_table_raises_before_materialize(ctx):
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
     obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
-    preview = _preview_operator_schema(obj_a.schema, obj_b.schema, "+")
-    lazy = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+", schema_preview=preview)
+    lazy = obj_a + obj_b
 
     with pytest.raises(RuntimeError, match="no table yet"):
         _ = lazy.table
 
 
 async def test_as_returns_new_lazy_with_name(ctx):
+    """as_() returns a new named LazyOperator and leaves the receiver unnamed."""
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
     obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
-    preview = _preview_operator_schema(obj_a.schema, obj_b.schema, "+")
-    lazy = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+", schema_preview=preview)
+    lazy = obj_a + obj_b
 
     named = lazy.as_("daily_total")
 
     assert named is not lazy
-    assert named._name == "daily_total"
-    assert named._scope == "temp_named"
+    named_result = await named
+    assert named_result.table.startswith("t_daily_total_")
+    assert named_result.scope == "temp_named"
     # Receiver unchanged.
-    assert lazy._name is None
-    assert lazy._scope is None
-
-
-async def test_as_with_explicit_scope(ctx):
-    obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
-    obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
-    preview = _preview_operator_schema(obj_a.schema, obj_b.schema, "+")
-    lazy = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+", schema_preview=preview)
-
-    job_scoped = lazy.as_("yearly", scope="job")
-    assert job_scoped._name == "yearly"
-    assert job_scoped._scope == "job"
+    unnamed_result = await lazy
+    assert unnamed_result.scope == "temp"
 
 
 async def test_await_unnamed_lazy_materializes_to_temp(ctx):
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
     obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
-    preview = _preview_operator_schema(obj_a.schema, obj_b.schema, "+")
-    lazy = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+", schema_preview=preview)
 
-    result = await lazy
+    result = await (obj_a + obj_b)
     assert result.table.startswith("t_")
     assert result.scope == "temp"
     assert await result.data() == [5, 7, 9]
@@ -133,10 +109,8 @@ async def test_await_unnamed_lazy_materializes_to_temp(ctx):
 async def test_await_with_scope_job(ctx):
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
     obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
-    preview = _preview_operator_schema(obj_a.schema, obj_b.schema, "+")
-    lazy = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+", schema_preview=preview).as_("yearly", scope="job")
 
-    result = await lazy
+    result = await (obj_a + obj_b).as_("yearly", scope="job")
     assert result.table.startswith("j_")
     assert result.table.endswith("_yearly")
     assert result.persistent is True
@@ -147,8 +121,7 @@ async def test_re_await_is_idempotent(ctx):
     """Awaiting the same LazyOperator twice returns the same Object — no second table."""
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
     obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
-    preview = _preview_operator_schema(obj_a.schema, obj_b.schema, "+")
-    lazy = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+", schema_preview=preview)
+    lazy = obj_a + obj_b
 
     first = await lazy
     second = await lazy
@@ -164,9 +137,8 @@ async def test_lazy_never_awaited_creates_no_table(ctx):
     """
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
     obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
-    preview = _preview_operator_schema(obj_a.schema, obj_b.schema, "+")
 
-    lazy = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+", schema_preview=preview)
+    lazy = obj_a + obj_b
 
     # No materialized table, no lifecycle registration, no incref — all marks of
     # zero DB activity.
@@ -182,28 +154,25 @@ async def test_data_auto_materializes(ctx):
     """Calling .data() on an unawaited lazy materializes and returns rows."""
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
     obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
-    preview = _preview_operator_schema(obj_a.schema, obj_b.schema, "+")
-    lazy = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+", schema_preview=preview)
+    lazy = obj_a + obj_b
 
     rows = await lazy.data()
     assert rows == [5, 7, 9]
-    assert lazy._materialized is not None
     # Second call reuses the materialized Object.
-    cached_table = lazy._materialized.table
+    cached_table = lazy.table
     rows_again = await lazy.data()
     assert rows_again == [5, 7, 9]
-    assert lazy._materialized.table == cached_table
+    assert lazy.table == cached_table
 
 
 async def test_result_auto_materializes(ctx):
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
     obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
-    preview = _preview_operator_schema(obj_a.schema, obj_b.schema, "+")
-    lazy = LazyOperator(lhs=obj_a, rhs=obj_b, operator="+", schema_preview=preview)
+    lazy = obj_a + obj_b
 
     result = await lazy.result()
     assert result is not None
-    assert lazy._materialized is not None
+    assert lazy.table.startswith("t_")
 
 
 # -----------------------------------------------------------------------------
@@ -228,8 +197,6 @@ async def test_public_as_named_temp(ctx):
 
 
 async def test_public_as_scope_global(ctx):
-    from aaiclick import delete_persistent_object
-
     # Pre-clean: a previous failed run could have left p_yearly_avg behind.
     await delete_persistent_object("yearly_avg", scope="global")
     try:
@@ -285,20 +252,34 @@ async def test_bitwise_returns_lazy(ctx):
 
 async def test_lazy_operator_is_public_api():
     """LazyOperator is importable from the top-level package."""
-    import aaiclick
-    from aaiclick.data.object import LazyOperator as InternalLazy
-
-    assert hasattr(aaiclick, "LazyOperator")
-    assert aaiclick.LazyOperator is InternalLazy
+    assert aaiclick.LazyOperator is LazyOperator
 
 
 # -----------------------------------------------------------------------------
 # Phase 2: aggregations and unary transforms return LazyOperator
 # -----------------------------------------------------------------------------
 
-SIMPLE_AGG_METHODS = ["min", "max", "sum", "mean", "std", "var", "count"]
-UNARY_NUMERIC_METHODS = ["abs", "log2", "sqrt"]
-UNARY_STRING_METHODS = ["lower", "upper", "length", "trim"]
+# The operator name recorded on the LazyOperator is the method name.
+SIMPLE_AGG_METHODS = [
+    pytest.param(Object.min, id="min"),
+    pytest.param(Object.max, id="max"),
+    pytest.param(Object.sum, id="sum"),
+    pytest.param(Object.mean, id="mean"),
+    pytest.param(Object.std, id="std"),
+    pytest.param(Object.var, id="var"),
+    pytest.param(Object.count, id="count"),
+]
+UNARY_NUMERIC_METHODS = [
+    pytest.param(Object.abs, id="abs"),
+    pytest.param(Object.log2, id="log2"),
+    pytest.param(Object.sqrt, id="sqrt"),
+]
+UNARY_STRING_METHODS = [
+    pytest.param(Object.lower, id="lower"),
+    pytest.param(Object.upper, id="upper"),
+    pytest.param(Object.length, id="length"),
+    pytest.param(Object.trim, id="trim"),
+]
 
 
 @pytest.mark.parametrize("method", SIMPLE_AGG_METHODS)
@@ -306,10 +287,9 @@ async def test_aggregation_returns_lazy_operator(ctx, method):
     """Calling an aggregation method on an Object returns a LazyOperator
     (no DB hit until await)."""
     obj = await create_object_from_value([1, 2, 3, 4, 5])
-    lazy = getattr(obj, method)()
+    lazy = method(obj)
     assert isinstance(lazy, LazyOperator)
-    assert lazy._materialized is None
-    assert lazy.operator == method
+    assert lazy.operator == method.__name__
     assert lazy.rhs is None
 
 
@@ -375,18 +355,18 @@ async def test_aggregation_on_lazy_chain_named(ctx):
 @pytest.mark.parametrize("method", UNARY_NUMERIC_METHODS)
 async def test_unary_numeric_returns_lazy_operator(ctx, method):
     obj = await create_object_from_value([1.0, 4.0, 9.0])
-    lazy = getattr(obj, method)()
+    lazy = method(obj)
     assert isinstance(lazy, LazyOperator)
-    assert lazy.operator == method
+    assert lazy.operator == method.__name__
     assert lazy.rhs is None
 
 
 @pytest.mark.parametrize("method", UNARY_STRING_METHODS)
 async def test_unary_string_returns_lazy_operator(ctx, method):
     obj = await create_object_from_value(["  hello  ", "World", "foo"])
-    lazy = getattr(obj, method)()
+    lazy = method(obj)
     assert isinstance(lazy, LazyOperator)
-    assert lazy.operator == method
+    assert lazy.operator == method.__name__
     assert lazy.rhs is None
 
 
@@ -487,22 +467,11 @@ async def test_chained_unary_then_aggregation(ctx):
     assert await chain.data() == 10.0
 
 
-async def assert_preview_matches_materialized(lazy, label=""):
-    """The core LazyOperator contract: the schema computed at plan time is the
-    schema the materialized result actually has."""
-    preview = lazy.schema
-    materialized = await lazy
-    assert preview.fieldtype == materialized.schema.fieldtype, label
-    assert set(preview.columns) == set(materialized.schema.columns), label
-    for col in preview.columns:
-        assert preview.columns[col].type == materialized.schema.columns[col].type, label
-
-
-async def test_aggregation_preview_matches_materialized(ctx):
+@pytest.mark.parametrize("method", SIMPLE_AGG_METHODS)
+async def test_aggregation_preview_matches_materialized(ctx, method):
     """Pre-materialize schema preview must match the schema of the materialized result."""
     obj = await create_object_from_value([1, 2, 3, 4, 5])
-    for method in SIMPLE_AGG_METHODS:
-        await assert_preview_matches_materialized(getattr(obj, method)(), method)
+    await assert_preview_matches_materialized(method(obj))
 
 
 async def test_aggregation_on_explode_view_matches_preview(ctx):
@@ -520,23 +489,23 @@ async def test_aggregation_on_explode_view_matches_preview(ctx):
     assert await result.data() == 10
 
 
-async def test_unary_preview_matches_materialized(ctx):
+@pytest.mark.parametrize("method", UNARY_NUMERIC_METHODS)
+async def test_unary_preview_matches_materialized(ctx, method):
     obj = await create_object_from_value([1.0, 4.0, 9.0])
-    for method in UNARY_NUMERIC_METHODS:
-        await assert_preview_matches_materialized(getattr(obj, method)(), method)
+    await assert_preview_matches_materialized(method(obj))
 
 
 # -----------------------------------------------------------------------------
 # Phase 3: string/regex, null-check, isin, coalesce and array_map return LazyOperator
 # -----------------------------------------------------------------------------
 
-# (method, args) — one call each, since the methods differ in arity.
+# (method, args) — args vary since the methods differ in arity.
 STRING_OP_CALLS = [
-    pytest.param("match", ("^a",), id="match"),
-    pytest.param("like", ("a%",), id="like"),
-    pytest.param("ilike", ("A%",), id="ilike"),
-    pytest.param("extract", ("(a.)",), id="extract"),
-    pytest.param("replace", ("a", "z"), id="replace"),
+    pytest.param(Object.match, ("^a",), id="match"),
+    pytest.param(Object.like, ("a%",), id="like"),
+    pytest.param(Object.ilike, ("A%",), id="ilike"),
+    pytest.param(Object.extract, ("(a.)",), id="extract"),
+    pytest.param(Object.replace, ("a", "z"), id="replace"),
 ]
 
 
@@ -544,17 +513,16 @@ STRING_OP_CALLS = [
 async def test_string_op_returns_lazy_operator(ctx, method, args):
     """String/regex methods plan synchronously — no await, no DB round-trip."""
     obj = await create_object_from_value(["apple", "banana"])
-    lazy = getattr(obj, method)(*args)
+    lazy = method(obj, *args)
     assert isinstance(lazy, LazyOperator)
-    assert lazy.operator == method
+    assert lazy.operator == method.__name__
     assert lazy.rhs is None
-    assert lazy._materialized is None
 
 
 @pytest.mark.parametrize("method, args", STRING_OP_CALLS)
 async def test_string_op_preview_matches_materialized(ctx, method, args):
     obj = await create_object_from_value(["apple", "banana"])
-    await assert_preview_matches_materialized(getattr(obj, method)(*args), method)
+    await assert_preview_matches_materialized(method(obj, *args))
 
 
 async def test_string_op_as_named(ctx):
@@ -586,16 +554,23 @@ async def test_chained_string_ops(ctx):
     obj = await create_object_from_value(["id:123", "id:abc"])
     chain = obj.extract("id:(.*)").match("^\\d+$")
     assert isinstance(chain.lhs, LazyOperator)
-    assert chain.lhs._materialized is None
+    with pytest.raises(RuntimeError, match="no table yet"):
+        _ = chain.lhs.table
     assert await chain.data() == [1, 0]
 
 
-@pytest.mark.parametrize("method", ["is_null", "is_not_null"])
+@pytest.mark.parametrize(
+    "method",
+    [
+        pytest.param(Object.is_null, id="is_null"),
+        pytest.param(Object.is_not_null, id="is_not_null"),
+    ],
+)
 async def test_null_check_returns_lazy_operator(ctx, method):
     obj = await create_object_from_value([1, 2, 3])
-    lazy = getattr(obj, method)()
+    lazy = method(obj)
     assert isinstance(lazy, LazyOperator)
-    assert lazy.operator == method
+    assert lazy.operator == method.__name__
     assert lazy.rhs is None
 
 

@@ -5,6 +5,8 @@ This file tests operations between different numeric types to ensure proper
 type coercion and result accuracy.
 """
 
+import operator
+
 import numpy as np
 import pytest
 
@@ -19,22 +21,22 @@ THRESHOLD = 1e-5
 
 
 @pytest.mark.parametrize(
-    "val_a,val_b,operator,expected",
+    "val_a,val_b,op,expected",
     [
-        pytest.param(100, 50.5, "+", 150.5, id="int-plus-float"),
-        pytest.param(100.5, 50, "+", 150.5, id="float-plus-int"),
-        pytest.param(100, 30.5, "-", 69.5, id="int-minus-float"),
-        pytest.param(100.5, 30, "-", 70.5, id="float-minus-int"),
-        pytest.param(0, 3.14159, "+", 3.14159, id="int-zero-plus-float"),
-        pytest.param(0.0, 42, "+", 42.0, id="float-zero-plus-int"),
+        pytest.param(100, 50.5, operator.add, 150.5, id="int-plus-float"),
+        pytest.param(100.5, 50, operator.add, 150.5, id="float-plus-int"),
+        pytest.param(100, 30.5, operator.sub, 69.5, id="int-minus-float"),
+        pytest.param(100.5, 30, operator.sub, 70.5, id="float-minus-int"),
+        pytest.param(0, 3.14159, operator.add, 3.14159, id="int-zero-plus-float"),
+        pytest.param(0.0, 42, operator.add, 42.0, id="float-zero-plus-int"),
     ],
 )
-async def test_mixed_scalar_ops(ctx, val_a, val_b, operator, expected):
+async def test_mixed_scalar_ops(ctx, val_a, val_b, op, expected):
     """Test mixed int/float scalar arithmetic — scalar+scalar yields scalar."""
     a = await create_object_from_value(val_a)
     b = await create_object_from_value(val_b)
 
-    result = a + b if operator == "+" else a - b
+    result = op(a, b)
     data = await result.data()
 
     assert abs(data - expected) < THRESHOLD
@@ -46,23 +48,25 @@ async def test_mixed_scalar_ops(ctx, val_a, val_b, operator, expected):
 
 
 @pytest.mark.parametrize(
-    "arr_a,arr_b,operator,expected",
+    "arr_a,arr_b,op,expected",
     [
-        pytest.param([1, 2, 3], [0.5, 1.5, 2.5], "+", [1.5, 3.5, 5.5], id="int-plus-float"),
-        pytest.param([10.0, 20.0, 30.0], [1, 2, 3], "+", [11.0, 22.0, 33.0], id="float-plus-int"),
-        pytest.param([100, 200, 300], [10.5, 20.5, 30.5], "-", [89.5, 179.5, 269.5], id="int-minus-float"),
-        pytest.param([100.5, 200.5, 300.5], [10, 20, 30], "-", [90.5, 180.5, 270.5], id="float-minus-int"),
+        pytest.param([1, 2, 3], [0.5, 1.5, 2.5], operator.add, [1.5, 3.5, 5.5], id="int-plus-float"),
+        pytest.param([10.0, 20.0, 30.0], [1, 2, 3], operator.add, [11.0, 22.0, 33.0], id="float-plus-int"),
+        pytest.param([100, 200, 300], [10.5, 20.5, 30.5], operator.sub, [89.5, 179.5, 269.5], id="int-minus-float"),
+        pytest.param([100.5, 200.5, 300.5], [10, 20, 30], operator.sub, [90.5, 180.5, 270.5], id="float-minus-int"),
         pytest.param(
             [1000000, 2000000, 3000000],
             [0.001, 0.002, 0.003],
-            "+",
+            operator.add,
             [1000000.001, 2000000.002, 3000000.003],
             id="large-int-small-float",
         ),
-        pytest.param([-10, -20, -30], [5.5, 10.5, 15.5], "+", [-4.5, -9.5, -14.5], id="negative-int-plus-float"),
+        pytest.param(
+            [-10, -20, -30], [5.5, 10.5, 15.5], operator.add, [-4.5, -9.5, -14.5], id="negative-int-plus-float"
+        ),
     ],
 )
-async def test_mixed_array_ops(ctx, arr_a, arr_b, operator, expected):
+async def test_mixed_array_ops(ctx, arr_a, arr_b, op, expected):
     """Test element-wise mixed int/float array arithmetic.
 
     Both sources carry ``aai_id`` so the auto ``order_by="aai_id"``
@@ -72,7 +76,7 @@ async def test_mixed_array_ops(ctx, arr_a, arr_b, operator, expected):
     a = await create_object_from_value(arr_a, aai_id=True)
     b = await create_object_from_value(arr_b, aai_id=True)
 
-    result = a + b if operator == "+" else a - b
+    result = op(a, b)
     data = await result.data()
     for i, val in enumerate(expected):
         assert abs(data[i] - val) < THRESHOLD
@@ -87,13 +91,31 @@ async def test_mixed_array_ops(ctx, arr_a, arr_b, operator, expected):
     "arr_a,arr_b,arr_c,op1,op2,expected",
     [
         pytest.param(
-            [10, 20, 30], [5.5, 10.5, 15.5], [3, 6, 9], "+", "-", [12.5, 24.5, 36.5], id="int-plus-float-minus-int"
+            [10, 20, 30],
+            [5.5, 10.5, 15.5],
+            [3, 6, 9],
+            operator.add,
+            operator.sub,
+            [12.5, 24.5, 36.5],
+            id="int-plus-float-minus-int",
         ),
         pytest.param(
-            [100.5, 200.5], [10, 20], [5.25, 10.25], "-", "+", [95.75, 190.75], id="float-minus-int-plus-float"
+            [100.5, 200.5],
+            [10, 20],
+            [5.25, 10.25],
+            operator.sub,
+            operator.add,
+            [95.75, 190.75],
+            id="float-minus-int-plus-float",
         ),
         pytest.param(
-            [1, 2, 3], [0.5, 1.0, 1.5], [10, 20, 30], "+", "+", [11.5, 23.0, 34.5], id="int-plus-float-plus-int"
+            [1, 2, 3],
+            [0.5, 1.0, 1.5],
+            [10, 20, 30],
+            operator.add,
+            operator.add,
+            [11.5, 23.0, 34.5],
+            id="int-plus-float-plus-int",
         ),
     ],
 )
@@ -105,10 +127,10 @@ async def test_mixed_chained_ops(ctx, arr_a, arr_b, arr_c, op1, op2, expected):
 
     va, vb, vc = a.view(order_by="value"), b.view(order_by="value"), c.view(order_by="value")
     # Materialize the inner op before .view() — .view() is sync and reads .table.
-    temp = await ((va + vb) if op1 == "+" else (va - vb))
+    temp = await op1(va, vb)
     # result is same-table (temp) + cross-table (c), so wrap temp too
     tv = temp.view(order_by="value")
-    result = tv + vc if op2 == "+" else tv - vc
+    result = op2(tv, vc)
     data = sorted(await result.data(order_by="value"))
 
     for i, val in enumerate(data):
@@ -226,85 +248,3 @@ async def test_mixed_symmetry(ctx):
     # Results should be identical
     for i in range(len(data1)):
         assert abs(data1[i] - data2[i]) < THRESHOLD
-
-
-# =============================================================================
-# Concat Tests with Mixed Types
-# =============================================================================
-
-
-@pytest.mark.parametrize(
-    "arr_a,arr_b",
-    [
-        pytest.param([1, 2, 3], [4.5, 5.5, 6.5], id="int-float"),
-        pytest.param([1.5, 2.5, 3.5], [4, 5, 6], id="float-int"),
-        pytest.param([1, 2, 3], ["a", "b", "c"], id="int-str"),
-    ],
-)
-async def test_mixed_type_concat_fails(ctx, arr_a, arr_b):
-    """Test that concatenating incompatible types fails with type error."""
-    a = await create_object_from_value(arr_a, aai_id=True)
-    b = await create_object_from_value(arr_b, aai_id=True)
-
-    with pytest.raises(ValueError, match="incompatible type"):
-        await a.concat(b)
-
-
-# =============================================================================
-# Insert Tests with Mixed Types
-# =============================================================================
-
-
-async def test_mixed_int_float_insert_succeeds(ctx):
-    """Test that inserting float array into int array succeeds (ClickHouse allows casting)."""
-    a = await create_object_from_value([1, 2, 3], aai_id=True)
-    b = await create_object_from_value([4.5, 5.5, 6.5], aai_id=True)
-
-    await a.insert(b)
-    data = await a.data()
-
-    # Float values get truncated when cast to int
-    assert data == [1, 2, 3, 4, 5, 6]
-
-
-async def test_mixed_float_int_insert_succeeds(ctx):
-    """Test that inserting int array into float array succeeds (ClickHouse allows casting)."""
-    a = await create_object_from_value([1.5, 2.5, 3.5], aai_id=True)
-    b = await create_object_from_value([4, 5, 6], aai_id=True)
-
-    await a.insert(b)
-    data = await a.data()
-
-    # Int values get converted to float
-    assert data == [1.5, 2.5, 3.5, 4.0, 5.0, 6.0]
-
-
-async def test_mixed_int_string_insert_fails(ctx):
-    """Test that inserting string array into int array fails with type error."""
-    a = await create_object_from_value([1, 2, 3], aai_id=True)
-    b = await create_object_from_value(["a", "b", "c"], aai_id=True)
-
-    with pytest.raises(ValueError, match="types are incompatible"):
-        await a.insert(b)
-
-
-async def test_mixed_insert_float_value_into_int_succeeds(ctx):
-    """Test that inserting float value into int array succeeds (truncates)."""
-    a = await create_object_from_value([1, 2, 3], aai_id=True)
-
-    await a.insert(4.5)
-    data = await a.data()
-
-    # Float value gets truncated when cast to int
-    assert data == [1, 2, 3, 4]
-
-
-async def test_mixed_insert_float_list_into_int_succeeds(ctx):
-    """Test that inserting float list into int array succeeds (truncates)."""
-    a = await create_object_from_value([1, 2, 3], aai_id=True)
-
-    await a.insert([4.5, 5.5])
-    data = await a.data()
-
-    # Float values get truncated when cast to int
-    assert data == [1, 2, 3, 4, 5]

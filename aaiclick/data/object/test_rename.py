@@ -98,44 +98,17 @@ async def test_rename_collision_raises(ctx):
         obj.rename({"col_a": "col_b"})
 
 
-async def test_rename_nonexistent_raises(ctx):
-    """Renaming a column that doesn't exist raises."""
+@pytest.mark.parametrize(
+    "mapping, match",
+    [
+        pytest.param({"nonexistent": "new_name"}, "does not exist", id="nonexistent-column"),
+        pytest.param({}, "non-empty", id="empty-mapping"),
+    ],
+)
+async def test_rename_invalid_mapping_raises(ctx, mapping, match):
     obj = await create_object_from_value([1, 2, 3], aai_id=True)
-    with pytest.raises(ValueError, match="does not exist"):
-        obj.rename({"nonexistent": "new_name"})
-
-
-async def test_insert_skips_extra_source_columns(ctx):
-    """insert() silently skips source columns not present in target."""
-    src_schema = Schema(
-        fieldtype=FIELDTYPE_DICT,
-        columns={
-            "shared": ColumnInfo("Int32", fieldtype=FIELDTYPE_ARRAY),
-            "extra_col": ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY),
-        },
-    )
-    src = await create_object(src_schema)
-    ch = src.ch_client
-    await ch.command(f"INSERT INTO {src.table} (shared, extra_col) VALUES (99, 'ignored')")
-
-    tgt_schema = Schema(
-        fieldtype=FIELDTYPE_DICT,
-        columns={
-            "shared": ColumnInfo("Int32", fieldtype=FIELDTYPE_ARRAY),
-        },
-    )
-    tgt = await create_object(tgt_schema)
-    await tgt.insert(src)
-
-    data = await tgt.data()
-    assert data["shared"] == [99]
-
-
-async def test_rename_empty_raises(ctx):
-    """Empty rename mapping raises."""
-    obj = await create_object_from_value([1, 2, 3], aai_id=True)
-    with pytest.raises(ValueError, match="non-empty"):
-        obj.rename({})
+    with pytest.raises(ValueError, match=match):
+        obj.rename(mapping)
 
 
 async def test_rename_duplicate_new_names_raises(ctx):
@@ -198,7 +171,7 @@ async def test_copy_after_rename_uses_new_names(ctx):
     renamed = obj.rename({"genres_array": "genres"})
     copied = await renamed.copy()
 
-    assert set(copied._schema.columns.keys()) == {"title", "genres"}
+    assert set(copied.schema.columns.keys()) == {"title", "genres"}
     data = await copied.data()
     assert data["title"] == ["Movie"]
     assert data["genres"] == [["Action", "Drama"]]
@@ -256,7 +229,7 @@ async def test_copy_after_rename_following_selection(ctx):
 
     copied = await obj[["a", "b"]].rename({"b": "c"}).copy()
 
-    assert sorted(copied._schema.columns) == ["a", "c"]
+    assert sorted(copied.schema.columns) == ["a", "c"]
     data = await copied.data()
     assert data["c"] == [10, 20, 30]
 

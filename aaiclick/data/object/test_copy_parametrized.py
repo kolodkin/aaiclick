@@ -6,7 +6,7 @@ Tests scalar and array copying with verification that new tables are created.
 
 import pytest
 
-from aaiclick import create_object_from_value, delete_persistent_object
+from aaiclick import View, create_object_from_value, delete_persistent_object
 
 THRESHOLD = 1e-5
 
@@ -46,11 +46,7 @@ async def test_scalar_copy(ctx, input_value, expected_output):
     copy = await obj.copy()
     data = await copy.data()
 
-    # Verify data matches
-    if isinstance(expected_output, float):
-        assert abs(data - expected_output) < THRESHOLD
-    else:
-        assert data == expected_output
+    assert data == pytest.approx(expected_output, abs=THRESHOLD)
 
     # Verify tables are different
     assert copy.table != obj.table
@@ -84,6 +80,10 @@ async def test_scalar_copy(ctx, input_value, expected_output):
         pytest.param(["single"], ["single"], id="str-single"),
         pytest.param(["hello", "world"], ["hello", "world"], id="str-pair"),
         pytest.param(["a", "", "b"], ["a", "", "b"], id="str-with-empty"),
+        # Unsorted input: copy preserves the original array order
+        pytest.param([5, 1, 9, 3, 7], [5, 1, 9, 3, 7], id="int-unsorted"),
+        pytest.param([5.5, 1.1, 9.9, 3.3], [5.5, 1.1, 9.9, 3.3], id="float-unsorted"),
+        pytest.param(["z", "a", "m", "b", "y"], ["z", "a", "m", "b", "y"], id="str-unsorted"),
     ],
 )
 async def test_array_copy(ctx, input_value, expected_output):
@@ -93,42 +93,7 @@ async def test_array_copy(ctx, input_value, expected_output):
     copy = await obj.copy()
     data = await copy.data()
 
-    # Verify data matches
-    if len(expected_output) > 0 and isinstance(expected_output[0], float):
-        for i, val in enumerate(data):
-            assert abs(val - expected_output[i]) < THRESHOLD
-    else:
-        assert data == expected_output
-
-    # Verify tables are different
-    assert copy.table != obj.table
-
-
-# =============================================================================
-# Copy Preserves Order Tests
-# =============================================================================
-
-
-@pytest.mark.parametrize(
-    "input_value",
-    [
-        # Unsorted integer array
-        pytest.param([5, 1, 9, 3, 7], id="int-unsorted"),
-        # Unsorted float array
-        pytest.param([5.5, 1.1, 9.9, 3.3], id="float-unsorted"),
-        # Unsorted string array
-        pytest.param(["z", "a", "m", "b", "y"], id="str-unsorted"),
-    ],
-)
-async def test_copy_preserves_order(ctx, input_value):
-    """Test that copy preserves original array order."""
-    obj = await create_object_from_value(input_value)
-
-    copy = await obj.copy()
-    data = await copy.data()
-
-    # Verify order is preserved
-    assert data == input_value
+    assert data == pytest.approx(expected_output, abs=THRESHOLD)
 
     # Verify tables are different
     assert copy.table != obj.table
@@ -227,3 +192,53 @@ async def test_copy_selected_fields_applies_order_by_before_limit(ctx):
 
     assert sorted(data["votes"], reverse=True) == [5, 4]
     assert sorted(data["title"]) == ["b", "e"]
+
+
+# =============================================================================
+# Copying column-selection Views
+# =============================================================================
+
+
+async def test_dict_selector_copy(ctx):
+    """copy() materializes a view as a new array Object."""
+    obj = await create_object_from_value({"param1": [1, 2, 3], "param2": [4, 5, 6]}, aai_id=True)
+
+    view = obj["param1"]
+    arr = await view.copy()
+
+    assert not isinstance(arr, View)
+    assert arr.table != obj.table
+    assert await arr.data() == [1, 2, 3]
+
+
+@pytest.mark.parametrize(
+    "value, field, expected",
+    [
+        pytest.param({"param1": [10, 20], "param2": [30, 40]}, "param2", [30, 40], id="second-field"),
+        pytest.param({"floats": [1.5, 2.5, 3.5], "ints": [1, 2, 3]}, "floats", [1.5, 2.5, 3.5], id="float"),
+        pytest.param({"names": ["Alice", "Bob"], "ages": [30, 25]}, "names", ["Alice", "Bob"], id="string"),
+    ],
+)
+async def test_dict_selector_copy_field(ctx, value, field, expected):
+    """Copying a selected field of various types."""
+    obj = await create_object_from_value(value, aai_id=True)
+
+    arr = await obj[field].copy()
+
+    assert await arr.data() == expected
+
+
+async def test_multi_field_selector_copy(ctx):
+    """Copying a multi-field view creates a dict Object."""
+    obj = await create_object_from_value({"x": [1, 2, 3], "y": [4, 5, 6], "z": [7, 8, 9]}, aai_id=True)
+
+    view = obj[["x", "y"]]
+    cloned = await view.copy()
+
+    data = await cloned.data()
+    assert data == {"x": [1, 2, 3], "y": [4, 5, 6]}
+
+    schema = cloned.schema
+    assert "x" in schema.columns
+    assert "y" in schema.columns
+    assert "z" not in schema.columns

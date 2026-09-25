@@ -7,10 +7,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 from .. import docker_config
-from ..docker_config import resolve_image_source
-from ..models import RegisteredJob
-from ..runner_config import ImageBuild
+from ..runner_config import ImageBuild, ImagePrebuilt
 from . import docker_build
+from .docker_build import resolve_launch_image
 
 
 async def test_collect_build_args_omits_unset_values(monkeypatch):
@@ -141,35 +140,31 @@ async def test_build_image_to_tag_preflights_docker(monkeypatch):
     require.assert_awaited_once()
 
 
-async def test_resolve_image_source_kwargs_override_registered_defaults(
-    monkeypatch,
-):
-    """The three-layer resolve picks the right value at each level."""
-    monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
-    monkeypatch.setattr(docker_config, "auto_detect_git_branch", AsyncMock(return_value="auto-branch"))
+async def test_resolve_launch_image_prebuilt_tag_verbatim():
+    source = ImagePrebuilt(image_tag="ghcr.io/x/y:1")
+    assert await resolve_launch_image(source, task_id=1) == "ghcr.io/x/y:1"
 
-    registered = RegisteredJob(
-        id=1,
-        name="r",
-        entrypoint="x.y",
-        runner_mode="docker",
-        git_remote="git@registered.example:repo.git",
-        dockerfile="Dockerfile.default",
-    )
 
-    source = await resolve_image_source(
-        registered,
-        image=None,
-        git_remote="git@override.example:repo.git",
-        git_sha="b" * 40,
-        git_branch=None,
-        dockerfile=None,
-    )
+async def test_resolve_launch_image_rejects_missing_source():
+    with pytest.raises(ValueError, match="no image_source"):
+        await resolve_launch_image(None, task_id=42)
 
-    assert isinstance(source, ImageBuild)
-    assert source.git_remote == "git@override.example:repo.git"
-    assert source.git_sha == "b" * 40
-    # git_branch falls back to auto-detect since kwarg is None
-    assert source.git_branch == "auto-branch"
-    # dockerfile inherits the registered default since kwarg is None
-    assert source.dockerfile == "Dockerfile.default"
+
+@pytest.mark.parametrize(
+    "registry, expected_tag",
+    [
+        # Empty reads as unset (``get_registry``): the local-build mode.
+        pytest.param("", "aaiclick-job:" + "a" * 40, id="no-registry"),
+        pytest.param("registry.example:5000", "registry.example:5000/aaiclick-job:" + "a" * 40, id="registry"),
+    ],
+)
+async def test_resolve_launch_image_never_builds(monkeypatch, registry, expected_tag):
+    """The build task in the graph owns the build in both modes (its dependency
+    edge guaranteed the push); launch only computes the tag."""
+    build = AsyncMock()
+    monkeypatch.setenv("AAICLICK_REGISTRY", registry)
+    monkeypatch.setattr(docker_build, "build_image_to_tag", build)
+    source = ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40)
+
+    assert await resolve_launch_image(source, task_id=1) == expected_tag
+    build.assert_not_awaited()

@@ -6,8 +6,8 @@ from sqlmodel import select
 from .execution.execution_worker_context import set_current_task_info
 from .execution.image_build_task import IMAGE_BUILD_ENTRYPOINT
 from .factories import create_job, create_task
-from .image_injection import inject_build_tasks, stamp_inherited_image, validate_image_sources, validate_jvm_tasks
-from .models import RUNNER_DOCKER, RUNNER_SUBPROCESS, Dependency, Job, Task
+from .image_injection import stamp_inherited_image, validate_image_sources, validate_jvm_tasks
+from .models import RUNNER_DOCKER, RUNNER_KUBERNETES, RUNNER_SUBPROCESS, Dependency, Job, Task
 from .orch_context import commit_tasks, get_sql_session
 from .runner_config import ImageBuild, ImagePrebuilt, dump_image_source
 
@@ -34,19 +34,19 @@ def test_stamp_inherited_image_none_parent_is_noop():
     assert t.image_source is None
 
 
-def test_validate_rejects_image_on_subprocess_job():
-    t = create_task("m.f")
-    t.image_source = BUILD_A
-    with pytest.raises(ValueError, match="subprocess"):
-        validate_image_sources([t], RUNNER_SUBPROCESS)
-
-
-def test_validate_rejects_kubernetes_build_without_registry(monkeypatch):
+@pytest.mark.parametrize(
+    "runner_mode, match",
+    [
+        pytest.param(RUNNER_SUBPROCESS, "subprocess", id="subprocess-job"),
+        pytest.param(RUNNER_KUBERNETES, "AAICLICK_REGISTRY", id="kubernetes-build-without-registry"),
+    ],
+)
+def test_validate_rejects_image_source(monkeypatch, runner_mode, match):
     monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
     t = create_task("m.f")
     t.image_source = BUILD_A
-    with pytest.raises(ValueError, match="AAICLICK_REGISTRY"):
-        validate_image_sources([t], "kubernetes")
+    with pytest.raises(ValueError, match=match):
+        validate_image_sources([t], runner_mode)
 
 
 def _jvm_task(kwargs: dict | None = None, image_source: dict | None = PREBUILT) -> Task:
@@ -59,9 +59,16 @@ def test_validate_jvm_accepts_plain_kwargs():
     validate_jvm_tasks([_jvm_task({"date": "2026-08-20", "window": 7})])
 
 
-def test_validate_jvm_requires_image_source():
-    with pytest.raises(ValueError, match="image_source"):
-        validate_jvm_tasks([_jvm_task(image_source=None)])
+@pytest.mark.parametrize(
+    "kwargs, image_source, match",
+    [
+        pytest.param(None, None, "image_source", id="no-image-source"),
+        pytest.param({"inputs": [{"nested": OBJECT_REF}]}, PREBUILT, "plain values only", id="nested-object-ref"),
+    ],
+)
+def test_validate_jvm_rejects(kwargs, image_source, match):
+    with pytest.raises(ValueError, match=match):
+        validate_jvm_tasks([_jvm_task(kwargs, image_source)])
 
 
 def test_validate_jvm_requires_entrypoint():
@@ -71,81 +78,80 @@ def test_validate_jvm_requires_entrypoint():
         validate_jvm_tasks([t])
 
 
-def test_validate_jvm_rejects_nested_object_ref():
-    with pytest.raises(ValueError, match="plain values only"):
-        validate_jvm_tasks([_jvm_task({"inputs": [{"nested": OBJECT_REF}]})])
-
-
 def test_validate_jvm_ignores_non_jvm_tasks():
     t = create_task("m.f", {"obj": OBJECT_REF})
     validate_jvm_tasks([t])
 
 
-async def test_inject_creates_one_build_task_per_image(orch_ctx_no_ch, monkeypatch):
-    monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
+async def _create_docker_job() -> int:
     job = await create_job("j", "m.entry")
     async with get_sql_session() as session:
         row = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
         row.runner_mode = RUNNER_DOCKER
-        t1, t2, t3 = create_task("m.f1"), create_task("m.f2"), create_task("m.f3")
-        t1.image_source, t2.image_source, t3.image_source = BUILD_A, BUILD_A, BUILD_B
-        for t in (t1, t2, t3):
-            t.job_id = job.id
-        injected = await inject_build_tasks(session, [t1, t2, t3], row)
-        assert len(injected) == 2
-        assert all(b.entrypoint == IMAGE_BUILD_ENTRYPOINT and b.image_source is None for b in injected)
-        assert all(b.is_image_build for b in injected)
-        assert all(b.max_retries == 2 for b in injected)
-        # every dependent got an edge to its image's build task
-        edges = {(d.previous_id, d.next_id) for t in (t1, t2, t3) for d in t.previous_dependencies}
-        by_sha = {b.kwargs["git_sha"]: b.id for b in injected}
-        assert (by_sha["a" * 40], t1.id) in edges
-        assert (by_sha["a" * 40], t2.id) in edges
-        assert (by_sha["b" * 40], t3.id) in edges
-
-
-async def test_inject_dedups_against_existing_build_task_in_job(orch_ctx_no_ch, monkeypatch):
-    monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
-    job = await create_job("j", "m.entry")
-    async with get_sql_session() as session:
-        row = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
-        row.runner_mode = RUNNER_DOCKER
-        first = create_task("m.f1")
-        first.image_source = BUILD_A
-        first.job_id = job.id
-        injected1 = await inject_build_tasks(session, [first], row)
-        for obj in (*injected1, first):
-            session.add(obj)
         await session.commit()
+    return job.id
+
+
+async def _build_tasks_and_edges(job_id: int) -> tuple[list[Task], set[tuple[int, int]]]:
+    """Persisted image-build tasks of ``job_id`` and every persisted ``(previous_id, next_id)`` edge."""
     async with get_sql_session() as session:
-        row = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
-        second = create_task("m.f2")
-        second.image_source = BUILD_A
-        second.job_id = job.id
-        injected2 = await inject_build_tasks(session, [second], row)
-        assert injected2 == []  # existing build task reused
-        assert second.previous_dependencies[0].previous_id == injected1[0].id
+        builds = (await session.execute(select(Task).where(Task.job_id == job_id, Task.is_image_build))).scalars().all()
+        deps = (await session.execute(select(Dependency))).scalars().all()
+    return list(builds), {(d.previous_id, d.next_id) for d in deps}
+
+
+async def test_commit_tasks_injects_one_build_task_per_image(orch_ctx_no_ch, monkeypatch):
+    monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
+    job_id = await _create_docker_job()
+    t1, t2, t3 = create_task("m.f1"), create_task("m.f2"), create_task("m.f3")
+    t1.image_source, t2.image_source, t3.image_source = BUILD_A, BUILD_A, BUILD_B
+
+    await commit_tasks([t1, t2, t3], job_id)
+
+    builds, edges = await _build_tasks_and_edges(job_id)
+    assert len(builds) == 2
+    assert all(b.entrypoint == IMAGE_BUILD_ENTRYPOINT and b.image_source is None for b in builds)
+    assert all(b.max_retries == 2 for b in builds)
+    # every dependent got an edge to its image's build task
+    by_sha = {b.kwargs["git_sha"]: b.id for b in builds}
+    assert (by_sha["a" * 40], t1.id) in edges
+    assert (by_sha["a" * 40], t2.id) in edges
+    assert (by_sha["b" * 40], t3.id) in edges
+
+
+async def test_commit_tasks_reuses_existing_build_task_in_job(orch_ctx_no_ch, monkeypatch):
+    monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
+    job_id = await _create_docker_job()
+    first = create_task("m.f1")
+    first.image_source = BUILD_A
+    await commit_tasks(first, job_id)
+
+    second = create_task("m.f2")
+    second.image_source = BUILD_A
+    await commit_tasks(second, job_id)
+
+    builds, edges = await _build_tasks_and_edges(job_id)
+    assert len(builds) == 1
+    assert {(builds[0].id, first.id), (builds[0].id, second.id)} <= edges
 
 
 async def test_commit_tasks_stamps_and_injects_for_docker_job(orch_ctx_no_ch, monkeypatch):
     """commit_tasks on a docker job: undeclared tasks inherit the committing
     task's image, and a build task + edges appear in the same commit."""
     monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
-    job = await create_job("j", "m.entry")
+    job_id = await _create_docker_job()
     async with get_sql_session() as session:
-        row = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
-        row.runner_mode = RUNNER_DOCKER
-        entry = (await session.execute(select(Task).where(Task.job_id == job.id))).scalar_one()
+        entry = (await session.execute(select(Task).where(Task.job_id == job_id))).scalar_one()
         entry.image_source = BUILD_A
         await session.commit()
         entry_id = entry.id
 
-    set_current_task_info(task_id=entry_id, job_id=job.id, image_source=BUILD_A)
+    set_current_task_info(task_id=entry_id, job_id=job_id, image_source=BUILD_A)
     child = create_task("m.child")
-    await commit_tasks(child, job.id)
+    await commit_tasks(child, job_id)
 
     async with get_sql_session() as session:
-        rows = (await session.execute(select(Task).where(Task.job_id == job.id))).scalars().all()
+        rows = (await session.execute(select(Task).where(Task.job_id == job_id))).scalars().all()
     by_entry = {t.entrypoint: t for t in rows}
     assert by_entry["m.child"].image_source == BUILD_A
     build = by_entry[IMAGE_BUILD_ENTRYPOINT]
@@ -172,21 +178,3 @@ async def test_commit_tasks_subprocess_job_rejects_image(orch_ctx_no_ch):
     t.image_source = BUILD_A
     with pytest.raises(ValueError, match="subprocess"):
         await commit_tasks(t, job.id)
-
-
-async def test_inject_needs_no_build_env(orch_ctx_no_ch, monkeypatch):
-    """Injection is unconditional: the build mode is the worker's concern
-    (``run_image_build``), so a submitting machine with neither
-    AAICLICK_REGISTRY nor AAICLICK_LOCAL_BUILD still gets a build task."""
-    monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
-    monkeypatch.delenv("AAICLICK_LOCAL_BUILD", raising=False)
-    job = await create_job("j", "m.entry")
-    async with get_sql_session() as session:
-        row = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
-        row.runner_mode = RUNNER_DOCKER
-        t = create_task("m.f")
-        t.image_source = BUILD_A
-        t.job_id = job.id
-        injected = await inject_build_tasks(session, [t], row)
-        assert len(injected) == 1
-        assert t.previous_dependencies[0].previous_id == injected[0].id

@@ -2,7 +2,6 @@
 
 import asyncio
 import inspect
-import sys
 import time
 
 import pytest
@@ -11,9 +10,12 @@ from sqlalchemy import select, text
 from sqlmodel import col
 
 from aaiclick import create_object_from_value
+from aaiclick.data.data_context import data_context
+from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_DICT
 from aaiclick.data.object import Object, View
 from aaiclick.data.object.refs import ViewRef
 from aaiclick.internal_api.tasks import get_task_logs
+from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.examples.orchestration_dynamic import (
     chain_pipeline,
     dynamic_pipeline,
@@ -22,7 +24,6 @@ from aaiclick.orchestration.execution.claiming import update_task_status
 from aaiclick.orchestration.execution.db_handler import DEPENDENCY_WHERE
 from aaiclick.orchestration.execution.debug import ajob_test
 from aaiclick.orchestration.execution.runner import (
-    _materialize_lazies,
     deserialize_task_params,
     execute_shell_task,
     execute_task,
@@ -33,9 +34,9 @@ from aaiclick.orchestration.execution.runner import (
     serialize_task_result,
 )
 from aaiclick.orchestration.factories import create_job, create_task
-from aaiclick.orchestration.jobs import get_task
+from aaiclick.orchestration.jobs import get_job_result, get_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
-from aaiclick.orchestration.logging import capture_task_output, read_task_logs
+from aaiclick.orchestration.logging import read_task_logs
 from aaiclick.orchestration.models import (
     JOB_COMPLETED,
     JOB_FAILED,
@@ -43,37 +44,134 @@ from aaiclick.orchestration.models import (
     TASK_COMPLETED,
     TASK_FAILED,
     TASK_RUNNING,
+    Dependency,
     Group,
     Task,
 )
 from aaiclick.orchestration.orch_context import commit_tasks, get_sql_session
-from aaiclick.orchestration.result import TaskResult, data_list, task_result, tasks_list
+from aaiclick.orchestration.result import TaskResult, task_result, tasks_list
 from aaiclick.snowflake import get_snowflake_id
 from aaiclick.testing import seed_registry_row
 
-# Logging tests
+
+class _SampleModel(BaseModel):
+    name: str
+    count: int
+    ratio: float | None = None
 
 
-async def test_capture_task_output_stdout(orch_ctx):
-    """stdout printed inside the capture scope lands in CH task_logs."""
-    task_id, job_id, run_id = 12345, 99, 555
-
-    async with capture_task_output(task_id, job_id, run_id):
-        print("Hello, world!")
-
-    lines = await read_task_logs(task_id, run_id)
-    assert any(line.text == "Hello, world!" and line.stream == "stdout" for line in lines)
+# --- Tasks and jobs (module-level so entrypoints resolve) ---
 
 
-async def test_capture_task_output_stderr(orch_ctx):
-    """stderr printed inside the capture scope lands in CH task_logs."""
-    task_id, job_id, run_id = 12346, 99, 556
+@task
+async def make_object(value: list | dict) -> Object:
+    return await create_object_from_value(value)
 
-    async with capture_task_output(task_id, job_id, run_id):
-        print("Error message", file=sys.stderr)
 
-    lines = await read_task_logs(task_id, run_id)
-    assert any(line.text == "Error message" and line.stream == "stderr" for line in lines)
+@task
+async def add_lazily() -> Object:
+    a = await create_object_from_value([1, 2, 3], aai_id=True)
+    b = await create_object_from_value([10, 20, 30], aai_id=True)
+    return a + b  # LazyOperator — the runner materializes it
+
+
+@task
+async def add_lazily_in_task_result() -> TaskResult:
+    a = await create_object_from_value([1, 2, 3], aai_id=True)
+    b = await create_object_from_value([10, 20, 30], aai_id=True)
+    return task_result(data=a + b)  # the runner unwraps and materializes .data
+
+
+@task
+def echo(value: int | str) -> int | str:
+    return value
+
+
+@task
+def make_model() -> _SampleModel:
+    return _SampleModel(name="hello", count=7, ratio=None)
+
+
+@task
+def bump_model(model: _SampleModel) -> _SampleModel:
+    return model.model_copy(update={"count": model.count + 1})
+
+
+@task
+def object_fieldtype(obj: Object) -> str:
+    return obj.schema.fieldtype
+
+
+@task
+async def explode_genres(obj: Object) -> list[str]:
+    exploded = obj.with_split_by_char("genre", ",", element_type="String", alias="g").explode("g")
+    return sorted((await (await exploded.copy()).data())["g"])
+
+
+@task
+def first_step() -> None:
+    pass
+
+
+@task
+def second_step() -> None:
+    pass
+
+
+@job("object_result_job")
+def object_result_job():
+    obj = make_object(value=[10, 20, 30])
+    return task_result(data=obj, tasks=[obj])
+
+
+@job("lazy_result_job")
+def lazy_result_job():
+    total = add_lazily()
+    return task_result(data=total, tasks=[total])
+
+
+@job("lazy_task_result_job")
+def lazy_task_result_job():
+    total = add_lazily_in_task_result()
+    return task_result(data=total, tasks=[total])
+
+
+@job("native_result_job")
+def native_result_job(value: int | str):
+    echoed = echo(value=value)
+    return task_result(data=echoed, tasks=[echoed])
+
+
+@job("pydantic_handoff_job")
+def pydantic_handoff_job():
+    made = make_model()
+    bumped = bump_model(model=made)
+    return task_result(data=bumped, tasks=[made, bumped])
+
+
+@job("object_fieldtype_job")
+def object_fieldtype_job(value: list | dict):
+    obj = make_object(value=value)
+    fieldtype = object_fieldtype(obj=obj)
+    return task_result(data=fieldtype, tasks=[obj, fieldtype])
+
+
+@job("explode_after_handoff_job")
+def explode_after_handoff_job():
+    obj = make_object(value={"genre": ["Action,Drama", "Comedy"], "title": ["A", "B"]})
+    genres = explode_genres(obj=obj)
+    return task_result(data=genres, tasks=[obj, genres])
+
+
+@job("explicit_dependency_job")
+def explicit_dependency_job():
+    first = first_step()
+    second = second_step()
+    first >> second
+    return tasks_list(second)  # only ``second`` is returned; the >> edge must pull ``first`` in
+
+
+# Shell task output streaming
 
 
 async def _persisted_shell_task(command, command_env=None) -> Task:
@@ -124,23 +222,6 @@ async def test_execute_shell_task_splits_streams(orch_ctx):
         ("stdout", "INFO", "out line"),
         ("stderr", "WARNING", "err line"),
     }
-
-
-async def test_capture_task_output_streams_mid_run(orch_ctx, monkeypatch):
-    """Completed lines are readable from task_logs while the task body is still running."""
-    monkeypatch.setattr("aaiclick.orchestration.logging.LOG_FLUSH_INTERVAL", 0.05)
-    task_id, job_id, run_id = 71, 1, 9101
-    mid_run_lines: list[str] = []
-    async with capture_task_output(task_id, job_id, run_id):
-        print("early line")
-        deadline = time.monotonic() + 30
-        while not (mid_run_lines := [line.text for line in await read_task_logs(task_id, run_id)]):
-            assert time.monotonic() < deadline, "'early line' was never flushed to task_logs"
-            await asyncio.sleep(0.05)
-        print("late line")
-    assert mid_run_lines == ["early line"]
-    final = [line.text for line in await read_task_logs(task_id, run_id)]
-    assert final == ["early line", "late line"]
 
 
 async def test_register_run_appends_run_ids_and_statuses(orch_ctx):
@@ -249,87 +330,62 @@ async def test_serialize_task_result_none(orch_ctx):
     assert serialize_task_result(None, job_id=2) is None
 
 
-async def test_serialize_task_result_object(orch_ctx):
-    """Test serializing an Object result."""
-    obj = Object(table="t789")
-    result = serialize_task_result(obj, job_id=200)
-    assert result == {
-        "object_type": "object",
-        "table": "t789",
-        "job_id": 200,
-    }
+async def test_task_object_result_round_trips(orch_ctx):
+    """An Object returned by a task is stored as a reference and read back as data."""
+    job = await object_result_job()
+    await ajob_test(job)
+
+    assert job.status == JOB_COMPLETED, job.error
+    async with data_context():
+        result = await get_job_result(job)
+        assert await result.data() == [10, 20, 30]
 
 
-async def test_materialize_lazies_bare_lazy(orch_ctx):
-    """A LazyOperator returned from a task body materializes to Object."""
-    a = await create_object_from_value([1, 2, 3], aai_id=True)
-    b = await create_object_from_value([10, 20, 30], aai_id=True)
+@pytest.mark.parametrize(
+    "pipeline",
+    [
+        # A task body returning ``a + b`` without an explicit await.
+        pytest.param(lazy_result_job, id="bare_lazy"),
+        # TaskResult.data may be a LazyOperator — it gets unwrapped too.
+        pytest.param(lazy_task_result_job, id="task_result_data_lazy"),
+    ],
+)
+async def test_task_lazy_result_is_materialized(orch_ctx, pipeline):
+    """A LazyOperator returned from a task is materialized before serialization."""
+    job = await pipeline()
+    await ajob_test(job)
 
-    lazy = a + b  # LazyOperator — no DB call
-    materialized = await _materialize_lazies(lazy)
-
-    assert isinstance(materialized, Object)
-    assert materialized.table.startswith("t_")
-    assert await materialized.data() == [11, 22, 33]
-
-
-async def test_materialize_lazies_in_task_result_data(orch_ctx):
-    """TaskResult.data may be a LazyOperator — get unwrapped, .tasks untouched."""
-    a = await create_object_from_value([1, 2, 3], aai_id=True)
-    b = await create_object_from_value([10, 20, 30], aai_id=True)
-
-    tr = TaskResult(data=a + b, tasks=[])
-    out = await _materialize_lazies(tr)
-
-    assert isinstance(out, TaskResult)
-    assert isinstance(out.data, Object)
-    assert await out.data.data() == [11, 22, 33]
+    assert job.status == JOB_COMPLETED, job.error
+    async with data_context():
+        result = await get_job_result(job)
+        assert await result.data() == [11, 22, 33]
 
 
-async def test_materialize_lazies_passthrough_for_non_lazy(orch_ctx):
-    """Non-lazy values flow through unchanged (identity-preserving)."""
-    obj = Object(table="t789")
-    assert await _materialize_lazies(obj) is obj
-    assert await _materialize_lazies(None) is None
-    assert await _materialize_lazies(42) == 42
-    assert await _materialize_lazies("hello") == "hello"
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(42, id="int"),
+        pytest.param("hello", id="str"),
+    ],
+)
+async def test_task_native_result_round_trips(orch_ctx, value):
+    """A non-Object/View task result is stored as a native value and read back unchanged."""
+    job = await native_result_job(value=value)
+    await ajob_test(job)
+
+    assert job.status == JOB_COMPLETED, job.error
+    async with data_context():
+        assert await get_job_result(job) == value
 
 
-async def test_serialize_task_result_non_object(orch_ctx):
-    """Test serializing a non-Object/View result wraps in native_value."""
-    assert serialize_task_result(42, job_id=2) == {"native_value": 42}
-    assert serialize_task_result("hello", job_id=2) == {"native_value": "hello"}
+async def test_task_pydantic_result_passes_between_tasks(orch_ctx):
+    """A pydantic model result reaches a downstream task and the job result as the model."""
+    job = await pydantic_handoff_job()
+    await ajob_test(job)
 
-
-class _SampleModel(BaseModel):
-    name: str
-    count: int
-    ratio: float | None = None
-
-
-async def test_serialize_task_result_pydantic_model(orch_ctx):
-    """Pydantic BaseModel results are serialized with pydantic_type + data keys."""
-    model = _SampleModel(name="test", count=42, ratio=0.5)
-    result = serialize_task_result(model, job_id=1)
-    assert result is not None
-    assert result["pydantic_type"].endswith("._SampleModel")
-    assert result["data"] == {"name": "test", "count": 42, "ratio": 0.5}
-
-
-async def test_deserialize_pydantic_model_round_trip(orch_ctx):
-    """Pydantic model survives serialize → deserialize round-trip via task result."""
-    from aaiclick.orchestration.execution.runner import _deserialize_value
-
-    model = _SampleModel(name="hello", count=7, ratio=None)
-    serialized = serialize_task_result(model, job_id=1)
-
-    async with get_sql_session() as session:
-        recovered = await _deserialize_value(serialized, session)
-
-    assert isinstance(recovered, _SampleModel)
-    assert recovered.name == "hello"
-    assert recovered.count == 7
-    assert recovered.ratio is None
+    assert job.status == JOB_COMPLETED, job.error
+    async with data_context():
+        assert await get_job_result(job) == _SampleModel(name="hello", count=8, ratio=None)
 
 
 @pytest.mark.parametrize(
@@ -461,28 +517,6 @@ async def test_job_test_simple(orch_ctx):
 # TaskResult tests
 
 
-def test_task_result_defaults():
-    """TaskResult has None data and empty tasks by default."""
-    r = TaskResult()
-    assert r.data is None
-    assert r.tasks == []
-
-
-def test_task_result_tasks_only(orch_ctx):
-    """TaskResult with tasks only."""
-    t = create_task("mod.func")
-    r = tasks_list(t)
-    assert r.data is None
-    assert r.tasks == [t]
-
-
-def test_task_result_data_only():
-    """TaskResult with data only."""
-    r = data_list(42)
-    assert r.data == 42
-    assert r.tasks == []
-
-
 def test_task_result_both(orch_ctx):
     """TaskResult with both data and tasks."""
     t = create_task("mod.func")
@@ -493,31 +527,25 @@ def test_task_result_both(orch_ctx):
     assert g in r.tasks
 
 
-def test_task_result_preserves_explicit_dependency(orch_ctx):
-    """Explicit >> dependency on tasks inside TaskResult is preserved."""
-    t1 = create_task("mod.step1")
-    t2 = create_task("mod.step2")
-    g = Group(id=get_snowflake_id(), name="g1")
-    t2 >> t1  # t1 depends on t2
+async def test_returned_tasks_keep_explicit_dependency(orch_ctx):
+    """An explicit >> edge between returned tasks is persisted and honored."""
+    job = await explicit_dependency_job()
+    await ajob_test(job)
 
-    tasks_list(t1, g)
-    dep_ids = {d.previous_id for d in t1.previous_dependencies}
-    assert t2.id in dep_ids
+    assert job.status == JOB_COMPLETED, job.error
+    tasks = {t.name: t for t in await get_tasks_for_job(job.id)}
+    assert {t.status for t in tasks.values()} == {TASK_COMPLETED}
+    async with get_sql_session() as session:
+        result = await session.execute(
+            select(Dependency).where(
+                col(Dependency.previous_id) == tasks["first_step"].id,
+                col(Dependency.next_id) == tasks["second_step"].id,
+            )
+        )
+        assert result.scalar_one_or_none() is not None
 
 
 # register_returned_tasks tests
-
-
-async def test_register_returned_tasks_none(orch_ctx):
-    """None passes through as None."""
-    result = await register_returned_tasks(None, parent_task_id=1, job_id=1)
-    assert result is None
-
-
-async def test_register_returned_tasks_pure_data(orch_ctx):
-    """Non-TaskResult values pass through unchanged as data."""
-    result = await register_returned_tasks(42, parent_task_id=1, job_id=1)
-    assert result == 42
 
 
 async def _is_ready(task_id: int) -> bool:
@@ -599,18 +627,36 @@ async def test_register_returned_tasks_task_result_with_data(orch_ctx):
         assert len(children) == 2
 
 
-@pytest.mark.parametrize("shape", ["flat_list", "bare_tuple"])
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(None, id="none"),
+        # Non-TaskResult values pass through unchanged as data.
+        pytest.param(42, id="scalar_data"),
+        # A list holding no Task/Group stays pure data.
+        pytest.param([1, 2, 3], id="list_of_data"),
+    ],
+)
+async def test_register_returned_tasks_passes_data_through(orch_ctx, value):
+    """Returns holding no Task/Group register nothing and come back unchanged."""
+    assert await register_returned_tasks(value, parent_task_id=1, job_id=1) == value
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        pytest.param(list, id="flat_list"),
+        # ``return a, b`` — no brackets needed.
+        pytest.param(tuple, id="bare_tuple"),
+    ],
+)
 async def test_register_returned_tasks_flat_shapes(orch_ctx, shape):
     """A flat list or tuple of Tasks registers them and returns None data."""
-    job = await create_job(f"reg_shape_{shape}", "mod.func")
+    job = await create_job("reg_shape", "mod.func")
     parent = create_task("mod.parent")
     parent.job_id = job.id
 
-    a, b, c, d = (create_task(f"mod.child{i}") for i in range(4))
-    payload = {
-        "flat_list": [a, b, c, d],
-        "bare_tuple": (a, b, c, d),  # ``return a, b`` — no brackets needed
-    }[shape]
+    payload = shape(create_task(f"mod.child{i}") for i in range(4))
 
     assert await register_returned_tasks(payload, parent_task_id=parent.id, job_id=job.id) is None
 
@@ -621,40 +667,22 @@ async def test_register_returned_tasks_flat_shapes(orch_ctx, shape):
         assert len(result.scalars().all()) == 4
 
 
-@pytest.mark.parametrize("shape", ["tuple_of_lists", "list_of_tuples", "deep"])
-async def test_register_returned_tasks_rejects_nesting(orch_ctx, shape):
+@pytest.mark.parametrize(
+    "build_payload",
+    [
+        pytest.param(lambda a, b: ([a], [b]), id="tuple_of_lists"),
+        pytest.param(lambda a, b: [(a,), (b,)], id="list_of_tuples"),
+        pytest.param(lambda a, b: [a, [b]], id="deep"),
+        # The same flatness rule applies to task_result(tasks=[...]).
+        pytest.param(lambda a, b: task_result(tasks=[[a, b]]), id="nested_task_result"),
+    ],
+)
+async def test_register_returned_tasks_rejects_nesting(orch_ctx, build_payload):
     """Nesting carries no meaning in the graph, so it is rejected, not flattened."""
-    job = await create_job(f"reg_nested_{shape}", "mod.func")
-    parent = create_task("mod.parent")
-    parent.job_id = job.id
-
-    a, b = create_task("mod.child0"), create_task("mod.child1")
-    payload = {
-        "tuple_of_lists": ([a], [b]),
-        "list_of_tuples": [(a,), (b,)],
-        "deep": [a, [b]],
-    }[shape]
+    payload = build_payload(create_task("mod.child0"), create_task("mod.child1"))
 
     with pytest.raises(TypeError, match="nested"):
-        await register_returned_tasks(payload, parent_task_id=parent.id, job_id=job.id)
-
-
-async def test_register_returned_tasks_rejects_nested_task_result(orch_ctx):
-    """The same flatness rule applies to task_result(tasks=[...])."""
-    job = await create_job("reg_nested_task_result", "mod.func")
-    parent = create_task("mod.parent")
-    parent.job_id = job.id
-
-    with pytest.raises(TypeError, match="nested"):
-        await register_returned_tasks(
-            task_result(tasks=[[create_task("mod.child0")]]), parent_task_id=parent.id, job_id=job.id
-        )
-
-
-async def test_register_returned_tasks_list_of_data(orch_ctx):
-    """A list holding no Task/Group stays pure data."""
-    result = await register_returned_tasks([1, 2, 3], parent_task_id=1, job_id=1)
-    assert result == [1, 2, 3]
+        await register_returned_tasks(payload, parent_task_id=1, job_id=1)
 
 
 async def test_register_returned_tasks_list_mixing_tasks_and_data(orch_ctx):
@@ -726,59 +754,33 @@ async def test_chain_pipeline_execution(orch_ctx):
             assert t.status == TASK_COMPLETED
 
 
-# =============================================================================
-# Object fieldtype preservation through serialize/deserialize roundtrip
-# This test would have caught the bug where DICT Objects received as task
-# parameters were reconstructed as FIELDTYPE_ARRAY, causing explode() to fail.
-# =============================================================================
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        # Regression: DICT task params were rebuilt as FIELDTYPE_ARRAY, breaking explode().
+        pytest.param({"x": [1, 2, 3], "y": ["a", "b", "c"]}, FIELDTYPE_DICT, id="dict"),
+        pytest.param([10, 20, 30], FIELDTYPE_ARRAY, id="array"),
+    ],
+)
+async def test_object_fieldtype_preserved_between_tasks(orch_ctx, value, expected):
+    """An Object handed to a downstream task keeps its fieldtype."""
+    job = await object_fieldtype_job(value=value)
+    await ajob_test(job)
+
+    assert job.status == JOB_COMPLETED, job.error
+    async with data_context():
+        assert await get_job_result(job) == expected
 
 
-async def test_object_dict_fieldtype_preserved_through_roundtrip(orch_ctx):
-    """DICT Object fieldtype survives serialize → deserialize used for task params."""
-    from aaiclick.data.models import FIELDTYPE_DICT
-
-    obj = await create_object_from_value({"x": [1, 2, 3], "y": ["a", "b", "c"]})
-    assert obj._schema.fieldtype == FIELDTYPE_DICT
-
-    # Simulate what the worker does: serialize the result, then deserialize as param
-    serialized = serialize_task_result(obj, job_id=1)
-    result = await deserialize_task_params({"obj": serialized})
-
-    deserialized = result["obj"]
-    assert isinstance(deserialized, Object)
-    assert deserialized._schema.fieldtype == FIELDTYPE_DICT
-
-
-async def test_object_array_fieldtype_preserved_through_roundtrip(orch_ctx):
-    """ARRAY Object fieldtype survives serialize → deserialize used for task params."""
-    from aaiclick.data.models import FIELDTYPE_ARRAY
-
-    obj = await create_object_from_value([10, 20, 30])
-    assert obj._schema.fieldtype == FIELDTYPE_ARRAY
-
-    serialized = serialize_task_result(obj, job_id=1)
-    result = await deserialize_task_params({"obj": serialized})
-
-    deserialized = result["obj"]
-    assert isinstance(deserialized, Object)
-    assert deserialized._schema.fieldtype == FIELDTYPE_ARRAY
-
-
-async def test_dict_object_explode_works_after_roundtrip(orch_ctx):
-    """explode() succeeds on a DICT Object that went through task param roundtrip.
+async def test_dict_object_explode_works_after_handoff(orch_ctx):
+    """explode() succeeds on a DICT Object received as a task parameter.
 
     Regression test: before the fix, _get_table_schema returned FIELDTYPE_ARRAY
     for DICT objects, causing explode() to raise 'can only be used on dict Objects'.
     """
+    job = await explode_after_handoff_job()
+    await ajob_test(job)
 
-    obj = await create_object_from_value({"genre": ["Action,Drama", "Comedy"], "title": ["A", "B"]})
-
-    serialized = serialize_task_result(obj, job_id=1)
-    result = await deserialize_task_params({"obj": serialized})
-    deserialized = result["obj"]
-
-    # This must not raise "explode() can only be used on dict Objects"
-    with_split = deserialized.with_split_by_char("genre", ",", element_type="String", alias="g")
-    exploded = with_split.explode("g")
-    data = await (await exploded.copy()).data()
-    assert set(data["g"]) == {"Action", "Drama", "Comedy"}
+    assert job.status == JOB_COMPLETED, job.error
+    async with data_context():
+        assert await get_job_result(job) == ["Action", "Comedy", "Drama"]

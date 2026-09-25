@@ -13,6 +13,7 @@ matrix in ``docs/user_guide/object.md``).
 
 from aaiclick import QueryStats, create_object_from_value
 from aaiclick.data.data_context import get_ch_client
+from aaiclick.testing import list_ch_tables
 
 
 def _assert_scanned(stats: QueryStats, expected_rows: int) -> None:
@@ -23,11 +24,6 @@ def _assert_scanned(stats: QueryStats, expected_rows: int) -> None:
     assert stats.elapsed_s is not None and stats.elapsed_s >= 0
 
 
-async def _table_names() -> set[str]:
-    result = await get_ch_client().query("SELECT name FROM system.tables WHERE database = currentDatabase()")
-    return {row[0] for row in result.result_rows}
-
-
 async def test_execute_returns_stats_with_read_rows(ctx):
     obj = await create_object_from_value(list(range(100)))
     stats = await obj.execute()
@@ -36,9 +32,9 @@ async def test_execute_returns_stats_with_read_rows(ctx):
 
 async def test_execute_creates_no_table_and_returns_no_rows(ctx):
     obj = await create_object_from_value(list(range(50)))
-    before = await _table_names()
+    before = await list_ch_tables(get_ch_client())
     stats = await obj.execute()
-    after = await _table_names()
+    after = await list_ch_tables(get_ch_client())
     assert after == before  # FORMAT Null materializes nothing
     assert isinstance(stats, QueryStats)
     # The source table is untouched and still readable.

@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import httpx
 import pytest
 
 from aaiclick.auth import config, security
-from aaiclick.auth.models import ROLE_ADMIN, ROLE_VIEWER, Role
+from aaiclick.auth.models import ROLE_ADMIN, ROLE_VIEWER, Role, ScopeLevel
+from aaiclick.auth.view_models import CreateApiTokenRequest, CreateUserRequest
+from aaiclick.internal_api import api_tokens, users
 
 from .app import API_PREFIX, app
+from .auth import PrincipalAuthMiddleware
+from .mcp import mcp
 
 TEST_JWT_SECRET = "server-test-jwt-secret-key-at-least-32-bytes-long"
 
@@ -63,3 +68,48 @@ async def anon_client() -> AsyncIterator[httpx.AsyncClient]:
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         yield client
+
+
+@asynccontextmanager
+async def mcp_http() -> AsyncIterator[httpx.AsyncClient]:
+    """The FastMCP app behind the mount middleware, stateless + JSON so a plain
+    POST answers with a JSON-RPC body instead of an SSE stream.
+
+    A context manager rather than a fixture: the session manager's lifespan
+    opens an anyio task group, which must be exited in the task that entered
+    it — pytest-asyncio tears async fixtures down in a different task.
+    """
+    http_app = mcp.http_app(path="/", stateless_http=True, json_response=True)
+    async with http_app.lifespan(http_app):
+        transport = httpx.ASGITransport(app=PrincipalAuthMiddleware(http_app))
+        headers = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
+        async with httpx.AsyncClient(transport=transport, base_url="http://mcp", headers=headers) as client:
+            yield client
+
+
+async def mcp_rpc(
+    client: httpx.AsyncClient,
+    method: str,
+    params: dict[str, object] | None = None,
+    headers: dict[str, str] | None = None,
+) -> httpx.Response:
+    """POST one JSON-RPC request to an ``mcp_http`` client."""
+    body = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}
+    return await client.post("/", json=body, headers=headers)
+
+
+async def mcp_tool_names(client: httpx.AsyncClient, headers: dict[str, str] | None = None) -> set[str]:
+    """Names from a successful ``tools/list`` — the set the principal may see."""
+    res = await mcp_rpc(client, "tools/list", headers=headers)
+    assert res.status_code == 200, res.text
+    return {t["name"] for t in res.json()["result"]["tools"]}
+
+
+async def api_token_headers(scope: ScopeLevel, *, role: Role = ROLE_ADMIN) -> dict[str, str]:
+    """An ``Authorization`` header for a real API token owned by a fresh user.
+
+    The ``/mcp`` mount takes API tokens only, never a session JWT.
+    """
+    user = await users.create_user(CreateUserRequest(username=f"t_{scope}_{role}", password="pw", role=role))
+    created = await api_tokens.create_token(user.id, CreateApiTokenRequest(name=scope, scope=scope))
+    return {"Authorization": f"Bearer {created.token}"}

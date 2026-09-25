@@ -1,4 +1,8 @@
-"""Shared test fixtures for background worker tests."""
+"""Shared fixtures and helpers for background worker tests.
+
+``bg_db`` gives each test its own SQLite engine, separate from ``orch_ctx``,
+for the ``BackgroundWorker`` built by ``make_worker``.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +15,7 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
+from aaiclick.data.data_context import ChClient
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 from aaiclick.orchestration.models import SQLModel
@@ -21,7 +26,7 @@ from ...datetime_utils import utc_now
 
 @pytest.fixture
 async def bg_db():
-    """Create a temp SQLite DB with schema, yield (async_engine, tmpdir), then cleanup."""
+    """Yield an async engine on a temp SQLite DB with the full schema; dispose and delete it after."""
     tmpdir = tempfile.mkdtemp(prefix="aaiclick_bgtest_")
     db_path = os.path.join(tmpdir, "test.db")
     sync_engine = create_engine(f"sqlite:///{db_path}")
@@ -33,12 +38,12 @@ async def bg_db():
     shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-def make_worker(engine) -> BackgroundWorker:
-    """A BackgroundWorker on ``engine`` with a mocked ClickHouse client."""
+def make_worker(engine, ch_client: ChClient | None = None) -> BackgroundWorker:
+    """A BackgroundWorker on ``engine`` with ``ch_client``, or a mocked ClickHouse client."""
     worker = BackgroundWorker()
     worker._engine = engine
     worker._handler = SqliteBackgroundHandler()
-    worker._ch_client = AsyncMock()
+    worker._ch_client = ch_client if ch_client is not None else AsyncMock()
     return worker
 
 

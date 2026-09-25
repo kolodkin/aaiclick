@@ -15,24 +15,34 @@ from aaiclick.data.object.join import (
 # =============================================================================
 
 
-def test_resolve_on_string_normalizes_to_list():
-    keys = resolve_join_keys(on="k", left_on=None, right_on=None, how="inner")
-    assert keys == JoinKeys(left=["k"], right=["k"])
-
-
-def test_resolve_on_list_passes_through():
-    keys = resolve_join_keys(on=["a", "b"], left_on=None, right_on=None, how="inner")
-    assert keys == JoinKeys(left=["a", "b"], right=["a", "b"])
-
-
-def test_resolve_left_right_on_independent_names():
-    keys = resolve_join_keys(on=None, left_on="id", right_on="tconst", how="inner")
-    assert keys == JoinKeys(left=["id"], right=["tconst"])
-
-
-def test_resolve_cross_no_keys():
-    keys = resolve_join_keys(on=None, left_on=None, right_on=None, how="cross")
-    assert keys == JoinKeys(left=[], right=[])
+@pytest.mark.parametrize(
+    "kwargs,expected",
+    [
+        pytest.param(
+            {"on": "k", "left_on": None, "right_on": None, "how": "inner"},
+            JoinKeys(left=["k"], right=["k"]),
+            id="on-string-normalizes-to-list",
+        ),
+        pytest.param(
+            {"on": ["a", "b"], "left_on": None, "right_on": None, "how": "inner"},
+            JoinKeys(left=["a", "b"], right=["a", "b"]),
+            id="on-list-passes-through",
+        ),
+        pytest.param(
+            {"on": None, "left_on": "id", "right_on": "tconst", "how": "inner"},
+            JoinKeys(left=["id"], right=["tconst"]),
+            id="left-right-on-independent-names",
+        ),
+        pytest.param(
+            {"on": None, "left_on": None, "right_on": None, "how": "cross"},
+            JoinKeys(left=[], right=[]),
+            id="cross-no-keys",
+        ),
+    ],
+)
+def test_resolve_join_keys(kwargs, expected):
+    """Pure function: the normalized JoinKeys are the contract."""
+    assert resolve_join_keys(**kwargs) == expected
 
 
 @pytest.mark.parametrize(
@@ -87,6 +97,7 @@ def test_resolve_join_keys_errors(kwargs, match):
 
 # =============================================================================
 # Phase 2: build_join_schema
+# Pure function: the returned Schema and projection lists are the contract.
 # =============================================================================
 
 
@@ -150,24 +161,30 @@ def test_schema_missing_key_raises(left_cols, right_cols, keys, match):
     "left_type,right_type,expected_result_type",
     [
         pytest.param("Int64", "Int64", "Int64", id="same-type"),
+        # Left side's ColumnInfo wins for the result key type.
         pytest.param("Int32", "Int64", "Int32", id="compatible-int-widths"),
-        pytest.param("String", "Int64", None, id="incompatible-string-vs-int"),
     ],
 )
 def test_schema_key_type_compatibility(left_type, right_type, expected_result_type):
-    args = (
+    schema, _, _, _ = build_join_schema(
         _cols(k=ColumnInfo(left_type)),
         _cols(k=ColumnInfo(right_type)),
         JoinKeys(left=["k"], right=["k"]),
+        how="inner",
+        suffixes=None,
     )
-    kwargs = {"how": "inner", "suffixes": None}
-    if expected_result_type is None:
-        with pytest.raises(ValueError, match="key types incompatible"):
-            build_join_schema(*args, **kwargs)
-    else:
-        schema, _, _, _ = build_join_schema(*args, **kwargs)
-        # Left side's ColumnInfo wins for the result key type.
-        assert schema.columns["k"].type == expected_result_type
+    assert schema.columns["k"].type == expected_result_type
+
+
+def test_schema_key_type_incompatible_raises():
+    with pytest.raises(ValueError, match="key types incompatible"):
+        build_join_schema(
+            _cols(k=ColumnInfo("String")),
+            _cols(k=ColumnInfo("Int64")),
+            JoinKeys(left=["k"], right=["k"]),
+            how="inner",
+            suffixes=None,
+        )
 
 
 @pytest.mark.parametrize(

@@ -28,31 +28,19 @@ async def test_explode_single_column_data(ctx):
     assert result["tags"] == ["python", "rust", "python", "go"]
 
 
-async def test_explode_returns_view(ctx):
-    """explode() is synchronous and returns a View without DB call."""
-    obj = await create_object_from_value(
-        [
-            {"x": [1, 2], "y": "a"},
-        ]
-    )
-    flat = obj.explode("x")
-    assert isinstance(flat, View)
-
-
 async def test_explode_schema_type_change(ctx):
-    """Exploded column changes from Array(T) to T in effective_columns."""
+    """Exploded column changes from Array(T) to T in the materialized schema."""
     obj = await create_object_from_value(
         [
             {"user": "Alice", "scores": [90, 85]},
         ]
     )
-    flat = obj.explode("scores")
-    eff = flat._effective_columns
-    assert eff["scores"].array == 0
-    assert eff["scores"].type == "Int64"
+    columns = (await obj.explode("scores").copy()).schema.columns
+    assert columns["scores"].array == 0
+    assert columns["scores"].type == "Int64"
     # Non-exploded column unchanged
-    assert eff["user"].array == 0
-    assert eff["user"].type == "String"
+    assert columns["user"].array == 0
+    assert columns["user"].type == "String"
 
 
 # =============================================================================
@@ -226,7 +214,7 @@ async def test_explode_selected_field_copy_type(ctx):
     result = await materialized.data()
     assert sorted(result) == ["go", "python", "rust"]
     # Schema should be String (scalar), not Array(String)
-    assert materialized._schema.columns["value"].array == 0
+    assert materialized.schema.columns["value"].array == 0
 
 
 # =============================================================================
@@ -234,32 +222,21 @@ async def test_explode_selected_field_copy_type(ctx):
 # =============================================================================
 
 
-async def test_explode_requires_dict_object(ctx):
-    """explode() raises ValueError on non-dict (array/scalar) Objects."""
-    arr = await create_object_from_value([1, 2, 3])
-    with pytest.raises(ValueError, match="dict"):
-        arr.explode("value")
-
-
-async def test_explode_requires_columns(ctx):
-    """explode() raises ValueError when no columns are specified."""
-    obj = await create_object_from_value([{"x": [1, 2]}])
-    with pytest.raises(ValueError, match="at least one column"):
-        obj.explode()
-
-
-async def test_explode_nonexistent_column(ctx):
-    """explode() raises ValueError if column doesn't exist."""
-    obj = await create_object_from_value([{"x": [1, 2]}])
-    with pytest.raises(ValueError, match="does not exist"):
-        obj.explode("nonexistent")
-
-
-async def test_explode_non_array_column(ctx):
-    """explode() raises ValueError if column is not an Array type."""
-    obj = await create_object_from_value([{"x": [1, 2], "y": "hello"}])
-    with pytest.raises(ValueError, match="not an Array type"):
-        obj.explode("y")
+@pytest.mark.parametrize(
+    "value, columns, match",
+    [
+        # explode() needs a dict Object, not an array/scalar one
+        pytest.param([1, 2, 3], ("value",), "dict", id="non-dict-object"),
+        pytest.param([{"x": [1, 2]}], (), "at least one column", id="no-columns"),
+        pytest.param([{"x": [1, 2]}], ("nonexistent",), "does not exist", id="nonexistent-column"),
+        pytest.param([{"x": [1, 2], "y": "hello"}], ("y",), "not an Array type", id="non-array-column"),
+    ],
+)
+async def test_explode_invalid_raises(ctx, value, columns, match):
+    """explode() raises ValueError on invalid targets or column arguments."""
+    obj = await create_object_from_value(value)
+    with pytest.raises(ValueError, match=match):
+        obj.explode(*columns)
 
 
 # =============================================================================
@@ -297,7 +274,7 @@ async def test_explode_computed_column_copy(ctx):
     assert sorted(result["genre"]) == ["Action", "Comedy", "Drama"]
     assert len(result["genre"]) == 3
     # genre should be scalar String, not Array
-    assert materialized._schema.columns["genre"].array == 0
+    assert materialized.schema.columns["genre"].array == 0
 
 
 async def test_explode_computed_column_keeps_column_order(ctx):

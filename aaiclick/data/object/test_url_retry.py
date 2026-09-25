@@ -17,8 +17,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from aaiclick.data.object._url_retry import (
-    DEFAULT_BACKOFF_FACTOR,
-    DEFAULT_RETRIES,
     _is_retryable_url_error,
     with_url_retry,
 )
@@ -38,40 +36,49 @@ def _http_error(code: int) -> urllib.error.HTTPError:
     "exc,expected",
     [
         # Retryable HTTP status codes
-        (_http_error(429), True),
-        (_http_error(500), True),
-        (_http_error(502), True),
-        (_http_error(503), True),
-        (_http_error(504), True),
+        pytest.param(_http_error(429), True, id="http-429"),
+        pytest.param(_http_error(500), True, id="http-500"),
+        pytest.param(_http_error(502), True, id="http-502"),
+        pytest.param(_http_error(503), True, id="http-503"),
+        pytest.param(_http_error(504), True, id="http-504"),
         # Non-retryable HTTP status codes
-        (_http_error(400), False),
-        (_http_error(401), False),
-        (_http_error(403), False),
-        (_http_error(404), False),
-        (_http_error(410), False),
+        pytest.param(_http_error(400), False, id="http-400"),
+        pytest.param(_http_error(401), False, id="http-401"),
+        pytest.param(_http_error(403), False, id="http-403"),
+        pytest.param(_http_error(404), False, id="http-404"),
+        pytest.param(_http_error(410), False, id="http-410"),
         # Network-level exceptions
-        (urllib.error.URLError(reason=ConnectionResetError()), True),
-        (urllib.error.URLError(reason=TimeoutError()), True),
-        (urllib.error.URLError(reason=socket.gaierror(8, "nodename nor servname provided")), True),
-        (TimeoutError("read timeout"), True),
-        (ConnectionResetError("reset"), True),
-        (ConnectionRefusedError("refused"), True),
-        (TimeoutError("socket timeout"), True),
-        (socket.gaierror(8, "DNS lookup failed"), True),
+        pytest.param(urllib.error.URLError(reason=ConnectionResetError()), True, id="urlerror-connection-reset"),
+        pytest.param(urllib.error.URLError(reason=TimeoutError()), True, id="urlerror-timeout"),
+        pytest.param(
+            urllib.error.URLError(reason=socket.gaierror(8, "nodename nor servname provided")), True, id="urlerror-dns"
+        ),
+        pytest.param(TimeoutError("read timeout"), True, id="timeout-error"),
+        pytest.param(ConnectionResetError("reset"), True, id="connection-reset-error"),
+        pytest.param(ConnectionRefusedError("refused"), True, id="connection-refused-error"),
+        pytest.param(TimeoutError("socket timeout"), True, id="socket-timeout-error"),
+        pytest.param(socket.gaierror(8, "DNS lookup failed"), True, id="socket-gaierror"),
         # CH-server-side wrapped errors (clickhouse-connect / chdb message shapes)
-        (RuntimeError("HTTP/1.1 502 Bad Gateway from upstream"), True),
-        (RuntimeError("Received 503 Service Unavailable"), True),
-        (RuntimeError("Got 504 Gateway Timeout"), True),
-        (RuntimeError("HTTP 429 Too Many Requests"), True),
-        (RuntimeError("Code: 86. DB::Exception: RECEIVED_ERROR_FROM_REMOTE_IO_SERVER"), True),
-        (RuntimeError("Code: 210. DB::Exception: NETWORK_ERROR while reading"), True),
+        pytest.param(RuntimeError("HTTP/1.1 502 Bad Gateway from upstream"), True, id="wrapped-502-bad-gateway"),
+        pytest.param(RuntimeError("Received 503 Service Unavailable"), True, id="wrapped-503-unavailable"),
+        pytest.param(RuntimeError("Got 504 Gateway Timeout"), True, id="wrapped-504-gateway-timeout"),
+        pytest.param(RuntimeError("HTTP 429 Too Many Requests"), True, id="wrapped-429-too-many-requests"),
+        pytest.param(
+            RuntimeError("Code: 86. DB::Exception: RECEIVED_ERROR_FROM_REMOTE_IO_SERVER"),
+            True,
+            id="ch-remote-io-server-error",
+        ),
+        pytest.param(
+            RuntimeError("Code: 210. DB::Exception: NETWORK_ERROR while reading"), True, id="ch-network-error"
+        ),
         # Non-retryable: unknown / non-network errors
-        (ValueError("bad arg"), False),
-        (RuntimeError("Code: 47. DB::Exception: Unknown identifier"), False),
-        (RuntimeError("syntax error at line 1"), False),
+        pytest.param(ValueError("bad arg"), False, id="value-error"),
+        pytest.param(RuntimeError("Code: 47. DB::Exception: Unknown identifier"), False, id="ch-unknown-identifier"),
+        pytest.param(RuntimeError("syntax error at line 1"), False, id="syntax-error"),
     ],
 )
 def test_is_retryable_url_error(exc, expected):
+    """Pure function: the retry decision for each error shape is the contract."""
     assert _is_retryable_url_error(exc) is expected
 
 
@@ -156,18 +163,12 @@ async def test_with_url_retry_zero_backoff():
 @pytest.mark.parametrize(
     "retries,backoff_factor,match",
     [
-        (0, 2.0, "retries must be >= 1"),
-        (-1, 2.0, "retries must be >= 1"),
-        (4, -1.0, "backoff_factor must be >= 0"),
+        pytest.param(0, 2.0, "retries must be >= 1", id="zero-retries"),
+        pytest.param(-1, 2.0, "retries must be >= 1", id="negative-retries"),
+        pytest.param(4, -1.0, "backoff_factor must be >= 0", id="negative-backoff-factor"),
     ],
 )
 async def test_with_url_retry_validates_args(retries, backoff_factor, match):
     fn = AsyncMock(return_value="ok")
     with pytest.raises(ValueError, match=match):
         await with_url_retry(fn, retries=retries, backoff_factor=backoff_factor)
-
-
-def test_default_constants():
-    """4 attempts, 2x backoff (2/4/8 s)."""
-    assert DEFAULT_RETRIES == 4
-    assert DEFAULT_BACKOFF_FACTOR == 2.0

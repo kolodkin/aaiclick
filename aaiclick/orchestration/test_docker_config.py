@@ -1,5 +1,8 @@
+from unittest.mock import AsyncMock
+
 import pytest
 
+from aaiclick.orchestration import docker_config
 from aaiclick.orchestration.docker_config import (
     BUILD_MODE_LOCAL,
     BUILD_MODE_REGISTRY,
@@ -100,3 +103,37 @@ def test_get_build_mode_rejects_ambiguous_env(monkeypatch, registry, local_build
     monkeypatch.setenv("AAICLICK_LOCAL_BUILD", local_build)
     with pytest.raises(RuntimeError, match=match):
         get_build_mode()
+
+
+async def test_resolve_image_source_kwargs_override_registered_defaults(
+    monkeypatch,
+):
+    """The three-layer resolve picks the right value at each level."""
+    monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
+    monkeypatch.setattr(docker_config, "auto_detect_git_branch", AsyncMock(return_value="auto-branch"))
+
+    registered = RegisteredJob(
+        id=1,
+        name="r",
+        entrypoint="x.y",
+        runner_mode="docker",
+        git_remote="git@registered.example:repo.git",
+        dockerfile="Dockerfile.default",
+    )
+
+    source = await resolve_image_source(
+        registered,
+        image=None,
+        git_remote="git@override.example:repo.git",
+        git_sha="b" * 40,
+        git_branch=None,
+        dockerfile=None,
+    )
+
+    assert isinstance(source, ImageBuild)
+    assert source.git_remote == "git@override.example:repo.git"
+    assert source.git_sha == "b" * 40
+    # git_branch falls back to auto-detect since kwarg is None
+    assert source.git_branch == "auto-branch"
+    # dockerfile inherits the registered default since kwarg is None
+    assert source.dockerfile == "Dockerfile.default"

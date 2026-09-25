@@ -9,13 +9,12 @@ tool results round-trip through the declared view models, and that
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
-from aaiclick.ai.agents.lineage_tools import ColumnSchema, QueryResult, TableSchema
+from aaiclick.ai.agents.lineage_tools import QueryResult, TableSchema
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.oplog.lineage import OplogGraph
@@ -24,8 +23,8 @@ from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import EXECUTION_WORKER_STOPPING
+from aaiclick.orchestration.orch_context import task_scope
 from aaiclick.orchestration.view_models import ClearTaskView, ExecutionWorkerView, JobDetail, JobView, TaskDetail
-from aaiclick.testing import make_oplog_graph
 from aaiclick.view_models import Page
 from aaiclick.viewer.view_models import ObjectQueryResult
 
@@ -74,12 +73,10 @@ EXPECTED_TOOLS = {
 
 
 @pytest.fixture
-def revenue_lineage():
-    """Every target's lineage is the one-table graph ``p_revenue``."""
-    with patch(
-        "aaiclick.internal_api.lineage._oplog_subgraph", new=AsyncMock(return_value=make_oplog_graph("p_revenue"))
-    ):
-        yield
+async def revenue_lineage(orch_ctx):
+    """A persistent ``p_mcp_revenue`` table with recorded lineage."""
+    async with task_scope(task_id=1, job_id=1, run_id=100):
+        await create_object_from_value({"id": [1, 2], "val": [10.0, 20.0]}, name="mcp_revenue", scope="global")
 
 
 @pytest.fixture
@@ -185,34 +182,29 @@ async def test_get_object_returns_detail(orch_ctx, mcp_client):
 
 
 async def test_oplog_subgraph_returns_graph(orch_ctx, mcp_client):
-    graph = make_oplog_graph("result_table")
-    mock_subgraph = AsyncMock(return_value=graph)
+    async with task_scope(task_id=1, job_id=1, run_id=100):
+        a = await create_object_from_value([1, 2])
+        b = await create_object_from_value([3])
+        concat = await a.concat(b)
 
-    with patch("aaiclick.internal_api.lineage._oplog_subgraph", new=mock_subgraph):
-        result = await mcp_client.call_tool(
-            "oplog_subgraph",
-            {"target_table": "result_table", "direction": "backward"},
-        )
+    result = await mcp_client.call_tool(
+        "oplog_subgraph",
+        {"target_table": concat.table, "direction": "backward"},
+    )
 
     parsed = OplogGraph.model_validate(result.structured_content)
-    assert [n.table for n in parsed.nodes] == ["result_table"]
-    mock_subgraph.assert_awaited_once_with("result_table", direction="backward", max_depth=10)
+    assert {n.table for n in parsed.nodes} == {a.table, b.table, concat.table}
 
 
 async def test_query_table_returns_query_result(orch_ctx, mcp_client, revenue_lineage):
-    qr = QueryResult(columns=["id", "val"], rows=[[1, 10.0], [2, 20.0]], truncated=False)
-    mock_run = AsyncMock(return_value=qr)
-
-    with patch("aaiclick.internal_api.lineage.run_select", new=mock_run):
-        result = await mcp_client.call_tool(
-            "query_table",
-            {"sql": "SELECT id, val FROM p_revenue", "target_table": "p_revenue"},
-        )
+    result = await mcp_client.call_tool(
+        "query_table",
+        {"sql": "SELECT id, val FROM p_mcp_revenue ORDER BY id", "target_table": "p_mcp_revenue"},
+    )
 
     parsed = QueryResult.model_validate(result.structured_content)
     assert parsed.columns == ["id", "val"]
     assert parsed.rows == [[1, 10.0], [2, 20.0]]
-    mock_run.assert_awaited_once()
 
 
 async def test_query_table_rejects_out_of_scope(orch_ctx, mcp_client, revenue_lineage):
@@ -225,26 +217,19 @@ async def test_query_table_rejects_out_of_scope(orch_ctx, mcp_client, revenue_li
     with pytest.raises(ToolError):
         await mcp_client.call_tool(
             "query_table",
-            {"sql": "SELECT * FROM p_secret", "target_table": "p_revenue"},
+            {"sql": "SELECT * FROM p_secret", "target_table": "p_mcp_revenue"},
         )
 
 
 async def test_get_table_schema_returns_columns(orch_ctx, mcp_client, revenue_lineage):
-    schema = TableSchema(
-        table="p_revenue",
-        columns=[ColumnSchema(name="id", type="UInt64"), ColumnSchema(name="val", type="Float64")],
+    result = await mcp_client.call_tool(
+        "get_table_schema",
+        {"table": "p_mcp_revenue", "target_table": "p_mcp_revenue"},
     )
-    mock_describe = AsyncMock(return_value=schema)
-
-    with patch("aaiclick.internal_api.lineage.describe_table", new=mock_describe):
-        result = await mcp_client.call_tool(
-            "get_table_schema",
-            {"table": "p_revenue", "target_table": "p_revenue"},
-        )
 
     parsed = TableSchema.model_validate(result.structured_content)
-    assert parsed.table == "p_revenue"
-    assert [c.name for c in parsed.columns] == ["id", "val"]
+    assert parsed.table == "p_mcp_revenue"
+    assert {"id", "val"} <= {c.name for c in parsed.columns}
 
 
 async def test_query_object_tool_round_trips(orch_ctx, mcp_client):

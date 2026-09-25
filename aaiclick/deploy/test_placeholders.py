@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import pytest
 import yaml
 
 from . import placeholders
@@ -66,22 +65,18 @@ def test_scaffolded_compose_credentials_all_carry_the_marker(tmp_path):
         assert PLACEHOLDER_MARKER in value, where
 
 
-@pytest.mark.parametrize(
-    "path",
-    [
-        pytest.param(("env", "sqlUrl"), id="sql-url"),
-        pytest.param(("env", "chUrl"), id="ch-url"),
-        pytest.param(("auth", "jwtSecret"), id="jwt-secret"),
-        pytest.param(("auth", "adminPassword"), id="admin-password"),
-        pytest.param(("devDependencies", "postgres", "password"), id="dev-postgres"),
-        pytest.param(("devDependencies", "clickhouse", "password"), id="dev-clickhouse"),
-    ],
-)
-def test_scaffolded_helm_credentials_all_carry_the_marker(tmp_path, path):
+def test_scaffolded_helm_credentials_all_carry_the_marker(tmp_path):
     target = tmp_path / "aaiclick-chart"
     init_helm(target, image_tag="v1.0.0")
 
-    value = yaml.safe_load((target / "values.yaml").read_text())
-    for key in path:
-        value = value[key]
-    assert PLACEHOLDER_MARKER in value
+    values = yaml.safe_load((target / "values.yaml").read_text())
+    credentials = {
+        "env.sqlUrl": values["env"]["sqlUrl"],
+        "env.chUrl": values["env"]["chUrl"],
+        "auth.jwtSecret": values["auth"]["jwtSecret"],
+        "auth.adminPassword": values["auth"]["adminPassword"],
+        "devDependencies.postgres.password": values["devDependencies"]["postgres"]["password"],
+        "devDependencies.clickhouse.password": values["devDependencies"]["clickhouse"]["password"],
+    }
+    for where, value in credentials.items():
+        assert PLACEHOLDER_MARKER in value, where

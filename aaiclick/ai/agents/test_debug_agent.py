@@ -78,7 +78,7 @@ async def test_debug_result_direct_answer():
 
 
 async def test_debug_result_invokes_lineage_tool():
-    """Tool call loop: model calls query_table, receives result, then gives final answer."""
+    """Tool-call loop: query_table receives its JSON arguments as a dict, then the model answers."""
     graph = _mock_graph(make_oplog_node(TARGET, "filter", {"input": INPUT}))
     tool_resp = _tool_response("query_table", f'{{"sql": "SELECT count() FROM {TARGET}"}}')
     final_resp = _stop_response("3 rows remain after filter.")
@@ -93,23 +93,6 @@ async def test_debug_result_invokes_lineage_tool():
 
     assert "3 rows" in result
     toolbox.dispatch_tool.assert_awaited_once_with("query_table", {"sql": f"SELECT count() FROM {TARGET}"})
-
-
-async def test_debug_result_dispatches_tool_with_parsed_arguments():
-    """The loop parses JSON arguments before calling dispatch_tool."""
-    graph = _mock_graph(make_oplog_node(TARGET, "filter", {"input": INPUT}))
-    tool_resp = _tool_response("get_schema", f'{{"table": "{TARGET}"}}')
-    final_resp = _stop_response("Schema analyzed.")
-    toolbox = _mock_toolbox(dispatch_side_effect=["id: UInt64\nval: Float64"])
-
-    with (
-        patch("aaiclick.ai.agents.debug_agent.oplog_subgraph", new=AsyncMock(return_value=graph)),
-        patch("aaiclick.ai.agents.debug_agent.get_ai_provider", return_value=_mock_provider(tool_resp, final_resp)),
-        patch("aaiclick.ai.agents.debug_agent.LineageToolbox", return_value=toolbox),
-    ):
-        await debug_result(TARGET, "What's the schema?")
-
-    toolbox.dispatch_tool.assert_awaited_once_with("get_schema", {"table": TARGET})
 
 
 async def test_debug_result_handles_empty_arguments_for_zero_arg_tool():

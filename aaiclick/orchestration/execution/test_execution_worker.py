@@ -55,8 +55,10 @@ async def test_register_worker_custom_values(orch_ctx):
     """Test execution_worker registration with custom hostname and pid."""
     execution_worker = await register_execution_worker(hostname="test-host", pid=12345)
 
-    assert execution_worker.hostname == "test-host"
-    assert execution_worker.pid == 12345
+    db_worker = await get_execution_worker(execution_worker.id)
+    assert db_worker is not None
+    assert db_worker.hostname == "test-host"
+    assert db_worker.pid == 12345
 
 
 async def test_worker_heartbeat(orch_ctx):

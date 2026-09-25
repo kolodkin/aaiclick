@@ -5,13 +5,21 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, update
 from sqlalchemy.orm import Session
+from sqlmodel import col
 
 from aaiclick.backend import is_postgres
 
-from .background.handler import COMPLETE_JOB_SQL
-from .events import (
+from ..background.handler import COMPLETE_JOB_SQL
+from ..execution.claiming import cancel_job, update_task_status
+from ..execution.execution_worker import register_execution_worker
+from ..execution.pg_handler import CLAIM_NEXT_TASK_SQL
+from ..factories import create_job
+from ..jobs import get_tasks_for_job
+from ..models import TASK_RUNNING, Task
+from ..orch_context import get_sql_session
+from . import (
     STATE_LISTENING,
     EventBus,
     SignalTransport,
@@ -22,17 +30,10 @@ from .events import (
     signal_transport,
     unregister_session_hooks,
 )
-from .events import transport as transport_module
-from .events.hooks import statement_touches_watched
-from .events.local import LocalTransport
-from .events.state import TransportState
-from .execution.claiming import cancel_job, update_task_status
-from .execution.execution_worker import _set_pending_failure_cleanup, register_execution_worker
-from .execution.pg_handler import CLAIM_NEXT_TASK_SQL
-from .factories import create_job
-from .jobs import get_tasks_for_job
-from .models import TASK_RUNNING
-from .orch_context import get_sql_session
+from . import transport as transport_module
+from .hooks import statement_touches_watched
+from .local import LocalTransport
+from .state import TransportState
 
 SAMPLE_TASK = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
 
@@ -43,11 +44,9 @@ SETTLE = 0.3
 
 @asynccontextmanager
 async def recording(bus: EventBus) -> AsyncIterator[list[None]]:
-    """Subscribe before the block runs; on exit settle, close the bus and
-    hand back every signal the block produced.
+    """Subscribe, run the block, then settle, close the bus and return its signals.
 
-    A signal published with no subscriber is dropped, so the subscription must
-    already exist when the write under test commits."""
+    Subscribing first matters: a signal published with no subscriber is dropped."""
     signals: list[None] = []
 
     async def consume() -> None:
@@ -80,13 +79,18 @@ async def test_burst_collapses_into_one_pending_signal():
     assert len(signals) == 1
 
 
-@pytest.mark.parametrize("publish_after_close", [False, True], ids=["close-only", "publish-after-close"])
-async def test_closed_bus_yields_no_signal(publish_after_close):
+async def test_closed_bus_yields_no_signal():
     bus = EventBus()
     async with recording(bus) as signals:
         bus.close()
-        if publish_after_close:
-            bus.publish()
+    assert signals == []
+
+
+async def test_publish_after_close_yields_no_signal():
+    bus = EventBus()
+    async with recording(bus) as signals:
+        bus.close()
+        bus.publish()
     assert signals == []
 
 
@@ -159,9 +163,8 @@ def test_get_transport_is_local():
 def test_transport_follows_the_session_not_the_configured_backend(monkeypatch):
     """``AAICLICK_SQL_URL`` describes the process, not every session in it.
 
-    Test harnesses bind their own SQLite engine while the env var names
-    Postgres; picking the transport from the env var then runs ``pg_notify``
-    against SQLite, which is a hard error rather than a no-op."""
+    Harnesses bind SQLite while the env var names Postgres, and ``pg_notify`` against
+    SQLite is a hard error, not a no-op."""
     monkeypatch.setattr(transport_module, "is_postgres", lambda: True)
     engine = create_engine("sqlite://")
     try:
@@ -263,7 +266,9 @@ async def test_orm_update_statement_publishes(orch_ctx, live_bus):
     task = (await get_tasks_for_job(job.id))[0]
     await asyncio.sleep(SETTLE)
     async with recording(live_bus) as signals:
-        await _set_pending_failure_cleanup(task.id, "boom")
+        async with get_sql_session() as session:
+            await session.execute(update(Task).where(col(Task.id) == task.id).values(status=TASK_RUNNING))
+            await session.commit()
     assert len(signals) == 1
 
 

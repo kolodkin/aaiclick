@@ -30,18 +30,8 @@ from aaiclick.data.data_context import (
 from aaiclick.data.data_context.lifecycle import LocalLifecycleHandler
 
 
-async def test_context_basic_usage():
-    """Object is live inside ``data_context()`` and stale after exit."""
-    async with data_context():
-        obj = await create_object_from_value([1, 2, 3])
-        data = await obj.data()
-        assert data == [1, 2, 3]
-        assert not obj.stale
-    assert obj.stale
-
-
 async def test_context_multiple_objects():
-    """Every Object created in the block becomes stale on exit."""
+    """Every Object is live inside ``data_context()`` and stale after exit."""
     async with data_context():
         obj1 = await create_object_from_value([1, 2, 3])
         obj2 = await create_object_from_value([4, 5, 6])

@@ -8,8 +8,7 @@ import pytest
 
 from ..models import RUNNER_DOCKER, RUNNER_KUBERNETES, RUNNER_SUBPROCESS, Task
 from ..runner_config import ImageBuild, ImagePrebuilt, dump_image_source
-from . import dispatch, docker_build
-from .docker_build import resolve_launch_image
+from . import dispatch
 from .execution_worker import JobDispatch
 
 BUILD_A = dump_image_source(ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40))
@@ -42,18 +41,6 @@ class _FakeSession:
         return _FakeResult(self._job)
 
 
-def test_jobdispatch_carries_entry_fields():
-    d = JobDispatch(
-        runner_mode="docker",
-        kubernetes_config=None,
-        entry_type="shell",
-        command=["echo", "hi"],
-        command_env={"K": "v"},
-    )
-    assert d.entry_type == "shell"
-    assert d.command == ["echo", "hi"]
-
-
 async def test_jvm_without_container_runner_fails_instead_of_python_child():
     task = _task(entrypoint="com.example.Pipeline", image_source=None)
     task.entry_type = "jvm"
@@ -84,63 +71,19 @@ async def test_prebuilt_image_source_dispatches_docker_with_source(monkeypatch):
     assert isinstance(resolved.image_source, ImagePrebuilt)
 
 
-async def test_resolve_launch_image_prebuilt_tag_verbatim():
-    source = ImagePrebuilt(image_tag="ghcr.io/x/y:1")
-    assert await resolve_launch_image(source, task_id=1) == "ghcr.io/x/y:1"
-
-
-async def test_resolve_launch_image_rejects_missing_source():
-    with pytest.raises(ValueError, match="no image_source"):
-        await resolve_launch_image(None, task_id=42)
-
-
-async def test_resolve_launch_image_never_builds_without_registry(monkeypatch):
-    """The build task in the graph owns the build in both modes; launch only
-    computes the tag."""
-    calls = []
-
-    async def fake_build(source, image_tag):
-        calls.append(image_tag)
-
-    monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
-    monkeypatch.setattr(docker_build, "build_image_to_tag", fake_build)
-    source = ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40)
-    tag = await resolve_launch_image(source, task_id=1)
-    assert calls == []
-    assert tag == "aaiclick-job:" + "a" * 40
-
-
-async def test_resolve_launch_image_skips_build_with_registry(monkeypatch):
-    calls = []
-
-    async def fake_build(source, image_tag):
-        calls.append(image_tag)
-
-    monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
-    monkeypatch.setattr(docker_build, "build_image_to_tag", fake_build)
-    source = ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40)
-    tag = await resolve_launch_image(source, task_id=1)
-    assert calls == []  # the dependency edge guaranteed the push
-    assert tag == "registry.example:5000/aaiclick-job:" + "a" * 40
-
-
-async def test_dispatch_execute_routes_docker_to_container_runner(monkeypatch):
+@pytest.mark.parametrize(
+    "runner_mode, kubernetes_config",
+    [
+        pytest.param(RUNNER_DOCKER, None, id="docker_to_container_runner"),
+        pytest.param(RUNNER_KUBERNETES, {"namespace": "ml"}, id="kubernetes_to_pod_runner"),
+    ],
+)
+async def test_dispatch_execute_routes_image_runner(monkeypatch, runner_mode, kubernetes_config):
     user_task = _task()
-    spec = JobDispatch(RUNNER_DOCKER, None)
+    spec = JobDispatch(runner_mode, kubernetes_config)
     monkeypatch.setattr(dispatch, "_resolve_dispatch", AsyncMock(return_value=spec))
-    in_container = AsyncMock(return_value=(True, None, None, None))
-    monkeypatch.setitem(dispatch._IMAGE_RUNNERS, RUNNER_DOCKER, in_container)
+    runner = AsyncMock(return_value=(True, None, None, None))
+    monkeypatch.setitem(dispatch._IMAGE_RUNNERS, runner_mode, runner)
 
     await dispatch.dispatch_execute(user_task, execution_worker_id=1)
-    in_container.assert_awaited_once_with(user_task, 1, spec)
-
-
-async def test_dispatch_execute_routes_kubernetes_to_pod_runner(monkeypatch):
-    user_task = _task()
-    spec = JobDispatch(RUNNER_KUBERNETES, {"namespace": "ml"})
-    monkeypatch.setattr(dispatch, "_resolve_dispatch", AsyncMock(return_value=spec))
-    in_pod = AsyncMock(return_value=(True, None, None, None))
-    monkeypatch.setitem(dispatch._IMAGE_RUNNERS, RUNNER_KUBERNETES, in_pod)
-
-    await dispatch.dispatch_execute(user_task, execution_worker_id=3)
-    in_pod.assert_awaited_once_with(user_task, 3, spec)
+    runner.assert_awaited_once_with(user_task, 1, spec)

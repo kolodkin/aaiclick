@@ -1,15 +1,16 @@
 """
-Parametrized tests for Object domain helper methods.
+Tests for Object domain helper methods (with_year, with_lower, with_bucket, with_cast, ...).
 
 Each helper is a shortcut for a common with_columns() pattern.
 Full with_columns() tests are in test_with_columns.py.
 """
 
+import math
 from datetime import datetime, timezone
 
 import pytest
 
-from aaiclick import create_object_from_value
+from aaiclick import Object, create_object_from_value
 
 # =============================================================================
 # Date / time helpers: with_year, with_month, with_day_of_week
@@ -26,15 +27,15 @@ DATES = [
 @pytest.mark.parametrize(
     "helper,expected_col,expected",
     [
-        pytest.param("with_year", "ts_year", [2023, 2024, 2025], id="year"),
-        pytest.param("with_month", "ts_month", [1, 6, 12], id="month"),
-        pytest.param("with_day_of_week", "ts_dow", [1, 6, 3], id="day_of_week"),
+        pytest.param(Object.with_year, "ts_year", [2023, 2024, 2025], id="year"),
+        pytest.param(Object.with_month, "ts_month", [1, 6, 12], id="month"),
+        pytest.param(Object.with_day_of_week, "ts_dow", [1, 6, 3], id="day_of_week"),
     ],
 )
 async def test_date_helpers(ctx, helper, expected_col, expected):
     """with_year, with_month, with_day_of_week extract correct values."""
     obj = await create_object_from_value({"ts": DATES})
-    view = getattr(obj, helper)("ts")
+    view = helper(obj, "ts")
     result = await view.data()
     assert result[expected_col] == expected
 
@@ -79,16 +80,16 @@ async def test_with_date_diff_custom_alias(ctx):
 @pytest.mark.parametrize(
     "helper,input_vals,col,expected_col,expected",
     [
-        pytest.param("with_lower", ["Hello", "WORLD"], "name", "name_lower", ["hello", "world"], id="lower"),
-        pytest.param("with_upper", ["hello", "world"], "name", "name_upper", ["HELLO", "WORLD"], id="upper"),
-        pytest.param("with_length", ["", "hi", "hey"], "name", "name_length", [0, 2, 3], id="length"),
-        pytest.param("with_trim", [" a ", " b"], "name", "name_trimmed", ["a", "b"], id="trim"),
+        pytest.param(Object.with_lower, ["Hello", "WORLD"], "name", "name_lower", ["hello", "world"], id="lower"),
+        pytest.param(Object.with_upper, ["hello", "world"], "name", "name_upper", ["HELLO", "WORLD"], id="upper"),
+        pytest.param(Object.with_length, ["", "hi", "hey"], "name", "name_length", [0, 2, 3], id="length"),
+        pytest.param(Object.with_trim, [" a ", " b"], "name", "name_trimmed", ["a", "b"], id="trim"),
     ],
 )
 async def test_string_helpers(ctx, helper, input_vals, col, expected_col, expected):
     """String domain helpers produce correctly named and typed columns."""
     obj = await create_object_from_value({col: input_vals})
-    view = getattr(obj, helper)(col)
+    view = helper(obj, col)
     result = await view.data()
     assert result[expected_col] == expected
 
@@ -107,20 +108,21 @@ async def test_string_helpers_custom_alias(ctx):
 
 
 @pytest.mark.parametrize(
-    "helper,input_vals,expected",
+    "helper,input_vals,expected_col,expected",
     [
-        pytest.param("with_abs", [-3, 0, 5], [3.0, 0.0, 5.0], id="abs"),
-        pytest.param("with_log2", [1, 2, 4, 8], [0.0, 1.0, 2.0, 3.0], id="log2"),
-        pytest.param("with_sqrt", [0, 1, 4, 9, 16], [0.0, 1.0, 2.0, 3.0, 4.0], id="sqrt"),
+        pytest.param(Object.with_abs, [-3, 0, 5], "x_abs", [3.0, 0.0, 5.0], id="abs"),
+        pytest.param(Object.with_log2, [1, 2, 4, 8], "x_log2", [0.0, 1.0, 2.0, 3.0], id="log2"),
+        pytest.param(Object.with_sqrt, [0, 1, 4, 9, 16], "x_sqrt", [0.0, 1.0, 2.0, 3.0, 4.0], id="sqrt"),
+        # sqrt of a negative number is NaN, not an error.
+        pytest.param(Object.with_sqrt, [4, 9, -16], "x_sqrt", [2.0, 3.0, math.nan], id="sqrt-negative-nan"),
     ],
 )
-async def test_math_helpers(ctx, helper, input_vals, expected):
+async def test_math_helpers(ctx, helper, input_vals, expected_col, expected):
     """Math domain helpers produce correctly typed columns."""
     obj = await create_object_from_value({"x": input_vals})
-    view = getattr(obj, helper)("x")
+    view = helper(obj, "x")
     result = await view.data()
-    col = f"x_{helper.removeprefix('with_')}"
-    assert result[col] == expected
+    assert result[expected_col] == pytest.approx(expected, nan_ok=True)
 
 
 # =============================================================================
@@ -133,6 +135,8 @@ async def test_math_helpers(ctx, helper, input_vals, expected):
     [
         pytest.param([0, 5, 10, 15, 24], 10, [0, 0, 1, 1, 2], id="size-10"),
         pytest.param([0, 99, 100, 199], 100, [0, 0, 1, 1], id="size-100"),
+        # with_bucket() does integer division bucketing: one value per bucket.
+        pytest.param([5, 15, 25, 35], 10, [0, 1, 2, 3], id="one-per-bucket"),
     ],
 )
 async def test_with_bucket(ctx, scores, bucket_size, expected_buckets):
@@ -248,3 +252,78 @@ async def test_with_split_by_char_custom_alias(ctx):
     view = obj.with_split_by_char("csv", ":", alias="parts")
     result = await view.data()
     assert result["parts"] == [["x", "y"], ["z"]]
+
+
+# =============================================================================
+# with_cast
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    "records, to_type, nullable, alias, out_column, expected",
+    [
+        pytest.param(
+            [{"n": "42"}, {"n": "bad"}, {"n": "7"}],
+            "UInt32",
+            True,
+            None,
+            "n_uint32",
+            [42, None, 7],
+            id="nullable",
+        ),
+        pytest.param([{"n": "42"}, {"n": "7"}], "UInt32", False, None, "n_uint32", [42, 7], id="not-nullable"),
+        pytest.param([{"n": 42}, {"n": 7}], "String", False, None, "n_string", ["42", "7"], id="to-string"),
+        pytest.param([{"n": "10"}, {"n": "20"}], "UInt32", False, "n_int", "n_int", [10, 20], id="alias"),
+    ],
+)
+async def test_with_cast_method(ctx, records, to_type, nullable, alias, out_column, expected):
+    obj = await create_object_from_value(records)
+    result = await obj.with_cast("n", to_type, nullable=nullable, alias=alias).data()
+    assert result[out_column] == expected
+
+
+# =============================================================================
+# Helper chaining and composition with where / group_by
+# =============================================================================
+
+
+async def test_string_helpers_chained(ctx):
+    """String helpers chain: each adds its column from the original input."""
+    obj = await create_object_from_value({"name": ["  Alice ", "BOB", " x"]})
+    view = obj.with_lower("name").with_upper("name").with_length("name").with_trim("name")
+    result = await view.data()
+    assert result["name_lower"] == ["  alice ", "bob", " x"]
+    assert result["name_upper"] == ["  ALICE ", "BOB", " X"]
+    assert result["name_length"] == [8, 3, 2]
+    assert result["name_trimmed"] == ["Alice", "BOB", "x"]
+
+
+async def test_helper_chaining_after_where(ctx):
+    """Helpers chained after where() compute only over the filtered rows."""
+    obj = await create_object_from_value(
+        {
+            "name": ["Alice", "Bob", "Charlie"],
+            "score": [90, 40, 70],
+        }
+    )
+    view = obj.where("score > 50").with_lower("name").with_bucket("score", 50)
+    result = await view.data()
+    assert result["name_lower"] == ["alice", "charlie"]
+    assert result["score_bucket"] == [1, 1]
+
+
+async def test_with_bucket_group_by(ctx):
+    """with_bucket() + group_by() for binned aggregation."""
+    obj = await create_object_from_value(
+        {
+            "score": [5, 15, 25, 12, 22, 8],
+            "amount": [100, 200, 300, 150, 250, 50],
+        }
+    )
+    view = obj.with_bucket("score", 10)
+    result = await view.group_by("score_bucket").sum("amount")
+    data = await result.data()
+    pairs = dict(zip(data["score_bucket"], data["amount"], strict=False))
+    assert pairs[0] == 150  # scores 5, 8
+    assert pairs[1] == 350  # scores 15, 12
+    assert pairs[2] == 550  # scores 25, 22

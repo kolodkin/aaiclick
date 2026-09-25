@@ -11,8 +11,10 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aaiclick.data.data_context import ChClient, get_ch_client
 from aaiclick.orchestration.background.handler import BackgroundHandler
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
+from aaiclick.testing import create_ch_tables, list_ch_tables, wait_for_ch_mutations
 
 from .conftest import (
     get_run_refs,
@@ -222,37 +224,47 @@ async def test_cleanup_skips_persistent_and_job_scoped_tables(bg_db):
     assert "t_scratch" not in remaining, "Temp table was not cleaned up"
 
 
-async def test_delete_job_data_exempts_persistent_tables(bg_db):
+async def test_delete_job_data_exempts_persistent_tables(bg_db, orch_ctx):
     """``_delete_job_data`` drops ``t_*`` and ``j_*`` but never ``p_*``."""
     job_id = 555
     await insert_job(bg_db, job_id, preservation_mode="NONE")
-    await insert_table_registry(bg_db, "p_user_catalog", job_id=job_id)
-    await insert_table_registry(bg_db, "j_555_intermediate", job_id=job_id)
-    await insert_table_registry(bg_db, "t_scratch", job_id=job_id)
+    ch = get_ch_client()
+    job_tables = {"p_user_catalog", "j_555_intermediate", "t_scratch"}
+    await create_ch_tables(ch, *job_tables)
+    for table_name in job_tables:
+        await insert_table_registry(bg_db, table_name, job_id=job_id)
 
-    worker = make_worker(bg_db)
+    worker = make_worker(bg_db, ch)
 
     await worker._delete_job_data(job_id)
 
-    dropped = {
-        call.args[0].split("IF EXISTS ", 1)[1]
-        for call in worker._ch_client.command.call_args_list
-        if "DROP TABLE" in call.args[0]
-    }
-    assert "p_user_catalog" not in dropped, "User-managed p_* table was dropped on job TTL"
-    assert "j_555_intermediate" in dropped
-    assert "t_scratch" in dropped
+    assert await list_ch_tables(ch) & job_tables == {"p_user_catalog"}, "Only the user-managed p_* table survives"
 
 
-async def test_delete_job_data_purges_ch_log_tables(bg_db):
-    """``_delete_job_data`` deletes the job's operation_log and task_logs rows."""
-    job_id = 556
+async def _log_job_ids(ch: ChClient, table: str) -> set[int]:
+    result = await ch.query(f"SELECT DISTINCT job_id FROM {table}")
+    return {row[0] for row in result.result_rows}
+
+
+async def test_delete_job_data_purges_ch_log_tables(bg_db, orch_ctx):
+    """``_delete_job_data`` deletes the job's operation_log and task_logs rows, and no other job's."""
+    job_id, other_job_id = 556, 557
     await insert_job(bg_db, job_id, preservation_mode="NONE")
+    ch = get_ch_client()
+    for jid in (job_id, other_job_id):
+        await ch.command(
+            "INSERT INTO operation_log (result_table, operation, kwargs, job_id, created_at) "
+            f"VALUES ('t_{jid}', 'create', map(), {jid}, now64(3))"
+        )
+        await ch.command(
+            "INSERT INTO task_logs (task_id, job_id, run_id, seq, stream, level, line, created_at) "
+            f"VALUES ({jid}, {jid}, {jid}, 0, 'stdout', 'INFO', 'hello', now64(3))"
+        )
 
-    worker = make_worker(bg_db)
+    worker = make_worker(bg_db, ch)
 
     await worker._delete_job_data(job_id)
+    await wait_for_ch_mutations(ch)
 
-    commands = [call.args[0] for call in worker._ch_client.command.call_args_list]
-    assert f"ALTER TABLE operation_log DELETE WHERE job_id = {job_id}" in commands
-    assert f"ALTER TABLE task_logs DELETE WHERE job_id = {job_id}" in commands
+    assert await _log_job_ids(ch, "operation_log") == {other_job_id}
+    assert await _log_job_ids(ch, "task_logs") == {other_job_id}

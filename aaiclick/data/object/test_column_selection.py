@@ -26,15 +26,24 @@ async def test_dict_selector_basic(ctx):
 
 
 @pytest.mark.parametrize(
-    "field, expected",
+    "value, field, expected",
     [
-        pytest.param("param1", [10, 20, 30], id="first-field"),
-        pytest.param("param2", [40, 50, 60], id="second-field"),
+        pytest.param({"param1": [10, 20, 30], "param2": [40, 50, 60]}, "param1", [10, 20, 30], id="first-field"),
+        pytest.param({"param1": [10, 20, 30], "param2": [40, 50, 60]}, "param2", [40, 50, 60], id="second-field"),
+        # Single element arrays
+        pytest.param({"a": [42], "b": [100]}, "a", [42], id="single-element"),
+        # Selector preserves original (unsorted) array order
+        pytest.param(
+            {"letters": ["z", "a", "m", "b"], "numbers": [4, 1, 3, 2]},
+            "letters",
+            ["z", "a", "m", "b"],
+            id="preserves-order",
+        ),
     ],
 )
-async def test_dict_selector_data(ctx, field, expected):
+async def test_dict_selector_data(ctx, value, field, expected):
     """Test that selecting a field returns the correct data."""
-    obj = await create_object_from_value({"param1": [10, 20, 30], "param2": [40, 50, 60]}, aai_id=True)
+    obj = await create_object_from_value(value, aai_id=True)
 
     view = obj[field]
     data = await view.data()
@@ -53,55 +62,6 @@ async def test_dict_selector_multiple_fields(ctx):
     assert await view_x.data() == [1, 2, 3]
     assert await view_y.data() == [10, 20, 30]
     assert await view_z.data() == [100, 200, 300]
-
-
-# =============================================================================
-# Copy Tests
-# =============================================================================
-
-
-async def test_dict_selector_copy(ctx):
-    """Test that copy() materializes a view as a new array Object."""
-    obj = await create_object_from_value({"param1": [1, 2, 3], "param2": [4, 5, 6]}, aai_id=True)
-
-    view = obj["param1"]
-    arr = await view.copy()
-
-    # Should be a new Object, not a View
-    assert not isinstance(arr, View)
-    # Should have a different table (copy creates new table)
-    assert arr.table != obj.table
-    assert await arr.data() == [1, 2, 3]
-
-
-async def test_dict_selector_copy_second_field(ctx):
-    """Test copying the second field."""
-    obj = await create_object_from_value({"param1": [10, 20], "param2": [30, 40]}, aai_id=True)
-
-    view = obj["param2"]
-    arr = await view.copy()
-
-    assert await arr.data() == [30, 40]
-
-
-async def test_dict_selector_copy_float(ctx):
-    """Test copying a float field."""
-    obj = await create_object_from_value({"floats": [1.5, 2.5, 3.5], "ints": [1, 2, 3]}, aai_id=True)
-
-    view = obj["floats"]
-    arr = await view.copy()
-
-    assert await arr.data() == [1.5, 2.5, 3.5]
-
-
-async def test_dict_selector_copy_string(ctx):
-    """Test copying a string field."""
-    obj = await create_object_from_value({"names": ["Alice", "Bob"], "ages": [30, 25]}, aai_id=True)
-
-    view = obj["names"]
-    arr = await view.copy()
-
-    assert await arr.data() == ["Alice", "Bob"]
 
 
 # =============================================================================
@@ -202,32 +162,6 @@ async def test_dict_selector_repr(ctx):
 
 
 # =============================================================================
-# Edge Cases
-# =============================================================================
-
-
-async def test_dict_selector_single_element(ctx):
-    """Test dict selector with single element arrays."""
-    obj = await create_object_from_value({"a": [42], "b": [100]}, aai_id=True)
-
-    view = obj["a"]
-    data = await view.data()
-
-    assert data == [42]
-
-
-async def test_dict_selector_preserves_order(ctx):
-    """Test that dict selector preserves original array order."""
-    obj = await create_object_from_value({"letters": ["z", "a", "m", "b"], "numbers": [4, 1, 3, 2]}, aai_id=True)
-
-    view = obj["letters"]
-    data = await view.data()
-
-    # Order should match original array order
-    assert data == ["z", "a", "m", "b"]
-
-
-# =============================================================================
 # Multi-Field Selector Tests
 # =============================================================================
 
@@ -251,23 +185,6 @@ async def test_multi_field_selector_data(ctx):
     data = await view.data()
 
     assert data == {"x": [1, 2, 3], "z": [7, 8, 9]}
-
-
-async def test_multi_field_selector_copy(ctx):
-    """Test copying a multi-field view creates dict Object."""
-    obj = await create_object_from_value({"x": [1, 2, 3], "y": [4, 5, 6], "z": [7, 8, 9]}, aai_id=True)
-
-    view = obj[["x", "y"]]
-    cloned = await view.copy()
-
-    data = await cloned.data()
-    assert data == {"x": [1, 2, 3], "y": [4, 5, 6]}
-
-    # Verify cloned is a dict Object
-    schema = cloned.schema
-    assert "x" in schema.columns
-    assert "y" in schema.columns
-    assert "z" not in schema.columns
 
 
 async def test_multi_field_selector_repr(ctx):

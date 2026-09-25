@@ -3,12 +3,8 @@ from sqlmodel import select
 
 from aaiclick.auth.models import (
     ROLE_ADMIN,
-    ROLE_MEMBER,
-    ROLE_SCOPES,
     ROLE_VIEWER,
-    ROLES,
     SCOPE_ADMIN,
-    SCOPE_LEVELS,
     SCOPE_READ,
     SCOPE_WRITE,
     ApiToken,
@@ -70,13 +66,8 @@ async def test_refresh_token_round_trips(orch_ctx):
     ],
 )
 def test_scope_admits(held, required, expected):
+    """Scopes form a ladder read < write < admin; a held scope admits every rung at or below it."""
     assert scope_admits(held, required) is expected
-
-
-def test_scope_levels_are_ordered_low_to_high():
-    """The index is the comparison — three rungs, nothing above admin."""
-    assert SCOPE_LEVELS == (SCOPE_READ, SCOPE_WRITE, SCOPE_ADMIN)
-    assert ROLES == (ROLE_VIEWER, ROLE_MEMBER, ROLE_ADMIN)
 
 
 async def test_api_token_carries_its_scope(orch_ctx):
@@ -93,16 +84,3 @@ async def test_api_token_carries_its_scope(orch_ctx):
     async with get_sql_session() as session:
         row = (await session.execute(select(ApiToken).where(ApiToken.user_id == uid))).scalar_one()
         assert row.scope == SCOPE_ADMIN
-
-
-@pytest.mark.parametrize(
-    "role, scope",
-    [
-        pytest.param(ROLE_VIEWER, SCOPE_READ, id="viewer-reads"),
-        pytest.param(ROLE_MEMBER, SCOPE_WRITE, id="member-writes"),
-        pytest.param(ROLE_ADMIN, SCOPE_ADMIN, id="admin-admins"),
-    ],
-)
-def test_every_role_maps_to_one_scope(role, scope):
-    """The single bridge between the vocabularies — authorization compares scopes."""
-    assert ROLE_SCOPES[role] == scope

@@ -8,12 +8,10 @@ from sqlmodel import select
 from ...datetime_utils import utc_now
 from ..background.test_failure_cleanup import run_failure_cleanup
 from ..factories import create_job, create_task
-from ..jobs import get_task
-from ..models import TASK_CANCELLED, TASK_COMPLETED, TASK_FAILED, TASK_PENDING_FAILURE_CLEANUP, TASK_RUNNING, Task
+from ..models import TASK_CANCELLED, TASK_COMPLETED, TASK_FAILED, Task
 from ..orch_context import get_sql_session
-from .claiming import claim_next_task, update_task_status
+from .claiming import claim_next_task
 from .execution_worker import (
-    _set_pending_failure_cleanup,
     deregister_execution_worker,
     register_execution_worker,
 )
@@ -31,30 +29,6 @@ async def _cancel_all_pending_tasks():
             {"now": utc_now()},
         )
         await session.commit()
-
-
-async def test_set_pending_failure_cleanup(orch_ctx):
-    """_set_pending_failure_cleanup transitions a task to PENDING_FAILURE_CLEANUP with error."""
-    job = await create_job(
-        "test_failure_cleanup",
-        create_task(
-            "aaiclick.orchestration.fixtures.sample_tasks.failing_task",
-            max_retries=3,
-        ),
-    )
-
-    async with get_sql_session() as session:
-        result = await session.execute(select(Task).where(Task.job_id == job.id))
-        t = result.scalar_one()
-        task_id = t.id
-
-    await update_task_status(task_id, TASK_RUNNING)
-    await _set_pending_failure_cleanup(task_id, "test error")
-
-    t = await get_task(task_id)
-    assert t is not None
-    assert t.status == TASK_PENDING_FAILURE_CLEANUP
-    assert t.error == "test error"
 
 
 async def test_claim_respects_retry_after(orch_ctx):

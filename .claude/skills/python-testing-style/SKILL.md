@@ -94,7 +94,7 @@ async def test_same_upstream_in_two_kwargs_runs(orch_ctx):
         assert await get_job_result(j) == 42
 ```
 
-Internal tests are fine only when an end-to-end run can't reach the case: crash recovery, race windows, dead-worker cleanup, retry and backoff timing, or a pure function whose output *is* the contract (a parser, a SQL param set).
+Internal tests are fine only when an end-to-end run can't reach the case: crash recovery, race windows, dead-worker cleanup, retry and backoff timing, or a pure function whose output *is* the contract (a parser, a SQL param set). Say which in the docstring (e.g. "pure function: the returned schema is the contract").
 
 ## Parametrize input/expected clusters
 
@@ -102,11 +102,11 @@ When several tests drive the same call and differ only in inputs and expected va
 
 1. **One call shape** — same function or method; only literal arguments and expected values differ.
 2. **One outcome kind** — never merge tests asserting a returned value with tests asserting a raised exception. `pytest.raises` clusters parametrize separately.
-3. **Zero added logic** — no `if`, loop, `getattr`, or operator indirection introduced to absorb the variants. Needing one means don't consolidate.
+3. **Zero added logic** — the body makes one call; no `if`, loop, `match`, dispatch helper, or `getattr(obj, name)` absorbs the variants. When the variants are operators or methods, the callable itself is the param (`pytest.param(operator.add, 15, id="add")` with `op(obj, 5)`, or `Object.with_year` with `op(obj, "ts")`) — that is one call shape.
 4. **Same fixtures and decorators.**
 5. **Intent survives** — every case gets a descriptive `id=`, and a docstring that explained one case becomes a comment on its param.
 
-Leave alone: different methods (`match` vs `like` — would need `getattr`), different call chains (`having` vs `or_having`), and tests whose setup bodies differ.
+Leave alone: different call chains (`having` vs `or_having`) and tests whose setup bodies differ.
 
 ```python
 # GOOD — one call, only literals vary, ids carry the intent
@@ -145,3 +145,5 @@ Looking trivial is not proof. Check first whether the test covers the negative b
 ## Warnings — `filterwarnings = ["error"]` turns warnings into failures
 
 `pyproject.toml` sets `filterwarnings = ["error"]`, so any unhandled warning fails the test. When a third-party library emits a known warning, suppress it with `warnings.catch_warnings()` scoped around the call that triggers it.
+
+A warning raised at garbage collection or teardown (an unawaited coroutine, `PytestUnraisableExceptionWarning`) fires after the call returns, so `catch_warnings()` can't catch it. Fix ours (our code, our mocks). Filter only a third-party leak: an exact-message `filterwarnings` mark on the affected tests, applied in one place with an upstream reference and a TODO (see `aaiclick/ai/conftest.py`).

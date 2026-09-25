@@ -89,18 +89,19 @@ async def test_register_job_duplicate_raises_conflict(orch_ctx):
         await registered_jobs.register_job(request)
 
 
-async def test_register_job_unresolvable_attribute_raises_invalid(orch_ctx):
-    request = RegisterJobRequest(
-        name="bad_attr",
-        entrypoint="aaiclick.orchestration.fixtures.sample_tasks.no_such_task",
-    )
-
-    with pytest.raises(errors.Invalid):
-        await registered_jobs.register_job(request)
-
-
-async def test_register_job_non_callable_attribute_raises_invalid(orch_ctx):
-    request = RegisterJobRequest(name="not_callable", entrypoint=_NON_CALLABLE_ENTRYPOINT)
+@pytest.mark.parametrize(
+    "name, entrypoint",
+    [
+        pytest.param(
+            "bad_attr",
+            "aaiclick.orchestration.fixtures.sample_tasks.no_such_task",
+            id="unresolvable_attribute",
+        ),
+        pytest.param("not_callable", _NON_CALLABLE_ENTRYPOINT, id="non_callable_attribute"),
+    ],
+)
+async def test_register_job_bad_attribute_raises_invalid(orch_ctx, name, entrypoint):
+    request = RegisterJobRequest(name=name, entrypoint=entrypoint)
 
     with pytest.raises(errors.Invalid):
         await registered_jobs.register_job(request)

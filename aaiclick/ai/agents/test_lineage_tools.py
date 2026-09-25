@@ -70,21 +70,6 @@ def _ch_client_with_real_parser(rows, column_names=None):
     return client
 
 
-async def test_query_table_rejects_non_select():
-    toolbox = LineageToolbox(_sample_graph())
-    err = await toolbox.query_table(f"INSERT INTO {TARGET_TABLE} VALUES (1)")
-    assert isinstance(err, ToolError)
-    assert err.kind == "not_select"
-
-
-async def test_query_table_rejects_ddl_keywords_inside_select():
-    """DROP hidden inside a SELECT string still trips the forbidden-keyword guard."""
-    toolbox = LineageToolbox(_sample_graph())
-    err = await toolbox.query_table(f"SELECT 1 FROM {TARGET_TABLE}; DROP TABLE {TARGET_TABLE}")
-    assert isinstance(err, ToolError)
-    assert err.kind == "not_select"
-
-
 # The four scope shapes, built through their real producers. The guard reads
 # table position from the parse tree rather than matching names, so these are
 # regression cases for the shape-blind hole rather than the mechanism itself.
@@ -293,17 +278,6 @@ async def test_query_table_rejects_in_with_out_of_scope_table(orch_ctx, sql):
     assert err.kind == "out_of_scope"
 
 
-async def test_query_table_allows_in_with_graph_table(orch_ctx):
-    """The same form against a table of the graph is an ordinary in-scope read."""
-    toolbox = LineageToolbox(_sample_graph())
-    mock_client = _ch_client_with_real_parser([(1,)], ["id"])
-
-    with patch("aaiclick.ai.agents.lineage_tools.get_ch_client", return_value=mock_client):
-        result = await toolbox.query_table(f"SELECT id FROM {TARGET_TABLE} WHERE id IN {INTERMEDIATE_TABLE}")
-
-    assert isinstance(result, QueryResult)
-
-
 @pytest.mark.parametrize(
     "sql",
     [
@@ -349,12 +323,6 @@ async def test_run_select_is_refused_write_access_by_clickhouse(orch_ctx):
     """
     with pytest.raises(Exception, match="[Rr]eadonly"):
         await run_select("CREATE TABLE t_written ENGINE=Memory AS SELECT 1 LIMIT 1")
-
-
-async def test_get_op_sql_returns_template():
-    toolbox = LineageToolbox(_sample_graph())
-    sql = await toolbox.get_op_sql(TARGET_TABLE)
-    assert sql == f"SELECT sum(x) FROM {INTERMEDIATE_TABLE}"
 
 
 async def test_get_op_sql_unknown_table_not_found():
@@ -473,6 +441,13 @@ async def test_get_schema_not_live_when_describe_fails():
             ["id"],
             id="derived-table-subquery",
         ),
+        # The IN-with-table form against a table of the graph is an ordinary in-scope read.
+        pytest.param(
+            f"SELECT id FROM {TARGET_TABLE} WHERE id IN {INTERMEDIATE_TABLE}",
+            [(1,)],
+            ["id"],
+            id="in-with-graph-table",
+        ),
     ],
 )
 async def test_query_table_accepts_valid_select(orch_ctx, sql, rows, columns):
@@ -488,13 +463,16 @@ async def test_query_table_accepts_valid_select(orch_ctx, sql, rows, columns):
 @pytest.mark.parametrize(
     "sql",
     [
-        "UPDATE foo SET x=1",
-        "DELETE FROM foo",
-        "DROP TABLE foo",
-        "ALTER TABLE foo ADD COLUMN x Int32",
-        "TRUNCATE TABLE foo",
-        "CREATE TABLE foo (x Int32)",
-        "SYSTEM FLUSH LOGS",
+        pytest.param(f"INSERT INTO {TARGET_TABLE} VALUES (1)", id="insert"),
+        pytest.param("UPDATE foo SET x=1", id="update"),
+        pytest.param("DELETE FROM foo", id="delete"),
+        pytest.param("DROP TABLE foo", id="drop"),
+        pytest.param("ALTER TABLE foo ADD COLUMN x Int32", id="alter"),
+        pytest.param("TRUNCATE TABLE foo", id="truncate"),
+        pytest.param("CREATE TABLE foo (x Int32)", id="create"),
+        pytest.param("SYSTEM FLUSH LOGS", id="system"),
+        # DROP hidden inside a SELECT string still trips the forbidden-keyword guard.
+        pytest.param(f"SELECT 1 FROM {TARGET_TABLE}; DROP TABLE {TARGET_TABLE}", id="ddl-keyword-inside-select"),
     ],
 )
 async def test_query_table_rejects_write_statements(sql):

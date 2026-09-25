@@ -7,21 +7,30 @@ from . import image_build_task
 from .image_build_task import build_task_name, run_image_build
 
 
-def test_build_task_name_carries_repo_branch_and_short_sha():
-    source = ImageBuild(
-        git_remote="https://example.com/org/myrepo.git", git_sha="abcdef1234" + "0" * 30, git_branch="main"
-    )
-    assert build_task_name(source) == "build-image:myrepo@main:abcdef12"
-
-
-def test_build_task_name_handles_scp_remote_and_omits_unknown_branch():
-    source = ImageBuild(git_remote="git@example.com:org/myrepo.git", git_sha="a" * 40)
-    assert build_task_name(source) == f"build-image:myrepo:{'a' * 8}"
-
-
-def test_build_task_name_appends_non_default_dockerfile():
-    source = ImageBuild(git_remote="https://example.com/r.git", git_sha="b" * 40, dockerfile="Dockerfile.gpu")
-    assert build_task_name(source).endswith(" (Dockerfile.gpu)")
+@pytest.mark.parametrize(
+    "source, expected",
+    [
+        pytest.param(
+            ImageBuild(
+                git_remote="https://example.com/org/myrepo.git", git_sha="abcdef1234" + "0" * 30, git_branch="main"
+            ),
+            "build-image:myrepo@main:abcdef12",
+            id="repo_branch_and_short_sha",
+        ),
+        pytest.param(
+            ImageBuild(git_remote="git@example.com:org/myrepo.git", git_sha="a" * 40),
+            f"build-image:myrepo:{'a' * 8}",
+            id="scp_remote_omits_unknown_branch",
+        ),
+        pytest.param(
+            ImageBuild(git_remote="https://example.com/r.git", git_sha="b" * 40, dockerfile="Dockerfile.gpu"),
+            f"build-image:r:{'b' * 8} (Dockerfile.gpu)",
+            id="appends_non_default_dockerfile",
+        ),
+    ],
+)
+def test_build_task_name(source, expected):
+    assert build_task_name(source) == expected
 
 
 async def test_run_image_build_delegates_to_build_image_to_tag(monkeypatch):

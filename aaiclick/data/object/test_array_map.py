@@ -34,42 +34,27 @@ async def test_array_map_arithmetic(ctx, a_vals, b_vals, operator, expected):
     a = await create_object_from_value(a_vals)
     b = await create_object_from_value(b_vals)
     result = await a.array_map(b, operator)
-    data = await result.data()
-    assert len(data) == len(expected)
-    for actual, exp in zip(data, expected, strict=False):
-        assert abs(actual - exp) < THRESHOLD
+    assert await result.data() == pytest.approx(expected, abs=THRESHOLD)
 
 
 @pytest.mark.parametrize(
     "a_vals,b_vals,operator,expected",
     [
+        # Comparison
         pytest.param([1, 2, 3], [1, 2, 4], "==", [1, 1, 0], id="eq"),
         pytest.param([1, 2, 3], [1, 2, 4], "!=", [0, 0, 1], id="ne"),
         pytest.param([1, 5, 3], [2, 4, 3], "<", [1, 0, 0], id="lt"),
         pytest.param([1, 5, 3], [2, 4, 3], "<=", [1, 0, 1], id="le"),
         pytest.param([1, 5, 3], [2, 4, 3], ">", [0, 1, 0], id="gt"),
         pytest.param([1, 5, 3], [2, 4, 3], ">=", [0, 1, 1], id="ge"),
-    ],
-)
-async def test_array_map_comparison(ctx, a_vals, b_vals, operator, expected):
-    """Test array_map with comparison operators."""
-    a = await create_object_from_value(a_vals)
-    b = await create_object_from_value(b_vals)
-    result = await a.array_map(b, operator)
-    data = await result.data()
-    assert data == expected
-
-
-@pytest.mark.parametrize(
-    "a_vals,b_vals,operator,expected",
-    [
+        # Bitwise
         pytest.param([0b1100, 0b1010], [0b1010, 0b0110], "&", [0b1000, 0b0010], id="and"),
         pytest.param([0b1100, 0b1010], [0b1010, 0b0110], "|", [0b1110, 0b1110], id="or"),
         pytest.param([0b1100, 0b1010], [0b1010, 0b0110], "^", [0b0110, 0b1100], id="xor"),
     ],
 )
-async def test_array_map_bitwise(ctx, a_vals, b_vals, operator, expected):
-    """Test array_map with bitwise operators."""
+async def test_array_map_comparison_bitwise(ctx, a_vals, b_vals, operator, expected):
+    """array_map with comparison and bitwise operators (exact integer results)."""
     a = await create_object_from_value(a_vals)
     b = await create_object_from_value(b_vals)
     result = await a.array_map(b, operator)
@@ -96,10 +81,7 @@ async def test_array_map_scalar(ctx, a_vals, scalar, operator, expected):
     """Test array_map with Python scalar operand."""
     a = await create_object_from_value(a_vals)
     result = await a.array_map(scalar, operator)
-    data = await result.data()
-    assert len(data) == len(expected)
-    for actual, exp in zip(data, expected, strict=False):
-        assert abs(actual - exp) < THRESHOLD
+    assert await result.data() == pytest.approx(expected, abs=THRESHOLD)
 
 
 # =============================================================================

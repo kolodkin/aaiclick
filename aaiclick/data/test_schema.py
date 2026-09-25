@@ -6,22 +6,21 @@ including table name, fieldtype, and column details.
 """
 
 import pytest
-from sqlmodel import delete
 
 from aaiclick import (
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
     FIELDTYPE_SCALAR,
     ColumnInfo,
+    ObjectNotFoundError,
     Schema,
     create_object_from_value,
+    delete_persistent_object,
+    open_object,
 )
 from aaiclick.data.data_context import get_ch_client
+from aaiclick.data.data_context.lifecycle import get_data_lifecycle
 from aaiclick.data.models import ViewSchema
-from aaiclick.data.object.ingest import _get_table_schema
-from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
-from aaiclick.orchestration.sql_context import get_sql_session
-from aaiclick.testing import seed_registry_row
 
 # =============================================================================
 # Basic Schema Tests
@@ -37,16 +36,6 @@ async def test_schema_array(ctx):
     assert isinstance(schema, Schema)
     assert schema.fieldtype == FIELDTYPE_ARRAY
     assert list(schema.columns) == ["value"]
-    assert schema.columns["value"].type == "Int64"
-
-
-async def test_schema_scalar(ctx):
-    """Test schema for scalar object."""
-    obj = await create_object_from_value(42)
-
-    schema = obj.schema
-
-    assert schema.fieldtype == FIELDTYPE_SCALAR
     assert schema.columns["value"].type == "Int64"
 
 
@@ -136,28 +125,6 @@ async def test_view_schema_where_clause(ctx):
     assert schema.limit is None
 
 
-async def test_view_schema_limit_offset(ctx):
-    """Test that limit and offset are included in ViewSchema."""
-    obj = await create_object_from_value([1, 2, 3, 4, 5])
-
-    view = obj.view(limit=3, offset=1)
-    schema = view.schema
-
-    assert schema.limit == 3
-    assert schema.offset == 1
-    assert schema.where is None
-
-
-async def test_view_schema_order_by(ctx):
-    """Test that order_by is included in ViewSchema."""
-    obj = await create_object_from_value([5, 3, 1, 4, 2])
-
-    view = obj.view(order_by="value DESC")
-    schema = view.schema
-
-    assert schema.order_by == "value DESC"
-
-
 async def test_view_schema_all_constraints(ctx):
     """Test ViewSchema with all constraints."""
     obj = await create_object_from_value([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
@@ -205,15 +172,11 @@ async def test_copied_view_schema(ctx):
 @pytest.mark.parametrize(
     "value,expected_fieldtype,expected_type",
     [
-        # String types
-        (["hello", "world"], FIELDTYPE_ARRAY, "String"),
-        ("hello", FIELDTYPE_SCALAR, "String"),
-        # Float types
-        ([1.1, 2.2, 3.3], FIELDTYPE_ARRAY, "Float64"),
-        (3.14, FIELDTYPE_SCALAR, "Float64"),
-        # Int types
-        ([1, 2, 3], FIELDTYPE_ARRAY, "Int64"),
-        (42, FIELDTYPE_SCALAR, "Int64"),
+        pytest.param(["hello", "world"], FIELDTYPE_ARRAY, "String", id="string-array"),
+        pytest.param("hello", FIELDTYPE_SCALAR, "String", id="string-scalar"),
+        pytest.param([1.1, 2.2, 3.3], FIELDTYPE_ARRAY, "Float64", id="float-array"),
+        pytest.param(3.14, FIELDTYPE_SCALAR, "Float64", id="float-scalar"),
+        pytest.param(42, FIELDTYPE_SCALAR, "Int64", id="int-scalar"),
     ],
 )
 async def test_schema_value_types(ctx, value, expected_fieldtype, expected_type):
@@ -227,33 +190,44 @@ async def test_schema_value_types(ctx, value, expected_fieldtype, expected_type)
 
 
 # =============================================================================
-# Registry-backed schema reads (Phase 2 Task 2.3)
+# Registry-backed schema reads
 # =============================================================================
 
 
-async def test_get_table_schema_reads_from_registry(orch_ctx):
-    """_get_table_schema hydrates from table_registry.schema_doc when populated."""
-    table = "t_phase2_read_test"
-    await seed_registry_row(table, fieldtype=FIELDTYPE_ARRAY)
-
+@pytest.mark.parametrize(
+    "value, name, expected_fieldtype, expected_columns",
+    [
+        pytest.param([1, 2, 3], "reopen_array", FIELDTYPE_ARRAY, {"value": FIELDTYPE_ARRAY}, id="array"),
+        pytest.param(
+            {"a": [1, 2], "b": ["x", "y"]},
+            "reopen_dict",
+            FIELDTYPE_DICT,
+            {"a": FIELDTYPE_ARRAY, "b": FIELDTYPE_ARRAY},
+            id="dict",
+        ),
+        pytest.param(42, "reopen_scalar", FIELDTYPE_SCALAR, {"value": FIELDTYPE_SCALAR}, id="scalar"),
+    ],
+)
+async def test_open_object_reads_schema_from_registry(ctx, value, name, expected_fieldtype, expected_columns):
+    """``open_object`` rebuilds the fieldtype and columns from ``table_registry.schema_doc``."""
+    await create_object_from_value(value, name=name, scope="global")
     try:
-        ch_client = get_ch_client()
-        fieldtype, columns = await _get_table_schema(table, ch_client)
-        assert fieldtype == FIELDTYPE_ARRAY
-        assert set(columns) == {"value"}
-        assert columns["value"].fieldtype == FIELDTYPE_ARRAY
+        # Registry writes queue through DBLifecycleHandler; flush so the INSERT commits before the read.
+        lifecycle = get_data_lifecycle()
+        assert lifecycle is not None
+        await lifecycle.flush()
+
+        schema = (await open_object(name, scope="global")).schema
+
+        assert schema.fieldtype == expected_fieldtype
+        assert {col: info.fieldtype for col, info in schema.columns.items()} == expected_columns
     finally:
-        async with get_sql_session() as sess:
-            await sess.execute(delete(TableRegistry).where(TableRegistry.table_name == table))
-            await sess.commit()
+        await delete_persistent_object(name, scope="global")
 
 
-async def test_get_table_schema_missing_registry_row_raises(orch_ctx):
-    """_get_table_schema raises LookupError when the table has no registry row."""
-    ch_client = get_ch_client()
-    await ch_client.command("CREATE TABLE t_orphan_test (v Int64) ENGINE = Memory")
-    try:
-        with pytest.raises(LookupError, match="not registered"):
-            await _get_table_schema("t_orphan_test", ch_client)
-    finally:
-        await ch_client.command("DROP TABLE IF EXISTS t_orphan_test")
+async def test_open_object_without_registry_row_raises(orch_ctx):
+    """A table aaiclick did not register has no schema to read, so it is not an object."""
+    await get_ch_client().command("CREATE TABLE p_orphan (v Int64) ENGINE = Memory")
+
+    with pytest.raises(ObjectNotFoundError, match="does not exist"):
+        await open_object("orphan", scope="global")

@@ -1,21 +1,21 @@
-"""Postgres-only transport tests: need asyncpg and a live ``LISTEN`` connection.
-
-Kept apart from ``test_events.py`` because importing the Postgres transport
-needs asyncpg; ``conftest.py`` skips collecting this module when the
-``distributed`` extra is absent.
-"""
+"""Postgres transport tests (asyncpg + live ``LISTEN``); kept out of ``test_events.py`` so
+only this module skips when the ``distributed`` extra is absent."""
 
 import asyncio
 
 import pytest
+
+# Must run before the transport imports below, which import asyncpg.
+pytest.importorskip("asyncpg")
+
 from sqlalchemy import text
 
 from aaiclick.backend import is_postgres
 
-from .events import EventBus, get_transport
-from .events import postgres as postgres_transport
-from .events.postgres import PostgresTransport
-from .orch_context import get_sql_session
+from ..orch_context import get_sql_session
+from . import EventBus, get_transport
+from . import postgres as postgres_transport
+from .postgres import PostgresTransport
 from .test_events import SETTLE, _wait_listening, recording
 
 pytestmark = pytest.mark.skipif(not is_postgres(), reason="Postgres backend only")
