@@ -31,6 +31,26 @@ from aaiclick.backend import is_local
 
 SEED = Path(__file__).with_name("seed.py")
 SHOTS = Path(__file__).resolve().parents[2] / "test-results" / "shots"
+# Subprocess logs the terminal summary prints the tail of when a test failed.
+LOG_PATHS = pytest.StashKey[list[Path]]()
+LOG_TAIL_LINES = 200
+
+
+def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatus: int, config: pytest.Config) -> None:
+    """On a failed run, print the tail of each subprocess log.
+
+    A job's failure message names the failed task and its error, but the
+    traceback context — and anything the server logged — lives only in these
+    files, which vanish with the CI runner. Printed here rather than in fixture
+    teardown, where output capture would hide it whenever the last test passed.
+    """
+    if exitstatus != pytest.ExitCode.TESTS_FAILED:
+        return
+    for path in config.stash.get(LOG_PATHS, []):
+        lines = path.read_text(errors="replace").splitlines()[-LOG_TAIL_LINES:]
+        terminalreporter.write_sep("=", f"{path.name} (last {len(lines)} lines)")
+        for line in lines:
+            terminalreporter.write_line(line)
 
 
 def _free_port() -> int:
@@ -62,7 +82,7 @@ def _stop(proc: subprocess.Popen, log_file: BinaryIO) -> None:
 
 
 @pytest.fixture(scope="session")
-def base_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
+def base_url(request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     """Start the server — plus both workers in distributed mode — and yield its URL.
 
     Rooted at a per-session temp dir via ``AAICLICK_LOCAL_ROOT`` so the suite
@@ -98,6 +118,7 @@ def base_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
         # Job rows reach COMPLETED on this worker's poll; the default 10 s
         # would dominate every test that waits for one.
         procs.append(_launch(root, "background", ["aaiclick", "background", "start", "--poll-interval", "1"], env))
+    request.config.stash[LOG_PATHS] = [Path(log_file.name) for _, log_file in procs]
     server, _ = procs[0]
     server_log = root / "server.log"
 
