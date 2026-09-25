@@ -84,7 +84,9 @@ Multiprocessing-worker tests (`test_mp_worker.py`, `test_retry_mp.py`,
 `test_worker_mp.py`) need the **parent** process to hold no chdb file
 lock. They use `orch_ctx_no_ch` in dedicated modules, and
 `orch_module_ctx_no_ch` swaps `AAICLICK_CH_URL` to a per-module tempdir
-so the spawned child opens a fresh chdb file.
+so the spawned child opens a fresh chdb file. A throwaway subprocess
+migrates that tempdir first — with chdb + Postgres the child's
+`init_oplog_tables` only checks for pending migrations, never applies them.
 
 !!! tip "Don't mix `orch_ctx` and `orch_ctx_no_ch` in one module"
     The two module-scoped fixtures require conflicting chdb setups.

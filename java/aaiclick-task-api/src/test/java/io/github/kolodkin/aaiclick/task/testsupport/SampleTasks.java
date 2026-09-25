@@ -1,5 +1,6 @@
 package io.github.kolodkin.aaiclick.task.testsupport;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -22,7 +23,17 @@ public final class SampleTasks {
     }
 
     @AaiTask
+    public static int total(int[] counts) {
+        return Arrays.stream(counts).sum();
+    }
+
+    @AaiTask
     public static void sideEffectOnly(String ignored) {
+    }
+
+    @AaiTask
+    public static String wrapperNamed(String native_value) {
+        return native_value;
     }
 
     @AaiTask
