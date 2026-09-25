@@ -85,11 +85,14 @@ def map(
 
 
 def _framed(name: str, expander: Task) -> Task:
-    """Put ``expander`` in a new group that its runtime children join.
+    """Put ``expander`` in a new frame group that its runtime children join.
 
-    Presentation only: nothing has an edge to or from the frame. The expander
-    nests its parts group(s) under its own group and adds ``_finalize`` to it
-    (``_join_frame``), so the graph draws the whole call as one frame.
+    The expander nests its parts group(s) under its own group and adds
+    ``_finalize`` to it (``_join_frame``), so the graph draws the whole call as
+    one frame. The frame is a real committed group, one extra row per call,
+    but no edge touches it, so scheduling is unchanged. Its direct members,
+    the expander and ``_finalize``, are fail-fast siblings, but they never
+    run at the same time, so the sibling abort has nothing to cancel.
     """
     Group(id=get_snowflake_id(), name=name).add_task(expander)
     return expander
