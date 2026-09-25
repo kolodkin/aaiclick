@@ -360,8 +360,9 @@ def test_task_view_separates_streamed_status_from_polled_logs(page, base_url: st
 
     # The job went terminal in the task's commit, so nothing more commits, no
     # signal fires, and neither half may fetch. A timer would keep going
-    # regardless, which is exactly the difference under test. (This says nothing about the stream
-    # being down: the fallback interval is inert here because the stream is up.)
+    # regardless, which is exactly the difference under test. (This says
+    # nothing about the stream being down: the fallback interval is inert here
+    # because the stream is up.)
     seen = len(requests)
     page.wait_for_timeout(POLL_FALLBACK_MS + 500)
     idle = [u for u in requests[seen:] if f"/tasks/{task_id}" in u]

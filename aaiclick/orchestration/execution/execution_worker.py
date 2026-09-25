@@ -462,9 +462,7 @@ async def _handle_task_result(
 ) -> bool:
     """Process the result of a task execution. Returns True if task succeeded."""
     if success:
-        # Rollup-only: cascade handling belongs to failure-transition owners
-        # (BackgroundWorker, cancel_job), not to a worker's success path.
-        if not await complete_task_and_roll_up(task.id, result_ref, expected_epoch=task.run_epoch):
+        if not await complete_task_and_roll_up(task.id, task.job_id, result_ref, expected_epoch=task.run_epoch):
             await _discard_run(task, execution_worker_id, "completion")
             return False
         logger.info("ExecutionWorker %s completed task %s", execution_worker_id, task.id)

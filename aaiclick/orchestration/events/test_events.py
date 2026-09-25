@@ -254,7 +254,7 @@ async def test_task_completion_with_job_rollup_publishes_one_signal(orch_ctx, li
     await update_task_status(task.id, TASK_RUNNING)
     await asyncio.sleep(SETTLE)
     async with recording(live_bus) as signals:
-        assert await complete_task_and_roll_up(task.id, None, expected_epoch=0)
+        assert await complete_task_and_roll_up(task.id, job.id, None, expected_epoch=0)
     assert len(signals) == 1
 
 
