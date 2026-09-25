@@ -34,7 +34,18 @@ public class KwargsResolver {
         this.mapper = mapper;
     }
 
-    public JsonNode resolve(JsonNode node) {
+    /** Resolves each top-level kwarg independently, like the Python
+     * ``{k: _deserialize_value(v) ...}`` — the map itself is never a ref, so a
+     * parameter named ``native_value`` or ``ref_type`` stays a parameter. */
+    public ObjectNode resolveKwargs(ObjectNode kwargs) {
+        ObjectNode out = mapper.createObjectNode();
+        for (Map.Entry<String, JsonNode> field : kwargs.properties()) {
+            out.set(field.getKey(), resolve(field.getValue()));
+        }
+        return out;
+    }
+
+    private JsonNode resolve(JsonNode node) {
         if (node.isArray()) {
             ArrayNode out = mapper.createArrayNode();
             for (JsonNode item : node) {
@@ -60,11 +71,7 @@ public class KwargsResolver {
             throw new IllegalStateException(
                 "Pydantic refs are not supported in jvm task kwargs (plain values only)");
         }
-        ObjectNode out = mapper.createObjectNode();
-        for (Map.Entry<String, JsonNode> field : obj.properties()) {
-            out.set(field.getKey(), resolve(field.getValue()));
-        }
-        return out;
+        return resolveKwargs(obj);
     }
 
     private JsonNode resolveRef(ObjectNode obj) {
