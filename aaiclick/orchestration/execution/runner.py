@@ -317,7 +317,7 @@ async def execute_task(task: Task, shell_spec: ShellSpec | None = None) -> Any:
     func = import_callback(task.entrypoint)
     run_id = await register_run(task.id)
 
-    set_current_task_info(task_id=task.id, job_id=task.job_id, image_source=task.image_source)
+    set_current_task_info(task_id=task.id, job_id=task.job_id, image_source=task.image_source, group_id=task.group_id)
 
     async with capture_task_output(task.id, task.job_id, run_id):
         async with task_scope(

@@ -513,9 +513,9 @@ def _collect_from_registry(items: list[Task | Group]) -> list[Task | Group]:
     """Collect all reachable Task/Group objects via dependency IDs and the task registry.
 
     Walks the dependency graph starting from ``items``, looking up each
-    upstream ID in the active registry (ContextVar). Registry entries are
-    in-memory objects not yet persisted; missing entries are already in the
-    DB so traversal stops there naturally.
+    upstream ID, a task's group, and a group's parent in the active registry
+    (ContextVar). Registry entries are in-memory objects not yet persisted;
+    missing entries are already in the DB so traversal stops there naturally.
 
     Returns objects in dependency-first order so SQLAlchemy inserts them
     without FK violations. If no registry is active, returns ``items`` as-is.
@@ -531,6 +531,12 @@ def _collect_from_registry(items: list[Task | Group]) -> list[Task | Group]:
         if id(node) in visited:
             return
         visited[id(node)] = node
+        # A group reached only through membership or nesting still commits,
+        # and ahead of the node so the FK target exists first.
+        container_id = node.group_id if isinstance(node, Task) else node.parent_group_id
+        container = registry.get(container_id) if container_id is not None else None
+        if container is not None:
+            visit(container)
         for dep in node.previous_dependencies:
             upstream = registry.get(dep.previous_id)
             if upstream is not None:

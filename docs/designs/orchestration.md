@@ -416,6 +416,19 @@ edge leaving the expander (or its group) onto `_finalize` (see
 members it gains later are held too. The same hold applies to any `task_result`
 whose data is one of its returned tasks.
 
+## Graph Frame
+
+Each call draws as one frame in the job graph (`_framed` / `_join_frame`):
+
+- `map()` / `reduce()` put the expander in a `map` / `reduce` group at
+  definition time.
+- At runtime the expander nests its parts group(s) (`parts`, or `layer_N`)
+  under its own group (`TaskInfo.group_id`) and adds `_finalize` to it.
+
+Presentation only: nothing has an edge to or from the frame. A frame reached
+only through membership still commits, since `_collect_from_registry` visits a
+task's group and a group's parent before the node.
+
 # Distributed Object Lifecycle
 
 **Implementation**: `aaiclick/orchestration/lifecycle/`

@@ -39,6 +39,7 @@ from aaiclick.data.object.refs import ViewRef
 from aaiclick.snowflake import get_snowflake_id
 
 from .decorators import TaskFactory, task
+from .execution.execution_worker_context import get_current_task_info
 from .models import Group, Task
 from .result import TaskResult, data_list, task_result
 
@@ -63,39 +64,63 @@ def map(
         kwargs: Extra keyword arguments forwarded to cbk.
 
     Returns:
-        The expander Task. At runtime it creates one ``_map_part`` child per
+        The expander Task, inside a ``map`` group that frames the whole call in
+        the job graph. At runtime it creates one ``_map_part`` child per
         partition; its result is the output Object, and tasks that consume it
         wait for every partition.
     """
     if kwargs is None:
         kwargs = {}
 
-    return _expand_map(
-        cbk=cbk,
-        obj=obj,
-        partition=partition,
-        cbk_args=list(args),
-        cbk_kwargs=kwargs,
+    return _framed(
+        "map",
+        _expand_map(
+            cbk=cbk,
+            obj=obj,
+            partition=partition,
+            cbk_args=list(args),
+            cbk_kwargs=kwargs,
+        ),
     )
+
+
+def _framed(name: str, expander: Task) -> Task:
+    """Put ``expander`` in a new group that its runtime children join.
+
+    Presentation only: nothing has an edge to or from the frame. The expander
+    nests its parts group(s) under its own group and adds ``_finalize`` to it
+    (``_join_frame``), so the graph draws the whole call as one frame.
+    """
+    Group(id=get_snowflake_id(), name=name).add_task(expander)
+    return expander
+
+
+def _join_frame(parts: list[Group], finalize: Task) -> None:
+    """Nest ``parts`` under the running expander's group and add ``finalize`` to it."""
+    frame_id = get_current_task_info().group_id
+    for group in parts:
+        group.parent_group_id = frame_id
+    finalize.group_id = frame_id
 
 
 @task
 async def _expand_map(cbk: Callable, obj: Object, partition: int, cbk_args: list, cbk_kwargs: dict) -> TaskResult:
     """Expander task: queries Object row count and creates partition tasks.
 
-    Returns a ``map`` Group of ``_map_part`` children writing into a
+    Returns a ``parts`` Group of ``_map_part`` children writing into a
     pre-allocated output, and the ``_finalize`` task that returns it as data.
     """
     row_count = await obj.count().data()
 
     out = await create_object(obj.schema)
 
-    group = Group(id=get_snowflake_id(), name="map")
+    group = Group(id=get_snowflake_id(), name="parts")
     for part in _partition_refs(obj, partition, row_count):
         group.add_task(_map_part(cbk=cbk, part=part, out=out, cbk_args=cbk_args, cbk_kwargs=cbk_kwargs))
 
     finalize = _finalize(out=out)
     group >> finalize
+    _join_frame([group], finalize)
     return task_result(data=finalize, tasks=[group, finalize])
 
 
@@ -179,19 +204,23 @@ def reduce(
         kwargs: Extra keyword arguments forwarded to cbk.
 
     Returns:
-        The expander Task. At runtime it pre-allocates every layer Object and
+        The expander Task, inside a ``reduce`` group that frames the whole call
+        in the job graph. At runtime it pre-allocates every layer Object and
         registers all layer groups at once; its result is the final
         single-row Object, and tasks that consume it wait for every layer.
     """
     if kwargs is None:
         kwargs = {}
 
-    return _expand_reduce(
-        cbk=cbk,
-        obj=obj,
-        partition=partition,
-        cbk_args=list(args),
-        cbk_kwargs=kwargs,
+    return _framed(
+        "reduce",
+        _expand_reduce(
+            cbk=cbk,
+            obj=obj,
+            partition=partition,
+            cbk_args=list(args),
+            cbk_kwargs=kwargs,
+        ),
     )
 
 
@@ -270,6 +299,7 @@ async def _expand_reduce(
 
     finalize = _finalize(out=layer_objs[-1])
     all_groups[-1] >> finalize
+    _join_frame(all_groups, finalize)
     return task_result(data=finalize, tasks=[*all_groups, finalize])
 
 

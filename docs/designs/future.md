@@ -65,34 +65,6 @@ Share `_partition_refs` and the parts group; the only new public symbol is
 
 ---
 
-# Draw a `map()` / `reduce()` Call as One Graph Frame
-
-In the job graph the expander and `_finalize` sit outside the frame of the
-parts (`map` group, or `layer_N` groups for `reduce()`). The expander cannot
-be a member of a group it creates at runtime, and `_finalize` cannot be a
-member of the group it waits on (`group >> finalize` would wait on itself).
-
-Wrap the whole call in an outer group created at definition time:
-
-- `map()` / `reduce()` create an outer `map` / `reduce` group and add the
-  expander to it, passing its id to the expander.
-- The expander creates the parts group(s) with `parent_group_id` set to the
-  outer group, and adds `_finalize` as a direct member of the outer group.
-
-Presentation only: scheduling resolves a group edge to its direct members
-(`DEPENDENCY_WHERE`, `successor_task_ids`), nothing has an edge to or from the
-outer group, and consumers already depend on `_finalize` through the hold. The
-graph view and UI already nest frames (`group_member_tasks`, `nestByGroup`).
-
-One prerequisite: `_collect_from_registry` (`orch_context.py`) walks
-dependency edges only, so a definition-time group whose only link is a
-member's `group_id` is never committed. Visit a task's group, and a group's
-parent, before the node itself. Cover it with a job test on the committed
-group tree and an assertion on the nested frames in
-`test_e2e/web/test_operators_graph.py`.
-
----
-
 # One Runner-Mode Validator for Container-Only Fields
 
 `run_job` (`aaiclick/orchestration/registered_jobs.py`) rejects `image`,
