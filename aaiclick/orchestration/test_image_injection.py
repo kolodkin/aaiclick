@@ -76,10 +76,14 @@ def test_validate_jvm_accepts(kwargs):
     "kwargs, image_source, match",
     [
         pytest.param(None, None, "image_source", id="no-image-source"),
-        pytest.param({"inputs": [{"nested": OBJECT_REF}]}, PREBUILT, "Object/View ref", id="nested-object-ref"),
+        pytest.param(
+            {"inputs": [{"nested": OBJECT_REF}]}, PREBUILT, "object ref in kwarg .inputs.", id="nested-object-ref"
+        ),
         pytest.param({"fn": callable_ref("m.f")}, PREBUILT, "callable ref in kwarg 'fn'", id="callable-ref"),
         pytest.param({"parts": group_results_ref(9)}, PREBUILT, "group_results ref", id="group-ref"),
         pytest.param({"m": {"pydantic_type": "m.M", "pydantic_data": {}}}, PREBUILT, "pydantic ref", id="pydantic-ref"),
+        # Python reads an unknown ref_type as a plain dict; the shim rejects it.
+        pytest.param({"cfg": {"ref_type": "x"}}, PREBUILT, "x ref", id="unknown-nested-ref-type"),
     ],
 )
 def test_validate_jvm_rejects(kwargs, image_source, match):

@@ -31,16 +31,16 @@ from aaiclick.data.object.refs import (
     OBJECT,
     OBJECT_TYPE,
     PERSISTENT,
+    PYDANTIC,
     PYDANTIC_DATA,
     PYDANTIC_TYPE,
-    REF_TYPE,
     TASK_ID,
     UPSTREAM,
     VIEW,
     ObjectRef,
     ViewRef,
-    is_native_value_ref,
     native_value_ref,
+    ref_kind,
     upstream_ref,
 )
 from aaiclick.log_models import STDERR_STREAM, STDOUT_STREAM, LogStream
@@ -155,12 +155,9 @@ async def _resolve_upstream_ref(ref: dict, session: AsyncSession) -> Any:
 async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
     """Recursively deserialize a value from JSON format.
 
-    Handles:
-    - Upstream references (ref_type="upstream"): Resolves to task result
-    - Object references (object_type="object"): Reconstructs Object
-    - View references (object_type="view"): Reconstructs View
-    - Lists/dicts: Recursively deserializes contents
-    - Native Python types: Passed through unchanged
+    Dispatches on :func:`~aaiclick.data.object.refs.ref_kind`: upstream refs
+    resolve to the task result, Object/View refs are reconstructed, lists and
+    plain dicts recurse, anything else passes through.
 
     Args:
         value: Serialized value from task kwargs
@@ -169,20 +166,20 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
     Returns:
         Deserialized value ready for function call
     """
-    if not isinstance(value, dict):
-        if isinstance(value, list):
-            return [await _deserialize_value(v, session) for v in value]
-        return value
+    if isinstance(value, list):
+        return [await _deserialize_value(v, session) for v in value]
 
-    if value.get(REF_TYPE) == UPSTREAM:
+    kind = ref_kind(value)
+
+    if kind == UPSTREAM:
         upstream_result = await _resolve_upstream_ref(value, session)
         return await _deserialize_value(upstream_result, session)
 
-    if value.get(REF_TYPE) == CALLABLE:
+    if kind == CALLABLE:
         return import_callback(value["entrypoint"])
 
     # A Group passed as a kwarg: the members' results, in task order
-    if value.get(REF_TYPE) == GROUP_RESULTS:
+    if kind == GROUP_RESULTS:
         group_id = value["group_id"]
         result = await session.execute(
             select(Task.result)
@@ -198,48 +195,44 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
             deserialized.append(await _deserialize_value(task_result, session))
         return deserialized
 
-    if is_native_value_ref(value):
+    if kind == NATIVE_VALUE:
         return value[NATIVE_VALUE]
 
-    if PYDANTIC_TYPE in value:
+    if kind == PYDANTIC:
         cls = _import_class(value[PYDANTIC_TYPE])
         return cls.model_validate(value[PYDANTIC_DATA])
 
-    if OBJECT_TYPE in value:
-        obj_type = value[OBJECT_TYPE]
+    if kind == OBJECT:
+        ref = ObjectRef.model_validate(value)
+        fieldtype, columns = await _get_table_schema(ref.table, get_ch_client())
+        schema = Schema(fieldtype=fieldtype, columns=columns)
+        obj = Object(table=ref.table, schema=schema)
+        if not ref.persistent:
+            obj._register()  # enqueues INCREF
+        register_object(obj)
+        return obj
 
-        if obj_type == OBJECT:
-            ref = ObjectRef.model_validate(value)
-            fieldtype, columns = await _get_table_schema(ref.table, get_ch_client())
-            schema = Schema(fieldtype=fieldtype, columns=columns)
-            obj = Object(table=ref.table, schema=schema)
-            if not ref.persistent:
-                obj._register()  # enqueues INCREF
-            register_object(obj)
-            return obj
+    if kind == VIEW:
+        ref = ViewRef.model_validate(value)
+        fieldtype, columns = await _get_table_schema(ref.table, get_ch_client())
+        schema = Schema(fieldtype=fieldtype, columns=columns)
+        source = Object(table=ref.table, schema=schema)
+        source._register()  # enqueues INCREF
+        register_object(source)
+        view = View(
+            source=source,
+            where=ref.where,
+            limit=ref.limit,
+            offset=ref.offset,
+            order_by=ref.order_by,
+            selected_fields=ref.selected_fields,
+            renamed_columns=ref.renamed_columns,
+        )
+        register_object(view)
+        return view
 
-        elif obj_type == VIEW:
-            ref = ViewRef.model_validate(value)
-            fieldtype, columns = await _get_table_schema(ref.table, get_ch_client())
-            schema = Schema(fieldtype=fieldtype, columns=columns)
-            source = Object(table=ref.table, schema=schema)
-            source._register()  # enqueues INCREF
-            register_object(source)
-            view = View(
-                source=source,
-                where=ref.where,
-                limit=ref.limit,
-                offset=ref.offset,
-                order_by=ref.order_by,
-                selected_fields=ref.selected_fields,
-                renamed_columns=ref.renamed_columns,
-            )
-            register_object(view)
-            return view
-
-        else:
-            raise ValueError(f"Unknown object_type: {obj_type}")
-
+    if not isinstance(value, dict):
+        return value
     # Regular dict - recursively deserialize values
     return {k: await _deserialize_value(v, session) for k, v in value.items()}
 

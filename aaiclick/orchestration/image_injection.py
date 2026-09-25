@@ -20,7 +20,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aaiclick.data.object.refs import OBJECT_TYPE, PYDANTIC_TYPE, REF_TYPE, is_native_value_ref, is_upstream_ref
+from aaiclick.data.object.refs import NATIVE_VALUE, REF_TYPE, UPSTREAM, ref_kind
 
 from ..datetime_utils import utc_now
 from ..snowflake import get_snowflake_id
@@ -65,19 +65,20 @@ def validate_image_sources(tasks: list[Task], runner_mode: RunnerMode) -> None:
             )
 
 
+_JVM_REF_KINDS = (UPSTREAM, NATIVE_VALUE)
+"""Ref kinds the shim's ``KwargsResolver`` resolves; ``native_value`` is opaque."""
+
+
 def _unsupported_jvm_ref(value: Any) -> str | None:
     """Name of the first ref in a serialized kwarg value the JVM shim cannot
-    resolve, or None. Mirrors ``KwargsResolver.resolve``: only upstream refs
-    and ``native_value`` wrappers (opaque, like the shim) are allowed."""
+    resolve, or None."""
+    kind = ref_kind(value)
+    if kind is not None:
+        return None if kind in _JVM_REF_KINDS else f"{kind} ref"
     if isinstance(value, dict):
+        # Python treats an unrecognized ref_type as a plain dict; the shim rejects it.
         if REF_TYPE in value:
-            return None if is_upstream_ref(value) else f"{value[REF_TYPE]} ref"
-        if is_native_value_ref(value):
-            return None
-        if OBJECT_TYPE in value:
-            return "Object/View ref"
-        if PYDANTIC_TYPE in value:
-            return "pydantic ref"
+            return f"{value[REF_TYPE]} ref"
         value = list(value.values())
     if not isinstance(value, list):
         return None
