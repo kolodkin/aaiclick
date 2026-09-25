@@ -98,6 +98,11 @@ CH path + SQL database. The per-test reset
 `database = currentDatabase()`, so it's safe even on shared distributed
 servers.
 
+`drop_all_ch_tables` truncates the migration-created tables instead of
+recreating them while their DDL and applied versions match the snapshot
+taken after the last full rebuild; any drift (e.g. `oplog/test_migrate.py`
+dropping them) triggers a full drop + `ch_upgrade`.
+
 # Adding New Tests
 
 1. Put the test next to the module it tests

@@ -89,11 +89,14 @@ async def test_run_job_persists_shell_flags(orch_ctx):
     assert task.command_env == {"K": "v"}
 
 
-async def test_run_job_forwards_image_to_the_runner_check(orch_ctx):
+async def test_run_job_rejects_image_on_the_subprocess_runner(orch_ctx, capsys):
     """``--image`` reaches ``run_job``, whose subprocess runner has no image to
-    run and refuses it rather than silently dropping it."""
-    with pytest.raises(ValueError, match="image require a docker/kubernetes registered job"):
+    run: the CLI reports the refusal and exits 1 instead of a traceback."""
+    with pytest.raises(SystemExit) as exc_info:
         await run_cli("run-job", "j", "--entry-type", "shell", "--command", "true", "--image", "python:3.12")
+
+    assert exc_info.value.code == 1
+    assert "image require a docker/kubernetes registered job" in capsys.readouterr().err
 
 
 async def test_register_job_persists_image(orch_ctx, capsys):

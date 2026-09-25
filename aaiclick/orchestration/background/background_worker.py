@@ -340,8 +340,13 @@ class BackgroundWorker:
             # 3. Purge CH log rows. A failure propagates: _cleanup_expired_jobs
             #    logs it and retries the whole (idempotent) deletion next cycle
             #    rather than committing the SQL deletes over orphaned CH rows.
-            await self._ch_client.command(f"ALTER TABLE operation_log DELETE WHERE job_id = {job_id}")
-            await self._ch_client.command(f"ALTER TABLE task_logs DELETE WHERE job_id = {job_id}")
+            #    mutations_sync=2 makes a ClickHouse server finish the mutation
+            #    (on every replica) before returning, so a failure raises here
+            #    instead of surfacing in system.mutations after the commit.
+            for log_table in ("operation_log", "task_logs"):
+                await self._ch_client.command(
+                    f"ALTER TABLE {log_table} DELETE WHERE job_id = {job_id} SETTINGS mutations_sync = 2"
+                )
 
             # 4. Delete SQL metadata (registry rows for the exempt p_* tables too)
             await session.execute(
