@@ -52,4 +52,13 @@ class KwargsBinderTest {
             () -> KwargsBinder.bind(m, kwargs("{\"date\": \"d\", \"window\": 1, \"typo\": true}"), MAPPER));
         assertTrue(e.getMessage().contains("typo"));
     }
+
+    @Test
+    void nullForPrimitiveFails() throws Exception {
+        Method m = TaskRegistry.resolve(SAMPLE + "#aggregate");
+        IllegalArgumentException e = assertThrows(
+            IllegalArgumentException.class,
+            () -> KwargsBinder.bind(m, kwargs("{\"date\": \"d\", \"window\": null}"), MAPPER));
+        assertTrue(e.getMessage().contains("window"));
+    }
 }

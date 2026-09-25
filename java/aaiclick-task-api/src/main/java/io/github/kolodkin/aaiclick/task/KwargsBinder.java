@@ -15,7 +15,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 /** Binds resolved JSON kwargs to a task method's parameters by name, each
  * value converted to the parameter's (generic) type via Jackson. Missing and
  * unexpected keys are errors, mirroring Python's ``TypeError`` on bad
- * kwargs. */
+ * kwargs, and so is null for a primitive parameter (Jackson would coerce it
+ * to 0). */
 public final class KwargsBinder {
 
     private KwargsBinder() {
@@ -50,6 +51,11 @@ public final class KwargsBinder {
             if (value == null) {
                 throw new IllegalArgumentException(
                     "Missing required kwarg '" + params[i].getName() + "' for " + method);
+            }
+            if (value.isNull() && params[i].getType().isPrimitive()) {
+                throw new IllegalArgumentException(
+                    "Kwarg '" + params[i].getName() + "' is null but " + method
+                        + " takes a primitive " + params[i].getType() + " — use its boxed type to accept null");
             }
             args[i] = mapper.convertValue(value, mapper.constructType(params[i].getParameterizedType()));
         }

@@ -78,7 +78,8 @@ Mirror of the Python layer-2 bootstrap
    `jdbc:postgresql://…`; `sqlite+aiosqlite:///…` → `jdbc:sqlite:…` for
    tests).
 2. Load the task row (`entrypoint`, `kwargs`) by id.
-3. Resolve kwargs: recurse into JSON objects/arrays; an
+3. Resolve each kwarg value (never the kwargs map itself, so a parameter
+   named `native_value` stays a parameter): recurse into JSON objects/arrays; an
    `{"ref_type": "upstream", "task_id": K}` dict resolves to task K's
    `result` column (task must be `COMPLETED`); `{"native_value": v}` unwraps
    to `v`; a dict carrying `object_type` (Object/View ref) or any other
@@ -87,7 +88,9 @@ Mirror of the Python layer-2 bootstrap
 4. Jackson-bind the resolved kwargs to the `@AaiTask` method's parameters by
    name (requires `-parameters` compilation; the shim reports a clear error
    when parameter names were compiled away). Missing or extra keys are
-   errors, mirroring Python's `TypeError` on bad kwargs.
+   errors, mirroring Python's `TypeError` on bad kwargs; so is `null` for a
+   primitive parameter. The class loads through the thread context
+   classloader (Spring Boot, layered fat jars).
 5. Invoke the method; serialize the return value with Jackson and write the
    `remote_task_results` row keyed `(task_id, run_epoch)`:
    `success=true, result_ref={"native_value": <json>}` (`null` return / `void`

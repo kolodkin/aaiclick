@@ -13,18 +13,12 @@ is fixed.
 
 ## Java SDK
 
-- **`KwargsResolver.resolve` is applied to the whole kwargs object** —
-  `AaiTaskShim.java`. A parameter named `native_value`, `ref_type`, or
-  `object_type` unwraps or rejects the entire map.
-- **JSON null bound to a primitive is coerced to 0** — `KwargsBinder.java`.
 - **jvm attempts are never registered via `register_run`** —
   `aaiclick/orchestration/execution/docker_worker.py` and the kubernetes
   path. `Task.run_ids` / `run_statuses` stay empty.
 - **Commit-time validation rejects only object refs** —
   `aaiclick/orchestration/image_injection.py`, `validate_jvm_tasks()`.
   Callable, group, and pydantic refs pass and fail inside the container.
-- **`Class.forName` ignores the thread context classloader** —
-  `TaskRegistry.java`. Breaks Spring Boot and layered fat jars.
 - **Runner secrets on the `docker run` command line** —
   `aaiclick/orchestration/execution/docker_worker.py`, `-e KEY=VALUE` with DB
   URLs is visible in `ps`.
@@ -90,5 +84,5 @@ is fixed.
 
 # Fix Order
 
-The remaining Mediums are the Java SDK items; the attempt and validation
-items share the jvm launch path.
+The remaining Mediums are the host-side Java SDK items; the attempt and
+validation items share the jvm launch path.

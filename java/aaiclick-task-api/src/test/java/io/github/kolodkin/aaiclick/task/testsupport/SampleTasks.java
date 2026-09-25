@@ -26,6 +26,11 @@ public final class SampleTasks {
     }
 
     @AaiTask
+    public static String wrapperNamed(String native_value) {
+        return native_value;
+    }
+
+    @AaiTask
     public static String explode(String message) {
         throw new IllegalStateException(message);
     }
