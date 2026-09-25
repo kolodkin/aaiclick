@@ -34,7 +34,7 @@ def test_jvm_cmd_relies_on_image_entrypoint():
     # appends only the shim arguments after the image tag.
     image_idx = cmd.index("ghcr.io/example/pipeline:1.0")
     assert cmd[image_idx + 1 :] == ["--task-id", "1", "--run-epoch", "0"]
-    assert "-e AAICLICK_SQL_URL=u" in " ".join(cmd)
+    assert "-e AAICLICK_SQL_URL" in " ".join(cmd)
 
 
 def test_build_shell_run_spec_wraps_argv():
@@ -78,7 +78,8 @@ def test_build_docker_run_cmd_shape():
     # --rm is intentionally absent — the host parent calls docker rm itself
     # so docker wait can race-freely report the exit code.
     assert "--rm" not in cmd
-    assert "-e AAICLICK_SQL_URL=u" in joined
+    assert "-e AAICLICK_SQL_URL" in joined
+    assert "u" not in cmd
     assert joined.endswith(
         "aaiclick-job:abc python -m aaiclick.orchestration.execution.remote_result --task-id 1 --run-epoch 0"
     )
@@ -97,7 +98,7 @@ async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypa
 
     cancelled_seen = []
 
-    async def fake_run_detached(cmd):
+    async def fake_run_detached(cmd, env):
         return "fake-cid"
 
     async def fake_wait(cid, timeout):

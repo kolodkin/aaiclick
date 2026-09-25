@@ -14,9 +14,9 @@ on-wire shape that JSON columns (``tasks.kwargs`` / ``tasks.result``)
 store. That gives producers field-level validation (e.g. ``table`` must
 be ``str``, ``task_id`` must be ``int``) that plain dict literals miss.
 
-Consumers still work with the raw dict shape (the deserialization
-dispatcher in ``orchestration.execution.runner`` walks nested kwargs
-and dispatches on tag keys). The string constants below are the
+Consumers still work with the raw dict shape, classified by
+``ref_kind()`` (the runner's deserializer and the jvm commit validator
+both dispatch on it). The string constants below are the
 authoritative key/value names — both producers (via the models' field
 names / ``Literal`` tags) and consumers (via ``value.get(REF_TYPE)``
 lookups) reference them.
@@ -101,6 +101,12 @@ CALLABLE = "callable"
 
 OBJECT = "object"
 VIEW = "view"
+
+
+# --- Ref kinds (``ref_kind``) -------------------------------------------
+
+PYDANTIC = "pydantic"
+RefKind = Literal["upstream", "group_results", "callable", "native_value", "pydantic", "object", "view"]
 
 
 # --- Pydantic models ---------------------------------------------------
@@ -232,6 +238,35 @@ def native_value_ref(value: Any) -> dict[str, Any]:
 def is_upstream_ref(value: Any) -> bool:
     """True iff ``value`` is an upstream task reference dict."""
     return isinstance(value, dict) and value.get(REF_TYPE) == UPSTREAM
+
+
+def is_native_value_ref(value: Any) -> bool:
+    """True iff ``value`` is a ``native_value`` wrapper (the key alone)."""
+    return isinstance(value, dict) and NATIVE_VALUE in value and len(value) == 1
+
+
+def ref_kind(value: Any) -> RefKind | None:
+    """Classify one serialized kwarg/result value; None for a plain value.
+
+    Single source of truth for which shape wins when keys overlap, shared by
+    the runner's deserializer and the jvm commit validator. A dict with an
+    unrecognized ``ref_type`` is plain. Raises ``ValueError`` on an unknown
+    ``object_type``."""
+    if not isinstance(value, dict):
+        return None
+    ref_type = value.get(REF_TYPE)
+    if ref_type in (UPSTREAM, CALLABLE, GROUP_RESULTS):
+        return ref_type
+    if is_native_value_ref(value):
+        return NATIVE_VALUE
+    if PYDANTIC_TYPE in value:
+        return PYDANTIC
+    if OBJECT_TYPE in value:
+        obj_type = value[OBJECT_TYPE]
+        if obj_type in (OBJECT, VIEW):
+            return obj_type
+        raise ValueError(f"Unknown object_type: {obj_type}")
+    return None
 
 
 def is_persistent_object_ref(value: Any) -> bool:
