@@ -31,7 +31,7 @@ from aaiclick.orchestration.view_models import (
 )
 from aaiclick.view_models import JobListFilter, Page, RefId, RunJobRequest
 
-from .errors import Conflict, NotFound
+from .errors import Conflict, Invalid, NotFound
 from .pagination import paginate
 
 
@@ -218,6 +218,9 @@ async def run_job(request: RunJobRequest) -> JobView:
     fall back to the name itself if not yet registered). When a matching
     ``RegisteredJob`` exists, the new job links to it and inherits its
     ``default_kwargs``; otherwise it runs standalone.
+
+    Raises ``Invalid`` when the request's fields contradict the resolved
+    runner (e.g. ``image`` for a job on the subprocess runner).
     """
     if "." in request.name:
         entrypoint = request.name
@@ -227,21 +230,24 @@ async def run_job(request: RunJobRequest) -> JobView:
         registered = await get_registered_job(name)
         entrypoint = registered.entrypoint if registered is not None else request.name
 
-    job = await _run_job_impl(
-        name=name,
-        entrypoint=entrypoint,
-        kwargs=request.kwargs or None,
-        preservation_mode=request.preservation_mode,
-        entry_type=request.entry_type,
-        command=request.command,
-        command_env=request.command_env,
-        image=request.image,
-        git_remote=request.git_remote,
-        git_sha=request.git_sha,
-        git_branch=request.git_branch,
-        dockerfile=request.dockerfile,
-        namespace=request.namespace,
-        service_account=request.service_account,
-        image_pull_secret=request.image_pull_secret,
-    )
+    try:
+        job = await _run_job_impl(
+            name=name,
+            entrypoint=entrypoint,
+            kwargs=request.kwargs or None,
+            preservation_mode=request.preservation_mode,
+            entry_type=request.entry_type,
+            command=request.command,
+            command_env=request.command_env,
+            image=request.image,
+            git_remote=request.git_remote,
+            git_sha=request.git_sha,
+            git_branch=request.git_branch,
+            dockerfile=request.dockerfile,
+            namespace=request.namespace,
+            service_account=request.service_account,
+            image_pull_secret=request.image_pull_secret,
+        )
+    except ValueError as exc:
+        raise Invalid(str(exc)) from exc
     return job_to_view(job)

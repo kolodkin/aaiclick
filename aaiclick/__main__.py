@@ -40,6 +40,7 @@ Usage:
 import argparse
 import asyncio
 import json
+import os
 import shlex
 import sys
 from contextlib import closing, redirect_stdout
@@ -131,7 +132,7 @@ def _render(args: argparse.Namespace, view, text_renderer) -> None:
 
 
 async def _run_internal_api(coro, *, with_ch: bool = False):
-    """Run ``coro`` inside ``orch_context``, mapping API errors to exit 1.
+    """Run ``coro`` inside ``orch_context``.
 
     Args:
         coro: The ``internal_api`` coroutine to await.
@@ -142,27 +143,14 @@ async def _run_internal_api(coro, *, with_ch: bool = False):
     # chdb raises before it is ever awaited, and an unclosed coroutine trails a
     # "was never awaited" RuntimeWarning over the error.
     with closing(coro):
-        try:
-            async with orch_context(with_ch=with_ch):
-                return await coro
-        except InternalApiError as exc:
-            print(exc, file=sys.stderr)
-            sys.exit(1)
+        async with orch_context(with_ch=with_ch):
+            return await coro
 
 
 async def _run_data_api(coro):
     """Run a ``data`` subcommand with ClickHouse attached — ``open_object``
     needs the SQL ``table_registry`` session only an orch context provides."""
     return await _run_internal_api(coro, with_ch=True)
-
-
-def _run_sync_api(call):
-    """Invoke a sync ``internal_api`` callable, mapping API errors to exit 1."""
-    try:
-        return call()
-    except InternalApiError as exc:
-        print(exc, file=sys.stderr)
-        sys.exit(1)
 
 
 async def _run_job_list(args: argparse.Namespace) -> None:
@@ -657,7 +645,7 @@ def _run_setup_cli(args: argparse.Namespace) -> None:
         reason = setup_api.stale_local_db_reason()
         if reason:
             force = _confirm_local_db_reset(reason)
-    result = _run_sync_api(lambda: setup_api.setup(ai=args.ai, force=force))
+    result = setup_api.setup(ai=args.ai, force=force)
     _render(args, result, cli_renderers.render_setup_result)
 
 
@@ -720,7 +708,7 @@ def _run_migrate_cli(args: argparse.Namespace) -> None:
     action = cast(MigrationAction, action_name)
     revision = rest[0] if rest else None
 
-    result = _run_sync_api(lambda: setup_api.migrate(action, revision))
+    result = setup_api.migrate(action, revision)
     _render(args, result, cli_renderers.render_migration_result)
 
 
@@ -1524,7 +1512,26 @@ def _subcommand_parsers(parser: argparse.ArgumentParser) -> dict[str, argparse.A
 
 
 def main():
-    """Main CLI entry point."""
+    """Main CLI entry point.
+
+    Any exception exits 1: an ``internal_api`` error prints its message,
+    anything else ``error: <Type>: <message>`` (``AAICLICK_DEBUG=1`` re-raises
+    it for the traceback).
+    """
+    try:
+        _dispatch()
+    except InternalApiError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
+    except Exception as exc:
+        if os.environ.get("AAICLICK_DEBUG"):
+            raise
+        print(f"error: {type(exc).__name__}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _dispatch() -> None:
+    """Parse ``sys.argv`` and run the chosen subcommand."""
     parser = build_parser()
     subcommands = _subcommand_parsers(parser)
     args = parser.parse_args()

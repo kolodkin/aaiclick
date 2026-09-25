@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aaiclick.data.data_context import ChClient, get_ch_client
 from aaiclick.orchestration.background.handler import BackgroundHandler
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
-from aaiclick.testing import create_ch_tables, list_ch_tables, wait_for_ch_mutations
+from aaiclick.testing import create_ch_tables, list_ch_tables
 
 from .conftest import (
     get_run_refs,
@@ -247,7 +247,7 @@ async def _log_job_ids(ch: ChClient, table: str) -> set[int]:
 
 
 async def test_delete_job_data_purges_ch_log_tables(bg_db, orch_ctx):
-    """``_delete_job_data`` deletes the job's operation_log and task_logs rows, and no other job's."""
+    """``_delete_job_data`` synchronously deletes the job's operation_log and task_logs rows, and no other job's."""
     job_id, other_job_id = 556, 557
     await insert_job(bg_db, job_id, preservation_mode="NONE")
     ch = get_ch_client()
@@ -264,7 +264,31 @@ async def test_delete_job_data_purges_ch_log_tables(bg_db, orch_ctx):
     worker = make_worker(bg_db, ch)
 
     await worker._delete_job_data(job_id)
-    await wait_for_ch_mutations(ch)
 
     assert await _log_job_ids(ch, "operation_log") == {other_job_id}
     assert await _log_job_ids(ch, "task_logs") == {other_job_id}
+
+
+async def test_delete_job_data_keeps_job_when_log_purge_fails(bg_db, orch_ctx):
+    """A log-purge mutation that fails while running keeps the job's SQL rows for the next cycle.
+
+    The ``throwIf`` alias raises only when the mutation executes, which a
+    ClickHouse server does after the ALTER has returned.
+    """
+    job_id = 558
+    await insert_job(bg_db, job_id, status="COMPLETED")
+    ch = get_ch_client()
+    await ch.command("DROP TABLE task_logs")
+    await ch.command(
+        f"CREATE TABLE task_logs (raw UInt64, job_id UInt64 ALIAS raw + throwIf(raw = {job_id}, 'purge failed')) "
+        "ENGINE = MergeTree ORDER BY raw"
+    )
+    await ch.command(f"INSERT INTO task_logs (raw) VALUES ({job_id})")
+
+    worker = make_worker(bg_db, ch)
+
+    with pytest.raises(Exception, match="purge failed"):
+        await worker._delete_job_data(job_id)
+
+    async with AsyncSession(bg_db) as session:
+        assert (await session.execute(text(f"SELECT id FROM jobs WHERE id = {job_id}"))).scalar_one() == job_id

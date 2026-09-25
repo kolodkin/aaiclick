@@ -21,6 +21,7 @@ import tempfile
 from collections import Counter
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
 from unittest.mock import patch
 
@@ -33,7 +34,7 @@ from aaiclick.backend import is_chdb, is_local, parse_ch_url
 from aaiclick.data.data_context import ChClient, get_ch_client
 from aaiclick.data.models import FIELDTYPE_ARRAY
 from aaiclick.oplog.lineage import OplogNode
-from aaiclick.oplog.migrate import ch_upgrade
+from aaiclick.oplog.migrate import ch_applied_versions, ch_upgrade
 from aaiclick.oplog.models import clear_schema_cache
 from aaiclick.orchestration.migrate import get_alembic_config
 from aaiclick.orchestration.models import JobStatus, SQLModel
@@ -105,10 +106,15 @@ async def reset_sql_tables() -> None:
         await session.commit()
 
 
+async def ch_table_ddl(ch: ChClient) -> dict[str, str]:
+    """``create_table_query`` of each table in the active CH database, by name."""
+    result = await ch.query("SELECT name, create_table_query FROM system.tables WHERE database = currentDatabase()")
+    return {row[0]: row[1] for row in result.result_rows}
+
+
 async def list_ch_tables(ch: ChClient) -> set[str]:
     """Names of the tables in the active CH database."""
-    result = await ch.query("SELECT name FROM system.tables WHERE database = currentDatabase()")
-    return {row[0] for row in result.result_rows}
+    return set(await ch_table_ddl(ch))
 
 
 async def create_ch_tables(ch: ChClient, *names: str) -> None:
@@ -117,41 +123,50 @@ async def create_ch_tables(ch: ChClient, *names: str) -> None:
         await ch.command(f"CREATE TABLE {name} (x UInt8) ENGINE = Memory")
 
 
-async def wait_for_ch_mutations(ch: ChClient, timeout: float = 10.0) -> None:
-    """Wait until every ``ALTER TABLE ... DELETE`` in the active CH database is applied.
+@dataclass
+class _MigratedSchema:
+    """The CH database as ``ch_upgrade`` leaves an empty one."""
 
-    A ClickHouse server runs mutations in the background; chdb applies them
-    before the command returns, so this returns at once there.
-    """
-    deadline = asyncio.get_running_loop().time() + timeout
-    while True:
-        result = await ch.query(
-            "SELECT count() FROM system.mutations WHERE database = currentDatabase() AND NOT is_done"
-        )
-        if result.result_rows[0][0] == 0:
-            return
-        if asyncio.get_running_loop().time() > deadline:
-            raise TimeoutError(f"CH mutations still pending after {timeout}s")
-        await asyncio.sleep(0.05)
+    tables: dict[str, str] = field(default_factory=dict)  # name -> create_table_query
+    versions: list[str] | None = None  # None until the first full rebuild
+
+
+# Process-wide rather than a ContextVar: each test's reset runs in its own
+# context yet must reuse the snapshot an earlier reset took.
+_migrated_schema = _MigratedSchema()
+
+
+async def _matches_migrated_schema(ch: ChClient, tables: dict[str, str]) -> bool:
+    if _migrated_schema.versions is None:
+        return False
+    if any(tables.get(name) != ddl for name, ddl in _migrated_schema.tables.items()):
+        return False
+    # The DDL matched, so schema_migrations exists — skip ch_applied_versions' CREATE.
+    result = await ch.query("SELECT version FROM schema_migrations ORDER BY version")
+    return [row[0] for row in result.result_rows] == _migrated_schema.versions
 
 
 async def drop_all_ch_tables() -> None:
-    """Drop every table in the active CH database, then re-apply migrations.
+    """Reset the active CH database to its freshly migrated, empty state.
 
-    The re-apply keeps distributed mode working: ``init_oplog_tables``
-    never writes there (it demands ``aaiclick migrate upgrade``), so a
-    wiped per-worker database must be brought back to the current schema
-    here rather than lazily on the next ``task_scope`` entry. Safe against
-    real CH because ``ch_worker_setup`` gives each xdist worker its own
-    database, so this never touches another worker's tables.
+    Truncates the migration-created tables while they match the last full
+    rebuild; otherwise drops everything and re-applies migrations (see
+    ``docs/designs/testing.md``).
     """
     ch = get_ch_client()
-    for table_name in await list_ch_tables(ch):
-        await ch.command(f"DROP TABLE IF EXISTS `{table_name}`")
+    tables = await ch_table_ddl(ch)
+    keep = _migrated_schema.tables.keys() if await _matches_migrated_schema(ch, tables) else set()
+    if dropped := tables.keys() - keep:
+        await ch.command("DROP TABLE IF EXISTS " + ", ".join(f"`{name}`" for name in dropped))
+    for table_name in keep - {"schema_migrations"}:
+        await ch.command(f"TRUNCATE TABLE `{table_name}`")
+    if not keep:
+        await ch_upgrade(ch)
+        _migrated_schema.tables = await ch_table_ddl(ch)
+        _migrated_schema.versions = await ch_applied_versions(ch)
     # Column types cached from the dropped tables must not leak into the
     # next test (which may recreate them with a different shape).
     clear_schema_cache()
-    await ch_upgrade(ch)
 
 
 async def per_test_reset(*, reset_ch: bool = True, reset_sql: bool = True) -> None:
