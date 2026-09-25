@@ -17,9 +17,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 import pytest
-from helpers import job_graph, job_result, open_page, submit_job, wait_for_job
-
-from aaiclick.orchestration.models import JOB_COMPLETED
+from helpers import job_graph, job_result, open_page, submit_job, wait_for_job_completed
 
 STATIC = Path(__file__).resolve().parents[2] / "aaiclick" / "server" / "static" / "index.html"
 
@@ -56,7 +54,7 @@ def test_operator_graph_draws_the_run(page, base_url: str, shot, scenario: Scena
     node: the parts inside their group frames, the finalize join, and the hold
     edge from finalize to the consumer."""
     job_id = submit_job(scenario.job, f"{_PIPELINES}.{scenario.job}")
-    assert wait_for_job(job_id) == JOB_COMPLETED
+    wait_for_job_completed(job_id)
 
     assert job_result(job_id) == scenario.result
 

@@ -3,18 +3,23 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import os
 import time
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import redirect_stdout
 from typing import NamedTuple, TypeVar
 
 from aaiclick import cli_wait
+from aaiclick.cli_renderers import render_job_failure
 from aaiclick.internal_api.jobs import get_job_graph
 from aaiclick.orchestration import get_job_result
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.jobs import get_job, get_tasks_for_job
+from aaiclick.orchestration.models import JOB_COMPLETED
 from aaiclick.orchestration.orch_context import orch_context
+from aaiclick.orchestration.view_models import JobStatsView
 
 T = TypeVar("T")
 
@@ -117,14 +122,23 @@ def wait_for_task(job_id: str, status: str | None = None, timeout: float = 30.0)
     return run_in_process(go)
 
 
-def wait_for_job(job_id: str, timeout: float = 120.0) -> str:
-    """Block until the job reaches a terminal status and return it."""
+def wait_for_job_completed(job_id: str, timeout: float = 120.0) -> None:
+    """Block until the job reaches a terminal status; fail unless it is COMPLETED.
 
-    async def go() -> str:
+    The failure message is what ``aaiclick job wait`` prints — every failed
+    task's full error — so a CI log shows why the job failed, not just that it did.
+    """
+
+    async def go() -> JobStatsView:
         async with orch_context(with_ch=False):
-            return (await cli_wait.wait_for_job(int(job_id), timeout=timeout)).job_status
+            return await cli_wait.wait_for_job(int(job_id), timeout=timeout)
 
-    return run_in_process(go)
+    stats = run_in_process(go)
+    if stats.job_status != JOB_COMPLETED:
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            render_job_failure(stats)
+        raise AssertionError(buf.getvalue())
 
 
 def job_result(job_id: str):

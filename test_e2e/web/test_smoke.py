@@ -31,7 +31,7 @@ from helpers import (
     open_page,
     run_in_process,
     submit_job,
-    wait_for_job,
+    wait_for_job_completed,
     wait_for_task,
 )
 
@@ -64,7 +64,7 @@ def _settle_after_job_terminal(page, job_id: str) -> None:
     Remove once docs/designs/future.md "Commit a Task's Completion and Its Job
     Rollup Together" lands; the task reading COMPLETED is then enough.
     """
-    wait_for_job(job_id)
+    wait_for_job_completed(job_id)
     page.wait_for_timeout(SIGNAL_SETTLE_MS)
 
 
