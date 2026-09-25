@@ -17,6 +17,7 @@ import gc
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from collections import Counter
 from collections.abc import AsyncIterator
@@ -444,6 +445,10 @@ async def orch_module_ctx():
         yield
 
 
+# Runs in a child process: the parent of mp-worker tests must never open chdb.
+_CH_UPGRADE_SCRIPT = "from aaiclick.oplog.migrate import ch_upgrade_standalone; ch_upgrade_standalone()"
+
+
 @pytest.fixture(scope="module")
 async def orch_module_ctx_no_ch():
     """Module-scoped ``orch_context(with_ch=False)`` — entered once per module.
@@ -455,7 +460,9 @@ async def orch_module_ctx_no_ch():
 
     Under chdb, redirects ``AAICLICK_CH_URL`` to a per-module tempdir so
     mp-worker children open a fresh chdb file that no other module's
-    session holds a lock on.
+    session holds a lock on. The tempdir is migrated in a throwaway
+    subprocess first: with a non-SQLite SQL backend the child's
+    ``init_oplog_tables`` only checks for pending migrations.
     """
     prior_url = None
     tmp_dir = None
@@ -463,6 +470,7 @@ async def orch_module_ctx_no_ch():
         tmp_dir = tempfile.mkdtemp(prefix="aaiclick_chdb_mp_")
         prior_url = os.environ.get("AAICLICK_CH_URL")
         os.environ["AAICLICK_CH_URL"] = f"chdb://{tmp_dir}"
+        subprocess.run([sys.executable, "-c", _CH_UPGRADE_SCRIPT], check=True)
     try:
         async with module_orch_scope(orch_context(with_ch=False)):
             yield
