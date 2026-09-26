@@ -416,6 +416,31 @@ edge leaving the expander (or its group) onto `_finalize` (see
 members it gains later are held too. The same hold applies to any `task_result`
 whose data is one of its returned tasks.
 
+## Graph Frame
+
+Each call draws as one frame in the job graph (`_framed` / `_join_frame`):
+
+- `map()` / `foreach()` / `reduce()` put the expander in a `map` / `foreach` /
+  `reduce` group at definition time.
+- At runtime the expander nests its parts group(s) (`parts`, or `layer_N`)
+  under its own group (`TaskInfo.group_id`) and adds `_finalize` to it.
+
+The frame is not only drawn: `_framed` commits one extra `groups` row per call.
+It changes no scheduling:
+
+- No edge touches the frame, so `DEPENDENCY_WHERE` and the hold on `_finalize`
+  are unchanged.
+- The expander and `_finalize` are its direct members, so they are fail-fast
+  siblings. They never run at the same time, so the sibling abort has nothing
+  to cancel.
+- Job cleanup deletes the frame with the job's other groups.
+
+The frame is linked only through membership (`group_id` / `parent_group_id`),
+so `_collect_from_registry` visits a task's group and a group's parent before
+the node; otherwise the frame is never committed. If a user moves the expander
+into a group of their own, the frame is never committed and the parts nest
+under the user's group.
+
 # Distributed Object Lifecycle
 
 **Implementation**: `aaiclick/orchestration/lifecycle/`

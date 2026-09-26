@@ -40,6 +40,7 @@ from aaiclick.data.object.refs import ViewRef
 from aaiclick.snowflake import get_snowflake_id
 
 from .decorators import TaskFactory, task
+from .execution.execution_worker_context import get_current_task_info
 from .models import Group, Task
 from .result import TaskResult, data_list, task_result
 
@@ -64,12 +65,14 @@ def map(
         kwargs: Extra keyword arguments forwarded to cbk.
 
     Returns:
-        The expander Task. At runtime it creates one ``_map_part`` child per
+        The expander Task, inside a ``map`` group that frames the whole call in
+        the job graph. At runtime it creates one ``_map_part`` child per
         partition; its result is the output Object, and tasks that consume it
         wait for every partition.
     """
-    return _expand_map(
-        cbk=cbk, obj=obj, partition=partition, cbk_args=list(args), cbk_kwargs=kwargs or {}, collect=True
+    return _framed(
+        "map",
+        _expand_map(cbk=cbk, obj=obj, partition=partition, cbk_args=list(args), cbk_kwargs=kwargs or {}, collect=True),
     )
 
 
@@ -86,12 +89,36 @@ def foreach(
     value and allocates no output Object.
 
     Returns:
-        The expander Task. Its result is ``None``; tasks that consume it wait
-        for every partition.
+        The expander Task, inside a ``foreach`` group that frames the whole
+        call in the job graph. Its result is ``None``; tasks that consume it
+        wait for every partition.
     """
-    return _expand_map(
-        cbk=cbk, obj=obj, partition=partition, cbk_args=list(args), cbk_kwargs=kwargs or {}, collect=False
+    return _framed(
+        "foreach",
+        _expand_map(cbk=cbk, obj=obj, partition=partition, cbk_args=list(args), cbk_kwargs=kwargs or {}, collect=False),
     )
+
+
+def _framed(name: str, expander: Task) -> Task:
+    """Put ``expander`` in a new frame group that its runtime children join.
+
+    The expander nests its parts group(s) under its own group and adds
+    ``_finalize`` to it (``_join_frame``), so the graph draws the whole call as
+    one frame. The frame is a real committed group, one extra row per call,
+    but no edge touches it, so scheduling is unchanged. Its direct members,
+    the expander and ``_finalize``, are fail-fast siblings, but they never
+    run at the same time, so the sibling abort has nothing to cancel.
+    """
+    Group(id=get_snowflake_id(), name=name).add_task(expander)
+    return expander
+
+
+def _join_frame(parts: list[Group], finalize: Task) -> None:
+    """Nest ``parts`` under the running expander's group and add ``finalize`` to it."""
+    frame_id = get_current_task_info().group_id
+    for group in parts:
+        group.parent_group_id = frame_id
+    finalize.group_id = frame_id
 
 
 @task
@@ -100,7 +127,7 @@ async def _expand_map(
 ) -> TaskResult:
     """Expander task: queries Object row count and creates partition tasks.
 
-    Returns a ``map`` Group of ``_map_part`` children and the ``_finalize``
+    Returns a ``parts`` Group of ``_map_part`` children and the ``_finalize``
     task as data. With ``collect`` the children write into a pre-allocated
     output that ``_finalize`` returns; without it there is no output and
     ``_finalize`` returns ``None``.
@@ -109,12 +136,13 @@ async def _expand_map(
 
     out = await create_object(obj.schema) if collect else None
 
-    group = Group(id=get_snowflake_id(), name="map")
+    group = Group(id=get_snowflake_id(), name="parts")
     for part in _partition_refs(obj, partition, row_count):
         group.add_task(_map_part(cbk=cbk, part=part, out=out, cbk_args=cbk_args, cbk_kwargs=cbk_kwargs))
 
     finalize = _finalize(out=out)
     group >> finalize
+    _join_frame([group], finalize)
     return task_result(data=finalize, tasks=[group, finalize])
 
 
@@ -200,19 +228,23 @@ def reduce(
         kwargs: Extra keyword arguments forwarded to cbk.
 
     Returns:
-        The expander Task. At runtime it pre-allocates every layer Object and
+        The expander Task, inside a ``reduce`` group that frames the whole call
+        in the job graph. At runtime it pre-allocates every layer Object and
         registers all layer groups at once; its result is the final
         single-row Object, and tasks that consume it wait for every layer.
     """
     if kwargs is None:
         kwargs = {}
 
-    return _expand_reduce(
-        cbk=cbk,
-        obj=obj,
-        partition=partition,
-        cbk_args=list(args),
-        cbk_kwargs=kwargs,
+    return _framed(
+        "reduce",
+        _expand_reduce(
+            cbk=cbk,
+            obj=obj,
+            partition=partition,
+            cbk_args=list(args),
+            cbk_kwargs=kwargs,
+        ),
     )
 
 
@@ -291,6 +323,7 @@ async def _expand_reduce(
 
     finalize = _finalize(out=layer_objs[-1])
     all_groups[-1] >> finalize
+    _join_frame(all_groups, finalize)
     return task_result(data=finalize, tasks=[*all_groups, finalize])
 
 

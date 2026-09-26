@@ -204,8 +204,11 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
           onlyRenderVisibleElements
           fitView
           // Cap zoom at 1:1 — fitView's default maxZoom of 2 blows a
-          // single-node graph up to twice its designed size.
-          fitViewOptions={{ maxZoom: 1, padding: 0.2 }}
+          // single-node graph up to twice its designed size. Below the
+          // default minZoom of 0.5 a wide graph (a map()/reduce() frame)
+          // still fits, instead of opening with nodes culled off-pane.
+          minZoom={0.2}
+          fitViewOptions={{ maxZoom: 1, minZoom: 0.2, padding: 0.2 }}
         >
           <Background />
           <Controls />

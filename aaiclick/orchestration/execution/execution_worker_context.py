@@ -21,14 +21,18 @@ class TaskInfo:
     # The executing task's own image_source, carried so commit_tasks can stamp
     # inheritance onto dynamic children without re-fetching the task row.
     image_source: dict | None = None
+    # The executing task's group: map()/reduce() expanders nest their parts in it.
+    group_id: int | None = None
 
 
 _current_task_info: ContextVar[TaskInfo] = ContextVar("current_task_info")
 
 
-def set_current_task_info(task_id: int, job_id: int, image_source: dict | None = None) -> None:
+def set_current_task_info(
+    task_id: int, job_id: int, image_source: dict | None = None, group_id: int | None = None
+) -> None:
     """Set the current task info for the executing context."""
-    _current_task_info.set(TaskInfo(task_id=task_id, job_id=job_id, image_source=image_source))
+    _current_task_info.set(TaskInfo(task_id=task_id, job_id=job_id, image_source=image_source, group_id=group_id))
 
 
 def get_current_task_info() -> TaskInfo:
