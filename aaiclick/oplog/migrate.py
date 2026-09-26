@@ -65,7 +65,7 @@ def split_statements(sql: str) -> list[str]:
 SCHEMA_MIGRATIONS_DDL = """
 CREATE TABLE IF NOT EXISTS schema_migrations (
     version    String,
-    applied_at DateTime64(3)
+    applied_at DateTime64(3, 'UTC')
 ) ENGINE = MergeTree ORDER BY version
 """
 
