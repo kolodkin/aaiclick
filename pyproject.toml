@@ -32,7 +32,9 @@ dependencies = [
     "python-dotenv>=1.2.0",
     "pyyaml>=6.0.3",
     "pydantic>=2.12.0",
-    "sqlmodel>=0.0.38",
+    # <0.0.45: 0.0.45 maps bare `datetime` fields to a tz-aware type that
+    # rejects the naive-UTC values aaiclick stores (see docs/designs/future.md).
+    "sqlmodel>=0.0.38,<0.0.45",
     "alembic>=1.18.0",
     "chdb>=4.3.0",
     "aiosqlite>=0.22.0",
