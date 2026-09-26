@@ -153,6 +153,26 @@ async def _kubectl_delete(handle: _PodHandle) -> None:
     )
 
 
+async def _kubectl_logs(handle: _PodHandle, tail: int = 200) -> str:
+    """Capture the Pod's container log before ``cleanup`` deletes it.
+
+    Only called when the Pod wrote no result row: the entrypoint crashed
+    before (or while) reporting back, so this is the only place the crash
+    reason survives."""
+    _, stdout, stderr = await cli.run(
+        _kubectl_bin(),
+        "logs",
+        handle.name,
+        "-n",
+        handle.namespace,
+        "--tail",
+        str(tail),
+        check=False,
+        stream=False,
+    )
+    return (stdout + stderr).strip()
+
+
 # Phase reported by ``_pod_status`` when the API says the Pod no longer exists
 # (deleted on cancellation, or evicted); never a real Kubernetes phase.
 POD_NOT_FOUND = "NotFound"
@@ -287,6 +307,10 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
             await asyncio.sleep(POLL_INTERVAL)
             elapsed += POLL_INTERVAL
         result_row = await read_task_run_result(handle.task_id, handle.run_epoch)
+        if result_row is None and error is None:
+            logs = await _kubectl_logs(handle)
+            if logs:
+                error = f"pod exited with code {exit_code} but wrote no result row; logs:\n{logs}"
         return exit_code, error, result_row
 
     async def poll_cancelled(self, task: Task) -> bool:

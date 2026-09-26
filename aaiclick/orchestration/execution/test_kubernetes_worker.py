@@ -249,7 +249,24 @@ async def test_wait_retries_transient_kubectl_failure(monkeypatch):
     monkeypatch.setattr(kw, "POLL_INTERVAL", 0)
     monkeypatch.setattr(kw, "_pod_status", AsyncMock(side_effect=[("Running", -1), ("", -1), ("Succeeded", 0)]))
     monkeypatch.setattr(kw, "read_task_run_result", AsyncMock(return_value=None))
+    monkeypatch.setattr(kw, "_kubectl_logs", AsyncMock(return_value=""))
 
     exit_code, error, _ = await _vehicle("module").wait(_handle(), None)
 
     assert (exit_code, error) == (0, None)
+
+
+async def test_wait_folds_pod_logs_into_error_when_no_result_row(monkeypatch):
+    """A Pod that exits without writing a result row (the entrypoint crashed
+    before it could report back) surfaces its own logs as the task error —
+    otherwise the crash reason is lost the moment ``cleanup`` deletes the Pod."""
+    monkeypatch.setattr(kw, "POLL_INTERVAL", 0)
+    monkeypatch.setattr(kw, "_pod_status", AsyncMock(return_value=("Failed", 1)))
+    monkeypatch.setattr(kw, "read_task_run_result", AsyncMock(return_value=None))
+    monkeypatch.setattr(kw, "_kubectl_logs", AsyncMock(return_value="Traceback (most recent call last): boom"))
+
+    exit_code, error, payload = await _vehicle("module").wait(_handle(), None)
+
+    assert exit_code == 1
+    assert payload is None
+    assert "Traceback (most recent call last): boom" in error

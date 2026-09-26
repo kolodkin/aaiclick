@@ -163,6 +163,18 @@ async def _docker_rm(container_id: str) -> None:
     await cli.run(_docker_bin(), "rm", "--force", container_id, check=False, stream=False)
 
 
+async def _docker_logs(container_id: str, tail: int = 200) -> str:
+    """Capture the container's stdout/stderr before ``cleanup`` removes it.
+
+    Only called when the container wrote no result row: the entrypoint
+    crashed before (or while) reporting back, so this is the only place
+    the crash reason survives."""
+    _, stdout, stderr = await cli.run(
+        _docker_bin(), "logs", "--tail", str(tail), container_id, check=False, stream=False
+    )
+    return (stdout + stderr).strip()
+
+
 async def _wait_for_container(container_id: str, timeout: float | None) -> tuple[int, str | None]:
     """Block until the container exits, returning ``(exit_code, error)``.
 
@@ -229,6 +241,10 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", "RunnerResult | None"]):
     async def wait(self, handle: _DockerHandle, timeout: float | None) -> tuple[int, str | None, RunnerResult | None]:
         exit_code, error = await _wait_for_container(handle.container_id, timeout)
         result_row = await read_task_run_result(handle.task_id, handle.run_epoch)
+        if result_row is None and error is None:
+            logs = await _docker_logs(handle.container_id)
+            if logs:
+                error = f"container exited with code {exit_code} but wrote no result row; logs:\n{logs}"
         return exit_code, error, result_row
 
     async def poll_cancelled(self, task: Task) -> bool:

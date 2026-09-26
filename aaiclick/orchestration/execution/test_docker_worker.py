@@ -127,3 +127,21 @@ async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypa
     success, _, error = await docker_worker._run_task_in_container(_task(), execution_worker_id=1, dispatch=dispatch)
     assert success is False
     assert error == "cancelled"
+
+
+async def test_wait_folds_container_logs_into_error_when_no_result_row(monkeypatch):
+    """A container that exits without writing a result row (the entrypoint
+    crashed before or while reporting back) surfaces its own logs as the
+    task error — otherwise the crash reason is lost the moment ``cleanup``
+    removes the container."""
+    monkeypatch.setattr(docker_worker, "_wait_for_container", AsyncMock(return_value=(1, None)))
+    monkeypatch.setattr(docker_worker, "read_task_run_result", AsyncMock(return_value=None))
+    monkeypatch.setattr(docker_worker, "_docker_logs", AsyncMock(return_value="Traceback (most recent call last): boom"))
+
+    vehicle = docker_worker._DockerVehicle("aaiclick-job:abc", {})
+    handle = docker_worker._DockerHandle("fake-cid", task_id=1, run_epoch=0)
+    exit_code, error, payload = await vehicle.wait(handle, None)
+
+    assert exit_code == 1
+    assert payload is None
+    assert "Traceback (most recent call last): boom" in error
