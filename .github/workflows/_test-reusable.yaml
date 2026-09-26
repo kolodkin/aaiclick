@@ -264,16 +264,15 @@ jobs:
         uses: ./.github/actions/setup-uv
         with:
           python-version: ${{ inputs.python-version }}
-          sync-args: "--extra distributed --extra server --extra test"
+          # e2e pins Playwright through uv.lock; `playwright install chromium`
+          # then fetches the Chromium build that exact version expects.
+          sync-args: "--extra distributed --extra server --extra test --extra e2e"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
-
-      - name: Install Playwright
-        run: uv pip install playwright
 
       - name: Resolve Playwright version
         id: pw-version

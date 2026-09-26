@@ -370,8 +370,9 @@ tests; `test_e2e/web/conftest.py` — `base_url` starts the server on a free
 port under a per-session `AAICLICK_LOCAL_ROOT`, plus the execution and
 background workers as separate processes in distributed mode (local mode
 runs them inside the server); Playwright fixtures (`browser`, `page`,
-`shot`). Playwright is an optional dep — tests skip cleanly when the package
-is absent.
+`shot`). Playwright is an optional dep (the `e2e` extra, locked in `uv.lock`;
+`playwright install chromium` fetches the matching browser) — tests skip
+cleanly when the package is absent.
 
 **One test body, both modes.** Tests create jobs in-process through the
 orchestration API (`helpers.submit_job`, the same pattern as `seed.py`),

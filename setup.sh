@@ -7,3 +7,8 @@ set -euo pipefail
 # Install pre-commit and register git hooks.
 pip install --upgrade pre-commit
 pre-commit install
+
+# Chromium for the browser e2e suite (test_e2e/web/). Playwright is locked in
+# uv.lock, and `playwright install` fetches the build that version expects, so
+# the browser can never drift from the package. No-op when already installed.
+uv run --frozen --extra e2e playwright install chromium
