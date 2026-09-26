@@ -70,9 +70,6 @@ docs = [
     { name = "mkdocs" },
     { name = "mkdocs-material" },
 ]
-e2e = [
-    { name = "playwright" },
-]
 server = [
     { name = "fastapi" },
     { name = "fastmcp" },
@@ -89,7 +86,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "aaiclick", extras = ["ai", "distributed", "server"], marker = "extra == 'all'" },
-    { name = "aaiclick", extras = ["all", "e2e", "test"], marker = "extra == 'dev'" },
+    { name = "aaiclick", extras = ["all", "test"], marker = "extra == 'dev'" },
     { name = "aiohttp", marker = "extra == 'distributed'", specifier = ">=3.9.0" },
     { name = "aiosqlite", specifier = ">=0.22.0" },
     { name = "alembic", specifier = ">=1.18.0" },
@@ -105,7 +102,7 @@ requires-dist = [
     { name = "litellm", marker = "extra == 'ai'", specifier = ">=1.83.0" },
     { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.6.1" },
     { name = "mkdocs-material", marker = "extra == 'docs'", specifier = ">=9.7.0" },
-    { name = "playwright", marker = "extra == 'e2e'", specifier = ">=1.56.0" },
+    { name = "playwright", marker = "extra == 'dev'", specifier = ">=1.56.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.0" },
     { name = "psycopg2-binary", marker = "extra == 'distributed'", specifier = ">=2.9.11" },
     { name = "pyarrow", specifier = ">=23.0.0" },
@@ -120,7 +117,7 @@ requires-dist = [
     { name = "sqlmodel", specifier = ">=0.0.38" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.30.0" },
 ]
-provides-extras = ["distributed", "ai", "server", "all", "test", "e2e", "docs", "dev"]
+provides-extras = ["distributed", "ai", "server", "all", "test", "docs", "dev"]
 
 [[package]]
 name = "aiofile"

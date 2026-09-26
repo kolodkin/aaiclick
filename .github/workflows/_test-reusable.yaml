@@ -247,7 +247,8 @@ jobs:
     # Vite bundle, launches uvicorn pointed at PG + ClickHouse, and drives
     # the SPA shell with Playwright. Catches packaging/wiring regressions
     # that the local-backend pytest suites can't see.
-    needs: lint
+    # No `needs: lint`: this is the workflow's longest job, so it starts
+    # right away instead of adding lint's runtime to the critical path.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     name: UI e2e dist
@@ -264,9 +265,9 @@ jobs:
         uses: ./.github/actions/setup-uv
         with:
           python-version: ${{ inputs.python-version }}
-          # e2e pins Playwright through uv.lock; `playwright install chromium`
+          # dev pins Playwright through uv.lock; `playwright install chromium`
           # then fetches the Chromium build that exact version expects.
-          sync-args: "--extra distributed --extra server --extra test --extra e2e"
+          sync-args: "--extra dev"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -317,7 +318,10 @@ jobs:
           AAICLICK_ADMIN_PASSWORD: ci-admin-password
         uses: ./.github/actions/run-pytest
         with:
-          command: uv run pytest test_e2e/web/ -v
+          # --no-cov: the code under test runs in the server and worker
+          # subprocesses, which coverage does not measure; the report only
+          # added ~20 s.
+          command: uv run pytest test_e2e/web/ -v --no-cov
           report-name: "Pytest Results (UI e2e dist)"
 
   examples:

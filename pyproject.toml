@@ -65,17 +65,15 @@ test = [
     "pytest-cov>=7.1.0",
     "pytest-xdist>=3.8.0",
 ]
-# Browser e2e suite (test_e2e/web/). Locked in uv.lock so the Chromium build
-# `playwright install chromium` fetches only changes with a lock update.
-e2e = [
-    "playwright>=1.56.0",
-]
 docs = [
     "mkdocs>=1.6.1",
     "mkdocs-material>=9.7.0",
 ]
 dev = [
-    "aaiclick[all,test,e2e]",
+    "aaiclick[all,test]",
+    # Browser e2e suite (test_e2e/web/). Locked in uv.lock, so the Chromium
+    # build `playwright install chromium` fetches changes only with the lock.
+    "playwright>=1.56.0",
     "pre-commit>=4.0",
 ]
 
