@@ -45,7 +45,6 @@ Python is already tested — trust it.
 - Decorator tests that only check `@task(name="x")` stores `name == "x"`.
 - Trivial factory passthrough (`factory(a, b)` → assert fields match `a`, `b`).
 - SQL text sent to a (mocked) client. Assert the outcome — rows, tables remaining, state — unless the user explicitly asks for it or the test docstring says the SQL shape is the contract (e.g. `select_sql()` returns SQL).
-- The outcome of a specific DB migration (Alembic revision or `aaiclick/oplog/migrations/NNNN_*.sql`) — e.g. "after 0002 the column is X". Test the migration runner, not individual scripts; when a migration breaks an existing test, update that test.
 
 **Test real behavior**: branching logic, computations, validation errors, DB round-trips, schema inference, format output, ID uniqueness, env-var parsing.
 
@@ -65,6 +64,10 @@ def test_data_list_single_vs_multiple():
     assert data_list("only").data == "only"
     assert data_list("a", "b").data == ["a", "b"]
 ```
+
+## Don't test specific DB migrations
+
+Don't write tests for what one migration produces (an Alembic revision or `aaiclick/oplog/migrations/NNNN_*.sql`), such as "after 0002 the column is X". Test the migration runner, not individual scripts. When a migration breaks an existing test, update that test.
 
 ## Avoid internal tests — prefer end-to-end
 
