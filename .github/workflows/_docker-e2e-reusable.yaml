@@ -76,6 +76,10 @@ jobs:
     env:
       # Test wait timeout, kept under timeout-minutes above.
       AAICLICK_JOB_WAIT_TIMEOUT: "600"
+      # Echo each task container's raw output into the pytest log before the
+      # worker removes it — the only record when a task crashes before
+      # reaching the ClickHouse task_logs capture.
+      AAICLICK_ECHO_TASK_OUTPUT: "1"
 
     steps:
       - name: Checkout code

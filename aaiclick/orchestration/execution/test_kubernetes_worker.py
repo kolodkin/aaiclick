@@ -253,3 +253,26 @@ async def test_wait_retries_transient_kubectl_failure(monkeypatch):
     exit_code, error, _ = await _vehicle("module").wait(_handle(), None)
 
     assert (exit_code, error) == (0, None)
+
+
+async def test_cleanup_echoes_pod_log_before_delete(monkeypatch, capsys):
+    """Internal: the ordering needs a real cluster end to end. With
+    ``AAICLICK_ECHO_TASK_OUTPUT`` set, the Pod log is printed before the Pod
+    is deleted — after deletion it is gone."""
+    monkeypatch.setenv("AAICLICK_ECHO_TASK_OUTPUT", "1")
+    calls = []
+
+    async def fake_logs(handle):
+        calls.append("logs")
+        return "Traceback: boom\n", ""
+
+    async def fake_delete(handle):
+        calls.append("delete")
+
+    monkeypatch.setattr(kw, "_kubectl_logs", fake_logs)
+    monkeypatch.setattr(kw, "_kubectl_delete", fake_delete)
+
+    await _vehicle("module").cleanup(_handle())
+
+    assert calls == ["logs", "delete"]
+    assert "[task 7] Traceback: boom" in capsys.readouterr().out
