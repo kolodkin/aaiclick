@@ -129,19 +129,27 @@ async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypa
     assert error == "cancelled"
 
 
-async def test_wait_folds_container_logs_into_error_when_no_result_row(monkeypatch):
-    """A container that exits without writing a result row (the entrypoint
-    crashed before or while reporting back) surfaces its own logs as the
-    task error — otherwise the crash reason is lost the moment ``cleanup``
-    removes the container."""
-    monkeypatch.setattr(docker_worker, "_wait_for_container", AsyncMock(return_value=(1, None)))
-    monkeypatch.setattr(docker_worker, "read_task_run_result", AsyncMock(return_value=None))
-    monkeypatch.setattr(docker_worker, "_docker_logs", AsyncMock(return_value="Traceback (most recent call last): boom"))
+async def test_cleanup_echoes_container_output_before_rm(monkeypatch, capsys):
+    """Internal: the ordering needs a real daemon end to end. With
+    ``AAICLICK_ECHO_TASK_OUTPUT`` set, the container's stdout and stderr are
+    printed to the matching stream before ``docker rm`` discards them."""
+    monkeypatch.setenv("AAICLICK_ECHO_TASK_OUTPUT", "1")
+    calls = []
+
+    async def fake_logs(cid):
+        calls.append("logs")
+        return "started\n", "Traceback: boom\n"
+
+    async def fake_rm(cid):
+        calls.append("rm")
+
+    monkeypatch.setattr(docker_worker, "_docker_logs", fake_logs)
+    monkeypatch.setattr(docker_worker, "_docker_rm", fake_rm)
 
     vehicle = docker_worker._DockerVehicle("aaiclick-job:abc", {})
-    handle = docker_worker._DockerHandle("fake-cid", task_id=1, run_epoch=0)
-    exit_code, error, payload = await vehicle.wait(handle, None)
+    await vehicle.cleanup(docker_worker._DockerHandle("fake-cid", task_id=42, run_epoch=0))
 
-    assert exit_code == 1
-    assert payload is None
-    assert "Traceback (most recent call last): boom" in error
+    assert calls == ["logs", "rm"]
+    captured = capsys.readouterr()
+    assert "[task 42] started" in captured.out
+    assert "[task 42] Traceback: boom" in captured.err

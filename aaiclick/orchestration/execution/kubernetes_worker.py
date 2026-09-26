@@ -25,6 +25,8 @@ from .execution_worker import (
     RunnerResult,
     TaskVehicle,
     drive_vehicle,
+    echo_task_output,
+    echo_task_output_enabled,
     execution_worker_heartbeat,
     parse_task_timeout,
 )
@@ -153,24 +155,14 @@ async def _kubectl_delete(handle: _PodHandle) -> None:
     )
 
 
-async def _kubectl_logs(handle: _PodHandle, tail: int = 200) -> str:
-    """Capture the Pod's container log before ``cleanup`` deletes it.
-
-    Only called when the Pod wrote no result row: the entrypoint crashed
-    before (or while) reporting back, so this is the only place the crash
-    reason survives."""
+async def _kubectl_logs(handle: _PodHandle) -> tuple[str, str]:
+    """The finished Pod's container log. Kubernetes merges the container's
+    stdout and stderr into one stream, so it comes back as stdout; the
+    returned stderr is kubectl's own (e.g. why the log could not be read)."""
     _, stdout, stderr = await cli.run(
-        _kubectl_bin(),
-        "logs",
-        handle.name,
-        "-n",
-        handle.namespace,
-        "--tail",
-        str(tail),
-        check=False,
-        stream=False,
+        _kubectl_bin(), "logs", handle.name, "-n", handle.namespace, check=False, stream=False
     )
-    return (stdout + stderr).strip()
+    return stdout, stderr
 
 
 # Phase reported by ``_pod_status`` when the API says the Pod no longer exists
@@ -307,10 +299,6 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
             await asyncio.sleep(POLL_INTERVAL)
             elapsed += POLL_INTERVAL
         result_row = await read_task_run_result(handle.task_id, handle.run_epoch)
-        if result_row is None and error is None:
-            logs = await _kubectl_logs(handle)
-            if logs:
-                error = f"pod exited with code {exit_code} but wrote no result row; logs:\n{logs}"
         return exit_code, error, result_row
 
     async def poll_cancelled(self, task: Task) -> bool:
@@ -326,8 +314,12 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
         return collect_remote_result(exit_code, error, was_cancelled, payload, "pod")
 
     async def cleanup(self, handle: _PodHandle) -> None:
-        if not handle.deleted:
-            await _kubectl_delete(handle)
+        if handle.deleted:
+            return
+        # Echo before deletion — the Pod's log is gone after kubectl delete.
+        if echo_task_output_enabled():
+            echo_task_output(handle.task_id, *await _kubectl_logs(handle))
+        await _kubectl_delete(handle)
 
 
 async def _run_task_in_pod(

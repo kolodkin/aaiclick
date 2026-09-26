@@ -249,24 +249,30 @@ async def test_wait_retries_transient_kubectl_failure(monkeypatch):
     monkeypatch.setattr(kw, "POLL_INTERVAL", 0)
     monkeypatch.setattr(kw, "_pod_status", AsyncMock(side_effect=[("Running", -1), ("", -1), ("Succeeded", 0)]))
     monkeypatch.setattr(kw, "read_task_run_result", AsyncMock(return_value=None))
-    monkeypatch.setattr(kw, "_kubectl_logs", AsyncMock(return_value=""))
 
     exit_code, error, _ = await _vehicle("module").wait(_handle(), None)
 
     assert (exit_code, error) == (0, None)
 
 
-async def test_wait_folds_pod_logs_into_error_when_no_result_row(monkeypatch):
-    """A Pod that exits without writing a result row (the entrypoint crashed
-    before it could report back) surfaces its own logs as the task error —
-    otherwise the crash reason is lost the moment ``cleanup`` deletes the Pod."""
-    monkeypatch.setattr(kw, "POLL_INTERVAL", 0)
-    monkeypatch.setattr(kw, "_pod_status", AsyncMock(return_value=("Failed", 1)))
-    monkeypatch.setattr(kw, "read_task_run_result", AsyncMock(return_value=None))
-    monkeypatch.setattr(kw, "_kubectl_logs", AsyncMock(return_value="Traceback (most recent call last): boom"))
+async def test_cleanup_echoes_pod_log_before_delete(monkeypatch, capsys):
+    """Internal: the ordering needs a real cluster end to end. With
+    ``AAICLICK_ECHO_TASK_OUTPUT`` set, the Pod log is printed before the Pod
+    is deleted — after deletion it is gone."""
+    monkeypatch.setenv("AAICLICK_ECHO_TASK_OUTPUT", "1")
+    calls = []
 
-    exit_code, error, payload = await _vehicle("module").wait(_handle(), None)
+    async def fake_logs(handle):
+        calls.append("logs")
+        return "Traceback: boom\n", ""
 
-    assert exit_code == 1
-    assert payload is None
-    assert "Traceback (most recent call last): boom" in error
+    async def fake_delete(handle):
+        calls.append("delete")
+
+    monkeypatch.setattr(kw, "_kubectl_logs", fake_logs)
+    monkeypatch.setattr(kw, "_kubectl_delete", fake_delete)
+
+    await _vehicle("module").cleanup(_handle())
+
+    assert calls == ["logs", "delete"]
+    assert "[task 7] Traceback: boom" in capsys.readouterr().out

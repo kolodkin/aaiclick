@@ -7,6 +7,7 @@ import logging
 import os
 import signal
 import socket
+import sys
 from collections.abc import Awaitable, Callable
 from typing import Any, NamedTuple, Protocol, TypeVar, cast
 
@@ -58,6 +59,19 @@ def parse_task_timeout() -> float | None:
     empty value reads as no timeout)."""
     raw = os.environ.get("AAICLICK_TASK_TIMEOUT")
     return float(raw) if raw else None
+
+
+def echo_task_output_enabled() -> bool:
+    """``AAICLICK_ECHO_TASK_OUTPUT``: echo each container/Pod's raw output to the
+    worker's own stdout/stderr before it is removed. Off when unset, empty or ``0``."""
+    return os.environ.get("AAICLICK_ECHO_TASK_OUTPUT", "") not in ("", "0")
+
+
+def echo_task_output(task_id: int, stdout: str, stderr: str) -> None:
+    """Print a finished vehicle's output as-is, each line prefixed with its task id."""
+    for text, stream in ((stdout, sys.stdout), (stderr, sys.stderr)):
+        for line in text.splitlines():
+            print(f"[task {task_id}] {line}", file=stream, flush=True)
 
 
 class RunnerResult(NamedTuple):
