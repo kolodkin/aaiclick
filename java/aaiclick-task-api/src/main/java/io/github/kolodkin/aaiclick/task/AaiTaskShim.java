@@ -75,10 +75,10 @@ public final class AaiTaskShim {
         if (!rawKwargs.isObject()) {
             throw new IllegalStateException("Task " + taskId + " kwargs is not a JSON object");
         }
-        JsonNode resolved = new KwargsResolver(store, mapper).resolve(rawKwargs);
+        ObjectNode resolved = new KwargsResolver(store, mapper).resolveKwargs((ObjectNode) rawKwargs);
 
         Method method = TaskRegistry.resolve(row.entrypoint());
-        Object[] bound = KwargsBinder.bind(method, (ObjectNode) resolved, mapper);
+        Object[] bound = KwargsBinder.bind(method, resolved, mapper);
         Object result = method.invoke(null, bound);
 
         if (result == null || method.getReturnType() == void.class) {

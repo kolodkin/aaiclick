@@ -1,10 +1,11 @@
 """Dynamic task creation operators for orchestration backend.
 
-Provides map() for parallel data processing and reduce() for layered parallel
-reduction, inspired by Apache Spark's partition-based parallelism.
+Provides map() for parallel data processing, foreach() for its side-effect-only
+flavor, and reduce() for layered parallel reduction, inspired by Apache Spark's
+partition-based parallelism.
 
 Usage:
-    from aaiclick.orchestration import job, task, map, reduce
+    from aaiclick.orchestration import foreach, job, task, map, reduce
 
     @task
     async def scale(row, factor=1):
@@ -69,18 +70,32 @@ def map(
         partition; its result is the output Object, and tasks that consume it
         wait for every partition.
     """
-    if kwargs is None:
-        kwargs = {}
-
     return _framed(
         "map",
-        _expand_map(
-            cbk=cbk,
-            obj=obj,
-            partition=partition,
-            cbk_args=list(args),
-            cbk_kwargs=kwargs,
-        ),
+        _expand_map(cbk=cbk, obj=obj, partition=partition, cbk_args=list(args), cbk_kwargs=kwargs or {}, collect=True),
+    )
+
+
+def foreach(
+    cbk: Callable | TaskFactory,
+    obj: Task | Object,
+    partition: int = 5000,
+    args: tuple = (),
+    kwargs: dict[str, Any] | None = None,
+) -> Task:
+    """Run a side-effect callback over every row of an Object, in parallel partitions.
+
+    Takes the same arguments as ``map()``, but discards the callback's return
+    value and allocates no output Object.
+
+    Returns:
+        The expander Task, inside a ``foreach`` group that frames the whole
+        call in the job graph. Its result is ``None``; tasks that consume it
+        wait for every partition.
+    """
+    return _framed(
+        "foreach",
+        _expand_map(cbk=cbk, obj=obj, partition=partition, cbk_args=list(args), cbk_kwargs=kwargs or {}, collect=False),
     )
 
 
@@ -107,15 +122,19 @@ def _join_frame(parts: list[Group], finalize: Task) -> None:
 
 
 @task
-async def _expand_map(cbk: Callable, obj: Object, partition: int, cbk_args: list, cbk_kwargs: dict) -> TaskResult:
+async def _expand_map(
+    cbk: Callable, obj: Object, partition: int, cbk_args: list, cbk_kwargs: dict, collect: bool
+) -> TaskResult:
     """Expander task: queries Object row count and creates partition tasks.
 
-    Returns a ``parts`` Group of ``_map_part`` children writing into a
-    pre-allocated output, and the ``_finalize`` task that returns it as data.
+    Returns a ``parts`` Group of ``_map_part`` children and the ``_finalize``
+    task as data. With ``collect`` the children write into a pre-allocated
+    output that ``_finalize`` returns; without it there is no output and
+    ``_finalize`` returns ``None``.
     """
     row_count = await obj.count().data()
 
-    out = await create_object(obj.schema)
+    out = await create_object(obj.schema) if collect else None
 
     group = Group(id=get_snowflake_id(), name="parts")
     for part in _partition_refs(obj, partition, row_count):
@@ -128,11 +147,11 @@ async def _expand_map(cbk: Callable, obj: Object, partition: int, cbk_args: list
 
 
 @task
-async def _finalize(out: Object) -> Object:
+async def _finalize(out: Object | None) -> Object | None:
     """Join task: runs after every partition task and hands the filled output on.
 
     An expander returns it as data, so consumers of the expander wait for it
-    and it pins ``out`` for them.
+    and it pins ``out`` for them. ``foreach()`` has no output and passes ``None``.
     """
     return out
 
@@ -162,14 +181,15 @@ def _partition_refs(src: Object | View, partition: int, rows: int) -> list[dict]
 
 @task
 async def _map_part(
-    cbk: Callable, part: View, out: Object, cbk_args: list | None = None, cbk_kwargs: dict | None = None
+    cbk: Callable, part: View, out: Object | None, cbk_args: list | None = None, cbk_kwargs: dict | None = None
 ) -> None:
     """Apply a callback to each row in a partition View, appending returns to ``out``.
 
     Args:
         cbk: Callback function. Signature: cbk(row, *args, **kwargs) -> value | None.
         part: View (partition) of the source Object.
-        out: Output Object; every non-None return is inserted.
+        out: Output Object; every non-None return is inserted. ``None``
+            (``foreach()``) discards the returns.
         cbk_args: Extra positional arguments forwarded to cbk.
         cbk_kwargs: Extra keyword arguments forwarded to cbk.
     """
@@ -182,9 +202,10 @@ async def _map_part(
     results = []
     for row in rows:
         value = await cbk(row, *cbk_args, **cbk_kwargs) if is_async else cbk(row, *cbk_args, **cbk_kwargs)
-        if value is not None:
+        if out is not None and value is not None:
             results.append(value)
-    await out.insert(results)
+    if out is not None:
+        await out.insert(results)
 
 
 def reduce(

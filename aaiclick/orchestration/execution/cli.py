@@ -13,6 +13,7 @@ One ``run`` with two modes:
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from typing import TextIO
 
@@ -40,21 +41,29 @@ async def _stream(reader: asyncio.StreamReader, sink: TextIO) -> bytes:
     return b"".join(chunks)
 
 
+def overlay_env(extra: dict[str, str] | None) -> dict[str, str] | None:
+    """This process's env with ``extra`` on top; None (inherit) when empty."""
+    return {**os.environ, **extra} if extra else None
+
+
 async def run(
     *cmd: str,
     check: bool = True,
     stream: bool = True,
     cwd: str | None = None,
+    env: dict[str, str] | None = None,
 ) -> tuple[int, str, str]:
     """Run ``cmd``; return ``(returncode, stdout, stderr)``.
 
     Streams output live to this process's stdout/stderr by default (so build
     progress / pod logs surface as they happen); pass ``stream=False`` for
-    capture-only calls (status probes, short commands). Raises
-    :class:`CommandError` on a non-zero exit when ``check`` is True."""
+    capture-only calls (status probes, short commands). ``env`` is overlaid
+    on this process's environment. Raises :class:`CommandError` on a non-zero
+    exit when ``check`` is True."""
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         cwd=cwd,
+        env=overlay_env(env),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )

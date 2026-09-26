@@ -34,7 +34,7 @@ def test_jvm_cmd_relies_on_image_entrypoint():
     # appends only the shim arguments after the image tag.
     image_idx = cmd.index("ghcr.io/example/pipeline:1.0")
     assert cmd[image_idx + 1 :] == ["--task-id", "1", "--run-epoch", "0"]
-    assert "-e AAICLICK_SQL_URL=u" in " ".join(cmd)
+    assert "-e AAICLICK_SQL_URL" in " ".join(cmd)
 
 
 def test_build_shell_run_spec_wraps_argv():
@@ -78,7 +78,8 @@ def test_build_docker_run_cmd_shape():
     # --rm is intentionally absent — the host parent calls docker rm itself
     # so docker wait can race-freely report the exit code.
     assert "--rm" not in cmd
-    assert "-e AAICLICK_SQL_URL=u" in joined
+    assert "-e AAICLICK_SQL_URL" in joined
+    assert "u" not in cmd
     assert joined.endswith(
         "aaiclick-job:abc python -m aaiclick.orchestration.execution.remote_result --task-id 1 --run-epoch 0"
     )
@@ -97,7 +98,7 @@ async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypa
 
     cancelled_seen = []
 
-    async def fake_run_detached(cmd):
+    async def fake_run_detached(cmd, env):
         return "fake-cid"
 
     async def fake_wait(cid, timeout):
@@ -126,3 +127,29 @@ async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypa
     success, _, error = await docker_worker._run_task_in_container(_task(), execution_worker_id=1, dispatch=dispatch)
     assert success is False
     assert error == "cancelled"
+
+
+async def test_cleanup_echoes_container_output_before_rm(monkeypatch, capsys):
+    """Internal: the ordering needs a real daemon end to end. With
+    ``AAICLICK_ECHO_TASK_OUTPUT`` set, the container's stdout and stderr are
+    printed to the matching stream before ``docker rm`` discards them."""
+    monkeypatch.setenv("AAICLICK_ECHO_TASK_OUTPUT", "1")
+    calls = []
+
+    async def fake_logs(cid):
+        calls.append("logs")
+        return "started\n", "Traceback: boom\n"
+
+    async def fake_rm(cid):
+        calls.append("rm")
+
+    monkeypatch.setattr(docker_worker, "_docker_logs", fake_logs)
+    monkeypatch.setattr(docker_worker, "_docker_rm", fake_rm)
+
+    vehicle = docker_worker._DockerVehicle("aaiclick-job:abc", {})
+    await vehicle.cleanup(docker_worker._DockerHandle("fake-cid", task_id=42, run_epoch=0))
+
+    assert calls == ["logs", "rm"]
+    captured = capsys.readouterr()
+    assert "[task 42] started" in captured.out
+    assert "[task 42] Traceback: boom" in captured.err

@@ -24,11 +24,16 @@ framework-trusted, unlike a vanilla `shell` image), waits, and reads the
 `remote_task_results` row back. The only difference is the container command:
 the runner passes just `--task-id N --run-epoch M` as *arguments*, so the
 image's `ENTRYPOINT` — which the user points at the SDK bootstrap — receives
-them. The runner cannot know a JVM classpath; the image owns it.
+them. The runner cannot know a JVM classpath; the image owns it. The shim
+never touches `run_ids`, so the host registers each jvm attempt
+(`register_run`) before launch. Docker passes the runner env as `-e KEY` names
+with values in the CLI's own environment, keeping DB URLs out of `ps`.
 
-**Implementation**: `aaiclick/orchestration/execution/docker_worker.py` — see
-`_build_docker_run_cmd()`; `aaiclick/orchestration/execution/kubernetes_worker.py`
-— see `_pod_manifest()`.
+**Implementation**: `aaiclick/orchestration/execution/dispatch.py` — see
+`dispatch_execute()`; `aaiclick/orchestration/execution/docker_worker.py` —
+see `_build_docker_run_cmd()`, `_env_flags()`;
+`aaiclick/orchestration/execution/kubernetes_worker.py` — see
+`_build_pod_manifest()`.
 
 ## `jvm` entry type
 
@@ -52,9 +57,10 @@ Enforced at commit points alongside `validate_image_sources()`
 submission surface (`aaiclick/orchestration/registered_jobs.py` — see
 `run_job()`):
 
-- A `jvm` task must not receive Object/View refs as kwargs — the shim has no
-  ClickHouse data plane. Any nested kwargs dict carrying `object_type` is
-  rejected at commit.
+- A `jvm` task's kwargs may carry only plain values, `native_value`
+  wrappers, and upstream refs — the shim has no ClickHouse data plane.
+  Object/View, pydantic, callable, and group refs at any depth are rejected at
+  commit (each kwarg checked on its own, as the shim resolves them).
 - A `jvm` task requires its own `image_source` on a docker/kubernetes job —
   there is no host-subprocess JVM contract, so a `jvm` task that would fall
   back to the subprocess runner is rejected. It never inherits the committing
@@ -78,7 +84,8 @@ Mirror of the Python layer-2 bootstrap
    `jdbc:postgresql://…`; `sqlite+aiosqlite:///…` → `jdbc:sqlite:…` for
    tests).
 2. Load the task row (`entrypoint`, `kwargs`) by id.
-3. Resolve kwargs: recurse into JSON objects/arrays; an
+3. Resolve each kwarg value (never the kwargs map itself, so a parameter
+   named `native_value` stays a parameter): recurse into JSON objects/arrays; an
    `{"ref_type": "upstream", "task_id": K}` dict resolves to task K's
    `result` column (task must be `COMPLETED`); `{"native_value": v}` unwraps
    to `v`; a dict carrying `object_type` (Object/View ref) or any other
@@ -87,7 +94,9 @@ Mirror of the Python layer-2 bootstrap
 4. Jackson-bind the resolved kwargs to the `@AaiTask` method's parameters by
    name (requires `-parameters` compilation; the shim reports a clear error
    when parameter names were compiled away). Missing or extra keys are
-   errors, mirroring Python's `TypeError` on bad kwargs.
+   errors, mirroring Python's `TypeError` on bad kwargs; so is `null` for a
+   primitive at any depth. The class loads through the thread context
+   classloader (Spring Boot, layered fat jars).
 5. Invoke the method; serialize the return value with Jackson and write the
    `remote_task_results` row keyed `(task_id, run_epoch)`:
    `success=true, result_ref={"native_value": <json>}` (`null` return / `void`

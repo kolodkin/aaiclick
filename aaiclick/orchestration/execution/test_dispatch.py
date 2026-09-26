@@ -6,8 +6,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from ..models import RUNNER_DOCKER, RUNNER_KUBERNETES, RUNNER_SUBPROCESS, Task
-from ..runner_config import ImageBuild, ImagePrebuilt, dump_image_source
+from ..factories import create_job
+from ..jobs import get_task
+from ..jobs.queries import get_tasks_for_job
+from ..models import RUNNER_DOCKER, RUNNER_KUBERNETES, RUNNER_SUBPROCESS, TASK_RUNNING, Task
+from ..runner_config import ENTRY_JVM, ImageBuild, ImagePrebuilt, dump_image_source
 from . import dispatch
 from .execution_worker import JobDispatch
 
@@ -87,3 +90,20 @@ async def test_dispatch_execute_routes_image_runner(monkeypatch, runner_mode, ku
 
     await dispatch.dispatch_execute(user_task, execution_worker_id=1)
     runner.assert_awaited_once_with(user_task, 1, spec)
+
+
+async def test_jvm_dispatch_registers_the_attempt(orch_ctx, monkeypatch):
+    """The shim never registers a run, so the host must: each jvm attempt
+    appends a run_id and RUNNING before the container launches."""
+    job = await create_job("jvm_run_job", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+    task = (await get_tasks_for_job(job.id))[0]
+    spec = JobDispatch(RUNNER_DOCKER, None, entry_type=ENTRY_JVM, image_source=ImagePrebuilt(image_tag="ghcr.io/x/y:1"))
+    monkeypatch.setattr(dispatch, "_resolve_dispatch", AsyncMock(return_value=spec))
+    monkeypatch.setitem(dispatch._IMAGE_RUNNERS, RUNNER_DOCKER, AsyncMock(return_value=(True, None, None)))
+
+    await dispatch.dispatch_execute(task, execution_worker_id=1)
+
+    refreshed = await get_task(task.id)
+    assert refreshed is not None
+    assert len(refreshed.run_ids) == 1
+    assert refreshed.run_statuses == [TASK_RUNNING]

@@ -81,6 +81,17 @@ class AaiTaskShimTest {
     }
 
     @Test
+    void kwargNamedLikeAWrapperKeyStaysAParameter() throws Exception {
+        TestDb.insertTask(conn, 50, SAMPLE + "#wrapperNamed", "{\"native_value\": \"kept\"}", "RUNNING", null);
+
+        assertEquals(0, runShim(50, 0));
+
+        TestDb.ResultRow row = TestDb.readResultRow(conn, 50, 0);
+        assertTrue(row.success());
+        assertEquals(MAPPER.readTree("{\"native_value\": \"kept\"}"), MAPPER.readTree(row.resultRef()));
+    }
+
+    @Test
     void upstreamRefResolvesToCompletedResult() throws Exception {
         TestDb.insertTask(conn, 10, "", null, "COMPLETED", "{\"native_value\": [1, 2.5, 3]}");
         TestDb.insertTask(conn, 45, SAMPLE + "#sum",

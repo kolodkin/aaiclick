@@ -25,6 +25,7 @@ from ..orch_context import commit_tasks, get_sql_session
 from .claiming import claim_next_task, update_task_status
 from .execution_worker import (
     deregister_execution_worker,
+    echo_task_output_enabled,
     execution_worker_heartbeat,
     get_execution_worker,
     list_execution_workers,
@@ -32,6 +33,19 @@ from .execution_worker import (
     request_execution_worker_stop,
 )
 from .runner import execute_task
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        pytest.param("", False, id="empty"),
+        pytest.param("0", False, id="zero"),
+        pytest.param("1", True, id="one"),
+    ],
+)
+def test_echo_task_output_enabled(monkeypatch, value, expected):
+    monkeypatch.setenv("AAICLICK_ECHO_TASK_OUTPUT", value)
+    assert echo_task_output_enabled() is expected
 
 
 async def test_register_worker(orch_ctx):

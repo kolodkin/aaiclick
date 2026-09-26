@@ -1,4 +1,4 @@
-"""The committed group tree of a ``map()`` / ``reduce()`` run."""
+"""The committed group tree of a ``map()`` / ``foreach()`` / ``reduce()`` run."""
 
 from collections import Counter
 
@@ -6,11 +6,31 @@ import pytest
 from sqlmodel import select
 
 from aaiclick.data.data_context import data_context
-from aaiclick.orchestration import get_job_result
+from aaiclick.orchestration import foreach, get_job_result, job, task, task_result
+from aaiclick.orchestration.examples.orchestration_operators import create_values
 from aaiclick.orchestration.execution.debug import ajob_test
 from aaiclick.orchestration.fixtures.operator_pipelines import map_pipeline, reduce_pipeline
 from aaiclick.orchestration.models import JOB_COMPLETED, Group, Task
 from aaiclick.orchestration.orch_context import get_sql_session
+
+
+@task
+async def ignore(row: int) -> None:
+    """foreach() callback with no side effect: only the graph shape matters here."""
+
+
+@task
+async def after(done: None) -> bool:
+    """Consumer of foreach(): its result is ``None``, so hand back a marker."""
+    return done is None
+
+
+@job("test_foreach_frame")
+def foreach_pipeline():
+    values = create_values()
+    each = foreach(ignore, values, partition=2)
+    seen = after(done=each)
+    return task_result(data=seen, tasks=[values, each, seen])
 
 
 @pytest.mark.parametrize(
@@ -23,6 +43,14 @@ from aaiclick.orchestration.orch_context import get_sql_session
             {("_expand_map", "map"): 1, ("_finalize", "map"): 1, ("_map_part", "parts"): 3},
             [2, 4, 6, 8, 10],
             id="map",
+        ),
+        # foreach() shares map()'s expander under its own frame name.
+        pytest.param(
+            foreach_pipeline,
+            {("foreach", None), ("parts", "foreach")},
+            {("_expand_map", "foreach"): 1, ("_finalize", "foreach"): 1, ("_map_part", "parts"): 3},
+            True,
+            id="foreach",
         ),
         # Layers of 3, 2 and 1 parts, each nested under the call's frame.
         pytest.param(

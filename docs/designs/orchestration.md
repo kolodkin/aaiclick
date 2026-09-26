@@ -420,8 +420,8 @@ whose data is one of its returned tasks.
 
 Each call draws as one frame in the job graph (`_framed` / `_join_frame`):
 
-- `map()` / `reduce()` put the expander in a `map` / `reduce` group at
-  definition time.
+- `map()` / `foreach()` / `reduce()` put the expander in a `map` / `foreach` /
+  `reduce` group at definition time.
 - At runtime the expander nests its parts group(s) (`parts`, or `layer_N`)
   under its own group (`TaskInfo.group_id`) and adds `_finalize` to it.
 

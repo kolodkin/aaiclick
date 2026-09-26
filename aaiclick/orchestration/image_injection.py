@@ -20,7 +20,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aaiclick.data.object.refs import OBJECT_TYPE
+from aaiclick.data.object.refs import NATIVE_VALUE, REF_TYPE, UPSTREAM, ref_kind
 
 from ..datetime_utils import utc_now
 from ..snowflake import get_snowflake_id
@@ -65,26 +65,34 @@ def validate_image_sources(tasks: list[Task], runner_mode: RunnerMode) -> None:
             )
 
 
-def _contains_object_ref(value: Any) -> bool:
-    """True when a serialized kwargs value carries an Object/View ref
-    (a dict with ``object_type``) at any nesting depth."""
+_JVM_REF_KINDS = (UPSTREAM, NATIVE_VALUE)
+"""Ref kinds the shim's ``KwargsResolver`` resolves; ``native_value`` is opaque."""
+
+
+def _unsupported_jvm_ref(value: Any) -> str | None:
+    """Name of the first ref in a serialized kwarg value the JVM shim cannot
+    resolve, or None."""
+    kind = ref_kind(value)
+    if kind is not None:
+        return None if kind in _JVM_REF_KINDS else f"{kind} ref"
     if isinstance(value, dict):
-        if OBJECT_TYPE in value:
-            return True
-        return any(_contains_object_ref(v) for v in value.values())
-    if isinstance(value, list):
-        return any(_contains_object_ref(v) for v in value)
-    return False
+        # Python treats an unrecognized ref_type as a plain dict; the shim rejects it.
+        if REF_TYPE in value:
+            return f"{value[REF_TYPE]} ref"
+        value = list(value.values())
+    if not isinstance(value, list):
+        return None
+    return next((r for r in map(_unsupported_jvm_ref, value) if r), None)
 
 
 def validate_jvm_tasks(tasks: list[Task]) -> None:
     """Enforce the ``jvm`` commit-point rules (spec: docs/designs/java-sdk.md
     "Validation"); raises ``ValueError``.
 
-    The shim jar has no ClickHouse data plane, so Object/View refs can never
-    reach a jvm task's kwargs; and there is no host-subprocess JVM contract,
-    so a jvm task must carry an image (docker/kubernetes jobs only — implied
-    by ``validate_image_sources`` once the image is required)."""
+    The shim resolves only plain values and upstream refs, so any other ref
+    fails here, not inside the container. There is no host-subprocess JVM
+    contract, so a jvm task must carry an image (docker/kubernetes only —
+    implied by ``validate_image_sources``)."""
     for task in tasks:
         if task.entry_type != ENTRY_JVM:
             continue
@@ -95,10 +103,14 @@ def validate_jvm_tasks(tasks: list[Task]) -> None:
                 f"jvm task {task.name!r} declares no image_source; jvm tasks run only "
                 "in their own container image on docker/kubernetes jobs"
             )
-        if _contains_object_ref(task.kwargs):
-            raise ValueError(
-                f"jvm task {task.name!r} receives an Object/View ref in kwargs; the JVM data plane is plain values only"
-            )
+        # Per kwarg, like the shim: the kwargs map itself is never a ref.
+        for name, value in (task.kwargs or {}).items():
+            ref = _unsupported_jvm_ref(value)
+            if ref:
+                raise ValueError(
+                    f"jvm task {task.name!r} receives a {ref} in kwarg {name!r}; "
+                    "the JVM data plane is plain values and upstream refs only"
+                )
 
 
 def _make_build_task(source: ImageBuild, job_id: int) -> Task:

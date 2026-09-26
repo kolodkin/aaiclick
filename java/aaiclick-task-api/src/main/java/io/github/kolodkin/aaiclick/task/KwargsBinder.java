@@ -1,5 +1,6 @@
 package io.github.kolodkin.aaiclick.task;
 
+import java.io.IOException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.util.ArrayList;
@@ -8,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -15,7 +17,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 /** Binds resolved JSON kwargs to a task method's parameters by name, each
  * value converted to the parameter's (generic) type via Jackson. Missing and
  * unexpected keys are errors, mirroring Python's ``TypeError`` on bad
- * kwargs. */
+ * kwargs; so is null for a primitive at any depth. */
 public final class KwargsBinder {
 
     private KwargsBinder() {
@@ -51,7 +53,14 @@ public final class KwargsBinder {
                 throw new IllegalArgumentException(
                     "Missing required kwarg '" + params[i].getName() + "' for " + method);
             }
-            args[i] = mapper.convertValue(value, mapper.constructType(params[i].getParameterizedType()));
+            try {
+                args[i] = mapper.readerFor(mapper.constructType(params[i].getParameterizedType()))
+                    .with(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
+                    .readValue(value);
+            } catch (IOException e) {
+                throw new IllegalArgumentException(
+                    "Cannot bind kwarg '" + params[i].getName() + "' for " + method + ": " + e.getMessage(), e);
+            }
         }
         return args;
     }

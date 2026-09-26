@@ -7,6 +7,7 @@ import logging
 import os
 import signal
 import socket
+import sys
 from collections.abc import Awaitable, Callable
 from typing import Any, NamedTuple, Protocol, TypeVar, cast
 
@@ -18,13 +19,11 @@ from aaiclick.async_wait import wait_or_timeout
 from aaiclick.snowflake import get_snowflake_id
 
 from ...datetime_utils import utc_now
-from ..background.handler import roll_up_job
 from ..models import (
     CANCELLING_TASK_STATUSES,
     EXECUTION_WORKER_ACTIVE,
     EXECUTION_WORKER_STOPPED,
     EXECUTION_WORKER_STOPPING,
-    TASK_COMPLETED,
     TASK_FAILED,
     TASK_PENDING_FAILURE_CLEANUP,
     TASK_RUNNING,
@@ -35,7 +34,13 @@ from ..models import (
 )
 from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_MODULE, EntryType, ImageSourceT
-from .claiming import check_run_aborted, claim_next_task, release_cancelled_run, update_task_status
+from .claiming import (
+    check_run_aborted,
+    claim_next_task,
+    complete_task_and_roll_up,
+    release_cancelled_run,
+    update_task_status,
+)
 from .runner import execute_task, serialize_task_result
 
 logger = logging.getLogger(__name__)
@@ -58,6 +63,19 @@ def parse_task_timeout() -> float | None:
     empty value reads as no timeout)."""
     raw = os.environ.get("AAICLICK_TASK_TIMEOUT")
     return float(raw) if raw else None
+
+
+def echo_task_output_enabled() -> bool:
+    """``AAICLICK_ECHO_TASK_OUTPUT``: echo each container/Pod's raw output to the
+    worker's own stdout/stderr before it is removed. Off when unset, empty or ``0``."""
+    return os.environ.get("AAICLICK_ECHO_TASK_OUTPUT", "") not in ("", "0")
+
+
+def echo_task_output(task_id: int, stdout: str, stderr: str) -> None:
+    """Print a finished vehicle's output as-is, each line prefixed with its task id."""
+    for text, stream in ((stdout, sys.stdout), (stderr, sys.stderr)):
+        for line in text.splitlines():
+            print(f"[task {task_id}] {line}", file=stream, flush=True)
 
 
 class RunnerResult(NamedTuple):
@@ -458,23 +476,11 @@ async def _handle_task_result(
 ) -> bool:
     """Process the result of a task execution. Returns True if task succeeded."""
     if success:
-        updated = await update_task_status(
-            task.id,
-            TASK_COMPLETED,
-            result=result_ref,
-            expected_epoch=task.run_epoch,
-        )
-        if not updated:
+        if not await complete_task_and_roll_up(task.id, task.job_id, result_ref, expected_epoch=task.run_epoch):
             await _discard_run(task, execution_worker_id, "completion")
             return False
         logger.info("ExecutionWorker %s completed task %s", execution_worker_id, task.id)
         await _increment_execution_worker_stat(execution_worker_id, "tasks_completed")
-        async with get_sql_session() as session:
-            # Rollup-only: cascade handling belongs to failure-transition
-            # owners (BackgroundWorker, cancel_job), not to a worker's
-            # success path.
-            await roll_up_job(session, task.job_id)
-            await session.commit()
         return True
 
     error = error or "Unknown error"

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import Iterable
 from typing import NamedTuple
 
 from ..docker_config import add_host_flags, get_registry
@@ -26,6 +27,8 @@ from .execution_worker import (
     RunnerResult,
     TaskVehicle,
     drive_vehicle,
+    echo_task_output,
+    echo_task_output_enabled,
     execution_worker_heartbeat,
     parse_task_timeout,
 )
@@ -49,6 +52,12 @@ def _docker_bin() -> str:
 # ---------------------------------------------------------------------------
 
 
+def _env_flags(keys: Iterable[str]) -> list[str]:
+    """``-e KEY`` flags, name only: docker reads each value from the CLI's own
+    env, keeping values (DB passwords) out of ``ps``."""
+    return [flag for key in keys for flag in ("-e", key)]
+
+
 def _shell_container_name(task: Task) -> str:
     """Unique-per-attempt container name so cleanup can address it."""
     return f"aaiclick-task-{task.id}-{task.run_epoch}"
@@ -58,7 +67,9 @@ def build_shell_run_spec(task: Task, image_tag: str) -> ShellSpec:
     """Wrap a shell task's argv as a foreground ``docker run``.
 
     Only ``command_env`` is injected — no IPC mount, no runner env, so no
-    aaiclick secrets reach a vanilla user image. ``--rm`` is safe here
+    aaiclick secrets reach a vanilla user image. Unlike ``_env_flags``, values
+    stay on the argv: on the CLI's own env, ``PATH`` / ``DOCKER_HOST`` would
+    redirect the host CLI. ``--rm`` is safe here
     (unlike module tasks' detached run): the docker CLI is the wrapper
     process, so its own exit code *is* the container's — no ``docker wait``
     race. ``cleanup_argv`` kills the container by name for the
@@ -86,7 +97,8 @@ def _build_docker_run_cmd(
     env: dict[str, str],
 ) -> list[str]:
     """Construct the detached ``docker run`` command line for a module or jvm
-    task: inject the full runner env and run the in-container bootstrap shim.
+    task: inject the full runner env (names only — ``_docker_run_detached``
+    passes the values) and run the in-container bootstrap shim.
     For ``module`` that is the shared Python entrypoint
     (``python -m ...remote_result --task-id N --run-epoch M``); for ``jvm``
     only the ``--task-id``/``--run-epoch`` arguments are passed — the image's
@@ -108,9 +120,8 @@ def _build_docker_run_cmd(
         "run",
         "--detach",
         *add_host_flags("AAICLICK_DOCKER_RUN_ADD_HOST"),
+        *_env_flags(env),
     ]
-    for key, value in env.items():
-        cmd.extend(["-e", f"{key}={value}"])
     entrypoint = [] if task.entry_type == ENTRY_JVM else REMOTE_ENTRYPOINT
     cmd.extend(
         [
@@ -131,9 +142,10 @@ async def _docker_pull_if_registered(image_tag: str) -> None:
     await cli.run(_docker_bin(), "pull", image_tag, check=False, stream=False)
 
 
-async def _docker_run_detached(cmd: list[str]) -> str:
-    """Run ``docker run --detach``; returns the container id."""
-    rc, stdout, stderr = await cli.run(*cmd, check=False, stream=False)
+async def _docker_run_detached(cmd: list[str], env: dict[str, str]) -> str:
+    """Run ``docker run --detach`` with ``env`` (the ``_env_flags`` values)
+    in the CLI's env; returns the container id."""
+    rc, stdout, stderr = await cli.run(*cmd, check=False, stream=False, env=env)
     if rc != 0:
         raise RuntimeError(f"docker run failed (exit {rc}): {stderr.strip() or stdout.strip()}")
     container_id = stdout.strip().splitlines()[-1]
@@ -151,6 +163,12 @@ async def _docker_rm(container_id: str) -> None:
     on ``docker run``; we do it explicitly so the container survives long
     enough for ``docker wait`` to read its exit code without a race."""
     await cli.run(_docker_bin(), "rm", "--force", container_id, check=False, stream=False)
+
+
+async def _docker_logs(container_id: str) -> tuple[str, str]:
+    """The stopped container's ``(stdout, stderr)``."""
+    _, stdout, stderr = await cli.run(_docker_bin(), "logs", container_id, check=False, stream=False)
+    return stdout, stderr
 
 
 async def _wait_for_container(container_id: str, timeout: float | None) -> tuple[int, str | None]:
@@ -213,7 +231,7 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", "RunnerResult | None"]):
 
     async def launch(self, task: Task, execution_worker_id: int) -> _DockerHandle:
         cmd = _build_docker_run_cmd(task, self._image_tag, self._env)
-        container_id = await _docker_run_detached(cmd)
+        container_id = await _docker_run_detached(cmd, self._env)
         return _DockerHandle(container_id, task.id, task.run_epoch)
 
     async def wait(self, handle: _DockerHandle, timeout: float | None) -> tuple[int, str | None, RunnerResult | None]:
@@ -238,6 +256,9 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", "RunnerResult | None"]):
         return collect_remote_result(exit_code, error, was_cancelled, payload, "container")
 
     async def cleanup(self, handle: _DockerHandle) -> None:
+        # Echo before removal — the container's output is gone after docker rm.
+        if echo_task_output_enabled():
+            echo_task_output(handle.task_id, *await _docker_logs(handle.container_id))
         # We dropped --rm so we own cleanup.
         await _docker_rm(handle.container_id)
 
