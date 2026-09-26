@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from ...datetime_utils import utc_now
-from ..background.handler import cancelling_transition
+from ..background.handler import cancelling_transition, roll_up_job
 from ..dependency_graph import successor_task_ids
 from ..models import (
     CANCELLING_TASK_STATUSES,
@@ -96,29 +96,67 @@ async def update_task_status(
         query = handler.lock_query(select(Task).where(Task.id == task_id))
         query_result = await session.execute(query)
         task = query_result.scalar_one_or_none()
-        if task is None:
+        if not _owns_run(task, expected_epoch):
             return False
 
-        if task.status in CANCELLING_TASK_STATUSES:
-            return False
-
-        if expected_epoch is not None and task.run_epoch != expected_epoch:
-            return False
-
-        task.status = status
-        if status == TASK_RUNNING:
-            task.started_at = utc_now()
-        elif status in (TASK_COMPLETED, TASK_FAILED):
-            task.completed_at = utc_now()
-            if error:
-                task.error = error
-            if result:
-                task.result = result
-
-        if task.run_statuses:
-            task.run_statuses = [*task.run_statuses[:-1], status]
-
+        _apply_task_status(task, status, error, result)
         session.add(task)
+        await session.commit()
+        return True
+
+
+def _owns_run(task: Task | None, expected_epoch: int | None) -> bool:
+    """Whether a run may still write ``task``: it exists, is not cancelling, and
+    was not cleared since ``expected_epoch`` (when given)."""
+    if task is None or task.status in CANCELLING_TASK_STATUSES:
+        return False
+    return expected_epoch is None or task.run_epoch == expected_epoch
+
+
+def _apply_task_status(task: Task, status: TaskStatus, error: str | None, result: dict | None) -> None:
+    """Write ``status`` and its timestamps onto ``task``, mirroring it into ``run_statuses``."""
+    task.status = status
+    if status == TASK_RUNNING:
+        task.started_at = utc_now()
+    elif status in (TASK_COMPLETED, TASK_FAILED):
+        task.completed_at = utc_now()
+        if error:
+            task.error = error
+        if result:
+            task.result = result
+
+    if task.run_statuses:
+        task.run_statuses = [*task.run_statuses[:-1], status]
+
+
+async def complete_task_and_roll_up(task_id: int, job_id: int, result: dict | None, expected_epoch: int) -> bool:
+    """Mark a task COMPLETED and roll its job up in one transaction — the worker's success path.
+
+    One commit means one change signal and no crash window between the two.
+    Rollup only: cascade handling belongs to the failure-transition owners
+    (BackgroundWorker, ``cancel_job``).
+
+    Locks the job row, then the task row, as ``cancel_job`` and ``clear_task``
+    do. The job lock serializes sibling completions: without it, two tasks
+    finishing together on Postgres each read the other as RUNNING and nobody
+    completes the job.
+
+    Returns False without writing when the run no longer owns the task (see
+    ``_owns_run``).
+    """
+    handler = get_db_handler()
+    async with get_sql_session() as session:
+        await session.execute(handler.lock_query(select(Job.id).where(Job.id == job_id)))
+        task = (
+            await session.execute(handler.lock_query(select(Task).where(Task.id == task_id, Task.job_id == job_id)))
+        ).scalar_one_or_none()
+        if not _owns_run(task, expected_epoch):
+            return False
+
+        _apply_task_status(task, TASK_COMPLETED, None, result)
+        session.add(task)
+        await session.flush()
+        await roll_up_job(session, job_id)
         await session.commit()
         return True
 
@@ -311,9 +349,11 @@ async def clear_task(task_id: int) -> tuple[list[int], Job]:
     """
     handler = get_db_handler()
     async with get_sql_session() as session:
-        task = (await session.execute(handler.lock_query(select(Task).where(Task.id == task_id)))).scalar_one_or_none()
-        if task is None:
+        job_id = (await session.execute(select(Task.job_id).where(Task.id == task_id))).scalar_one_or_none()
+        if job_id is None:
             raise TaskNotFound(f"Task {task_id} not found")
+        # Job before tasks, the order complete_task_and_roll_up and cancel_job lock in.
+        job = (await session.execute(handler.lock_query(select(Job).where(Job.id == job_id)))).scalar_one()
 
         affected = sorted({task_id} | await _downstream_task_ids(session, task_id))
 
@@ -328,7 +368,6 @@ async def clear_task(task_id: int) -> tuple[list[int], Job]:
             {**params, "pending": TASK_PENDING},
         )
 
-        job = (await session.execute(handler.lock_query(select(Job).where(Job.id == task.job_id)))).scalar_one()
         if job.status in TERMINAL_JOB_STATUSES:
             job.status = JOB_RUNNING
             job.completed_at = None
