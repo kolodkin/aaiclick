@@ -9,7 +9,7 @@ from typing import ClassVar, Literal
 from sqlalchemy import BigInteger, Boolean, Column, ForeignKey, String
 from sqlmodel import Field, SQLModel
 
-from ..datetime_utils import utc_now
+from ..datetime_utils import utc_field, utc_now
 
 ROLE_VIEWER = "viewer"
 ROLE_MEMBER = "member"
@@ -58,7 +58,7 @@ class User(SQLModel, table=True):
     totp_secret: str | None = Field(sa_column=Column(String, nullable=True), default=None)
     """Base32 TOTP seed; pending until ``mfa_enabled`` confirms it."""
     mfa_enabled: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="0"), default=False)
-    created_at: datetime = Field(default_factory=utc_now)
+    created_at: datetime = utc_field(default_factory=utc_now)
 
 
 class RefreshToken(SQLModel, table=True):
@@ -67,9 +67,9 @@ class RefreshToken(SQLModel, table=True):
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
     user_id: int = Field(sa_column=Column(BigInteger, ForeignKey("users.id"), nullable=False, index=True))
     token_hash: str = Field(sa_column=Column(String, nullable=False, unique=True, index=True))
-    expires_at: datetime
-    rotated_at: datetime | None = Field(default=None)
-    revoked_at: datetime | None = Field(default=None)
+    expires_at: datetime = utc_field()
+    rotated_at: datetime | None = utc_field(default=None)
+    revoked_at: datetime | None = utc_field(default=None)
 
 
 class ApiToken(SQLModel, table=True):
@@ -84,10 +84,10 @@ class ApiToken(SQLModel, table=True):
     """Leading characters of the secret, so a user can tell tokens apart in a list."""
     token_hash: str = Field(sa_column=Column(String, nullable=False, unique=True, index=True))
     scope: ScopeLevel = Field(sa_column=Column(String, nullable=False))
-    expires_at: datetime | None = Field(default=None)
-    last_used_at: datetime | None = Field(default=None)
-    revoked_at: datetime | None = Field(default=None)
-    created_at: datetime = Field(default_factory=utc_now)
+    expires_at: datetime | None = utc_field(default=None)
+    last_used_at: datetime | None = utc_field(default=None)
+    revoked_at: datetime | None = utc_field(default=None)
+    created_at: datetime = utc_field(default_factory=utc_now)
 
 
 class PasswordResetToken(SQLModel, table=True):
@@ -96,6 +96,6 @@ class PasswordResetToken(SQLModel, table=True):
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
     user_id: int = Field(sa_column=Column(BigInteger, ForeignKey("users.id"), nullable=False, index=True))
     token_hash: str = Field(sa_column=Column(String, nullable=False, unique=True, index=True))
-    expires_at: datetime
-    consumed_at: datetime | None = Field(default=None)
-    created_at: datetime = Field(default_factory=utc_now)
+    expires_at: datetime = utc_field()
+    consumed_at: datetime | None = utc_field(default=None)
+    created_at: datetime = utc_field(default_factory=utc_now)
