@@ -93,17 +93,6 @@ documented. Add one `validate_runner_fields(runner_mode, ...)` next to
 
 ---
 
-# Lift the `sqlmodel<0.0.45` Cap
-
-sqlmodel 0.0.45 maps a bare `datetime` field to `UTCDateTime`, which rejects
-naive values. aaiclick stores naive UTC (`aaiclick/datetime_utils.py`), so
-`pyproject.toml` caps sqlmodel below 0.0.45. To lift the cap, give each
-`datetime` table field (about 30 across the `models.py` files) an explicit
-`sa_column=Column(DateTime(), ...)`, which both versions honor and which
-matches the existing migrations, then drop the cap.
-
----
-
 # Deferred
 
 Items deferred until preconditions are met.
