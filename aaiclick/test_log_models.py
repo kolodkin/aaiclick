@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from aaiclick.log_models import MAX_PAGE_LIMIT, PageLimit, PageOffset, UtcDateTime, normalize_level
+from aaiclick.log_models import MAX_PAGE_LIMIT, LogLine, PageLimit, PageOffset, UtcDateTime, normalize_level
 
 
 class _Paged(BaseModel):
@@ -71,3 +71,11 @@ def test_page_bounds_accept_the_cap():
 def test_utc_datetime_normalizes_to_naive_utc(value, expected):
     at = _Stamped.model_validate({"at": value}).at
     assert at == expected and at.tzinfo is None
+
+
+def test_log_line_created_at_read_in_server_zone_is_utc():
+    """chdb returns a zone-less DateTime64 column in the host's zone, so a
+    non-UTC host reads task_logs.created_at as aware local time."""
+    tokyo = timezone(timedelta(hours=9))
+    line = LogLine(stream="stdout", text="x", created_at=datetime(2030, 6, 1, 21, 0, tzinfo=tokyo))
+    assert line.created_at == datetime(2030, 6, 1, 12, 0) and line.created_at.tzinfo is None

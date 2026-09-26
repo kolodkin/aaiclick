@@ -197,8 +197,8 @@ async def test_baseline_is_safe_on_existing_tables(orch_ctx):
     # (with a divergent shape) but schema_migrations does not.
     await ch.command("DROP TABLE IF EXISTS operation_log")
     await ch.command("DROP TABLE IF EXISTS schema_migrations")
-    await ch.command("CREATE TABLE operation_log (id UInt64) ENGINE = Memory")
-    await ch.command("INSERT INTO operation_log VALUES (7)")
+    await ch.command("CREATE TABLE operation_log (id UInt64, created_at DateTime64(3)) ENGINE = Memory")
+    await ch.command("INSERT INTO operation_log (id) VALUES (7)")
 
     await ch_upgrade(ch)
 
@@ -249,7 +249,7 @@ async def test_get_column_types_reads_live_schema(orch_ctx):
     assert op_types["kwargs"] == "Map(String, String)"
     assert op_types["task_id"] == "Nullable(UInt64)"
     assert list(log_types) == ["task_id", "job_id", "run_id", "seq", "stream", "level", "line", "created_at"]
-    assert log_types["created_at"] == "DateTime64(3)"
+    assert log_types["created_at"] == "DateTime64(3, 'UTC')"
 
 
 async def test_get_column_types_is_cached(orch_ctx):

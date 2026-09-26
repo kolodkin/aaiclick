@@ -77,4 +77,4 @@ class LogLine(BaseModel):
     stream: LogStream
     level: LogLevel = "INFO"
     text: str
-    created_at: datetime = Field(default_factory=utc_now)
+    created_at: UtcDateTime = Field(default_factory=utc_now)

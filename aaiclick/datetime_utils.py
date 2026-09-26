@@ -2,11 +2,18 @@
 
 Storage convention is naive UTC: SQLAlchemy ``DateTime()`` columns hold
 timezone-naive datetimes whose values are always UTC. ``utc_now()`` is a
-drop-in replacement for the deprecated ``datetime.utcnow()``.
+drop-in replacement for the deprecated ``datetime.utcnow()``, and
+``utc_field()`` declares a table model's datetime field.
 """
 
 import sqlite3
+from collections.abc import Callable
 from datetime import date, datetime, timezone
+from typing import Any
+
+from pydantic_core import PydanticUndefined, PydanticUndefinedType
+from sqlalchemy import DateTime
+from sqlmodel import Field
 
 # Python 3.12 deprecated sqlite3's default datetime/date adapters. SQLAlchemy
 # ``text()`` with bound datetime params falls through to the DBAPI adapter, so
@@ -35,3 +42,17 @@ def to_naive_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value
     return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def utc_field(
+    *,
+    default: datetime | None | PydanticUndefinedType = PydanticUndefined,
+    default_factory: Callable[[], datetime] | None = None,
+    index: bool = False,
+) -> Any:  # sqlmodel.Field's own return type, so any annotation accepts it
+    """``Field`` for a naive-UTC datetime column on a table model.
+
+    sqlmodel >= 0.0.45 maps a bare ``datetime`` field to a tz-aware type that
+    rejects naive values; this pins the column to naive ``DateTime()``.
+    """
+    return Field(default=default, default_factory=default_factory, index=index, sa_type=DateTime())

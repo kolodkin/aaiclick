@@ -8,14 +8,14 @@ from typing import ClassVar
 from sqlalchemy import BigInteger, Column, Integer, String
 from sqlmodel import Field, SQLModel
 
-from ..datetime_utils import utc_now
+from ..datetime_utils import utc_field, utc_now
 
 
 class AuditLog(SQLModel, table=True):
     __tablename__: ClassVar[str] = "audit_log"
 
     id: int = Field(sa_column=Column(BigInteger, primary_key=True))
-    at: datetime = Field(default_factory=utc_now, index=True)
+    at: datetime = utc_field(default_factory=utc_now, index=True)
     # Plain columns, not FKs: rows must outlive the user they name.
     user_id: int | None = Field(sa_column=Column(BigInteger, nullable=True, index=True), default=None)
     username: str | None = Field(sa_column=Column(String, nullable=True), default=None)

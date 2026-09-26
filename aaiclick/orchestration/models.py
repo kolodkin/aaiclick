@@ -13,7 +13,7 @@ from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, String, UniqueCon
 from sqlalchemy.orm import Mapped
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
-from ..datetime_utils import utc_now
+from ..datetime_utils import utc_field, utc_now
 from ..snowflake import get_snowflake_id
 from .runner_config import ENTRY_MODULE, EntryType
 from .task_registry import register_task
@@ -169,9 +169,9 @@ class RegisteredJob(SQLModel, table=True):
     # feeding docker_config.resolve_image_source's precedence chain.
     image: str | None = Field(default=None)
     kubernetes_config: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
-    next_run_at: datetime | None = Field(default=None, index=True)
-    created_at: datetime = Field(default_factory=utc_now)
-    updated_at: datetime = Field(default_factory=utc_now)
+    next_run_at: datetime | None = utc_field(default=None, index=True)
+    created_at: datetime = utc_field(default_factory=utc_now)
+    updated_at: datetime = utc_field(default_factory=utc_now)
 
 
 class Job(SQLModel, table=True):
@@ -205,9 +205,9 @@ class Job(SQLModel, table=True):
         sa_column=Column(String, nullable=False, server_default=RUNNER_SUBPROCESS),
     )
     runner: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
-    created_at: datetime = Field(default_factory=utc_now, index=True)
-    started_at: datetime | None = Field(default=None)
-    completed_at: datetime | None = Field(default=None)
+    created_at: datetime = utc_field(default_factory=utc_now, index=True)
+    started_at: datetime | None = utc_field(default=None)
+    completed_at: datetime | None = utc_field(default=None)
     error: str | None = Field(default=None)
 
 
@@ -227,9 +227,9 @@ class ExecutionWorker(SQLModel, table=True):
         default=EXECUTION_WORKER_ACTIVE,
         sa_column=Column(String, nullable=False, index=True),
     )
-    created_at: datetime = Field(default_factory=utc_now)
-    started_at: datetime = Field(default_factory=utc_now)
-    last_heartbeat: datetime = Field(default_factory=utc_now, index=True)
+    created_at: datetime = utc_field(default_factory=utc_now)
+    started_at: datetime = utc_field(default_factory=utc_now)
+    last_heartbeat: datetime = utc_field(default_factory=utc_now, index=True)
     tasks_completed: int = Field(default=0)
     tasks_failed: int = Field(default=0)
 
@@ -255,7 +255,7 @@ class Dependency(SQLModel, table=True):
     next_id: int = Field(sa_column=Column(BigInteger, primary_key=True, index=True))
     next_type: DependencyType = Field(sa_column=Column(String, primary_key=True))
 
-    created_at: datetime = Field(default_factory=utc_now)
+    created_at: datetime = utc_field(default_factory=utc_now)
 
 
 class _DependencyOps:
@@ -366,7 +366,7 @@ class Group(_DependencyOps, SQLModel, table=True):
         default=None, sa_column=Column(BigInteger, ForeignKey("groups.id"), index=True, nullable=True)
     )
     name: str = Field()
-    created_at: datetime = Field(default_factory=utc_now)
+    created_at: datetime = utc_field(default_factory=utc_now)
 
     _tasks: list = []
 
@@ -433,10 +433,10 @@ class Task(_DependencyOps, SQLModel, table=True):
         default=TASK_PENDING,
         sa_column=Column(String, nullable=False, index=True),
     )
-    created_at: datetime = Field(default_factory=utc_now, index=True)
-    claimed_at: datetime | None = Field(default=None)
-    started_at: datetime | None = Field(default=None)
-    completed_at: datetime | None = Field(default=None)
+    created_at: datetime = utc_field(default_factory=utc_now, index=True)
+    claimed_at: datetime | None = utc_field(default=None)
+    started_at: datetime | None = utc_field(default=None)
+    completed_at: datetime | None = utc_field(default=None)
     execution_worker_id: int | None = Field(
         default=None, sa_column=Column(BigInteger, ForeignKey("execution_workers.id"), index=True, nullable=True)
     )
@@ -444,7 +444,7 @@ class Task(_DependencyOps, SQLModel, table=True):
     error: str | None = Field(default=None)
     max_retries: int = Field(default=0)
     attempt: int = Field(default=0)
-    retry_after: datetime | None = Field(default=None)
+    retry_after: datetime | None = utc_field(default=None)
     run_ids: list[int] = Field(default_factory=list, sa_column=Column(JSON, nullable=False, server_default="[]"))
     run_statuses: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False, server_default="[]"))
     # Fencing token bumped by clear_task. A worker captures this at claim time
@@ -488,7 +488,7 @@ class RemoteTaskResult(SQLModel, table=True):
     success: bool = Field(sa_column=Column(Boolean, nullable=False))
     result_ref: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     error: str | None = Field(default=None)
-    created_at: datetime = Field(default_factory=utc_now)
+    created_at: datetime = utc_field(default_factory=utc_now)
 
 
 # Type alias for tasks/groups that can be applied

@@ -9,9 +9,9 @@ The `aaiclick/oplog/` module captures operation provenance inside ClickHouse wit
 
 ## operation_log (ClickHouse)
 
-**Implementation**: `aaiclick/oplog/migrations/0001_baseline.sql` (DDL), `aaiclick/oplog/models.py` — see `init_oplog_tables()`
+**Implementation**: `aaiclick/oplog/migrations/` (DDL: `0001_baseline.sql`, `0002_utc_timestamps.sql`), `aaiclick/oplog/models.py` — see `init_oplog_tables()`
 
-Append-only audit log. Fields: `id` (Snowflake), `result_table`, `operation`, `kwargs` (Map), `sql_template`, `task_id`, `job_id`, `created_at`. ORDER BY `(result_table, created_at)`. Cleaned up by `BackgroundWorker._cleanup_expired_jobs()` when the owning job expires (see `AAICLICK_JOB_TTL_DAYS`).
+Append-only audit log. Fields: `id` (Snowflake), `result_table`, `operation`, `kwargs` (Map), `sql_template`, `task_id`, `job_id`, `run_id`, `created_at` (`DateTime64(3, 'UTC')`, like `task_logs.created_at` and `schema_migrations.applied_at`). ORDER BY `(result_table, created_at)`. Cleaned up by `BackgroundWorker._cleanup_expired_jobs()` when the owning job expires (see `AAICLICK_JOB_TTL_DAYS`).
 
 All inputs named via `kwargs` (e.g. `{"left": ..., "right": ...}` for binary ops).
 

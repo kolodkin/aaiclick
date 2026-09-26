@@ -65,6 +65,10 @@ def test_data_list_single_vs_multiple():
     assert data_list("a", "b").data == ["a", "b"]
 ```
 
+## Don't test specific DB migrations
+
+Don't write tests for what one migration produces (an Alembic revision or `aaiclick/oplog/migrations/NNNN_*.sql`), such as "after 0002 the column is X". Test the migration runner, not individual scripts. When a migration breaks an existing test, update that test.
+
 ## Avoid internal tests — prefer end-to-end
 
 Test through the surface a user touches, not the implementation behind it. A test that asserts on private helpers (`_foo()`), private attributes, in-memory wiring (`task.previous_dependencies`), serialized dict shapes, or generated SQL text breaks on every refactor and can pass while the real flow is broken.
