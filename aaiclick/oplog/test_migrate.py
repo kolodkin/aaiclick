@@ -9,6 +9,7 @@ import pytest
 from aaiclick.data.data_context.ch_client import get_ch_client
 from aaiclick.oplog import models as oplog_models
 from aaiclick.oplog.migrate import (
+    MIGRATIONS_DIR,
     MigrationFile,
     ch_applied_versions,
     ch_pending,
@@ -197,14 +198,57 @@ async def test_baseline_is_safe_on_existing_tables(orch_ctx):
     # (with a divergent shape) but schema_migrations does not.
     await ch.command("DROP TABLE IF EXISTS operation_log")
     await ch.command("DROP TABLE IF EXISTS schema_migrations")
-    await ch.command("CREATE TABLE operation_log (id UInt64) ENGINE = Memory")
-    await ch.command("INSERT INTO operation_log VALUES (7)")
+    await ch.command("CREATE TABLE operation_log (id UInt64, created_at DateTime64(3)) ENGINE = Memory")
+    await ch.command("INSERT INTO operation_log (id) VALUES (7)")
 
     await ch_upgrade(ch)
 
     rows = (await ch.query("SELECT id FROM operation_log")).result_rows
     assert rows == [(7,)]
     assert "0001" in await ch_applied_versions(ch)
+
+
+_TIMESTAMP_COLUMNS = [
+    ("operation_log", "created_at"),
+    ("task_logs", "created_at"),
+    ("schema_migrations", "applied_at"),
+]
+
+
+async def _timestamp_types(ch) -> list[str]:
+    result = await ch.query(
+        "SELECT table, name, type FROM system.columns WHERE database = currentDatabase() AND name IN ('created_at', 'applied_at')"
+    )
+    types = {(row[0], row[1]): row[2] for row in result.result_rows}
+    return [types[col] for col in _TIMESTAMP_COLUMNS]
+
+
+async def test_fresh_install_timestamps_are_utc(orch_ctx):
+    ch = get_ch_client()
+    await ch.command("DROP TABLE IF EXISTS operation_log, task_logs, schema_migrations")
+
+    await ch_upgrade(ch)
+
+    assert await _timestamp_types(ch) == ["DateTime64(3, 'UTC')"] * len(_TIMESTAMP_COLUMNS)
+
+
+async def test_upgraded_install_timestamps_are_utc(orch_ctx):
+    """An install at 0001 with zone-less timestamps is pinned to UTC by 0002, rows intact."""
+    ch = get_ch_client()
+    await ch.command("DROP TABLE IF EXISTS operation_log, task_logs, schema_migrations")
+    await ch.command(
+        "CREATE TABLE schema_migrations (version String, applied_at DateTime64(3)) ENGINE = MergeTree ORDER BY version"
+    )
+    for stmt in split_statements((MIGRATIONS_DIR / "0001_baseline.sql").read_text()):
+        await ch.command(stmt)
+    await ch.command("INSERT INTO schema_migrations VALUES ('0001', now64(3))")
+    await ch.command("INSERT INTO operation_log (result_table, operation, created_at) VALUES ('t', 'op', now64(3))")
+
+    assert await ch_upgrade(ch) == ["0002"]
+
+    assert await _timestamp_types(ch) == ["DateTime64(3, 'UTC')"] * len(_TIMESTAMP_COLUMNS)
+    rows = (await ch.query("SELECT result_table FROM operation_log")).result_rows
+    assert rows == [("t",)]
 
 
 async def test_init_oplog_tables_local_auto_migrates(orch_ctx, monkeypatch):
@@ -249,7 +293,7 @@ async def test_get_column_types_reads_live_schema(orch_ctx):
     assert op_types["kwargs"] == "Map(String, String)"
     assert op_types["task_id"] == "Nullable(UInt64)"
     assert list(log_types) == ["task_id", "job_id", "run_id", "seq", "stream", "level", "line", "created_at"]
-    assert log_types["created_at"] == "DateTime64(3)"
+    assert log_types["created_at"] == "DateTime64(3, 'UTC')"
 
 
 async def test_get_column_types_is_cached(orch_ctx):
