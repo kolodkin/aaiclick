@@ -228,12 +228,9 @@ Decide on one taught form, then restore `reportUnusedExpression` if `>>` goes.
 
 ## Coverage Reporting
 
-Coverage is off by default: nobody read the `term-missing` table it printed
-in every CI log, and tracing plus the report added a large share of each unit
-job's runtime. `pytest-cov` stays installed for ad hoc runs (`--cov=aaiclick`),
-e.g. the zero-lines-lost check in the `python-testing-style` skill.
+Coverage is off by default: its CI log table went unread and it slowed every
+unit job. `pytest-cov` stays installed for ad hoc `--cov` runs (e.g. the
+`python-testing-style` zero-lines-lost check).
 
-Bring it back as a single nightly job that runs the unit suites with coverage
-and publishes the result somewhere it is read (an HTML artifact, or a
-coverage service with a PR badge/diff). Keep it out of the per-PR jobs so it
-never costs PR latency.
+Bring it back as one nightly job that publishes the report where it is read
+(HTML artifact or a coverage service with PR diffs), outside the per-PR jobs.

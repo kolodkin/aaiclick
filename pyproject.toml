@@ -72,8 +72,7 @@ docs = [
 ]
 dev = [
     "aaiclick[all,test]",
-    # Browser e2e suite (test_e2e/web/). Locked in uv.lock, so the Chromium
-    # build `playwright install chromium` fetches changes only with the lock.
+    # Browser e2e suite (test_e2e/web/); the lock pins its Chromium build.
     "playwright>=1.56.0",
     "pre-commit>=4.0",
 ]

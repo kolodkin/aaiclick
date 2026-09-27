@@ -29,9 +29,8 @@ import pytest
 
 from aaiclick.backend import is_local
 
-# Autouse per-xdist-worker CH and SQL databases. They run before ``base_url``
-# and point the env it hands to the server and workers at this worker's
-# databases, so parallel workers never run or observe each other's jobs.
+# Autouse per-xdist-worker databases: they set the env ``base_url`` passes to
+# the server and workers, so parallel workers never see each other's jobs.
 from aaiclick.testing import ch_worker_setup, sql_worker_setup  # noqa: F401 - re-exported as pytest fixtures
 
 SEED = Path(__file__).with_name("seed.py")

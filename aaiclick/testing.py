@@ -308,11 +308,9 @@ def ch_worker_setup():
     - **real CH**: a ``default_<worker>`` database in the shared server.
 
     Without this, the per-test ``DROP TABLE`` sweep would cross worker
-    boundaries in real-CH CI jobs. The database is migrated before the
-    fixture yields, like ``sql_worker_setup``'s, so processes that expect a
-    migrated schema at startup (the web e2e server and workers) can use it.
-    The upgrade runs in a child process: under chdb the parent must not open
-    the data directory itself.
+    boundaries in real-CH CI jobs. Like ``sql_worker_setup``, it migrates
+    the database before yielding, for processes that need the schema at
+    startup (the web e2e server and workers).
     """
     worker = os.environ.get("PYTEST_XDIST_WORKER", "")
 

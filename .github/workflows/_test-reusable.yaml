@@ -142,12 +142,10 @@ jobs:
           report-name: "Pytest Results (${{ matrix.group }})"
 
   test-durations:
-    # pytest-split timings for the split Data dist jobs. Each group stores
-    # only its own tests' durations in the Actions cache (the file is
-    # gitignored); this job restores the latest entry per group, merges them,
-    # and hands both groups the same file, so they compute the same split
-    # even if a concurrent run saves a newer entry meanwhile. With no cache
-    # yet, the file is `{}` and pytest-split splits by test count.
+    # pytest-split timings for the Data dist groups, kept in the Actions
+    # cache (gitignored). Merges each group's latest entry into one file that
+    # both groups download, so they always compute the same split even if a
+    # concurrent run saves newer timings. No cache yet: `{}`, split by count.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     name: Test durations
@@ -192,9 +190,8 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          # The largest dist suite, split in two by recorded test durations
-          # (pytest-split, see the test-durations job) so it does not set the
-          # workflow's wall time on its own.
+          # The largest dist suite, split in two by recorded durations
+          # (pytest-split, see the test-durations job).
           - group: Data dist 1/2
             test-paths: "aaiclick/data/ aaiclick/snowflake/ aaiclick/data_extra_tests/"
             extras: ""
@@ -264,9 +261,8 @@ jobs:
           name: test-durations-py${{ inputs.python-version }}
           path: .test_durations.d
 
-      # pytest-split reads the merged durations from --durations-path to pick
-      # this group's tests, then (--clean-durations) overwrites it with just
-      # this group's timings, which the save step below caches.
+      # pytest-split picks this group's tests from the merged durations, then
+      # (--clean-durations) overwrites the file with this group's timings only.
       - name: Prepare durations file
         if: matrix.split
         run: mv .test_durations.d/.test_durations .test_durations.d/${{ matrix.split }}.json
@@ -320,8 +316,7 @@ jobs:
     # Vite bundle, launches uvicorn pointed at PG + ClickHouse, and drives
     # the SPA shell with Playwright. Catches packaging/wiring regressions
     # that the local-backend pytest suites can't see.
-    # No `needs: lint`: this is the workflow's longest job, so it starts
-    # right away instead of adding lint's runtime to the critical path.
+    # No `needs: lint`: a long job, so lint's runtime stays off the critical path.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     name: UI e2e dist
@@ -338,8 +333,8 @@ jobs:
         uses: ./.github/actions/setup-uv
         with:
           python-version: ${{ inputs.python-version }}
-          # dev pins Playwright through uv.lock; `playwright install chromium`
-          # then fetches the Chromium build that exact version expects.
+          # dev pins Playwright via uv.lock, so `playwright install chromium`
+          # below fetches the matching browser build.
           sync-args: "--extra dev"
 
       - name: Setup Node.js
@@ -391,10 +386,8 @@ jobs:
           AAICLICK_ADMIN_PASSWORD: ci-admin-password
         uses: ./.github/actions/run-pytest
         with:
-          # -n auto: the suite mostly waits on the server and workers, so it
-          # leaves the runner's cores idle when run serially; each xdist
-          # worker gets its own server, workers and databases
-          # (test_e2e/web/conftest.py).
+          # -n auto: serially the suite mostly waits on the server and workers.
+          # Each xdist worker gets its own server, workers and databases.
           command: uv run pytest test_e2e/web/ -v -n auto
           report-name: "Pytest Results (UI e2e dist)"
 
