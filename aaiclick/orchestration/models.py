@@ -15,7 +15,7 @@ from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
 from ..datetime_utils import utc_field, utc_now
 from ..snowflake import get_snowflake_id
-from .runner_config import ENTRY_MODULE, EntryType
+from .runner_config import ENTRY_MODULE, RUNNER_SUBPROCESS, EntryType, RunnerMode
 from .task_registry import register_task
 
 # Enum columns are stored as plain ``String`` and validated by their ``Literal``
@@ -117,24 +117,6 @@ PreservationMode = Literal["NONE", "FULL"]
 - ``FULL``: every table the job produced stays until the job TTL expires,
   useful for development and debugging.
 """
-
-
-RUNNER_SUBPROCESS = "subprocess"
-RUNNER_DOCKER = "docker"
-RUNNER_KUBERNETES = "kubernetes"
-RunnerMode = Literal["subprocess", "docker", "kubernetes"]
-"""Which task-execution runner the orchestrator uses for a job.
-
-- ``subprocess`` (default): each task runs in a multiprocessing child
-  spawned by the host worker process.
-- ``docker``: each task runs in a fresh container built on demand from
-  the user's repo at a specific git SHA.
-- ``kubernetes``: each task runs in a fresh Pod built on demand from the
-  user's repo at a specific git SHA, scheduled on a cluster. The result
-  is handed back via the ``remote_task_results`` table rather than a
-  bind-mounted file.
-"""
-RUNNER_MODES: list[RunnerMode] = [RUNNER_SUBPROCESS, RUNNER_DOCKER, RUNNER_KUBERNETES]
 
 
 class RegisteredJob(SQLModel, table=True):

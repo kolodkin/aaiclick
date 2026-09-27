@@ -13,23 +13,6 @@ Remove each item from that file as it lands; delete the file when empty.
 
 ---
 
-# One Runner-Mode Validator for Container-Only Fields
-
-`run_job` (`aaiclick/orchestration/registered_jobs.py`) rejects `image`,
-`git_*`, and `dockerfile` on subprocess jobs, but the same silent drop
-survives twice: `register_job` / `upsert_registered_job` store those fields
-on subprocess registrations that never read them, and `run_job` ignores
-`namespace` / `service_account` / `image_pull_secret` off kubernetes, as
-documented. Add one `validate_runner_fields(runner_mode, ...)` next to
-`validate_image_exclusivity` in `runner_config.py` for both. Preconditions:
-
-- Move `RUNNER_*` and `RunnerMode` from `models.py` into `runner_config.py`;
-  `models.py` already imports it, so the validator cannot import back.
-- Decide to reject the kubernetes overrides instead of documenting them as
-  ignored.
-
----
-
 # Deferred
 
 Items deferred until preconditions are met.

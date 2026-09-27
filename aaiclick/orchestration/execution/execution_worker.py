@@ -29,11 +29,10 @@ from ..models import (
     TASK_RUNNING,
     ExecutionWorker,
     ExecutionWorkerStatus,
-    RunnerMode,
     Task,
 )
 from ..orch_context import get_sql_session
-from ..runner_config import ENTRY_MODULE, EntryType, ImageSourceT
+from ..runner_config import ENTRY_MODULE, EntryType, ImageSourceT, RunnerMode
 from .claiming import (
     check_run_aborted,
     claim_next_task,

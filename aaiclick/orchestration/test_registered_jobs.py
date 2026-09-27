@@ -19,6 +19,7 @@ from .registered_jobs import (
     run_job,
     upsert_registered_job,
 )
+from .runner_config import RUNNER_DOCKER
 
 
 @pytest.mark.parametrize(
@@ -361,6 +362,43 @@ async def test_run_job_rejects_image_overrides_without_container_runner(orch_ctx
         await run_job("no_reg", "myapp.no_reg", **overrides)
 
 
+@pytest.mark.parametrize(
+    "override",
+    [
+        pytest.param({"namespace": "ml"}, id="namespace"),
+        pytest.param({"service_account": "sa"}, id="service-account"),
+        pytest.param({"image_pull_secret": "pull"}, id="image-pull-secret"),
+    ],
+)
+async def test_run_job_rejects_kubernetes_overrides_without_kubernetes_runner(orch_ctx, override):
+    # A docker registration has no Pod for the cluster override to configure.
+    await register_job(name="docker_reg", entrypoint="myapp.docker_reg", runner_mode=RUNNER_DOCKER)
+    with pytest.raises(ValueError, match="require the kubernetes runner; the job runs on the docker runner"):
+        await run_job("docker_reg", "myapp.docker_reg", **override)
+
+
+@pytest.mark.parametrize("register", [register_job, upsert_registered_job])
+@pytest.mark.parametrize(
+    "fields, message",
+    [
+        pytest.param({"image": "python:3.12"}, "image require a docker/kubernetes runner", id="image"),
+        pytest.param({"git_remote": "git@x:r.git"}, "git_remote require a docker/kubernetes runner", id="git-remote"),
+        pytest.param(
+            {"dockerfile": "Dockerfile.gpu"}, "dockerfile require a docker/kubernetes runner", id="dockerfile"
+        ),
+        pytest.param(
+            {"runner_mode": RUNNER_DOCKER, "kubernetes_config": {"namespace": "ml"}},
+            "kubernetes_config require the kubernetes runner",
+            id="kubernetes-config-on-docker",
+        ),
+    ],
+)
+async def test_registration_rejects_fields_its_runner_never_reads(orch_ctx, register, fields, message):
+    with pytest.raises(ValueError, match=message):
+        await register(name="unread_fields", entrypoint="myapp.unread", **fields)
+    assert await get_registered_job("unread_fields") is None
+
+
 async def test_run_job_shell_creates_shell_task(orch_ctx):
     job = await run_job(
         "shell_task",
@@ -381,6 +419,7 @@ async def test_register_job_with_image(orch_ctx):
     await register_job(
         name="prebuilt_job",
         entrypoint="myapp.prebuilt",
+        runner_mode=RUNNER_DOCKER,
         image="python:3.12",
     )
     fetched = await get_registered_job("prebuilt_job")
@@ -392,6 +431,7 @@ async def test_upsert_job_with_image(orch_ctx):
     await upsert_registered_job(
         name="upsert_prebuilt",
         entrypoint="myapp.prebuilt",
+        runner_mode=RUNNER_DOCKER,
         image="python:3.12",
     )
     fetched = await get_registered_job("upsert_prebuilt")

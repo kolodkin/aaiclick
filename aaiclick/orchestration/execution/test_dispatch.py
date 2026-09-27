@@ -9,8 +9,16 @@ import pytest
 from ..factories import create_job
 from ..jobs import get_task
 from ..jobs.queries import get_tasks_for_job
-from ..models import RUNNER_DOCKER, RUNNER_KUBERNETES, RUNNER_SUBPROCESS, TASK_RUNNING, Task
-from ..runner_config import ENTRY_JVM, ImageBuild, ImagePrebuilt, dump_image_source
+from ..models import TASK_RUNNING, Task
+from ..runner_config import (
+    ENTRY_JVM,
+    RUNNER_DOCKER,
+    RUNNER_KUBERNETES,
+    RUNNER_SUBPROCESS,
+    ImageBuild,
+    ImagePrebuilt,
+    dump_image_source,
+)
 from . import dispatch
 from .execution_worker import JobDispatch
 

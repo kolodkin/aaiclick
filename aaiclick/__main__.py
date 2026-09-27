@@ -69,15 +69,9 @@ from aaiclick.internal_api import users as users_api
 from aaiclick.internal_api.errors import InternalApiError, NotFound
 from aaiclick.orchestration.env import job_wait_timeout
 from aaiclick.orchestration.kubernetes_config import build_kubernetes_config
-from aaiclick.orchestration.models import (
-    JOB_COMPLETED,
-    ExecutionWorkerStatus,
-    JobStatus,
-    PreservationMode,
-    RunnerMode,
-)
+from aaiclick.orchestration.models import JOB_COMPLETED, ExecutionWorkerStatus, JobStatus, PreservationMode
 from aaiclick.orchestration.orch_context import orch_context
-from aaiclick.orchestration.runner_config import ENTRY_TYPES
+from aaiclick.orchestration.runner_config import ENTRY_TYPES, RunnerMode
 from aaiclick.view_models import (
     ExecutionWorkerFilter,
     JobListFilter,

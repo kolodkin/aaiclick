@@ -14,19 +14,20 @@ from ..snowflake import get_snowflake_id
 from .docker_config import resolve_image_source, resolve_runner_config
 from .factories import create_built_job, create_job, create_task
 from .kubernetes_config import resolve_kubernetes_config
-from .models import (
-    RUN_MANUAL,
-    RUNNER_DOCKER,
+from .models import RUN_MANUAL, Job, PreservationMode, RegisteredJob, RunType
+from .orch_context import get_sql_session
+from .runner_config import (
+    ENTRY_JVM,
+    ENTRY_MODULE,
+    IMAGE_RUNNERS,
     RUNNER_KUBERNETES,
     RUNNER_SUBPROCESS,
-    Job,
-    PreservationMode,
-    RegisteredJob,
+    EntryType,
     RunnerMode,
-    RunType,
+    validate_image_exclusivity,
+    validate_runner_fields,
+    validate_task_entry,
 )
-from .orch_context import get_sql_session
-from .runner_config import ENTRY_JVM, ENTRY_MODULE, EntryType, validate_image_exclusivity, validate_task_entry
 
 
 class RegisteredJobAlreadyExists(ValueError):
@@ -59,6 +60,21 @@ def compute_next_run(cron_expr: str, after: datetime | None = None) -> datetime:
 def _next_run_at(schedule: str | None, enabled: bool, now: datetime) -> datetime | None:
     """Compute next_run_at from schedule if enabled, else None."""
     return compute_next_run(schedule, now) if schedule and enabled else None
+
+
+def _validate_registration_fields(
+    runner_mode: RunnerMode,
+    image: str | None,
+    git_remote: str | None,
+    dockerfile: str | None,
+    kubernetes_config: dict[str, Any] | None,
+) -> None:
+    """Refuse to store defaults the registration's runner would never read."""
+    validate_runner_fields(
+        runner_mode,
+        image_fields={"image": image, "git_remote": git_remote, "dockerfile": dockerfile},
+        kubernetes_fields={"kubernetes_config": kubernetes_config or None},
+    )
 
 
 def _build_registered_job(
@@ -133,8 +149,11 @@ async def register_job(
         Created RegisteredJob
 
     Raises:
+        ValueError: If ``image``, ``git_remote``, ``dockerfile``, or
+            ``kubernetes_config`` is set on a runner that never reads it.
         RegisteredJobAlreadyExists: If a job with this name already exists.
     """
+    _validate_registration_fields(runner_mode, image, git_remote, dockerfile, kubernetes_config)
     now = utc_now()
     registered_job = _build_registered_job(
         name=name,
@@ -213,7 +232,12 @@ async def upsert_registered_job(
 
     Returns:
         The created or updated RegisteredJob
+
+    Raises:
+        ValueError: If ``image``, ``git_remote``, ``dockerfile``, or
+            ``kubernetes_config`` is set on a runner that never reads it.
     """
+    _validate_registration_fields(runner_mode, image, git_remote, dockerfile, kubernetes_config)
     now = utc_now()
 
     async with get_sql_session() as session:
@@ -402,7 +426,7 @@ async def run_job(
         namespace: Override the kubernetes namespace for this run.
         service_account: Override the kubernetes service account for this run.
         image_pull_secret: Override the kubernetes imagePullSecret for this run.
-            The three kubernetes overrides are ignored unless the registered
+            The three kubernetes overrides are rejected unless the registered
             job is in kubernetes mode; each falls through to the RegisteredJob
             default, then the ``AAICLICK_K8S_*`` env layer (see
             ``kubernetes_config.resolve_kubernetes_config``).
@@ -419,8 +443,23 @@ async def run_job(
     merged_kwargs = {**(default_kwargs or {}), **(kwargs or {})}
 
     runner_mode = registered.runner_mode if registered is not None else RUNNER_SUBPROCESS
+    validate_runner_fields(
+        runner_mode,
+        image_fields={
+            "image": image,
+            "git_remote": git_remote,
+            "git_sha": git_sha,
+            "git_branch": git_branch,
+            "dockerfile": dockerfile,
+        },
+        kubernetes_fields={
+            "namespace": namespace,
+            "service_account": service_account,
+            "image_pull_secret": image_pull_secret,
+        },
+    )
 
-    if runner_mode in (RUNNER_DOCKER, RUNNER_KUBERNETES):
+    if runner_mode in IMAGE_RUNNERS:
         if is_local():
             raise ValueError(
                 f"{runner_mode} runner requires distributed mode (Postgres + ClickHouse); "
@@ -464,19 +503,6 @@ async def run_job(
         raise ValueError(
             "jvm entry_type requires a docker/kubernetes registered job — the shim jar "
             "runs only inside the task's container image (spec: docs/designs/java-sdk.md)"
-        )
-    build_fields = {
-        "image": image,
-        "git_remote": git_remote,
-        "git_sha": git_sha,
-        "git_branch": git_branch,
-        "dockerfile": dockerfile,
-    }
-    given = [key for key, value in build_fields.items() if value is not None]
-    if given:
-        raise ValueError(
-            f"{', '.join(given)} require a docker/kubernetes registered job; "
-            f"{name!r} runs on the {runner_mode} runner, which has no image to build"
         )
 
     task = create_task(

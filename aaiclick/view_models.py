@@ -42,7 +42,8 @@ from .log_models import (
     UtcDateTime,
     normalize_level,
 )
-from .orchestration.models import ExecutionWorkerStatus, JobStatus, PreservationMode, RunnerMode
+from .orchestration.models import ExecutionWorkerStatus, JobStatus, PreservationMode
+from .orchestration.runner_config import RunnerMode
 
 # Mirrors aaiclick.data.scope.ObjectScope — re-declared to keep this shared
 # module from pulling the heavy aaiclick.data package into CLI/REST startup.
@@ -99,14 +100,14 @@ class RunJobRequest(BaseModel):
     command: list[str] | None = None
     command_env: dict[str, str] | None = None
     image: str | None = None
-    # Per-run docker overrides; ignored unless the registered job is
-    # in docker mode. Each field falls through to the RegisteredJob
+    # Per-run image overrides; rejected unless the registered job is
+    # in docker/kubernetes mode. Each field falls through to the RegisteredJob
     # default, then to git auto-detect (where applicable).
     git_remote: str | None = None
     git_sha: str | None = None
     git_branch: str | None = None
     dockerfile: str | None = None
-    # Per-run kubernetes overrides; ignored unless the registered job is in
+    # Per-run kubernetes overrides; rejected unless the registered job is in
     # kubernetes mode. Each field falls through to the RegisteredJob default,
     # then the AAICLICK_K8S_* env layer.
     namespace: str | None = None

@@ -96,7 +96,7 @@ async def test_run_job_rejects_image_on_the_subprocess_runner(orch_ctx, capsys):
         await run_cli("run-job", "j", "--entry-type", "shell", "--command", "true", "--image", "python:3.12")
 
     assert exc_info.value.code == 1
-    assert "image require a docker/kubernetes registered job" in capsys.readouterr().err
+    assert "image require a docker/kubernetes runner" in capsys.readouterr().err
 
 
 async def test_cli_reports_an_unexpected_error_without_a_traceback(capsys):
@@ -116,7 +116,7 @@ async def test_cli_debug_env_reraises_for_the_traceback(monkeypatch):
 
 
 async def test_register_job_persists_image(orch_ctx, capsys):
-    await run_cli("register-job", "myapp.jobs.etl", "--image", "myrepo/img:1")
+    await run_cli("register-job", "myapp.jobs.etl", "--runner", "docker", "--image", "myrepo/img:1")
 
     registered = await _only_registered_job()
     assert registered.image == "myrepo/img:1"

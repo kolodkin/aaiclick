@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock
 
-from ..models import RUNNER_DOCKER, Task
-from ..runner_config import ENTRY_JVM, ENTRY_MODULE, ImagePrebuilt
+from ..models import Task
+from ..runner_config import ENTRY_JVM, ENTRY_MODULE, RUNNER_DOCKER, ImagePrebuilt
 from . import docker_worker
 from .docker_worker import _build_docker_run_cmd, build_shell_run_spec
 from .execution_worker import JobDispatch, RunnerResult

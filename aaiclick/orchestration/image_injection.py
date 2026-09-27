@@ -26,8 +26,8 @@ from ..datetime_utils import utc_now
 from ..snowflake import get_snowflake_id
 from .docker_config import get_registry, image_key
 from .execution.image_build_task import IMAGE_BUILD_ENTRYPOINT, build_task_name
-from .models import RUNNER_DOCKER, RUNNER_KUBERNETES, TASK_PENDING, Job, RunnerMode, Task
-from .runner_config import ENTRY_JVM, ImageBuild, parse_image_source
+from .models import TASK_PENDING, Job, Task
+from .runner_config import ENTRY_JVM, IMAGE_RUNNERS, RUNNER_KUBERNETES, ImageBuild, RunnerMode, parse_image_source
 
 BUILD_TASK_MAX_RETRIES = 2
 
@@ -52,7 +52,7 @@ def validate_image_sources(tasks: list[Task], runner_mode: RunnerMode) -> None:
     for task in tasks:
         if task.image_source is None:
             continue
-        if runner_mode not in (RUNNER_DOCKER, RUNNER_KUBERNETES):
+        if runner_mode not in IMAGE_RUNNERS:
             raise ValueError(
                 f"task {task.name!r} declares an image_source but the job's runner_mode "
                 f"is {runner_mode!r}; images are only valid on docker/kubernetes jobs"
@@ -155,7 +155,7 @@ async def inject_build_tasks(session: AsyncSession, tasks: list[Task], job: Job)
     can race past the lookup and double-inject; both builds are cache-first
     (registry pull or local daemon) so the loser is a cheap no-op (accepted,
     spec "Races")."""
-    if job.runner_mode not in (RUNNER_DOCKER, RUNNER_KUBERNETES):
+    if job.runner_mode not in IMAGE_RUNNERS:
         return []
 
     groups: dict[str, tuple[ImageBuild, list[Task]]] = {}

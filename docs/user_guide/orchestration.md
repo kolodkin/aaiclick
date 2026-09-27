@@ -360,6 +360,8 @@ fields (`git_remote` / `git_sha` / `git_branch` / `dockerfile`). `run_job`
 stamps the resolved image on the job's entry task; dynamic child tasks inherit
 their parent's image unless they declare their own
 (`create_task(image=...)` or `create_task(git_remote=..., git_sha=...)`).
+Image fields require a docker or kubernetes job, and kubernetes settings a
+kubernetes job; setting either on another runner is an error, not a no-op.
 
 Each distinct image gets one `build-image` task in the job that every task on
 that image depends on; it appears in the job graph like any other task
