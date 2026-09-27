@@ -35,7 +35,7 @@ from aaiclick.backend import is_chdb, is_local, parse_ch_url
 from aaiclick.data.data_context import ChClient, get_ch_client
 from aaiclick.data.models import FIELDTYPE_ARRAY
 from aaiclick.oplog.lineage import OplogNode
-from aaiclick.oplog.migrate import ch_applied_versions, ch_upgrade
+from aaiclick.oplog.migrate import ch_applied_versions, ch_upgrade, ch_upgrade_standalone
 from aaiclick.oplog.models import clear_schema_cache
 from aaiclick.orchestration.migrate import get_alembic_config
 from aaiclick.orchestration.models import JobStatus, SQLModel
@@ -293,10 +293,6 @@ def _pg_connect(dbname: str):
 # ---------------------------------------------------------------------------
 
 
-# Runs in a child process so the caller never opens chdb itself.
-_CH_UPGRADE_SCRIPT = "from aaiclick.oplog.migrate import ch_upgrade_standalone; ch_upgrade_standalone()"
-
-
 @pytest.fixture(autouse=True, scope="session")
 def ch_worker_setup():
     """Per-worker CH isolation — tempdir for chdb, database for real CH.
@@ -308,9 +304,10 @@ def ch_worker_setup():
     - **real CH**: a ``default_<worker>`` database in the shared server.
 
     Without this, the per-test ``DROP TABLE`` sweep would cross worker
-    boundaries in real-CH CI jobs. Like ``sql_worker_setup``, it migrates
-    the database before yielding, for processes that need the schema at
-    startup (the web e2e server and workers).
+    boundaries in real-CH CI jobs. Like ``sql_worker_setup``, real CH is
+    migrated before yielding, for processes that need the schema at startup
+    (the web e2e server and workers); chdb migrates itself on first use
+    (``init_oplog_tables``).
     """
     worker = os.environ.get("PYTEST_XDIST_WORKER", "")
 
@@ -321,7 +318,6 @@ def ch_worker_setup():
         tmp_dir = tempfile.mkdtemp(prefix=f"aaiclick_chdb_{worker}_")
         prior_url = os.environ.get("AAICLICK_CH_URL")
         os.environ["AAICLICK_CH_URL"] = f"chdb://{tmp_dir}"
-        subprocess.run([sys.executable, "-c", _CH_UPGRADE_SCRIPT], check=True)
         try:
             yield
         finally:
@@ -336,6 +332,7 @@ def ch_worker_setup():
     import clickhouse_connect
 
     if not worker:
+        ch_upgrade_standalone()
         yield
         return
 
@@ -359,7 +356,7 @@ def ch_worker_setup():
 
     prior_url = os.environ["AAICLICK_CH_URL"]
     os.environ["AAICLICK_CH_URL"] = prior_url.rsplit("/", 1)[0] + f"/{db_name}"
-    subprocess.run([sys.executable, "-c", _CH_UPGRADE_SCRIPT], check=True)
+    ch_upgrade_standalone()
     try:
         yield
     finally:
@@ -451,6 +448,10 @@ async def orch_module_ctx():
     """
     async with module_orch_scope(orch_context()):
         yield
+
+
+# Runs in a child process: the parent of mp-worker tests must never open chdb.
+_CH_UPGRADE_SCRIPT = "from aaiclick.oplog.migrate import ch_upgrade_standalone; ch_upgrade_standalone()"
 
 
 @pytest.fixture(scope="module")

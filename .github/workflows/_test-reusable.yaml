@@ -35,6 +35,8 @@ env:
   # No v3 exists yet — opt into Node.js 24 early to silence the deprecation warning.
   # Remove once dorny/test-reporter releases a Node.js 24-compatible version.
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # pytest-split durations: cache key prefix and artifact name (see test-durations).
+  DURATIONS_KEY: test-durations-py${{ inputs.python-version }}-leak${{ inputs.gc-leak-check }}-data-dist
 
 jobs:
   lint:
@@ -149,8 +151,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     name: Test durations
-    env:
-      DURATIONS_KEY: test-durations-py${{ inputs.python-version }}-leak${{ inputs.gc-leak-check }}-data-dist
     steps:
       - name: Restore group 1 durations
         uses: actions/cache/restore@v4
@@ -174,9 +174,9 @@ jobs:
           echo "Durations for $(jq length .test_durations) tests"
 
       - name: Upload merged durations
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
-          name: test-durations-py${{ inputs.python-version }}
+          name: ${{ env.DURATIONS_KEY }}
           path: .test_durations
           include-hidden-files: true
           retention-days: 1
@@ -186,6 +186,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     name: ${{ matrix.group }}
+    env:
+      DURATIONS_FILE: .test_durations.d/${{ matrix.split }}.json
     strategy:
       fail-fast: true
       matrix:
@@ -193,11 +195,11 @@ jobs:
           # The largest dist suite, split in two by recorded durations
           # (pytest-split, see the test-durations job).
           - group: Data dist 1/2
-            test-paths: "aaiclick/data/ aaiclick/snowflake/ aaiclick/data_extra_tests/"
+            test-paths: &data-dist-paths "aaiclick/data/ aaiclick/snowflake/ aaiclick/data_extra_tests/"
             extras: ""
             split: "1"
           - group: Data dist 2/2
-            test-paths: "aaiclick/data/ aaiclick/snowflake/ aaiclick/data_extra_tests/"
+            test-paths: *data-dist-paths
             extras: ""
             split: "2"
           - group: Orch dist
@@ -256,16 +258,16 @@ jobs:
 
       - name: Download test durations
         if: matrix.split
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
-          name: test-durations-py${{ inputs.python-version }}
+          name: ${{ env.DURATIONS_KEY }}
           path: .test_durations.d
 
       # pytest-split picks this group's tests from the merged durations, then
       # (--clean-durations) overwrites the file with this group's timings only.
       - name: Prepare durations file
         if: matrix.split
-        run: mv .test_durations.d/.test_durations .test_durations.d/${{ matrix.split }}.json
+        run: mv .test_durations.d/.test_durations "$DURATIONS_FILE"
 
       - name: Run database migrations
         env:
@@ -301,15 +303,15 @@ jobs:
         with:
           command: >-
             uv run pytest ${{ matrix.test-paths }} -n auto -v
-            ${{ matrix.split && format('--splits 2 --group {0} --store-durations --clean-durations --durations-path .test_durations.d/{0}.json', matrix.split) || '' }}
+            ${{ matrix.split && format('--splits 2 --group {0} --store-durations --clean-durations --durations-path {1}', matrix.split, env.DURATIONS_FILE) || '' }}
           report-name: "Pytest Results (${{ matrix.group }})"
 
       - name: Save test durations
-        if: ${{ !cancelled() && matrix.split && hashFiles(format('.test_durations.d/{0}.json', matrix.split)) != '' }}
+        if: ${{ !cancelled() && matrix.split && hashFiles(env.DURATIONS_FILE) != '' }}
         uses: actions/cache/save@v4
         with:
-          path: .test_durations.d/${{ matrix.split }}.json
-          key: test-durations-py${{ inputs.python-version }}-leak${{ inputs.gc-leak-check }}-data-dist-${{ matrix.split }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.DURATIONS_FILE }}
+          key: ${{ env.DURATIONS_KEY }}-${{ matrix.split }}-${{ github.run_id }}-${{ github.run_attempt }}
 
   test-ui-e2e-dist:
     # Single browser smoke pass against the distributed backend: builds the
