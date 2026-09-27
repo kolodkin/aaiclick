@@ -19,7 +19,7 @@ from .orch_context import get_sql_session
 from .runner_config import (
     ENTRY_JVM,
     ENTRY_MODULE,
-    RUNNER_DOCKER,
+    IMAGE_RUNNERS,
     RUNNER_KUBERNETES,
     RUNNER_SUBPROCESS,
     EntryType,
@@ -64,10 +64,9 @@ def _next_run_at(schedule: str | None, enabled: bool, now: datetime) -> datetime
 
 def _validate_registration_fields(
     runner_mode: RunnerMode,
-    *,
-    dockerfile: str | None,
-    git_remote: str | None,
     image: str | None,
+    git_remote: str | None,
+    dockerfile: str | None,
     kubernetes_config: dict[str, Any] | None,
 ) -> None:
     """Refuse to store defaults the registration's runner would never read."""
@@ -154,13 +153,7 @@ async def register_job(
             ``kubernetes_config`` is set on a runner that never reads it.
         RegisteredJobAlreadyExists: If a job with this name already exists.
     """
-    _validate_registration_fields(
-        runner_mode,
-        dockerfile=dockerfile,
-        git_remote=git_remote,
-        image=image,
-        kubernetes_config=kubernetes_config,
-    )
+    _validate_registration_fields(runner_mode, image, git_remote, dockerfile, kubernetes_config)
     now = utc_now()
     registered_job = _build_registered_job(
         name=name,
@@ -244,13 +237,7 @@ async def upsert_registered_job(
         ValueError: If ``image``, ``git_remote``, ``dockerfile``, or
             ``kubernetes_config`` is set on a runner that never reads it.
     """
-    _validate_registration_fields(
-        runner_mode,
-        dockerfile=dockerfile,
-        git_remote=git_remote,
-        image=image,
-        kubernetes_config=kubernetes_config,
-    )
+    _validate_registration_fields(runner_mode, image, git_remote, dockerfile, kubernetes_config)
     now = utc_now()
 
     async with get_sql_session() as session:
@@ -472,7 +459,7 @@ async def run_job(
         },
     )
 
-    if runner_mode in (RUNNER_DOCKER, RUNNER_KUBERNETES):
+    if runner_mode in IMAGE_RUNNERS:
         if is_local():
             raise ValueError(
                 f"{runner_mode} runner requires distributed mode (Postgres + ClickHouse); "

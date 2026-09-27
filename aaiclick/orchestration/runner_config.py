@@ -37,7 +37,8 @@ RunnerMode = Literal["subprocess", "docker", "kubernetes"]
   is handed back via the ``remote_task_results`` table rather than a
   bind-mounted file.
 """
-RUNNER_MODES: list[RunnerMode] = [RUNNER_SUBPROCESS, RUNNER_DOCKER, RUNNER_KUBERNETES]
+# The only runners that read image fields.
+IMAGE_RUNNERS: tuple[RunnerMode, ...] = (RUNNER_DOCKER, RUNNER_KUBERNETES)
 
 
 # --- image source (nested in docker/kubernetes runners) -------------------
@@ -145,13 +146,12 @@ def validate_runner_fields(
     image_fields: dict[str, object | None],
     kubernetes_fields: dict[str, object | None],
 ) -> None:
-    """Reject fields the job's runner never reads instead of dropping them
-    silently — shared by registration and ``run_job``. ``image_fields``
-    (``image``, ``git_*``, ``dockerfile``) need a docker/kubernetes runner;
-    ``kubernetes_fields`` need the kubernetes runner. Keys name the fields in
-    the message. Raises ``ValueError``."""
+    """Reject set fields the runner never reads, rather than dropping them.
+
+    ``image_fields`` need a docker/kubernetes runner, ``kubernetes_fields`` the
+    kubernetes runner; keys name the fields in the error. Raises ``ValueError``."""
     checks = (
-        (image_fields, (RUNNER_DOCKER, RUNNER_KUBERNETES), "a docker/kubernetes runner"),
+        (image_fields, IMAGE_RUNNERS, "a docker/kubernetes runner"),
         (kubernetes_fields, (RUNNER_KUBERNETES,), "the kubernetes runner"),
     )
     for fields, runners, needed in checks:
