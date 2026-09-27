@@ -24,7 +24,9 @@ naming each one still unreplaced, on every startup.
 | ClickHouse password  | `clickhouse.CLICKHOUSE_PASSWORD` + every `AAICLICK_CH_URL` | `devDependencies.clickhouse.password` + `env.chUrl`  |
 
 Database passwords appear twice — on the database service and in every URL that
-dials it. Change both sides together or the stack stops connecting.
+dials it. Change both sides together or the stack stops connecting. In the URL,
+percent-encode `@`, `:` and `/` (`p@ss` → `p%40ss`); the service side takes the
+password as is.
 
 !!! warning "The signing secret is what forges tokens"
     Anyone holding `AAICLICK_JWT_SECRET` can mint an admin token for your

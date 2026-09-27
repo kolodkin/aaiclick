@@ -29,6 +29,8 @@ Getting Started
     export AAICLICK_SQL_URL="postgresql+asyncpg://user:pass@host:5432/db"
     ```
 
+    Percent-encode reserved characters in the user or password (`@` → `%40`, `:` → `%3A`) in either URL.
+
 === "AI Features"
 
     Add lineage tracing and debug agents:
