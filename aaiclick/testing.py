@@ -293,6 +293,10 @@ def _pg_connect(dbname: str):
 # ---------------------------------------------------------------------------
 
 
+# Runs in a child process so the caller never opens chdb itself.
+_CH_UPGRADE_SCRIPT = "from aaiclick.oplog.migrate import ch_upgrade_standalone; ch_upgrade_standalone()"
+
+
 @pytest.fixture(autouse=True, scope="session")
 def ch_worker_setup():
     """Per-worker CH isolation — tempdir for chdb, database for real CH.
@@ -304,7 +308,11 @@ def ch_worker_setup():
     - **real CH**: a ``default_<worker>`` database in the shared server.
 
     Without this, the per-test ``DROP TABLE`` sweep would cross worker
-    boundaries in real-CH CI jobs.
+    boundaries in real-CH CI jobs. The database is migrated before the
+    fixture yields, like ``sql_worker_setup``'s, so processes that expect a
+    migrated schema at startup (the web e2e server and workers) can use it.
+    The upgrade runs in a child process: under chdb the parent must not open
+    the data directory itself.
     """
     worker = os.environ.get("PYTEST_XDIST_WORKER", "")
 
@@ -315,6 +323,7 @@ def ch_worker_setup():
         tmp_dir = tempfile.mkdtemp(prefix=f"aaiclick_chdb_{worker}_")
         prior_url = os.environ.get("AAICLICK_CH_URL")
         os.environ["AAICLICK_CH_URL"] = f"chdb://{tmp_dir}"
+        subprocess.run([sys.executable, "-c", _CH_UPGRADE_SCRIPT], check=True)
         try:
             yield
         finally:
@@ -352,6 +361,7 @@ def ch_worker_setup():
 
     prior_url = os.environ["AAICLICK_CH_URL"]
     os.environ["AAICLICK_CH_URL"] = prior_url.rsplit("/", 1)[0] + f"/{db_name}"
+    subprocess.run([sys.executable, "-c", _CH_UPGRADE_SCRIPT], check=True)
     try:
         yield
     finally:
@@ -443,10 +453,6 @@ async def orch_module_ctx():
     """
     async with module_orch_scope(orch_context()):
         yield
-
-
-# Runs in a child process: the parent of mp-worker tests must never open chdb.
-_CH_UPGRADE_SCRIPT = "from aaiclick.oplog.migrate import ch_upgrade_standalone; ch_upgrade_standalone()"
 
 
 @pytest.fixture(scope="module")

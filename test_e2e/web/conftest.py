@@ -116,9 +116,6 @@ def base_url(request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFa
     # After the root is set, so it seeds the database the server will serve.
     if is_local():
         subprocess.run([sys.executable, str(SEED), "viewer"], check=True, env=env)
-    else:
-        # ch_worker_setup hands this worker an empty CH database.
-        subprocess.run([sys.executable, "-m", "aaiclick", "migrate", "upgrade", "head"], check=True, env=env)
     server_args = ["uvicorn", "aaiclick.server.app:app", "--port", str(port), "--log-level", "warning"]
     procs = [_launch(root, "server", server_args, env)]
     if not is_local():
