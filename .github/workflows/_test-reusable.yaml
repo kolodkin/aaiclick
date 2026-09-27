@@ -150,9 +150,16 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          - group: Data dist
+          # The largest dist suite, split in two by test count (pytest-split)
+          # so it does not set the workflow's wall time on its own.
+          - group: Data dist 1/2
             test-paths: "aaiclick/data/ aaiclick/snowflake/ aaiclick/data_extra_tests/"
             extras: ""
+            split-args: "--splits 2 --group 1"
+          - group: Data dist 2/2
+            test-paths: "aaiclick/data/ aaiclick/snowflake/ aaiclick/data_extra_tests/"
+            extras: ""
+            split-args: "--splits 2 --group 2"
           - group: Orch dist
             test-paths: "aaiclick/orchestration/ aaiclick/oplog/"
             extras: ""
@@ -239,7 +246,7 @@ jobs:
           PYTHONASYNCIODEBUG: ${{ inputs.gc-leak-check && '1' || '' }}
         uses: ./.github/actions/run-pytest
         with:
-          command: uv run pytest ${{ matrix.test-paths }} -n auto -v
+          command: uv run pytest ${{ matrix.test-paths }} ${{ matrix.split-args }} -n auto -v
           report-name: "Pytest Results (${{ matrix.group }})"
 
   test-ui-e2e-dist:
