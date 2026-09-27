@@ -391,13 +391,11 @@ jobs:
           AAICLICK_ADMIN_PASSWORD: ci-admin-password
         uses: ./.github/actions/run-pytest
         with:
-          # --no-cov: the code under test runs in the server and worker
-          # subprocesses, which coverage does not measure.
           # -n auto: the suite mostly waits on the server and workers, so it
           # leaves the runner's cores idle when run serially; each xdist
           # worker gets its own server, workers and databases
           # (test_e2e/web/conftest.py).
-          command: uv run pytest test_e2e/web/ -v --no-cov -n auto
+          command: uv run pytest test_e2e/web/ -v -n auto
           report-name: "Pytest Results (UI e2e dist)"
 
   examples:
