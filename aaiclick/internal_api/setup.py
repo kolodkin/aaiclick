@@ -34,6 +34,7 @@ from aaiclick.backend import (
     is_chdb,
     is_local,
     is_sqlite,
+    redact_url,
 )
 from aaiclick.data.data_context.chdb_client import get_chdb_data_path, get_shared_session
 from aaiclick.oplog.migrate import ch_status_standalone, ch_upgrade_standalone
@@ -329,8 +330,8 @@ def setup(*, ai: bool = False, force: bool = False) -> SetupResult:
 
     return SetupResult(
         root=str(root),
-        ch_url=get_ch_url(),
-        sql_url=get_sql_url(),
+        ch_url=redact_url(get_ch_url()),
+        sql_url=redact_url(get_sql_url()),
         mode="local" if is_local() else "distributed",
         steps=steps,
         ollama=ollama,

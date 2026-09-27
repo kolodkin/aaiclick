@@ -86,18 +86,20 @@ def test_totp_matches_rfc6238_vector():
 def test_verify_totp_accepts_drift_and_rejects_stale():
     secret = security.generate_totp_secret()
     now = 1_700_000_000.0
+    step = int(now // security.TOTP_STEP_SECONDS)
     code = security.totp_code(secret, at=now)
-    assert security.verify_totp(secret, code, at=now)
-    assert security.verify_totp(secret, f"{code[:3]} {code[3:]}", at=now + 30)  # one step later, spaces ok
-    assert not security.verify_totp(secret, code, at=now + 120)
-    assert not security.verify_totp(secret, "000000" if code != "000000" else "111111", at=now)
+    # The matched step, not the verification time, is returned — replay protection keys on it.
+    assert security.verify_totp(secret, code, at=now) == step
+    assert security.verify_totp(secret, f"{code[:3]} {code[3:]}", at=now + 30) == step  # one step later, spaces ok
+    assert security.verify_totp(secret, code, at=now + 120) is None
+    assert security.verify_totp(secret, "000000" if code != "000000" else "111111", at=now) is None
 
 
 def test_verify_totp_rejects_non_ascii_input():
     """``hmac.compare_digest`` raises on non-ASCII str; a fullwidth-digit code
     must be a plain mismatch, not a 500."""
     secret = security.generate_totp_secret()
-    assert not security.verify_totp(secret, "\uff11\uff12\uff13\uff14\uff15\uff16", at=1_700_000_000.0)
+    assert security.verify_totp(secret, "\uff11\uff12\uff13\uff14\uff15\uff16", at=1_700_000_000.0) is None
 
 
 def test_totp_uri_shape():

@@ -11,15 +11,6 @@ is fixed.
 
 # Low
 
-- **Login timing oracle**: short-circuit before bcrypt for unknown users —
-  `aaiclick/internal_api/auth.py`, `login()`.
-- **TOTP replay**: no last-accepted-step record — `aaiclick/auth/security.py`,
-  `verify_totp()`.
-- **ClickHouse URL userinfo not percent-decoded**, unlike the SQL URL —
-  `aaiclick/backend.py` `parse_ch_url()` and
-  `aaiclick/data/data_context/clickhouse_client.py`.
-- **`setup` MCP tool returns both DB URLs with embedded passwords** —
-  `aaiclick/internal_api/setup.py`, `SetupResult`.
 - **`debug_result` returns provider failures as a prose answer** with exit 0
   — `aaiclick/ai/agents/debug_agent.py`.
 - **`query_with_tools` crashes on empty tool arguments** —

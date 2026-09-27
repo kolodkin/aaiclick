@@ -48,6 +48,30 @@ async def test_login_unknown_user_raises(orch_ctx):
         await auth.login(LoginRequest(username="ghost", password="pw"), secret=SECRET)
 
 
+@pytest.mark.parametrize(
+    "username",
+    [
+        pytest.param("ghost", id="unknown"),
+        pytest.param("dis", id="disabled"),
+        pytest.param("alice", id="wrong_password"),
+    ],
+)
+async def test_every_failed_login_pays_for_bcrypt(orch_ctx, monkeypatch, username):
+    """Timing oracle: a rejection that skips bcrypt answers in microseconds
+    instead of ~100 ms, which tells a caller the username does not exist.
+    Counted rather than timed so the test cannot flake on a slow runner."""
+    await _make_user()
+    disabled = await users.create_user(CreateUserRequest(username="dis", password="pw"))
+    await users.disable_user(disabled.id, True)
+    calls = []
+    real_verify = security.verify_password
+    monkeypatch.setattr(security, "verify_password", lambda *a: calls.append(a) or real_verify(*a))
+
+    with pytest.raises(Unauthorized):
+        await auth.login(LoginRequest(username=username, password="nope"), secret=SECRET)
+    assert len(calls) == 1
+
+
 async def test_disabled_user_cannot_login(orch_ctx):
     view = await users.create_user(CreateUserRequest(username="dis", password="pw"))
     await users.disable_user(view.id, True)

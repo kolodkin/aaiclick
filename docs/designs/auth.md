@@ -70,6 +70,7 @@ one-line code change rather than a hand-written constraint migration.
 | `email`         | `String \| None`                | Contact address                                                |
 | `totp_secret`   | `String \| None`                | Base32 TOTP seed; set by MFA setup, live once `mfa_enabled` |
 | `mfa_enabled`   | `Boolean`, default `false`      | Login demands a TOTP code |
+| `totp_last_step`| `BigInteger \| None`            | Time step of the last accepted code; refuses replays |
 | `created_at`    | `datetime` (`utc_now`)          |                        |
 
 `password_hash` is nullable: a user created without one can never pass the
@@ -176,7 +177,8 @@ Passwords are hashed with `bcrypt`. Access JWTs are signed HS256 with
 
 - The user must exist, be enabled, have a password,
   and the password must match. Otherwise `401` (`code="unauthorized"`) — no
-  user-enumeration distinction.
+  user-enumeration distinction, in body or timing: every rejection runs bcrypt,
+  against a dummy hash when there is no real one.
 - When the user has MFA enabled, the request must also carry a valid
   `totp_code`; a correct password without one answers `401`
   `code="mfa_required"` so the client can prompt for the code and retry — see
@@ -417,7 +419,7 @@ The header shows the signed-in username with a sign-out control.
 # Multi-Factor Auth
 
 
-**Implementation**: `aaiclick/auth/security.py` — see `totp_code`, `verify_totp`, `totp_uri`; `aaiclick/internal_api/auth.py` — see `login`, `mfa_setup`, `mfa_enable`, `mfa_disable`; `aaiclick/internal_api/users.py` — see `reset_mfa`; `aaiclick/internal_api/errors.py` — see `MfaRequired`; `src/views/Account.tsx` — see `MfaPanel`.
+**Implementation**: `aaiclick/auth/security.py` — see `totp_code`, `verify_totp`, `totp_uri`; `aaiclick/auth/store.py` — see `claim_totp_step`; `aaiclick/internal_api/auth.py` — see `login`, `mfa_setup`, `mfa_enable`, `mfa_disable`; `aaiclick/internal_api/users.py` — see `reset_mfa`; `aaiclick/internal_api/errors.py` — see `MfaRequired`; `src/views/Account.tsx` — see `MfaPanel`.
 TOTP (RFC 6238: SHA-1, 30 s step, 6 digits, ±1 step drift), implemented on the
 standard library in `aaiclick/auth/security.py` — no new dependency. Any
 authenticator app works from the `otpauth://` URI or the base32 secret.
@@ -430,7 +432,11 @@ authenticator app works from the `otpauth://` URI or the base32 secret.
 | `POST /users/{id}/mfa/reset`   | admin   | Clear the secret and flag (lost-device recovery)             |
 
 Login with `mfa_enabled` set: `{username, password}` alone → `401`
-`code="mfa_required"`; with a wrong `totp_code` → plain `401`. Enabling MFA
+`code="mfa_required"`; with a wrong `totp_code` → plain `401`. Each code
+admits once: an accepted code's time step is claimed in `totp_last_step`
+(conditional update, so racing logins cannot both win), and a code at or
+before it is refused — including the code that just confirmed enrollment.
+Enabling MFA
 revokes the user's other refresh tokens so every open session re-authenticates
 with the second factor. There are no recovery codes: the admin reset is
 the recovery path, matching the CLI-first admin model.

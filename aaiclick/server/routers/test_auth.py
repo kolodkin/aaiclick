@@ -1,3 +1,5 @@
+import time
+
 from aaiclick.auth import security
 from aaiclick.auth.models import SCOPE_WRITE
 from aaiclick.auth.view_models import CreateApiTokenRequest, CreateUserRequest, MfaEnableRequest
@@ -128,7 +130,8 @@ async def test_login_mfa_required_problem_code(orch_ctx, app_client, enabled):
     assert res.status_code == 401 and res.json()["code"] == "mfa_required"
     ok = await app_client.post(
         f"{API_PREFIX}/auth/login",
-        json={"username": "mfa", "password": "pw", "totp_code": security.totp_code(setup.secret)},
+        # One step ahead: enabling spent the current step's code.
+        json={"username": "mfa", "password": "pw", "totp_code": security.totp_code(setup.secret, time.time() + 30)},
     )
     assert ok.status_code == 200
 
