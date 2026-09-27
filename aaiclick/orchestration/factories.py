@@ -9,29 +9,20 @@ from aaiclick.snowflake import get_snowflake_id
 from ..datetime_utils import utc_now
 from .env import get_default_preservation_mode
 from .image_injection import inject_build_tasks, validate_jvm_tasks
-from .models import (
-    JOB_PENDING,
-    RUN_MANUAL,
-    RUNNER_SUBPROCESS,
-    TASK_PENDING,
-    Job,
-    PreservationMode,
-    RegisteredJob,
-    RunnerMode,
-    RunType,
-    Task,
-)
+from .models import JOB_PENDING, RUN_MANUAL, TASK_PENDING, Job, PreservationMode, RegisteredJob, RunType, Task
 from .orch_context import commit_tasks, get_sql_session
 from .runner_config import (
     ENTRY_JVM,
     ENTRY_MODULE,
     ENTRY_SHELL,
+    RUNNER_SUBPROCESS,
     DockerRunner,
     EntryType,
     ImageBuild,
     ImagePrebuilt,
     ImageSourceT,
     KubernetesRunner,
+    RunnerMode,
     dump_image_source,
     dump_runner_config,
     validate_image_exclusivity,

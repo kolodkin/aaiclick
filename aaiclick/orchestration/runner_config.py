@@ -21,6 +21,25 @@ EntryType = Literal["module", "shell", "jvm"]
 ENTRY_TYPES: list[EntryType] = [ENTRY_MODULE, ENTRY_SHELL, ENTRY_JVM]
 
 
+# --- runner_mode discriminator (lives on Job and RegisteredJob) -----------
+RUNNER_SUBPROCESS = "subprocess"
+RUNNER_DOCKER = "docker"
+RUNNER_KUBERNETES = "kubernetes"
+RunnerMode = Literal["subprocess", "docker", "kubernetes"]
+"""Which task-execution runner the orchestrator uses for a job.
+
+- ``subprocess`` (default): each task runs in a multiprocessing child
+  spawned by the host worker process.
+- ``docker``: each task runs in a fresh container built on demand from
+  the user's repo at a specific git SHA.
+- ``kubernetes``: each task runs in a fresh Pod built on demand from the
+  user's repo at a specific git SHA, scheduled on a cluster. The result
+  is handed back via the ``remote_task_results`` table rather than a
+  bind-mounted file.
+"""
+RUNNER_MODES: list[RunnerMode] = [RUNNER_SUBPROCESS, RUNNER_DOCKER, RUNNER_KUBERNETES]
+
+
 # --- image source (nested in docker/kubernetes runners) -------------------
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
@@ -118,6 +137,27 @@ def validate_image_exclusivity(image: str | None, *git_fields: str | None) -> No
     its message live in one place. Raises ``ValueError``."""
     if image is not None and any(v is not None for v in git_fields):
         raise ValueError("image (prebuilt) and git_* (build) are mutually exclusive")
+
+
+def validate_runner_fields(
+    runner_mode: RunnerMode,
+    *,
+    image_fields: dict[str, object | None],
+    kubernetes_fields: dict[str, object | None],
+) -> None:
+    """Reject fields the job's runner never reads instead of dropping them
+    silently — shared by registration and ``run_job``. ``image_fields``
+    (``image``, ``git_*``, ``dockerfile``) need a docker/kubernetes runner;
+    ``kubernetes_fields`` need the kubernetes runner. Keys name the fields in
+    the message. Raises ``ValueError``."""
+    checks = (
+        (image_fields, (RUNNER_DOCKER, RUNNER_KUBERNETES), "a docker/kubernetes runner"),
+        (kubernetes_fields, (RUNNER_KUBERNETES,), "the kubernetes runner"),
+    )
+    for fields, runners, needed in checks:
+        given = [key for key, value in fields.items() if value is not None]
+        if given and runner_mode not in runners:
+            raise ValueError(f"{', '.join(given)} require {needed}; the job runs on the {runner_mode} runner")
 
 
 def validate_task_entry(*, entry_type: EntryType, command: list[str] | None) -> None:

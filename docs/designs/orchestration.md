@@ -140,6 +140,8 @@ The image is a **task** property: every container task carries a nullable `tasks
 
 Pass `image=` (`run_job` / `RunJobRequest` / `run-job --image`, or `register-job --image` for a default) to select a prebuilt image — **mutually exclusive** with the git build fields (`git_remote` / `git_sha` / `git_branch` / `dockerfile`). `run_job` stamps the resolved source onto the **entry task**; dynamic children inherit the committing task's image at `commit_tasks` unless they declare their own (`create_task(image=... / git_*=...)`) — except `jvm` tasks, which must declare their own (`docs/designs/java-sdk.md`).
 
+Image fields on a subprocess job, and kubernetes fields (`kubernetes_config`, or the `namespace` / `service_account` / `image_pull_secret` overrides) off kubernetes, are rejected at registration and at `run_job` rather than dropped (`runner_config.validate_runner_fields`).
+
 Commit points always inject one **ordinary build task** per distinct image identity (`sha256(git_remote, git_sha, dockerfile)`) into the job, host-pinned via `image_source=NULL`, wired `build >> dependent` for every task on that image — the scheduler's existing dependency filter guarantees no task is claimed before its image exists. Submission reads no build env; the **worker** running the build task decides the mode from two mutually exclusive variables (`docker_config.get_build_mode`):
 
 | Env var                    | Mode     | Build body                                                             | Launch path   |

@@ -7,10 +7,10 @@ from sqlmodel import select
 
 from aaiclick.orchestration.execution.image_build_task import IMAGE_BUILD_ENTRYPOINT
 from aaiclick.orchestration.factories import create_built_job
-from aaiclick.orchestration.models import RUNNER_KUBERNETES, Task
+from aaiclick.orchestration.models import Task
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.registered_jobs import get_registered_job, upsert_registered_job
-from aaiclick.orchestration.runner_config import ImageBuild, KubernetesRunner
+from aaiclick.orchestration.runner_config import RUNNER_KUBERNETES, ImageBuild, KubernetesRunner
 
 
 @pytest.mark.usefixtures("fast_poll")

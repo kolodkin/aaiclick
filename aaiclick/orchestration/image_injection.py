@@ -26,8 +26,8 @@ from ..datetime_utils import utc_now
 from ..snowflake import get_snowflake_id
 from .docker_config import get_registry, image_key
 from .execution.image_build_task import IMAGE_BUILD_ENTRYPOINT, build_task_name
-from .models import RUNNER_DOCKER, RUNNER_KUBERNETES, TASK_PENDING, Job, RunnerMode, Task
-from .runner_config import ENTRY_JVM, ImageBuild, parse_image_source
+from .models import TASK_PENDING, Job, Task
+from .runner_config import ENTRY_JVM, RUNNER_DOCKER, RUNNER_KUBERNETES, ImageBuild, RunnerMode, parse_image_source
 
 BUILD_TASK_MAX_RETRIES = 2
 

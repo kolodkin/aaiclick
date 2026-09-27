@@ -9,9 +9,16 @@ from .execution.execution_worker_context import set_current_task_info
 from .execution.image_build_task import IMAGE_BUILD_ENTRYPOINT
 from .factories import create_job, create_task
 from .image_injection import stamp_inherited_image, validate_image_sources, validate_jvm_tasks
-from .models import RUNNER_DOCKER, RUNNER_KUBERNETES, RUNNER_SUBPROCESS, Dependency, Job, Task
+from .models import Dependency, Job, Task
 from .orch_context import commit_tasks, get_sql_session
-from .runner_config import ImageBuild, ImagePrebuilt, dump_image_source
+from .runner_config import (
+    RUNNER_DOCKER,
+    RUNNER_KUBERNETES,
+    RUNNER_SUBPROCESS,
+    ImageBuild,
+    ImagePrebuilt,
+    dump_image_source,
+)
 
 BUILD_A = dump_image_source(ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40))
 BUILD_B = dump_image_source(ImageBuild(git_remote="https://example.com/r.git", git_sha="b" * 40))

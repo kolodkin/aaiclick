@@ -13,13 +13,17 @@ from collections.abc import Awaitable, Callable
 
 from sqlmodel import select
 
-from ..models import RUNNER_DOCKER, RUNNER_KUBERNETES, RUNNER_SUBPROCESS, Job, RunnerMode, Task
+from ..models import Job, Task
 from ..orch_context import get_sql_session
 from ..runner_config import (
     ENTRY_JVM,
     ENTRY_SHELL,
+    RUNNER_DOCKER,
+    RUNNER_KUBERNETES,
+    RUNNER_SUBPROCESS,
     KubernetesRunner,
     RunnerConfigT,
+    RunnerMode,
     parse_image_source,
     parse_runner_config,
 )

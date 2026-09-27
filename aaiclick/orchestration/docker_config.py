@@ -12,7 +12,7 @@ import os
 from typing import Literal
 
 from .execution import cli
-from .models import RegisteredJob, RunnerMode
+from .models import RegisteredJob
 from .runner_config import (
     DockerRunner,
     ImageBuild,
@@ -20,6 +20,7 @@ from .runner_config import (
     ImageSourceT,
     KubernetesRunner,
     RunnerConfigT,
+    RunnerMode,
 )
 
 BUILD_MODE_REGISTRY = "registry"

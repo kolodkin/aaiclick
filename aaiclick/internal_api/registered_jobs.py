@@ -87,8 +87,9 @@ async def register_job(request: RegisterJobRequest) -> RegisteredJobView:
     """Register a new job in the catalog.
 
     Raises ``Conflict`` if a registration with the same name already exists,
-    or ``NotFound`` / ``Invalid`` if ``entrypoint`` does not resolve to a
-    callable (validated before persisting).
+    ``NotFound`` / ``Invalid`` if ``entrypoint`` does not resolve to a
+    callable (validated before persisting), or ``Invalid`` if an image or
+    kubernetes default is set on a runner that never reads it.
 
     Entrypoint validation is skipped for prebuilt-image registrations
     (``image`` set): the entrypoint resolves inside the image at run time
@@ -113,6 +114,8 @@ async def register_job(request: RegisterJobRequest) -> RegisteredJobView:
         )
     except RegisteredJobAlreadyExists as exc:
         raise Conflict(str(exc)) from exc
+    except ValueError as exc:
+        raise Invalid(str(exc)) from exc
     return registered_job_to_view(registered)
 
 
