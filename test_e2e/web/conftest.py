@@ -29,6 +29,11 @@ import pytest
 
 from aaiclick.backend import is_local
 
+# Autouse per-xdist-worker CH and SQL databases. They run before ``base_url``
+# and point the env it hands to the server and workers at this worker's
+# databases, so parallel workers never run or observe each other's jobs.
+from aaiclick.testing import ch_worker_setup, sql_worker_setup  # noqa: F401 - re-exported as pytest fixtures
+
 SEED = Path(__file__).with_name("seed.py")
 SHOTS = Path(__file__).resolve().parents[2] / "test-results" / "shots"
 # Subprocess logs the terminal summary prints the tail of when a test failed.
@@ -111,6 +116,9 @@ def base_url(request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFa
     # After the root is set, so it seeds the database the server will serve.
     if is_local():
         subprocess.run([sys.executable, str(SEED), "viewer"], check=True, env=env)
+    else:
+        # ch_worker_setup hands this worker an empty CH database.
+        subprocess.run([sys.executable, "-m", "aaiclick", "migrate", "upgrade", "head"], check=True, env=env)
     server_args = ["uvicorn", "aaiclick.server.app:app", "--port", str(port), "--log-level", "warning"]
     procs = [_launch(root, "server", server_args, env)]
     if not is_local():

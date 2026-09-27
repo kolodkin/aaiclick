@@ -320,8 +320,10 @@ jobs:
         with:
           # --no-cov: the code under test runs in the server and worker
           # subprocesses, which coverage does not measure; the report only
-          # added ~20 s.
-          command: uv run pytest test_e2e/web/ -v --no-cov
+          # added ~20 s. -n auto: the suite mostly waits on the server and
+          # workers (~1 core busy serially); each xdist worker gets its own
+          # server, workers and databases (test_e2e/web/conftest.py).
+          command: uv run pytest test_e2e/web/ -v --no-cov -n auto
           report-name: "Pytest Results (UI e2e dist)"
 
   examples:
