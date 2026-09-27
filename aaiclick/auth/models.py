@@ -57,6 +57,8 @@ class User(SQLModel, table=True):
     email: str | None = Field(sa_column=Column(String, nullable=True), default=None)
     totp_secret: str | None = Field(sa_column=Column(String, nullable=True), default=None)
     """Base32 TOTP seed; pending until ``mfa_enabled`` confirms it."""
+    totp_last_step: int | None = Field(sa_column=Column(BigInteger, nullable=True), default=None)
+    """Time step of the last code accepted — a code at or before it is a replay."""
     mfa_enabled: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="0"), default=False)
     created_at: datetime = utc_field(default_factory=utc_now)
 

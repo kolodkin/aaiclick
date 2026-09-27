@@ -54,12 +54,15 @@ def test_setup_local_writes_marker_and_returns_ok_steps(local_db, tmp_path):
 
 def test_setup_distributed_skips_local_steps(tmp_path, monkeypatch):
     monkeypatch.setenv("AAICLICK_LOCAL_ROOT", str(tmp_path))
-    monkeypatch.setenv("AAICLICK_SQL_URL", "postgresql+asyncpg://u:p@h/db")
-    monkeypatch.setenv("AAICLICK_CH_URL", "clickhouse://u:p@h:8123/default")
+    monkeypatch.setenv("AAICLICK_SQL_URL", "postgresql+asyncpg://u:sql-secret@h/db")
+    monkeypatch.setenv("AAICLICK_CH_URL", "clickhouse://u:ch-secret@h:8123/default")
 
     result = setup.setup()
 
     assert result.mode == "distributed"
+    # Returned over MCP and printed by the CLI — passwords never leave.
+    assert result.sql_url == "postgresql+asyncpg://u:***@h/db"
+    assert result.ch_url == "clickhouse://u:***@h:8123/default"
     statuses = {s.name: s.status for s in result.steps}
     assert statuses["clickhouse"] == "skipped"
     assert statuses["postgres"] == "skipped"

@@ -60,6 +60,8 @@ Each ContextVar is reset (via token) on context exit, so nested `data_context()`
     export AAICLICK_SQL_URL="postgresql+asyncpg://user:pass@host:5432/db"
     ```
 
+    Percent-encode reserved characters in the user or password (`@` → `%40`, `:` → `%3A`) in either URL.
+
 **Implementation**: `aaiclick/data/chdb_client.py` (local), `aaiclick/data/clickhouse_client.py` (distributed), `aaiclick/backend.py` (URL helpers)
 
 Ingest inserts are arrow-native: `create_object_from_value()` builds a `pa.Table` and calls `ChClient.insert_arrow()` — chdb inserts it via pyarrow's `Python()` table function, clickhouse-connect via its native `insert_arrow`. Type mapping: `ch_type_to_pa()` in `arrow_types.py`.

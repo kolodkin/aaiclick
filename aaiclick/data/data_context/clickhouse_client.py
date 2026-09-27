@@ -7,9 +7,7 @@ pooling is owned by ``aiohttp.ClientSession`` / ``TCPConnector`` per
 client.
 """
 
-from urllib.parse import urlparse
-
-from aaiclick.backend import get_ch_url
+from aaiclick.backend import parse_ch_url
 
 
 async def create_clickhouse_client():
@@ -22,11 +20,4 @@ async def create_clickhouse_client():
             "Install with: pip install aaiclick[distributed]"
         ) from e
 
-    parsed = urlparse(get_ch_url())
-    return await get_async_client(
-        host=parsed.hostname or "localhost",
-        port=parsed.port or 8123,
-        username=parsed.username or "default",
-        password=parsed.password or "",
-        database=parsed.path.lstrip("/") or "default",
-    )
+    return await get_async_client(**parse_ch_url())

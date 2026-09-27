@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any, NamedTuple, Protocol, TypeVar, cast
 
-from sqlalchemy import ColumnElement, CursorResult, Update, update
+from sqlalchemy import ColumnElement, CursorResult, Update, or_, update
 from sqlmodel import SQLModel, col, select
 
 from ..datetime_utils import utc_now
@@ -127,7 +127,23 @@ async def set_email(user_id: int, email: str | None) -> User:
 
 
 async def set_totp(user_id: int, *, totp_secret: str | None, mfa_enabled: bool) -> User:
-    return await _update_user(user_id, totp_secret=totp_secret, mfa_enabled=mfa_enabled)
+    """Anything but confirming MFA replaces or drops the seed, so it also clears
+    the replay record — steps claimed under the old seed say nothing of the new."""
+    if mfa_enabled:
+        return await _update_user(user_id, totp_secret=totp_secret, mfa_enabled=True)
+    return await _update_user(user_id, totp_secret=totp_secret, mfa_enabled=False, totp_last_step=None)
+
+
+async def claim_totp_step(user_id: int, step: int) -> bool:
+    """Record ``step`` as used; False if it, or a later one, already was.
+
+    Conditional so two logins racing on one code cannot both claim it.
+    """
+    last = col(User.totp_last_step)
+    hit = await _update_rows(
+        update(User).where(col(User.id) == user_id, or_(last.is_(None), last < step)).values(totp_last_step=step)
+    )
+    return hit > 0
 
 
 async def _update_user(user_id: int, **fields) -> User:

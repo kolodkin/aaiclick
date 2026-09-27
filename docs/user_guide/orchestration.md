@@ -112,6 +112,8 @@ Two deployment modes, selected by two environment variables:
 | **`AAICLICK_SQL_URL`** | `sqlite+aiosqlite:///~/.aaiclick/local.db` | `postgresql+asyncpg://user:pass@host:5432/database`           |
 | **Setup**              | `python -m aaiclick setup`                 | Provision servers + `python -m aaiclick migrate upgrade head` |
 
+Percent-encode reserved characters in a URL's user or password (`@` → `%40`, `:` → `%3A`, `/` → `%2F`).
+
 ## Local mode
 
 Single process, no infrastructure required. `local start` runs the combined

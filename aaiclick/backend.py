@@ -20,7 +20,7 @@ Helper functions detect the backend type from the URL scheme.
 
 import os
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 
 def get_root() -> Path:
@@ -91,11 +91,23 @@ def parse_ch_url() -> dict:
     Returns dict with keys: host, port, username, password, database.
     Only meaningful for non-chdb URLs (clickhouse://user:pass@host:port/db).
     """
-    parsed = urlparse(get_ch_url())
+    parsed = urlsplit(get_ch_url())
+    # Userinfo is percent-encoded like the SQL URL's, so a password holding
+    # ``@`` / ``:`` / ``/`` can be written at all.
     return {
         "host": parsed.hostname or "localhost",
         "port": parsed.port or 8123,
-        "username": parsed.username or "default",
-        "password": parsed.password or "",
+        "username": unquote(parsed.username or "") or "default",
+        "password": unquote(parsed.password or ""),
         "database": parsed.path.lstrip("/") or "default",
     }
+
+
+def redact_url(url: str) -> str:
+    """``url`` with its password, if any, replaced by ``***`` — safe to print or return."""
+    parsed = urlsplit(url)
+    if parsed.password is None:
+        return url
+    userinfo, host = parsed.netloc.rsplit("@", 1)
+    username = userinfo.split(":", 1)[0]
+    return urlunsplit(parsed._replace(netloc=f"{username}:***@{host}"))

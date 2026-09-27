@@ -129,15 +129,21 @@ def totp_code(secret: str, at: float | None = None) -> str:
     return str(number % (10**TOTP_DIGITS)).zfill(TOTP_DIGITS)
 
 
-def verify_totp(secret: str, code: str, at: float | None = None) -> bool:
-    """Constant-time check of ``code`` against the current step ± drift."""
+def verify_totp(secret: str, code: str, at: float | None = None) -> int | None:
+    """Constant-time check of ``code`` against the current step ± drift.
+
+    Returns the time step it matched, or ``None``. The step is what a caller
+    records to refuse the same code twice — see ``store.claim_totp_step``.
+    """
     now = time.time() if at is None else at
     # Compared as bytes: ``compare_digest`` raises ``TypeError`` on a non-ASCII str.
     candidate = code.strip().replace(" ", "").encode()
-    return any(
-        hmac.compare_digest(totp_code(secret, now + step * TOTP_STEP_SECONDS).encode(), candidate)
-        for step in range(-TOTP_DRIFT_STEPS, TOTP_DRIFT_STEPS + 1)
-    )
+    matched = None
+    for drift in range(-TOTP_DRIFT_STEPS, TOTP_DRIFT_STEPS + 1):
+        when = now + drift * TOTP_STEP_SECONDS
+        if hmac.compare_digest(totp_code(secret, when).encode(), candidate):
+            matched = int(when // TOTP_STEP_SECONDS)
+    return matched
 
 
 def totp_uri(secret: str, username: str, issuer: str = TOTP_ISSUER) -> str:

@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 from aaiclick.auth import security, store
@@ -14,6 +16,11 @@ from aaiclick.internal_api.errors import Conflict, Invalid, MfaRequired, Unautho
 SECRET = "internal-api-mfa-test-secret-key-32-plus-bytes"
 
 
+def _next_code(secret: str) -> str:
+    """A live code one step ahead — the current step was spent enrolling."""
+    return security.totp_code(secret, time.time() + security.TOTP_STEP_SECONDS)
+
+
 async def _enrolled(username="alice"):
     """A user with MFA enabled; returns (view, totp secret)."""
     view = await users.create_user(CreateUserRequest(username=username, password="pw"))
@@ -28,10 +35,18 @@ async def test_login_demands_code_once_enabled(orch_ctx):
         await auth.login(LoginRequest(username="alice", password="pw"), secret=SECRET)
     with pytest.raises(Unauthorized):
         await auth.login(LoginRequest(username="alice", password="pw", totp_code="000000"), secret=SECRET)
-    pair = await auth.login(
-        LoginRequest(username="alice", password="pw", totp_code=security.totp_code(secret)), secret=SECRET
-    )
+    pair = await auth.login(LoginRequest(username="alice", password="pw", totp_code=_next_code(secret)), secret=SECRET)
     assert security.decode_access_token(pair.access_token, SECRET).user_id == view.id
+
+
+async def test_code_admits_once(orch_ctx):
+    """A code seen over a shoulder or off the wire is spent by the login that
+    used it — replaying it inside its 30 s window fails."""
+    _view, secret = await _enrolled("replayed")
+    request = LoginRequest(username="replayed", password="pw", totp_code=_next_code(secret))
+    await auth.login(request, secret=SECRET)
+    with pytest.raises(Unauthorized):
+        await auth.login(request, secret=SECRET)
 
 
 async def test_wrong_password_never_reveals_mfa(orch_ctx):
@@ -79,7 +94,7 @@ async def test_disable_needs_both_factors(orch_ctx):
         await auth.mfa_disable(view.id, MfaDisableRequest(password="wrong", code=security.totp_code(secret)))
     with pytest.raises(Unauthorized):
         await auth.mfa_disable(view.id, MfaDisableRequest(password="pw", code="000000"))
-    await auth.mfa_disable(view.id, MfaDisableRequest(password="pw", code=security.totp_code(secret)))
+    await auth.mfa_disable(view.id, MfaDisableRequest(password="pw", code=_next_code(secret)))
     assert await auth.login(LoginRequest(username="off", password="pw"), secret=SECRET)
     with pytest.raises(Conflict):
         await auth.mfa_disable(view.id, MfaDisableRequest(password="pw", code="000000"))

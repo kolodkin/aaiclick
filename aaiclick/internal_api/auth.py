@@ -5,6 +5,7 @@ reset lives in ``internal_api.password_reset``."""
 from __future__ import annotations
 
 import asyncio
+import functools
 
 from aaiclick.auth import config, security, store
 from aaiclick.auth.models import User
@@ -36,23 +37,42 @@ async def _mint_pair(*, user: User, secret: str) -> TokenPair:
     )
 
 
-async def _authenticates(user: User, password: str) -> bool:
+async def _authenticates(user: User | None, password: str) -> bool:
     """Whether ``password`` admits this user — the one definition of the rule,
     so login, MFA disable, and the password change cannot drift apart. bcrypt
-    runs on a worker thread so the event loop keeps serving."""
-    if user.disabled or user.password_hash is None:  # never set, or awaiting a reset link
+    runs on a worker thread so the event loop keeps serving.
+
+    bcrypt runs even when the answer is already no — unknown user, disabled,
+    no password set — so response time does not reveal which usernames exist.
+    """
+    if user is None or user.disabled or user.password_hash is None:
+        await asyncio.to_thread(security.verify_password, password, _dummy_password_hash())
         return False
     return await asyncio.to_thread(security.verify_password, password, user.password_hash)
 
 
+@functools.cache
+def _dummy_password_hash() -> str:
+    """A hash no password matches, built once on first use rather than at import."""
+    return security.hash_password(security.generate_secret())
+
+
+async def _accepts_totp(user: User, secret: str, code: str) -> bool:
+    """Whether ``code`` is a live code for ``secret`` not already used — a code
+    admits once, so one read over a shoulder or off the wire cannot be replayed."""
+    step = security.verify_totp(secret, code)
+    return step is not None and await store.claim_totp_step(user.id, step)
+
+
 async def login(request: LoginRequest, *, secret: str) -> TokenPair:
     user = await store.get_user_by_username(request.username)
-    if user is None or not await _authenticates(user, request.password):
+    authenticated = await _authenticates(user, request.password)
+    if user is None or not authenticated:
         raise Unauthorized("invalid username or password")
     if user.mfa_enabled and user.totp_secret is not None:
         if request.totp_code is None:
             raise MfaRequired("multi-factor code required")
-        if not security.verify_totp(user.totp_secret, request.totp_code):
+        if not await _accepts_totp(user, user.totp_secret, request.totp_code):
             raise Unauthorized("invalid multi-factor code")
     return await _mint_pair(user=user, secret=secret)
 
@@ -119,7 +139,7 @@ async def mfa_enable(user_id: int, request: MfaEnableRequest) -> None:
         raise Invalid("run MFA setup first")
     if user.mfa_enabled:
         raise Conflict("MFA is already enabled")
-    if not security.verify_totp(user.totp_secret, request.code):
+    if not await _accepts_totp(user, user.totp_secret, request.code):
         raise Unauthorized("invalid multi-factor code")
     await store.set_totp(user.id, totp_secret=user.totp_secret, mfa_enabled=True)
     await store.revoke_all_for_user(user.id)
@@ -129,6 +149,8 @@ async def mfa_disable(user_id: int, request: MfaDisableRequest) -> None:
     user = await _require_current_user(user_id)
     if not user.mfa_enabled or user.totp_secret is None:
         raise Conflict("MFA is not enabled")
-    if not await _authenticates(user, request.password) or not security.verify_totp(user.totp_secret, request.code):
+    if not await _authenticates(user, request.password) or not await _accepts_totp(
+        user, user.totp_secret, request.code
+    ):
         raise Unauthorized("invalid password or multi-factor code")
     await store.set_totp(user.id, totp_secret=None, mfa_enabled=False)
