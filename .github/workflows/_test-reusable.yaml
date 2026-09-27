@@ -141,8 +141,50 @@ jobs:
           command: uv run pytest ${{ matrix.test-paths }} -n auto -v
           report-name: "Pytest Results (${{ matrix.group }})"
 
+  test-durations:
+    # pytest-split timings for the split Data dist jobs. Each group stores
+    # only its own tests' durations in the Actions cache (the file is
+    # gitignored); this job restores the latest entry per group, merges them,
+    # and hands both groups the same file, so they compute the same split
+    # even if a concurrent run saves a newer entry meanwhile. With no cache
+    # yet, the file is `{}` and pytest-split splits by test count.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    name: Test durations
+    env:
+      DURATIONS_KEY: test-durations-py${{ inputs.python-version }}-leak${{ inputs.gc-leak-check }}-data-dist
+    steps:
+      - name: Restore group 1 durations
+        uses: actions/cache/restore@v4
+        with:
+          path: .test_durations.d/1.json
+          key: ${{ env.DURATIONS_KEY }}-1-${{ github.run_id }}
+          restore-keys: ${{ env.DURATIONS_KEY }}-1-
+
+      - name: Restore group 2 durations
+        uses: actions/cache/restore@v4
+        with:
+          path: .test_durations.d/2.json
+          key: ${{ env.DURATIONS_KEY }}-2-${{ github.run_id }}
+          restore-keys: ${{ env.DURATIONS_KEY }}-2-
+
+      - name: Merge durations
+        run: |
+          shopt -s nullglob
+          files=(.test_durations.d/*.json)
+          if [ ${#files[@]} -gt 0 ]; then jq -s 'add' "${files[@]}"; else echo '{}'; fi > .test_durations
+          echo "Durations for $(jq length .test_durations) tests"
+
+      - name: Upload merged durations
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-durations-py${{ inputs.python-version }}
+          path: .test_durations
+          include-hidden-files: true
+          retention-days: 1
+
   test-dist:
-    needs: lint
+    needs: [lint, test-durations]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     name: ${{ matrix.group }}
@@ -150,16 +192,17 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          # The largest dist suite, split in two by test count (pytest-split)
-          # so it does not set the workflow's wall time on its own.
+          # The largest dist suite, split in two by recorded test durations
+          # (pytest-split, see the test-durations job) so it does not set the
+          # workflow's wall time on its own.
           - group: Data dist 1/2
             test-paths: "aaiclick/data/ aaiclick/snowflake/ aaiclick/data_extra_tests/"
             extras: ""
-            split-args: "--splits 2 --group 1"
+            split: "1"
           - group: Data dist 2/2
             test-paths: "aaiclick/data/ aaiclick/snowflake/ aaiclick/data_extra_tests/"
             extras: ""
-            split-args: "--splits 2 --group 2"
+            split: "2"
           - group: Orch dist
             test-paths: "aaiclick/orchestration/ aaiclick/oplog/"
             extras: ""
@@ -214,6 +257,20 @@ jobs:
           python-version: ${{ inputs.python-version }}
           sync-args: "--extra distributed --extra test ${{ matrix.extras }}"
 
+      - name: Download test durations
+        if: matrix.split
+        uses: actions/download-artifact@v4
+        with:
+          name: test-durations-py${{ inputs.python-version }}
+          path: .test_durations.d
+
+      # pytest-split reads the merged durations from --durations-path to pick
+      # this group's tests, then (--clean-durations) overwrites it with just
+      # this group's timings, which the save step below caches.
+      - name: Prepare durations file
+        if: matrix.split
+        run: mv .test_durations.d/.test_durations .test_durations.d/${{ matrix.split }}.json
+
       - name: Run database migrations
         env:
           AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
@@ -246,8 +303,17 @@ jobs:
           PYTHONASYNCIODEBUG: ${{ inputs.gc-leak-check && '1' || '' }}
         uses: ./.github/actions/run-pytest
         with:
-          command: uv run pytest ${{ matrix.test-paths }} ${{ matrix.split-args }} -n auto -v
+          command: >-
+            uv run pytest ${{ matrix.test-paths }} -n auto -v
+            ${{ matrix.split && format('--splits 2 --group {0} --store-durations --clean-durations --durations-path .test_durations.d/{0}.json', matrix.split) || '' }}
           report-name: "Pytest Results (${{ matrix.group }})"
+
+      - name: Save test durations
+        if: ${{ !cancelled() && matrix.split && hashFiles(format('.test_durations.d/{0}.json', matrix.split)) != '' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .test_durations.d/${{ matrix.split }}.json
+          key: test-durations-py${{ inputs.python-version }}-leak${{ inputs.gc-leak-check }}-data-dist-${{ matrix.split }}-${{ github.run_id }}-${{ github.run_attempt }}
 
   test-ui-e2e-dist:
     # Single browser smoke pass against the distributed backend: builds the
