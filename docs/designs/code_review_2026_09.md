@@ -45,9 +45,8 @@ is fixed.
 
 # Convention Violations
 
-- `TYPE_CHECKING` imports: `aaiclick/oplog/cleanup.py`,
-  `aaiclick/data/data_context/data_context.py`, `data_extraction.py`,
-  `aaiclick/data/object/url.py`.
+- `TYPE_CHECKING` imports: `aaiclick/data/data_context/data_context.py`,
+  `aaiclick/data/object/data_extraction.py`, `aaiclick/data/object/url.py`.
 - Uncommented inline imports: `aaiclick/__main__.py` (compose, deploy, and
   orchestration CLI handlers), `aaiclick/testing.py`,
   `aaiclick/snowflake/snowflake_id.py`,
@@ -57,9 +56,3 @@ is fixed.
 - `Any` as a shortcut: `aaiclick/data/object/object.py` (`_UNSET` sentinel,
   `order_by` / `limit` / `offset` overrides, `data() -> Any`),
   `mp_worker.py`, `background_worker.py`, `aaiclick/ai/provider.py`.
-
----
-
-# Fix Order
-
-All Highs and Mediums are closed; the Lows and convention violations remain.
