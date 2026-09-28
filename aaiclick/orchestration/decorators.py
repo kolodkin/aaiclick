@@ -231,14 +231,10 @@ class JobFactory:
         Returns:
             Job: Created job with entry point task committed
         """
-
-        async def _run() -> Job:
-            return await self._create_job(kwargs, preservation_mode)
-
         if _sql_engine_var.get() is not None:
-            return await _run()
+            return await self._create_job(kwargs, preservation_mode)
         async with orch_context():
-            return await _run()
+            return await self._create_job(kwargs, preservation_mode)
 
     async def _create_job(self, task_kwargs: dict[str, object], preservation_mode: PreservationMode | None) -> Job:
         """Create the job and its entry point task within an OrchContext.

@@ -45,7 +45,7 @@ async def get_task_logs(task_id: int, tail: int = MAX_TASK_LOG_LINES) -> TaskLog
 
     Reads the ClickHouse ``task_logs`` stream written by the task process, so
     logs are available regardless of which host ran the task (local, docker, or
-    kubernetes). ``tail`` is capped at ``MAX_TASK_LOG_LINES``.
+    kubernetes).
     Returns ``available=False`` when the task has not run yet or its latest run
     produced no captured output.
 
@@ -56,7 +56,7 @@ async def get_task_logs(task_id: int, tail: int = MAX_TASK_LOG_LINES) -> TaskLog
     if not task.run_ids:
         return TaskLogsView(available=False)
 
-    lines = await read_task_logs(task_id, task.run_ids[-1], tail=min(tail, MAX_TASK_LOG_LINES))
+    lines = await read_task_logs(task_id, task.run_ids[-1], tail=tail)
     return TaskLogsView(available=bool(lines), lines=lines)
 
 

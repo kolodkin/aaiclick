@@ -257,17 +257,17 @@ async def flush_task_logs(
 
 
 async def read_task_logs(task_id: int, run_id: int, tail: int = MAX_TASK_LOG_LINES) -> list[LogLine]:
-    """Return the last ``tail`` captured log lines of one task attempt from CH ``task_logs``.
+    """Return the last ``tail`` (at most ``MAX_TASK_LOG_LINES``) captured log lines
+    of one task attempt from CH ``task_logs``.
 
-    Each line carries its source ``stream`` (stdout / stderr), its ``level``, and
-    the time it was emitted. Lines come back in emission order but are fetched
-    with a ``seq``-descending ``LIMIT``, so the read stays bounded for large logs.
+    Each line carries its ``stream``, ``level`` and emit time. Lines come back in
+    emission order, fetched with a ``seq``-descending ``LIMIT``.
     """
     result = await get_ch_client().query(
         "SELECT stream, level, line, created_at FROM task_logs "
         "WHERE task_id = {task_id:UInt64} AND run_id = {run_id:UInt64} "
         "ORDER BY seq DESC LIMIT {tail:UInt64}",
-        parameters={"task_id": task_id, "run_id": run_id, "tail": tail},
+        parameters={"task_id": task_id, "run_id": run_id, "tail": min(tail, MAX_TASK_LOG_LINES)},
     )
     rows = reversed(result.result_rows)
     return [LogLine(stream=row[0], level=row[1], text=row[2], created_at=row[3]) for row in rows]

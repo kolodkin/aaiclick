@@ -404,12 +404,10 @@ async def _pump_stream(stream: asyncio.StreamReader, sink: _ChLogSink, source: L
     decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
     while True:
         chunk = await stream.read(65536)
-        if not chunk:
-            if tail := decoder.decode(b"", final=True):
-                sink.write(source, tail)
-            return
-        if text := decoder.decode(chunk):
+        if text := decoder.decode(chunk, final=not chunk):
             sink.write(source, text)
+        if not chunk:
+            return
 
 
 async def execute_shell_task(task: Task, spec: ShellSpec | None = None) -> None:
