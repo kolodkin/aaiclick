@@ -28,10 +28,7 @@ from typing import Any, BinaryIO
 import pytest
 
 from aaiclick.backend import is_local
-
-# Autouse per-xdist-worker databases: they set the env ``base_url`` passes to
-# the server and workers, so parallel workers never see each other's jobs.
-from aaiclick.testing import ch_worker_setup, sql_worker_setup  # noqa: F401 - re-exported as pytest fixtures
+from aaiclick.testing import worker_databases
 
 SEED = Path(__file__).with_name("seed.py")
 SHOTS = Path(__file__).resolve().parents[2] / "test-results" / "shots"
@@ -109,8 +106,20 @@ def _stop(proc: subprocess.Popen, log_file: BinaryIO) -> None:
     log_file.close()
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _worker_databases() -> Iterator[None]:
+    """Give this xdist worker its own CH and SQL databases; ``base_url`` hands
+    their env to the server and workers, so parallel workers never see each
+    other's jobs. Autouse so it runs before Playwright starts its event loop:
+    the migrations inside call ``asyncio.run()``."""
+    with worker_databases():
+        yield
+
+
 @pytest.fixture(scope="session")
-def base_url(request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
+def base_url(
+    _worker_databases: None, request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[str]:
     """Start the server — plus both workers in distributed mode — and yield its URL.
 
     Rooted at a per-session temp dir via ``AAICLICK_LOCAL_ROOT`` so the suite

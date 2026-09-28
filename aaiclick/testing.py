@@ -1,7 +1,8 @@
 """Shared test helpers and fixtures.
 
-Per-subpackage conftests import the pytest fixtures defined here
-(``ch_worker_setup``, ``sql_worker_setup``, ``orch_module_ctx``,
+``worker_databases()`` gives each xdist worker its own CH and SQL databases;
+conftests wrap it in their own autouse session fixture. Per-subpackage
+conftests import the pytest fixtures defined here (``orch_module_ctx``,
 ``orch_module_ctx_no_ch``, ``orch_ctx``, ``orch_ctx_no_ch``). pytest
 recognises imported fixtures by identity, so the same fixture re-exported
 from multiple conftests still runs once per scope. Keeping the
@@ -20,8 +21,8 @@ import subprocess
 import sys
 import tempfile
 from collections import Counter
-from collections.abc import AsyncIterator
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import AbstractAsyncContextManager, asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from unittest.mock import patch
@@ -293,8 +294,8 @@ def _pg_connect(dbname: str):
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(autouse=True, scope="session")
-def ch_worker_setup():
+@contextmanager
+def worker_ch_database() -> Iterator[None]:
     """Per-worker CH isolation — tempdir for chdb, database for real CH.
 
     Every xdist worker gets its own ``default`` CH database:
@@ -304,7 +305,7 @@ def ch_worker_setup():
     - **real CH**: a ``default_<worker>`` database in the shared server.
 
     Without this, the per-test ``DROP TABLE`` sweep would cross worker
-    boundaries in real-CH CI jobs. Like ``sql_worker_setup``, real CH is
+    boundaries in real-CH CI jobs. Like ``worker_sql_database``, real CH is
     migrated before yielding, for processes that need the schema at startup
     (the web e2e server and workers); chdb migrates itself on first use
     (``init_oplog_tables``).
@@ -366,8 +367,8 @@ def ch_worker_setup():
         admin.close()
 
 
-@pytest.fixture(autouse=True, scope="session")
-def sql_worker_setup():
+@contextmanager
+def worker_sql_database() -> Iterator[None]:
     """Per-worker SQL isolation — SQLite file for local, database for Postgres.
 
     Local mode: one SQLite file per worker. Schema is created once via
@@ -428,14 +429,23 @@ def sql_worker_setup():
     config = get_alembic_config()
     command.upgrade(config, "head")
 
-    yield
+    try:
+        yield
+    finally:
+        conn = _pg_connect("postgres")
+        conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+        cur = conn.cursor()
+        cur.execute(f'DROP DATABASE IF EXISTS "{db_name}"')
+        cur.close()
+        conn.close()
 
-    conn = _pg_connect("postgres")
-    conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-    cur = conn.cursor()
-    cur.execute(f'DROP DATABASE IF EXISTS "{db_name}"')
-    cur.close()
-    conn.close()
+
+@contextmanager
+def worker_databases() -> Iterator[None]:
+    """This xdist worker's own CH and SQL databases, pointed to by the
+    ``AAICLICK_*_URL`` env vars until exit."""
+    with worker_ch_database(), worker_sql_database():
+        yield
 
 
 @pytest.fixture(scope="module")

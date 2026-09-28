@@ -372,8 +372,8 @@ background workers as separate processes in distributed mode (local mode
 runs them inside the server); Playwright fixtures (`browser`, `page`,
 `shot`). Playwright is an optional dep in the `dev` extra — tests skip
 cleanly without it. Under xdist (`-n auto` in CI) each worker runs its own
-server and workers on its own databases (`ch_worker_setup` /
-`sql_worker_setup`).
+server and workers on its own databases (`base_url` enters
+`worker_databases()`).
 
 **One test body, both modes.** Tests create jobs in-process through the
 orchestration API (`helpers.submit_job`, the same pattern as `seed.py`),

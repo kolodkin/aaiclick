@@ -1,8 +1,7 @@
 """Pytest fixtures for aaiclick.orchestration tests.
 
-Shared fixtures (``ch_worker_setup``, ``sql_worker_setup``, ``orch_ctx``
-family) register globally via the ``aaiclick.testing`` plugin (see
-``aaiclick/conftest.py``). This conftest holds orchestration-local
+Shared fixtures (per-worker databases, the ``orch_ctx`` family) are
+registered in ``aaiclick/conftest.py`` from ``aaiclick.testing``. This conftest holds orchestration-local
 helpers: the polling-speed monkeypatches.
 """
 
