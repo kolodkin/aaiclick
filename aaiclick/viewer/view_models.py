@@ -8,7 +8,7 @@ from typing import Any, Literal, NamedTuple
 from pydantic import BaseModel, Field
 
 from aaiclick.data.view_models import ColumnSchema
-from aaiclick.log_models import PageLimit
+from aaiclick.log_models import PageLimit, PageOffset
 
 ORDER_ASC = "ASC"
 ORDER_DESC = "DESC"
@@ -64,6 +64,7 @@ class SavedQueryFilter(BaseModel):
     scope: str | None = None  # also matches queries saved with no scope
     object: str | None = None
     limit: PageLimit = 50
+    offset: PageOffset = 0
 
 
 class DashboardIn(BaseModel):

@@ -19,13 +19,6 @@ is fixed.
   `aaiclick/data/object/operators.py`.
 - **`insert_from_url` fails on every `aai_id=True` table** —
   `aaiclick/data/object/object.py`.
-- **`delete_object` with an invalid name is a 500** —
-  `aaiclick/internal_api/objects.py`.
-- **Task logs without `tail` are unbounded** — `aaiclick/internal_api/tasks.py`.
-- **Saved-queries `total` is the post-LIMIT count** with no offset —
-  `aaiclick/internal_api/viewer.py`, `list_saved_queries()`.
-- **CSV viewer path has no execution-time cap** — same file,
-  `query_object_bytes()`.
 - **`_pump_stream` decodes 64 KiB chunks independently** —
   `aaiclick/orchestration/execution/runner.py`. Split multibyte characters
   become U+FFFD.

@@ -60,6 +60,7 @@ def test_every_list_filter_bounds_its_limit(model):
         pytest.param(ExecutionWorkerFilter, id="execution-worker"),
         pytest.param(UserListFilter, id="user-list"),
         pytest.param(AuditListFilter, id="audit-list"),
+        pytest.param(SavedQueryFilter, id="saved-query"),
     ],
 )
 def test_every_offset_filter_rejects_negative_offset(model):

@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 
 from aaiclick.internal_api import tasks as tasks_api
+from aaiclick.log_models import MAX_TASK_LOG_LINES
 from aaiclick.orchestration.view_models import ClearTaskView, TaskDetail, TaskLogsView
 
 from ..auth import require_admin
@@ -32,7 +33,9 @@ async def get_task(task_id: int) -> TaskDetail:
 )
 async def get_task_logs(
     task_id: int,
-    tail: int | None = Query(default=None, ge=1, description="Return only the last N log lines."),
+    tail: int = Query(
+        default=MAX_TASK_LOG_LINES, ge=1, le=MAX_TASK_LOG_LINES, description="Return only the last N log lines."
+    ),
 ) -> TaskLogsView:
     return await tasks_api.get_task_logs(task_id, tail=tail)
 

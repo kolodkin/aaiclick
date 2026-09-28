@@ -113,6 +113,11 @@ async def test_delete_object_missing_is_idempotent():
     assert view.name == "never_existed"
 
 
+async def test_delete_object_invalid_name_raises_invalid():
+    with pytest.raises(errors.Invalid):
+        await objects.delete_object("bad name;")
+
+
 async def test_purge_objects_requires_time_filter():
     with pytest.raises(errors.Invalid):
         await objects.purge_objects(PurgeObjectsRequest())

@@ -50,6 +50,7 @@ from aaiclick.viewer.view_models import (
 
 from . import objects as objects_api
 from .errors import Invalid, NotFound
+from .pagination import paginate
 
 RowT = TypeVar("RowT", SavedQueryRow, DashboardRow)
 
@@ -106,10 +107,10 @@ async def query_object_bytes(request: ObjectQueryRequest) -> bytes:
         offset=request.offset,
     )
     sql = view.select_sql(columns=_projection(obj, request.fields))
+    limits = {"max_execution_time": DEFAULT_MAX_EXECUTION_TIME}
     if request.fmt == FMT_CSV:
-        return await query_bytes(sql, CSV_WITH_NAMES)
-    settings = {**JSON_COMPACT_SETTINGS, "max_execution_time": DEFAULT_MAX_EXECUTION_TIME}
-    return await query_bytes(sql, JSON_COMPACT, settings)
+        return await query_bytes(sql, CSV_WITH_NAMES, limits)
+    return await query_bytes(sql, JSON_COMPACT, {**JSON_COMPACT_SETTINGS, **limits})
 
 
 async def query_object(request: ObjectQueryRequest) -> ObjectQueryResult:
@@ -162,10 +163,14 @@ async def list_saved_queries(filter: SavedQueryFilter | None = None) -> Page[Sav
         predicates.append((col(SavedQueryRow.scope) == filter.scope) | (col(SavedQueryRow.scope).is_(None)))
     if filter.object is not None:
         predicates.append(SavedQueryRow.object == filter.object)
-    stmt = select(SavedQueryRow).where(*predicates).order_by(col(SavedQueryRow.name)).limit(filter.limit)
-    async with get_sql_session() as session:
-        rows = (await session.execute(stmt)).scalars().all()
-    return Page[SavedQuery](items=[_row_to_saved_query(r) for r in rows], total=len(rows))
+    page = await paginate(
+        SavedQueryRow,
+        where=predicates,
+        order_by=col(SavedQueryRow.name).asc(),
+        limit=filter.limit,
+        offset=filter.offset,
+    )
+    return Page[SavedQuery](items=[_row_to_saved_query(r) for r in page.rows], total=page.total)
 
 
 async def save_query(query: SavedQueryIn) -> SavedQuery:
