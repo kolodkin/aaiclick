@@ -11,6 +11,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -23,14 +24,21 @@ from aaiclick.orchestration.docker_config import get_registry
 # functions has the same effect because pytest discovers fixtures by walking
 # the conftest module's namespace.
 from aaiclick.testing import (  # noqa: F401 - re-exported as pytest fixtures
-    ch_worker_setup,
     orch_ctx,
     orch_ctx_no_ch,
     orch_module_ctx,
     orch_module_ctx_no_ch,
     publish_user_repo,
-    sql_worker_setup,
+    worker_databases,
 )
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _worker_databases() -> Iterator[None]:
+    """Give this xdist worker its own CH and SQL databases for the session."""
+    with worker_databases():
+        yield
+
 
 _FIXTURES = Path(__file__).parent.parent / "fixtures"
 _SAMPLE_JOB = _FIXTURES / "sample_job"

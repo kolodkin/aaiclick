@@ -13,15 +13,17 @@ may additionally import the per-test/per-module fixtures they need
 """
 
 import importlib.util
+from collections.abc import Iterator
+
+import pytest
 
 from aaiclick.testing import (  # noqa: F401 - re-exported as pytest fixtures
-    ch_worker_setup,
     gc_leak_check,
     orch_ctx,
     orch_ctx_no_ch,
     orch_module_ctx,
     orch_module_ctx_no_ch,
-    sql_worker_setup,
+    worker_databases,
 )
 
 # ``server`` and ``ai`` are optional extras: their packages import
@@ -30,3 +32,10 @@ from aaiclick.testing import (  # noqa: F401 - re-exported as pytest fixtures
 # is absent — CI exercises them under dedicated ``--extra`` matrix jobs.
 _OPTIONAL_SUITES = (("server", "fastapi"), ("ai", "litellm"))
 collect_ignore = [pkg for pkg, dep in _OPTIONAL_SUITES if importlib.util.find_spec(dep) is None]
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _worker_databases() -> Iterator[None]:
+    """Give this xdist worker its own CH and SQL databases for the session."""
+    with worker_databases():
+        yield

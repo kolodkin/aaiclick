@@ -28,6 +28,7 @@ from typing import Any, BinaryIO
 import pytest
 
 from aaiclick.backend import is_local
+from aaiclick.testing import worker_databases
 
 SEED = Path(__file__).with_name("seed.py")
 SHOTS = Path(__file__).resolve().parents[2] / "test-results" / "shots"
@@ -48,9 +49,33 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
         return
     for path in config.stash.get(LOG_PATHS, []):
         lines = path.read_text(errors="replace").splitlines()[-LOG_TAIL_LINES:]
-        terminalreporter.write_sep("=", f"{path.name} (last {len(lines)} lines)")
+        terminalreporter.write_sep("=", f"{path} (last {len(lines)} lines)")
         for line in lines:
             terminalreporter.write_line(line)
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Start each run with an empty ``test-results/shots/`` so it only holds
+    this run's screenshots. Under xdist only the controller clears it, before
+    any worker starts, so no worker deletes another's screenshots."""
+    if not hasattr(config, "workerinput"):
+        shutil.rmtree(SHOTS, ignore_errors=True)
+    SHOTS.mkdir(parents=True, exist_ok=True)
+
+
+def pytest_sessionfinish(session: pytest.Session) -> None:
+    """On an xdist worker, hand this worker's log paths to the controller,
+    whose terminal summary prints them."""
+    workeroutput = getattr(session.config, "workeroutput", None)
+    if workeroutput is not None:
+        workeroutput["log_paths"] = [str(p) for p in session.config.stash.get(LOG_PATHS, [])]
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_testnodedown(node: Any, error: object) -> None:
+    """Collect a finished xdist worker's log paths on the controller."""
+    paths = node.workeroutput.get("log_paths", [])
+    node.config.stash.setdefault(LOG_PATHS, []).extend(Path(p) for p in paths)
 
 
 def _free_port() -> int:
@@ -81,8 +106,20 @@ def _stop(proc: subprocess.Popen, log_file: BinaryIO) -> None:
     log_file.close()
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _worker_databases() -> Iterator[None]:
+    """Give this xdist worker its own CH and SQL databases; ``base_url`` hands
+    their env to the server and workers, so parallel workers never see each
+    other's jobs. Autouse so it runs before Playwright starts its event loop:
+    the migrations inside call ``asyncio.run()``."""
+    with worker_databases():
+        yield
+
+
 @pytest.fixture(scope="session")
-def base_url(request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
+def base_url(
+    _worker_databases: None, request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[str]:
     """Start the server — plus both workers in distributed mode — and yield its URL.
 
     Rooted at a per-session temp dir via ``AAICLICK_LOCAL_ROOT`` so the suite
@@ -173,28 +210,23 @@ def page(browser: Any) -> Iterator[Any]:
     pg.close()
 
 
-@pytest.fixture(scope="session", autouse=True)
-def _shots_dir() -> None:
-    """Start each run with an empty ``test-results/shots/`` so the directory
-    only ever holds this run's screenshots."""
-    shutil.rmtree(SHOTS, ignore_errors=True)
-    SHOTS.mkdir(parents=True, exist_ok=True)
-
-
 @pytest.fixture(scope="session")
 def _shot_counter() -> Iterator[int]:
     return itertools.count(1)
 
 
 @pytest.fixture()
-def shot(page: Any, _shot_counter: Iterator[int]) -> Callable[[str], Path]:
+def shot(page: Any, _shot_counter: Iterator[int], request: pytest.FixtureRequest) -> Callable[[str], Path]:
     """Save a curated full-page screenshot to ``test-results/shots/NN-<name>.png``.
 
-    The NN prefix is a run-wide counter, so filenames sort in the order the
-    screenshots were taken."""
+    The NN prefix is a per-process counter, so filenames sort in the order the
+    screenshots were taken; under xdist it is prefixed with the worker id
+    (``gw0-NN-<name>.png``) so workers never overwrite each other."""
+    worker = getattr(request.config, "workerinput", {}).get("workerid")
+    prefix = f"{worker}-" if worker else ""
 
     def _shot(name: str) -> Path:
-        path = SHOTS / f"{next(_shot_counter):02d}-{name}.png"
+        path = SHOTS / f"{prefix}{next(_shot_counter):02d}-{name}.png"
         page.screenshot(path=str(path), full_page=True)
         return path
 

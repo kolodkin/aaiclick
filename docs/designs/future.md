@@ -180,3 +180,12 @@ before growing it further:
   task as a kwarg already wires the dependency
 
 Decide on one taught form, then restore `reportUnusedExpression` if `>>` goes.
+
+## Coverage Reporting
+
+Coverage is off by default: its CI log table went unread and it slowed every
+unit job. `pytest-cov` stays installed for ad hoc `--cov` runs (e.g. the
+`python-testing-style` zero-lines-lost check).
+
+Bring it back as one nightly job that publishes the report where it is read
+(HTML artifact or a coverage service with PR diffs), outside the per-PR jobs.

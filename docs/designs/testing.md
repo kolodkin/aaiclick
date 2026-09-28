@@ -21,12 +21,14 @@ Subpackage conftests only hold subpackage-local fixtures.
 
 ## Shared fixtures (from `aaiclick/testing.py`)
 
-**Session-scoped, autouse** — fire implicitly, never declared:
+**Session-scoped, autouse** — fire implicitly, never declared. Each conftest
+that needs it defines `_worker_databases`, wrapping the `worker_databases()`
+context manager:
 
-| Fixture              | Purpose                                                                 |
-|----------------------|-------------------------------------------------------------------------|
-| `ch_worker_setup`    | Per-xdist-worker chdb tempdir / CH database                             |
-| `sql_worker_setup`   | Per-xdist-worker SQLite file / Postgres database                        |
+| Context manager       | Purpose                                                                |
+|-----------------------|------------------------------------------------------------------------|
+| `worker_ch_database`  | Per-xdist-worker chdb tempdir / CH database                            |
+| `worker_sql_database` | Per-xdist-worker SQLite file / Postgres database                       |
 
 **Module-scoped** — one entry per test module, explicit via `orch_ctx*`:
 
@@ -94,7 +96,7 @@ migrates that tempdir first — with chdb + Postgres the child's
 
 # Per-xdist-worker Isolation
 
-`ch_worker_setup` / `sql_worker_setup` give each xdist worker its own
+`worker_databases()` gives each xdist worker its own
 CH path + SQL database. The per-test reset
 (`drop_all_ch_tables` + `reset_sql_tables`) scopes to
 `database = currentDatabase()`, so it's safe even on shared distributed
