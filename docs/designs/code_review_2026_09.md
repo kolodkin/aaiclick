@@ -56,4 +56,3 @@ is fixed.
 - `Any` as a shortcut: `aaiclick/data/object/object.py` (`_UNSET` sentinel,
   `order_by` / `limit` / `offset` overrides, `data() -> Any`),
   `mp_worker.py`, `background_worker.py`, `aaiclick/ai/provider.py`.
-
