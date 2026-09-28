@@ -5,11 +5,14 @@ from datetime import datetime
 import pytest
 from sqlalchemy import select
 
+from aaiclick.orchestration.decorators import job
 from aaiclick.orchestration.execution.image_build_task import IMAGE_BUILD_ENTRYPOINT
 from aaiclick.orchestration.factories import create_built_job, create_job, create_task
 from aaiclick.orchestration.jobs import get_task
+from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import (
     JOB_PENDING,
+    RUN_MANUAL,
     TASK_PENDING,
     Job,
     Task,
@@ -23,6 +26,11 @@ from aaiclick.orchestration.runner_config import (
     ImagePrebuilt,
     dump_image_source,
 )
+
+
+@job("kwarg_named_like_job_field")
+def _job_with_colliding_kwargs(run_type: str, registered_job_id: int) -> None:
+    pass
 
 
 async def test_create_task_unique_ids(orch_ctx):
@@ -200,3 +208,12 @@ async def test_create_built_job_prebuilt_injects_nothing(orch_ctx_no_ch, monkeyp
         rows = (await session.execute(select(Task).where(Task.job_id == job.id))).scalars().all()
     assert [t.entrypoint for t in rows] == ["m.entry"]
     assert rows[0].image_source == dump_image_source(source)
+
+
+async def test_job_factory_passes_kwargs_named_like_job_fields_to_the_task(orch_ctx):
+    """``run_type`` / ``registered_job_id`` are entry point arguments, not job settings."""
+    created = await _job_with_colliding_kwargs(run_type="nightly", registered_job_id=7)
+
+    assert created.run_type == RUN_MANUAL and created.registered_job_id is None
+    (entry,) = await get_tasks_for_job(created.id)
+    assert set(entry.kwargs) == {"run_type", "registered_job_id"}

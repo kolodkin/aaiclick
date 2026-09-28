@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from aaiclick.data.data_context.ch_client import _ch_client_var
 from aaiclick.orchestration.execution.db_handler import _db_handler_var
-from aaiclick.orchestration.orch_context import OrchLifecycleHandler, orch_context
+from aaiclick.orchestration.orch_context import OrchLifecycleHandler, orch_context, task_scope
 from aaiclick.orchestration.sql_context import _sql_engine_var, get_sql_session
 
 # `aaiclick.orchestration.__init__` re-exports the function ``orch_context``
@@ -120,3 +120,17 @@ async def test_flush_raises_when_lifecycle_loop_is_gone():
         await handler.stop()
         with pytest.raises(RuntimeError, match="lifecycle"):
             await asyncio.wait_for(handler.flush(), timeout=5)
+
+
+async def test_task_scope_starts_no_lifecycle_loop_when_setup_fails():
+    """A failing oplog init must not leave a lifecycle consumer running with nobody to stop it."""
+    async with orch_context(with_ch=True):
+        with (
+            patch.object(_orch_module, "init_oplog_tables", side_effect=RuntimeError("ch down")),
+            patch.object(OrchLifecycleHandler, "start", autospec=True) as start_spy,
+        ):
+            with pytest.raises(RuntimeError, match="ch down"):
+                async with task_scope(task_id=1, job_id=1, run_id=7):
+                    pass
+
+    assert start_spy.call_count == 0

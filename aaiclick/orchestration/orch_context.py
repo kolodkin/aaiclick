@@ -470,6 +470,11 @@ async def task_scope(
         job_id: ID of the job (for pin/claim lifecycle ownership).
         run_id: Per-attempt snowflake ID for oplog isolation across retries.
     """
+    # Schema setup runs before the lifecycle loop starts, so a failure here
+    # leaves no orphaned background task behind.
+    await init_oplog_tables(get_ch_client())
+    await migrate_table_registry_to_sql(get_ch_client())
+
     lifecycle = OrchLifecycleHandler(
         task_id=task_id,
         job_id=job_id,
@@ -478,8 +483,6 @@ async def task_scope(
     await lifecycle.start()
 
     objects: dict[int, weakref.ref] = {}
-    await init_oplog_tables(get_ch_client())
-    await migrate_table_registry_to_sql(get_ch_client())
 
     lc_token = _lifecycle_var.set(lifecycle)
     obj_token = _objects_var.set(objects)

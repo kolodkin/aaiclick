@@ -19,13 +19,6 @@ is fixed.
   `aaiclick/data/object/operators.py`.
 - **`insert_from_url` fails on every `aai_id=True` table** —
   `aaiclick/data/object/object.py`.
-- **`_pump_stream` decodes 64 KiB chunks independently** —
-  `aaiclick/orchestration/execution/runner.py`. Split multibyte characters
-  become U+FFFD.
-- **`JobFactory.__call__` captures a kwarg named `run_type` or
-  `registered_job_id`** — `aaiclick/orchestration/decorators.py`.
-- **`task_scope` orphans the lifecycle loop** if oplog init raises —
-  `aaiclick/orchestration/orch_context.py`.
 - **Shell `command_env` values on the wrapper argv** (visible in `ps`) —
   `docker_worker.py` `build_shell_run_spec()` (`-e K=V`) and
   `kubernetes_worker.py` `build_shell_pod_spec()` (`--overrides`). Needs an

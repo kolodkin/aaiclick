@@ -42,7 +42,6 @@ from .models import (
     Group,
     Job,
     PreservationMode,
-    RunType,
     Task,
 )
 from .orch_context import commit_tasks, get_sql_session, orch_context
@@ -234,33 +233,22 @@ class JobFactory:
         """
 
         async def _run() -> Job:
-            return await self._create_job(
-                preservation_mode=preservation_mode,
-                **kwargs,
-            )
+            return await self._create_job(kwargs, preservation_mode)
 
         if _sql_engine_var.get() is not None:
             return await _run()
         async with orch_context():
             return await _run()
 
-    async def _create_job(
-        self,
-        run_type: RunType = RUN_MANUAL,
-        registered_job_id: int | None = None,
-        preservation_mode: PreservationMode | None = None,
-        **kwargs,
-    ) -> Job:
-        """Internal method to create job within an OrchContext."""
-        # Serialize kwargs for the entry point task
-        serialized_kwargs = {k: _serialize_value(v) for k, v in kwargs.items()}
+    async def _create_job(self, task_kwargs: dict[str, object], preservation_mode: PreservationMode | None) -> Job:
+        """Create the job and its entry point task within an OrchContext.
 
-        job = new_job_row(
-            self.name,
-            run_type=run_type,
-            registered_job_id=registered_job_id,
-            preservation_mode=preservation_mode,
-        )
+        ``task_kwargs`` is a plain dict, not ``**kwargs``, so an entry point
+        argument never binds to one of this method's own parameters.
+        """
+        serialized_kwargs = {k: _serialize_value(v) for k, v in task_kwargs.items()}
+
+        job = new_job_row(self.name, run_type=RUN_MANUAL, preservation_mode=preservation_mode)
 
         # Commit job to database
         async with get_sql_session() as session:

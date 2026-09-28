@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import codecs
 import importlib
 import inspect
 import logging
@@ -395,12 +396,20 @@ async def _run_cleanup_argv(cleanup_argv: list[str]) -> None:
 
 
 async def _pump_stream(stream: asyncio.StreamReader, sink: _ChLogSink, source: LogStream) -> None:
-    """Feed one output pipe into the sink chunk by chunk until EOF."""
+    """Feed one output pipe into the sink chunk by chunk until EOF.
+
+    An incremental decoder carries a multibyte character split across two
+    chunks into the next read instead of replacing each half with U+FFFD.
+    """
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
     while True:
         chunk = await stream.read(65536)
         if not chunk:
+            if tail := decoder.decode(b"", final=True):
+                sink.write(source, tail)
             return
-        sink.write(source, chunk.decode(errors="replace"))
+        if text := decoder.decode(chunk):
+            sink.write(source, text)
 
 
 async def execute_shell_task(task: Task, spec: ShellSpec | None = None) -> None:
