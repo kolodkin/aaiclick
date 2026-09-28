@@ -127,9 +127,7 @@ async def get_object(name: str, job: RefId | None = None) -> ObjectDetail:
 async def delete_object(name: str) -> Deleted:
     """Drop a global-scope persistent object by name.
 
-    Idempotent — dropping a non-existent object is not an error, matching
-    ClickHouse's ``DROP TABLE IF EXISTS`` semantics used underneath. Raises
-    ``Invalid`` for a name that is not a valid object name.
+    Idempotent (``DROP TABLE IF EXISTS``). Raises ``Invalid`` for a malformed name.
     """
     try:
         await delete_persistent_object(name, scope=SCOPE_GLOBAL)

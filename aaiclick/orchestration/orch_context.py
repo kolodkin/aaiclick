@@ -470,8 +470,7 @@ async def task_scope(
         job_id: ID of the job (for pin/claim lifecycle ownership).
         run_id: Per-attempt snowflake ID for oplog isolation across retries.
     """
-    # Schema setup runs before the lifecycle loop starts, so a failure here
-    # leaves no orphaned background task behind.
+    # Before lifecycle.start(): a setup failure must not orphan its loop.
     await init_oplog_tables(get_ch_client())
     await migrate_table_registry_to_sql(get_ch_client())
 

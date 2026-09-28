@@ -396,10 +396,9 @@ async def _run_cleanup_argv(cleanup_argv: list[str]) -> None:
 
 
 async def _pump_stream(stream: asyncio.StreamReader, sink: _ChLogSink, source: LogStream) -> None:
-    """Feed one output pipe into the sink chunk by chunk until EOF.
+    """Feed one output pipe into the sink until EOF.
 
-    An incremental decoder carries a multibyte character split across two
-    chunks into the next read instead of replacing each half with U+FFFD.
+    Decodes incrementally so a multibyte character split across reads stays intact.
     """
     decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
     while True:

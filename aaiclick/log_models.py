@@ -44,7 +44,7 @@ MAX_PAGE_LIMIT = 1000
 PageLimit = Annotated[int, Field(ge=1, le=MAX_PAGE_LIMIT)]
 PageOffset = Annotated[int, Field(ge=0)]
 
-# Most task log lines one read returns — the last lines of the run.
+# Cap on task log lines per read (the run's last lines).
 MAX_TASK_LOG_LINES = 10_000
 
 # Captured task output streams.
