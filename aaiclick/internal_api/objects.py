@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 from aaiclick.data.data_context import (
+    InvalidObjectNameError,
     ObjectNotFoundError,
     delete_persistent_object,
     delete_persistent_objects,
@@ -131,7 +132,7 @@ async def delete_object(name: str) -> Deleted:
     """
     try:
         await delete_persistent_object(name, scope=SCOPE_GLOBAL)
-    except ValueError as exc:
+    except InvalidObjectNameError as exc:
         raise Invalid(str(exc)) from exc
     return Deleted(name=name)
 
