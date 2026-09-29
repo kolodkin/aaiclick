@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 from aaiclick.data.data_context import (
+    InvalidObjectNameError,
     ObjectNotFoundError,
     delete_persistent_object,
     delete_persistent_objects,
@@ -127,10 +128,12 @@ async def get_object(name: str, job: RefId | None = None) -> ObjectDetail:
 async def delete_object(name: str) -> Deleted:
     """Drop a global-scope persistent object by name.
 
-    Idempotent — dropping a non-existent object is not an error, matching
-    ClickHouse's ``DROP TABLE IF EXISTS`` semantics used underneath.
+    Idempotent (``DROP TABLE IF EXISTS``). Raises ``Invalid`` for a malformed name.
     """
-    await delete_persistent_object(name, scope=SCOPE_GLOBAL)
+    try:
+        await delete_persistent_object(name, scope=SCOPE_GLOBAL)
+    except InvalidObjectNameError as exc:
+        raise Invalid(str(exc)) from exc
     return Deleted(name=name)
 
 

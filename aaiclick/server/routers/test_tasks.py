@@ -4,6 +4,7 @@ import pytest
 from sqlmodel import select
 
 from aaiclick.auth import security
+from aaiclick.log_models import MAX_TASK_LOG_LINES
 from aaiclick.orchestration.factories import _callable_to_string, create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
@@ -86,6 +87,15 @@ async def test_get_task_logs_accepts_tail_param(orch_ctx, app_client):
 
     assert response.status_code == 200
     TaskLogsView.model_validate(response.json())
+
+
+async def test_get_task_logs_rejects_tail_above_cap(orch_ctx, app_client):
+    job = await create_job("logs_tail_cap_job", simple_task)
+    task = (await get_tasks_for_job(job.id))[0]
+
+    response = await app_client.get(f"{API_PREFIX}/tasks/{task.id}/logs", params={"tail": MAX_TASK_LOG_LINES + 1})
+
+    assert response.status_code == 422
 
 
 async def test_clear_task(orch_ctx, app_client):

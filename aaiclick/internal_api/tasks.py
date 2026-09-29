@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from sqlmodel import select
 
+from aaiclick.log_models import MAX_TASK_LOG_LINES
 from aaiclick.orchestration.execution import claiming
 from aaiclick.orchestration.logging import read_task_logs
 from aaiclick.orchestration.models import Task
@@ -39,14 +40,12 @@ async def get_task(task_id: int) -> TaskDetail:
     return task_to_detail(await _require_visible_task(task_id))
 
 
-async def get_task_logs(task_id: int, tail: int | None = None) -> TaskLogsView:
-    """Return captured log lines for a task's latest run.
+async def get_task_logs(task_id: int, tail: int = MAX_TASK_LOG_LINES) -> TaskLogsView:
+    """Return the last ``tail`` captured log lines of a task's latest run.
 
-    Reads the ClickHouse ``task_logs`` stream written by the task process, so
-    logs are available regardless of which host ran the task (local, docker, or
-    kubernetes). When ``tail`` is given, returns only the last ``tail`` lines.
-    Returns ``available=False`` when the task has not run yet or its latest run
-    produced no captured output.
+    Reads the ClickHouse ``task_logs`` stream, so logs are available whichever
+    host ran the task. Returns ``available=False`` when the task has not run
+    yet or its latest run produced no output.
 
     Raises ``NotFound`` if no task matches ``task_id``.
     """
