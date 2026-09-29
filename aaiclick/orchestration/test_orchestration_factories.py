@@ -210,7 +210,7 @@ async def test_create_built_job_prebuilt_injects_nothing(orch_ctx_no_ch, monkeyp
     assert rows[0].image_source == dump_image_source(source)
 
 
-async def test_job_factory_passes_kwargs_named_like_job_fields_to_the_task(orch_ctx):
+async def test_job_factory_passes_kwargs_named_like_job_fields_to_the_task(orch_ctx_no_ch):
     """``run_type`` / ``registered_job_id`` are entry point arguments, not job settings."""
     created = await _job_with_colliding_kwargs(run_type="nightly", registered_job_id=7)
 
