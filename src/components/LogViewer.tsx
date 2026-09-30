@@ -94,13 +94,6 @@ export function LogViewer({ taskId, status }: { taskId: string; status: TaskStat
   return (
     <div className="logs">
       <div className="logs-toolbar">
-        {latest > 1 && (
-          <AttemptPicker
-            attempts={attempts}
-            current={data?.attempt}
-            onPick={(n) => setPicked(n === latest ? null : n)}
-          />
-        )}
         <label>
           <input
             type="checkbox"
@@ -109,6 +102,13 @@ export function LogViewer({ taskId, status }: { taskId: string; status: TaskStat
           />
           Show timestamps
         </label>
+        {latest > 1 && (
+          <AttemptPicker
+            attempts={attempts}
+            current={data?.attempt}
+            onPick={(n) => setPicked(n === latest ? null : n)}
+          />
+        )}
         <div className="spacer" />
         {/* Logs are on their own clock, not the /events stream — say so here
             rather than letting the task's "live" badge above imply otherwise.
