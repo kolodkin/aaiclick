@@ -125,7 +125,10 @@ def _apply_task_status(task: Task, status: TaskStatus, error: str | None, result
         if result:
             task.result = result
 
-    if task.run_statuses:
+    # RUNNING is not mirrored: a retry goes RUNNING before ``register_run``
+    # appends its entry (with RUNNING), so the last entry is still the previous
+    # attempt's and must keep how that attempt ended.
+    if task.run_statuses and status != TASK_RUNNING:
         task.run_statuses = [*task.run_statuses[:-1], status]
 
 

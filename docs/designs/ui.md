@@ -138,7 +138,7 @@ Task statuses use the same color scheme as job statuses, plus:
 
 **Top section**: status bar with task metadata — name, status badge, entrypoint, job name, worker ID, attempt info, timestamps, error (if any).
 
-**Main section**: log viewer filling the remaining screen with vertical scroll. Logs refresh on the same `changed` signal as every other view. Lines come from the ClickHouse `task_logs` stream for the task's latest run, so they resolve regardless of which host ran the task. Returns `available=false` when the task has not run yet or its latest run captured no output. Lines are colored by `level` (`lvl-*` classes) and an opt-in "Show timestamps" toggle reveals each line's `created_at`.
+**Main section**: log viewer filling the remaining screen with vertical scroll. Logs refresh on the same `changed` signal as every other view. Lines come from the ClickHouse `task_logs` stream for one run of the task, so they resolve regardless of which host ran the task. A retried task shows a "Task tries" row (as in Airflow): one button per run with a square in that run's final status color; the latest is selected and polled, and clicking an earlier one shows that run's own output. Returns `available=false` when the task has not run yet or the selected run captured no output. Lines are colored by `level` (`lvl-*` classes) and an opt-in "Show timestamps" toggle reveals each line's `created_at`.
 
 **Implementation**: `src/views/TaskDetail.tsx` — see `TaskDetail` component; `src/components/LogViewer.tsx` — see `LogViewer`; `aaiclick/server/routers/tasks.py` — see `get_task_logs`; `aaiclick/internal_api/tasks.py` — see `get_task_logs`.
 

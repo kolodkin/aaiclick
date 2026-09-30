@@ -8,7 +8,7 @@ from aaiclick.orchestration.factories import _callable_to_string, create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.logging import flush_task_logs
-from aaiclick.orchestration.models import Task
+from aaiclick.orchestration.models import TASK_COMPLETED, TASK_FAILED, Task
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.view_models import ClearTaskView, TaskDetail, TaskLogsView
 from aaiclick.view_models import STDOUT_STREAM, LogLine, Problem, ProblemCode
@@ -86,6 +86,27 @@ async def test_get_task_logs_accepts_tail_param(orch_ctx, app_client):
 
     assert response.status_code == 200
     TaskLogsView.model_validate(response.json())
+
+
+async def test_get_task_logs_attempt_param(orch_ctx, app_client):
+    job = await create_job("logs_attempt_route", simple_task)
+    task = (await get_tasks_for_job(job.id))[0]
+    await flush_task_logs(task.id, job.id, 1, [LogLine(stream=STDOUT_STREAM, text="try one")])
+    await flush_task_logs(task.id, job.id, 2, [LogLine(stream=STDOUT_STREAM, text="try two")])
+    async with get_sql_session() as s:
+        row = (await s.execute(select(Task).where(Task.id == task.id))).scalar_one()
+        row.run_ids = [1, 2]
+        row.run_statuses = [TASK_FAILED, TASK_COMPLETED]
+        s.add(row)
+        await s.commit()
+
+    first = await app_client.get(f"{API_PREFIX}/tasks/{task.id}/logs", params={"attempt": 1})
+    missing = await app_client.get(f"{API_PREFIX}/tasks/{task.id}/logs", params={"attempt": 3})
+
+    assert first.status_code == 200
+    logs = TaskLogsView.model_validate(first.json())
+    assert [line.text for line in logs.lines] == ["try one"]
+    assert missing.status_code == 404
 
 
 async def test_clear_task(orch_ctx, app_client):

@@ -123,6 +123,34 @@ def test_task_view_shows_logs(page, base_url: str, shot) -> None:
 
 
 @_spa_built
+def test_task_view_switches_between_attempts(page, base_url: str, shot, tmp_path) -> None:
+    """A retried task offers one "Task tries" button per run, colored by how the
+    run ended; the latest is shown by default and clicking an earlier one shows
+    that run's own output."""
+    job_id = submit_job(
+        "flaky_task",
+        "aaiclick.orchestration.fixtures.sample_tasks.flaky_task",
+        {"counter_file": str(tmp_path / "attempts")},
+        max_retries=2,
+    )
+    task_id = wait_for_task(job_id, "COMPLETED").id
+
+    open_page(page, f"{base_url}/?p=@task {task_id}")
+
+    logs = page.locator("div.logs")
+    logs.get_by_text("Attempt 3", exact=True).wait_for(timeout=15000)
+    assert logs.get_by_test_id("log-try-1").locator(".sq-FAILED").count() == 1
+    assert logs.get_by_test_id("log-try-3").locator(".sq-COMPLETED").count() == 1
+    assert logs.get_by_test_id("log-try-3").get_attribute("aria-pressed") == "true"
+    shot("task-tries-latest")
+
+    logs.get_by_test_id("log-try-1").click()
+    logs.get_by_text("Attempt 1", exact=True).wait_for(timeout=15000)
+    assert logs.get_by_text("Attempt 3", exact=True).count() == 0
+    shot("task-tries-first")
+
+
+@_spa_built
 def test_task_view_colors_logs_by_level(page, base_url: str, shot) -> None:
     """The task view colors lines by level and shows timestamps only when toggled."""
     task_id = _run_task_and_wait("aaiclick.orchestration.fixtures.sample_tasks.task_with_log_levels")

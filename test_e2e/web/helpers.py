@@ -84,12 +84,12 @@ class TaskRow(NamedTuple):
     status: str
 
 
-def submit_job(name: str, entrypoint: str, kwargs: dict | None = None) -> str:
+def submit_job(name: str, entrypoint: str, kwargs: dict | None = None, max_retries: int = 0) -> str:
     """Create a job in-process and return its id as a string."""
 
     async def go() -> int:
         async with orch_context(with_ch=False):
-            job = await create_job(name, create_task(entrypoint, kwargs))
+            job = await create_job(name, create_task(entrypoint, kwargs, max_retries=max_retries))
             return job.id
 
     return str(run_in_process(go))

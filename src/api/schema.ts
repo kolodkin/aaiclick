@@ -1940,6 +1940,19 @@ export interface components {
             max_tasks?: number | null;
         };
         /**
+         * TaskAttemptView
+         * @description One run of a task, from ``Task.run_ids`` / ``Task.run_statuses``.
+         */
+        TaskAttemptView: {
+            /** Attempt */
+            attempt: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "PENDING" | "CLAIMED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "PENDING_FAILURE_CLEANUP" | "PENDING_CANCELLED_CLEANUP" | "UPSTREAM_FAILED";
+        };
+        /**
          * TaskDetail
          * @description Full task representation used by ``GET /tasks/{id}``.
          */
@@ -1993,9 +2006,16 @@ export interface components {
         };
         /**
          * TaskLogsView
-         * @description Captured log lines for a task, served by ``GET /tasks/{id}/logs``.
+         * @description Captured log lines for one attempt of a task, served by
+         *     ``GET /tasks/{id}/logs``. ``attempts`` lists every run so the UI can offer
+         *     a selector without a second request; ``attempt`` is the one ``lines``
+         *     belong to (``None`` when the task has never run).
          */
         TaskLogsView: {
+            /** Attempt */
+            attempt?: number | null;
+            /** Attempts */
+            attempts?: components["schemas"]["TaskAttemptView"][];
             /** Available */
             available: boolean;
             /** Lines */
@@ -3594,6 +3614,8 @@ export interface operations {
             query?: {
                 /** @description Return only the last N log lines. */
                 tail?: number | null;
+                /** @description 1-based run to read; defaults to the latest. */
+                attempt?: number | null;
             };
             header?: never;
             path: {

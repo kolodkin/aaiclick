@@ -30,6 +30,7 @@ from ..models import (
     ExecutionWorker,
     ExecutionWorkerStatus,
     Task,
+    TaskStatus,
 )
 from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_MODULE, EntryType, ImageSourceT, RunnerMode
@@ -242,7 +243,7 @@ async def _set_pending_failure_cleanup(task_id: int, error: str, expected_epoch:
         task = (await session.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
         if task is None:
             return False
-        values: dict[str, str | list[str]] = {"status": TASK_PENDING_FAILURE_CLEANUP, "error": error}
+        values: dict[str, str | list[TaskStatus]] = {"status": TASK_PENDING_FAILURE_CLEANUP, "error": error}
         if task.run_statuses:
             values["run_statuses"] = [*task.run_statuses[:-1], TASK_FAILED]
         stmt = update(Task).where(col(Task.id) == task_id, col(Task.status).not_in(CANCELLING_TASK_STATUSES))

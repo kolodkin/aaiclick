@@ -33,8 +33,9 @@ async def get_task(task_id: int) -> TaskDetail:
 async def get_task_logs(
     task_id: int,
     tail: int | None = Query(default=None, ge=1, description="Return only the last N log lines."),
+    attempt: int | None = Query(default=None, ge=1, description="1-based run to read; defaults to the latest."),
 ) -> TaskLogsView:
-    return await tasks_api.get_task_logs(task_id, tail=tail)
+    return await tasks_api.get_task_logs(task_id, tail=tail, attempt=attempt)
 
 
 @router.post(

@@ -14,6 +14,7 @@ from aaiclick.orchestration.models import Task
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.view_models import (
     ClearTaskView,
+    TaskAttemptView,
     TaskDetail,
     TaskLogsView,
     clear_to_view,
@@ -39,24 +40,31 @@ async def get_task(task_id: int) -> TaskDetail:
     return task_to_detail(await _require_visible_task(task_id))
 
 
-async def get_task_logs(task_id: int, tail: int | None = None) -> TaskLogsView:
-    """Return captured log lines for a task's latest run.
+async def get_task_logs(task_id: int, tail: int | None = None, attempt: int | None = None) -> TaskLogsView:
+    """Return captured log lines for one run of a task.
 
     Reads the ClickHouse ``task_logs`` stream written by the task process, so
     logs are available regardless of which host ran the task (local, docker, or
-    kubernetes). When ``tail`` is given, returns only the last ``tail`` lines.
-    Returns ``available=False`` when the task has not run yet or its latest run
-    produced no captured output.
+    kubernetes). ``attempt`` is 1-based over ``Task.run_ids`` and defaults to
+    the latest run. When ``tail`` is given, returns only the last ``tail``
+    lines. Returns ``available=False`` when the task has not run yet or the
+    chosen run produced no captured output.
 
-    Raises ``NotFound`` if no task matches ``task_id``.
+    Raises ``NotFound`` if no task matches ``task_id``, or ``attempt`` is
+    outside the task's recorded runs.
     """
     task = await _require_visible_task(task_id)
+    attempts = [TaskAttemptView(attempt=i, status=status) for i, status in enumerate(task.run_statuses, start=1)]
 
-    if not task.run_ids:
+    if attempt is None and not task.run_ids:
         return TaskLogsView(available=False)
 
-    lines = await read_task_logs(task_id, task.run_ids[-1], tail=tail)
-    return TaskLogsView(available=bool(lines), lines=lines)
+    selected = attempt or len(task.run_ids)
+    if not 1 <= selected <= len(task.run_ids):
+        raise NotFound(f"Task {task_id} has no attempt {attempt}")
+
+    lines = await read_task_logs(task_id, task.run_ids[selected - 1], tail=tail)
+    return TaskLogsView(available=bool(lines), lines=lines, attempt=selected, attempts=attempts)
 
 
 async def clear_task(task_id: int) -> ClearTaskView:

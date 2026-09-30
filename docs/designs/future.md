@@ -17,28 +17,6 @@ Remove each item from that file as it lands; delete the file when empty.
 
 Items deferred until preconditions are met.
 
-## Task Logs — Per-Attempt History in the Log Panel
-
-`get_task_logs` (`aaiclick/internal_api/tasks.py`) reads `task.run_ids[-1]`, so
-the panel shows only the latest attempt. Earlier attempts are already in
-ClickHouse — `task_logs` tags each line with `run_id`, and `Task.run_ids` /
-`Task.run_statuses` hold the ordered attempts and how each ended — so a retried
-task's failed runs are retained but unreachable. That is exactly the output you
-want after a flaky task finally passes.
-
-Shape, following Airflow's per-try log selector:
-
-- `GET /tasks/{id}/logs` takes an optional 1-based `attempt`, resolved through
-  `run_ids`; defaults to the last.
-- `TaskLogsView` carries the attempts and their statuses, so the selector costs
-  no second request.
-- `LogViewer` shows the selector only when `run_ids` has more than one entry.
-  Polling stays on the latest attempt; older ones are immutable.
-
-!!! note "Pending input"
-    Airflow screenshots to follow as the reference for layout and wording — do
-    not settle the UI details before then.
-
 ## Tenants — Kubernetes Control Plane
 
 Multi-tenancy as a fleet layer rather than a filtered column: a control
