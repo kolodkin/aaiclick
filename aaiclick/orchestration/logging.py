@@ -311,7 +311,13 @@ async def capture_task_output(task_id: int, job_id: int, run_id: int):
             root.setLevel(os.getenv("AAICLICK_LOG_LEVEL", "INFO").upper())
         except ValueError:
             root.setLevel(logging.INFO)
-        yield
+        try:
+            yield
+        except Exception:
+            # The run's own log keeps why it failed; ``Task.error`` holds only
+            # the latest attempt's one-line message.
+            logger.exception("Task failed")
+            raise
     finally:
         root.handlers = saved_handlers
         root.setLevel(saved_level)

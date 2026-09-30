@@ -126,7 +126,7 @@ def test_task_view_shows_logs(page, base_url: str, shot) -> None:
 def test_task_view_switches_between_attempts(page, base_url: str, shot, tmp_path) -> None:
     """A retried task offers one "Task tries" button per run, colored by how the
     run ended; the latest is shown by default and clicking an earlier one shows
-    that run's own output."""
+    that run's own output, ending with its traceback."""
     job_id = submit_job(
         "flaky_task",
         "aaiclick.orchestration.fixtures.sample_tasks.flaky_task",
@@ -144,9 +144,15 @@ def test_task_view_switches_between_attempts(page, base_url: str, shot, tmp_path
     assert logs.get_by_test_id("log-try-3").get_attribute("aria-pressed") == "true"
     shot("task-tries-latest")
 
+    # The task finally succeeded, so no stale error box from an earlier try.
+    assert page.locator(".detail-head .err").count() == 0
+
     logs.get_by_test_id("log-try-1").click()
     logs.get_by_text("Attempt 1", exact=True).wait_for(timeout=15000)
     assert logs.get_by_text("Attempt 3", exact=True).count() == 0
+    # The failed try's own log ends with its exception, traceback included.
+    assert logs.locator(".lvl-ERROR", has_text="RuntimeError: Attempt 1, need 3").count() == 1
+    assert logs.locator(".lvl-ERROR", has_text="Traceback (most recent call last)").count() == 1
     shot("task-tries-first")
 
 

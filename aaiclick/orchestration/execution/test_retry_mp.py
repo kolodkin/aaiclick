@@ -111,6 +111,7 @@ async def test_worker_retry_succeeds_on_third_attempt(orch_ctx_no_ch, tmp_path, 
         assert t.status == TASK_COMPLETED
         assert t.attempt == 2
         assert t.run_statuses == [TASK_FAILED, TASK_FAILED, TASK_COMPLETED]
+        assert t.error is None
 
     async with get_sql_session() as session:
         result = await session.execute(select(Job).where(Job.id == job.id))

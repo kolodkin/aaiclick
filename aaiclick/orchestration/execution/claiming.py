@@ -122,6 +122,10 @@ def _apply_task_status(task: Task, status: TaskStatus, error: str | None, result
         task.completed_at = utc_now()
         if error:
             task.error = error
+        elif status == TASK_COMPLETED:
+            # A success clears an earlier attempt's error; that one lives on
+            # in its own run's log.
+            task.error = None
         if result:
             task.result = result
 
