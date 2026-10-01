@@ -87,10 +87,9 @@ export function useTask(id: string) {
 // triggers the last refetch. `false`, not `undefined`: an unset
 // interval inherits the QueryClient default and would poll a finished task's
 // immutable logs every 2 s whenever the stream is down.
-// `attempt` is the 1-based run to read, or null to follow the latest. Only the
-// latest can still grow, so it alone polls; an earlier attempt is immutable.
-// Fetched even before the task starts: a task queued for a retry (or cleared)
-// is PENDING again but still has earlier attempts worth reading.
+// `attempt` is the 1-based run to read, or null to follow the latest — the only
+// one that can still grow, so the only one polled. Fetched even before the task
+// starts: a retrying or cleared task is PENDING but has earlier runs to show.
 export function useTaskLogs(id: string, status: TaskStatus, attempt: number | null) {
   const started = isTaskStarted(status);
   const terminal = isTerminalTask(status);

@@ -328,9 +328,8 @@ subject to breaking change" to downstream UIs / SDK generators; we graduate to
 - **Logs**: `GET /tasks/{id}/logs` returns a `TaskLogsView` whose `lines` are
   `LogLine` objects (`stream` = `stdout`/`stderr`, `text`) read from the
   ClickHouse `task_logs` stream (host-independent); optional `?tail=N` bounds the
-  response to the last N lines. `?attempt=N` (1-based over `Task.run_ids`) reads
-  an earlier run, default the latest, 404 if out of range; `attempts` lists every
-  run with its final status so a client can offer a selector.
+  response to the last N lines. `?attempt=N` (1-based, default latest, 404 if
+  out of range) picks the run; `attempts` lists every run with its status.
 
 ## Spawning workers — `POST /api/v0/execution-workers`
 
