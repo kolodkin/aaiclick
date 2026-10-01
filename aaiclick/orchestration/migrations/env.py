@@ -15,10 +15,11 @@ import aaiclick.viewer.models  # noqa: F401  # register viewer_queries/viewer_da
 # access to the values within the .ini file in use.
 config = context.config
 
-# Interpret the config file for Python logging.
-# This line sets up loggers basically.
+# Interpret the config file for Python logging. Keep loggers created before
+# this point: migrations also run in-process (setup, test sessions), and the
+# default would silence every already-imported ``aaiclick.*`` logger.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Set SQLModel metadata as the target for autogenerate
 target_metadata = SQLModel.metadata
