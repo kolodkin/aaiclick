@@ -6,7 +6,7 @@ Design for retiring file-based task logs. After this change, ClickHouse
 entry type, and the `log_path` plumbing disappears end to end.
 
 **Implementation**: `aaiclick/orchestration/logging.py` — see
-`capture_task_output`, `_SinkFlusher`;
+`capture_task_output`, `stream_to_task_logs`;
 `aaiclick/orchestration/execution/runner.py` — see `register_run`,
 `execute_shell_task`, `ShellSpec`;
 `aaiclick/orchestration/execution/dispatch.py` — see `build_shell_spec`.

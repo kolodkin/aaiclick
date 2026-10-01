@@ -589,7 +589,7 @@ is reserved for real `logging.error` records), and
 its `level`, and a per-line `created_at` (emit time, not flush time) so the
 UI can color by severity and optionally show timestamps. Because every runner
 (subprocess, docker, kubernetes) shares that path, and shell tasks stream
-through the same `_SinkFlusher` in `execute_shell_task`, `get_task_logs`
+through the same `stream_to_task_logs` sink in `execute_shell_task`, `get_task_logs`
 reads one host-independent source regardless of where the task ran —
 `aaiclick/orchestration/logging.py`, `aaiclick/oplog/models.py`. The rows are
 job-scoped: the background worker's `_delete_job_data` drops a job's

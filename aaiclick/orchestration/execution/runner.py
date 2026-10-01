@@ -51,7 +51,7 @@ from aaiclick.snowflake import get_snowflake_id
 from ...datetime_utils import utc_now
 from ..decorators import JobFactory, TaskFactory
 from ..dependency_graph import successor_edges
-from ..logging import _ChLogSink, _SinkFlusher, capture_task_output
+from ..logging import ChLogSink, capture_task_output, stream_to_task_logs
 from ..models import (
     DEPENDENCY_TASK,
     JOB_COMPLETED,
@@ -395,7 +395,7 @@ async def _run_cleanup_argv(cleanup_argv: list[str]) -> None:
     await proc.wait()
 
 
-async def _pump_stream(stream: asyncio.StreamReader, sink: _ChLogSink, source: LogStream) -> None:
+async def _pump_stream(stream: asyncio.StreamReader, sink: ChLogSink, source: LogStream) -> None:
     """Feed one output pipe into the sink until EOF.
 
     Decodes incrementally so a multibyte character split across reads stays intact.
@@ -433,29 +433,26 @@ async def execute_shell_task(task: Task, spec: ShellSpec | None = None) -> None:
         logger.error("Failed to ensure task_logs for task %s run %s", task.id, run_id, exc_info=True)
 
     proc = await start_shell_process(spec.argv, spec.env)
-    sink = _ChLogSink()
-    flusher = _SinkFlusher(sink, task.id, task.job_id, run_id)
-    flusher_task = asyncio.create_task(flusher.run())
-    readers = [
-        asyncio.create_task(_pump_stream(proc.stdout, sink, STDOUT_STREAM)),
-        asyncio.create_task(_pump_stream(proc.stderr, sink, STDERR_STREAM)),
-    ]
     try:
-        await proc.wait()
-        for reader in readers:
-            await reader
-    except asyncio.CancelledError:
-        proc.kill()
-        await proc.wait()
-        raise
+        async with stream_to_task_logs(task.id, task.job_id, run_id) as sink:
+            readers = [
+                asyncio.create_task(_pump_stream(proc.stdout, sink, STDOUT_STREAM)),
+                asyncio.create_task(_pump_stream(proc.stderr, sink, STDERR_STREAM)),
+            ]
+            try:
+                await proc.wait()
+                for reader in readers:
+                    await reader
+            except asyncio.CancelledError:
+                proc.kill()
+                await proc.wait()
+                raise
+            finally:
+                for reader in readers:
+                    reader.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await reader
     finally:
-        for reader in readers:
-            reader.cancel()
-            with suppress(asyncio.CancelledError):
-                await reader
-        flusher.request_stop()
-        await flusher_task
-        await flusher.flush_final()
         if spec.cleanup_argv:
             await _run_cleanup_argv(spec.cleanup_argv)
     if proc.returncode != 0:

@@ -13,6 +13,7 @@ import asyncio
 import logging
 import os
 import sys
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from typing import TextIO
 
@@ -47,7 +48,7 @@ LOG_FLUSH_INTERVAL = 2.0
 _DEFAULT_STREAM_LEVEL: dict[LogStream, LogLevel] = {STDOUT_STREAM: "INFO", STDERR_STREAM: "WARNING"}
 
 
-class _ChLogSink:
+class ChLogSink:
     """Accumulate captured output as level-tagged lines for a CH batch write.
 
     ``write`` is sync — it's driven by ``print`` through ``_TeeWriter`` while the
@@ -117,7 +118,7 @@ class _SinkFlusher:
     own client (closed by ``flush_final``) instead of racing the task body's.
     """
 
-    def __init__(self, sink: _ChLogSink, task_id: int, job_id: int, run_id: int) -> None:
+    def __init__(self, sink: ChLogSink, task_id: int, job_id: int, run_id: int) -> None:
         self._sink = sink
         self._task_id = task_id
         self._job_id = job_id
@@ -176,7 +177,7 @@ class _TeeWriter:
     ``source`` tags the sink rows with the stream this writer fronts (stdout /
     stderr) so the captured lines carry their origin."""
 
-    def __init__(self, *streams: TextIO, sink: _ChLogSink | None = None, source: LogStream | None = None):
+    def __init__(self, *streams: TextIO, sink: ChLogSink | None = None, source: LogStream | None = None):
         self.streams = streams
         self._sink = sink
         self._source = source
@@ -202,7 +203,7 @@ class _ChLogHandler(logging.Handler):
     stderr text.
     """
 
-    def __init__(self, sink: _ChLogSink, console: TextIO):
+    def __init__(self, sink: ChLogSink, console: TextIO):
         super().__init__()
         self._sink = sink
         self._console = console
@@ -274,18 +275,36 @@ async def read_task_logs(task_id: int, run_id: int, tail: int = MAX_TASK_LOG_LIN
 
 
 @asynccontextmanager
+async def stream_to_task_logs(task_id: int, job_id: int, run_id: int) -> AsyncIterator[ChLogSink]:
+    """Yield a sink drained to CH ``task_logs`` while the body runs.
+
+    The sink is flushed every ``LOG_FLUSH_INTERVAL`` seconds and finally on
+    exit (success or failure), so long-running tasks are tailed live. Shared by
+    :func:`capture_task_output` (module tasks) and ``execute_shell_task``
+    (shell tasks), which differ only in how they feed the sink.
+    """
+    sink = ChLogSink()
+    flusher = _SinkFlusher(sink, task_id, job_id, run_id)
+    flusher_task = asyncio.create_task(flusher.run())
+    try:
+        yield sink
+    finally:
+        flusher.request_stop()
+        await flusher_task
+        await flusher.flush_final()
+
+
+@asynccontextmanager
 async def capture_task_output(task_id: int, job_id: int, run_id: int):
     """
     Context manager to capture stdout, stderr, and ``logging`` for one task run.
 
-    Output is teed to the original streams and a ClickHouse sink. ``logging``
-    records are routed through :class:`_ChLogHandler` so each carries its true
-    level; for the duration of the run the root logger's handlers are replaced
-    with ours (restored on exit) so records are captured exactly once. The sink
-    is drained to ``task_logs`` every ``LOG_FLUSH_INTERVAL`` seconds while the
-    body runs and finally on exit (success or failure), so long-running tasks
-    are tailed live and every runner gets a host-independent log source. A body
-    that never awaits starves the periodic flusher — its logs land at exit.
+    Output is teed to the original streams and a :func:`stream_to_task_logs`
+    sink. ``logging`` records are routed through :class:`_ChLogHandler` so each
+    carries its true level; for the duration of the run the root logger's
+    handlers are replaced with ours (restored on exit) so records are captured
+    exactly once. A body that never awaits starves the periodic flusher — its
+    logs land at exit.
 
     Args:
         task_id: Task ID the captured rows are keyed by.
@@ -294,27 +313,21 @@ async def capture_task_output(task_id: int, job_id: int, run_id: int):
     """
     original_stdout = sys.stdout
     original_stderr = sys.stderr
-    sink = _ChLogSink()
-    flusher = _SinkFlusher(sink, task_id, job_id, run_id)
-
     root = logging.getLogger()
     saved_handlers = root.handlers[:]
     saved_level = root.level
-    flusher_task = asyncio.create_task(flusher.run())
-    try:
-        sys.stdout = _TeeWriter(original_stdout, sink=sink, source=STDOUT_STREAM)
-        sys.stderr = _TeeWriter(original_stderr, sink=sink, source=STDERR_STREAM)
-        root.handlers = [_ChLogHandler(sink, original_stderr)]
+    async with stream_to_task_logs(task_id, job_id, run_id) as sink:
         try:
-            root.setLevel(os.getenv("AAICLICK_LOG_LEVEL", "INFO").upper())
-        except ValueError:
-            root.setLevel(logging.INFO)
-        yield
-    finally:
-        root.handlers = saved_handlers
-        root.setLevel(saved_level)
-        sys.stdout = original_stdout
-        sys.stderr = original_stderr
-        flusher.request_stop()
-        await flusher_task
-        await flusher.flush_final()
+            sys.stdout = _TeeWriter(original_stdout, sink=sink, source=STDOUT_STREAM)
+            sys.stderr = _TeeWriter(original_stderr, sink=sink, source=STDERR_STREAM)
+            root.handlers = [_ChLogHandler(sink, original_stderr)]
+            try:
+                root.setLevel(os.getenv("AAICLICK_LOG_LEVEL", "INFO").upper())
+            except ValueError:
+                root.setLevel(logging.INFO)
+            yield
+        finally:
+            root.handlers = saved_handlers
+            root.setLevel(saved_level)
+            sys.stdout = original_stdout
+            sys.stderr = original_stderr

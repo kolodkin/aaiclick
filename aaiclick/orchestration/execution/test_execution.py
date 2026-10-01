@@ -38,7 +38,7 @@ from aaiclick.orchestration.execution.runner import (
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.jobs import get_job_result, get_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
-from aaiclick.orchestration.logging import _ChLogSink, read_task_logs
+from aaiclick.orchestration.logging import ChLogSink, read_task_logs
 from aaiclick.orchestration.models import (
     JOB_COMPLETED,
     JOB_FAILED,
@@ -791,7 +791,7 @@ async def test_dict_object_explode_works_after_handoff(orch_ctx):
 async def test_pump_stream_keeps_a_multibyte_char_split_across_reads():
     stream = asyncio.StreamReader()
     stream.feed_data("é\n".encode()[:1])
-    sink = _ChLogSink()
+    sink = ChLogSink()
     pump = asyncio.create_task(_pump_stream(stream, sink, STDOUT_STREAM))
     await asyncio.sleep(0)
     stream.feed_data("é\n".encode()[1:])
