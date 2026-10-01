@@ -93,4 +93,4 @@ async def test_dispatch_execute_routes_image_runner(monkeypatch, runner_mode, ku
     monkeypatch.setitem(dispatch._IMAGE_RUNNERS, runner_mode, runner)
 
     await dispatch.dispatch_execute(user_task, execution_worker_id=1)
-    runner.assert_awaited_once_with(user_task, 1, spec)
+    runner.assert_awaited_once_with(user_task, 1, spec, None)

@@ -40,7 +40,7 @@ from .claiming import (
     release_cancelled_run,
     update_task_status,
 )
-from .runner import execute_task, serialize_task_result
+from .runner import execute_task, follow_vehicle_output, serialize_task_result, stop_output_follower
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +148,12 @@ class TaskVehicle(Protocol[H, P]):
         """Release vehicle resources (e.g. ``docker rm``). Always runs."""
         ...
 
+    async def output_argv(self, handle: H) -> list[str] | None:
+        """An argv that follows the vehicle's output until it exits
+        (``docker logs -f``), or None when there is nothing to follow.
+        Only called when ``drive_vehicle`` gets a ``log_run_id``."""
+        ...
+
 
 async def _heartbeat_while_waiting(
     execution_worker_id: int,
@@ -191,6 +197,12 @@ async def _watch_for_cancellation(
             return
 
 
+async def _follow_output(vehicle: TaskVehicle[H, P], task: Task, handle: H, run_id: int) -> None:
+    argv = await vehicle.output_argv(handle)
+    if argv is not None:
+        await follow_vehicle_output(argv, task.id, task.job_id, run_id)
+
+
 async def drive_vehicle(
     task: Task,
     execution_worker_id: int,
@@ -200,14 +212,20 @@ async def drive_vehicle(
     poll_interval: float,
     heartbeat_fn: Callable[[int], Awaitable[Any]],
     heartbeat_interval: float = HEARTBEAT_INTERVAL,
+    log_run_id: int | None = None,
 ) -> RunnerResult:
     """Run ``task`` on ``vehicle``, owning the generic lifecycle.
 
     Launches the vehicle, heartbeats and polls for cancellation
     concurrently while it runs, then reads the result back. A fired
     cancellation overrides whatever the vehicle wrote — the host's
-    explicit kill is the source of truth."""
+    explicit kill is the source of truth. With ``log_run_id`` (a host-registered
+    run, see ``register_host_log_run``) the vehicle's output is followed into
+    ``task_logs`` and drained before ``cleanup`` removes it."""
     handle = await vehicle.launch(task, execution_worker_id)
+    follower = None
+    if log_run_id is not None:
+        follower = asyncio.create_task(_follow_output(vehicle, task, handle, log_run_id))
     done = asyncio.Event()
     cancelled = asyncio.Event()
     heartbeat = asyncio.create_task(
@@ -223,6 +241,7 @@ async def drive_vehicle(
     finally:
         done.set()
         await asyncio.gather(heartbeat, cancel_watcher, return_exceptions=True)
+        await stop_output_follower(follower)
         await vehicle.cleanup(handle)
 
 

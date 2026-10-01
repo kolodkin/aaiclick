@@ -168,6 +168,9 @@ class _MpVehicle(TaskVehicle["_ChildHandle", "RunnerResult"]):
     async def cleanup(self, handle: _ChildHandle) -> None:
         pass
 
+    async def output_argv(self, handle: _ChildHandle) -> None:
+        return None  # the child captures its own output
+
 
 async def _run_task_in_child(
     task: Task,

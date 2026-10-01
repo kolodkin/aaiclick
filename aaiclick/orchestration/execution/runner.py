@@ -428,6 +428,7 @@ async def pump_process_output(proc: asyncio.subprocess.Process, task_id: int, jo
     Cancellation kills ``proc``. Shared by :func:`execute_shell_task` (the
     shell process itself) and :func:`follow_vehicle_output` (a log follower).
     """
+    await _ensure_task_logs_table(task_id, run_id)
     async with stream_to_task_logs(task_id, job_id, run_id) as sink:
         readers = [
             asyncio.create_task(_pump_stream(proc.stdout, sink, STDOUT_STREAM)),
@@ -464,8 +465,6 @@ async def execute_shell_task(task: Task, spec: ShellSpec | None = None) -> None:
     if spec is None:
         spec = ShellSpec(task.command or [], task.command_env)
     run_id = await register_run(task.id)
-    await _ensure_task_logs_table(task.id, run_id)
-
     proc = await start_shell_process(spec.argv, spec.env)
     try:
         await pump_process_output(proc, task.id, task.job_id, run_id)
@@ -498,7 +497,6 @@ async def follow_vehicle_output(argv: list[str], task_id: int, job_id: int, run_
     logged and never fails the task.
     """
     try:
-        await _ensure_task_logs_table(task_id, run_id)
         proc = await start_shell_process(argv, None)
         await pump_process_output(proc, task_id, job_id, run_id)
     except Exception:

@@ -32,7 +32,7 @@ from .docker_worker import _docker_pull_if_registered, _run_task_in_container, b
 from .execution_worker import JobDispatch
 from .kubernetes_worker import _run_task_in_pod, build_shell_pod_spec
 from .mp_worker import _run_task_in_child
-from .runner import ShellSpec
+from .runner import ShellSpec, register_host_log_run
 
 ExecuteResult = tuple[bool, dict | None, str | None]
 
@@ -79,9 +79,10 @@ async def _resolve_dispatch(task: Task) -> JobDispatch:
     )
 
 
-# Image-based runners need the dispatch snapshot; subprocess is the default and
-# needs nothing, so it stays off the registry rather than carry an unused arg.
-_IMAGE_RUNNERS: dict[RunnerMode, Callable[[Task, int, JobDispatch], Awaitable[ExecuteResult]]] = {
+# Image-based runners need the dispatch snapshot and the host-registered log
+# run_id; subprocess is the default and needs neither, so it stays off the
+# registry rather than carry unused args.
+_IMAGE_RUNNERS: dict[RunnerMode, Callable[[Task, int, JobDispatch, int | None], Awaitable[ExecuteResult]]] = {
     RUNNER_DOCKER: _run_task_in_container,
     RUNNER_KUBERNETES: _run_task_in_pod,
 }
@@ -115,5 +116,6 @@ async def dispatch_execute(task: Task, execution_worker_id: int) -> ExecuteResul
         # keeps a stray row from being executed as a Python module task.
         return False, None, "jvm task requires a docker/kubernetes runner with an image_source"
     if handler is not None:
-        return await handler(task, execution_worker_id, dispatch)
+        log_run_id = await register_host_log_run(task, dispatch.entry_type)
+        return await handler(task, execution_worker_id, dispatch, log_run_id)
     return await _run_task_in_child(task, execution_worker_id)

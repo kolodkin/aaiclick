@@ -33,7 +33,7 @@ from .execution_worker import (
     parse_task_timeout,
 )
 from .remote_result import REMOTE_ENTRYPOINT, collect_remote_result, read_task_run_result
-from .runner import ShellSpec, follow_vehicle_output, register_host_log_run, stop_output_follower
+from .runner import ShellSpec
 from .runner_env import build_runner_env
 
 # How long to give `docker wait` to return after we've issued `docker kill`
@@ -219,26 +219,20 @@ class _DockerHandle(NamedTuple):
     container_id: str
     task_id: int
     run_epoch: int
-    follower: asyncio.Task[None] | None = None
 
 
 class _DockerVehicle(TaskVehicle["_DockerHandle", "RunnerResult | None"]):
     """``TaskVehicle`` for the Docker runner (module tasks — shell tasks run
     through the mp task child with a ``build_shell_run_spec`` argv)."""
 
-    def __init__(self, image_tag: str, env: dict[str, str], log_run_id: int | None = None) -> None:
+    def __init__(self, image_tag: str, env: dict[str, str]) -> None:
         self._image_tag = image_tag
         self._env = env
-        self._log_run_id = log_run_id
 
     async def launch(self, task: Task, execution_worker_id: int) -> _DockerHandle:
         cmd = _build_docker_run_cmd(task, self._image_tag, self._env)
         container_id = await _docker_run_detached(cmd, self._env)
-        follower = None
-        if self._log_run_id is not None:
-            argv = [_docker_bin(), "logs", "--follow", container_id]
-            follower = asyncio.create_task(follow_vehicle_output(argv, task.id, task.job_id, self._log_run_id))
-        return _DockerHandle(container_id, task.id, task.run_epoch, follower)
+        return _DockerHandle(container_id, task.id, task.run_epoch)
 
     async def wait(self, handle: _DockerHandle, timeout: float | None) -> tuple[int, str | None, RunnerResult | None]:
         exit_code, error = await _wait_for_container(handle.container_id, timeout)
@@ -261,8 +255,10 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", "RunnerResult | None"]):
     ) -> RunnerResult:
         return collect_remote_result(exit_code, error, was_cancelled, payload, "container")
 
+    async def output_argv(self, handle: _DockerHandle) -> list[str]:
+        return [_docker_bin(), "logs", "--follow", handle.container_id]
+
     async def cleanup(self, handle: _DockerHandle) -> None:
-        await stop_output_follower(handle.follower)
         # Echo before removal — the container's output is gone after docker rm.
         if echo_task_output_enabled():
             echo_task_output(handle.task_id, *await _docker_logs(handle.container_id))
@@ -271,7 +267,7 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", "RunnerResult | None"]):
 
 
 async def _run_task_in_container(
-    task: Task, execution_worker_id: int, dispatch: JobDispatch
+    task: Task, execution_worker_id: int, dispatch: JobDispatch, log_run_id: int | None
 ) -> tuple[bool, dict | None, str | None]:
     """ExecuteFn for the Docker runner.
 
@@ -285,8 +281,7 @@ async def _run_task_in_container(
 
     timeout = parse_task_timeout()
 
-    log_run_id = await register_host_log_run(task, dispatch.entry_type)
-    vehicle = _DockerVehicle(image_tag, build_runner_env(), log_run_id)
+    vehicle = _DockerVehicle(image_tag, build_runner_env())
     result = await drive_vehicle(
         task,
         execution_worker_id,
@@ -294,5 +289,6 @@ async def _run_task_in_container(
         timeout=timeout,
         poll_interval=POLL_INTERVAL,
         heartbeat_fn=execution_worker_heartbeat,
+        log_run_id=log_run_id,
     )
     return result.success, result.result_ref, result.error

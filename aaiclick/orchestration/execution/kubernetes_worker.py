@@ -31,7 +31,7 @@ from .execution_worker import (
     parse_task_timeout,
 )
 from .remote_result import REMOTE_ENTRYPOINT, collect_remote_result, read_task_run_result
-from .runner import ShellSpec, follow_vehicle_output, register_host_log_run, stop_output_follower
+from .runner import ShellSpec
 from .runner_env import build_runner_env
 
 
@@ -147,7 +147,16 @@ class _PodHandle:
         self.job_id = job_id
         self.run_epoch = run_epoch
         self.deleted = False
-        self.follower: asyncio.Task[None] | None = None
+        # Set by ``wait`` once the Pod leaves Pending (or ``wait`` ends), so the
+        # output follower needs no status polling of its own; ``phase`` is the
+        # phase seen at that moment.
+        self.started = asyncio.Event()
+        self.phase = ""
+
+    def mark_started(self, phase: str) -> None:
+        if not self.started.is_set():
+            self.phase = phase
+            self.started.set()
 
 
 async def _kubectl_delete(handle: _PodHandle) -> None:
@@ -169,6 +178,9 @@ async def _kubectl_logs(handle: _PodHandle) -> tuple[str, str]:
 # Phase reported by ``_pod_status`` when the API says the Pod no longer exists
 # (deleted on cancellation, or evicted); never a real Kubernetes phase.
 POD_NOT_FOUND = "NotFound"
+
+# ``Pending``, or empty when ``kubectl`` could not answer.
+_NOT_STARTED_PHASES = ("Pending", "")
 
 
 async def _pod_status(handle: _PodHandle) -> tuple[str, int]:
@@ -196,20 +208,6 @@ async def _pod_status(handle: _PodHandle) -> tuple[str, int]:
     except ValueError:
         exit_code = -1
     return phase, exit_code
-
-
-async def _follow_pod_output(handle: _PodHandle, run_id: int) -> None:
-    """Stream the Pod's log to ``task_logs`` once it has started.
-
-    ``kubectl logs -f`` fails on a ``Pending`` Pod (image pull, scheduling),
-    so wait that out; a Pod stuck there is cancelled by ``cleanup``. The log
-    merges stdout and stderr, so every line lands as stdout."""
-    while (phase := (await _pod_status(handle))[0]) in ("Pending", ""):
-        await asyncio.sleep(POLL_INTERVAL)
-    if phase == POD_NOT_FOUND:
-        return
-    argv = [_kubectl_bin(), "logs", "--follow", handle.name, "-n", handle.namespace]
-    await follow_vehicle_output(argv, handle.task_id, handle.job_id, run_id)
 
 
 def build_shell_pod_spec(task: Task, dispatch: JobDispatch, image_tag: str) -> ShellSpec:
@@ -262,9 +260,8 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
     """``TaskVehicle`` for the Kubernetes runner (module tasks — shell tasks
     run through the mp task child with a ``build_shell_pod_spec`` argv)."""
 
-    def __init__(self, spec: _PodSpec, log_run_id: int | None = None) -> None:
+    def __init__(self, spec: _PodSpec) -> None:
         self._spec = spec
-        self._log_run_id = log_run_id
 
     async def launch(self, task: Task, execution_worker_id: int) -> _PodHandle:
         env = build_runner_env()
@@ -290,10 +287,7 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
             await cli.run(_kubectl_bin(), "apply", "-f", manifest_path)
         finally:
             os.unlink(manifest_path)
-        handle = _PodHandle(name, self._spec.namespace, task.id, task.job_id, task.run_epoch)
-        if self._log_run_id is not None:
-            handle.follower = asyncio.create_task(_follow_pod_output(handle, self._log_run_id))
-        return handle
+        return _PodHandle(name, self._spec.namespace, task.id, task.job_id, task.run_epoch)
 
     async def wait(self, handle: _PodHandle, timeout: float | None) -> tuple[int, str | None, RunnerResult | None]:
         """Poll the Pod until it reaches a terminal phase.
@@ -307,6 +301,8 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
         exit_code = -1
         while True:
             phase, exit_code = await _pod_status(handle)
+            if phase not in _NOT_STARTED_PHASES:
+                handle.mark_started(phase)
             if phase in ("Succeeded", "Failed"):
                 break
             if phase == POD_NOT_FOUND:
@@ -317,6 +313,7 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
                 break
             await asyncio.sleep(POLL_INTERVAL)
             elapsed += POLL_INTERVAL
+        handle.mark_started(phase)  # release a follower still waiting on a Pod that never ran
         result_row = await read_task_run_result(handle.task_id, handle.run_epoch)
         return exit_code, error, result_row
 
@@ -332,8 +329,17 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
     ) -> RunnerResult:
         return collect_remote_result(exit_code, error, was_cancelled, payload, "pod")
 
+    async def output_argv(self, handle: _PodHandle) -> list[str] | None:
+        """``kubectl logs -f`` fails on a ``Pending`` Pod (image pull,
+        scheduling), so wait until ``wait`` sees it start; a Pod that never ran
+        has nothing to follow. The log merges stdout and stderr, so every
+        line lands as stdout."""
+        await handle.started.wait()
+        if handle.phase in (*_NOT_STARTED_PHASES, POD_NOT_FOUND):
+            return None
+        return [_kubectl_bin(), "logs", "--follow", handle.name, "-n", handle.namespace]
+
     async def cleanup(self, handle: _PodHandle) -> None:
-        await stop_output_follower(handle.follower)
         if handle.deleted:
             return
         # Echo before deletion — the Pod's log is gone after kubectl delete.
@@ -343,14 +349,13 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
 
 
 async def _run_task_in_pod(
-    task: Task, execution_worker_id: int, dispatch: JobDispatch
+    task: Task, execution_worker_id: int, dispatch: JobDispatch, log_run_id: int | None
 ) -> tuple[bool, dict | None, str | None]:
     """ExecuteFn for the Kubernetes runner."""
     image_tag = await resolve_launch_image(dispatch.image_source, task_id=task.id)
     spec = _pod_spec_from(task, dispatch, image_tag)
     timeout = parse_task_timeout()
-    log_run_id = await register_host_log_run(task, dispatch.entry_type)
-    vehicle = _KubernetesVehicle(spec, log_run_id)
+    vehicle = _KubernetesVehicle(spec)
     result = await drive_vehicle(
         task,
         execution_worker_id,
@@ -358,5 +363,6 @@ async def _run_task_in_pod(
         timeout=timeout,
         poll_interval=POLL_INTERVAL,
         heartbeat_fn=execution_worker_heartbeat,
+        log_run_id=log_run_id,
     )
     return result.success, result.result_ref, result.error

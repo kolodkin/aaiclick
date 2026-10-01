@@ -11,15 +11,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from ..factories import create_job
-from ..jobs import get_task
-from ..jobs.queries import get_tasks_for_job
 from ..logging import read_task_logs
 from ..models import Task
 from ..runner_config import ENTRY_JVM, RUNNER_KUBERNETES, ImagePrebuilt
 from . import kubernetes_worker as kw
-from .execution_worker import JobDispatch, RunnerResult
+from .execution_worker import JobDispatch
 from .kubernetes_worker import build_shell_pod_spec
+from .log_test_helpers import dispatch_with_fake_cli
 
 
 def test_build_pod_manifest_shape():
@@ -93,7 +91,6 @@ def _vehicle(entry_type="module"):
         command=None,
         command_env=None,
     )
-    v._log_run_id = None
     return v
 
 
@@ -295,22 +292,9 @@ esac
 async def test_jvm_pod_output_reaches_task_logs(orch_ctx, monkeypatch, tmp_path):
     """The jvm shim writes no logs itself: the host registers the attempt and
     follows ``kubectl logs`` into task_logs (Kubernetes merges the streams)."""
-    kubectl_bin = tmp_path / "kubectl"
-    kubectl_bin.write_text(_FAKE_KUBECTL)
-    kubectl_bin.chmod(0o755)
-    monkeypatch.setenv("AAICLICK_KUBECTL_BIN", str(kubectl_bin))
-    monkeypatch.setattr(kw, "read_task_run_result", AsyncMock(return_value=RunnerResult(True, None, None)))
-    monkeypatch.setattr(kw, "execution_worker_heartbeat", AsyncMock())
+    spec = JobDispatch(RUNNER_KUBERNETES, {}, entry_type=ENTRY_JVM, image_source=ImagePrebuilt(image_tag="img:1"))
+    stored = await dispatch_with_fake_cli(monkeypatch, tmp_path, "AAICLICK_KUBECTL_BIN", _FAKE_KUBECTL, spec)
 
-    job = await create_job("pod_logs_job", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
-    task = (await get_tasks_for_job(job.id))[0]
-    task.entry_type = ENTRY_JVM
-    dispatch = JobDispatch(RUNNER_KUBERNETES, {}, entry_type=ENTRY_JVM, image_source=ImagePrebuilt(image_tag="img:1"))
-    success, _, error = await kw._run_task_in_pod(task, execution_worker_id=1, dispatch=dispatch)
-    assert success, error
-
-    stored = await get_task(task.id)
-    assert stored is not None
     assert len(stored.run_ids) == 1
     lines = await read_task_logs(stored.id, stored.run_ids[0])
     assert [(line.stream, line.text) for line in lines] == [("stdout", "jvm says hi"), ("stdout", "jvm warns")]
