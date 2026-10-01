@@ -126,6 +126,13 @@ async def test_list_saved_queries_filters_scope_and_object():
     assert names(await viewer.list_saved_queries(SavedQueryFilter(object="result"))) == ["job_only"]
 
 
+async def test_list_saved_queries_total_counts_past_the_page():
+    for name in ("a", "b", "c"):
+        await viewer.save_query(SavedQueryIn(name=name, object="orders"))
+    page = await viewer.list_saved_queries(SavedQueryFilter(limit=1, offset=1))
+    assert page.total == 3 and [q.name for q in page.items] == ["b"]
+
+
 async def test_save_query_validates_where_and_cell_view():
     with pytest.raises(errors.Invalid):
         await viewer.save_query(SavedQueryIn(name="x", object="orders", where="id IN (SELECT 1)"))

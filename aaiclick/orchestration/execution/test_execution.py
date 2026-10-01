@@ -15,6 +15,7 @@ from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_DICT
 from aaiclick.data.object import Object, View
 from aaiclick.data.object.refs import ViewRef
 from aaiclick.internal_api.tasks import get_task_logs
+from aaiclick.log_models import STDOUT_STREAM
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.examples.orchestration_dynamic import (
     chain_pipeline,
@@ -24,6 +25,7 @@ from aaiclick.orchestration.execution.claiming import update_task_status
 from aaiclick.orchestration.execution.db_handler import DEPENDENCY_WHERE
 from aaiclick.orchestration.execution.debug import ajob_test
 from aaiclick.orchestration.execution.runner import (
+    _pump_stream,
     deserialize_task_params,
     execute_shell_task,
     execute_task,
@@ -36,7 +38,7 @@ from aaiclick.orchestration.execution.runner import (
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.jobs import get_job_result, get_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
-from aaiclick.orchestration.logging import read_task_logs
+from aaiclick.orchestration.logging import _ChLogSink, read_task_logs
 from aaiclick.orchestration.models import (
     JOB_COMPLETED,
     JOB_FAILED,
@@ -798,3 +800,16 @@ async def test_dict_object_explode_works_after_handoff(orch_ctx):
     assert job.status == JOB_COMPLETED, job.error
     async with data_context():
         assert await get_job_result(job) == ["Action", "Comedy", "Drama"]
+
+
+async def test_pump_stream_keeps_a_multibyte_char_split_across_reads():
+    stream = asyncio.StreamReader()
+    stream.feed_data("é\n".encode()[:1])
+    sink = _ChLogSink()
+    pump = asyncio.create_task(_pump_stream(stream, sink, STDOUT_STREAM))
+    await asyncio.sleep(0)
+    stream.feed_data("é\n".encode()[1:])
+    stream.feed_eof()
+    await pump
+
+    assert [line.text for line in sink.drain()] == ["é"]

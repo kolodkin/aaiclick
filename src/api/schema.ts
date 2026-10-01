@@ -3613,7 +3613,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Return only the last N log lines. */
-                tail?: number | null;
+                tail?: number;
                 /** @description 1-based run to read; defaults to the latest. */
                 attempt?: number | null;
             };
@@ -4242,6 +4242,7 @@ export interface operations {
                 scope?: string | null;
                 object?: string | null;
                 limit?: number;
+                offset?: number;
             };
             header?: never;
             path?: never;

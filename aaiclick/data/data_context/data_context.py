@@ -236,17 +236,25 @@ _VALID_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 MAX_PERSISTENT_NAME_LEN = 128
 
 
+class InvalidObjectNameError(ValueError):
+    """A persistent object name is malformed.
+
+    A ``ValueError`` subclass so callers catching ``ValueError`` keep working;
+    catch this type to map only bad names, not every ``ValueError``.
+    """
+
+
 def _validate_persistent_name(name: str) -> None:
     """Validate a persistent object name.
 
     Raises:
-        ValueError: If name doesn't match [a-zA-Z_][a-zA-Z0-9_]* or exceeds
-            ``MAX_PERSISTENT_NAME_LEN`` characters.
+        InvalidObjectNameError: If name doesn't match [a-zA-Z_][a-zA-Z0-9_]* or
+            exceeds ``MAX_PERSISTENT_NAME_LEN`` characters.
     """
     if not _VALID_NAME_RE.match(name):
-        raise ValueError(f"Invalid persistent name '{name}': must match [a-zA-Z_][a-zA-Z0-9_]*")
+        raise InvalidObjectNameError(f"Invalid persistent name '{name}': must match [a-zA-Z_][a-zA-Z0-9_]*")
     if len(name) > MAX_PERSISTENT_NAME_LEN:
-        raise ValueError(
+        raise InvalidObjectNameError(
             f"Invalid persistent name: {len(name)} characters exceeds the {MAX_PERSISTENT_NAME_LEN}-character limit"
         )
 
@@ -721,7 +729,7 @@ async def delete_persistent_object(name: str, scope: PersistentScope = SCOPE_JOB
                ``p_<name>``; ``"job"`` drops ``j_<job_id>_<name>``.
 
     Raises:
-        ValueError: If name is invalid.
+        InvalidObjectNameError: If name is invalid.
     """
     table_name = _build_scoped_table(name, scope)
     await get_ch_client().command(f"DROP TABLE IF EXISTS {table_name}")

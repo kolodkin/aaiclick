@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from sqlmodel import select
 
+from aaiclick.log_models import MAX_TASK_LOG_LINES
 from aaiclick.orchestration.execution import claiming
 from aaiclick.orchestration.logging import read_task_logs
 from aaiclick.orchestration.models import Task
@@ -40,15 +41,13 @@ async def get_task(task_id: int) -> TaskDetail:
     return task_to_detail(await _require_visible_task(task_id))
 
 
-async def get_task_logs(task_id: int, tail: int | None = None, attempt: int | None = None) -> TaskLogsView:
-    """Return captured log lines for one run of a task.
+async def get_task_logs(task_id: int, tail: int = MAX_TASK_LOG_LINES, attempt: int | None = None) -> TaskLogsView:
+    """Return the last ``tail`` captured log lines of one run of a task.
 
-    Reads the ClickHouse ``task_logs`` stream written by the task process, so
-    logs are available regardless of which host ran the task (local, docker, or
-    kubernetes). ``attempt`` is 1-based over ``Task.run_ids`` and defaults to
-    the latest run. When ``tail`` is given, returns only the last ``tail``
-    lines. Returns ``available=False`` when the task has not run yet or the
-    chosen run produced no captured output.
+    Reads the ClickHouse ``task_logs`` stream, so logs are available whichever
+    host ran the task. ``attempt`` is 1-based over ``Task.run_ids`` and
+    defaults to the latest run. Returns ``available=False`` when the task has
+    not run yet or the chosen run produced no output.
 
     Raises ``NotFound`` if no task matches ``task_id``, or ``attempt`` is
     outside the task's recorded runs.
