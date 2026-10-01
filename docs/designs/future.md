@@ -17,6 +17,23 @@ Remove each item from that file as it lands; delete the file when empty.
 
 Items deferred until preconditions are met.
 
+## Task Logs — Skip the Fetch for a Task That Never Ran
+
+`useTaskLogs` (`src/api/hooks.ts`) fetches `GET /tasks/{id}/logs` even for a
+`PENDING` task, because the task view cannot tell a task that never ran from
+one queued for a retry or cleared — both are `PENDING`, and the latter still
+has earlier runs to show. A fresh task pays one request that returns
+`available=false` (a SQL read, no ClickHouse), repeated on remount or refocus.
+
+`Task.attempt` cannot gate it: it counts retries, not runs, so a task that
+completed on its first run and was then cleared is `PENDING` with
+`attempt = 0` yet has a run to show. Expose the run count instead — e.g. `runs:
+len(run_ids)` on `TaskDetail` — and enable the query only when the task has
+started or `runs > 0`.
+
+**When to revisit**: if log requests for idle tasks show up in server load,
+or alongside other `TaskDetail` changes.
+
 ## Tenants — Kubernetes Control Plane
 
 Multi-tenancy as a fleet layer rather than a filtered column: a control
