@@ -77,12 +77,16 @@ export function LogViewer({ taskId, status }: { taskId: string; status: TaskStat
   // null follows the latest attempt (and keeps polling it); a number pins an
   // earlier one, whose logs no longer change.
   const [picked, setPicked] = useState<number | null>(null);
+  // The tries list always comes from the latest run's (polled) response: a
+  // pinned attempt is cached for good, so its own list would miss new runs.
+  // Unpinned, both calls share one query key and so one request.
+  const latestRun = useTaskLogs(taskId, status, null);
   const { data, isLoading, isError, dataUpdatedAt } = useTaskLogs(taskId, status, picked);
   const [showTimestamps, setShowTimestamps] = useState(false);
 
   if (isLoading) return <div className="logs">loading logs…</div>;
   if (isError) return <div className="logs">failed to load logs</div>;
-  const attempts = data?.attempts ?? [];
+  const attempts = latestRun.data?.attempts ?? data?.attempts ?? [];
   const latest = attempts.length;
   const live = picked == null && started && !isTerminalTask(status);
   if (latest === 0 && !started) return <div className="logs sub">Task has not started — no output until it runs.</div>;
