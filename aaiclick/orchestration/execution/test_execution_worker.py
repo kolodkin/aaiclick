@@ -1,6 +1,8 @@
 """Tests for execution_worker management and task claiming."""
 
 import asyncio
+import time
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import text
@@ -24,7 +26,9 @@ from ..models import (
 from ..orch_context import commit_tasks, get_sql_session
 from .claiming import claim_next_task, update_task_status
 from .execution_worker import (
+    RunnerResult,
     deregister_execution_worker,
+    drive_vehicle,
     echo_task_output_enabled,
     execution_worker_heartbeat,
     get_execution_worker,
@@ -32,7 +36,7 @@ from .execution_worker import (
     register_execution_worker,
     request_execution_worker_stop,
 )
-from .runner import execute_task
+from .runner import OUTPUT_FOLLOWER_DRAIN_TIMEOUT, execute_task
 
 
 @pytest.mark.parametrize(
@@ -404,3 +408,47 @@ async def test_claim_respects_group_dependency(orch_ctx):
     claimed3 = await claim_next_task(execution_worker.id)
     assert claimed3 is not None
     assert claimed3.id == task2.id
+
+
+class _StillRunningVehicle:
+    """Reports a timeout while its container (a ``sleep``) keeps running, as a
+    timed-out Pod does until ``cleanup`` deletes it."""
+
+    async def launch(self, task, execution_worker_id):
+        return None
+
+    async def wait(self, handle, timeout):
+        return -1, "Task timed out after 1s", None
+
+    async def poll_cancelled(self, task):
+        return False
+
+    async def terminate(self, handle):
+        pass
+
+    def collect(self, handle, exit_code, error, was_cancelled, payload):
+        return RunnerResult(False, None, error)
+
+    async def cleanup(self, handle):
+        pass
+
+    async def output_argv(self, handle):
+        return ["sleep", "60"]
+
+
+async def test_drive_vehicle_does_not_drain_a_still_running_vehicle(orch_ctx):
+    """Internal: timing. After a vehicle error the follower gets only a short
+    grace, not the full drain timeout, before cleanup runs."""
+    task = Task(id=get_snowflake_id(), job_id=1, entrypoint="", name="t")
+    start = time.monotonic()
+    result = await drive_vehicle(
+        task,
+        1,
+        _StillRunningVehicle(),
+        timeout=None,
+        poll_interval=60,
+        heartbeat_fn=AsyncMock(),
+        log_run_id=get_snowflake_id(),
+    )
+    assert result.error == "Task timed out after 1s"
+    assert time.monotonic() - start < OUTPUT_FOLLOWER_DRAIN_TIMEOUT / 2

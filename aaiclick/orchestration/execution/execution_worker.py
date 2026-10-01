@@ -40,7 +40,14 @@ from .claiming import (
     release_cancelled_run,
     update_task_status,
 )
-from .runner import execute_task, follow_vehicle_output, serialize_task_result, stop_output_follower
+from .runner import (
+    OUTPUT_FOLLOWER_DRAIN_TIMEOUT,
+    OUTPUT_FOLLOWER_ERROR_GRACE,
+    execute_task,
+    follow_vehicle_output,
+    serialize_task_result,
+    stop_output_follower,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -221,7 +228,8 @@ async def drive_vehicle(
     cancellation overrides whatever the vehicle wrote — the host's
     explicit kill is the source of truth. With ``log_run_id`` (a host-registered
     run, see ``register_host_log_run``) the vehicle's output is followed into
-    ``task_logs`` and drained before ``cleanup`` removes it."""
+    ``task_logs`` and drained before ``cleanup`` removes it — fully after a
+    clean exit, briefly after a vehicle error, not at all when unwinding."""
     handle = await vehicle.launch(task, execution_worker_id)
     follower = None
     if log_run_id is not None:
@@ -233,15 +241,17 @@ async def drive_vehicle(
     )
     cancel_watcher = asyncio.create_task(_watch_for_cancellation(vehicle, task, handle, done, cancelled, poll_interval))
 
+    drain_timeout = 0.0
     try:
         exit_code, error, payload = await vehicle.wait(handle, timeout)
+        drain_timeout = OUTPUT_FOLLOWER_DRAIN_TIMEOUT if error is None else OUTPUT_FOLLOWER_ERROR_GRACE
         done.set()
         await asyncio.gather(heartbeat, cancel_watcher, return_exceptions=True)
         return vehicle.collect(handle, exit_code, error, cancelled.is_set(), payload)
     finally:
         done.set()
         await asyncio.gather(heartbeat, cancel_watcher, return_exceptions=True)
-        await stop_output_follower(follower)
+        await stop_output_follower(follower, drain_timeout)
         await vehicle.cleanup(handle)
 
 

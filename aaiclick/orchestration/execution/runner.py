@@ -17,6 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
+from aaiclick.backend import is_local
 from aaiclick.data.data_context import (
     get_ch_client,
     get_data_lifecycle,
@@ -76,9 +77,12 @@ from .execution_worker_context import set_current_task_info
 
 logger = logging.getLogger(__name__)
 
-# How long a vehicle's output follower may keep draining after the container
-# exits before it is cancelled (a wedged ``docker logs -f`` must not stall cleanup).
+# How long a vehicle's output follower may keep draining before it is
+# cancelled: after a clean exit (a wedged ``docker logs -f`` must not stall
+# cleanup), and after a vehicle error (timeout, vanished Pod), where the
+# container may still be running until ``cleanup`` removes it.
 OUTPUT_FOLLOWER_DRAIN_TIMEOUT = 10.0
+OUTPUT_FOLLOWER_ERROR_GRACE = 1.0
 
 
 def import_callback(entrypoint: str) -> Callable:
@@ -414,8 +418,13 @@ async def _pump_stream(stream: asyncio.StreamReader, sink: ChLogSink, source: Lo
 
 
 async def _ensure_task_logs_table(task_id: int, run_id: int) -> None:
-    """Bring the CH schema up before streaming: a job with no module task on a
-    fresh DB may not have run ``task_scope``'s ``init_oplog_tables`` yet."""
+    """Bring the local CH schema up before streaming: a job with no module task
+    on a fresh DB may not have run ``task_scope``'s ``init_oplog_tables`` yet.
+
+    Distributed mode never writes the schema (the operator migrates), and the
+    host worker there holds no CH client, so it is skipped."""
+    if not is_local():
+        return
     try:
         await init_oplog_tables(get_ch_client())
     except Exception:
@@ -503,17 +512,19 @@ async def follow_vehicle_output(argv: list[str], task_id: int, job_id: int, run_
         logger.error("Failed to follow output for task %s run %s", task_id, run_id, exc_info=True)
 
 
-async def stop_output_follower(follower: asyncio.Task[None] | None) -> None:
-    """Let a :func:`follow_vehicle_output` task drain, then cancel it.
+async def stop_output_follower(follower: asyncio.Task[None] | None, drain_timeout: float) -> None:
+    """Let a :func:`follow_vehicle_output` task drain for up to
+    ``drain_timeout`` seconds, then cancel it.
 
     Called before the vehicle is removed (its output is gone after
-    ``docker rm`` / ``kubectl delete``). The follower normally ends with the
-    container; ``OUTPUT_FOLLOWER_DRAIN_TIMEOUT`` bounds a wedged CLI.
+    ``docker rm`` / ``kubectl delete``); the follower normally ends with the
+    container.
     """
     if follower is None:
         return
-    with suppress(asyncio.TimeoutError):
-        await asyncio.wait_for(asyncio.shield(follower), timeout=OUTPUT_FOLLOWER_DRAIN_TIMEOUT)
+    if drain_timeout > 0:
+        with suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(asyncio.shield(follower), timeout=drain_timeout)
     follower.cancel()
     with suppress(asyncio.CancelledError):
         await follower
