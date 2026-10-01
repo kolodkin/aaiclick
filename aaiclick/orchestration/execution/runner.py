@@ -453,6 +453,8 @@ async def execute_shell_task(task: Task, spec: ShellSpec | None = None) -> None:
             reader.cancel()
             with suppress(asyncio.CancelledError):
                 await reader
+        if proc.returncode:
+            sink.record("ERROR", f"exit {proc.returncode}")
         flusher.request_stop()
         await flusher_task
         await flusher.flush_final()

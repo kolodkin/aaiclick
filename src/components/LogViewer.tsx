@@ -1,8 +1,8 @@
 import { memo, useState } from "react";
-import type { LogLine, TaskStatus } from "../api/types";
+import type { LogLine, TaskAttempt, TaskStatus } from "../api/types";
 import { useTaskLogs } from "../api/hooks";
 import { LiveStatus } from "./LiveStatus";
-import { isTaskStarted, isTerminalTask } from "../lib/status";
+import { isTaskStarted, isTerminalTask, statusClass } from "../lib/status";
 
 // Render a captured created_at (ISO string) as HH:MM:SS.mmm for the inline
 // timestamp prefix. Kept tiny and dependency-free; the value is informational.
@@ -39,25 +39,62 @@ const LogLines = memo(function LogLines({
   );
 });
 
+// One button per run, Airflow's "Task Tries": the number plus a square in the
+// run's status color. Rendered only for a retried task — a single run has
+// nothing to choose between.
+function AttemptPicker({
+  attempts,
+  current,
+  onPick,
+}: {
+  attempts: readonly TaskAttempt[];
+  current: number | null | undefined;
+  onPick: (attempt: number) => void;
+}) {
+  return (
+    <div className="log-tries" role="group" aria-label="Task tries">
+      <span>Task tries</span>
+      {attempts.map((a) => (
+        <button
+          key={a.attempt}
+          type="button"
+          className={`log-try${a.attempt === current ? " on" : ""}`}
+          aria-pressed={a.attempt === current}
+          title={`Attempt ${a.attempt}: ${a.status}`}
+          data-testid={`log-try-${a.attempt}`}
+          onClick={() => onPick(a.attempt)}
+        >
+          {a.attempt}
+          <span className={`try-sq ${statusClass(a.status)}`} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function LogViewer({ taskId, status }: { taskId: string; status: TaskStatus }) {
   const started = isTaskStarted(status);
-  const live = started && !isTerminalTask(status);
-  const { data, isLoading, isError, dataUpdatedAt } = useTaskLogs(taskId, status);
+  // null follows the latest attempt (and keeps polling it); a number pins an
+  // earlier one, whose logs no longer change.
+  const [picked, setPicked] = useState<number | null>(null);
+  // The tries list always comes from the latest run's (polled) response: a
+  // pinned attempt is cached for good, so its own list would miss new runs.
+  // Unpinned, both calls share one query key and so one request.
+  const latestRun = useTaskLogs(taskId, status, null);
+  const { data, isLoading, isError, dataUpdatedAt } = useTaskLogs(taskId, status, picked);
   const [showTimestamps, setShowTimestamps] = useState(false);
 
   if (isLoading) return <div className="logs">loading logs…</div>;
   if (isError) return <div className="logs">failed to load logs</div>;
+  const attempts = latestRun.data?.attempts ?? data?.attempts ?? [];
+  const latest = attempts.length;
+  const live = picked == null && started && !isTerminalTask(status);
+  if (latest === 0 && !started) return <div className="logs sub">Task has not started — no output until it runs.</div>;
+
   const lines = data?.lines ?? [];
   const empty = !data || !data.available || lines.length === 0;
-  // Only a finished task can be said to have captured nothing; a queued one has
-  // produced nothing *yet*, and a running one may simply not have flushed —
-  // which keeps its toolbar below, since it is still being polled.
-  const notice = !started
-    ? "Task has not started — no output until it runs."
-    : empty && !live
-      ? "(no logs captured for this task)"
-      : null;
-  if (notice) return <div className="logs sub">{notice}</div>;
+  // Only a finished attempt can be said to have captured nothing; a running one
+  // may simply not have flushed — which keeps "waiting for output…" instead.
   return (
     <div className="logs">
       <div className="logs-toolbar">
@@ -69,6 +106,13 @@ export function LogViewer({ taskId, status }: { taskId: string; status: TaskStat
           />
           Show timestamps
         </label>
+        {latest > 1 && (
+          <AttemptPicker
+            attempts={attempts}
+            current={data?.attempt}
+            onPick={(n) => setPicked(n === latest ? null : n)}
+          />
+        )}
         <div className="spacer" />
         {/* Logs are on their own clock, not the /events stream — say so here
             rather than letting the task's "live" badge above imply otherwise.
@@ -76,10 +120,12 @@ export function LogViewer({ taskId, status }: { taskId: string; status: TaskStat
             away instead of ticking up an age that will never reset. */}
         {live && <LiveStatus updatedAt={dataUpdatedAt} queryKey="task-logs" />}
       </div>
-      {empty ? (
+      {!empty ? (
+        <LogLines lines={lines} showTimestamps={showTimestamps} />
+      ) : live ? (
         <div className="sub">waiting for output…</div>
       ) : (
-        <LogLines lines={lines} showTimestamps={showTimestamps} />
+        <div className="sub">(no logs captured for this attempt)</div>
       )}
     </div>
   );

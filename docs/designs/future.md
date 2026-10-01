@@ -17,27 +17,22 @@ Remove each item from that file as it lands; delete the file when empty.
 
 Items deferred until preconditions are met.
 
-## Task Logs — Per-Attempt History in the Log Panel
+## Task Logs — Skip the Fetch for a Task That Never Ran
 
-`get_task_logs` (`aaiclick/internal_api/tasks.py`) reads `task.run_ids[-1]`, so
-the panel shows only the latest attempt. Earlier attempts are already in
-ClickHouse — `task_logs` tags each line with `run_id`, and `Task.run_ids` /
-`Task.run_statuses` hold the ordered attempts and how each ended — so a retried
-task's failed runs are retained but unreachable. That is exactly the output you
-want after a flaky task finally passes.
+`useTaskLogs` (`src/api/hooks.ts`) fetches `GET /tasks/{id}/logs` even for a
+`PENDING` task, because the task view cannot tell a task that never ran from
+one queued for a retry or cleared — both are `PENDING`, and the latter still
+has earlier runs to show. A fresh task pays one request that returns
+`available=false` (a SQL read, no ClickHouse), repeated on remount or refocus.
 
-Shape, following Airflow's per-try log selector:
+`Task.attempt` cannot gate it: it counts retries, not runs, so a task that
+completed on its first run and was then cleared is `PENDING` with
+`attempt = 0` yet has a run to show. Expose the run count instead — e.g. `runs:
+len(run_ids)` on `TaskDetail` — and enable the query only when the task has
+started or `runs > 0`.
 
-- `GET /tasks/{id}/logs` takes an optional 1-based `attempt`, resolved through
-  `run_ids`; defaults to the last.
-- `TaskLogsView` carries the attempts and their statuses, so the selector costs
-  no second request.
-- `LogViewer` shows the selector only when `run_ids` has more than one entry.
-  Polling stays on the latest attempt; older ones are immutable.
-
-!!! note "Pending input"
-    Airflow screenshots to follow as the reference for layout and wording — do
-    not settle the UI details before then.
+**When to revisit**: if log requests for idle tasks show up in server load,
+or alongside other `TaskDetail` changes.
 
 ## Tenants — Kubernetes Control Plane
 

@@ -428,7 +428,9 @@ class Task(_DependencyOps, SQLModel, table=True):
     attempt: int = Field(default=0)
     retry_after: datetime | None = utc_field(default=None)
     run_ids: list[int] = Field(default_factory=list, sa_column=Column(JSON, nullable=False, server_default="[]"))
-    run_statuses: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False, server_default="[]"))
+    run_statuses: list[TaskStatus] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False, server_default="[]")
+    )
     # Fencing token bumped by clear_task. A worker captures this at claim time
     # and gates every status write on it, so a cleared run's late writes are
     # rejected — see clear_task / check_run_aborted in execution/claiming.py.

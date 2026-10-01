@@ -459,6 +459,20 @@ async def test_run_job_tasks_streams_logs_to_clickhouse(orch_ctx):
     assert by_text.get("Error message") == "stderr"
 
 
+async def test_run_job_tasks_failing_task_logs_traceback(orch_ctx):
+    """The run's own log ends with the exception and its traceback, as ERROR
+    lines — each retry keeps why it failed, not only the task's latest error."""
+    job = await create_job("test_job_ch_traceback", "aaiclick.orchestration.fixtures.sample_tasks.failing_task")
+
+    await run_job_tasks(job)
+
+    task = (await get_tasks_for_job(job.id))[0]
+    errors = [line.text for line in (await get_task_logs(task.id)).lines if line.level == "ERROR"]
+    assert errors[0].endswith("Task failed")
+    assert any(text.startswith("Traceback (most recent call last)") for text in errors)
+    assert errors[-1] == "ValueError: This task failed intentionally"
+
+
 async def test_run_job_tasks_shell_task(orch_ctx):
     """A shell entry task runs in-process and flushes its output inline to CH."""
     entry = create_task(None, entry_type="shell", command=["sh", "-c", "echo shell line"])
@@ -485,7 +499,7 @@ async def test_run_job_tasks_failing_shell_task(orch_ctx):
     task = (await get_tasks_for_job(job.id))[0]
     assert task.status == TASK_FAILED
     logs = await get_task_logs(task.id)
-    assert [line.text for line in logs.lines] == ["boom"]
+    assert [(line.level, line.text) for line in logs.lines] == [("INFO", "boom"), ("ERROR", "exit 3")]
 
 
 async def test_run_job_tasks_shell_command_env(orch_ctx):
