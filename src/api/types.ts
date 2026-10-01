@@ -15,6 +15,7 @@ export type TaskView = S["TaskView"];
 export type JobDetail = S["JobDetail"];
 export type TaskDetail = S["TaskDetail"];
 export type TaskLogs = S["TaskLogsView"];
+export type TaskAttempt = S["TaskAttemptView"];
 export type LogLine = S["LogLine"];
 export type RegisteredJobView = S["RegisteredJobView"];
 export type JobGraphView = S["JobGraphView"];

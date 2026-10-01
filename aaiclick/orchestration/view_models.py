@@ -80,11 +80,23 @@ class TaskDetail(TaskView):
     max_retries: int = 0
 
 
+class TaskAttemptView(BaseModel):
+    """One run of a task, from ``Task.run_ids`` / ``Task.run_statuses``."""
+
+    attempt: int
+    status: TaskStatus
+
+
 class TaskLogsView(BaseModel):
-    """Captured log lines for a task, served by ``GET /tasks/{id}/logs``."""
+    """Captured log lines for one attempt of a task, served by
+    ``GET /tasks/{id}/logs``. ``attempts`` lists every run so the UI can offer
+    a selector without a second request; ``attempt`` is the one ``lines``
+    belong to (``None`` when the task has never run)."""
 
     available: bool
     lines: list[LogLine] = Field(default_factory=list)
+    attempt: int | None = None
+    attempts: list[TaskAttemptView] = Field(default_factory=list)
 
 
 class JobDetail(JobView):

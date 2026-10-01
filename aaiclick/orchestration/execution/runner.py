@@ -431,11 +431,15 @@ async def _ensure_task_logs_table(task_id: int, run_id: int) -> None:
         logger.error("Failed to ensure task_logs for task %s run %s", task_id, run_id, exc_info=True)
 
 
-async def pump_process_output(proc: asyncio.subprocess.Process, task_id: int, job_id: int, run_id: int) -> None:
+async def pump_process_output(
+    proc: asyncio.subprocess.Process, task_id: int, job_id: int, run_id: int, *, record_exit: bool = False
+) -> None:
     """Stream ``proc``'s stdout and stderr to CH ``task_logs`` until it exits.
 
     Cancellation kills ``proc``. Shared by :func:`execute_shell_task` (the
     shell process itself) and :func:`follow_vehicle_output` (a log follower).
+    ``record_exit`` adds an ERROR ``exit N`` line on a nonzero exit — only
+    meaningful when ``proc`` is the task, not a follower.
     """
     await _ensure_task_logs_table(task_id, run_id)
     async with stream_to_task_logs(task_id, job_id, run_id) as sink:
@@ -456,6 +460,8 @@ async def pump_process_output(proc: asyncio.subprocess.Process, task_id: int, jo
                 reader.cancel()
                 with suppress(asyncio.CancelledError):
                     await reader
+            if record_exit and proc.returncode:
+                sink.record("ERROR", f"exit {proc.returncode}")
 
 
 async def execute_shell_task(task: Task, spec: ShellSpec | None = None) -> None:
@@ -476,7 +482,7 @@ async def execute_shell_task(task: Task, spec: ShellSpec | None = None) -> None:
     run_id = await register_run(task.id)
     proc = await start_shell_process(spec.argv, spec.env)
     try:
-        await pump_process_output(proc, task.id, task.job_id, run_id)
+        await pump_process_output(proc, task.id, task.job_id, run_id, record_exit=True)
     finally:
         if spec.cleanup_argv:
             await _run_cleanup_argv(spec.cleanup_argv)

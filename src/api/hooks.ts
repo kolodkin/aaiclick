@@ -84,19 +84,25 @@ export function useTask(id: string) {
 // Logs reach ClickHouse from the task process on its own flush cadence, not
 // through a SQL commit, so no /events signal marks a new line — a running task
 // keeps the 2 s poll, and the `changed` signal for the final status write
-// triggers the last refetch. A task that has not started cannot have produced
-// output, so it is not fetched at all. `false`, not `undefined`: an unset
+// triggers the last refetch. `false`, not `undefined`: an unset
 // interval inherits the QueryClient default and would poll a finished task's
 // immutable logs every 2 s whenever the stream is down.
-export function useTaskLogs(id: string, status: TaskStatus) {
+// `attempt` is the 1-based run to read, or null to follow the latest — the only
+// one that can still grow, so the only one polled. Fetched even before the task
+// starts: a retrying or cleared task is PENDING but has earlier runs to show.
+export function useTaskLogs(id: string, status: TaskStatus, attempt: number | null) {
   const started = isTaskStarted(status);
   const terminal = isTerminalTask(status);
   const qc = useQueryClient();
   const query = useQuery({
-    queryKey: ["task-logs", id],
-    queryFn: () => fetchJSON<TaskLogs>(`/tasks/${id}/logs`),
-    enabled: id.length > 0 && started,
-    refetchInterval: started && !terminal ? 2000 : false,
+    queryKey: ["task-logs", id, attempt ?? "latest"],
+    queryFn: () => fetchJSON<TaskLogs>(`/tasks/${id}/logs${attempt == null ? "" : `?attempt=${attempt}`}`),
+    enabled: id.length > 0,
+    refetchInterval: attempt == null && started && !terminal ? 2000 : false,
+    staleTime: attempt == null ? 0 : Infinity,
+    // Keep the previous attempt on screen while the next one loads, so the
+    // selector does not vanish and reappear on every click.
+    placeholderData: (previous) => previous,
   });
 
   // Going terminal stops the timer, but whatever the task wrote since the last
@@ -104,7 +110,7 @@ export function useTaskLogs(id: string, status: TaskStatus) {
   // `changed` frame will ever fetch it. Without this the panel stays up to one
   // poll interval short of the truth, permanently.
   useEffect(() => {
-    if (started && terminal) void qc.invalidateQueries({ queryKey: ["task-logs", id] });
+    if (started && terminal) void qc.invalidateQueries({ queryKey: ["task-logs", id, "latest"] });
   }, [started, terminal, id, qc]);
 
   return query;
