@@ -10,16 +10,18 @@ import aaiclick.audit.models  # noqa: F401  # register audit_log with SQLModel.m
 import aaiclick.auth.models  # noqa: F401  # register users/refresh_tokens with SQLModel.metadata
 import aaiclick.orchestration.models  # noqa: F401
 import aaiclick.viewer.models  # noqa: F401  # register viewer_queries/viewer_dashboards
+from aaiclick.orchestration.migrate import CONFIGURE_LOGGER
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
 
-# Interpret the config file for Python logging. Keep loggers created before
-# this point: migrations also run in-process (setup, test sessions), and the
-# default would silence every already-imported ``aaiclick.*`` logger.
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name, disable_existing_loggers=False)
+# Apply alembic.ini's logging only under the ``alembic`` CLI, which owns its
+# process. In-process runs (``get_alembic_config``: setup, test sessions) must
+# not reconfigure the host — fileConfig would reset the root logger and
+# disable every already-imported ``aaiclick.*`` logger.
+if config.config_file_name is not None and config.attributes.get(CONFIGURE_LOGGER, True):
+    fileConfig(config.config_file_name)
 
 # Set SQLModel metadata as the target for autogenerate
 target_metadata = SQLModel.metadata

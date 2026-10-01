@@ -8,18 +8,19 @@ from aaiclick.orchestration import logging as orch_logging
 from aaiclick.orchestration.migrate import get_alembic_config
 
 
-def test_migrations_keep_existing_loggers_enabled():
-    """Loading the migrations' ``env.py`` must not disable loggers created
-    before it. ``fileConfig`` does that by default, so a process that migrated
-    in-process silently lost every ``aaiclick.*`` logger — e.g. the failed-run
-    traceback that ``capture_task_output`` writes into the task's log.
+def test_programmatic_migration_leaves_process_logging_alone():
+    """Migrations run from code must not reconfigure the host process's
+    logging. ``env.py``'s ``fileConfig`` used to disable every already-imported
+    ``aaiclick.*`` logger — dropping, e.g., the failed-run traceback that
+    ``capture_task_output`` writes into the task's log — and reset the root
+    logger's level and handlers.
 
     Offline mode (``sql=True``) loads ``env.py`` without needing a database."""
     root = logging.getLogger()
-    saved_handlers, saved_level = root.handlers[:], root.level
-    try:
-        command.upgrade(get_alembic_config(), "head", sql=True)
-    finally:
-        root.handlers, root.level = saved_handlers, saved_level
+    handlers_before, level_before = root.handlers[:], root.level
+
+    command.upgrade(get_alembic_config(), "head", sql=True)
 
     assert orch_logging.logger.disabled is False
+    assert root.handlers == handlers_before
+    assert root.level == level_before

@@ -8,6 +8,10 @@ from pathlib import Path
 
 from alembic.config import Config
 
+# ``config.attributes`` key read by ``migrations/env.py``: only the ``alembic``
+# CLI, which owns its process, applies ``alembic.ini``'s logging setup.
+CONFIGURE_LOGGER = "configure_logger"
+
 
 def get_alembic_config() -> Config:
     """Create Alembic configuration for programmatic execution."""
@@ -22,4 +26,6 @@ def get_alembic_config() -> Config:
     config = Config(str(alembic_ini))
     migrations_dir = orchestration_dir / "migrations"
     config.set_main_option("script_location", str(migrations_dir))
+    # Running in-process: leave the host's logging untouched.
+    config.attributes[CONFIGURE_LOGGER] = False
     return config
