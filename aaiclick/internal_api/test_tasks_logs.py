@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime
 
 import pytest
-from sqlmodel import select
 
 from aaiclick.internal_api.errors import NotFound
 from aaiclick.internal_api.tasks import get_task_logs
@@ -11,8 +10,8 @@ from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.logging import flush_task_logs
-from aaiclick.orchestration.models import TASK_COMPLETED, TASK_FAILED, Task, TaskStatus
-from aaiclick.orchestration.orch_context import get_sql_session
+from aaiclick.orchestration.models import TASK_COMPLETED, TASK_FAILED
+from aaiclick.testing import set_task_runs
 from aaiclick.view_models import STDERR_STREAM, STDOUT_STREAM, LogLine
 
 
@@ -22,15 +21,6 @@ def _out(*texts: str) -> list[LogLine]:
 
 def _texts(lines: list[LogLine]) -> list[str]:
     return [line.text for line in lines]
-
-
-async def _set_run_ids(task_id: int, run_ids: list[int], run_statuses: list[TaskStatus] | None = None) -> None:
-    async with get_sql_session() as s:
-        task = (await s.execute(select(Task).where(Task.id == task_id))).scalar_one()
-        task.run_ids = run_ids
-        task.run_statuses = run_statuses if run_statuses is not None else [TASK_COMPLETED] * len(run_ids)
-        s.add(task)
-        await s.commit()
 
 
 async def test_logs_unavailable_when_task_never_ran(orch_ctx):
@@ -48,7 +38,7 @@ async def test_logs_read_from_clickhouse(orch_ctx):
     task = (await get_tasks_for_job(job.id))[0]
     run_id = 42
     await flush_task_logs(task.id, job.id, run_id, _out("line one", "line two"))
-    await _set_run_ids(task.id, [run_id])
+    await set_task_runs(task.id, [run_id])
 
     result = await get_task_logs(task.id)
 
@@ -66,7 +56,7 @@ async def test_logs_preserve_stream_tags(orch_ctx):
         run_id,
         [LogLine(stream=STDOUT_STREAM, text="to stdout"), LogLine(stream=STDERR_STREAM, text="to stderr")],
     )
-    await _set_run_ids(task.id, [run_id])
+    await set_task_runs(task.id, [run_id])
 
     result = await get_task_logs(task.id)
 
@@ -76,34 +66,26 @@ async def test_logs_preserve_stream_tags(orch_ctx):
     ]
 
 
-async def test_logs_read_latest_run_only(orch_ctx):
-    job = await create_job("logs_latest", simple_task)
-    task = (await get_tasks_for_job(job.id))[0]
-    await flush_task_logs(task.id, job.id, 1, _out("first attempt"))
-    await flush_task_logs(task.id, job.id, 2, _out("second attempt"))
-    await _set_run_ids(task.id, [1, 2], [TASK_FAILED, TASK_COMPLETED])
-
-    result = await get_task_logs(task.id)
-
-    assert result.available is True
-    assert _texts(result.lines) == ["second attempt"]
-    assert result.attempt == 2
-    assert [(a.attempt, a.status) for a in result.attempts] == [(1, TASK_FAILED), (2, TASK_COMPLETED)]
-
-
-async def test_logs_read_selected_attempt(orch_ctx):
-    """A retried task's earlier run stays reachable by its 1-based attempt."""
+@pytest.mark.parametrize(
+    "attempt, expected_text, expected_attempt",
+    [
+        pytest.param(None, "second attempt", 2, id="defaults_to_latest"),
+        # A retried task's earlier run stays reachable by its 1-based attempt.
+        pytest.param(1, "first attempt", 1, id="earlier_attempt"),
+    ],
+)
+async def test_logs_read_one_attempt(orch_ctx, attempt, expected_text, expected_attempt):
     job = await create_job("logs_attempt", simple_task)
     task = (await get_tasks_for_job(job.id))[0]
     await flush_task_logs(task.id, job.id, 1, _out("first attempt"))
     await flush_task_logs(task.id, job.id, 2, _out("second attempt"))
-    await _set_run_ids(task.id, [1, 2], [TASK_FAILED, TASK_COMPLETED])
+    await set_task_runs(task.id, [1, 2], [TASK_FAILED, TASK_COMPLETED])
 
-    result = await get_task_logs(task.id, attempt=1)
+    result = await get_task_logs(task.id, attempt=attempt)
 
-    assert _texts(result.lines) == ["first attempt"]
-    assert result.attempt == 1
-    assert len(result.attempts) == 2
+    assert _texts(result.lines) == [expected_text]
+    assert result.attempt == expected_attempt
+    assert [(a.attempt, a.status) for a in result.attempts] == [(1, TASK_FAILED), (2, TASK_COMPLETED)]
 
 
 @pytest.mark.parametrize(
@@ -116,7 +98,7 @@ async def test_logs_read_selected_attempt(orch_ctx):
 async def test_logs_unknown_attempt_raises(orch_ctx, run_ids, attempt):
     job = await create_job("logs_bad_attempt", simple_task)
     task = (await get_tasks_for_job(job.id))[0]
-    await _set_run_ids(task.id, run_ids)
+    await set_task_runs(task.id, run_ids)
 
     with pytest.raises(NotFound):
         await get_task_logs(task.id, attempt=attempt)
@@ -127,7 +109,7 @@ async def test_logs_tail_returns_last_n_in_order(orch_ctx):
     task = (await get_tasks_for_job(job.id))[0]
     run_id = 99
     await flush_task_logs(task.id, job.id, run_id, _out("a", "b", "c", "d"))
-    await _set_run_ids(task.id, [run_id])
+    await set_task_runs(task.id, [run_id])
 
     result = await get_task_logs(task.id, tail=2)
 
@@ -138,7 +120,7 @@ async def test_logs_tail_returns_last_n_in_order(orch_ctx):
 async def test_logs_unavailable_when_run_has_no_lines(orch_ctx):
     job = await create_job("logs_empty", simple_task)
     task = (await get_tasks_for_job(job.id))[0]
-    await _set_run_ids(task.id, [7])
+    await set_task_runs(task.id, [7])
 
     result = await get_task_logs(task.id)
 
@@ -164,7 +146,7 @@ async def test_logs_preserve_level(orch_ctx):
             LogLine(stream=STDERR_STREAM, level="ERROR", text="error line"),
         ],
     )
-    await _set_run_ids(task.id, [run_id])
+    await set_task_runs(task.id, [run_id])
 
     result = await get_task_logs(task.id)
 
@@ -189,7 +171,7 @@ async def test_logs_preserve_per_line_created_at(orch_ctx):
             LogLine(stream=STDOUT_STREAM, text="second", created_at=late),
         ],
     )
-    await _set_run_ids(task.id, [run_id])
+    await set_task_runs(task.id, [run_id])
 
     result = await get_task_logs(task.id)
 

@@ -2,7 +2,7 @@ import { memo, useState } from "react";
 import type { LogLine, TaskAttempt, TaskStatus } from "../api/types";
 import { useTaskLogs } from "../api/hooks";
 import { LiveStatus } from "./LiveStatus";
-import { isTaskStarted, isTerminalTask } from "../lib/status";
+import { isTaskStarted, isTerminalTask, statusClass } from "../lib/status";
 
 // Render a captured created_at (ISO string) as HH:MM:SS.mmm for the inline
 // timestamp prefix. Kept tiny and dependency-free; the value is informational.
@@ -65,7 +65,7 @@ function AttemptPicker({
           onClick={() => onPick(a.attempt)}
         >
           {a.attempt}
-          <span className={`try-sq sq-${a.status}`} />
+          <span className={`try-sq ${statusClass(a.status)}`} />
         </button>
       ))}
     </div>

@@ -248,10 +248,8 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
   border: 1px solid transparent; background: none; color: var(--blue); font: inherit; cursor: pointer; }
 .logs .log-try:hover { border-color: var(--border); }
 .logs .log-try.on { background: var(--blue-bg); border-color: var(--blue); color: #fff; }
-.logs .try-sq { width: 8px; height: 8px; border-radius: 2px; background: #6b7480; }
-.logs .sq-COMPLETED { background: var(--green); }
-.logs .sq-FAILED, .logs .sq-UPSTREAM_FAILED, .logs .sq-PENDING_FAILURE_CLEANUP { background: var(--red); }
-.logs .sq-RUNNING, .logs .sq-CLAIMED { background: var(--blue); }
+/* colored by the shared b-<STATUS> class; the square fills with its text color */
+.logs .try-sq { width: 8px; height: 8px; border-radius: 2px; background: currentColor; }
 .logs .lvl-DEBUG { color: #6b7480; }
 .logs .lvl-INFO { color: #79c0ff; }
 .logs .lvl-WARNING { color: #e3b341; }

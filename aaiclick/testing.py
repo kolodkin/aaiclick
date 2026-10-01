@@ -39,7 +39,7 @@ from aaiclick.oplog.lineage import OplogNode
 from aaiclick.oplog.migrate import ch_applied_versions, ch_upgrade, ch_upgrade_standalone
 from aaiclick.oplog.models import clear_schema_cache
 from aaiclick.orchestration.migrate import get_alembic_config
-from aaiclick.orchestration.models import JobStatus, SQLModel
+from aaiclick.orchestration.models import TASK_COMPLETED, JobStatus, SQLModel, Task, TaskStatus
 from aaiclick.orchestration.orch_context import get_sql_session, orch_context, task_scope
 from aaiclick.orchestration.view_models import JobStatsView, TaskStatsView
 from aaiclick.snowflake import get_snowflake_id
@@ -573,3 +573,16 @@ def publish_user_repo(tmp_path_factory: pytest.TempPathFactory, fixture_dir: Pat
     # that unless the serving repo opts in.
     git(bare, "config", "uploadpack.allowAnySHA1InWant", "true")
     return f"git://127.0.0.1:{port}/sample_job.git", sha, worktree
+
+
+async def set_task_runs(task_id: int, run_ids: list[int], run_statuses: list[TaskStatus] | None = None) -> None:
+    """Record ``run_ids`` as the task's attempts (each ``COMPLETED`` unless
+    ``run_statuses`` says otherwise) — for log tests that flush ``task_logs``
+    rows by hand instead of running the task."""
+    async with get_sql_session() as session:
+        task = await session.get(Task, task_id)
+        assert task is not None
+        task.run_ids = run_ids
+        task.run_statuses = run_statuses if run_statuses is not None else [TASK_COMPLETED] * len(run_ids)
+        session.add(task)
+        await session.commit()

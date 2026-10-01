@@ -84,8 +84,7 @@ export function useTask(id: string) {
 // Logs reach ClickHouse from the task process on its own flush cadence, not
 // through a SQL commit, so no /events signal marks a new line — a running task
 // keeps the 2 s poll, and the `changed` signal for the final status write
-// triggers the last refetch. A task that has not started cannot have produced
-// output, so it is not fetched at all. `false`, not `undefined`: an unset
+// triggers the last refetch. `false`, not `undefined`: an unset
 // interval inherits the QueryClient default and would poll a finished task's
 // immutable logs every 2 s whenever the stream is down.
 // `attempt` is the 1-based run to read, or null to follow the latest. Only the

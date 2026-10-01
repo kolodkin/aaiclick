@@ -1,16 +1,14 @@
 from __future__ import annotations
 
 import pytest
-from sqlmodel import select
 
 from aaiclick.auth import security
 from aaiclick.orchestration.factories import _callable_to_string, create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.logging import flush_task_logs
-from aaiclick.orchestration.models import TASK_COMPLETED, TASK_FAILED, Task
-from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.view_models import ClearTaskView, TaskDetail, TaskLogsView
+from aaiclick.testing import set_task_runs
 from aaiclick.view_models import STDOUT_STREAM, LogLine, Problem, ProblemCode
 
 from ..app import API_PREFIX
@@ -64,11 +62,7 @@ async def test_get_task_logs_reads_clickhouse_through_scope(orch_ctx, app_client
     job = await create_job("logs_ch_route", simple_task)
     task = (await get_tasks_for_job(job.id))[0]
     await flush_task_logs(task.id, job.id, 123, [LogLine(stream=STDOUT_STREAM, text="hello from clickhouse")])
-    async with get_sql_session() as s:
-        row = (await s.execute(select(Task).where(Task.id == task.id))).scalar_one()
-        row.run_ids = [123]
-        s.add(row)
-        await s.commit()
+    await set_task_runs(task.id, [123])
 
     response = await app_client.get(f"{API_PREFIX}/tasks/{task.id}/logs")
 
@@ -93,12 +87,7 @@ async def test_get_task_logs_attempt_param(orch_ctx, app_client):
     task = (await get_tasks_for_job(job.id))[0]
     await flush_task_logs(task.id, job.id, 1, [LogLine(stream=STDOUT_STREAM, text="try one")])
     await flush_task_logs(task.id, job.id, 2, [LogLine(stream=STDOUT_STREAM, text="try two")])
-    async with get_sql_session() as s:
-        row = (await s.execute(select(Task).where(Task.id == task.id))).scalar_one()
-        row.run_ids = [1, 2]
-        row.run_statuses = [TASK_FAILED, TASK_COMPLETED]
-        s.add(row)
-        await s.commit()
+    await set_task_runs(task.id, [1, 2])
 
     first = await app_client.get(f"{API_PREFIX}/tasks/{task.id}/logs", params={"attempt": 1})
     missing = await app_client.get(f"{API_PREFIX}/tasks/{task.id}/logs", params={"attempt": 3})

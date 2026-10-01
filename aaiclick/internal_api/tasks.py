@@ -54,7 +54,6 @@ async def get_task_logs(task_id: int, tail: int | None = None, attempt: int | No
     outside the task's recorded runs.
     """
     task = await _require_visible_task(task_id)
-    attempts = [TaskAttemptView(attempt=i, status=status) for i, status in enumerate(task.run_statuses, start=1)]
 
     if attempt is None and not task.run_ids:
         return TaskLogsView(available=False)
@@ -64,6 +63,7 @@ async def get_task_logs(task_id: int, tail: int | None = None, attempt: int | No
         raise NotFound(f"Task {task_id} has no attempt {attempt}")
 
     lines = await read_task_logs(task_id, task.run_ids[selected - 1], tail=tail)
+    attempts = [TaskAttemptView(attempt=i, status=status) for i, status in enumerate(task.run_statuses, start=1)]
     return TaskLogsView(available=bool(lines), lines=lines, attempt=selected, attempts=attempts)
 
 

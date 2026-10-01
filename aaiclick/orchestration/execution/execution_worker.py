@@ -38,6 +38,7 @@ from .claiming import (
     check_run_aborted,
     claim_next_task,
     complete_task_and_roll_up,
+    end_current_run,
     release_cancelled_run,
     update_task_status,
 )
@@ -243,9 +244,11 @@ async def _set_pending_failure_cleanup(task_id: int, error: str, expected_epoch:
         task = (await session.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
         if task is None:
             return False
-        values: dict[str, str | list[TaskStatus]] = {"status": TASK_PENDING_FAILURE_CLEANUP, "error": error}
-        if task.run_statuses:
-            values["run_statuses"] = [*task.run_statuses[:-1], TASK_FAILED]
+        values: dict[str, str | list[TaskStatus]] = {
+            "status": TASK_PENDING_FAILURE_CLEANUP,
+            "error": error,
+            "run_statuses": end_current_run(task.run_statuses, TASK_FAILED),
+        }
         stmt = update(Task).where(col(Task.id) == task_id, col(Task.status).not_in(CANCELLING_TASK_STATUSES))
         if expected_epoch is not None:
             stmt = stmt.where(col(Task.run_epoch) == expected_epoch)

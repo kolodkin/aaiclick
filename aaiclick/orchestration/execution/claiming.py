@@ -113,6 +113,16 @@ def _owns_run(task: Task | None, expected_epoch: int | None) -> bool:
     return expected_epoch is None or task.run_epoch == expected_epoch
 
 
+def end_current_run(run_statuses: list[TaskStatus], status: TaskStatus) -> list[TaskStatus]:
+    """Stamp ``status`` on the in-flight run — the last entry, while it is still
+    ``RUNNING``. A finished run keeps how it ended: a retry goes RUNNING before
+    ``register_run`` appends its own entry, so the last one is then the
+    previous attempt's."""
+    if run_statuses and run_statuses[-1] == TASK_RUNNING:
+        return [*run_statuses[:-1], status]
+    return run_statuses
+
+
 def _apply_task_status(task: Task, status: TaskStatus, error: str | None, result: dict | None) -> None:
     """Write ``status`` and its timestamps onto ``task``, mirroring it into ``run_statuses``."""
     task.status = status
@@ -129,11 +139,7 @@ def _apply_task_status(task: Task, status: TaskStatus, error: str | None, result
         if result:
             task.result = result
 
-    # RUNNING is not mirrored: a retry goes RUNNING before ``register_run``
-    # appends its entry (with RUNNING), so the last entry is still the previous
-    # attempt's and must keep how that attempt ended.
-    if task.run_statuses and status != TASK_RUNNING:
-        task.run_statuses = [*task.run_statuses[:-1], status]
+    task.run_statuses = end_current_run(task.run_statuses, status)
 
 
 async def complete_task_and_roll_up(task_id: int, job_id: int, result: dict | None, expected_epoch: int) -> bool:
@@ -273,8 +279,7 @@ async def release_cancelled_run(task_id: int, expected_epoch: int | None = None)
             return False
 
         task.execution_worker_id = None
-        if task.run_statuses and task.run_statuses[-1] == TASK_RUNNING:
-            task.run_statuses = [*task.run_statuses[:-1], TASK_CANCELLED]
+        task.run_statuses = end_current_run(task.run_statuses, TASK_CANCELLED)
         session.add(task)
         await session.commit()
         return True

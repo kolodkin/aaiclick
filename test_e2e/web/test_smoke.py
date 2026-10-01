@@ -139,8 +139,8 @@ def test_task_view_switches_between_attempts(page, base_url: str, shot, tmp_path
 
     logs = page.locator("div.logs")
     logs.get_by_text("Attempt 3", exact=True).wait_for(timeout=15000)
-    assert logs.get_by_test_id("log-try-1").locator(".sq-FAILED").count() == 1
-    assert logs.get_by_test_id("log-try-3").locator(".sq-COMPLETED").count() == 1
+    assert logs.get_by_test_id("log-try-1").locator(".try-sq.b-FAILED").count() == 1
+    assert logs.get_by_test_id("log-try-3").locator(".try-sq.b-COMPLETED").count() == 1
     assert logs.get_by_test_id("log-try-3").get_attribute("aria-pressed") == "true"
     shot("task-tries-latest")
 
