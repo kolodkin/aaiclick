@@ -591,18 +591,20 @@ UI can color by severity and optionally show timestamps.
 
 Every entry type writes through the same `stream_to_task_logs` sink, so
 `get_task_logs` reads one host-independent source regardless of where the task
-ran. Whoever owns the process's output feeds the sink:
+ran. Whoever owns the process's output feeds the sink — in-process for
+`module`, otherwise the host, which pumps a process's pipes through
+`pump_process_output` (`execute_shell_task`, `follow_vehicle_output`):
 
-| Entry type | Captured by                                             | How                                                                |
-|------------|---------------------------------------------------------|--------------------------------------------------------------------|
-| `module`   | the task process (host child, container or Pod)         | `capture_task_output` tees stdout/stderr/`logging`                 |
-| `shell`    | the host                                                | `execute_shell_task` pumps the argv's pipes                        |
-| `jvm`      | the host — the shim registers no run and writes no logs | `follow_vehicle_output` pumps `docker logs -f` / `kubectl logs -f` |
+| Entry type | subprocess                        | docker                           | kubernetes                                  |
+|------------|-----------------------------------|----------------------------------|---------------------------------------------|
+| `module`   | task child: `capture_task_output` | container: `capture_task_output` | Pod: `capture_task_output`                  |
+| `shell`    | host: argv pipes                  | host: `docker run --rm` pipes    | host: `kubectl run --attach` pipes          |
+| `jvm`      | — (rejected at commit)            | host: `docker logs -f`           | host: `kubectl logs -f` (merged → `stdout`) |
 
 Host-side following is the default for any image entry type other than
 `module` (`register_host_log_run`), so a new language SDK needs no logging code.
-Kubernetes merges a container's stdout and stderr, so followed Pod lines are
-all `stdout`. Implementation: `aaiclick/orchestration/logging.py`,
+`kubectl logs` merges a container's stdout and stderr, so followed Pod lines
+are all `stdout`. Implementation: `aaiclick/orchestration/logging.py`,
 `aaiclick/orchestration/execution/runner.py`, `aaiclick/oplog/models.py`. The rows are
 job-scoped: the background worker's `_delete_job_data` drops a job's
 `task_logs` alongside its `operation_log` on TTL expiry, so logs share the
