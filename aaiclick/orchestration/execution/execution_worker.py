@@ -73,7 +73,8 @@ def parse_task_timeout() -> float | None:
 
 def echo_task_output_enabled() -> bool:
     """``AAICLICK_ECHO_TASK_OUTPUT``: echo each container/Pod's raw output to the
-    worker's own stdout/stderr before it is removed. Off when unset, empty or ``0``."""
+    worker's own stdout/stderr before it is removed. Off when unset, empty or
+    ``0`` — the default, CI included; set it only to debug missing task_logs."""
     return os.environ.get("AAICLICK_ECHO_TASK_OUTPUT", "") not in ("", "0")
 
 

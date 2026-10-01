@@ -23,6 +23,11 @@ on:
         required: false
         default: ""
         type: string
+      echo_task_output:
+        description: "Echo each task's raw container output into the job log (debug missing task_logs)"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   e2e:
@@ -76,10 +81,9 @@ jobs:
     env:
       # Test wait timeout, kept under timeout-minutes above.
       AAICLICK_JOB_WAIT_TIMEOUT: "600"
-      # Echo each task container's raw output into the pytest log before the
-      # worker removes it — the only record when a task crashes before
-      # reaching the ClickHouse task_logs capture.
-      AAICLICK_ECHO_TASK_OUTPUT: "1"
+      # Off by default — task output lives in ClickHouse task_logs. Turn on from
+      # a manual run to debug missing logs.
+      AAICLICK_ECHO_TASK_OUTPUT: ${{ inputs.echo_task_output && '1' || '' }}
 
     steps:
       - name: Checkout code

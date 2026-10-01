@@ -4,9 +4,16 @@ on:
   schedule:
     - cron: "0 6 * * *"
   workflow_dispatch:
+    inputs:
+      echo_task_output:
+        description: "Echo each task's raw container output into the job log (debug missing task_logs)"
+        type: boolean
+        default: false
 
 jobs:
   e2e:
     uses: ./.github/workflows/_docker-e2e-reusable.yaml
     with:
       wheel_source: source
+      # Scheduled runs have no inputs, so this stays false.
+      echo_task_output: ${{ inputs.echo_task_output == true }}
