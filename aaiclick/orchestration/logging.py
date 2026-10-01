@@ -276,13 +276,9 @@ async def read_task_logs(task_id: int, run_id: int, tail: int = MAX_TASK_LOG_LIN
 
 @asynccontextmanager
 async def stream_to_task_logs(task_id: int, job_id: int, run_id: int) -> AsyncIterator[ChLogSink]:
-    """Yield a sink drained to CH ``task_logs`` while the body runs.
-
-    The sink is flushed every ``LOG_FLUSH_INTERVAL`` seconds and finally on
-    exit (success or failure), so long-running tasks are tailed live. Shared by
-    :func:`capture_task_output` (module tasks) and ``execute_shell_task``
-    (shell tasks), which differ only in how they feed the sink.
-    """
+    """Yield a sink flushed to CH ``task_logs`` every ``LOG_FLUSH_INTERVAL``
+    seconds and finally on exit, so long-running tasks are tailed live. Every
+    capture path feeds one; they differ only in where the text comes from."""
     sink = ChLogSink()
     flusher = _SinkFlusher(sink, task_id, job_id, run_id)
     flusher_task = asyncio.create_task(flusher.run())

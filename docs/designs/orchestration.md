@@ -591,9 +591,8 @@ UI can color by severity and optionally show timestamps.
 
 Every entry type writes through the same `stream_to_task_logs` sink, so
 `get_task_logs` reads one host-independent source regardless of where the task
-ran. Whoever owns the process's output feeds the sink — in-process for
-`module`, otherwise the host, which pumps a process's pipes through
-`pump_process_output` (`execute_shell_task`, `follow_vehicle_output`):
+ran. `module` tasks feed it in-process; for the rest the host pumps a
+process's pipes (`pump_process_output`):
 
 | Entry type | subprocess                        | docker                           | kubernetes                                  |
 |------------|-----------------------------------|----------------------------------|---------------------------------------------|
@@ -603,8 +602,7 @@ ran. Whoever owns the process's output feeds the sink — in-process for
 
 Host-side following is the default for any image entry type other than
 `module` (`register_host_log_run`), so a new language SDK needs no logging code.
-`kubectl logs` merges a container's stdout and stderr, so followed Pod lines
-are all `stdout`. Implementation: `aaiclick/orchestration/logging.py`,
+Implementation: `aaiclick/orchestration/logging.py`,
 `aaiclick/orchestration/execution/runner.py`, `aaiclick/oplog/models.py`. The rows are
 job-scoped: the background worker's `_delete_job_data` drops a job's
 `task_logs` alongside its `operation_log` on TTL expiry, so logs share the

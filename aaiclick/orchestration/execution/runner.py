@@ -477,14 +477,13 @@ async def execute_shell_task(task: Task, spec: ShellSpec | None = None) -> None:
 
 
 async def register_host_log_run(task: Task, entry_type: EntryType) -> int | None:
-    """Register an image task's attempt host-side when the image cannot.
+    """Register an image task's attempt on the host; return its run_id, or
+    None for ``module``.
 
-    A ``module`` image runs ``execute_task``, which registers its own run and
-    captures its own output, so this returns None. Any other image entry type
-    (``jvm`` today) has a shim that does neither: the host records the
-    attempt and the vehicle follows the container's output under the
-    returned run_id (:func:`follow_vehicle_output`), so a new language SDK
-    needs no logging code of its own.
+    A ``module`` image's ``execute_task`` registers its own run and captures
+    its own output. Other shims (``jvm``) do neither, so the host registers
+    the run and follows the container's output under it
+    (:func:`follow_vehicle_output`) — a new language SDK needs no logging code.
     """
     if entry_type == ENTRY_MODULE:
         return None

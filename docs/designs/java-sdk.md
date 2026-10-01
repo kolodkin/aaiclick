@@ -25,10 +25,10 @@ framework-trusted, unlike a vanilla `shell` image), waits, and reads the
 the runner passes just `--task-id N --run-epoch M` as *arguments*, so the
 image's `ENTRYPOINT` — which the user points at the SDK bootstrap — receives
 them. The runner cannot know a JVM classpath; the image owns it. The shim
-never touches `run_ids` or `task_logs`, so the host registers each jvm attempt
-(`register_host_log_run`) before launch and follows the container's output
-(`docker logs -f` / `kubectl logs -f`) into `task_logs`. Docker passes the runner env as `-e KEY` names
-with values in the CLI's own environment, keeping DB URLs out of `ps`.
+never touches `run_ids` or `task_logs`, so the host registers each jvm
+attempt (`register_host_log_run`) and follows the container's output into
+`task_logs`. Docker passes the runner env as `-e KEY` names with values in
+the CLI's own environment, keeping DB URLs out of `ps`.
 
 **Implementation**: `aaiclick/orchestration/execution/dispatch.py` — see
 `dispatch_execute()`; `aaiclick/orchestration/execution/runner.py` — see

@@ -199,12 +199,11 @@ async def _pod_status(handle: _PodHandle) -> tuple[str, int]:
 
 
 async def _follow_pod_output(handle: _PodHandle, run_id: int) -> None:
-    """Stream the Pod's container log to ``task_logs`` once it has started.
+    """Stream the Pod's log to ``task_logs`` once it has started.
 
-    ``kubectl logs -f`` fails on a Pod still ``Pending`` (image pull,
-    scheduling), so wait for it to leave that phase first; a Pod stuck there
-    is cancelled by ``cleanup`` once ``wait`` gives up. Kubernetes merges the
-    container's stdout and stderr, so every line lands as stdout."""
+    ``kubectl logs -f`` fails on a ``Pending`` Pod (image pull, scheduling),
+    so wait that out; a Pod stuck there is cancelled by ``cleanup``. The log
+    merges stdout and stderr, so every line lands as stdout."""
     while (phase := (await _pod_status(handle))[0]) in ("Pending", ""):
         await asyncio.sleep(POLL_INTERVAL)
     if phase == POD_NOT_FOUND:
