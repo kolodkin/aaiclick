@@ -593,11 +593,11 @@ Every entry type writes through the same `stream_to_task_logs` sink, so
 `get_task_logs` reads one host-independent source regardless of where the task
 ran. Whoever owns the process's output feeds the sink:
 
-| Entry type | Captured by                                                   | How                                               |
-|------------|---------------------------------------------------------------|---------------------------------------------------|
-| `module`   | the task process (host child, container or Pod)               | `capture_task_output` tees stdout/stderr/`logging` |
-| `shell`    | the host                                                      | `execute_shell_task` pumps the argv's pipes       |
-| `jvm`      | the host — the shim registers no run and writes no logs       | `follow_vehicle_output` pumps `docker logs -f` / `kubectl logs -f` |
+| Entry type | Captured by                                             | How                                                                |
+|------------|---------------------------------------------------------|--------------------------------------------------------------------|
+| `module`   | the task process (host child, container or Pod)         | `capture_task_output` tees stdout/stderr/`logging`                 |
+| `shell`    | the host                                                | `execute_shell_task` pumps the argv's pipes                        |
+| `jvm`      | the host — the shim registers no run and writes no logs | `follow_vehicle_output` pumps `docker logs -f` / `kubectl logs -f` |
 
 Host-side following is the default for any image entry type other than
 `module` (`register_host_log_run`), so a new language SDK needs no logging code.
