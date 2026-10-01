@@ -5,6 +5,10 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock
 
+from ..factories import create_job
+from ..jobs import get_task
+from ..jobs.queries import get_tasks_for_job
+from ..logging import read_task_logs
 from ..models import Task
 from ..runner_config import ENTRY_JVM, ENTRY_MODULE, RUNNER_DOCKER, ImagePrebuilt
 from . import docker_worker
@@ -153,3 +157,51 @@ async def test_cleanup_echoes_container_output_before_rm(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert "[task 42] started" in captured.out
     assert "[task 42] Traceback: boom" in captured.err
+
+
+_FAKE_DOCKER = """#!/bin/sh
+case "$1" in
+  run) echo fake-cid ;;
+  wait) echo 0 ;;
+  logs) echo "jvm says hi"; echo "jvm warns" 1>&2 ;;
+esac
+"""
+
+
+async def _run_image_task_with_fake_docker(monkeypatch, tmp_path, entry_type) -> Task:
+    """Run a persisted task through ``_run_task_in_container`` against a fake
+    ``docker`` CLI; return the task as stored afterwards."""
+    docker_bin = tmp_path / "docker"
+    docker_bin.write_text(_FAKE_DOCKER)
+    docker_bin.chmod(0o755)
+    monkeypatch.setenv("AAICLICK_DOCKER_BIN", str(docker_bin))
+    monkeypatch.setattr(docker_worker, "read_task_run_result", AsyncMock(return_value=RunnerResult(True, None, None)))
+    monkeypatch.setattr(docker_worker, "execution_worker_heartbeat", AsyncMock())
+
+    job = await create_job("image_logs_job", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+    task = (await get_tasks_for_job(job.id))[0]
+    task.entry_type = entry_type
+    dispatch = JobDispatch(RUNNER_DOCKER, None, entry_type=entry_type, image_source=ImagePrebuilt(image_tag="img:1"))
+    success, _, error = await docker_worker._run_task_in_container(task, execution_worker_id=1, dispatch=dispatch)
+    assert success, error
+    stored = await get_task(task.id)
+    assert stored is not None
+    return stored
+
+
+async def test_jvm_container_output_reaches_task_logs(orch_ctx, monkeypatch, tmp_path):
+    """The jvm shim writes no logs itself: the host registers the attempt and
+    follows ``docker logs`` into task_logs, keeping each line's stream."""
+    stored = await _run_image_task_with_fake_docker(monkeypatch, tmp_path, ENTRY_JVM)
+
+    assert len(stored.run_ids) == 1
+    lines = await read_task_logs(stored.id, stored.run_ids[0])
+    assert {(line.stream, line.text) for line in lines} == {("stdout", "jvm says hi"), ("stderr", "jvm warns")}
+
+
+async def test_module_container_is_not_followed_by_host(orch_ctx, monkeypatch, tmp_path):
+    """A module image registers its own run and captures its own output, so
+    the host registers nothing — following it too would log every line twice."""
+    stored = await _run_image_task_with_fake_docker(monkeypatch, tmp_path, ENTRY_MODULE)
+
+    assert stored.run_ids == []

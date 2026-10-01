@@ -587,11 +587,23 @@ is reserved for real `logging.error` records), and
 `AAICLICK_LOG_LEVEL` sets the captured root level
 (default `INFO`). Every row is tagged with its `stream` (`stdout`/`stderr`),
 its `level`, and a per-line `created_at` (emit time, not flush time) so the
-UI can color by severity and optionally show timestamps. Because every runner
-(subprocess, docker, kubernetes) shares that path, and shell tasks stream
-through the same `stream_to_task_logs` sink in `execute_shell_task`, `get_task_logs`
-reads one host-independent source regardless of where the task ran —
-`aaiclick/orchestration/logging.py`, `aaiclick/oplog/models.py`. The rows are
+UI can color by severity and optionally show timestamps.
+
+Every entry type writes through the same `stream_to_task_logs` sink, so
+`get_task_logs` reads one host-independent source regardless of where the task
+ran. Whoever owns the process's output feeds the sink:
+
+| Entry type | Captured by                                                   | How                                               |
+|------------|---------------------------------------------------------------|---------------------------------------------------|
+| `module`   | the task process (host child, container or Pod)               | `capture_task_output` tees stdout/stderr/`logging` |
+| `shell`    | the host                                                      | `execute_shell_task` pumps the argv's pipes       |
+| `jvm`      | the host — the shim registers no run and writes no logs       | `follow_vehicle_output` pumps `docker logs -f` / `kubectl logs -f` |
+
+Host-side following is the default for any image entry type other than
+`module` (`register_host_log_run`), so a new language SDK needs no logging code.
+Kubernetes merges a container's stdout and stderr, so followed Pod lines are
+all `stdout`. Implementation: `aaiclick/orchestration/logging.py`,
+`aaiclick/orchestration/execution/runner.py`, `aaiclick/oplog/models.py`. The rows are
 job-scoped: the background worker's `_delete_job_data` drops a job's
 `task_logs` alongside its `operation_log` on TTL expiry, so logs share the
 job's retention lifecycle.

@@ -1,12 +1,12 @@
 """Task logging utilities for orchestration backend.
 
 Task stdout/stderr is captured to ClickHouse ``task_logs``, streamed
-incrementally from inside the task process every ``LOG_FLUSH_INTERVAL``
-seconds. Every runner (subprocess, docker, kubernetes) runs the same
-``capture_task_output`` path for module tasks and ``execution.runner``'s
-``execute_shell_task`` for shell tasks, so all runs surface their logs
-through one cross-host read path (:func:`read_task_logs`) no matter which
-host wrote them.
+incrementally every ``LOG_FLUSH_INTERVAL`` seconds through
+:func:`stream_to_task_logs`. Module tasks feed it from inside the task process
+(:func:`capture_task_output`); shell tasks and ``jvm`` containers are fed by the
+host (``execution.runner``'s ``execute_shell_task`` / ``follow_vehicle_output``).
+All runs surface their logs through one cross-host read path
+(:func:`read_task_logs`) no matter which host wrote them.
 """
 
 import asyncio
