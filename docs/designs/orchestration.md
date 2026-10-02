@@ -615,9 +615,9 @@ host (`_collect_unfollowed_output` in `execution_worker.py`).
 | `clickhouse`     | yes                                   | no      |
 | `console`        | no                                    | yes     |
 
-Console output is teed live; a `module` container's output is printed with a
-`[task N]` prefix when it exits. aaiclick's own framework logs always go to
-the console.
+Console output is printed line by line. Container output carries a `[task N]`
+prefix — live for followed containers, at exit for `module` containers.
+aaiclick's own framework logs always go to the console.
 
 Implementation: `aaiclick/orchestration/logging.py`,
 `aaiclick/orchestration/execution/runner.py`, `aaiclick/oplog/models.py`. The rows are

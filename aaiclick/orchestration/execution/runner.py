@@ -8,10 +8,9 @@ import importlib
 import inspect
 import logging
 import math
-import sys
 from collections.abc import Callable
 from contextlib import suppress
-from typing import Any, NamedTuple, TextIO
+from typing import Any, NamedTuple
 
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -51,7 +50,7 @@ from aaiclick.snowflake import get_snowflake_id
 from ...datetime_utils import utc_now
 from ..decorators import JobFactory, TaskFactory
 from ..dependency_graph import successor_edges
-from ..logging import ChLogSink, capture_task_output, stream_to_task_logs, task_logs_to_console
+from ..logging import ChLogSink, capture_task_output, stream_to_task_logs
 from ..models import (
     DEPENDENCY_TASK,
     JOB_COMPLETED,
@@ -403,10 +402,8 @@ async def _run_cleanup_argv(cleanup_argv: list[str]) -> None:
     await proc.wait()
 
 
-async def _pump_stream(
-    stream: asyncio.StreamReader, sink: ChLogSink, source: LogStream, console: TextIO | None
-) -> None:
-    """Feed one output pipe into the sink (and ``console``, if given) until EOF.
+async def _pump_stream(stream: asyncio.StreamReader, sink: ChLogSink, source: LogStream) -> None:
+    """Feed one output pipe into the sink until EOF.
 
     Decodes incrementally so a multibyte character split across reads stays intact.
     """
@@ -415,28 +412,31 @@ async def _pump_stream(
         chunk = await stream.read(65536)
         if text := decoder.decode(chunk, final=not chunk):
             sink.write(source, text)
-            if console is not None:
-                console.write(text)
-                console.flush()
         if not chunk:
             return
 
 
 async def pump_process_output(
-    proc: asyncio.subprocess.Process, task_id: int, job_id: int, run_id: int, *, record_exit: bool = False
+    proc: asyncio.subprocess.Process,
+    task_id: int,
+    job_id: int,
+    run_id: int | None,
+    *,
+    record_exit: bool = False,
+    console_prefix: str = "",
 ) -> None:
-    """Stream ``proc``'s stdout and stderr to CH ``task_logs`` until it exits.
+    """Stream ``proc``'s stdout and stderr into a :func:`stream_to_task_logs`
+    sink until it exits.
 
     Cancellation kills ``proc``. Shared by :func:`execute_shell_task` (the
     shell process itself) and :func:`follow_vehicle_output` (a log follower).
     ``record_exit`` adds an ERROR ``exit N`` line on a nonzero exit — only
     meaningful when ``proc`` is the task, not a follower.
     """
-    echo = task_logs_to_console()
-    async with stream_to_task_logs(task_id, job_id, run_id) as sink:
+    async with stream_to_task_logs(task_id, job_id, run_id, console_prefix=console_prefix) as sink:
         readers = [
-            asyncio.create_task(_pump_stream(proc.stdout, sink, STDOUT_STREAM, sys.stdout if echo else None)),
-            asyncio.create_task(_pump_stream(proc.stderr, sink, STDERR_STREAM, sys.stderr if echo else None)),
+            asyncio.create_task(_pump_stream(proc.stdout, sink, STDOUT_STREAM)),
+            asyncio.create_task(_pump_stream(proc.stderr, sink, STDERR_STREAM)),
         ]
         try:
             await proc.wait()
@@ -502,16 +502,18 @@ async def register_host_log_run(task: Task, entry_type: EntryType) -> int | None
     return await register_run(task.id)
 
 
-async def follow_vehicle_output(argv: list[str], task_id: int, job_id: int, run_id: int) -> None:
-    """Stream a container's output to CH ``task_logs`` from the host.
+async def follow_vehicle_output(argv: list[str], task_id: int, job_id: int, run_id: int | None) -> None:
+    """Stream a container's output from the host to the task-log destinations,
+    console lines prefixed ``[task N]``.
 
     ``argv`` follows the output until the container exits (``docker logs -f``,
-    ``kubectl logs -f``). Best-effort, like ``flush_task_logs``: a failure is
-    logged and never fails the task.
+    ``kubectl logs -f``). ``run_id=None`` prints it without writing
+    ``task_logs``. Best-effort, like ``flush_task_logs``: a failure is logged
+    and never fails the task.
     """
     try:
         proc = await start_shell_process(argv, None)
-        await pump_process_output(proc, task_id, job_id, run_id)
+        await pump_process_output(proc, task_id, job_id, run_id, console_prefix=f"[task {task_id}] ")
     except Exception:
         logger.error("Failed to follow output for task %s run %s", task_id, run_id, exc_info=True)
 

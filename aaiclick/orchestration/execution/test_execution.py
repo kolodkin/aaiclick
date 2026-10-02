@@ -856,7 +856,7 @@ async def test_pump_stream_keeps_a_multibyte_char_split_across_reads():
     stream = asyncio.StreamReader()
     stream.feed_data("é\n".encode()[:1])
     sink = ChLogSink()
-    pump = asyncio.create_task(_pump_stream(stream, sink, STDOUT_STREAM, None))
+    pump = asyncio.create_task(_pump_stream(stream, sink, STDOUT_STREAM))
     await asyncio.sleep(0)
     stream.feed_data("é\n".encode()[1:])
     stream.feed_eof()

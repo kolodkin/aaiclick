@@ -7,7 +7,6 @@ import logging
 import os
 import signal
 import socket
-import sys
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from typing import Any, NamedTuple, Protocol, TypeVar, cast
@@ -20,7 +19,7 @@ from aaiclick.async_wait import wait_or_timeout
 from aaiclick.snowflake import get_snowflake_id
 
 from ...datetime_utils import utc_now
-from ..logging import task_logs_to_clickhouse, task_logs_to_console
+from ..logging import TASK_LOGS_CLICKHOUSE, TASK_LOGS_CONSOLE, task_logs_destination
 from ..models import (
     CANCELLING_TASK_STATUSES,
     EXECUTION_WORKER_ACTIVE,
@@ -36,7 +35,6 @@ from ..models import (
 )
 from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_MODULE, EntryType, ImageSourceT, RunnerMode
-from . import cli
 from .claiming import (
     check_run_aborted,
     claim_next_task,
@@ -76,13 +74,6 @@ def parse_task_timeout() -> float | None:
     empty value reads as no timeout)."""
     raw = os.environ.get("AAICLICK_TASK_TIMEOUT")
     return float(raw) if raw else None
-
-
-def echo_task_output(task_id: int, stdout: str, stderr: str) -> None:
-    """Print a finished vehicle's output as-is, each line prefixed with its task id."""
-    for text, stream in ((stdout, sys.stdout), (stderr, sys.stderr)):
-        for line in text.splitlines():
-            print(f"[task {task_id}] {line}", file=stream, flush=True)
 
 
 class RunnerResult(NamedTuple):
@@ -222,15 +213,15 @@ async def _collect_unfollowed_output(vehicle: TaskVehicle[H, P], task: Task, han
     argv = await vehicle.output_argv(handle)
     if argv is None:
         return
-    if task_logs_to_clickhouse() and await get_run_count(task.id) == len(task.run_ids):
-        run_id = await register_run(task.id)
-        with suppress(asyncio.TimeoutError):
-            await asyncio.wait_for(
-                follow_vehicle_output(argv, task.id, task.job_id, run_id), timeout=OUTPUT_FOLLOWER_DRAIN_TIMEOUT
-            )
-    elif task_logs_to_console():
-        _, stdout, stderr = await cli.run(*argv, check=False, stream=False)
-        echo_task_output(task.id, stdout, stderr)
+    destination = task_logs_destination()
+    rescue = destination != TASK_LOGS_CONSOLE and await get_run_count(task.id) == len(task.run_ids)
+    if not rescue and destination == TASK_LOGS_CLICKHOUSE:
+        return
+    run_id = await register_run(task.id) if rescue else None
+    with suppress(asyncio.TimeoutError):
+        await asyncio.wait_for(
+            follow_vehicle_output(argv, task.id, task.job_id, run_id), timeout=OUTPUT_FOLLOWER_DRAIN_TIMEOUT
+        )
 
 
 async def drive_vehicle(
@@ -265,12 +256,12 @@ async def drive_vehicle(
     )
     cancel_watcher = asyncio.create_task(_watch_for_cancellation(vehicle, task, handle, done, cancelled, poll_interval))
 
-    waited = False
     drain_timeout = 0.0
     try:
         exit_code, error, payload = await vehicle.wait(handle, timeout)
-        waited = True
         drain_timeout = OUTPUT_FOLLOWER_DRAIN_TIMEOUT if error is None else OUTPUT_FOLLOWER_ERROR_GRACE
+        if follower is None:
+            await _collect_unfollowed_output(vehicle, task, handle)
         done.set()
         await asyncio.gather(heartbeat, cancel_watcher, return_exceptions=True)
         return vehicle.collect(handle, exit_code, error, cancelled.is_set(), payload)
@@ -278,8 +269,6 @@ async def drive_vehicle(
         done.set()
         await asyncio.gather(heartbeat, cancel_watcher, return_exceptions=True)
         await stop_output_follower(follower, drain_timeout)
-        if waited and follower is None:
-            await _collect_unfollowed_output(vehicle, task, handle)
         await vehicle.cleanup(handle)
 
 
