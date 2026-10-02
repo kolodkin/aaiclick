@@ -8,7 +8,9 @@ inside an active ``orch_context(with_ch=True)`` and do not require the
 
 from __future__ import annotations
 
-from aaiclick.ai.agents.lineage_tools import (
+from aaiclick.oplog.lineage import DEFAULT_MAX_DEPTH, LineageDirection, OplogGraph
+from aaiclick.oplog.lineage import oplog_subgraph as _oplog_subgraph
+from aaiclick.oplog.query_sandbox import (
     DEFAULT_ROW_LIMIT,
     QueryResult,
     TableSchema,
@@ -17,8 +19,6 @@ from aaiclick.ai.agents.lineage_tools import (
     validate_scope,
     validate_select_safety,
 )
-from aaiclick.oplog.lineage import DEFAULT_MAX_DEPTH, LineageDirection, OplogGraph
-from aaiclick.oplog.lineage import oplog_subgraph as _oplog_subgraph
 
 from .errors import Invalid, NotFound
 

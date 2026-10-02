@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import asyncio
 
-from aaiclick.ai.agents.lineage_tools import describe_table
 from aaiclick.oplog.lineage import OplogNode
+from aaiclick.oplog.query_sandbox import describe_table
 
 
 async def get_schema(table: str) -> str:

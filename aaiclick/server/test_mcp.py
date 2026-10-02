@@ -14,10 +14,10 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
-from aaiclick.ai.agents.lineage_tools import QueryResult, TableSchema
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.oplog.lineage import OplogGraph
+from aaiclick.oplog.query_sandbox import QueryResult, TableSchema
 from aaiclick.orchestration.execution.execution_worker import register_execution_worker
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task

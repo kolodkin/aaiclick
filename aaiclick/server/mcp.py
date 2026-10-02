@@ -34,7 +34,6 @@ from contextlib import asynccontextmanager
 
 from fastmcp import FastMCP
 
-from aaiclick.ai.agents.lineage_tools import DEFAULT_ROW_LIMIT, QueryResult, TableSchema
 from aaiclick.ai.ollama import OLLAMA_BASE_URL
 from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.internal_api import execution_workers as execution_workers_api
@@ -46,6 +45,7 @@ from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import tasks as tasks_api
 from aaiclick.internal_api import viewer as viewer_api
 from aaiclick.oplog.lineage import DEFAULT_MAX_DEPTH, LineageDirection, OplogGraph
+from aaiclick.oplog.query_sandbox import DEFAULT_ROW_LIMIT, QueryResult, TableSchema
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.orchestration.view_models import (
     ClearTaskView,

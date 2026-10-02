@@ -10,11 +10,13 @@ from aaiclick.data.data_context import create_object_from_value
 from aaiclick.oplog.lineage import (
     OplogGraph,
     backward_oplog,
+    classify_nodes,
     forward_oplog,
     lineage_context,
     oplog_subgraph,
 )
 from aaiclick.orchestration.orch_context import task_scope
+from aaiclick.testing import make_oplog_node
 
 
 async def _run_pipeline():
@@ -165,3 +167,12 @@ def test_replace_labels_empty_dict_returns_input():
     """Empty labels dict short-circuits — no regex compiled, text unchanged."""
     text = "anything goes here including t_12345678901234567"
     assert OplogGraph.replace_labels(text, {}) == text
+
+
+def test_classify_nodes_labels_input_intermediate_target():
+    nodes = [
+        make_oplog_node("t_1", "filter", {"input": "p_raw"}),
+        make_oplog_node("t_2", "aggregate", {"input": "t_1"}),
+    ]
+    graph = OplogGraph(nodes=nodes, edges=[])
+    assert classify_nodes(graph) == {"p_raw": "input", "t_1": "intermediate", "t_2": "target"}

@@ -17,6 +17,8 @@ from aaiclick.data.sql_utils import quote_sql_literal
 LineageDirection = Literal["backward", "forward"]
 DEFAULT_MAX_DEPTH = 10
 
+NodeKind = Literal["input", "intermediate", "target"]
+
 
 def _to_dict(kwargs_raw: Any) -> dict[str, str]:
     """Normalize kwargs from ClickHouse Map column.
@@ -59,6 +61,17 @@ class OplogEdge(BaseModel):
     source: str
     target: str
     operation: str
+
+
+class GraphNode(BaseModel):
+    """Single node in the lineage graph with kind + liveness."""
+
+    table: str
+    kind: NodeKind
+    operation: str
+    live: bool
+    task_id: int | None = None
+    job_id: int | None = None
 
 
 _OP_LABEL_NAMES: dict[str, str] = {
@@ -288,3 +301,33 @@ async def oplog_subgraph(
             edges.append(OplogEdge(source=src, target=node.table, operation=node.operation))
 
     return OplogGraph(nodes=nodes, edges=edges)
+
+
+def _target_tables(graph: OplogGraph) -> set[str]:
+    """Nodes that no other node in the graph consumes."""
+    consumed = {src for n in graph.nodes for src in n.kwargs.values() if src}
+    return {n.table for n in graph.nodes if n.table not in consumed}
+
+
+def _input_tables(graph: OplogGraph) -> set[str]:
+    """Tables referenced as sources but never produced — plus any ``p_*`` node."""
+    produced = {n.table for n in graph.nodes}
+    referenced = {src for n in graph.nodes for src in n.kwargs.values() if src}
+    inputs = referenced - produced
+    inputs |= {n.table for n in graph.nodes if n.table.startswith("p_")}
+    return inputs
+
+
+def classify_nodes(graph: OplogGraph) -> dict[str, NodeKind]:
+    """Label every table in the graph as input / intermediate / target."""
+    targets = _target_tables(graph)
+    inputs = _input_tables(graph)
+    kinds: dict[str, NodeKind] = {}
+    for table in graph.tables:
+        if table in inputs:
+            kinds[table] = "input"
+        elif table in targets:
+            kinds[table] = "target"
+        else:
+            kinds[table] = "intermediate"
+    return kinds
