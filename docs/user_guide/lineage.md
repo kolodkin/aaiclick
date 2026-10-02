@@ -7,12 +7,12 @@ can answer *how did this value get here?* against the live tables.
 
 # Tools
 
-| Tool                                  | Purpose                                                                                      |
-|---------------------------------------|----------------------------------------------------------------------------------------------|
-| `oplog_subgraph(target_table)`        | The operation graph behind a table — each node carries its rendered `sql_template`           |
-| `list_graph_nodes(target_table)`      | Every table in that graph with its kind (input / intermediate / target) and whether it is live |
-| `get_table_schema(table, target_table)` | Columns and types for one table in the graph                                               |
-| `query_table(sql, target_table)`      | A read-only, row-capped `SELECT` scoped to the graph                                         |
+| Tool                                    | Purpose                                                                                        |
+|-----------------------------------------|------------------------------------------------------------------------------------------------|
+| `oplog_subgraph(target_table)`          | The operation graph behind a table — each node carries its rendered `sql_template`             |
+| `list_graph_nodes(target_table)`        | Every table in that graph with its kind (input / intermediate / target) and whether it is live |
+| `get_table_schema(table, target_table)` | Columns and types for one table in the graph                                                   |
+| `query_table(sql, target_table)`        | A read-only, row-capped `SELECT` scoped to the graph                                           |
 
 All four take `direction` (`"backward"` default, or `"forward"`) and
 `max_depth`. The server's instructions give the agent the triage order:

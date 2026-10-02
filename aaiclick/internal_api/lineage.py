@@ -75,8 +75,8 @@ async def query_table(
     The scope is the graph ``oplog_subgraph()`` returns for the same
     arguments. Rejects DDL/DML, multi-statement input, a ``SETTINGS``
     clause, and any table reference outside the graph. Caps rows and pins
-    ``max_execution_time``. The read-only check runs before the graph is
-    fetched, so a rejected statement costs no lineage query.
+    ``max_execution_time``. The read-only check comes first so a rejected
+    statement costs no lineage query.
     """
     try:
         validate_select_safety(sql)
