@@ -248,6 +248,22 @@ def test_task_view_entrypoint_has_own_row_with_expand_and_copy(page, base_url: s
 
 
 @_spa_built
+def test_task_view_logs_fill_the_window(page, base_url: str, shot) -> None:
+    """Header and logs fit on one screen: the logs take the remaining height."""
+    task_id = _run_task_and_wait("aaiclick.orchestration.fixtures.sample_tasks.task_with_output")
+
+    open_page(page, f"{base_url}/?p=@task {task_id}")
+    logs = page.locator(".task-page > .logs")
+    logs.wait_for(timeout=15000)
+    shot("task-logs-fill")
+
+    assert page.evaluate("(m => m.scrollHeight <= m.clientHeight)(document.querySelector('main'))")
+    main_bottom = page.evaluate("document.querySelector('main').getBoundingClientRect().bottom")
+    # Within main's 22px bottom padding.
+    assert logs.bounding_box()["y"] + logs.bounding_box()["height"] == pytest.approx(main_bottom - 22, abs=2)
+
+
+@_spa_built
 def test_task_view_truncates_long_entrypoint_from_the_start(page, base_url: str, shot) -> None:
     """On a narrow screen the entrypoint stays on one line, keeps its tail, and expands.
 

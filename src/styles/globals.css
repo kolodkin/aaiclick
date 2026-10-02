@@ -241,6 +241,12 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
   max-height: 52vh; border: 1px solid var(--border);
   box-shadow: var(--hi), var(--shadow);
 }
+/* The task view fits the window: header on top, logs take the rest and
+   scroll on their own instead of the page. */
+.content:has(> .task-page) { height: 100%; }
+.task-page { display: flex; flex-direction: column; height: 100%; }
+.task-page > .chips, .task-page > .detail-head { flex: none; }
+.task-page > .logs { flex: 1 1 auto; min-height: 240px; max-height: none; }
 .logs .logs-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; color: #6b7480; font-size: 11px; }
 .logs .logs-toolbar label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .logs .ts { color: #6b7480; }
