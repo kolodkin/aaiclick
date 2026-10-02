@@ -250,13 +250,10 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
 .logs .log-try.on { background: var(--blue-bg); border-color: var(--blue); color: #fff; }
 /* colored by the shared b-<STATUS> class; the square fills with its text color */
 .logs .try-sq { width: 8px; height: 8px; border-radius: 2px; background: currentColor; }
-.logs .lvl-DEBUG { color: #6b7480; }
-.logs .lvl-INFO { color: #79c0ff; }
-.logs .lvl-WARNING { color: #e3b341; }
-.logs .lvl-ERROR { color: #ff7b72; }
-.logs .lvl-CRITICAL { color: #ff7b72; font-weight: 600; }
-/* stderr provenance marker — independent of severity color, so a
-   logging.error record shows ERROR red *and* the stderr bar */
+.logs .tone-debug { color: #6b7480; }
+.logs .tone-warning { color: #e3b341; }
+.logs .tone-error { color: #ff7b72; }
+/* stderr provenance marker — independent of the keyword color */
 .logs .src-stderr { border-left: 2px solid #8b008b; padding-left: 6px; }
 .logs .log-line { white-space: pre-wrap; }
 

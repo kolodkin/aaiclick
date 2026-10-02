@@ -257,8 +257,8 @@ async def test_delete_job_data_purges_ch_log_tables(bg_db, orch_ctx):
             f"VALUES ('t_{jid}', 'create', map(), {jid}, now64(3))"
         )
         await ch.command(
-            "INSERT INTO task_logs (task_id, job_id, run_id, seq, stream, level, line, created_at) "
-            f"VALUES ({jid}, {jid}, {jid}, 0, 'stdout', 'INFO', 'hello', now64(3))"
+            "INSERT INTO task_logs (task_id, job_id, run_id, seq, stream, line, created_at) "
+            f"VALUES ({jid}, {jid}, {jid}, 0, 'stdout', 'hello', now64(3))"
         )
 
     worker = make_worker(bg_db, ch)

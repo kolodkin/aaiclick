@@ -430,7 +430,7 @@ async def pump_process_output(
 
     Cancellation kills ``proc``. Shared by :func:`execute_shell_task` (the
     shell process itself) and :func:`follow_vehicle_output` (a log follower).
-    ``record_exit`` adds an ERROR ``exit N`` line on a nonzero exit — only
+    ``record_exit`` adds an ``error: exit N`` stderr line on a nonzero exit — only
     meaningful when ``proc`` is the task, not a follower.
     """
     async with stream_to_task_logs(task_id, job_id, run_id, console_prefix=console_prefix) as sink:
@@ -452,7 +452,7 @@ async def pump_process_output(
                 with suppress(asyncio.CancelledError):
                     await reader
             if record_exit and proc.returncode:
-                sink.record("ERROR", f"exit {proc.returncode}")
+                sink.write(STDERR_STREAM, f"error: exit {proc.returncode}\n")
 
 
 async def execute_shell_task(task: Task, spec: ShellSpec | None = None) -> None:

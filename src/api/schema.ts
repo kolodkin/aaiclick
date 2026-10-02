@@ -1381,7 +1381,7 @@ export interface components {
         };
         /**
          * LogLine
-         * @description One captured output line tagged with its stream, level, and emit time.
+         * @description One captured output line tagged with its stream and emit time.
          */
         LogLine: {
             /**
@@ -1389,12 +1389,6 @@ export interface components {
              * Format: date-time
              */
             created_at?: string;
-            /**
-             * Level
-             * @default INFO
-             * @enum {string}
-             */
-            level: "DEBUG" | "INFO" | "WARNING" | "ERROR" | "CRITICAL";
             /**
              * Stream
              * @enum {string}

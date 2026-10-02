@@ -151,27 +151,29 @@ def test_task_view_switches_between_attempts(page, base_url: str, shot, tmp_path
     logs.get_by_text("Attempt 1", exact=True).wait_for(timeout=15000)
     assert logs.get_by_text("Attempt 3", exact=True).count() == 0
     # The failed try's own log ends with its exception, traceback included.
-    assert logs.locator(".lvl-ERROR", has_text="RuntimeError: Attempt 1, need 3").count() == 1
-    assert logs.locator(".lvl-ERROR", has_text="Traceback (most recent call last)").count() == 1
+    assert logs.locator(".tone-error", has_text="RuntimeError: Attempt 1, need 3").count() == 1
+    assert logs.locator(".tone-error", has_text="Traceback (most recent call last)").count() == 1
     shot("task-tries-first")
 
 
 @_spa_built
-def test_task_view_colors_logs_by_level(page, base_url: str, shot) -> None:
-    """The task view colors lines by level and shows timestamps only when toggled."""
-    task_id = _run_task_and_wait("aaiclick.orchestration.fixtures.sample_tasks.task_with_log_levels")
+def test_task_view_colors_logs_by_keyword(page, base_url: str, shot) -> None:
+    """The task view colors lines by keyword and shows timestamps only when toggled."""
+    task_id = _run_task_and_wait("aaiclick.orchestration.fixtures.sample_tasks.task_with_keyword_lines")
 
     open_page(page, f"{base_url}/?p=@task {task_id}")
 
     logs = page.locator("div.logs")
-    logs.get_by_test_id("log-line-ERROR").get_by_text("error line").wait_for(timeout=15000)
-    logs.get_by_test_id("log-line-WARNING").get_by_text("warning line").wait_for(timeout=15000)
+    logs.locator(".tone-error", has_text="error line").wait_for(timeout=15000)
+    assert logs.locator(".tone-warning", has_text="warning line").count() == 1
+    assert logs.locator(".tone-plain", has_text="plain line").count() == 1
 
-    error_color = logs.locator(".lvl-ERROR").first.evaluate("el => getComputedStyle(el).color")
-    assert error_color
+    error_color = logs.locator(".tone-error").first.evaluate("el => getComputedStyle(el).color")
+    plain_color = logs.locator(".tone-plain").first.evaluate("el => getComputedStyle(el).color")
+    assert error_color != plain_color
 
     assert logs.locator(".ts").count() == 0
-    shot("task-logs-levels")
+    shot("task-logs-keywords")
     page.get_by_label("Show timestamps").check()
     logs.locator(".ts").first.wait_for(timeout=5000)
     shot("task-logs-timestamps")

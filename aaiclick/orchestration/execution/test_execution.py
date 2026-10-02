@@ -213,17 +213,14 @@ async def test_execute_shell_task_streams_mid_run(orch_ctx, monkeypatch, tmp_pat
 
 
 async def test_execute_shell_task_splits_streams(orch_ctx):
-    """Shell stdout and stderr keep their streams; stderr defaults to WARNING."""
+    """Shell stdout and stderr keep their streams."""
     task = await _persisted_shell_task(["sh", "-c", "echo out line; echo err line 1>&2"])
     await execute_shell_task(task)
     refreshed = await get_task(task.id)
     assert refreshed is not None
     lines = await read_task_logs(task.id, refreshed.run_ids[-1])
     # Cross-stream ordering is approximate (two pipes) — compare as a set.
-    assert {(line.stream, line.level, line.text) for line in lines} == {
-        ("stdout", "INFO", "out line"),
-        ("stderr", "WARNING", "err line"),
-    }
+    assert {(line.stream, line.text) for line in lines} == {("stdout", "out line"), ("stderr", "err line")}
 
 
 _DESTINATION_CASES = [
@@ -494,16 +491,15 @@ async def test_run_job_tasks_streams_logs_to_clickhouse(orch_ctx):
 
 
 async def test_run_job_tasks_failing_task_logs_traceback(orch_ctx):
-    """The run's own log ends with the exception and its traceback, as ERROR
-    lines — each retry keeps why it failed, not only the task's latest error."""
+    """The run's own log ends with the exception and its traceback on stderr
+    — each retry keeps why it failed, not only the task's latest error."""
     job = await create_job("test_job_ch_traceback", "aaiclick.orchestration.fixtures.sample_tasks.failing_task")
 
     await run_job_tasks(job)
 
     task = (await get_tasks_for_job(job.id))[0]
-    errors = [line.text for line in (await get_task_logs(task.id)).lines if line.level == "ERROR"]
-    assert errors[0].endswith("Task failed")
-    assert any(text.startswith("Traceback (most recent call last)") for text in errors)
+    errors = [line.text for line in (await get_task_logs(task.id)).lines if line.stream == "stderr"]
+    assert errors[0] == "Traceback (most recent call last):"
     assert errors[-1] == "ValueError: This task failed intentionally"
 
 
@@ -517,7 +513,7 @@ async def test_run_job_tasks_import_error_reaches_task_logs(orch_ctx):
 
     task = (await get_tasks_for_job(job.id))[0]
     assert len(task.run_ids) == 1
-    errors = [line.text for line in (await get_task_logs(task.id)).lines if line.level == "ERROR"]
+    errors = [line.text for line in (await get_task_logs(task.id)).lines if line.stream == "stderr"]
     assert errors[-1].startswith(
         "ModuleNotFoundError: No module named 'aaiclick.orchestration.fixtures.no_such_module'"
     )
@@ -549,7 +545,7 @@ async def test_run_job_tasks_failing_shell_task(orch_ctx):
     task = (await get_tasks_for_job(job.id))[0]
     assert task.status == TASK_FAILED
     logs = await get_task_logs(task.id)
-    assert [(line.level, line.text) for line in logs.lines] == [("INFO", "boom"), ("ERROR", "exit 3")]
+    assert [(line.stream, line.text) for line in logs.lines] == [("stdout", "boom"), ("stderr", "error: exit 3")]
 
 
 async def test_run_job_tasks_shell_command_env(orch_ctx):
