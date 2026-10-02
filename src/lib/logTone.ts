@@ -1,5 +1,4 @@
-// Log lines are colored by the words in them, not by a stored severity:
-// a line naming an error is red, a warning yellow, a debug line dim.
+// Log lines are colored by the words in them; there is no stored severity.
 export type LogTone = "error" | "warning" | "debug" | "plain";
 
 const TONES: readonly [RegExp, LogTone][] = [

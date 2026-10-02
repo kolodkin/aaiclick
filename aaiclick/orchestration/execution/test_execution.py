@@ -499,7 +499,7 @@ async def test_run_job_tasks_failing_task_logs_traceback(orch_ctx):
 
     task = (await get_tasks_for_job(job.id))[0]
     errors = [line.text for line in (await get_task_logs(task.id)).lines if line.stream == "stderr"]
-    assert errors[0] == "Traceback (most recent call last):"
+    assert "Traceback (most recent call last):" in errors
     assert errors[-1] == "ValueError: This task failed intentionally"
 
 

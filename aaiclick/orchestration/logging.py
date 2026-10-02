@@ -22,7 +22,6 @@ from aaiclick.async_wait import wait_or_timeout
 from aaiclick.backend import is_chdb, is_local
 from aaiclick.data.data_context import ChClient, get_ch_client
 from aaiclick.data.data_context.ch_client import create_ch_client
-from aaiclick.datetime_utils import utc_now
 from aaiclick.log_models import MAX_TASK_LOG_LINES, STDERR_STREAM, STDOUT_STREAM, LogLine, LogStream
 from aaiclick.oplog.models import get_column_types, init_oplog_tables
 
@@ -54,17 +53,14 @@ LOG_FLUSH_INTERVAL = 2.0
 
 
 class ChLogSink:
-    """Route captured stdout / stderr, line by line, to its destinations:
-    buffered for a CH batch write (``keep``) and/or printed to the console
-    (``console``).
+    """Split captured stdout / stderr into lines, buffered for a CH batch
+    write (``keep``) and/or echoed to the console (``console``, each line
+    prefixed with ``prefix``).
 
-    ``write`` is sync — it's driven by ``print`` through ``_SinkWriter`` while
-    the task runs. Each stream keeps its own partial-line buffer so a line is
-    tagged with the stream that emitted it; completed lines are kept in
-    emission order, each stamped with its own emit time. Console lines go to
-    the stdout / stderr in place when the sink is built, each prefixed with
-    ``prefix``. Kept lines are drained incrementally by a periodic flusher
-    while the task runs and finally on exit.
+    ``write`` is sync — ``print`` drives it through ``_SinkWriter``. Each
+    stream keeps its own partial-line buffer, so a line carries the stream
+    that emitted it. Kept lines are drained by a periodic flusher while the
+    task runs and finally on exit.
     """
 
     def __init__(self, *, keep: bool = True, console: bool = False, prefix: str = "") -> None:
@@ -80,7 +76,7 @@ class ChLogSink:
             out.write(f"{self._prefix}{text}\n")
             out.flush()
         if self._keep:
-            self._lines.append(LogLine(stream=stream, text=text, created_at=utc_now()))
+            self._lines.append(LogLine(stream=stream, text=text))
 
     def write(self, stream: LogStream, data: str) -> None:
         parts = (self._partial[stream] + data).split("\n")
@@ -298,11 +294,9 @@ async def capture_task_output(task_id: int, job_id: int, run_id: int):
     Context manager to capture stdout and stderr for one task run.
 
     ``sys.stdout`` / ``sys.stderr`` are swapped for writers feeding a
-    :func:`stream_to_task_logs` sink, which sends the output to ``task_logs``
-    and/or the console. ``logging`` is left alone: a record reaches the task
-    log only if its handler writes to the swapped ``sys.stderr`` / ``sys.stdout``.
-    A body that never awaits starves the periodic flusher — its output lands
-    at exit.
+    :func:`stream_to_task_logs` sink. ``logging`` is left alone: a record is
+    captured only if its handler writes to the swapped streams. A body that
+    never awaits starves the periodic flusher — its output lands at exit.
 
     Args:
         task_id: Task ID the captured rows are keyed by.
