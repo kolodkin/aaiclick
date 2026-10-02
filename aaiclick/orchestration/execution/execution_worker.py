@@ -209,19 +209,23 @@ async def _collect_unfollowed_output(vehicle: TaskVehicle[H, P], task: Task, han
     ``execute_task``: bad DB URL, broken image) left no ``task_logs`` — the host
     registers the attempt and copies the output there. Otherwise the vehicle
     captured it itself, and the host only prints it when task logs go to the
-    console."""
-    argv = await vehicle.output_argv(handle)
-    if argv is None:
-        return
-    destination = task_logs_destination()
-    rescue = destination != TASK_LOGS_CONSOLE and await get_run_count(task.id) == len(task.run_ids)
-    if not rescue and destination == TASK_LOGS_CLICKHOUSE:
-        return
-    run_id = await register_run(task.id) if rescue else None
-    with suppress(asyncio.TimeoutError):
-        await asyncio.wait_for(
-            follow_vehicle_output(argv, task.id, task.job_id, run_id), timeout=OUTPUT_FOLLOWER_DRAIN_TIMEOUT
-        )
+    console. Best-effort, like ``follow_vehicle_output``: a failure is logged
+    and never fails the run."""
+    try:
+        argv = await vehicle.output_argv(handle)
+        if argv is None:
+            return
+        destination = task_logs_destination()
+        rescue = destination != TASK_LOGS_CONSOLE and await get_run_count(task.id) == len(task.run_ids)
+        if not rescue and destination == TASK_LOGS_CLICKHOUSE:
+            return
+        run_id = await register_run(task.id) if rescue else None
+        with suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(
+                follow_vehicle_output(argv, task.id, task.job_id, run_id), timeout=OUTPUT_FOLLOWER_DRAIN_TIMEOUT
+            )
+    except Exception:
+        logger.error("Failed to collect output for task %s", task.id, exc_info=True)
 
 
 async def drive_vehicle(

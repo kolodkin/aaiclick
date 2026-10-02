@@ -25,6 +25,7 @@ from ..models import (
     Task,
 )
 from ..orch_context import commit_tasks, get_sql_session
+from . import execution_worker
 from .claiming import claim_next_task, update_task_status
 from .execution_worker import (
     RunnerResult,
@@ -458,3 +459,26 @@ async def test_drive_vehicle_does_not_drain_a_still_running_vehicle(orch_ctx):
     )
     assert result.error == "Task timed out after 1s"
     assert time.monotonic() - start < OUTPUT_FOLLOWER_DRAIN_TIMEOUT / 2
+
+
+class _FinishedVehicle(_StillRunningVehicle):
+    """Exits cleanly with a result; its output is not followed by the host."""
+
+    async def wait(self, handle, timeout):
+        return 0, None, None
+
+    def collect(self, handle, exit_code, error, was_cancelled, payload):
+        return RunnerResult(True, None, None)
+
+    async def output_argv(self, handle):
+        return ["true"]
+
+
+async def test_drive_vehicle_survives_a_failing_output_collection(orch_ctx, monkeypatch):
+    """Internal: failure injection. Log handling is best-effort — a DB error
+    while deciding what to do with a finished vehicle's output must not turn
+    a successful run into a failed one."""
+    monkeypatch.setattr(execution_worker, "get_run_count", AsyncMock(side_effect=RuntimeError("db down")))
+    task = Task(id=get_snowflake_id(), job_id=1, entrypoint="", name="t")
+    result = await drive_vehicle(task, 1, _FinishedVehicle(), timeout=None, poll_interval=60, heartbeat_fn=AsyncMock())
+    assert result.success
