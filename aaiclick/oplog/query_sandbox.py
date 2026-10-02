@@ -1,11 +1,12 @@
 """
 aaiclick.oplog.query_sandbox - Read-only, graph-scoped SQL for lineage triage.
 
-Every agent surface (MCP, CLI, in-process) runs its ``SELECT``s through
-this sandbox. A query is accepted only when it is a single read-only
-statement and every table it reads belongs to the caller's scope —
-ClickHouse parses the SQL and the scope check reads table references off
-the parse tree. Results are row-capped and execution-time-capped.
+The MCP ``query_table`` tool runs every ``SELECT`` through this sandbox.
+A query is accepted only when it is a single read-only statement and every
+table it reads belongs to the caller's scope — ClickHouse parses the SQL
+and the scope check reads table references off the parse tree. Results are
+row-capped and execution-time-capped. A refused query raises
+``SandboxError``; ``internal_api.lineage`` maps it to ``Invalid``.
 
 See ``docs/designs/lineage.md`` for the design.
 """
@@ -32,18 +33,15 @@ from aaiclick.data.view_models import ColumnSchema
 
 logger = logging.getLogger(__name__)
 
-ToolErrorKind = Literal[
-    "not_select",
-    "out_of_scope",
-    "not_found",
-    "not_live",
-    "invalid_argument",
-]
+SandboxErrorKind = Literal["not_select", "out_of_scope", "invalid_argument"]
 
 
-class ToolError(NamedTuple):
-    kind: ToolErrorKind
-    message: str
+class SandboxError(Exception):
+    """A query the sandbox refuses; ``kind`` names the rule it broke."""
+
+    def __init__(self, kind: SandboxErrorKind, message: str) -> None:
+        super().__init__(message)
+        self.kind = kind
 
 
 class TableSchema(BaseModel):
@@ -82,21 +80,15 @@ _STATEMENT_START_RE = re.compile(r"^\s*(?:WITH\b|SELECT\b)", re.IGNORECASE)
 _SEMICOLON_RE = re.compile(r";\s*\S")
 
 
-def validate_select_safety(sql: str, *, scan: str | None = None) -> ToolError | None:
-    """Reject anything that isn't a single read-only ``SELECT`` (or ``WITH … SELECT``).
-
-    Stateless. Pass ``scan`` to skip the comment + literal strip when the caller
-    has already normalized the SQL.
-    """
-    if scan is None:
-        scan = normalize_sql_for_scan(sql)
+def validate_select_safety(sql: str) -> None:
+    """Raise unless ``sql`` is a single read-only ``SELECT`` (or ``WITH … SELECT``)."""
+    scan = normalize_sql_for_scan(sql)
     if _SEMICOLON_RE.search(scan):
-        return ToolError("not_select", "Only a single SELECT statement is allowed.")
+        raise SandboxError("not_select", "Only a single SELECT statement is allowed.")
     if not _STATEMENT_START_RE.match(scan):
-        return ToolError("not_select", "Only SELECT (or WITH … SELECT) is permitted.")
+        raise SandboxError("not_select", "Only SELECT (or WITH … SELECT) is permitted.")
     if FORBIDDEN_KEYWORDS_RE.search(scan):
-        return ToolError("not_select", "DDL/DML keywords are rejected; only SELECT is permitted.")
-    return None
+        raise SandboxError("not_select", "DDL/DML keywords are rejected; only SELECT is permitted.")
 
 
 async def _explain_ast(sql: str) -> list[str]:
@@ -189,8 +181,8 @@ def _table_reads(rows: list[_AstRow]) -> _TableReads:
     return reads
 
 
-async def validate_scope(sql: str, scope_tables: set[str]) -> ToolError | None:
-    """Reject unless every table ``sql`` reads is in ``scope_tables``.
+async def validate_scope(sql: str, scope_tables: set[str]) -> None:
+    """Raise unless every table ``sql`` reads is in ``scope_tables``.
 
     ClickHouse parses the SQL (``EXPLAIN AST``) and this reads the table
     positions off the tree, so the check is positive: anything in table
@@ -205,8 +197,9 @@ async def validate_scope(sql: str, scope_tables: set[str]) -> ToolError | None:
     ``_TableReads.in_tables`` for why an array column is rejected there too.
 
     A CTE name is a table identifier no graph contains, so ``WITH`` queries are
-    rejected. The tool description tells the caller to write the CTE as a
-    subquery in ``FROM``, which parses to a ``Subquery`` and is allowed.
+    rejected; the ``query_table`` tool description tells the caller to write
+    the CTE as a subquery in ``FROM``, which parses to a ``Subquery`` and is
+    allowed.
 
     A ``SETTINGS`` clause is rejected at any depth: ``readonly=2`` permits
     settings changes, and a clause in the text outranks the caps
@@ -216,13 +209,13 @@ async def validate_scope(sql: str, scope_tables: set[str]) -> ToolError | None:
         reads = _table_reads(_ast_rows(await _explain_ast(sql)))
     except Exception as exc:
         logger.debug("EXPLAIN AST failed for sandboxed SQL", exc_info=True)
-        return ToolError("invalid_argument", f"Could not parse SQL: {exc}")
+        raise SandboxError("invalid_argument", f"Could not parse SQL: {exc}") from exc
 
     if reads.has_settings:
-        return ToolError("invalid_argument", "A SETTINGS clause is not permitted; the tool sets the execution caps.")
+        raise SandboxError("invalid_argument", "A SETTINGS clause is not permitted; the tool sets the execution caps.")
     if reads.functions:
         listed = ", ".join(sorted(reads.functions))
-        return ToolError("out_of_scope", f"Table functions are not permitted: {listed}.")
+        raise SandboxError("out_of_scope", f"Table functions are not permitted: {listed}.")
 
     # Fail closed: an opaque table expression is not provably in scope.
     in_unknown = reads.in_tables - scope_tables
@@ -230,8 +223,7 @@ async def validate_scope(sql: str, scope_tables: set[str]) -> ToolError | None:
     if unknown:
         listed = ", ".join(sorted(unknown)[:3])
         hint = " IN <identifier> reads a table; for an array column use has(column, value)." if in_unknown else ""
-        return ToolError("out_of_scope", f"Tables not in scope: {listed}.{hint}")
-    return None
+        raise SandboxError("out_of_scope", f"Tables not in scope: {listed}.{hint}")
 
 
 async def run_select(sql: str, row_limit: int = DEFAULT_ROW_LIMIT) -> QueryResult:
@@ -269,14 +261,10 @@ async def run_select(sql: str, row_limit: int = DEFAULT_ROW_LIMIT) -> QueryResul
     return QueryResult(columns=list(result.column_names), rows=rows, truncated=truncated)
 
 
-async def sandboxed_select(
-    sql: str, scope_tables: set[str], row_limit: int = DEFAULT_ROW_LIMIT
-) -> QueryResult | ToolError:
-    """``validate_select_safety`` → ``validate_scope`` → ``run_select``, stopping at the first error."""
-    if err := validate_select_safety(sql):
-        return err
-    if err := await validate_scope(sql, scope_tables):
-        return err
+async def sandboxed_select(sql: str, scope_tables: set[str], row_limit: int = DEFAULT_ROW_LIMIT) -> QueryResult:
+    """``validate_select_safety`` → ``validate_scope`` → ``run_select``; raises ``SandboxError``."""
+    validate_select_safety(sql)
+    await validate_scope(sql, scope_tables)
     return await run_select(sql, row_limit)
 
 
@@ -284,7 +272,7 @@ async def describe_table(table: str) -> TableSchema:
     """Run ``DESCRIBE TABLE`` and return a ``TableSchema``.
 
     Raises whatever the ClickHouse client raises if the table is missing —
-    callers translate to ``NotFound`` / ``ToolError`` per their layer.
+    ``internal_api.lineage`` translates that to ``NotFound``.
     """
     ch_client = get_ch_client()
     result = await ch_client.query(f"DESCRIBE TABLE {quote_identifier(table)}")

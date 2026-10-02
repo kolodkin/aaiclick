@@ -3,7 +3,7 @@ Tests for the lineage internal_api primitives.
 
 The underlying ``oplog_subgraph`` and the SQL-safety / scope helpers have
 their own test modules; here we run each wrapper against real tables and
-their recorded lineage, and assert it translates ``ToolError`` results into
+their recorded lineage, and assert it translates ``SandboxError`` into
 ``Invalid`` / ``NotFound`` exceptions.
 """
 

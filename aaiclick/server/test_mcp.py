@@ -205,10 +205,11 @@ async def test_list_graph_nodes_returns_kind_and_liveness(orch_ctx, mcp_client, 
 
 
 async def test_instructions_carry_the_triage_method(mcp_client):
-    """An MCP client gets the Tier 1 method up front: schema before query, stop on a dead table."""
+    """The server instructions name every lineage tool, in the order the agent should use them."""
     instructions = mcp_client.initialize_result.instructions
-    assert "get_table_schema" in instructions
-    assert "live" in instructions
+    order = ["oplog_subgraph", "list_graph_nodes", "get_table_schema", "query_table"]
+    positions = [instructions.index(name) for name in order]
+    assert positions == sorted(positions)
 
 
 async def test_query_table_returns_query_result(orch_ctx, mcp_client, revenue_lineage):

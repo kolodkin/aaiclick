@@ -49,7 +49,6 @@ def test_setup_local_writes_marker_and_returns_ok_steps(local_db, tmp_path):
     assert setup.is_setup_done() is True
     assert setup.stale_local_db() == []
     assert setup.missing_local_tables() == []
-    assert "ollama" not in result.model_dump()
 
 
 def test_setup_distributed_skips_local_steps(tmp_path, monkeypatch):

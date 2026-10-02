@@ -21,8 +21,8 @@ from aaiclick.oplog.query_sandbox import (
     DEFAULT_ROW_LIMIT,
     ROW_LIMIT_CEILING,
     QueryResult,
+    SandboxError,
     TableSchema,
-    ToolError,
     describe_table,
     liveness,
     run_select,
@@ -75,10 +75,10 @@ async def test_sandboxed_select_rejects_out_of_scope_table(orch_ctx, table):
     ClickHouse keeps every persistent table in one database, so reaching one
     of these is a read outside the graph.
     """
-    err = await sandboxed_select(f"SELECT * FROM {table}", SCOPE)
-    assert isinstance(err, ToolError)
-    assert err.kind == "out_of_scope"
-    assert table in err.message
+    with pytest.raises(SandboxError) as exc_info:
+        await sandboxed_select(f"SELECT * FROM {table}", SCOPE)
+    assert exc_info.value.kind == "out_of_scope"
+    assert table in str(exc_info.value)
 
 
 @pytest.mark.parametrize(
@@ -99,10 +99,10 @@ async def test_sandboxed_select_rejects_table_functions(orch_ctx, sql, function)
     for table names sees an empty query. ``merge`` and ``cluster`` reach every
     table in the database; ``url`` and ``file`` reach outside it entirely.
     """
-    err = await sandboxed_select(sql, SCOPE)
-    assert isinstance(err, ToolError)
-    assert err.kind == "out_of_scope"
-    assert function in err.message
+    with pytest.raises(SandboxError) as exc_info:
+        await sandboxed_select(sql, SCOPE)
+    assert exc_info.value.kind == "out_of_scope"
+    assert function in str(exc_info.value)
 
 
 @pytest.mark.parametrize(
@@ -116,10 +116,10 @@ async def test_sandboxed_select_rejects_table_functions(orch_ctx, sql, function)
 )
 async def test_sandboxed_select_rejects_non_graph_table_identifiers(orch_ctx, sql, expected):
     """Anything in table position must be a table of this graph, whatever it is."""
-    err = await sandboxed_select(sql, SCOPE)
-    assert isinstance(err, ToolError)
-    assert err.kind == "out_of_scope"
-    assert expected in err.message
+    with pytest.raises(SandboxError) as exc_info:
+        await sandboxed_select(sql, SCOPE)
+    assert exc_info.value.kind == "out_of_scope"
+    assert expected in str(exc_info.value)
 
 
 async def test_sandboxed_select_rejects_system_tables(orch_ctx):
@@ -128,9 +128,9 @@ async def test_sandboxed_select_rejects_system_tables(orch_ctx):
     Recorded because the scope check would also reject it: the two guards
     overlap here, and only the outer one reports the reason.
     """
-    err = await sandboxed_select("SELECT * FROM system.tables", SCOPE)
-    assert isinstance(err, ToolError)
-    assert err.kind == "not_select"
+    with pytest.raises(SandboxError) as exc_info:
+        await sandboxed_select("SELECT * FROM system.tables", SCOPE)
+    assert exc_info.value.kind == "not_select"
 
 
 async def test_sandboxed_select_never_evaluates_sql_while_validating_scope(orch_ctx):
@@ -141,17 +141,17 @@ async def test_sandboxed_select_never_evaluates_sql_while_validating_scope(orch_
     builds its message at run time, so it reaches the error text only if that
     statement executed — a parse error just echoes the source.
     """
-    err = await sandboxed_select("SELECT 1) UNION ALL SELECT throwIf(1, concat('exec', 'uted')) FROM (SELECT 1", SCOPE)
-    assert isinstance(err, ToolError)
-    assert err.kind == "invalid_argument"
-    assert "executed" not in err.message
+    with pytest.raises(SandboxError) as exc_info:
+        await sandboxed_select("SELECT 1) UNION ALL SELECT throwIf(1, concat('exec', 'uted')) FROM (SELECT 1", SCOPE)
+    assert exc_info.value.kind == "invalid_argument"
+    assert "executed" not in str(exc_info.value)
 
 
 async def test_sandboxed_select_reports_unparseable_sql(orch_ctx):
     """SQL ClickHouse cannot parse is rejected, not passed along unchecked."""
-    err = await sandboxed_select(f"SELECT * FROM {TARGET_TABLE} WHERE (", SCOPE)
-    assert isinstance(err, ToolError)
-    assert err.kind == "invalid_argument"
+    with pytest.raises(SandboxError) as exc_info:
+        await sandboxed_select(f"SELECT * FROM {TARGET_TABLE} WHERE (", SCOPE)
+    assert exc_info.value.kind == "invalid_argument"
 
 
 async def test_sandboxed_select_happy_path_caps_rows(orch_ctx):
@@ -226,9 +226,9 @@ async def test_sandboxed_select_rejects_in_with_out_of_scope_table(orch_ctx, sql
     lets it read any table in the database. Every IN-family function —
     ``nullIn``, ``globalNotNullIn``, the ``IgnoreSet`` variants — does the same.
     """
-    err = await sandboxed_select(sql, SCOPE)
-    assert isinstance(err, ToolError)
-    assert err.kind == "out_of_scope"
+    with pytest.raises(SandboxError) as exc_info:
+        await sandboxed_select(sql, SCOPE)
+    assert exc_info.value.kind == "out_of_scope"
 
 
 @pytest.mark.parametrize(
@@ -245,10 +245,10 @@ async def test_sandboxed_select_rejects_settings_clause(orch_ctx, sql):
     the text over settings sent beside the query, so the caller could lift its
     own execution-time and result-row limits.
     """
-    err = await sandboxed_select(sql, SCOPE)
-    assert isinstance(err, ToolError)
-    assert err.kind == "invalid_argument"
-    assert "SETTINGS" in err.message
+    with pytest.raises(SandboxError) as exc_info:
+        await sandboxed_select(sql, SCOPE)
+    assert exc_info.value.kind == "invalid_argument"
+    assert "SETTINGS" in str(exc_info.value)
 
 
 async def test_run_select_truncates_past_the_ceiling_instead_of_failing(orch_ctx):
@@ -376,6 +376,6 @@ async def test_sandboxed_select_accepts_valid_select(orch_ctx, sql, rows, column
     ],
 )
 async def test_sandboxed_select_rejects_write_statements(sql):
-    err = await sandboxed_select(sql, SCOPE)
-    assert isinstance(err, ToolError)
-    assert err.kind == "not_select"
+    with pytest.raises(SandboxError) as exc_info:
+        await sandboxed_select(sql, SCOPE)
+    assert exc_info.value.kind == "not_select"

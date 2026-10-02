@@ -135,7 +135,7 @@ Precedence:
 # Agent Tools
 
 The sandbox and graph classification live in `aaiclick/oplog/query_sandbox.py`
-and `aaiclick/oplog/lineage.py` (`classify_nodes`); `request_full_replay`
+and `aaiclick/oplog/lineage.py` (`OplogGraph.node_kinds`); `request_full_replay`
 is tracked in `docs/designs/future.md`.
 
 All tools are scoped to the job being debugged. `query_table` cannot
@@ -205,61 +205,24 @@ see `_lineage_graph()` in `aaiclick/internal_api/lineage.py`.
 
 ## Tool Result Types
 
-The result types are pydantic models, so they serialize through MCP and
-REST unchanged.
+**Implementation**: `aaiclick/oplog/lineage.py` (`GraphNode`), `aaiclick/oplog/query_sandbox.py` (`QueryResult`, `TableSchema`, `SandboxError`)
+
+Pydantic models, so they serialize through MCP unchanged. A refused query
+raises `SandboxError` with a `kind` (`not_select`, `out_of_scope`,
+`invalid_argument`); `internal_api.lineage` maps it to `Invalid`, and a
+target with no lineage or a `DESCRIBE` that fails to `NotFound` — MCP
+surfaces both as a tool error carrying the message.
+
+Tier 2 adds one more type:
 
 ```python
-from typing import Literal, NamedTuple
-
-NodeKind = Literal["input", "intermediate", "target"]
-
-class GraphNode(NamedTuple):
-    table: str            # raw table id, e.g. "t_1234567890123456"
-    kind: NodeKind        # input = persistent `p_*`, target = terminal node
-    operation: str        # oplog operation name
-    live: bool            # whether the table currently exists in ClickHouse
-    task_id: int | None
-    job_id: int | None
-
-class ColumnSchema(NamedTuple):
-    name: str
-    type: str             # ClickHouse type string
-
-class TableSchema(NamedTuple):
-    table: str
-    columns: list[ColumnSchema]
-
-class QueryResult(NamedTuple):
-    columns: list[str]
-    rows: list[tuple]     # at most `row_limit` rows
-    truncated: bool       # true iff the underlying query returned > row_limit
-
 class ReplayHandle(NamedTuple):
     original_job_id: int
     replayed_job_id: int
     drift: dict[str, int] # per-input delta: new_rows - original_rows
 ```
 
-Error surface — the sandbox returns a typed error rather than raising;
-`internal_api.lineage` maps it to `Invalid` / `NotFound`, which MCP
-surfaces as a tool error carrying the message:
-
-```python
-class ToolError(NamedTuple):
-    kind: Literal[
-        "not_select",     # query_table: non-SELECT rejected
-        "out_of_scope",   # query_table: table outside current graph
-        "not_found",      # get_schema / get_op_sql: unknown id
-        "not_live",       # query_table: table exists in graph but not in ClickHouse
-        "replay_timeout", # request_full_replay: new job did not COMPLETE in time
-        "replay_failed",  # request_full_replay: new job ended non-COMPLETE
-    ]
-    message: str          # agent-readable diagnostic
-```
-
-The server instructions tell the agent to retry with a corrected call on
-`not_select` / `out_of_scope`, and to stop or escalate when a table is
-not live.
+with `replay_timeout` / `replay_failed` as its error kinds.
 
 ---
 

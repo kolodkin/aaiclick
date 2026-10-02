@@ -28,10 +28,9 @@ from aaiclick.testing import (  # noqa: F401 - re-exported as pytest fixtures
 
 # ``server`` is an optional extra: its package imports fastapi at import
 # time, so a full-suite run without the extra would error at collection.
-# Skip the subtree when its import-time dependency is absent — CI exercises
-# it under a dedicated ``--extra`` matrix job.
-_OPTIONAL_SUITES = (("server", "fastapi"),)
-collect_ignore = [pkg for pkg, dep in _OPTIONAL_SUITES if importlib.util.find_spec(dep) is None]
+# Skip the subtree when fastapi is absent — CI exercises it under a
+# dedicated ``--extra`` matrix job.
+collect_ignore = [] if importlib.util.find_spec("fastapi") else ["server"]
 
 
 @pytest.fixture(autouse=True, scope="session")

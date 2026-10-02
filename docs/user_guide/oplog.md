@@ -59,7 +59,7 @@ Each instrumentation is a 2-line addition: get collector from ContextVar, call `
 
 # Graph Queries
 
-**Implementation**: `aaiclick/oplog/lineage.py` — see `backward_oplog()`, `forward_oplog()`, `oplog_subgraph()`, `classify_nodes()`
+**Implementation**: `aaiclick/oplog/lineage.py` — see `backward_oplog()`, `forward_oplog()`, `oplog_subgraph()`, `OplogGraph.graph_nodes()`
 
 Graph traversal over `operation_log`. `backward_oplog()` traces upstream lineage via recursive CTE; the MCP server exposes the graph to agents — see [Lineage via MCP](lineage.md).
 

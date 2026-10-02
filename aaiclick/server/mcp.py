@@ -102,20 +102,15 @@ async def _mcp_lifespan(server: FastMCP) -> AsyncIterator[None]:
 mcp: FastMCP = FastMCP(
     name="aaiclick",
     instructions=(
-        "Tools mirror aaiclick's CLI verbs one-to-one and run against the same backends "
-        "as the REST surface under /api/v0 (docs/designs/api_server.md).\n"
+        "Tools mirror aaiclick's CLI verbs (the lineage tools have none) and run against "
+        "the same backends as the REST surface under /api/v0 (docs/designs/api_server.md).\n"
         "\n"
-        "Lineage triage (why does table X look wrong?):\n"
-        "1. oplog_subgraph(target_table) — read the operation graph and each node's "
-        "sql_template first; form a hypothesis before querying.\n"
-        "2. list_graph_nodes(target_table) — every table in scope with kind "
-        "(input/intermediate/target) and whether it is still live. A table with "
-        "live=false cannot be queried: say so and stop, or re-run the job with full "
-        "preservation (run_job) and retry.\n"
-        "3. get_table_schema(table, target_table) — always call this before querying a "
-        "table; use only column names it returns.\n"
-        "4. query_table(sql, target_table) — read-only SELECT, scoped to the graph, "
-        "row-capped. Cite the rows it returns as evidence."
+        "Lineage triage (why does table X look wrong?), in this order: oplog_subgraph — "
+        "read each node's sql_template and form a hypothesis before querying; "
+        "list_graph_nodes — a table with live=false cannot be queried: say so and stop, "
+        "or re-run the job with full preservation (run_job) and retry; get_table_schema "
+        "before querying any table, using only the column names it returns; query_table "
+        "for evidence, citing the rows it returns."
     ),
     lifespan=_mcp_lifespan,
     middleware=[McpRbacMiddleware()],
@@ -302,8 +297,10 @@ async def query_table(
     """Run a sandboxed read-only SELECT against the lineage graph of ``target_table``.
 
     The scope is the graph ``oplog_subgraph`` returns for the same arguments;
-    it is looked up server-side. Rejects DDL/DML, SETTINGS clauses, and any
-    table outside the graph.
+    it is looked up server-side. Rejects DDL/DML, SETTINGS clauses, table
+    functions, and any table outside the graph. Write a CTE as a subquery in
+    FROM, and use has(column, value) rather than IN for an array column.
+    Results are capped at ``row_limit`` rows.
     """
     async with orch_context(with_ch=True):
         return await lineage_api.query_table(

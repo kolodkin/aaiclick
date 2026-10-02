@@ -11,6 +11,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from aaiclick.data.data_context.ch_client import _ch_client_var, create_ch_client, get_ch_client
+from aaiclick.data.scope import GLOBAL_PREFIX
 from aaiclick.data.sql_utils import quote_sql_literal
 
 LineageDirection = Literal["backward", "forward"]
@@ -63,11 +64,14 @@ class OplogEdge(BaseModel):
 
 
 class GraphNode(BaseModel):
-    """Single node in the lineage graph with kind + liveness."""
+    """One table of a lineage graph with its kind and liveness.
+
+    ``operation`` is ``None`` for a table the graph only reads.
+    """
 
     table: str
     kind: NodeKind
-    operation: str
+    operation: str | None = None
     live: bool
     task_id: int | None = None
     job_id: int | None = None
@@ -78,9 +82,55 @@ class OplogGraph(BaseModel):
     edges: list[OplogEdge] = Field(default_factory=list)
 
     @property
+    def produced(self) -> set[str]:
+        """Tables a node of the graph produced."""
+        return {n.table for n in self.nodes}
+
+    @property
+    def sources(self) -> set[str]:
+        """Tables a node of the graph read (its kwarg values)."""
+        return {src for n in self.nodes for src in n.kwargs.values() if src}
+
+    @property
     def tables(self) -> set[str]:
-        """Return every table that appears in the graph as a node or a kwarg source."""
-        return {n.table for n in self.nodes} | {src for n in self.nodes for src in n.kwargs.values() if src}
+        """Every table in the graph, produced or read."""
+        return self.produced | self.sources
+
+    def node_kinds(self) -> dict[str, NodeKind]:
+        """Label every table as input / intermediate / target.
+
+        An input is read but never produced here, or persistent (``p_*``);
+        a target is produced and never read; the rest are intermediate.
+        """
+        produced, sources = self.produced, self.sources
+        kinds: dict[str, NodeKind] = {}
+        for table in produced | sources:
+            if table not in produced or table.startswith(GLOBAL_PREFIX):
+                kinds[table] = "input"
+            elif table not in sources:
+                kinds[table] = "target"
+            else:
+                kinds[table] = "intermediate"
+        return kinds
+
+    def graph_nodes(self, alive: dict[str, bool]) -> list[GraphNode]:
+        """One ``GraphNode`` per table, sorted by name; ``alive`` says which still exist."""
+        kinds = self.node_kinds()
+        by_table = {n.table: n for n in self.nodes}
+        nodes: list[GraphNode] = []
+        for table in sorted(kinds):
+            node = by_table.get(table)
+            nodes.append(
+                GraphNode(
+                    table=table,
+                    kind=kinds[table],
+                    operation=node.operation if node else None,
+                    live=alive.get(table, False),
+                    task_id=node.task_id if node else None,
+                    job_id=node.job_id if node else None,
+                )
+            )
+        return nodes
 
 
 @asynccontextmanager
@@ -196,7 +246,7 @@ async def oplog_subgraph(
     direction: LineageDirection = "backward",
     max_depth: int = DEFAULT_MAX_DEPTH,
 ) -> OplogGraph:
-    """Return a structured OplogGraph for visualization or AI context."""
+    """Return the lineage of ``table`` as an ``OplogGraph``."""
     if direction == "backward":
         nodes = await backward_oplog(table, max_depth)
     elif direction == "forward":
@@ -210,33 +260,3 @@ async def oplog_subgraph(
             edges.append(OplogEdge(source=src, target=node.table, operation=node.operation))
 
     return OplogGraph(nodes=nodes, edges=edges)
-
-
-def _target_tables(graph: OplogGraph) -> set[str]:
-    """Nodes that no other node in the graph consumes."""
-    consumed = {src for n in graph.nodes for src in n.kwargs.values() if src}
-    return {n.table for n in graph.nodes if n.table not in consumed}
-
-
-def _input_tables(graph: OplogGraph) -> set[str]:
-    """Tables referenced as sources but never produced — plus any ``p_*`` node."""
-    produced = {n.table for n in graph.nodes}
-    referenced = {src for n in graph.nodes for src in n.kwargs.values() if src}
-    inputs = referenced - produced
-    inputs |= {n.table for n in graph.nodes if n.table.startswith("p_")}
-    return inputs
-
-
-def classify_nodes(graph: OplogGraph) -> dict[str, NodeKind]:
-    """Label every table in the graph as input / intermediate / target."""
-    targets = _target_tables(graph)
-    inputs = _input_tables(graph)
-    kinds: dict[str, NodeKind] = {}
-    for table in graph.tables:
-        if table in inputs:
-            kinds[table] = "input"
-        elif table in targets:
-            kinds[table] = "target"
-        else:
-            kinds[table] = "intermediate"
-    return kinds

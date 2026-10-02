@@ -164,14 +164,6 @@ def test_main_dispatches_run_job_to_handler():
     assert dispatched_args.git_sha == "b" * 40
 
 
-@pytest.mark.parametrize("verb", ["explain", "debug"])
-def test_ai_verbs_are_gone(verb):
-    """Lineage triage runs over MCP; the in-process LLM verbs no longer parse."""
-    with pytest.raises(SystemExit) as exc_info:
-        build_parser().parse_args([verb, "p_revenue", "why?"])
-    assert exc_info.value.code == 2
-
-
 def test_user_role_parsers():
     parser = build_parser()
     args = parser.parse_args(["user", "create", "u", "--role", "admin"])

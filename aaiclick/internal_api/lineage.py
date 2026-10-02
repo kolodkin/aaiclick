@@ -8,16 +8,17 @@ verifies hypotheses itself. These run inside an active
 
 from __future__ import annotations
 
-from aaiclick.oplog.lineage import DEFAULT_MAX_DEPTH, GraphNode, LineageDirection, OplogGraph, classify_nodes
+from aaiclick.oplog.lineage import DEFAULT_MAX_DEPTH, GraphNode, LineageDirection, OplogGraph
 from aaiclick.oplog.lineage import oplog_subgraph as _oplog_subgraph
 from aaiclick.oplog.query_sandbox import (
     DEFAULT_ROW_LIMIT,
     QueryResult,
+    SandboxError,
     TableSchema,
-    ToolError,
     describe_table,
     liveness,
     sandboxed_select,
+    validate_select_safety,
 )
 
 from .errors import Invalid, NotFound
@@ -58,23 +59,7 @@ async def list_graph_nodes(
     in the graph". Raises ``NotFound`` if the target has no lineage.
     """
     graph = await _lineage_graph(target_table, direction=direction, max_depth=max_depth)
-    kinds = classify_nodes(graph)
-    alive = await liveness(graph.tables)
-    node_by_table = {n.table: n for n in graph.nodes}
-    nodes: list[GraphNode] = []
-    for table in sorted(graph.tables):
-        node = node_by_table.get(table)
-        nodes.append(
-            GraphNode(
-                table=table,
-                kind=kinds[table],
-                operation=node.operation if node else "(input)",
-                live=alive.get(table, False),
-                task_id=node.task_id if node else None,
-                job_id=node.job_id if node else None,
-            )
-        )
-    return nodes
+    return graph.graph_nodes(await liveness(graph.tables))
 
 
 async def query_table(
@@ -90,13 +75,15 @@ async def query_table(
     The scope is the graph ``oplog_subgraph()`` returns for the same
     arguments. Rejects DDL/DML, multi-statement input, a ``SETTINGS``
     clause, and any table reference outside the graph. Caps rows and pins
-    ``max_execution_time``.
+    ``max_execution_time``. The read-only check runs before the graph is
+    fetched, so a rejected statement costs no lineage query.
     """
-    graph = await _lineage_graph(target_table, direction=direction, max_depth=max_depth)
-    result = await sandboxed_select(sql, graph.tables, row_limit)
-    if isinstance(result, ToolError):
-        raise Invalid(result.message)
-    return result
+    try:
+        validate_select_safety(sql)
+        graph = await _lineage_graph(target_table, direction=direction, max_depth=max_depth)
+        return await sandboxed_select(sql, graph.tables, row_limit)
+    except SandboxError as exc:
+        raise Invalid(str(exc)) from exc
 
 
 async def get_table_schema(

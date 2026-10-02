@@ -9,14 +9,13 @@ import pytest
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.oplog.lineage import (
     OplogGraph,
+    OplogNode,
     backward_oplog,
-    classify_nodes,
     forward_oplog,
     lineage_context,
     oplog_subgraph,
 )
 from aaiclick.orchestration.orch_context import task_scope
-from aaiclick.testing import make_oplog_node
 
 
 async def _run_pipeline():
@@ -95,10 +94,20 @@ async def test_invalid_direction(orch_ctx):
             await oplog_subgraph("some_table", direction="sideways")  # type: ignore[arg-type]
 
 
-def test_classify_nodes_labels_input_intermediate_target():
-    nodes = [
-        make_oplog_node("t_1", "filter", {"input": "p_raw"}),
-        make_oplog_node("t_2", "aggregate", {"input": "t_1"}),
+def test_graph_nodes_carry_kind_operation_and_liveness():
+    """p_raw -> t_1 (filter) -> t_2 (aggregate); p_raw is only read, so it has no operation."""
+    graph = OplogGraph(
+        nodes=[
+            OplogNode(table="t_1", operation="filter", kwargs={"input": "p_raw"}),
+            OplogNode(table="t_2", operation="aggregate", kwargs={"input": "t_1"}),
+        ],
+        edges=[],
+    )
+
+    assert graph.node_kinds() == {"p_raw": "input", "t_1": "intermediate", "t_2": "target"}
+    nodes = graph.graph_nodes({"t_1": True, "t_2": True})
+    assert [(n.table, n.kind, n.operation, n.live) for n in nodes] == [
+        ("p_raw", "input", None, False),
+        ("t_1", "intermediate", "filter", True),
+        ("t_2", "target", "aggregate", True),
     ]
-    graph = OplogGraph(nodes=nodes, edges=[])
-    assert classify_nodes(graph) == {"p_raw": "input", "t_1": "intermediate", "t_2": "target"}
