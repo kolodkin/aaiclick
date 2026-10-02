@@ -60,7 +60,6 @@ EXPECTED_TOOLS = {
     "get_table_schema",
     "setup",
     "migrate",
-    "bootstrap_ollama",
     "query_object",
     "list_saved_queries",
     "save_query",

@@ -16,7 +16,6 @@ from aaiclick.view_models import (
     MIGRATE_HISTORY,
     MIGRATE_SHOW,
     MIGRATE_UPGRADE,
-    OLLAMA_NOT_OLLAMA,
     ChVersionStatus,
     SetupResult,
 )
@@ -50,6 +49,7 @@ def test_setup_local_writes_marker_and_returns_ok_steps(local_db, tmp_path):
     assert setup.is_setup_done() is True
     assert setup.stale_local_db() == []
     assert setup.missing_local_tables() == []
+    assert "ollama" not in result.model_dump()
 
 
 def test_setup_distributed_skips_local_steps(tmp_path, monkeypatch):
@@ -67,16 +67,6 @@ def test_setup_distributed_skips_local_steps(tmp_path, monkeypatch):
     assert statuses["clickhouse"] == "skipped"
     assert statuses["postgres"] == "skipped"
     assert (tmp_path / "setup_done").exists()
-
-
-def test_setup_with_ai_non_ollama_populates_ollama_field(local_db, monkeypatch):
-    monkeypatch.setenv("AAICLICK_AI_MODEL", "openai/gpt-4")
-
-    result = setup.setup(ai=True)
-
-    assert result.ollama is not None
-    assert result.ollama.status == OLLAMA_NOT_OLLAMA
-    assert not any(s.name == "ollama" for s in result.steps)
 
 
 def test_is_setup_done_false_without_marker(tmp_path, monkeypatch):

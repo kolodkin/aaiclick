@@ -14,7 +14,7 @@ SQLAlchemy engine + connection pool instead of paying the build/dispose
 cost on every call. In FastAPI-mounted local mode this nests further
 inside ``local_runtime()``'s outer context — all consistent.
 
-``setup`` / ``migrate`` / ``bootstrap_ollama`` are infrastructure
+``setup`` / ``migrate`` are infrastructure
 commands and run without an orchestration context, matching the CLI.
 
 Every tool carries exactly one RBAC tag naming the level on the scope
@@ -34,7 +34,6 @@ from contextlib import asynccontextmanager
 
 from fastmcp import FastMCP
 
-from aaiclick.ai.ollama import OLLAMA_BASE_URL
 from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.internal_api import execution_workers as execution_workers_api
 from aaiclick.internal_api import jobs as jobs_api
@@ -63,7 +62,6 @@ from aaiclick.view_models import (
     MigrationAction,
     MigrationResult,
     ObjectFilter,
-    OllamaBootstrapResult,
     Page,
     PurgeObjectsRequest,
     PurgeObjectsResult,
@@ -329,24 +327,15 @@ async def get_table_schema(
 
 
 @mcp.tool(tags={TAG_ADMIN})
-def setup(ai: bool = False) -> SetupResult:
-    """Run environment setup — filesystem, SQL migrations, (optionally) AI deps."""
-    return setup_api.setup(ai=ai)
+def setup() -> SetupResult:
+    """Run environment setup — filesystem and SQL migrations."""
+    return setup_api.setup()
 
 
 @mcp.tool(tags={TAG_ADMIN})
 def migrate(action: MigrationAction, revision: str | None = None) -> MigrationResult:
     """Run an alembic migration subcommand."""
     return setup_api.migrate(action, revision)
-
-
-@mcp.tool(tags={TAG_ADMIN})
-def bootstrap_ollama(
-    model: str,
-    base_url: str = OLLAMA_BASE_URL,
-) -> OllamaBootstrapResult:
-    """Ensure an Ollama model is pulled on the configured server."""
-    return setup_api.bootstrap_ollama(model, base_url=base_url)
 
 
 # --- viewer: object queries, saved queries, dashboards ------------------

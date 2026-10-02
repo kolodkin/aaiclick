@@ -8,7 +8,7 @@ recognises imported fixtures by identity, so the same fixture re-exported
 from multiple conftests still runs once per scope. Keeping the
 implementations here avoids copy-paste across
 ``aaiclick/data/conftest.py``, ``aaiclick/orchestration/conftest.py``,
-``aaiclick/oplog/conftest.py``, and ``aaiclick/ai/conftest.py``.
+and ``aaiclick/oplog/conftest.py``.
 """
 
 from __future__ import annotations

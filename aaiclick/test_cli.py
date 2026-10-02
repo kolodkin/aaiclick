@@ -1,25 +1,22 @@
 """Tests for the argparse CLI: parsers, ``main()`` dispatch, and handler output."""
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlmodel import select
 
 from aaiclick.__main__ import (
-    _load_lineage_ai,
     _parse_command_env,
     _parse_set_kwargs,
     _run_data_api,
     build_parser,
     main,
 )
-from aaiclick.data.data_context.ch_client import get_ch_client
 from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, TASK_FAILED, Job, JobStatus, RegisteredJob, Task
 from aaiclick.orchestration.registered_jobs import run_job
 from aaiclick.orchestration.sql_context import get_sql_session
 from aaiclick.testing import run_cli
-from aaiclick.view_models import LineageAnswer
 
 # A real importable callable, so ``register-job`` passes entrypoint validation.
 _VALID_ENTRYPOINT = "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
@@ -167,89 +164,12 @@ def test_main_dispatches_run_job_to_handler():
     assert dispatched_args.git_sha == "b" * 40
 
 
-@pytest.mark.parametrize(
-    "argv, expected",
-    [
-        pytest.param(
-            ["explain", "p_revenue"],
-            {"command": "explain", "table": "p_revenue", "question": None, "json": False},
-            id="explain-default-question",
-        ),
-        pytest.param(
-            ["explain", "p_revenue", "Which join fed this?", "--json"],
-            {"command": "explain", "table": "p_revenue", "question": "Which join fed this?", "json": True},
-            id="explain-custom-question",
-        ),
-        pytest.param(
-            ["debug", "p_revenue", "Why is total negative?"],
-            {"command": "debug", "table": "p_revenue", "question": "Why is total negative?", "max_iterations": 10},
-            id="debug-default-iterations",
-        ),
-        pytest.param(
-            ["debug", "p_revenue", "Why?", "--max-iterations", "3", "--json"],
-            {"command": "debug", "table": "p_revenue", "question": "Why?", "max_iterations": 3, "json": True},
-            id="debug-flags",
-        ),
-    ],
-)
-def test_ai_lineage_parsers(argv, expected):
-    args = build_parser().parse_args(argv)
-    assert {key: getattr(args, key) for key in expected} == expected
-
-
-def test_debug_parser_requires_question():
-    with pytest.raises(SystemExit):
-        build_parser().parse_args(["debug", "p_revenue"])
-
-
-def _fake_lineage_ai() -> MagicMock:
-    """Fakes ``internal_api.lineage_ai`` (the LLM seam), so no ``ai`` extra or model is needed.
-
-    Each fake reads ``get_ch_client()``, as the real oplog graph and debug agent do, so the
-    CLI must run them with ClickHouse attached or the fake raises.
-    """
-
-    async def explain_lineage(table: str, *, question: str | None = None) -> LineageAnswer:
-        get_ch_client()
-        return LineageAnswer(target_table=table, question=question, answer="explain-answer")
-
-    async def debug_result(table: str, *, question: str, max_iterations: int) -> LineageAnswer:
-        get_ch_client()
-        return LineageAnswer(target_table=table, question=question, answer="debug-answer")
-
-    module = MagicMock()
-    module.explain_lineage = AsyncMock(side_effect=explain_lineage)
-    module.debug_result = AsyncMock(side_effect=debug_result)
-    return module
-
-
-async def test_explain_forwards_question_and_prints_answer(orch_ctx, capsys):
-    lineage_ai = _fake_lineage_ai()
-    with patch("aaiclick.__main__._load_lineage_ai", return_value=lineage_ai):
-        await run_cli("explain", "p_revenue", "Which join fed this?")
-
-    lineage_ai.explain_lineage.assert_awaited_once_with("p_revenue", question="Which join fed this?")
-    assert capsys.readouterr().out == "explain-answer\n"
-
-
-async def test_debug_forwards_max_iterations_and_prints_answer(orch_ctx, capsys):
-    lineage_ai = _fake_lineage_ai()
-    with patch("aaiclick.__main__._load_lineage_ai", return_value=lineage_ai):
-        await run_cli("debug", "p_revenue", "Why?", "--max-iterations", "3")
-
-    lineage_ai.debug_result.assert_awaited_once_with("p_revenue", question="Why?", max_iterations=3)
-    assert capsys.readouterr().out == "debug-answer\n"
-
-
-def test_load_lineage_ai_exits_with_install_hint_without_ai_extra(capsys):
-    with (
-        patch("aaiclick.ai.importing.importlib.import_module", side_effect=ImportError("No module named 'litellm'")),
-        pytest.raises(SystemExit) as exc_info,
-    ):
-        _load_lineage_ai()
-
-    assert exc_info.value.code == 1
-    assert "pip install aaiclick[ai]" in capsys.readouterr().err
+@pytest.mark.parametrize("verb", ["explain", "debug"])
+def test_ai_verbs_are_gone(verb):
+    """Lineage triage runs over MCP; the in-process LLM verbs no longer parse."""
+    with pytest.raises(SystemExit) as exc_info:
+        build_parser().parse_args([verb, "p_revenue", "why?"])
+    assert exc_info.value.code == 2
 
 
 def test_user_role_parsers():
@@ -402,7 +322,7 @@ def _stub_setup_cli(monkeypatch, *, isatty: bool) -> list[bool]:
     calls: list[bool] = []
     monkeypatch.setattr("aaiclick.__main__.setup_api.stale_local_db_reason", lambda: "stale: jobs.error")
     monkeypatch.setattr("sys.stdin.isatty", lambda: isatty)
-    monkeypatch.setattr("aaiclick.__main__.setup_api.setup", lambda *, ai, force: calls.append(force))
+    monkeypatch.setattr("aaiclick.__main__.setup_api.setup", lambda *, force: calls.append(force))
     monkeypatch.setattr("aaiclick.__main__._render", lambda *a, **k: None)
     return calls
 

@@ -1,14 +1,10 @@
 """
-Tests for the AI-independent lineage internal_api primitives.
+Tests for the lineage internal_api primitives.
 
 The underlying ``oplog_subgraph`` and the SQL-safety / scope helpers have
 their own test modules; here we run each wrapper against real tables and
 their recorded lineage, and assert it translates ``ToolError`` results into
 ``Invalid`` / ``NotFound`` exceptions.
-
-Tests for the AI-backed wrappers (``explain_lineage`` / ``debug_result``)
-live in ``aaiclick/ai/agents/test_lineage_internal_api.py`` so they only
-run in matrices that install the ``ai`` extra.
 """
 
 from __future__ import annotations

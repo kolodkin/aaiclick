@@ -7,7 +7,7 @@ unless that conftest happens to be at pytest's rootdir, which breaks when
 tests are collected via ``--pyargs`` from a working directory outside the
 repo (e.g. the release-pipeline smoke test).
 
-Subpackage conftests (``data/``, ``orchestration/``, ``oplog/``, ``ai/``)
+Subpackage conftests (``data/``, ``orchestration/``, ``oplog/``)
 may additionally import the per-test/per-module fixtures they need
 (``orch_ctx``, ``orch_ctx_no_ch``, ``ctx``) from ``aaiclick.testing``.
 """
@@ -26,11 +26,11 @@ from aaiclick.testing import (  # noqa: F401 - re-exported as pytest fixtures
     worker_databases,
 )
 
-# ``server`` and ``ai`` are optional extras: their packages import
-# fastapi / litellm at import time, so a full-suite run without those extras
-# would error at collection. Skip each subtree when its import-time dependency
-# is absent — CI exercises them under dedicated ``--extra`` matrix jobs.
-_OPTIONAL_SUITES = (("server", "fastapi"), ("ai", "litellm"))
+# ``server`` is an optional extra: its package imports fastapi at import
+# time, so a full-suite run without the extra would error at collection.
+# Skip the subtree when its import-time dependency is absent — CI exercises
+# it under a dedicated ``--extra`` matrix job.
+_OPTIONAL_SUITES = (("server", "fastapi"),)
 collect_ignore = [pkg for pkg, dep in _OPTIONAL_SUITES if importlib.util.find_spec(dep) is None]
 
 

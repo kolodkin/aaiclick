@@ -20,15 +20,6 @@ from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, Field, model_validator
 
-from .ai.ollama import (
-    OLLAMA_ALREADY_PRESENT,
-    OLLAMA_FAILED,
-    OLLAMA_NOT_OLLAMA,
-    OLLAMA_PULLED,
-    OLLAMA_SERVER_UNREACHABLE,
-    OllamaBootstrapResult,
-    OllamaBootstrapStatus,
-)
 from .log_models import (
     MAX_PAGE_LIMIT,
     STDERR_STREAM,
@@ -217,18 +208,6 @@ class Deleted(BaseModel):
     name: str
 
 
-class LineageAnswer(BaseModel):
-    """Response from ``internal_api.lineage_ai`` — the agent's free-text answer.
-
-    ``question`` is ``None`` when ``explain_lineage`` ran with its default
-    prompt.
-    """
-
-    target_table: str
-    question: str | None = None
-    answer: str
-
-
 SetupStepStatus = Literal["ok", "skipped", "failed"]
 
 
@@ -248,7 +227,6 @@ class SetupResult(BaseModel):
     sql_url: str
     mode: Literal["local", "distributed"]
     steps: list[SetupStep]
-    ollama: OllamaBootstrapResult | None = None
 
 
 MIGRATE_UPGRADE = "upgrade"
