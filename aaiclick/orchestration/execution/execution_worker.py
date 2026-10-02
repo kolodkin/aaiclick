@@ -20,7 +20,7 @@ from aaiclick.async_wait import wait_or_timeout
 from aaiclick.snowflake import get_snowflake_id
 
 from ...datetime_utils import utc_now
-from ..logging import echo_task_output_enabled
+from ..logging import task_logs_to_clickhouse, task_logs_to_console
 from ..models import (
     CANCELLING_TASK_STATUSES,
     EXECUTION_WORKER_ACTIVE,
@@ -216,18 +216,19 @@ async def _collect_unfollowed_output(vehicle: TaskVehicle[H, P], task: Task, han
 
     A run the vehicle never registered (its bootstrap failed before
     ``execute_task``: bad DB URL, broken image) left no ``task_logs`` — the host
-    registers the attempt and copies the output there. Otherwise the output is
-    already in ``task_logs`` and is only printed when echoing."""
+    registers the attempt and copies the output there. Otherwise the vehicle
+    captured it itself, and the host only prints it when task logs go to the
+    console."""
     argv = await vehicle.output_argv(handle)
     if argv is None:
         return
-    if await get_run_count(task.id) == len(task.run_ids):
+    if task_logs_to_clickhouse() and await get_run_count(task.id) == len(task.run_ids):
         run_id = await register_run(task.id)
         with suppress(asyncio.TimeoutError):
             await asyncio.wait_for(
                 follow_vehicle_output(argv, task.id, task.job_id, run_id), timeout=OUTPUT_FOLLOWER_DRAIN_TIMEOUT
             )
-    elif echo_task_output_enabled():
+    elif task_logs_to_console():
         _, stdout, stderr = await cli.run(*argv, check=False, stream=False)
         echo_task_output(task.id, stdout, stderr)
 

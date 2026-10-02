@@ -226,29 +226,38 @@ async def test_execute_shell_task_splits_streams(orch_ctx):
     }
 
 
-_ECHO_CASES = [
-    pytest.param("", False, id="echo_off_task_logs_only"),
-    pytest.param("1", True, id="echo_on_also_console"),
+_DESTINATION_CASES = [
+    pytest.param("both", True, True, id="both"),
+    pytest.param("clickhouse", False, True, id="clickhouse_only"),
+    pytest.param("console", True, False, id="console_only"),
 ]
 
 
-@pytest.mark.parametrize("echo, on_console", _ECHO_CASES)
-async def test_shell_output_reaches_console_only_when_echoing(orch_ctx, monkeypatch, capsys, echo, on_console):
-    monkeypatch.setenv("AAICLICK_ECHO_TASK_OUTPUT", echo)
+@pytest.mark.parametrize("destination, on_console, in_task_logs", _DESTINATION_CASES)
+async def test_shell_output_goes_to_task_logs_destination(
+    orch_ctx, monkeypatch, capsys, destination, on_console, in_task_logs
+):
+    monkeypatch.setenv("AAICLICK_TASK_LOGS", destination)
     task = await _persisted_shell_task(["sh", "-c", "echo out line"])
     await execute_shell_task(task)
     assert ("out line" in capsys.readouterr().out) is on_console
-    assert [line.text for line in (await get_task_logs(task.id)).lines] == ["out line"]
+    refreshed = await get_task(task.id)
+    assert refreshed is not None
+    texts = [line.text for line in await read_task_logs(task.id, refreshed.run_ids[-1])]
+    assert ("out line" in texts) is in_task_logs
 
 
-@pytest.mark.parametrize("echo, on_console", _ECHO_CASES)
-async def test_module_output_reaches_console_only_when_echoing(orch_ctx, monkeypatch, capsys, echo, on_console):
-    monkeypatch.setenv("AAICLICK_ECHO_TASK_OUTPUT", echo)
-    job = await create_job("test_job_echo", "aaiclick.orchestration.fixtures.sample_tasks.task_with_output")
+@pytest.mark.parametrize("destination, on_console, in_task_logs", _DESTINATION_CASES)
+async def test_module_output_goes_to_task_logs_destination(
+    orch_ctx, monkeypatch, capsys, destination, on_console, in_task_logs
+):
+    monkeypatch.setenv("AAICLICK_TASK_LOGS", destination)
+    job = await create_job("test_job_destination", "aaiclick.orchestration.fixtures.sample_tasks.task_with_output")
     await run_job_tasks(job)
     assert ("This is stdout" in capsys.readouterr().out) is on_console
     task = (await get_tasks_for_job(job.id))[0]
-    assert "This is stdout" in [line.text for line in (await get_task_logs(task.id)).lines]
+    texts = [line.text for line in await read_task_logs(task.id, task.run_ids[-1])]
+    assert ("This is stdout" in texts) is in_task_logs
 
 
 async def test_register_run_appends_run_ids_and_statuses(orch_ctx):

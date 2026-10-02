@@ -12,6 +12,7 @@ from aaiclick.backend import is_sqlite
 
 from ...snowflake import get_snowflake_id
 from ..factories import create_job, create_task
+from ..logging import task_logs_destination
 from ..models import (
     EXECUTION_WORKER_ACTIVE,
     EXECUTION_WORKER_STOPPED,
@@ -29,7 +30,6 @@ from .execution_worker import (
     RunnerResult,
     deregister_execution_worker,
     drive_vehicle,
-    echo_task_output_enabled,
     execution_worker_heartbeat,
     get_execution_worker,
     list_execution_workers,
@@ -42,14 +42,20 @@ from .runner import OUTPUT_FOLLOWER_DRAIN_TIMEOUT, execute_task
 @pytest.mark.parametrize(
     "value, expected",
     [
-        pytest.param("", False, id="empty"),
-        pytest.param("0", False, id="zero"),
-        pytest.param("1", True, id="one"),
+        pytest.param("", "both", id="unset_defaults_to_both"),
+        pytest.param("clickhouse", "clickhouse", id="clickhouse"),
+        pytest.param("console", "console", id="console"),
     ],
 )
-def test_echo_task_output_enabled(monkeypatch, value, expected):
-    monkeypatch.setenv("AAICLICK_ECHO_TASK_OUTPUT", value)
-    assert echo_task_output_enabled() is expected
+def test_task_logs_destination(monkeypatch, value, expected):
+    monkeypatch.setenv("AAICLICK_TASK_LOGS", value)
+    assert task_logs_destination() == expected
+
+
+def test_task_logs_destination_rejects_unknown_value(monkeypatch):
+    monkeypatch.setenv("AAICLICK_TASK_LOGS", "stdout")
+    with pytest.raises(ValueError, match="AAICLICK_TASK_LOGS must be one of"):
+        task_logs_destination()
 
 
 async def test_register_worker(orch_ctx):

@@ -51,7 +51,7 @@ from aaiclick.snowflake import get_snowflake_id
 from ...datetime_utils import utc_now
 from ..decorators import JobFactory, TaskFactory
 from ..dependency_graph import successor_edges
-from ..logging import ChLogSink, capture_task_output, echo_task_output_enabled, stream_to_task_logs
+from ..logging import ChLogSink, capture_task_output, stream_to_task_logs, task_logs_to_console
 from ..models import (
     DEPENDENCY_TASK,
     JOB_COMPLETED,
@@ -432,7 +432,7 @@ async def pump_process_output(
     ``record_exit`` adds an ERROR ``exit N`` line on a nonzero exit — only
     meaningful when ``proc`` is the task, not a follower.
     """
-    echo = echo_task_output_enabled()
+    echo = task_logs_to_console()
     async with stream_to_task_logs(task_id, job_id, run_id) as sink:
         readers = [
             asyncio.create_task(_pump_stream(proc.stdout, sink, STDOUT_STREAM, sys.stdout if echo else None)),

@@ -607,11 +607,19 @@ before `execute_task`: bad DB URL, broken image) has its output copied in by the
 host under a host-registered run (`_collect_unfollowed_output` in
 `execution_worker.py`).
 
-Task output goes only to `task_logs` by default. `AAICLICK_ECHO_TASK_OUTPUT=1`
-also prints every captured line to the worker's console — teed live in-process
-and by the host pumps, and for `module` containers printed with a `[task N]`
-prefix when the container exits. It is off in CI unless a manual nightly run
-asks for it.
+`AAICLICK_TASK_LOGS` picks where task output goes (`task_logs_destination` in
+`logging.py`):
+
+| Value            | `task_logs` (UI log panel) | Worker console |
+|------------------|----------------------------|----------------|
+| `both` (default) | yes                        | yes            |
+| `clickhouse`     | yes                        | no             |
+| `console`        | no                         | yes            |
+
+Console output is teed live in-process and by the host pumps; a `module`
+container's output is printed with a `[task N]` prefix when it exits. With
+`console`, the UI log panel stays empty. aaiclick's own framework logs always
+go to the console.
 
 Implementation: `aaiclick/orchestration/logging.py`,
 `aaiclick/orchestration/execution/runner.py`, `aaiclick/oplog/models.py`. The rows are

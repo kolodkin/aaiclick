@@ -23,11 +23,6 @@ on:
         required: false
         default: ""
         type: string
-      echo_task_output:
-        description: "Also print task output to the job log, besides task_logs (debug missing logs)"
-        required: false
-        default: false
-        type: boolean
 
 jobs:
   e2e:
@@ -81,9 +76,6 @@ jobs:
     env:
       # Test wait timeout, kept under timeout-minutes above.
       AAICLICK_JOB_WAIT_TIMEOUT: "600"
-      # Off by default — task output lives in ClickHouse task_logs. Turn on from
-      # a manual run to debug missing logs.
-      AAICLICK_ECHO_TASK_OUTPUT: ${{ inputs.echo_task_output && '1' || '' }}
 
     steps:
       - name: Checkout code

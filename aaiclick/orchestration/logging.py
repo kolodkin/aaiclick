@@ -15,7 +15,7 @@ import os
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
-from typing import TextIO
+from typing import Literal, TextIO
 
 from aaiclick.async_wait import wait_or_timeout
 from aaiclick.backend import is_chdb, is_local
@@ -38,12 +38,31 @@ logger = logging.getLogger(__name__)
 _TASK_LOG_COLS = ["task_id", "job_id", "run_id", "seq", "stream", "level", "line", "created_at"]
 
 
-def echo_task_output_enabled() -> bool:
-    """``AAICLICK_ECHO_TASK_OUTPUT``: also copy every captured task line to the
-    process's own stdout/stderr. Task output always goes to ``task_logs``; this
-    adds the console. Off when unset, empty or ``0`` — the default, CI
-    included; set it to debug missing logs."""
-    return os.environ.get("AAICLICK_ECHO_TASK_OUTPUT", "") not in ("", "0")
+TASK_LOGS_BOTH = "both"
+TASK_LOGS_CLICKHOUSE = "clickhouse"
+TASK_LOGS_CONSOLE = "console"
+TaskLogsDestination = Literal["both", "clickhouse", "console"]
+TASK_LOGS_DESTINATIONS: list[TaskLogsDestination] = [TASK_LOGS_BOTH, TASK_LOGS_CLICKHOUSE, TASK_LOGS_CONSOLE]
+
+
+def task_logs_destination() -> TaskLogsDestination:
+    """Where captured task output goes, from ``AAICLICK_TASK_LOGS``:
+    ``"both"`` (the default), ``"clickhouse"`` (``task_logs`` only — what the
+    UI log panel reads) or ``"console"`` (the process's stdout/stderr only).
+    aaiclick's own framework logs always go to the console."""
+    value = os.environ.get("AAICLICK_TASK_LOGS") or TASK_LOGS_BOTH
+    for destination in TASK_LOGS_DESTINATIONS:
+        if value == destination:
+            return destination
+    raise ValueError(f"AAICLICK_TASK_LOGS must be one of {TASK_LOGS_DESTINATIONS}, got {value!r}")
+
+
+def task_logs_to_console() -> bool:
+    return task_logs_destination() != TASK_LOGS_CLICKHOUSE
+
+
+def task_logs_to_clickhouse() -> bool:
+    return task_logs_destination() != TASK_LOGS_CONSOLE
 
 
 # How often a running task's captured output is drained to CH task_logs.
@@ -108,6 +127,16 @@ class ChLogSink:
                 )
                 self._partial[stream] = ""
         return self.drain()
+
+
+class _DiscardSink(ChLogSink):
+    """A sink that keeps nothing, for runs whose output skips ClickHouse."""
+
+    def write(self, stream: LogStream, data: str) -> None:
+        pass
+
+    def record(self, level: LogLevel, text: str) -> None:
+        pass
 
 
 class _SinkFlusher:
@@ -303,7 +332,11 @@ async def _ensure_task_logs_table(task_id: int, run_id: int) -> None:
 async def stream_to_task_logs(task_id: int, job_id: int, run_id: int) -> AsyncIterator[ChLogSink]:
     """Yield a sink flushed to CH ``task_logs`` every ``LOG_FLUSH_INTERVAL``
     seconds and finally on exit, so long-running tasks are tailed live. Every
-    capture path feeds one; they differ only in where the text comes from."""
+    capture path feeds one; they differ only in where the text comes from.
+    With ClickHouse off (``AAICLICK_TASK_LOGS=console``) the sink discards."""
+    if not task_logs_to_clickhouse():
+        yield _DiscardSink()
+        return
     await _ensure_task_logs_table(task_id, run_id)
     sink = ChLogSink()
     flusher = _SinkFlusher(sink, task_id, job_id, run_id)
@@ -321,8 +354,8 @@ async def capture_task_output(task_id: int, job_id: int, run_id: int):
     """
     Context manager to capture stdout, stderr, and ``logging`` for one task run.
 
-    Output goes to a :func:`stream_to_task_logs` sink, and also to the original
-    streams when :func:`echo_task_output_enabled`. ``logging`` records are routed through :class:`_ChLogHandler` so each
+    Output goes to a :func:`stream_to_task_logs` sink and/or the original
+    streams, per :func:`task_logs_destination`. ``logging`` records are routed through :class:`_ChLogHandler` so each
     carries its true level; for the duration of the run the root logger's
     handlers are replaced with ours (restored on exit) so records are captured
     exactly once. A body that never awaits starves the periodic flusher — its
@@ -338,7 +371,7 @@ async def capture_task_output(task_id: int, job_id: int, run_id: int):
     root = logging.getLogger()
     saved_handlers = root.handlers[:]
     saved_level = root.level
-    echo = echo_task_output_enabled()
+    echo = task_logs_to_console()
     async with stream_to_task_logs(task_id, job_id, run_id) as sink:
         try:
             sys.stdout = _TeeWriter(*([original_stdout] if echo else []), sink=sink, source=STDOUT_STREAM)

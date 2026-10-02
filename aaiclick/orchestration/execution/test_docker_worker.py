@@ -195,10 +195,10 @@ async def test_module_container_that_died_in_bootstrap_gets_its_output_logged(or
     }
 
 
-async def test_echo_prints_a_module_containers_output(orch_ctx, monkeypatch, tmp_path, capsys):
-    """With echo on, a module container's output (already in task_logs) is
-    printed to the worker's console, each line prefixed with its task id."""
-    monkeypatch.setenv("AAICLICK_ECHO_TASK_OUTPUT", "1")
+async def test_module_container_output_is_printed_by_default(orch_ctx, monkeypatch, tmp_path, capsys):
+    """Task logs go to both destinations by default: a module container's
+    output (already in task_logs) is printed to the worker's console, each
+    line prefixed with its task id."""
     stored = await dispatch_with_fake_cli(
         monkeypatch,
         tmp_path,
@@ -211,3 +211,15 @@ async def test_echo_prints_a_module_containers_output(orch_ctx, monkeypatch, tmp
     captured = capsys.readouterr()
     assert f"[task {stored.id}] container says hi" in captured.out
     assert f"[task {stored.id}] container warns" in captured.err
+
+
+async def test_bootstrap_failure_is_only_printed_when_task_logs_go_to_console(orch_ctx, monkeypatch, tmp_path, capsys):
+    """With ``AAICLICK_TASK_LOGS=console`` the host does not rescue a bootstrap
+    failure into task_logs — it prints the container's output instead."""
+    monkeypatch.setenv("AAICLICK_TASK_LOGS", "console")
+    stored = await dispatch_with_fake_cli(
+        monkeypatch, tmp_path, "AAICLICK_DOCKER_BIN", _FAKE_DOCKER, _docker_dispatch(ENTRY_MODULE), result_row=None
+    )
+
+    assert stored.run_ids == []
+    assert f"[task {stored.id}] container says hi" in capsys.readouterr().out

@@ -8,16 +8,9 @@ on:
   schedule:
     - cron: "0 7 * * *"
   workflow_dispatch:
-    inputs:
-      echo_task_output:
-        description: "Also print task output to the job log, besides task_logs (debug missing logs)"
-        type: boolean
-        default: false
 
 jobs:
   e2e:
     uses: ./.github/workflows/_kubernetes-e2e-reusable.yaml
     with:
       wheel_source: source
-      # Scheduled runs have no inputs, so this stays false.
-      echo_task_output: ${{ inputs.echo_task_output == true }}
