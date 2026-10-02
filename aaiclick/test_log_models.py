@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from aaiclick.log_models import MAX_PAGE_LIMIT, LogLine, PageLimit, PageOffset, UtcDateTime, normalize_level
+from aaiclick.log_models import MAX_PAGE_LIMIT, LogLine, PageLimit, PageOffset, UtcDateTime
 
 
 class _Paged(BaseModel):
@@ -16,27 +15,6 @@ class _Paged(BaseModel):
 
 class _Stamped(BaseModel):
     at: UtcDateTime
-
-
-@pytest.mark.parametrize(
-    "level, expected",
-    [
-        pytest.param(logging.DEBUG, "DEBUG", id="debug"),
-        pytest.param(logging.INFO, "INFO", id="info"),
-        pytest.param(logging.WARNING, "WARNING", id="warning"),
-        pytest.param(logging.ERROR, "ERROR", id="error"),
-        pytest.param(logging.CRITICAL, "CRITICAL", id="critical"),
-        # Custom levels bucket down to the nearest standard level.
-        pytest.param(25, "INFO", id="custom-between-info-and-warning"),
-        pytest.param(45, "ERROR", id="custom-between-error-and-critical"),
-        pytest.param(100, "CRITICAL", id="custom-above-critical"),
-        # Anything below DEBUG, NOTSET included, is DEBUG.
-        pytest.param(logging.NOTSET, "DEBUG", id="notset"),
-        pytest.param(5, "DEBUG", id="below-debug"),
-    ],
-)
-def test_normalize_level(level, expected):
-    assert normalize_level(level) == expected
 
 
 @pytest.mark.parametrize(

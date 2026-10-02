@@ -24,14 +24,12 @@ from .log_models import (
     MAX_PAGE_LIMIT,
     STDERR_STREAM,
     STDOUT_STREAM,
-    LogLevel,
     LogLine,
     LogStream,
     PageLimit,
     PageOffset,
     SnowflakeId,
     UtcDateTime,
-    normalize_level,
 )
 from .orchestration.models import ExecutionWorkerStatus, JobStatus, PreservationMode
 from .orchestration.runner_config import RunnerMode
