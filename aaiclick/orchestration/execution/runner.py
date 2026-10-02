@@ -17,7 +17,6 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
-from aaiclick.backend import is_local
 from aaiclick.data.data_context import (
     get_ch_client,
     get_data_lifecycle,
@@ -46,7 +45,6 @@ from aaiclick.data.object.refs import (
     upstream_ref,
 )
 from aaiclick.log_models import STDERR_STREAM, STDOUT_STREAM, LogStream
-from aaiclick.oplog.models import init_oplog_tables
 from aaiclick.snowflake import get_snowflake_id
 
 from ...datetime_utils import utc_now
@@ -317,12 +315,13 @@ async def execute_task(task: Task, shell_spec: ShellSpec | None = None) -> Any:
             "shim runs it inside its container image"
         )
 
-    func = import_callback(task.entrypoint)
     run_id = await register_run(task.id)
 
     set_current_task_info(task_id=task.id, job_id=task.job_id, image_source=task.image_source, group_id=task.group_id)
 
     async with capture_task_output(task.id, task.job_id, run_id):
+        # Inside capture so an import failure's traceback lands in this run's log.
+        func = import_callback(task.entrypoint)
         async with task_scope(
             task_id=task.id,
             job_id=task.job_id,
@@ -417,20 +416,6 @@ async def _pump_stream(stream: asyncio.StreamReader, sink: ChLogSink, source: Lo
             return
 
 
-async def _ensure_task_logs_table(task_id: int, run_id: int) -> None:
-    """Bring the local CH schema up before streaming: a job with no module task
-    on a fresh DB may not have run ``task_scope``'s ``init_oplog_tables`` yet.
-
-    Distributed mode never writes the schema (the operator migrates), and the
-    host worker there holds no CH client, so it is skipped."""
-    if not is_local():
-        return
-    try:
-        await init_oplog_tables(get_ch_client())
-    except Exception:
-        logger.error("Failed to ensure task_logs for task %s run %s", task_id, run_id, exc_info=True)
-
-
 async def pump_process_output(
     proc: asyncio.subprocess.Process, task_id: int, job_id: int, run_id: int, *, record_exit: bool = False
 ) -> None:
@@ -441,7 +426,6 @@ async def pump_process_output(
     ``record_exit`` adds an ERROR ``exit N`` line on a nonzero exit — only
     meaningful when ``proc`` is the task, not a follower.
     """
-    await _ensure_task_logs_table(task_id, run_id)
     async with stream_to_task_logs(task_id, job_id, run_id) as sink:
         readers = [
             asyncio.create_task(_pump_stream(proc.stdout, sink, STDOUT_STREAM)),

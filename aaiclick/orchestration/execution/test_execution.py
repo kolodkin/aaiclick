@@ -473,6 +473,22 @@ async def test_run_job_tasks_failing_task_logs_traceback(orch_ctx):
     assert errors[-1] == "ValueError: This task failed intentionally"
 
 
+async def test_run_job_tasks_import_error_reaches_task_logs(orch_ctx):
+    """A task whose entrypoint cannot be imported still gets a run, and the
+    ImportError traceback lands in that run's task_logs — not only on the
+    container's stdout, which is gone once the container is removed."""
+    job = await create_job("test_job_ch_import_error", "aaiclick.orchestration.fixtures.no_such_module.task")
+
+    await run_job_tasks(job)
+
+    task = (await get_tasks_for_job(job.id))[0]
+    assert len(task.run_ids) == 1
+    errors = [line.text for line in (await get_task_logs(task.id)).lines if line.level == "ERROR"]
+    assert errors[-1].startswith(
+        "ModuleNotFoundError: No module named 'aaiclick.orchestration.fixtures.no_such_module'"
+    )
+
+
 async def test_run_job_tasks_shell_task(orch_ctx):
     """A shell entry task runs in-process and flushes its output inline to CH."""
     entry = create_task(None, entry_type="shell", command=["sh", "-c", "echo shell line"])

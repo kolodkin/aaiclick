@@ -18,7 +18,7 @@ from contextlib import asynccontextmanager, suppress
 from typing import TextIO
 
 from aaiclick.async_wait import wait_or_timeout
-from aaiclick.backend import is_chdb
+from aaiclick.backend import is_chdb, is_local
 from aaiclick.data.data_context import ChClient, get_ch_client
 from aaiclick.data.data_context.ch_client import create_ch_client
 from aaiclick.datetime_utils import utc_now
@@ -31,7 +31,7 @@ from aaiclick.log_models import (
     LogStream,
     normalize_level,
 )
-from aaiclick.oplog.models import get_column_types
+from aaiclick.oplog.models import get_column_types, init_oplog_tables
 
 logger = logging.getLogger(__name__)
 
@@ -274,11 +274,27 @@ async def read_task_logs(task_id: int, run_id: int, tail: int = MAX_TASK_LOG_LIN
     return [LogLine(stream=row[0], level=row[1], text=row[2], created_at=row[3]) for row in rows]
 
 
+async def _ensure_task_logs_table(task_id: int, run_id: int) -> None:
+    """Bring the local CH schema up before streaming: a run that fails before
+    ``task_scope`` (an import error, a shell or jvm task on a fresh DB) has not
+    run its ``init_oplog_tables`` yet.
+
+    Distributed mode never writes the schema (the operator migrates), and the
+    host worker there holds no CH client, so it is skipped."""
+    if not is_local():
+        return
+    try:
+        await init_oplog_tables(get_ch_client())
+    except Exception:
+        logger.error("Failed to ensure task_logs for task %s run %s", task_id, run_id, exc_info=True)
+
+
 @asynccontextmanager
 async def stream_to_task_logs(task_id: int, job_id: int, run_id: int) -> AsyncIterator[ChLogSink]:
     """Yield a sink flushed to CH ``task_logs`` every ``LOG_FLUSH_INTERVAL``
     seconds and finally on exit, so long-running tasks are tailed live. Every
     capture path feeds one; they differ only in where the text comes from."""
+    await _ensure_task_logs_table(task_id, run_id)
     sink = ChLogSink()
     flusher = _SinkFlusher(sink, task_id, job_id, run_id)
     flusher_task = asyncio.create_task(flusher.run())
