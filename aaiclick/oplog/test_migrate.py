@@ -248,7 +248,7 @@ async def test_get_column_types_reads_live_schema(orch_ctx):
 
     assert op_types["kwargs"] == "Map(String, String)"
     assert op_types["task_id"] == "Nullable(UInt64)"
-    assert list(log_types) == ["task_id", "job_id", "run_id", "seq", "stream", "level", "line", "created_at"]
+    assert list(log_types) == ["task_id", "job_id", "run_id", "seq", "stream", "line", "created_at"]
     assert log_types["created_at"] == "DateTime64(3, 'UTC')"
 
 

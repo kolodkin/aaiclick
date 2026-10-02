@@ -1,7 +1,6 @@
 """Sample task functions for orchestration tests."""
 
 import asyncio
-import logging
 import sys
 from pathlib import Path
 
@@ -37,12 +36,11 @@ def task_with_output():
     print("Error message", file=sys.stderr)
 
 
-def task_with_log_levels():
-    """Emit one logging record at each level so the UI can be checked for coloring."""
-    log = logging.getLogger("sample")
-    log.info("info line")
-    log.warning("warning line")
-    log.error("error line")
+def task_with_keyword_lines():
+    """Print lines carrying the keywords the UI log panel colors by."""
+    print("plain line")
+    print("warning line")
+    print("error line")
 
 
 async def slow_task(seconds: float, steps: int = 20):
@@ -57,9 +55,8 @@ async def slow_task(seconds: float, steps: int = 20):
     Sleeps with ``asyncio.sleep`` so an in-process execution worker keeps
     serving requests (and the SSE stream) while this runs.
     """
-    log = logging.getLogger("sample")
     for step in range(1, steps + 1):
-        log.info("step %d of %d", step, steps)
+        print(f"step {step} of {steps}")
         await asyncio.sleep(seconds / steps)
 
 

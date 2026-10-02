@@ -2,6 +2,7 @@ import { memo, useState } from "react";
 import type { LogLine, TaskAttempt, TaskStatus } from "../api/types";
 import { useTaskLogs } from "../api/hooks";
 import { LiveStatus } from "./LiveStatus";
+import { logTone } from "../lib/logTone";
 import { isTaskStarted, isTerminalTask, statusClass } from "../lib/status";
 
 // Render a captured created_at (ISO string) as HH:MM:SS.mmm for the inline
@@ -16,10 +17,8 @@ function fmtTs(iso: string): string {
 
 // `lines` typically grows by appending; memoising on the array identity (plus
 // the timestamp flag) skips the per-line VDOM rebuild when a poll returns the
-// same payload. Each line carries a per-level class (text color by severity;
-// raw stdout/stderr arrive as INFO/WARNING) plus a per-stream class so stderr
-// lines get their own marker independent of severity — a logging.error record
-// shows ERROR red *and* the stderr bar.
+// same payload. Each line is colored by the keywords in its text (logTone)
+// and stderr lines also get their own marker bar.
 const LogLines = memo(function LogLines({
   lines,
   showTimestamps,
@@ -30,7 +29,7 @@ const LogLines = memo(function LogLines({
   return (
     <>
       {lines.map((line, i) => (
-        <div key={i} data-testid={`log-line-${line.level}`} className={`log-line lvl-${line.level} src-${line.stream}`}>
+        <div key={i} className={`log-line tone-${logTone(line.text)} src-${line.stream}`}>
           {showTimestamps && line.created_at && <span className="ts">{fmtTs(line.created_at)} </span>}
           {line.text}
         </div>

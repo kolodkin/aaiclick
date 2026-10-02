@@ -133,8 +133,8 @@ async def test_logs_not_found_raises(orch_ctx):
         await get_task_logs(999999999)
 
 
-async def test_logs_preserve_level(orch_ctx):
-    job = await create_job("logs_level", simple_task)
+async def test_logs_preserve_stream(orch_ctx):
+    job = await create_job("logs_stream", simple_task)
     task = (await get_tasks_for_job(job.id))[0]
     run_id = 71
     await flush_task_logs(
@@ -142,17 +142,17 @@ async def test_logs_preserve_level(orch_ctx):
         job.id,
         run_id,
         [
-            LogLine(stream=STDOUT_STREAM, level="INFO", text="info line"),
-            LogLine(stream=STDERR_STREAM, level="ERROR", text="error line"),
+            LogLine(stream=STDOUT_STREAM, text="out line"),
+            LogLine(stream=STDERR_STREAM, text="err line"),
         ],
     )
     await set_task_runs(task.id, [run_id])
 
     result = await get_task_logs(task.id)
 
-    assert [(line.level, line.text) for line in result.lines] == [
-        ("INFO", "info line"),
-        ("ERROR", "error line"),
+    assert [(line.stream, line.text) for line in result.lines] == [
+        (STDOUT_STREAM, "out line"),
+        (STDERR_STREAM, "err line"),
     ]
 
 

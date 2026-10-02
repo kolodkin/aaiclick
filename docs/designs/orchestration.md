@@ -579,15 +579,12 @@ All Object operations within a task are automatically logged when `data_context(
 ClickHouse `task_logs` table from inside the task process, draining its
 capture sink every `LOG_FLUSH_INTERVAL` (2 s) with a running `seq` offset —
 long-running tasks are tailable live, and a killed run keeps everything
-flushed up to the last tick. It also installs a `logging` handler (taking
-over the root logger for the task) so each `logging.*` record is captured
-with its true `level`; raw `print()` output defaults to `INFO` (stdout) /
-`WARNING` (stderr — tools routinely write non-error chatter there, so `ERROR`
-is reserved for real `logging.error` records), and
-`AAICLICK_LOG_LEVEL` sets the captured root level
-(default `INFO`). Every row is tagged with its `stream` (`stdout`/`stderr`),
-its `level`, and a per-line `created_at` (emit time, not flush time) so the
-UI can color by severity and optionally show timestamps.
+flushed up to the last tick. Only stdout/stderr are captured — `logging` is
+left alone, so a record reaches the log only if its handler writes there. A
+failing task prints its traceback to stderr. Every row is tagged with its
+`stream` (`stdout`/`stderr`) and a per-line `created_at` (emit time, not
+flush time); the UI colors lines by keyword (`logTone` in
+`src/lib/logTone.ts`).
 
 Every entry type writes through the same `stream_to_task_logs` sink, so
 `get_task_logs` reads one host-independent source regardless of where the task
