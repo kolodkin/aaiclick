@@ -14,10 +14,10 @@ When a mirror exists under `example_projects/<name>/`, the notebook copies the l
 
 ## Notebook Cells
 
-See `basic_lineage/basic_lineage.ipynb` for the canonical layout:
+Canonical layout:
 
 1. Title markdown
-2. **Setup cell** — `!pip install 'aaiclick[ai]'`, `!python -m aaiclick setup`, optional Ollama bootstrap (`apt-get install zstd`, installer, `nohup ollama serve &`, `ollama pull <model>`), `logging.basicConfig(level=INFO)`, `os.environ.setdefault("AAICLICK_AI_MODEL", ...)` with commented hosted-provider alternatives (Gemini / OpenAI / Anthropic)
+2. **Setup cell** — `!pip install aaiclick`, `!python -m aaiclick setup`, `logging.basicConfig(level=INFO)`, any `os.environ.setdefault(...)` the example needs
 3. Imports
 4. `@task` / `@job` / report functions
 5. `async def main()` (mirrors `example_projects/<name>/__init__.py::main`)
