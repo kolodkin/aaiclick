@@ -6,8 +6,7 @@ name: test-py-nightly
 # can't silently regress the other between PR merges.
 #
 # 3.15 is intentionally not in the matrix yet — pyo3 0.26.0 caps at 3.14,
-# so transitive deps like tiktoken (via litellm) and pydantic-core can't
-# build against it. Re-add once those publish 3.15-compatible wheels.
+# so transitive deps like pydantic-core can't build against it. Re-add once those publish 3.15-compatible wheels.
 
 on:
   schedule:
