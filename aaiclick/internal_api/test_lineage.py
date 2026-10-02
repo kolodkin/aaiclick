@@ -99,3 +99,26 @@ async def test_get_table_schema_raises_not_found_when_describe_fails(revenue_tab
 
     with pytest.raises(NotFound):
         await lineage_api.get_table_schema(revenue_table, target_table=revenue_table)
+
+
+async def test_list_graph_nodes_reports_kind_and_liveness(revenue_table):
+    nodes = await lineage_api.list_graph_nodes(revenue_table, direction="forward", max_depth=3)
+
+    by_table = {n.table: n for n in nodes}
+    # Persistent (p_*) tables classify as inputs whatever their graph position.
+    assert by_table[revenue_table].kind == "input"
+    assert by_table[revenue_table].live is True
+
+
+async def test_list_graph_nodes_marks_dropped_table_not_live(revenue_table):
+    """A dropped table stays in the graph but is reported as not live, not raised."""
+    await objects.delete_object(_REVENUE)
+
+    nodes = await lineage_api.list_graph_nodes(revenue_table, direction="forward", max_depth=3)
+
+    assert {n.table: n.live for n in nodes}[revenue_table] is False
+
+
+async def test_list_graph_nodes_without_lineage_raises_not_found(orch_ctx):
+    with pytest.raises(NotFound):
+        await lineage_api.list_graph_nodes("p_never_recorded")

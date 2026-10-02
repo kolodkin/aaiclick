@@ -1,23 +1,23 @@
-"""Internal API for lineage queries — AI-independent primitives.
+"""Internal API for lineage queries — the primitives an MCP client composes.
 
-These functions are the building blocks the calling agent (LLM or otherwise)
-composes itself: walk the graph, look at schemas, sample data. They run
-inside an active ``orch_context(with_ch=True)`` and do not require the
-``ai`` extra.
+Walk the graph, see which tables are still live, look at schemas, sample
+data. The calling agent (Claude Code, Codex, any MCP client) forms and
+verifies hypotheses itself. These run inside an active
+``orch_context(with_ch=True)``.
 """
 
 from __future__ import annotations
 
-from aaiclick.oplog.lineage import DEFAULT_MAX_DEPTH, LineageDirection, OplogGraph
+from aaiclick.oplog.lineage import DEFAULT_MAX_DEPTH, GraphNode, LineageDirection, OplogGraph, classify_nodes
 from aaiclick.oplog.lineage import oplog_subgraph as _oplog_subgraph
 from aaiclick.oplog.query_sandbox import (
     DEFAULT_ROW_LIMIT,
     QueryResult,
     TableSchema,
+    ToolError,
     describe_table,
-    run_select,
-    validate_scope,
-    validate_select_safety,
+    liveness,
+    sandboxed_select,
 )
 
 from .errors import Invalid, NotFound
@@ -32,9 +32,8 @@ async def oplog_subgraph(
     return await _oplog_subgraph(target_table, direction=direction, max_depth=max_depth)
 
 
-async def _lineage_scope(target_table: str, *, direction: LineageDirection, max_depth: int) -> set[str]:
-    """The tables of ``target_table``'s lineage graph — the scope every read
-    below is held to.
+async def _lineage_graph(target_table: str, *, direction: LineageDirection, max_depth: int) -> OplogGraph:
+    """``target_table``'s lineage graph — the scope every read below is held to.
 
     Looked up here rather than accepted from the caller, so a token allowed
     to call these tools cannot widen the scope by naming more tables. A
@@ -43,7 +42,39 @@ async def _lineage_scope(target_table: str, *, direction: LineageDirection, max_
     graph = await oplog_subgraph(target_table, direction=direction, max_depth=max_depth)
     if not graph.nodes:
         raise NotFound(f"{target_table} has no lineage.")
-    return graph.tables
+    return graph
+
+
+async def list_graph_nodes(
+    target_table: str,
+    *,
+    direction: LineageDirection = "backward",
+    max_depth: int = DEFAULT_MAX_DEPTH,
+) -> list[GraphNode]:
+    """Every table in ``target_table``'s lineage graph with its kind and liveness.
+
+    ``live`` is whether the table currently exists in ClickHouse; a dropped
+    intermediate is still listed, so the caller can tell "gone" from "never
+    in the graph". Raises ``NotFound`` if the target has no lineage.
+    """
+    graph = await _lineage_graph(target_table, direction=direction, max_depth=max_depth)
+    kinds = classify_nodes(graph)
+    alive = await liveness(graph.tables)
+    node_by_table = {n.table: n for n in graph.nodes}
+    nodes: list[GraphNode] = []
+    for table in sorted(graph.tables):
+        node = node_by_table.get(table)
+        nodes.append(
+            GraphNode(
+                table=table,
+                kind=kinds[table],
+                operation=node.operation if node else "(input)",
+                live=alive.get(table, False),
+                task_id=node.task_id if node else None,
+                job_id=node.job_id if node else None,
+            )
+        )
+    return nodes
 
 
 async def query_table(
@@ -58,15 +89,14 @@ async def query_table(
 
     The scope is the graph ``oplog_subgraph()`` returns for the same
     arguments. Rejects DDL/DML, multi-statement input, a ``SETTINGS``
-    clause, and any table reference outside the graph. Auto-injects
-    ``LIMIT`` and pins ``max_execution_time``.
+    clause, and any table reference outside the graph. Caps rows and pins
+    ``max_execution_time``.
     """
-    if err := validate_select_safety(sql):
-        raise Invalid(err.message)
-    scope_tables = await _lineage_scope(target_table, direction=direction, max_depth=max_depth)
-    if err := await validate_scope(sql, scope_tables):
-        raise Invalid(err.message)
-    return await run_select(sql, row_limit)
+    graph = await _lineage_graph(target_table, direction=direction, max_depth=max_depth)
+    result = await sandboxed_select(sql, graph.tables, row_limit)
+    if isinstance(result, ToolError):
+        raise Invalid(result.message)
+    return result
 
 
 async def get_table_schema(
@@ -82,7 +112,8 @@ async def get_table_schema(
     the target has no lineage or ``DESCRIBE TABLE`` fails (e.g. the table
     was dropped after the graph was captured).
     """
-    if table not in await _lineage_scope(target_table, direction=direction, max_depth=max_depth):
+    graph = await _lineage_graph(target_table, direction=direction, max_depth=max_depth)
+    if table not in graph.tables:
         raise Invalid(f"{table} is not in the lineage of {target_table}.")
     try:
         return await describe_table(table)
