@@ -219,8 +219,37 @@ def test_task_view_meta_cells_do_not_overflow(page, base_url: str, shot) -> None
 
 
 @_spa_built
+def test_task_view_entrypoint_has_own_row_with_expand_and_copy(page, base_url: str, shot) -> None:
+    """The entrypoint spans the whole meta row, fits unclipped, and copies.
+
+    With the full row it fits, so no expand icon is offered — only copy.
+    """
+    entrypoint = "aaiclick.orchestration.fixtures.sample_tasks.task_with_output"
+    task_id = _run_task_and_wait(entrypoint)
+
+    open_page(page, f"{base_url}/?p=@task {task_id}")
+
+    cell = page.locator(".meta .meta-wide")
+    cell.wait_for(timeout=15000)
+    assert cell.evaluate("el => el.getBoundingClientRect().width") == pytest.approx(
+        page.locator(".meta").evaluate("el => el.clientWidth"), abs=1
+    )
+
+    value = cell.locator("[data-testid='truncated']")
+    copy = cell.locator("[data-testid='truncated-copy']")
+    copy.wait_for()
+    assert not value.evaluate("el => el.scrollWidth > el.clientWidth")
+    assert cell.locator("[data-testid='truncated-toggle']").count() == 0
+    shot("task-entrypoint-row")
+
+    page.context.grant_permissions(["clipboard-read", "clipboard-write"])
+    copy.click()
+    assert page.evaluate("navigator.clipboard.readText()") == entrypoint
+
+
+@_spa_built
 def test_task_view_truncates_long_entrypoint_from_the_start(page, base_url: str, shot) -> None:
-    """An over-long entrypoint stays on one line, keeps its tail, and expands.
+    """On a narrow screen the entrypoint stays on one line, keeps its tail, and expands.
 
     The elision is done in CSS so it fits the column exactly; the assertions
     therefore check rendered geometry, not a character count.
@@ -228,6 +257,7 @@ def test_task_view_truncates_long_entrypoint_from_the_start(page, base_url: str,
     entrypoint = "aaiclick.orchestration.fixtures.sample_tasks.task_with_output"
     task_id = _run_task_and_wait(entrypoint)
 
+    page.set_viewport_size({"width": 420, "height": 800})
     open_page(page, f"{base_url}/?p=@task {task_id}")
 
     value = page.locator(".meta [data-testid='truncated']")
@@ -238,17 +268,15 @@ def test_task_view_truncates_long_entrypoint_from_the_start(page, base_url: str,
     collapsed_height = value.bounding_box()["height"]
     assert value.evaluate("el => el.scrollWidth > el.clientWidth")
     assert value.evaluate("el => getComputedStyle(el).direction") == "rtl"
-
-    # The toggle is a real, visible control — not just a dotted underline.
-    assert toggle.is_visible()
-    assert toggle.inner_text() == "show full"
+    assert toggle.get_attribute("aria-label") == "Show all"
     shot("task-entrypoint-collapsed")
 
     toggle.click()
     page.wait_for_selector(".meta .truncated.is-expanded")
     shot("task-entrypoint-expanded")
 
-    assert toggle.inner_text() == "show less"
+    assert toggle.get_attribute("aria-label") == "Show less"
+
     assert value.bounding_box()["height"] > collapsed_height
     assert value.inner_text() == entrypoint
 
