@@ -602,24 +602,22 @@ process's pipes (`pump_process_output`):
 
 Host-side following is the default for any image entry type other than
 `module` (`register_host_log_run`), so a new language SDK needs no logging code.
-A `module` container that exits without registering a run (its bootstrap failed
+A `module` container that exits without registering a run (bootstrap failed
 before `execute_task`: bad DB URL, broken image) has its output copied in by the
-host under a host-registered run (`_collect_unfollowed_output` in
-`execution_worker.py`).
+host (`_collect_unfollowed_output` in `execution_worker.py`).
 
 `AAICLICK_TASK_LOGS` picks where task output goes (`task_logs_destination` in
 `logging.py`):
 
-| Value            | `task_logs` (UI log panel) | Worker console |
-|------------------|----------------------------|----------------|
-| `both` (default) | yes                        | yes            |
-| `clickhouse`     | yes                        | no             |
-| `console`        | no                         | yes            |
+| Value            | ClickHouse `task_logs` (UI log panel) | Console |
+|------------------|---------------------------------------|---------|
+| `both` (default) | yes                                   | yes     |
+| `clickhouse`     | yes                                   | no      |
+| `console`        | no                                    | yes     |
 
-Console output is teed live in-process and by the host pumps; a `module`
-container's output is printed with a `[task N]` prefix when it exits. With
-`console`, the UI log panel stays empty. aaiclick's own framework logs always
-go to the console.
+Console output is teed live; a `module` container's output is printed with a
+`[task N]` prefix when it exits. aaiclick's own framework logs always go to
+the console.
 
 Implementation: `aaiclick/orchestration/logging.py`,
 `aaiclick/orchestration/execution/runner.py`, `aaiclick/oplog/models.py`. The rows are

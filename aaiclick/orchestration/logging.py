@@ -1,8 +1,8 @@
 """Task logging utilities for orchestration backend.
 
-Task stdout/stderr is captured to ClickHouse ``task_logs``, streamed
-incrementally every ``LOG_FLUSH_INTERVAL`` seconds through
-:func:`stream_to_task_logs`. Module tasks feed it from inside the task process
+Task stdout/stderr is captured to ClickHouse ``task_logs`` and/or the console
+(:func:`task_logs_destination`), streamed to ClickHouse every
+``LOG_FLUSH_INTERVAL`` seconds through :func:`stream_to_task_logs`. Module tasks feed it from inside the task process
 (:func:`capture_task_output`); shell tasks and ``jvm`` containers are fed by the
 host (``execution.runner``'s ``execute_shell_task`` / ``follow_vehicle_output``).
 All runs surface their logs through one cross-host read path
@@ -236,7 +236,7 @@ class _TeeWriter:
 class _ChLogHandler(logging.Handler):
     """Route ``logging`` records into the active CH sink with their true level.
 
-    With a ``console`` (echo on), also writes the formatted message there,
+    With a ``console``, also writes the formatted message there,
     bypassing the tee so the record is not captured a second time as raw
     stderr text.
     """
@@ -355,11 +355,11 @@ async def capture_task_output(task_id: int, job_id: int, run_id: int):
     Context manager to capture stdout, stderr, and ``logging`` for one task run.
 
     Output goes to a :func:`stream_to_task_logs` sink and/or the original
-    streams, per :func:`task_logs_destination`. ``logging`` records are routed through :class:`_ChLogHandler` so each
-    carries its true level; for the duration of the run the root logger's
-    handlers are replaced with ours (restored on exit) so records are captured
-    exactly once. A body that never awaits starves the periodic flusher — its
-    logs land at exit.
+    streams, per :func:`task_logs_destination`. ``logging`` records are
+    routed through :class:`_ChLogHandler` so each carries its true level; for
+    the run the root logger's handlers are replaced with ours (restored on
+    exit) so records are captured exactly once. A body that never awaits
+    starves the periodic flusher — its logs land at exit.
 
     Args:
         task_id: Task ID the captured rows are keyed by.

@@ -406,7 +406,7 @@ async def _run_cleanup_argv(cleanup_argv: list[str]) -> None:
 async def _pump_stream(
     stream: asyncio.StreamReader, sink: ChLogSink, source: LogStream, console: TextIO | None
 ) -> None:
-    """Feed one output pipe into the sink (and ``console``, when echoing) until EOF.
+    """Feed one output pipe into the sink (and ``console``, if given) until EOF.
 
     Decodes incrementally so a multibyte character split across reads stays intact.
     """
