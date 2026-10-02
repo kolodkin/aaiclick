@@ -92,8 +92,10 @@ header {
 .user-menu .name-link { cursor: pointer; }
 
 /* ---- content area ---- */
-main { flex: 1 1 auto; overflow: auto; padding: 22px; }
-.content { max-width: 1040px; margin: 0 auto; }
+main { flex: 1 1 auto; overflow: auto; padding: 22px; display: flex; flex-direction: column; }
+/* At least main's height, so a view can fill the window with `height: 100%`;
+   taller views scroll main. */
+.content { flex: 1 0 auto; width: 100%; max-width: 1040px; margin: 0 auto; }
 
 h2 { font-size: 18px; margin: 0 0 4px; }
 .sub { color: var(--muted); margin: 0 0 18px; }
@@ -223,12 +225,13 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
 }
 .detail-head .title-row { display: flex; align-items: center; gap: 10px; }
 .detail-head h2 { display: flex; align-items: center; gap: 10px; margin: 0; }
-.meta { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 10px 24px; margin-top: 12px; }
-/* min-width:0 overrides a grid item's default `auto`, which otherwise refuses
-   to shrink below its content and lets a long unbreakable value (entrypoints,
-   snowflake ids) overflow into the neighbouring cell. */
+/* Content-sized items share a row, wrapping only when out of width, so the
+   header stays short. */
+.meta { display: flex; flex-wrap: wrap; gap: 8px 28px; margin-top: 12px; }
+/* min-width:0 lets a long unbreakable value (entrypoints, snowflake ids)
+   shrink and wrap instead of overflowing the panel. */
 .meta div { font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
+.meta .meta-wide { flex-basis: 100%; }
 .meta .k { color: var(--muted); display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
 .err { color: var(--red); background: var(--red-bg); border-radius: 8px; padding: 10px 12px; margin-top: 12px; font-family: var(--mono); font-size: 12px; }
 
@@ -237,9 +240,14 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
   background: rgba(6,9,16,.62); color: #c9d1d9; border-radius: 14px;
   backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
   font: 12.5px/1.6 var(--mono); padding: 14px 16px; overflow: auto;
-  max-height: 52vh; border: 1px solid var(--border);
+  border: 1px solid var(--border);
   box-shadow: var(--hi), var(--shadow);
 }
+/* The task view fits the window: header on top, logs take the rest and
+   scroll on their own instead of the page. */
+.task-page { display: flex; flex-direction: column; height: 100%; }
+/* Zero basis: log lines must not size the page, or long output scrolls main. */
+.task-page > .logs { flex: 1 1 0; min-height: 240px; }
 .logs .logs-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; color: #6b7480; font-size: 11px; }
 .logs .logs-toolbar label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .logs .ts { color: #6b7480; }
@@ -347,23 +355,24 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
 .gnode-build { border-style: dashed; }
 .chip-active { border-color: var(--accent); color: var(--accent); }
 
-/* head-elided values (long entrypoints) with a visible expand toggle */
-.truncated-wrap { display: block; }
-.truncated { display: block; }
+/* head-elided values (long entrypoints) with expand / copy icon buttons */
+.truncated-wrap { display: flex; align-items: flex-start; gap: 4px; min-width: 0; }
+.truncated { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; }
 /* direction:rtl puts the ellipsis at the start, so the informative tail
    survives. CSS elides to the column's real width — a fixed character count
    cannot, and would still wrap. */
-.truncated:not(.is-expanded) {
+.truncated.is-collapsed {
   direction: rtl; text-align: left; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis;
 }
-.truncated.is-expanded { overflow-wrap: anywhere; }
-.truncated-toggle {
-  display: inline-block; margin-top: 2px; padding: 0; border: 0; background: none;
-  font: 11px inherit; color: var(--accent-text); cursor: pointer; text-decoration: underline;
+.truncated-actions { display: inline-flex; flex: none; gap: 2px; }
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px;
+  background: none; color: var(--muted); cursor: pointer;
 }
-.truncated-toggle:hover { filter: brightness(1.2); }
-.truncated-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.icon-btn:hover { color: var(--accent-text); background: var(--border); }
+.icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* image-build gate badge — collapses the build's N-1 dependency edges.
    line-height equal to the content box centres a single glyph more reliably

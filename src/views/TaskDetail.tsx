@@ -21,7 +21,7 @@ export function TaskDetail({ id, onPrompt }: { id: string; onPrompt: (v: string)
     );
 
   return (
-    <>
+    <div className="task-page">
       <Chips
         chips={[
           { label: "@jobs", cmd: "@jobs" },
@@ -40,16 +40,16 @@ export function TaskDetail({ id, onPrompt }: { id: string; onPrompt: (v: string)
           items={[
             { k: "Task ID", v: `#${task.id}`, mono: true },
             { k: "Job", v: String(task.job_id), mono: true },
-            { k: "Entrypoint", v: <Truncated text={task.entrypoint} /> },
             { k: "Attempt", v: `${task.attempt}/${task.max_retries}`, mono: true },
             { k: "Execution worker", v: task.execution_worker_id == null ? "—" : String(task.execution_worker_id), mono: true },
             { k: "Started", v: relativeTime(task.started_at) },
             { k: "Duration", v: durationBetween(task.started_at, task.completed_at) },
+            { k: "Entrypoint", v: <Truncated text={task.entrypoint} />, wide: true },
           ]}
         />
         {task.error && <div className="err">{task.error}</div>}
       </div>
       <LogViewer key={task.id} taskId={task.id} status={task.status} />
-    </>
+    </div>
   );
 }
