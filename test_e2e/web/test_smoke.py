@@ -262,6 +262,13 @@ def test_task_view_logs_fill_the_window(page, base_url: str, output_task_id: str
     box = logs.bounding_box()
     assert box["y"] + box["height"] == pytest.approx(content_bottom, abs=2)
 
+    # Long output scrolls inside the panel, not the page.
+    logs.evaluate(
+        "el => { for (let i = 0; i < 500; i++) el.append(Object.assign(document.createElement('div'), {textContent: 'line ' + i})); }"
+    )
+    assert page.evaluate("(m => m.scrollHeight <= m.clientHeight)(document.querySelector('main'))")
+    assert logs.evaluate("el => el.scrollHeight > el.clientHeight")
+
 
 @_spa_built
 def test_task_view_truncates_long_entrypoint_from_the_start(page, base_url: str, output_task_id: str, shot) -> None:
