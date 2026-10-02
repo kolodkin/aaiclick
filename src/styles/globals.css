@@ -223,13 +223,13 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
 }
 .detail-head .title-row { display: flex; align-items: center; gap: 10px; }
 .detail-head h2 { display: flex; align-items: center; gap: 10px; margin: 0; }
-.meta { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 10px 24px; margin-top: 12px; }
-/* min-width:0 overrides a grid item's default `auto`, which otherwise refuses
-   to shrink below its content and lets a long unbreakable value (entrypoints,
-   snowflake ids) overflow into the neighbouring cell. */
+/* Content-sized items share one row and wrap only when the panel runs out of
+   width, so the header stays short and leaves room for the logs below. */
+.meta { display: flex; flex-wrap: wrap; gap: 8px 28px; margin-top: 12px; }
+/* min-width:0 lets a long unbreakable value (entrypoints, snowflake ids)
+   shrink and wrap instead of overflowing the panel. */
 .meta div { font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
-.meta .meta-wide { grid-column: 1 / -1; }
+.meta .meta-wide { flex-basis: 100%; }
 .meta .k { color: var(--muted); display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
 .err { color: var(--red); background: var(--red-bg); border-radius: 8px; padding: 10px 12px; margin-top: 12px; font-family: var(--mono); font-size: 12px; }
 
