@@ -11,6 +11,12 @@ export function useToast() {
   return useContext(ToastContext);
 }
 
+/** Copy `text` to the clipboard and confirm with a toast. */
+export function useCopy() {
+  const toast = useToast();
+  return useCallback((text: string) => void navigator.clipboard?.writeText(text).then(() => toast("Copied")), [toast]);
+}
+
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
