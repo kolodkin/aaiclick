@@ -42,11 +42,14 @@ Inputs the agent starts with:
   question
 - **Natural-language question** from the user
 
-Agent tools — **Implementation**: `aaiclick/ai/agents/lineage_tools.py` —
-see `LineageToolbox`.
+Agent tools — **Implementation**: `aaiclick/server/mcp.py` (`oplog_subgraph`,
+`list_graph_nodes`, `get_table_schema`, `query_table`) over
+`aaiclick/internal_api/lineage.py`; the in-process `LineageToolbox` in
+`aaiclick/ai/agents/lineage_tools.py` wraps the same primitives.
 
 - `query_table` — arbitrary read-only SQL against any node in the graph
-- `get_op_sql` — rendered SQL for a specific operation
+- `get_op_sql` — rendered SQL for a specific operation (over MCP, read
+  `sql_template` off the node `oplog_subgraph` returns)
 - `list_graph_nodes` — all tables in the lineage graph with their node
   kind (input / intermediate / target) and liveness
 - `get_schema` — columns and types for a table
@@ -131,9 +134,10 @@ Precedence:
 
 # Agent Tools
 
-Tier 1 tools are implemented in `aaiclick/ai/agents/lineage_tools.py`
-(`LineageToolbox`). `request_full_replay` is Phase 2 and not yet
-implemented.
+The sandbox and graph classification live in `aaiclick/oplog/query_sandbox.py`
+and `aaiclick/oplog/lineage.py` (`classify_nodes`); `LineageToolbox` in
+`aaiclick/ai/agents/lineage_tools.py` is the in-process tool loop over them.
+`request_full_replay` is Phase 2 and not yet implemented.
 
 All tools are scoped to the job being debugged. `query_table` cannot
 reach tables outside the lineage graph of the current job. ClickHouse
@@ -141,7 +145,8 @@ parses the SQL (`EXPLAIN AST`) and the check reads table position off the
 parse tree, so it is positive: anything in table position that is not a
 table of the graph is rejected, table functions included.
 
-**Implementation**: aaiclick/ai/agents/lineage_tools.py (`validate_scope`)
+**Implementation**: `aaiclick/oplog/query_sandbox.py` — see `validate_scope()`
+and `sandboxed_select()`
 
 ```python
 async def query_table(
@@ -197,10 +202,10 @@ Safety rails on `query_table`:
 - Cheap — `max_execution_time` set to keep accidental table scans from
   tying up the cluster
 
-The MCP `query_table` / `get_table_schema` tools take a `target_table`
-(plus `direction` / `max_depth`) and resolve the scope server-side from its
-lineage graph, so a caller cannot widen it — see `_lineage_scope()` in
-`aaiclick/internal_api/lineage.py`.
+The MCP `list_graph_nodes` / `query_table` / `get_table_schema` tools take a
+`target_table` (plus `direction` / `max_depth`) and resolve the scope
+server-side from its lineage graph, so a caller cannot widen it — see
+`_lineage_graph()` in `aaiclick/internal_api/lineage.py`.
 
 ## Tool Result Types
 

@@ -357,7 +357,7 @@ caller may call.
 
 | Tag          | Tools                                                                                         | Needs                                         |
 |--------------|-----------------------------------------------------------------------------------------------|-----------------------------------------------|
-| `read`       | `list_jobs`, `get_job`, `job_stats`, `list_registered_jobs`, `get_task`, `list_execution_workers`, `list_objects`, `get_object`, `oplog_subgraph`, `query_table`, `get_table_schema`, `query_object`, `list_saved_queries`, `list_dashboards`, `get_dashboard`, `run_dashboard` | `read`; any user |
+| `read`       | `list_jobs`, `get_job`, `job_stats`, `list_registered_jobs`, `get_task`, `list_execution_workers`, `list_objects`, `get_object`, `oplog_subgraph`, `list_graph_nodes`, `query_table`, `get_table_schema`, `query_object`, `list_saved_queries`, `list_dashboards`, `get_dashboard`, `run_dashboard` | `read`; any user |
 | `write`      | `save_query`, `delete_saved_query`, `save_dashboard`, `delete_dashboard`                       | `write`; member or admin                      |
 | `admin`      | `cancel_job`, `run_job`, `register_job`, `enable_job`, `disable_job`, `clear_task`, `delete_object`, `purge_objects`, `start_execution_worker`, `stop_execution_worker`, `setup`, `migrate`, `bootstrap_ollama` | `admin`; admin |
 

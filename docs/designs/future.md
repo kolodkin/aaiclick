@@ -145,9 +145,9 @@ client-only; the graph response already carries every group and its members.
 
 ## Lineage — Tier 2 Full Replay
 
-The Tier 1 tools are built (`aaiclick/ai/agents/lineage_tools.py` —
-`LineageToolbox`); `request_full_replay` and the `--deep` flag that
-pre-commits to it are not. Tier 2 re-runs the original job through
+The Tier 1 tools are built (`aaiclick/oplog/query_sandbox.py`, exposed over
+MCP in `aaiclick/server/mcp.py`); `request_full_replay` and the `--deep`
+flag that pre-commits to it are not. Tier 2 re-runs the original job through
 `run_job()` with `preservation_mode=FULL`, so every intermediate table is
 alive for the agent to query. Full design: `docs/designs/lineage.md` (Tier 2).
 
