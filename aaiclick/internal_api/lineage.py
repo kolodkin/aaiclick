@@ -76,7 +76,8 @@ async def query_table(
     arguments. Rejects DDL/DML, multi-statement input, a ``SETTINGS``
     clause, and any table reference outside the graph. Caps rows and pins
     ``max_execution_time``. The read-only check comes first so a rejected
-    statement costs no lineage query.
+    statement costs no lineage query. A query ClickHouse itself rejects
+    (unknown column, type error) is ``Invalid`` too, with the engine's message.
     """
     try:
         validate_select_safety(sql)
@@ -84,6 +85,10 @@ async def query_table(
         return await sandboxed_select(sql, graph.tables, row_limit)
     except SandboxError as exc:
         raise Invalid(str(exc)) from exc
+    except NotFound:
+        raise
+    except Exception as exc:
+        raise Invalid(f"Query failed: {exc}") from exc
 
 
 async def get_table_schema(

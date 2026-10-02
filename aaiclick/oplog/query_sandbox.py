@@ -77,14 +77,15 @@ _AST_SETTINGS = "Set"
 # nullIn, globalNotNullIn, inIgnoreSet, … — reads a table named on its right.
 _IN_FUNCTION_RE = re.compile(r"^(global)?(not)?(null)?in(ignoreset)?$", re.IGNORECASE)
 _STATEMENT_START_RE = re.compile(r"^\s*(?:WITH\b|SELECT\b)", re.IGNORECASE)
-_SEMICOLON_RE = re.compile(r";\s*\S")
 
 
 def validate_select_safety(sql: str) -> None:
     """Raise unless ``sql`` is a single read-only ``SELECT`` (or ``WITH … SELECT``)."""
     scan = normalize_sql_for_scan(sql)
-    if _SEMICOLON_RE.search(scan):
-        raise SandboxError("not_select", "Only a single SELECT statement is allowed.")
+    # Any terminator: a second statement, or a trailing ``;`` that chdb's
+    # appended SETTINGS clause would turn into a syntax error.
+    if ";" in scan:
+        raise SandboxError("not_select", "Only a single SELECT statement, without a trailing semicolon, is allowed.")
     if not _STATEMENT_START_RE.match(scan):
         raise SandboxError("not_select", "Only SELECT (or WITH … SELECT) is permitted.")
     if FORBIDDEN_KEYWORDS_RE.search(scan):
@@ -229,9 +230,12 @@ async def validate_scope(sql: str, scope_tables: set[str]) -> None:
 async def run_select(sql: str, row_limit: int = DEFAULT_ROW_LIMIT) -> QueryResult:
     """Execute a (pre-validated) ``SELECT`` with row + execution-time caps.
 
-    The row cap is the ``limit`` setting rather than text appended to the
-    SQL: it caps the outermost query, yields to a smaller ``LIMIT`` of the
-    query's own, and nothing appended can land inside a trailing comment.
+    The row cap is the ``limit`` setting rather than a ``LIMIT`` spliced into
+    the SQL: it caps the outermost query and yields to a smaller ``LIMIT`` of
+    the query's own. clickhouse-connect sends settings as parameters; chdb
+    appends them as a ``SETTINGS`` clause on a new line, so a trailing
+    ``--`` comment cannot swallow them (a trailing ``;`` would break them,
+    which is why ``validate_select_safety`` rejects it).
     """
     row_limit = max(1, min(row_limit, ROW_LIMIT_CEILING))
 

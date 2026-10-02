@@ -11,10 +11,6 @@ is fixed.
 
 # Low
 
-- **`debug_result` returns provider failures as a prose answer** with exit 0
-  — `aaiclick/ai/agents/debug_agent.py`.
-- **`query_with_tools` crashes on empty tool arguments** —
-  `aaiclick/ai/provider.py`.
 - **`_materialize_array_join` leaks `tmp_*` tables** on INSERT failure —
   `aaiclick/data/object/operators.py`.
 - **`insert_from_url` fails on every `aai_id=True` table** —
@@ -41,4 +37,4 @@ is fixed.
   (`transforms` imports), `chdb_client.py`.
 - `Any` as a shortcut: `aaiclick/data/object/object.py` (`_UNSET` sentinel,
   `order_by` / `limit` / `offset` overrides, `data() -> Any`),
-  `mp_worker.py`, `background_worker.py`, `aaiclick/ai/provider.py`.
+  `mp_worker.py`, `background_worker.py`.

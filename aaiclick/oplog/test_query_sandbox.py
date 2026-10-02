@@ -373,6 +373,9 @@ async def test_sandboxed_select_accepts_valid_select(orch_ctx, sql, rows, column
         pytest.param("SYSTEM FLUSH LOGS", id="system"),
         # DROP hidden inside a SELECT string still trips the forbidden-keyword guard.
         pytest.param(f"SELECT 1 FROM {TARGET_TABLE}; DROP TABLE {TARGET_TABLE}", id="ddl-keyword-inside-select"),
+        # A bare terminator parses, but chdb appends the SETTINGS caps after it
+        # and fails; reject it here so both backends answer the same way.
+        pytest.param(f"SELECT 1 FROM {TARGET_TABLE};", id="trailing-semicolon"),
     ],
 )
 async def test_sandboxed_select_rejects_write_statements(sql):

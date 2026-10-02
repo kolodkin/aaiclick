@@ -71,6 +71,12 @@ async def test_query_table_raises_invalid(revenue_table, sql):
         await lineage_api.query_table(sql, target_table=revenue_table)
 
 
+async def test_query_table_wraps_execution_errors_as_invalid(revenue_table):
+    """A column that does not exist fails inside ClickHouse, after both validators passed."""
+    with pytest.raises(Invalid, match="no_such_column"):
+        await lineage_api.query_table(f"SELECT no_such_column FROM {revenue_table}", target_table=revenue_table)
+
+
 async def test_query_table_without_lineage_raises_not_found(orch_ctx):
     """A target no operation produced has an empty graph, so nothing is in scope."""
     with pytest.raises(NotFound):
@@ -101,8 +107,7 @@ async def test_list_graph_nodes_reports_kind_and_liveness(revenue_table):
     nodes = await lineage_api.list_graph_nodes(revenue_table, direction="forward", max_depth=3)
 
     by_table = {n.table: n for n in nodes}
-    # Persistent (p_*) tables classify as inputs whatever their graph position.
-    assert by_table[revenue_table].kind == "input"
+    assert by_table[revenue_table].kind == "target"
     assert by_table[revenue_table].live is True
 
 

@@ -99,16 +99,17 @@ class OplogGraph(BaseModel):
     def node_kinds(self) -> dict[str, NodeKind]:
         """Label every table as input / intermediate / target.
 
-        An input is read but never produced here, or persistent (``p_*``);
-        a target is produced and never read; the rest are intermediate.
+        A target is produced here and never read; an input is read but never
+        produced here, or persistent (``p_*``) — always queryable, whatever
+        made it; the rest are intermediate.
         """
         produced, sources = self.produced, self.sources
         kinds: dict[str, NodeKind] = {}
         for table in produced | sources:
-            if table not in produced or table.startswith(GLOBAL_PREFIX):
-                kinds[table] = "input"
-            elif table not in sources:
+            if table in produced and table not in sources:
                 kinds[table] = "target"
+            elif table not in produced or table.startswith(GLOBAL_PREFIX):
+                kinds[table] = "input"
             else:
                 kinds[table] = "intermediate"
         return kinds

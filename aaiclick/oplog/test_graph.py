@@ -105,6 +105,13 @@ def test_graph_nodes_carry_kind_operation_and_liveness():
     )
 
     assert graph.node_kinds() == {"p_raw": "input", "t_1": "intermediate", "t_2": "target"}
+
+
+def test_node_kinds_persistent_target_is_a_target():
+    """The p_* rule marks persistent tables the graph only reads as inputs; a
+    persistent table the graph produces and nothing consumes is still the target."""
+    graph = OplogGraph(nodes=[OplogNode(table="p_total", operation="sum", kwargs={"input": "p_raw"})], edges=[])
+    assert graph.node_kinds() == {"p_raw": "input", "p_total": "target"}
     nodes = graph.graph_nodes({"t_1": True, "t_2": True})
     assert [(n.table, n.kind, n.operation, n.live) for n in nodes] == [
         ("p_raw", "input", None, False),
