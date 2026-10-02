@@ -38,7 +38,7 @@ from aaiclick.orchestration.execution.runner import (
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.jobs import get_job_result, get_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
-from aaiclick.orchestration.logging import _ChLogSink, read_task_logs
+from aaiclick.orchestration.logging import ChLogSink, read_task_logs
 from aaiclick.orchestration.models import (
     JOB_COMPLETED,
     JOB_FAILED,
@@ -224,6 +224,40 @@ async def test_execute_shell_task_splits_streams(orch_ctx):
         ("stdout", "INFO", "out line"),
         ("stderr", "WARNING", "err line"),
     }
+
+
+_DESTINATION_CASES = [
+    pytest.param("both", True, True, id="both"),
+    pytest.param("clickhouse", False, True, id="clickhouse_only"),
+    pytest.param("console", True, False, id="console_only"),
+]
+
+
+@pytest.mark.parametrize("destination, on_console, in_task_logs", _DESTINATION_CASES)
+async def test_shell_output_goes_to_task_logs_destination(
+    orch_ctx, monkeypatch, capsys, destination, on_console, in_task_logs
+):
+    monkeypatch.setenv("AAICLICK_TASK_LOGS", destination)
+    task = await _persisted_shell_task(["sh", "-c", "echo out line"])
+    await execute_shell_task(task)
+    assert ("out line" in capsys.readouterr().out) is on_console
+    refreshed = await get_task(task.id)
+    assert refreshed is not None
+    texts = [line.text for line in await read_task_logs(task.id, refreshed.run_ids[-1])]
+    assert ("out line" in texts) is in_task_logs
+
+
+@pytest.mark.parametrize("destination, on_console, in_task_logs", _DESTINATION_CASES)
+async def test_module_output_goes_to_task_logs_destination(
+    orch_ctx, monkeypatch, capsys, destination, on_console, in_task_logs
+):
+    monkeypatch.setenv("AAICLICK_TASK_LOGS", destination)
+    job = await create_job("test_job_destination", "aaiclick.orchestration.fixtures.sample_tasks.task_with_output")
+    await run_job_tasks(job)
+    assert ("This is stdout" in capsys.readouterr().out) is on_console
+    task = (await get_tasks_for_job(job.id))[0]
+    texts = [line.text for line in await read_task_logs(task.id, task.run_ids[-1])]
+    assert ("This is stdout" in texts) is in_task_logs
 
 
 async def test_register_run_appends_run_ids_and_statuses(orch_ctx):
@@ -471,6 +505,22 @@ async def test_run_job_tasks_failing_task_logs_traceback(orch_ctx):
     assert errors[0].endswith("Task failed")
     assert any(text.startswith("Traceback (most recent call last)") for text in errors)
     assert errors[-1] == "ValueError: This task failed intentionally"
+
+
+async def test_run_job_tasks_import_error_reaches_task_logs(orch_ctx):
+    """A task whose entrypoint cannot be imported still gets a run, and the
+    ImportError traceback lands in that run's task_logs — not only on the
+    container's stdout, which is gone once the container is removed."""
+    job = await create_job("test_job_ch_import_error", "aaiclick.orchestration.fixtures.no_such_module.task")
+
+    await run_job_tasks(job)
+
+    task = (await get_tasks_for_job(job.id))[0]
+    assert len(task.run_ids) == 1
+    errors = [line.text for line in (await get_task_logs(task.id)).lines if line.level == "ERROR"]
+    assert errors[-1].startswith(
+        "ModuleNotFoundError: No module named 'aaiclick.orchestration.fixtures.no_such_module'"
+    )
 
 
 async def test_run_job_tasks_shell_task(orch_ctx):
@@ -805,7 +855,7 @@ async def test_dict_object_explode_works_after_handoff(orch_ctx):
 async def test_pump_stream_keeps_a_multibyte_char_split_across_reads():
     stream = asyncio.StreamReader()
     stream.feed_data("é\n".encode()[:1])
-    sink = _ChLogSink()
+    sink = ChLogSink()
     pump = asyncio.create_task(_pump_stream(stream, sink, STDOUT_STREAM))
     await asyncio.sleep(0)
     stream.feed_data("é\n".encode()[1:])

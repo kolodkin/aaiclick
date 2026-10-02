@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock
 
+from ..logging import read_task_logs
 from ..models import Task
-from ..runner_config import ENTRY_JVM, ENTRY_MODULE, RUNNER_DOCKER, ImagePrebuilt
-from . import docker_worker
+from ..runner_config import ENTRY_JVM, ENTRY_MODULE, RUNNER_DOCKER, EntryType, ImagePrebuilt
+from . import docker_worker, execution_worker
 from .docker_worker import _build_docker_run_cmd, build_shell_run_spec
 from .execution_worker import JobDispatch, RunnerResult
+from .log_test_helpers import dispatch_with_fake_cli
 
 
 def _cmdtask(**kw):
@@ -122,34 +124,102 @@ async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypa
     monkeypatch.setattr(docker_worker, "check_task_cancelled", fake_check_cancelled)
     # Speed up the poll interval so the watcher actually fires within the test.
     monkeypatch.setattr(docker_worker, "POLL_INTERVAL", 0.05)
+    # No DB here: skip the post-exit output handling (covered by the fake-CLI tests).
+    monkeypatch.setattr(execution_worker, "_collect_unfollowed_output", AsyncMock())
 
     dispatch = JobDispatch(RUNNER_DOCKER, None, image_source=ImagePrebuilt(image_tag="aaiclick-job:abc"))
-    success, _, error = await docker_worker._run_task_in_container(_task(), execution_worker_id=1, dispatch=dispatch)
+    success, _, error = await docker_worker._run_task_in_container(
+        _task(), execution_worker_id=1, dispatch=dispatch, log_run_id=None
+    )
     assert success is False
     assert error == "cancelled"
 
 
-async def test_cleanup_echoes_container_output_before_rm(monkeypatch, capsys):
-    """Internal: the ordering needs a real daemon end to end. With
-    ``AAICLICK_ECHO_TASK_OUTPUT`` set, the container's stdout and stderr are
-    printed to the matching stream before ``docker rm`` discards them."""
-    monkeypatch.setenv("AAICLICK_ECHO_TASK_OUTPUT", "1")
-    calls = []
+_FAKE_DOCKER = """#!/bin/sh
+case "$1" in
+  run) echo fake-cid ;;
+  wait) echo 0 ;;
+  logs) echo "container says hi"; echo "container warns" 1>&2 ;;
+esac
+"""
 
-    async def fake_logs(cid):
-        calls.append("logs")
-        return "started\n", "Traceback: boom\n"
 
-    async def fake_rm(cid):
-        calls.append("rm")
+def _docker_dispatch(entry_type: EntryType) -> JobDispatch:
+    return JobDispatch(RUNNER_DOCKER, None, entry_type=entry_type, image_source=ImagePrebuilt(image_tag="img:1"))
 
-    monkeypatch.setattr(docker_worker, "_docker_logs", fake_logs)
-    monkeypatch.setattr(docker_worker, "_docker_rm", fake_rm)
 
-    vehicle = docker_worker._DockerVehicle("aaiclick-job:abc", {})
-    await vehicle.cleanup(docker_worker._DockerHandle("fake-cid", task_id=42, run_epoch=0))
+async def test_jvm_container_output_reaches_task_logs(orch_ctx, monkeypatch, tmp_path):
+    """The jvm shim writes no logs itself: the host registers the attempt and
+    follows ``docker logs`` into task_logs, keeping each line's stream."""
+    stored = await dispatch_with_fake_cli(
+        monkeypatch, tmp_path, "AAICLICK_DOCKER_BIN", _FAKE_DOCKER, _docker_dispatch(ENTRY_JVM)
+    )
 
-    assert calls == ["logs", "rm"]
+    assert len(stored.run_ids) == 1
+    lines = await read_task_logs(stored.id, stored.run_ids[0])
+    assert {(line.stream, line.text) for line in lines} == {
+        ("stdout", "container says hi"),
+        ("stderr", "container warns"),
+    }
+
+
+async def test_module_container_that_registered_its_run_is_left_alone(orch_ctx, monkeypatch, tmp_path):
+    """A module image registers its own run and captures its own output, so the
+    host adds no run and writes nothing — that would log every line twice."""
+    stored = await dispatch_with_fake_cli(
+        monkeypatch,
+        tmp_path,
+        "AAICLICK_DOCKER_BIN",
+        _FAKE_DOCKER,
+        _docker_dispatch(ENTRY_MODULE),
+        container_registers_run=True,
+    )
+
+    assert len(stored.run_ids) == 1
+    assert await read_task_logs(stored.id, stored.run_ids[0]) == []
+
+
+async def test_module_container_that_died_in_bootstrap_gets_its_output_logged(orch_ctx, monkeypatch, tmp_path):
+    """A container that failed before ``execute_task`` (bad DB URL, broken
+    image) registered no run and wrote no logs: the host registers the
+    attempt and copies the container's output into task_logs."""
+    stored = await dispatch_with_fake_cli(
+        monkeypatch, tmp_path, "AAICLICK_DOCKER_BIN", _FAKE_DOCKER, _docker_dispatch(ENTRY_MODULE), result_row=None
+    )
+
+    assert len(stored.run_ids) == 1
+    lines = await read_task_logs(stored.id, stored.run_ids[0])
+    assert {(line.stream, line.text) for line in lines} == {
+        ("stdout", "container says hi"),
+        ("stderr", "container warns"),
+    }
+
+
+async def test_module_container_output_is_printed_by_default(orch_ctx, monkeypatch, tmp_path, capsys):
+    """Task logs go to both destinations by default: a module container's
+    output (already in task_logs) is printed to the worker's console, each
+    line prefixed with its task id."""
+    stored = await dispatch_with_fake_cli(
+        monkeypatch,
+        tmp_path,
+        "AAICLICK_DOCKER_BIN",
+        _FAKE_DOCKER,
+        _docker_dispatch(ENTRY_MODULE),
+        container_registers_run=True,
+    )
+
     captured = capsys.readouterr()
-    assert "[task 42] started" in captured.out
-    assert "[task 42] Traceback: boom" in captured.err
+    assert f"[task {stored.id}] container says hi" in captured.out
+    assert f"[task {stored.id}] container warns" in captured.err
+
+
+async def test_bootstrap_failure_is_only_printed_when_task_logs_go_to_console(orch_ctx, monkeypatch, tmp_path, capsys):
+    """With ``AAICLICK_TASK_LOGS=console`` the host does not rescue a bootstrap
+    failure into task_logs — it prints the container's output instead."""
+    monkeypatch.setenv("AAICLICK_TASK_LOGS", "console")
+    stored = await dispatch_with_fake_cli(
+        monkeypatch, tmp_path, "AAICLICK_DOCKER_BIN", _FAKE_DOCKER, _docker_dispatch(ENTRY_MODULE), result_row=None
+    )
+
+    assert stored.run_ids == []
+    assert f"[task {stored.id}] container says hi" in capsys.readouterr().out

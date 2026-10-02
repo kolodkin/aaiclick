@@ -11,10 +11,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from ..logging import read_task_logs
 from ..models import Task
+from ..runner_config import ENTRY_JVM, RUNNER_KUBERNETES, ImagePrebuilt
 from . import kubernetes_worker as kw
 from .execution_worker import JobDispatch
 from .kubernetes_worker import build_shell_pod_spec
+from .log_test_helpers import dispatch_with_fake_cli
 
 
 def test_build_pod_manifest_shape():
@@ -255,24 +258,20 @@ async def test_wait_retries_transient_kubectl_failure(monkeypatch):
     assert (exit_code, error) == (0, None)
 
 
-async def test_cleanup_echoes_pod_log_before_delete(monkeypatch, capsys):
-    """Internal: the ordering needs a real cluster end to end. With
-    ``AAICLICK_ECHO_TASK_OUTPUT`` set, the Pod log is printed before the Pod
-    is deleted — after deletion it is gone."""
-    monkeypatch.setenv("AAICLICK_ECHO_TASK_OUTPUT", "1")
-    calls = []
+_FAKE_KUBECTL = """#!/bin/sh
+case "$1" in
+  get) printf 'Succeeded 0' ;;
+  logs) echo "jvm says hi"; echo "jvm warns" ;;
+esac
+"""
 
-    async def fake_logs(handle):
-        calls.append("logs")
-        return "Traceback: boom\n", ""
 
-    async def fake_delete(handle):
-        calls.append("delete")
+async def test_jvm_pod_output_reaches_task_logs(orch_ctx, monkeypatch, tmp_path):
+    """The jvm shim writes no logs itself: the host registers the attempt and
+    follows ``kubectl logs`` into task_logs (Kubernetes merges the streams)."""
+    spec = JobDispatch(RUNNER_KUBERNETES, {}, entry_type=ENTRY_JVM, image_source=ImagePrebuilt(image_tag="img:1"))
+    stored = await dispatch_with_fake_cli(monkeypatch, tmp_path, "AAICLICK_KUBECTL_BIN", _FAKE_KUBECTL, spec)
 
-    monkeypatch.setattr(kw, "_kubectl_logs", fake_logs)
-    monkeypatch.setattr(kw, "_kubectl_delete", fake_delete)
-
-    await _vehicle("module").cleanup(_handle())
-
-    assert calls == ["logs", "delete"]
-    assert "[task 7] Traceback: boom" in capsys.readouterr().out
+    assert len(stored.run_ids) == 1
+    lines = await read_task_logs(stored.id, stored.run_ids[0])
+    assert [(line.stream, line.text) for line in lines] == [("stdout", "jvm says hi"), ("stdout", "jvm warns")]

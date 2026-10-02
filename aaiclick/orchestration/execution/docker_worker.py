@@ -27,8 +27,6 @@ from .execution_worker import (
     RunnerResult,
     TaskVehicle,
     drive_vehicle,
-    echo_task_output,
-    echo_task_output_enabled,
     execution_worker_heartbeat,
     parse_task_timeout,
 )
@@ -165,12 +163,6 @@ async def _docker_rm(container_id: str) -> None:
     await cli.run(_docker_bin(), "rm", "--force", container_id, check=False, stream=False)
 
 
-async def _docker_logs(container_id: str) -> tuple[str, str]:
-    """The stopped container's ``(stdout, stderr)``."""
-    _, stdout, stderr = await cli.run(_docker_bin(), "logs", container_id, check=False, stream=False)
-    return stdout, stderr
-
-
 async def _wait_for_container(container_id: str, timeout: float | None) -> tuple[int, str | None]:
     """Block until the container exits, returning ``(exit_code, error)``.
 
@@ -255,16 +247,16 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", "RunnerResult | None"]):
     ) -> RunnerResult:
         return collect_remote_result(exit_code, error, was_cancelled, payload, "container")
 
+    async def output_argv(self, handle: _DockerHandle) -> list[str]:
+        return [_docker_bin(), "logs", "--follow", handle.container_id]
+
     async def cleanup(self, handle: _DockerHandle) -> None:
-        # Echo before removal — the container's output is gone after docker rm.
-        if echo_task_output_enabled():
-            echo_task_output(handle.task_id, *await _docker_logs(handle.container_id))
         # We dropped --rm so we own cleanup.
         await _docker_rm(handle.container_id)
 
 
 async def _run_task_in_container(
-    task: Task, execution_worker_id: int, dispatch: JobDispatch
+    task: Task, execution_worker_id: int, dispatch: JobDispatch, log_run_id: int | None
 ) -> tuple[bool, dict | None, str | None]:
     """ExecuteFn for the Docker runner.
 
@@ -286,5 +278,6 @@ async def _run_task_in_container(
         timeout=timeout,
         poll_interval=POLL_INTERVAL,
         heartbeat_fn=execution_worker_heartbeat,
+        log_run_id=log_run_id,
     )
     return result.success, result.result_ref, result.error

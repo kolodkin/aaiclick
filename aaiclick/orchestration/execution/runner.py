@@ -45,13 +45,12 @@ from aaiclick.data.object.refs import (
     upstream_ref,
 )
 from aaiclick.log_models import STDERR_STREAM, STDOUT_STREAM, LogStream
-from aaiclick.oplog.models import init_oplog_tables
 from aaiclick.snowflake import get_snowflake_id
 
 from ...datetime_utils import utc_now
 from ..decorators import JobFactory, TaskFactory
 from ..dependency_graph import successor_edges
-from ..logging import _ChLogSink, _SinkFlusher, capture_task_output
+from ..logging import ChLogSink, capture_task_output, stream_to_task_logs
 from ..models import (
     DEPENDENCY_TASK,
     JOB_COMPLETED,
@@ -68,13 +67,20 @@ from ..models import (
 )
 from ..orch_context import commit_tasks, get_sql_session, task_scope
 from ..result import TaskResult
-from ..runner_config import ENTRY_JVM, ENTRY_SHELL
+from ..runner_config import ENTRY_JVM, ENTRY_MODULE, ENTRY_SHELL, EntryType
 from .claiming import update_job_status, update_task_status
 from .cli import overlay_env
 from .db_handler import DEPENDENCY_WHERE
 from .execution_worker_context import set_current_task_info
 
 logger = logging.getLogger(__name__)
+
+# How long a vehicle's output follower may keep draining before it is
+# cancelled: after a clean exit (a wedged ``docker logs -f`` must not stall
+# cleanup), and after a vehicle error (timeout, vanished Pod), where the
+# container may still be running until ``cleanup`` removes it.
+OUTPUT_FOLLOWER_DRAIN_TIMEOUT = 10.0
+OUTPUT_FOLLOWER_ERROR_GRACE = 1.0
 
 
 def import_callback(entrypoint: str) -> Callable:
@@ -309,12 +315,13 @@ async def execute_task(task: Task, shell_spec: ShellSpec | None = None) -> Any:
             "shim runs it inside its container image"
         )
 
-    func = import_callback(task.entrypoint)
     run_id = await register_run(task.id)
 
     set_current_task_info(task_id=task.id, job_id=task.job_id, image_source=task.image_source, group_id=task.group_id)
 
     async with capture_task_output(task.id, task.job_id, run_id):
+        # Inside capture so an import failure's traceback lands in this run's log.
+        func = import_callback(task.entrypoint)
         async with task_scope(
             task_id=task.id,
             job_id=task.job_id,
@@ -395,7 +402,7 @@ async def _run_cleanup_argv(cleanup_argv: list[str]) -> None:
     await proc.wait()
 
 
-async def _pump_stream(stream: asyncio.StreamReader, sink: _ChLogSink, source: LogStream) -> None:
+async def _pump_stream(stream: asyncio.StreamReader, sink: ChLogSink, source: LogStream) -> None:
     """Feed one output pipe into the sink until EOF.
 
     Decodes incrementally so a multibyte character split across reads stays intact.
@@ -407,6 +414,45 @@ async def _pump_stream(stream: asyncio.StreamReader, sink: _ChLogSink, source: L
             sink.write(source, text)
         if not chunk:
             return
+
+
+async def pump_process_output(
+    proc: asyncio.subprocess.Process,
+    task_id: int,
+    job_id: int,
+    run_id: int | None,
+    *,
+    record_exit: bool = False,
+    console_prefix: str = "",
+) -> None:
+    """Stream ``proc``'s stdout and stderr into a :func:`stream_to_task_logs`
+    sink until it exits.
+
+    Cancellation kills ``proc``. Shared by :func:`execute_shell_task` (the
+    shell process itself) and :func:`follow_vehicle_output` (a log follower).
+    ``record_exit`` adds an ERROR ``exit N`` line on a nonzero exit — only
+    meaningful when ``proc`` is the task, not a follower.
+    """
+    async with stream_to_task_logs(task_id, job_id, run_id, console_prefix=console_prefix) as sink:
+        readers = [
+            asyncio.create_task(_pump_stream(proc.stdout, sink, STDOUT_STREAM)),
+            asyncio.create_task(_pump_stream(proc.stderr, sink, STDERR_STREAM)),
+        ]
+        try:
+            await proc.wait()
+            for reader in readers:
+                await reader
+        except asyncio.CancelledError:
+            proc.kill()
+            await proc.wait()
+            raise
+        finally:
+            for reader in readers:
+                reader.cancel()
+                with suppress(asyncio.CancelledError):
+                    await reader
+            if record_exit and proc.returncode:
+                sink.record("ERROR", f"exit {proc.returncode}")
 
 
 async def execute_shell_task(task: Task, spec: ShellSpec | None = None) -> None:
@@ -425,43 +471,69 @@ async def execute_shell_task(task: Task, spec: ShellSpec | None = None) -> None:
     if spec is None:
         spec = ShellSpec(task.command or [], task.command_env)
     run_id = await register_run(task.id)
-    # A shell-only job on a fresh DB may not have run task_scope's
-    # init_oplog_tables yet; bring the schema up before streaming.
-    try:
-        await init_oplog_tables(get_ch_client())
-    except Exception:
-        logger.error("Failed to ensure task_logs for task %s run %s", task.id, run_id, exc_info=True)
-
     proc = await start_shell_process(spec.argv, spec.env)
-    sink = _ChLogSink()
-    flusher = _SinkFlusher(sink, task.id, task.job_id, run_id)
-    flusher_task = asyncio.create_task(flusher.run())
-    readers = [
-        asyncio.create_task(_pump_stream(proc.stdout, sink, STDOUT_STREAM)),
-        asyncio.create_task(_pump_stream(proc.stderr, sink, STDERR_STREAM)),
-    ]
     try:
-        await proc.wait()
-        for reader in readers:
-            await reader
-    except asyncio.CancelledError:
-        proc.kill()
-        await proc.wait()
-        raise
+        await pump_process_output(proc, task.id, task.job_id, run_id, record_exit=True)
     finally:
-        for reader in readers:
-            reader.cancel()
-            with suppress(asyncio.CancelledError):
-                await reader
-        if proc.returncode:
-            sink.record("ERROR", f"exit {proc.returncode}")
-        flusher.request_stop()
-        await flusher_task
-        await flusher.flush_final()
         if spec.cleanup_argv:
             await _run_cleanup_argv(spec.cleanup_argv)
     if proc.returncode != 0:
         raise RuntimeError(f"exit {proc.returncode}")
+
+
+async def get_run_count(task_id: int) -> int:
+    """How many attempts the task has registered (``len(run_ids)``)."""
+    async with get_sql_session() as session:
+        run_ids = (await session.execute(select(Task.run_ids).where(col(Task.id) == task_id))).scalar_one_or_none()
+    return len(run_ids or [])
+
+
+async def register_host_log_run(task: Task, entry_type: EntryType) -> int | None:
+    """Register an image task's attempt on the host; return its run_id, or
+    None for ``module``.
+
+    A ``module`` image's ``execute_task`` registers its own run and captures
+    its own output. Other shims (``jvm``) do neither, so the host registers
+    the run and follows the container's output under it
+    (:func:`follow_vehicle_output`) — a new language SDK needs no logging code.
+    """
+    if entry_type == ENTRY_MODULE:
+        return None
+    return await register_run(task.id)
+
+
+async def follow_vehicle_output(argv: list[str], task_id: int, job_id: int, run_id: int | None) -> None:
+    """Stream a container's output from the host to the task-log destinations,
+    console lines prefixed ``[task N]``.
+
+    ``argv`` follows the output until the container exits (``docker logs -f``,
+    ``kubectl logs -f``). ``run_id=None`` prints it without writing
+    ``task_logs``. Best-effort, like ``flush_task_logs``: a failure is logged
+    and never fails the task.
+    """
+    try:
+        proc = await start_shell_process(argv, None)
+        await pump_process_output(proc, task_id, job_id, run_id, console_prefix=f"[task {task_id}] ")
+    except Exception:
+        logger.error("Failed to follow output for task %s run %s", task_id, run_id, exc_info=True)
+
+
+async def stop_output_follower(follower: asyncio.Task[None] | None, drain_timeout: float) -> None:
+    """Let a :func:`follow_vehicle_output` task drain for up to
+    ``drain_timeout`` seconds, then cancel it.
+
+    Called before the vehicle is removed (its output is gone after
+    ``docker rm`` / ``kubectl delete``); the follower normally ends with the
+    container.
+    """
+    if follower is None:
+        return
+    if drain_timeout > 0:
+        with suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(asyncio.shield(follower), timeout=drain_timeout)
+    follower.cancel()
+    with suppress(asyncio.CancelledError):
+        await follower
 
 
 def _sanitize_for_json(value: Any) -> Any:

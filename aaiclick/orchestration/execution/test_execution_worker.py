@@ -1,6 +1,8 @@
 """Tests for execution_worker management and task claiming."""
 
 import asyncio
+import time
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import text
@@ -10,6 +12,7 @@ from aaiclick.backend import is_sqlite
 
 from ...snowflake import get_snowflake_id
 from ..factories import create_job, create_task
+from ..logging import task_logs_destination
 from ..models import (
     EXECUTION_WORKER_ACTIVE,
     EXECUTION_WORKER_STOPPED,
@@ -22,30 +25,38 @@ from ..models import (
     Task,
 )
 from ..orch_context import commit_tasks, get_sql_session
+from . import execution_worker
 from .claiming import claim_next_task, update_task_status
 from .execution_worker import (
+    RunnerResult,
     deregister_execution_worker,
-    echo_task_output_enabled,
+    drive_vehicle,
     execution_worker_heartbeat,
     get_execution_worker,
     list_execution_workers,
     register_execution_worker,
     request_execution_worker_stop,
 )
-from .runner import execute_task
+from .runner import OUTPUT_FOLLOWER_DRAIN_TIMEOUT, execute_task
 
 
 @pytest.mark.parametrize(
     "value, expected",
     [
-        pytest.param("", False, id="empty"),
-        pytest.param("0", False, id="zero"),
-        pytest.param("1", True, id="one"),
+        pytest.param("", "both", id="unset_defaults_to_both"),
+        pytest.param("clickhouse", "clickhouse", id="clickhouse"),
+        pytest.param("console", "console", id="console"),
     ],
 )
-def test_echo_task_output_enabled(monkeypatch, value, expected):
-    monkeypatch.setenv("AAICLICK_ECHO_TASK_OUTPUT", value)
-    assert echo_task_output_enabled() is expected
+def test_task_logs_destination(monkeypatch, value, expected):
+    monkeypatch.setenv("AAICLICK_TASK_LOGS", value)
+    assert task_logs_destination() == expected
+
+
+def test_task_logs_destination_rejects_unknown_value(monkeypatch):
+    monkeypatch.setenv("AAICLICK_TASK_LOGS", "stdout")
+    with pytest.raises(ValueError, match="AAICLICK_TASK_LOGS must be one of"):
+        task_logs_destination()
 
 
 async def test_register_worker(orch_ctx):
@@ -404,3 +415,70 @@ async def test_claim_respects_group_dependency(orch_ctx):
     claimed3 = await claim_next_task(execution_worker.id)
     assert claimed3 is not None
     assert claimed3.id == task2.id
+
+
+class _StillRunningVehicle:
+    """Reports a timeout while its container (a ``sleep``) keeps running, as a
+    timed-out Pod does until ``cleanup`` deletes it."""
+
+    async def launch(self, task, execution_worker_id):
+        return None
+
+    async def wait(self, handle, timeout):
+        return -1, "Task timed out after 1s", None
+
+    async def poll_cancelled(self, task):
+        return False
+
+    async def terminate(self, handle):
+        pass
+
+    def collect(self, handle, exit_code, error, was_cancelled, payload):
+        return RunnerResult(False, None, error)
+
+    async def cleanup(self, handle):
+        pass
+
+    async def output_argv(self, handle):
+        return ["sleep", "60"]
+
+
+async def test_drive_vehicle_does_not_drain_a_still_running_vehicle(orch_ctx):
+    """Internal: timing. After a vehicle error the follower gets only a short
+    grace, not the full drain timeout, before cleanup runs."""
+    task = Task(id=get_snowflake_id(), job_id=1, entrypoint="", name="t")
+    start = time.monotonic()
+    result = await drive_vehicle(
+        task,
+        1,
+        _StillRunningVehicle(),
+        timeout=None,
+        poll_interval=60,
+        heartbeat_fn=AsyncMock(),
+        log_run_id=get_snowflake_id(),
+    )
+    assert result.error == "Task timed out after 1s"
+    assert time.monotonic() - start < OUTPUT_FOLLOWER_DRAIN_TIMEOUT / 2
+
+
+class _FinishedVehicle(_StillRunningVehicle):
+    """Exits cleanly with a result; its output is not followed by the host."""
+
+    async def wait(self, handle, timeout):
+        return 0, None, None
+
+    def collect(self, handle, exit_code, error, was_cancelled, payload):
+        return RunnerResult(True, None, None)
+
+    async def output_argv(self, handle):
+        return ["true"]
+
+
+async def test_drive_vehicle_survives_a_failing_output_collection(orch_ctx, monkeypatch):
+    """Internal: failure injection. Log handling is best-effort — a DB error
+    while deciding what to do with a finished vehicle's output must not turn
+    a successful run into a failed one."""
+    monkeypatch.setattr(execution_worker, "get_run_count", AsyncMock(side_effect=RuntimeError("db down")))
+    task = Task(id=get_snowflake_id(), job_id=1, entrypoint="", name="t")
+    result = await drive_vehicle(task, 1, _FinishedVehicle(), timeout=None, poll_interval=60, heartbeat_fn=AsyncMock())
+    assert result.success

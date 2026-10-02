@@ -587,11 +587,40 @@ is reserved for real `logging.error` records), and
 `AAICLICK_LOG_LEVEL` sets the captured root level
 (default `INFO`). Every row is tagged with its `stream` (`stdout`/`stderr`),
 its `level`, and a per-line `created_at` (emit time, not flush time) so the
-UI can color by severity and optionally show timestamps. Because every runner
-(subprocess, docker, kubernetes) shares that path, and shell tasks stream
-through the same `_SinkFlusher` in `execute_shell_task`, `get_task_logs`
-reads one host-independent source regardless of where the task ran —
-`aaiclick/orchestration/logging.py`, `aaiclick/oplog/models.py`. The rows are
+UI can color by severity and optionally show timestamps.
+
+Every entry type writes through the same `stream_to_task_logs` sink, so
+`get_task_logs` reads one host-independent source regardless of where the task
+ran. `module` tasks feed it in-process; for the rest the host pumps a
+process's pipes (`pump_process_output`):
+
+| Entry type | subprocess                        | docker                           | kubernetes                                  |
+|------------|-----------------------------------|----------------------------------|---------------------------------------------|
+| `module`   | task child: `capture_task_output` | container: `capture_task_output` | Pod: `capture_task_output`                  |
+| `shell`    | host: argv pipes                  | host: `docker run --rm` pipes    | host: `kubectl run --attach` pipes          |
+| `jvm`      | — (rejected at commit)            | host: `docker logs -f`           | host: `kubectl logs -f` (merged → `stdout`) |
+
+Host-side following is the default for any image entry type other than
+`module` (`register_host_log_run`), so a new language SDK needs no logging code.
+A `module` container that exits without registering a run (bootstrap failed
+before `execute_task`: bad DB URL, broken image) has its output copied in by the
+host (`_collect_unfollowed_output` in `execution_worker.py`).
+
+`AAICLICK_TASK_LOGS` picks where task output goes (`task_logs_destination` in
+`logging.py`):
+
+| Value            | ClickHouse `task_logs` (UI log panel) | Console |
+|------------------|---------------------------------------|---------|
+| `both` (default) | yes                                   | yes     |
+| `clickhouse`     | yes                                   | no      |
+| `console`        | no                                    | yes     |
+
+Console output is printed line by line. Container output carries a `[task N]`
+prefix — live for followed containers, at exit for `module` containers.
+aaiclick's own framework logs always go to the console.
+
+Implementation: `aaiclick/orchestration/logging.py`,
+`aaiclick/orchestration/execution/runner.py`, `aaiclick/oplog/models.py`. The rows are
 job-scoped: the background worker's `_delete_job_data` drops a job's
 `task_logs` alongside its `operation_log` on TTL expiry, so logs share the
 job's retention lifecycle.

@@ -1,23 +1,25 @@
 """Task logging utilities for orchestration backend.
 
-Task stdout/stderr is captured to ClickHouse ``task_logs``, streamed
-incrementally from inside the task process every ``LOG_FLUSH_INTERVAL``
-seconds. Every runner (subprocess, docker, kubernetes) runs the same
-``capture_task_output`` path for module tasks and ``execution.runner``'s
-``execute_shell_task`` for shell tasks, so all runs surface their logs
-through one cross-host read path (:func:`read_task_logs`) no matter which
-host wrote them.
+Task stdout/stderr is captured to ClickHouse ``task_logs`` and/or the console
+(:func:`task_logs_destination`), streamed to ClickHouse every
+``LOG_FLUSH_INTERVAL`` seconds through :func:`stream_to_task_logs`. Module tasks feed it from inside the task process
+(:func:`capture_task_output`); shell tasks and ``jvm`` containers are fed by the
+host (``execution.runner``'s ``execute_shell_task`` / ``follow_vehicle_output``).
+All runs surface their logs through one cross-host read path
+(:func:`read_task_logs`) no matter which host wrote them.
 """
 
 import asyncio
 import logging
 import os
 import sys
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
-from typing import TextIO
+from datetime import datetime
+from typing import Literal, cast, get_args
 
 from aaiclick.async_wait import wait_or_timeout
-from aaiclick.backend import is_chdb
+from aaiclick.backend import is_chdb, is_local
 from aaiclick.data.data_context import ChClient, get_ch_client
 from aaiclick.data.data_context.ch_client import create_ch_client
 from aaiclick.datetime_utils import utc_now
@@ -30,11 +32,30 @@ from aaiclick.log_models import (
     LogStream,
     normalize_level,
 )
-from aaiclick.oplog.models import get_column_types
+from aaiclick.oplog.models import get_column_types, init_oplog_tables
 
 logger = logging.getLogger(__name__)
 
 _TASK_LOG_COLS = ["task_id", "job_id", "run_id", "seq", "stream", "level", "line", "created_at"]
+
+
+TASK_LOGS_BOTH = "both"
+TASK_LOGS_CLICKHOUSE = "clickhouse"
+TASK_LOGS_CONSOLE = "console"
+TaskLogsDestination = Literal["both", "clickhouse", "console"]
+
+
+def task_logs_destination() -> TaskLogsDestination:
+    """Where captured task output goes, from ``AAICLICK_TASK_LOGS``:
+    ``"both"`` (the default), ``"clickhouse"`` (``task_logs`` only — what the
+    UI log panel reads) or ``"console"`` (the process's stdout/stderr only).
+    aaiclick's own framework logs always go to the console."""
+    value = os.environ.get("AAICLICK_TASK_LOGS") or TASK_LOGS_BOTH
+    allowed = get_args(TaskLogsDestination)
+    if value not in allowed:
+        raise ValueError(f"AAICLICK_TASK_LOGS must be one of {list(allowed)}, got {value!r}")
+    return cast(TaskLogsDestination, value)
+
 
 # How often a running task's captured output is drained to CH task_logs.
 # Matches the UI poll interval — flushing faster buys nothing.
@@ -47,34 +68,47 @@ LOG_FLUSH_INTERVAL = 2.0
 _DEFAULT_STREAM_LEVEL: dict[LogStream, LogLevel] = {STDOUT_STREAM: "INFO", STDERR_STREAM: "WARNING"}
 
 
-class _ChLogSink:
-    """Accumulate captured output as level-tagged lines for a CH batch write.
+class ChLogSink:
+    """Route captured output, line by line, to its destinations: buffered for a
+    CH batch write (``keep``) and/or printed to the console (``console``).
 
-    ``write`` is sync — it's driven by ``print`` through ``_TeeWriter`` while the
-    task runs. Each stream (stdout / stderr) keeps its own partial-line buffer so
-    a line is tagged with the stream that emitted it; completed lines are
-    appended in emission order, each stamped with its own emit time. ``record``
-    is the logging path: it appends already-leveled lines from ``_ChLogHandler``.
-    Lines are drained incrementally by a periodic flusher while the task runs
-    and finally on exit (:func:`capture_task_output`).
+    ``write`` is sync — it's driven by ``print`` through ``_SinkWriter`` while
+    the task runs. Each stream (stdout / stderr) keeps its own partial-line
+    buffer so a line is tagged with the stream that emitted it; completed lines
+    are kept in emission order, each stamped with its own emit time. ``record``
+    is the logging path: already-leveled lines from ``_ChLogHandler``. Console
+    lines go to the stdout / stderr in place when the sink is built, each
+    prefixed with ``prefix``. Kept lines are drained incrementally by a
+    periodic flusher while the task runs and finally on exit.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, keep: bool = True, console: bool = False, prefix: str = "") -> None:
         self._partial: dict[LogStream, str] = {STDOUT_STREAM: "", STDERR_STREAM: ""}
         self._lines: list[LogLine] = []
+        self._keep = keep
+        self._console = {STDOUT_STREAM: sys.stdout, STDERR_STREAM: sys.stderr} if console else None
+        self._prefix = prefix
+
+    def _emit(self, stream: LogStream, level: LogLevel, text: str, created_at: datetime) -> None:
+        if self._console is not None:
+            out = self._console[stream]
+            out.write(f"{self._prefix}{text}\n")
+            out.flush()
+        if self._keep:
+            self._lines.append(LogLine(stream=stream, level=level, text=text, created_at=created_at))
 
     def write(self, stream: LogStream, data: str) -> None:
         parts = (self._partial[stream] + data).split("\n")
         self._partial[stream] = parts.pop()
-        level = _DEFAULT_STREAM_LEVEL[stream]
-        self._lines.extend(LogLine(stream=stream, level=level, text=p, created_at=utc_now()) for p in parts)
+        for part in parts:
+            self._emit(stream, _DEFAULT_STREAM_LEVEL[stream], part, utc_now())
 
     def record(self, level: LogLevel, text: str) -> None:
-        """Append a logging record's message as level-tagged line(s)."""
+        """Emit a logging record's message as level-tagged line(s), all
+        stamped with the record's one emit time."""
         now = utc_now()
-        self._lines.extend(
-            LogLine(stream=STDERR_STREAM, level=level, text=p, created_at=now) for p in text.rstrip("\n").split("\n")
-        )
+        for part in text.rstrip("\n").split("\n"):
+            self._emit(STDERR_STREAM, level, part, now)
 
     def drain(self) -> list[LogLine]:
         """Return completed lines accumulated so far and clear them.
@@ -88,14 +122,7 @@ class _ChLogSink:
         """Return all captured lines, flushing any unterminated trailing line."""
         for stream in (STDOUT_STREAM, STDERR_STREAM):
             if self._partial[stream]:
-                self._lines.append(
-                    LogLine(
-                        stream=stream,
-                        level=_DEFAULT_STREAM_LEVEL[stream],
-                        text=self._partial[stream],
-                        created_at=utc_now(),
-                    )
-                )
+                self._emit(stream, _DEFAULT_STREAM_LEVEL[stream], self._partial[stream], utc_now())
                 self._partial[stream] = ""
         return self.drain()
 
@@ -117,7 +144,7 @@ class _SinkFlusher:
     own client (closed by ``flush_final``) instead of racing the task body's.
     """
 
-    def __init__(self, sink: _ChLogSink, task_id: int, job_id: int, run_id: int) -> None:
+    def __init__(self, sink: ChLogSink, task_id: int, job_id: int, run_id: int) -> None:
         self._sink = sink
         self._task_id = task_id
         self._job_id = job_id
@@ -170,51 +197,37 @@ class _SinkFlusher:
             await self.flush_pending()
 
 
-class _TeeWriter:
-    """Writer that outputs to multiple streams and an optional CH sink.
+class _SinkWriter:
+    """File-like stand-in for ``sys.stdout`` / ``sys.stderr`` that feeds a sink.
 
-    ``source`` tags the sink rows with the stream this writer fronts (stdout /
-    stderr) so the captured lines carry their origin."""
+    ``source`` tags the sink rows with the stream this writer fronts so the
+    captured lines carry their origin."""
 
-    def __init__(self, *streams: TextIO, sink: _ChLogSink | None = None, source: LogStream | None = None):
-        self.streams = streams
+    def __init__(self, sink: ChLogSink, source: LogStream):
         self._sink = sink
         self._source = source
 
     def write(self, data: str) -> int:
-        for stream in self.streams:
-            stream.write(data)
-            stream.flush()
-        if self._sink is not None and self._source is not None:
-            self._sink.write(self._source, data)
+        self._sink.write(self._source, data)
         return len(data)
 
     def flush(self) -> None:
-        for stream in self.streams:
-            stream.flush()
+        pass
 
 
 class _ChLogHandler(logging.Handler):
-    """Route ``logging`` records into the active CH sink with their true level.
+    """Route ``logging`` records into the active sink with their true level,
+    bypassing ``_SinkWriter`` so a record is not captured a second time as raw
+    stderr text."""
 
-    Echoes the formatted message to the original stderr for visibility,
-    bypassing the tee so the record is not captured a second time as raw
-    stderr text.
-    """
-
-    def __init__(self, sink: _ChLogSink, console: TextIO):
+    def __init__(self, sink: ChLogSink):
         super().__init__()
         self._sink = sink
-        self._console = console
         self.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            level = normalize_level(record.levelno)
-            msg = self.format(record)
-            self._console.write(msg + "\n")
-            self._console.flush()
-            self._sink.record(level, msg)
+            self._sink.record(normalize_level(record.levelno), self.format(record))
         except Exception:  # never let logging crash the task
             self.handleError(record)
 
@@ -273,19 +286,62 @@ async def read_task_logs(task_id: int, run_id: int, tail: int = MAX_TASK_LOG_LIN
     return [LogLine(stream=row[0], level=row[1], text=row[2], created_at=row[3]) for row in rows]
 
 
+async def _ensure_task_logs_table(task_id: int, run_id: int) -> None:
+    """Bring the local CH schema up before streaming: a run that fails before
+    ``task_scope`` (an import error, a shell or jvm task on a fresh DB) has not
+    run its ``init_oplog_tables`` yet.
+
+    Distributed mode never writes the schema (the operator migrates), and the
+    host worker there holds no CH client, so it is skipped."""
+    if not is_local():
+        return
+    try:
+        await init_oplog_tables(get_ch_client())
+    except Exception:
+        logger.error("Failed to ensure task_logs for task %s run %s", task_id, run_id, exc_info=True)
+
+
+@asynccontextmanager
+async def stream_to_task_logs(
+    task_id: int, job_id: int, run_id: int | None, *, console_prefix: str = ""
+) -> AsyncIterator[ChLogSink]:
+    """Yield the sink every capture path feeds, routed per
+    :func:`task_logs_destination`. Lines bound for CH ``task_logs`` are flushed
+    every ``LOG_FLUSH_INTERVAL`` seconds and finally on exit, so long-running
+    tasks are tailed live; ``run_id=None`` (no run to key them by) sends to the
+    console only. Console lines carry ``console_prefix``."""
+    destination = task_logs_destination()
+    console = destination != TASK_LOGS_CLICKHOUSE
+    if run_id is None or destination == TASK_LOGS_CONSOLE:
+        sink = ChLogSink(keep=False, console=console, prefix=console_prefix)
+        try:
+            yield sink
+        finally:
+            sink.finalize()
+        return
+    await _ensure_task_logs_table(task_id, run_id)
+    sink = ChLogSink(console=console, prefix=console_prefix)
+    flusher = _SinkFlusher(sink, task_id, job_id, run_id)
+    flusher_task = asyncio.create_task(flusher.run())
+    try:
+        yield sink
+    finally:
+        flusher.request_stop()
+        await flusher_task
+        await flusher.flush_final()
+
+
 @asynccontextmanager
 async def capture_task_output(task_id: int, job_id: int, run_id: int):
     """
     Context manager to capture stdout, stderr, and ``logging`` for one task run.
 
-    Output is teed to the original streams and a ClickHouse sink. ``logging``
-    records are routed through :class:`_ChLogHandler` so each carries its true
-    level; for the duration of the run the root logger's handlers are replaced
-    with ours (restored on exit) so records are captured exactly once. The sink
-    is drained to ``task_logs`` every ``LOG_FLUSH_INTERVAL`` seconds while the
-    body runs and finally on exit (success or failure), so long-running tasks
-    are tailed live and every runner gets a host-independent log source. A body
-    that never awaits starves the periodic flusher — its logs land at exit.
+    Output goes to a :func:`stream_to_task_logs` sink, which sends it to
+    ``task_logs`` and/or the console. ``logging`` records are routed through
+    :class:`_ChLogHandler` so each carries its true level; for the run the
+    root logger's handlers are replaced with ours (restored on exit) so
+    records are captured exactly once. A body that never awaits
+    starves the periodic flusher — its logs land at exit.
 
     Args:
         task_id: Task ID the captured rows are keyed by.
@@ -294,33 +350,27 @@ async def capture_task_output(task_id: int, job_id: int, run_id: int):
     """
     original_stdout = sys.stdout
     original_stderr = sys.stderr
-    sink = _ChLogSink()
-    flusher = _SinkFlusher(sink, task_id, job_id, run_id)
-
     root = logging.getLogger()
     saved_handlers = root.handlers[:]
     saved_level = root.level
-    flusher_task = asyncio.create_task(flusher.run())
-    try:
-        sys.stdout = _TeeWriter(original_stdout, sink=sink, source=STDOUT_STREAM)
-        sys.stderr = _TeeWriter(original_stderr, sink=sink, source=STDERR_STREAM)
-        root.handlers = [_ChLogHandler(sink, original_stderr)]
+    async with stream_to_task_logs(task_id, job_id, run_id) as sink:
         try:
-            root.setLevel(os.getenv("AAICLICK_LOG_LEVEL", "INFO").upper())
-        except ValueError:
-            root.setLevel(logging.INFO)
-        try:
-            yield
-        except Exception:
-            # The run's own log keeps why it failed; ``Task.error`` holds only
-            # the latest attempt's one-line message.
-            logger.exception("Task failed")
-            raise
-    finally:
-        root.handlers = saved_handlers
-        root.setLevel(saved_level)
-        sys.stdout = original_stdout
-        sys.stderr = original_stderr
-        flusher.request_stop()
-        await flusher_task
-        await flusher.flush_final()
+            sys.stdout = _SinkWriter(sink, STDOUT_STREAM)
+            sys.stderr = _SinkWriter(sink, STDERR_STREAM)
+            root.handlers = [_ChLogHandler(sink)]
+            try:
+                root.setLevel(os.getenv("AAICLICK_LOG_LEVEL", "INFO").upper())
+            except ValueError:
+                root.setLevel(logging.INFO)
+            try:
+                yield
+            except Exception:
+                # The run's own log keeps why it failed; ``Task.error`` holds only
+                # the latest attempt's one-line message.
+                logger.exception("Task failed")
+                raise
+        finally:
+            root.handlers = saved_handlers
+            root.setLevel(saved_level)
+            sys.stdout = original_stdout
+            sys.stderr = original_stderr

@@ -14,6 +14,7 @@ ALWAYS_PASSED_ENV_VARS = (
     "AAICLICK_TASK_TIMEOUT",
     "AAICLICK_DEFAULT_PRESERVATION_MODE",
     "AAICLICK_REGISTRY",
+    "AAICLICK_TASK_LOGS",
 )
 """Env vars always copied into the remote executor without opt-in.
 
@@ -23,7 +24,8 @@ default must propagate so subjobs the user spawns inherit the same setting;
 the registry must propagate because dynamic ``commit_tasks`` runs inside
 containers and its kubernetes validation (``validate_image_sources``) reads it
 — without it a dynamic child declaring a build image on a kubernetes job would
-be rejected inside the container."""
+be rejected inside the container; the task-log destination must propagate so
+in-container capture writes where the worker does."""
 
 
 def build_runner_env() -> dict[str, str]:

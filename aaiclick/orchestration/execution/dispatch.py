@@ -32,7 +32,7 @@ from .docker_worker import _docker_pull_if_registered, _run_task_in_container, b
 from .execution_worker import JobDispatch
 from .kubernetes_worker import _run_task_in_pod, build_shell_pod_spec
 from .mp_worker import _run_task_in_child
-from .runner import ShellSpec, register_run
+from .runner import ShellSpec, register_host_log_run
 
 ExecuteResult = tuple[bool, dict | None, str | None]
 
@@ -79,9 +79,10 @@ async def _resolve_dispatch(task: Task) -> JobDispatch:
     )
 
 
-# Image-based runners need the dispatch snapshot; subprocess is the default and
-# needs nothing, so it stays off the registry rather than carry an unused arg.
-_IMAGE_RUNNERS: dict[RunnerMode, Callable[[Task, int, JobDispatch], Awaitable[ExecuteResult]]] = {
+# Image-based runners need the dispatch snapshot and the host-registered log
+# run_id; subprocess is the default and needs neither, so it stays off the
+# registry rather than carry unused args.
+_IMAGE_RUNNERS: dict[RunnerMode, Callable[[Task, int, JobDispatch, int | None], Awaitable[ExecuteResult]]] = {
     RUNNER_DOCKER: _run_task_in_container,
     RUNNER_KUBERNETES: _run_task_in_pod,
 }
@@ -110,14 +111,11 @@ async def dispatch_execute(task: Task, execution_worker_id: int) -> ExecuteResul
         spec = await build_shell_spec(task, dispatch)
         return await _run_task_in_child(task, execution_worker_id, shell_spec=spec)
     handler = _IMAGE_RUNNERS.get(dispatch.runner_mode)
-    if dispatch.entry_type == ENTRY_JVM:
-        if handler is None:
-            # Commit-point validation (validate_jvm_tasks) blocks this; the guard
-            # keeps a stray row from being executed as a Python module task.
-            return False, None, "jvm task requires a docker/kubernetes runner with an image_source"
-        # The shim never touches run_ids (a Python container registers inside
-        # execute_task), so the host records the jvm attempt.
-        await register_run(task.id)
+    if dispatch.entry_type == ENTRY_JVM and handler is None:
+        # Commit-point validation (validate_jvm_tasks) blocks this; the guard
+        # keeps a stray row from being executed as a Python module task.
+        return False, None, "jvm task requires a docker/kubernetes runner with an image_source"
     if handler is not None:
-        return await handler(task, execution_worker_id, dispatch)
+        log_run_id = await register_host_log_run(task, dispatch.entry_type)
+        return await handler(task, execution_worker_id, dispatch, log_run_id)
     return await _run_task_in_child(task, execution_worker_id)
