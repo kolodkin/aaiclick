@@ -37,6 +37,15 @@ logger = logging.getLogger(__name__)
 
 _TASK_LOG_COLS = ["task_id", "job_id", "run_id", "seq", "stream", "level", "line", "created_at"]
 
+
+def echo_task_output_enabled() -> bool:
+    """``AAICLICK_ECHO_TASK_OUTPUT``: also copy every captured task line to the
+    process's own stdout/stderr. Task output always goes to ``task_logs``; this
+    adds the console. Off when unset, empty or ``0`` — the default, CI
+    included; set it to debug missing logs."""
+    return os.environ.get("AAICLICK_ECHO_TASK_OUTPUT", "") not in ("", "0")
+
+
 # How often a running task's captured output is drained to CH task_logs.
 # Matches the UI poll interval — flushing faster buys nothing.
 LOG_FLUSH_INTERVAL = 2.0
@@ -198,12 +207,12 @@ class _TeeWriter:
 class _ChLogHandler(logging.Handler):
     """Route ``logging`` records into the active CH sink with their true level.
 
-    Echoes the formatted message to the original stderr for visibility,
+    With a ``console`` (echo on), also writes the formatted message there,
     bypassing the tee so the record is not captured a second time as raw
     stderr text.
     """
 
-    def __init__(self, sink: ChLogSink, console: TextIO):
+    def __init__(self, sink: ChLogSink, console: TextIO | None):
         super().__init__()
         self._sink = sink
         self._console = console
@@ -213,8 +222,9 @@ class _ChLogHandler(logging.Handler):
         try:
             level = normalize_level(record.levelno)
             msg = self.format(record)
-            self._console.write(msg + "\n")
-            self._console.flush()
+            if self._console is not None:
+                self._console.write(msg + "\n")
+                self._console.flush()
             self._sink.record(level, msg)
         except Exception:  # never let logging crash the task
             self.handleError(record)
@@ -311,8 +321,8 @@ async def capture_task_output(task_id: int, job_id: int, run_id: int):
     """
     Context manager to capture stdout, stderr, and ``logging`` for one task run.
 
-    Output is teed to the original streams and a :func:`stream_to_task_logs`
-    sink. ``logging`` records are routed through :class:`_ChLogHandler` so each
+    Output goes to a :func:`stream_to_task_logs` sink, and also to the original
+    streams when :func:`echo_task_output_enabled`. ``logging`` records are routed through :class:`_ChLogHandler` so each
     carries its true level; for the duration of the run the root logger's
     handlers are replaced with ours (restored on exit) so records are captured
     exactly once. A body that never awaits starves the periodic flusher — its
@@ -328,11 +338,12 @@ async def capture_task_output(task_id: int, job_id: int, run_id: int):
     root = logging.getLogger()
     saved_handlers = root.handlers[:]
     saved_level = root.level
+    echo = echo_task_output_enabled()
     async with stream_to_task_logs(task_id, job_id, run_id) as sink:
         try:
-            sys.stdout = _TeeWriter(original_stdout, sink=sink, source=STDOUT_STREAM)
-            sys.stderr = _TeeWriter(original_stderr, sink=sink, source=STDERR_STREAM)
-            root.handlers = [_ChLogHandler(sink, original_stderr)]
+            sys.stdout = _TeeWriter(*([original_stdout] if echo else []), sink=sink, source=STDOUT_STREAM)
+            sys.stderr = _TeeWriter(*([original_stderr] if echo else []), sink=sink, source=STDERR_STREAM)
+            root.handlers = [_ChLogHandler(sink, original_stderr if echo else None)]
             try:
                 root.setLevel(os.getenv("AAICLICK_LOG_LEVEL", "INFO").upper())
             except ValueError:

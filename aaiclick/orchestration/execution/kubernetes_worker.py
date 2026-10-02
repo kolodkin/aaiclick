@@ -25,8 +25,6 @@ from .execution_worker import (
     RunnerResult,
     TaskVehicle,
     drive_vehicle,
-    echo_task_output,
-    echo_task_output_enabled,
     execution_worker_heartbeat,
     parse_task_timeout,
 )
@@ -163,16 +161,6 @@ async def _kubectl_delete(handle: _PodHandle) -> None:
     await cli.run(
         _kubectl_bin(), "delete", "pod", handle.name, "-n", handle.namespace, "--ignore-not-found", check=False
     )
-
-
-async def _kubectl_logs(handle: _PodHandle) -> tuple[str, str]:
-    """The finished Pod's container log. Kubernetes merges the container's
-    stdout and stderr into one stream, so it comes back as stdout; the
-    returned stderr is kubectl's own (e.g. why the log could not be read)."""
-    _, stdout, stderr = await cli.run(
-        _kubectl_bin(), "logs", handle.name, "-n", handle.namespace, check=False, stream=False
-    )
-    return stdout, stderr
 
 
 # Phase reported by ``_pod_status`` when the API says the Pod no longer exists
@@ -332,19 +320,16 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
     async def output_argv(self, handle: _PodHandle) -> list[str] | None:
         """``kubectl logs -f`` fails on a ``Pending`` Pod (image pull,
         scheduling), so wait until ``wait`` sees it start; a Pod that never ran
-        has nothing to follow. The log merges stdout and stderr, so every
-        line lands as stdout."""
+        has nothing to follow, nor does one ``terminate`` already deleted. The
+        log merges stdout and stderr, so every line lands as stdout."""
         await handle.started.wait()
-        if handle.phase in (*_NOT_STARTED_PHASES, POD_NOT_FOUND):
+        if handle.deleted or handle.phase in (*_NOT_STARTED_PHASES, POD_NOT_FOUND):
             return None
         return [_kubectl_bin(), "logs", "--follow", handle.name, "-n", handle.namespace]
 
     async def cleanup(self, handle: _PodHandle) -> None:
         if handle.deleted:
             return
-        # Echo before deletion — the Pod's log is gone after kubectl delete.
-        if echo_task_output_enabled():
-            echo_task_output(handle.task_id, *await _kubectl_logs(handle))
         await _kubectl_delete(handle)
 
 

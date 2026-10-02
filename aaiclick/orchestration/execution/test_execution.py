@@ -226,6 +226,31 @@ async def test_execute_shell_task_splits_streams(orch_ctx):
     }
 
 
+_ECHO_CASES = [
+    pytest.param("", False, id="echo_off_task_logs_only"),
+    pytest.param("1", True, id="echo_on_also_console"),
+]
+
+
+@pytest.mark.parametrize("echo, on_console", _ECHO_CASES)
+async def test_shell_output_reaches_console_only_when_echoing(orch_ctx, monkeypatch, capsys, echo, on_console):
+    monkeypatch.setenv("AAICLICK_ECHO_TASK_OUTPUT", echo)
+    task = await _persisted_shell_task(["sh", "-c", "echo out line"])
+    await execute_shell_task(task)
+    assert ("out line" in capsys.readouterr().out) is on_console
+    assert [line.text for line in (await get_task_logs(task.id)).lines] == ["out line"]
+
+
+@pytest.mark.parametrize("echo, on_console", _ECHO_CASES)
+async def test_module_output_reaches_console_only_when_echoing(orch_ctx, monkeypatch, capsys, echo, on_console):
+    monkeypatch.setenv("AAICLICK_ECHO_TASK_OUTPUT", echo)
+    job = await create_job("test_job_echo", "aaiclick.orchestration.fixtures.sample_tasks.task_with_output")
+    await run_job_tasks(job)
+    assert ("This is stdout" in capsys.readouterr().out) is on_console
+    task = (await get_tasks_for_job(job.id))[0]
+    assert "This is stdout" in [line.text for line in (await get_task_logs(task.id)).lines]
+
+
 async def test_register_run_appends_run_ids_and_statuses(orch_ctx):
     """Each register_run call mints a distinct run_id and appends RUNNING."""
     job = await create_job("register_run_job", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
@@ -822,7 +847,7 @@ async def test_pump_stream_keeps_a_multibyte_char_split_across_reads():
     stream = asyncio.StreamReader()
     stream.feed_data("é\n".encode()[:1])
     sink = ChLogSink()
-    pump = asyncio.create_task(_pump_stream(stream, sink, STDOUT_STREAM))
+    pump = asyncio.create_task(_pump_stream(stream, sink, STDOUT_STREAM, None))
     await asyncio.sleep(0)
     stream.feed_data("é\n".encode()[1:])
     stream.feed_eof()

@@ -602,6 +602,17 @@ process's pipes (`pump_process_output`):
 
 Host-side following is the default for any image entry type other than
 `module` (`register_host_log_run`), so a new language SDK needs no logging code.
+A `module` container that exits without registering a run (its bootstrap failed
+before `execute_task`: bad DB URL, broken image) has its output copied in by the
+host under a host-registered run (`_collect_unfollowed_output` in
+`execution_worker.py`).
+
+Task output goes only to `task_logs` by default. `AAICLICK_ECHO_TASK_OUTPUT=1`
+also prints every captured line to the worker's console — teed live in-process
+and by the host pumps, and for `module` containers printed with a `[task N]`
+prefix when the container exits. It is off in CI unless a manual nightly run
+asks for it.
+
 Implementation: `aaiclick/orchestration/logging.py`,
 `aaiclick/orchestration/execution/runner.py`, `aaiclick/oplog/models.py`. The rows are
 job-scoped: the background worker's `_delete_job_data` drops a job's

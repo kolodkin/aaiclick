@@ -8,9 +8,10 @@ import importlib
 import inspect
 import logging
 import math
+import sys
 from collections.abc import Callable
 from contextlib import suppress
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, TextIO
 
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -50,7 +51,7 @@ from aaiclick.snowflake import get_snowflake_id
 from ...datetime_utils import utc_now
 from ..decorators import JobFactory, TaskFactory
 from ..dependency_graph import successor_edges
-from ..logging import ChLogSink, capture_task_output, stream_to_task_logs
+from ..logging import ChLogSink, capture_task_output, echo_task_output_enabled, stream_to_task_logs
 from ..models import (
     DEPENDENCY_TASK,
     JOB_COMPLETED,
@@ -402,8 +403,10 @@ async def _run_cleanup_argv(cleanup_argv: list[str]) -> None:
     await proc.wait()
 
 
-async def _pump_stream(stream: asyncio.StreamReader, sink: ChLogSink, source: LogStream) -> None:
-    """Feed one output pipe into the sink until EOF.
+async def _pump_stream(
+    stream: asyncio.StreamReader, sink: ChLogSink, source: LogStream, console: TextIO | None
+) -> None:
+    """Feed one output pipe into the sink (and ``console``, when echoing) until EOF.
 
     Decodes incrementally so a multibyte character split across reads stays intact.
     """
@@ -412,6 +415,9 @@ async def _pump_stream(stream: asyncio.StreamReader, sink: ChLogSink, source: Lo
         chunk = await stream.read(65536)
         if text := decoder.decode(chunk, final=not chunk):
             sink.write(source, text)
+            if console is not None:
+                console.write(text)
+                console.flush()
         if not chunk:
             return
 
@@ -426,10 +432,11 @@ async def pump_process_output(
     ``record_exit`` adds an ERROR ``exit N`` line on a nonzero exit — only
     meaningful when ``proc`` is the task, not a follower.
     """
+    echo = echo_task_output_enabled()
     async with stream_to_task_logs(task_id, job_id, run_id) as sink:
         readers = [
-            asyncio.create_task(_pump_stream(proc.stdout, sink, STDOUT_STREAM)),
-            asyncio.create_task(_pump_stream(proc.stderr, sink, STDERR_STREAM)),
+            asyncio.create_task(_pump_stream(proc.stdout, sink, STDOUT_STREAM, sys.stdout if echo else None)),
+            asyncio.create_task(_pump_stream(proc.stderr, sink, STDERR_STREAM, sys.stderr if echo else None)),
         ]
         try:
             await proc.wait()
@@ -472,6 +479,13 @@ async def execute_shell_task(task: Task, spec: ShellSpec | None = None) -> None:
             await _run_cleanup_argv(spec.cleanup_argv)
     if proc.returncode != 0:
         raise RuntimeError(f"exit {proc.returncode}")
+
+
+async def get_run_count(task_id: int) -> int:
+    """How many attempts the task has registered (``len(run_ids)``)."""
+    async with get_sql_session() as session:
+        run_ids = (await session.execute(select(Task.run_ids).where(col(Task.id) == task_id))).scalar_one_or_none()
+    return len(run_ids or [])
 
 
 async def register_host_log_run(task: Task, entry_type: EntryType) -> int | None:

@@ -24,7 +24,7 @@ on:
         default: ""
         type: string
       echo_task_output:
-        description: "Echo each task's raw container output into the job log (debug missing task_logs)"
+        description: "Also print task output to the job log, besides task_logs (debug missing logs)"
         required: false
         default: false
         type: boolean

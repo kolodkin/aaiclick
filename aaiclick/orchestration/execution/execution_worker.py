@@ -9,6 +9,7 @@ import signal
 import socket
 import sys
 from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from typing import Any, NamedTuple, Protocol, TypeVar, cast
 
 from sqlalchemy import update
@@ -19,6 +20,7 @@ from aaiclick.async_wait import wait_or_timeout
 from aaiclick.snowflake import get_snowflake_id
 
 from ...datetime_utils import utc_now
+from ..logging import echo_task_output_enabled
 from ..models import (
     CANCELLING_TASK_STATUSES,
     EXECUTION_WORKER_ACTIVE,
@@ -34,6 +36,7 @@ from ..models import (
 )
 from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_MODULE, EntryType, ImageSourceT, RunnerMode
+from . import cli
 from .claiming import (
     check_run_aborted,
     claim_next_task,
@@ -47,6 +50,8 @@ from .runner import (
     OUTPUT_FOLLOWER_ERROR_GRACE,
     execute_task,
     follow_vehicle_output,
+    get_run_count,
+    register_run,
     serialize_task_result,
     stop_output_follower,
 )
@@ -71,13 +76,6 @@ def parse_task_timeout() -> float | None:
     empty value reads as no timeout)."""
     raw = os.environ.get("AAICLICK_TASK_TIMEOUT")
     return float(raw) if raw else None
-
-
-def echo_task_output_enabled() -> bool:
-    """``AAICLICK_ECHO_TASK_OUTPUT``: echo each container/Pod's raw output to the
-    worker's own stdout/stderr before it is removed. Off when unset, empty or
-    ``0`` — the default, CI included; set it only to debug missing task_logs."""
-    return os.environ.get("AAICLICK_ECHO_TASK_OUTPUT", "") not in ("", "0")
 
 
 def echo_task_output(task_id: int, stdout: str, stderr: str) -> None:
@@ -213,6 +211,27 @@ async def _follow_output(vehicle: TaskVehicle[H, P], task: Task, handle: H, run_
         await follow_vehicle_output(argv, task.id, task.job_id, run_id)
 
 
+async def _collect_unfollowed_output(vehicle: TaskVehicle[H, P], task: Task, handle: H) -> None:
+    """Handle an exited vehicle's output that no host follower read.
+
+    A run the vehicle never registered (its bootstrap failed before
+    ``execute_task``: bad DB URL, broken image) left no ``task_logs`` — the host
+    registers the attempt and copies the output there. Otherwise the output is
+    already in ``task_logs`` and is only printed when echoing."""
+    argv = await vehicle.output_argv(handle)
+    if argv is None:
+        return
+    if await get_run_count(task.id) == len(task.run_ids):
+        run_id = await register_run(task.id)
+        with suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(
+                follow_vehicle_output(argv, task.id, task.job_id, run_id), timeout=OUTPUT_FOLLOWER_DRAIN_TIMEOUT
+            )
+    elif echo_task_output_enabled():
+        _, stdout, stderr = await cli.run(*argv, check=False, stream=False)
+        echo_task_output(task.id, stdout, stderr)
+
+
 async def drive_vehicle(
     task: Task,
     execution_worker_id: int,
@@ -232,7 +251,8 @@ async def drive_vehicle(
     explicit kill is the source of truth. With ``log_run_id`` (a host-registered
     run, see ``register_host_log_run``) the vehicle's output is followed into
     ``task_logs`` and drained before ``cleanup`` removes it — fully after a
-    clean exit, briefly after a vehicle error, not at all when unwinding."""
+    clean exit, briefly after a vehicle error, not at all when unwinding.
+    Without one, :func:`_collect_unfollowed_output` runs before ``cleanup``."""
     handle = await vehicle.launch(task, execution_worker_id)
     follower = None
     if log_run_id is not None:
@@ -244,9 +264,11 @@ async def drive_vehicle(
     )
     cancel_watcher = asyncio.create_task(_watch_for_cancellation(vehicle, task, handle, done, cancelled, poll_interval))
 
+    waited = False
     drain_timeout = 0.0
     try:
         exit_code, error, payload = await vehicle.wait(handle, timeout)
+        waited = True
         drain_timeout = OUTPUT_FOLLOWER_DRAIN_TIMEOUT if error is None else OUTPUT_FOLLOWER_ERROR_GRACE
         done.set()
         await asyncio.gather(heartbeat, cancel_watcher, return_exceptions=True)
@@ -255,6 +277,8 @@ async def drive_vehicle(
         done.set()
         await asyncio.gather(heartbeat, cancel_watcher, return_exceptions=True)
         await stop_output_follower(follower, drain_timeout)
+        if waited and follower is None:
+            await _collect_unfollowed_output(vehicle, task, handle)
         await vehicle.cleanup(handle)
 
 
