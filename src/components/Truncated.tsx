@@ -1,8 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 
-import { useToast } from "./Toast";
-
-const DEFAULT_MAX = 50;
+import { useCopy } from "./Toast";
 
 const ICON_PROPS = {
   width: 14,
@@ -45,30 +43,28 @@ function CopyIcon() {
  * count and still wrapping.
  *
  * The expand toggle appears only while the value is actually clipped (or
- * expanded), so a wide column never offers a button that does nothing. `max`
- * decides only whether a value is long enough to be worth measuring.
+ * expanded), so a wide column never offers a button that does nothing.
  */
-export function Truncated({ text, max = DEFAULT_MAX }: { text: string; max?: number }) {
+export function Truncated({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
-  const toast = useToast();
   const [clipped, setClipped] = useState(false);
   const valueRef = useRef<HTMLSpanElement>(null);
-  const long = text.length > max;
+  const copy = useCopy();
 
   useLayoutEffect(() => {
     const el = valueRef.current;
-    if (!long || expanded || !el) return;
+    if (expanded || !el) return;
     const measure = () => setClipped(el.scrollWidth > el.clientWidth);
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [long, expanded, text]);
+  }, [expanded, text]);
 
   return (
     <span className="truncated-wrap">
       <span
-        className={`mono truncated${long && !expanded ? " is-collapsed" : ""}${expanded ? " is-expanded" : ""}`}
+        className={`mono truncated${expanded ? "" : " is-collapsed"}`}
         title={text}
         ref={valueRef}
         data-testid="truncated"
@@ -77,7 +73,7 @@ export function Truncated({ text, max = DEFAULT_MAX }: { text: string; max?: num
       </span>
       {/* Rows in TasksTable navigate on click; these buttons must not also leave. */}
       <span className="truncated-actions">
-        {long && (clipped || expanded) && (
+        {(clipped || expanded) && (
           <button
             type="button"
             className="icon-btn"
@@ -101,7 +97,7 @@ export function Truncated({ text, max = DEFAULT_MAX }: { text: string; max?: num
           data-testid="truncated-copy"
           onClick={(e) => {
             e.stopPropagation();
-            void navigator.clipboard?.writeText(text).then(() => toast("Copied"));
+            copy(text);
           }}
         >
           <CopyIcon />

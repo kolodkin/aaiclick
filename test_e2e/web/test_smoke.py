@@ -96,8 +96,17 @@ def _run_task_and_wait(entrypoint: str) -> str:
     return wait_for_task(job_id, "COMPLETED").id
 
 
+TASK_WITH_OUTPUT = "aaiclick.orchestration.fixtures.sample_tasks.task_with_output"
+
+
+@pytest.fixture(scope="module")
+def output_task_id(base_url: str) -> str:
+    """One finished ``task_with_output`` run, shared by the read-only task-view tests."""
+    return _run_task_and_wait(TASK_WITH_OUTPUT)
+
+
 @_spa_built
-def test_task_view_shows_logs(page, base_url: str, shot) -> None:
+def test_task_view_shows_logs(page, base_url: str, output_task_id: str, shot) -> None:
     """The task view renders captured logs (local mode only).
 
     Runs a job that prints to stdout/stderr, opens ``@task <id>``, and asserts
@@ -108,9 +117,7 @@ def test_task_view_shows_logs(page, base_url: str, shot) -> None:
     Local-mode only: it drives ``/jobs:run`` unauthenticated and relies on the
     in-process worker that ``local_runtime`` starts — the distributed e2e job
     enforces auth (401) and runs no worker, so the job would never execute."""
-    task_id = _run_task_and_wait("aaiclick.orchestration.fixtures.sample_tasks.task_with_output")
-
-    open_page(page, f"{base_url}/?p=@task {task_id}")
+    open_page(page, f"{base_url}/?p=@task {output_task_id}")
 
     logs = page.locator("div.logs")
     logs.get_by_text("This is stdout").wait_for(timeout=15000)
@@ -197,16 +204,14 @@ def test_job_graph_view_renders_nodes(page, base_url: str, shot) -> None:
 
 
 @_spa_built
-def test_task_view_meta_cells_do_not_overflow(page, base_url: str, shot) -> None:
-    """Long values wrap inside their grid cell instead of overlapping the next.
+def test_task_view_meta_cells_do_not_overflow(page, base_url: str, output_task_id: str, shot) -> None:
+    """Long values wrap inside their meta cell instead of overlapping the next.
 
-    Grid items default to ``min-width: auto`` and refuse to shrink below their
-    content, so an unbreakable entrypoint or snowflake id used to spill across
-    the neighbouring column and render two values on top of each other.
+    Grid and flex items default to ``min-width: auto`` and refuse to shrink
+    below their content, so an unbreakable entrypoint or snowflake id used to
+    spill across the neighbouring cell.
     """
-    task_id = _run_task_and_wait("aaiclick.orchestration.fixtures.sample_tasks.task_with_output")
-
-    open_page(page, f"{base_url}/?p=@task {task_id}")
+    open_page(page, f"{base_url}/?p=@task {output_task_id}")
     page.wait_for_selector(".meta div")
     shot("task-meta")
 
@@ -219,15 +224,12 @@ def test_task_view_meta_cells_do_not_overflow(page, base_url: str, shot) -> None
 
 
 @_spa_built
-def test_task_view_entrypoint_has_own_row_with_expand_and_copy(page, base_url: str, shot) -> None:
+def test_task_view_entrypoint_has_own_row_and_copies(page, base_url: str, output_task_id: str, shot) -> None:
     """The entrypoint spans the whole meta row, fits unclipped, and copies.
 
     With the full row it fits, so no expand icon is offered — only copy.
     """
-    entrypoint = "aaiclick.orchestration.fixtures.sample_tasks.task_with_output"
-    task_id = _run_task_and_wait(entrypoint)
-
-    open_page(page, f"{base_url}/?p=@task {task_id}")
+    open_page(page, f"{base_url}/?p=@task {output_task_id}")
 
     cell = page.locator(".meta .meta-wide")
     cell.wait_for(timeout=15000)
@@ -244,37 +246,35 @@ def test_task_view_entrypoint_has_own_row_with_expand_and_copy(page, base_url: s
 
     page.context.grant_permissions(["clipboard-read", "clipboard-write"])
     copy.click()
-    assert page.evaluate("navigator.clipboard.readText()") == entrypoint
+    assert page.evaluate("navigator.clipboard.readText()") == TASK_WITH_OUTPUT
 
 
 @_spa_built
-def test_task_view_logs_fill_the_window(page, base_url: str, shot) -> None:
+def test_task_view_logs_fill_the_window(page, base_url: str, output_task_id: str, shot) -> None:
     """Header and logs fit on one screen: the logs take the remaining height."""
-    task_id = _run_task_and_wait("aaiclick.orchestration.fixtures.sample_tasks.task_with_output")
-
-    open_page(page, f"{base_url}/?p=@task {task_id}")
+    open_page(page, f"{base_url}/?p=@task {output_task_id}")
     logs = page.locator(".task-page > .logs")
     logs.wait_for(timeout=15000)
     shot("task-logs-fill")
 
     assert page.evaluate("(m => m.scrollHeight <= m.clientHeight)(document.querySelector('main'))")
-    main_bottom = page.evaluate("document.querySelector('main').getBoundingClientRect().bottom")
-    # Within main's 22px bottom padding.
-    assert logs.bounding_box()["y"] + logs.bounding_box()["height"] == pytest.approx(main_bottom - 22, abs=2)
+    content_bottom = page.evaluate(
+        "(m => m.getBoundingClientRect().bottom - parseFloat(getComputedStyle(m).paddingBottom))"
+        "(document.querySelector('main'))"
+    )
+    box = logs.bounding_box()
+    assert box["y"] + box["height"] == pytest.approx(content_bottom, abs=2)
 
 
 @_spa_built
-def test_task_view_truncates_long_entrypoint_from_the_start(page, base_url: str, shot) -> None:
+def test_task_view_truncates_long_entrypoint_from_the_start(page, base_url: str, output_task_id: str, shot) -> None:
     """On a narrow screen the entrypoint stays on one line, keeps its tail, and expands.
 
     The elision is done in CSS so it fits the column exactly; the assertions
     therefore check rendered geometry, not a character count.
     """
-    entrypoint = "aaiclick.orchestration.fixtures.sample_tasks.task_with_output"
-    task_id = _run_task_and_wait(entrypoint)
-
     page.set_viewport_size({"width": 420, "height": 800})
-    open_page(page, f"{base_url}/?p=@task {task_id}")
+    open_page(page, f"{base_url}/?p=@task {output_task_id}")
 
     value = page.locator(".meta [data-testid='truncated']")
     toggle = page.locator(".meta [data-testid='truncated-toggle']")
@@ -288,13 +288,13 @@ def test_task_view_truncates_long_entrypoint_from_the_start(page, base_url: str,
     shot("task-entrypoint-collapsed")
 
     toggle.click()
-    page.wait_for_selector(".meta .truncated.is-expanded")
+    page.wait_for_selector(".meta [data-testid='truncated-toggle'][aria-expanded='true']")
     shot("task-entrypoint-expanded")
 
     assert toggle.get_attribute("aria-label") == "Show less"
 
     assert value.bounding_box()["height"] > collapsed_height
-    assert value.inner_text() == entrypoint
+    assert value.inner_text() == TASK_WITH_OUTPUT
 
 
 @_spa_built
