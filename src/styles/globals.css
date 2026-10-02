@@ -229,6 +229,7 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
    to shrink below its content and lets a long unbreakable value (entrypoints,
    snowflake ids) overflow into the neighbouring cell. */
 .meta div { font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
+.meta .meta-wide { grid-column: 1 / -1; }
 .meta .k { color: var(--muted); display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
 .err { color: var(--red); background: var(--red-bg); border-radius: 8px; padding: 10px 12px; margin-top: 12px; font-family: var(--mono); font-size: 12px; }
 
@@ -352,7 +353,14 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
 
 /* head-elided values (long entrypoints) with a visible expand toggle */
 .truncated-wrap { display: block; }
-.truncated { display: block; }
+.truncated-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.truncated { display: block; min-width: 0; }
+.truncated-copy {
+  flex: none; display: inline-flex; padding: 2px; border: 0; border-radius: 4px;
+  background: none; color: var(--muted); cursor: pointer;
+}
+.truncated-copy:hover { color: var(--accent-text); }
+.truncated-copy:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* direction:rtl puts the ellipsis at the start, so the informative tail
    survives. CSS elides to the column's real width — a fixed character count
    cannot, and would still wrap. */

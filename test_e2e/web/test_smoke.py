@@ -220,17 +220,23 @@ def test_task_view_meta_cells_do_not_overflow(page, base_url: str, shot) -> None
 def test_task_view_truncates_long_entrypoint_from_the_start(page, base_url: str, shot) -> None:
     """An over-long entrypoint stays on one line, keeps its tail, and expands.
 
-    The elision is done in CSS so it fits the column exactly; the assertions
-    therefore check rendered geometry, not a character count.
+    The entrypoint gets a full-width row, so the viewport is narrowed until it
+    no longer fits. The elision is done in CSS so it fits the row exactly; the
+    assertions therefore check rendered geometry, not a character count.
     """
     entrypoint = "aaiclick.orchestration.fixtures.sample_tasks.task_with_output"
     task_id = _run_task_and_wait(entrypoint)
 
+    page.set_viewport_size({"width": 420, "height": 900})
     open_page(page, f"{base_url}/?p=@task {task_id}")
 
     value = page.locator(".meta [data-testid='truncated']")
     toggle = page.locator(".meta [data-testid='truncated-toggle']")
     value.wait_for(timeout=15000)
+
+    # Its own full-width row, with a copy control beside it.
+    assert page.locator(".meta .meta-wide [data-testid='truncated']").count() == 1
+    assert page.locator(".meta [data-testid='truncated-copy']").is_visible()
 
     # Collapsed: one line, and clipped (so an ellipsis is actually showing).
     collapsed_height = value.bounding_box()["height"]
@@ -424,3 +430,23 @@ def test_task_view_says_a_queued_task_has_not_started(page, base_url: str, shot)
     assert "has not started" in panel.inner_text()
     assert page.get_by_test_id("live-status").count() == 1, "a queued task's logs must not claim to be polling"
     shot("task-logs-not-started")
+
+
+@_spa_built
+def test_task_view_entrypoint_fits_wide_row_and_copies(page, base_url: str) -> None:
+    """On a wide screen the entrypoint fits its own row whole: no toggle, copy works."""
+    entrypoint = "aaiclick.orchestration.fixtures.sample_tasks.task_with_output"
+    task_id = _run_task_and_wait(entrypoint)
+
+    page.context.grant_permissions(["clipboard-read", "clipboard-write"])
+    page.set_viewport_size({"width": 1400, "height": 900})
+    open_page(page, f"{base_url}/?p=@task {task_id}")
+
+    value = page.locator(".meta [data-testid='truncated']")
+    value.wait_for(timeout=15000)
+    assert value.evaluate("el => el.scrollWidth <= el.clientWidth")
+    assert page.locator(".meta [data-testid='truncated-toggle']").count() == 0
+
+    page.locator(".meta [data-testid='truncated-copy']").click()
+    page.wait_for_selector(".toast:has-text('Copied')")
+    assert page.evaluate("navigator.clipboard.readText()") == entrypoint
