@@ -4,7 +4,6 @@ aaiclick.oplog.lineage - Oplog graph traversal (backward and forward lineage).
 
 from __future__ import annotations
 
-import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, Literal
@@ -74,14 +73,6 @@ class GraphNode(BaseModel):
     job_id: int | None = None
 
 
-_OP_LABEL_NAMES: dict[str, str] = {
-    "+": "add",
-    "-": "subtract",
-    "*": "multiply",
-    "/": "divide",
-}
-
-
 class OplogGraph(BaseModel):
     nodes: list[OplogNode] = Field(default_factory=list)
     edges: list[OplogEdge] = Field(default_factory=list)
@@ -90,88 +81,6 @@ class OplogGraph(BaseModel):
     def tables(self) -> set[str]:
         """Return every table that appears in the graph as a node or a kwarg source."""
         return {n.table for n in self.nodes} | {src for n in self.nodes for src in n.kwargs.values() if src}
-
-    def build_labels(self) -> dict[str, str]:
-        """Map every referenced table ID to a human-readable label.
-
-        Nodes get operation-derived labels (`source_A`, `multiply_result`).
-        Edge endpoints that aren't in `nodes` fall through to generic
-        `source_*` labels. Used for post-processing agent responses — NOT
-        injected into the prompt so the LLM can still reference real table
-        names in tool calls.
-        """
-        labels: dict[str, str] = {}
-        source_counter = 0
-        op_counters: dict[str, int] = {}
-        source_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-
-        def _next_source_label() -> str:
-            nonlocal source_counter
-            letter = source_letters[source_counter % len(source_letters)]
-            source_counter += 1
-            return f"source_{letter}"
-
-        for node in reversed(self.nodes):
-            if node.table in labels:
-                continue
-            if node.operation == "create_from_value":
-                labels[node.table] = _next_source_label()
-            else:
-                op = _OP_LABEL_NAMES.get(node.operation, node.operation)
-                count = op_counters.get(op, 0)
-                op_counters[op] = count + 1
-                labels[node.table] = f"{op}_result" if count == 0 else f"{op}_result_{count + 1}"
-
-        for edge in self.edges:
-            for table in (edge.source, edge.target):
-                if table not in labels:
-                    labels[table] = _next_source_label()
-
-        return labels
-
-    @staticmethod
-    def replace_labels(text: str, labels: dict[str, str]) -> str:
-        """Replace raw table identifiers in text with human-readable labels.
-
-        Handles every identifier shape that LLMs emit when describing
-        lineage: full table names (`t_<id>`, `j_<job_id>_<name>`,
-        `p_<name>`, or any custom string in `labels`) and the bare
-        snowflake form of `t_<id>` keys. Longer keys are tried first
-        so a shorter substring cannot pre-empt a longer match.
-        Unregistered tokens are left unchanged.
-        """
-        if not labels:
-            return text
-
-        lookup: dict[str, str] = {}
-        for table_id, label in labels.items():
-            lookup[table_id] = label
-            if table_id.startswith("t_"):
-                lookup[table_id[2:]] = label
-
-        keys = sorted(lookup, key=len, reverse=True)
-        pattern = re.compile(r"(?<!\w)(?:" + "|".join(re.escape(k) for k in keys) + r")(?!\w)")
-        return pattern.sub(lambda m: lookup[m.group()], text)
-
-    def to_prompt_context(self) -> str:
-        """Format the graph as human-readable text for LLM consumption."""
-        lines = ["# Data Lineage Graph"]
-
-        lines.append(f"\n## Operations ({len(self.nodes)})")
-        for node in self.nodes:
-            lines.append(f"\n### Table: `{node.table}`")
-            lines.append(f"- Operation: `{node.operation}`")
-            for k, v in node.kwargs.items():
-                lines.append(f"- {k}: `{v}`")
-            if node.sql_template:
-                lines.append(f"- SQL: `{node.sql_template}`")
-
-        if self.edges:
-            lines.append(f"\n## Data Flow ({len(self.edges)} edges)")
-            for edge in self.edges:
-                lines.append(f"- `{edge.source}` → `{edge.target}` (via `{edge.operation}`)")
-
-        return "\n".join(lines)
 
 
 @asynccontextmanager

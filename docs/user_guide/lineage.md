@@ -26,8 +26,9 @@ before any query, `query_table` rows as evidence.
     `has(column, value)` rather than `IN` for an array column.
 
 A table that `list_graph_nodes` reports as `live: false` was cleaned up
-after the run. Re-run the job with `preservation_mode="FULL"` (`run_job`)
-and query the new run's tables.
+after the run. Re-run the job with `preservation_mode="FULL"` (`run_job`,
+an admin tool — the read-scoped token below cannot call it) and query the
+new run's tables.
 
 **Implementation**: `aaiclick/server/mcp.py` (tools), `aaiclick/internal_api/lineage.py` (scope lookup), `aaiclick/oplog/query_sandbox.py` (sandbox).
 

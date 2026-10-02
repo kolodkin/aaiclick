@@ -23,8 +23,8 @@ state is insufficient.
 | 2    | Full replay with `PRESERVATION_FULL` | Everything above + every intermediate table    | One full pipeline run |
 
 Tier 1 is tried first. The agent escalates to Tier 2 only when it cannot
-answer from static state alone. The user can also pre-commit to Tier 2
-via a `--deep` flag when they already know a superficial pass will not
+answer from static state alone. The user can also ask the agent to go
+straight to Tier 2 when they already know a superficial pass will not
 suffice.
 
 Tier 3 — step-by-step execution with agent-driven eviction — is out of
@@ -81,8 +81,8 @@ Tier 2 is not a separate API — it is the existing `run_job()` entry
 point invoked with `preservation_mode=FULL`. No cloning, no task-graph
 surgery, no special replay function. Tracked in `docs/designs/future.md`.
 
-Triggered by `request_full_replay` (or by `--deep` on the initial
-request). Mechanics:
+Triggered by `request_full_replay`, or by the user asking for a full
+replay up front. Mechanics:
 
 1. Read the original job's `registered_job_id` and `kwargs` off its row
 2. Submit a fresh run:
@@ -135,8 +135,8 @@ Precedence:
 # Agent Tools
 
 The sandbox and graph classification live in `aaiclick/oplog/query_sandbox.py`
-and `aaiclick/oplog/lineage.py` (`classify_nodes`). `request_full_replay`
-is Phase 2 and not yet implemented.
+and `aaiclick/oplog/lineage.py` (`classify_nodes`); `request_full_replay`
+is tracked in `docs/designs/future.md`.
 
 All tools are scoped to the job being debugged. `query_table` cannot
 reach tables outside the lineage graph of the current job. ClickHouse
