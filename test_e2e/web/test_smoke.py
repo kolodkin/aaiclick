@@ -225,10 +225,7 @@ def test_task_view_meta_cells_do_not_overflow(page, base_url: str, output_task_i
 
 @_spa_built
 def test_task_view_entrypoint_has_own_row_and_copies(page, base_url: str, output_task_id: str, shot) -> None:
-    """The entrypoint spans the whole meta row, fits unclipped, and copies.
-
-    With the full row it fits, so no expand icon is offered — only copy.
-    """
+    """The entrypoint gets the whole meta row: it fits, so only copy is offered."""
     open_page(page, f"{base_url}/?p=@task {output_task_id}")
 
     cell = page.locator(".meta .meta-wide")

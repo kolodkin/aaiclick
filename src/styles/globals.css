@@ -93,8 +93,8 @@ header {
 
 /* ---- content area ---- */
 main { flex: 1 1 auto; overflow: auto; padding: 22px; display: flex; flex-direction: column; }
-/* Grows to at least main's height so a view can fill the window with
-   `height: 100%`; taller views still scroll main as before. */
+/* At least main's height, so a view can fill the window with `height: 100%`;
+   taller views scroll main. */
 .content { flex: 1 0 auto; width: 100%; max-width: 1040px; margin: 0 auto; }
 
 h2 { font-size: 18px; margin: 0 0 4px; }
@@ -225,8 +225,8 @@ tbody tr.clickable:hover { background: rgba(250,255,105,.07); }
 }
 .detail-head .title-row { display: flex; align-items: center; gap: 10px; }
 .detail-head h2 { display: flex; align-items: center; gap: 10px; margin: 0; }
-/* Content-sized items share one row and wrap only when the panel runs out of
-   width, so the header stays short and leaves room for the logs below. */
+/* Content-sized items share a row, wrapping only when out of width, so the
+   header stays short. */
 .meta { display: flex; flex-wrap: wrap; gap: 8px 28px; margin-top: 12px; }
 /* min-width:0 lets a long unbreakable value (entrypoints, snowflake ids)
    shrink and wrap instead of overflowing the panel. */

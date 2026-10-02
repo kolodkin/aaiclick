@@ -32,18 +32,14 @@ function CopyIcon() {
 }
 
 /**
- * Long value shown on one line with its *head* elided, plus icon buttons to
- * show it in full and to copy it.
+ * One-line value with its *head* elided, plus show-all and copy icon buttons.
  *
- * A fully-qualified entrypoint carries its meaning at the end — the module and
- * function name — while the leading package path repeats across every row, so
- * dropping the head loses the least. The elision is done in CSS
- * (`direction: rtl` + `text-overflow: ellipsis`) rather than by slicing the
- * string, so it always fits the column exactly instead of guessing a character
- * count and still wrapping.
+ * An entrypoint carries its meaning at the end (module and function), while
+ * the package prefix repeats across rows, so dropping the head loses least.
+ * CSS does the elision (`direction: rtl` + `text-overflow: ellipsis`), so it
+ * fits the column exactly instead of guessing a character count.
  *
- * The expand toggle appears only while the value is actually clipped (or
- * expanded), so a wide column never offers a button that does nothing.
+ * The show-all toggle appears only while the value is clipped (or expanded).
  */
 export function Truncated({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
