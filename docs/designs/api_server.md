@@ -85,7 +85,7 @@ aaiclick/
     tasks.py                       get_task
     execution_workers.py                     list_execution_workers, start_execution_worker, stop_execution_worker
     objects.py                     list_objects, get_object, delete_object, purge_objects
-    setup.py                       setup, migrate, bootstrap_ollama
+    setup.py                       setup, migrate
   __main__.py                      ← argparse + text/JSON renderers only
                                      (zero business logic)
   server/                          ← FastAPI + FastMCP (optional extra)
@@ -241,17 +241,14 @@ All REST paths share a common `/api/v0` prefix — see
 | `view dashboards delete`   | `delete_dashboard(name)`           | `DELETE /viewer/dashboards/{name}` | `delete_dashboard`        |
 | `view dashboards run`      | `run_dashboard(name)`              | `POST /viewer/dashboards/{name}:run` | `run_dashboard`         |
 | *(new)* task detail        | `get_task(id)`                     | `GET /tasks/{id}`                  | `get_task`                |
-| `explain <table> [q]`      | `lineage_ai.explain_lineage(...)`  | —                                  | —                         |
-| `debug <table> "<q>"`      | `lineage_ai.debug_result(...)`     | —                                  | —                         |
 
 `job wait <ref>` and `run-job --progress` have no row: they are CLI-only
 compositions over `job_stats`. Blocking a request for up to 600s is not a
 valid server shape — REST clients poll `GET /jobs/{ref}/stats` instead.
 
-`explain` / `debug` need the `ai` extra, so their wrappers live in
-`internal_api.lineage_ai`, imported on demand by the CLI and never from
-`internal_api.__init__`. REST and MCP expose only the AI-independent
-primitives in `internal_api.lineage`; the calling agent composes them itself.
+The lineage primitives (`internal_api.lineage`) have no CLI verb: MCP
+exposes them and the calling agent composes them itself — see
+`docs/user_guide/lineage.md`.
 
 
 # CLI Rendering Contract

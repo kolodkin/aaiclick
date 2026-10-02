@@ -8,8 +8,10 @@ against a pre-baked strategy does not give the debugger what it needs —
 it compresses exactly the evidence a debugger would want to look at.
 
 Lineage is a two-tier agent loop over the pipeline's own tables. The
-agent queries what exists, forms a hypothesis, and escalates to a full
-replay only when static state is insufficient.
+agent is an MCP client — Claude Code, Codex, any tool-using model —
+driving the tools in `aaiclick/server/mcp.py`. It queries what exists,
+forms a hypothesis, and escalates to a full replay only when static
+state is insufficient.
 
 ---
 
@@ -42,17 +44,15 @@ Inputs the agent starts with:
   question
 - **Natural-language question** from the user
 
-Agent tools — **Implementation**: `aaiclick/server/mcp.py` (`oplog_subgraph`,
-`list_graph_nodes`, `get_table_schema`, `query_table`) over
-`aaiclick/internal_api/lineage.py`; the in-process `LineageToolbox` in
-`aaiclick/ai/agents/lineage_tools.py` wraps the same primitives.
+Agent tools — **Implementation**: `aaiclick/server/mcp.py` over
+`aaiclick/internal_api/lineage.py`.
 
-- `query_table` — arbitrary read-only SQL against any node in the graph
-- `get_op_sql` — rendered SQL for a specific operation (over MCP, read
-  `sql_template` off the node `oplog_subgraph` returns)
+- `oplog_subgraph` — the graph; each node carries the rendered SQL of the
+  operation that produced it (`sql_template`)
 - `list_graph_nodes` — all tables in the lineage graph with their node
   kind (input / intermediate / target) and liveness
-- `get_schema` — columns and types for a table
+- `get_table_schema` — columns and types for a table in the graph
+- `query_table` — read-only SQL against any table in the graph
 - `request_full_replay` — escalate to Tier 2 (`docs/designs/future.md`)
 
 The loop:
@@ -135,9 +135,8 @@ Precedence:
 # Agent Tools
 
 The sandbox and graph classification live in `aaiclick/oplog/query_sandbox.py`
-and `aaiclick/oplog/lineage.py` (`classify_nodes`); `LineageToolbox` in
-`aaiclick/ai/agents/lineage_tools.py` is the in-process tool loop over them.
-`request_full_replay` is Phase 2 and not yet implemented.
+and `aaiclick/oplog/lineage.py` (`classify_nodes`). `request_full_replay`
+is Phase 2 and not yet implemented.
 
 All tools are scoped to the job being debugged. `query_table` cannot
 reach tables outside the lineage graph of the current job. ClickHouse
@@ -148,26 +147,25 @@ table of the graph is rejected, table functions included.
 **Implementation**: `aaiclick/oplog/query_sandbox.py` — see `validate_scope()`
 and `sandboxed_select()`
 
+Every tool takes `target_table` (plus `direction` / `max_depth`) and
+resolves the scope server-side from its lineage graph:
+
 ```python
-async def query_table(
-    sql: str,
-    row_limit: int = 100,
-) -> QueryResult:
-    """
-    Execute a read-only SELECT against a table in the current job's
-    lineage graph. `sql` must reference only nodes present in the
-    graph. Capped at `row_limit` rows. Rejects any statement other than
-    SELECT.
-    """
+async def oplog_subgraph(target_table: str, ...) -> OplogGraph:
+    """The graph; each node's `sql_template` is the operation's rendered SQL."""
 
-async def get_op_sql(op_id: str) -> str:
-    """Rendered SQL for a single operation in the graph."""
+async def list_graph_nodes(target_table: str, ...) -> list[GraphNode]:
+    """All tables in the graph with kind + liveness."""
 
-async def list_graph_nodes() -> list[GraphNode]:
-    """All nodes in the current graph with kind + liveness."""
-
-async def get_schema(table: str) -> TableSchema:
+async def get_table_schema(table: str, target_table: str, ...) -> TableSchema:
     """Columns and types for a table in the graph."""
+
+async def query_table(sql: str, target_table: str, row_limit: int = 100, ...) -> QueryResult:
+    """
+    Execute a read-only SELECT against tables in the lineage graph.
+    `sql` must reference only tables of the graph. Capped at `row_limit`
+    rows. Rejects any statement other than SELECT.
+    """
 
 async def request_full_replay(reason: str) -> ReplayHandle:
     """
@@ -202,15 +200,13 @@ Safety rails on `query_table`:
 - Cheap — `max_execution_time` set to keep accidental table scans from
   tying up the cluster
 
-The MCP `list_graph_nodes` / `query_table` / `get_table_schema` tools take a
-`target_table` (plus `direction` / `max_depth`) and resolve the scope
-server-side from its lineage graph, so a caller cannot widen it — see
-`_lineage_graph()` in `aaiclick/internal_api/lineage.py`.
+Because the scope comes from `target_table`, a caller cannot widen it —
+see `_lineage_graph()` in `aaiclick/internal_api/lineage.py`.
 
 ## Tool Result Types
 
-The agent-facing result types are typed NamedTuples / dataclasses so the
-loop can reason over them without string parsing.
+The result types are pydantic models, so they serialize through MCP and
+REST unchanged.
 
 ```python
 from typing import Literal, NamedTuple
@@ -244,9 +240,9 @@ class ReplayHandle(NamedTuple):
     drift: dict[str, int] # per-input delta: new_rows - original_rows
 ```
 
-Error surface — tools never raise to the agent. Each tool returns a
-discriminated-union shape with either the success payload above or a
-typed error the agent can read and retry from:
+Error surface — the sandbox returns a typed error rather than raising;
+`internal_api.lineage` maps it to `Invalid` / `NotFound`, which MCP
+surfaces as a tool error carrying the message:
 
 ```python
 class ToolError(NamedTuple):
@@ -261,10 +257,9 @@ class ToolError(NamedTuple):
     message: str          # agent-readable diagnostic
 ```
 
-The agent loop surfaces `ToolError` as the tool's return value; the
-prompt instructs the agent to inspect `kind` and either retry with a
-corrected call (`not_select`, `out_of_scope`) or escalate (`not_live`
-triggers `request_full_replay`).
+The server instructions tell the agent to retry with a corrected call on
+`not_select` / `out_of_scope`, and to stop or escalate when a table is
+not live.
 
 ---
 

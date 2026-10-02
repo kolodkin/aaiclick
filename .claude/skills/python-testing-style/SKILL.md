@@ -150,4 +150,4 @@ Looking trivial is not proof. Check first whether the test covers the negative b
 
 `pyproject.toml` sets `filterwarnings = ["error"]`, so any unhandled warning fails the test. When a third-party library emits a known warning, suppress it with `warnings.catch_warnings()` scoped around the call that triggers it.
 
-A warning raised at garbage collection or teardown (an unawaited coroutine, `PytestUnraisableExceptionWarning`) fires after the call returns, so `catch_warnings()` can't catch it. Fix ours (our code, our mocks). Filter only a third-party leak: an exact-message `filterwarnings` mark on the affected tests, applied in one place with an upstream reference and a TODO (see `aaiclick/ai/conftest.py`).
+A warning raised at garbage collection or teardown (an unawaited coroutine, `PytestUnraisableExceptionWarning`) fires after the call returns, so `catch_warnings()` can't catch it. Fix ours (our code, our mocks). Filter only a third-party leak: an exact-message `filterwarnings` mark on the affected tests, applied in one place with an upstream reference and a TODO.
