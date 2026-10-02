@@ -44,7 +44,7 @@ from aaiclick.internal_api import registered_jobs as rj_api
 from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import tasks as tasks_api
 from aaiclick.internal_api import viewer as viewer_api
-from aaiclick.oplog.lineage import DEFAULT_MAX_DEPTH, LineageDirection, OplogGraph
+from aaiclick.oplog.lineage import DEFAULT_MAX_DEPTH, GraphNode, LineageDirection, OplogGraph
 from aaiclick.oplog.query_sandbox import DEFAULT_ROW_LIMIT, QueryResult, TableSchema
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.orchestration.view_models import (
@@ -104,8 +104,20 @@ async def _mcp_lifespan(server: FastMCP) -> AsyncIterator[None]:
 mcp: FastMCP = FastMCP(
     name="aaiclick",
     instructions=(
-        "Tools mirror aaiclick's CLI verbs one-to-one. Every tool runs against "
-        "the same backends as the REST surface under /api/v0 — see docs/designs/api_server.md."
+        "Tools mirror aaiclick's CLI verbs one-to-one and run against the same backends "
+        "as the REST surface under /api/v0 (docs/designs/api_server.md).\n"
+        "\n"
+        "Lineage triage (why does table X look wrong?):\n"
+        "1. oplog_subgraph(target_table) — read the operation graph and each node's "
+        "sql_template first; form a hypothesis before querying.\n"
+        "2. list_graph_nodes(target_table) — every table in scope with kind "
+        "(input/intermediate/target) and whether it is still live. A table with "
+        "live=false cannot be queried: say so and stop, or re-run the job with full "
+        "preservation (run_job) and retry.\n"
+        "3. get_table_schema(table, target_table) — always call this before querying a "
+        "table; use only column names it returns.\n"
+        "4. query_table(sql, target_table) — read-only SELECT, scoped to the graph, "
+        "row-capped. Cite the rows it returns as evidence."
     ),
     lifespan=_mcp_lifespan,
     middleware=[McpRbacMiddleware()],
@@ -256,8 +268,7 @@ async def purge_objects(request: PurgeObjectsRequest) -> PurgeObjectsResult:
 
 
 # --- lineage primitives -----------------------------------------------
-# MCP exposes the AI-independent primitives only; the turnkey LLM wrappers
-# are the CLI's ``explain`` / ``debug`` verbs.
+# The calling agent composes these itself; see the server instructions.
 
 
 @mcp.tool(tags={TAG_READ})
@@ -269,6 +280,17 @@ async def oplog_subgraph(
     """Return the lineage graph for ``target_table`` (backward or forward)."""
     async with orch_context(with_ch=True):
         return await lineage_api.oplog_subgraph(target_table, direction=direction, max_depth=max_depth)
+
+
+@mcp.tool(tags={TAG_READ})
+async def list_graph_nodes(
+    target_table: str,
+    direction: LineageDirection = "backward",
+    max_depth: int = DEFAULT_MAX_DEPTH,
+) -> list[GraphNode]:
+    """Every table in ``target_table``'s lineage graph with its kind and whether it is still live."""
+    async with orch_context(with_ch=True):
+        return await lineage_api.list_graph_nodes(target_table, direction=direction, max_depth=max_depth)
 
 
 @mcp.tool(tags={TAG_READ})

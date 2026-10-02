@@ -16,7 +16,7 @@ from fastmcp.exceptions import ToolError
 
 from aaiclick.data.data_context import create_object_from_value
 from aaiclick.data.view_models import ObjectDetail, ObjectView
-from aaiclick.oplog.lineage import OplogGraph
+from aaiclick.oplog.lineage import GraphNode, OplogGraph
 from aaiclick.oplog.query_sandbox import QueryResult, TableSchema
 from aaiclick.orchestration.execution.execution_worker import register_execution_worker
 from aaiclick.orchestration.factories import create_job
@@ -55,6 +55,7 @@ EXPECTED_TOOLS = {
     "delete_object",
     "purge_objects",
     "oplog_subgraph",
+    "list_graph_nodes",
     "query_table",
     "get_table_schema",
     "setup",
@@ -194,6 +195,21 @@ async def test_oplog_subgraph_returns_graph(orch_ctx, mcp_client):
 
     parsed = OplogGraph.model_validate(result.structured_content)
     assert {n.table for n in parsed.nodes} == {a.table, b.table, concat.table}
+
+
+async def test_list_graph_nodes_returns_kind_and_liveness(orch_ctx, mcp_client, revenue_lineage):
+    result = await mcp_client.call_tool("list_graph_nodes", {"target_table": "p_mcp_revenue"})
+
+    nodes = [GraphNode.model_validate(n) for n in result.structured_content["result"]]
+    assert {n.table for n in nodes} >= {"p_mcp_revenue"}
+    assert all(n.live for n in nodes)
+
+
+async def test_instructions_carry_the_triage_method(mcp_client):
+    """An MCP client gets the Tier 1 method up front: schema before query, stop on a dead table."""
+    instructions = mcp_client.initialize_result.instructions
+    assert "get_table_schema" in instructions
+    assert "live" in instructions
 
 
 async def test_query_table_returns_query_result(orch_ctx, mcp_client, revenue_lineage):
