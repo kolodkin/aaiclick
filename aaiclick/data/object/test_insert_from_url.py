@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from aaiclick import create_object_from_url
+from aaiclick import create_object_from_url, create_object_from_value
 from aaiclick.backend import is_chdb
 from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, ColumnInfo
 from aaiclick.data.object.url import _json_extract_expr
@@ -313,6 +313,33 @@ async def test_insert_from_url_with_where(ctx, fileserver):
 
     assert len(data["id"]) > initial_count
     assert len(data["id"]) < initial_count + _NUM_ROWS
+
+
+@pytest.mark.parametrize(
+    "columns",
+    [
+        pytest.param(["id", "price"], id="explicit-columns"),
+        pytest.param(None, id="auto-columns"),
+    ],
+)
+async def test_insert_from_url_dict_with_aai_id(ctx, fileserver, columns):
+    """insert_from_url fills aai_id from its DEFAULT instead of the URL source."""
+    obj = await create_object_from_value({"id": [0], "price": [0.0]}, aai_id=True)
+
+    await obj.insert_from_url(f"{fileserver}/sample.csv", columns=columns, format="CSVWithNames", limit=3)
+
+    data = await obj.view(order_by="aai_id").data()
+    assert data["id"] == [0, 1, 2, 3]
+    assert data["price"] == [0.0, 1.5, 3.0, 4.5]
+
+
+async def test_insert_from_url_array_with_aai_id(ctx, fileserver):
+    """insert_from_url maps a single URL column to value on an aai_id array."""
+    obj = await create_object_from_value([0], aai_id=True)
+
+    await obj.insert_from_url(f"{fileserver}/sample.csv", columns=["id"], format="CSVWithNames", limit=3)
+
+    assert await obj.view(order_by="aai_id").data() == [0, 1, 2, 3]
 
 
 # =============================================================================

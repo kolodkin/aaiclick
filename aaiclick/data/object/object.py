@@ -1155,8 +1155,10 @@ class Object:
         _validate_url(url)
         _validate_url_format(format)
 
+        # aai_id comes from its DEFAULT, never from the URL source.
+        target_columns = [c for c in self.schema.columns if c != AAI_ID_COLUMN]
         if columns is None:
-            columns = list(self.schema.columns)
+            columns = target_columns
 
         _validate_url_columns(columns)
 
@@ -1172,12 +1174,12 @@ class Object:
         columns_str = ", ".join(quoted_columns)
 
         # Handle single-column case (mapped to "value")
-        if len(columns) == 1 and "value" in self.schema.columns:
+        if len(columns) == 1 and "value" in target_columns:
             select_cols = f"{quoted_columns[0]} AS value"
         else:
             select_cols = columns_str
 
-        insert_cols_str = ", ".join(self.schema.columns)
+        insert_cols_str = ", ".join(target_columns)
         where_clause = f" WHERE {where}" if where else ""
         limit_clause = f" LIMIT {limit}" if limit is not None else ""
 
