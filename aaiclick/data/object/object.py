@@ -59,6 +59,7 @@ from ..models import (
     ViewSchema,
     build_order_by_clause,
     parse_ch_type,
+    select_fields,
 )
 from ..scope import NamedScope, ObjectScope, is_persistent_table, scope_of
 from ..sql_utils import quote_identifier, quote_sql_literal
@@ -2507,43 +2508,31 @@ class View(Object):
         return {new: old for old, new in (self._renamed_columns or {}).items()}
 
     @functools.cached_property
-    def _effective_columns(self) -> dict[str, ColumnInfo]:
-        """Column schema with renames, field selection, and computed columns applied.
-
-        Returns the effective column names and types as seen by consumers
-        (data(), insert(), concat). Accounts for:
-        - Field selection (narrows to selected fields)
-        - Renamed columns (old_name -> new_name)
-        - Computed columns (added as new columns)
+    def _projected_columns(self) -> dict[str, ColumnInfo]:
+        """Every column the View's SELECT can name, before field selection:
+        renames, computed columns and explode depth applied.
 
         Cached because View instances are immutable — all fields are set at
         init and never mutated in place.
         """
         renames = self._renamed_columns or {}
-        full = {renames.get(name, name): info for name, info in self._schema.columns.items()}
-        computed = self._computed_columns or {}
-        for name, comp in computed.items():
-            full[name] = parse_ch_type(comp.type)
+        columns = {renames.get(name, name): info for name, info in self._schema.columns.items()}
+        for name, comp in (self._computed_columns or {}).items():
+            columns[name] = parse_ch_type(comp.type)
         for col_name in self._exploded_columns:
             name = renames.get(col_name, col_name)
-            if name in full:
-                old_info = full[name]
-                full[name] = ColumnInfo(
-                    type=old_info.type,
-                    nullable=old_info.nullable,
-                    array=max(0, int(old_info.array) - 1),
-                    low_cardinality=old_info.low_cardinality,
-                )
+            if name in columns:
+                info = columns[name]
+                columns[name] = info.model_copy(update={"array": max(0, int(info.array) - 1)})
+        return columns
 
-        # Field selection narrows to the selected (post-rename) names; a single
-        # field is exposed as "value". Computed columns stay — the SELECT
-        # always projects them.
-        computed_infos = {name: full[name] for name in computed}
-        if self._selected_fields and self.is_single_field:
-            return {"value": full.get(self._selected_fields[0], ColumnInfo("Float64")), **computed_infos}
-        if self._selected_fields:
-            return {f: full[f] for f in self._selected_fields} | computed_infos
-        return full
+    @functools.cached_property
+    def _effective_columns(self) -> dict[str, ColumnInfo]:
+        """Columns the View reads as — what data(), copy(), insert() and concat()
+        see: ``_projected_columns`` narrowed to the field selection, as
+        ``CopyInfo.target_schema()`` narrows it.
+        """
+        return select_fields(self._projected_columns, self._selected_fields)
 
     def _serialize_ref(self) -> dict:
         """Serialize this View to a reference dict for task kwargs/results."""
@@ -2611,16 +2600,9 @@ class View(Object):
         if not columns:
             raise ValueError("columns must be a non-empty dict")
 
-        # Check collision with effective column names (renames + computed applied)
-        existing = set(self._effective_columns.keys())
-        for name, computed in columns.items():
-            if name in existing:
-                raise ValueError(f"Computed column '{name}' collides with existing column")
+        for computed in columns.values():
             self._validate_expression(computed.expression)
-
-        merged = dict(self.computed_columns) if self.computed_columns else {}
-        merged.update(columns)
-        return View(self, computed_columns=merged)
+        return self._add_computed(columns)
 
     def _with_columns_trusted(self, columns: dict[str, Computed]) -> View:
         """Add computed columns without expression validation (View override).
@@ -2628,13 +2610,26 @@ class View(Object):
         For internal use only — see Object._with_columns_trusted.
         """
         self.checkstale()
-        existing = set(self._effective_columns.keys())
+        return self._add_computed(columns)
+
+    def _add_computed(self, columns: dict[str, Computed]) -> View:
+        """Merge ``columns`` into the computed columns; a multi-field selection
+        takes them in, so they reach data() and copy().
+
+        Collisions are checked against every column the SELECT names, not just
+        the selected ones — a computed column dropped by a selection is still
+        projected, and a duplicate alias would shadow it.
+        """
+        if self.is_single_field:
+            raise ValueError(
+                "with_columns() cannot extend a single-field selection; add computed columns before selecting"
+            )
         for name in columns:
-            if name in existing:
+            if name in self._projected_columns:
                 raise ValueError(f"Computed column '{name}' collides with existing column")
-        merged = dict(self.computed_columns) if self.computed_columns else {}
-        merged.update(columns)
-        return View(self, computed_columns=merged)
+        merged = {**(self.computed_columns or {}), **columns}
+        selected = [*self._selected_fields, *columns] if self._selected_fields else None
+        return View(self, computed_columns=merged, selected_fields=selected)
 
     def _select_head(self, columns: str, *, all_fields: bool = False) -> str:
         """SELECT head with View projections applied (before the shared tail).
@@ -2736,33 +2731,16 @@ class View(Object):
             source_query = f"({self._build_select(skip_order_by=True)})"
         else:
             source_query = self.table
-        # Apply renames so the destination schema and the INSERT/SELECT
-        # column list use the post-rename names — matching the aliases
-        # emitted by the inner ``_build_select``. Without this, ``copy_db``
-        # builds ``INSERT INTO new (orig_name) SELECT orig_name FROM
-        # (... orig AS new_name ...)`` which fails with ClickHouse Code 47
-        # because ``orig_name`` is no longer exposed by the inner SELECT.
-        renames = self._renamed_columns or {}
-        columns = {renames.get(name, name): info for name, info in self._schema.columns.items()}
-
-        # Include computed columns in destination schema so copy() materializes them
-        if self._computed_columns:
-            for col_name, computed in self._computed_columns.items():
-                columns[col_name] = parse_ch_type(computed.type)
-
-        if self._exploded_columns:
-            for col_name in self._exploded_columns:
-                effective_name = renames.get(col_name, col_name)
-                if effective_name in columns:
-                    old_info = columns[effective_name]
-                    columns[effective_name] = old_info.model_copy(update={"array": max(0, int(old_info.array) - 1)})
+        # Post-rename names, matching the inner SELECT's aliases: copy_db's
+        # INSERT column list can't name an ``orig`` the subquery exposes only
+        # as ``orig AS new`` (ClickHouse Code 47).
         return CopyInfo(
             source_query=source_query,
             fieldtype=self._schema.fieldtype,
-            columns=columns,
+            columns=self._projected_columns,
             selected_fields=self.selected_fields,
             is_single_field=self.is_single_field,
-            order_by=_remap_order_by(self.order_by, renames),
+            order_by=_remap_order_by(self.order_by, self._renamed_columns or {}),
         )
 
     async def data(
@@ -2796,16 +2774,10 @@ class View(Object):
         eff_limit = limit if limit is not _UNSET else self.limit
         ext_kwargs = {"order_by": eff_order_by, "offset": eff_offset, "limit": eff_limit}
 
-        if self.selected_fields:
-            if self.is_single_field:
-                return await data_extraction.extract_array_data(self, **ext_kwargs)
-            columns: dict[str, ColumnInfo] = {
-                field: ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY) for field in self.selected_fields
-            }
-            column_names = list(self.selected_fields)
-            return await data_extraction.extract_dict_data(self, column_names, columns, orient, **ext_kwargs)
+        if self.is_single_field:
+            return await data_extraction.extract_array_data(self, **ext_kwargs)
 
-        if self.computed_columns or self._renamed_columns or self._exploded_columns:
+        if self.selected_fields or self.computed_columns or self._renamed_columns or self._exploded_columns:
             eff = self._effective_columns
             columns: dict[str, ColumnInfo] = {name: ColumnInfo("String", fieldtype=FIELDTYPE_ARRAY) for name in eff}
             column_names = list(eff.keys())

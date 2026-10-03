@@ -120,6 +120,26 @@ async def test_view_with_columns_chaining(ctx):
         view1.with_columns({"b": Computed("Int64", "a + 2")})
 
 
+async def test_with_columns_after_selection(ctx):
+    """Computed columns added after a field selection join it; source columns outside the selection still collide."""
+    obj = await create_object_from_value({"a": [1, 2], "b": [3, 4], "c": [5, 6]})
+    view = obj[["a", "b"]].with_columns({"s": Computed("Int64", "a + b")})
+
+    assert await view.data() == {"a": [1, 2], "b": [3, 4], "s": [4, 6]}
+    counts = await (await view.group_by("s").count()).data()
+    assert dict(zip(counts["s"], counts["_count"], strict=True)) == {4: 1, 6: 1}
+    with pytest.raises(ValueError, match="collides"):
+        view.with_columns({"c": Computed("Int64", "a")})
+
+
+async def test_with_columns_on_single_field_selection_raises(ctx):
+    """A single-field selection reads as an array and has no room for computed columns."""
+    obj = await create_object_from_value({"a": [1, 2], "b": [3, 4]})
+
+    with pytest.raises(ValueError, match="single-field selection"):
+        obj["a"].with_columns({"s": Computed("Int64", "a * 2")})
+
+
 # =============================================================================
 # with_columns + group_by
 # =============================================================================

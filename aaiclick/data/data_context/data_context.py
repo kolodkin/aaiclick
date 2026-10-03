@@ -334,10 +334,10 @@ async def create_object(
         Object: New Object instance with created table
 
     Raises:
-        TypeError: If ``schema`` is a ``ViewSchema`` (pass ``view.materialized_schema``).
+        TypeError: If ``schema`` is a ``ViewSchema`` — materialize a View with ``copy()``.
     """
     if isinstance(schema, ViewSchema):
-        raise TypeError("create_object() takes a Schema, not a ViewSchema; pass view.materialized_schema")
+        raise TypeError("create_object() takes a Schema, not a ViewSchema; materialize a View with copy()")
     effective_scope = _resolve_scope(name, scope)
     if effective_scope is not None:
         assert name is not None
