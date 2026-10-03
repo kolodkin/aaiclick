@@ -72,7 +72,12 @@ function CreateUserForm() {
         </select>
       </div>
       <div className="form-actions">
-        <button id="user-create" className="btn btn-primary" disabled={create.isPending || !username.trim()} onClick={submit}>
+        <button
+          id="user-create"
+          className="btn btn-primary"
+          disabled={create.isPending || !username.trim()}
+          onClick={submit}
+        >
           Create user
         </button>
       </div>

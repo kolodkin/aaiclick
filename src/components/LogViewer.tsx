@@ -104,11 +104,7 @@ export function LogViewer({ task }: { task: LogTask }) {
     <div className="logs">
       <div className="logs-toolbar">
         <label>
-          <input
-            type="checkbox"
-            checked={showTimestamps}
-            onChange={(e) => setShowTimestamps(e.target.checked)}
-          />
+          <input type="checkbox" checked={showTimestamps} onChange={(e) => setShowTimestamps(e.target.checked)} />
           Show timestamps
         </label>
         {latest > 1 && (

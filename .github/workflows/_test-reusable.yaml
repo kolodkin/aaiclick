@@ -90,6 +90,9 @@ jobs:
       - name: Type-check the SPA
         run: npm run check
 
+      - name: Check formatting with Prettier
+        run: npm run format:check
+
       - name: Run SPA unit tests
         run: npm test
 

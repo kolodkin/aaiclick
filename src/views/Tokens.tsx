@@ -52,7 +52,8 @@ export function Tokens({ onPrompt }: { onPrompt: (v: string) => void }) {
       <Chips chips={[{ label: "← home", cmd: "" }]} onPrompt={onPrompt} />
       <h2>API tokens</h2>
       <p className="sub">
-        Long-lived bearer credentials for unattended clients. Send one as <code className="mono">Authorization: Bearer aaic_…</code>.
+        Long-lived bearer credentials for unattended clients. Send one as{" "}
+        <code className="mono">Authorization: Bearer aaic_…</code>.
       </p>
       {isError && <p className="err">{error.message}</p>}
       {created && (
@@ -69,7 +70,13 @@ export function Tokens({ onPrompt }: { onPrompt: (v: string) => void }) {
           <label>
             Name <span className="help">— what will use it, e.g. ci-deploy</span>
           </label>
-          <input id="token-name" type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="ci-deploy" />
+          <input
+            id="token-name"
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="ci-deploy"
+          />
         </div>
         <div className="field">
           <label>
@@ -90,7 +97,12 @@ export function Tokens({ onPrompt }: { onPrompt: (v: string) => void }) {
           <input id="token-days" type="text" value={days} onChange={(e) => setDays(e.target.value)} placeholder="90" />
         </div>
         <div className="form-actions">
-          <button id="token-create" className="btn btn-primary" disabled={create.isPending || !name.trim()} onClick={onCreate}>
+          <button
+            id="token-create"
+            className="btn btn-primary"
+            disabled={create.isPending || !name.trim()}
+            onClick={onCreate}
+          >
             Create token
           </button>
         </div>
@@ -119,7 +131,13 @@ export function Tokens({ onPrompt }: { onPrompt: (v: string) => void }) {
                 </td>
                 <td>{t.expires_at ? new Date(t.expires_at).toLocaleDateString() : "never"}</td>
                 <td>{relativeTime(t.last_used_at)}</td>
-                <td>{t.revoked_at ? <span className="badge b-CANCELLED">revoked</span> : <span className="badge b-COMPLETED">active</span>}</td>
+                <td>
+                  {t.revoked_at ? (
+                    <span className="badge b-CANCELLED">revoked</span>
+                  ) : (
+                    <span className="badge b-COMPLETED">active</span>
+                  )}
+                </td>
                 <td>
                   <button
                     className="btn btn-danger btn-sm"

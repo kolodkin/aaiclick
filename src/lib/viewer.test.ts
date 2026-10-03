@@ -1,12 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  fieldsFromSchema,
-  formatBytes,
-  orderColsToPairs,
-  pairsToOrderCols,
-  scopeKey,
-  scopeLabel,
-} from "./viewer";
+import { fieldsFromSchema, formatBytes, orderColsToPairs, pairsToOrderCols, scopeKey, scopeLabel } from "./viewer";
 
 describe("scope keys", () => {
   test("persistent and job", () => {

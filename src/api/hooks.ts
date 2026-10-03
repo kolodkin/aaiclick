@@ -337,7 +337,9 @@ export function useInviteUser() {
 }
 
 export function useSetRole() {
-  return useUserMutation(({ id, role }: { id: string; role: Role }) => putJSON<UserView>(`/users/${id}/role`, { role }));
+  return useUserMutation(({ id, role }: { id: string; role: Role }) =>
+    putJSON<UserView>(`/users/${id}/role`, { role }),
+  );
 }
 
 export function useSetDisabled() {

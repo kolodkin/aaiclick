@@ -66,12 +66,14 @@ and `node_modules/`.
 
 # Build & dev workflow
 
-| Command         | What it does                                                              |
-|-----------------|---------------------------------------------------------------------------|
-| `npm run dev`   | Vite dev server at `:5173` with HMR; proxies `/api/*` to FastAPI          |
-| `npm run build` | Type-checks then bundles to `aaiclick/server/static/`                     |
-| `npm run check` | `tsc --noEmit` only (CI gate)                                             |
-| `npm test`      | `vitest run` — the kernel's tests, `prompt.test.ts`, `lib/viewer.test.ts` |
+| Command                | What it does                                                              |
+|------------------------|---------------------------------------------------------------------------|
+| `npm run dev`          | Vite dev server at `:5173` with HMR; proxies `/api/*` to FastAPI          |
+| `npm run build`        | Type-checks then bundles to `aaiclick/server/static/`                     |
+| `npm run check`        | `tsc --noEmit` only (CI gate)                                             |
+| `npm run format`       | Prettier over `src/**/*.{ts,tsx}`; config in `.prettierrc`                |
+| `npm run format:check` | Same files, fails on drift (CI gate)                                      |
+| `npm test`             | `vitest run` — the kernel's tests, `prompt.test.ts`, `lib/viewer.test.ts` |
 
 In production, FastAPI mounts `aaiclick/server/static/` and serves
 `index.html` for unknown routes (SPA fallback). One process, one port,
@@ -361,6 +363,7 @@ yet reachable from the UI — see `future.md`.
 | Layer                | Tool                | Where                                                                     |
 |----------------------|---------------------|---------------------------------------------------------------------------|
 | Static type check    | `tsc --noEmit`      | `npm run check` — CI gate for every frontend task                         |
+| Formatting           | Prettier            | `npm run format:check` — CI gate; `npm run format` rewrites               |
 | Unit tests           | vitest              | `npm test` — kernel tests, `src/prompt.test.ts`, `src/lib/viewer.test.ts` |
 | End-to-end (browser) | Playwright (Python) | `test_e2e/web/test_smoke.py`, pytest                                      |
 

@@ -15,11 +15,7 @@ const ICON_PROPS = {
 } as const;
 
 function ExpandIcon({ expanded }: { expanded: boolean }) {
-  return (
-    <svg {...ICON_PROPS}>
-      {expanded ? <path d="M4 10l4-4 4 4" /> : <path d="M4 6l4 4 4-4" />}
-    </svg>
-  );
+  return <svg {...ICON_PROPS}>{expanded ? <path d="M4 10l4-4 4 4" /> : <path d="M4 6l4 4 4-4" />}</svg>;
 }
 
 function CopyIcon() {

@@ -23,10 +23,7 @@ export function SecretPanel({
         {value}
       </p>
       <div className="form-actions">
-        <button
-          className="btn btn-primary"
-          onClick={() => copy(value)}
-        >
+        <button className="btn btn-primary" onClick={() => copy(value)}>
           Copy
         </button>
         <button className="btn" onClick={onDone}>

@@ -56,14 +56,8 @@ export function JobGraph({ refId, onPrompt }: { refId: string; onPrompt: (v: str
   // `allEdges`, which react-query keeps referentially stable across a
   // status-only poll, so the edge layer stops re-rendering every 2 s.
   const pipelineEdges = useMemo(() => allEdges.filter((e) => e.kind !== "build"), [allEdges]);
-  const rootBuildEdges = useMemo(
-    () => allEdges.filter((e) => e.kind === "build" && e.attaches_build),
-    [allEdges],
-  );
-  const extraBuildEdges = useMemo(
-    () => allEdges.filter((e) => e.kind === "build" && !e.attaches_build),
-    [allEdges],
-  );
+  const rootBuildEdges = useMemo(() => allEdges.filter((e) => e.kind === "build" && e.attaches_build), [allEdges]);
+  const extraBuildEdges = useMemo(() => allEdges.filter((e) => e.kind === "build" && !e.attaches_build), [allEdges]);
 
   // Carries the build's own status, so this one legitimately tracks node data.
   const buildGates = useMemo(() => {

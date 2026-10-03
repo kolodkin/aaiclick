@@ -54,7 +54,12 @@ export function RegisterForm({ name, onPrompt }: { name: string; onPrompt: (v: s
           <label>
             Entrypoint <span className="help">— dotted path, e.g. tasks.report.build</span>
           </label>
-          <input type="text" value={entrypoint} onChange={(e) => setEntrypoint(e.target.value)} placeholder="package.module.callable" />
+          <input
+            type="text"
+            value={entrypoint}
+            onChange={(e) => setEntrypoint(e.target.value)}
+            placeholder="package.module.callable"
+          />
         </div>
         <div className="field">
           <label>
@@ -66,7 +71,12 @@ export function RegisterForm({ name, onPrompt }: { name: string; onPrompt: (v: s
           <label>
             Schedule <span className="help">— cron, e.g. 0 2 * * * · leave blank for manual</span>
           </label>
-          <input type="text" value={schedule} onChange={(e) => setSchedule(e.target.value)} placeholder="(optional cron expression)" />
+          <input
+            type="text"
+            value={schedule}
+            onChange={(e) => setSchedule(e.target.value)}
+            placeholder="(optional cron expression)"
+          />
         </div>
         <div className="field">
           <label>

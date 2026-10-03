@@ -2,9 +2,9 @@
 // explorer. Field toggles only change client-side column visibility; order-by
 // changes go back to the parent, which decides when to re-run the query.
 
-export type Field = { name: string; type: string }
+export type Field = { name: string; type: string };
 
-export type OrderCol = { name: string; dir: 'ASC' | 'DESC' }
+export type OrderCol = { name: string; dir: "ASC" | "DESC" };
 
 export function FieldPickers({
   fields,
@@ -14,43 +14,32 @@ export function FieldPickers({
   onOrderByChange,
   orderHeaderExtra,
 }: {
-  fields: Field[]
-  visibleCols: string[]
-  orderBy: OrderCol[]
-  onVisibleColsChange: (cols: string[]) => void
-  onOrderByChange: (order: OrderCol[]) => void
+  fields: Field[];
+  visibleCols: string[];
+  orderBy: OrderCol[];
+  onVisibleColsChange: (cols: string[]) => void;
+  onOrderByChange: (order: OrderCol[]) => void;
   // Rendered next to the "Order by" label (e.g. the query panel's Run button).
-  orderHeaderExtra?: React.ReactNode
+  orderHeaderExtra?: React.ReactNode;
 }) {
   function toggleField(name: string) {
-    onVisibleColsChange(
-      visibleCols.includes(name)
-        ? visibleCols.filter((c) => c !== name)
-        : [...visibleCols, name],
-    )
+    onVisibleColsChange(visibleCols.includes(name) ? visibleCols.filter((c) => c !== name) : [...visibleCols, name]);
   }
 
   function toggleOrder(name: string) {
     onOrderByChange(
       orderBy.some((o) => o.name === name)
         ? orderBy.filter((o) => o.name !== name)
-        : [...orderBy, { name, dir: 'ASC' }],
-    )
+        : [...orderBy, { name, dir: "ASC" }],
+    );
   }
 
   function flipDir(name: string) {
-    onOrderByChange(
-      orderBy.map((o) =>
-        o.name === name ? { ...o, dir: o.dir === 'ASC' ? 'DESC' : 'ASC' } : o,
-      ),
-    )
+    onOrderByChange(orderBy.map((o) => (o.name === name ? { ...o, dir: o.dir === "ASC" ? "DESC" : "ASC" } : o)));
   }
 
   return (
-    <div
-      data-testid="field-pickers"
-      className="space-y-3 rounded-xl border border-white/10 bg-white/[0.03] p-3"
-    >
+    <div data-testid="field-pickers" className="space-y-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
       <div>
         <div className="mb-2 flex items-center gap-2">
           <span className="text-sm font-medium text-slate-200">Select fields</span>
@@ -73,7 +62,7 @@ export function FieldPickers({
         </div>
         <div className="flex flex-wrap gap-2">
           {fields.map((f) => {
-            const on = visibleCols.includes(f.name)
+            const on = visibleCols.includes(f.name);
             return (
               <button
                 key={f.name}
@@ -83,11 +72,11 @@ export function FieldPickers({
                 data-col={f.name}
                 data-on={on}
                 title={f.type}
-                className={`glass-toggle px-2.5 py-1 text-xs ${on ? 'is-active' : ''}`}
+                className={`glass-toggle px-2.5 py-1 text-xs ${on ? "is-active" : ""}`}
               >
                 {f.name}
               </button>
-            )
+            );
           })}
         </div>
       </div>
@@ -99,7 +88,7 @@ export function FieldPickers({
         </div>
         <div className="flex flex-wrap gap-2">
           {fields.map((f) => {
-            const on = orderBy.some((o) => o.name === f.name)
+            const on = orderBy.some((o) => o.name === f.name);
             return (
               <button
                 key={f.name}
@@ -108,11 +97,11 @@ export function FieldPickers({
                 data-testid="orderby-add"
                 data-col={f.name}
                 data-on={on}
-                className={`glass-toggle px-2.5 py-1 text-xs ${on ? 'is-active-soft' : ''}`}
+                className={`glass-toggle px-2.5 py-1 text-xs ${on ? "is-active-soft" : ""}`}
               >
                 {f.name}
               </button>
-            )
+            );
           })}
         </div>
         {orderBy.length > 0 && (
@@ -149,5 +138,5 @@ export function FieldPickers({
         )}
       </div>
     </div>
-  )
+  );
 }

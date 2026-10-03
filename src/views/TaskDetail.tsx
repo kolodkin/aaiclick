@@ -41,7 +41,11 @@ export function TaskDetail({ id, onPrompt }: { id: string; onPrompt: (v: string)
             { k: "Task ID", v: `#${task.id}`, mono: true },
             { k: "Job", v: String(task.job_id), mono: true },
             { k: "Attempt", v: `${task.attempt}/${task.max_retries}`, mono: true },
-            { k: "Execution worker", v: task.execution_worker_id == null ? "—" : String(task.execution_worker_id), mono: true },
+            {
+              k: "Execution worker",
+              v: task.execution_worker_id == null ? "—" : String(task.execution_worker_id),
+              mono: true,
+            },
             { k: "Started", v: relativeTime(task.started_at) },
             { k: "Duration", v: durationBetween(task.started_at, task.completed_at) },
             { k: "Entrypoint", v: <Truncated text={task.entrypoint} />, wide: true },

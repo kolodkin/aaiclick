@@ -27,9 +27,27 @@ export function Audit({ onPrompt }: { onPrompt: (v: string) => void }) {
       <p className="sub">Newest first. Which requests are recorded follows AAICLICK_AUDIT_LOG (writes / all / off).</p>
       {me?.role !== "admin" && <p className="err">Requires the admin role.</p>}
       <div className="chips">
-        <input className="fake-prompt" id="audit-username" placeholder="username" value={username} onChange={(e) => setUsername(e.target.value)} />
-        <input className="fake-prompt" id="audit-method" placeholder="method (POST)" value={method} onChange={(e) => setMethod(e.target.value)} />
-        <input className="fake-prompt" id="audit-path" placeholder="path prefix (/api/v0/jobs)" value={path} onChange={(e) => setPath(e.target.value)} />
+        <input
+          className="fake-prompt"
+          id="audit-username"
+          placeholder="username"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+        />
+        <input
+          className="fake-prompt"
+          id="audit-method"
+          placeholder="method (POST)"
+          value={method}
+          onChange={(e) => setMethod(e.target.value)}
+        />
+        <input
+          className="fake-prompt"
+          id="audit-path"
+          placeholder="path prefix (/api/v0/jobs)"
+          value={path}
+          onChange={(e) => setPath(e.target.value)}
+        />
       </div>
       {isLoading && <p className="sub">loading…</p>}
       {isError && <p className="err">{error.message}</p>}
