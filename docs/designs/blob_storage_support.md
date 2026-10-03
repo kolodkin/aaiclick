@@ -7,17 +7,20 @@ engines do the work: the Object keeps its table name, operators and views
 keep producing SQL, and only the `ENGINE` clause changes. The MergeTree
 default stays as it is; blob storage is opt-in per object.
 
-Delivered in two phases:
+Two pieces, files as the contract between them:
 
-| Phase | Scope                                                              | Goal served                      |
-|-------|--------------------------------------------------------------------|----------------------------------|
-| 1     | Read-only Object over an existing path — zero-copy external reads  | Query external data in place     |
-| 2     | Writable location: aaiclick-owned objects whose files live in a bucket | Ephemeral compute, cross-job sharing |
+| Piece                    | What it does                                            | Goal served                                  |
+|--------------------------|---------------------------------------------------------|----------------------------------------------|
+| Read-only source Object  | Queries an existing path in place, nothing copied       | External data without ingestion              |
+| Export to a bucket       | Writes an Object or View as a file, server-side         | Results that outlive the server and the job  |
 
-Out of scope for both: replacing MergeTree for temp objects, a second query
-engine (DuckDB or similar), and lake formats (Iceberg, Delta) — ClickHouse
-reads them through the same engine family, so they can be added later as
-schemes.
+A job exports its result, the URL travels to the next job as a plain string,
+and that job opens it read-only on any cluster. That is the whole of
+ephemeral compute and cross-job sharing.
+
+Out of scope: replacing MergeTree for temp objects, a second query engine
+(DuckDB or similar), and lake formats (Iceberg, Delta) — ClickHouse reads
+them through the same engine family, so they can be added later as schemes.
 
 ---
 
@@ -65,7 +68,7 @@ the same settings from its session config.
 
 ---
 
-# Phase 1 — Read-Only Source
+# Read-Only Source Object
 
 ```python
 # Existing external data — schema inferred, nothing copied
@@ -80,7 +83,7 @@ engine table over the path instead of copying rows into MergeTree. The
 existing function keeps its copy semantics; `copy()` on a located Object is
 the explicit way to ingest.
 
-Rules for a Phase 1 Object:
+Rules for a located Object:
 
 - **Read-only.** `insert` and `insert_from_url` raise. Enforced in Python
   on `Schema.location`, independent of whether the path is a glob.
@@ -97,26 +100,39 @@ Changes: `Schema` fields, `get_engine_clause()`, a scheme table next to
 `aaiclick/data/object/url.py`, the read-only guard in `Object`, the
 deploy-template credentials example, and `docs/user_guide/object.md`.
 
-# Phase 2 — Writable Location
+# Export to a Bucket
 
-Deferred until Phase 1 is in use. Design notes kept so the first phase does
-not paint it in:
+```python
+url = await daily.export("s3://lake/reports/daily_2026_10.parquet")
+# next job, any cluster
+daily = await open_object_from_url(url)
+```
 
-- **Entry points.** `create_object(schema, location=url)` for a new empty
-  object, and `copy(location=url)` to materialize a result into a bucket.
-  `Object.export` stays a local-file writer.
-- **Derived locations.** A context `blob_base` plus `<table_name>/` so
-  `open_object("orders", scope="global")` finds the files by name on any
-  cluster; explicit `location=` overrides.
-- **Append layout.** A directory per object: inserts write new files
-  through a partition-placeholder path with `s3_create_new_file_on_insert`,
-  reads glob the directory. Whether a table reads every file its own
-  inserts wrote must be verified on the pinned ClickHouse first; if not,
-  located objects are single-file and write-once.
-- **Engine limits.** No `ORDER BY`, no mutations or `DELETE`, append only.
-- **Cleanup.** `DROP TABLE` only drops the pointer. Files expire through a
-  bucket lifecycle rule keyed on prefix (`t_` / `j_` on the job TTL, `p_`
-  never), documented as a deployment step.
+`Object.export` accepts the same URL schemes as the read side. For a bucket
+target it runs `INSERT INTO FUNCTION s3(url, format) SELECT ...` on the
+server, so the bytes never pass through Python and chdb and remote
+ClickHouse behave the same — unlike the local-file path, which streams over
+HTTP for a remote server. Format comes from the extension as today, view
+constraints are honored, and the return value is the URL written. Writing
+to an existing key is an error unless the caller passes `overwrite=True`
+(`s3_truncate_on_insert`).
+
+Append is a directory of files: export to a new key under a prefix each
+run, read the prefix with a glob. Changes: the bucket branch in
+`export_query_to_file` (`aaiclick/data/data_context/ch_client.py`) and the
+`export` docstring.
+
+# Why No Writable Located Object
+
+`create_object(location=)` with inserts landing in the bucket was
+considered and rejected. The S3 engine's only form of append is a new file
+per insert read back through a glob — the export-plus-glob layout above,
+with worse semantics: unverified read-after-write across files, no
+concurrent-writer safety, orphan files that need bucket lifecycle rules,
+and derived locations plus registry changes to make named objects
+reopenable. Export keeps files as the contract and needs none of it.
+Revisit only if a workload needs in-place append to one bucket-backed table
+from several tasks.
 
 # Testing
 
@@ -124,8 +140,9 @@ not paint it in:
   both backends; chdb ships the same engines as the server.
 - Locally the located-object tests skip unless `AAICLICK_BLOB_TEST_URL` is
   set.
-- Phase 1 coverage: open and read one file per input format, a glob read,
-  a `where` / aggregation over the located table, `copy()` into MergeTree,
-  `insert` raising, and reopen by name after `DROP TABLE`.
+- Coverage: open and read one file per input format, a glob read, a
+  `where` / aggregation over the located table, `copy()` into MergeTree,
+  `insert` raising, reopen by name after `DROP TABLE`, and an export →
+  open round trip per output format.
 - GCS and Azure are covered by SQL-rendering tests only; their wire
   behavior is ClickHouse's.

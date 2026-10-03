@@ -15,11 +15,10 @@ Remove each item from that file as it lands; delete the file when empty.
 
 # Blob Storage Support
 
-Objects backed by files in S3 / GCS / Azure Blob through ClickHouse's
-object-store table engines, opt-in per object; the MergeTree default is
-unchanged. Phase 1 is a read-only Object over an existing path, so external
-parquet is queried in place without ingestion. Phase 2, writable locations
-for aaiclick-owned objects, is deferred until Phase 1 is in use. Full design:
+Read-only Objects over files in S3 / GCS / Azure Blob through ClickHouse's
+object-store table engines, plus `export` to a bucket; the MergeTree default
+is unchanged. External parquet is queried in place without ingestion, and a
+job's exported result is opened by the next job on any cluster. Full design:
 `docs/designs/blob_storage_support.md`.
 
 ---
