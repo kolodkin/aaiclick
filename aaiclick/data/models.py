@@ -412,6 +412,9 @@ class ViewSchema(Schema):
         offset: OFFSET constraint (or None)
         selected_fields: List of selected column names (single-field=[name], multi-field=[...])
         computed_columns: Computed-column expressions added by ``with_columns(...)``.
+        renamed_columns: Column renames added by ``rename(...)``, old name -> new name.
+        exploded_columns: Array columns flattened by ``explode(...)``.
+        left_explode: Whether ``explode(..., left=True)`` keeps rows with empty arrays.
     """
 
     where: str | None = None
@@ -419,6 +422,9 @@ class ViewSchema(Schema):
     offset: int | None = None
     selected_fields: list[str] | None = None
     computed_columns: dict[str, "Computed"] | None = None
+    renamed_columns: dict[str, str] | None = None
+    exploded_columns: list[str] | None = None
+    left_explode: bool = False
 
 
 @dataclass

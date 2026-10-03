@@ -36,7 +36,6 @@ from typing import Any
 from aaiclick.data.data_context import create_object
 from aaiclick.data.models import ORIENT_RECORDS
 from aaiclick.data.object import Object, View
-from aaiclick.data.object.refs import ViewRef
 from aaiclick.snowflake import get_snowflake_id
 
 from .decorators import TaskFactory, task
@@ -159,22 +158,19 @@ async def _finalize(out: Object | None) -> Object | None:
 def _partition_refs(src: Object | View, partition: int, rows: int) -> list[dict]:
     """Serialized LIMIT/OFFSET refs covering the ``rows`` rows of ``src``.
 
-    A View keeps its WHERE, field selection and renames, and slices are offset
-    within its window. Slices need a stable order to be disjoint: the source's
-    order_by, else tuple().
+    A View keeps all its modifiers, and slices are offset within its window.
+    Slices need a stable order to be disjoint: the source's order_by, else tuple().
     """
-    base = ViewRef.model_validate(src._serialize_ref()) if isinstance(src, View) else ViewRef(table=src.table)
-    start = base.offset or 0
+    start = src.offset or 0
     order_by = src.order_by or "tuple()"
     return [
-        base.model_copy(
-            update={
-                "offset": start + i * partition,
-                # An empty source still gets one partition; it reads nothing.
-                "limit": min(partition, rows - i * partition) if rows else partition,
-                "order_by": order_by,
-            }
-        ).to_dict()
+        View(
+            src,
+            offset=start + i * partition,
+            # An empty source still gets one partition; it reads nothing.
+            limit=min(partition, rows - i * partition) if rows else partition,
+            order_by=order_by,
+        )._serialize_ref()
         for i in range(max(1, ceil(rows / partition)))
     ]
 

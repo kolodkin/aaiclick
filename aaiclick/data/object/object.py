@@ -2535,12 +2535,7 @@ class View(Object):
         """Serialize this View to a reference dict for task kwargs/results."""
         return ViewRef(
             table=self.table,
-            where=self._build_where(),
-            limit=self.limit,
-            offset=self.offset,
-            order_by=self.order_by,
-            selected_fields=self.selected_fields,
-            renamed_columns=self._renamed_columns,
+            view_schema=self.schema,
             persistent=True if self.persistent else None,
         ).to_dict()
 
@@ -2818,6 +2813,25 @@ class View(Object):
             order_by=self._order_by,
             selected_fields=self.selected_fields,
             computed_columns=self.computed_columns,
+            renamed_columns=self._renamed_columns,
+            exploded_columns=self._exploded_columns or None,
+            left_explode=self._left_explode,
+        )
+
+    @classmethod
+    def from_schema(cls, source: Object, schema: ViewSchema) -> View:
+        """Rebuild a View over ``source`` from its ``View.schema``."""
+        return cls(
+            source=source,
+            where=schema.where,
+            limit=schema.limit,
+            offset=schema.offset,
+            order_by=schema.order_by,
+            selected_fields=schema.selected_fields,
+            computed_columns=schema.computed_columns,
+            renamed_columns=schema.renamed_columns,
+            exploded_columns=schema.exploded_columns,
+            left_explode=schema.left_explode,
         )
 
     async def insert(self, *args) -> None:

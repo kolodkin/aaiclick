@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import pytest
 
+from aaiclick.data.models import ViewSchema
 from aaiclick.data.object.refs import (
     ObjectRef,
     UpstreamRef,
@@ -48,32 +49,6 @@ def test_object_ref_to_dict(ref, expected):
     assert ref.to_dict() == expected
 
 
-def test_view_ref_with_modifiers():
-    """Full round-trip of ``ViewRef`` — pins every field the hand-written
-    ``_to_wire`` serializer emits, so dropping one breaks this test."""
-    wire = ViewRef(
-        table="t_1",
-        where="x > 0",
-        limit=10,
-        offset=5,
-        order_by="aai_id",
-        selected_fields=["a", "b"],
-        renamed_columns={"a": "alpha"},
-        persistent=True,
-    ).to_dict()
-    assert wire == {
-        "object_type": "view",
-        "table": "t_1",
-        "where": "x > 0",
-        "limit": 10,
-        "offset": 5,
-        "order_by": "aai_id",
-        "selected_fields": ["a", "b"],
-        "renamed_columns": {"a": "alpha"},
-        "persistent": True,
-    }
-
-
 def test_is_upstream_ref_predicate():
     assert is_upstream_ref(UpstreamRef(task_id=1).to_dict()) is True
     assert is_upstream_ref({"ref_type": "group_results", "group_id": 1}) is False
@@ -85,4 +60,7 @@ def test_is_upstream_ref_predicate():
 def test_is_persistent_object_ref_predicate():
     assert is_persistent_object_ref(ObjectRef(table="p_x", persistent=True).to_dict()) is True
     assert is_persistent_object_ref(ObjectRef(table="t_x").to_dict()) is False
-    assert is_persistent_object_ref(ViewRef(table="t_x").to_dict()) is False
+    assert (
+        is_persistent_object_ref(ViewRef(table="t_x", view_schema=ViewSchema(fieldtype="a", columns={})).to_dict())
+        is False
+    )
