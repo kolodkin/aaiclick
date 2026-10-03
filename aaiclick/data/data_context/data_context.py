@@ -40,6 +40,7 @@ from ..models import (
     ValueListType,
     ValueScalarType,
     ValueType,
+    ViewSchema,
     build_order_by_clause,
 )
 from ..scope import (
@@ -331,7 +332,12 @@ async def create_object(
 
     Returns:
         Object: New Object instance with created table
+
+    Raises:
+        TypeError: If ``schema`` is a ``ViewSchema`` — materialize a View with ``copy()``.
     """
+    if isinstance(schema, ViewSchema):
+        raise TypeError("create_object() takes a Schema, not a ViewSchema; materialize a View with copy()")
     effective_scope = _resolve_scope(name, scope)
     if effective_scope is not None:
         assert name is not None

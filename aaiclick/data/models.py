@@ -323,6 +323,25 @@ class CopyInfo:
     is_single_field: bool = False
     order_by: str | None = None
 
+    def target_schema(self) -> "Schema":
+        """Schema of the table a copy fills: a single field becomes an array
+        object's ``value`` column, a multi-field selection a dict of those fields."""
+        columns = select_fields(self.columns, self.selected_fields)
+        if self.is_single_field:
+            return Schema(fieldtype=FIELDTYPE_ARRAY, columns=columns)
+        if self.selected_fields:
+            return Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
+        return Schema(fieldtype=self.fieldtype, columns=columns)
+
+
+def select_fields(columns: dict[str, "ColumnInfo"], selected_fields: list[str] | None) -> dict[str, "ColumnInfo"]:
+    """Narrow ``columns`` to a field selection; a single field surfaces as ``value``."""
+    if not selected_fields:
+        return columns
+    if len(selected_fields) == 1:
+        return {"value": columns[selected_fields[0]]}
+    return {f: columns[f] for f in selected_fields}
+
 
 @dataclass(frozen=True)
 class QueryStats:

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from aaiclick import Object, create_object_from_value
+from aaiclick import Object, create_object, create_object_from_value
 from aaiclick.data.data_context import delete_object, get_ch_client
 
 # DDL and registry persistence
@@ -37,6 +37,14 @@ async def test_create_object_allows_user_column_named_aai_id(ctx):
     names = {r[0] for r in result.result_rows}
     assert "aai_id" in names
     assert "label" in names
+
+
+async def test_create_object_rejects_view_schema(ctx):
+    """A ``ViewSchema`` says how to read a table, not what table to create."""
+    obj = await create_object_from_value({"a": [1, 2]})
+
+    with pytest.raises(TypeError, match="not a ViewSchema"):
+        await create_object(obj.rename({"a": "x"}).schema)
 
 
 # Context-manager lifecycle (objects become stale after context exits)

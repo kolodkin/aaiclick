@@ -14,10 +14,12 @@ from aaiclick import (
     ColumnInfo,
     ObjectNotFoundError,
     Schema,
+    create_object,
     create_object_from_value,
     delete_persistent_object,
     open_object,
 )
+from aaiclick.data import Computed
 from aaiclick.data.data_context import get_ch_client
 from aaiclick.data.data_context.lifecycle import get_data_lifecycle
 from aaiclick.data.models import ViewSchema
@@ -223,6 +225,78 @@ async def test_open_object_reads_schema_from_registry(ctx, value, name, expected
         assert {col: info.fieldtype for col, info in schema.columns.items()} == expected_columns
     finally:
         await delete_persistent_object(name, scope="global")
+
+
+_SINGLE_FIELD_SHAPES = [
+    pytest.param(lambda obj: obj["a"], id="single-field"),
+    pytest.param(lambda obj: obj.with_columns({"s": Computed("Int64", "a * 2")})["s"], id="computed+single-field"),
+]
+
+# Shapes whose data() is a dict, so its keys are the View's columns.
+_DICT_SHAPES = [
+    pytest.param(lambda obj: obj[["b", "a"]], id="multi-field"),
+    pytest.param(lambda obj: obj.explode("tags"), id="explode"),
+    pytest.param(
+        lambda obj: obj.rename({"a": "x"}).with_columns({"s": Computed("Int64", "x + b")}).where("b > 3"),
+        id="chained",
+    ),
+    # A field selection made after with_columns() drops the computed columns it omits...
+    pytest.param(
+        lambda obj: obj.with_columns({"s": Computed("Int64", "a + b")})[["a", "b"]], id="computed+multi-field"
+    ),
+    # ...while computed columns added after the selection join it.
+    pytest.param(
+        lambda obj: obj[["a", "b"]].with_columns({"s": Computed("Int64", "a + b")}), id="multi-field+computed"
+    ),
+]
+
+
+@pytest.mark.parametrize("transform", _SINGLE_FIELD_SHAPES + _DICT_SHAPES)
+async def test_view_materialized_schema_matches_copy(ctx, transform):
+    """``View.materialized_schema`` is the plain ``Schema`` of the table ``copy()`` produces."""
+    obj = await create_object_from_value({"a": [1, 2], "b": [3, 4], "tags": [["x", "y"], ["z"]]})
+    view = transform(obj)
+    copied = await view.copy()
+
+    schema = view.materialized_schema
+
+    assert type(schema) is Schema
+    assert (schema.fieldtype, schema.columns) == (copied.schema.fieldtype, copied.schema.columns)
+
+
+@pytest.mark.parametrize("transform", _SINGLE_FIELD_SHAPES + _DICT_SHAPES)
+async def test_view_effective_columns_match_copy(ctx, transform):
+    """The columns operators see on a View are the columns ``copy()`` materializes, ColumnInfo included."""
+    obj = await create_object_from_value({"a": [1, 2], "b": [3, 4], "tags": [["x", "y"], ["z"]]})
+    view = transform(obj)
+
+    assert view._effective_columns == (await view.copy()).schema.columns
+
+
+@pytest.mark.parametrize("transform", _DICT_SHAPES)
+async def test_view_effective_columns_match_data(ctx, transform):
+    """The columns operators see on a View are the keys ``data()`` returns, in order."""
+    obj = await create_object_from_value({"a": [1, 2], "b": [3, 4], "tags": [["x", "y"], ["z"]]})
+    view = transform(obj)
+
+    assert list(view._effective_columns) == list((await view.data()).keys())
+
+
+@pytest.mark.parametrize(
+    "transform, expected_order_by",
+    [
+        # Same columns as the source: its sort key still applies.
+        pytest.param(lambda obj: obj, "(b)", id="object"),
+        pytest.param(lambda obj: obj.where("b > 3"), "(b)", id="where"),
+        # Renamed columns: the source's key no longer names a column.
+        pytest.param(lambda obj: obj.rename({"b": "x"}), None, id="rename"),
+    ],
+)
+async def test_materialized_schema_keeps_sort_key_while_columns_match(ctx, transform, expected_order_by):
+    columns = {"a": ColumnInfo("Int64"), "b": ColumnInfo("Int64")}
+    obj = await create_object(Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by="(b)", engine="MergeTree"))
+
+    assert transform(obj).materialized_schema.order_by == expected_order_by
 
 
 async def test_open_object_without_registry_row_raises(orch_ctx):
