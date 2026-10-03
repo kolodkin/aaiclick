@@ -60,6 +60,7 @@ from ..models import (
     build_order_by_clause,
     parse_ch_type,
     select_fields,
+    select_fieldtype,
 )
 from ..scope import NamedScope, ObjectScope, is_persistent_table, scope_of
 from ..sql_utils import quote_identifier, quote_sql_literal
@@ -243,7 +244,12 @@ class Object:
         and are kept; once a View reshapes them the key may name a column that
         no longer exists, so both are dropped.
         """
-        schema = self._get_copy_info().target_schema()
+        # Same columns and fieldtype as CopyInfo.target_schema(), without
+        # rendering the SELECT that copy() runs.
+        schema = Schema(
+            fieldtype=select_fieldtype(self._schema.fieldtype, self.selected_fields),
+            columns=self._effective_columns,
+        )
         if schema.columns == self._schema.columns:
             return schema.model_copy(update={"engine": self._schema.engine, "order_by": self._schema.order_by})
         return schema
@@ -3076,11 +3082,6 @@ class LazyOperator(Object):
 
     def _emit_kwargs(self) -> _Emit:
         return {"name": self._name, "scope": self._scope}
-
-    @property
-    def materialized_schema(self) -> Schema:
-        """The preview schema: known before the result has a table to copy from."""
-        return self._schema
 
     @property
     def table(self) -> str:
