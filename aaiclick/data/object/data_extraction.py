@@ -7,12 +7,10 @@ This module provides specialized extraction functions for different table types.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from ..models import FIELDTYPE_ARRAY, ORIENT_RECORDS, ColumnInfo
-
-if TYPE_CHECKING:
-    from .object import Object
+from . import object as object_module
 
 
 def _convert_value(value):
@@ -131,7 +129,7 @@ def _unflatten_star_group(sub_fields: dict[str, Any]) -> list:
     return [_unflatten_record(item) for item in items]
 
 
-async def extract_scalar_data(obj: Object) -> Any:
+async def extract_scalar_data(obj: object_module.Object) -> Any:
     """
     Extract data from a scalar table (single 'value' row).
 
@@ -147,7 +145,7 @@ async def extract_scalar_data(obj: Object) -> Any:
     return _convert_value(rows[0][0]) if rows else None
 
 
-async def extract_array_data(obj: Object, **build_select_kwargs: Any) -> list[Any]:
+async def extract_array_data(obj: object_module.Object, **build_select_kwargs: Any) -> list[Any]:
     """
     Extract data from an array table (multiple 'value' rows).
 
@@ -161,7 +159,7 @@ async def extract_array_data(obj: Object, **build_select_kwargs: Any) -> list[An
 
 
 async def extract_dict_data(
-    obj: Object,
+    obj: object_module.Object,
     column_names: list[str],
     columns: dict[str, ColumnInfo],
     orient: str,

@@ -56,6 +56,7 @@ from aaiclick.auth.view_models import (
     UserListFilter,
 )
 from aaiclick.datetime_utils import utc_now
+from aaiclick.deploy import ComposeFileExists, HelmChartExists, init_compose, init_helm
 from aaiclick.internal_api import api_tokens as api_tokens_api
 from aaiclick.internal_api import audit as audit_api
 from aaiclick.internal_api import invites as invites_api
@@ -63,7 +64,9 @@ from aaiclick.internal_api import password_reset as reset_api
 from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import users as users_api
 from aaiclick.internal_api.errors import InternalApiError, NotFound
+from aaiclick.orchestration.cli import start_background, start_execution_worker, start_local
 from aaiclick.orchestration.env import job_wait_timeout
+from aaiclick.orchestration.execution.docker_scaffold import DockerfileExists, init_dockerfile
 from aaiclick.orchestration.kubernetes_config import build_kubernetes_config
 from aaiclick.orchestration.models import JOB_COMPLETED, ExecutionWorkerStatus, JobStatus, PreservationMode
 from aaiclick.orchestration.orch_context import orch_context
@@ -612,13 +615,6 @@ def _run_setup_cli(args: argparse.Namespace) -> None:
 
 
 def _run_docker_init(args: argparse.Namespace) -> None:
-    from pathlib import Path
-
-    from aaiclick.orchestration.execution.docker_scaffold import (
-        DockerfileExists,
-        init_dockerfile,
-    )
-
     target = Path(args.path)
     try:
         written = init_dockerfile(target, force=args.force)
@@ -629,10 +625,6 @@ def _run_docker_init(args: argparse.Namespace) -> None:
 
 
 def _run_compose_init(args: argparse.Namespace) -> None:
-    from pathlib import Path
-
-    from aaiclick.deploy import ComposeFileExists, init_compose
-
     target = Path(args.path)
     try:
         written = init_compose(target, image_tag=args.image_tag, force=args.force)
@@ -643,10 +635,6 @@ def _run_compose_init(args: argparse.Namespace) -> None:
 
 
 def _run_k8s_init(args: argparse.Namespace) -> None:
-    from pathlib import Path
-
-    from aaiclick.deploy import HelmChartExists, init_helm
-
     target = Path(args.path)
     try:
         written = init_helm(target, image_tag=args.image_tag, force=args.force)
@@ -1471,8 +1459,6 @@ def _dispatch() -> None:
 
     elif args.command == "local":
         if args.local_command == "start":
-            from aaiclick.orchestration.cli import start_local
-
             asyncio.run(start_local(host=args.host, port=args.port, reload=args.reload))
 
         else:
@@ -1480,8 +1466,6 @@ def _dispatch() -> None:
 
     elif args.command == "execution-worker":
         if args.execution_worker_command == "start":
-            from aaiclick.orchestration.cli import start_execution_worker
-
             asyncio.run(start_execution_worker(max_tasks=args.max_tasks))
 
         elif args.execution_worker_command == "list":
@@ -1566,8 +1550,6 @@ def _dispatch() -> None:
             asyncio.run(view_handler(args))
 
     elif args.command == "background":
-        from aaiclick.orchestration.cli import start_background
-
         if args.background_command == "start":
             asyncio.run(start_background(poll_interval=args.poll_interval))
 

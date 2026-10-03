@@ -45,13 +45,11 @@ value (e.g. a map callback)::
     {"object_type": "object", "table": "p_foo", "persistent": true}
     {"object_type": "object", "table": "t_12345"}
 
-**View** — a filtered/projected view over an Object. All view modifier
-fields (``where`` / ``limit`` / ``offset`` / ``order_by`` /
-``selected_fields`` / ``renamed_columns``) are always present, possibly
-``None`` — the runner deserialization reads them via ``.get()`` and
-feeds them to the ``View`` constructor unchanged::
+**View** — a view over an Object. ``view_schema`` is the View's serialized
+``ViewSchema`` (``View.schema``), carrying every view modifier; the
+runner rebuilds the View from it with ``View.from_schema``::
 
-    {"object_type": "view", "table": "...", "where": ..., "limit": ..., ...}
+    {"object_type": "view", "table": "...", "view_schema": {"where": ..., "limit": ..., ...}}
 
 **Native Python values** — anything JSON-serializable that isn't one of
 the above::
@@ -72,6 +70,8 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, model_serializer
+
+from aaiclick.data.models import ViewSchema
 
 # --- Key names ---------------------------------------------------------
 
@@ -185,19 +185,13 @@ class ObjectRef(_FrozenRef):
 class ViewRef(_FrozenRef):
     """Reference to an aaiclick ``View`` over an ``Object``.
 
-    Every view modifier field is emitted on the wire even when ``None``;
-    the runner's View reconstruction reads them unconditionally via
-    ``.get()`` and passes them to the ``View`` constructor.
+    ``view_schema`` is the View's ``ViewSchema``; ``table`` stays top-level so
+    ref consumers find the source table without parsing it.
     """
 
     object_type: Literal["view"] = VIEW
     table: str
-    where: str | None = None
-    limit: int | None = None
-    offset: int | None = None
-    order_by: str | None = None
-    selected_fields: list[str] | None = None
-    renamed_columns: dict[str, str] | None = None
+    view_schema: ViewSchema
     persistent: bool | None = None
     job_id: int | None = None
 

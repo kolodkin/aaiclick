@@ -72,49 +72,6 @@ def _are_types_castable(target_type: str, source_type: str) -> bool:
     return False
 
 
-async def _get_table_schema(table: str, ch_client) -> tuple[str, dict[str, ColumnInfo]]:
-    """
-    Get fieldtype and columns from a table's registry row.
-
-    Reads from ``table_registry.schema_doc`` (a serialised :class:`Schema`)
-    and rehydrates via :meth:`Schema.model_validate_json`. Raises
-    ``LookupError`` if the table has no registry row or a null
-    ``schema_doc`` — the table was either not created by aaiclick, or
-    predates the schema_doc migration.
-
-    Args:
-        table: Table name
-        ch_client: ClickHouse client instance — retained for call-site
-            compatibility; schema is now sourced from SQL, not ClickHouse.
-
-    Returns:
-        Tuple of (fieldtype, columns dict mapping names to ColumnInfo)
-    """
-    del ch_client  # sourced from SQL registry now
-    # Lazy imports break an orchestration→data→orchestration cycle: aaiclick.data.object
-    # loads before aaiclick.orchestration is ready, and orchestration's __init__ eagerly
-    # loads execution.runner which needs aaiclick.data.object.Object back. Deferred to
-    # call time — both packages are fully loaded by the first schema read.
-    from sqlmodel import select
-
-    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
-    from aaiclick.orchestration.sql_context import get_sql_session
-
-    async with get_sql_session() as sess:
-        result = await sess.execute(select(TableRegistry.schema_doc).where(TableRegistry.table_name == table))
-        row = result.one_or_none()
-
-    if row is None or row[0] is None:
-        raise LookupError(
-            f"Table {table!r} is not registered in table_registry (or has no "
-            "schema_doc). It was either not created by aaiclick, or was created "
-            "by a version that predates the schema_doc registry."
-        )
-
-    schema = Schema.model_validate_json(row[0])
-    return schema.fieldtype, schema.columns
-
-
 async def _get_value_column_type(table: str, ch_client) -> ColumnInfo:
     """
     Get the value column type from a table.
@@ -134,15 +91,6 @@ async def _get_value_column_type(table: str, ch_client) -> ColumnInfo:
     if type_result.result_rows:
         return parse_ch_type(type_result.result_rows[0][0])
     raise RuntimeError(f"Table '{table}' has no 'value' column")
-
-
-async def _get_fieldtype(table: str, ch_client) -> str:
-    """
-    Get the fieldtype of the value column from a table's registry row.
-    """
-    fieldtype, columns = await _get_table_schema(table, ch_client)
-    value_col = columns.get("value")
-    return value_col.fieldtype if value_col is not None else fieldtype
 
 
 async def copy_db(

@@ -5,14 +5,6 @@ Planned work across aaiclick, ordered by priority.
 
 ---
 
-# Code Review Backlog
-
-`docs/designs/code_review_2026_09.md` — findings from the whole-project
-review at commit `db56ac4`, grouped by severity with a suggested fix order.
-Remove each item from that file as it lands; delete the file when empty.
-
----
-
 # Blob Storage Support
 
 Read-only Objects over files in S3 / GCS / Azure Blob through ClickHouse's

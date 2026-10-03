@@ -11,7 +11,7 @@ from sqlmodel import col
 
 from aaiclick import create_object_from_value
 from aaiclick.data.data_context import data_context
-from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_DICT
+from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, ColumnInfo, Computed, ViewSchema
 from aaiclick.data.object import Object, View
 from aaiclick.data.object.refs import ViewRef
 from aaiclick.internal_api.tasks import get_task_logs
@@ -108,6 +108,37 @@ def object_fieldtype(obj: Object) -> str:
 async def explode_genres(obj: Object) -> list[str]:
     exploded = obj.with_split_by_char("genre", ",", element_type="String", alias="g").explode("g")
     return sorted((await (await exploded.copy()).data())["g"])
+
+
+_VALUE_COLUMNS = {"value": ColumnInfo("Int64", fieldtype=FIELDTYPE_ARRAY)}
+
+_MAKE_VIEW = {
+    "with_columns": lambda obj: obj.with_columns({"n": Computed("UInt64", "length(tags)")}),
+    "explode": lambda obj: obj.explode("tags"),
+    "left_explode": lambda obj: obj.explode("tags", left=True),
+    "rename": lambda obj: obj.rename({"user": "who"}),
+    "explode_computed": lambda obj: obj.with_columns(
+        {"t2": Computed("Array(String)", "arrayMap(t -> upper(t), tags)")}
+    ).explode("t2"),
+}
+
+
+@task
+async def make_view(modifier: str) -> View:
+    obj = await create_object_from_value([{"user": "a", "tags": ["x", "y"]}, {"user": "b", "tags": []}])
+    return _MAKE_VIEW[modifier](obj)
+
+
+@task
+async def view_data(view: View) -> dict:
+    return await view.data()
+
+
+@job("view_boundary_job")
+def view_boundary_job(modifier: str):
+    view = make_view(modifier=modifier)
+    data = view_data(view=view)
+    return task_result(data=data, tasks=[view, data])
 
 
 @task
@@ -337,16 +368,15 @@ async def test_deserialize_task_params_object(orch_ctx):
 async def test_deserialize_task_params_view(orch_ctx):
     """Test deserializing a View parameter with constraints."""
     await seed_registry_row("t456")
-    kwargs = {
-        "data": {
-            "object_type": "view",
-            "table": "t456",
-            "where": "value > 10",
-            "limit": 100,
-            "offset": 50,
-            "order_by": "value ASC",
-        }
-    }
+    schema = ViewSchema(
+        fieldtype=FIELDTYPE_ARRAY,
+        columns=_VALUE_COLUMNS,
+        where="value > 10",
+        limit=100,
+        offset=50,
+        order_by="value ASC",
+    )
+    kwargs = {"data": ViewRef(table="t456", view_schema=schema).to_dict()}
 
     result = await deserialize_task_params(kwargs)
     assert "data" in result
@@ -372,6 +402,31 @@ async def test_task_object_result_round_trips(orch_ctx):
     async with data_context():
         result = await get_job_result(job)
         assert await result.data() == [10, 20, 30]
+
+
+@pytest.mark.parametrize(
+    "modifier, expected",
+    [
+        pytest.param("with_columns", {"user": ["a", "b"], "tags": [["x", "y"], []], "n": [2, 0]}, id="with_columns"),
+        pytest.param("explode", {"user": ["a", "a"], "tags": ["x", "y"]}, id="explode"),
+        # LEFT ARRAY JOIN keeps the empty-array row with a default element.
+        pytest.param("left_explode", {"user": ["a", "a", "b"], "tags": ["x", "y", ""]}, id="left_explode"),
+        pytest.param("rename", {"who": ["a", "b"], "tags": [["x", "y"], []]}, id="rename"),
+        pytest.param(
+            "explode_computed",
+            {"user": ["a", "a"], "tags": [["x", "y"], ["x", "y"]], "t2": ["X", "Y"]},
+            id="explode_computed",
+        ),
+    ],
+)
+async def test_view_modifiers_survive_task_boundary(orch_ctx, modifier, expected):
+    """Computed and exploded columns survive a View's trip as task result and kwarg."""
+    job = await view_boundary_job(modifier=modifier)
+    await ajob_test(job)
+
+    assert job.status == JOB_COMPLETED, job.error
+    async with data_context():
+        assert await get_job_result(job) == expected
 
 
 @pytest.mark.parametrize(
@@ -655,7 +710,12 @@ async def test_register_returned_tasks_pins_child_input_tables(orch_ctx):
         "mod.child",
         kwargs={
             "data": Object(table="t_source")._serialize_ref(),
-            "nested": [ViewRef(table="t_view", limit=2, offset=0, order_by="tuple()").to_dict()],
+            "nested": [
+                ViewRef(
+                    table="t_view",
+                    view_schema=ViewSchema(fieldtype=FIELDTYPE_ARRAY, columns=_VALUE_COLUMNS, limit=2, offset=0),
+                ).to_dict()
+            ],
             "keep": {"object_type": "object", "table": "p_keep", "persistent": True},
         },
     )

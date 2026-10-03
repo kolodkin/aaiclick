@@ -104,9 +104,11 @@ def get_ch_client() -> ChClient:
     """Return the ClickHouse client for the active data context."""
     client = _ch_client_var.get()
     if client is None and _DEBUGGER_ENABLED and is_chdb():
-        global _debug_ch_client
+        # Module global: the debugger fallback keeps one chdb session per process.
+        global _debug_ch_client  # noqa: PLW0603
         if _debug_ch_client is None:
-            from .chdb_client import create_chdb_client
+            # Load only the backend in use.
+            from .chdb_client import create_chdb_client  # noqa: PLC0415
 
             _debug_ch_client = create_chdb_client()
         client = _debug_ch_client
@@ -199,10 +201,12 @@ async def query_text(sql: str, fmt: str | None = None, settings: dict | None = N
 async def create_ch_client() -> ChClient:
     """Create a ClickHouse client from AAICLICK_CH_URL."""
     if is_chdb():
-        from .chdb_client import create_chdb_client
+        # Load only the backend in use.
+        from .chdb_client import create_chdb_client  # noqa: PLC0415
 
         return create_chdb_client()
 
-    from .clickhouse_client import create_clickhouse_client
+    # Load only the backend in use.
+    from .clickhouse_client import create_clickhouse_client  # noqa: PLC0415
 
     return cast(ChClient, await create_clickhouse_client())

@@ -70,7 +70,8 @@ def get_url() -> str:
     sql_url = os.getenv("AAICLICK_SQL_URL")
     if not sql_url or sql_url.startswith("postgresql"):
         try:
-            import psycopg2  # noqa: F401
+            # Distributed extra only — keep inline so local-only installs can import this module.
+            import psycopg2  # noqa: F401, PLC0415
         except ImportError as e:
             raise ImportError(
                 "PostgreSQL migrations require the aaiclick[distributed] extra. "

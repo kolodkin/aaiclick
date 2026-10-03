@@ -12,6 +12,7 @@ import functools
 import re
 import sys
 from collections.abc import Awaitable, Callable, Sequence
+from enum import Enum
 from typing import Any, NamedTuple, TypedDict, Union
 
 from typing_extensions import Self
@@ -79,10 +80,19 @@ from .schema_compute import (
     _preview_quantile_schema,
     _preview_unique_schema,
 )
+from .transforms import cast, split_by_char
+from .url import _validate_url, _validate_url_columns, _validate_url_format
+
 
 # Sentinel for "caller did not pass this kwarg" — distinguishes from None
 # which means "explicitly no value" (e.g. limit=None to disable the safety cap).
-_UNSET: Any = object()
+class _Unset(Enum):
+    """Type of ``_UNSET`` — ``kwarg is _UNSET`` narrows a ``T | _Unset`` parameter to ``T``."""
+
+    UNSET = 0
+
+
+_UNSET = _Unset.UNSET
 
 
 def _require_explicit_order_for_cross_table(a: QueryInfo, b: QueryInfo) -> None:
@@ -377,9 +387,9 @@ class Object:
         default_order_by: str | None = None,
         skip_order_by: bool = False,
         *,
-        order_by: Any = _UNSET,
-        limit: Any = _UNSET,
-        offset: Any = _UNSET,
+        order_by: str | None | _Unset = _UNSET,
+        limit: int | None | _Unset = _UNSET,
+        offset: int | None | _Unset = _UNSET,
         all_fields: bool = False,
     ) -> str:
         """
@@ -429,9 +439,9 @@ class Object:
         self,
         columns: str = "*",
         *,
-        order_by: Any = _UNSET,
-        limit: Any = _UNSET,
-        offset: Any = _UNSET,
+        order_by: str | None | _Unset = _UNSET,
+        limit: int | None | _Unset = _UNSET,
+        offset: int | None | _Unset = _UNSET,
     ) -> str:
         """The SELECT this object reads itself with.
 
@@ -513,9 +523,9 @@ class Object:
         self,
         orient: str = ORIENT_DICT,
         *,
-        order_by: Any = _UNSET,
-        offset: Any = _UNSET,
-        limit: Any = _UNSET,
+        order_by: str | None | _Unset = _UNSET,
+        offset: int | None | _Unset = _UNSET,
+        limit: int | None | _Unset = _UNSET,
     ) -> Any:
         """
         Get the data from the object's table.
@@ -664,9 +674,9 @@ class Object:
     async def execute(
         self,
         *,
-        order_by: Any = _UNSET,
-        limit: Any = _UNSET,
-        offset: Any = _UNSET,
+        order_by: str | None | _Unset = _UNSET,
+        limit: int | None | _Unset = _UNSET,
+        offset: int | None | _Unset = _UNSET,
     ) -> QueryStats:
         """Run the query this Object/View describes, discard every row, return its stats.
 
@@ -1144,12 +1154,6 @@ class Object:
             >>> await trips.insert_from_url("https://example.com/feb.parquet")
             >>> await trips.insert_from_url("https://example.com/mar.parquet")
         """
-        from .url import (
-            _validate_url,
-            _validate_url_columns,
-            _validate_url_format,
-        )
-
         self.checkstale()
 
         _validate_url(url)
@@ -1839,8 +1843,6 @@ class Object:
             element_type: ClickHouse type for array elements (default "String").
             alias: Result column name (default: '{column}_parts').
         """
-        from .transforms import split_by_char
-
         name = alias or f"{column}_parts"
         return self.with_columns({name: split_by_char(column, separator, element_type=element_type)})
 
@@ -1939,8 +1941,6 @@ class Object:
             nullable: Use to{Type}OrNull and wrap in Nullable (default False).
             alias: Result column name (default: '{column}_{to_type.lower()}').
         """
-        from .transforms import cast
-
         name = alias or f"{column}_{to_type.lower()}"
         return self.with_columns({name: cast(column, to_type, nullable=nullable)})
 
@@ -2535,12 +2535,7 @@ class View(Object):
         """Serialize this View to a reference dict for task kwargs/results."""
         return ViewRef(
             table=self.table,
-            where=self._build_where(),
-            limit=self.limit,
-            offset=self.offset,
-            order_by=self.order_by,
-            selected_fields=self.selected_fields,
-            renamed_columns=self._renamed_columns,
+            view_schema=self.schema,
             persistent=True if self.persistent else None,
         ).to_dict()
 
@@ -2760,9 +2755,9 @@ class View(Object):
         self,
         orient: str = ORIENT_DICT,
         *,
-        order_by: Any = _UNSET,
-        offset: Any = _UNSET,
-        limit: Any = _UNSET,
+        order_by: str | None | _Unset = _UNSET,
+        offset: int | None | _Unset = _UNSET,
+        limit: int | None | _Unset = _UNSET,
     ) -> Any:
         """
         Get the data from the view.
@@ -2818,6 +2813,25 @@ class View(Object):
             order_by=self._order_by,
             selected_fields=self.selected_fields,
             computed_columns=self.computed_columns,
+            renamed_columns=self._renamed_columns,
+            exploded_columns=self._exploded_columns or None,
+            left_explode=self._left_explode,
+        )
+
+    @classmethod
+    def from_schema(cls, source: Object, schema: ViewSchema) -> View:
+        """Rebuild a View over ``source`` from its ``View.schema``."""
+        return cls(
+            source=source,
+            where=schema.where,
+            limit=schema.limit,
+            offset=schema.offset,
+            order_by=schema.order_by,
+            selected_fields=schema.selected_fields,
+            computed_columns=schema.computed_columns,
+            renamed_columns=schema.renamed_columns,
+            exploded_columns=schema.exploded_columns,
+            left_explode=schema.left_explode,
         )
 
     async def insert(self, *args) -> None:

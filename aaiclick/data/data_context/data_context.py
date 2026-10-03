@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from datetime import datetime
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 import pyarrow as pa
 from sqlalchemy import delete as sql_delete
@@ -24,6 +24,7 @@ from aaiclick.locks import load_advisory_id, table_insert_lock
 from aaiclick.oplog.oplog_api import oplog_record
 from aaiclick.snowflake import get_snowflake_id
 
+from .. import object as object_module
 from ..models import (
     AAI_ID_COLUMN,
     AAI_ID_INFO,
@@ -61,10 +62,7 @@ from .arrow_ingest import (
     struct_type_to_columns,
 )
 from .ch_client import _ch_client_var, create_ch_client, get_ch_client
-from .lifecycle import LocalLifecycleHandler, _lifecycle_var, get_data_lifecycle, register_table
-
-if TYPE_CHECKING:
-    from ..object import Object
+from .lifecycle import LocalLifecycleHandler, _lifecycle_var, get_data_lifecycle, read_table_schema, register_table
 
 # Per-resource ContextVars — each set by data_context() on entry, reset on exit.
 # Resources owned by their respective modules:
@@ -121,7 +119,7 @@ def decref(table_name: str) -> None:
         lifecycle.decref(table_name)
 
 
-def register_object(obj: Object) -> None:
+def register_object(obj: object_module.Object) -> None:
     """Register an Object so it is marked stale when the enclosing context exits.
 
     Called automatically by `create_object()` and `create_object_from_value()`.
@@ -137,7 +135,7 @@ def register_object(obj: Object) -> None:
     objects[id(obj)] = weakref.ref(obj)
 
 
-async def delete_object(obj: Object) -> None:
+async def delete_object(obj: object_module.Object) -> None:
     """Delete an Object's underlying ClickHouse table and mark the Object stale.
 
     After calling this, any further operations on `obj` will raise `RuntimeError`.
@@ -314,7 +312,7 @@ async def create_object(
     engine: EngineType | None = None,
     name: str | None = None,
     scope: NamedScope | None = None,
-) -> Object:
+) -> object_module.Object:
     """Create a new Object with a ClickHouse table using the specified schema.
 
     Args:
@@ -334,15 +332,13 @@ async def create_object(
     Returns:
         Object: New Object instance with created table
     """
-    from ..object import Object
-
     effective_scope = _resolve_scope(name, scope)
     if effective_scope is not None:
         assert name is not None
         table_name = _build_scoped_table(name, effective_scope)
-        obj = Object(table=table_name, schema=schema)
+        obj = object_module.Object(table=table_name, schema=schema)
     else:
-        obj = Object(schema=schema)
+        obj = object_module.Object(schema=schema)
 
     # Fieldtype metadata for these columns lives in table_registry.schema_doc
     # (written by register_table below) rather than ClickHouse COMMENTs.
@@ -392,13 +388,13 @@ async def create_object(
     # Register table in table_registry for cleanup worker.
     # In orch mode this records the job_id so all tables (including persistent)
     # are scoped to their job and cleaned up when the job expires. The
-    # schema_doc carries the serialised Schema that _get_table_schema reads
+    # schema_doc carries the serialised Schema that read_table_schema reads
     # back — replaces the per-column ClickHouse COMMENT YAML.
     # operation_log entries are recorded by higher-level callers (operators, ingest, etc.)
     register_table(obj.table, schema_doc=schema.model_dump_json())
 
     # Flush the lifecycle queue so the registry row is committed before the
-    # caller reads schema_doc (e.g. via Object.data() → _get_table_schema).
+    # caller reads schema_doc (e.g. via Object.data() → read_table_schema).
     # The queue is async and order-sensitive for incref/decref, but registry
     # writes are standalone and idempotent; a synchronous flush here is
     # cheaper than forcing every read path to flush.
@@ -502,7 +498,7 @@ async def create_object_from_value(
     scope: NamedScope | None = None,
     *,
     aai_id: bool = False,
-) -> Object:
+) -> object_module.Object:
     """Create a new Object from Python values with automatic schema inference.
 
     Args:
@@ -555,9 +551,7 @@ async def create_object_from_value(
     Returns:
         Object: New Object instance with data
     """
-    from ..object import Object, View
-
-    if isinstance(val, (Object, View)):
+    if isinstance(val, (object_module.Object, object_module.View)):
         return val
 
     ch = get_ch_client()
@@ -681,7 +675,9 @@ class ObjectNotFoundError(RuntimeError):
     """
 
 
-async def open_object(name: str, scope: PersistentScope = SCOPE_JOB, *, job_id: int | None = None) -> Object:
+async def open_object(
+    name: str, scope: PersistentScope = SCOPE_JOB, *, job_id: int | None = None
+) -> object_module.Object:
     """Open an existing persistent Object by name.
 
     Args:
@@ -700,9 +696,6 @@ async def open_object(name: str, scope: PersistentScope = SCOPE_JOB, *, job_id: 
         ValueError: If name is invalid.
         ObjectNotFoundError: If the table does not exist.
     """
-    from ..object import Object
-    from ..object.ingest import _get_table_schema
-
     table_name = _build_scoped_table(name, scope, job_id=job_id)
     ch = get_ch_client()
 
@@ -711,11 +704,11 @@ async def open_object(name: str, scope: PersistentScope = SCOPE_JOB, *, job_id: 
         raise ObjectNotFoundError(f"Persistent object '{name}' does not exist (table {table_name})")
 
     try:
-        fieldtype, columns = await _get_table_schema(table_name, ch)
+        fieldtype, columns = await read_table_schema(table_name)
     except LookupError as exc:
         raise ObjectNotFoundError(f"Persistent object '{name}' does not exist (table {table_name})") from exc
     schema = Schema(fieldtype=fieldtype, columns=columns)
-    obj = Object(table=table_name, schema=schema)
+    obj = object_module.Object(table=table_name, schema=schema)
     register_object(obj)
     return obj
 
@@ -746,8 +739,8 @@ async def _forget_registry_rows(table_names: list[str]) -> None:
     if not table_names:
         return
     # Circular dep: see list_persistent_tables.
-    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
-    from aaiclick.orchestration.sql_context import get_sql_session
+    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry  # noqa: PLC0415
+    from aaiclick.orchestration.sql_context import get_sql_session  # noqa: PLC0415
 
     async with get_sql_session() as session:
         await session.execute(sql_delete(TableRegistry).where(col(TableRegistry.table_name).in_(table_names)))
@@ -793,9 +786,9 @@ async def _registered_tables(*predicates) -> list[str]:
     ownership lives in SQL."""
     # Circular dep: orchestration imports the data package at import time,
     # so the registry model and SQL session are resolved at call time
-    # (same pattern as aaiclick/data/object/ingest.py::_get_table_schema).
-    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
-    from aaiclick.orchestration.sql_context import get_sql_session
+    # (same pattern as lifecycle.py::read_table_schema).
+    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry  # noqa: PLC0415
+    from aaiclick.orchestration.sql_context import get_sql_session  # noqa: PLC0415
 
     async with get_sql_session() as session:
         result = await session.execute(select(TableRegistry.table_name).where(*predicates))
@@ -812,7 +805,8 @@ async def list_persistent_tables(
         after: Only tables registered at or after this time (inclusive).
         before: Only tables registered before this time (exclusive).
     """
-    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry  # Circular dep: see _registered_tables.
+    # Circular dep: see _registered_tables.
+    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry  # noqa: PLC0415
 
     predicates = [col(TableRegistry.table_name).startswith(GLOBAL_PREFIX, autoescape=True)]
     if after is not None:
@@ -824,7 +818,8 @@ async def list_persistent_tables(
 
 async def list_job_tables(job_id: int) -> list[str]:
     """List CH table names registered under ``job_id``."""
-    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry  # Circular dep: see _registered_tables.
+    # Circular dep: see _registered_tables.
+    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry  # noqa: PLC0415
 
     return await _registered_tables(
         TableRegistry.job_id == job_id, col(TableRegistry.table_name).startswith(JOB_PREFIX, autoescape=True)

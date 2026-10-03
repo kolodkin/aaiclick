@@ -88,10 +88,12 @@ class DbHandler(ABC):
 def create_db_handler() -> DbHandler:
     """Create the appropriate DB handler based on AAICLICK_SQL_URL."""
     if is_sqlite():
-        from .sqlite_handler import SqliteDbHandler
+        # Load only the backend in use.
+        from .sqlite_handler import SqliteDbHandler  # noqa: PLC0415
 
         return SqliteDbHandler()
 
-    from .pg_handler import PgDbHandler
+    # Load only the backend in use.
+    from .pg_handler import PgDbHandler  # noqa: PLC0415
 
     return PgDbHandler()
