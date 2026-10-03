@@ -79,6 +79,17 @@ async def test_lazy_operator_table_raises_before_materialize(ctx):
         _ = lazy.table
 
 
+async def test_lazy_operator_materialized_schema_before_materialize(ctx):
+    """The schema is known up front, so pre-allocating a table for the result needs no await."""
+    obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
+    obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
+    lazy = obj_a + obj_b
+
+    schema = lazy.materialized_schema
+
+    assert schema.columns == (await lazy).schema.columns
+
+
 async def test_as_returns_new_lazy_with_name(ctx):
     """as_() returns a new named LazyOperator and leaves the receiver unnamed."""
     obj_a = await create_object_from_value([1, 2, 3], aai_id=True)

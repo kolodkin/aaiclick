@@ -14,6 +14,7 @@ from aaiclick import (
     ColumnInfo,
     ObjectNotFoundError,
     Schema,
+    create_object,
     create_object_from_value,
     delete_persistent_object,
     open_object,
@@ -253,6 +254,23 @@ async def test_view_materialized_schema_matches_copy(ctx, transform):
 
     assert type(schema) is Schema
     assert (schema.fieldtype, schema.columns) == (copied.schema.fieldtype, copied.schema.columns)
+
+
+@pytest.mark.parametrize(
+    "transform, expected_order_by",
+    [
+        # Same columns as the source: its sort key still applies.
+        pytest.param(lambda obj: obj, "(b)", id="object"),
+        pytest.param(lambda obj: obj.where("b > 3"), "(b)", id="where"),
+        # Renamed columns: the source's key no longer names a column.
+        pytest.param(lambda obj: obj.rename({"b": "x"}), None, id="rename"),
+    ],
+)
+async def test_materialized_schema_keeps_sort_key_while_columns_match(ctx, transform, expected_order_by):
+    columns = {"a": ColumnInfo("Int64"), "b": ColumnInfo("Int64")}
+    obj = await create_object(Schema(fieldtype=FIELDTYPE_DICT, columns=columns, order_by="(b)", engine="MergeTree"))
+
+    assert transform(obj).materialized_schema.order_by == expected_order_by
 
 
 async def test_open_object_without_registry_row_raises(orch_ctx):

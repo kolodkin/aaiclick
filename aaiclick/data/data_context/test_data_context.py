@@ -39,15 +39,15 @@ async def test_create_object_allows_user_column_named_aai_id(ctx):
     assert "label" in names
 
 
-# Context-manager lifecycle (objects become stale after context exits)
-
-
 async def test_create_object_rejects_view_schema(ctx):
     """A ``ViewSchema`` says how to read a table, not what table to create."""
     obj = await create_object_from_value({"a": [1, 2]})
 
     with pytest.raises(TypeError, match="materialized_schema"):
         await create_object(obj.rename({"a": "x"}).schema)
+
+
+# Context-manager lifecycle (objects become stale after context exits)
 
 
 async def test_context_object_stale_flag(ctx):

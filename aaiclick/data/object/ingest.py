@@ -114,11 +114,12 @@ async def copy_db(
     Returns:
         Object: New Object containing the copied data.
     """
+    schema = copy_info.target_schema()
     alias = " AS s" if copy_info.source_query.startswith("(") else ""
-    cols_str = ", ".join(copy_info.columns)
+    cols_str = ", ".join(schema.columns)
     order_clause = f" ORDER BY {copy_info.order_by}" if copy_info.order_by else ""
     return await emit_result(
-        copy_info.target_schema(),
+        schema,
         f"SELECT {cols_str} FROM {copy_info.source_query}{alias}{order_clause}",
         ch_client,
         insert_cols=cols_str,

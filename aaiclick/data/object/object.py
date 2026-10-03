@@ -236,8 +236,16 @@ class Object:
     @property
     def materialized_schema(self) -> Schema:
         """Plain ``Schema`` of the table ``copy()`` produces — for a View, with
-        its renames, computed columns, explodes and field selection applied."""
-        return self._get_copy_info().target_schema()
+        its renames, computed columns, explodes and field selection applied.
+
+        While the columns are the source's, its engine and sort key still apply
+        and are kept; once a View reshapes them the key may name a column that
+        no longer exists, so both are dropped.
+        """
+        schema = self._get_copy_info().target_schema()
+        if schema.columns == self._schema.columns:
+            return schema.model_copy(update={"engine": self._schema.engine, "order_by": self._schema.order_by})
+        return schema
 
     @property
     def limit(self) -> int | None:
@@ -3096,6 +3104,11 @@ class LazyOperator(Object):
 
     def _emit_kwargs(self) -> _Emit:
         return {"name": self._name, "scope": self._scope}
+
+    @property
+    def materialized_schema(self) -> Schema:
+        """The preview schema: known before the result has a table to copy from."""
+        return self._schema
 
     @property
     def table(self) -> str:
