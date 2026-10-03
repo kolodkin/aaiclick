@@ -10,6 +10,8 @@ length-mismatch errors they trigger.
 import pytest
 
 from aaiclick import create_object_from_value
+from aaiclick.data.data_context import get_ch_client
+from aaiclick.testing import list_ch_tables
 
 
 async def test_array_array_same_length(ctx):
@@ -45,6 +47,15 @@ async def test_view_length_mismatch_raises(ctx):
     view_b = b.view(where="value <= 20", order_by="value")  # 2 elements
     with pytest.raises(ValueError, match="Operand length mismatch"):
         await (view_a + view_b)
+
+
+async def test_failed_join_insert_drops_temp_table(ctx):
+    """A failing INSERT into the join temp table does not leak the table."""
+    a = await create_object_from_value([1, 2, 3])
+    b = await create_object_from_value([10, 20, 30])
+    with pytest.raises(Exception, match="boom"):
+        await (a.view(order_by="value") + b.view(where="throwIf(value > 10, 'boom') = 0", order_by="value"))
+    assert not {t for t in await list_ch_tables(get_ch_client()) if t.startswith("tmp_")}
 
 
 async def test_view_same_length_works(ctx):

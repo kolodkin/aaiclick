@@ -1990,6 +1990,11 @@ export interface components {
             result?: {
                 [key: string]: unknown;
             } | null;
+            /**
+             * Runs
+             * @default 0
+             */
+            runs: number;
             /** Started At */
             started_at?: string | null;
             /**

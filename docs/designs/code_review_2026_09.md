@@ -11,10 +11,6 @@ is fixed.
 
 # Low
 
-- **`_materialize_array_join` leaks `tmp_*` tables** on INSERT failure —
-  `aaiclick/data/object/operators.py`.
-- **`insert_from_url` fails on every `aai_id=True` table** —
-  `aaiclick/data/object/object.py`.
 - **Shell `command_env` values on the wrapper argv** (visible in `ps`) —
   `docker_worker.py` `build_shell_run_spec()` (`-e K=V`) and
   `kubernetes_worker.py` `build_shell_pod_spec()` (`--overrides`). Needs an

@@ -146,15 +146,15 @@ Viewer request models (`ObjectQueryRequest`, `SavedQueryIn`, `DashboardIn`, thei
 
 ## Orchestration (`aaiclick/orchestration/view_models.py`)
 
-| Model                  | Populated fields                                                                 |
-|------------------------|----------------------------------------------------------------------------------|
-| `JobView`              | `id`, `name`, `status`, `created_at`, `started_at`, `completed_at`, `error`      |
-| `JobDetail`            | everything in `JobView` + `tasks: list[TaskView]`, `duration_ms` (computed)      |
-| `JobStatsView`         | `job_id`, `job_name`, `status_counts`, `wall_time_ms`, `exec_time_ms`, `tasks`   |
-| `TaskView`             | `id`, `job_id`, `entrypoint`, `status`, `attempt`, `started_at`, `completed_at`  |
-| `TaskDetail`           | everything in `TaskView` + `kwargs`, `result_ref`, `execution_worker_id`                   |
-| `ExecutionWorkerView`           | `id`, `status`, `started_at`, `last_heartbeat`, `tasks_completed`, `tasks_failed` |
-| `RegisteredJobView`    | `name`, `entrypoint`, `schedule`, `enabled`, `defaults`                          |
+| Model                 | Populated fields                                                                            |
+|-----------------------|---------------------------------------------------------------------------------------------|
+| `JobView`             | `id`, `name`, `status`, `created_at`, `started_at`, `completed_at`, `error`                 |
+| `JobDetail`           | everything in `JobView` + `tasks: list[TaskView]`, `duration_ms` (computed)                 |
+| `JobStatsView`        | `job_id`, `job_name`, `status_counts`, `wall_time_ms`, `exec_time_ms`, `tasks`              |
+| `TaskView`            | `id`, `job_id`, `entrypoint`, `status`, `attempt`, `started_at`, `completed_at`             |
+| `TaskDetail`          | everything in `TaskView` + `kwargs`, `result`, `execution_worker_id`, `max_retries`, `runs` |
+| `ExecutionWorkerView` | `id`, `status`, `started_at`, `last_heartbeat`, `tasks_completed`, `tasks_failed`           |
+| `RegisteredJobView`   | `name`, `entrypoint`, `schedule`, `enabled`, `defaults`                                     |
 
 ## Data (`aaiclick/data/view_models.py`)
 

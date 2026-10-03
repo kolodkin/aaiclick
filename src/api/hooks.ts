@@ -34,7 +34,6 @@ import type {
   SavedQueryBody,
   TaskDetail,
   TaskLogs,
-  TaskStatus,
   UserView,
 } from "./types";
 
@@ -88,16 +87,19 @@ export function useTask(id: string) {
 // interval inherits the QueryClient default and would poll a finished task's
 // immutable logs every 2 s whenever the stream is down.
 // `attempt` is the 1-based run to read, or null to follow the latest — the only
-// one that can still grow, so the only one polled. Fetched even before the task
-// starts: a retrying or cleared task is PENDING but has earlier runs to show.
-export function useTaskLogs(id: string, status: TaskStatus, attempt: number | null) {
+// one that can still grow, so the only one polled. `runs` gates the fetch:
+// logs are keyed by registered run, so a task with none has nothing to read,
+// whatever its status says (PENDING may be cleared, UPSTREAM_FAILED never ran).
+export type LogTask = Pick<TaskDetail, "id" | "status" | "runs">;
+
+export function useTaskLogs({ id, status, runs }: LogTask, attempt: number | null) {
   const started = isTaskStarted(status);
   const terminal = isTerminalTask(status);
   const qc = useQueryClient();
   const query = useQuery({
     queryKey: ["task-logs", id, attempt ?? "latest"],
     queryFn: () => fetchJSON<TaskLogs>(`/tasks/${id}/logs${attempt == null ? "" : `?attempt=${attempt}`}`),
-    enabled: id.length > 0,
+    enabled: id.length > 0 && runs > 0,
     refetchInterval: attempt == null && started && !terminal ? 2000 : false,
     staleTime: attempt == null ? 0 : Infinity,
     // Keep the previous attempt on screen while the next one loads, so the
@@ -110,8 +112,8 @@ export function useTaskLogs(id: string, status: TaskStatus, attempt: number | nu
   // `changed` frame will ever fetch it. Without this the panel stays up to one
   // poll interval short of the truth, permanently.
   useEffect(() => {
-    if (started && terminal) void qc.invalidateQueries({ queryKey: ["task-logs", id, "latest"] });
-  }, [started, terminal, id, qc]);
+    if (terminal && runs > 0) void qc.invalidateQueries({ queryKey: ["task-logs", id, "latest"] });
+  }, [terminal, runs, id, qc]);
 
   return query;
 }
