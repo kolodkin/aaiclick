@@ -1,14 +1,12 @@
 aaiclick
 ---
 
-A data orchestration framework built to make distributed computing easy, with three principles in mind:
+A data orchestration framework built to make distributed computing easy, with four principles in mind:
 
-1. **Simplicity** — Python-native syntax and dynamic task execution.
-2. **Performance** — Utilizes ClickHouse's powerful distributed engine. Data lives in ClickHouse as columnar tables; Python code orchestrates operations — arithmetic, filtering, aggregation, joins — that execute as ClickHouse queries.
-3. **Lineage Superpower** — Query your data flow. How did this value get here? Why don't we see that value there? Every operation is recorded; your coding agent (Claude Code, Codex, any MCP client) traces lineage and triages pipelines over MCP.
-
-Local (in-process, zero setup) and distributed (Docker Compose provided) deployments.
-Runs locally with embedded chdb + SQLite, or scales out with remote ClickHouse + PostgreSQL.
+1. **Simplicity** — Write pandas-style Python, never SQL. Pipelines are `@task` and `@job` decorators, and tasks can spawn tasks at runtime. `pip install`, run on embedded chdb + SQLite with zero setup, and the same code scales out to ClickHouse + PostgreSQL with N workers.
+2. **Performance** — Data never leaves ClickHouse. Arithmetic, filtering, aggregation and joins compile to columnar queries; Python only orchestrates. `map()` / `reduce()` fan work out across workers.
+3. **Containerized Runs** — Run a job's tasks as host subprocesses, Docker containers, or Kubernetes Pods. Each task picks its image: a prebuilt one, or your repo built at a given git SHA by a build task inside the job graph. Host and container tasks mix in one job.
+4. **Lineage** — Every operation is recorded with its SQL. Ask "how did this value get here?" and your coding agent (Claude Code, Codex, any MCP client) traces it, inspects jobs and task logs, and re-runs tasks over MCP. A web UI covers the same ground for humans.
 
 **Early stage — looking for early adopters to join the ride and provide feedback.**
 
