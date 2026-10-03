@@ -1,14 +1,13 @@
 aaiclick
 ---
 
-A data orchestration framework built to make distributed computing easy, with three principles in mind:
+A data orchestration framework built to make distributed computing easy, with five principles in mind:
 
-1. **Simplicity** — Python-native syntax and dynamic task execution.
-2. **Performance** — Utilizes ClickHouse's powerful distributed engine. Data lives in ClickHouse as columnar tables; Python code orchestrates operations — arithmetic, filtering, aggregation, joins — that execute as ClickHouse queries.
-3. **Lineage Superpower** — Query your data flow. How did this value get here? Why don't we see that value there? Every operation is recorded; your coding agent (Claude Code, Codex, any MCP client) traces lineage and triages pipelines over MCP.
-
-Local (in-process, zero setup) and distributed (Docker Compose provided) deployments.
-Runs locally with embedded chdb + SQLite, or scales out with remote ClickHouse + PostgreSQL.
+1. **Simplicity** — Plain Python, no SQL. Decorate functions into tasks and jobs, run with zero setup on your laptop, scale out unchanged.
+2. **Dynamic Graphs** — Tasks spawn tasks. The pipeline shapes itself to the data while it runs instead of being declared up front.
+3. **Performance** — Data lives and computes in ClickHouse. Python only orchestrates; nothing is shuffled through Python memory.
+4. **Containerized Runs** — Pin a container image, by tag or git SHA, per job or per task. Host and container tasks mix in one pipeline.
+5. **Lineage over MCP** — Every operation is recorded. Your coding agent (Claude Code, Codex, any MCP client) answers "how did this value get here?" straight from the lineage.
 
 **Early stage — looking for early adopters to join the ride and provide feedback.**
 

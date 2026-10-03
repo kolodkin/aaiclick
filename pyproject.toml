@@ -5,14 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "aaiclick"
 dynamic = ["version"]
-description = "A Python framework that translates Python code into ClickHouse operations for big data computing"
+description = "Data orchestration framework on ClickHouse: plain-Python pipelines, dynamic task graphs, containerized runs, lineage over MCP"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
     {name = "aaiclick Contributors"}
 ]
-keywords = ["clickhouse", "big data", "database", "analytics", "data processing"]
+keywords = ["clickhouse", "orchestration", "pipeline", "lineage", "mcp", "big data", "analytics", "data processing"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
