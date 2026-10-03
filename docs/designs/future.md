@@ -145,11 +145,11 @@ client-only; the graph response already carries every group and its members.
 
 ## Lineage — Tier 2 Full Replay
 
-The Tier 1 tools are built (`aaiclick/ai/agents/lineage_tools.py` —
-`LineageToolbox`); `request_full_replay` and the `--deep` flag that
-pre-commits to it are not. Tier 2 re-runs the original job through
-`run_job()` with `preservation_mode=FULL`, so every intermediate table is
-alive for the agent to query. Full design: `docs/designs/lineage.md` (Tier 2).
+An MCP client can already do Tier 2 by hand: `run_job` with
+`preservation_mode="FULL"`, then the lineage tools against the new run's
+tables. Missing is a one-call `request_full_replay` that re-runs the original
+job with its recorded kwargs, returns the new job's handle, and reports input
+drift (row counts, old vs new). Full design: `docs/designs/lineage.md` (Tier 2).
 
 **When to revisit**: when Tier 1's static reasoning demonstrably fails on
 real questions — a bug whose explanation lives only in an intermediate table

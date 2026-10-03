@@ -8,7 +8,7 @@ recognises imported fixtures by identity, so the same fixture re-exported
 from multiple conftests still runs once per scope. Keeping the
 implementations here avoids copy-paste across
 ``aaiclick/data/conftest.py``, ``aaiclick/orchestration/conftest.py``,
-``aaiclick/oplog/conftest.py``, and ``aaiclick/ai/conftest.py``.
+and ``aaiclick/oplog/conftest.py``.
 """
 
 from __future__ import annotations
@@ -35,7 +35,6 @@ from aaiclick.__main__ import main
 from aaiclick.backend import is_chdb, is_local, parse_ch_url
 from aaiclick.data.data_context import ChClient, get_ch_client
 from aaiclick.data.models import FIELDTYPE_ARRAY
-from aaiclick.oplog.lineage import OplogNode
 from aaiclick.oplog.migrate import ch_applied_versions, ch_upgrade, ch_upgrade_standalone
 from aaiclick.oplog.models import clear_schema_cache
 from aaiclick.orchestration.migrate import get_alembic_config
@@ -234,22 +233,6 @@ async def seed_registry_row(table: str, *, fieldtype: str = FIELDTYPE_ARRAY) -> 
             {"t": table, "now": utc_now(), "sd": schema_doc},
         )
         await sess.commit()
-
-
-def make_oplog_node(
-    table: str,
-    operation: str,
-    kwargs: dict[str, str] | None = None,
-) -> OplogNode:
-    """Create an OplogNode with sensible defaults for tests."""
-    return OplogNode(
-        table=table,
-        operation=operation,
-        kwargs=kwargs or {},
-        sql_template=None,
-        task_id=None,
-        job_id=None,
-    )
 
 
 async def run_cli(*argv: str) -> None:

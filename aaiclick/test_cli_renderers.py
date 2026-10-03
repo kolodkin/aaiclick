@@ -1,6 +1,5 @@
 """Tests for the CLI output renderers in ``aaiclick/cli_renderers.py``."""
 
-from aaiclick.ai.ollama import OLLAMA_PULLED, OllamaBootstrapResult
 from aaiclick.cli_renderers import render_job_failure, render_setup_result
 from aaiclick.orchestration.view_models import TaskStatsView
 from aaiclick.testing import make_job_stats
@@ -62,7 +61,7 @@ def test_render_job_failure_hides_cascade_victims_when_a_real_failure_exists(cap
 
 def test_render_setup_result(capsys):
     """Known step names get their display label, unknown ones print verbatim;
-    a non-ok status is upper-cased; the Ollama block follows the steps."""
+    a non-ok status is upper-cased."""
     result = SetupResult(
         root="/r",
         ch_url="chdb:///r/chdb",
@@ -73,9 +72,6 @@ def test_render_setup_result(capsys):
             SetupStep(name="sqlite", status="failed", detail="disk full"),
             SetupStep(name="custom", status="skipped"),
         ],
-        ollama=OllamaBootstrapResult(
-            model="ollama/llama3", server_url="http://localhost:11434", status=OLLAMA_PULLED, detail="pulled llama3"
-        ),
     )
     render_setup_result(result)
 
@@ -87,9 +83,5 @@ def test_render_setup_result(capsys):
         "  chdb: OK\n"
         "  SQLite DB: FAILED (disk full)\n"
         "  custom: SKIPPED\n"
-        "\n"
-        "AI model: ollama/llama3\n"
-        "  ollama server: running\n"
-        "  pulled llama3\n"
         "Setup complete.\n"
     )

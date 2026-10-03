@@ -1,14 +1,10 @@
 """
-Tests for the AI-independent lineage internal_api primitives.
+Tests for the lineage internal_api primitives.
 
 The underlying ``oplog_subgraph`` and the SQL-safety / scope helpers have
 their own test modules; here we run each wrapper against real tables and
-their recorded lineage, and assert it translates ``ToolError`` results into
+their recorded lineage, and assert it translates ``SandboxError`` into
 ``Invalid`` / ``NotFound`` exceptions.
-
-Tests for the AI-backed wrappers (``explain_lineage`` / ``debug_result``)
-live in ``aaiclick/ai/agents/test_lineage_internal_api.py`` so they only
-run in matrices that install the ``ai`` extra.
 """
 
 from __future__ import annotations
@@ -75,6 +71,12 @@ async def test_query_table_raises_invalid(revenue_table, sql):
         await lineage_api.query_table(sql, target_table=revenue_table)
 
 
+async def test_query_table_wraps_execution_errors_as_invalid(revenue_table):
+    """A column that does not exist fails inside ClickHouse, after both validators passed."""
+    with pytest.raises(Invalid, match="no_such_column"):
+        await lineage_api.query_table(f"SELECT no_such_column FROM {revenue_table}", target_table=revenue_table)
+
+
 async def test_query_table_without_lineage_raises_not_found(orch_ctx):
     """A target no operation produced has an empty graph, so nothing is in scope."""
     with pytest.raises(NotFound):
@@ -99,3 +101,25 @@ async def test_get_table_schema_raises_not_found_when_describe_fails(revenue_tab
 
     with pytest.raises(NotFound):
         await lineage_api.get_table_schema(revenue_table, target_table=revenue_table)
+
+
+async def test_list_graph_nodes_reports_kind_and_liveness(revenue_table):
+    nodes = await lineage_api.list_graph_nodes(revenue_table, direction="forward", max_depth=3)
+
+    by_table = {n.table: n for n in nodes}
+    assert by_table[revenue_table].kind == "target"
+    assert by_table[revenue_table].live is True
+
+
+async def test_list_graph_nodes_marks_dropped_table_not_live(revenue_table):
+    """A dropped table stays in the graph but is reported as not live, not raised."""
+    await objects.delete_object(_REVENUE)
+
+    nodes = await lineage_api.list_graph_nodes(revenue_table, direction="forward", max_depth=3)
+
+    assert {n.table: n.live for n in nodes}[revenue_table] is False
+
+
+async def test_list_graph_nodes_without_lineage_raises_not_found(orch_ctx):
+    with pytest.raises(NotFound):
+        await lineage_api.list_graph_nodes("p_never_recorded")

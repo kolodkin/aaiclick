@@ -29,15 +29,8 @@ from aaiclick.orchestration.view_models import (
 from aaiclick.view_models import (
     MIGRATE_DOWNGRADE,
     MIGRATE_UPGRADE,
-    OLLAMA_ALREADY_PRESENT,
-    OLLAMA_FAILED,
-    OLLAMA_NOT_OLLAMA,
-    OLLAMA_PULLED,
-    OLLAMA_SERVER_UNREACHABLE,
     Deleted,
-    LineageAnswer,
     MigrationResult,
-    OllamaBootstrapResult,
     Page,
     PurgeObjectsResult,
     SetupResult,
@@ -340,11 +333,6 @@ def render_deleted(view: Deleted, noun: str = "persistent object") -> None:
     print(f"Deleted {noun} '{view.name}'")
 
 
-def render_lineage_answer(view: LineageAnswer) -> None:
-    """Print the agent's answer from ``internal_api.lineage_ai`` as-is."""
-    print(view.answer)
-
-
 def render_objects_purged(result: PurgeObjectsResult) -> None:
     """Print the list of tables dropped by ``internal_api.purge_objects``."""
     if not result.deleted:
@@ -374,30 +362,7 @@ def render_setup_result(result: SetupResult) -> None:
         marker = "OK" if step.status == "ok" else step.status.upper()
         detail = f" ({step.detail})" if step.detail else ""
         print(f"  {label}: {marker}{detail}")
-    if result.ollama is not None:
-        print()
-        render_ollama_bootstrap(result.ollama)
     print("Setup complete.")
-
-
-def render_ollama_bootstrap(result: OllamaBootstrapResult) -> None:
-    """Print ``internal_api.bootstrap_ollama`` output — server + model status."""
-    print(f"AI model: {result.model}")
-    if result.status == OLLAMA_NOT_OLLAMA:
-        print(f"  {result.detail or 'not an Ollama model'}")
-        return
-    if result.status == OLLAMA_SERVER_UNREACHABLE:
-        print("  ollama server: NOT RUNNING")
-        print("  Start with:    ollama serve &")
-        print("  Or install:    curl -fsSL https://ollama.com/install.sh | sh")
-        return
-    print("  ollama server: running")
-    if result.status == OLLAMA_ALREADY_PRESENT:
-        print(f"  {result.detail}")
-    elif result.status == OLLAMA_PULLED:
-        print(f"  {result.detail}")
-    elif result.status == OLLAMA_FAILED:
-        print(f"  {result.detail}")
 
 
 def render_migration_result(result: MigrationResult) -> None:

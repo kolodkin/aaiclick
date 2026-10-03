@@ -114,9 +114,6 @@ jobs:
           - group: Server local
             test-paths: "aaiclick/server/"
             extras: "--extra server"
-          - group: AI local
-            test-paths: "aaiclick/ai/"
-            extras: "--extra ai"
           - group: Misc local
             # Backend-independent tests with no package directory of their
             # own: deploy scaffolds, the argparse CLI, and view/log models.

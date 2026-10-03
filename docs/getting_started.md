@@ -31,15 +31,19 @@ Getting Started
 
     Percent-encode reserved characters in the user or password (`@` → `%40`, `:` → `%3A`) in either URL.
 
-=== "AI Features"
+=== "Lineage via MCP"
 
-    Add lineage tracing and debug agents:
+    Let your coding agent trace lineage over the MCP server:
 
     ```bash
-    pip install "aaiclick[ai]"
+    pip install "aaiclick[server]"
     # or everything at once:
     pip install "aaiclick[all]"
+    python -m aaiclick local start
     ```
+
+    Then connect the agent to `http://127.0.0.1:5255/mcp` — see
+    [Lineage via MCP](user_guide/lineage.md).
 
 # Quick Example
 

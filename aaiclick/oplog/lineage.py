@@ -4,7 +4,6 @@ aaiclick.oplog.lineage - Oplog graph traversal (backward and forward lineage).
 
 from __future__ import annotations
 
-import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, Literal
@@ -12,10 +11,13 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from aaiclick.data.data_context.ch_client import _ch_client_var, create_ch_client, get_ch_client
+from aaiclick.data.scope import GLOBAL_PREFIX
 from aaiclick.data.sql_utils import quote_sql_literal
 
 LineageDirection = Literal["backward", "forward"]
 DEFAULT_MAX_DEPTH = 10
+
+NodeKind = Literal["input", "intermediate", "target"]
 
 
 def _to_dict(kwargs_raw: Any) -> dict[str, str]:
@@ -61,12 +63,18 @@ class OplogEdge(BaseModel):
     operation: str
 
 
-_OP_LABEL_NAMES: dict[str, str] = {
-    "+": "add",
-    "-": "subtract",
-    "*": "multiply",
-    "/": "divide",
-}
+class GraphNode(BaseModel):
+    """One table of a lineage graph with its kind and liveness.
+
+    ``operation`` is ``None`` for a table the graph only reads.
+    """
+
+    table: str
+    kind: NodeKind
+    operation: str | None = None
+    live: bool
+    task_id: int | None = None
+    job_id: int | None = None
 
 
 class OplogGraph(BaseModel):
@@ -74,91 +82,56 @@ class OplogGraph(BaseModel):
     edges: list[OplogEdge] = Field(default_factory=list)
 
     @property
+    def produced(self) -> set[str]:
+        """Tables a node of the graph produced."""
+        return {n.table for n in self.nodes}
+
+    @property
+    def sources(self) -> set[str]:
+        """Tables a node of the graph read (its kwarg values)."""
+        return {src for n in self.nodes for src in n.kwargs.values() if src}
+
+    @property
     def tables(self) -> set[str]:
-        """Return every table that appears in the graph as a node or a kwarg source."""
-        return {n.table for n in self.nodes} | {src for n in self.nodes for src in n.kwargs.values() if src}
+        """Every table in the graph, produced or read."""
+        return self.produced | self.sources
 
-    def build_labels(self) -> dict[str, str]:
-        """Map every referenced table ID to a human-readable label.
+    def node_kinds(self) -> dict[str, NodeKind]:
+        """Label every table as input / intermediate / target.
 
-        Nodes get operation-derived labels (`source_A`, `multiply_result`).
-        Edge endpoints that aren't in `nodes` fall through to generic
-        `source_*` labels. Used for post-processing agent responses — NOT
-        injected into the prompt so the LLM can still reference real table
-        names in tool calls.
+        A target is produced here and never read; an input is read but never
+        produced here, or persistent (``p_*``) — always queryable, whatever
+        made it; the rest are intermediate.
         """
-        labels: dict[str, str] = {}
-        source_counter = 0
-        op_counters: dict[str, int] = {}
-        source_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-
-        def _next_source_label() -> str:
-            nonlocal source_counter
-            letter = source_letters[source_counter % len(source_letters)]
-            source_counter += 1
-            return f"source_{letter}"
-
-        for node in reversed(self.nodes):
-            if node.table in labels:
-                continue
-            if node.operation == "create_from_value":
-                labels[node.table] = _next_source_label()
+        produced, sources = self.produced, self.sources
+        kinds: dict[str, NodeKind] = {}
+        for table in produced | sources:
+            if table in produced and table not in sources:
+                kinds[table] = "target"
+            elif table not in produced or table.startswith(GLOBAL_PREFIX):
+                kinds[table] = "input"
             else:
-                op = _OP_LABEL_NAMES.get(node.operation, node.operation)
-                count = op_counters.get(op, 0)
-                op_counters[op] = count + 1
-                labels[node.table] = f"{op}_result" if count == 0 else f"{op}_result_{count + 1}"
+                kinds[table] = "intermediate"
+        return kinds
 
-        for edge in self.edges:
-            for table in (edge.source, edge.target):
-                if table not in labels:
-                    labels[table] = _next_source_label()
-
-        return labels
-
-    @staticmethod
-    def replace_labels(text: str, labels: dict[str, str]) -> str:
-        """Replace raw table identifiers in text with human-readable labels.
-
-        Handles every identifier shape that LLMs emit when describing
-        lineage: full table names (`t_<id>`, `j_<job_id>_<name>`,
-        `p_<name>`, or any custom string in `labels`) and the bare
-        snowflake form of `t_<id>` keys. Longer keys are tried first
-        so a shorter substring cannot pre-empt a longer match.
-        Unregistered tokens are left unchanged.
-        """
-        if not labels:
-            return text
-
-        lookup: dict[str, str] = {}
-        for table_id, label in labels.items():
-            lookup[table_id] = label
-            if table_id.startswith("t_"):
-                lookup[table_id[2:]] = label
-
-        keys = sorted(lookup, key=len, reverse=True)
-        pattern = re.compile(r"(?<!\w)(?:" + "|".join(re.escape(k) for k in keys) + r")(?!\w)")
-        return pattern.sub(lambda m: lookup[m.group()], text)
-
-    def to_prompt_context(self) -> str:
-        """Format the graph as human-readable text for LLM consumption."""
-        lines = ["# Data Lineage Graph"]
-
-        lines.append(f"\n## Operations ({len(self.nodes)})")
-        for node in self.nodes:
-            lines.append(f"\n### Table: `{node.table}`")
-            lines.append(f"- Operation: `{node.operation}`")
-            for k, v in node.kwargs.items():
-                lines.append(f"- {k}: `{v}`")
-            if node.sql_template:
-                lines.append(f"- SQL: `{node.sql_template}`")
-
-        if self.edges:
-            lines.append(f"\n## Data Flow ({len(self.edges)} edges)")
-            for edge in self.edges:
-                lines.append(f"- `{edge.source}` → `{edge.target}` (via `{edge.operation}`)")
-
-        return "\n".join(lines)
+    def graph_nodes(self, alive: dict[str, bool]) -> list[GraphNode]:
+        """One ``GraphNode`` per table, sorted by name; ``alive`` says which still exist."""
+        kinds = self.node_kinds()
+        by_table = {n.table: n for n in self.nodes}
+        nodes: list[GraphNode] = []
+        for table in sorted(kinds):
+            node = by_table.get(table)
+            nodes.append(
+                GraphNode(
+                    table=table,
+                    kind=kinds[table],
+                    operation=node.operation if node else None,
+                    live=alive.get(table, False),
+                    task_id=node.task_id if node else None,
+                    job_id=node.job_id if node else None,
+                )
+            )
+        return nodes
 
 
 @asynccontextmanager
@@ -274,7 +247,7 @@ async def oplog_subgraph(
     direction: LineageDirection = "backward",
     max_depth: int = DEFAULT_MAX_DEPTH,
 ) -> OplogGraph:
-    """Return a structured OplogGraph for visualization or AI context."""
+    """Return the lineage of ``table`` as an ``OplogGraph``."""
     if direction == "backward":
         nodes = await backward_oplog(table, max_depth)
     elif direction == "forward":

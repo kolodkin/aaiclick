@@ -6,7 +6,7 @@ aaiclick is a data orchestration framework built to make distributed computing e
 
 1. **Simplicity** — Python-native syntax and dynamic task execution.
 2. **Performance** — Utilizes ClickHouse's powerful distributed engine. Data lives in ClickHouse as columnar tables; Python code orchestrates operations — arithmetic, filtering, aggregation, joins — that execute as ClickHouse queries.
-3. **AI Lineage Superpower** — Query your data flow. How did this value get here? Why don't we see that value there? Trace lineage across operations and debug pipelines with AI-powered agents.
+3. **Lineage Superpower** — Query your data flow. How did this value get here? Why don't we see that value there? Every operation is recorded; your coding agent (Claude Code, Codex, any MCP client) traces lineage and triages pipelines over MCP.
 
 Local (in-process, zero setup) and distributed (Docker Compose provided) deployments.
 Runs locally with embedded chdb + SQLite, or scales out with remote ClickHouse + PostgreSQL.
@@ -28,16 +28,14 @@ For a distributed deployment (remote ClickHouse server + PostgreSQL):
 pip install "aaiclick[distributed]"
 ```
 
-For AI features (lineage tracing, debug agents):
+For lineage triage with your coding agent (Claude Code, Codex, any MCP client):
 
 ```bash
-pip install "aaiclick[ai]"
-# or all extras:
-pip install "aaiclick[all]"
-
-python -m aaiclick explain p_revenue                         # how was this table produced?
-python -m aaiclick debug p_revenue "Why is total negative?"  # answer a "why" question with live queries
+pip install "aaiclick[server]"   # or all extras: pip install "aaiclick[all]"
+python -m aaiclick local start   # REST + MCP server on http://127.0.0.1:5255
 ```
+
+Then point the agent at `http://127.0.0.1:5255/mcp` — see the [Lineage guide](docs/user_guide/lineage.md).
 
 ## Orchestration
 

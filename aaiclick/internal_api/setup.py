@@ -1,4 +1,4 @@
-"""Internal API for environment bootstrap — setup / migrate / ollama.
+"""Internal API for environment bootstrap — setup / migrate.
 
 Unlike other ``internal_api`` modules these functions operate on
 infrastructure (filesystem, embedded databases, external services) and do
@@ -9,9 +9,6 @@ Every function returns a pydantic view model; the CLI renderer handles
 human output and the ``--json`` flag. Alembic subcommands still write their
 own status to stdout via their internal logger — that output belongs to
 alembic, not to this module.
-
-``bootstrap_ollama`` lives in ``aaiclick.ai.ollama`` beside its probe and is
-re-exported here so the CLI / REST / MCP surfaces keep one import path.
 """
 
 from __future__ import annotations
@@ -26,7 +23,6 @@ from sqlalchemy import create_engine, inspect
 from sqlalchemy.engine import Connection, make_url
 
 import aaiclick.audit.models  # noqa: F401  # register audit_log with SQLModel.metadata
-from aaiclick.ai.ollama import bootstrap_ollama, get_configured_model
 from aaiclick.backend import (
     get_ch_url,
     get_root,
@@ -51,7 +47,6 @@ from aaiclick.view_models import (
     ChVersionStatus,
     MigrationAction,
     MigrationResult,
-    OllamaBootstrapResult,
     SetupResult,
     SetupStep,
 )
@@ -267,15 +262,14 @@ def _reset_stale_local_db(*, force: bool) -> bool:
     return True
 
 
-def setup(*, ai: bool = False, force: bool = False) -> SetupResult:
+def setup(*, force: bool = False) -> SetupResult:
     """Initialize the local dev environment.
 
     Creates the chdb data directory (when using embedded chdb), applies
-    ``SQLModel.metadata.create_all`` (when using SQLite), optionally pulls
-    the configured Ollama model, and writes the ``setup_done`` marker file.
+    ``SQLModel.metadata.create_all`` (when using SQLite), and writes the
+    ``setup_done`` marker file.
 
     Args:
-        ai: Also pull the configured Ollama model.
         force: Delete and recreate the local SQLite database when its schema
             predates the current models. Without it such a database raises
             ``Invalid`` rather than being left half-upgraded. A database
@@ -321,10 +315,6 @@ def setup(*, ai: bool = False, force: bool = False) -> SetupResult:
             )
         )
 
-    ollama: OllamaBootstrapResult | None = None
-    if ai:
-        ollama = bootstrap_ollama(get_configured_model())
-
     Path(root).mkdir(parents=True, exist_ok=True)
     (root / "setup_done").write_text("")
 
@@ -334,7 +324,6 @@ def setup(*, ai: bool = False, force: bool = False) -> SetupResult:
         sql_url=redact_url(get_sql_url()),
         mode="local" if is_local() else "distributed",
         steps=steps,
-        ollama=ollama,
     )
 
 

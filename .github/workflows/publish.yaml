@@ -297,7 +297,6 @@ jobs:
           -o asyncio_default_fixture_loop_scope=module
           -o asyncio_default_test_loop_scope=module
           -o "filterwarnings=error"
-          -o "markers=live_llm: tests that call a real LLM — requires AAICLICK_AI_LIVE_TESTS=1 and a reachable model"
           --strict-markers
           --junitxml=/tmp/pytest-report.xml
 
@@ -404,7 +403,6 @@ jobs:
           -o asyncio_default_fixture_loop_scope=module
           -o asyncio_default_test_loop_scope=module
           -o "filterwarnings=error"
-          -o "markers=live_llm: tests that call a real LLM — requires AAICLICK_AI_LIVE_TESTS=1 and a reachable model"
           --strict-markers
           --junitxml=/tmp/pytest-report.xml
 

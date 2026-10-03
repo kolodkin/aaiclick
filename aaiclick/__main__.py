@@ -2,7 +2,6 @@
 
 Usage:
     python -m aaiclick setup                    # Initialize local dev environment
-    python -m aaiclick setup --ai               # Also pull the configured Ollama model
     python -m aaiclick setup --force            # Recreate a local.db left behind by an older version
     python -m aaiclick migrate                  # Run database migrations
     python -m aaiclick migrate --help           # Show migration help
@@ -30,8 +29,6 @@ Usage:
     python -m aaiclick data query <object> [--scope job:<ref>] [--where EXPR]   # Read rows of an object
     python -m aaiclick view queries list|save|delete                            # Saved viewer queries
     python -m aaiclick view dashboards list|get|save|delete|run                 # Dashboards
-    python -m aaiclick explain <table>          # AI: explain how a table was produced (needs aaiclick[ai])
-    python -m aaiclick debug <table> "<question>"  # AI: debug a result with live-query tools (needs aaiclick[ai])
     python -m aaiclick docker init              # Scaffold a starter Dockerfile
     python -m aaiclick compose init             # Scaffold a docker-runner compose stack
     python -m aaiclick k8s init                 # Scaffold a helm chart
@@ -49,7 +46,6 @@ from pathlib import Path
 from typing import Any, cast, get_args
 
 from aaiclick import cli_renderers, cli_wait, internal_api
-from aaiclick.ai.importing import import_ai_module
 from aaiclick.audit.view_models import AuditListFilter
 from aaiclick.auth import store as auth_store
 from aaiclick.auth.models import ROLE_VIEWER, ROLES, SCOPE_LEVELS, SCOPE_READ
@@ -439,34 +435,6 @@ async def _run_view_dashboards_run(args: argparse.Namespace) -> None:
     _render(args, await _run_data_api(internal_api.run_dashboard(args.name)), cli_renderers.render_dashboard_results)
 
 
-def _load_lineage_ai():
-    """Import ``internal_api.lineage_ai`` on demand, exiting 1 without the ``ai`` extra.
-
-    The module pulls in litellm, so it is loaded per command rather than at
-    the top of this file — the rest of the CLI must keep working without the
-    optional dependency.
-    """
-    try:
-        return import_ai_module("aaiclick.internal_api.lineage_ai")
-    except ImportError as exc:
-        print(exc, file=sys.stderr)
-        sys.exit(1)
-
-
-async def _run_explain(args: argparse.Namespace) -> None:
-    lineage_ai = _load_lineage_ai()
-    answer = await _run_data_api(lineage_ai.explain_lineage(args.table, question=args.question))
-    _render(args, answer, cli_renderers.render_lineage_answer)
-
-
-async def _run_debug(args: argparse.Namespace) -> None:
-    lineage_ai = _load_lineage_ai()
-    answer = await _run_data_api(
-        lineage_ai.debug_result(args.table, question=args.question, max_iterations=args.max_iterations)
-    )
-    _render(args, answer, cli_renderers.render_lineage_answer)
-
-
 async def _run_execution_worker_list(args: argparse.Namespace) -> None:
     filter = ExecutionWorkerFilter(
         status=cast(ExecutionWorkerStatus, args.status) if args.status else None,
@@ -639,7 +607,7 @@ def _run_setup_cli(args: argparse.Namespace) -> None:
         reason = setup_api.stale_local_db_reason()
         if reason:
             force = _confirm_local_db_reset(reason)
-    result = setup_api.setup(ai=args.ai, force=force)
+    result = setup_api.setup(force=force)
     _render(args, result, cli_renderers.render_setup_result)
 
 
@@ -718,12 +686,6 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser = subparsers.add_parser(
         "setup",
         help="Initialize local dev environment (SQLite + chdb)",
-    )
-    setup_parser.add_argument(
-        "--ai",
-        action="store_true",
-        default=False,
-        help="Also pull the configured Ollama model (reads AAICLICK_AI_MODEL)",
     )
     setup_parser.add_argument(
         "--force",
@@ -1259,35 +1221,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("name")
     _add_json_flag(p)
 
-    # explain <table> [question]
-    explain_parser = subparsers.add_parser(
-        "explain",
-        help="AI: explain how a table was produced from its lineage (requires aaiclick[ai])",
-    )
-    explain_parser.add_argument("table", type=str, help="Target ClickHouse table name")
-    explain_parser.add_argument(
-        "question",
-        nargs="?",
-        default=None,
-        help="Question to answer instead of the default 'how was this produced?'",
-    )
-    _add_json_flag(explain_parser)
-
-    # debug <table> <question>
-    debug_parser = subparsers.add_parser(
-        "debug",
-        help="AI: answer a 'why' question about a table using live-query tools (requires aaiclick[ai])",
-    )
-    debug_parser.add_argument("table", type=str, help="Target ClickHouse table name")
-    debug_parser.add_argument("question", type=str, help='Question, e.g. "Why is this value negative?"')
-    debug_parser.add_argument(
-        "--max-iterations",
-        type=int,
-        default=10,
-        help="Maximum tool-call rounds before the agent is asked for a final answer (default: 10)",
-    )
-    _add_json_flag(debug_parser)
-
     # Add background subcommand
     background_parser = subparsers.add_parser(
         "background",
@@ -1631,12 +1564,6 @@ def _dispatch() -> None:
             subcommands["view"].print_help()
         else:
             asyncio.run(view_handler(args))
-
-    elif args.command == "explain":
-        asyncio.run(_run_explain(args))
-
-    elif args.command == "debug":
-        asyncio.run(_run_debug(args))
 
     elif args.command == "background":
         from aaiclick.orchestration.cli import start_background

@@ -3,8 +3,7 @@ name: project-example
 # One parameterized workflow for the example projects that run against the
 # distributed backend (ClickHouse + Postgres service containers). The three
 # projects previously had byte-identical workflows differing only in the
-# project name. `basic_lineage` stays in its own workflow — it needs an AI
-# backend and the DEV environment instead of database services.
+# project name.
 #
 # The project script is expected at
 # example_projects/<project>/<project>.sh.

@@ -1,7 +1,7 @@
 """FastMCP tool surface over ``aaiclick.internal_api``.
 
-Every CLI verb that has an ``internal_api`` function is exposed as an MCP
-tool. Each tool is a thin wrapper that opens the context its underlying
+Every ``internal_api`` function is exposed as an MCP tool (most also have
+a CLI verb; the lineage primitives do not). Each tool is a thin wrapper that opens the context its underlying
 ``internal_api`` function needs (``orch_context(with_ch=...)``) — the same
 scope the HTTP routers in ``server/routers/`` open per request — and
 returns the pydantic view model directly. FastMCP derives the tool input
@@ -14,8 +14,8 @@ SQLAlchemy engine + connection pool instead of paying the build/dispose
 cost on every call. In FastAPI-mounted local mode this nests further
 inside ``local_runtime()``'s outer context — all consistent.
 
-``setup`` / ``migrate`` / ``bootstrap_ollama`` are infrastructure
-commands and run without an orchestration context, matching the CLI.
+``setup`` / ``migrate`` are infrastructure commands and run without an
+orchestration context, matching the CLI.
 
 Every tool carries exactly one RBAC tag naming the level on the scope
 ladder it needs — ``read``, ``write`` (member-level saves), or ``admin``
@@ -34,8 +34,6 @@ from contextlib import asynccontextmanager
 
 from fastmcp import FastMCP
 
-from aaiclick.ai.agents.lineage_tools import DEFAULT_ROW_LIMIT, QueryResult, TableSchema
-from aaiclick.ai.ollama import OLLAMA_BASE_URL
 from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.internal_api import execution_workers as execution_workers_api
 from aaiclick.internal_api import jobs as jobs_api
@@ -45,7 +43,8 @@ from aaiclick.internal_api import registered_jobs as rj_api
 from aaiclick.internal_api import setup as setup_api
 from aaiclick.internal_api import tasks as tasks_api
 from aaiclick.internal_api import viewer as viewer_api
-from aaiclick.oplog.lineage import DEFAULT_MAX_DEPTH, LineageDirection, OplogGraph
+from aaiclick.oplog.lineage import DEFAULT_MAX_DEPTH, GraphNode, LineageDirection, OplogGraph
+from aaiclick.oplog.query_sandbox import DEFAULT_ROW_LIMIT, QueryResult, TableSchema
 from aaiclick.orchestration.orch_context import orch_context
 from aaiclick.orchestration.view_models import (
     ClearTaskView,
@@ -63,7 +62,6 @@ from aaiclick.view_models import (
     MigrationAction,
     MigrationResult,
     ObjectFilter,
-    OllamaBootstrapResult,
     Page,
     PurgeObjectsRequest,
     PurgeObjectsResult,
@@ -104,8 +102,15 @@ async def _mcp_lifespan(server: FastMCP) -> AsyncIterator[None]:
 mcp: FastMCP = FastMCP(
     name="aaiclick",
     instructions=(
-        "Tools mirror aaiclick's CLI verbs one-to-one. Every tool runs against "
-        "the same backends as the REST surface under /api/v0 — see docs/designs/api_server.md."
+        "Tools mirror aaiclick's CLI verbs (the lineage tools have none) and run against "
+        "the same backends as the REST surface under /api/v0 (docs/designs/api_server.md).\n"
+        "\n"
+        "Lineage triage (why does table X look wrong?), in this order: oplog_subgraph — "
+        "read each node's sql_template and form a hypothesis before querying; "
+        "list_graph_nodes — a table with live=false cannot be queried: say so and stop, "
+        "or re-run the job with full preservation (run_job) and retry; get_table_schema "
+        "before querying any table, using only the column names it returns; query_table "
+        "for evidence, citing the rows it returns."
     ),
     lifespan=_mcp_lifespan,
     middleware=[McpRbacMiddleware()],
@@ -256,8 +261,7 @@ async def purge_objects(request: PurgeObjectsRequest) -> PurgeObjectsResult:
 
 
 # --- lineage primitives -----------------------------------------------
-# MCP exposes the AI-independent primitives only; the turnkey LLM wrappers
-# are the CLI's ``explain`` / ``debug`` verbs.
+# The calling agent composes these itself; see the server instructions.
 
 
 @mcp.tool(tags={TAG_READ})
@@ -272,6 +276,17 @@ async def oplog_subgraph(
 
 
 @mcp.tool(tags={TAG_READ})
+async def list_graph_nodes(
+    target_table: str,
+    direction: LineageDirection = "backward",
+    max_depth: int = DEFAULT_MAX_DEPTH,
+) -> list[GraphNode]:
+    """Every table in ``target_table``'s lineage graph with its kind and whether it is still live."""
+    async with orch_context(with_ch=True):
+        return await lineage_api.list_graph_nodes(target_table, direction=direction, max_depth=max_depth)
+
+
+@mcp.tool(tags={TAG_READ})
 async def query_table(
     sql: str,
     target_table: str,
@@ -282,8 +297,10 @@ async def query_table(
     """Run a sandboxed read-only SELECT against the lineage graph of ``target_table``.
 
     The scope is the graph ``oplog_subgraph`` returns for the same arguments;
-    it is looked up server-side. Rejects DDL/DML, SETTINGS clauses, and any
-    table outside the graph.
+    it is looked up server-side. Rejects DDL/DML, SETTINGS clauses, table
+    functions, and any table outside the graph. Write a CTE as a subquery in
+    FROM, and use has(column, value) rather than IN for an array column.
+    Results are capped at ``row_limit`` rows.
     """
     async with orch_context(with_ch=True):
         return await lineage_api.query_table(
@@ -307,24 +324,15 @@ async def get_table_schema(
 
 
 @mcp.tool(tags={TAG_ADMIN})
-def setup(ai: bool = False) -> SetupResult:
-    """Run environment setup — filesystem, SQL migrations, (optionally) AI deps."""
-    return setup_api.setup(ai=ai)
+def setup() -> SetupResult:
+    """Run environment setup — filesystem and SQL migrations."""
+    return setup_api.setup()
 
 
 @mcp.tool(tags={TAG_ADMIN})
 def migrate(action: MigrationAction, revision: str | None = None) -> MigrationResult:
     """Run an alembic migration subcommand."""
     return setup_api.migrate(action, revision)
-
-
-@mcp.tool(tags={TAG_ADMIN})
-def bootstrap_ollama(
-    model: str,
-    base_url: str = OLLAMA_BASE_URL,
-) -> OllamaBootstrapResult:
-    """Ensure an Ollama model is pulled on the configured server."""
-    return setup_api.bootstrap_ollama(model, base_url=base_url)
 
 
 # --- viewer: object queries, saved queries, dashboards ------------------

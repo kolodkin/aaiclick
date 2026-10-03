@@ -24,6 +24,7 @@ from .execution_workers import list_execution_workers, start_execution_worker, s
 from .jobs import cancel_job, get_job, job_stats, list_jobs, run_job
 from .lineage import (
     get_table_schema,
+    list_graph_nodes,
     oplog_subgraph,
     query_table,
 )

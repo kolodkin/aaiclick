@@ -5,7 +5,7 @@ aaiclick.data.sql_utils - SQL utility functions for safe identifier and literal 
 import re
 from datetime import datetime, timezone
 
-# --- SQL text guards (shared by the lineage agent tools and the viewer) ---
+# --- SQL text guards (shared by the lineage query sandbox and the viewer) ---
 
 COMMENT_RE = re.compile(r"--[^\n]*|/\*.*?\*/", re.DOTALL)
 # Single-quoted SQL string literal with '' or \' escape handling.
