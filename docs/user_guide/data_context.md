@@ -141,7 +141,7 @@ Column names are backtick-quoted via `quote_identifier()` in `aaiclick/data/sql_
 
 aaiclick stores per-table fieldtype + column metadata as a serialised `Schema` (Pydantic JSON) in the SQL `table_registry.schema_doc` column. `read_table_schema(table)` reads that row to hydrate the in-memory `Schema`. There is no per-column ClickHouse `COMMENT` storage — DDL emits user columns only.
 
-`Schema` = "what a table is" and `ViewSchema` = "how to read it", and the registry can never see the latter: `create_object()` is the registry's only writer and rejects a `ViewSchema`. View operators (`where`, `rename`, `with_columns`, `explode`, column selection) never create a table or a registry row; `View.materialized_schema` gives the `Schema` of the table a `copy()` would produce.
+`Schema` = "what a table is" and `ViewSchema` = "how to read it", and the registry can never see the latter: `create_object()` is the registry's only writer and rejects a `ViewSchema`. View operators (`where`, `rename`, `with_columns`, `explode`, column selection) never create a table or a registry row — only `copy()` does.
 
 ## Supported Data Types
 

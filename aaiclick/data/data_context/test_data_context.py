@@ -43,7 +43,7 @@ async def test_create_object_rejects_view_schema(ctx):
     """A ``ViewSchema`` says how to read a table, not what table to create."""
     obj = await create_object_from_value({"a": [1, 2]})
 
-    with pytest.raises(TypeError, match="materialized_schema"):
+    with pytest.raises(TypeError, match="not a ViewSchema"):
         await create_object(obj.rename({"a": "x"}).schema)
 
 
