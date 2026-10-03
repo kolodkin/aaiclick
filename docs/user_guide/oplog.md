@@ -39,7 +39,7 @@ Buffer-based event sink. Collects `OperationEvent` objects in memory; batch-inse
 
 # Instrumentation Points
 
-**Implementation**: `aaiclick/data/operators.py`, `aaiclick/data/ingest.py`, `aaiclick/data/object.py`, `aaiclick/data/data_context.py`
+**Implementation**: `aaiclick/data/object/operators.py`, `aaiclick/data/object/ingest.py`, `aaiclick/data/object/object.py`, `aaiclick/data/data_context/data_context.py`
 
 Each instrumentation is a 2-line addition: get collector from ContextVar, call `record()` if not None.
 
