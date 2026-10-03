@@ -18,13 +18,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
 from aaiclick.data.data_context import (
-    get_ch_client,
     get_data_lifecycle,
     register_object,
 )
+from aaiclick.data.data_context.lifecycle import read_table_schema
 from aaiclick.data.models import Schema
 from aaiclick.data.object import LazyOperator, Object, View
-from aaiclick.data.object.ingest import _get_table_schema
 from aaiclick.data.object.refs import (
     CALLABLE,
     GROUP_RESULTS,
@@ -211,7 +210,7 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
 
     if kind == OBJECT:
         ref = ObjectRef.model_validate(value)
-        fieldtype, columns = await _get_table_schema(ref.table, get_ch_client())
+        fieldtype, columns = await read_table_schema(ref.table)
         schema = Schema(fieldtype=fieldtype, columns=columns)
         obj = Object(table=ref.table, schema=schema)
         if not ref.persistent:
@@ -221,7 +220,7 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
 
     if kind == VIEW:
         ref = ViewRef.model_validate(value)
-        fieldtype, columns = await _get_table_schema(ref.table, get_ch_client())
+        fieldtype, columns = await read_table_schema(ref.table)
         schema = Schema(fieldtype=fieldtype, columns=columns)
         source = Object(table=ref.table, schema=schema)
         source._register()  # enqueues INCREF

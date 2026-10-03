@@ -24,6 +24,7 @@ from .conftest import (
     insert_run_ref,
     insert_table_registry,
     make_worker,
+    mock_ch,
 )
 
 
@@ -126,7 +127,7 @@ async def test_cleanup_full_mode_skips_drop(bg_db):
     # Table still present, no drop was attempted on CH.
     remaining = await _table_names(bg_db, "table_context_refs")
     assert "t_full" in remaining
-    worker._ch_client.command.assert_not_called()
+    mock_ch(worker).command.assert_not_called()
 
 
 async def test_cleanup_none_mode_drops(bg_db):
@@ -156,7 +157,7 @@ async def test_cleanup_keeps_refs_when_drop_fails(bg_db):
     await insert_table_registry(bg_db, "t_fine")
 
     worker = make_worker(bg_db)
-    worker._ch_client.command.side_effect = _fail_drop_of
+    mock_ch(worker).command.side_effect = _fail_drop_of
 
     await worker._cleanup_unreferenced_tables()
 
@@ -170,7 +171,7 @@ async def test_orphan_cleanup_keeps_registry_row_when_drop_fails(bg_db):
     await insert_table_registry(bg_db, "t_fine")
 
     worker = make_worker(bg_db)
-    worker._ch_client.command.side_effect = _fail_drop_of
+    mock_ch(worker).command.side_effect = _fail_drop_of
 
     await worker._cleanup_orphaned_resources(ttl_days=0)
 
@@ -184,7 +185,7 @@ async def test_delete_job_data_keeps_job_until_every_table_drops(bg_db):
     await insert_table_registry(bg_db, "t_fine", job_id=998)
 
     worker = make_worker(bg_db)
-    worker._ch_client.command.side_effect = _fail_drop_of
+    mock_ch(worker).command.side_effect = _fail_drop_of
 
     with pytest.raises(RuntimeError, match="not dropped yet"):
         await worker._delete_job_data(998)
@@ -200,11 +201,11 @@ async def test_drop_tables_gives_up_after_consecutive_failures(bg_db):
         await insert_context_ref(bg_db, f"t_{i}", 100 + i)
 
     worker = make_worker(bg_db)
-    worker._ch_client.command.side_effect = RuntimeError("ClickHouse unavailable")
+    mock_ch(worker).command.side_effect = RuntimeError("ClickHouse unavailable")
 
     await worker._cleanup_unreferenced_tables()
 
-    assert worker._ch_client.command.call_count == 3
+    assert mock_ch(worker).command.call_count == 3
     assert await _table_names(bg_db, "table_context_refs") == {f"t_{i}" for i in range(5)}
 
 

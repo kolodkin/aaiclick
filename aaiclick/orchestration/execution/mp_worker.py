@@ -14,12 +14,13 @@ from __future__ import annotations
 import asyncio
 import multiprocessing
 import queue
-from typing import Any, NamedTuple
+from multiprocessing.process import BaseProcess
+from typing import NamedTuple
 
 from sqlmodel import select
 
 from ..models import Task
-from ..orch_context import get_sql_session
+from ..orch_context import get_sql_session, orch_context
 from .execution_worker import (
     POLL_INTERVAL,
     RunnerResult,
@@ -79,8 +80,6 @@ async def _child_run_task(
 
     Shell tasks enforce their own timeout and poll cancellation here — the
     parent holds no CH client and its kill is only the backstop."""
-    from ..orch_context import orch_context
-
     async with orch_context():
         async with get_sql_session() as session:
             db_result = await session.execute(select(Task).where(Task.id == task_id))
@@ -125,7 +124,7 @@ async def _child_run_task(
 class _ChildHandle(NamedTuple):
     """The spawned child + its result queue."""
 
-    proc: Any
+    proc: BaseProcess
     result_queue: multiprocessing.Queue
 
 
@@ -200,7 +199,7 @@ async def _run_task_in_child(
 
 
 async def _poll_child(
-    proc: Any,
+    proc: BaseProcess,
     result_queue: multiprocessing.Queue,
     timeout: float | None,
 ) -> RunnerResult:

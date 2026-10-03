@@ -5,6 +5,21 @@ This module provides the core data management capabilities for aaiclick,
 including context management, object creation, and database operations.
 """
 
+# Load the object package before data_context: data_context builds ``Object``
+# through a module-level ``from .. import object`` that only resolves once
+# ``aaiclick.data.object`` has started importing.
+from .object import (
+    GroupByQuery,
+    LazyOperator,
+    Object,
+    View,
+    cast,
+    create_object_from_url,
+    literal,
+    split_by_char,
+)
+
+# isort: split
 from .data_context import (
     ChClient,
     LifecycleHandler,
@@ -65,15 +80,5 @@ from .models import (
     ValueType,
     ViewSchema,
     parse_ch_type,
-)
-from .object import (
-    GroupByQuery,
-    LazyOperator,
-    Object,
-    View,
-    cast,
-    create_object_from_url,
-    literal,
-    split_by_char,
 )
 from .scope import NamedScope, ObjectScope

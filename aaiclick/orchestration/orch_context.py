@@ -395,6 +395,7 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
     """
     register_session_hooks()
     if is_postgres():
+        # Distributed extra only — probed inline so the error can name the extra to install.
         try:
             import asyncpg  # noqa: F401
         except ImportError as e:

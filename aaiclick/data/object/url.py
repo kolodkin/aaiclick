@@ -8,17 +8,14 @@ via RawBLOB/JSONAsString with JSONExtract-based column extraction.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from ..data_context import create_object, get_ch_client
 from ..formats import INPUT_FORMATS, JSON_BLOB_FORMATS
 from ..models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, ColumnInfo, Schema, parse_ch_type
 from ..sql_utils import quote_identifier, quote_sql_literal
+from . import object as object_module
 from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
-
-if TYPE_CHECKING:
-    from .object import Object
 
 _FORMAT_SOURCE_COLUMN = {
     "RawBLOB": "raw_blob",
@@ -145,7 +142,7 @@ async def create_object_from_url(
     column_types: dict[str, ColumnInfo] | None = None,
     retries: int = DEFAULT_RETRIES,
     backoff_factor: float = DEFAULT_BACKOFF_FACTOR,
-) -> Object:
+) -> object_module.Object:
     """
     Create a new Object by loading data from an external URL using ClickHouse's url() table function.
 
@@ -239,7 +236,7 @@ async def _create_from_tabular(
     column_types: dict[str, ColumnInfo] | None = None,
     retries: int = DEFAULT_RETRIES,
     backoff_factor: float = DEFAULT_BACKOFF_FACTOR,
-) -> Object:
+) -> object_module.Object:
     """Load data from a tabular URL source (Parquet, CSV, JSONEachRow, etc.)."""
     ch = get_ch_client()
     settings = ch_settings or {}
@@ -305,7 +302,7 @@ async def _create_from_json(
     ch_settings: dict[str, str | int] | None,
     retries: int = DEFAULT_RETRIES,
     backoff_factor: float = DEFAULT_BACKOFF_FACTOR,
-) -> Object:
+) -> object_module.Object:
     """Load data from a nested JSON API via RawBLOB/JSONAsString + JSONExtract."""
     ch = get_ch_client()
     settings = ch_settings or {}

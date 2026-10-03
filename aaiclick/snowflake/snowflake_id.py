@@ -101,6 +101,7 @@ class SnowflakeGenerator:
 
     @staticmethod
     def _fetch_ids_remote(count: int) -> list[int]:
+        # Distributed extra only — keep inline so local-only installs can import this module.
         from clickhouse_connect import get_client
 
         client = get_client(**parse_ch_url())

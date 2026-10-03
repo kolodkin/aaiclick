@@ -34,7 +34,7 @@ from sqlalchemy import create_engine, text
 from aaiclick.__main__ import main
 from aaiclick.backend import is_chdb, is_local, parse_ch_url
 from aaiclick.data.data_context import ChClient, get_ch_client
-from aaiclick.data.models import FIELDTYPE_ARRAY
+from aaiclick.data.models import FIELDTYPE_ARRAY, ColumnInfo, Schema
 from aaiclick.oplog.migrate import ch_applied_versions, ch_upgrade, ch_upgrade_standalone
 from aaiclick.oplog.models import clear_schema_cache
 from aaiclick.orchestration.migrate import get_alembic_config
@@ -215,8 +215,6 @@ async def seed_registry_row(table: str, *, fieldtype: str = FIELDTYPE_ARRAY) -> 
     without going through ``create_object``. The emitted ``schema_doc``
     declares a single ``value`` column inheriting ``fieldtype``.
     """
-    from aaiclick.data.models import ColumnInfo, Schema
-
     schema_doc = Schema(
         fieldtype=fieldtype,
         columns={"value": ColumnInfo("Int64", fieldtype=fieldtype)},

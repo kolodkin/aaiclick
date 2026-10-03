@@ -11,6 +11,9 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from contextvars import ContextVar
 
+from sqlmodel import select
+
+from ..models import ColumnInfo, Schema
 from .ch_client import ChClient
 from .table_worker import AsyncTableWorker
 
@@ -33,6 +36,34 @@ def register_table(table_name: str, schema_doc: str | None = None) -> None:
     lc = _lifecycle_var.get()
     if lc is not None:
         lc.register_table(table_name, schema_doc=schema_doc)
+
+
+async def read_table_schema(table: str) -> tuple[str, dict[str, ColumnInfo]]:
+    """Read ``(fieldtype, columns)`` back from a table's ``table_registry`` row.
+
+    Rehydrates the ``schema_doc`` that :func:`register_table` wrote. Raises
+    ``LookupError`` if the table has no registry row or a null ``schema_doc``
+    — it was either not created by aaiclick, or predates the schema_doc
+    migration.
+    """
+    # Circular dep: orchestration imports the data package at import time, so
+    # the registry model and SQL session are resolved at call time.
+    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
+    from aaiclick.orchestration.sql_context import get_sql_session
+
+    async with get_sql_session() as sess:
+        result = await sess.execute(select(TableRegistry.schema_doc).where(TableRegistry.table_name == table))
+        row = result.one_or_none()
+
+    if row is None or row[0] is None:
+        raise LookupError(
+            f"Table {table!r} is not registered in table_registry (or has no "
+            "schema_doc). It was either not created by aaiclick, or was created "
+            "by a version that predates the schema_doc registry."
+        )
+
+    schema = Schema.model_validate_json(row[0])
+    return schema.fieldtype, schema.columns
 
 
 class LifecycleHandler(ABC):
@@ -88,7 +119,7 @@ class LifecycleHandler(ABC):
         """Insert a row into ``table_registry`` (SQL) for the new table.
 
         ``schema_doc`` is the Pydantic-serialised ``Schema`` JSON read
-        back by ``_get_table_schema``. No-op in local mode — only the orch
+        back by ``read_table_schema``. No-op in local mode — only the orch
         lifecycle handler writes to ``table_registry``.
         """
 

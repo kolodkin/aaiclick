@@ -47,6 +47,12 @@ def make_worker(engine, ch_client: ChClient | None = None) -> BackgroundWorker:
     return worker
 
 
+def mock_ch(worker: BackgroundWorker) -> AsyncMock:
+    """The mocked ClickHouse client ``make_worker`` gave ``worker``."""
+    assert isinstance(worker._ch_client, AsyncMock)
+    return worker._ch_client
+
+
 async def insert_job(engine, job_id, *, status="RUNNING", preservation_mode="NONE"):
     async with AsyncSession(engine) as session:
         await session.execute(

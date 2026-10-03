@@ -18,6 +18,7 @@ from pathlib import Path
 import pyarrow as pa
 from chdb.session import Session
 
+from aaiclick.backend import get_ch_url
 from aaiclick.data.sql_utils import quote_identifier, quote_sql_literal
 
 from .arrow_types import ch_type_to_pa
@@ -254,8 +255,6 @@ def get_chdb_data_path() -> str:
 
     Parses the path component of the chdb://path URL.
     """
-    from aaiclick.backend import get_ch_url
-
     url = get_ch_url()
     if url.startswith("chdb://"):
         return url.removeprefix("chdb://")
