@@ -271,13 +271,13 @@ Three `TaskStatus` values are set by the background sweep, not the worker:
 
 ## Task Parameter Serialization
 
-Task kwargs and results are stored as JSONB via `_serialize_ref()` on Object/View — see `aaiclick/data/object.py`.
+Task kwargs and results are stored as JSONB via `_serialize_ref()` on Object/View — see `ObjectRef` and `ViewRef` in `aaiclick/data/object/refs.py`.
 
 **Object ref**: `{"object_type": "object", "table": "t123...", "job_id": 789}`
 
-**View ref**: Adds `where`, `limit`, `offset`, `order_by`, `selected_fields` fields.
+**View ref**: Adds `view_schema`, the View's serialized `ViewSchema` (`where`, `limit`, `offset`, `order_by`, `selected_fields`, computed/renamed/exploded columns).
 
-`job_id` marks the producing task's job — the background worker skips tables with a non-NULL `job_id` pin until the job completes. Schema is reconstructed from ClickHouse column comments via `_get_table_schema()`.
+`job_id` marks the producing task's job — the background worker skips tables with a non-NULL `job_id` pin until the job completes. The table's `Schema` is read back from `table_registry.schema_doc` via `read_table_schema()` — see `aaiclick/data/data_context/lifecycle.py`.
 
 **Return values**: `None` → `null`; Object/View → serialized ref + `job_id`; any other value → auto-converted via `create_object_from_value()`. See `aaiclick/orchestration/execution/runner.py` — `serialize_task_result()`.
 
