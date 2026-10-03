@@ -275,7 +275,7 @@ Task kwargs and results are stored as JSONB via `_serialize_ref()` on Object/Vie
 
 **Object ref**: `{"object_type": "object", "table": "t123...", "job_id": 789}`
 
-**View ref**: Adds `view_schema`, the View's serialized `ViewSchema` (`where`, `limit`, `offset`, `order_by`, `selected_fields`, computed/renamed/exploded columns).
+**View ref**: Adds `view_schema`, the View's serialized `ViewSchema` — see `aaiclick/data/models.py`.
 
 `job_id` marks the producing task's job — the background worker skips tables with a non-NULL `job_id` pin until the job completes. The table's `Schema` is read back from `table_registry.schema_doc` via `read_table_schema()` — see `aaiclick/data/data_context/lifecycle.py`.
 
