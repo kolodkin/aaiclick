@@ -227,23 +227,31 @@ async def test_open_object_reads_schema_from_registry(ctx, value, name, expected
         await delete_persistent_object(name, scope="global")
 
 
-@pytest.mark.parametrize(
-    "transform",
-    [
-        pytest.param(lambda obj: obj["a"], id="single-field"),
-        pytest.param(lambda obj: obj[["b", "a"]], id="multi-field"),
-        pytest.param(lambda obj: obj.explode("tags"), id="explode"),
-        pytest.param(
-            lambda obj: obj.rename({"a": "x"}).with_columns({"s": Computed("Int64", "x + b")}).where("b > 3"),
-            id="chained",
-        ),
-        # A field selection drops computed columns, as data() does.
-        pytest.param(lambda obj: obj["a"].with_columns({"s": Computed("Int64", "a * 2")}), id="single-field+computed"),
-        pytest.param(
-            lambda obj: obj.with_columns({"s": Computed("Int64", "a + b")})[["a", "b"]], id="multi-field+computed"
-        ),
-    ],
-)
+_SINGLE_FIELD_SHAPES = [
+    pytest.param(lambda obj: obj["a"], id="single-field"),
+    pytest.param(lambda obj: obj.with_columns({"s": Computed("Int64", "a * 2")})["s"], id="computed+single-field"),
+]
+
+# Shapes whose data() is a dict, so its keys are the View's columns.
+_DICT_SHAPES = [
+    pytest.param(lambda obj: obj[["b", "a"]], id="multi-field"),
+    pytest.param(lambda obj: obj.explode("tags"), id="explode"),
+    pytest.param(
+        lambda obj: obj.rename({"a": "x"}).with_columns({"s": Computed("Int64", "x + b")}).where("b > 3"),
+        id="chained",
+    ),
+    # A field selection made after with_columns() drops the computed columns it omits...
+    pytest.param(
+        lambda obj: obj.with_columns({"s": Computed("Int64", "a + b")})[["a", "b"]], id="computed+multi-field"
+    ),
+    # ...while computed columns added after the selection join it.
+    pytest.param(
+        lambda obj: obj[["a", "b"]].with_columns({"s": Computed("Int64", "a + b")}), id="multi-field+computed"
+    ),
+]
+
+
+@pytest.mark.parametrize("transform", _SINGLE_FIELD_SHAPES + _DICT_SHAPES)
 async def test_view_materialized_schema_matches_copy(ctx, transform):
     """``View.materialized_schema`` is the plain ``Schema`` of the table ``copy()`` produces."""
     obj = await create_object_from_value({"a": [1, 2], "b": [3, 4], "tags": [["x", "y"], ["z"]]})
@@ -254,6 +262,24 @@ async def test_view_materialized_schema_matches_copy(ctx, transform):
 
     assert type(schema) is Schema
     assert (schema.fieldtype, schema.columns) == (copied.schema.fieldtype, copied.schema.columns)
+
+
+@pytest.mark.parametrize("transform", _SINGLE_FIELD_SHAPES + _DICT_SHAPES)
+async def test_view_effective_columns_match_copy(ctx, transform):
+    """The columns operators see on a View are the columns ``copy()`` materializes, ColumnInfo included."""
+    obj = await create_object_from_value({"a": [1, 2], "b": [3, 4], "tags": [["x", "y"], ["z"]]})
+    view = transform(obj)
+
+    assert view._effective_columns == (await view.copy()).schema.columns
+
+
+@pytest.mark.parametrize("transform", _DICT_SHAPES)
+async def test_view_effective_columns_match_data(ctx, transform):
+    """The columns operators see on a View are the keys ``data()`` returns, in order."""
+    obj = await create_object_from_value({"a": [1, 2], "b": [3, 4], "tags": [["x", "y"], ["z"]]})
+    view = transform(obj)
+
+    assert list(view._effective_columns) == list((await view.data()).keys())
 
 
 @pytest.mark.parametrize(

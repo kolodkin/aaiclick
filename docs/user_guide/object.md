@@ -752,7 +752,13 @@ arr = await obj["x"].copy()        # new array Object
 await obj[["x", "y"]].data()       # {'x': [1, 2, 3], 'y': [10, 20, 30]}
 ```
 
-Preserves WHERE and computed column constraints when chained on a filtered View.
+Preserves WHERE and computed column constraints when chained on a filtered View. The selection is the View's output: computed columns it omits are dropped from `data()` and `copy()`, while ones added after a multi-field selection join it. A single-field selection can't take computed columns — add them before selecting.
+
+```python
+s = {"s": Computed("Int64", "x + y")}
+await obj.with_columns(s)[["x", "y"]].data()  # {'x': [...], 'y': [...]}
+await obj[["x", "y"]].with_columns(s).data()  # {'x': [...], 'y': [...], 's': [...]}
+```
 
 **Tests**: `aaiclick/data/object/test_column_selection.py`
 
