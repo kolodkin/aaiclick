@@ -90,6 +90,8 @@ Memory/Disk Management (for large datasets):
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import NamedTuple, cast
 
 from aaiclick.oplog.oplog_api import oplog_record_sample
@@ -186,7 +188,8 @@ async def _validate_array_lengths(source_a, source_b, ch_client):
         raise ValueError(f"Operand length mismatch: left has {cnt_a} elements, right has {cnt_b} elements")
 
 
-async def _materialize_array_join(
+@asynccontextmanager
+async def _array_join_temp(
     source_a,
     type_a,
     source_b,
@@ -196,7 +199,7 @@ async def _materialize_array_join(
     order_a: str,
     order_b: str,
     propagate_aai_id_from: str | None = None,
-):
+) -> AsyncIterator[str]:
     """Materialize a FULL OUTER JOIN into a temp table and validate lengths match.
 
     Creates a temporary Memory table containing both operand values joined by
@@ -216,8 +219,8 @@ async def _materialize_array_join(
             ``aai_id`` column into the temp table as ``aai_id Nullable(UInt64)``;
             ``None`` (default) skips propagation.
 
-    Returns:
-        Name of the temp table.  Caller is responsible for DROP.
+    Yields:
+        Name of the temp table, dropped when the context exits.
 
     Raises:
         ValueError: If the two sources have different row counts.
@@ -245,38 +248,38 @@ async def _materialize_array_join(
         ) ENGINE = Memory
     """)
 
-    # Cast rn to Nullable so FULL OUTER JOIN produces NULLs for non-matched rows.
-    # Add explicit presence markers (also Nullable) to distinguish join-NULLs
-    # from data-NULLs in nullable source columns.
-    await ch_client.command(f"""
-        INSERT INTO {temp_table}
-        SELECT a.value AS a_value, b.value AS b_value,
-               a.present AS a_present, b.present AS b_present{outer_select}
-        FROM (
-            SELECT CAST(row_number() OVER (ORDER BY {order_a}) AS Nullable(UInt64)) AS rn,
-                   CAST(value AS Nullable({type_a})) AS value,
-                   CAST(1 AS Nullable(UInt8)) AS present{inner_a}
-            FROM {source_a}
-        ) AS a
-        FULL OUTER JOIN (
-            SELECT CAST(row_number() OVER (ORDER BY {order_b}) AS Nullable(UInt64)) AS rn,
-                   CAST(value AS Nullable({type_b})) AS value,
-                   CAST(1 AS Nullable(UInt8)) AS present{inner_b}
-            FROM {source_b}
-        ) AS b
-        ON a.rn = b.rn
-    """)
+    try:
+        # Cast rn to Nullable so FULL OUTER JOIN produces NULLs for non-matched rows.
+        # Add explicit presence markers (also Nullable) to distinguish join-NULLs
+        # from data-NULLs in nullable source columns.
+        await ch_client.command(f"""
+            INSERT INTO {temp_table}
+            SELECT a.value AS a_value, b.value AS b_value,
+                   a.present AS a_present, b.present AS b_present{outer_select}
+            FROM (
+                SELECT CAST(row_number() OVER (ORDER BY {order_a}) AS Nullable(UInt64)) AS rn,
+                       CAST(value AS Nullable({type_a})) AS value,
+                       CAST(1 AS Nullable(UInt8)) AS present{inner_a}
+                FROM {source_a}
+            ) AS a
+            FULL OUTER JOIN (
+                SELECT CAST(row_number() OVER (ORDER BY {order_b}) AS Nullable(UInt64)) AS rn,
+                       CAST(value AS Nullable({type_b})) AS value,
+                       CAST(1 AS Nullable(UInt8)) AS present{inner_b}
+                FROM {source_b}
+            ) AS b
+            ON a.rn = b.rn
+        """)
 
-    result = await ch_client.query(
-        f"SELECT countIf(a_present IS NOT NULL), countIf(b_present IS NOT NULL) FROM {temp_table}"
-    )
-    if result.result_rows:
+        result = await ch_client.query(
+            f"SELECT countIf(a_present IS NOT NULL), countIf(b_present IS NOT NULL) FROM {temp_table}"
+        )
         cnt_a, cnt_b = result.result_rows[0]
         if cnt_a != cnt_b:
-            await ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
             raise ValueError(f"Operand length mismatch: left has {cnt_a} elements, right has {cnt_b} elements")
-
-    return temp_table
+        yield temp_table
+    finally:
+        await ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
 
 
 class _AaiIdProj(NamedTuple):
@@ -382,7 +385,8 @@ async def _apply_operator_db(
             either_is_view = info_a.source.startswith("(") or info_b.source.startswith("(")
 
             if either_is_view:
-                temp_table = await _materialize_array_join(
+                temp_expr = expression.replace("a.value", "a_value").replace("b.value", "b_value")
+                async with _array_join_temp(
                     info_a.source,
                     info_a.value_type,
                     info_b.source,
@@ -391,9 +395,7 @@ async def _apply_operator_db(
                     order_a=info_a.order_by,
                     order_b=info_b.order_by,
                     propagate_aai_id_from=aai_id_side,
-                )
-                temp_expr = expression.replace("a.value", "a_value").replace("b.value", "b_value")
-                try:
+                ) as temp_table:
                     result._stats = await execute_for_stats(
                         f"""
                         INSERT INTO {result.table} {proj.insert_cols}
@@ -401,8 +403,6 @@ async def _apply_operator_db(
                     """,
                         client=ch_client,
                     )
-                finally:
-                    await ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
             else:
                 await _validate_array_lengths(info_a.source, info_b.source, ch_client)
                 inner_a = proj.inner if aai_id_alias == "a" else ""
@@ -1019,7 +1019,7 @@ async def coalesce_op(
         either_is_view = info_a.source.startswith("(") or info_b.source.startswith("(")
 
         if either_is_view:
-            temp_table = await _materialize_array_join(
+            async with _array_join_temp(
                 info_a.source,
                 info_a.value_type,
                 info_b.source,
@@ -1027,8 +1027,7 @@ async def coalesce_op(
                 ch_client,
                 order_a=info_a.order_by,
                 order_b=info_b.order_by,
-            )
-            try:
+            ) as temp_table:
                 result._stats = await execute_for_stats(
                     f"""
                     INSERT INTO {result.table} (value)
@@ -1036,8 +1035,6 @@ async def coalesce_op(
                 """,
                     client=ch_client,
                 )
-            finally:
-                await ch_client.command(f"DROP TABLE IF EXISTS {temp_table}")
         else:
             await _validate_array_lengths(info_a.source, info_b.source, ch_client)
             result._stats = await execute_for_stats(
