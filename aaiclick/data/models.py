@@ -326,12 +326,17 @@ class CopyInfo:
     def target_schema(self) -> "Schema":
         """Schema of the table a copy fills: a single field becomes an array
         object's ``value`` column, a multi-field selection a dict of those fields."""
-        columns = select_fields(self.columns, self.selected_fields)
-        if self.is_single_field:
-            return Schema(fieldtype=FIELDTYPE_ARRAY, columns=columns)
-        if self.selected_fields:
-            return Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
-        return Schema(fieldtype=self.fieldtype, columns=columns)
+        return Schema(
+            fieldtype=select_fieldtype(self.fieldtype, self.selected_fields),
+            columns=select_fields(self.columns, self.selected_fields),
+        )
+
+
+def select_fieldtype(fieldtype: str, selected_fields: list[str] | None) -> str:
+    """Fieldtype after a field selection: one field reads as an array, several as a dict."""
+    if not selected_fields:
+        return fieldtype
+    return FIELDTYPE_ARRAY if len(selected_fields) == 1 else FIELDTYPE_DICT
 
 
 def select_fields(columns: dict[str, "ColumnInfo"], selected_fields: list[str] | None) -> dict[str, "ColumnInfo"]:
