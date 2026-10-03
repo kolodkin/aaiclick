@@ -7,6 +7,8 @@
     "build": "tsc -b && vite build",
     "check": "tsc --noEmit",
     "test": "vitest run",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx}\"",
     "gen-types": "uv run --extra server python -m aaiclick.server.dump_openapi | openapi-typescript -o src/api/schema.ts",
     "preview": "vite preview"
   },
@@ -25,6 +27,7 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
     "openapi-typescript": "^7.13.0",
+    "prettier": "^3.9.9",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.2",
     "vite": "^6.0.0",
