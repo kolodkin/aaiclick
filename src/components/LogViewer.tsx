@@ -1,6 +1,6 @@
 import { memo, useState } from "react";
-import type { LogLine, TaskAttempt, TaskStatus } from "../api/types";
-import { useTaskLogs } from "../api/hooks";
+import type { LogLine, TaskAttempt } from "../api/types";
+import { useTaskLogs, type LogTask } from "../api/hooks";
 import { LiveStatus } from "./LiveStatus";
 import { logTone } from "../lib/logTone";
 import { isTaskStarted, isTerminalTask, statusClass } from "../lib/status";
@@ -71,7 +71,8 @@ function AttemptPicker({
   );
 }
 
-export function LogViewer({ taskId, status }: { taskId: string; status: TaskStatus }) {
+export function LogViewer({ task }: { task: LogTask }) {
+  const { status, runs } = task;
   const started = isTaskStarted(status);
   // null follows the latest attempt (and keeps polling it); a number pins an
   // earlier one, whose logs no longer change.
@@ -79,8 +80,8 @@ export function LogViewer({ taskId, status }: { taskId: string; status: TaskStat
   // The tries list always comes from the latest run's (polled) response: a
   // pinned attempt is cached for good, so its own list would miss new runs.
   // Unpinned, both calls share one query key and so one request.
-  const latestRun = useTaskLogs(taskId, status, null);
-  const { data, isLoading, isError, dataUpdatedAt } = useTaskLogs(taskId, status, picked);
+  const latestRun = useTaskLogs(task, null);
+  const { data, isLoading, isError, dataUpdatedAt } = useTaskLogs(task, picked);
   const [showTimestamps, setShowTimestamps] = useState(false);
 
   if (isLoading) return <div className="logs">loading logs…</div>;
@@ -88,7 +89,12 @@ export function LogViewer({ taskId, status }: { taskId: string; status: TaskStat
   const attempts = latestRun.data?.attempts ?? data?.attempts ?? [];
   const latest = attempts.length;
   const live = picked == null && started && !isTerminalTask(status);
-  if (latest === 0 && !started) return <div className="logs sub">Task has not started — no output until it runs.</div>;
+  if (runs === 0)
+    return (
+      <div className="logs sub">
+        {isTerminalTask(status) ? "Task never ran — no output." : "Task has not started — no output until it runs."}
+      </div>
+    );
 
   const lines = data?.lines ?? [];
   const empty = !data || !data.available || lines.length === 0;

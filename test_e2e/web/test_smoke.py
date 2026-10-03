@@ -459,7 +459,9 @@ def test_task_view_says_a_queued_task_has_not_started(page, base_url: str, shot)
 
     The three empty log states mean different things — nothing yet, nothing
     flushed, nothing at all — and only the last is a final answer. A queued
-    task also has nothing to poll for, so the panel shows no polling badge.
+    task also has nothing to poll for, so the panel shows no polling badge and
+    the view never asks ``/tasks/{id}/logs`` at all: ``runs`` on the task
+    record already says there is nothing to read.
 
     Uses the seeded demo graph: ``report`` waits on a task seeded as RUNNING
     with no process behind it, so no worker in either mode ever claims it and
@@ -468,9 +470,13 @@ def test_task_view_says_a_queued_task_has_not_started(page, base_url: str, shot)
     job_id = str(run_in_process(lambda: seed_graph_job("smoke_queued")))
     report = next(t for t in job_tasks(job_id) if t.name == "report")
 
+    requests: list[str] = []
+    page.on("request", lambda req: requests.append(req.url))
     open_page(page, f"{base_url}/?p=@task {report.id}")
     panel = page.locator(".logs")
     panel.wait_for(timeout=15000)
     assert "has not started" in panel.inner_text()
     assert page.get_by_test_id("live-status").count() == 1, "a queued task's logs must not claim to be polling"
+    log_fetches = [u for u in requests if u.endswith("/logs")]
+    assert log_fetches == [], f"a task with no runs fetched its logs: {log_fetches}"
     shot("task-logs-not-started")
