@@ -1,23 +1,23 @@
 Blob Storage Support
 ---
 
-An `Object` can live in object storage — S3, GCS, Azure Blob — instead of a
-ClickHouse MergeTree table. ClickHouse's object-store table engines do the
-work: the Object keeps its table name, operators and views keep producing
-SQL, and only the `ENGINE` clause changes. The MergeTree default stays as it
-is; blob storage is opt-in per object.
+An `Object` can be backed by files in object storage — S3, GCS, Azure Blob —
+instead of a ClickHouse MergeTree table. ClickHouse's object-store table
+engines do the work: the Object keeps its table name, operators and views
+keep producing SQL, and only the `ENGINE` clause changes. The MergeTree
+default stays as it is; blob storage is opt-in per object.
 
-Goals:
+Delivered in two phases:
 
-| Goal                  | What it means                                                                 |
-|-----------------------|-------------------------------------------------------------------------------|
-| Ephemeral compute     | A ClickHouse server can be recreated and persistent objects survive it        |
-| Cross-job sharing     | A job's result is another job's input, possibly on another cluster            |
-| Zero-copy reads       | External parquet / CSV / ORC datasets are queried in place, never ingested    |
+| Phase | Scope                                                              | Goal served                      |
+|-------|--------------------------------------------------------------------|----------------------------------|
+| 1     | Read-only Object over an existing path — zero-copy external reads  | Query external data in place     |
+| 2     | Writable location: aaiclick-owned objects whose files live in a bucket | Ephemeral compute, cross-job sharing |
 
-Out of scope: replacing MergeTree for temp objects, a second query engine
-(DuckDB or similar), and lake formats (Iceberg, Delta) — ClickHouse reads
-them through the same engine family, so they can be added later as schemes.
+Out of scope for both: replacing MergeTree for temp objects, a second query
+engine (DuckDB or similar), and lake formats (Iceberg, Delta) — ClickHouse
+reads them through the same engine family, so they can be added later as
+schemes.
 
 ---
 
@@ -38,44 +38,6 @@ the engine clause is unchanged:
 (ClickHouse format name, default `Parquet`). `get_engine_clause()` renders
 the engine from them.
 
-# Entry Points
-
-Three ways to get a located Object:
-
-```python
-# New, empty, aaiclick-owned — later inserts write files under the location
-orders = await create_object(schema, name="orders", scope="global", location="s3://lake/p_orders/")
-
-# Existing external data — schema inferred, read-only when the path is a glob
-events = await open_object_from_url("s3://vendor/events/2026/*.parquet")
-
-# Materialize a computed result into a bucket
-daily = await events.group_by(...).copy(location="s3://lake/p_daily/")
-```
-
-`open_object_from_url` is the located counterpart of
-`create_object_from_url`: same URL validation, same `DESCRIBE`-based schema
-inference, but it creates the engine table over the path instead of copying
-rows into MergeTree. The existing function keeps its copy semantics.
-`Object.export` stays a local-file writer; writing to a bucket is
-`copy(location=)`.
-
-# Location Resolution
-
-A location is either given explicitly or derived:
-
-| Form     | Source                                                                | Used for                                   |
-|----------|-----------------------------------------------------------------------|--------------------------------------------|
-| Derived  | context `blob_base` + `<table_name>/`, e.g. `s3://lake/aaiclick/p_orders/` | Named objects aaiclick owns                |
-| Explicit | `location=` argument                                                  | External data, or a caller-chosen path     |
-
-Derived paths are what make `open_object("orders", scope="global")` work on
-a fresh server or a second cluster: the name alone identifies the files. The
-base URL is a `data_context()` / `orch_context()` argument, settable from
-the environment like the ClickHouse URL.
-
-# Scheme to Engine
-
 | URL scheme           | Table engine        | Table function (schema inference) |
 |----------------------|---------------------|-----------------------------------|
 | `s3://`              | `S3`                | `s3()`                            |
@@ -85,50 +47,6 @@ the environment like the ClickHouse URL.
 
 Globs (`*`, `?`, `{a,b}`, `{1..9}`) and Hive-style partition discovery come
 through untouched.
-
-# Storage Layout and Append
-
-An aaiclick-owned location is a directory, not a file. Each `insert` writes
-a new file under it and reads glob the directory. In engine terms that is a
-write path with a partition placeholder and a read path with `*`, plus the
-`s3_create_new_file_on_insert` setting.
-
-!!! warning "Verify before building append"
-    That a table reads every file its own inserts wrote is the one engine
-    behavior to confirm against the pinned ClickHouse first. If it does not
-    hold, located objects are single-file and write-once: `create_object`
-    plus one `insert`, or `copy`.
-
-What a located Object cannot do, by engine limits rather than design:
-
-| Capability            | MergeTree Object | Located Object                      |
-|-----------------------|------------------|-------------------------------------|
-| `ORDER BY`            | yes              | no — rows come back in file order   |
-| Mutations / `DELETE`  | yes              | no                                  |
-| `insert`              | yes              | append only; never on a glob path   |
-| `aai_id` column       | optional         | optional; external data has none    |
-
-# Registry and `open_object`
-
-With `location` and `format` in `schema_doc`, `open_object` looks the name
-up in `table_registry` and, if the table is missing on this server, runs
-`CREATE TABLE IF NOT EXISTS` with the stored engine clause. Dropping an
-engine table only drops the pointer, so a recreated server, or any cluster
-sharing the registry database, reopens the same files.
-
-# Lifecycle and Cleanup
-
-`DROP TABLE` on an object-store engine never deletes files, and ClickHouse
-has no SQL to delete bucket objects. Cleanup is therefore split:
-
-- **Pointer**: the lifecycle worker drops the table as it does today.
-- **Files**: a bucket lifecycle rule keyed on prefix — `t_` and `j_` prefixes
-  expire on the job TTL, `p_` never. Documented as a deployment step, with
-  the Helm and Compose templates carrying an example.
-
-Temp objects (`t_`) are never located by default; a derived location only
-applies to named scopes. An explicit `location=` on a temp object is
-allowed but the caller owns the files.
 
 # Credentials
 
@@ -145,14 +63,69 @@ preference:
 The deploy templates gain a commented named-collection example; chdb reads
 the same settings from its session config.
 
+---
+
+# Phase 1 — Read-Only Source
+
+```python
+# Existing external data — schema inferred, nothing copied
+events = await open_object_from_url("s3://vendor/events/2026/*.parquet")
+total = await events.where("country = 'US'").sum()
+```
+
+`open_object_from_url` is the located counterpart of
+`create_object_from_url`: same URL validation, same `DESCRIBE`-based schema
+inference and `columns` / `column_types` overrides, but it creates the
+engine table over the path instead of copying rows into MergeTree. The
+existing function keeps its copy semantics; `copy()` on a located Object is
+the explicit way to ingest.
+
+Rules for a Phase 1 Object:
+
+- **Read-only.** `insert` and `insert_from_url` raise. Enforced in Python
+  on `Schema.location`, independent of whether the path is a glob.
+- **Temp by default.** The table is a `t_` pointer dropped at context exit;
+  nothing in the bucket is touched. `name` / `scope` work as for any
+  Object, and a named one is reopenable by name on another server because
+  `schema_doc` carries the location.
+- **No `aai_id`.** External data has none; aaiclick already supports
+  objects without it.
+- **File order.** Rows come back in file order; there is no `ORDER BY`.
+
+Changes: `Schema` fields, `get_engine_clause()`, a scheme table next to
+`FORMATS` in `aaiclick/data/formats.py`, `open_object_from_url` in
+`aaiclick/data/object/url.py`, the read-only guard in `Object`, the
+deploy-template credentials example, and `docs/user_guide/object.md`.
+
+# Phase 2 — Writable Location
+
+Deferred until Phase 1 is in use. Design notes kept so the first phase does
+not paint it in:
+
+- **Entry points.** `create_object(schema, location=url)` for a new empty
+  object, and `copy(location=url)` to materialize a result into a bucket.
+  `Object.export` stays a local-file writer.
+- **Derived locations.** A context `blob_base` plus `<table_name>/` so
+  `open_object("orders", scope="global")` finds the files by name on any
+  cluster; explicit `location=` overrides.
+- **Append layout.** A directory per object: inserts write new files
+  through a partition-placeholder path with `s3_create_new_file_on_insert`,
+  reads glob the directory. Whether a table reads every file its own
+  inserts wrote must be verified on the pinned ClickHouse first; if not,
+  located objects are single-file and write-once.
+- **Engine limits.** No `ORDER BY`, no mutations or `DELETE`, append only.
+- **Cleanup.** `DROP TABLE` only drops the pointer. Files expire through a
+  bucket lifecycle rule keyed on prefix (`t_` / `j_` on the job TTL, `p_`
+  never), documented as a deployment step.
+
 # Testing
 
 - A MinIO service in the GitHub Actions job gives a real S3 endpoint for
   both backends; chdb ships the same engines as the server.
 - Locally the located-object tests skip unless `AAICLICK_BLOB_TEST_URL` is
   set.
-- Coverage: one create → insert → read round trip per output format, one
-  glob read, one `copy(location=)`, one `open_object` after `DROP TABLE`
-  (the ephemeral-compute case), one cross-context reopen by name.
+- Phase 1 coverage: open and read one file per input format, a glob read,
+  a `where` / aggregation over the located table, `copy()` into MergeTree,
+  `insert` raising, and reopen by name after `DROP TABLE`.
 - GCS and Azure are covered by SQL-rendering tests only; their wire
   behavior is ClickHouse's.

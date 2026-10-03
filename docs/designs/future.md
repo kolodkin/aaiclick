@@ -13,20 +13,20 @@ Remove each item from that file as it lands; delete the file when empty.
 
 ---
 
+# Blob Storage Support
+
+Objects backed by files in S3 / GCS / Azure Blob through ClickHouse's
+object-store table engines, opt-in per object; the MergeTree default is
+unchanged. Phase 1 is a read-only Object over an existing path, so external
+parquet is queried in place without ingestion. Phase 2, writable locations
+for aaiclick-owned objects, is deferred until Phase 1 is in use. Full design:
+`docs/designs/blob_storage_support.md`.
+
+---
+
 # Deferred
 
 Items deferred until preconditions are met.
-
-## Blob Storage Support
-
-Objects located in S3 / GCS / Azure Blob through ClickHouse's object-store
-table engines, opt-in per object: a persistent object survives a recreated
-server, a job's result is readable by another job on another cluster, and
-external parquet is queried in place without ingestion. The MergeTree default
-is unchanged. Full design: `docs/designs/blob_storage_support.md`.
-
-**When to revisit**: when a deployment needs persistent objects to outlive
-its ClickHouse server, or two clusters need to share a job's result.
 
 ## Tenants — Kubernetes Control Plane
 
