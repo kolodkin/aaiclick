@@ -879,6 +879,8 @@ await sorted_copy.data()  # returns rows sorted by amount DESC
 
 The result carries the `INSERT … SELECT` stats — `result = await obj.copy()` then `(await result.stats()).read_rows` tells you how much it scanned. See [stats()](#stats).
 
+To pre-allocate the table a copy would fill — `create_object(view.materialized_schema)` — use `materialized_schema`, the plain `Schema` with renames, computed columns, explodes and field selection applied. A View's `.schema` is a `ViewSchema`: it says how to read the source (its `columns` are the source's) and `create_object()` rejects it.
+
 !!! warning "`copy()` is not serialized across workers"
     Unlike `insert()` and `concat()`, `copy()` does not take a per-table
     advisory lock. Two concurrent `copy()` calls into the same named

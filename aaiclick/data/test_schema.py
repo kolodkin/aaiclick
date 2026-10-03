@@ -18,6 +18,7 @@ from aaiclick import (
     delete_persistent_object,
     open_object,
 )
+from aaiclick.data import Computed
 from aaiclick.data.data_context import get_ch_client
 from aaiclick.data.data_context.lifecycle import get_data_lifecycle
 from aaiclick.data.models import ViewSchema
@@ -223,6 +224,31 @@ async def test_open_object_reads_schema_from_registry(ctx, value, name, expected
         assert {col: info.fieldtype for col, info in schema.columns.items()} == expected_columns
     finally:
         await delete_persistent_object(name, scope="global")
+
+
+@pytest.mark.parametrize(
+    "transform",
+    [
+        pytest.param(lambda obj: obj.rename({"a": "x"}), id="rename"),
+        pytest.param(lambda obj: obj.with_columns({"s": Computed("Int64", "a + b")}), id="with_columns"),
+        pytest.param(lambda obj: obj["a"], id="single-field"),
+        pytest.param(lambda obj: obj[["b", "a"]], id="multi-field"),
+        pytest.param(
+            lambda obj: obj.rename({"a": "x"}).with_columns({"s": Computed("Int64", "x + b")}).where("b > 3"),
+            id="chained",
+        ),
+    ],
+)
+async def test_view_materialized_schema_matches_copy(ctx, transform):
+    """``View.materialized_schema`` is the plain ``Schema`` of the table ``copy()`` produces."""
+    obj = await create_object_from_value({"a": [1, 2], "b": [3, 4]})
+    view = transform(obj)
+    copied = await view.copy()
+
+    schema = view.materialized_schema
+
+    assert type(schema) is Schema
+    assert (schema.fieldtype, schema.columns) == (copied.schema.fieldtype, copied.schema.columns)
 
 
 async def test_open_object_without_registry_row_raises(orch_ctx):

@@ -40,6 +40,7 @@ from ..models import (
     ValueListType,
     ValueScalarType,
     ValueType,
+    ViewSchema,
     build_order_by_clause,
 )
 from ..scope import (
@@ -331,7 +332,18 @@ async def create_object(
 
     Returns:
         Object: New Object instance with created table
+
+    Raises:
+        TypeError: If ``schema`` is a ``ViewSchema``. A ViewSchema describes
+            how to read a table, not a table: its ``columns`` are the source's,
+            before renames and computed columns. Pass
+            ``view.materialized_schema`` instead.
     """
+    if isinstance(schema, ViewSchema):
+        raise TypeError(
+            "create_object() takes a Schema, not a ViewSchema; pass view.materialized_schema "
+            "for the table a View's rows fill."
+        )
     effective_scope = _resolve_scope(name, scope)
     if effective_scope is not None:
         assert name is not None

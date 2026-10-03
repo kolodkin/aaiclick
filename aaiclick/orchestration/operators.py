@@ -133,7 +133,7 @@ async def _expand_map(
     """
     row_count = await obj.count().data()
 
-    out = await create_object(obj.schema) if collect else None
+    out = await create_object(obj.materialized_schema) if collect else None
 
     group = Group(id=get_snowflake_id(), name="parts")
     for part in _partition_refs(obj, partition, row_count):
@@ -297,7 +297,7 @@ async def _expand_reduce(
     # Pre-allocate all layer Objects. Registration pins each layer for the
     # part tasks that reference it; the last layer is also pinned for the
     # finalize task and, through its result, for the consumers.
-    layer_objs = [await create_object(obj.schema) for _ in range(num_layers)]
+    layer_objs = [await create_object(obj.materialized_schema) for _ in range(num_layers)]
 
     all_groups = []
     src_size = count

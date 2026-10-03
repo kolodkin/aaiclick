@@ -234,6 +234,15 @@ class Object:
         return self._schema
 
     @property
+    def materialized_schema(self) -> Schema:
+        """Plain ``Schema`` of the table ``copy()`` produces — the object's own.
+
+        A View overrides this to apply its renames, computed columns, explodes
+        and field selection; ``create_object`` takes only this kind of schema.
+        """
+        return self._schema
+
+    @property
     def limit(self) -> int | None:
         """Get LIMIT (None for base Object)."""
         return None
@@ -2817,6 +2826,16 @@ class View(Object):
             exploded_columns=self._exploded_columns or None,
             left_explode=self._left_explode,
         )
+
+    @property
+    def materialized_schema(self) -> Schema:
+        """Plain ``Schema`` of the table ``copy()`` produces from this View.
+
+        Renames, computed columns, explodes and field selection are applied;
+        a single-field selection becomes an array object with a ``value`` column.
+        """
+        fieldtype = FIELDTYPE_ARRAY if self.is_single_field else self._schema.fieldtype
+        return Schema(fieldtype=fieldtype, columns=self._effective_columns)
 
     @classmethod
     def from_schema(cls, source: Object, schema: ViewSchema) -> View:

@@ -83,6 +83,24 @@ async def read_pairs(values: Object) -> list:
 
 
 @task
+async def create_test_renamed_view() -> View:
+    """A two-column Object with one column renamed; map() must write to the renamed columns."""
+    data = await create_object_from_value({"a": [1, 2], "b": [3, 4]}, aai_id=True)
+    return data.rename({"a": "x"})
+
+
+@task
+async def scale_x(row: dict) -> dict:
+    return {"x": row["x"] * 10, "b": row["b"]}
+
+
+@task
+async def read_x_pairs(values: Object) -> list:
+    data = await values.data()
+    return sorted(zip(data["x"], data["b"], strict=True))
+
+
+@task
 async def create_test_view(where: str | None, offset: int | None, limit: int | None) -> View:
     """A View over [10, 20, 30, 40, 50]; the map must see only the rows it selects."""
     data = await create_object_from_value([10, 20, 30, 40, 50], aai_id=True)
@@ -159,6 +177,11 @@ def map_cast_pipeline():
     return _map_then_read(create_test_data(), quarter, read_values, partition=2)
 
 
+@job("test_map_renamed_view")
+def map_renamed_view_pipeline():
+    return _map_then_read(create_test_renamed_view(), scale_x, read_x_pairs, partition=1)
+
+
 @job("test_map_view")
 def map_view_pipeline(where: str | None, offset: int | None, limit: int | None):
     data = create_test_view(where=where, offset=offset, limit=limit)
@@ -202,6 +225,8 @@ async def test_foreach_execution(orch_ctx, pipeline, pipeline_kwargs, expected):
         pytest.param(map_records_pipeline, [[3, 1], [4, 2]], id="records"),
         # Returns are cast to the input column type: fractions truncate into an integer column.
         pytest.param(map_cast_pipeline, [2, 5, 7, 10, 12], id="cast"),
+        # The output of map() over a renamed View has the renamed columns, not the source's.
+        pytest.param(map_renamed_view_pipeline, [[10, 3], [20, 4]], id="renamed-view"),
     ],
 )
 async def test_map_output(orch_ctx, pipeline, expected):
