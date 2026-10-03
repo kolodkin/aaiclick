@@ -50,7 +50,12 @@ function PasswordForm() {
         <input id="pw-again" type="password" value={again} onChange={(e) => setAgain(e.target.value)} />
       </div>
       <div className="form-actions">
-        <button id="pw-submit" className="btn btn-primary" disabled={change.isPending || !current || !next} onClick={submit}>
+        <button
+          id="pw-submit"
+          className="btn btn-primary"
+          disabled={change.isPending || !current || !next}
+          onClick={submit}
+        >
           Change password
         </button>
       </div>
@@ -110,7 +115,12 @@ function MfaPanel() {
           <input id="mfa-code" type="text" value={code} onChange={(e) => setCode(e.target.value)} />
         </div>
         <div className="form-actions">
-          <button id="mfa-disable" className="btn btn-danger" disabled={disable.isPending || !password || !code} onClick={onDisable}>
+          <button
+            id="mfa-disable"
+            className="btn btn-danger"
+            disabled={disable.isPending || !password || !code}
+            onClick={onDisable}
+          >
             Disable MFA
           </button>
         </div>
@@ -144,7 +154,13 @@ function MfaPanel() {
           </p>
           <div className="field">
             <label>Authenticator code</label>
-            <input id="mfa-code" type="text" value={code} autoComplete="one-time-code" onChange={(e) => setCode(e.target.value)} />
+            <input
+              id="mfa-code"
+              type="text"
+              value={code}
+              autoComplete="one-time-code"
+              onChange={(e) => setCode(e.target.value)}
+            />
           </div>
           <div className="form-actions">
             <button id="mfa-enable" className="btn btn-primary" disabled={enable.isPending || !code} onClick={onEnable}>

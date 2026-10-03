@@ -11,8 +11,8 @@ function ForgotPassword({ onBack }: { onBack: () => void }) {
     <Panel>
       <h2>Reset password</h2>
       <p className="sub">
-        Ask an administrator for a reset link. They can mint a one-time link for your account that opens a
-        new-password form.
+        Ask an administrator for a reset link. They can mint a one-time link for your account that opens a new-password
+        form.
       </p>
       <div className="form-actions">
         <button className="btn" type="button" onClick={onBack}>
@@ -57,56 +57,56 @@ export function Login() {
         {forgot ? (
           <ForgotPassword onBack={() => setForgot(false)} />
         ) : (
-        <Panel>
-          <h2>Sign in</h2>
-          <p className="sub">Enter your aaiclick credentials.</p>
-          <form onSubmit={submit}>
-            <div className="field">
-              <label>Username</label>
-              <input
-                id="login-username"
-                type="text"
-                value={username}
-                autoFocus
-                onChange={(e) => setUsername(e.target.value)}
-              />
-            </div>
-            <div className="field">
-              <label>Password</label>
-              <input
-                id="login-password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
-            {needsCode && (
+          <Panel>
+            <h2>Sign in</h2>
+            <p className="sub">Enter your aaiclick credentials.</p>
+            <form onSubmit={submit}>
               <div className="field">
-                <label>
-                  Authenticator code <span className="help">— six digits from your app</span>
-                </label>
+                <label>Username</label>
                 <input
-                  id="login-totp"
+                  id="login-username"
                   type="text"
-                  value={totp}
+                  value={username}
                   autoFocus
-                  autoComplete="one-time-code"
-                  onChange={(e) => setTotp(e.target.value)}
+                  onChange={(e) => setUsername(e.target.value)}
                 />
               </div>
-            )}
-            {error && <p className="err">{error}</p>}
-            <div className="form-actions">
-              <button id="login-submit" className="btn btn-primary" type="submit" disabled={busy}>
-                {busy ? "Signing in…" : "Sign in"}
-              </button>
-              <div className="spacer" />
-              <button id="login-forgot" className="btn btn-sm" type="button" onClick={() => setForgot(true)}>
-                Forgot password?
-              </button>
-            </div>
-          </form>
-        </Panel>
+              <div className="field">
+                <label>Password</label>
+                <input
+                  id="login-password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </div>
+              {needsCode && (
+                <div className="field">
+                  <label>
+                    Authenticator code <span className="help">— six digits from your app</span>
+                  </label>
+                  <input
+                    id="login-totp"
+                    type="text"
+                    value={totp}
+                    autoFocus
+                    autoComplete="one-time-code"
+                    onChange={(e) => setTotp(e.target.value)}
+                  />
+                </div>
+              )}
+              {error && <p className="err">{error}</p>}
+              <div className="form-actions">
+                <button id="login-submit" className="btn btn-primary" type="submit" disabled={busy}>
+                  {busy ? "Signing in…" : "Sign in"}
+                </button>
+                <div className="spacer" />
+                <button id="login-forgot" className="btn btn-sm" type="button" onClick={() => setForgot(true)}>
+                  Forgot password?
+                </button>
+              </div>
+            </form>
+          </Panel>
         )}
       </div>
     </main>

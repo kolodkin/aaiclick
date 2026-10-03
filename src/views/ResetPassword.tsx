@@ -46,7 +46,13 @@ export function ResetPassword({ token, onDone }: { token: string; onDone: () => 
             <form onSubmit={submit}>
               <div className="field">
                 <label>New password</label>
-                <input id="reset-password" type="password" value={password} autoFocus onChange={(e) => setPassword(e.target.value)} />
+                <input
+                  id="reset-password"
+                  type="password"
+                  value={password}
+                  autoFocus
+                  onChange={(e) => setPassword(e.target.value)}
+                />
               </div>
               <div className="field">
                 <label>Repeat new password</label>

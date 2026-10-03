@@ -7,10 +7,7 @@ export function EnabledToggle({ name, enabled }: { name: string; enabled: boolea
   const toast = useToast();
   const onClick = () => {
     const next = !enabled;
-    toggle.mutate(
-      { name, enabled: next },
-      { onSuccess: () => toast(`${next ? "Enabled" : "Disabled"} ${name}`) },
-    );
+    toggle.mutate({ name, enabled: next }, { onSuccess: () => toast(`${next ? "Enabled" : "Disabled"} ${name}`) });
   };
   return (
     <AdminButton className={`toggle ${enabled ? "on" : "off"}`} onClick={onClick}>

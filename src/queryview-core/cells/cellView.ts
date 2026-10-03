@@ -4,11 +4,11 @@
 
 export function escapeHtml(s: string): string {
   return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 // Substitute cell-template placeholders against a result row.
@@ -30,9 +30,9 @@ export function substituteCellTemplate(
   encode: (s: string) => string,
 ): string {
   return template.replace(/\{cell\}|\{row\.([^}]+)\}/g, (match, col) => {
-    if (col === undefined) return encode(raw) // {cell}
-    const idx = columns.indexOf(col)
-    if (idx === -1) return match // unknown column: leave the placeholder as-is
-    return encode(row[idx] ?? '')
-  })
+    if (col === undefined) return encode(raw); // {cell}
+    const idx = columns.indexOf(col);
+    if (idx === -1) return match; // unknown column: leave the placeholder as-is
+    return encode(row[idx] ?? "");
+  });
 }

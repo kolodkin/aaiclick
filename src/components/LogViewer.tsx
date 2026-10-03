@@ -98,11 +98,7 @@ export function LogViewer({ taskId, status }: { taskId: string; status: TaskStat
     <div className="logs">
       <div className="logs-toolbar">
         <label>
-          <input
-            type="checkbox"
-            checked={showTimestamps}
-            onChange={(e) => setShowTimestamps(e.target.checked)}
-          />
+          <input type="checkbox" checked={showTimestamps} onChange={(e) => setShowTimestamps(e.target.checked)} />
           Show timestamps
         </label>
         {latest > 1 && (

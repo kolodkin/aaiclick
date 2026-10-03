@@ -18,10 +18,7 @@ export function Query({
   const scope = scopeKey(job);
   const objects = useObjects(scope);
   const detail = useObject(scope, object ?? "");
-  const fields = useMemo(
-    () => (detail.data ? fieldsFromSchema(detail.data.table_schema.columns) : []),
-    [detail.data],
-  );
+  const fields = useMemo(() => (detail.data ? fieldsFromSchema(detail.data.table_schema.columns) : []), [detail.data]);
 
   return (
     <>
