@@ -225,15 +225,7 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
         source = Object(table=ref.table, schema=schema)
         source._register()  # enqueues INCREF
         register_object(source)
-        view = View(
-            source=source,
-            where=ref.where,
-            limit=ref.limit,
-            offset=ref.offset,
-            order_by=ref.order_by,
-            selected_fields=ref.selected_fields,
-            renamed_columns=ref.renamed_columns,
-        )
+        view = View.from_schema(source, ref.view_schema)
         register_object(view)
         return view
 
