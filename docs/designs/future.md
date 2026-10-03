@@ -5,6 +5,16 @@ Planned work across aaiclick, ordered by priority.
 
 ---
 
+# Blob Storage Support
+
+Read-only Objects over files in S3 / GCS / Azure Blob through ClickHouse's
+object-store table engines, plus `export` to a bucket; the MergeTree default
+is unchanged. External parquet is queried in place without ingestion, and a
+job's exported result is opened by the next job on any cluster. Full design:
+`docs/designs/blob_storage_support.md`.
+
+---
+
 # Deferred
 
 Items deferred until preconditions are met.
