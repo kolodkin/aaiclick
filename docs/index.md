@@ -1,12 +1,13 @@
 aaiclick
 ---
 
-A data orchestration framework built to make distributed computing easy, with four principles in mind:
+A data orchestration framework built to make distributed computing easy, with five principles in mind:
 
-1. **Simplicity** — Write pandas-style Python, never SQL. Pipelines are `@task` and `@job` decorators, and tasks can spawn tasks at runtime. `pip install`, run on embedded chdb + SQLite with zero setup, and the same code scales out to ClickHouse + PostgreSQL with N workers.
-2. **Performance** — Data never leaves ClickHouse. Arithmetic, filtering, aggregation and joins compile to columnar queries; Python only orchestrates. `map()` / `reduce()` fan work out across workers.
-3. **Containerized Runs** — Run a job's tasks as host subprocesses, Docker containers, or Kubernetes Pods. Each task picks its image: a prebuilt one, or your repo built at a given git SHA by a build task inside the job graph. Host and container tasks mix in one job.
-4. **Lineage** — Every operation is recorded with its SQL. Ask "how did this value get here?" and your coding agent (Claude Code, Codex, any MCP client) traces it, inspects jobs and task logs, and re-runs tasks over MCP. A web UI covers the same ground for humans.
+1. **Simplicity** — Write pandas-style Python, never SQL. Pipelines are `@task` and `@job` decorators. `pip install`, run on embedded chdb + SQLite with zero setup, and the same code scales out to ClickHouse + PostgreSQL with N workers.
+2. **Dynamic Graphs** — The job graph is built while the job runs, not declared up front. Any task can return new tasks; dependencies come from the values they pass (`b = step_b(x=a)`) or an explicit `a >> b`. Fan out over data you only discover mid-run, and fan in with a `Group` that hands a consumer every member's result.
+3. **Performance** — Data never leaves ClickHouse. Arithmetic, filtering, aggregation and joins compile to columnar queries; Python only orchestrates. `map()` / `reduce()` fan work out across workers.
+4. **Containerized Runs** — Run a job's tasks as host subprocesses, Docker containers, or Kubernetes Pods. Each task picks its image: a prebuilt one, or your repo built at a given git SHA by a build task inside the job graph. Host and container tasks mix in one job.
+5. **Lineage** — Every operation is recorded with its SQL. Ask "how did this value get here?" and your coding agent (Claude Code, Codex, any MCP client) traces it, inspects jobs and task logs, and re-runs tasks over MCP. A web UI covers the same ground for humans.
 
 **Early stage — looking for early adopters to join the ride and provide feedback.**
 
