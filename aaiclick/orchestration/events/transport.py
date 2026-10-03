@@ -83,7 +83,8 @@ def _backend_transport(session: Session | None) -> SignalTransport:
     package import: a local-mode install never touches it.
     """
     if _uses_postgres(session):
-        from .postgres import PostgresTransport
+        # Load only the backend in use.
+        from .postgres import PostgresTransport  # noqa: PLC0415
 
         return PostgresTransport()
     return LocalTransport()

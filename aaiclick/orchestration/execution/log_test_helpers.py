@@ -32,7 +32,8 @@ _mp_ctx = multiprocessing.get_context("spawn")
 
 
 def _read_logs_child_target(task_id: int, run_id: int, queue: multiprocessing.Queue) -> None:
-    from ..orch_context import orch_context  # Circular dep: orch_context imports the execution package at top level.
+    # Circular dep: orch_context imports the execution package at top level.
+    from ..orch_context import orch_context  # noqa: PLC0415
 
     async def _run() -> None:
         async with orch_context():

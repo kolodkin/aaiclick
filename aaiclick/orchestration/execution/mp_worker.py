@@ -274,7 +274,7 @@ async def mp_worker_main_loop(
         Number of tasks successfully executed.
     """
     # Delayed import: dispatch imports this module at top level.
-    from .dispatch import dispatch_execute
+    from .dispatch import dispatch_execute  # noqa: PLC0415
 
     return await _execution_worker_loop(
         execute_fn=dispatch_execute,

@@ -13,7 +13,8 @@ from aaiclick.backend import parse_ch_url
 async def create_clickhouse_client():
     """Create a clickhouse-connect AsyncClient from AAICLICK_CH_URL."""
     try:
-        from clickhouse_connect import get_async_client
+        # Distributed extra only — keep inline so local-only installs can import this module.
+        from clickhouse_connect import get_async_client  # noqa: PLC0415
     except ImportError as e:
         raise ImportError(
             "Remote ClickHouse requires the aaiclick[distributed] extra. "

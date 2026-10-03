@@ -259,7 +259,7 @@ def make_job_stats(job_status: JobStatus, tasks: list[TaskStatsView]) -> JobStat
 def _pg_connect(dbname: str):
     """Connect to PostgreSQL with environment-based credentials."""
     # Distributed extra only — keep inline so local-only installs can import this module.
-    import psycopg2
+    import psycopg2  # noqa: PLC0415
 
     return psycopg2.connect(
         host=os.environ.get("POSTGRES_HOST", "localhost"),
@@ -311,7 +311,7 @@ def worker_ch_database() -> Iterator[None]:
         return
 
     # Distributed extra only — keep inline so local-only installs can import this module.
-    import clickhouse_connect
+    import clickhouse_connect  # noqa: PLC0415
 
     if not worker:
         ch_upgrade_standalone()
@@ -381,7 +381,7 @@ def worker_sql_database() -> Iterator[None]:
         return
 
     # Distributed extra only — keep inline so local-only installs can import this module.
-    from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+    from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT  # noqa: PLC0415
 
     if not worker:
         config = get_alembic_config()

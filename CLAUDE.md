@@ -35,6 +35,7 @@ Use the `python-testing-style` skill for test layout, async test rules, Object A
     2. Use `from __future__ import annotations` so type-hint imports resolve lazily.
     3. **Only as a last resort**, use an inline import inside a method with a one-line comment explaining why restructuring was not possible.
     - Do NOT use the `TYPE_CHECKING` pattern — prefer restructuring code instead.
+    - Ruff enforces these rules: `PLC0415` flags inline imports and `TID251` bans `typing.TYPE_CHECKING`. Mark a deliberate inline import with `# noqa: PLC0415` and put the reason in a comment on the line above.
     ```python
     # GOOD — top of file
     from sqlmodel import select
@@ -97,7 +98,8 @@ Use the `python-testing-style` skill for test layout, async test rules, Object A
     after import stay plain module attributes.
   - When a site must stay a module global (a process-wide ID sequence, a
     once-per-process latch), leave a one-line comment saying why so the
-    choice reads as deliberate.
+    choice reads as deliberate. Ruff's `PLW0603` flags every `global`
+    statement, so mark it `# noqa: PLW0603` under that comment.
   - Reference implementation: `aaiclick/orchestration/orch_context.py`
     (the context accessors around `get_sql_session` / `get_ch_client`).
 

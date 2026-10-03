@@ -739,8 +739,8 @@ async def _forget_registry_rows(table_names: list[str]) -> None:
     if not table_names:
         return
     # Circular dep: see list_persistent_tables.
-    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
-    from aaiclick.orchestration.sql_context import get_sql_session
+    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry  # noqa: PLC0415
+    from aaiclick.orchestration.sql_context import get_sql_session  # noqa: PLC0415
 
     async with get_sql_session() as session:
         await session.execute(sql_delete(TableRegistry).where(col(TableRegistry.table_name).in_(table_names)))
@@ -787,8 +787,8 @@ async def _registered_tables(*predicates) -> list[str]:
     # Circular dep: orchestration imports the data package at import time,
     # so the registry model and SQL session are resolved at call time
     # (same pattern as lifecycle.py::read_table_schema).
-    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
-    from aaiclick.orchestration.sql_context import get_sql_session
+    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry  # noqa: PLC0415
+    from aaiclick.orchestration.sql_context import get_sql_session  # noqa: PLC0415
 
     async with get_sql_session() as session:
         result = await session.execute(select(TableRegistry.table_name).where(*predicates))
@@ -805,7 +805,8 @@ async def list_persistent_tables(
         after: Only tables registered at or after this time (inclusive).
         before: Only tables registered before this time (exclusive).
     """
-    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry  # Circular dep: see _registered_tables.
+    # Circular dep: see _registered_tables.
+    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry  # noqa: PLC0415
 
     predicates = [col(TableRegistry.table_name).startswith(GLOBAL_PREFIX, autoescape=True)]
     if after is not None:
@@ -817,7 +818,8 @@ async def list_persistent_tables(
 
 async def list_job_tables(job_id: int) -> list[str]:
     """List CH table names registered under ``job_id``."""
-    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry  # Circular dep: see _registered_tables.
+    # Circular dep: see _registered_tables.
+    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry  # noqa: PLC0415
 
     return await _registered_tables(
         TableRegistry.job_id == job_id, col(TableRegistry.table_name).startswith(JOB_PREFIX, autoescape=True)

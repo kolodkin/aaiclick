@@ -48,8 +48,8 @@ async def read_table_schema(table: str) -> tuple[str, dict[str, ColumnInfo]]:
     """
     # Circular dep: orchestration imports the data package at import time, so
     # the registry model and SQL session are resolved at call time.
-    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry
-    from aaiclick.orchestration.sql_context import get_sql_session
+    from aaiclick.orchestration.lifecycle.db_lifecycle import TableRegistry  # noqa: PLC0415
+    from aaiclick.orchestration.sql_context import get_sql_session  # noqa: PLC0415
 
     async with get_sql_session() as sess:
         result = await sess.execute(select(TableRegistry.schema_doc).where(TableRegistry.table_name == table))

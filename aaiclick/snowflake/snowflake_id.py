@@ -58,7 +58,8 @@ def _generate_in_memory(count: int) -> list[int]:
     must work even when ``orch_context(with_ch=False)`` has suppressed
     the ClickHouse client.
     """
-    global _in_memory_last_ms, _in_memory_sequence
+    # Module global: one process-wide ID sequence shared by every context.
+    global _in_memory_last_ms, _in_memory_sequence  # noqa: PLW0603
     out: list[int] = []
     with _in_memory_lock:
         for _ in range(count):
@@ -102,7 +103,7 @@ class SnowflakeGenerator:
     @staticmethod
     def _fetch_ids_remote(count: int) -> list[int]:
         # Distributed extra only — keep inline so local-only installs can import this module.
-        from clickhouse_connect import get_client
+        from clickhouse_connect import get_client  # noqa: PLC0415
 
         client = get_client(**parse_ch_url())
         try:
