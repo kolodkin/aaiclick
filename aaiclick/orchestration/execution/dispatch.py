@@ -10,6 +10,7 @@ affinity rules.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 
 from sqlmodel import select
 
@@ -100,7 +101,7 @@ async def build_shell_spec(task: Task, dispatch: JobDispatch) -> ShellSpec:
         return build_shell_run_spec(task, image_tag)
     if dispatch.runner_mode == RUNNER_KUBERNETES:
         image_tag = await resolve_launch_image(dispatch.image_source, task_id=task.id)
-        return build_shell_pod_spec(task, dispatch, image_tag)
+        return await build_shell_pod_spec(task, dispatch, image_tag)
     return ShellSpec(dispatch.command or [], dispatch.command_env)
 
 
@@ -109,7 +110,13 @@ async def dispatch_execute(task: Task, execution_worker_id: int) -> ExecuteResul
     dispatch = await _resolve_dispatch(task)
     if dispatch.entry_type == ENTRY_SHELL:
         spec = await build_shell_spec(task, dispatch)
-        return await _run_task_in_child(task, execution_worker_id, shell_spec=spec)
+        try:
+            return await _run_task_in_child(task, execution_worker_id, shell_spec=spec)
+        finally:
+            # The child may be killed before its own cleanup runs, so the
+            # env file (command_env values) is removed here, in the parent.
+            if spec.env_file is not None:
+                Path(spec.env_file).unlink(missing_ok=True)
     handler = _IMAGE_RUNNERS.get(dispatch.runner_mode)
     if dispatch.entry_type == ENTRY_JVM and handler is None:
         # Commit-point validation (validate_jvm_tasks) blocks this; the guard

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from unittest.mock import ANY, AsyncMock
 
 import pytest
 
@@ -17,6 +17,7 @@ from ..runner_config import (
 )
 from . import dispatch
 from .execution_worker import JobDispatch
+from .runner import ShellSpec
 
 BUILD_A = dump_image_source(ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40))
 PREBUILT = dump_image_source(ImagePrebuilt(image_tag="ghcr.io/x/y:1"))
@@ -94,3 +95,22 @@ async def test_dispatch_execute_routes_image_runner(monkeypatch, runner_mode, ku
 
     await dispatch.dispatch_execute(user_task, execution_worker_id=1)
     runner.assert_awaited_once_with(user_task, 1, spec, None)
+
+
+async def test_dispatch_execute_removes_shell_env_file(monkeypatch, tmp_path):
+    """The docker shell wrapper's ``--env-file`` holds ``command_env`` values;
+    the dispatcher owns its lifetime, so it is gone once the child returns."""
+    env_file = tmp_path / "task.env"
+    env_file.write_text("K=v\n")
+    spec = ShellSpec(["docker", "run", "--env-file", str(env_file), "img", "true"], None, env_file=str(env_file))
+    monkeypatch.setattr(
+        dispatch, "_resolve_dispatch", AsyncMock(return_value=JobDispatch(RUNNER_DOCKER, None, "shell"))
+    )
+    monkeypatch.setattr(dispatch, "build_shell_spec", AsyncMock(return_value=spec))
+    child = AsyncMock(return_value=(True, None, None))
+    monkeypatch.setattr(dispatch, "_run_task_in_child", child)
+
+    assert await dispatch.dispatch_execute(_task(), execution_worker_id=1) == (True, None, None)
+
+    child.assert_awaited_once_with(ANY, 1, shell_spec=spec)
+    assert not env_file.exists()

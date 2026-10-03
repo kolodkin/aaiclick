@@ -50,22 +50,13 @@ jobs:
           java-version: "21"
           cache: maven
 
-      - name: Generate SQLite schema fixture from Python metadata
-        run: |
-          uv run --frozen python - <<'EOF'
-          from sqlalchemy import create_engine
-          from sqlmodel import SQLModel
-
-          import aaiclick.orchestration.models  # noqa: F401 — registers the tables
-
-          engine = create_engine("sqlite:////tmp/aaiclick-schema-fixture.db")
-          SQLModel.metadata.create_all(engine)
-          engine.dispose()
-          EOF
+      - name: Generate SQLite schema fixture
+        id: schema-fixture
+        uses: ./.github/actions/schema-fixture
 
       - name: Run Maven verify at the release version
         env:
-          AAICLICK_TEST_SQLITE_DB: /tmp/aaiclick-schema-fixture.db
+          AAICLICK_TEST_SQLITE_DB: ${{ steps.schema-fixture.outputs.path }}
         run: |
           VERSION="${{ inputs.tag }}"
           mvn -B -f java/pom.xml -Drevision="${VERSION#v}" verify

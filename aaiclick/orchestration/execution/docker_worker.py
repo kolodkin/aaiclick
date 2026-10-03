@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import tempfile
 from collections.abc import Iterable
 from typing import NamedTuple
 
@@ -61,13 +62,28 @@ def _shell_container_name(task: Task) -> str:
     return f"aaiclick-task-{task.id}-{task.run_epoch}"
 
 
+def write_command_env_file(command_env: dict[str, str]) -> str:
+    """Write ``command_env`` as a docker ``--env-file`` (one ``KEY=VALUE`` per
+    line, 0600) and return its path.
+
+    The format has no quoting or escaping, so a key or value containing a
+    newline cannot be carried and is rejected rather than injected mangled."""
+    for key, value in command_env.items():
+        if "\n" in key or "\n" in value:
+            raise ValueError(f"command_env {key!r} contains a newline, which docker's env-file format cannot carry")
+    with tempfile.NamedTemporaryFile("w", prefix="aaiclick-task-", suffix=".env", delete=False) as f:
+        f.writelines(f"{key}={value}\n" for key, value in command_env.items())
+        return f.name
+
+
 def build_shell_run_spec(task: Task, image_tag: str) -> ShellSpec:
     """Wrap a shell task's argv as a foreground ``docker run``.
 
     Only ``command_env`` is injected — no IPC mount, no runner env, so no
-    aaiclick secrets reach a vanilla user image. Unlike ``_env_flags``, values
-    stay on the argv: on the CLI's own env, ``PATH`` / ``DOCKER_HOST`` would
-    redirect the host CLI. ``--rm`` is safe here
+    aaiclick secrets reach a vanilla user image. The values ride in a private
+    ``--env-file`` (``ShellSpec.env_file``): on the argv they would show in
+    ``ps``, and on the CLI's own env (``_env_flags``) ``PATH`` /
+    ``DOCKER_HOST`` would redirect the host CLI. ``--rm`` is safe here
     (unlike module tasks' detached run): the docker CLI is the wrapper
     process, so its own exit code *is* the container's — no ``docker wait``
     race. ``cleanup_argv`` kills the container by name for the
@@ -82,11 +98,12 @@ def build_shell_run_spec(task: Task, image_tag: str) -> ShellSpec:
         name,
         *add_host_flags("AAICLICK_DOCKER_RUN_ADD_HOST"),
     ]
-    for key, value in (task.command_env or {}).items():
-        argv.extend(["-e", f"{key}={value}"])
+    env_file = write_command_env_file(task.command_env) if task.command_env else None
+    if env_file is not None:
+        argv.extend(["--env-file", env_file])
     argv.append(image_tag)
     argv.extend(task.command or [])
-    return ShellSpec(argv, None, cleanup_argv=[_docker_bin(), "kill", name])
+    return ShellSpec(argv, None, cleanup_argv=[_docker_bin(), "kill", name], env_file=env_file)
 
 
 def _build_docker_run_cmd(

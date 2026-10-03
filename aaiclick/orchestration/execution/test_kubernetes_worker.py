@@ -7,6 +7,7 @@ single-session constraint in ``docs/designs/testing.md``."""
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -33,7 +34,7 @@ def test_build_pod_manifest_shape():
         resources={"limits": {"cpu": "1"}},
         entry_type="module",
         command=None,
-        command_env=None,
+        command_env_secret=None,
     )
     assert m["kind"] == "Pod"
     assert m["metadata"] == {"name": "aaiclick-task-7-2", "namespace": "ml"}
@@ -61,7 +62,7 @@ def test_build_pod_manifest_omits_optional_fields():
         resources=None,
         entry_type="module",
         command=None,
-        command_env=None,
+        command_env_secret=None,
     )
     spec = m["spec"]
     assert "serviceAccountName" not in spec
@@ -129,12 +130,12 @@ def test_shell_pod_runs_argv_only_command_env():
         resources=None,
         entry_type="shell",
         command=["python", "main.py"],
-        command_env={"K": "v"},
+        command_env_secret="aaiclick-task-1-0",
     )
     c = m["spec"]["containers"][0]
     assert c["command"] == ["python", "main.py"]
-    names = {e["name"] for e in c["env"]}
-    assert names == {"K"}  # runner env (AAICLICK_SQL_URL) excluded for shell
+    assert "env" not in c  # runner env (AAICLICK_SQL_URL) excluded for shell
+    assert c["envFrom"] == [{"secretRef": {"name": "aaiclick-task-1-0"}}]
 
 
 def test_module_pod_uses_shim_and_runner_env():
@@ -150,7 +151,7 @@ def test_module_pod_uses_shim_and_runner_env():
         resources=None,
         entry_type="module",
         command=None,
-        command_env=None,
+        command_env_secret=None,
     )
     c = m["spec"]["containers"][0]
     assert "--task-id" in c["command"] and "7" in c["command"]
@@ -170,7 +171,7 @@ def test_jvm_pod_sets_args_only_with_runner_env():
         resources=None,
         entry_type="jvm",
         command=None,
-        command_env=None,
+        command_env_secret=None,
     )
     c = m["spec"]["containers"][0]
     # The image's own ENTRYPOINT is the aaiclick-task-api shim — only args are set.
@@ -179,7 +180,7 @@ def test_jvm_pod_sets_args_only_with_runner_env():
     assert {e["name"] for e in c["env"]} == {"AAICLICK_SQL_URL"}
 
 
-def test_build_shell_pod_spec_wraps_argv():
+def _shell_task_and_dispatch(command_env):
     task = Task(
         id=9,
         job_id=1,
@@ -187,7 +188,7 @@ def test_build_shell_pod_spec_wraps_argv():
         entrypoint="",
         entry_type="shell",
         command=["echo", "hi"],
-        command_env={"K": "v"},
+        command_env=command_env,
         run_epoch=1,
     )
     dispatch = JobDispatch(
@@ -195,18 +196,76 @@ def test_build_shell_pod_spec_wraps_argv():
         {"namespace": "jobs", "service_account": "sa", "image_pull_secret": None, "resources": None},
         "shell",
         ["echo", "hi"],
-        {"K": "v"},
+        command_env,
     )
-    spec = build_shell_pod_spec(task, dispatch, "img:tag")
+    return task, dispatch
+
+
+def _capture_kubectl_create(monkeypatch) -> list[dict]:
+    """Stub ``cli.run`` to record the manifest ``kubectl create -f`` is given
+    (read at call time — the file is removed once kubectl returns)."""
+    manifests: list[dict] = []
+
+    async def fake_run(*cmd, **kwargs):
+        assert cmd[:3] == ("kubectl", "create", "-f")
+        assert Path(cmd[3]).stat().st_mode & 0o777 == 0o600
+        manifests.append(json.loads(Path(cmd[3]).read_text()))
+        return 0, "", ""
+
+    monkeypatch.setattr(kw.cli, "run", fake_run)
+    return manifests
+
+
+async def test_build_shell_pod_spec_wraps_argv(monkeypatch):
+    manifests = _capture_kubectl_create(monkeypatch)
+    task, dispatch = _shell_task_and_dispatch({"K": "v", "PATH": "/evil"})
+
+    spec = await build_shell_pod_spec(task, dispatch, "img:tag")
+
     assert spec.argv[:3] == ["kubectl", "run", "aaiclick-task-9-1"]
     assert {"--attach", "--rm", "--quiet", "--restart=Never"} <= set(spec.argv)
     assert "--image=img:tag" in spec.argv
-    overrides = json.loads(next(a for a in spec.argv if a.startswith("--overrides=")).removeprefix("--overrides="))
-    assert overrides["spec"]["containers"][0]["command"] == ["echo", "hi"]
-    assert overrides["spec"]["containers"][0]["env"] == [{"name": "K", "value": "v"}]
+    overrides_arg = next(a for a in spec.argv if a.startswith("--overrides="))
+    overrides = json.loads(overrides_arg.removeprefix("--overrides="))
+    container = overrides["spec"]["containers"][0]
+    assert container["command"] == ["echo", "hi"]
     assert overrides["spec"]["serviceAccountName"] == "sa"
     assert ["-n", "jobs"] == spec.argv[spec.argv.index("-n") : spec.argv.index("-n") + 2]
-    assert spec.cleanup_argv == ["kubectl", "delete", "pod", "aaiclick-task-9-1", "-n", "jobs", "--ignore-not-found"]
+    assert spec.env is None
+    assert spec.env_file is None
+    # command_env values live in a per-attempt Secret, never on the argv (ps).
+    assert "/evil" not in " ".join(spec.argv)
+    assert container["envFrom"] == [{"secretRef": {"name": "aaiclick-task-9-1"}}]
+    assert manifests == [
+        {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {"name": "aaiclick-task-9-1", "namespace": "jobs"},
+            "type": "Opaque",
+            "stringData": {"K": "v", "PATH": "/evil"},
+        }
+    ]
+    assert spec.cleanup_argv == [
+        "kubectl",
+        "delete",
+        "pod/aaiclick-task-9-1",
+        "secret/aaiclick-task-9-1",
+        "-n",
+        "jobs",
+        "--ignore-not-found",
+    ]
+
+
+async def test_build_shell_pod_spec_without_command_env_creates_no_secret(monkeypatch):
+    manifests = _capture_kubectl_create(monkeypatch)
+    task, dispatch = _shell_task_and_dispatch(None)
+
+    spec = await build_shell_pod_spec(task, dispatch, "img:tag")
+
+    assert manifests == []
+    overrides = json.loads(next(a for a in spec.argv if a.startswith("--overrides=")).removeprefix("--overrides="))
+    assert "envFrom" not in overrides["spec"]["containers"][0]
+    assert spec.cleanup_argv == ["kubectl", "delete", "pod/aaiclick-task-9-1", "-n", "jobs", "--ignore-not-found"]
 
 
 async def test_module_pod_wait_reads_result_row(monkeypatch):

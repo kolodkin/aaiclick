@@ -382,11 +382,15 @@ class ShellSpec(NamedTuple):
     Built host-side (``dispatch.build_shell_spec``) so runner-specific
     wrapping (``docker run`` / ``kubectl run``) stays out of the executing
     process. ``cleanup_argv`` is run after the process ends however it ends —
-    killing the wrapper CLI alone would leave its container/pod running."""
+    killing the wrapper CLI alone would leave its container/pod running.
+    ``env_file`` is a private (0600) host file the argv reads ``command_env``
+    from, keeping the values out of ``ps``; the dispatcher removes it once
+    the task child returns."""
 
     argv: list[str]
     env: dict[str, str] | None
     cleanup_argv: list[str] | None = None
+    env_file: str | None = None
 
 
 async def _run_cleanup_argv(cleanup_argv: list[str]) -> None:
