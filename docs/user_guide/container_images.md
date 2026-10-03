@@ -49,8 +49,9 @@ sibling `ca.crt`. No kubeconfig mount is needed; the worker calls plain
 !!! warning "A ServiceAccount + RBAC is required, or every `kubectl` call returns 403"
     `kubectl` connects fine via in-cluster config, but the API rejects it until
     the pod's ServiceAccount is bound to a Role granting exactly what the vehicle
-    does: `pods` (`create`, `get`, `list`, `watch`, `delete`) and `pods/log`
-    (`get`) in the target namespace.
+    does: `pods` (`create`, `get`, `list`, `watch`, `delete`), `pods/log`
+    (`get`) and `secrets` (`create`, `delete` — a shell task's `command_env`
+    rides in a per-attempt Secret) in the target namespace.
 
 ```yaml
 apiVersion: v1
@@ -67,6 +68,9 @@ rules:
   - apiGroups: [""]
     resources: [pods/log]
     verbs: [get]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create, delete]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

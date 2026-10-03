@@ -1,0 +1,37 @@
+name: Generate SQLite schema fixture
+description: >-
+  Create the SQLite schema fixture the Java SDK's Maven suite runs against
+  (AAICLICK_TEST_SQLITE_DB) from the Python SQLModel metadata, so the Java
+  DDL mirror can't drift silently. Requires a synced uv environment.
+
+inputs:
+  path:
+    description: "Where to write the SQLite database file."
+    required: false
+    default: /tmp/aaiclick-schema-fixture.db
+
+outputs:
+  path:
+    description: "Path of the generated SQLite database file."
+    value: ${{ inputs.path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Generate SQLite schema fixture from Python metadata
+      shell: bash
+      env:
+        SCHEMA_FIXTURE_PATH: ${{ inputs.path }}
+      run: |
+        uv run --frozen python - <<'EOF'
+        import os
+
+        from sqlalchemy import create_engine
+        from sqlmodel import SQLModel
+
+        import aaiclick.orchestration.models  # noqa: F401 — registers the tables
+
+        engine = create_engine(f"sqlite:///{os.environ['SCHEMA_FIXTURE_PATH']}")
+        SQLModel.metadata.create_all(engine)
+        engine.dispose()
+        EOF

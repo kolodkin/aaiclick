@@ -21,6 +21,7 @@ import pytest
 from job_wait import wait_for_job_by_name
 
 from aaiclick.orchestration.docker_config import compute_image_tag
+from aaiclick.orchestration.execution.kubernetes_worker import _pod_name
 from aaiclick.orchestration.execution.mp_worker import mp_worker_main_loop
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import JOB_COMPLETED, TASK_COMPLETED
@@ -103,3 +104,57 @@ async def test_kubernetes_runner_smoke(orch_ctx, kubernetes_e2e_user_repo):
     # from ClickHouse — confirms Objects passed across Pods.
     summed = next(t for t in tasks if t.entrypoint == "sample_jobs.compute_sum")
     assert summed.result == {"native_value": {"total": 120}}, summed.result
+
+
+@pytest.mark.kubernetes_e2e
+async def test_kubernetes_runner_shell_command_env(orch_ctx, tmp_path):
+    """Run a shell command in a prebuilt image as a ``kubectl run`` Pod.
+
+    The command exits 0 only if ``command_env`` arrived, which proves the
+    per-attempt Secret path end to end; afterwards the Secret must be gone
+    (``cleanup_argv`` deletes it with the Pod)."""
+    job_name = "k8s_e2e_shell_command_env"
+
+    _aaiclick(
+        "register-job",
+        "shell.placeholder",
+        "--name",
+        job_name,
+        "--runner",
+        "kubernetes",
+        "--image",
+        "python:3.12",
+        cwd=tmp_path,
+    )
+    _aaiclick(
+        "run-job",
+        job_name,
+        "--entry-type",
+        "shell",
+        "--command",
+        """python -c "import os, sys; sys.exit(0 if os.environ.get('K') == 'v' else 3)" """,
+        "--command-env",
+        "K=v",
+        cwd=tmp_path,
+    )
+
+    worker_task = asyncio.create_task(
+        mp_worker_main_loop(max_tasks=10, install_signal_handlers=False, max_empty_polls=10)
+    )
+    try:
+        completed = await wait_for_job_by_name(job_name)
+    finally:
+        worker_task.cancel()
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            pass
+
+    assert completed.status == JOB_COMPLETED, completed.error
+    tasks = await get_tasks_for_job(completed.id)
+    assert len(tasks) == 1, [t.entrypoint for t in tasks]
+    assert tasks[0].status == TASK_COMPLETED, tasks[0].error
+
+    secret = _pod_name(tasks[0].id, tasks[0].run_epoch)
+    probe = subprocess.run(["kubectl", "get", "secret", secret], capture_output=True, text=True, check=False)
+    assert probe.returncode != 0 and "NotFound" in probe.stderr, probe

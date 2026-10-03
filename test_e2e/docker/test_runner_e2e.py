@@ -205,12 +205,19 @@ async def test_docker_runner_jvm_task(orch_ctx, docker_e2e_user_repo, jvm_task_i
     assert reported.result == expected, reported.result
 
 
+# Exits 0 only when ``command_env`` reached the container (``K=v``), so the
+# container runners' env delivery (docker ``--env-file``, kubernetes Secret) is
+# proven end to end, not just the exit-code plumbing.
+ASSERT_COMMAND_ENV = """python -c "import os, sys; sys.exit(0 if os.environ.get('K') == 'v' else 3)" """
+
+
 @pytest.mark.docker_e2e
 async def test_docker_runner_shell_prebuilt(orch_ctx, tmp_path):
     """Run a shell command in a prebuilt image (no git repo, no build).
 
-    The prebuilt ``python:3.12`` image runs an exit-0 shell command, so the
-    job completes with no auto-injected build task."""
+    The prebuilt ``python:3.12`` image runs a command that exits 0 only if
+    ``command_env`` arrived, so the job completes with no auto-injected build
+    task and the ``--env-file`` delivery is exercised."""
     job_name = "docker_e2e_shell_prebuilt"
 
     _aaiclick(
@@ -231,7 +238,9 @@ async def test_docker_runner_shell_prebuilt(orch_ctx, tmp_path):
         "--entry-type",
         "shell",
         "--command",
-        'python -c "print(123)"',
+        ASSERT_COMMAND_ENV,
+        "--command-env",
+        "K=v",
         cwd=tmp_path,
     )
 

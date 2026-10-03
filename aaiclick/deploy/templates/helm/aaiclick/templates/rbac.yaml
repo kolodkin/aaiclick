@@ -5,7 +5,9 @@ metadata:
 {{- if .Values.rbac.create }}
 ---
 # The kubernetes runner creates one pod per task via kubectl and reads its
-# logs, so the worker needs exactly these verbs in its own namespace.
+# logs, so the worker needs exactly these verbs in its own namespace. A shell
+# task's command_env rides in a per-attempt Secret (never on the kubectl argv),
+# which the worker creates and deletes but never reads back.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -17,6 +19,9 @@ rules:
   - apiGroups: [""]
     resources: ["pods/log"]
     verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

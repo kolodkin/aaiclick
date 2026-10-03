@@ -175,7 +175,10 @@ Container runners are wrapped argvs on the same path: docker shell tasks run as
 a foreground `docker run --rm --name aaiclick-task-<id>-<epoch>`, kubernetes
 shell tasks as `kubectl run --attach --rm --restart=Never` with the pod spec in
 `--overrides` — the wrapper CLI's exit code *is* the container's, and its
-stdout is the container's output.
+stdout is the container's output. `command_env` values never sit on the
+wrapper's argv (visible in `ps`): docker reads them from a private
+`--env-file` the dispatcher removes after the task, kubernetes from a
+per-attempt Secret deleted with the Pod.
 
 In an isolated environment (container/Pod) a shell task receives **only** `command_env` (a dict) — *not* the aaiclick runner env — so no DB credentials leak into an arbitrary image. The subprocess runner has no isolation boundary, so the command inherits the worker's process env with `command_env` overlaid.
 

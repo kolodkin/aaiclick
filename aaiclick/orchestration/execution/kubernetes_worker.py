@@ -55,26 +55,25 @@ def _build_pod_manifest(
     resources: dict | None,
     entry_type: str,
     command: list[str] | None,
-    command_env: dict[str, str] | None,
+    command_env_secret: str | None,
 ) -> dict:
     """Build the bare-Pod manifest (``restartPolicy: Never`` — aaiclick owns
     retries). Optional cluster fields are omitted when unset so the cluster
     defaults apply.
 
     For ``shell`` tasks the container runs the task's argv directly with only
-    ``command_env`` injected — the runner ``env`` (DB creds) is deliberately
-    NOT read, so no aaiclick secrets reach a vanilla user image. For ``module``
+    ``command_env`` injected, read from the per-attempt Secret
+    ``command_env_secret`` (``envFrom``) — the runner ``env`` (DB creds) is
+    deliberately NOT read, so no aaiclick secrets reach a vanilla user image.
+    For ``module``
     tasks the Pod runs the aaiclick shim with the full runner ``env``. For
     ``jvm`` tasks only ``args`` are set — the image's own ``ENTRYPOINT`` is
     the aaiclick-task-api shim (spec: docs/designs/java-sdk.md) — with the
     full runner ``env`` (same trust model as module images)."""
     if entry_type == ENTRY_SHELL:
-        container: dict = {
-            "name": "task",
-            "image": image_tag,
-            "command": command,
-            "env": [{"name": k, "value": v} for k, v in (command_env or {}).items()],
-        }
+        container: dict = {"name": "task", "image": image_tag, "command": command}
+        if command_env_secret:
+            container["envFrom"] = [{"secretRef": {"name": command_env_secret}}]
     elif entry_type == ENTRY_JVM:
         container = {
             "name": "task",
@@ -198,17 +197,52 @@ async def _pod_status(handle: _PodHandle) -> tuple[str, int]:
     return phase, exit_code
 
 
-def build_shell_pod_spec(task: Task, dispatch: JobDispatch, image_tag: str) -> ShellSpec:
+def _build_command_env_secret(name: str, namespace: str, command_env: dict[str, str]) -> dict:
+    """Manifest of the per-attempt Secret a shell Pod reads ``command_env``
+    from. ``stringData`` carries the values verbatim (no env-file format
+    limits), and the Secret shares the Pod's name so ``cleanup_argv`` deletes
+    both in one call."""
+    return {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {"name": name, "namespace": namespace},
+        "type": "Opaque",
+        "stringData": command_env,
+    }
+
+
+async def _kubectl_create_from_file(manifest: dict) -> None:
+    """``kubectl create -f`` a manifest through a private (0600) temp file —
+    never the argv — removed once kubectl returns."""
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        json.dump(manifest, f)
+        manifest_path = f.name
+    try:
+        await cli.run(_kubectl_bin(), "create", "-f", manifest_path)
+    finally:
+        os.unlink(manifest_path)
+
+
+async def build_shell_pod_spec(task: Task, dispatch: JobDispatch, image_tag: str) -> ShellSpec:
     """Wrap a shell task's argv as a foreground ``kubectl run --attach --rm``.
 
-    The full container spec (command, env, resources, serviceAccount,
-    imagePullSecrets) rides in ``--overrides`` built from the same manifest
-    as module Pods, so shell Pods keep their cluster config; ``--attach``
-    propagates the container's exit code and streams its output on the
-    kubectl process's stdout. ``--quiet`` keeps kubectl's own chatter out of
-    the captured log."""
+    The container spec (command, resources, serviceAccount, imagePullSecrets)
+    rides in ``--overrides`` built from the same manifest as module Pods, so
+    shell Pods keep their cluster config; ``--attach`` propagates the
+    container's exit code and streams its output on the kubectl process's
+    stdout. ``--quiet`` keeps kubectl's own chatter out of the captured log.
+
+    ``command_env`` is created here as a per-attempt Secret the Pod reads via
+    ``envFrom`` — inline on ``--overrides`` the values would show in ``ps``.
+    ``cleanup_argv`` deletes the Pod and that Secret together."""
     pod = _pod_spec_from(task, dispatch, image_tag)
     name = _pod_name(task.id, task.run_epoch)
+    resources = [f"pod/{name}"]
+    command_env_secret = None
+    if pod.command_env:
+        command_env_secret = name
+        resources.append(f"secret/{name}")
+        await _kubectl_create_from_file(_build_command_env_secret(name, pod.namespace, pod.command_env))
     manifest = _build_pod_manifest(
         name=name,
         namespace=pod.namespace,
@@ -221,7 +255,7 @@ def build_shell_pod_spec(task: Task, dispatch: JobDispatch, image_tag: str) -> S
         resources=pod.resources,
         entry_type=ENTRY_SHELL,
         command=pod.command,
-        command_env=pod.command_env,
+        command_env_secret=command_env_secret,
     )
     overrides = {"apiVersion": "v1", "spec": manifest["spec"]}
     argv = [
@@ -240,7 +274,7 @@ def build_shell_pod_spec(task: Task, dispatch: JobDispatch, image_tag: str) -> S
     return ShellSpec(
         argv,
         None,
-        cleanup_argv=[_kubectl_bin(), "delete", "pod", name, "-n", pod.namespace, "--ignore-not-found"],
+        cleanup_argv=[_kubectl_bin(), "delete", *resources, "-n", pod.namespace, "--ignore-not-found"],
     )
 
 
@@ -266,7 +300,7 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
             resources=self._spec.resources,
             entry_type=self._spec.entry_type,
             command=self._spec.command,
-            command_env=self._spec.command_env,
+            command_env_secret=None,
         )
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
             json.dump(manifest, f)

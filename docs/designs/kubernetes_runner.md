@@ -91,7 +91,9 @@ node coordination — the same cross-host path every runner uses
 - **Shell Pods**: vanilla user images run no aaiclick harness, so the worker
   runs them as a foreground `kubectl run --attach --rm` whose stdout is
   streamed to `task_logs` by `execute_shell_task`
-  (`kubernetes_worker.build_shell_pod_spec`).
+  (`kubernetes_worker.build_shell_pod_spec`). `command_env` reaches the Pod
+  through a per-attempt Secret (`envFrom`), created with `kubectl create -f`
+  and deleted with the Pod, so no value sits on the kubectl argv (`ps`).
 
 # The vehicle
 

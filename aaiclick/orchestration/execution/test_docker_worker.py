@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from unittest.mock import AsyncMock
+
+import pytest
 
 from ..logging import read_task_logs
 from ..models import Task
@@ -47,17 +50,41 @@ def test_build_shell_run_spec_wraps_argv():
         entrypoint="",
         entry_type="shell",
         command=["echo", "hi"],
-        command_env={"K": "v"},
+        command_env={"K": "v", "PATH": "/evil"},
         run_epoch=2,
     )
     spec = build_shell_run_spec(task, "img:tag")
     assert spec.argv[:2] == ["docker", "run"]
     assert "--rm" in spec.argv
     assert "--name" in spec.argv and "aaiclick-task-7-2" in spec.argv
-    assert ["-e", "K=v"] == spec.argv[spec.argv.index("-e") : spec.argv.index("-e") + 2]
     assert spec.argv[-3:] == ["img:tag", "echo", "hi"]
     assert spec.env is None
     assert spec.cleanup_argv == ["docker", "kill", "aaiclick-task-7-2"]
+    # command_env values ride in a private env file, never on the argv (ps).
+    assert "-e" not in spec.argv
+    assert spec.env_file is not None
+    assert spec.argv[spec.argv.index("--env-file") + 1] == spec.env_file
+    env_path = Path(spec.env_file)
+    assert env_path.stat().st_mode & 0o777 == 0o600
+    assert env_path.read_text() == "K=v\nPATH=/evil\n"
+    env_path.unlink()
+
+
+def test_build_shell_run_spec_without_command_env_has_no_env_file():
+    task = Task(id=7, job_id=1, name="t", entrypoint="", entry_type="shell", command=["true"], run_epoch=0)
+    spec = build_shell_run_spec(task, "img:tag")
+    assert spec.env_file is None
+    assert "--env-file" not in spec.argv
+
+
+def test_build_shell_run_spec_rejects_newline_in_command_env():
+    """docker's env-file format is one ``KEY=VALUE`` per line, so a value with a
+    newline cannot be carried; fail loudly rather than inject a mangled env."""
+    task = Task(
+        id=7, job_id=1, name="t", entrypoint="", entry_type="shell", command=["true"], command_env={"K": "a\nb"}
+    )
+    with pytest.raises(ValueError, match="newline"):
+        build_shell_run_spec(task, "img:tag")
 
 
 def _task(entrypoint="user.module.entry", task_id=42, job_id=1) -> Task:
