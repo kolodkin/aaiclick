@@ -88,7 +88,12 @@ export function LogViewer({ taskId, status, runs }: { taskId: string; status: Ta
   const attempts = latestRun.data?.attempts ?? data?.attempts ?? [];
   const latest = attempts.length;
   const live = picked == null && started && !isTerminalTask(status);
-  if (latest === 0 && !started) return <div className="logs sub">Task has not started — no output until it runs.</div>;
+  if (runs === 0)
+    return (
+      <div className="logs sub">
+        {isTerminalTask(status) ? "Task never ran — no output." : "Task has not started — no output until it runs."}
+      </div>
+    );
 
   const lines = data?.lines ?? [];
   const empty = !data || !data.available || lines.length === 0;
