@@ -34,7 +34,6 @@ import type {
   SavedQueryBody,
   TaskDetail,
   TaskLogs,
-  TaskStatus,
   UserView,
 } from "./types";
 
@@ -91,7 +90,9 @@ export function useTask(id: string) {
 // one that can still grow, so the only one polled. `runs` gates the fetch:
 // logs are keyed by registered run, so a task with none has nothing to read,
 // whatever its status says (PENDING may be cleared, UPSTREAM_FAILED never ran).
-export function useTaskLogs(id: string, status: TaskStatus, attempt: number | null, runs: number) {
+export type LogTask = Pick<TaskDetail, "id" | "status" | "runs">;
+
+export function useTaskLogs({ id, status, runs }: LogTask, attempt: number | null) {
   const started = isTaskStarted(status);
   const terminal = isTerminalTask(status);
   const qc = useQueryClient();
