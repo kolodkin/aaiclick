@@ -84,7 +84,7 @@ async def read_pairs(values: Object) -> list:
 
 @task
 async def create_test_renamed_view() -> View:
-    """A two-column Object with one column renamed; map() must write to the renamed columns."""
+    """A two-column Object with one column renamed."""
     data = await create_object_from_value({"a": [1, 2], "b": [3, 4]}, aai_id=True)
     return data.rename({"a": "x"})
 

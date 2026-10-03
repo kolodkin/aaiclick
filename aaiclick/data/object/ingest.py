@@ -114,13 +114,11 @@ async def copy_db(
     Returns:
         Object: New Object containing the copied data.
     """
-    schema = Schema(fieldtype=copy_info.fieldtype, columns=copy_info.columns)
-
     alias = " AS s" if copy_info.source_query.startswith("(") else ""
     cols_str = ", ".join(copy_info.columns)
     order_clause = f" ORDER BY {copy_info.order_by}" if copy_info.order_by else ""
     return await emit_result(
-        schema,
+        copy_info.target_schema(),
         f"SELECT {cols_str} FROM {copy_info.source_query}{alias}{order_clause}",
         ch_client,
         insert_cols=cols_str,
@@ -156,20 +154,18 @@ async def copy_db_selected_fields(
     assert copy_info.selected_fields is not None, "copy_db_selected_fields requires selected_fields"
 
     if copy_info.is_single_field:
-        field = copy_info.selected_fields[0]
-        new_schema = Schema(fieldtype=FIELDTYPE_ARRAY, columns={"value": copy_info.columns[field]})
         # The source_query already aliases the selected field as ``value``
         # (see the single-field branch of View's SELECT head).
         select_query = f"SELECT value FROM {copy_info.source_query}{alias}"
         insert_cols = "value"
     else:
-        columns = {field: copy_info.columns[field] for field in copy_info.selected_fields}
-        new_schema = Schema(fieldtype=FIELDTYPE_DICT, columns=columns)
         fields_str = ", ".join(quote_identifier(f) for f in copy_info.selected_fields)
         select_query = f"SELECT {fields_str} FROM {copy_info.source_query}{alias}"
         insert_cols = fields_str
 
-    return await emit_result(new_schema, select_query, ch_client, insert_cols=insert_cols, name=name, scope=scope)
+    return await emit_result(
+        copy_info.target_schema(), select_query, ch_client, insert_cols=insert_cols, name=name, scope=scope
+    )
 
 
 def _cast_select_exprs(col_names: list[str], columns: dict[str, ColumnInfo]) -> str:

@@ -323,6 +323,16 @@ class CopyInfo:
     is_single_field: bool = False
     order_by: str | None = None
 
+    def target_schema(self) -> "Schema":
+        """Schema of the table a copy fills: a single field becomes an array
+        object's ``value`` column, a multi-field selection a dict of those fields."""
+        if self.is_single_field:
+            assert self.selected_fields is not None
+            return Schema(fieldtype=FIELDTYPE_ARRAY, columns={"value": self.columns[self.selected_fields[0]]})
+        if self.selected_fields:
+            return Schema(fieldtype=FIELDTYPE_DICT, columns={f: self.columns[f] for f in self.selected_fields})
+        return Schema(fieldtype=self.fieldtype, columns=self.columns)
+
 
 @dataclass(frozen=True)
 class QueryStats:

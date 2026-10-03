@@ -297,7 +297,8 @@ async def _expand_reduce(
     # Pre-allocate all layer Objects. Registration pins each layer for the
     # part tasks that reference it; the last layer is also pinned for the
     # finalize task and, through its result, for the consumers.
-    layer_objs = [await create_object(obj.materialized_schema) for _ in range(num_layers)]
+    schema = obj.materialized_schema
+    layer_objs = [await create_object(schema) for _ in range(num_layers)]
 
     all_groups = []
     src_size = count
