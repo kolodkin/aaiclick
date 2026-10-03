@@ -71,7 +71,7 @@ function AttemptPicker({
   );
 }
 
-export function LogViewer({ taskId, status }: { taskId: string; status: TaskStatus }) {
+export function LogViewer({ taskId, status, runs }: { taskId: string; status: TaskStatus; runs: number }) {
   const started = isTaskStarted(status);
   // null follows the latest attempt (and keeps polling it); a number pins an
   // earlier one, whose logs no longer change.
@@ -79,8 +79,8 @@ export function LogViewer({ taskId, status }: { taskId: string; status: TaskStat
   // The tries list always comes from the latest run's (polled) response: a
   // pinned attempt is cached for good, so its own list would miss new runs.
   // Unpinned, both calls share one query key and so one request.
-  const latestRun = useTaskLogs(taskId, status, null);
-  const { data, isLoading, isError, dataUpdatedAt } = useTaskLogs(taskId, status, picked);
+  const latestRun = useTaskLogs(taskId, status, null, runs);
+  const { data, isLoading, isError, dataUpdatedAt } = useTaskLogs(taskId, status, picked, runs);
   const [showTimestamps, setShowTimestamps] = useState(false);
 
   if (isLoading) return <div className="logs">loading logs…</div>;

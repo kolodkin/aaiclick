@@ -49,7 +49,7 @@ export function TaskDetail({ id, onPrompt }: { id: string; onPrompt: (v: string)
         />
         {task.error && <div className="err">{task.error}</div>}
       </div>
-      <LogViewer key={task.id} taskId={task.id} status={task.status} />
+      <LogViewer key={task.id} taskId={task.id} status={task.status} runs={task.runs} />
     </div>
   );
 }

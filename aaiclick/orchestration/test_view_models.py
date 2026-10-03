@@ -2,6 +2,8 @@
 
 from datetime import datetime
 
+import pytest
+
 from .models import (
     DEPENDENCY_GROUP,
     DEPENDENCY_TASK,
@@ -34,6 +36,7 @@ from .view_models import (
     compute_job_stats_view,
     job_to_detail,
     job_to_view,
+    task_to_detail,
     task_to_stats_view,
     task_to_view,
 )
@@ -75,6 +78,7 @@ def _make_task(
     kwargs: dict | None = None,
     execution_worker_id: int | None = None,
     result: dict | None = None,
+    run_ids: list[int] | None = None,
 ) -> Task:
     return Task(
         id=task_id,
@@ -90,6 +94,7 @@ def _make_task(
         execution_worker_id=execution_worker_id,
         result=result,
         attempt=1,
+        run_ids=run_ids or [],
     )
 
 
@@ -111,6 +116,21 @@ def test_task_to_view_omits_detail_fields():
     assert dumped["status"] == TASK_COMPLETED
     assert "kwargs" not in dumped
     assert "execution_worker_id" not in dumped
+
+
+@pytest.mark.parametrize(
+    ("run_ids", "expected"),
+    [
+        ([], 0),
+        ([11], 1),
+        ([11, 12], 2),
+    ],
+)
+def test_task_to_detail_counts_runs(run_ids, expected):
+    # A cleared task is PENDING with attempt 0 yet still has runs to show, so
+    # the detail exposes the run count, not the retry counter.
+    detail = task_to_detail(_make_task(status=TASK_PENDING, run_ids=run_ids))
+    assert detail.runs == expected
 
 
 def test_job_to_detail_embeds_task_views_and_duration():

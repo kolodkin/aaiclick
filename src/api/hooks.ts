@@ -88,16 +88,17 @@ export function useTask(id: string) {
 // interval inherits the QueryClient default and would poll a finished task's
 // immutable logs every 2 s whenever the stream is down.
 // `attempt` is the 1-based run to read, or null to follow the latest — the only
-// one that can still grow, so the only one polled. Fetched even before the task
-// starts: a retrying or cleared task is PENDING but has earlier runs to show.
-export function useTaskLogs(id: string, status: TaskStatus, attempt: number | null) {
+// one that can still grow, so the only one polled. `runs` gates the fetch: a
+// retrying or cleared task is PENDING yet has earlier runs to show, so status
+// alone cannot tell it from a task that never ran, which gets no request.
+export function useTaskLogs(id: string, status: TaskStatus, attempt: number | null, runs: number) {
   const started = isTaskStarted(status);
   const terminal = isTerminalTask(status);
   const qc = useQueryClient();
   const query = useQuery({
     queryKey: ["task-logs", id, attempt ?? "latest"],
     queryFn: () => fetchJSON<TaskLogs>(`/tasks/${id}/logs${attempt == null ? "" : `?attempt=${attempt}`}`),
-    enabled: id.length > 0,
+    enabled: id.length > 0 && (started || runs > 0),
     refetchInterval: attempt == null && started && !terminal ? 2000 : false,
     staleTime: attempt == null ? 0 : Infinity,
     // Keep the previous attempt on screen while the next one loads, so the
