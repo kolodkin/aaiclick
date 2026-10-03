@@ -38,7 +38,8 @@ async def migrate_table_registry_to_sql(ch_client: ChClient) -> None:
     Runs at startup (not in Alembic) because migrations execute in a sync
     context and the CH client is async (chdb has no sync path).
     """
-    global _migration_done
+    # Module global: a once-per-process latch.
+    global _migration_done  # noqa: PLW0603
     if _migration_done:
         return
 

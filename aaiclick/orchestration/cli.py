@@ -64,10 +64,11 @@ async def start_local(host: str = "127.0.0.1", port: int = 5255, reload: bool = 
 
     # Inline: keep the [server] extra optional — users without it never hit this import.
     try:
-        import uvicorn
+        import uvicorn  # noqa: PLC0415
 
         if not reload:
-            from aaiclick.server.app import app
+            # The app module also needs the [server] extra.
+            from aaiclick.server.app import app  # noqa: PLC0415
     except ImportError as exc:
         raise ImportError(
             "`local start` requires the [server] extra. Install it with "

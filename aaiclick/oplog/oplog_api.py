@@ -12,7 +12,8 @@ from __future__ import annotations
 
 def _get_lifecycle():
     """Lazy import to avoid circular dependency."""
-    from aaiclick.data.data_context.lifecycle import get_data_lifecycle
+    # Circular dep: the data package imports oplog_api at import time.
+    from aaiclick.data.data_context.lifecycle import get_data_lifecycle  # noqa: PLC0415
 
     return get_data_lifecycle()
 

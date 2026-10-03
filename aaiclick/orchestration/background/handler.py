@@ -408,10 +408,12 @@ class BackgroundHandler(ABC):
 def create_background_handler() -> BackgroundHandler:
     """Create the appropriate handler based on AAICLICK_SQL_URL."""
     if is_sqlite():
-        from .sqlite_handler import SqliteBackgroundHandler
+        # Load only the backend in use.
+        from .sqlite_handler import SqliteBackgroundHandler  # noqa: PLC0415
 
         return SqliteBackgroundHandler()
 
-    from .pg_handler import PgBackgroundHandler
+    # Load only the backend in use.
+    from .pg_handler import PgBackgroundHandler  # noqa: PLC0415
 
     return PgBackgroundHandler()

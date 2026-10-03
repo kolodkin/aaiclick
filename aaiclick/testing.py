@@ -34,7 +34,7 @@ from sqlalchemy import create_engine, text
 from aaiclick.__main__ import main
 from aaiclick.backend import is_chdb, is_local, parse_ch_url
 from aaiclick.data.data_context import ChClient, get_ch_client
-from aaiclick.data.models import FIELDTYPE_ARRAY
+from aaiclick.data.models import FIELDTYPE_ARRAY, ColumnInfo, Schema
 from aaiclick.oplog.migrate import ch_applied_versions, ch_upgrade, ch_upgrade_standalone
 from aaiclick.oplog.models import clear_schema_cache
 from aaiclick.orchestration.migrate import get_alembic_config
@@ -215,8 +215,6 @@ async def seed_registry_row(table: str, *, fieldtype: str = FIELDTYPE_ARRAY) -> 
     without going through ``create_object``. The emitted ``schema_doc``
     declares a single ``value`` column inheriting ``fieldtype``.
     """
-    from aaiclick.data.models import ColumnInfo, Schema
-
     schema_doc = Schema(
         fieldtype=fieldtype,
         columns={"value": ColumnInfo("Int64", fieldtype=fieldtype)},
@@ -261,7 +259,7 @@ def make_job_stats(job_status: JobStatus, tasks: list[TaskStatsView]) -> JobStat
 def _pg_connect(dbname: str):
     """Connect to PostgreSQL with environment-based credentials."""
     # Distributed extra only — keep inline so local-only installs can import this module.
-    import psycopg2
+    import psycopg2  # noqa: PLC0415
 
     return psycopg2.connect(
         host=os.environ.get("POSTGRES_HOST", "localhost"),
@@ -313,7 +311,7 @@ def worker_ch_database() -> Iterator[None]:
         return
 
     # Distributed extra only — keep inline so local-only installs can import this module.
-    import clickhouse_connect
+    import clickhouse_connect  # noqa: PLC0415
 
     if not worker:
         ch_upgrade_standalone()
@@ -383,7 +381,7 @@ def worker_sql_database() -> Iterator[None]:
         return
 
     # Distributed extra only — keep inline so local-only installs can import this module.
-    from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+    from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT  # noqa: PLC0415
 
     if not worker:
         config = get_alembic_config()

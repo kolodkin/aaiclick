@@ -124,12 +124,18 @@ select = [
     "UP",  # pyupgrade
     "DTZ003",  # datetime.utcnow() deprecated in 3.12+
     "DTZ004",  # datetime.utcfromtimestamp() deprecated in 3.12+
+    "PLC0415", # import outside top level — mark each deliberate lazy import with a reason
+    "PLW0603", # global statement — mutable process state belongs in a ContextVar
+    "TID251",  # banned APIs, see flake8-tidy-imports below
 ]
 ignore = [
     "E501",  # line too long (handled by black)
     "B008",  # do not perform function calls in argument defaults
     "B027",  # empty method in abstract base class (intentional no-op defaults)
 ]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"typing.TYPE_CHECKING".msg = "Restructure, or use `from __future__ import annotations` with a module import (see CLAUDE.md)."
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # re-exports (CLAUDE.md forbids __all__ in __init__.py)

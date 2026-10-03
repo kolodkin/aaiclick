@@ -22,7 +22,7 @@ import asyncio
 import logging
 import os
 from datetime import datetime, timedelta
-from typing import Any, cast
+from typing import cast
 
 from croniter import croniter
 from sqlalchemy import text
@@ -30,7 +30,7 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 from aaiclick.async_wait import wait_or_timeout
-from aaiclick.backend import is_chdb, parse_ch_url
+from aaiclick.data.data_context.ch_client import ChClient, create_ch_client
 from aaiclick.oplog.cleanup import drop_tables
 
 from ...datetime_utils import utc_now
@@ -106,20 +106,13 @@ class BackgroundWorker:
         self._worker_timeout = worker_timeout
         self._task: asyncio.Task | None = None
         self._engine: AsyncEngine = create_async_engine(get_db_url(), echo=False)
-        self._ch_client: Any = None
+        self._ch_client: ChClient | None = None
         self._shutdown: asyncio.Event = asyncio.Event()
         self._handler: BackgroundHandler = create_background_handler()
 
     async def start(self) -> None:
         register_session_hooks()
-        if is_chdb():
-            from aaiclick.data.data_context.chdb_client import create_chdb_client
-
-            self._ch_client = create_chdb_client()
-        else:
-            from clickhouse_connect import get_async_client
-
-            self._ch_client = await get_async_client(**parse_ch_url())
+        self._ch_client = await create_ch_client()
         self._task = asyncio.create_task(self._cleanup_loop())
 
     async def stop(self) -> None:
@@ -130,6 +123,13 @@ class BackgroundWorker:
         if self._ch_client is not None:
             await self._ch_client.close()
         self._ch_client = None
+
+    @property
+    def _ch(self) -> ChClient:
+        """The ClickHouse client ``start()`` opened."""
+        if self._ch_client is None:
+            raise RuntimeError("BackgroundWorker.start() has not been called")
+        return self._ch_client
 
     async def _cleanup_loop(self) -> None:
         while not self._shutdown.is_set():
@@ -267,7 +267,7 @@ class BackgroundWorker:
             if not table_names:
                 return
 
-            dropped_tables = await drop_tables(self._ch_client, table_names)
+            dropped_tables = await drop_tables(self._ch, table_names)
             await _delete_table_refs(session, dropped_tables)
             await _delete_registry_rows(session, dropped_tables)
             await session.commit()
@@ -331,7 +331,7 @@ class BackgroundWorker:
             # 2. Drop all non-global CH tables (includes samples registered in
             #    table_registry). Forget the ones that are gone; keep the job
             #    until the rest drop, so nothing is orphaned behind a failure.
-            dropped_tables = await drop_tables(self._ch_client, table_names)
+            dropped_tables = await drop_tables(self._ch, table_names)
             if len(dropped_tables) < len(table_names):
                 await _delete_registry_rows(session, dropped_tables)
                 await session.commit()
@@ -343,7 +343,7 @@ class BackgroundWorker:
             #    mutations_sync=2 waits for the mutation on every replica, so a
             #    failure raises here, not later in system.mutations.
             for log_table in ("operation_log", "task_logs"):
-                await self._ch_client.command(
+                await self._ch.command(
                     f"ALTER TABLE {log_table} DELETE WHERE job_id = {job_id}",
                     settings={"mutations_sync": 2},
                 )
@@ -427,13 +427,13 @@ class BackgroundWorker:
             )
             orphan_tables = [row[0] for row in result.fetchall()]
 
-            dropped_tables = await drop_tables(self._ch_client, orphan_tables)
+            dropped_tables = await drop_tables(self._ch, orphan_tables)
             await _delete_registry_rows(session, dropped_tables)
             await session.commit()
 
         # operation_log still lives on CH — prune orphaned rows there.
         try:
-            await self._ch_client.command(
+            await self._ch.command(
                 "ALTER TABLE operation_log DELETE "
                 "WHERE job_id IS NULL "
                 f"AND created_at < now() - INTERVAL {ttl_days} DAY"

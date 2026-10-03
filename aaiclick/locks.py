@@ -79,7 +79,7 @@ async def load_advisory_id(table_name: str) -> int | None:
     # Lazy import — aaiclick.orchestration.sql_context pulls in the
     # orchestration package, which transitively imports data_context. Top-
     # level import here would create a cycle.
-    from .orchestration.sql_context import _sql_engine_var, get_sql_session
+    from .orchestration.sql_context import _sql_engine_var, get_sql_session  # noqa: PLC0415
 
     if _sql_engine_var.get() is None:
         return None
@@ -124,7 +124,8 @@ async def table_insert_lock(advisory_id: int | None) -> AsyncIterator[None]:
         yield
         return
 
-    from .orchestration.sql_context import _sql_engine_var
+    # Circular dep: orchestration imports the data package at import time.
+    from .orchestration.sql_context import _sql_engine_var  # noqa: PLC0415
 
     engine = _sql_engine_var.get()
     if engine is None:
