@@ -112,22 +112,21 @@ async def explode_genres(obj: Object) -> list[str]:
 
 _VALUE_COLUMNS = {"value": ColumnInfo("Int64", fieldtype=FIELDTYPE_ARRAY)}
 
-_VIEW_ROWS = [{"user": "a", "tags": ["x", "y"]}, {"user": "b", "tags": []}]
+_MAKE_VIEW = {
+    "with_columns": lambda obj: obj.with_columns({"n": Computed("UInt64", "length(tags)")}),
+    "explode": lambda obj: obj.explode("tags"),
+    "left_explode": lambda obj: obj.explode("tags", left=True),
+    "rename": lambda obj: obj.rename({"user": "who"}),
+    "explode_computed": lambda obj: obj.with_columns(
+        {"t2": Computed("Array(String)", "arrayMap(t -> upper(t), tags)")}
+    ).explode("t2"),
+}
 
 
 @task
 async def make_view(modifier: str) -> View:
-    obj = await create_object_from_value(_VIEW_ROWS)
-    if modifier == "with_columns":
-        return obj.with_columns({"n": Computed("UInt64", "length(tags)")})
-    if modifier == "explode":
-        return obj.explode("tags")
-    if modifier == "left_explode":
-        return obj.explode("tags", left=True)
-    if modifier == "rename":
-        return obj.rename({"user": "who"})
-    computed = obj.with_columns({"t2": Computed("Array(String)", "arrayMap(t -> upper(t), tags)")})
-    return computed.explode("t2")
+    obj = await create_object_from_value([{"user": "a", "tags": ["x", "y"]}, {"user": "b", "tags": []}])
+    return _MAKE_VIEW[modifier](obj)
 
 
 @task
