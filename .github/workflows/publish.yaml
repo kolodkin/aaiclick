@@ -365,26 +365,28 @@ jobs:
           echo "compose migrate never completed" >&2
           exit 1
 
+      # Credentials are the scaffolded template's placeholders
+      # (aaiclick/deploy/templates/compose/docker-compose.yaml).
       - name: Run database migrations
         env:
-          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
-          AAICLICK_CH_URL: "clickhouse://default:click123@localhost:8123/default"
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:change-me-postgres@localhost:5432/aaiclick"
+          AAICLICK_CH_URL: "clickhouse://default:change-me-clickhouse@localhost:8123/default"
         run: uv run --no-project python -m aaiclick migrate upgrade head
 
       - name: Run tests against installed package (distributed backend)
         env:
           VIRTUAL_ENV: ${{ github.workspace }}/.venv
-          AAICLICK_CH_URL: "clickhouse://default:click123@localhost:8123/default"
-          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@localhost:5432/aaiclick"
+          AAICLICK_CH_URL: "clickhouse://default:change-me-clickhouse@localhost:8123/default"
+          AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:change-me-postgres@localhost:5432/aaiclick"
           CLICKHOUSE_HOST: localhost
           CLICKHOUSE_PORT: 8123
           CLICKHOUSE_USER: default
-          CLICKHOUSE_PASSWORD: click123
+          CLICKHOUSE_PASSWORD: change-me-clickhouse
           CLICKHOUSE_DB: default
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
           POSTGRES_USER: aaiclick
-          POSTGRES_PASSWORD: secret
+          POSTGRES_PASSWORD: change-me-postgres
           POSTGRES_DB: aaiclick
           AAICLICK_TEST_FILESERVER_HOST: host.docker.internal
         working-directory: /tmp
