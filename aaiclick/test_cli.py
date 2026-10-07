@@ -430,3 +430,13 @@ async def test_execution_worker_start_rejects_bad_runner(monkeypatch, capsys):
     with pytest.raises(SystemExit):
         await run_cli("execution-worker", "start")
     assert "AAICLICK_RUNNER" in capsys.readouterr().err
+
+
+async def test_background_start_does_not_validate_worker_runner(monkeypatch, capsys):
+    """The background worker never dispatches tasks, so AAICLICK_RUNNER is not its concern."""
+    monkeypatch.setenv("AAICLICK_RUNNER", "podman")
+    with pytest.raises(SystemExit):
+        await run_cli("background", "start")
+    err = capsys.readouterr().err
+    assert "AAICLICK_RUNNER" not in err
+    assert "distributed backends" in err

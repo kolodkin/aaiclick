@@ -35,14 +35,7 @@ from aaiclick.orchestration.docker_config import compute_image_tag
 from aaiclick.orchestration.execution.mp_worker import mp_worker_main_loop
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, TASK_COMPLETED
-from aaiclick.orchestration.runner_config import (
-    ENTRY_JVM,
-    DockerRunner,
-    ImageBuild,
-    ImagePrebuilt,
-    parse_image_source,
-    parse_runner_config,
-)
+from aaiclick.orchestration.runner_config import ENTRY_JVM, ImageBuild, ImagePrebuilt, parse_image_source
 
 
 def _aaiclick(*args: str, cwd: Path) -> subprocess.CompletedProcess:
@@ -103,9 +96,7 @@ async def test_docker_runner_smoke(orch_ctx, docker_e2e_user_repo):
             pass
 
     assert completed.status == JOB_COMPLETED, completed.error
-    assert completed.runner is not None
-    runner = parse_runner_config(completed.runner)
-    assert isinstance(runner, DockerRunner)
+    assert completed.resources is None
 
     tasks = await get_tasks_for_job(completed.id)
     # The image is a task property now: the entry task carries the build source.

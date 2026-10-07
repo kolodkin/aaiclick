@@ -71,6 +71,7 @@ from .claiming import update_job_status, update_task_status
 from .cli import overlay_env
 from .db_handler import DEPENDENCY_WHERE
 from .execution_worker_context import set_current_task_info
+from .runner_env import ENV_WORKER_RUNNER
 
 logger = logging.getLogger(__name__)
 
@@ -783,6 +784,17 @@ _READY_TASK_SQL = f"""
 """
 
 
+def require_host_task(task: Task) -> None:
+    """In-process executors (local mode, ``job_test``) have no container
+    runner, so a task that declares an image must fail loudly rather than run
+    on the host as if the image were not there. Raises ``RuntimeError``."""
+    if task.image_source is not None:
+        raise RuntimeError(
+            f"task {task.name!r} declares an image_source but in-process execution runs subprocess tasks "
+            f"only; container tasks need an execution worker with {ENV_WORKER_RUNNER} set"
+        )
+
+
 async def run_job_tasks(job: Job) -> None:
     """
     Execute all tasks for a job synchronously (test mode).
@@ -831,6 +843,7 @@ async def run_job_tasks(job: Job) -> None:
             task = (await session.execute(select(Task).where(Task.id == task_id))).scalar_one()
 
         try:
+            require_host_task(task)
             data_result = await execute_task(task)
             result_ref = serialize_task_result(data_result, task.job_id)
             await update_task_status(task_id, TASK_COMPLETED, result=result_ref)

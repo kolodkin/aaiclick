@@ -98,9 +98,7 @@ async def start_background(poll_interval: float = 10.0) -> None:
 
     Raises:
         RuntimeError: If running in local mode (chdb + SQLite).
-        ValueError: If ``AAICLICK_RUNNER`` is unknown or inconsistent.
     """
-    validate_worker_runner()
     if is_local():
         raise RuntimeError(
             "'background start' requires distributed backends (ClickHouse server + PostgreSQL). "

@@ -264,3 +264,25 @@ async def test_local_worker_cancelled_mid_run(orch_ctx):
 
     await run_cancelled_cleanup()
     assert (await _task_row(job.id)).status == TASK_CANCELLED
+
+
+async def test_local_worker_refuses_container_task(orch_ctx):
+    """In-process execution has no container runner: a task that declares an
+    image fails naming AAICLICK_RUNNER instead of silently running on the host."""
+    job = await create_job(
+        "test_local_container_task",
+        "aaiclick.orchestration.fixtures.sample_tasks.simple_task",
+    )
+    async with get_sql_session() as session:
+        task = (await session.execute(select(Task).where(Task.job_id == job.id))).scalar_one()
+        task.image_source = {"type": "prebuilt", "image_tag": "python:3.12"}
+        session.add(task)
+        await session.commit()
+
+    tasks_executed = await execution_worker_main_loop(max_tasks=1, install_signal_handlers=False, max_empty_polls=1)
+
+    assert tasks_executed == 0
+    async with get_sql_session() as session:
+        task = (await session.execute(select(Task).where(Task.job_id == job.id))).scalar_one()
+        assert task.status == TASK_PENDING_FAILURE_CLEANUP
+        assert "AAICLICK_RUNNER" in (task.error or "")
