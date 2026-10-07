@@ -14,19 +14,9 @@ result transport live in `aaiclick/orchestration/execution/remote_result.py` —
 see `remote_entry_main`; driven by the shared `drive_vehicle` lifecycle in
 `aaiclick/orchestration/execution/execution_worker.py`.
 
-# One CLI primitive for docker and kubectl
-
-Both `docker` and `kubectl` are external CLIs driven via `asyncio.create_subprocess_exec`.
-The Docker runner already duplicates this plumbing — a capture helper in
-`docker_worker`, a streaming helper in `docker_build`, and an ad-hoc call in
-`docker_config`. Extract one `execution/cli.py` with two modes:
-
-- `run(...)` — capture stdout/stderr, raise a consistent error on nonzero exit.
-- `run(..., stream=True)` — tee output live to a sink while capturing (the
-  existing `docker_build._stream_to_stdio` behaviour).
-
-`docker_worker`, `docker_build`, `docker_config`, and the Kubernetes vehicle
-all sit on it. The `stream=True` mode is exactly what `kubectl logs -f` needs.
+Both `docker` and `kubectl` are driven through one subprocess helper,
+`execution/cli.py` (`run(...)` captures; `run(..., stream=True)` tees live output,
+which is what `kubectl logs -f` needs).
 
 !!! info "Why the CLI, not `aiodocker` / `kubernetes_asyncio`"
     Neither Docker nor Kubernetes ships an *official* async client — both async
@@ -80,20 +70,12 @@ today.
 
 # Logs: Pod streams to ClickHouse
 
-`capture_task_output` streams task stdout/stderr into the ClickHouse `task_logs`
-table from inside the Pod, so `get_task_logs` reads them on the host with no
-node coordination — the same cross-host path every runner uses
-(`docs/designs/orchestration.md` — Cross-host logs).
-
-- **Module Pods**: `capture_task_output` streams captured output to
-  `task_logs` (keyed by `task_id` / `run_id`) every 2 s from inside the Pod,
-  reaching the shared ClickHouse the host also queries. No host-side fetch.
-- **Shell Pods**: vanilla user images run no aaiclick harness, so the worker
-  runs them as a foreground `kubectl run --attach --rm` whose stdout is
-  streamed to `task_logs` by `execute_shell_task`
-  (`kubernetes_worker.build_shell_pod_spec`). `command_env` reaches the Pod
-  through a per-attempt Secret (`envFrom`), created with `kubectl create -f`
-  and deleted with the Pod, so no value sits on the kubectl argv (`ps`).
+Module Pods stream stdout/stderr into the ClickHouse `task_logs` table from
+inside the Pod (`capture_task_output`), so `get_task_logs` reads them on the host
+with no node coordination. Shell Pods have no aaiclick harness, so the worker
+runs them as a foreground `kubectl run --attach --rm` and streams the wrapper's
+stdout, with `command_env` in a per-attempt Secret — the shared shell design in
+`orchestration.md` "Shell entry type".
 
 # The vehicle
 
@@ -147,20 +129,10 @@ row. Tests: `test_kubernetes_worker.py` — `test_pod_status_maps_kubectl_failur
 
 # Image build is shared
 
-Kubernetes reuses the Docker build pipeline unchanged. The image is an
-ordinary **build task** injected into the job graph at commit points
-(`image_injection.inject_build_tasks`), host-pinned and wired
-`build >> dependent`; its body (`image_build_task.run_image_build`) runs
-`docker_build.build_image_to_tag` to clone the repo at the SHA, build the
-image, and push it to a registry. A Kubernetes `build` source therefore
-**requires** `AAICLICK_REGISTRY` (cluster nodes pull the image by tag),
-validated at commit points.
-
-!!! note "`AAICLICK_DOCKER_REGISTRY` → `AAICLICK_REGISTRY`"
-    The registry is the one `AAICLICK_DOCKER_*` setting both runners share (k8s
-    reuses the docker build), so it is renamed to the neutral `AAICLICK_REGISTRY`.
-    The remaining `AAICLICK_DOCKER_*` vars stay docker-specific. Renamed with the
-    shared CLI primitive in Phase 1.
+Kubernetes reuses the Docker build pipeline unchanged (`orchestration.md` "Image
+source"): the injected build task builds and pushes on the worker host, and the
+Pod pulls by tag. A `build` source therefore needs `AAICLICK_REGISTRY`, which
+`execution-worker start` checks for a kubernetes worker.
 
 # Configuration
 
@@ -230,7 +202,3 @@ lightweight Kubernetes) plus the same Postgres / ClickHouse services. A
       runner-side, so one DSN serves pods and the runner.
     - **Build → test pypi**: `host.docker.internal` + `--add-host=…:host-gateway`,
       same as the docker e2e.
-
-    (An earlier Phase 0.5 spike validated an equivalent minikube recipe with
-    `host.minikube.internal` + `--insecure-registry`; the suite ultimately uses
-    kind for faster CI cold-start.)
