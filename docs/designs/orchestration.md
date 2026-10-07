@@ -106,41 +106,63 @@ one chain: local databases are recreated, so there is nothing to backfill.
 **Implementation**: `aaiclick/internal_api/setup.py` — see `_reference_shape`,
 `_drift`, `stale_local_db_reason`, `missing_local_tables`.
 
-## Distributed runner subtypes
+## Worker runner
 
-Distributed mode runs worker processes that claim tasks and execute each in one of three **runner subtypes** — a per-job dial detailed in [Runners & Entry Types](#runners-entry-types):
+An execution worker launches container tasks through one **runner**, fixed by
+the worker's deployment and read once from `AAICLICK_RUNNER`. It is not a job
+property: the compose scaffold ships the `aaiclick-docker` worker with the host
+socket mounted, the helm scaffold ships the `aaiclick-kubectl` worker with a
+ServiceAccount, and a task claimed by a worker runs on whatever that worker has.
 
-| Subtype                   | Where the task runs                      | Extra worker requirements                   |
-|---------------------------|------------------------------------------|---------------------------------------------|
-| **native** (`subprocess`) | Child process on the worker host         | none                                        |
-| **docker**                | Container via the worker's Docker daemon | Docker daemon + CLI                         |
-| **kubernetes** (k8s)      | Pod in a cluster                         | `kubectl` (+ Docker & registry for `build`) |
+| `AAICLICK_RUNNER` | Container tasks run as                   | Extra worker requirements                   |
+|-------------------|------------------------------------------|---------------------------------------------|
+| unset             | not at all — container tasks fail        | none                                        |
+| `docker`          | sibling containers on the worker daemon  | Docker daemon + CLI                         |
+| `kubernetes`      | Pods in the cluster                      | `kubectl` (+ Docker & registry for `build`) |
 
-The `docker` and `kubernetes` subtypes require the distributed data/SQL backends above: an isolated container or Pod reaches the shared ClickHouse + PostgreSQL over the network, whereas embedded chdb and a local SQLite file cannot be shared into it. The `native` subtype runs in either deployment mode.
+Tasks without an image (`tasks.image_source IS NULL`) run as a host subprocess on
+every worker, whatever the variable says. There is no auto-detection:
+`aaiclick-kubectl` inherits the docker CLI, so an installed binary says nothing.
+`execution-worker start` validates the value and rejects `kubernetes` combined
+with `AAICLICK_LOCAL_BUILD` (the cluster cannot pull from the worker's daemon).
+
+Container tasks require the distributed backends above: an isolated container or
+Pod reaches the shared ClickHouse + PostgreSQL over the network, whereas embedded
+chdb and a local SQLite file cannot be shared into it. `run_job` rejects a
+resolved image source under `is_local()`.
+
+**Implementation**: `aaiclick/orchestration/execution/runner_env.py` — see `get_worker_runner()`, `validate_worker_runner()`
 
 # Runners & Entry Types
 
 **Implementation**: `aaiclick/orchestration/runner_config.py` (typed configs), `aaiclick/orchestration/docker_config.py` (resolution helpers)
 
-Two orthogonal dials control how a task runs:
+Three orthogonal dials control how a task runs:
 
-- **runner mode** (per *job*) — `subprocess` (host child process), `docker` (container), or `kubernetes` (Pod).
+- **image source** (per *task*, chosen by the user) — `NULL` (host subprocess), `prebuilt` (a named image), or `build` (an image built from the repo).
+- **runner** (per *worker*, chosen by the deployment) — `docker` or `kubernetes`; decides whether a container task becomes a container or a Pod. See [Worker runner](#worker-runner).
 - **entry type** (per *task*) — `module` (import and run a Python entrypoint, the default), `shell` (run a literal argv), or `jvm` (a Java class name resolved by the `aaiclick-task-api` shim inside the task's container image — see `docs/designs/java-sdk.md`).
 
-They compose freely: a `shell` task runs the same way — "run this argv, success = exit 0" — whether the environment is a host subprocess, a container, or a Pod. `jvm` tasks are container-only (docker / kubernetes with an image).
+They compose freely: a `shell` task runs the same way — "run this argv, success = exit 0" — whether the environment is a host subprocess, a container, or a Pod. `jvm` tasks are container-only (an image on either runner).
 
-## Image source (docker / kubernetes)
+## Image source
 
-The image is a **task** property: every container task carries a nullable `tasks.image_source` JSON (`build` or `prebuilt`), and **`NULL` means the task runs as a host subprocess** regardless of the job's `runner_mode`. The job keeps only `runner_mode` and kubernetes cluster config.
+The image is a **task** property: every container task carries a nullable `tasks.image_source` JSON (`build` or `prebuilt`), and **`NULL` means the task runs as a host subprocess** on any worker. The job row carries no runner state — only the optional Pod `resources` snapshot (`docs/designs/kubernetes_runner.md`).
 
 | Source     | How                                              | When built             |
 |------------|--------------------------------------------------|------------------------|
 | `build`    | git repo → `aaiclick-job:<sha>` image built from `git clone` + `docker build` | build task in the graph |
 | `prebuilt` | `image="python:3.12"` run verbatim, no build stage | never                  |
 
-Pass `image=` (`run_job` / `RunJobRequest` / `run-job --image`, or `register-job --image` for a default) to select a prebuilt image — **mutually exclusive** with the git build fields (`git_remote` / `git_sha` / `git_branch` / `dockerfile`). `run_job` stamps the resolved source onto the **entry task**; dynamic children inherit the committing task's image at `commit_tasks` unless they declare their own (`create_task(image=... / git_*=...)`) — except `jvm` tasks, which must declare their own (`docs/designs/java-sdk.md`).
+The user names the source and nothing else. `image=` (`run-job --image`, or `register-job --image` for a default) selects a prebuilt image; `build=True` (`--build`) selects a git build, with `git_remote` / `git_sha` / `git_branch` / `dockerfile` as its modifiers (each falls through to the registration's default, then to auto-detect from the working tree). `image` and the build fields are **mutually exclusive** (`runner_config.validate_image_exclusivity`). Resolution per run, first match wins:
 
-Registration and `run_job` reject image fields off docker/kubernetes and kubernetes fields (`kubernetes_config`, `namespace`, `service_account`, `image_pull_secret`) off kubernetes, instead of dropping them (`runner_config.validate_runner_fields`).
+1. run `image` → `prebuilt`
+2. run `build` or any build modifier → `build`
+3. registration `image` → `prebuilt`
+4. registration `build` → `build`
+5. otherwise → `NULL`, a host subprocess
+
+A run cannot turn a containerized registration back into a subprocess. `run_job` stamps the resolved source onto the **entry task**; dynamic children inherit the committing task's image at `commit_tasks` unless they declare their own (`create_task(image=... / git_*=...)`) — except `jvm` tasks, which must declare their own (`docs/designs/java-sdk.md`).
 
 Commit points always inject one **ordinary build task** per distinct image identity (`sha256(git_remote, git_sha, dockerfile)`) into the job, host-pinned via `image_source=NULL`, wired `build >> dependent` for every task on that image — the scheduler's existing dependency filter guarantees no task is claimed before its image exists. Submission reads no build env; the **worker** running the build task decides the mode from two mutually exclusive variables (`docker_config.get_build_mode`):
 
@@ -149,18 +171,18 @@ Commit points always inject one **ordinary build task** per distinct image ident
 | `AAICLICK_REGISTRY=<host>` | registry | pull-first (`docker pull` → done), else clone + build + push           | `docker pull` |
 | `AAICLICK_LOCAL_BUILD=1`   | local    | daemon-cache-first (`docker image inspect` → done), else clone + build | run directly  |
 
-Both set, or neither, raises in the build task naming both variables. Local mode is single-host by construction: the image lives only in the building host's daemon, so it is rejected for kubernetes `build` sources at commit points. Crash recovery is the ordinary task retry/reaper path. Cross-job dedup is the registry (or daemon cache) itself: concurrent same-SHA jobs may double-build, which is wasteful but correct. The container launch path never builds — it only derives the tag.
+Both set, or neither, raises in the build task naming both variables. Local mode is single-host by construction: the image lives only in the building host's daemon, so a kubernetes worker refuses to start with it. Crash recovery is the ordinary task retry/reaper path. Cross-job dedup is the registry (or daemon cache) itself: concurrent same-SHA jobs may double-build, which is wasteful but correct. The container launch path never builds — it only derives the tag.
 
 **ExecutionWorker prerequisites** — because the build and the `docker run` happen on the worker's host, not in a separate service:
 
-- **`docker` runner** — every worker that may run the job needs a reachable **Docker daemon + CLI** (`AAICLICK_DOCKER_BIN`, default `docker`), for both `build` (to build the image) and `prebuilt` (to `docker run` it), plus exactly one of `AAICLICK_REGISTRY` / `AAICLICK_LOCAL_BUILD` for `build`.
-- **`kubernetes` runner, `build` source** — **requires `AAICLICK_REGISTRY`** (validated at commit points); the injected build task needs Docker on the worker host, then the Pod pulls from the registry.
-- **`kubernetes` runner, `prebuilt` source** — no Docker on the worker; it only needs cluster access (`kubectl`), and the cluster pulls the image.
-- **`subprocess` runner** — no Docker at all.
+- **`AAICLICK_RUNNER=docker`** — every worker that may run the job needs a reachable **Docker daemon + CLI** (`AAICLICK_DOCKER_BIN`, default `docker`), for both `build` (to build the image) and `prebuilt` (to `docker run` it), plus exactly one of `AAICLICK_REGISTRY` / `AAICLICK_LOCAL_BUILD` for `build`.
+- **`AAICLICK_RUNNER=kubernetes`, `build` source** — **requires `AAICLICK_REGISTRY`** (checked at worker startup); the injected build task needs Docker on the worker host, then the Pod pulls from the registry.
+- **`AAICLICK_RUNNER=kubernetes`, `prebuilt` source** — no Docker on the worker; it only needs cluster access (`kubectl`), and the cluster pulls the image.
+- **`AAICLICK_RUNNER` unset** — no Docker at all; the worker runs subprocess tasks only and fails a container task with a message naming the variable.
 
 A `build` starts by preflighting Docker (`docker version`): a worker with no CLI or an unreachable daemon fails the build with an actionable error naming `AAICLICK_DOCKER_BIN` / the prebuilt-image alternative, rather than a raw `FileNotFoundError` or a daemon error deep inside `docker build`.
 
-**Implementation**: `aaiclick/orchestration/image_injection.py` — see `inject_build_tasks()`, `stamp_inherited_image()`, `validate_image_sources()`; `aaiclick/orchestration/execution/image_build_task.py` — see `run_image_build()`; `aaiclick/orchestration/execution/docker_build.py` — see `build_image_to_tag()`, `resolve_launch_image()`, `_require_docker()`; `aaiclick/orchestration/docker_config.py` — see `get_build_mode()`, `resolve_image_source()`, `resolve_runner_config()`, `image_key()`
+**Implementation**: `aaiclick/orchestration/image_injection.py` — see `inject_build_tasks()`, `stamp_inherited_image()`, `validate_image_sources()`; `aaiclick/orchestration/execution/image_build_task.py` — see `run_image_build()`; `aaiclick/orchestration/execution/docker_build.py` — see `build_image_to_tag()`, `resolve_launch_image()`, `_require_docker()`; `aaiclick/orchestration/docker_config.py` — see `get_build_mode()`, `resolve_image_source()`, `image_key()`
 
 ## Shell entry type
 
@@ -185,8 +207,8 @@ In an isolated environment (container/Pod) a shell task receives **only** `comma
 | Task                          | Env injected                                  |
 |-------------------------------|-----------------------------------------------|
 | `module` (any runner)         | `build_runner_env()` — DB URLs + framework knobs |
-| `jvm` (docker / kubernetes)   | `build_runner_env()` — same trust model as module images |
-| `shell` + docker / kubernetes | `command_env` only (on top of the image's env) |
+| `jvm` (container)             | `build_runner_env()` — same trust model as module images |
+| `shell` + container           | `command_env` only (on top of the image's env) |
 | `shell` + subprocess          | worker process env + `command_env` overlay     |
 
 Submit via:
@@ -384,7 +406,7 @@ python -m aaiclick job cancel <id>
 python -m aaiclick job list [--status RUNNING] [--like "%crawl%"] [--limit 20 --offset 40]
 python -m aaiclick job enable <name>          # Enable a registered job
 python -m aaiclick job disable <name>         # Disable a registered job
-python -m aaiclick register-job <entrypoint> [--name NAME] [--schedule "0 8 * * *"] [--kwargs '{"key": "val"}'] [--preservation-mode NONE|FULL] [--runner subprocess|docker|kubernetes] [--image python:3.12]
+python -m aaiclick register-job <entrypoint> [--name NAME] [--schedule "0 8 * * *"] [--kwargs '{"key": "val"}'] [--preservation-mode NONE|FULL] [--build | --image python:3.12]
 python -m aaiclick run-job <name> [--kwargs '{"key": "val"}'] [--preservation-mode NONE|FULL] [--entry-type module|shell|jvm] [--command 'python main.py'] [--command-env K=v] [--image python:3.12]
 python -m aaiclick registered-job list        # List registered jobs
 ```

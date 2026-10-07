@@ -164,57 +164,45 @@ validated at commit points.
 
 # Configuration
 
-Kubernetes reuses the Docker git/image fields and adds cluster specifics in a
-single nullable `kubernetes_config` JSON column on `Job` / `RegisteredJob` —
-these fields are k8s-only and never queried, so one column keeps the migration
-small and naturally holds the nested `resources`.
+The runner itself is the worker's: `AAICLICK_RUNNER=kubernetes` on the worker
+Deployment (`orchestration.md` "Worker runner"). Cluster settings follow it —
+they describe the cluster the worker is in, are the same for every job, and are
+bound by the worker's RBAC (the helm Role is namespaced), so they live only in
+the worker's environment, mirroring `AAICLICK_REGISTRY` and matching Argo's
+`workflowDefaults` / Airflow's `AIRFLOW__KUBERNETES__*`:
+
+| Field               | Environment variable                               |
+|---------------------|----------------------------------------------------|
+| `namespace`         | `AAICLICK_K8S_NAMESPACE` (else `"default"`)        |
+| `service_account`   | `AAICLICK_K8S_SERVICE_ACCOUNT`                     |
+| `image_pull_secret` | `AAICLICK_K8S_IMAGE_PULL_SECRET`                   |
+
+`resources` (requests/limits) is the one setting that is genuinely per job. It is
+a nullable JSON column on both `RegisteredJob` (default) and `Job` (per-run
+snapshot: `run_job` kwarg → registration default → `None`), exposed as
+`resources` on the Python API, `RegisterJobRequest` and `RunJobRequest`. The
+docker runner ignores it (`docs/designs/future.md`).
 
 ```python
 class KubernetesConfig(NamedTuple):
-    namespace: str = "default"
-    service_account: str | None = None
-    image_pull_secret: str | None = None
-    resources: dict | None = None  # {cpu/mem requests+limits}
+    namespace: str
+    service_account: str | None
+    image_pull_secret: str | None
+    resources: dict | None  # {cpu/mem requests+limits}
 ```
 
-Resolved at submission time alongside the shared `resolve_runner_config` for
-git/image. Precedence per field (highest first): `run_job` kwarg →
-`RegisteredJob` default → environment variable → hardcoded default. The env
-layer holds cluster-wide deployment defaults (the same across every job),
-mirroring `AAICLICK_REGISTRY` and matching Argo's `workflowDefaults` /
-Airflow's `AIRFLOW__KUBERNETES__*`:
-
-| Field | Environment variable |
-| --- | --- |
-| `namespace` | `AAICLICK_K8S_NAMESPACE` (else `"default"`) |
-| `service_account` | `AAICLICK_K8S_SERVICE_ACCOUNT` |
-| `image_pull_secret` | `AAICLICK_K8S_IMAGE_PULL_SECRET` |
-
-`resources` has no env layer (nested JSON, not a single deployment-wide value).
+Resolved on the **worker at dispatch** — `resolve_pod_config(resources=job.resources)`
+reads the three env vars and attaches the job's resources — and handed to the
+vehicle as `JobDispatch.pod_config`.
 
 # Selection and dispatch
 
-`RunnerMode` gains `"kubernetes"`:
-
-```python
-RUNNER_KUBERNETES = "kubernetes"
-RunnerMode = Literal["subprocess", "docker", "kubernetes"]
-```
-
-!!! note "`runner_mode` has no DB CHECK constraint"
-    Adding `"kubernetes"` dropped the `runner_mode` CHECK constraints rather than
-    widening them (Alembic can't autogenerate CHECK changes, and widening recurs
-    on every new mode). `runner_mode` is validated by the `RunnerMode` Literal
-    (typing) + the CLI's `choices=` (runtime). The project has since
-    standardized on exactly that — closed string sets are plain `String`
-    columns enforced by a `Literal` plus boundary validation, and no enum
-    column carries a CHECK — so `runner_mode` is no longer a deviation.
-
-- `register-job --runner kubernetes` records the mode (plus `--namespace` and
-  resource flags) on the `RegisteredJob`.
-- `run_job` branches on `runner_mode == RUNNER_KUBERNETES` to
-  `resolve_kubernetes_config` + `create_built_job` (mirrors the Docker branch).
-- `dispatch_execute` routes `RUNNER_KUBERNETES` tasks to the Kubernetes vehicle.
+`dispatch._resolve_dispatch` picks the runner from the task and the worker, never
+from the job: a `NULL` `image_source` is a host subprocess; otherwise
+`get_worker_runner()` names the vehicle, and `None` raises a `DispatchError`
+("task declares an image_source but this worker has no `AAICLICK_RUNNER`"), which
+the worker loop already turns into a failed task. The job row is read only for
+`resources`.
 
 In-flight cancellation works from day one: `poll_cancelled` is wired to
 `check_task_cancelled`, so the driver deletes the Pod when a run is aborted,
