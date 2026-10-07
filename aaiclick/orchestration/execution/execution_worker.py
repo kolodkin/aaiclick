@@ -91,12 +91,9 @@ class RunnerResult(NamedTuple):
 
 
 class JobDispatch(NamedTuple):
-    """A task's runner plus the launch spec its runner needs.
-
-    Resolved once per task in ``dispatch._resolve_dispatch``: ``runner`` is the
-    worker's ``AAICLICK_RUNNER`` (None ⇒ host subprocess), ``pod_config`` the
-    kubernetes Pod settings (None off the kubernetes runner). The launch tag is
-    derived from ``image_source`` by ``docker_build.resolve_launch_image``."""
+    """A task's runner plus the launch spec its runner needs, resolved once
+    per task in ``dispatch._resolve_dispatch``. ``runner`` None ⇒ host
+    subprocess; ``pod_config`` is set only on the kubernetes runner."""
 
     runner: WorkerRunner | None
     pod_config: KubernetesConfig | None

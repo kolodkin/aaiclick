@@ -1,20 +1,13 @@
-"""Kubernetes Pod configuration, resolved on the worker at dispatch.
-
-Namespace, service account and image-pull secret describe the cluster the
-worker runs in and come from its environment; ``resources`` is the one
-per-job setting (``Job.resources``).
-"""
+"""Kubernetes Pod configuration, resolved on the worker at dispatch."""
 
 from __future__ import annotations
 
 import os
 from typing import NamedTuple
 
-# Cluster settings sourced from the worker's environment, mirroring
-# AAICLICK_REGISTRY: service account / image-pull-secret / namespace are
-# deployment properties (the same across every job in a cluster) and bound by
-# the worker's RBAC, so an operator sets them once. This matches Argo's
-# workflowDefaults and Airflow's AIRFLOW__KUBERNETES__* config layer.
+# Cluster settings are worker env, like AAICLICK_REGISTRY: they are the same
+# for every job and bound by the worker's RBAC (cf. Argo workflowDefaults,
+# Airflow AIRFLOW__KUBERNETES__*). ``resources`` is the one per-job setting.
 ENV_NAMESPACE = "AAICLICK_K8S_NAMESPACE"
 ENV_SERVICE_ACCOUNT = "AAICLICK_K8S_SERVICE_ACCOUNT"
 ENV_IMAGE_PULL_SECRET = "AAICLICK_K8S_IMAGE_PULL_SECRET"
