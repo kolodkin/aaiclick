@@ -51,7 +51,7 @@ from .runner import (
     follow_vehicle_output,
     get_run_count,
     register_run,
-    require_host_task,
+    require_container_runner,
     serialize_task_result,
     stop_output_follower,
 )
@@ -654,7 +654,7 @@ async def _execute_in_process(task: Task, execution_worker_id: int) -> tuple[boo
     worker itself being cancelled (``local start`` shutdown), which propagates
     so the loop exits instead of orphaning the task.
     """
-    require_host_task(task)
+    require_container_runner(task, None)
     exec_task = asyncio.create_task(execute_task(task))
     monitor = asyncio.create_task(_cancellation_monitor(task.id, exec_task, task.run_epoch))
     done = asyncio.Event()

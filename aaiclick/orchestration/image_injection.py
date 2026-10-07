@@ -47,15 +47,6 @@ def stamp_inherited_image(tasks: list[Task], parent_image_source: dict | None) -
             task.image_source = parent_image_source
 
 
-def validate_image_sources(tasks: list[Task]) -> None:
-    """Reject a malformed declared ``image_source`` at commit points; raises
-    ``ValueError``. Whether the worker can run it is the worker's concern
-    (``AAICLICK_RUNNER``)."""
-    for task in tasks:
-        if task.image_source is not None:
-            parse_image_source(task.image_source)
-
-
 _JVM_REF_KINDS = (UPSTREAM, NATIVE_VALUE)
 """Ref kinds the shim's ``KwargsResolver`` resolves; ``native_value`` is opaque."""
 

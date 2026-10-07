@@ -32,6 +32,7 @@ from .execution_worker import (
     parse_task_timeout,
 )
 from .runner import ShellSpec, execute_task, serialize_task_result
+from .runner_env import validate_worker_runner
 
 # How often the parent checks whether the child process has finished.
 # Smaller than POLL_INTERVAL because this polls a local queue, not a database.
@@ -272,6 +273,7 @@ async def mp_worker_main_loop(
     Returns:
         Number of tasks successfully executed.
     """
+    validate_worker_runner()
     # Delayed import: dispatch imports this module at top level.
     from .dispatch import dispatch_execute  # noqa: PLC0415
 

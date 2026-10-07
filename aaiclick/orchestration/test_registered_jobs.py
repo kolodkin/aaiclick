@@ -360,8 +360,8 @@ async def test_run_job_image_and_build_mutually_exclusive():
 @pytest.mark.parametrize(
     "fields, message",
     [
-        pytest.param({"git_remote": "git@x:r.git"}, "git_remote requires build", id="git-remote"),
-        pytest.param({"dockerfile": "Dockerfile.gpu"}, "dockerfile requires build", id="dockerfile"),
+        pytest.param({"git_remote": "git@x:r.git"}, "without build.*git_remote", id="git-remote"),
+        pytest.param({"dockerfile": "Dockerfile.gpu"}, "without build.*dockerfile", id="dockerfile"),
         pytest.param({"image": "python:3.12", "build": True}, "mutually exclusive", id="image-and-build"),
         pytest.param(
             {"resources": {"limits": {"cpu": "1"}}}, "resources require an image source", id="resources-on-subprocess"

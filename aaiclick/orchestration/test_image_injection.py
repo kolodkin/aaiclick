@@ -8,7 +8,7 @@ from aaiclick.data.object.refs import callable_ref, group_results_ref, native_va
 from .execution.execution_worker_context import set_current_task_info
 from .execution.image_build_task import IMAGE_BUILD_ENTRYPOINT
 from .factories import create_job, create_task
-from .image_injection import stamp_inherited_image, validate_image_sources, validate_jvm_tasks
+from .image_injection import stamp_inherited_image, validate_jvm_tasks
 from .models import Dependency, Task
 from .orch_context import commit_tasks, get_sql_session
 from .runner_config import ImageBuild, ImagePrebuilt, dump_image_source
@@ -34,19 +34,6 @@ def test_stamp_inherited_image_none_parent_is_noop():
     t = create_task("m.f")
     stamp_inherited_image([t], None)
     assert t.image_source is None
-
-
-def test_validate_image_sources_rejects_malformed():
-    t = create_task("m.f")
-    t.image_source = {"type": "nope"}
-    with pytest.raises(ValueError):
-        validate_image_sources([t])
-
-
-def test_validate_image_sources_accepts_null_and_valid():
-    declared = create_task("m.f1")
-    declared.image_source = BUILD_A
-    validate_image_sources([declared, create_task("m.f2")])
 
 
 def _jvm_task(kwargs: dict | None = None, image_source: dict | None = PREBUILT) -> Task:
@@ -101,11 +88,6 @@ def test_validate_jvm_ignores_non_jvm_tasks():
     validate_jvm_tasks([t])
 
 
-async def _create_docker_job() -> int:
-    job = await create_job("j", "m.entry")
-    return job.id
-
-
 async def _build_tasks_and_edges(job_id: int) -> tuple[list[Task], set[tuple[int, int]]]:
     """Persisted image-build tasks of ``job_id`` and every persisted ``(previous_id, next_id)`` edge."""
     async with get_sql_session() as session:
@@ -116,7 +98,7 @@ async def _build_tasks_and_edges(job_id: int) -> tuple[list[Task], set[tuple[int
 
 async def test_commit_tasks_injects_one_build_task_per_image(orch_ctx_no_ch, monkeypatch):
     monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
-    job_id = await _create_docker_job()
+    job_id = (await create_job("j", "m.entry")).id
     t1, t2, t3 = create_task("m.f1"), create_task("m.f2"), create_task("m.f3")
     t1.image_source, t2.image_source, t3.image_source = BUILD_A, BUILD_A, BUILD_B
 
@@ -135,7 +117,7 @@ async def test_commit_tasks_injects_one_build_task_per_image(orch_ctx_no_ch, mon
 
 async def test_commit_tasks_reuses_existing_build_task_in_job(orch_ctx_no_ch, monkeypatch):
     monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
-    job_id = await _create_docker_job()
+    job_id = (await create_job("j", "m.entry")).id
     first = create_task("m.f1")
     first.image_source = BUILD_A
     await commit_tasks(first, job_id)
@@ -153,7 +135,7 @@ async def test_commit_tasks_stamps_and_injects_for_docker_job(orch_ctx_no_ch, mo
     """commit_tasks on a docker job: undeclared tasks inherit the committing
     task's image, and a build task + edges appear in the same commit."""
     monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
-    job_id = await _create_docker_job()
+    job_id = (await create_job("j", "m.entry")).id
     async with get_sql_session() as session:
         entry = (await session.execute(select(Task).where(Task.job_id == job_id))).scalar_one()
         entry.image_source = BUILD_A

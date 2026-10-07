@@ -13,7 +13,15 @@ from typing import Literal
 
 from .execution import cli
 from .models import RegisteredJob
-from .runner_config import ImageBuild, ImagePrebuilt, ImageSourceT, build_requested
+from .runner_config import (
+    IMAGE_BUILD,
+    IMAGE_PREBUILT,
+    ImageBuild,
+    ImageKind,
+    ImagePrebuilt,
+    ImageSourceT,
+    build_requested,
+)
 
 BUILD_MODE_REGISTRY = "registry"
 BUILD_MODE_LOCAL = "local"
@@ -113,6 +121,33 @@ def image_key(source: ImageBuild) -> str:
     return hashlib.sha256(parts.encode("utf-8")).hexdigest()
 
 
+def requested_image_kind(
+    registered: RegisteredJob | None,
+    *,
+    image: str | None = None,
+    build: bool = False,
+    git_remote: str | None = None,
+    git_sha: str | None = None,
+    git_branch: str | None = None,
+    dockerfile: str | None = None,
+) -> ImageKind | None:
+    """Which image source a run asks for, or None for a host subprocess.
+    Pure — no git, no I/O — so callers can gate on it before resolving.
+
+    First match wins: run ``image`` → prebuilt; run ``build`` or any build
+    modifier (``git_*`` / ``dockerfile``) → build; registration ``image`` →
+    prebuilt; registration ``build`` → build; else None."""
+    if image is not None:
+        return IMAGE_PREBUILT
+    if build_requested(build, git_remote, git_sha, git_branch, dockerfile):
+        return IMAGE_BUILD
+    if registered is None:
+        return None
+    if registered.image is not None:
+        return IMAGE_PREBUILT
+    return IMAGE_BUILD if registered.build else None
+
+
 async def resolve_image_source(
     registered: RegisteredJob | None,
     *,
@@ -124,21 +159,25 @@ async def resolve_image_source(
     dockerfile: str | None = None,
 ) -> ImageSourceT | None:
     """Resolve the image source a run's entry task is stamped with, or None
-    for a host subprocess.
-
-    First match wins: run ``image`` → prebuilt; run ``build`` or any build
-    modifier (``git_*`` / ``dockerfile``) → build; registration ``image`` →
-    prebuilt; registration ``build`` → build; else None. Build coordinates
-    fall through run kwarg → registration default → git auto-detect."""
-    if image is not None:
-        return ImagePrebuilt(image_tag=image)
-    if not build_requested(build, git_remote, git_sha, git_branch, dockerfile):
-        if registered is None:
-            return None
-        if registered.image is not None:
-            return ImagePrebuilt(image_tag=registered.image)
-        if not registered.build:
-            return None
+    for a host subprocess (``requested_image_kind`` decides which). Build
+    coordinates fall through run kwarg → registration default → git
+    auto-detect."""
+    kind = requested_image_kind(
+        registered,
+        image=image,
+        build=build,
+        git_remote=git_remote,
+        git_sha=git_sha,
+        git_branch=git_branch,
+        dockerfile=dockerfile,
+    )
+    if kind is None:
+        return None
+    if kind == IMAGE_PREBUILT:
+        tag = image if image is not None else registered.image if registered is not None else None
+        if tag is None:  # unreachable: requested_image_kind saw a tag
+            raise RuntimeError("prebuilt image source without an image tag")
+        return ImagePrebuilt(image_tag=tag)
 
     remote = git_remote
     if remote is None and registered is not None:

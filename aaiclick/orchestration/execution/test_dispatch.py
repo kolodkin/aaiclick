@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import ANY, AsyncMock
 
 import pytest
@@ -11,7 +12,7 @@ from ..models import Task
 from ..runner_config import ImageBuild, ImagePrebuilt, dump_image_source
 from . import dispatch
 from .execution_worker import JobDispatch
-from .runner import ShellSpec
+from .runner import DispatchError, ShellSpec
 from .runner_env import ENV_WORKER_RUNNER, RUNNER_DOCKER, RUNNER_KUBERNETES
 
 BUILD_A = dump_image_source(ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40))
@@ -62,7 +63,7 @@ async def test_null_image_source_dispatches_subprocess_whatever_the_worker_runne
 
 async def test_resolve_dispatch_without_worker_runner_raises(monkeypatch):
     monkeypatch.delenv(ENV_WORKER_RUNNER, raising=False)
-    with pytest.raises(dispatch.DispatchError, match="AAICLICK_RUNNER"):
+    with pytest.raises(DispatchError, match="AAICLICK_RUNNER"):
         await dispatch._resolve_dispatch(_task(image_source=PREBUILT))
 
 
@@ -77,7 +78,7 @@ async def test_resolve_dispatch_uses_worker_runner_and_job_resources(monkeypatch
     monkeypatch.setenv(ENV_WORKER_RUNNER, runner)
     monkeypatch.setenv(ENV_NAMESPACE, "ml")
     if runner == RUNNER_KUBERNETES:
-        job = type("FakeJob", (), {"resources": resources})()
+        job = SimpleNamespace(resources=resources)
         monkeypatch.setattr(dispatch, "get_sql_session", lambda: _FakeSession(job))
     else:
         # The docker runner reads nothing from the job row, so no query at all.

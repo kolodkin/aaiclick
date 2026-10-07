@@ -59,7 +59,10 @@ def new_job_row(
     registered: RegisteredJob | None = None,
     resources: dict | None = None,
 ) -> Job:
-    """Build an uncommitted PENDING Job row with a resolved preservation mode."""
+    """Build an uncommitted PENDING Job row. ``preservation_mode`` and
+    ``resources`` resolve explicit value → registration default."""
+    if resources is None and registered is not None:
+        resources = registered.resources
     return Job(
         id=get_snowflake_id(),
         name=name,
@@ -199,7 +202,7 @@ def create_task(
     """
     image_source: dict | None = None
     git_fields = (git_remote, git_sha, git_branch, dockerfile)
-    validate_image_exclusivity(image, False, *git_fields)
+    validate_image_exclusivity(image, *git_fields)
     if image is not None:
         image_source = dump_image_source(ImagePrebuilt(image_tag=image))
     elif any(v is not None for v in git_fields):

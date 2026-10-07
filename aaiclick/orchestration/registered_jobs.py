@@ -11,7 +11,7 @@ from sqlmodel import select
 from ..backend import is_local
 from ..datetime_utils import utc_now
 from ..snowflake import get_snowflake_id
-from .docker_config import resolve_image_source
+from .docker_config import requested_image_kind, resolve_image_source
 from .factories import create_container_job, create_job, create_task
 from .models import RUN_MANUAL, Job, PreservationMode, RegisteredJob, RunType
 from .orch_context import get_sql_session
@@ -19,7 +19,6 @@ from .runner_config import (
     ENTRY_JVM,
     ENTRY_MODULE,
     EntryType,
-    build_requested,
     validate_image_exclusivity,
     validate_task_entry,
 )
@@ -70,11 +69,12 @@ def _validate_registration_fields(
 ) -> None:
     """Refuse to store defaults no run would read: build modifiers without
     ``build``, ``resources`` without an image source, or both sides at once."""
-    validate_image_exclusivity(image, build, git_remote, dockerfile)
+    validate_image_exclusivity(image, git_remote, dockerfile, build=build)
     modifiers = [name for name, value in (("git_remote", git_remote), ("dockerfile", dockerfile)) if value is not None]
     if modifiers and not build:
-        verb = "requires" if len(modifiers) == 1 else "require"
-        raise ValueError(f"{', '.join(modifiers)} {verb} build (--build on the CLI)")
+        # A registration default that is not a build must not become one
+        # silently (runs, by contrast, let a modifier imply --build).
+        raise ValueError(f"set without build (--build on the CLI): {', '.join(modifiers)}")
     if resources is not None and not (build or image is not None):
         raise ValueError(_RESOURCES_REQUIRE_IMAGE)
 
@@ -439,27 +439,55 @@ async def run_job(
         Created Job
     """
     validate_task_entry(entry_type=entry_type, command=command)
-    validate_image_exclusivity(image, build, git_remote, git_sha, git_branch, dockerfile)
+    validate_image_exclusivity(image, git_remote, git_sha, git_branch, dockerfile, build=build)
 
     registered = await get_registered_job(name)
 
     default_kwargs = registered.default_kwargs if registered is not None else None
     merged_kwargs = {**(default_kwargs or {}), **(kwargs or {})}
 
-    # Decide "container or not" before resolving: git auto-detect must not
-    # mask the real problem when the local backend cannot run containers.
-    wants_container = (
-        image is not None
-        or build_requested(build, git_remote, git_sha, git_branch, dockerfile)
-        or (registered is not None and (registered.image is not None or registered.build))
+    kind = requested_image_kind(
+        registered,
+        image=image,
+        build=build,
+        git_remote=git_remote,
+        git_sha=git_sha,
+        git_branch=git_branch,
+        dockerfile=dockerfile,
     )
-    if wants_container and is_local():
+    if kind is None:
+        if resources is not None:
+            raise ValueError(_RESOURCES_REQUIRE_IMAGE)
+        if entry_type == ENTRY_JVM:
+            raise ValueError(
+                "jvm entry_type requires an image source (build or image) — the shim jar "
+                "runs only inside the task's container image (spec: docs/designs/java-sdk.md)"
+            )
+        task = create_task(
+            entrypoint or None,
+            merged_kwargs,
+            name=name,
+            entry_type=entry_type,
+            command=command,
+            command_env=command_env,
+        )
+        return await create_job(
+            name=name,
+            entry=task,
+            run_type=run_type,
+            registered_job_id=registered.id if registered is not None else None,
+            preservation_mode=preservation_mode,
+            registered=registered,
+        )
+
+    # Gate on the pure decision before resolving: git auto-detect must not
+    # mask the real problem when the local backend cannot run containers.
+    if is_local():
         raise ValueError(
             "container jobs require distributed mode (Postgres + ClickHouse); "
             "got chdb + SQLite. Set AAICLICK_SQL_URL and AAICLICK_CH_URL to "
             "remote services before submitting these jobs."
         )
-
     source = await resolve_image_source(
         registered,
         image=image,
@@ -469,45 +497,16 @@ async def run_job(
         git_branch=git_branch,
         dockerfile=dockerfile,
     )
-
-    if source is not None:
-        if resources is None and registered is not None:
-            resources = registered.resources
-        return await create_container_job(
-            name=name,
-            entrypoint=entrypoint,
-            image_source=source,
-            resources=resources,
-            entry_type=entry_type,
-            command=command,
-            command_env=command_env,
-            kwargs=merged_kwargs,
-            run_type=run_type,
-            registered_job_id=registered.id if registered is not None else None,
-            preservation_mode=preservation_mode,
-            registered=registered,
-        )
-
-    # Subprocess from here on: nothing below builds or runs an image.
-    if resources is not None:
-        raise ValueError(_RESOURCES_REQUIRE_IMAGE)
-    if entry_type == ENTRY_JVM:
-        raise ValueError(
-            "jvm entry_type requires an image source (build or image) — the shim jar "
-            "runs only inside the task's container image (spec: docs/designs/java-sdk.md)"
-        )
-
-    task = create_task(
-        entrypoint or None,
-        merged_kwargs,
+    assert source is not None  # requested_image_kind said so
+    return await create_container_job(
         name=name,
+        entrypoint=entrypoint,
+        image_source=source,
+        resources=resources,
         entry_type=entry_type,
         command=command,
         command_env=command_env,
-    )
-    return await create_job(
-        name=name,
-        entry=task,
+        kwargs=merged_kwargs,
         run_type=run_type,
         registered_job_id=registered.id if registered is not None else None,
         preservation_mode=preservation_mode,

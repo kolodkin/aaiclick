@@ -1,14 +1,13 @@
 """Tests for job_test / ajob_test debug execution."""
 
 import pytest
-from sqlmodel import select
 
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution.debug import ajob_test
 from aaiclick.orchestration.jobs import get_job_result
-from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, Task
-from aaiclick.orchestration.orch_context import get_sql_session
+from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED
 from aaiclick.orchestration.result import task_result
+from aaiclick.testing import set_task_image_source
 
 
 @task
@@ -41,11 +40,7 @@ async def test_ajob_test_refuses_container_task(orch_ctx):
     """job_test runs in-process and has no container runner: a task that
     declares an image fails the job naming AAICLICK_RUNNER."""
     j = await add_pipeline(a=3, b=4)
-    async with get_sql_session() as session:
-        task = (await session.execute(select(Task).where(Task.job_id == j.id))).scalar_one()
-        task.image_source = {"type": "prebuilt", "image_tag": "python:3.12"}
-        session.add(task)
-        await session.commit()
+    await set_task_image_source(j.id, {"type": "prebuilt", "image_tag": "python:3.12"})
 
     j = await ajob_test(j)
 

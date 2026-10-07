@@ -14,8 +14,6 @@ from aaiclick.orchestration.docker_config import (
 from aaiclick.orchestration.models import RegisteredJob
 from aaiclick.orchestration.runner_config import ImageBuild, ImagePrebuilt
 
-_DEFAULTS = {"image": None, "build": False, "git_remote": None, "git_sha": None, "git_branch": None, "dockerfile": None}
-
 
 def test_image_key_stable_and_distinguishes_fields():
     a = ImageBuild(git_remote="git@x:r.git", git_sha="a" * 40, dockerfile=None)
@@ -112,7 +110,7 @@ async def test_resolve_image_source(monkeypatch, registered, kwargs, expected):
     monkeypatch.setattr(docker_config, "auto_detect_git_remote", AsyncMock(return_value="git@auto:r.git"))
     monkeypatch.setattr(docker_config, "auto_detect_git_sha", AsyncMock(return_value="c" * 40))
     monkeypatch.setattr(docker_config, "auto_detect_git_branch", AsyncMock(return_value="auto"))
-    assert await resolve_image_source(registered, **{**_DEFAULTS, **kwargs}) == expected
+    assert await resolve_image_source(registered, **kwargs) == expected
 
 
 def test_compute_image_tag_without_registry(monkeypatch):

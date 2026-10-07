@@ -182,7 +182,7 @@ Both set, or neither, raises in the build task naming both variables. Local mode
 
 A `build` starts by preflighting Docker (`docker version`): a worker with no CLI or an unreachable daemon fails the build with an actionable error naming `AAICLICK_DOCKER_BIN` / the prebuilt-image alternative, rather than a raw `FileNotFoundError` or a daemon error deep inside `docker build`.
 
-**Implementation**: `aaiclick/orchestration/image_injection.py` — see `inject_build_tasks()`, `stamp_inherited_image()`, `validate_image_sources()`; `aaiclick/orchestration/execution/image_build_task.py` — see `run_image_build()`; `aaiclick/orchestration/execution/docker_build.py` — see `build_image_to_tag()`, `resolve_launch_image()`, `_require_docker()`; `aaiclick/orchestration/docker_config.py` — see `get_build_mode()`, `resolve_image_source()`, `image_key()`
+**Implementation**: `aaiclick/orchestration/image_injection.py` — see `inject_build_tasks()`, `stamp_inherited_image()`; `aaiclick/orchestration/execution/image_build_task.py` — see `run_image_build()`; `aaiclick/orchestration/execution/docker_build.py` — see `build_image_to_tag()`, `resolve_launch_image()`, `_require_docker()`; `aaiclick/orchestration/docker_config.py` — see `get_build_mode()`, `resolve_image_source()`, `image_key()`
 
 ## Shell entry type
 

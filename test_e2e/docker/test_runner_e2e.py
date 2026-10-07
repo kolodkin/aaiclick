@@ -96,7 +96,6 @@ async def test_docker_runner_smoke(orch_ctx, docker_e2e_user_repo):
             pass
 
     assert completed.status == JOB_COMPLETED, completed.error
-    assert completed.resources is None
 
     tasks = await get_tasks_for_job(completed.id)
     # The image is a task property now: the entry task carries the build source.

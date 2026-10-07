@@ -40,12 +40,12 @@ def test_prebuilt_requires_nonempty_image_tag():
 )
 def test_validate_image_exclusivity_rejects_image_with_build(build, fields):
     with pytest.raises(ValueError, match="mutually exclusive"):
-        validate_image_exclusivity("python:3.12", build, *fields)
+        validate_image_exclusivity("python:3.12", *fields, build=build)
 
 
 def test_validate_image_exclusivity_accepts_one_side():
-    validate_image_exclusivity("python:3.12", False, None)
-    validate_image_exclusivity(None, True, "a" * 40)
+    validate_image_exclusivity("python:3.12", None)
+    validate_image_exclusivity(None, "a" * 40, build=True)
 
 
 @pytest.mark.parametrize(

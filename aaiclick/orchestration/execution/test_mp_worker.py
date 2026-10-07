@@ -67,3 +67,11 @@ async def test_mp_worker_no_tasks(orch_ctx_no_ch):
     )
 
     assert tasks_executed == 0
+
+
+async def test_mp_worker_main_loop_rejects_bad_runner(monkeypatch):
+    """The loop that dispatches container tasks validates AAICLICK_RUNNER
+    before claiming anything, whoever starts it (CLI or e2e harness)."""
+    monkeypatch.setenv("AAICLICK_RUNNER", "podman")
+    with pytest.raises(ValueError, match="AAICLICK_RUNNER"):
+        await mp_worker_main_loop(max_tasks=1, install_signal_handlers=False, max_empty_polls=1)

@@ -30,6 +30,7 @@ from unittest.mock import patch
 import pytest
 from alembic import command
 from sqlalchemy import create_engine, text
+from sqlmodel import select
 
 from aaiclick.__main__ import main
 from aaiclick.backend import is_chdb, is_local, parse_ch_url
@@ -231,6 +232,16 @@ async def seed_registry_row(table: str, *, fieldtype: str = FIELDTYPE_ARRAY) -> 
             {"t": table, "now": utc_now(), "sd": schema_doc},
         )
         await sess.commit()
+
+
+async def set_task_image_source(job_id: int, image_source: dict) -> None:
+    """Stamp ``image_source`` onto a single-task job's task, as a container
+    submission would, so in-process executors can be exercised against it."""
+    async with get_sql_session() as session:
+        task = (await session.execute(select(Task).where(Task.job_id == job_id))).scalar_one()
+        task.image_source = image_source
+        session.add(task)
+        await session.commit()
 
 
 async def run_cli(*argv: str) -> None:

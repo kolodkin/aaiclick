@@ -21,6 +21,9 @@ ENTRY_TYPES: list[EntryType] = [ENTRY_MODULE, ENTRY_SHELL, ENTRY_JVM]
 
 
 # --- image source (lives on Task) -----------------------------------------
+IMAGE_PREBUILT = "prebuilt"
+IMAGE_BUILD = "build"
+ImageKind = Literal["prebuilt", "build"]
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -81,7 +84,7 @@ def build_requested(build: bool, *modifiers: str | None) -> bool:
     return build or any(v is not None for v in modifiers)
 
 
-def validate_image_exclusivity(image: str | None, build: bool, *build_fields: str | None) -> None:
+def validate_image_exclusivity(image: str | None, *build_fields: str | None, build: bool = False) -> None:
     """A prebuilt ``image`` and the build side (``build`` flag, ``git_*`` /
     ``dockerfile`` modifiers) are mutually exclusive — shared by every
     submission surface so the rule and its message live in one place. Raises

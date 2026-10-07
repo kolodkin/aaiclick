@@ -23,16 +23,10 @@ from .docker_worker import _docker_pull_if_registered, _run_task_in_container, b
 from .execution_worker import JobDispatch
 from .kubernetes_worker import _run_task_in_pod, build_shell_pod_spec
 from .mp_worker import _run_task_in_child
-from .runner import ShellSpec, register_host_log_run
-from .runner_env import ENV_WORKER_RUNNER, RUNNER_DOCKER, RUNNER_KUBERNETES, WorkerRunner, get_worker_runner
+from .runner import ShellSpec, register_host_log_run, require_container_runner
+from .runner_env import RUNNER_DOCKER, RUNNER_KUBERNETES, WorkerRunner, get_worker_runner
 
 ExecuteResult = tuple[bool, dict | None, str | None]
-
-
-class DispatchError(RuntimeError):
-    """A task cannot be routed on this worker (e.g. a container task on a
-    worker without ``AAICLICK_RUNNER``). Raised from ``_resolve_dispatch``; the
-    worker loop records it as the task's failure."""
 
 
 def _subprocess_dispatch(task: Task) -> JobDispatch:
@@ -49,11 +43,7 @@ async def _resolve_dispatch(task: Task) -> JobDispatch:
     if task.image_source is None:
         return _subprocess_dispatch(task)
     runner = get_worker_runner()
-    if runner is None:
-        raise DispatchError(
-            f"task {task.name!r} declares an image_source but this worker has no {ENV_WORKER_RUNNER}; "
-            "set it to docker or kubernetes on the worker"
-        )
+    require_container_runner(task, runner)
     source = parse_image_source(task.image_source)
     pod_config = None
     if runner == RUNNER_KUBERNETES:

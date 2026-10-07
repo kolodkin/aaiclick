@@ -23,8 +23,8 @@ subprocess whatever the value."""
 
 def get_worker_runner() -> WorkerRunner | None:
     """The worker's container runner from ``AAICLICK_RUNNER``, or None when unset."""
-    value = os.environ.get(ENV_WORKER_RUNNER) or None
-    if value is None:
+    value = os.environ.get(ENV_WORKER_RUNNER)
+    if not value:
         return None
     if value not in WORKER_RUNNERS:
         raise ValueError(f"{ENV_WORKER_RUNNER}={value!r} is not one of {', '.join(WORKER_RUNNERS)}")

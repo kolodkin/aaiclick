@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlmodel import select
 
+from aaiclick.testing import set_task_image_source
+
 from ..background.test_cancelled_cleanup import run_cancelled_cleanup
 from ..decorators import job, task
 from ..factories import create_job, create_task
@@ -273,16 +275,11 @@ async def test_local_worker_refuses_container_task(orch_ctx):
         "test_local_container_task",
         "aaiclick.orchestration.fixtures.sample_tasks.simple_task",
     )
-    async with get_sql_session() as session:
-        task = (await session.execute(select(Task).where(Task.job_id == job.id))).scalar_one()
-        task.image_source = {"type": "prebuilt", "image_tag": "python:3.12"}
-        session.add(task)
-        await session.commit()
+    await set_task_image_source(job.id, {"type": "prebuilt", "image_tag": "python:3.12"})
 
     tasks_executed = await execution_worker_main_loop(max_tasks=1, install_signal_handlers=False, max_empty_polls=1)
 
     assert tasks_executed == 0
-    async with get_sql_session() as session:
-        task = (await session.execute(select(Task).where(Task.job_id == job.id))).scalar_one()
-        assert task.status == TASK_PENDING_FAILURE_CLEANUP
-        assert "AAICLICK_RUNNER" in (task.error or "")
+    task = await _task_row(job.id)
+    assert task.status == TASK_PENDING_FAILURE_CLEANUP
+    assert "AAICLICK_RUNNER" in (task.error or "")
