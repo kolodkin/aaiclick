@@ -17,7 +17,7 @@
 - Env is read inside functions at call time via `os.environ.get`, never at import scope.
 - `NamedTuple` for fixed-field records; named attribute access, not positional unpacking.
 - No history comments (`# Removed ...`); no `__all__`; no `Any` shortcuts.
-- Never hand-write a migration file: autogenerate via the workflow, then edit only to add the backfill statements.
+- Never hand-write a migration file: autogenerate via the workflow and commit it as generated. No backwards compatibility: existing `runner_mode` / `kubernetes_config` / `runner` values are dropped, not migrated.
 - Test files follow `python-testing-style`: flat, end-to-end over internal, parametrize input/expected clusters, delete tests whose behaviour no longer exists.
 - Docs in subdirectories follow `markdown-style`; run `shortify` after editing them.
 - Commit after each task; commits end with the attribution lines from the session reminder.
@@ -28,7 +28,6 @@
 - `AAICLICK_RUNNER=Docker` or `=podman`: `execution-worker start` must exit before touching the database, naming the allowed values. Pinned in Task 1 (`test_validate_worker_runner_rejects_unknown`, `test_execution_worker_start_rejects_bad_runner`).
 - `run-job --image X --build`: rejected as mutually exclusive, not silently resolved to one of them. Pinned in Task 4 (`test_run_job_image_and_build_mutually_exclusive`).
 - `register-job --git-remote X` without `--build`: rejected ("require build") rather than stored as a dead default. Pinned in Task 4 (`test_registration_rejects_build_modifiers_without_build`).
-- A pre-migration registration with `runner_mode='docker'` and no `image` must keep running containerized after the migration: `build` backfills to true. No local Postgres harness exists; the offline render in `test_migrate.py` proves the file loads, and the `UPDATE` statements are reviewed by eye in Task 6. Flag this to the reviewer.
 
 ---
 
@@ -474,7 +473,7 @@ git commit -m "Frontend: drop runner_mode from the register form"
 
 **Files:**
 - Create (by the workflow): `aaiclick/orchestration/migrations/versions/<rev>_runner_on_worker.py`
-- Verify with: `aaiclick/orchestration/test_migrate.py` (offline `upgrade head --sql` renders every revision, so a broken file fails it; there is no Postgres harness locally, and the compose / helm e2e workflows run the real upgrade in CI)
+- Verify with: `aaiclick/orchestration/test_migrate.py` (offline `upgrade head --sql` renders every revision; the compose / helm e2e workflows run the real upgrade in CI)
 
 - [ ] **Step 1: Push the branch so the workflow sees the model changes**
 
@@ -486,34 +485,20 @@ git push -u origin ccr-603b145d-6yu91v
 
 Use `mcp__github__actions_run_trigger` with `workflow_id="generate-migration.yaml"`, `ref="ccr-603b145d-6yu91v"`, `inputs={"message": "runner on worker"}`. Watch it with `mcp__github__actions_get` until it completes; then `git pull origin ccr-603b145d-6yu91v`.
 
-- [ ] **Step 3: Edit the generated `upgrade()`**
+- [ ] **Step 3: Review the generated file**
 
-Reorder so the `add_column` calls come first, then insert these statements, then the `drop_column` calls:
-
-```python
-op.execute(
-    "UPDATE registered_jobs SET build = true "
-    "WHERE runner_mode IN ('docker', 'kubernetes') AND image IS NULL"
-)
-op.execute(
-    "UPDATE registered_jobs SET resources = kubernetes_config->'resources' "
-    "WHERE kubernetes_config->'resources' IS NOT NULL"
-)
-op.execute("UPDATE jobs SET resources = runner->'resources' WHERE runner->'resources' IS NOT NULL")
-```
-
-Leave `downgrade()` as generated (the dropped columns return empty; no reverse backfill).
+Expected content: `add_column` for `registered_jobs.build` (Boolean, `server_default="0"`, NOT NULL), `registered_jobs.resources` (JSON) and `jobs.resources` (JSON); `drop_column` for `registered_jobs.runner_mode`, `registered_jobs.kubernetes_config`, `jobs.runner_mode`, `jobs.runner`. Nothing else; no hand edits.
 
 - [ ] **Step 4: Render the chain offline**
 
-Run: `uv run pytest aaiclick/orchestration/test_migrate.py -q && uv run alembic -c aaiclick/orchestration/alembic.ini upgrade head --sql | grep -c "UPDATE"`
-Expected: PASS; the count is `3`.
+Run: `uv run pytest aaiclick/orchestration/test_migrate.py -q`
+Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add aaiclick/orchestration/migrations/versions
-git commit -m "Migration: backfill build/resources, drop runner_mode and kubernetes_config"
+git commit -m "Migration: add build/resources, drop runner_mode and kubernetes_config"
 ```
 
 ---
