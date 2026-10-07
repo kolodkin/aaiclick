@@ -32,7 +32,6 @@ from .log_models import (
     UtcDateTime,
 )
 from .orchestration.models import ExecutionWorkerStatus, JobStatus, PreservationMode
-from .orchestration.runner_config import RunnerMode
 
 # Mirrors aaiclick.data.scope.ObjectScope — re-declared to keep this shared
 # module from pulling the heavy aaiclick.data package into CLI/REST startup.
@@ -88,20 +87,19 @@ class RunJobRequest(BaseModel):
     entry_type: EntryType = "module"
     command: list[str] | None = None
     command_env: dict[str, str] | None = None
+    # Image source: ``image`` runs a prebuilt image, ``build`` (or any git_*
+    # / dockerfile modifier) builds one from the repo; neither means a host
+    # subprocess. Modifiers fall through to the RegisteredJob default, then
+    # to git auto-detect.
     image: str | None = None
-    # Per-run image overrides; rejected unless the registered job is
-    # in docker/kubernetes mode. Each field falls through to the RegisteredJob
-    # default, then to git auto-detect (where applicable).
+    build: bool = False
     git_remote: str | None = None
     git_sha: str | None = None
     git_branch: str | None = None
     dockerfile: str | None = None
-    # Per-run kubernetes overrides; rejected unless the registered job is in
-    # kubernetes mode. Each field falls through to the RegisteredJob default,
-    # then the AAICLICK_K8S_* env layer.
-    namespace: str | None = None
-    service_account: str | None = None
-    image_pull_secret: str | None = None
+    # Kubernetes requests/limits for this run's Pods; None inherits the
+    # RegisteredJob default.
+    resources: dict[str, Any] | None = None
 
 
 class RegisterJobRequest(BaseModel):
@@ -118,13 +116,12 @@ class RegisterJobRequest(BaseModel):
     default_kwargs: dict[str, Any] | None = None
     enabled: bool = True
     preservation_mode: PreservationMode | None = None
-    # Docker-runner defaults; per-run kwargs on RunJobRequest override them.
-    runner_mode: RunnerMode = "subprocess"
-    dockerfile: str | None = None
-    git_remote: str | None = None
+    # Image-source defaults; per-run fields on RunJobRequest override them.
+    build: bool = False
     image: str | None = None
-    # Kubernetes-runner cluster defaults (namespace, service_account, ...).
-    kubernetes_config: dict[str, Any] | None = None
+    git_remote: str | None = None
+    dockerfile: str | None = None
+    resources: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def _default_name_from_entrypoint(self) -> RegisterJobRequest:

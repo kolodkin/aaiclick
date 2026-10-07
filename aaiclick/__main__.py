@@ -67,10 +67,9 @@ from aaiclick.internal_api.errors import InternalApiError, NotFound
 from aaiclick.orchestration.cli import start_background, start_execution_worker, start_local
 from aaiclick.orchestration.env import job_wait_timeout
 from aaiclick.orchestration.execution.docker_scaffold import DockerfileExists, init_dockerfile
-from aaiclick.orchestration.kubernetes_config import build_kubernetes_config
 from aaiclick.orchestration.models import JOB_COMPLETED, ExecutionWorkerStatus, JobStatus, PreservationMode
 from aaiclick.orchestration.orch_context import orch_context
-from aaiclick.orchestration.runner_config import ENTRY_TYPES, RunnerMode
+from aaiclick.orchestration.runner_config import ENTRY_TYPES
 from aaiclick.view_models import (
     ExecutionWorkerFilter,
     JobListFilter,
@@ -218,13 +217,11 @@ async def _run_run_job(args: argparse.Namespace) -> None:
         name=args.name,
         kwargs=kwargs,
         preservation_mode=_parse_preservation_mode(args.preservation_mode),
+        build=args.build,
         git_remote=args.git_remote,
         git_sha=args.git_sha,
         git_branch=args.git_branch,
         dockerfile=args.dockerfile,
-        namespace=args.namespace,
-        service_account=args.k8s_service_account,
-        image_pull_secret=args.k8s_image_pull_secret,
         entry_type=args.entry_type,
         command=shlex.split(args.command_str) if args.command_str else None,
         command_env=_parse_command_env(args.command_env),
@@ -278,21 +275,15 @@ async def _run_register_job(args: argparse.Namespace) -> None:
     set_kwargs = _parse_set_kwargs(args.set_kwargs)
     if set_kwargs:
         default_kwargs = {**(default_kwargs or {}), **set_kwargs}
-    kubernetes_config = build_kubernetes_config(
-        namespace=args.namespace,
-        service_account=args.k8s_service_account,
-        image_pull_secret=args.k8s_image_pull_secret,
-    )
     request = RegisterJobRequest(
         name=args.name or "",
         entrypoint=args.entrypoint,
         schedule=args.schedule,
         default_kwargs=default_kwargs,
         preservation_mode=_parse_preservation_mode(args.preservation_mode),
-        runner_mode=args.runner,
+        build=args.build,
         dockerfile=args.dockerfile,
         git_remote=args.git_remote,
-        kubernetes_config=kubernetes_config,
         image=args.image,
     )
     view = await _run_internal_api(internal_api.register_job(request))
@@ -914,40 +905,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Default preservation mode for every run of this job (runs can override)",
     )
     register_job_parser.add_argument(
-        "--runner",
-        choices=list(get_args(RunnerMode)),
-        default="subprocess",
-        help="Task-execution runner (default: subprocess)",
+        "--build",
+        action="store_true",
+        help="Build the task image from this repo at the submitted commit (see --git-remote / --dockerfile)",
     )
     register_job_parser.add_argument(
         "--dockerfile",
         default=None,
-        help="Default Dockerfile path relative to the repo root (docker runner only)",
+        help="Default Dockerfile path relative to the repo root (with --build)",
     )
     register_job_parser.add_argument(
         "--git-remote",
         default=None,
-        help="Default git remote URL (docker runner only); auto-detected if omitted",
-    )
-    register_job_parser.add_argument(
-        "--namespace",
-        default=None,
-        help="Kubernetes namespace (kubernetes runner only); falls back to $AAICLICK_K8S_NAMESPACE, then 'default'",
-    )
-    register_job_parser.add_argument(
-        "--k8s-service-account",
-        default=None,
-        help="Kubernetes service account name (kubernetes runner only); falls back to $AAICLICK_K8S_SERVICE_ACCOUNT",
-    )
-    register_job_parser.add_argument(
-        "--k8s-image-pull-secret",
-        default=None,
-        help="Kubernetes imagePullSecret name (kubernetes runner only); falls back to $AAICLICK_K8S_IMAGE_PULL_SECRET",
+        help="Default git remote URL (with --build); auto-detected if omitted",
     )
     register_job_parser.add_argument(
         "--image",
         default=None,
-        help="Default prebuilt image to run verbatim (no build stage)",
+        help="Default prebuilt image to run verbatim (no build stage); mutually exclusive with --build",
     )
     _add_json_flag(register_job_parser)
 
@@ -966,39 +941,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Table preservation mode (default: AAICLICK_DEFAULT_PRESERVATION_MODE or NONE)",
     )
     run_job_parser.add_argument(
+        "--build",
+        action="store_true",
+        help="Build the task image from this repo at the current commit (see --git-remote/--git-sha/--dockerfile)",
+    )
+    run_job_parser.add_argument(
         "--git-remote",
         default=None,
-        help="Override the registered job's default git remote (docker runner only)",
+        help="Override the registered job's default git remote (implies --build)",
     )
     run_job_parser.add_argument(
         "--git-sha",
         default=None,
-        help="Pin the build to a specific commit SHA (docker runner only)",
+        help="Pin the build to a specific commit SHA (implies --build)",
     )
     run_job_parser.add_argument(
         "--git-branch",
         default=None,
-        help="Capture branch name as build-arg metadata (docker runner only)",
+        help="Capture branch name as build-arg metadata (implies --build)",
     )
     run_job_parser.add_argument(
         "--dockerfile",
         default=None,
-        help="Override the registered job's dockerfile path (docker runner only)",
-    )
-    run_job_parser.add_argument(
-        "--namespace",
-        default=None,
-        help="Override the kubernetes namespace for this run (kubernetes runner only)",
-    )
-    run_job_parser.add_argument(
-        "--k8s-service-account",
-        default=None,
-        help="Override the kubernetes service account for this run (kubernetes runner only)",
-    )
-    run_job_parser.add_argument(
-        "--k8s-image-pull-secret",
-        default=None,
-        help="Override the kubernetes imagePullSecret for this run (kubernetes runner only)",
+        help="Override the registered job's dockerfile path (implies --build)",
     )
     run_job_parser.add_argument(
         "--entry-type",
@@ -1026,7 +991,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_job_parser.add_argument(
         "--image",
         default=None,
-        help="Prebuilt image to run verbatim (no build stage); mutually exclusive with --git-*",
+        help="Prebuilt image to run verbatim (no build stage); mutually exclusive with --build / --git-*",
     )
     run_job_parser.add_argument(
         "--progress",

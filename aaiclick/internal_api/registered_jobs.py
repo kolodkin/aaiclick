@@ -88,8 +88,8 @@ async def register_job(request: RegisterJobRequest) -> RegisteredJobView:
 
     Raises ``Conflict`` if a registration with the same name already exists,
     ``NotFound`` / ``Invalid`` if ``entrypoint`` does not resolve to a
-    callable (validated before persisting), or ``Invalid`` if an image or
-    kubernetes default is set on a runner that never reads it.
+    callable (validated before persisting), or ``Invalid`` if the image-source
+    fields contradict each other (see ``register_job``).
 
     Entrypoint validation is skipped for prebuilt-image registrations
     (``image`` set): the entrypoint resolves inside the image at run time
@@ -106,11 +106,11 @@ async def register_job(request: RegisterJobRequest) -> RegisteredJobView:
             default_kwargs=request.default_kwargs,
             enabled=request.enabled,
             preservation_mode=request.preservation_mode,
-            runner_mode=request.runner_mode,
-            dockerfile=request.dockerfile,
-            git_remote=request.git_remote,
+            build=request.build,
             image=request.image,
-            kubernetes_config=request.kubernetes_config,
+            git_remote=request.git_remote,
+            dockerfile=request.dockerfile,
+            resources=request.resources,
         )
     except RegisteredJobAlreadyExists as exc:
         raise Conflict(str(exc)) from exc

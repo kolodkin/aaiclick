@@ -240,13 +240,12 @@ async def run_job(request: RunJobRequest) -> JobView:
             command=request.command,
             command_env=request.command_env,
             image=request.image,
+            build=request.build,
             git_remote=request.git_remote,
             git_sha=request.git_sha,
             git_branch=request.git_branch,
             dockerfile=request.dockerfile,
-            namespace=request.namespace,
-            service_account=request.service_account,
-            image_pull_secret=request.image_pull_secret,
+            resources=request.resources,
         )
     except ValueError as exc:
         raise Invalid(str(exc)) from exc

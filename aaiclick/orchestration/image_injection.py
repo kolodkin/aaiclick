@@ -1,7 +1,7 @@
 """Commit-time image stamping, validation, and build-task injection.
 
 Called from every commit point (``orch_context.commit_tasks`` and
-``factories.create_built_job``) so a committed task's ``image_source`` is
+``factories.create_container_job``) so a committed task's ``image_source`` is
 final by the time its row lands — dispatch never resolves inheritance. It
 injects one ordinary build task per distinct build image and wires
 ``build >> dependent`` edges; the scheduler's existing dependency filter is

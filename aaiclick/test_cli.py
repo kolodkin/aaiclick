@@ -86,14 +86,26 @@ async def test_run_job_persists_shell_flags(orch_ctx):
     assert task.command_env == {"K": "v"}
 
 
-async def test_run_job_rejects_image_on_the_subprocess_runner(orch_ctx, capsys):
-    """``--image`` reaches ``run_job``, whose subprocess runner has no image to
-    run: the CLI reports the refusal and exits 1 instead of a traceback."""
+async def test_run_job_rejects_image_with_build(orch_ctx, capsys):
+    """``--image`` and ``--build`` reach ``run_job`` together: the CLI reports
+    the refusal and exits 1 instead of a traceback."""
     with pytest.raises(SystemExit) as exc_info:
-        await run_cli("run-job", "j", "--entry-type", "shell", "--command", "true", "--image", "python:3.12")
+        await run_cli("run-job", "j", "--image", "python:3.12", "--build")
 
     assert exc_info.value.code == 1
-    assert "image require a docker/kubernetes runner" in capsys.readouterr().err
+    assert "mutually exclusive" in capsys.readouterr().err
+
+
+def test_register_job_build_flag_parses():
+    args = build_parser().parse_args(["register-job", "m.f", "--build", "--git-remote", "git@x:r.git"])
+    assert args.build is True
+    assert args.git_remote == "git@x:r.git"
+
+
+@pytest.mark.parametrize("command", ["register-job", "run-job"])
+def test_runner_flag_is_gone(command):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args([command, "m.f", "--runner", "docker"])
 
 
 async def test_cli_reports_an_unexpected_error_without_a_traceback(capsys):
@@ -113,7 +125,7 @@ async def test_cli_debug_env_reraises_for_the_traceback(monkeypatch):
 
 
 async def test_register_job_persists_image(orch_ctx, capsys):
-    await run_cli("register-job", "myapp.jobs.etl", "--runner", "docker", "--image", "myrepo/img:1")
+    await run_cli("register-job", "myapp.jobs.etl", "--image", "myrepo/img:1")
 
     registered = await _only_registered_job()
     assert registered.image == "myrepo/img:1"

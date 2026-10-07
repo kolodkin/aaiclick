@@ -154,8 +154,8 @@ def test_migrate_current_runs_without_revision(monkeypatch):
 
 
 _INSERT_JOB = (
-    "INSERT INTO jobs (id, name, status, run_type, preservation_mode, runner_mode, created_at) "
-    "VALUES (1, :name, 'pending', 'flat', 'NONE', 'subprocess', '2024-01-01')"
+    "INSERT INTO jobs (id, name, status, run_type, preservation_mode, created_at) "
+    "VALUES (1, :name, 'pending', 'flat', 'NONE', '2024-01-01')"
 )
 
 
