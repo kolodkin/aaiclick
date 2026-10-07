@@ -50,6 +50,19 @@ class KubernetesConfig(NamedTuple):
     resources: dict | None
 
 
+def resolve_pod_config(*, resources: dict | None) -> KubernetesConfig:
+    """Pod config for a container task, resolved on the worker at dispatch.
+
+    Cluster settings come from the worker's environment (``AAICLICK_K8S_*``);
+    ``resources`` is the job's own snapshot (``Job.resources``)."""
+    return KubernetesConfig(
+        namespace=os.environ.get(ENV_NAMESPACE) or "default",
+        service_account=os.environ.get(ENV_SERVICE_ACCOUNT) or None,
+        image_pull_secret=os.environ.get(ENV_IMAGE_PULL_SECRET) or None,
+        resources=resources,
+    )
+
+
 def resolve_kubernetes_config(
     registered: RegisteredJob | None,
     *,

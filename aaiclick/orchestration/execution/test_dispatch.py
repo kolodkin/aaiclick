@@ -6,18 +6,13 @@ from unittest.mock import ANY, AsyncMock
 
 import pytest
 
+from ..kubernetes_config import ENV_NAMESPACE, KubernetesConfig
 from ..models import Task
-from ..runner_config import (
-    RUNNER_DOCKER,
-    RUNNER_KUBERNETES,
-    RUNNER_SUBPROCESS,
-    ImageBuild,
-    ImagePrebuilt,
-    dump_image_source,
-)
+from ..runner_config import ImageBuild, ImagePrebuilt, dump_image_source
 from . import dispatch
 from .execution_worker import JobDispatch
 from .runner import ShellSpec
+from .runner_env import ENV_WORKER_RUNNER, RUNNER_DOCKER, RUNNER_KUBERNETES
 
 BUILD_A = dump_image_source(ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40))
 PREBUILT = dump_image_source(ImagePrebuilt(image_tag="ghcr.io/x/y:1"))
@@ -58,43 +53,50 @@ async def test_jvm_without_container_runner_fails_instead_of_python_child():
     assert "jvm" in (error or "")
 
 
-async def test_null_image_source_dispatches_subprocess_even_on_docker_job():
-    """A NULL-image task runs on the host regardless of job runner_mode —
-    the rule that host-pins injected build tasks. No job query needed."""
+async def test_null_image_source_dispatches_subprocess_whatever_the_worker_runner(monkeypatch):
+    monkeypatch.setenv(ENV_WORKER_RUNNER, "kubernetes")
     resolved = await dispatch._resolve_dispatch(_task(image_source=None))
-    assert resolved.runner_mode == RUNNER_SUBPROCESS
+    assert resolved.runner is None
     assert resolved.image_source is None
 
 
-async def test_prebuilt_image_source_dispatches_docker_with_source(monkeypatch):
-    user_task = _task(task_id=100, job_id=200, image_source=PREBUILT)
-
-    class _FakeJob:
-        runner_mode = RUNNER_DOCKER
-        runner = {"type": "docker"}
-
-    monkeypatch.setattr(dispatch, "get_sql_session", lambda: _FakeSession(_FakeJob()))
-    resolved = await dispatch._resolve_dispatch(user_task)
-    assert resolved.runner_mode == RUNNER_DOCKER
-    assert isinstance(resolved.image_source, ImagePrebuilt)
+async def test_resolve_dispatch_without_worker_runner_raises(monkeypatch):
+    monkeypatch.delenv(ENV_WORKER_RUNNER, raising=False)
+    with pytest.raises(dispatch.DispatchError, match="AAICLICK_RUNNER"):
+        await dispatch._resolve_dispatch(_task(image_source=PREBUILT))
 
 
 @pytest.mark.parametrize(
-    "runner_mode, kubernetes_config",
+    "runner, resources",
     [
-        pytest.param(RUNNER_DOCKER, None, id="docker_to_container_runner"),
-        pytest.param(RUNNER_KUBERNETES, {"namespace": "ml"}, id="kubernetes_to_pod_runner"),
+        pytest.param(RUNNER_DOCKER, None, id="docker"),
+        pytest.param(RUNNER_KUBERNETES, {"limits": {"cpu": "2"}}, id="kubernetes"),
     ],
 )
-async def test_dispatch_execute_routes_image_runner(monkeypatch, runner_mode, kubernetes_config):
+async def test_resolve_dispatch_uses_worker_runner_and_job_resources(monkeypatch, runner, resources):
+    monkeypatch.setenv(ENV_WORKER_RUNNER, runner)
+    monkeypatch.setenv(ENV_NAMESPACE, "ml")
+    job = type("FakeJob", (), {"resources": resources})()
+    monkeypatch.setattr(dispatch, "get_sql_session", lambda: _FakeSession(job))
+    resolved = await dispatch._resolve_dispatch(_task(image_source=PREBUILT))
+    assert resolved.runner == runner
+    assert isinstance(resolved.image_source, ImagePrebuilt)
+    if runner == RUNNER_KUBERNETES:
+        assert resolved.pod_config == KubernetesConfig("ml", None, None, resources)
+    else:
+        assert resolved.pod_config is None
+
+
+@pytest.mark.parametrize("runner", [RUNNER_DOCKER, RUNNER_KUBERNETES])
+async def test_dispatch_execute_routes_image_runner(monkeypatch, runner):
     user_task = _task()
-    spec = JobDispatch(runner_mode, kubernetes_config)
+    spec = JobDispatch(runner, None)
     monkeypatch.setattr(dispatch, "_resolve_dispatch", AsyncMock(return_value=spec))
-    runner = AsyncMock(return_value=(True, None, None, None))
-    monkeypatch.setitem(dispatch._IMAGE_RUNNERS, runner_mode, runner)
+    handler = AsyncMock(return_value=(True, None, None, None))
+    monkeypatch.setitem(dispatch._IMAGE_RUNNERS, runner, handler)
 
     await dispatch.dispatch_execute(user_task, execution_worker_id=1)
-    runner.assert_awaited_once_with(user_task, 1, spec, None)
+    handler.assert_awaited_once_with(user_task, 1, spec, None)
 
 
 async def test_dispatch_execute_removes_shell_env_file(monkeypatch, tmp_path):

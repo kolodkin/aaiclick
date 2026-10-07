@@ -187,6 +187,9 @@ class Job(SQLModel, table=True):
         sa_column=Column(String, nullable=False, server_default=RUNNER_SUBPROCESS),
     )
     runner: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    # Kubernetes requests/limits applied to every Pod of this job; the docker
+    # runner ignores it. Snapshot of run kwarg → registration default.
+    resources: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     created_at: datetime = utc_field(default_factory=utc_now, index=True)
     started_at: datetime | None = utc_field(default=None)
     completed_at: datetime | None = utc_field(default=None)

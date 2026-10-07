@@ -12,13 +12,15 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from ..kubernetes_config import KubernetesConfig
 from ..logging import read_task_logs
 from ..models import Task
-from ..runner_config import ENTRY_JVM, RUNNER_KUBERNETES, ImagePrebuilt
+from ..runner_config import ENTRY_JVM, ImagePrebuilt
 from . import kubernetes_worker as kw
 from .execution_worker import JobDispatch
 from .kubernetes_worker import build_shell_pod_spec
 from .log_test_helpers import dispatch_with_fake_cli
+from .runner_env import RUNNER_KUBERNETES
 
 
 def test_build_pod_manifest_shape():
@@ -192,8 +194,8 @@ def _shell_task_and_dispatch(command_env):
         run_epoch=1,
     )
     dispatch = JobDispatch(
-        "kubernetes",
-        {"namespace": "jobs", "service_account": "sa", "image_pull_secret": None, "resources": None},
+        RUNNER_KUBERNETES,
+        KubernetesConfig("jobs", "sa", None, None),
         "shell",
         ["echo", "hi"],
         command_env,
@@ -328,7 +330,12 @@ esac
 async def test_jvm_pod_output_reaches_task_logs(orch_ctx, monkeypatch, tmp_path):
     """The jvm shim writes no logs itself: the host registers the attempt and
     follows ``kubectl logs`` into task_logs (Kubernetes merges the streams)."""
-    spec = JobDispatch(RUNNER_KUBERNETES, {}, entry_type=ENTRY_JVM, image_source=ImagePrebuilt(image_tag="img:1"))
+    spec = JobDispatch(
+        RUNNER_KUBERNETES,
+        KubernetesConfig("default", None, None, None),
+        entry_type=ENTRY_JVM,
+        image_source=ImagePrebuilt(image_tag="img:1"),
+    )
     stored = await dispatch_with_fake_cli(monkeypatch, tmp_path, "AAICLICK_KUBECTL_BIN", _FAKE_KUBECTL, spec)
 
     assert len(stored.run_ids) == 1

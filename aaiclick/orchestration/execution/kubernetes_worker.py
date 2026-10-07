@@ -120,13 +120,14 @@ class _PodSpec(NamedTuple):
 
 
 def _pod_spec_from(task: Task, dispatch: JobDispatch, image_tag: str) -> _PodSpec:
-    kc = dispatch.kubernetes_config or {}
+    pod = dispatch.pod_config
+    assert pod is not None, "kubernetes dispatch without pod_config"
     return _PodSpec(
         image_tag=image_tag,
-        namespace=kc.get("namespace") or "default",
-        service_account=kc.get("service_account"),
-        image_pull_secret=kc.get("image_pull_secret"),
-        resources=kc.get("resources"),
+        namespace=pod.namespace,
+        service_account=pod.service_account,
+        image_pull_secret=pod.image_pull_secret,
+        resources=pod.resources,
         entry_type=dispatch.entry_type,
         command=dispatch.command,
         command_env=dispatch.command_env,
