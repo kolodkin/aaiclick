@@ -16,6 +16,7 @@ from aaiclick.backend import is_local
 
 from .background import BackgroundWorker
 from .execution import mp_worker_main_loop
+from .execution.runner_env import validate_worker_runner
 from .orch_context import orch_context
 
 
@@ -34,7 +35,9 @@ async def start_execution_worker(max_tasks: int | None = None) -> None:
 
     Raises:
         RuntimeError: If running in local mode (chdb + SQLite).
+        ValueError: If ``AAICLICK_RUNNER`` is unknown or inconsistent.
     """
+    validate_worker_runner()
     if is_local():
         raise RuntimeError(
             "'execution-worker start' requires distributed backends (ClickHouse server + PostgreSQL). "
@@ -95,7 +98,9 @@ async def start_background(poll_interval: float = 10.0) -> None:
 
     Raises:
         RuntimeError: If running in local mode (chdb + SQLite).
+        ValueError: If ``AAICLICK_RUNNER`` is unknown or inconsistent.
     """
+    validate_worker_runner()
     if is_local():
         raise RuntimeError(
             "'background start' requires distributed backends (ClickHouse server + PostgreSQL). "

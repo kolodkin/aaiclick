@@ -7,6 +7,43 @@ operator-listed extras."""
 from __future__ import annotations
 
 import os
+from typing import Literal
+
+# --- worker runner: how this worker launches container tasks ---------------
+RUNNER_DOCKER = "docker"
+RUNNER_KUBERNETES = "kubernetes"
+WorkerRunner = Literal["docker", "kubernetes"]
+WORKER_RUNNERS: list[WorkerRunner] = [RUNNER_DOCKER, RUNNER_KUBERNETES]
+ENV_WORKER_RUNNER = "AAICLICK_RUNNER"
+"""Deployment-level choice, set once per worker (the compose scaffold sets
+``docker``, the helm chart ``kubernetes``). Unset means the worker runs
+subprocess tasks only. Tasks without an ``image_source`` run as a host
+subprocess whatever the value."""
+
+
+def get_worker_runner() -> WorkerRunner | None:
+    """The worker's container runner from ``AAICLICK_RUNNER``, or None when unset."""
+    value = os.environ.get(ENV_WORKER_RUNNER) or None
+    if value is None:
+        return None
+    if value not in WORKER_RUNNERS:
+        raise ValueError(f"{ENV_WORKER_RUNNER}={value!r} is not one of {', '.join(WORKER_RUNNERS)}")
+    return value  # type: ignore[return-value]
+
+
+def validate_worker_runner() -> None:
+    """Fail worker startup on an inconsistent runner env.
+
+    Raises ``ValueError`` for an unknown ``AAICLICK_RUNNER`` value, and for
+    ``kubernetes`` combined with ``AAICLICK_LOCAL_BUILD`` — a locally built
+    image lives only in this host's daemon, which the cluster cannot pull."""
+    runner = get_worker_runner()
+    if runner == RUNNER_KUBERNETES and os.environ.get("AAICLICK_LOCAL_BUILD"):
+        raise ValueError(
+            f"{ENV_WORKER_RUNNER}=kubernetes cannot be combined with AAICLICK_LOCAL_BUILD: "
+            "the cluster cannot pull from this worker's docker daemon; set AAICLICK_REGISTRY instead"
+        )
+
 
 ALWAYS_PASSED_ENV_VARS = (
     "AAICLICK_SQL_URL",

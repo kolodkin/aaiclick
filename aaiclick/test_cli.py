@@ -411,3 +411,10 @@ def test_user_invite_parser():
     assert args.user_command == "invite" and args.username == "alice"
     assert args.email == "a@example.com" and args.role == "admin"
     assert parser.parse_args(["user", "invite", "bob"]).role == "viewer"
+
+
+async def test_execution_worker_start_rejects_bad_runner(monkeypatch, capsys):
+    monkeypatch.setenv("AAICLICK_RUNNER", "podman")
+    with pytest.raises(SystemExit):
+        await run_cli("execution-worker", "start")
+    assert "AAICLICK_RUNNER" in capsys.readouterr().err
