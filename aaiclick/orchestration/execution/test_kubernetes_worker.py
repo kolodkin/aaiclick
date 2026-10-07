@@ -341,3 +341,9 @@ async def test_jvm_pod_output_reaches_task_logs(orch_ctx, monkeypatch, tmp_path)
     assert len(stored.run_ids) == 1
     lines = await read_task_logs(stored.id, stored.run_ids[0])
     assert [(line.stream, line.text) for line in lines] == [("stdout", "jvm says hi"), ("stdout", "jvm warns")]
+
+
+def test_pod_spec_requires_pod_config():
+    task = Task(id=1, job_id=1, entrypoint="m.f", name="t", run_epoch=1)
+    with pytest.raises(RuntimeError, match="pod_config"):
+        kw._pod_spec_from(task, JobDispatch(RUNNER_KUBERNETES, None), "img:1")

@@ -219,8 +219,9 @@ async def run_job(request: RunJobRequest) -> JobView:
     ``RegisteredJob`` exists, the new job links to it and inherits its
     ``default_kwargs``; otherwise it runs standalone.
 
-    Raises ``Invalid`` when the request's fields contradict the resolved
-    runner (e.g. ``image`` for a job on the subprocess runner).
+    Raises ``Invalid`` when the request's fields contradict each other
+    (e.g. ``image`` together with ``build``) or need an image source
+    (``resources``, ``jvm``) but none resolves.
     """
     if "." in request.name:
         entrypoint = request.name

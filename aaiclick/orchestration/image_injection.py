@@ -82,8 +82,7 @@ def validate_jvm_tasks(tasks: list[Task]) -> None:
 
     The shim resolves only plain values and upstream refs, so any other ref
     fails here, not inside the container. There is no host-subprocess JVM
-    contract, so a jvm task must carry an image (docker/kubernetes only —
-    implied by ``validate_image_sources``)."""
+    contract, so a jvm task must carry an image."""
     for task in tasks:
         if task.entry_type != ENTRY_JVM:
             continue
@@ -91,8 +90,7 @@ def validate_jvm_tasks(tasks: list[Task]) -> None:
             raise ValueError(f"jvm task {task.name!r} requires a Java class name as its entrypoint")
         if task.image_source is None:
             raise ValueError(
-                f"jvm task {task.name!r} declares no image_source; jvm tasks run only "
-                "in their own container image on docker/kubernetes jobs"
+                f"jvm task {task.name!r} declares no image_source; jvm tasks run only in their own container image"
             )
         # Per kwarg, like the shim: the kwargs map itself is never a ref.
         for name, value in (task.kwargs or {}).items():

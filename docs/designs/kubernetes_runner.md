@@ -131,8 +131,10 @@ row. Tests: `test_kubernetes_worker.py` — `test_pod_status_maps_kubectl_failur
 
 Kubernetes reuses the Docker build pipeline unchanged (`orchestration.md` "Image
 source"): the injected build task builds and pushes on the worker host, and the
-Pod pulls by tag. A `build` source therefore needs `AAICLICK_REGISTRY`, which
-`execution-worker start` checks for a kubernetes worker.
+Pod pulls by tag. A `build` source therefore needs `AAICLICK_REGISTRY`:
+`execution-worker start` rejects `AAICLICK_LOCAL_BUILD` on a kubernetes worker,
+and a missing registry fails in the build task (prebuilt-only clusters need
+none).
 
 # Configuration
 

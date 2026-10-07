@@ -66,7 +66,8 @@ def _validate_registration_fields(
     validate_image_exclusivity(image, build, git_remote, dockerfile)
     modifiers = [name for name, value in (("git_remote", git_remote), ("dockerfile", dockerfile)) if value is not None]
     if modifiers and not build:
-        raise ValueError(f"{', '.join(modifiers)} require build=True")
+        verb = "requires" if len(modifiers) == 1 else "require"
+        raise ValueError(f"{', '.join(modifiers)} {verb} build (--build on the CLI)")
     if resources is not None and not (build or image is not None):
         raise ValueError(_RESOURCES_REQUIRE_IMAGE)
 
@@ -438,6 +439,21 @@ async def run_job(
     default_kwargs = registered.default_kwargs if registered is not None else None
     merged_kwargs = {**(default_kwargs or {}), **(kwargs or {})}
 
+    # Decide "container or not" before resolving: git auto-detect must not
+    # mask the real problem when the local backend cannot run containers.
+    wants_container = (
+        image is not None
+        or build
+        or any(v is not None for v in (git_remote, git_sha, git_branch, dockerfile))
+        or (registered is not None and (registered.image is not None or registered.build))
+    )
+    if wants_container and is_local():
+        raise ValueError(
+            "container jobs require distributed mode (Postgres + ClickHouse); "
+            "got chdb + SQLite. Set AAICLICK_SQL_URL and AAICLICK_CH_URL to "
+            "remote services before submitting these jobs."
+        )
+
     source = await resolve_image_source(
         registered,
         image=image,
@@ -449,12 +465,6 @@ async def run_job(
     )
 
     if source is not None:
-        if is_local():
-            raise ValueError(
-                "container jobs require distributed mode (Postgres + ClickHouse); "
-                "got chdb + SQLite. Set AAICLICK_SQL_URL and AAICLICK_CH_URL to "
-                "remote services before submitting these jobs."
-            )
         if resources is None and registered is not None:
             resources = registered.resources
         return await create_container_job(

@@ -1,12 +1,15 @@
 """Tests for registered jobs CRUD operations."""
 
 from datetime import datetime
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlmodel import select
 
 from ..datetime_utils import utc_now
+from . import docker_config
 from . import registered_jobs as registered_jobs_module
+from .docker_config import GitDetectionError
 from .factories import resolve_job_config
 from .models import PRESERVATION_FULL, PRESERVATION_NONE, RUN_MANUAL, RegisteredJob, Task
 from .orch_context import get_sql_session
@@ -357,8 +360,8 @@ async def test_run_job_image_and_build_mutually_exclusive():
 @pytest.mark.parametrize(
     "fields, message",
     [
-        pytest.param({"git_remote": "git@x:r.git"}, "git_remote require build", id="git-remote"),
-        pytest.param({"dockerfile": "Dockerfile.gpu"}, "dockerfile require build", id="dockerfile"),
+        pytest.param({"git_remote": "git@x:r.git"}, "git_remote requires build", id="git-remote"),
+        pytest.param({"dockerfile": "Dockerfile.gpu"}, "dockerfile requires build", id="dockerfile"),
         pytest.param({"image": "python:3.12", "build": True}, "mutually exclusive", id="image-and-build"),
         pytest.param(
             {"resources": {"limits": {"cpu": "1"}}}, "resources require an image source", id="resources-on-subprocess"
@@ -397,6 +400,13 @@ async def test_run_job_resources_fall_back_to_registration(orch_ctx, monkeypatch
 async def test_run_job_rejects_container_source_in_local_mode(orch_ctx):
     with pytest.raises(ValueError, match="distributed mode"):
         await run_job("local_img", "myapp.local", image="python:3.12")
+
+
+async def test_run_job_local_mode_check_precedes_git_autodetect(orch_ctx, monkeypatch):
+    """A dirty tree must not mask the real problem: the local backend cannot run containers."""
+    monkeypatch.setattr(docker_config, "auto_detect_git_sha", AsyncMock(side_effect=GitDetectionError("dirty tree")))
+    with pytest.raises(ValueError, match="distributed mode"):
+        await run_job("local_build", "myapp.local", build=True)
 
 
 async def test_run_job_shell_creates_shell_task(orch_ctx):

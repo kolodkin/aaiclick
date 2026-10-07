@@ -170,7 +170,7 @@ def create_task(
     ``aaiclick-task-api`` shim inside the task's container image (spec:
     docs/designs/java-sdk.md).
 
-    A task on a docker/kubernetes job may declare its own container image;
+    A task may declare its own container image;
     tasks that declare none inherit the committing task's image at
     ``commit_tasks`` (dynamic children follow their parent).
 

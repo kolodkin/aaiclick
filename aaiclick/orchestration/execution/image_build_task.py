@@ -2,7 +2,7 @@
 
 An ordinary module task injected at commit points (see
 ``orchestration.image_injection``) for every distinct build-source image in a
-docker/kubernetes job. It runs on the dispatching worker host
+job with a build image source. It runs on the dispatching worker host
 (``image_source=NULL`` ⇒ subprocess vehicle) because it needs the docker CLI
 and daemon socket. The body is cache-first via ``build_image_to_tag``:
 registry mode pulls (someone already pushed this SHA → done), else clone +

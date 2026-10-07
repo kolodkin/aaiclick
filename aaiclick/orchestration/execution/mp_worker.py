@@ -261,7 +261,7 @@ async def mp_worker_main_loop(
 
     Per-task runner dispatch: tasks belonging to a docker- or kubernetes-mode
     job route through that runner; subprocess-mode tasks (and the auto-injected
-    build task on every docker/kubernetes job) route through the multiprocessing
+    build task on every build-image job) route through the multiprocessing
     child runner. See ``dispatch.dispatch_execute``.
 
     Args:

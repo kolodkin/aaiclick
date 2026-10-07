@@ -176,7 +176,7 @@ Both set, or neither, raises in the build task naming both variables. Local mode
 **ExecutionWorker prerequisites** — because the build and the `docker run` happen on the worker's host, not in a separate service:
 
 - **`AAICLICK_RUNNER=docker`** — every worker that may run the job needs a reachable **Docker daemon + CLI** (`AAICLICK_DOCKER_BIN`, default `docker`), for both `build` (to build the image) and `prebuilt` (to `docker run` it), plus exactly one of `AAICLICK_REGISTRY` / `AAICLICK_LOCAL_BUILD` for `build`.
-- **`AAICLICK_RUNNER=kubernetes`, `build` source** — **requires `AAICLICK_REGISTRY`** (checked at worker startup); the injected build task needs Docker on the worker host, then the Pod pulls from the registry.
+- **`AAICLICK_RUNNER=kubernetes`, `build` source** — **requires `AAICLICK_REGISTRY`** (worker startup rejects `AAICLICK_LOCAL_BUILD`; a missing registry fails in the build task); the injected build task needs Docker on the worker host, then the Pod pulls from the registry.
 - **`AAICLICK_RUNNER=kubernetes`, `prebuilt` source** — no Docker on the worker; it only needs cluster access (`kubectl`), and the cluster pulls the image.
 - **`AAICLICK_RUNNER` unset** — no Docker at all; the worker runs subprocess tasks only and fails a container task with a message naming the variable.
 

@@ -121,7 +121,8 @@ class _PodSpec(NamedTuple):
 
 def _pod_spec_from(task: Task, dispatch: JobDispatch, image_tag: str) -> _PodSpec:
     pod = dispatch.pod_config
-    assert pod is not None, "kubernetes dispatch without pod_config"
+    if pod is None:
+        raise RuntimeError("kubernetes dispatch without pod_config")
     return _PodSpec(
         image_tag=image_tag,
         namespace=pod.namespace,
