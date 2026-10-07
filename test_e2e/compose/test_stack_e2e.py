@@ -69,8 +69,6 @@ def test_shell_job_round_trip(compose_dir):
         _SMOKE_ENTRYPOINT,
         "--name",
         "compose-smoke",
-        "--runner",
-        "subprocess",
     )
     _compose_exec(
         compose_dir,

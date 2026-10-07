@@ -103,6 +103,9 @@ services:
       # so tasks inherit working connection strings verbatim.
       AAICLICK_SQL_URL: postgresql+asyncpg://aaiclick:change-me-postgres@host.docker.internal:5432/aaiclick
       AAICLICK_CH_URL: clickhouse://default:change-me-clickhouse@host.docker.internal:8123/default
+      # How this worker launches container tasks (--image / --build jobs):
+      # the compose stack dispatches to the host daemon mounted above.
+      AAICLICK_RUNNER: docker
       AAICLICK_REGISTRY: host.docker.internal:5000
       AAICLICK_DOCKER_BUILD_ADD_HOST: host.docker.internal:host-gateway
       AAICLICK_DOCKER_RUN_ADD_HOST: host.docker.internal:host-gateway

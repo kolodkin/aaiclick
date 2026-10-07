@@ -93,7 +93,7 @@ jobs:
         run: |
           kubectl exec deploy/aaiclick-server -- \
             python -m aaiclick register-job aaiclick.orchestration.examples.orchestration_basic.simple_arithmetic \
-              --name helm-smoke --runner subprocess
+              --name helm-smoke
           kubectl exec deploy/aaiclick-server -- \
             python -m aaiclick run-job helm-smoke --entry-type shell --command "python -c 'print(42)'"
           for i in $(seq 1 60); do
