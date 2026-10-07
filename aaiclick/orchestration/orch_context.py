@@ -598,16 +598,16 @@ async def commit_tasks(
     tasks_only = [item for item in all_items if isinstance(item, Task)]
 
     stamp_inherited_image(tasks_only, _current_parent_image_source())
+    validate_image_sources(tasks_only)
     validate_jvm_tasks(tasks_only)
 
     async with get_sql_session() as session:
         injected: list[Task] = []
-        # Only container tasks need the job row (runner_mode) for validation
-        # and injection — the common all-subprocess commit skips the fetch.
+        # Only container tasks need the job row for build-task injection — the
+        # common all-subprocess commit skips the fetch.
         if any(task.image_source is not None for task in tasks_only):
             job = (await session.execute(select(Job).where(Job.id == job_id))).scalar_one_or_none()
             if job is not None:
-                validate_image_sources(tasks_only, job.runner_mode)
                 injected = await inject_build_tasks(session, tasks_only, job)
 
         for item in [*injected, *all_items]:

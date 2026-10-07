@@ -24,10 +24,10 @@ from aaiclick.data.object.refs import NATIVE_VALUE, REF_TYPE, UPSTREAM, ref_kind
 
 from ..datetime_utils import utc_now
 from ..snowflake import get_snowflake_id
-from .docker_config import get_registry, image_key
+from .docker_config import image_key
 from .execution.image_build_task import IMAGE_BUILD_ENTRYPOINT, build_task_name
 from .models import TASK_PENDING, Job, Task
-from .runner_config import ENTRY_JVM, IMAGE_RUNNERS, RUNNER_KUBERNETES, ImageBuild, RunnerMode, parse_image_source
+from .runner_config import ENTRY_JVM, ImageBuild, parse_image_source
 
 BUILD_TASK_MAX_RETRIES = 2
 
@@ -47,22 +47,13 @@ def stamp_inherited_image(tasks: list[Task], parent_image_source: dict | None) -
             task.image_source = parent_image_source
 
 
-def validate_image_sources(tasks: list[Task], runner_mode: RunnerMode) -> None:
-    """Enforce the commit-point rules; raises ``ValueError``."""
+def validate_image_sources(tasks: list[Task]) -> None:
+    """Reject a malformed declared ``image_source`` at commit points; raises
+    ``ValueError``. Whether the worker can run it is the worker's concern
+    (``AAICLICK_RUNNER``)."""
     for task in tasks:
-        if task.image_source is None:
-            continue
-        if runner_mode not in IMAGE_RUNNERS:
-            raise ValueError(
-                f"task {task.name!r} declares an image_source but the job's runner_mode "
-                f"is {runner_mode!r}; images are only valid on docker/kubernetes jobs"
-            )
-        source = parse_image_source(task.image_source)
-        if isinstance(source, ImageBuild) and runner_mode == RUNNER_KUBERNETES and get_registry() is None:
-            raise ValueError(
-                "kubernetes build image sources require AAICLICK_REGISTRY — "
-                "the cluster cannot pull from a worker's local docker daemon (AAICLICK_LOCAL_BUILD)"
-            )
+        if task.image_source is not None:
+            parse_image_source(task.image_source)
 
 
 _JVM_REF_KINDS = (UPSTREAM, NATIVE_VALUE)
@@ -150,14 +141,11 @@ async def inject_build_tasks(session: AsyncSession, tasks: list[Task], job: Job)
     """Ensure a build task exists per distinct build image and wire
     ``build >> dependent`` edges onto ``tasks``.
 
-    Docker/kubernetes jobs only. Returns newly created build tasks — the
-    caller commits them alongside ``tasks``. Two concurrent commits in one job
+    Returns newly created build tasks — the caller commits them alongside
+    ``tasks``. Two concurrent commits in one job
     can race past the lookup and double-inject; both builds are cache-first
     (registry pull or local daemon) so the loser is a cheap no-op (accepted,
     spec "Races")."""
-    if job.runner_mode not in IMAGE_RUNNERS:
-        return []
-
     groups: dict[str, tuple[ImageBuild, list[Task]]] = {}
     for task in tasks:
         if task.image_source is None or task.is_image_build:

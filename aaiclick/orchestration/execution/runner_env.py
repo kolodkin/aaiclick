@@ -59,10 +59,9 @@ The executor can't function without SQL and CH URLs; the timeout var must
 propagate so child tasks honor the same wall-clock cap; the preservation-mode
 default must propagate so subjobs the user spawns inherit the same setting;
 the registry must propagate because dynamic ``commit_tasks`` runs inside
-containers and its kubernetes validation (``validate_image_sources``) reads it
-— without it a dynamic child declaring a build image on a kubernetes job would
-be rejected inside the container; the task-log destination must propagate so
-in-container capture writes where the worker does."""
+containers and ``compute_image_tag`` derives build-image tags from it; the
+task-log destination must propagate so in-container capture writes where the
+worker does."""
 
 
 def build_runner_env() -> dict[str, str]:

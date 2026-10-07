@@ -13,15 +13,7 @@ from typing import Literal
 
 from .execution import cli
 from .models import RegisteredJob
-from .runner_config import (
-    DockerRunner,
-    ImageBuild,
-    ImagePrebuilt,
-    ImageSourceT,
-    KubernetesRunner,
-    RunnerConfigT,
-    RunnerMode,
-)
+from .runner_config import ImageBuild, ImagePrebuilt, ImageSourceT
 
 BUILD_MODE_REGISTRY = "registry"
 BUILD_MODE_LOCAL = "local"
@@ -125,20 +117,29 @@ async def resolve_image_source(
     registered: RegisteredJob | None,
     *,
     image: str | None = None,
+    build: bool = False,
     git_remote: str | None = None,
     git_sha: str | None = None,
     git_branch: str | None = None,
     dockerfile: str | None = None,
-) -> ImageSourceT:
-    """Resolve the image source a run's entry task is stamped with.
+) -> ImageSourceT | None:
+    """Resolve the image source a run's entry task is stamped with, or None
+    for a host subprocess.
 
-    Prebuilt when an explicit ``image`` is given (here or as the registered
-    job's default); otherwise resolve the build coordinates via the existing
-    precedence (explicit kwarg → registered default → git auto-detect)."""
+    First match wins: run ``image`` → prebuilt; run ``build`` or any build
+    modifier (``git_*`` / ``dockerfile``) → build; registration ``image`` →
+    prebuilt; registration ``build`` → build; else None. Build coordinates
+    fall through run kwarg → registration default → git auto-detect."""
+    build_requested = build or any(v is not None for v in (git_remote, git_sha, git_branch, dockerfile))
     if image is not None:
         return ImagePrebuilt(image_tag=image)
-    if registered is not None and registered.image is not None:
-        return ImagePrebuilt(image_tag=registered.image)
+    if not build_requested:
+        if registered is None:
+            return None
+        if registered.image is not None:
+            return ImagePrebuilt(image_tag=registered.image)
+        if not registered.build:
+            return None
 
     remote = git_remote
     if remote is None and registered is not None:
@@ -151,24 +152,6 @@ async def resolve_image_source(
     if dfile is None and registered is not None:
         dfile = registered.dockerfile
     return ImageBuild(git_remote=remote, git_sha=sha, git_branch=branch, dockerfile=dfile)
-
-
-def resolve_runner_config(
-    *,
-    runner_mode: RunnerMode,
-    kubernetes_config: dict | None = None,
-) -> RunnerConfigT:
-    """Resolve the per-run runner (cluster/vehicle) config. Image resolution
-    is separate (``resolve_image_source``) — the image is a task property."""
-    if runner_mode == "kubernetes":
-        kc = kubernetes_config or {}
-        return KubernetesRunner(
-            namespace=kc.get("namespace"),
-            service_account=kc.get("service_account"),
-            image_pull_secret=kc.get("image_pull_secret"),
-            resources=kc.get("resources"),
-        )
-    return DockerRunner()
 
 
 def add_host_flags(env_var: str) -> list[str]:

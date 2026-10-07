@@ -9,16 +9,9 @@ from .execution.execution_worker_context import set_current_task_info
 from .execution.image_build_task import IMAGE_BUILD_ENTRYPOINT
 from .factories import create_job, create_task
 from .image_injection import stamp_inherited_image, validate_image_sources, validate_jvm_tasks
-from .models import Dependency, Job, Task
+from .models import Dependency, Task
 from .orch_context import commit_tasks, get_sql_session
-from .runner_config import (
-    RUNNER_DOCKER,
-    RUNNER_KUBERNETES,
-    RUNNER_SUBPROCESS,
-    ImageBuild,
-    ImagePrebuilt,
-    dump_image_source,
-)
+from .runner_config import ImageBuild, ImagePrebuilt, dump_image_source
 
 BUILD_A = dump_image_source(ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40))
 BUILD_B = dump_image_source(ImageBuild(git_remote="https://example.com/r.git", git_sha="b" * 40))
@@ -43,19 +36,17 @@ def test_stamp_inherited_image_none_parent_is_noop():
     assert t.image_source is None
 
 
-@pytest.mark.parametrize(
-    "runner_mode, match",
-    [
-        pytest.param(RUNNER_SUBPROCESS, "subprocess", id="subprocess-job"),
-        pytest.param(RUNNER_KUBERNETES, "AAICLICK_REGISTRY", id="kubernetes-build-without-registry"),
-    ],
-)
-def test_validate_rejects_image_source(monkeypatch, runner_mode, match):
-    monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
+def test_validate_image_sources_rejects_malformed():
     t = create_task("m.f")
-    t.image_source = BUILD_A
-    with pytest.raises(ValueError, match=match):
-        validate_image_sources([t], runner_mode)
+    t.image_source = {"type": "nope"}
+    with pytest.raises(ValueError):
+        validate_image_sources([t])
+
+
+def test_validate_image_sources_accepts_null_and_valid():
+    declared = create_task("m.f1")
+    declared.image_source = BUILD_A
+    validate_image_sources([declared, create_task("m.f2")])
 
 
 def _jvm_task(kwargs: dict | None = None, image_source: dict | None = PREBUILT) -> Task:
@@ -112,10 +103,6 @@ def test_validate_jvm_ignores_non_jvm_tasks():
 
 async def _create_docker_job() -> int:
     job = await create_job("j", "m.entry")
-    async with get_sql_session() as session:
-        row = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
-        row.runner_mode = RUNNER_DOCKER
-        await session.commit()
     return job.id
 
 
@@ -197,11 +184,3 @@ async def test_commit_tasks_rejects_jvm_task_without_own_image(orch_ctx_no_ch):
     set_current_task_info(task_id=1, job_id=job.id, image_source=BUILD_A)
     with pytest.raises(ValueError, match="no image_source"):
         await commit_tasks(create_task("com.example.Pipeline", entry_type="jvm"), job.id)
-
-
-async def test_commit_tasks_subprocess_job_rejects_image(orch_ctx_no_ch):
-    job = await create_job("j", "m.entry")
-    t = create_task("m.child")
-    t.image_source = BUILD_A
-    with pytest.raises(ValueError, match="subprocess"):
-        await commit_tasks(t, job.id)

@@ -11,16 +11,14 @@ from sqlmodel import select
 from ..backend import is_local
 from ..datetime_utils import utc_now
 from ..snowflake import get_snowflake_id
-from .docker_config import resolve_image_source, resolve_runner_config
-from .factories import create_built_job, create_job, create_task
-from .kubernetes_config import resolve_kubernetes_config
+from .docker_config import resolve_image_source
+from .factories import create_container_job, create_job, create_task
 from .models import RUN_MANUAL, Job, PreservationMode, RegisteredJob, RunType
 from .orch_context import get_sql_session
 from .runner_config import (
     ENTRY_JVM,
     ENTRY_MODULE,
     IMAGE_RUNNERS,
-    RUNNER_KUBERNETES,
     RUNNER_SUBPROCESS,
     EntryType,
     RunnerMode,
@@ -466,28 +464,21 @@ async def run_job(
                 "got chdb + SQLite. Set AAICLICK_SQL_URL and AAICLICK_CH_URL to "
                 "remote services before submitting these jobs."
             )
-        kube_cfg = None
-        if runner_mode == RUNNER_KUBERNETES:
-            kube_cfg = resolve_kubernetes_config(
-                registered,
-                namespace=namespace,
-                service_account=service_account,
-                image_pull_secret=image_pull_secret,
-            )._asdict()
         source = await resolve_image_source(
             registered,
             image=image,
+            build=True,
             git_remote=git_remote,
             git_sha=git_sha,
             git_branch=git_branch,
             dockerfile=dockerfile,
         )
-        runner = resolve_runner_config(runner_mode=runner_mode, kubernetes_config=kube_cfg)
-        return await create_built_job(
+        assert source is not None
+        return await create_container_job(
             name=name,
             entrypoint=entrypoint,
-            runner=runner,
             image_source=source,
+            resources=None,
             entry_type=entry_type,
             command=command,
             command_env=command_env,

@@ -10,57 +10,11 @@ from aaiclick.orchestration.docker_config import (
     get_build_mode,
     image_key,
     resolve_image_source,
-    resolve_runner_config,
 )
 from aaiclick.orchestration.models import RegisteredJob
-from aaiclick.orchestration.runner_config import (
-    DockerRunner,
-    ImageBuild,
-    ImagePrebuilt,
-    KubernetesRunner,
-)
+from aaiclick.orchestration.runner_config import ImageBuild, ImagePrebuilt
 
-
-async def test_resolve_prebuilt_image_skips_git(monkeypatch):
-    monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
-    source = await resolve_image_source(
-        None, image="python:3.12", git_remote=None, git_sha=None, git_branch=None, dockerfile=None
-    )
-    assert isinstance(source, ImagePrebuilt)
-    assert source.image_tag == "python:3.12"
-
-
-async def test_resolve_build_image_computes_tag(monkeypatch):
-    monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
-    source = await resolve_image_source(
-        None, image=None, git_remote="git@x:r.git", git_sha="b" * 40, git_branch="main", dockerfile=None
-    )
-    assert isinstance(source, ImageBuild)
-    assert compute_image_tag(source.git_sha) == f"aaiclick-job:{'b' * 40}"
-
-
-async def test_registered_prebuilt_image_default():
-    registered = RegisteredJob(id=1, name="j", entrypoint="m.e", image="ghcr.io/x/y:1")
-    source = await resolve_image_source(
-        registered, image=None, git_remote=None, git_sha=None, git_branch=None, dockerfile=None
-    )
-    assert isinstance(source, ImagePrebuilt)
-    assert source.image_tag == "ghcr.io/x/y:1"
-
-
-def test_resolve_kubernetes_runner_preserves_resources():
-    cfg = resolve_runner_config(
-        runner_mode="kubernetes",
-        kubernetes_config={"namespace": "ml", "resources": {"limits": {"cpu": "2"}}},
-    )
-    assert isinstance(cfg, KubernetesRunner)
-    assert cfg.namespace == "ml"
-    assert cfg.resources == {"limits": {"cpu": "2"}}
-
-
-def test_resolve_docker_runner_is_bare_marker():
-    cfg = resolve_runner_config(runner_mode="docker")
-    assert isinstance(cfg, DockerRunner)
+_DEFAULTS = {"image": None, "build": False, "git_remote": None, "git_sha": None, "git_branch": None, "dockerfile": None}
 
 
 def test_image_key_stable_and_distinguishes_fields():
@@ -105,35 +59,62 @@ def test_get_build_mode_rejects_ambiguous_env(monkeypatch, registry, local_build
         get_build_mode()
 
 
-async def test_resolve_image_source_kwargs_override_registered_defaults(
-    monkeypatch,
-):
-    """The three-layer resolve picks the right value at each level."""
+@pytest.mark.parametrize(
+    "registered, kwargs, expected",
+    [
+        pytest.param(None, {}, None, id="nothing-subprocess"),
+        pytest.param(None, {"image": "python:3.12"}, ImagePrebuilt(image_tag="python:3.12"), id="run-image"),
+        pytest.param(
+            None,
+            {"build": True},
+            ImageBuild(git_remote="git@auto:r.git", git_sha="c" * 40, git_branch="auto"),
+            id="run-build-autodetect",
+        ),
+        pytest.param(
+            None,
+            {"git_sha": "b" * 40},
+            ImageBuild(git_remote="git@auto:r.git", git_sha="b" * 40, git_branch="auto"),
+            id="run-modifier-implies-build",
+        ),
+        pytest.param(
+            RegisteredJob(name="r", entrypoint="m.f", image="ghcr.io/x/y:1"),
+            {},
+            ImagePrebuilt(image_tag="ghcr.io/x/y:1"),
+            id="registered-image",
+        ),
+        pytest.param(
+            RegisteredJob(name="r", entrypoint="m.f", build=True, git_remote="git@reg:r.git", dockerfile="D"),
+            {},
+            ImageBuild(git_remote="git@reg:r.git", git_sha="c" * 40, git_branch="auto", dockerfile="D"),
+            id="registered-build",
+        ),
+        pytest.param(
+            RegisteredJob(name="r", entrypoint="m.f", build=True, git_remote="git@reg:r.git"),
+            {"image": "python:3.12"},
+            ImagePrebuilt(image_tag="python:3.12"),
+            id="run-image-outranks-registered-build",
+        ),
+        pytest.param(
+            RegisteredJob(name="r", entrypoint="m.f", image="ghcr.io/x/y:1"),
+            {"build": True},
+            ImageBuild(git_remote="git@auto:r.git", git_sha="c" * 40, git_branch="auto"),
+            id="run-build-outranks-registered-image",
+        ),
+        pytest.param(
+            RegisteredJob(name="r", entrypoint="m.f", build=True, git_remote="git@reg:r.git", dockerfile="D"),
+            {"git_remote": "git@override:r.git", "git_sha": "b" * 40},
+            ImageBuild(git_remote="git@override:r.git", git_sha="b" * 40, git_branch="auto", dockerfile="D"),
+            id="run-modifiers-override-registered-defaults",
+        ),
+    ],
+)
+async def test_resolve_image_source(monkeypatch, registered, kwargs, expected):
+    monkeypatch.setattr(docker_config, "auto_detect_git_remote", AsyncMock(return_value="git@auto:r.git"))
+    monkeypatch.setattr(docker_config, "auto_detect_git_sha", AsyncMock(return_value="c" * 40))
+    monkeypatch.setattr(docker_config, "auto_detect_git_branch", AsyncMock(return_value="auto"))
+    assert await resolve_image_source(registered, **{**_DEFAULTS, **kwargs}) == expected
+
+
+def test_compute_image_tag_without_registry(monkeypatch):
     monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
-    monkeypatch.setattr(docker_config, "auto_detect_git_branch", AsyncMock(return_value="auto-branch"))
-
-    registered = RegisteredJob(
-        id=1,
-        name="r",
-        entrypoint="x.y",
-        runner_mode="docker",
-        git_remote="git@registered.example:repo.git",
-        dockerfile="Dockerfile.default",
-    )
-
-    source = await resolve_image_source(
-        registered,
-        image=None,
-        git_remote="git@override.example:repo.git",
-        git_sha="b" * 40,
-        git_branch=None,
-        dockerfile=None,
-    )
-
-    assert isinstance(source, ImageBuild)
-    assert source.git_remote == "git@override.example:repo.git"
-    assert source.git_sha == "b" * 40
-    # git_branch falls back to auto-detect since kwarg is None
-    assert source.git_branch == "auto-branch"
-    # dockerfile inherits the registered default since kwarg is None
-    assert source.dockerfile == "Dockerfile.default"
+    assert compute_image_tag("b" * 40) == f"aaiclick-job:{'b' * 40}"
