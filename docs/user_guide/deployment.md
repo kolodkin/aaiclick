@@ -39,6 +39,9 @@ password afterwards in the UI, not by editing the env var.
 
 # Real deployments
 
+- Both scaffolds set the worker's `AAICLICK_RUNNER` (`docker` in compose,
+  `kubernetes` in the chart), which turns `--image` / `--build` jobs into
+  containers or Pods. Without it a worker runs subprocess tasks only.
 - Point `env.sqlUrl` / `env.chUrl` at managed databases and set
   `devDependencies.enabled=false` — the in-chart databases keep no volume.
 - Inject secrets instead of committing them: `helm install --set-file`, an

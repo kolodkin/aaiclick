@@ -38,7 +38,11 @@ RUN pip install --no-cache-dir /src
 
 # Kubernetes dispatching worker
 
-Run `aaiclick-kubectl` as a pod. Inside a pod, `kubectl` uses **in-cluster
+Run `aaiclick-kubectl` as a pod with `AAICLICK_RUNNER=kubernetes`: container
+tasks become Pods, tasks without an image run in-place. Pod namespace, service
+account and imagePullSecret come from `AAICLICK_K8S_NAMESPACE`,
+`AAICLICK_K8S_SERVICE_ACCOUNT`, `AAICLICK_K8S_IMAGE_PULL_SECRET`. Inside a pod,
+`kubectl` uses **in-cluster
 config** automatically — it reads the API address from the injected
 `KUBERNETES_SERVICE_HOST` / `_PORT`, the token from
 `/var/run/secrets/kubernetes.io/serviceaccount/token`, and the CA from the
@@ -82,7 +86,7 @@ roleRef: { kind: Role, name: aaiclick-task-runner, apiGroup: rbac.authorization.
 The worker Deployment sets `serviceAccountName: aaiclick-worker` and runs
 `ghcr.io/kolodkin/aaiclick-kubectl`. Task pods created in a *different* namespace,
 or using a private image, need the Role widened to that namespace and
-`kubernetes_config.image_pull_secret` set.
+`AAICLICK_K8S_IMAGE_PULL_SECRET` set.
 
 !!! warning "The k8s worker also needs Docker to build the task image"
     For `build` image sources, a host-pinned `build-image` task runs
@@ -98,15 +102,17 @@ sets `KUBECONFIG`.
 
 # Docker dispatching worker
 
-`aaiclick-docker` carries the Docker **client** only. It talks to a daemon over a
-mounted socket (docker-out-of-docker); the containers it spawns are **siblings**
-on the host daemon, not nested:
+`aaiclick-docker` carries the Docker **client** only. With
+`AAICLICK_RUNNER=docker` it talks to a daemon over a mounted socket
+(docker-out-of-docker); the containers it spawns are **siblings** on the host
+daemon, not nested:
 
 ```bash
 docker run \
+  -e AAICLICK_RUNNER=docker \
   -v /var/run/docker.sock:/var/run/docker.sock \
   ghcr.io/kolodkin/aaiclick-docker:vX.Y.Z \
-  python -m aaiclick worker start ...
+  python -m aaiclick execution-worker start
 ```
 
 The image runs as the non-root `aaiclick` user, so it needs access to the mounted

@@ -264,8 +264,12 @@ of `entrypoint`.
       -d '{"name": "crawl", "entrypoint": "myapp.pipelines.crawl", "schedule": "0 8 * * *", "default_kwargs": {"depth": 3}}'
     ```
 
-Runner defaults are set here too: `--runner subprocess|docker|kubernetes` and
-`--image python:3.12` on the CLI, `runner_mode` / `image` in Python and REST.
+Where a job runs is set here too: nothing → a subprocess on the worker;
+`--image python:3.12` → a container from that image; `--build` → a container
+built from your repo at the submitted commit (`--git-remote` / `--dockerfile`
+modify it, `--git-sha` per run). Python and REST use `image` / `build`.
+Container vs Pod is the worker's `AAICLICK_RUNNER` — see
+[Deployment](deployment.md).
 
 ## Enable, disable, list registrations
 
