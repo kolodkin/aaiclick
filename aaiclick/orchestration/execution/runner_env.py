@@ -7,7 +7,7 @@ operator-listed extras."""
 from __future__ import annotations
 
 import os
-from typing import Literal
+from typing import Literal, cast
 
 # --- worker runner: how this worker launches container tasks ---------------
 RUNNER_DOCKER = "docker"
@@ -28,7 +28,7 @@ def get_worker_runner() -> WorkerRunner | None:
         return None
     if value not in WORKER_RUNNERS:
         raise ValueError(f"{ENV_WORKER_RUNNER}={value!r} is not one of {', '.join(WORKER_RUNNERS)}")
-    return value  # type: ignore[return-value]
+    return cast(WorkerRunner, value)
 
 
 def validate_worker_runner() -> None:

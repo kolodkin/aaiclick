@@ -91,12 +91,12 @@ async def register_job(request: RegisterJobRequest) -> RegisteredJobView:
     callable (validated before persisting), or ``Invalid`` if the image-source
     fields contradict each other (see ``register_job``).
 
-    Entrypoint validation is skipped for prebuilt-image registrations
-    (``image`` set): the entrypoint resolves inside the image at run time
-    (module entry) or is unused (shell entry), so it is not importable on the
-    host doing the registration.
+    Entrypoint validation is skipped for containerized registrations
+    (``image`` or ``build``): the entrypoint resolves inside the image at run
+    time (module entry) or is unused (shell entry), so it is not importable on
+    the host doing the registration.
     """
-    if request.image is None:
+    if request.image is None and not request.build:
         _validate_entrypoint(request.entrypoint)
     try:
         registered = await _register_job_impl(

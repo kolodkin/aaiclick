@@ -199,7 +199,7 @@ def create_task(
     """
     image_source: dict | None = None
     git_fields = (git_remote, git_sha, git_branch, dockerfile)
-    validate_image_exclusivity(image, *git_fields)
+    validate_image_exclusivity(image, False, *git_fields)
     if image is not None:
         image_source = dump_image_source(ImagePrebuilt(image_tag=image))
     elif any(v is not None for v in git_fields):

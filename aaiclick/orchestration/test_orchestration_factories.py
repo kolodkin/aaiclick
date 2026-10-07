@@ -222,3 +222,9 @@ async def test_job_factory_passes_kwargs_named_like_job_fields_to_the_task(orch_
     assert created.run_type == RUN_MANUAL and created.registered_job_id is None
     (entry,) = await get_tasks_for_job(created.id)
     assert set(entry.kwargs) == {"run_type", "registered_job_id"}
+
+
+def test_create_task_rejects_image_with_empty_git_remote():
+    """An empty string is still a set build field: image and the build side stay exclusive."""
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        create_task("m.f", image="python:3.12", git_remote="")

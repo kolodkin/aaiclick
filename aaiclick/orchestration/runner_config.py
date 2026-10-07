@@ -75,12 +75,18 @@ def dump_image_source(source: ImageSourceT) -> dict:
     return _IMAGE_ADAPTER.dump_python(source, mode="json")
 
 
+def build_requested(build: bool, *modifiers: str | None) -> bool:
+    """Whether a submission asks for a git build: the ``build`` flag, or any
+    set modifier (``git_*`` / ``dockerfile``), which implies it."""
+    return build or any(v is not None for v in modifiers)
+
+
 def validate_image_exclusivity(image: str | None, build: bool, *build_fields: str | None) -> None:
     """A prebuilt ``image`` and the build side (``build`` flag, ``git_*`` /
     ``dockerfile`` modifiers) are mutually exclusive — shared by every
     submission surface so the rule and its message live in one place. Raises
     ``ValueError``."""
-    if image is not None and (build or any(v is not None for v in build_fields)):
+    if image is not None and build_requested(build, *build_fields):
         raise ValueError("image (prebuilt) and build/git_* fields are mutually exclusive")
 
 

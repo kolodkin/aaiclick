@@ -1,8 +1,8 @@
-"""Docker runner configuration helpers.
+"""Image-source resolution and docker build helpers.
 
-Resolves the three-layer Docker config (run_job kwarg → RegisteredJob
-default → auto-detect) into the snapshot stored on a ``Job`` row, and
-houses small primitives used by the build task and host runner.
+Resolves a run's image source (run kwarg → RegisteredJob default → git
+auto-detect) for stamping onto the entry task, and houses small primitives
+used by the build task and host runner.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from typing import Literal
 
 from .execution import cli
 from .models import RegisteredJob
-from .runner_config import ImageBuild, ImagePrebuilt, ImageSourceT
+from .runner_config import ImageBuild, ImagePrebuilt, ImageSourceT, build_requested
 
 BUILD_MODE_REGISTRY = "registry"
 BUILD_MODE_LOCAL = "local"
@@ -130,10 +130,9 @@ async def resolve_image_source(
     modifier (``git_*`` / ``dockerfile``) → build; registration ``image`` →
     prebuilt; registration ``build`` → build; else None. Build coordinates
     fall through run kwarg → registration default → git auto-detect."""
-    build_requested = build or any(v is not None for v in (git_remote, git_sha, git_branch, dockerfile))
     if image is not None:
         return ImagePrebuilt(image_tag=image)
-    if not build_requested:
+    if not build_requested(build, git_remote, git_sha, git_branch, dockerfile):
         if registered is None:
             return None
         if registered.image is not None:

@@ -259,10 +259,9 @@ async def mp_worker_main_loop(
     When a task exceeds the timeout the child process is killed and the
     task is marked as failed.
 
-    Per-task runner dispatch: tasks belonging to a docker- or kubernetes-mode
-    job route through that runner; subprocess-mode tasks (and the auto-injected
-    build task on every build-image job) route through the multiprocessing
-    child runner. See ``dispatch.dispatch_execute``.
+    Per-task runner dispatch: tasks with an ``image_source`` run on the
+    worker's ``AAICLICK_RUNNER``; tasks without one (including the auto-injected
+    build task) run in the multiprocessing child. See ``dispatch.dispatch_execute``.
 
     Args:
         execution_worker_id: ExecutionWorker ID (registers new worker if None).

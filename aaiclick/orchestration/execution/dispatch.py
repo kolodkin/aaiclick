@@ -44,8 +44,8 @@ async def _resolve_dispatch(task: Task) -> JobDispatch:
 
     NULL ``image_source`` ⇒ host subprocess on any worker — the rule that
     host-pins injected build tasks (spec: docs/designs/orchestration.md "Image
-    source"). A container task runs on the worker's ``AAICLICK_RUNNER``; the
-    job row is read only for the Pod ``resources`` snapshot."""
+    source"). A container task runs on the worker's ``AAICLICK_RUNNER``; only
+    the kubernetes runner reads the job row, for the Pod ``resources`` snapshot."""
     if task.image_source is None:
         return _subprocess_dispatch(task)
     runner = get_worker_runner()
@@ -55,10 +55,11 @@ async def _resolve_dispatch(task: Task) -> JobDispatch:
             "set it to docker or kubernetes on the worker"
         )
     source = parse_image_source(task.image_source)
-    async with get_sql_session() as session:
-        job = (await session.execute(select(Job).where(Job.id == task.job_id))).scalar_one_or_none()
-    resources = job.resources if job is not None else None
-    pod_config = resolve_pod_config(resources=resources) if runner == RUNNER_KUBERNETES else None
+    pod_config = None
+    if runner == RUNNER_KUBERNETES:
+        async with get_sql_session() as session:
+            job = (await session.execute(select(Job).where(Job.id == task.job_id))).scalar_one_or_none()
+        pod_config = resolve_pod_config(resources=job.resources if job is not None else None)
     return JobDispatch(runner, pod_config, task.entry_type, task.command, task.command_env, source)
 
 

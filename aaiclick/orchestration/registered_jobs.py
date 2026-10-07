@@ -15,7 +15,14 @@ from .docker_config import resolve_image_source
 from .factories import create_container_job, create_job, create_task
 from .models import RUN_MANUAL, Job, PreservationMode, RegisteredJob, RunType
 from .orch_context import get_sql_session
-from .runner_config import ENTRY_JVM, ENTRY_MODULE, EntryType, validate_image_exclusivity, validate_task_entry
+from .runner_config import (
+    ENTRY_JVM,
+    ENTRY_MODULE,
+    EntryType,
+    build_requested,
+    validate_image_exclusivity,
+    validate_task_entry,
+)
 
 
 class RegisteredJobAlreadyExists(ValueError):
@@ -443,8 +450,7 @@ async def run_job(
     # mask the real problem when the local backend cannot run containers.
     wants_container = (
         image is not None
-        or build
-        or any(v is not None for v in (git_remote, git_sha, git_branch, dockerfile))
+        or build_requested(build, git_remote, git_sha, git_branch, dockerfile)
         or (registered is not None and (registered.image is not None or registered.build))
     )
     if wants_container and is_local():

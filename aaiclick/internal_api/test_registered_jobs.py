@@ -153,3 +153,13 @@ async def test_disable_job_clears_next_run(orch_ctx):
 async def test_disable_job_missing_raises_not_found(orch_ctx):
     with pytest.raises(errors.NotFound):
         await registered_jobs.disable_job("ghost_job")
+
+
+async def test_register_job_build_skips_host_entrypoint_validation(orch_ctx):
+    """With ``build`` the entrypoint lives in the image built from the repo, so
+    it need not be importable on the registering host — same as ``image``."""
+    request = RegisterJobRequest(
+        name="built_reg", entrypoint="myapp.missing.etl_job", build=True, git_remote="git@x:r.git"
+    )
+    view = await registered_jobs.register_job(request)
+    assert view.name == "built_reg"

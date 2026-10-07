@@ -76,8 +76,12 @@ async def test_resolve_dispatch_without_worker_runner_raises(monkeypatch):
 async def test_resolve_dispatch_uses_worker_runner_and_job_resources(monkeypatch, runner, resources):
     monkeypatch.setenv(ENV_WORKER_RUNNER, runner)
     monkeypatch.setenv(ENV_NAMESPACE, "ml")
-    job = type("FakeJob", (), {"resources": resources})()
-    monkeypatch.setattr(dispatch, "get_sql_session", lambda: _FakeSession(job))
+    if runner == RUNNER_KUBERNETES:
+        job = type("FakeJob", (), {"resources": resources})()
+        monkeypatch.setattr(dispatch, "get_sql_session", lambda: _FakeSession(job))
+    else:
+        # The docker runner reads nothing from the job row, so no query at all.
+        monkeypatch.setattr(dispatch, "get_sql_session", lambda: pytest.fail("docker dispatch queried the job row"))
     resolved = await dispatch._resolve_dispatch(_task(image_source=PREBUILT))
     assert resolved.runner == runner
     assert isinstance(resolved.image_source, ImagePrebuilt)

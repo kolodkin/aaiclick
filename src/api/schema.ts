@@ -1757,6 +1757,11 @@ export interface components {
          */
         RegisteredJobView: {
             /**
+             * Build
+             * @default false
+             */
+            build: boolean;
+            /**
              * Created At
              * Format: date-time
              */
@@ -1765,18 +1770,28 @@ export interface components {
             default_kwargs?: {
                 [key: string]: unknown;
             } | null;
+            /** Dockerfile */
+            dockerfile?: string | null;
             /** Enabled */
             enabled: boolean;
             /** Entrypoint */
             entrypoint: string;
+            /** Git Remote */
+            git_remote?: string | null;
             /** Id */
             id: string;
+            /** Image */
+            image?: string | null;
             /** Name */
             name: string;
             /** Next Run At */
             next_run_at?: string | null;
             /** Preservation Mode */
             preservation_mode?: ("NONE" | "FULL") | null;
+            /** Resources */
+            resources?: {
+                [key: string]: unknown;
+            } | null;
             /** Schedule */
             schedule?: string | null;
             /**
