@@ -32,7 +32,7 @@ export function RegisterForm({ name, onPrompt }: { name: string; onPrompt: (v: s
         schedule: schedule || null,
         default_kwargs: parsed,
         enabled,
-        runner_mode: "subprocess",
+        build: false,
       },
       {
         onSuccess: (rj) => {
