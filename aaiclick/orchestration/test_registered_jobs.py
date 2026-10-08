@@ -397,13 +397,15 @@ async def test_run_job_resources_fall_back_to_registration(orch_ctx, monkeypatch
     assert job.resources == {"limits": {"cpu": "2"}}
 
 
-async def test_run_job_rejects_container_source_in_local_mode(orch_ctx):
+async def test_run_job_rejects_container_source_in_local_mode(orch_ctx, monkeypatch):
+    monkeypatch.setattr(registered_jobs_module, "is_local", lambda: True)
     with pytest.raises(ValueError, match="distributed mode"):
         await run_job("local_img", "myapp.local", image="python:3.12")
 
 
 async def test_run_job_local_mode_check_precedes_git_autodetect(orch_ctx, monkeypatch):
     """A dirty tree must not mask the real problem: the local backend cannot run containers."""
+    monkeypatch.setattr(registered_jobs_module, "is_local", lambda: True)
     monkeypatch.setattr(docker_config, "auto_detect_git_sha", AsyncMock(side_effect=GitDetectionError("dirty tree")))
     with pytest.raises(ValueError, match="distributed mode"):
         await run_job("local_build", "myapp.local", build=True)
