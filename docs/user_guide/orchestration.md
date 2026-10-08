@@ -364,6 +364,10 @@ fields (`git_remote` / `git_sha` / `git_branch` / `dockerfile`). `run_job`
 stamps the resolved image on the job's entry task; dynamic child tasks inherit
 their parent's image unless they declare their own
 (`create_task(image=...)` or `create_task(git_remote=..., git_sha=...)`).
+Any `git_*` field implies `build`; omit `git_sha` and `run_job` resolves the
+head of `git_branch` (default branch if unset) on the remote at submission, so
+the stored task always names a concrete commit. The working tree is read only
+when no remote is given or registered.
 Image fields require a docker or kubernetes job, and kubernetes settings a
 kubernetes job; setting either on another runner is an error, not a no-op.
 

@@ -953,7 +953,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_job_parser.add_argument(
         "--git-sha",
         default=None,
-        help="Pin the build to a specific commit SHA (implies --build)",
+        help="Pin the build to a specific commit SHA (implies --build); default: head of --git-branch on the remote",
     )
     run_job_parser.add_argument(
         "--git-branch",

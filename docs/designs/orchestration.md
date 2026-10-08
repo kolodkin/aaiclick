@@ -154,7 +154,7 @@ The image is a **task** property: every container task carries a nullable `tasks
 | `build`    | git repo → `aaiclick-job:<sha>` image built from `git clone` + `docker build` | build task in the graph |
 | `prebuilt` | `image="python:3.12"` run verbatim, no build stage | never                  |
 
-The user names the source and nothing else. `image=` (`run-job --image`, or `register-job --image` for a default) selects a prebuilt image; `build=True` (`--build`) selects a git build, with `git_remote` / `git_sha` / `git_branch` / `dockerfile` as its modifiers (each falls through to the registration's default, then to auto-detect from the working tree). `image` and the build fields are **mutually exclusive** (`runner_config.validate_image_exclusivity`). Resolution per run, first match wins:
+The user names the source and nothing else. `image=` (`run-job --image`, or `register-job --image` for a default) selects a prebuilt image; `build=True` (`--build`) selects a git build, with `git_remote` / `git_sha` / `git_branch` / `dockerfile` as its modifiers (each falls through to the registration's default). A missing `git_sha` is resolved **at submission**, before the task row is written, so `image_source` always names a concrete commit: when the remote is known it is the head of `git_branch` (default branch if unset) via `git ls-remote`, and the working tree is never read; only when the remote is unknown too do remote, SHA, and branch come from the local checkout (`docker_config.resolve_image_source`). `image` and the build fields are **mutually exclusive** (`runner_config.validate_image_exclusivity`). Resolution per run, first match wins:
 
 1. run `image` → `prebuilt`
 2. run `build` or any build modifier → `build`
