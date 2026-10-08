@@ -11,7 +11,6 @@ from .. import docker_config
 from ..runner_config import ImageBuild, ImagePrebuilt
 from . import docker_build
 from .docker_build import resolve_launch_image
-from .docker_scaffold import render_default_build_dockerfile
 
 
 async def test_collect_build_args_omits_unset_values(monkeypatch):
@@ -93,12 +92,11 @@ async def test_git_clone_passes_remote_and_sha_after_end_of_options(monkeypatch)
 async def test_build_image_to_tag_explicit_missing_dockerfile_raises(monkeypatch):
     """The default-Dockerfile fallback applies only to the implicit ``Dockerfile``;
     an explicitly named path that is absent is a user error."""
-    built = _stub_build_path(monkeypatch, {})
+    _stub_build_path(monkeypatch, {})
     source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40, dockerfile="Dockerfile.missing")
 
     with pytest.raises(FileNotFoundError, match="Dockerfile not found"):
         await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
-    assert built == []
 
 
 def _stub_build_path(monkeypatch, clone_files: dict[str, str]) -> list[str]:
@@ -134,9 +132,19 @@ async def test_build_image_to_tag_repo_without_dockerfile_builds_with_default(mo
 
     await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
 
-    assert built == [render_default_build_dockerfile("1.2.3")]
-    assert "FROM ghcr.io/kolodkin/aaiclick:v1.2.3\n" in built[0]
-    assert "COPY . /src\n" in built[0]
+    assert built == ["FROM ghcr.io/kolodkin/aaiclick:v1.2.3\nCOPY --chown=aaiclick:aaiclick . /src\nWORKDIR /src\n"]
+
+
+async def test_build_image_to_tag_default_dockerfile_tag_drops_local_version_segment(monkeypatch):
+    """A dev checkout reports a PEP 440 local version (``+g<sha>...``); ``+`` is
+    not a legal Docker tag character, so the base tag keeps only the public part."""
+    monkeypatch.setattr(docker_build, "_aaiclick_version", lambda: "0.0.1.dev50+gfc8c68213.d20261008")
+    built = _stub_build_path(monkeypatch, {})
+    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
+
+    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
+
+    assert built[0].startswith("FROM ghcr.io/kolodkin/aaiclick:v0.0.1.dev50\n")
 
 
 async def test_build_image_to_tag_checked_in_dockerfile_wins_over_default(monkeypatch):

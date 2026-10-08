@@ -14,6 +14,7 @@ Cache hierarchy (first hit short-circuits):
 
 from __future__ import annotations
 
+import functools
 import importlib.metadata
 import os
 import tempfile
@@ -80,9 +81,11 @@ async def _git_clone_at_sha(remote: str, sha: str, workdir: str) -> None:
     await cli.run("git", "-C", workdir, "checkout", "--quiet", sha)
 
 
+@functools.cache
 def _aaiclick_version() -> str:
     """Best-effort version of the running aaiclick package, for the
-    ``AAICLICK_VERSION`` build-arg and the default Dockerfile's base tag."""
+    ``AAICLICK_VERSION`` build-arg and the default Dockerfile's base tag.
+    Cached: the installed version cannot change within a process."""
     try:
         return importlib.metadata.version("aaiclick")
     except importlib.metadata.PackageNotFoundError:
@@ -138,7 +141,8 @@ def _resolve_dockerfile(source: ImageBuild, context_dir: Path) -> Path:
     if source.dockerfile:
         raise FileNotFoundError(
             f"Dockerfile not found at {source.dockerfile} in repo {source.git_remote}@{source.git_sha}. "
-            f"Run `python -m aaiclick docker init` in the user's repo to scaffold a starter Dockerfile."
+            f"Check the dockerfile= path, or omit it to build with the repo's Dockerfile "
+            f"(or the default aaiclick layer when there is none)."
         )
     dockerfile.write_text(render_default_build_dockerfile(_aaiclick_version()))
     return dockerfile

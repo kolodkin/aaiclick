@@ -65,17 +65,21 @@ WORKDIR /src
 RUN pip install --no-cache-dir /src
 """
 
+# --chown: the base image runs as USER aaiclick, so a root-owned /src would
+# break tasks that write relative paths.
 DEFAULT_BUILD_DOCKERFILE_TEMPLATE = """\
 FROM ghcr.io/kolodkin/aaiclick:v{version}
-COPY . /src
+COPY --chown=aaiclick:aaiclick . /src
 WORKDIR /src
 """
 
 
 def render_default_build_dockerfile(version: str) -> str:
-    """The fallback Dockerfile for a checkout without one, pinned to ``version``
-    (the host's installed aaiclick version, without the ``v`` tag prefix)."""
-    return DEFAULT_BUILD_DOCKERFILE_TEMPLATE.format(version=version)
+    """The fallback Dockerfile pinned to the host's aaiclick ``version``.
+
+    The PEP 440 local segment (``+g<sha>.d<date>`` on dev checkouts) is dropped:
+    ``+`` is not a legal Docker tag character."""
+    return DEFAULT_BUILD_DOCKERFILE_TEMPLATE.format(version=version.split("+", 1)[0])
 
 
 class DockerfileExists(FileExistsError):
@@ -87,9 +91,7 @@ def init_dockerfile(target: Path, *, force: bool = False) -> Path:
 
     Returns the resolved target path. Raises :class:`DockerfileExists`
     when the file already exists and ``force`` is False — silent
-    overwrite would clobber whatever Dockerfile the user already had,
-    which is exactly the kind of "magic" we're trying to avoid by not
-    bundling a runtime default."""
+    overwrite would clobber whatever Dockerfile the user already had."""
     if target.exists() and not force:
         raise DockerfileExists(f"{target} already exists. Pass --force to overwrite.")
     target.write_text(DOCKERFILE_TEMPLATE)
