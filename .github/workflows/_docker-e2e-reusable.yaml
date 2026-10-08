@@ -163,8 +163,6 @@ jobs:
           VIRTUAL_ENV: ${{ github.workspace }}/.venv
           AAICLICK_SQL_URL: "postgresql+asyncpg://aaiclick:secret@host.docker.internal:5432/aaiclick"
           AAICLICK_CH_URL: "clickhouse://default:click123@host.docker.internal:8123/default"
-          # The e2e tests drive the worker loop in this process, so this is
-          # the worker's runner.
           AAICLICK_RUNNER: "docker"
           AAICLICK_REGISTRY: "host.docker.internal:5000"
           AAICLICK_PIP_INDEX_URL: "http://host.docker.internal:8080/simple/"
