@@ -76,42 +76,32 @@ async def auto_detect_git_branch() -> str | None:
 
 
 class RemoteHead(NamedTuple):
-    """A commit resolved on a remote: its SHA and the branch it was read from
-    (``None`` when the remote's HEAD is detached)."""
+    """A commit on a remote and the branch it was read from (``None`` for a
+    detached HEAD)."""
 
     sha: str
     branch: str | None
 
 
 async def resolve_remote_head(remote: str, branch: str | None) -> RemoteHead:
-    """Resolve ``branch`` (or the remote's default branch when ``None``) to a
-    commit SHA on ``remote`` with ``git ls-remote``, never reading the
-    working tree — the submitter (CLI, API server, scheduler) need not have
-    the repo checked out, and when it does, its HEAD may be a different repo."""
-    if branch is None:
-        out = await _git("ls-remote", "--symref", "--end-of-options", remote, "HEAD")
-        resolved: str | None = None
-        sha: str | None = None
-        for line in out.splitlines():
-            value, _, name = line.partition("\t")
-            if name != "HEAD":
-                continue
-            if value.startswith("ref: "):
-                ref = value.removeprefix("ref: ")
-                resolved = ref.removeprefix("refs/heads/") if ref.startswith("refs/heads/") else None
-            else:
-                sha = value
-        if sha is None:
-            raise GitDetectionError(f"{remote!r} has no HEAD; pass git_branch= or git_sha= explicitly")
-        return RemoteHead(sha=sha, branch=resolved)
+    """Head of ``branch`` (default branch when ``None``) via ``git ls-remote``.
 
-    ref = f"refs/heads/{branch}"
-    out = await _git("ls-remote", "--end-of-options", remote, ref)
+    Never reads the working tree: the submitter (CLI, API server, scheduler)
+    may have no checkout, or one of a different repo."""
+    ref = "HEAD" if branch is None else f"refs/heads/{branch}"
+    out = await _git("ls-remote", "--symref", "--end-of-options", remote, ref)
+    sha: str | None = None
     for line in out.splitlines():
         value, _, name = line.partition("\t")
-        if name == ref:
-            return RemoteHead(sha=value, branch=branch)
-    raise GitDetectionError(f"branch {branch!r} not found on {remote!r}")
+        if name != ref:
+            continue
+        if value.startswith("ref: refs/heads/"):
+            branch = value.removeprefix("ref: refs/heads/")
+        else:
+            sha = value
+    if sha is None:
+        raise GitDetectionError(f"{ref} not found on {remote!r}")
+    return RemoteHead(sha=sha, branch=branch)
 
 
 def get_registry() -> str | None:
@@ -200,13 +190,9 @@ async def resolve_image_source(
     """Resolve the image source a run's entry task is stamped with, or None
     for a host subprocess (``requested_image_kind`` decides which). Build
     coordinates fall through run kwarg → registration default → git
-    auto-detect.
-
-    A known remote (run kwarg or registration default) is the source of
-    truth: a missing ``git_sha`` resolves to that remote's branch head (the
-    default branch unless ``git_branch`` names one) via ``git ls-remote``,
-    and the working tree is never consulted. Only when the remote itself is
-    unknown do the SHA and branch come from the local checkout."""
+    auto-detect. A missing ``git_sha`` resolves on the remote
+    (``resolve_remote_head``); the working tree is read only when the remote
+    is unknown too."""
     kind = requested_image_kind(
         registered,
         image=image,

@@ -89,9 +89,8 @@ class RunJobRequest(BaseModel):
     command_env: dict[str, str] | None = None
     # Image source: ``image`` runs a prebuilt image, ``build`` (or any git_*
     # / dockerfile modifier) builds one from the repo; neither means a host
-    # subprocess. Modifiers fall through to the RegisteredJob default; a
-    # missing git_sha resolves to the remote's branch head (git auto-detect
-    # from the working tree only when the remote is unknown too).
+    # subprocess. Modifiers fall through to the RegisteredJob default, then
+    # to the remote's branch head (``docker_config.resolve_image_source``).
     image: str | None = None
     build: bool = False
     git_remote: str | None = None
