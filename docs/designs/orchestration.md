@@ -154,7 +154,7 @@ The image is a **task** property: every container task carries a nullable `tasks
 | `build`    | git repo → `aaiclick-job:<sha>` image built from `git clone` + `docker build` | build task in the graph |
 | `prebuilt` | `image="python:3.12"` run verbatim, no build stage | never                  |
 
-The user names the source and nothing else. `image=` (`run-job --image`, or `register-job --image` for a default) selects a prebuilt image; `build=True` (`--build`) selects a git build, with `git_remote` / `git_sha` / `git_branch` / `dockerfile` as its modifiers (each falls through to the registration's default, then to auto-detect from the working tree). `image` and the build fields are **mutually exclusive** (`runner_config.validate_image_exclusivity`). Resolution per run, first match wins:
+The user names the source and nothing else. `image=` (`run-job --image`, or `register-job --image` for a default) selects a prebuilt image; `build=True` (`--build`) selects a git build, with `git_remote` / `git_sha` / `git_branch` / `dockerfile` as its modifiers (each falls through to the registration's default, then to the remote's branch head — the working tree only when the remote is unknown too; see `docker_config.resolve_image_source`). Defaults resolve **at submission**, so `image_source` always names a concrete commit. `image` and the build fields are **mutually exclusive** (`runner_config.validate_image_exclusivity`). Resolution per run, first match wins:
 
 1. run `image` → `prebuilt`
 2. run `build` or any build modifier → `build`

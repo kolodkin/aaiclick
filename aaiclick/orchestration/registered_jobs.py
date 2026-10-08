@@ -427,10 +427,11 @@ async def run_job(
         build: Build the task image from the repo at the submitted commit.
             Any ``git_*`` / ``dockerfile`` modifier implies it.
         git_remote: Override the registered job's default git remote.
-        git_sha: Pin the build to a specific commit SHA. ``None`` means
-            auto-detect from the working tree (must be clean and pushed).
-        git_branch: Captured as build-arg metadata; ``None`` means
-            auto-detect.
+        git_sha: Pin the build to a specific commit SHA. ``None`` means the
+            head of ``git_branch`` on the remote, or the working tree's HEAD
+            (clean and pushed) when the remote is auto-detected too.
+        git_branch: Captured as build-arg metadata; ``None`` means the
+            remote's default branch.
         dockerfile: Override the registered job's dockerfile path.
         resources: Kubernetes requests/limits for this run's Pods; ``None``
             inherits the registration default. Rejected on a subprocess run.

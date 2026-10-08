@@ -90,7 +90,7 @@ class RunJobRequest(BaseModel):
     # Image source: ``image`` runs a prebuilt image, ``build`` (or any git_*
     # / dockerfile modifier) builds one from the repo; neither means a host
     # subprocess. Modifiers fall through to the RegisteredJob default, then
-    # to git auto-detect.
+    # to the remote's branch head (``docker_config.resolve_image_source``).
     image: str | None = None
     build: bool = False
     git_remote: str | None = None
