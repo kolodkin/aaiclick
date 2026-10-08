@@ -1,9 +1,8 @@
-"""Typed, discriminated configs for a job's runner and a task's entry.
+"""Typed, discriminated configs for a task's image source and entry.
 
-A job's image/runner settings (formerly the flat ``git_*``/``image_tag``/
-``kubernetes_config`` columns) collapse into one ``RunnerConfig`` serialized to
-a JSON column; the ``entry_type`` discriminator selects how the container is
-invoked. Pure data + validation — no env, no I/O — so any layer can import it.
+A task's ``image_source`` JSON is one of ``ImageBuild`` / ``ImagePrebuilt``;
+the ``entry_type`` discriminator selects how the container is invoked. Pure
+data + validation — no env, no I/O — so any layer can import it.
 """
 
 from __future__ import annotations
@@ -21,27 +20,10 @@ EntryType = Literal["module", "shell", "jvm"]
 ENTRY_TYPES: list[EntryType] = [ENTRY_MODULE, ENTRY_SHELL, ENTRY_JVM]
 
 
-# --- runner_mode discriminator (lives on Job and RegisteredJob) -----------
-RUNNER_SUBPROCESS = "subprocess"
-RUNNER_DOCKER = "docker"
-RUNNER_KUBERNETES = "kubernetes"
-RunnerMode = Literal["subprocess", "docker", "kubernetes"]
-"""Which task-execution runner the orchestrator uses for a job.
-
-- ``subprocess`` (default): each task runs in a multiprocessing child
-  spawned by the host worker process.
-- ``docker``: each task runs in a fresh container built on demand from
-  the user's repo at a specific git SHA.
-- ``kubernetes``: each task runs in a fresh Pod built on demand from the
-  user's repo at a specific git SHA, scheduled on a cluster. The result
-  is handed back via the ``remote_task_results`` table rather than a
-  bind-mounted file.
-"""
-# The only runners that read image fields.
-IMAGE_RUNNERS: tuple[RunnerMode, ...] = (RUNNER_DOCKER, RUNNER_KUBERNETES)
-
-
-# --- image source (nested in docker/kubernetes runners) -------------------
+# --- image source (lives on Task) -----------------------------------------
+IMAGE_PREBUILT = "prebuilt"
+IMAGE_BUILD = "build"
+ImageKind = Literal["prebuilt", "build"]
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -81,45 +63,9 @@ class ImagePrebuilt(BaseModel):
 ImageSource = Annotated[ImageBuild | ImagePrebuilt, Field(discriminator="type")]
 
 
-# --- runner (lives on Job) ------------------------------------------------
-# Cluster/vehicle config only — the image is a per-task property
-# (``tasks.image_source``), never a runner property.
-class SubprocessRunner(BaseModel):
-    type: Literal["subprocess"] = "subprocess"
-
-
-class DockerRunner(BaseModel):
-    type: Literal["docker"] = "docker"
-
-
-class KubernetesRunner(BaseModel):
-    type: Literal["kubernetes"] = "kubernetes"
-    namespace: str | None = None
-    service_account: str | None = None
-    image_pull_secret: str | None = None
-    resources: dict | None = None
-
-
-RunnerConfig = Annotated[
-    SubprocessRunner | DockerRunner | KubernetesRunner,
-    Field(discriminator="type"),
-]
-
-_RUNNER_ADAPTER: TypeAdapter[RunnerConfig] = TypeAdapter(RunnerConfig)
 _IMAGE_ADAPTER: TypeAdapter[ImageSource] = TypeAdapter(ImageSource)
 
-RunnerConfigT = SubprocessRunner | DockerRunner | KubernetesRunner
 ImageSourceT = ImageBuild | ImagePrebuilt
-
-
-def parse_runner_config(data: dict) -> RunnerConfigT:
-    """Validate a JSON dict into the matching runner model."""
-    return _RUNNER_ADAPTER.validate_python(data)
-
-
-def dump_runner_config(cfg: RunnerConfigT) -> dict:
-    """Serialize a runner model to a JSON-safe dict for the DB column."""
-    return _RUNNER_ADAPTER.dump_python(cfg, mode="json")
 
 
 def parse_image_source(data: dict) -> ImageSourceT:
@@ -132,32 +78,19 @@ def dump_image_source(source: ImageSourceT) -> dict:
     return _IMAGE_ADAPTER.dump_python(source, mode="json")
 
 
-def validate_image_exclusivity(image: str | None, *git_fields: str | None) -> None:
-    """A prebuilt ``image`` and the ``git_*``/``dockerfile`` build fields are
-    mutually exclusive — shared by every submission surface so the rule and
-    its message live in one place. Raises ``ValueError``."""
-    if image is not None and any(v is not None for v in git_fields):
-        raise ValueError("image (prebuilt) and git_* (build) are mutually exclusive")
+def build_requested(build: bool, *modifiers: str | None) -> bool:
+    """Whether a submission asks for a git build: the ``build`` flag, or any
+    set modifier (``git_*`` / ``dockerfile``), which implies it."""
+    return build or any(v is not None for v in modifiers)
 
 
-def validate_runner_fields(
-    runner_mode: RunnerMode,
-    *,
-    image_fields: dict[str, object | None],
-    kubernetes_fields: dict[str, object | None],
-) -> None:
-    """Reject set fields the runner never reads, rather than dropping them.
-
-    ``image_fields`` need a docker/kubernetes runner, ``kubernetes_fields`` the
-    kubernetes runner; keys name the fields in the error. Raises ``ValueError``."""
-    checks = (
-        (image_fields, IMAGE_RUNNERS, "a docker/kubernetes runner"),
-        (kubernetes_fields, (RUNNER_KUBERNETES,), "the kubernetes runner"),
-    )
-    for fields, runners, needed in checks:
-        given = [key for key, value in fields.items() if value is not None]
-        if given and runner_mode not in runners:
-            raise ValueError(f"{', '.join(given)} require {needed}; the job runs on the {runner_mode} runner")
+def validate_image_exclusivity(image: str | None, *build_fields: str | None, build: bool = False) -> None:
+    """A prebuilt ``image`` and the build side (``build`` flag, ``git_*`` /
+    ``dockerfile`` modifiers) are mutually exclusive — shared by every
+    submission surface so the rule and its message live in one place. Raises
+    ``ValueError``."""
+    if image is not None and build_requested(build, *build_fields):
+        raise ValueError("image (prebuilt) and build/git_* fields are mutually exclusive")
 
 
 def validate_task_entry(*, entry_type: EntryType, command: list[str] | None) -> None:

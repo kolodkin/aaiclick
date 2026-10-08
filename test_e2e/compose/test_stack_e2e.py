@@ -21,7 +21,7 @@ EXEC_TIMEOUT_S = 60
 
 # Must be a shipped ``@task`` callable: ``register-job`` resolves the
 # entrypoint via ``import_callback`` at registration time even for shell-entry
-# runs, and ``--image`` is no workaround (it forces a prebuilt DockerRunner
+# runs, and ``--image`` is no workaround (it forces a prebuilt image
 # instead of the subprocess mode this smoke test exercises).
 _SMOKE_ENTRYPOINT = "aaiclick.orchestration.examples.orchestration_basic.simple_arithmetic"
 
@@ -69,8 +69,6 @@ def test_shell_job_round_trip(compose_dir):
         _SMOKE_ENTRYPOINT,
         "--name",
         "compose-smoke",
-        "--runner",
-        "subprocess",
     )
     _compose_exec(
         compose_dir,

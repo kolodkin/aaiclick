@@ -15,16 +15,11 @@ from .runner_config import (
     ENTRY_JVM,
     ENTRY_MODULE,
     ENTRY_SHELL,
-    RUNNER_SUBPROCESS,
-    DockerRunner,
     EntryType,
     ImageBuild,
     ImagePrebuilt,
     ImageSourceT,
-    KubernetesRunner,
-    RunnerMode,
     dump_image_source,
-    dump_runner_config,
     validate_image_exclusivity,
 )
 from .task_registry import get_task_registry
@@ -62,10 +57,12 @@ def new_job_row(
     registered_job_id: int | None = None,
     preservation_mode: PreservationMode | None = None,
     registered: RegisteredJob | None = None,
-    runner_mode: RunnerMode = RUNNER_SUBPROCESS,
-    runner: dict | None = None,
+    resources: dict | None = None,
 ) -> Job:
-    """Build an uncommitted PENDING Job row with a resolved preservation mode."""
+    """Build an uncommitted PENDING Job row. ``preservation_mode`` and
+    ``resources`` resolve explicit value → registration default."""
+    if resources is None and registered is not None:
+        resources = registered.resources
     return Job(
         id=get_snowflake_id(),
         name=name,
@@ -73,8 +70,7 @@ def new_job_row(
         run_type=run_type,
         registered_job_id=registered_job_id,
         preservation_mode=resolve_job_config(preservation_mode, registered),
-        runner_mode=runner_mode,
-        runner=runner,
+        resources=resources,
         created_at=utc_now(),
     )
 
@@ -177,7 +173,7 @@ def create_task(
     ``aaiclick-task-api`` shim inside the task's container image (spec:
     docs/designs/java-sdk.md).
 
-    A task on a docker/kubernetes job may declare its own container image;
+    A task may declare its own container image;
     tasks that declare none inherit the committing task's image at
     ``commit_tasks`` (dynamic children follow their parent).
 
@@ -308,12 +304,12 @@ async def create_job(
     return job
 
 
-async def create_built_job(
+async def create_container_job(
     *,
     name: str,
     entrypoint: str,
-    runner: DockerRunner | KubernetesRunner,
     image_source: ImageSourceT,
+    resources: dict | None = None,
     entry_type: EntryType = ENTRY_MODULE,
     command: list[str] | None = None,
     command_env: dict[str, str] | None = None,
@@ -323,9 +319,9 @@ async def create_built_job(
     preservation_mode: PreservationMode | None = None,
     registered: RegisteredJob | None = None,
 ) -> Job:
-    """Create a docker/kubernetes Job. ``runner`` carries only cluster/vehicle
-    config; ``image_source`` is stamped onto the entry task, and in registry
-    mode a build task is injected with a ``build >> entry`` edge (spec:
+    """Create a container Job. The job row carries only the Pod ``resources``
+    snapshot; ``image_source`` is stamped onto the entry task, and for a build
+    source a build task is injected with a ``build >> entry`` edge (spec:
     docs/designs/orchestration.md "Image source")."""
     job = new_job_row(
         name,
@@ -333,8 +329,7 @@ async def create_built_job(
         registered_job_id=registered_job_id,
         preservation_mode=preservation_mode,
         registered=registered,
-        runner_mode=runner.type,
-        runner=dump_runner_config(runner),
+        resources=resources,
     )
 
     entry_task = create_task(

@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from aaiclick.orchestration.decorators import job
 from aaiclick.orchestration.execution.image_build_task import IMAGE_BUILD_ENTRYPOINT
-from aaiclick.orchestration.factories import create_built_job, create_job, create_task
+from aaiclick.orchestration.factories import create_container_job, create_job, create_task
 from aaiclick.orchestration.jobs import get_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import (
@@ -21,7 +21,6 @@ from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.result import data_list
 from aaiclick.orchestration.runner_config import (
     ENTRY_SHELL,
-    DockerRunner,
     ImageBuild,
     ImagePrebuilt,
     dump_image_source,
@@ -170,11 +169,19 @@ async def _task_entrypoints(job_id: int) -> list[str]:
 
 async def test_prebuilt_job_injects_no_build_task(orch_ctx_no_ch):
     source = ImagePrebuilt(image_tag="python:3.12")
-    job = await create_built_job(
-        name="j", entrypoint="", runner=DockerRunner(), image_source=source, entry_type="shell", command=["echo", "hi"]
+    job = await create_container_job(
+        name="j", entrypoint="", image_source=source, entry_type="shell", command=["echo", "hi"]
     )
     assert await _task_entrypoints(job.id) == [""]
-    assert job.runner == {"type": "docker"}
+    assert job.resources is None
+
+
+async def test_container_job_snapshots_resources(orch_ctx_no_ch):
+    source = ImagePrebuilt(image_tag="python:3.12")
+    job = await create_container_job(
+        name="j", entrypoint="m.entry", image_source=source, resources={"limits": {"cpu": "1"}}
+    )
+    assert job.resources == {"limits": {"cpu": "1"}}
 
 
 async def test_build_job_injects_build_task_without_registry(orch_ctx_no_ch, monkeypatch):
@@ -183,16 +190,14 @@ async def test_build_job_injects_build_task_without_registry(orch_ctx_no_ch, mon
     monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
     monkeypatch.delenv("AAICLICK_LOCAL_BUILD", raising=False)
     source = ImageBuild(git_remote="git@x:r.git", git_sha="c" * 40)
-    job = await create_built_job(
-        name="j", entrypoint="mod.fn", runner=DockerRunner(), image_source=source, entry_type="module"
-    )
+    job = await create_container_job(name="j", entrypoint="mod.fn", image_source=source, entry_type="module")
     assert sorted(await _task_entrypoints(job.id)) == sorted([IMAGE_BUILD_ENTRYPOINT, "mod.fn"])
 
 
-async def test_create_built_job_stamps_entry_and_injects_build_task(orch_ctx_no_ch, monkeypatch):
+async def test_create_container_job_stamps_entry_and_injects_build_task(orch_ctx_no_ch, monkeypatch):
     monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
     source = ImageBuild(git_remote="https://example.com/r.git", git_sha="c" * 40)
-    job = await create_built_job(name="j", entrypoint="m.entry", runner=DockerRunner(), image_source=source)
+    job = await create_container_job(name="j", entrypoint="m.entry", image_source=source)
     async with get_sql_session() as session:
         rows = (await session.execute(select(Task).where(Task.job_id == job.id))).scalars().all()
     by_entry = {t.entrypoint: t for t in rows}
@@ -200,10 +205,10 @@ async def test_create_built_job_stamps_entry_and_injects_build_task(orch_ctx_no_
     assert IMAGE_BUILD_ENTRYPOINT in by_entry
 
 
-async def test_create_built_job_prebuilt_injects_nothing(orch_ctx_no_ch, monkeypatch):
+async def test_create_container_job_prebuilt_injects_nothing(orch_ctx_no_ch, monkeypatch):
     monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
     source = ImagePrebuilt(image_tag="ghcr.io/x/y:1")
-    job = await create_built_job(name="j", entrypoint="m.entry", runner=DockerRunner(), image_source=source)
+    job = await create_container_job(name="j", entrypoint="m.entry", image_source=source)
     async with get_sql_session() as session:
         rows = (await session.execute(select(Task).where(Task.job_id == job.id))).scalars().all()
     assert [t.entrypoint for t in rows] == ["m.entry"]
@@ -217,3 +222,9 @@ async def test_job_factory_passes_kwargs_named_like_job_fields_to_the_task(orch_
     assert created.run_type == RUN_MANUAL and created.registered_job_id is None
     (entry,) = await get_tasks_for_job(created.id)
     assert set(entry.kwargs) == {"run_type", "registered_job_id"}
+
+
+def test_create_task_rejects_image_with_empty_git_remote():
+    """An empty string is still a set build field: image and the build side stay exclusive."""
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        create_task("m.f", image="python:3.12", git_remote="")

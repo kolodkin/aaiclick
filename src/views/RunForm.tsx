@@ -20,7 +20,7 @@ export function RunForm({ name, onPrompt }: { name: string; onPrompt: (v: string
       return;
     }
     run.mutate(
-      { name, kwargs: parsed, preservation_mode: preservation || null, entry_type: "module" },
+      { name, kwargs: parsed, preservation_mode: preservation || null, entry_type: "module", build: false },
       {
         onSuccess: (job) => {
           toast(`Started ${name} — job #${job.id}`);

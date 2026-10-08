@@ -2,6 +2,7 @@
 
 from datetime import datetime
 
+from ..datetime_utils import utc_now
 from .models import (
     DEPENDENCY_GROUP,
     DEPENDENCY_TASK,
@@ -18,6 +19,7 @@ from .models import (
     Group,
     Job,
     JobStatus,
+    RegisteredJob,
     Task,
     TaskStatus,
 )
@@ -34,6 +36,7 @@ from .view_models import (
     compute_job_stats_view,
     job_to_detail,
     job_to_view,
+    registered_job_to_view,
     task_to_detail,
     task_to_stats_view,
     task_to_view,
@@ -370,3 +373,20 @@ def test_build_job_graph_view_classifies_build_edges_and_the_attaching_one():
     # `b` already depends on `a`, so its build edge is collapsible.
     assert by_pair[(100, 102)].kind == GRAPH_EDGE_BUILD
     assert not by_pair[(100, 102)].attaches_build
+
+
+def test_registered_job_view_exposes_image_source_fields():
+    rj = RegisteredJob(
+        id=1,
+        name="r",
+        entrypoint="m.f",
+        build=True,
+        git_remote="git@x:r.git",
+        dockerfile="D",
+        resources={"limits": {"cpu": "1"}},
+        created_at=utc_now(),
+        updated_at=utc_now(),
+    )
+    view = registered_job_to_view(rj)
+    assert (view.build, view.image, view.git_remote, view.dockerfile) == (True, None, "git@x:r.git", "D")
+    assert view.resources == {"limits": {"cpu": "1"}}

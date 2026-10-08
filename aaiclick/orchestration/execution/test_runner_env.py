@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
-from .runner_env import build_runner_env
+import pytest
+
+from .runner_env import (
+    ENV_WORKER_RUNNER,
+    RUNNER_DOCKER,
+    RUNNER_KUBERNETES,
+    build_runner_env,
+    get_worker_runner,
+    validate_worker_runner,
+)
 
 
 def test_build_runner_env_includes_always_passed(monkeypatch):
@@ -31,3 +40,43 @@ def test_build_runner_env_passthrough(monkeypatch):
     assert env["FOO"] == "1"
     assert env["BAR"] == "2"
     assert "UNSET" not in env
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        pytest.param(None, None, id="unset"),
+        pytest.param("", None, id="empty"),
+        pytest.param("docker", RUNNER_DOCKER, id="docker"),
+        pytest.param("kubernetes", RUNNER_KUBERNETES, id="kubernetes"),
+    ],
+)
+def test_get_worker_runner(monkeypatch, value, expected):
+    if value is None:
+        monkeypatch.delenv(ENV_WORKER_RUNNER, raising=False)
+    else:
+        monkeypatch.setenv(ENV_WORKER_RUNNER, value)
+    assert get_worker_runner() == expected
+
+
+def test_validate_worker_runner_rejects_unknown(monkeypatch):
+    monkeypatch.setenv(ENV_WORKER_RUNNER, "podman")
+    with pytest.raises(ValueError, match=r"AAICLICK_RUNNER.*docker.*kubernetes"):
+        validate_worker_runner()
+
+
+def test_validate_worker_runner_rejects_kubernetes_with_local_build(monkeypatch):
+    monkeypatch.setenv(ENV_WORKER_RUNNER, "kubernetes")
+    monkeypatch.setenv("AAICLICK_LOCAL_BUILD", "1")
+    with pytest.raises(ValueError, match="AAICLICK_LOCAL_BUILD"):
+        validate_worker_runner()
+
+
+@pytest.mark.parametrize("value", [None, "docker", "kubernetes"])
+def test_validate_worker_runner_accepts(monkeypatch, value):
+    monkeypatch.delenv("AAICLICK_LOCAL_BUILD", raising=False)
+    if value is None:
+        monkeypatch.delenv(ENV_WORKER_RUNNER, raising=False)
+    else:
+        monkeypatch.setenv(ENV_WORKER_RUNNER, value)
+    validate_worker_runner()

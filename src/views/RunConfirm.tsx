@@ -9,7 +9,7 @@ export function RunConfirm({ name, onPrompt }: { name: string; onPrompt: (v: str
   const toast = useToast();
   const onRun = () =>
     run.mutate(
-      { name, entry_type: "module" },
+      { name, entry_type: "module", build: false },
       {
         onSuccess: (job) => {
           toast(`Started ${name} — job #${job.id}`);

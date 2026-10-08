@@ -5,8 +5,9 @@ import pytest
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution.debug import ajob_test
 from aaiclick.orchestration.jobs import get_job_result
-from aaiclick.orchestration.models import JOB_COMPLETED
+from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED
 from aaiclick.orchestration.result import task_result
+from aaiclick.testing import set_task_image_source
 
 
 @task
@@ -33,3 +34,15 @@ async def test_ajob_test_rejects_kwargs_with_created_job(orch_ctx):
 
     with pytest.raises(TypeError, match="only accepted with a @job factory"):
         await ajob_test(j, a=1)
+
+
+async def test_ajob_test_refuses_container_task(orch_ctx):
+    """job_test runs in-process and has no container runner: a task that
+    declares an image fails the job naming AAICLICK_RUNNER."""
+    j = await add_pipeline(a=3, b=4)
+    await set_task_image_source(j.id, {"type": "prebuilt", "image_tag": "python:3.12"})
+
+    j = await ajob_test(j)
+
+    assert j.status == JOB_FAILED
+    assert "AAICLICK_RUNNER" in (j.error or "")

@@ -98,3 +98,12 @@ def test_init_helm_server_carries_auth_credentials(tmp_path):
     assert ".Values.auth.jwtSecret" in server
     assert "AAICLICK_ADMIN_PASSWORD" in server
     assert ".Values.auth.adminPassword" in server
+
+
+def test_init_helm_worker_runs_the_kubernetes_runner(tmp_path):
+    """The chart's worker turns container tasks into Pods."""
+    target = tmp_path / "aaiclick-chart"
+    init_helm(target, image_tag="v1.0.0")
+    worker = (target / "templates" / "worker.yaml").read_text()
+    assert "- name: AAICLICK_RUNNER" in worker
+    assert 'value: "kubernetes"' in worker

@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlmodel import select
 
+from aaiclick.testing import set_task_image_source
+
 from ..background.test_cancelled_cleanup import run_cancelled_cleanup
 from ..decorators import job, task
 from ..factories import create_job, create_task
@@ -264,3 +266,20 @@ async def test_local_worker_cancelled_mid_run(orch_ctx):
 
     await run_cancelled_cleanup()
     assert (await _task_row(job.id)).status == TASK_CANCELLED
+
+
+async def test_local_worker_refuses_container_task(orch_ctx):
+    """In-process execution has no container runner: a task that declares an
+    image fails naming AAICLICK_RUNNER instead of silently running on the host."""
+    job = await create_job(
+        "test_local_container_task",
+        "aaiclick.orchestration.fixtures.sample_tasks.simple_task",
+    )
+    await set_task_image_source(job.id, {"type": "prebuilt", "image_tag": "python:3.12"})
+
+    tasks_executed = await execution_worker_main_loop(max_tasks=1, install_signal_handlers=False, max_empty_polls=1)
+
+    assert tasks_executed == 0
+    task = await _task_row(job.id)
+    assert task.status == TASK_PENDING_FAILURE_CLEANUP
+    assert "AAICLICK_RUNNER" in (task.error or "")

@@ -32,6 +32,7 @@ from .execution_worker import (
     parse_task_timeout,
 )
 from .runner import ShellSpec, execute_task, serialize_task_result
+from .runner_env import validate_worker_runner
 
 # How often the parent checks whether the child process has finished.
 # Smaller than POLL_INTERVAL because this polls a local queue, not a database.
@@ -259,10 +260,9 @@ async def mp_worker_main_loop(
     When a task exceeds the timeout the child process is killed and the
     task is marked as failed.
 
-    Per-task runner dispatch: tasks belonging to a docker- or kubernetes-mode
-    job route through that runner; subprocess-mode tasks (and the auto-injected
-    build task on every docker/kubernetes job) route through the multiprocessing
-    child runner. See ``dispatch.dispatch_execute``.
+    Per-task runner dispatch: tasks with an ``image_source`` run on the
+    worker's ``AAICLICK_RUNNER``; tasks without one (including the auto-injected
+    build task) run in the multiprocessing child. See ``dispatch.dispatch_execute``.
 
     Args:
         execution_worker_id: ExecutionWorker ID (registers new worker if None).
@@ -273,6 +273,7 @@ async def mp_worker_main_loop(
     Returns:
         Number of tasks successfully executed.
     """
+    validate_worker_runner()
     # Delayed import: dispatch imports this module at top level.
     from .dispatch import dispatch_execute  # noqa: PLC0415
 

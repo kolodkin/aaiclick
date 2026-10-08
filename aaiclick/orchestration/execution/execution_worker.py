@@ -19,6 +19,7 @@ from aaiclick.async_wait import wait_or_timeout
 from aaiclick.snowflake import get_snowflake_id
 
 from ...datetime_utils import utc_now
+from ..kubernetes_config import KubernetesConfig
 from ..logging import TASK_LOGS_CLICKHOUSE, TASK_LOGS_CONSOLE, task_logs_destination
 from ..models import (
     CANCELLING_TASK_STATUSES,
@@ -34,7 +35,7 @@ from ..models import (
     TaskStatus,
 )
 from ..orch_context import get_sql_session
-from ..runner_config import ENTRY_MODULE, EntryType, ImageSourceT, RunnerMode
+from ..runner_config import ENTRY_MODULE, EntryType, ImageSourceT
 from .claiming import (
     check_run_aborted,
     claim_next_task,
@@ -50,9 +51,11 @@ from .runner import (
     follow_vehicle_output,
     get_run_count,
     register_run,
+    require_container_runner,
     serialize_task_result,
     stop_output_follower,
 )
+from .runner_env import WorkerRunner
 
 logger = logging.getLogger(__name__)
 
@@ -88,15 +91,12 @@ class RunnerResult(NamedTuple):
 
 
 class JobDispatch(NamedTuple):
-    """A task's runner choice plus the launch spec its runner needs.
+    """A task's runner plus the launch spec its runner needs, resolved once
+    per task in ``dispatch._resolve_dispatch``. ``runner`` None ⇒ host
+    subprocess; ``pod_config`` is set only on the kubernetes runner."""
 
-    Loaded once per task (in ``dispatch._resolve_dispatch``) so the image-based
-    runners don't re-query the ``Job`` for ``kubernetes_config`` after dispatch
-    already read the row to pick the runner. The launch tag is derived from
-    ``image_source`` by ``docker_build.resolve_launch_image``."""
-
-    runner_mode: RunnerMode
-    kubernetes_config: dict | None
+    runner: WorkerRunner | None
+    pod_config: KubernetesConfig | None
     entry_type: EntryType = ENTRY_MODULE
     command: list[str] | None = None
     command_env: dict[str, str] | None = None
@@ -654,6 +654,7 @@ async def _execute_in_process(task: Task, execution_worker_id: int) -> tuple[boo
     worker itself being cancelled (``local start`` shutdown), which propagates
     so the loop exits instead of orphaning the task.
     """
+    require_container_runner(task, None)
     exec_task = asyncio.create_task(execute_task(task))
     monitor = asyncio.create_task(_cancellation_monitor(task.id, exec_task, task.run_epoch))
     done = asyncio.Event()

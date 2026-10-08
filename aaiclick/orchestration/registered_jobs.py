@@ -11,21 +11,15 @@ from sqlmodel import select
 from ..backend import is_local
 from ..datetime_utils import utc_now
 from ..snowflake import get_snowflake_id
-from .docker_config import resolve_image_source, resolve_runner_config
-from .factories import create_built_job, create_job, create_task
-from .kubernetes_config import resolve_kubernetes_config
+from .docker_config import requested_image_kind, resolve_image_source
+from .factories import create_container_job, create_job, create_task
 from .models import RUN_MANUAL, Job, PreservationMode, RegisteredJob, RunType
 from .orch_context import get_sql_session
 from .runner_config import (
     ENTRY_JVM,
     ENTRY_MODULE,
-    IMAGE_RUNNERS,
-    RUNNER_KUBERNETES,
-    RUNNER_SUBPROCESS,
     EntryType,
-    RunnerMode,
     validate_image_exclusivity,
-    validate_runner_fields,
     validate_task_entry,
 )
 
@@ -62,19 +56,27 @@ def _next_run_at(schedule: str | None, enabled: bool, now: datetime) -> datetime
     return compute_next_run(schedule, now) if schedule and enabled else None
 
 
+_RESOURCES_REQUIRE_IMAGE = "resources require an image source (build or image)"
+
+
 def _validate_registration_fields(
-    runner_mode: RunnerMode,
+    *,
     image: str | None,
+    build: bool,
     git_remote: str | None,
     dockerfile: str | None,
-    kubernetes_config: dict[str, Any] | None,
+    resources: dict[str, Any] | None,
 ) -> None:
-    """Refuse to store defaults the registration's runner would never read."""
-    validate_runner_fields(
-        runner_mode,
-        image_fields={"image": image, "git_remote": git_remote, "dockerfile": dockerfile},
-        kubernetes_fields={"kubernetes_config": kubernetes_config or None},
-    )
+    """Refuse to store defaults no run would read: build modifiers without
+    ``build``, ``resources`` without an image source, or both sides at once."""
+    validate_image_exclusivity(image, git_remote, dockerfile, build=build)
+    modifiers = [name for name, value in (("git_remote", git_remote), ("dockerfile", dockerfile)) if value is not None]
+    if modifiers and not build:
+        # A registration default that is not a build must not become one
+        # silently (runs, by contrast, let a modifier imply --build).
+        raise ValueError(f"set without build (--build on the CLI): {', '.join(modifiers)}")
+    if resources is not None and not (build or image is not None):
+        raise ValueError(_RESOURCES_REQUIRE_IMAGE)
 
 
 def _build_registered_job(
@@ -85,11 +87,11 @@ def _build_registered_job(
     default_kwargs: dict[str, Any] | None,
     enabled: bool,
     preservation_mode: PreservationMode | None,
-    runner_mode: RunnerMode,
+    build: bool,
     dockerfile: str | None,
     git_remote: str | None,
     image: str | None,
-    kubernetes_config: dict[str, Any] | None,
+    resources: dict[str, Any] | None,
     now: datetime,
 ) -> RegisteredJob:
     """Build an uncommitted RegisteredJob row with computed next_run_at."""
@@ -101,11 +103,11 @@ def _build_registered_job(
         schedule=schedule,
         default_kwargs=default_kwargs,
         preservation_mode=preservation_mode,
-        runner_mode=runner_mode,
+        build=build,
         dockerfile=dockerfile,
         git_remote=git_remote,
         image=image,
-        kubernetes_config=kubernetes_config,
+        resources=resources,
         next_run_at=_next_run_at(schedule, enabled, now),
         created_at=now,
         updated_at=now,
@@ -120,11 +122,11 @@ async def register_job(
     default_kwargs: dict[str, Any] | None = None,
     enabled: bool = True,
     preservation_mode: PreservationMode | None = None,
-    runner_mode: RunnerMode = RUNNER_SUBPROCESS,
-    dockerfile: str | None = None,
-    git_remote: str | None = None,
-    kubernetes_config: dict[str, Any] | None = None,
+    build: bool = False,
     image: str | None = None,
+    git_remote: str | None = None,
+    dockerfile: str | None = None,
+    resources: dict[str, Any] | None = None,
 ) -> RegisteredJob:
     """Register a new job in the catalog.
 
@@ -136,24 +138,30 @@ async def register_job(
         enabled: Whether the job is enabled (default: True)
         preservation_mode: Default preservation mode for every run of
             this job. Individual runs can override via ``run_job()``.
-        runner_mode: ``"subprocess"`` (default) or ``"docker"``.
-        dockerfile: Default Dockerfile path relative to the repo root.
-            ``None`` falls back to ``"Dockerfile"`` at submission time.
-        git_remote: Default git remote URL. ``None`` falls back to
-            ``git config remote.origin.url`` at submission time.
-        image: Default prebuilt image tag. When set, a prebuilt runner
-            marker is stored so runs default to this image instead of a
-            git build.
+        build: Build the task image from the repo at the submitted commit;
+            runs of this job are containerized. Mutually exclusive with
+            ``image``.
+        image: Default prebuilt image tag; runs of this job are
+            containerized from it. Mutually exclusive with ``build``.
+        git_remote: Build modifier — default git remote URL. ``None`` falls
+            back to ``git config remote.origin.url`` at submission time.
+        dockerfile: Build modifier — default Dockerfile path relative to
+            the repo root. ``None`` falls back to ``"Dockerfile"``.
+        resources: Default Kubernetes requests/limits for every run's Pods
+            (ignored by the docker runner).
 
     Returns:
         Created RegisteredJob
 
     Raises:
-        ValueError: If ``image``, ``git_remote``, ``dockerfile``, or
-            ``kubernetes_config`` is set on a runner that never reads it.
+        ValueError: If ``image`` is combined with the build side, a build
+            modifier is set without ``build``, or ``resources`` is set on a
+            subprocess registration.
         RegisteredJobAlreadyExists: If a job with this name already exists.
     """
-    _validate_registration_fields(runner_mode, image, git_remote, dockerfile, kubernetes_config)
+    _validate_registration_fields(
+        image=image, build=build, git_remote=git_remote, dockerfile=dockerfile, resources=resources
+    )
     now = utc_now()
     registered_job = _build_registered_job(
         name=name,
@@ -162,11 +170,11 @@ async def register_job(
         default_kwargs=default_kwargs,
         enabled=enabled,
         preservation_mode=preservation_mode,
-        runner_mode=runner_mode,
+        build=build,
         dockerfile=dockerfile,
         git_remote=git_remote,
         image=image,
-        kubernetes_config=kubernetes_config,
+        resources=resources,
         now=now,
     )
 
@@ -204,17 +212,17 @@ async def upsert_registered_job(
     default_kwargs: dict[str, Any] | None = None,
     enabled: bool = True,
     preservation_mode: PreservationMode | None = None,
-    runner_mode: RunnerMode = RUNNER_SUBPROCESS,
-    dockerfile: str | None = None,
-    git_remote: str | None = None,
-    kubernetes_config: dict[str, Any] | None = None,
+    build: bool = False,
     image: str | None = None,
+    git_remote: str | None = None,
+    dockerfile: str | None = None,
+    resources: dict[str, Any] | None = None,
 ) -> RegisteredJob:
     """Insert or update a registered job.
 
     If a job with the given name exists, updates entrypoint, schedule,
-    default_kwargs, preservation_mode, runner_mode and the Docker
-    defaults. Otherwise creates a new entry.
+    default_kwargs, preservation_mode and the image-source defaults.
+    Otherwise creates a new entry.
 
     Args:
         name: Unique job name
@@ -223,21 +231,22 @@ async def upsert_registered_job(
         default_kwargs: Default parameters (optional)
         enabled: Whether the job is enabled
         preservation_mode: Default preservation mode for every run
-        runner_mode: ``"subprocess"`` (default) or ``"docker"``.
-        dockerfile: Default Dockerfile path relative to the repo root.
-        git_remote: Default git remote URL.
-        image: Default prebuilt image tag. When set, a prebuilt runner
-            marker is stored so runs default to this image instead of a
-            git build.
+        build: Build the task image from the repo; mutually exclusive with
+            ``image``.
+        image: Default prebuilt image tag; mutually exclusive with ``build``.
+        git_remote: Build modifier — default git remote URL.
+        dockerfile: Build modifier — default Dockerfile path.
+        resources: Default Kubernetes requests/limits for every run's Pods.
 
     Returns:
         The created or updated RegisteredJob
 
     Raises:
-        ValueError: If ``image``, ``git_remote``, ``dockerfile``, or
-            ``kubernetes_config`` is set on a runner that never reads it.
+        ValueError: See ``register_job``.
     """
-    _validate_registration_fields(runner_mode, image, git_remote, dockerfile, kubernetes_config)
+    _validate_registration_fields(
+        image=image, build=build, git_remote=git_remote, dockerfile=dockerfile, resources=resources
+    )
     now = utc_now()
 
     async with get_sql_session() as session:
@@ -250,11 +259,11 @@ async def upsert_registered_job(
             existing.default_kwargs = default_kwargs
             existing.preservation_mode = preservation_mode
             existing.enabled = enabled
-            existing.runner_mode = runner_mode
+            existing.build = build
             existing.dockerfile = dockerfile
             existing.git_remote = git_remote
             existing.image = image
-            existing.kubernetes_config = kubernetes_config
+            existing.resources = resources
             existing.updated_at = now
             existing.next_run_at = _next_run_at(schedule, enabled, now)
             session.add(existing)
@@ -269,11 +278,11 @@ async def upsert_registered_job(
             default_kwargs=default_kwargs,
             enabled=enabled,
             preservation_mode=preservation_mode,
-            runner_mode=runner_mode,
+            build=build,
             dockerfile=dockerfile,
             git_remote=git_remote,
             image=image,
-            kubernetes_config=kubernetes_config,
+            resources=resources,
             now=now,
         )
         session.add(registered_job)
@@ -370,13 +379,12 @@ async def run_job(
     command: list[str] | None = None,
     command_env: dict[str, str] | None = None,
     image: str | None = None,
+    build: bool = False,
     git_remote: str | None = None,
     git_sha: str | None = None,
     git_branch: str | None = None,
     dockerfile: str | None = None,
-    namespace: str | None = None,
-    service_account: str | None = None,
-    image_pull_secret: str | None = None,
+    resources: dict[str, Any] | None = None,
 ) -> Job:
     """Run a job immediately, linking to a registration if one exists.
 
@@ -390,12 +398,13 @@ async def run_job(
     (see ``factories.resolve_job_config``):
     explicit arg > registered-job default > env var > hardcoded NONE.
 
-    For docker/kubernetes registrations, the image source resolves via the
-    precedence chain (see ``docker_config.resolve_image_source``):
-    explicit kwarg > registered-job default > git auto-detect — and is
-    stamped onto the entry task (``tasks.image_source``). In registry mode
-    a build task is auto-injected as a ``build >> entry`` dependency for
-    git-build sources (see ``image_injection.inject_build_tasks``).
+    The image source resolves via ``docker_config.resolve_image_source``
+    (run ``image`` > run ``build`` / modifiers > registration ``image`` >
+    registration ``build`` > subprocess) and is stamped onto the entry task
+    (``tasks.image_source``). A build task is auto-injected as a
+    ``build >> entry`` dependency for git-build sources (see
+    ``image_injection.inject_build_tasks``). Which runner launches the
+    container is the worker's ``AAICLICK_RUNNER``, not a job property.
 
     Args:
         name: Job name
@@ -408,114 +417,96 @@ async def run_job(
             path; ``"shell"`` runs ``command`` directly in the runner's
             environment; ``"jvm"`` resolves ``entrypoint`` as a Java class
             name via the ``aaiclick-task-api`` shim inside the container
-            image. Shell tasks work on every runner; jvm tasks require a
-            docker/kubernetes registered job.
+            image. Shell tasks work everywhere; jvm tasks require an image
+            source.
         command: Argv list for shell tasks (required when
             ``entry_type="shell"``, rejected for ``"module"``).
         command_env: Env vars (``KEY: VALUE``) injected for shell tasks.
         image: Prebuilt image tag to run verbatim. Mutually exclusive with
-            the ``git_*``/``dockerfile`` build fields.
+            ``build`` and the ``git_*``/``dockerfile`` modifiers.
+        build: Build the task image from the repo at the submitted commit.
+            Any ``git_*`` / ``dockerfile`` modifier implies it.
         git_remote: Override the registered job's default git remote.
         git_sha: Pin the build to a specific commit SHA. ``None`` means
             auto-detect from the working tree (must be clean and pushed).
         git_branch: Captured as build-arg metadata; ``None`` means
             auto-detect.
         dockerfile: Override the registered job's dockerfile path.
-            ``image``, the ``git_*`` fields, and ``dockerfile`` are rejected
-            unless the registered job is in docker/kubernetes mode.
-        namespace: Override the kubernetes namespace for this run.
-        service_account: Override the kubernetes service account for this run.
-        image_pull_secret: Override the kubernetes imagePullSecret for this run.
-            The three kubernetes overrides are rejected unless the registered
-            job is in kubernetes mode; each falls through to the RegisteredJob
-            default, then the ``AAICLICK_K8S_*`` env layer (see
-            ``kubernetes_config.resolve_kubernetes_config``).
+        resources: Kubernetes requests/limits for this run's Pods; ``None``
+            inherits the registration default. Rejected on a subprocess run.
 
     Returns:
         Created Job
     """
     validate_task_entry(entry_type=entry_type, command=command)
-    validate_image_exclusivity(image, git_remote, git_sha, git_branch, dockerfile)
+    validate_image_exclusivity(image, git_remote, git_sha, git_branch, dockerfile, build=build)
 
     registered = await get_registered_job(name)
 
     default_kwargs = registered.default_kwargs if registered is not None else None
     merged_kwargs = {**(default_kwargs or {}), **(kwargs or {})}
 
-    runner_mode = registered.runner_mode if registered is not None else RUNNER_SUBPROCESS
-    validate_runner_fields(
-        runner_mode,
-        image_fields={
-            "image": image,
-            "git_remote": git_remote,
-            "git_sha": git_sha,
-            "git_branch": git_branch,
-            "dockerfile": dockerfile,
-        },
-        kubernetes_fields={
-            "namespace": namespace,
-            "service_account": service_account,
-            "image_pull_secret": image_pull_secret,
-        },
+    kind = requested_image_kind(
+        registered,
+        image=image,
+        build=build,
+        git_remote=git_remote,
+        git_sha=git_sha,
+        git_branch=git_branch,
+        dockerfile=dockerfile,
     )
-
-    if runner_mode in IMAGE_RUNNERS:
-        if is_local():
+    if kind is None:
+        if resources is not None:
+            raise ValueError(_RESOURCES_REQUIRE_IMAGE)
+        if entry_type == ENTRY_JVM:
             raise ValueError(
-                f"{runner_mode} runner requires distributed mode (Postgres + ClickHouse); "
-                "got chdb + SQLite. Set AAICLICK_SQL_URL and AAICLICK_CH_URL to "
-                "remote services before submitting these jobs."
+                "jvm entry_type requires an image source (build or image) — the shim jar "
+                "runs only inside the task's container image (spec: docs/designs/java-sdk.md)"
             )
-        kube_cfg = None
-        if runner_mode == RUNNER_KUBERNETES:
-            kube_cfg = resolve_kubernetes_config(
-                registered,
-                namespace=namespace,
-                service_account=service_account,
-                image_pull_secret=image_pull_secret,
-            )._asdict()
-        source = await resolve_image_source(
-            registered,
-            image=image,
-            git_remote=git_remote,
-            git_sha=git_sha,
-            git_branch=git_branch,
-            dockerfile=dockerfile,
-        )
-        runner = resolve_runner_config(runner_mode=runner_mode, kubernetes_config=kube_cfg)
-        return await create_built_job(
+        task = create_task(
+            entrypoint or None,
+            merged_kwargs,
             name=name,
-            entrypoint=entrypoint,
-            runner=runner,
-            image_source=source,
             entry_type=entry_type,
             command=command,
             command_env=command_env,
-            kwargs=merged_kwargs,
+        )
+        return await create_job(
+            name=name,
+            entry=task,
             run_type=run_type,
             registered_job_id=registered.id if registered is not None else None,
             preservation_mode=preservation_mode,
             registered=registered,
         )
 
-    # Subprocess runner from here on: nothing below builds or runs an image.
-    if entry_type == ENTRY_JVM:
+    # Gate on the pure decision before resolving: git auto-detect must not
+    # mask the real problem when the local backend cannot run containers.
+    if is_local():
         raise ValueError(
-            "jvm entry_type requires a docker/kubernetes registered job — the shim jar "
-            "runs only inside the task's container image (spec: docs/designs/java-sdk.md)"
+            "container jobs require distributed mode (Postgres + ClickHouse); "
+            "got chdb + SQLite. Set AAICLICK_SQL_URL and AAICLICK_CH_URL to "
+            "remote services before submitting these jobs."
         )
-
-    task = create_task(
-        entrypoint or None,
-        merged_kwargs,
+    source = await resolve_image_source(
+        registered,
+        image=image,
+        build=build,
+        git_remote=git_remote,
+        git_sha=git_sha,
+        git_branch=git_branch,
+        dockerfile=dockerfile,
+    )
+    assert source is not None  # requested_image_kind said so
+    return await create_container_job(
         name=name,
+        entrypoint=entrypoint,
+        image_source=source,
+        resources=resources,
         entry_type=entry_type,
         command=command,
         command_env=command_env,
-    )
-    return await create_job(
-        name=name,
-        entry=task,
+        kwargs=merged_kwargs,
         run_type=run_type,
         registered_job_id=registered.id if registered is not None else None,
         preservation_mode=preservation_mode,

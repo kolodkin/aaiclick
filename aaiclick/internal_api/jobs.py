@@ -219,8 +219,9 @@ async def run_job(request: RunJobRequest) -> JobView:
     ``RegisteredJob`` exists, the new job links to it and inherits its
     ``default_kwargs``; otherwise it runs standalone.
 
-    Raises ``Invalid`` when the request's fields contradict the resolved
-    runner (e.g. ``image`` for a job on the subprocess runner).
+    Raises ``Invalid`` when the request's fields contradict each other
+    (e.g. ``image`` together with ``build``) or need an image source
+    (``resources``, ``jvm``) but none resolves.
     """
     if "." in request.name:
         entrypoint = request.name
@@ -240,13 +241,12 @@ async def run_job(request: RunJobRequest) -> JobView:
             command=request.command,
             command_env=request.command_env,
             image=request.image,
+            build=request.build,
             git_remote=request.git_remote,
             git_sha=request.git_sha,
             git_branch=request.git_branch,
             dockerfile=request.dockerfile,
-            namespace=request.namespace,
-            service_account=request.service_account,
-            image_pull_secret=request.image_pull_secret,
+            resources=request.resources,
         )
     except ValueError as exc:
         raise Invalid(str(exc)) from exc

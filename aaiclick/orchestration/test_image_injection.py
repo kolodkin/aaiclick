@@ -8,17 +8,10 @@ from aaiclick.data.object.refs import callable_ref, group_results_ref, native_va
 from .execution.execution_worker_context import set_current_task_info
 from .execution.image_build_task import IMAGE_BUILD_ENTRYPOINT
 from .factories import create_job, create_task
-from .image_injection import stamp_inherited_image, validate_image_sources, validate_jvm_tasks
-from .models import Dependency, Job, Task
+from .image_injection import stamp_inherited_image, validate_jvm_tasks
+from .models import Dependency, Task
 from .orch_context import commit_tasks, get_sql_session
-from .runner_config import (
-    RUNNER_DOCKER,
-    RUNNER_KUBERNETES,
-    RUNNER_SUBPROCESS,
-    ImageBuild,
-    ImagePrebuilt,
-    dump_image_source,
-)
+from .runner_config import ImageBuild, ImagePrebuilt, dump_image_source
 
 BUILD_A = dump_image_source(ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40))
 BUILD_B = dump_image_source(ImageBuild(git_remote="https://example.com/r.git", git_sha="b" * 40))
@@ -41,21 +34,6 @@ def test_stamp_inherited_image_none_parent_is_noop():
     t = create_task("m.f")
     stamp_inherited_image([t], None)
     assert t.image_source is None
-
-
-@pytest.mark.parametrize(
-    "runner_mode, match",
-    [
-        pytest.param(RUNNER_SUBPROCESS, "subprocess", id="subprocess-job"),
-        pytest.param(RUNNER_KUBERNETES, "AAICLICK_REGISTRY", id="kubernetes-build-without-registry"),
-    ],
-)
-def test_validate_rejects_image_source(monkeypatch, runner_mode, match):
-    monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
-    t = create_task("m.f")
-    t.image_source = BUILD_A
-    with pytest.raises(ValueError, match=match):
-        validate_image_sources([t], runner_mode)
 
 
 def _jvm_task(kwargs: dict | None = None, image_source: dict | None = PREBUILT) -> Task:
@@ -110,15 +88,6 @@ def test_validate_jvm_ignores_non_jvm_tasks():
     validate_jvm_tasks([t])
 
 
-async def _create_docker_job() -> int:
-    job = await create_job("j", "m.entry")
-    async with get_sql_session() as session:
-        row = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
-        row.runner_mode = RUNNER_DOCKER
-        await session.commit()
-    return job.id
-
-
 async def _build_tasks_and_edges(job_id: int) -> tuple[list[Task], set[tuple[int, int]]]:
     """Persisted image-build tasks of ``job_id`` and every persisted ``(previous_id, next_id)`` edge."""
     async with get_sql_session() as session:
@@ -129,7 +98,7 @@ async def _build_tasks_and_edges(job_id: int) -> tuple[list[Task], set[tuple[int
 
 async def test_commit_tasks_injects_one_build_task_per_image(orch_ctx_no_ch, monkeypatch):
     monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
-    job_id = await _create_docker_job()
+    job_id = (await create_job("j", "m.entry")).id
     t1, t2, t3 = create_task("m.f1"), create_task("m.f2"), create_task("m.f3")
     t1.image_source, t2.image_source, t3.image_source = BUILD_A, BUILD_A, BUILD_B
 
@@ -148,7 +117,7 @@ async def test_commit_tasks_injects_one_build_task_per_image(orch_ctx_no_ch, mon
 
 async def test_commit_tasks_reuses_existing_build_task_in_job(orch_ctx_no_ch, monkeypatch):
     monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
-    job_id = await _create_docker_job()
+    job_id = (await create_job("j", "m.entry")).id
     first = create_task("m.f1")
     first.image_source = BUILD_A
     await commit_tasks(first, job_id)
@@ -166,7 +135,7 @@ async def test_commit_tasks_stamps_and_injects_for_docker_job(orch_ctx_no_ch, mo
     """commit_tasks on a docker job: undeclared tasks inherit the committing
     task's image, and a build task + edges appear in the same commit."""
     monkeypatch.setenv("AAICLICK_REGISTRY", "registry.example:5000")
-    job_id = await _create_docker_job()
+    job_id = (await create_job("j", "m.entry")).id
     async with get_sql_session() as session:
         entry = (await session.execute(select(Task).where(Task.job_id == job_id))).scalar_one()
         entry.image_source = BUILD_A
@@ -197,11 +166,3 @@ async def test_commit_tasks_rejects_jvm_task_without_own_image(orch_ctx_no_ch):
     set_current_task_info(task_id=1, job_id=job.id, image_source=BUILD_A)
     with pytest.raises(ValueError, match="no image_source"):
         await commit_tasks(create_task("com.example.Pipeline", entry_type="jvm"), job.id)
-
-
-async def test_commit_tasks_subprocess_job_rejects_image(orch_ctx_no_ch):
-    job = await create_job("j", "m.entry")
-    t = create_task("m.child")
-    t.image_source = BUILD_A
-    with pytest.raises(ValueError, match="subprocess"):
-        await commit_tasks(t, job.id)

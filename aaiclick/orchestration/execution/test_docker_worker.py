@@ -10,11 +10,12 @@ import pytest
 
 from ..logging import read_task_logs
 from ..models import Task
-from ..runner_config import ENTRY_JVM, ENTRY_MODULE, RUNNER_DOCKER, EntryType, ImagePrebuilt
+from ..runner_config import ENTRY_JVM, ENTRY_MODULE, EntryType, ImagePrebuilt
 from . import docker_worker, execution_worker
 from .docker_worker import _build_docker_run_cmd, build_shell_run_spec
 from .execution_worker import JobDispatch, RunnerResult
 from .log_test_helpers import dispatch_with_fake_cli
+from .runner_env import RUNNER_DOCKER
 
 
 def _cmdtask(**kw):

@@ -15,7 +15,7 @@ from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
 from ..datetime_utils import utc_field, utc_now
 from ..snowflake import get_snowflake_id
-from .runner_config import ENTRY_MODULE, RUNNER_SUBPROCESS, EntryType, RunnerMode
+from .runner_config import ENTRY_MODULE, EntryType
 from .task_registry import register_task
 
 # Enum columns are stored as plain ``String`` and validated by their ``Literal``
@@ -141,16 +141,16 @@ class RegisteredJob(SQLModel, table=True):
         default=None,
         sa_column=Column(String, nullable=True),
     )
-    runner_mode: RunnerMode = Field(
-        default=RUNNER_SUBPROCESS,
-        sa_column=Column(String, nullable=False, server_default=RUNNER_SUBPROCESS),
-    )
     dockerfile: str | None = Field(default=None)
     git_remote: str | None = Field(default=None)
     # Default prebuilt image tag — a flat default like dockerfile/git_remote,
     # feeding docker_config.resolve_image_source's precedence chain.
     image: str | None = Field(default=None)
-    kubernetes_config: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    # Default image source kind: build the task image from the repo. Mutually
+    # exclusive with ``image``; git_remote / dockerfile are its modifiers.
+    build: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="0"), default=False)
+    # Default Kubernetes requests/limits for every run's Pods.
+    resources: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     next_run_at: datetime | None = utc_field(default=None, index=True)
     created_at: datetime = utc_field(default_factory=utc_now)
     updated_at: datetime = utc_field(default_factory=utc_now)
@@ -182,11 +182,9 @@ class Job(SQLModel, table=True):
         default=PRESERVATION_NONE,
         sa_column=Column(String, nullable=False, server_default=PRESERVATION_NONE),
     )
-    runner_mode: RunnerMode = Field(
-        default=RUNNER_SUBPROCESS,
-        sa_column=Column(String, nullable=False, server_default=RUNNER_SUBPROCESS),
-    )
-    runner: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    # Kubernetes requests/limits applied to every Pod of this job; the docker
+    # runner ignores it. Snapshot of run kwarg → registration default.
+    resources: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     created_at: datetime = utc_field(default_factory=utc_now, index=True)
     started_at: datetime | None = utc_field(default=None)
     completed_at: datetime | None = utc_field(default=None)
@@ -403,8 +401,8 @@ class Task(_DependencyOps, SQLModel, table=True):
     command: list[str] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     command_env: dict[str, str] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     # ImageSource JSON (see runner_config.parse_image_source). NULL means this
-    # task runs as a host subprocess regardless of the job's runner_mode —
-    # the rule that host-pins injected image-build tasks.
+    # task runs as a host subprocess on any worker — the rule that host-pins
+    # injected image-build tasks.
     image_source: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     # Marks the system-injected image-build task (image_injection). A real
     # column rather than an entrypoint-string comparison: the injection dedup

@@ -1715,6 +1715,11 @@ export interface components {
          *     shorthand without redoing the derivation at the call site.
          */
         RegisterJobRequest: {
+            /**
+             * Build
+             * @default false
+             */
+            build: boolean;
             /** Default Kwargs */
             default_kwargs?: {
                 [key: string]: unknown;
@@ -1732,10 +1737,6 @@ export interface components {
             git_remote?: string | null;
             /** Image */
             image?: string | null;
-            /** Kubernetes Config */
-            kubernetes_config?: {
-                [key: string]: unknown;
-            } | null;
             /**
              * Name
              * @default
@@ -1743,12 +1744,10 @@ export interface components {
             name: string;
             /** Preservation Mode */
             preservation_mode?: ("NONE" | "FULL") | null;
-            /**
-             * Runner Mode
-             * @default subprocess
-             * @enum {string}
-             */
-            runner_mode: "subprocess" | "docker" | "kubernetes";
+            /** Resources */
+            resources?: {
+                [key: string]: unknown;
+            } | null;
             /** Schedule */
             schedule?: string | null;
         };
@@ -1758,6 +1757,11 @@ export interface components {
          */
         RegisteredJobView: {
             /**
+             * Build
+             * @default false
+             */
+            build: boolean;
+            /**
              * Created At
              * Format: date-time
              */
@@ -1766,18 +1770,28 @@ export interface components {
             default_kwargs?: {
                 [key: string]: unknown;
             } | null;
+            /** Dockerfile */
+            dockerfile?: string | null;
             /** Enabled */
             enabled: boolean;
             /** Entrypoint */
             entrypoint: string;
+            /** Git Remote */
+            git_remote?: string | null;
             /** Id */
             id: string;
+            /** Image */
+            image?: string | null;
             /** Name */
             name: string;
             /** Next Run At */
             next_run_at?: string | null;
             /** Preservation Mode */
             preservation_mode?: ("NONE" | "FULL") | null;
+            /** Resources */
+            resources?: {
+                [key: string]: unknown;
+            } | null;
             /** Schedule */
             schedule?: string | null;
             /**
@@ -1791,6 +1805,11 @@ export interface components {
          * @description Inputs for ``internal_api.run_job``.
          */
         RunJobRequest: {
+            /**
+             * Build
+             * @default false
+             */
+            build: boolean;
             /** Command */
             command?: string[] | null;
             /** Command Env */
@@ -1813,20 +1832,18 @@ export interface components {
             git_sha?: string | null;
             /** Image */
             image?: string | null;
-            /** Image Pull Secret */
-            image_pull_secret?: string | null;
             /** Kwargs */
             kwargs?: {
                 [key: string]: unknown;
             };
             /** Name */
             name: string;
-            /** Namespace */
-            namespace?: string | null;
             /** Preservation Mode */
             preservation_mode?: ("NONE" | "FULL") | null;
-            /** Service Account */
-            service_account?: string | null;
+            /** Resources */
+            resources?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** SavedQuery */
         SavedQuery: {

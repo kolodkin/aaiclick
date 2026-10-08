@@ -1,11 +1,15 @@
 """Tests for registered jobs CRUD operations."""
 
 from datetime import datetime
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlmodel import select
 
 from ..datetime_utils import utc_now
+from . import docker_config
+from . import registered_jobs as registered_jobs_module
+from .docker_config import GitDetectionError
 from .factories import resolve_job_config
 from .models import PRESERVATION_FULL, PRESERVATION_NONE, RUN_MANUAL, RegisteredJob, Task
 from .orch_context import get_sql_session
@@ -19,7 +23,6 @@ from .registered_jobs import (
     run_job,
     upsert_registered_job,
 )
-from .runner_config import RUNNER_DOCKER
 
 
 @pytest.mark.parametrize(
@@ -337,9 +340,9 @@ async def test_run_job_shell_requires_command():
         await run_job("j", "", entry_type="shell", command=None)
 
 
-async def test_run_job_jvm_requires_container_runner(orch_ctx):
-    # No registration ⇒ runner_mode subprocess — jvm has no host-JVM contract
-    with pytest.raises(ValueError, match="jvm.*docker/kubernetes"):
+async def test_run_job_jvm_requires_image_source(orch_ctx):
+    # No registration and no image ⇒ subprocess — jvm has no host-JVM contract
+    with pytest.raises(ValueError, match="jvm.*image source"):
         await run_job("jvm_job", "com.example.Pipeline", entry_type="jvm")
 
 
@@ -348,55 +351,64 @@ async def test_run_job_image_and_git_mutually_exclusive():
         await run_job("j", "m.f", image="python:3.12", git_sha="a" * 40)
 
 
-@pytest.mark.parametrize(
-    "overrides",
-    [
-        pytest.param({"image": "python:3.12"}, id="image"),
-        pytest.param({"git_sha": "a" * 40}, id="git-sha"),
-        pytest.param({"dockerfile": "docker/Dockerfile"}, id="dockerfile"),
-    ],
-)
-async def test_run_job_rejects_image_overrides_without_container_runner(orch_ctx, overrides):
-    # No registration ⇒ subprocess runner; the override has nowhere to go.
-    with pytest.raises(ValueError, match="docker/kubernetes"):
-        await run_job("no_reg", "myapp.no_reg", **overrides)
-
-
-@pytest.mark.parametrize(
-    "override",
-    [
-        pytest.param({"namespace": "ml"}, id="namespace"),
-        pytest.param({"service_account": "sa"}, id="service-account"),
-        pytest.param({"image_pull_secret": "pull"}, id="image-pull-secret"),
-    ],
-)
-async def test_run_job_rejects_kubernetes_overrides_without_kubernetes_runner(orch_ctx, override):
-    # A docker registration has no Pod for the cluster override to configure.
-    await register_job(name="docker_reg", entrypoint="myapp.docker_reg", runner_mode=RUNNER_DOCKER)
-    with pytest.raises(ValueError, match="require the kubernetes runner; the job runs on the docker runner"):
-        await run_job("docker_reg", "myapp.docker_reg", **override)
+async def test_run_job_image_and_build_mutually_exclusive():
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        await run_job("j", "m.f", image="python:3.12", build=True)
 
 
 @pytest.mark.parametrize("register", [register_job, upsert_registered_job])
 @pytest.mark.parametrize(
     "fields, message",
     [
-        pytest.param({"image": "python:3.12"}, "image require a docker/kubernetes runner", id="image"),
-        pytest.param({"git_remote": "git@x:r.git"}, "git_remote require a docker/kubernetes runner", id="git-remote"),
+        pytest.param({"git_remote": "git@x:r.git"}, "without build.*git_remote", id="git-remote"),
+        pytest.param({"dockerfile": "Dockerfile.gpu"}, "without build.*dockerfile", id="dockerfile"),
+        pytest.param({"image": "python:3.12", "build": True}, "mutually exclusive", id="image-and-build"),
         pytest.param(
-            {"dockerfile": "Dockerfile.gpu"}, "dockerfile require a docker/kubernetes runner", id="dockerfile"
-        ),
-        pytest.param(
-            {"runner_mode": RUNNER_DOCKER, "kubernetes_config": {"namespace": "ml"}},
-            "kubernetes_config require the kubernetes runner",
-            id="kubernetes-config-on-docker",
+            {"resources": {"limits": {"cpu": "1"}}}, "resources require an image source", id="resources-on-subprocess"
         ),
     ],
 )
-async def test_registration_rejects_fields_its_runner_never_reads(orch_ctx, register, fields, message):
+async def test_registration_rejects_build_modifiers_without_build(orch_ctx, register, fields, message):
     with pytest.raises(ValueError, match=message):
-        await register(name="unread_fields", entrypoint="myapp.unread", **fields)
-    assert await get_registered_job("unread_fields") is None
+        await register(name="bad_reg", entrypoint="myapp.bad", **fields)
+    assert await get_registered_job("bad_reg") is None
+
+
+async def test_register_job_persists_build_and_resources(orch_ctx):
+    await register_job(
+        name="built",
+        entrypoint="myapp.built",
+        build=True,
+        git_remote="git@x:r.git",
+        resources={"limits": {"cpu": "1"}},
+    )
+    fetched = await get_registered_job("built")
+    assert fetched is not None
+    assert fetched.build is True
+    assert fetched.resources == {"limits": {"cpu": "1"}}
+
+
+async def test_run_job_resources_fall_back_to_registration(orch_ctx, monkeypatch):
+    monkeypatch.setattr(registered_jobs_module, "is_local", lambda: False)
+    await register_job(name="res_reg", entrypoint="myapp.res", image="python:3.12", resources={"limits": {"cpu": "1"}})
+    job = await run_job("res_reg", "myapp.res")
+    assert job.resources == {"limits": {"cpu": "1"}}
+    job = await run_job("res_reg", "myapp.res", resources={"limits": {"cpu": "2"}})
+    assert job.resources == {"limits": {"cpu": "2"}}
+
+
+async def test_run_job_rejects_container_source_in_local_mode(orch_ctx, monkeypatch):
+    monkeypatch.setattr(registered_jobs_module, "is_local", lambda: True)
+    with pytest.raises(ValueError, match="distributed mode"):
+        await run_job("local_img", "myapp.local", image="python:3.12")
+
+
+async def test_run_job_local_mode_check_precedes_git_autodetect(orch_ctx, monkeypatch):
+    """A dirty tree must not mask the real problem: the local backend cannot run containers."""
+    monkeypatch.setattr(registered_jobs_module, "is_local", lambda: True)
+    monkeypatch.setattr(docker_config, "auto_detect_git_sha", AsyncMock(side_effect=GitDetectionError("dirty tree")))
+    with pytest.raises(ValueError, match="distributed mode"):
+        await run_job("local_build", "myapp.local", build=True)
 
 
 async def test_run_job_shell_creates_shell_task(orch_ctx):
@@ -419,7 +431,6 @@ async def test_register_job_with_image(orch_ctx):
     await register_job(
         name="prebuilt_job",
         entrypoint="myapp.prebuilt",
-        runner_mode=RUNNER_DOCKER,
         image="python:3.12",
     )
     fetched = await get_registered_job("prebuilt_job")
@@ -431,7 +442,6 @@ async def test_upsert_job_with_image(orch_ctx):
     await upsert_registered_job(
         name="upsert_prebuilt",
         entrypoint="myapp.prebuilt",
-        runner_mode=RUNNER_DOCKER,
         image="python:3.12",
     )
     fetched = await get_registered_job("upsert_prebuilt")

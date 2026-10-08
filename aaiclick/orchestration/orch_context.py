@@ -27,7 +27,7 @@ from .env import get_db_url
 from .events import register_session_hooks
 from .execution.db_handler import _db_handler_var, create_db_handler, get_db_handler  # noqa: F401
 from .execution.execution_worker_context import get_current_task_info
-from .image_injection import inject_build_tasks, stamp_inherited_image, validate_image_sources, validate_jvm_tasks
+from .image_injection import inject_build_tasks, stamp_inherited_image, validate_jvm_tasks
 from .lifecycle.db_lifecycle import DBLifecycleMessage, DBLifecycleOp, OplogPayload, OplogTablePayload
 from .models import Dependency, Group, Job, Task, TasksType
 from .oplog_backfill import migrate_table_registry_to_sql
@@ -602,12 +602,11 @@ async def commit_tasks(
 
     async with get_sql_session() as session:
         injected: list[Task] = []
-        # Only container tasks need the job row (runner_mode) for validation
-        # and injection — the common all-subprocess commit skips the fetch.
+        # Only container tasks need the job row for build-task injection — the
+        # common all-subprocess commit skips the fetch.
         if any(task.image_source is not None for task in tasks_only):
             job = (await session.execute(select(Job).where(Job.id == job_id))).scalar_one_or_none()
             if job is not None:
-                validate_image_sources(tasks_only, job.runner_mode)
                 injected = await inject_build_tasks(session, tasks_only, job)
 
         for item in [*injected, *all_items]:

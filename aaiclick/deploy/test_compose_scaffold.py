@@ -93,3 +93,11 @@ def test_init_compose_server_carries_auth_credentials(tmp_path):
     env = yaml.safe_load(target.read_text())["services"]["server"]["environment"]
     assert env["AAICLICK_JWT_SECRET"]
     assert env["AAICLICK_ADMIN_PASSWORD"]
+
+
+def test_init_compose_worker_runs_the_docker_runner(tmp_path):
+    """The compose stack dispatches container tasks to the mounted host daemon."""
+    target = tmp_path / "docker-compose.yaml"
+    init_compose(target, image_tag="v1.0.0")
+    env = yaml.safe_load(target.read_text())["services"]["worker"]["environment"]
+    assert env["AAICLICK_RUNNER"] == "docker"
