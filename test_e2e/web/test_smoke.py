@@ -434,12 +434,12 @@ def test_task_view_separates_streamed_status_from_polled_logs(page, base_url: st
     page.get_by_text("COMPLETED", exact=True).first.wait_for(timeout=30000)
     log_polls = [u for u in requests[seen:] if u.endswith("/logs")]
     assert log_polls, "logs never refetched, so no new lines could have appeared"
-    assert page.locator(".log-line").count() > lines_before, "log lines did not accumulate while the task ran"
     # Going terminal stops the timer, so the lines written since the last poll
     # need one final fetch. Nothing else would collect them — this key is not
     # in LIVE_KEYS, so no `changed` frame touches it — and the panel would sit
     # a poll interval short of the truth for good.
     page.get_by_text(f"step {SLOW_TASK_STEPS} of {SLOW_TASK_STEPS}").wait_for(timeout=10000)
+    assert page.locator(".log-line").count() > lines_before, "log lines did not accumulate while the task ran"
     shot("sse-task-completed")
 
     # The job went terminal in the task's commit, so nothing more commits, no
