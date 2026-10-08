@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -10,6 +11,7 @@ from .. import docker_config
 from ..runner_config import ImageBuild, ImagePrebuilt
 from . import docker_build
 from .docker_build import resolve_launch_image
+from .docker_scaffold import render_default_build_dockerfile
 
 
 async def test_collect_build_args_omits_unset_values(monkeypatch):
@@ -88,21 +90,62 @@ async def test_git_clone_passes_remote_and_sha_after_end_of_options(monkeypatch)
     assert ("git", "-C", "/work", "fetch", "--depth=1", "--quiet", "origin", "--", sha) in argvs
 
 
-async def test_build_image_to_tag_missing_dockerfile_raises(monkeypatch):
-    monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
+async def test_build_image_to_tag_explicit_missing_dockerfile_raises(monkeypatch):
+    """The default-Dockerfile fallback applies only to the implicit ``Dockerfile``;
+    an explicitly named path that is absent is a user error."""
+    built = _stub_build_path(monkeypatch, {})
     source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40, dockerfile="Dockerfile.missing")
 
+    with pytest.raises(FileNotFoundError, match="Dockerfile not found"):
+        await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
+    assert built == []
+
+
+def _stub_build_path(monkeypatch, clone_files: dict[str, str]) -> list[str]:
+    """Stub everything around the clone + build step and return a list that
+    collects the Dockerfile content ``_docker_build`` was handed (read at call
+    time, before the temp checkout is removed)."""
+    monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
     monkeypatch.setattr(docker_build, "_require_docker", AsyncMock())
     monkeypatch.setattr(docker_build, "_docker_pull", AsyncMock(return_value=False))
     monkeypatch.setattr(docker_build, "_docker_image_exists_locally", AsyncMock(return_value=False))
 
     async def fake_clone(remote, sha, workdir):
-        return None
+        for name, content in clone_files.items():
+            Path(workdir, name).write_text(content)
+
+    built: list[str] = []
+
+    async def fake_build(context, dockerfile, image_tag, build_args):
+        assert Path(dockerfile).parent == Path(context)
+        built.append(Path(dockerfile).read_text())
 
     monkeypatch.setattr(docker_build, "_git_clone_at_sha", fake_clone)
+    monkeypatch.setattr(docker_build, "_docker_build", fake_build)
+    return built
 
-    with pytest.raises(FileNotFoundError, match="Dockerfile not found"):
-        await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
+
+async def test_build_image_to_tag_repo_without_dockerfile_builds_with_default(monkeypatch):
+    """A checkout with no ``Dockerfile`` builds with the default thin layer on
+    the aaiclick base image, pinned to the host's installed version."""
+    monkeypatch.setattr(docker_build, "_aaiclick_version", lambda: "1.2.3")
+    built = _stub_build_path(monkeypatch, {"job.py": "print('hi')\n"})
+    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
+
+    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
+
+    assert built == [render_default_build_dockerfile("1.2.3")]
+    assert "FROM ghcr.io/kolodkin/aaiclick:v1.2.3\n" in built[0]
+    assert "COPY . /src\n" in built[0]
+
+
+async def test_build_image_to_tag_checked_in_dockerfile_wins_over_default(monkeypatch):
+    built = _stub_build_path(monkeypatch, {"Dockerfile": "FROM python:3.12\n"})
+    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
+
+    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
+
+    assert built == ["FROM python:3.12\n"]
 
 
 async def test_require_docker_raises_clear_error_when_cli_missing(monkeypatch):

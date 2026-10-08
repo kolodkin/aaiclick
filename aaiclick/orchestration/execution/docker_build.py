@@ -22,6 +22,7 @@ from pathlib import Path
 from ..docker_config import add_host_flags, compute_image_tag, get_registry
 from ..runner_config import ImageBuild, ImageSourceT
 from . import cli
+from .docker_scaffold import render_default_build_dockerfile
 
 
 def _docker_bin() -> str:
@@ -81,7 +82,7 @@ async def _git_clone_at_sha(remote: str, sha: str, workdir: str) -> None:
 
 def _aaiclick_version() -> str:
     """Best-effort version of the running aaiclick package, for the
-    ``AAICLICK_VERSION`` build-arg."""
+    ``AAICLICK_VERSION`` build-arg and the default Dockerfile's base tag."""
     try:
         return importlib.metadata.version("aaiclick")
     except importlib.metadata.PackageNotFoundError:
@@ -124,6 +125,25 @@ async def _docker_build(context: str, dockerfile: str, image_tag: str, build_arg
     await cli.run(*cmd)
 
 
+def _resolve_dockerfile(source: ImageBuild, context_dir: Path) -> Path:
+    """Path of the Dockerfile to build with inside the checkout.
+
+    A checkout without the implicit ``Dockerfile`` gets the default thin layer
+    on the aaiclick base image written in (spec: docs/designs/orchestration.md
+    "Image source"). An explicitly named ``dockerfile=`` that is absent is a
+    user error and raises."""
+    dockerfile = context_dir / (source.dockerfile or "Dockerfile")
+    if dockerfile.is_file():
+        return dockerfile
+    if source.dockerfile:
+        raise FileNotFoundError(
+            f"Dockerfile not found at {source.dockerfile} in repo {source.git_remote}@{source.git_sha}. "
+            f"Run `python -m aaiclick docker init` in the user's repo to scaffold a starter Dockerfile."
+        )
+    dockerfile.write_text(render_default_build_dockerfile(_aaiclick_version()))
+    return dockerfile
+
+
 async def resolve_launch_image(image_source: ImageSourceT | None, *, task_id: int) -> str:
     """Resolve the image tag a container actually launches with.
 
@@ -163,15 +183,7 @@ async def build_image_to_tag(source: ImageBuild, image_tag: str) -> None:
             await _git_clone_at_sha(source.git_remote, source.git_sha, workdir)
 
             context_dir = Path(workdir)
-            dockerfile = context_dir / (source.dockerfile or "Dockerfile")
-            if not dockerfile.is_file():
-                raise FileNotFoundError(
-                    f"Dockerfile not found at "
-                    f"{source.dockerfile or 'Dockerfile'} "
-                    f"in repo {source.git_remote}@{source.git_sha}. "
-                    f"Run `python -m aaiclick docker init` in the user's repo "
-                    f"to scaffold a starter Dockerfile."
-                )
+            dockerfile = _resolve_dockerfile(source, context_dir)
 
             build_args = _collect_build_args(source)
             await _docker_build(str(context_dir), str(dockerfile), image_tag, build_args)

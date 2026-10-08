@@ -1,12 +1,13 @@
-"""Scaffold a starter Dockerfile for docker-runner jobs.
+"""Dockerfile templates for docker-runner jobs.
 
-The framework deliberately does not bundle a runtime-default Dockerfile —
-image reproducibility requires that the Dockerfile be checked in to the
-user's repo and versioned by the git SHA the build task clones from. This
-module provides a CLI scaffold that drops a sensible starter into the
-user's working directory; from there the user owns it.
+Two templates live here:
 
-Invoked via ``python -m aaiclick docker init``."""
+- ``DOCKERFILE_TEMPLATE`` — the starter ``python -m aaiclick docker init``
+  scaffolds into the user's working directory; from there the user owns it.
+- ``DEFAULT_BUILD_DOCKERFILE_TEMPLATE`` — the thin layer on the aaiclick base
+  image a ``build`` source falls back to when the checkout has no ``Dockerfile``
+  (``docker_build.build_image_to_tag``), pinned to the host's aaiclick version
+  so worker and container stay in step. Check in a Dockerfile to customize."""
 
 from __future__ import annotations
 
@@ -63,6 +64,18 @@ COPY . /src
 WORKDIR /src
 RUN pip install --no-cache-dir /src
 """
+
+DEFAULT_BUILD_DOCKERFILE_TEMPLATE = """\
+FROM ghcr.io/kolodkin/aaiclick:v{version}
+COPY . /src
+WORKDIR /src
+"""
+
+
+def render_default_build_dockerfile(version: str) -> str:
+    """The fallback Dockerfile for a checkout without one, pinned to ``version``
+    (the host's installed aaiclick version, without the ``v`` tag prefix)."""
+    return DEFAULT_BUILD_DOCKERFILE_TEMPLATE.format(version=version)
 
 
 class DockerfileExists(FileExistsError):

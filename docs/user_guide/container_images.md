@@ -36,6 +36,12 @@ COPY . /src
 RUN pip install --no-cache-dir /src
 ```
 
+A git build (`--build`) whose repo has no `Dockerfile` gets this layer by
+default, pinned to the worker's aaiclick version, with `WORKDIR /src` instead of
+`pip install` — entrypoints resolve from the copied tree. Check in a `Dockerfile`
+(`python -m aaiclick docker init` scaffolds one) to customize; an explicit
+`dockerfile=` path that is missing still fails.
+
 # Kubernetes dispatching worker
 
 Run `aaiclick-kubectl` as a pod with `AAICLICK_RUNNER=kubernetes`: container
