@@ -252,7 +252,7 @@ class SandboxFileView(BaseModel):
     job_ids: list[SnowflakeId] | None = None
     status: SandboxStatus
     error: str | None = None
-    submitted_by: str
+    submitted_by: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -472,7 +472,7 @@ def registered_job_to_view(rj: RegisteredJob) -> RegisteredJobView:
     )
 
 
-def sandbox_file_to_view(row: SandboxFile, username: str) -> SandboxFileView:
+def sandbox_file_to_view(row: SandboxFile, username: str | None) -> SandboxFileView:
     return SandboxFileView(
         id=row.id,
         name=row.name,

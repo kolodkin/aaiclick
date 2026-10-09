@@ -186,7 +186,8 @@ class SandboxFile(SQLModel, table=True):
         sa_column=Column(String, nullable=False, server_default=SANDBOX_PENDING, index=True),
     )
     error: str | None = Field(default=None)
-    submitted_by: int = Field(sa_column=Column(BigInteger, ForeignKey("users.id"), nullable=False))
+    # ``None`` in local mode, whose synthetic admin has no users row.
+    submitted_by: int | None = Field(default=None, sa_column=Column(BigInteger, ForeignKey("users.id"), nullable=True))
     created_at: datetime = utc_field(default_factory=utc_now)
     updated_at: datetime = utc_field(default_factory=utc_now)
 
