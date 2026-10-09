@@ -32,7 +32,7 @@ honour dependency manifests found in the checkout: `requirements.txt`,
 `uv.lock` / `pyproject.toml` (`uv sync` or `pip install .`), and `pom.xml` for
 `jvm` tasks. Each adds a `RUN` layer to the default Dockerfile only when the
 file is present. Until then, a repo with dependencies checks in its own
-Dockerfile.
+Dockerfile — the sandbox repo included (`docs/user_guide/sandbox.md`).
 
 ---
 

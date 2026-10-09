@@ -74,6 +74,7 @@ nav:
     - Orchestration: user_guide/orchestration.md
     - Container Images: user_guide/container_images.md
     - Deployment: user_guide/deployment.md
+    - Sandbox: user_guide/sandbox.md
     - Lineage: user_guide/lineage.md
     - Operation Log: user_guide/oplog.md
     - Example Projects: user_guide/example_projects.md
