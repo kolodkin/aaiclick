@@ -4,15 +4,12 @@
   scaffolds into the user's working directory; from there the user owns it.
 - ``DEFAULT_BUILD_DOCKERFILE_TEMPLATE`` — the thin layer on the aaiclick base
   image a ``build`` source writes into a checkout that has no ``Dockerfile``
-  (``docker_build.build_image_to_tag``). Its ``BASE_IMAGE`` build-arg pins the
-  host's aaiclick version so worker and container stay in step;
-  ``AAICLICK_BASE_IMAGE`` overrides it. Check in a Dockerfile to customize."""
+  (``docker_build.build_image_to_tag``; spec: docs/designs/orchestration.md
+  "Image source"). Check in a Dockerfile to customize."""
 
 from __future__ import annotations
 
 from pathlib import Path
-
-from ...ghcr import BASE_IMAGE_REPO, image_tag
 
 DOCKERFILE_TEMPLATE = """\
 # Starter Dockerfile for an aaiclick docker-runner job.
@@ -70,20 +67,15 @@ RUN pip install --no-cache-dir /src
 
 DEFAULT_BUILD_DOCKERFILE_TEMPLATE = """\
 # Default image for a git build whose repo has no Dockerfile: a thin layer on
-# the aaiclick base image. BASE_IMAGE is forwarded by the build task
-# (AAICLICK_BASE_IMAGE on the worker, else the GHCR tag matching its version).
+# the aaiclick base image. The build task forwards BASE_IMAGE pinned to the
+# worker's aaiclick version (or AAICLICK_BASE_IMAGE).
 # --chown: the base image runs as USER aaiclick; a root-owned /src would break
 # tasks that write relative paths.
-ARG BASE_IMAGE
+ARG BASE_IMAGE=ghcr.io/kolodkin/aaiclick:latest
 FROM ${BASE_IMAGE}
 COPY --chown=aaiclick:aaiclick . /src
 WORKDIR /src
 """
-
-
-def default_base_image(version: str) -> str:
-    """GHCR base image for the host's aaiclick ``version``."""
-    return f"{BASE_IMAGE_REPO}:{image_tag(version)}"
 
 
 class DockerfileExists(FileExistsError):

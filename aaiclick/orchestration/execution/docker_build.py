@@ -17,14 +17,14 @@ from __future__ import annotations
 import functools
 import importlib.metadata
 import os
-import shutil
 import tempfile
 from pathlib import Path
 
+from ...ghcr import base_image
 from ..docker_config import add_host_flags, compute_image_tag, get_registry
 from ..runner_config import ImageBuild, ImageSourceT
 from . import cli
-from .docker_scaffold import DEFAULT_BUILD_DOCKERFILE_TEMPLATE, default_base_image
+from .docker_scaffold import DEFAULT_BUILD_DOCKERFILE_TEMPLATE
 
 
 def _docker_bin() -> str:
@@ -75,16 +75,11 @@ async def _docker_push(image_tag: str) -> None:
 async def _git_clone_at_sha(remote: str, sha: str, workdir: str) -> None:
     """Clone the SHA into ``workdir``. Uses ``git init`` + ``fetch`` + ``checkout``
     so we avoid pulling the full default branch when only one commit is needed,
-    and so the remote can be a non-default-branch SHA.
-
-    ``.git`` is removed afterwards: the checkout is the docker build context, and
-    the pack would otherwise be sent to the daemon and copied into the image.
-    Dockerfiles get git metadata from the GIT_SHA / GIT_BRANCH build-args."""
+    and so the remote can be a non-default-branch SHA."""
     await cli.run("git", "init", "--quiet", workdir)
     await cli.run("git", "-C", workdir, "remote", "add", "origin", "--", remote)
     await cli.run("git", "-C", workdir, "fetch", "--depth=1", "--quiet", "origin", "--", sha)
     await cli.run("git", "-C", workdir, "checkout", "--quiet", sha)
-    shutil.rmtree(Path(workdir) / ".git")
 
 
 @functools.cache
@@ -115,8 +110,9 @@ def _collect_build_args(source: ImageBuild) -> list[str]:
     add("PIP_INDEX_URL", os.environ.get("AAICLICK_PIP_INDEX_URL"))
     add("PIP_EXTRA_INDEX_URL", os.environ.get("AAICLICK_PIP_EXTRA_INDEX_URL"))
     add("PIP_TRUSTED_HOST", os.environ.get("AAICLICK_PIP_TRUSTED_HOST"))
-    add("AAICLICK_VERSION", _aaiclick_version())
-    add("BASE_IMAGE", os.environ.get("AAICLICK_BASE_IMAGE") or default_base_image(_aaiclick_version()))
+    version = _aaiclick_version()
+    add("AAICLICK_VERSION", version)
+    add("BASE_IMAGE", os.environ.get("AAICLICK_BASE_IMAGE") or base_image(version))
     return args
 
 
@@ -139,8 +135,10 @@ def _resolve_dockerfile(source: ImageBuild, context_dir: Path) -> Path:
     """Path of the Dockerfile to build with inside the checkout.
 
     A checkout without the implicit ``Dockerfile`` gets the default thin layer
-    written in (spec: docs/designs/orchestration.md "Image source"). An
-    explicitly named ``dockerfile=`` that is absent is a user error and raises."""
+    written in, plus a ``.dockerignore`` (when the repo has none) keeping the
+    clone's ``.git`` out of the context — user Dockerfiles keep it, since a
+    ``pip install`` of a setuptools-scm project reads it. An explicitly named
+    ``dockerfile=`` that is absent is a user error and raises."""
     dockerfile = context_dir / (source.dockerfile or "Dockerfile")
     if dockerfile.is_file():
         return dockerfile
@@ -151,6 +149,9 @@ def _resolve_dockerfile(source: ImageBuild, context_dir: Path) -> Path:
             f"(or the default aaiclick layer when there is none)."
         )
     dockerfile.write_text(DEFAULT_BUILD_DOCKERFILE_TEMPLATE)
+    dockerignore = context_dir / ".dockerignore"
+    if not dockerignore.exists():
+        dockerignore.write_text(".git\n")
     return dockerfile
 
 

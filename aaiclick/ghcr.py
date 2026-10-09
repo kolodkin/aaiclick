@@ -19,3 +19,8 @@ def image_tag(version: str) -> str:
     — the worker fails on "tag not found" instead of "invalid reference
     format"."""
     return f"v{version.split('+', 1)[0]}"
+
+
+def base_image(version: str) -> str:
+    """The base image reference for ``version``: repo plus :func:`image_tag`."""
+    return f"{BASE_IMAGE_REPO}:{image_tag(version)}"

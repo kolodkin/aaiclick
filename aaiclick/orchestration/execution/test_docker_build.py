@@ -77,36 +77,17 @@ async def test_build_image_to_tag_pushes_after_local_cache_hit_when_registry_set
     push.assert_awaited_once_with(expected_tag)
 
 
-async def test_git_clone_passes_remote_and_sha_after_end_of_options(monkeypatch, tmp_path):
+async def test_git_clone_passes_remote_and_sha_after_end_of_options(monkeypatch):
     """Both remote and SHA are positional to git; ``--`` stops git reading either as an option."""
     run = AsyncMock()
     monkeypatch.setattr(docker_build.cli, "run", run)
-    (tmp_path / ".git").mkdir()
-    workdir = str(tmp_path)
     sha = "a" * 40
 
-    await docker_build._git_clone_at_sha("https://example.com/r.git", sha, workdir)
+    await docker_build._git_clone_at_sha("https://example.com/r.git", sha, "/work")
 
     argvs = [call.args for call in run.await_args_list]
-    assert ("git", "-C", workdir, "remote", "add", "origin", "--", "https://example.com/r.git") in argvs
-    assert ("git", "-C", workdir, "fetch", "--depth=1", "--quiet", "origin", "--", sha) in argvs
-
-
-async def test_git_clone_drops_git_dir_from_build_context(monkeypatch, tmp_path):
-    """The checkout is the docker build context: ``.git`` would otherwise be sent
-    to the daemon and baked into ``/src`` by ``COPY . /src``. Dockerfiles that
-    need git metadata get it from the GIT_SHA / GIT_BRANCH build-args."""
-
-    async def fake_run(*argv, **kwargs):
-        if argv[:2] == ("git", "init"):
-            (Path(argv[-1]) / ".git").mkdir()
-            (Path(argv[-1]) / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
-
-    monkeypatch.setattr(docker_build.cli, "run", fake_run)
-
-    await docker_build._git_clone_at_sha("https://example.com/r.git", "a" * 40, str(tmp_path))
-
-    assert not (tmp_path / ".git").exists()
+    assert ("git", "-C", "/work", "remote", "add", "origin", "--", "https://example.com/r.git") in argvs
+    assert ("git", "-C", "/work", "fetch", "--depth=1", "--quiet", "origin", "--", sha) in argvs
 
 
 async def test_build_image_to_tag_explicit_missing_dockerfile_raises(monkeypatch):
@@ -119,12 +100,11 @@ async def test_build_image_to_tag_explicit_missing_dockerfile_raises(monkeypatch
         await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
 
 
-def _stub_build_path(monkeypatch, clone_files: dict[str, str]) -> list[tuple[Path, Path, str]]:
-    """Stub everything around the clone + build step and return a list collecting
-    ``(context, dockerfile, dockerfile content)`` as ``_docker_build`` was handed
-    them (content read at call time, before the temp checkout is removed)."""
+def _stub_build_path(monkeypatch, clone_files: dict[str, str]) -> list[dict[str, str]]:
+    """Stub everything around the clone + build step and return a list collecting,
+    per ``_docker_build`` call, the checkout's files by name (read at call time,
+    before the temp checkout is removed). The Dockerfile must sit in the context."""
     monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
-    monkeypatch.delenv("AAICLICK_BASE_IMAGE", raising=False)
     monkeypatch.setattr(docker_build, "_require_docker", AsyncMock())
     monkeypatch.setattr(docker_build, "_docker_pull", AsyncMock(return_value=False))
     monkeypatch.setattr(docker_build, "_docker_image_exists_locally", AsyncMock(return_value=False))
@@ -133,10 +113,11 @@ def _stub_build_path(monkeypatch, clone_files: dict[str, str]) -> list[tuple[Pat
         for name, content in clone_files.items():
             Path(workdir, name).write_text(content)
 
-    built: list[tuple[Path, Path, str]] = []
+    built: list[dict[str, str]] = []
 
     async def fake_build(context, dockerfile, image_tag, build_args):
-        built.append((Path(context), Path(dockerfile), Path(dockerfile).read_text()))
+        assert Path(dockerfile) == Path(context) / "Dockerfile"
+        built.append({f.name: f.read_text() for f in Path(context).iterdir()})
 
     monkeypatch.setattr(docker_build, "_git_clone_at_sha", fake_clone)
     monkeypatch.setattr(docker_build, "_docker_build", fake_build)
@@ -144,43 +125,50 @@ def _stub_build_path(monkeypatch, clone_files: dict[str, str]) -> list[tuple[Pat
 
 
 async def test_build_image_to_tag_repo_without_dockerfile_builds_with_default(monkeypatch):
-    """A checkout with no ``Dockerfile`` gets the default written in and builds with it."""
+    """A checkout with no ``Dockerfile`` gets the default written in, plus a
+    ``.dockerignore`` keeping ``.git`` out of the image."""
     built = _stub_build_path(monkeypatch, {"job.py": "print('hi')\n"})
     source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
 
     await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
 
-    [(context, dockerfile, content)] = built
-    assert dockerfile == context / "Dockerfile"
-    assert content == DEFAULT_BUILD_DOCKERFILE_TEMPLATE
-    assert "FROM ${BASE_IMAGE}\n" in content
+    assert built == [
+        {"job.py": "print('hi')\n", "Dockerfile": DEFAULT_BUILD_DOCKERFILE_TEMPLATE, ".dockerignore": ".git\n"}
+    ]
+
+
+async def test_build_image_to_tag_default_keeps_repo_dockerignore(monkeypatch):
+    built = _stub_build_path(monkeypatch, {".dockerignore": "data/\n"})
+    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
+
+    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
+
+    assert built[0][".dockerignore"] == "data/\n"
 
 
 async def test_build_image_to_tag_checked_in_dockerfile_wins_over_default(monkeypatch):
+    """A checked-in Dockerfile builds as is: nothing is written into the checkout."""
     built = _stub_build_path(monkeypatch, {"Dockerfile": "FROM python:3.12\n"})
     source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
 
     await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
 
-    [(context, dockerfile, content)] = built
-    assert dockerfile == context / "Dockerfile"
-    assert content == "FROM python:3.12\n"
+    assert built == [{"Dockerfile": "FROM python:3.12\n"}]
 
 
 @pytest.mark.parametrize(
     "version, env_base_image, expected",
     [
         pytest.param("1.2.3", None, "ghcr.io/kolodkin/aaiclick:v1.2.3", id="release"),
-        # AAICLICK_BASE_IMAGE wins verbatim: rc workers (release tag not promoted
-        # yet) and dev installs pointing at a locally built base.
+        pytest.param("0.0.1.dev50+gfc8c68213.d20261008", None, "ghcr.io/kolodkin/aaiclick:v0.0.1.dev50", id="dev"),
         pytest.param("1.2.3", "ghcr.io/kolodkin/aaiclick:v1.2.3-rc", "ghcr.io/kolodkin/aaiclick:v1.2.3-rc", id="env"),
     ],
 )
 def test_collect_build_args_base_image(monkeypatch, version, env_base_image, expected):
+    """``AAICLICK_BASE_IMAGE`` wins verbatim, else the GHCR tag for the host version."""
     monkeypatch.setattr(docker_build, "_aaiclick_version", lambda: version)
-    if env_base_image is None:
-        monkeypatch.delenv("AAICLICK_BASE_IMAGE", raising=False)
-    else:
+    monkeypatch.delenv("AAICLICK_BASE_IMAGE", raising=False)
+    if env_base_image:
         monkeypatch.setenv("AAICLICK_BASE_IMAGE", env_base_image)
     source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
 
