@@ -21,18 +21,20 @@ the runner."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
-from job_wait import run_worker_until_done
+from job_wait import run_worker_until_done, wait_for_job_by_name
 from sqlmodel import select
 
 from aaiclick.internal_api.sandbox import submit_sandbox_file
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.docker_config import compute_image_tag
+from aaiclick.orchestration.execution.mp_worker import mp_worker_main_loop
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, SANDBOX_SUBMITTED, TASK_COMPLETED, SandboxFile
 from aaiclick.orchestration.orch_context import get_sql_session
@@ -323,11 +325,24 @@ async def test_docker_runner_sandbox_submission(orch_ctx, sandbox_remote, tmp_pa
     assert row.status == SANDBOX_SUBMITTED, row.error
     assert row.job_ids is not None and len(row.job_ids) == 2
     module_name = module_parts(row.path)[1]
-    for job_name in (f"{module_name}.first", f"{module_name}.second"):
-        completed = await run_worker_until_done(job_name)
-        assert completed.status == JOB_COMPLETED, completed.error
-        probe = next(t for t in await get_tasks_for_job(completed.id) if t.entrypoint.endswith(".probe"))
-        assert probe.result == {"native_value": {"n": 1}}, (probe.result, probe.error)
+    # One worker loop for both jobs: a per-job loop cancelled mid-build leaves
+    # the other job's build task RUNNING under a dead claim, and nothing here
+    # reaps it.
+    worker_task = asyncio.create_task(
+        mp_worker_main_loop(max_tasks=10, install_signal_handlers=False, max_empty_polls=10)
+    )
+    try:
+        for job_name in (f"{module_name}.first", f"{module_name}.second"):
+            completed = await wait_for_job_by_name(job_name)
+            assert completed.status == JOB_COMPLETED, completed.error
+            probe = next(t for t in await get_tasks_for_job(completed.id) if t.entrypoint.endswith(".probe"))
+            assert probe.result == {"native_value": {"n": 1}}, (probe.result, probe.error)
+    finally:
+        worker_task.cancel()
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            pass
 
     # A second submission stacks on the first in the remote. It stays
     # pending here: no further poll step runs, so it creates no jobs.
