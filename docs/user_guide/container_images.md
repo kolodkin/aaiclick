@@ -40,9 +40,10 @@ A git build (`--build`) whose repo has no `Dockerfile` gets this layer by
 default, pinned to the worker's aaiclick version, with `WORKDIR /src` instead of
 `pip install` — entrypoints resolve from the copied tree. Set
 `AAICLICK_BASE_IMAGE` on the worker to use another base: an rc tag, or a locally
-built image when the worker runs from a git checkout (its version,
-`0.0.1.dev50+g...`, has no published image; the tag rule drops the `+...`
-segment so the reference stays valid). Check in a `Dockerfile` (`python -m aaiclick
+built image when the worker runs from a git checkout — a developer's machine, or
+CI running the e2e from source (its version, `0.0.1.dev50+g...`, has no
+published image; the tag rule drops the `+...` segment so the reference stays
+valid). Check in a `Dockerfile` (`python -m aaiclick
 docker init` scaffolds one) to customize; an explicit `dockerfile=` path that is
 missing still fails.
 
