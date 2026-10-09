@@ -7,7 +7,8 @@ Two templates live here:
 - ``DEFAULT_BUILD_DOCKERFILE_TEMPLATE`` — the thin layer on the aaiclick base
   image a ``build`` source falls back to when the checkout has no ``Dockerfile``
   (``docker_build.build_image_to_tag``), pinned to the host's aaiclick version
-  so worker and container stay in step. Check in a Dockerfile to customize."""
+  so worker and container stay in step (``AAICLICK_BASE_IMAGE`` overrides the
+  base). Check in a Dockerfile to customize."""
 
 from __future__ import annotations
 
@@ -68,18 +69,23 @@ RUN pip install --no-cache-dir /src
 # --chown: the base image runs as USER aaiclick, so a root-owned /src would
 # break tasks that write relative paths.
 DEFAULT_BUILD_DOCKERFILE_TEMPLATE = """\
-FROM ghcr.io/kolodkin/aaiclick:v{version}
+FROM {base_image}
 COPY --chown=aaiclick:aaiclick . /src
 WORKDIR /src
 """
 
 
-def render_default_build_dockerfile(version: str) -> str:
-    """The fallback Dockerfile pinned to the host's aaiclick ``version``.
+def default_base_image(version: str) -> str:
+    """GHCR base image for the host's aaiclick ``version``.
 
     The PEP 440 local segment (``+g<sha>.d<date>`` on dev checkouts) is dropped:
     ``+`` is not a legal Docker tag character."""
-    return DEFAULT_BUILD_DOCKERFILE_TEMPLATE.format(version=version.split("+", 1)[0])
+    return f"ghcr.io/kolodkin/aaiclick:v{version.split('+', 1)[0]}"
+
+
+def render_default_build_dockerfile(base_image: str) -> str:
+    """The fallback Dockerfile: a thin layer on ``base_image``."""
+    return DEFAULT_BUILD_DOCKERFILE_TEMPLATE.format(base_image=base_image)
 
 
 class DockerfileExists(FileExistsError):

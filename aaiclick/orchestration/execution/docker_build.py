@@ -23,7 +23,7 @@ from pathlib import Path
 from ..docker_config import add_host_flags, compute_image_tag, get_registry
 from ..runner_config import ImageBuild, ImageSourceT
 from . import cli
-from .docker_scaffold import render_default_build_dockerfile
+from .docker_scaffold import default_base_image, render_default_build_dockerfile
 
 
 def _docker_bin() -> str:
@@ -132,9 +132,9 @@ def _resolve_dockerfile(source: ImageBuild, context_dir: Path) -> Path:
     """Path of the Dockerfile to build with inside the checkout.
 
     A checkout without the implicit ``Dockerfile`` gets the default thin layer
-    on the aaiclick base image written in (spec: docs/designs/orchestration.md
-    "Image source"). An explicitly named ``dockerfile=`` that is absent is a
-    user error and raises."""
+    written in, on ``AAICLICK_BASE_IMAGE`` or the GHCR image matching the host's
+    aaiclick version (spec: docs/designs/orchestration.md "Image source"). An
+    explicitly named ``dockerfile=`` that is absent is a user error and raises."""
     dockerfile = context_dir / (source.dockerfile or "Dockerfile")
     if dockerfile.is_file():
         return dockerfile
@@ -144,7 +144,8 @@ def _resolve_dockerfile(source: ImageBuild, context_dir: Path) -> Path:
             f"Check the dockerfile= path, or omit it to build with the repo's Dockerfile "
             f"(or the default aaiclick layer when there is none)."
         )
-    dockerfile.write_text(render_default_build_dockerfile(_aaiclick_version()))
+    base_image = os.environ.get("AAICLICK_BASE_IMAGE") or default_base_image(_aaiclick_version())
+    dockerfile.write_text(render_default_build_dockerfile(base_image))
     return dockerfile
 
 

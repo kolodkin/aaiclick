@@ -104,6 +104,7 @@ def _stub_build_path(monkeypatch, clone_files: dict[str, str]) -> list[str]:
     collects the Dockerfile content ``_docker_build`` was handed (read at call
     time, before the temp checkout is removed)."""
     monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
+    monkeypatch.delenv("AAICLICK_BASE_IMAGE", raising=False)
     monkeypatch.setattr(docker_build, "_require_docker", AsyncMock())
     monkeypatch.setattr(docker_build, "_docker_pull", AsyncMock(return_value=False))
     monkeypatch.setattr(docker_build, "_docker_image_exists_locally", AsyncMock(return_value=False))
@@ -145,6 +146,19 @@ async def test_build_image_to_tag_default_dockerfile_tag_drops_local_version_seg
     await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
 
     assert built[0].startswith("FROM ghcr.io/kolodkin/aaiclick:v0.0.1.dev50\n")
+
+
+async def test_build_image_to_tag_default_dockerfile_base_image_env_override(monkeypatch):
+    """``AAICLICK_BASE_IMAGE`` replaces the version-derived GHCR tag verbatim, for
+    rc workers (whose release tag is not promoted yet) and dev installs."""
+    monkeypatch.setattr(docker_build, "_aaiclick_version", lambda: "1.2.3")
+    built = _stub_build_path(monkeypatch, {})
+    monkeypatch.setenv("AAICLICK_BASE_IMAGE", "ghcr.io/kolodkin/aaiclick:v1.2.3-rc")
+    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
+
+    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
+
+    assert built[0].startswith("FROM ghcr.io/kolodkin/aaiclick:v1.2.3-rc\n")
 
 
 async def test_build_image_to_tag_checked_in_dockerfile_wins_over_default(monkeypatch):
