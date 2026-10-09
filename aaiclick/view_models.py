@@ -102,6 +102,27 @@ class RunJobRequest(BaseModel):
     resources: dict[str, Any] | None = None
 
 
+class SubmitSandboxRequest(BaseModel):
+    """Inputs for ``internal_api.submit_sandbox_file``: a name and one Python file."""
+
+    name: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_]*$", max_length=64)
+    source: str = Field(min_length=1, max_length=200_000)
+
+
+class SandboxFileFilter(BaseModel):
+    """Paging for ``internal_api.list_sandbox_files``."""
+
+    limit: PageLimit = 50
+    offset: PageOffset = 0
+
+
+class SandboxConfigView(BaseModel):
+    """Whether the sandbox is enabled; ``remote`` is shown to admins only."""
+
+    enabled: bool
+    remote: str | None = None
+
+
 class RegisterJobRequest(BaseModel):
     """Inputs for ``internal_api.register_job``.
 
