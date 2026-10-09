@@ -1,5 +1,6 @@
 """The background worker turns pending sandbox files into ``run_job`` calls."""
 
+import asyncio
 import os
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -71,3 +72,22 @@ async def test_failure_on_second_job_keeps_first_id(orch_ctx):
 
     reloaded = await _reload(row.id)
     assert reloaded.status == SANDBOX_FAILED and reloaded.job_ids == [7] and reloaded.error == "second: boom"
+
+
+async def test_concurrent_steps_submit_each_job_once(orch_ctx):
+    """Two background workers polling at once (or one poll overlapping a
+    manual call) must not both turn the same pending row into jobs."""
+    row = await _insert_row(["first", "second"])
+    calls = []
+
+    async def slow_run_job(name, entrypoint, **kw):
+        calls.append(name)
+        await asyncio.sleep(0.05)
+        return SimpleNamespace(id=len(calls))
+
+    with patch(RUN_JOB, slow_run_job):
+        await asyncio.gather(_run_step(), _run_step())
+
+    reloaded = await _reload(row.id)
+    assert sorted(calls) == ["sb_1_demo.first", "sb_1_demo.second"]
+    assert reloaded.status == SANDBOX_SUBMITTED and reloaded.job_ids == [1, 2]

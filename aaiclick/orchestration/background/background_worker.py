@@ -20,10 +20,11 @@ so they take the same ``run_job`` path as a manual submission.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from datetime import datetime, timedelta
-from typing import cast
+from typing import NamedTuple, cast
 
 from croniter import croniter
 from sqlalchemy import text
@@ -89,6 +90,17 @@ async def _delete_registry_rows(session: AsyncSession, table_names: list[str]) -
         return
     ph, params = in_clause(table_names, "tn")
     await session.execute(text(f"DELETE FROM table_registry WHERE table_name IN ({ph})"), params)
+
+
+class SandboxClaim(NamedTuple):
+    """A pending sandbox file this worker won the claim on — copied out of the
+    ORM row so it survives the claiming session's commit."""
+
+    id: int
+    path: str
+    job_names: list[str]
+    git_remote: str
+    git_sha: str
 
 
 class BackgroundWorker:
@@ -545,9 +557,11 @@ class BackgroundWorker:
 
         The row carries everything ``run_job`` needs — the sandbox remote and
         the submission commit — so the build source is pinned to the file as
-        committed. The first failing call marks the row failed and keeps the
-        job ids created before it; a row is never submitted twice because the
-        status flips in the same transaction that records the outcome.
+        committed. Each row is claimed with an optimistic ``UPDATE`` on its
+        ``pending`` status before any job is created, so two background
+        workers (or an overlapping manual poll) never submit the same file
+        twice. The first failing call marks the row failed and keeps the job
+        ids created before it.
         """
         async with AsyncSession(self._engine) as session:
             rows = (
@@ -562,18 +576,46 @@ class BackgroundWorker:
                 .scalars()
                 .all()
             )
-            if not rows:
-                return
+            claimed: list[SandboxClaim] = []
             for row in rows:
-                job_ids, error = await self._submit_sandbox_jobs(row)
-                row.job_ids = job_ids
-                row.error = error
-                row.status = SANDBOX_FAILED if error is not None else SANDBOX_SUBMITTED
-                row.updated_at = utc_now()
-                session.add(row)
+                lock_result = await session.execute(
+                    text(
+                        "UPDATE sandbox_files SET status = :submitted, updated_at = :now "
+                        "WHERE id = :id AND status = :pending"
+                    ),
+                    {"submitted": SANDBOX_SUBMITTED, "now": utc_now(), "id": row.id, "pending": SANDBOX_PENDING},
+                )
+                if cast(CursorResult, lock_result).rowcount == 1:
+                    claimed.append(
+                        SandboxClaim(
+                            id=row.id,
+                            path=row.path,
+                            job_names=list(row.job_names),
+                            git_remote=row.git_remote,
+                            git_sha=row.git_sha,
+                        )
+                    )
             await session.commit()
 
-    async def _submit_sandbox_jobs(self, row: SandboxFile) -> tuple[list[int], str | None]:
+        for row in claimed:
+            job_ids, error = await self._submit_sandbox_jobs(row)
+            async with AsyncSession(self._engine) as session:
+                await session.execute(
+                    text(
+                        "UPDATE sandbox_files SET job_ids = :job_ids, error = :error, status = :status, "
+                        "updated_at = :now WHERE id = :id"
+                    ),
+                    {
+                        "job_ids": json.dumps(job_ids),
+                        "error": error,
+                        "status": SANDBOX_FAILED if error is not None else SANDBOX_SUBMITTED,
+                        "now": utc_now(),
+                        "id": row.id,
+                    },
+                )
+                await session.commit()
+
+    async def _submit_sandbox_jobs(self, row: SandboxClaim) -> tuple[list[int], str | None]:
         """``run_job`` per job name; the ids created so far plus the first error."""
         date_dir, module_name = module_parts(row.path)
         job_ids: list[int] = []

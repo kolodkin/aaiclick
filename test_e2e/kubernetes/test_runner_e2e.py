@@ -180,14 +180,15 @@ async def test_kubernetes_runner_sandbox_submission(orch_ctx, sandbox_remote, tm
     """A sandbox submission is committed into an empty remote and every ``@job``
     in it runs as Pods, built on the default Dockerfile."""
     source = (_FIXTURES / "sandbox_job" / "sandbox_jobs.py").read_text()
-    with sandbox_repo_override(SandboxRepo(sandbox_remote, tmp_path / "clone")):
+    repo = SandboxRepo(sandbox_remote, tmp_path / "clone")
+    with sandbox_repo_override(repo):
         view = await submit_sandbox_file(SubmitSandboxRequest(name="demo", source=source), user=None)
-        second = await submit_sandbox_file(SubmitSandboxRequest(name="demo", source=source), user=None)
-    assert second.git_sha != view.git_sha
-    assert _remote_head(sandbox_remote) == second.git_sha
+    assert _remote_head(sandbox_remote) == view.git_sha
 
-    bg_worker = BackgroundWorker(poll_interval=1.0)
-    await bg_worker.start()
+    # One poll step, not the worker loop: the loop would race this call for
+    # the same pending row, and every job it created would compete for the
+    # mp worker's task budget below.
+    bg_worker = BackgroundWorker()
     try:
         await bg_worker._run_sandbox_files()
     finally:
@@ -213,3 +214,10 @@ async def test_kubernetes_runner_sandbox_submission(orch_ctx, sandbox_remote, tm
             await worker_task
         except asyncio.CancelledError:
             pass
+
+    # A second submission stacks on the first in the remote. It stays
+    # pending here: no further poll step runs, so it creates no jobs.
+    with sandbox_repo_override(repo):
+        second = await submit_sandbox_file(SubmitSandboxRequest(name="demo", source=source), user=None)
+    assert second.git_sha != view.git_sha
+    assert _remote_head(sandbox_remote) == second.git_sha
