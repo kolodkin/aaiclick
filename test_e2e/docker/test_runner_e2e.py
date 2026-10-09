@@ -122,6 +122,52 @@ async def test_docker_runner_smoke(orch_ctx, docker_e2e_user_repo):
 
 
 @pytest.mark.docker_e2e
+async def test_docker_runner_default_dockerfile(orch_ctx, docker_e2e_bare_repo):
+    """A user repo with no Dockerfile builds with the default thin layer on
+    ``AAICLICK_BASE_IMAGE``, which the workflow builds from the wheel under
+    test (no published image matches a wheel built from source)."""
+    remote, sha, worktree = docker_e2e_bare_repo
+    job_name = "docker_e2e_default_dockerfile"
+
+    _aaiclick(
+        "register-job",
+        "bare_jobs.entry_task",
+        "--name",
+        job_name,
+        "--build",
+        "--git-remote",
+        remote,
+        cwd=worktree,
+    )
+
+    _aaiclick("run-job", job_name, "--git-sha", sha, cwd=worktree)
+
+    worker_task = asyncio.create_task(
+        mp_worker_main_loop(
+            max_tasks=10,
+            install_signal_handlers=False,
+            max_empty_polls=10,
+        )
+    )
+    try:
+        completed = await wait_for_job_by_name(job_name)
+    finally:
+        worker_task.cancel()
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            pass
+
+    assert completed.status == JOB_COMPLETED, completed.error
+
+    tasks = await get_tasks_for_job(completed.id)
+    entry = next(t for t in tasks if t.entrypoint == "bare_jobs.entry_task")
+    assert entry.status == TASK_COMPLETED, entry.error
+    # cwd is the copied repo and the non-root user could write into it.
+    assert entry.result == {"native_value": {"cwd": "/src", "user": "aaiclick"}}, entry.result
+
+
+@pytest.mark.docker_e2e
 async def test_docker_runner_jvm_task(orch_ctx, docker_e2e_user_repo, jvm_task_image):
     """Run a ``jvm`` task between two Python tasks, each in its own container.
 

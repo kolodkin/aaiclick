@@ -130,6 +130,22 @@ jobs:
             curl -fsSL -F "content=@${f}" -F ":action=file_upload" http://localhost:8080/
           done
 
+      # A git build whose repo has no Dockerfile layers on the aaiclick base
+      # image at the worker's version. No published image matches the wheel
+      # under test, so build that base here from the same wheel (the release
+      # recipe, docker/Dockerfile) and point the worker at it via
+      # AAICLICK_BASE_IMAGE below. --network=host reaches the pypiserver on
+      # localhost, which pip trusts for plain HTTP.
+      - name: Build base image from the wheel under test
+        run: |
+          WHEEL=$(basename dist/aaiclick-*.whl)
+          VERSION=${WHEEL#aaiclick-}
+          VERSION=${VERSION%%-*}
+          docker build --network=host -f docker/Dockerfile \
+            --build-arg AAICLICK_VERSION="${VERSION}" \
+            --build-arg PIP_INDEX_URL="http://localhost:8080/simple/" \
+            -t aaiclick-e2e-base:local .
+
       - name: Install aaiclick from test pypi (artifact mode)
         if: inputs.wheel_source == 'artifact'
         env:
@@ -165,6 +181,7 @@ jobs:
           AAICLICK_CH_URL: "clickhouse://default:click123@host.docker.internal:8123/default"
           AAICLICK_RUNNER: "docker"
           AAICLICK_REGISTRY: "host.docker.internal:5000"
+          AAICLICK_BASE_IMAGE: "aaiclick-e2e-base:local"
           AAICLICK_PIP_INDEX_URL: "http://host.docker.internal:8080/simple/"
           # pip refuses to use a plain-HTTP index without --trusted-host;
           # forward the host so the build sees our test pypi.

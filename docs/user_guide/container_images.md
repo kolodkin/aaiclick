@@ -43,7 +43,8 @@ default, pinned to the worker's aaiclick version, with `WORKDIR /src` instead of
 built image when the worker runs from a git checkout — a developer's machine, or
 CI running the e2e from source (its version, `0.0.1.dev50+g...`, has no
 published image; the tag rule drops the `+...` segment so the reference stays
-valid). Check in a `Dockerfile` (`python -m aaiclick
+valid). The docker e2e workflow does exactly that: it builds the base from the
+wheel under test and runs a Dockerfile-less fixture repo against it. Check in a `Dockerfile` (`python -m aaiclick
 docker init` scaffolds one) to customize; an explicit `dockerfile=` path that is
 missing still fails.
 
