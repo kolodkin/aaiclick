@@ -1,10 +1,9 @@
 name: Build base image
 description: >-
-  Build the aaiclick base image (docker/Dockerfile) from a wheel served by
-  the local pypiserver on port 8080. Shared by the release's per-arch rc
-  build and the docker e2e's source mode. --network=host reaches the index
-  on localhost, which pip trusts for plain HTTP; docker/ is the context so
-  the workspace is not sent to the daemon.
+  Build the aaiclick base image (docker/Dockerfile) from a wheel on the
+  local pypiserver. --network=host reaches the index on localhost, which
+  pip trusts for plain HTTP; docker/ is the context so the workspace is
+  not sent to the daemon.
 
 inputs:
   version:
