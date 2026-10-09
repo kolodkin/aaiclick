@@ -36,8 +36,16 @@ DependencyType = Literal["task", "group"]
 
 RUN_SCHEDULED = "SCHEDULED"
 RUN_MANUAL = "MANUAL"
-RunType = Literal["SCHEDULED", "MANUAL"]
+RUN_SANDBOX = "SANDBOX"
+RunType = Literal["SCHEDULED", "MANUAL", "SANDBOX"]
 """How a job run was triggered."""
+
+
+SANDBOX_PENDING = "pending"
+SANDBOX_SUBMITTED = "submitted"
+SANDBOX_FAILED = "failed"
+SandboxStatus = Literal["pending", "submitted", "failed"]
+"""Whether the background worker has turned a sandbox file into jobs yet."""
 
 
 JOB_PENDING = "PENDING"
@@ -152,6 +160,33 @@ class RegisteredJob(SQLModel, table=True):
     # Default Kubernetes requests/limits for every run's Pods.
     resources: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
     next_run_at: datetime | None = utc_field(default=None, index=True)
+    created_at: datetime = utc_field(default_factory=utc_now)
+    updated_at: datetime = utc_field(default_factory=utc_now)
+
+
+class SandboxFile(SQLModel, table=True):
+    """One file submitted through the sandbox page.
+
+    The file itself lives in the sandbox git repo at ``git_sha``; this row
+    records who submitted it, which ``@job`` functions it declares, and the
+    jobs the background worker created for them.
+    """
+
+    __tablename__: ClassVar[str] = "sandbox_files"
+
+    id: int = Field(default_factory=get_snowflake_id, sa_column=Column(BigInteger, primary_key=True))
+    name: str = Field()
+    path: str = Field(sa_column=Column(String, nullable=False, unique=True))
+    git_remote: str = Field()
+    git_sha: str = Field()
+    job_names: list[str] = Field(sa_column=Column(JSON, nullable=False))
+    job_ids: list[int] | None = Field(default=None, sa_column=Column(JSON, nullable=True))
+    status: SandboxStatus = Field(
+        default=SANDBOX_PENDING,
+        sa_column=Column(String, nullable=False, server_default=SANDBOX_PENDING, index=True),
+    )
+    error: str | None = Field(default=None)
+    submitted_by: int = Field(sa_column=Column(BigInteger, ForeignKey("users.id"), nullable=False))
     created_at: datetime = utc_field(default_factory=utc_now)
     updated_at: datetime = utc_field(default_factory=utc_now)
 
