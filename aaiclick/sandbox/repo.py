@@ -12,7 +12,6 @@ import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from datetime import datetime
 from pathlib import Path
 from typing import NamedTuple
 
@@ -22,6 +21,9 @@ from ..orchestration.execution import cli
 ENV_SANDBOX = "AAICLICK_SANDBOX"
 DEFAULT_BRANCH = "main"
 _REJECTED_MARKERS = ("rejected", "non-fast-forward", "fetch first")
+# Git must never wait on a terminal for credentials; a prompt would hang the
+# request under the lock.
+_GIT_ENV = {"GIT_TERMINAL_PROMPT": "0"}
 
 
 class SandboxGitError(RuntimeError):
@@ -44,16 +46,14 @@ class Committed(NamedTuple):
 
 COMMITTER = Author("aaiclick", "sandbox@aaiclick")
 
+# One lock per clone directory, process-wide: every instance on a workdir
+# serializes through it, whether or not the instances are the same object.
+# Never rebound after import, so a module constant is the right home.
+_WORKDIR_LOCKS: dict[Path, asyncio.Lock] = {}
 
-def submission_path(name: str, now: datetime) -> str:
-    """``YYYYMMDD/sb_<unix ts>_<name>.py`` for a submission made at ``now``."""
-    return f"{now:%Y%m%d}/sb_{int(now.timestamp())}_{name}.py"
 
-
-def module_parts(path: str) -> tuple[str, str]:
-    """``("YYYYMMDD", "sb_<ts>_<name>")`` — the dotted-path pieces of a submission."""
-    date_dir, _, filename = path.partition("/")
-    return date_dir, filename.removesuffix(".py")
+def _workdir_lock(workdir: Path) -> asyncio.Lock:
+    return _WORKDIR_LOCKS.setdefault(workdir.resolve(), asyncio.Lock())
 
 
 class SandboxRepo:
@@ -62,11 +62,14 @@ class SandboxRepo:
     def __init__(self, remote: str, workdir: Path | None = None):
         self.remote = remote
         self.workdir = workdir if workdir is not None else get_root() / "sandbox" / "repo"
-        self._lock = asyncio.Lock()
+        self._lock = _workdir_lock(self.workdir)
         self._branch: str | None = None
 
+    async def _run(self, *args: str) -> tuple[int, str, str]:
+        return await cli.run("git", *args, check=False, stream=False, env=_GIT_ENV)
+
     async def _git_raw(self, *args: str) -> str:
-        rc, stdout, stderr = await cli.run("git", "-C", str(self.workdir), *args, check=False, stream=False)
+        rc, stdout, stderr = await self._run("-C", str(self.workdir), *args)
         if rc != 0:
             raise SandboxGitError(stderr.strip() or f"git {' '.join(args)} failed (exit {rc})")
         return stdout
@@ -79,21 +82,12 @@ class SandboxRepo:
         an empty remote, whose first commit this clone will make)."""
         if not (self.workdir / ".git").is_dir():
             self.workdir.parent.mkdir(parents=True, exist_ok=True)
-            rc, _, stderr = await cli.run(
-                "git", "clone", "--quiet", "--depth=1", "--", self.remote, str(self.workdir), check=False, stream=False
-            )
+            rc, _, stderr = await self._run("clone", "--quiet", "--depth=1", "--", self.remote, str(self.workdir))
             if rc != 0:
                 raise SandboxGitError(stderr.strip())
         if self._branch is None:
-            rc, stdout, _ = await cli.run(
-                "git",
-                "-C",
-                str(self.workdir),
-                "symbolic-ref",
-                "--short",
-                "refs/remotes/origin/HEAD",
-                check=False,
-                stream=False,
+            rc, stdout, _ = await self._run(
+                "-C", str(self.workdir), "symbolic-ref", "--short", "refs/remotes/origin/HEAD"
             )
             self._branch = stdout.strip().removeprefix("origin/") if rc == 0 and stdout.strip() else DEFAULT_BRANCH
         return self._branch
@@ -102,14 +96,22 @@ class SandboxRepo:
         return bool(await self._git("ls-remote", "--heads", "origin", branch))
 
     async def _sync(self, branch: str) -> None:
-        """Make the clone match the remote branch head, or an empty tree when
-        the remote has no such branch yet."""
+        """Make the clone match the remote branch head exactly — or an empty
+        tree on an unborn branch when the remote has no such branch yet —
+        dropping anything a failed or interrupted submission left behind."""
         if await self._remote_has_branch(branch):
             await self._git("fetch", "--quiet", "--depth=1", "origin", branch)
             await self._git("checkout", "--quiet", "-B", branch, "FETCH_HEAD")
+            await self._git("reset", "--quiet", "--hard", "FETCH_HEAD")
         else:
-            await self._git("checkout", "--quiet", "--orphan", branch)
-            await self._git("reset", "--quiet", "--hard")
+            # ``symbolic-ref`` points HEAD at the branch whether or not a local
+            # one exists (``checkout --orphan`` refuses an existing name, which
+            # is exactly the state a failed push leaves); the delete then makes
+            # it unborn again so the next commit is a root commit.
+            await self._git("symbolic-ref", "HEAD", f"refs/heads/{branch}")
+            await self._run("-C", str(self.workdir), "update-ref", "-d", f"refs/heads/{branch}")
+            await self._git("reset", "--quiet")
+        await self._git("clean", "--quiet", "-ffdx")
 
     def _unique_path(self, path: str) -> str:
         candidate = path
@@ -123,7 +125,7 @@ class SandboxRepo:
     async def _commit(self, path: str, content: str, author: Author, message: str) -> str:
         target = self.workdir / path
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content)
+        target.write_text(content, encoding="utf-8")
         await self._git("add", "--", path)
         await self._git(
             "-c",
@@ -167,13 +169,23 @@ class SandboxRepo:
             raise AssertionError("unreachable")
 
     async def read_file(self, path: str, sha: str) -> str:
-        """The committed text of ``path`` at ``sha``."""
+        """The committed text of ``path`` at ``sha``.
+
+        The clone is shallow, so a commit another replica pushed, or one
+        older than a fresh clone's tip, is fetched on demand by SHA."""
         async with self._lock:
             await self._ensure_clone()
-            return await self._git_raw("show", f"{sha}:{path}")
+            try:
+                return await self._git_raw("show", f"{sha}:{path}")
+            except SandboxGitError:
+                await self._git("fetch", "--quiet", "--depth=1", "origin", sha)
+                return await self._git_raw("show", f"{sha}:{path}")
 
 
 _repo_override: ContextVar[SandboxRepo | None] = ContextVar("sandbox_repo_override", default=None)
+# One instance per remote for the process lifetime, so the branch lookup runs
+# once and every request shares the clone. Never rebound: entries are added.
+_REPOS: dict[str, SandboxRepo] = {}
 
 
 @contextmanager
@@ -192,4 +204,9 @@ def get_sandbox_repo() -> SandboxRepo | None:
     if override is not None:
         return override
     remote = os.environ.get(ENV_SANDBOX)
-    return SandboxRepo(remote) if remote else None
+    if not remote:
+        return None
+    repo = _REPOS.get(remote)
+    if repo is None:
+        repo = _REPOS[remote] = SandboxRepo(remote)
+    return repo

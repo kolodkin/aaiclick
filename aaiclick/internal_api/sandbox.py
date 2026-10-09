@@ -15,14 +15,8 @@ from aaiclick.orchestration.models import SANDBOX_PENDING, SandboxFile
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.view_models import SandboxFileDetailView, SandboxFileView, sandbox_file_to_view
 from aaiclick.sandbox.parse import SandboxSourceError, find_job_functions
-from aaiclick.sandbox.repo import (
-    Author,
-    SandboxGitError,
-    SandboxPushRejected,
-    SandboxRepo,
-    get_sandbox_repo,
-    submission_path,
-)
+from aaiclick.sandbox.paths import submission_path
+from aaiclick.sandbox.repo import Author, SandboxGitError, SandboxPushRejected, SandboxRepo, get_sandbox_repo
 from aaiclick.view_models import Page, SandboxConfigView, SandboxFileFilter, SubmitSandboxRequest
 
 from .errors import Conflict, InternalApiError, Invalid, NotFound

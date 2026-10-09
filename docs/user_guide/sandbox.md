@@ -10,8 +10,14 @@ repo you own.
 Set `AAICLICK_SANDBOX` on the API server to a git remote URL:
 
 ```bash
-AAICLICK_SANDBOX=https://token@github.com/acme/aaiclick-sandbox.git
+AAICLICK_SANDBOX=git@github.com:acme/aaiclick-sandbox.git
 ```
+
+!!! warning "Keep credentials out of the URL"
+    The remote is stored with every submission, passed to the build, and baked
+    into the task image (`ENV GIT_REMOTE`), where any submitted task can read
+    it. Authenticate with an SSH deploy key or the host's git credential
+    helper instead of a token in the URL.
 
 - The server clones the remote under `<AAICLICK_LOCAL_ROOT>/sandbox/repo` and
   pushes one commit per submission. An empty repo works.

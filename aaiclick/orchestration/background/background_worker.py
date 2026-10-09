@@ -37,7 +37,7 @@ from aaiclick.data.data_context.ch_client import ChClient, create_ch_client
 from aaiclick.oplog.cleanup import drop_tables
 
 from ...datetime_utils import utc_now
-from ...sandbox.repo import module_parts
+from ...sandbox.paths import module_parts
 from ..env import get_db_url
 from ..events import register_session_hooks
 from ..models import (

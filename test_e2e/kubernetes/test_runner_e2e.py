@@ -30,7 +30,8 @@ from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import JOB_COMPLETED, SANDBOX_SUBMITTED, TASK_COMPLETED, SandboxFile
 from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.runner_config import ImageBuild, parse_image_source
-from aaiclick.sandbox.repo import SandboxRepo, module_parts, sandbox_repo_override
+from aaiclick.sandbox.paths import module_parts
+from aaiclick.sandbox.repo import SandboxRepo, sandbox_repo_override
 from aaiclick.view_models import SubmitSandboxRequest
 
 

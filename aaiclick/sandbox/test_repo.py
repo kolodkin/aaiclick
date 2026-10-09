@@ -1,11 +1,14 @@
+import asyncio
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from .repo import Author, SandboxGitError, SandboxPushRejected, SandboxRepo, module_parts, submission_path
+from .paths import module_parts, submission_path
+from .repo import Author, SandboxGitError, SandboxPushRejected, SandboxRepo, get_sandbox_repo
 
 AUTHOR = Author("u", "u@x")
 
@@ -83,3 +86,63 @@ def test_submission_path_and_module_parts():
     path = submission_path("hello", now)
     assert path == f"20261009/sb_{int(now.timestamp())}_hello.py"
     assert module_parts(path) == ("20261009", f"sb_{int(now.timestamp())}_hello")
+
+
+def test_get_sandbox_repo_is_one_instance_per_remote(tmp_path, monkeypatch):
+    monkeypatch.setenv("AAICLICK_SANDBOX", str(tmp_path / "r.git"))
+    assert get_sandbox_repo() is get_sandbox_repo()
+
+
+async def test_two_instances_on_one_workdir_serialize(tmp_path):
+    """Instances sharing a workdir (one per request today) must not run git
+    concurrently in it."""
+    remote = _bare(tmp_path, seed=True)
+    repos = [SandboxRepo(str(remote), tmp_path / "clone") for _ in range(2)]
+    results = await asyncio.gather(
+        *(repos[i % 2].commit_file(f"20261009/sb_{i}_a.py", f"x = {i}\n", author=AUTHOR, message="m") for i in range(4))
+    )
+    assert len({r.sha for r in results}) == 4
+    assert _git(remote, "rev-list", "--count", "main") == "5"
+
+
+async def test_sync_drops_leftovers_from_a_dirty_clone(tmp_path):
+    remote = _bare(tmp_path, seed=True)
+    repo = SandboxRepo(str(remote), tmp_path / "clone")
+    await repo.commit_file("20261009/sb_1_a.py", "x = 1\n", author=AUTHOR, message="m")
+    (tmp_path / "clone" / "20261009" / "leftover.py").write_text("junk\n")
+    _git(tmp_path / "clone", "add", "20261009/leftover.py")
+    (tmp_path / "clone" / "untracked.txt").write_text("junk\n")
+    committed = await repo.commit_file("20261009/sb_2_b.py", "y = 2\n", author=AUTHOR, message="m")
+    assert _git(remote, "show", "--name-only", "--format=", committed.sha) == "20261009/sb_2_b.py"
+
+
+async def test_empty_remote_recovers_after_a_failed_push(tmp_path):
+    remote = _bare(tmp_path, seed=False)
+    repo = SandboxRepo(str(remote), tmp_path / "clone")
+
+    async def network_down(branch: str) -> None:
+        raise SandboxGitError("fatal: unable to access remote")
+
+    with patch.object(repo, "_push", side_effect=network_down):
+        with pytest.raises(SandboxGitError):
+            await repo.commit_file("20261009/sb_1_a.py", "x = 1\n", author=AUTHOR, message="m")
+    committed = await repo.commit_file("20261009/sb_2_b.py", "y = 2\n", author=AUTHOR, message="m")
+    assert _git(remote, "rev-parse", "main") == committed.sha
+    assert _git(remote, "rev-list", "--count", "main") == "1"
+
+
+async def test_read_file_from_a_fresh_clone_over_file_url(tmp_path):
+    """A shallow clone that never saw a commit still reads it: a restarted
+    server, or a second replica, serves older submissions."""
+    remote = _bare(tmp_path, seed=True)
+    url = f"file://{remote}"
+    writer = SandboxRepo(url, tmp_path / "writer")
+    first = await writer.commit_file("20261009/sb_1_a.py", "x = 1\n", author=AUTHOR, message="m")
+    await writer.commit_file("20261009/sb_2_b.py", "y = 2\n", author=AUTHOR, message="m")
+    reader = SandboxRepo(url, tmp_path / "reader")
+    assert await reader.read_file(first.path, first.sha) == "x = 1\n"
+
+
+def test_repo_module_imports_standalone():
+    proc = subprocess.run([sys.executable, "-c", "import aaiclick.sandbox.repo"], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
