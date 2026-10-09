@@ -23,7 +23,7 @@ from pathlib import Path
 from ..docker_config import add_host_flags, compute_image_tag, get_registry
 from ..runner_config import ImageBuild, ImageSourceT
 from . import cli
-from .docker_scaffold import default_base_image, render_default_build_dockerfile
+from .docker_scaffold import DEFAULT_BUILD_DOCKERFILE, default_base_image
 
 
 def _docker_bin() -> str:
@@ -110,6 +110,7 @@ def _collect_build_args(source: ImageBuild) -> list[str]:
     add("PIP_EXTRA_INDEX_URL", os.environ.get("AAICLICK_PIP_EXTRA_INDEX_URL"))
     add("PIP_TRUSTED_HOST", os.environ.get("AAICLICK_PIP_TRUSTED_HOST"))
     add("AAICLICK_VERSION", _aaiclick_version())
+    add("BASE_IMAGE", os.environ.get("AAICLICK_BASE_IMAGE") or default_base_image(_aaiclick_version()))
     return args
 
 
@@ -129,12 +130,12 @@ async def _docker_build(context: str, dockerfile: str, image_tag: str, build_arg
 
 
 def _resolve_dockerfile(source: ImageBuild, context_dir: Path) -> Path:
-    """Path of the Dockerfile to build with inside the checkout.
+    """Path of the Dockerfile to build the checkout with.
 
-    A checkout without the implicit ``Dockerfile`` gets the default thin layer
-    written in, on ``AAICLICK_BASE_IMAGE`` or the GHCR image matching the host's
-    aaiclick version (spec: docs/designs/orchestration.md "Image source"). An
-    explicitly named ``dockerfile=`` that is absent is a user error and raises."""
+    A checkout without the implicit ``Dockerfile`` builds with the packaged
+    default (``-f`` outside the context, so the checkout is untouched; spec:
+    docs/designs/orchestration.md "Image source"). An explicitly named
+    ``dockerfile=`` that is absent is a user error and raises."""
     dockerfile = context_dir / (source.dockerfile or "Dockerfile")
     if dockerfile.is_file():
         return dockerfile
@@ -144,9 +145,7 @@ def _resolve_dockerfile(source: ImageBuild, context_dir: Path) -> Path:
             f"Check the dockerfile= path, or omit it to build with the repo's Dockerfile "
             f"(or the default aaiclick layer when there is none)."
         )
-    base_image = os.environ.get("AAICLICK_BASE_IMAGE") or default_base_image(_aaiclick_version())
-    dockerfile.write_text(render_default_build_dockerfile(base_image))
-    return dockerfile
+    return DEFAULT_BUILD_DOCKERFILE
 
 
 async def resolve_launch_image(image_source: ImageSourceT | None, *, task_id: int) -> str:

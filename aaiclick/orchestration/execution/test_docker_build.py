@@ -11,6 +11,7 @@ from .. import docker_config
 from ..runner_config import ImageBuild, ImagePrebuilt
 from . import docker_build
 from .docker_build import resolve_launch_image
+from .docker_scaffold import DEFAULT_BUILD_DOCKERFILE
 
 
 async def test_collect_build_args_omits_unset_values(monkeypatch):
@@ -99,10 +100,9 @@ async def test_build_image_to_tag_explicit_missing_dockerfile_raises(monkeypatch
         await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
 
 
-def _stub_build_path(monkeypatch, clone_files: dict[str, str]) -> list[str]:
-    """Stub everything around the clone + build step and return a list that
-    collects the Dockerfile content ``_docker_build`` was handed (read at call
-    time, before the temp checkout is removed)."""
+def _stub_build_path(monkeypatch, clone_files: dict[str, str]) -> list[tuple[Path, Path]]:
+    """Stub everything around the clone + build step and return a list collecting
+    the ``(context, dockerfile)`` pair ``_docker_build`` was handed."""
     monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
     monkeypatch.delenv("AAICLICK_BASE_IMAGE", raising=False)
     monkeypatch.setattr(docker_build, "_require_docker", AsyncMock())
@@ -113,52 +113,28 @@ def _stub_build_path(monkeypatch, clone_files: dict[str, str]) -> list[str]:
         for name, content in clone_files.items():
             Path(workdir, name).write_text(content)
 
-    built: list[str] = []
+    built: list[tuple[Path, Path]] = []
 
     async def fake_build(context, dockerfile, image_tag, build_args):
-        assert Path(dockerfile).parent == Path(context)
-        built.append(Path(dockerfile).read_text())
+        built.append((Path(context), Path(dockerfile)))
 
     monkeypatch.setattr(docker_build, "_git_clone_at_sha", fake_clone)
     monkeypatch.setattr(docker_build, "_docker_build", fake_build)
     return built
 
 
-async def test_build_image_to_tag_repo_without_dockerfile_builds_with_default(monkeypatch):
-    """A checkout with no ``Dockerfile`` builds with the default thin layer on
-    the aaiclick base image, pinned to the host's installed version."""
-    monkeypatch.setattr(docker_build, "_aaiclick_version", lambda: "1.2.3")
+async def test_build_image_to_tag_repo_without_dockerfile_builds_with_packaged_default(monkeypatch):
+    """A checkout with no ``Dockerfile`` builds with the packaged default via
+    ``-f``; the checkout stays the context and is left untouched."""
     built = _stub_build_path(monkeypatch, {"job.py": "print('hi')\n"})
     source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
 
     await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
 
-    assert built == ["FROM ghcr.io/kolodkin/aaiclick:v1.2.3\nCOPY --chown=aaiclick:aaiclick . /src\nWORKDIR /src\n"]
-
-
-async def test_build_image_to_tag_default_dockerfile_tag_drops_local_version_segment(monkeypatch):
-    """A dev checkout reports a PEP 440 local version (``+g<sha>...``); ``+`` is
-    not a legal Docker tag character, so the base tag keeps only the public part."""
-    monkeypatch.setattr(docker_build, "_aaiclick_version", lambda: "0.0.1.dev50+gfc8c68213.d20261008")
-    built = _stub_build_path(monkeypatch, {})
-    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
-
-    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
-
-    assert built[0].startswith("FROM ghcr.io/kolodkin/aaiclick:v0.0.1.dev50\n")
-
-
-async def test_build_image_to_tag_default_dockerfile_base_image_env_override(monkeypatch):
-    """``AAICLICK_BASE_IMAGE`` replaces the version-derived GHCR tag verbatim, for
-    rc workers (whose release tag is not promoted yet) and dev installs."""
-    monkeypatch.setattr(docker_build, "_aaiclick_version", lambda: "1.2.3")
-    built = _stub_build_path(monkeypatch, {})
-    monkeypatch.setenv("AAICLICK_BASE_IMAGE", "ghcr.io/kolodkin/aaiclick:v1.2.3-rc")
-    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
-
-    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
-
-    assert built[0].startswith("FROM ghcr.io/kolodkin/aaiclick:v1.2.3-rc\n")
+    [(context, dockerfile)] = built
+    assert dockerfile == DEFAULT_BUILD_DOCKERFILE
+    assert dockerfile.is_file()
+    assert not (context / "Dockerfile").exists()
 
 
 async def test_build_image_to_tag_checked_in_dockerfile_wins_over_default(monkeypatch):
@@ -167,7 +143,31 @@ async def test_build_image_to_tag_checked_in_dockerfile_wins_over_default(monkey
 
     await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
 
-    assert built == ["FROM python:3.12\n"]
+    [(context, dockerfile)] = built
+    assert dockerfile == context / "Dockerfile"
+
+
+@pytest.mark.parametrize(
+    "version, env_base_image, expected",
+    [
+        pytest.param("1.2.3", None, "ghcr.io/kolodkin/aaiclick:v1.2.3", id="release"),
+        # A dev checkout reports a PEP 440 local version (``+g<sha>...``); ``+`` is
+        # not a legal Docker tag character, so only the public part is kept.
+        pytest.param("0.0.1.dev50+gfc8c68213.d20261008", None, "ghcr.io/kolodkin/aaiclick:v0.0.1.dev50", id="dev"),
+        # AAICLICK_BASE_IMAGE wins verbatim: rc workers (release tag not promoted
+        # yet) and dev installs pointing at a locally built base.
+        pytest.param("1.2.3", "ghcr.io/kolodkin/aaiclick:v1.2.3-rc", "ghcr.io/kolodkin/aaiclick:v1.2.3-rc", id="env"),
+    ],
+)
+def test_collect_build_args_base_image(monkeypatch, version, env_base_image, expected):
+    monkeypatch.setattr(docker_build, "_aaiclick_version", lambda: version)
+    if env_base_image is None:
+        monkeypatch.delenv("AAICLICK_BASE_IMAGE", raising=False)
+    else:
+        monkeypatch.setenv("AAICLICK_BASE_IMAGE", env_base_image)
+    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
+
+    assert f"BASE_IMAGE={expected}" in docker_build._collect_build_args(source)
 
 
 async def test_require_docker_raises_clear_error_when_cli_missing(monkeypatch):

@@ -1,14 +1,13 @@
 """Dockerfile templates for docker-runner jobs.
 
-Two templates live here:
-
 - ``DOCKERFILE_TEMPLATE`` — the starter ``python -m aaiclick docker init``
   scaffolds into the user's working directory; from there the user owns it.
-- ``DEFAULT_BUILD_DOCKERFILE_TEMPLATE`` — the thin layer on the aaiclick base
-  image a ``build`` source falls back to when the checkout has no ``Dockerfile``
-  (``docker_build.build_image_to_tag``), pinned to the host's aaiclick version
-  so worker and container stay in step (``AAICLICK_BASE_IMAGE`` overrides the
-  base). Check in a Dockerfile to customize."""
+- ``DEFAULT_BUILD_DOCKERFILE`` — packaged ``templates/build.Dockerfile``, the
+  thin layer on the aaiclick base image a ``build`` source falls back to when
+  the checkout has no ``Dockerfile`` (``docker_build.build_image_to_tag``). Its
+  ``BASE_IMAGE`` build-arg pins the host's aaiclick version so worker and
+  container stay in step; ``AAICLICK_BASE_IMAGE`` overrides it. Check in a
+  Dockerfile to customize."""
 
 from __future__ import annotations
 
@@ -28,6 +27,8 @@ DOCKERFILE_TEMPLATE = """\
 #   PIP_INDEX_URL, PIP_EXTRA_INDEX_URL  (e.g. corporate / test pypi)
 #   PIP_TRUSTED_HOST                    (allow plain HTTP for the index host)
 #   AAICLICK_VERSION                    (matches the host's installed version)
+#   BASE_IMAGE                          (ghcr.io/kolodkin/aaiclick at that version,
+#                                        or AAICLICK_BASE_IMAGE on the worker)
 
 FROM python:3.10-slim
 
@@ -66,13 +67,7 @@ WORKDIR /src
 RUN pip install --no-cache-dir /src
 """
 
-# --chown: the base image runs as USER aaiclick, so a root-owned /src would
-# break tasks that write relative paths.
-DEFAULT_BUILD_DOCKERFILE_TEMPLATE = """\
-FROM {base_image}
-COPY --chown=aaiclick:aaiclick . /src
-WORKDIR /src
-"""
+DEFAULT_BUILD_DOCKERFILE = Path(__file__).with_name("templates") / "build.Dockerfile"
 
 
 def default_base_image(version: str) -> str:
@@ -81,11 +76,6 @@ def default_base_image(version: str) -> str:
     The PEP 440 local segment (``+g<sha>.d<date>`` on dev checkouts) is dropped:
     ``+`` is not a legal Docker tag character."""
     return f"ghcr.io/kolodkin/aaiclick:v{version.split('+', 1)[0]}"
-
-
-def render_default_build_dockerfile(base_image: str) -> str:
-    """The fallback Dockerfile: a thin layer on ``base_image``."""
-    return DEFAULT_BUILD_DOCKERFILE_TEMPLATE.format(base_image=base_image)
 
 
 class DockerfileExists(FileExistsError):
