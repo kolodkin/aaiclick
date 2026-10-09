@@ -28,12 +28,17 @@ from pathlib import Path
 
 import pytest
 from job_wait import run_worker_until_done
+from sqlmodel import select
 
+from aaiclick.internal_api.sandbox import submit_sandbox_file
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.docker_config import compute_image_tag
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
-from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, TASK_COMPLETED
+from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, SANDBOX_SUBMITTED, TASK_COMPLETED, SandboxFile
+from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.runner_config import ENTRY_JVM, ImageBuild, ImagePrebuilt, parse_image_source
+from aaiclick.sandbox.repo import SandboxRepo, module_parts, sandbox_repo_override
+from aaiclick.view_models import SubmitSandboxRequest
 
 
 def _aaiclick(*args: str, cwd: Path) -> subprocess.CompletedProcess:
@@ -54,6 +59,21 @@ def _aaiclick(*args: str, cwd: Path) -> subprocess.CompletedProcess:
     )
     proc.check_returncode()
     return proc
+
+
+_FIXTURES = Path(__file__).parent.parent / "fixtures"
+
+
+def _remote_head(remote: str) -> str:
+    out = subprocess.run(
+        ["git", "ls-remote", "--", remote, "refs/heads/main"], check=True, capture_output=True, text=True
+    )
+    return out.stdout.split()[0]
+
+
+async def _sandbox_row(file_id: int) -> SandboxFile:
+    async with get_sql_session() as session:
+        return (await session.execute(select(SandboxFile).where(SandboxFile.id == file_id))).scalar_one()
 
 
 @pytest.mark.docker_e2e
@@ -278,3 +298,32 @@ async def test_docker_runner_shell_nonzero_fails(orch_ctx, tmp_path):
         await bg_worker.stop()
 
     assert completed.status == JOB_FAILED, completed.status
+
+
+@pytest.mark.docker_e2e
+async def test_docker_runner_sandbox_submission(orch_ctx, sandbox_remote, tmp_path):
+    """A sandbox submission is committed into an empty remote and every ``@job``
+    in it runs on the docker runner, built on the default Dockerfile."""
+    source = (_FIXTURES / "sandbox_job" / "sandbox_jobs.py").read_text()
+    with sandbox_repo_override(SandboxRepo(sandbox_remote, tmp_path / "clone")):
+        view = await submit_sandbox_file(SubmitSandboxRequest(name="demo", source=source), user=None)
+        second = await submit_sandbox_file(SubmitSandboxRequest(name="demo", source=source), user=None)
+    assert second.git_sha != view.git_sha
+    assert _remote_head(sandbox_remote) == second.git_sha
+
+    bg_worker = BackgroundWorker(poll_interval=1.0)
+    await bg_worker.start()
+    try:
+        await bg_worker._run_sandbox_files()
+    finally:
+        await bg_worker.stop()
+
+    row = await _sandbox_row(view.id)
+    assert row.status == SANDBOX_SUBMITTED, row.error
+    assert row.job_ids is not None and len(row.job_ids) == 2
+    module_name = module_parts(row.path)[1]
+    for job_name in (f"{module_name}.first", f"{module_name}.second"):
+        completed = await run_worker_until_done(job_name)
+        assert completed.status == JOB_COMPLETED, completed.error
+        probe = next(t for t in await get_tasks_for_job(completed.id) if t.entrypoint.endswith(".probe"))
+        assert probe.result == {"native_value": {"n": 1}}, (probe.result, probe.error)

@@ -568,6 +568,22 @@ def publish_user_repo(tmp_path_factory: pytest.TempPathFactory, fixture_dir: Pat
     return f"git://127.0.0.1:{port}/{name}", sha, worktree
 
 
+def publish_empty_repo(tmp_path_factory: pytest.TempPathFactory, name: str) -> str:
+    """Publish an empty bare repo named ``name`` into the CI git daemon and
+    return its ``git://`` URL. Skips like :func:`publish_user_repo`. The
+    sandbox e2e pushes its first commit into it, so the daemon must allow
+    ``receive-pack``."""
+    base = os.environ.get("AAICLICK_E2E_GIT_DAEMON_BASE")
+    port = os.environ.get("AAICLICK_E2E_GIT_DAEMON_PORT")
+    if not base or not port:
+        pytest.skip("git daemon not configured; this runner e2e is workflow-driven")
+    del tmp_path_factory  # the bare repo lives in the daemon's base-path; no worktree
+    bare = Path(base) / f"{name}.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], check=True)
+    subprocess.run(["git", "-C", str(bare), "config", "uploadpack.allowAnySHA1InWant", "true"], check=True)
+    return f"git://127.0.0.1:{port}/{name}.git"
+
+
 async def set_task_runs(task_id: int, run_ids: list[int], run_statuses: list[TaskStatus] | None = None) -> None:
     """Record ``run_ids`` as the task's attempts (each ``COMPLETED`` unless
     ``run_statuses`` says otherwise) — for log tests that flush ``task_logs``
