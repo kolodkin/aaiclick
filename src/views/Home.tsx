@@ -1,3 +1,4 @@
+import { useSandboxConfig } from "../api/hooks";
 import { useAuth } from "../components/Auth";
 
 interface Cmd {
@@ -5,6 +6,8 @@ interface Cmd {
   desc: string;
   cmd: string;
 }
+
+const SANDBOX: Cmd = { code: "@sandbox", desc: "Submit a single-file job and run it once.", cmd: "@sandbox" };
 
 const NAVIGATE: Cmd[] = [
   { code: "@jobs", desc: "List all jobs, newest first.", cmd: "@jobs" },
@@ -61,12 +64,14 @@ function CmdList({ items, onPrompt }: { items: Cmd[]; onPrompt: (v: string) => v
 
 export function Home({ onPrompt }: { onPrompt: (v: string) => void }) {
   const { me } = useAuth();
+  const sandbox = useSandboxConfig();
+  const navigate = sandbox.data?.enabled ? [...NAVIGATE, SANDBOX] : NAVIGATE;
   return (
     <>
       <h2>aaiclick</h2>
       <p className="sub">Prompt-driven operator dashboard. Type a command above, or click one below.</p>
       <div className="group-label">Navigate</div>
-      <CmdList items={NAVIGATE} onPrompt={onPrompt} />
+      <CmdList items={navigate} onPrompt={onPrompt} />
       <div className="group-label">Actions</div>
       <CmdList items={ACTIONS} onPrompt={onPrompt} />
       <div className="group-label">Account</div>

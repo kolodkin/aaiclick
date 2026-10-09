@@ -30,8 +30,12 @@ import type {
   RegisterJobRequest,
   Role,
   RunJobRequest,
+  SandboxConfigView,
+  SandboxFileDetailView,
+  SandboxFileView,
   SavedQuery,
   SavedQueryBody,
+  SubmitSandboxRequest,
   TaskDetail,
   TaskLogs,
   UserView,
@@ -126,6 +130,36 @@ export function useRegisteredJobs() {
     queryFn: () => fetchJSON<Page<RegisteredJobView>>("/registered-jobs"),
     refetchInterval: false,
   });
+}
+
+export function useSandboxConfig() {
+  return useQuery({
+    queryKey: ["sandbox-config"],
+    queryFn: () => fetchJSON<SandboxConfigView>("/sandbox/config"),
+    refetchInterval: false,
+    staleTime: Infinity,
+  });
+}
+
+// Polls while a submission is still waiting on the background worker.
+export function useSandboxFiles() {
+  return useQuery({
+    queryKey: ["sandbox"],
+    queryFn: () => fetchJSON<Page<SandboxFileView>>("/sandbox"),
+    refetchInterval: (q) => (q.state.data?.items.some((f) => f.status === "pending") ? 5000 : false),
+  });
+}
+
+export function useSandboxFile(id: string) {
+  return useQuery({
+    queryKey: ["sandbox", id],
+    queryFn: () => fetchJSON<SandboxFileDetailView>(`/sandbox/${encodeURIComponent(id)}`),
+    enabled: id.length > 0,
+  });
+}
+
+export function useSubmitSandbox() {
+  return useInvalidating(["sandbox"], (req: SubmitSandboxRequest) => postJSON<SandboxFileView>("/sandbox", req));
 }
 
 export function useRunJob() {

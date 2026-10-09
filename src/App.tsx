@@ -18,6 +18,8 @@ import {
   RegisterForm,
   RunConfirm,
   RunForm,
+  Sandbox,
+  SandboxFile,
   TaskDetail,
   Tokens,
   Invite,
@@ -66,6 +68,10 @@ function renderRoute(route: Route, onPrompt: (v: string) => void) {
       return <Query job={route.job} object={route.object} onPrompt={onPrompt} />;
     case "dashboard":
       return <Dashboard name={route.name} onPrompt={onPrompt} />;
+    case "sandbox":
+      return <Sandbox onPrompt={onPrompt} />;
+    case "sandbox-file":
+      return <SandboxFile id={route.id} onPrompt={onPrompt} />;
     case "unknown":
       return (
         <>
