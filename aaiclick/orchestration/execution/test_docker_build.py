@@ -171,9 +171,6 @@ async def test_build_image_to_tag_checked_in_dockerfile_wins_over_default(monkey
     "version, env_base_image, expected",
     [
         pytest.param("1.2.3", None, "ghcr.io/kolodkin/aaiclick:v1.2.3", id="release"),
-        # A dev checkout reports a PEP 440 local version (``+g<sha>...``); ``+`` is
-        # not a legal Docker tag character, so only the public part is kept.
-        pytest.param("0.0.1.dev50+gfc8c68213.d20261008", None, "ghcr.io/kolodkin/aaiclick:v0.0.1.dev50", id="dev"),
         # AAICLICK_BASE_IMAGE wins verbatim: rc workers (release tag not promoted
         # yet) and dev installs pointing at a locally built base.
         pytest.param("1.2.3", "ghcr.io/kolodkin/aaiclick:v1.2.3-rc", "ghcr.io/kolodkin/aaiclick:v1.2.3-rc", id="env"),

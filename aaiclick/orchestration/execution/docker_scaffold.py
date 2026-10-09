@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ...ghcr import BASE_IMAGE_REPO, image_tag
+
 DOCKERFILE_TEMPLATE = """\
 # Starter Dockerfile for an aaiclick docker-runner job.
 #
@@ -80,11 +82,8 @@ WORKDIR /src
 
 
 def default_base_image(version: str) -> str:
-    """GHCR base image for the host's aaiclick ``version``.
-
-    The PEP 440 local segment (``+g<sha>.d<date>`` on dev checkouts) is dropped:
-    ``+`` is not a legal Docker tag character."""
-    return f"ghcr.io/kolodkin/aaiclick:v{version.split('+', 1)[0]}"
+    """GHCR base image for the host's aaiclick ``version``."""
+    return f"{BASE_IMAGE_REPO}:{image_tag(version)}"
 
 
 class DockerfileExists(FileExistsError):

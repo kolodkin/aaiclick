@@ -15,6 +15,8 @@ from importlib.metadata import version
 from importlib.resources import files
 from pathlib import Path
 
+from ..ghcr import image_tag
+
 IMAGE_TAG_TOKEN = "__AAICLICK_IMAGE_TAG__"
 
 _TEMPLATES = files("aaiclick.deploy") / "templates"
@@ -26,7 +28,7 @@ class ComposeFileExists(FileExistsError):
 
 def default_image_tag() -> str:
     """GHCR image tag matching the installed aaiclick version."""
-    return f"v{version('aaiclick')}"
+    return image_tag(version("aaiclick"))
 
 
 def init_compose(target: Path, *, image_tag: str | None = None, force: bool = False) -> Path:
