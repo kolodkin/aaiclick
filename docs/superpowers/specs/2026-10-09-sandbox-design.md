@@ -161,7 +161,7 @@ is written unless the push succeeded.
 
 # Background Worker
 
-`BackgroundWorker._run_sandbox_files()` is a seventh step in `_do_cleanup()`,
+`BackgroundWorker._run_sandbox_files()` is a new step in `_do_cleanup()`,
 after `_check_schedules()`:
 
 1. Select `sandbox_files` with `status = "pending"`, oldest first, limit 10.
