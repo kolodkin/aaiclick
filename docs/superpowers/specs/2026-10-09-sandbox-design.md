@@ -218,22 +218,44 @@ failed.
 
 # Testing
 
-- `aaiclick/server/routers/test_sandbox.py` — bare repo in `tmp_path` as the
-  remote. Submit a valid file: row fields, commit path, SHA equals the bare
-  repo's head, job names. Parametrized 422s: bad name, syntax error, no job.
-  Routes absent when the variable is unset. `config` hides `remote` from
-  non-admins.
-- `aaiclick/sandbox/test_repo.py` — empty remote gets an initial commit on
-  `main`; a second submission sees the first; a push rejected by a competing
-  commit succeeds on the retry; `read_file` returns the committed text.
-- `aaiclick/sandbox/test_parse.py` — parametrized decorator forms and
-  rejections.
-- `aaiclick/orchestration/background/test_sandbox_runs.py` — a pending row
-  yields one `run_job` call per job name with the expected entrypoint, remote,
-  SHA and run type; a raising `run_job` marks the row failed.
-- `test_e2e/docker/` — submit through the API, let the real worker build and
-  run on the docker runner, assert the job completes and `job_ids` are set.
-- `src/` — Vitest for the new route parsing in `prompt.test.ts`.
+End-to-end first; a unit test only where the e2e cannot reach cheaply, and
+never both for the same behavior.
+
+**Docker and Kubernetes nightlies** (`test_e2e/docker/test_runner_e2e.py`,
+`test_e2e/kubernetes/test_runner_e2e.py`, one test each) — the real path:
+
+1. Publish an empty bare repo into the CI git daemon (new fixture next to
+   `docker_e2e_bare_repo`) and start the API with `AAICLICK_SANDBOX` set to it.
+2. `POST /api/v0/sandbox` a file with one `@task` and two `@job` functions.
+3. Run one background-worker poll, then the execution worker until both jobs
+   finish (`run_worker_until_done`).
+4. Assert: both jobs `COMPLETED` on the runner under test; the row is
+   `submitted` with two job ids; the bare repo's head contains the file at
+   `YYYYMMDD/sb_<ts>_<name>.py`; a second submission lands on top of the
+   first.
+
+This one flow covers the empty-remote initial commit, the fetch-reset-commit-
+push cycle, `ast` discovery, the worker step, `run_job` with the sandbox
+coordinates, the default Dockerfile build and the digits-only package import.
+
+**Web e2e** (`test_e2e/web/test_sandbox.py`, Playwright, local backend with a
+`tmp_path` bare repo as the remote — submission needs no worker): the nav entry
+is absent when the variable is unset; with it set, submitting the seeded example
+shows a `pending` row with its short SHA, and a syntax error renders the 422
+detail inline.
+
+**Unit tests** (the fast suite):
+
+- `aaiclick/sandbox/test_parse.py` — parametrized decorator forms (`@job`,
+  `@job(...)`, `@orchestration.job`, aliased import) and rejections (syntax
+  error, no job, nested function ignored). Pure function, no git.
+- `aaiclick/sandbox/test_repo.py` — one test: a push rejected by a competing
+  commit succeeds on the retry, and a second rejection raises. The nightly
+  cannot stage a race.
+- `src/prompt.test.ts` — the two new routes, following the existing cases.
+
+Not tested separately: the router's 422 mapping, the worker step, view models,
+the nav toggle — all exercised by the e2e above.
 
 # Documentation
 
