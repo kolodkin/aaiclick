@@ -156,6 +156,7 @@ jobs:
             runner: ubuntu-24.04-arm
     env:
       IMAGE_PREFIX: ghcr.io/kolodkin
+      ARCH_TAG: ${{ inputs.tag }}-rc-${{ matrix.platform }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -187,6 +188,8 @@ jobs:
             curl -fsSL -F "content=@${f}" -F ":action=file_upload" http://localhost:8080/
           done
 
+      # Inline rather than .github/actions/ghcr-login: the merge and promote
+      # jobs reuse this anchor without a checkout.
       - &ghcr-login
         name: Log in to GHCR
         uses: docker/login-action@v3
@@ -195,30 +198,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Resolve rc tags
-        run: |
-          VERSION="${{ inputs.tag }}"
-          echo "PEP440=${VERSION#v}" >> "$GITHUB_ENV"
-          echo "ARCH_TAG=${VERSION}-rc-${{ matrix.platform }}" >> "$GITHUB_ENV"
-
       # Native per-arch builds (no QEMU). The three images are FROM-chained,
       # so they build sequentially within each platform leg.
       - name: Build base rc image
         uses: ./.github/actions/build-base-image
         with:
-          version: ${{ env.PEP440 }}
+          version: ${{ inputs.tag }}
           tag: ${{ env.IMAGE_PREFIX }}/aaiclick:${{ env.ARCH_TAG }}
 
-      - name: Build & push per-arch rc images
+      - name: Build derived rc images & push all three
         run: |
           docker build -f docker/docker.Dockerfile \
             --build-arg BASE_REF="${IMAGE_PREFIX}/aaiclick:${ARCH_TAG}" \
             --build-arg TARGETARCH="${{ matrix.platform }}" \
-            -t "${IMAGE_PREFIX}/aaiclick-docker:${ARCH_TAG}" .
+            -t "${IMAGE_PREFIX}/aaiclick-docker:${ARCH_TAG}" docker/
           docker build -f docker/kubectl.Dockerfile \
             --build-arg BASE_REF="${IMAGE_PREFIX}/aaiclick-docker:${ARCH_TAG}" \
             --build-arg TARGETARCH="${{ matrix.platform }}" \
-            -t "${IMAGE_PREFIX}/aaiclick-kubectl:${ARCH_TAG}" .
+            -t "${IMAGE_PREFIX}/aaiclick-kubectl:${ARCH_TAG}" docker/
           docker push "${IMAGE_PREFIX}/aaiclick:${ARCH_TAG}"
           docker push "${IMAGE_PREFIX}/aaiclick-docker:${ARCH_TAG}"
           docker push "${IMAGE_PREFIX}/aaiclick-kubectl:${ARCH_TAG}"

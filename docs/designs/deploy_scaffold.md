@@ -149,7 +149,7 @@ test-package, test-compose-e2e, test-helm-e2e, test-package-docker-e2e;
 | test-package             | Existing data/orch matrix; infra now comes from the scaffolded compose file (full stack up), waiting for the compose `migrate` service to exit 0, instead of `services:` blocks |
 | test-compose-e2e         | Scaffold via `compose init`, point tags at `-rc`, `docker compose up`, wait for server health, then `docker compose exec` into the server container to register/run a job via the CLI and poll `job list --json` for completion |
 | test-helm-e2e            | kind cluster with the `-rc` images side-loaded (`kind load docker-image`), `k8s init` scaffolded chart, `helm lint` + `helm install`, then a server-health port-forward smoke and a `kubectl exec` job round trip (`register-job` / `run-job` / `job list --json`) |
-| test-package-docker-e2e  | Existing `_docker-e2e-reusable.yaml` release gate; `base_image` points git builds without a Dockerfile at the `-rc` base instead of rebuilding it |
+| test-package-docker-e2e  | Existing `_docker-e2e-reusable.yaml` release gate; `base_image` points git builds without a Dockerfile at the `-rc` base, so the gate covers the digest that gets promoted |
 
 ## promote-images
 

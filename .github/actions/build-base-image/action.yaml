@@ -1,22 +1,18 @@
 name: Build base image
 description: >-
   Build the aaiclick base image (docker/Dockerfile) from a wheel served by
-  a local pypiserver. Shared by the release's per-arch rc build and the
-  docker e2e's source-mode base. The build uses --network=host to reach
-  the index on localhost, which pip trusts for plain HTTP, and docker/ as
-  the context so the workspace is not sent to the daemon.
+  the local pypiserver on port 8080. Shared by the release's per-arch rc
+  build and the docker e2e's source mode. --network=host reaches the index
+  on localhost, which pip trusts for plain HTTP; docker/ is the context so
+  the workspace is not sent to the daemon.
 
 inputs:
   version:
-    description: "PEP 440 version of the wheel to install (no leading v)."
+    description: "Version of the wheel to install; a leading v is dropped."
     required: true
   tag:
     description: "Image reference to tag the result with."
     required: true
-  pip-index-url:
-    description: "Index serving the wheel under test."
-    required: false
-    default: "http://localhost:8080/simple/"
 
 runs:
   using: composite
@@ -24,7 +20,8 @@ runs:
     - name: Build base image
       shell: bash
       run: |
+        VERSION="${{ inputs.version }}"
         docker build --network=host -f docker/Dockerfile \
-          --build-arg AAICLICK_VERSION="${{ inputs.version }}" \
-          --build-arg PIP_INDEX_URL="${{ inputs.pip-index-url }}" \
+          --build-arg AAICLICK_VERSION="${VERSION#v}" \
+          --build-arg PIP_INDEX_URL="http://localhost:8080/simple/" \
           -t "${{ inputs.tag }}" docker/

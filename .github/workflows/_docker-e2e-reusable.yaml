@@ -10,11 +10,6 @@ name: Docker Runner E2E (reusable)
 #   a sibling ``build`` job in the calling workflow, then installs aaiclick
 #   from the local pypiserver the same way a downstream user would (used by
 #   the release gate).
-#
-# A git build whose repo has no Dockerfile layers on the aaiclick base image
-# at the worker's version, which is not published for the wheel under test.
-# ``base_image`` names an already-built one (the release passes its ``-rc``
-# tag); left empty, the workflow builds the base from the wheel itself.
 
 on:
   workflow_call:
@@ -29,7 +24,9 @@ on:
         default: ""
         type: string
       base_image:
-        description: "Base image for git builds without a Dockerfile; empty builds one from the wheel"
+        description: >-
+          Base for git builds whose repo has no Dockerfile (the release passes
+          its -rc image); empty builds one from the wheel under test
         required: false
         default: ""
         type: string
@@ -86,6 +83,7 @@ jobs:
     env:
       # Test wait timeout, kept under timeout-minutes above.
       AAICLICK_JOB_WAIT_TIMEOUT: "600"
+      AAICLICK_BASE_IMAGE: ${{ inputs.base_image || 'aaiclick-e2e-base:local' }}
 
     steps:
       - name: Checkout code
@@ -157,31 +155,26 @@ jobs:
           uv pip install "aaiclick[distributed]==${VERSION#v}"
 
       # --- Base image (branches on base_image) -----------------------------
-      # The worker's build task pulls the base from the daemon's registry
-      # credentials, so log in where the caller names a GHCR image.
 
+      # The worker's build task pulls the base with the daemon's credentials.
       - name: Log in to GHCR
         if: inputs.base_image != ''
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        uses: ./.github/actions/ghcr-login
 
-      # The version comes from the installed package, the same source the
-      # worker reads.
+      # The version comes from the installed package, the worker's own source.
       - name: Read the installed version
+        id: wheel
         if: inputs.base_image == ''
         run: |
           VERSION=$(uv run --no-project python -c "import importlib.metadata as m; print(m.version('aaiclick'))")
-          echo "AAICLICK_WHEEL_VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Build base image from the wheel under test
         if: inputs.base_image == ''
         uses: ./.github/actions/build-base-image
         with:
-          version: ${{ env.AAICLICK_WHEEL_VERSION }}
-          tag: aaiclick-e2e-base:local
+          version: ${{ steps.wheel.outputs.version }}
+          tag: ${{ env.AAICLICK_BASE_IMAGE }}
 
       # --- Common: migrations, test ---------------------------------------
 
@@ -202,7 +195,6 @@ jobs:
           AAICLICK_CH_URL: "clickhouse://default:click123@host.docker.internal:8123/default"
           AAICLICK_RUNNER: "docker"
           AAICLICK_REGISTRY: "host.docker.internal:5000"
-          AAICLICK_BASE_IMAGE: ${{ inputs.base_image || 'aaiclick-e2e-base:local' }}
           AAICLICK_PIP_INDEX_URL: "http://host.docker.internal:8080/simple/"
           # pip refuses to use a plain-HTTP index without --trusted-host;
           # forward the host so the build sees our test pypi.
