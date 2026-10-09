@@ -23,7 +23,7 @@ from pathlib import Path
 from ..docker_config import add_host_flags, compute_image_tag, get_registry
 from ..runner_config import ImageBuild, ImageSourceT
 from . import cli
-from .docker_scaffold import DEFAULT_BUILD_DOCKERFILE, default_base_image
+from .docker_scaffold import DEFAULT_BUILD_DOCKERFILE_TEMPLATE, default_base_image
 
 
 def _docker_bin() -> str:
@@ -130,12 +130,11 @@ async def _docker_build(context: str, dockerfile: str, image_tag: str, build_arg
 
 
 def _resolve_dockerfile(source: ImageBuild, context_dir: Path) -> Path:
-    """Path of the Dockerfile to build the checkout with.
+    """Path of the Dockerfile to build with inside the checkout.
 
-    A checkout without the implicit ``Dockerfile`` builds with the packaged
-    default (``-f`` outside the context, so the checkout is untouched; spec:
-    docs/designs/orchestration.md "Image source"). An explicitly named
-    ``dockerfile=`` that is absent is a user error and raises."""
+    A checkout without the implicit ``Dockerfile`` gets the default thin layer
+    written in (spec: docs/designs/orchestration.md "Image source"). An
+    explicitly named ``dockerfile=`` that is absent is a user error and raises."""
     dockerfile = context_dir / (source.dockerfile or "Dockerfile")
     if dockerfile.is_file():
         return dockerfile
@@ -145,7 +144,8 @@ def _resolve_dockerfile(source: ImageBuild, context_dir: Path) -> Path:
             f"Check the dockerfile= path, or omit it to build with the repo's Dockerfile "
             f"(or the default aaiclick layer when there is none)."
         )
-    return DEFAULT_BUILD_DOCKERFILE
+    dockerfile.write_text(DEFAULT_BUILD_DOCKERFILE_TEMPLATE)
+    return dockerfile
 
 
 async def resolve_launch_image(image_source: ImageSourceT | None, *, task_id: int) -> str:

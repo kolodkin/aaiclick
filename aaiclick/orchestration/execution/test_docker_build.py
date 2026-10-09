@@ -11,7 +11,7 @@ from .. import docker_config
 from ..runner_config import ImageBuild, ImagePrebuilt
 from . import docker_build
 from .docker_build import resolve_launch_image
-from .docker_scaffold import DEFAULT_BUILD_DOCKERFILE
+from .docker_scaffold import DEFAULT_BUILD_DOCKERFILE_TEMPLATE
 
 
 async def test_collect_build_args_omits_unset_values(monkeypatch):
@@ -100,9 +100,10 @@ async def test_build_image_to_tag_explicit_missing_dockerfile_raises(monkeypatch
         await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
 
 
-def _stub_build_path(monkeypatch, clone_files: dict[str, str]) -> list[tuple[Path, Path]]:
+def _stub_build_path(monkeypatch, clone_files: dict[str, str]) -> list[tuple[Path, Path, str]]:
     """Stub everything around the clone + build step and return a list collecting
-    the ``(context, dockerfile)`` pair ``_docker_build`` was handed."""
+    ``(context, dockerfile, dockerfile content)`` as ``_docker_build`` was handed
+    them (content read at call time, before the temp checkout is removed)."""
     monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
     monkeypatch.delenv("AAICLICK_BASE_IMAGE", raising=False)
     monkeypatch.setattr(docker_build, "_require_docker", AsyncMock())
@@ -113,28 +114,27 @@ def _stub_build_path(monkeypatch, clone_files: dict[str, str]) -> list[tuple[Pat
         for name, content in clone_files.items():
             Path(workdir, name).write_text(content)
 
-    built: list[tuple[Path, Path]] = []
+    built: list[tuple[Path, Path, str]] = []
 
     async def fake_build(context, dockerfile, image_tag, build_args):
-        built.append((Path(context), Path(dockerfile)))
+        built.append((Path(context), Path(dockerfile), Path(dockerfile).read_text()))
 
     monkeypatch.setattr(docker_build, "_git_clone_at_sha", fake_clone)
     monkeypatch.setattr(docker_build, "_docker_build", fake_build)
     return built
 
 
-async def test_build_image_to_tag_repo_without_dockerfile_builds_with_packaged_default(monkeypatch):
-    """A checkout with no ``Dockerfile`` builds with the packaged default via
-    ``-f``; the checkout stays the context and is left untouched."""
+async def test_build_image_to_tag_repo_without_dockerfile_builds_with_default(monkeypatch):
+    """A checkout with no ``Dockerfile`` gets the default written in and builds with it."""
     built = _stub_build_path(monkeypatch, {"job.py": "print('hi')\n"})
     source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
 
     await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
 
-    [(context, dockerfile)] = built
-    assert dockerfile == DEFAULT_BUILD_DOCKERFILE
-    assert dockerfile.is_file()
-    assert not (context / "Dockerfile").exists()
+    [(context, dockerfile, content)] = built
+    assert dockerfile == context / "Dockerfile"
+    assert content == DEFAULT_BUILD_DOCKERFILE_TEMPLATE
+    assert "FROM ${BASE_IMAGE}\n" in content
 
 
 async def test_build_image_to_tag_checked_in_dockerfile_wins_over_default(monkeypatch):
@@ -143,8 +143,9 @@ async def test_build_image_to_tag_checked_in_dockerfile_wins_over_default(monkey
 
     await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
 
-    [(context, dockerfile)] = built
+    [(context, dockerfile, content)] = built
     assert dockerfile == context / "Dockerfile"
+    assert content == "FROM python:3.12\n"
 
 
 @pytest.mark.parametrize(

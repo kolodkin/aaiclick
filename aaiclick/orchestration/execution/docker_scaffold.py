@@ -2,12 +2,11 @@
 
 - ``DOCKERFILE_TEMPLATE`` — the starter ``python -m aaiclick docker init``
   scaffolds into the user's working directory; from there the user owns it.
-- ``DEFAULT_BUILD_DOCKERFILE`` — packaged ``templates/build.Dockerfile``, the
-  thin layer on the aaiclick base image a ``build`` source falls back to when
-  the checkout has no ``Dockerfile`` (``docker_build.build_image_to_tag``). Its
-  ``BASE_IMAGE`` build-arg pins the host's aaiclick version so worker and
-  container stay in step; ``AAICLICK_BASE_IMAGE`` overrides it. Check in a
-  Dockerfile to customize."""
+- ``DEFAULT_BUILD_DOCKERFILE_TEMPLATE`` — the thin layer on the aaiclick base
+  image a ``build`` source writes into a checkout that has no ``Dockerfile``
+  (``docker_build.build_image_to_tag``). Its ``BASE_IMAGE`` build-arg pins the
+  host's aaiclick version so worker and container stay in step;
+  ``AAICLICK_BASE_IMAGE`` overrides it. Check in a Dockerfile to customize."""
 
 from __future__ import annotations
 
@@ -67,7 +66,17 @@ WORKDIR /src
 RUN pip install --no-cache-dir /src
 """
 
-DEFAULT_BUILD_DOCKERFILE = Path(__file__).with_name("templates") / "build.Dockerfile"
+DEFAULT_BUILD_DOCKERFILE_TEMPLATE = """\
+# Default image for a git build whose repo has no Dockerfile: a thin layer on
+# the aaiclick base image. BASE_IMAGE is forwarded by the build task
+# (AAICLICK_BASE_IMAGE on the worker, else the GHCR tag matching its version).
+# --chown: the base image runs as USER aaiclick; a root-owned /src would break
+# tasks that write relative paths.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+COPY --chown=aaiclick:aaiclick . /src
+WORKDIR /src
+"""
 
 
 def default_base_image(version: str) -> str:
