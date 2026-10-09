@@ -17,6 +17,7 @@ from __future__ import annotations
 import functools
 import importlib.metadata
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -74,11 +75,16 @@ async def _docker_push(image_tag: str) -> None:
 async def _git_clone_at_sha(remote: str, sha: str, workdir: str) -> None:
     """Clone the SHA into ``workdir``. Uses ``git init`` + ``fetch`` + ``checkout``
     so we avoid pulling the full default branch when only one commit is needed,
-    and so the remote can be a non-default-branch SHA."""
+    and so the remote can be a non-default-branch SHA.
+
+    ``.git`` is removed afterwards: the checkout is the docker build context, and
+    the pack would otherwise be sent to the daemon and copied into the image.
+    Dockerfiles get git metadata from the GIT_SHA / GIT_BRANCH build-args."""
     await cli.run("git", "init", "--quiet", workdir)
     await cli.run("git", "-C", workdir, "remote", "add", "origin", "--", remote)
     await cli.run("git", "-C", workdir, "fetch", "--depth=1", "--quiet", "origin", "--", sha)
     await cli.run("git", "-C", workdir, "checkout", "--quiet", sha)
+    shutil.rmtree(Path(workdir) / ".git")
 
 
 @functools.cache

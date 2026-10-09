@@ -77,17 +77,36 @@ async def test_build_image_to_tag_pushes_after_local_cache_hit_when_registry_set
     push.assert_awaited_once_with(expected_tag)
 
 
-async def test_git_clone_passes_remote_and_sha_after_end_of_options(monkeypatch):
+async def test_git_clone_passes_remote_and_sha_after_end_of_options(monkeypatch, tmp_path):
     """Both remote and SHA are positional to git; ``--`` stops git reading either as an option."""
     run = AsyncMock()
     monkeypatch.setattr(docker_build.cli, "run", run)
+    (tmp_path / ".git").mkdir()
+    workdir = str(tmp_path)
     sha = "a" * 40
 
-    await docker_build._git_clone_at_sha("https://example.com/r.git", sha, "/work")
+    await docker_build._git_clone_at_sha("https://example.com/r.git", sha, workdir)
 
     argvs = [call.args for call in run.await_args_list]
-    assert ("git", "-C", "/work", "remote", "add", "origin", "--", "https://example.com/r.git") in argvs
-    assert ("git", "-C", "/work", "fetch", "--depth=1", "--quiet", "origin", "--", sha) in argvs
+    assert ("git", "-C", workdir, "remote", "add", "origin", "--", "https://example.com/r.git") in argvs
+    assert ("git", "-C", workdir, "fetch", "--depth=1", "--quiet", "origin", "--", sha) in argvs
+
+
+async def test_git_clone_drops_git_dir_from_build_context(monkeypatch, tmp_path):
+    """The checkout is the docker build context: ``.git`` would otherwise be sent
+    to the daemon and baked into ``/src`` by ``COPY . /src``. Dockerfiles that
+    need git metadata get it from the GIT_SHA / GIT_BRANCH build-args."""
+
+    async def fake_run(*argv, **kwargs):
+        if argv[:2] == ("git", "init"):
+            (Path(argv[-1]) / ".git").mkdir()
+            (Path(argv[-1]) / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+
+    monkeypatch.setattr(docker_build.cli, "run", fake_run)
+
+    await docker_build._git_clone_at_sha("https://example.com/r.git", "a" * 40, str(tmp_path))
+
+    assert not (tmp_path / ".git").exists()
 
 
 async def test_build_image_to_tag_explicit_missing_dockerfile_raises(monkeypatch):
