@@ -27,6 +27,17 @@ kubernetes runner applies to its Pods. Today the docker runner ignores it.
 
 Items deferred until preconditions are met.
 
+## Default Build Image — Dependency Manifests
+
+The default Dockerfile for a git build without one (`docs/user_guide/container_images.md`
+"Runner base") copies the repo onto the aaiclick base image and installs
+nothing, so a job can only use what `aaiclick[all]` ships. Teach the build to
+honour dependency manifests found in the checkout: `requirements.txt`,
+`uv.lock` / `pyproject.toml` (`uv sync` or `pip install .`), and `pom.xml` for
+`jvm` tasks. Each adds a `RUN` layer to the default Dockerfile only when the
+file is present. Until then, a repo with dependencies checks in its own
+Dockerfile.
+
 ## Tenants — Kubernetes Control Plane
 
 Multi-tenancy as a fleet layer rather than a filtered column: a control
