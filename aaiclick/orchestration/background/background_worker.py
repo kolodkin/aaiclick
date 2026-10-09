@@ -6,14 +6,15 @@ BackgroundWorker polls the database for:
 3. Expired jobs — deletes all job data (CH tables, oplog, SQL metadata) + orphans
 4. Dead workers — marks their running tasks as PENDING_FAILURE_CLEANUP
 5. Scheduled jobs — creates Job runs when next_run_at is due
+6. Sandbox files — submits every @job of a pending sandbox file once
 
 All resource cleanup is job-driven: every CH table, sample, and oplog entry
 traces to a job_id via table_registry (SQL). Resources without a job_id
 (orphans) are cleaned up after the same TTL.
 
 Runs on its own DB engine and CH client, outside DataContext and OrchContext;
-only scheduled-run creation enters a short-lived ``orch_context`` so it takes
-the same ``run_job`` path as a manual submission.
+only scheduled-run and sandbox-run creation enter a short-lived ``orch_context``
+so they take the same ``run_job`` path as a manual submission.
 """
 
 from __future__ import annotations
@@ -28,12 +29,14 @@ from croniter import croniter
 from sqlalchemy import text
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
+from sqlmodel import col, select
 
 from aaiclick.async_wait import wait_or_timeout
 from aaiclick.data.data_context.ch_client import ChClient, create_ch_client
 from aaiclick.oplog.cleanup import drop_tables
 
 from ...datetime_utils import utc_now
+from ...sandbox.repo import module_parts
 from ..env import get_db_url
 from ..events import register_session_hooks
 from ..models import (
@@ -41,9 +44,14 @@ from ..models import (
     JOB_COMPLETED,
     JOB_FAILED,
     PRESERVATION_FULL,
+    RUN_SANDBOX,
     RUN_SCHEDULED,
+    SANDBOX_FAILED,
+    SANDBOX_PENDING,
+    SANDBOX_SUBMITTED,
     TASK_PENDING_CANCELLED_CLEANUP,
     TASK_PENDING_FAILURE_CLEANUP,
+    SandboxFile,
 )
 from ..orch_context import orch_context
 from ..registered_jobs import run_job
@@ -56,6 +64,7 @@ RETRY_BASE_DELAY = 1
 logger = logging.getLogger(__name__)
 
 DEFAULT_POLL_INTERVAL = 10.0
+SANDBOX_BATCH = 10
 DEFAULT_WORKER_TIMEOUT = 90.0
 
 
@@ -85,13 +94,14 @@ async def _delete_registry_rows(session: AsyncSession, table_names: list[str]) -
 class BackgroundWorker:
     """Background worker for cleanup and job scheduling.
 
-    Performs five operations on each poll:
+    Performs six operations on each poll:
     1. Cleanup passes: failed tasks (ref cleanup, retry/fail transition) and
        cancelled tasks (ref cleanup, settle to CANCELLED)
     2. Unreferenced tables: drops CH tables with no run/pin refs (samples tracked with job)
     3. Expired jobs: deletes all data for jobs past AAICLICK_JOB_TTL_DAYS + orphans
     4. Dead worker detection: marks tasks from expired workers as PENDING_FAILURE_CLEANUP
     5. Job scheduling: creates Job runs for registered jobs whose next_run_at is due
+    6. Sandbox files: one ``run_job`` per ``@job`` of each pending sandbox file
 
     Has its own DB engine and CH client; see the module docstring for the one
     place it enters ``orch_context``.
@@ -145,6 +155,7 @@ class BackgroundWorker:
         await self._cleanup_expired_jobs()
         await self._cleanup_dead_workers()
         await self._check_schedules()
+        await self._run_sandbox_files()
 
     async def _clean_task_refs(self, session: AsyncSession, tasks: list[CleanupTask]) -> None:
         """Drop the last run's run_refs (batched) and every pin_ref (per task)."""
@@ -528,3 +539,57 @@ class BackgroundWorker:
                     logger.exception("Scheduled job '%s' could not be created", row.name)
                     continue
                 logger.info("Scheduled job '%s' created (job_id=%s)", row.name, job.id)
+
+    async def _run_sandbox_files(self) -> None:
+        """Submit every ``@job`` of each pending sandbox file once.
+
+        The row carries everything ``run_job`` needs — the sandbox remote and
+        the submission commit — so the build source is pinned to the file as
+        committed. The first failing call marks the row failed and keeps the
+        job ids created before it; a row is never submitted twice because the
+        status flips in the same transaction that records the outcome.
+        """
+        async with AsyncSession(self._engine) as session:
+            rows = (
+                (
+                    await session.execute(
+                        select(SandboxFile)
+                        .where(SandboxFile.status == SANDBOX_PENDING)
+                        .order_by(col(SandboxFile.created_at))
+                        .limit(SANDBOX_BATCH)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if not rows:
+                return
+            for row in rows:
+                job_ids, error = await self._submit_sandbox_jobs(row)
+                row.job_ids = job_ids
+                row.error = error
+                row.status = SANDBOX_FAILED if error is not None else SANDBOX_SUBMITTED
+                row.updated_at = utc_now()
+                session.add(row)
+            await session.commit()
+
+    async def _submit_sandbox_jobs(self, row: SandboxFile) -> tuple[list[int], str | None]:
+        """``run_job`` per job name; the ids created so far plus the first error."""
+        date_dir, module_name = module_parts(row.path)
+        job_ids: list[int] = []
+        async with orch_context(with_ch=False):
+            for job_name in row.job_names:
+                try:
+                    job = await run_job(
+                        f"{module_name}.{job_name}",
+                        f"{date_dir}.{module_name}.{job_name}",
+                        git_remote=row.git_remote,
+                        git_sha=row.git_sha,
+                        run_type=RUN_SANDBOX,
+                    )
+                except Exception as exc:
+                    logger.exception("Sandbox job '%s' of %s could not be created", job_name, row.path)
+                    return job_ids, f"{job_name}: {exc}"
+                job_ids.append(job.id)
+                logger.info("Sandbox job '%s' created (job_id=%s)", job_name, job.id)
+        return job_ids, None
