@@ -19,9 +19,11 @@ runs:
   steps:
     - name: Build base image
       shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        TAG: ${{ inputs.tag }}
       run: |
-        VERSION="${{ inputs.version }}"
         docker build --network=host -f docker/Dockerfile \
           --build-arg AAICLICK_VERSION="${VERSION#v}" \
           --build-arg PIP_INDEX_URL="http://localhost:8080/simple/" \
-          -t "${{ inputs.tag }}" docker/
+          -t "${TAG}" docker/

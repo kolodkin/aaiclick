@@ -188,15 +188,8 @@ jobs:
             curl -fsSL -F "content=@${f}" -F ":action=file_upload" http://localhost:8080/
           done
 
-      # Inline rather than .github/actions/ghcr-login: the merge and promote
-      # jobs reuse this anchor without a checkout.
-      - &ghcr-login
-        name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Log in to GHCR
+        uses: ./.github/actions/ghcr-login
 
       # Native per-arch builds (no QEMU). The three images are FROM-chained,
       # so they build sequentially within each platform leg.
@@ -229,7 +222,15 @@ jobs:
       matrix:
         image: &image-matrix [aaiclick, aaiclick-docker, aaiclick-kubectl]
     steps:
-      - *ghcr-login
+      # Inline rather than .github/actions/ghcr-login: this anchor serves
+      # the jobs without a checkout (merge, test-package, promote).
+      - &ghcr-login
+        name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Assemble multi-arch rc manifest
         run: |
@@ -403,6 +404,8 @@ jobs:
         if: always()
         run: docker compose -f "$RUNNER_TEMP/stack/docker-compose.yaml" down -v
 
+  # Waits for the rc images so git builds layer on the digest that gets
+  # promoted; that puts this gate after build-rc-images on the critical path.
   test-package-docker-e2e:
     permissions:
       contents: read

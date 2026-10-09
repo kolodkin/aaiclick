@@ -2,7 +2,8 @@ name: Docker Runner E2E (reusable)
 
 # Shared body for the docker-runner end-to-end suite. Both
 # ``test-docker-nightly.yaml`` and ``publish.yaml::test-package-docker-e2e``
-# call this; they differ only in where the wheel under test comes from.
+# call this; they differ in where the wheel under test comes from and in
+# ``base_image`` (the release gate passes its ``-rc`` image).
 #
 # - ``wheel_source: source`` builds the wheel from the current checkout
 #   (used by the nightly schedule).
