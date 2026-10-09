@@ -21,13 +21,7 @@ Map a job's `resources` (Kubernetes requests/limits JSON) onto `docker run
 --cpus` / `--memory` so the docker runner honours the same per-job field the
 kubernetes runner applies to its Pods. Today the docker runner ignores it.
 
----
-
-# Deferred
-
-Items deferred until preconditions are met.
-
-## Default Build Image — Dependency Manifests
+# Default Build Image — Dependency Manifests
 
 The default Dockerfile for a git build without one (`docs/user_guide/container_images.md`
 "Runner base") copies the repo onto the aaiclick base image and installs
@@ -37,6 +31,12 @@ honour dependency manifests found in the checkout: `requirements.txt`,
 `jvm` tasks. Each adds a `RUN` layer to the default Dockerfile only when the
 file is present. Until then, a repo with dependencies checks in its own
 Dockerfile.
+
+---
+
+# Deferred
+
+Items deferred until preconditions are met.
 
 ## Tenants — Kubernetes Control Plane
 
