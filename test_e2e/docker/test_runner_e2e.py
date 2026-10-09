@@ -21,18 +21,16 @@ the runner."""
 
 from __future__ import annotations
 
-import asyncio
 import json
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
-from job_wait import wait_for_job_by_name
+from job_wait import run_worker_until_done
 
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.docker_config import compute_image_tag
-from aaiclick.orchestration.execution.mp_worker import mp_worker_main_loop
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, TASK_COMPLETED
 from aaiclick.orchestration.runner_config import ENTRY_JVM, ImageBuild, ImagePrebuilt, parse_image_source
@@ -79,21 +77,7 @@ async def test_docker_runner_smoke(orch_ctx, docker_e2e_user_repo):
     _aaiclick("run-job", job_name, "--git-sha", sha, cwd=worktree)
 
     # Drive the worker loop in the background while we poll for completion.
-    worker_task = asyncio.create_task(
-        mp_worker_main_loop(
-            max_tasks=10,
-            install_signal_handlers=False,
-            max_empty_polls=10,
-        )
-    )
-    try:
-        completed = await wait_for_job_by_name(job_name)
-    finally:
-        worker_task.cancel()
-        try:
-            await worker_task
-        except asyncio.CancelledError:
-            pass
+    completed = await run_worker_until_done(job_name)
 
     assert completed.status == JOB_COMPLETED, completed.error
 
@@ -123,9 +107,7 @@ async def test_docker_runner_smoke(orch_ctx, docker_e2e_user_repo):
 
 @pytest.mark.docker_e2e
 async def test_docker_runner_default_dockerfile(orch_ctx, docker_e2e_bare_repo):
-    """A user repo with no Dockerfile builds with the default thin layer on
-    ``AAICLICK_BASE_IMAGE``, which the workflow builds from the wheel under
-    test (no published image matches a wheel built from source)."""
+    """A user repo with no Dockerfile builds on the default layer over ``AAICLICK_BASE_IMAGE``."""
     remote, sha, worktree = docker_e2e_bare_repo
     job_name = "docker_e2e_default_dockerfile"
 
@@ -142,29 +124,14 @@ async def test_docker_runner_default_dockerfile(orch_ctx, docker_e2e_bare_repo):
 
     _aaiclick("run-job", job_name, "--git-sha", sha, cwd=worktree)
 
-    worker_task = asyncio.create_task(
-        mp_worker_main_loop(
-            max_tasks=10,
-            install_signal_handlers=False,
-            max_empty_polls=10,
-        )
-    )
-    try:
-        completed = await wait_for_job_by_name(job_name)
-    finally:
-        worker_task.cancel()
-        try:
-            await worker_task
-        except asyncio.CancelledError:
-            pass
+    completed = await run_worker_until_done(job_name)
 
     assert completed.status == JOB_COMPLETED, completed.error
 
     tasks = await get_tasks_for_job(completed.id)
     entry = next(t for t in tasks if t.entrypoint == "bare_jobs.entry_task")
-    assert entry.status == TASK_COMPLETED, entry.error
     # cwd is the copied repo and the non-root user could write into it.
-    assert entry.result == {"native_value": {"cwd": "/src", "user": "aaiclick"}}, entry.result
+    assert entry.result == {"native_value": {"cwd": "/src", "user": "aaiclick"}}, (entry.result, entry.error)
 
 
 @pytest.mark.docker_e2e
@@ -199,21 +166,7 @@ async def test_docker_runner_jvm_task(orch_ctx, docker_e2e_user_repo, jvm_task_i
         cwd=worktree,
     )
 
-    worker_task = asyncio.create_task(
-        mp_worker_main_loop(
-            max_tasks=10,
-            install_signal_handlers=False,
-            max_empty_polls=10,
-        )
-    )
-    try:
-        completed = await wait_for_job_by_name(job_name)
-    finally:
-        worker_task.cancel()
-        try:
-            await worker_task
-        except asyncio.CancelledError:
-            pass
+    completed = await run_worker_until_done(job_name)
 
     assert completed.status == JOB_COMPLETED, completed.error
 
@@ -276,21 +229,7 @@ async def test_docker_runner_shell_prebuilt(orch_ctx, tmp_path):
         cwd=tmp_path,
     )
 
-    worker_task = asyncio.create_task(
-        mp_worker_main_loop(
-            max_tasks=10,
-            install_signal_handlers=False,
-            max_empty_polls=10,
-        )
-    )
-    try:
-        completed = await wait_for_job_by_name(job_name)
-    finally:
-        worker_task.cancel()
-        try:
-            await worker_task
-        except asyncio.CancelledError:
-            pass
+    completed = await run_worker_until_done(job_name)
 
     assert completed.status == JOB_COMPLETED, completed.error
 
@@ -333,21 +272,9 @@ async def test_docker_runner_shell_nonzero_fails(orch_ctx, tmp_path):
     # real one alongside the worker so the job reaches its terminal state.
     bg_worker = BackgroundWorker(poll_interval=1.0)
     await bg_worker.start()
-    worker_task = asyncio.create_task(
-        mp_worker_main_loop(
-            max_tasks=10,
-            install_signal_handlers=False,
-            max_empty_polls=10,
-        )
-    )
     try:
-        completed = await wait_for_job_by_name(job_name)
+        completed = await run_worker_until_done(job_name)
     finally:
-        worker_task.cancel()
-        try:
-            await worker_task
-        except asyncio.CancelledError:
-            pass
         await bg_worker.stop()
 
     assert completed.status == JOB_FAILED, completed.status

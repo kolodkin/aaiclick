@@ -1,7 +1,5 @@
-"""Job module for the default-Dockerfile e2e: a user repo with nothing but
-this file — no Dockerfile, no packaging. The build task writes the default
-Dockerfile into the checkout, and the entrypoint resolves from its
-``WORKDIR /src`` the way the host CLI resolves it from the repo root."""
+"""Fixture for the default-Dockerfile e2e: no Dockerfile, no packaging. The
+entrypoint resolves from the default image's ``WORKDIR /src``."""
 
 from __future__ import annotations
 

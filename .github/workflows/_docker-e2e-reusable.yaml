@@ -130,22 +130,6 @@ jobs:
             curl -fsSL -F "content=@${f}" -F ":action=file_upload" http://localhost:8080/
           done
 
-      # A git build whose repo has no Dockerfile layers on the aaiclick base
-      # image at the worker's version. No published image matches the wheel
-      # under test, so build that base here from the same wheel (the release
-      # recipe, docker/Dockerfile) and point the worker at it via
-      # AAICLICK_BASE_IMAGE below. --network=host reaches the pypiserver on
-      # localhost, which pip trusts for plain HTTP.
-      - name: Build base image from the wheel under test
-        run: |
-          WHEEL=$(basename dist/aaiclick-*.whl)
-          VERSION=${WHEEL#aaiclick-}
-          VERSION=${VERSION%%-*}
-          docker build --network=host -f docker/Dockerfile \
-            --build-arg AAICLICK_VERSION="${VERSION}" \
-            --build-arg PIP_INDEX_URL="http://localhost:8080/simple/" \
-            -t aaiclick-e2e-base:local .
-
       - name: Install aaiclick from test pypi (artifact mode)
         if: inputs.wheel_source == 'artifact'
         env:
@@ -161,6 +145,20 @@ jobs:
           uv pip install -r requirements-dist.txt
           VERSION="${{ inputs.version_pin }}"
           uv pip install "aaiclick[distributed]==${VERSION#v}"
+
+      # A git build whose repo has no Dockerfile layers on the aaiclick base
+      # image at the worker's version, and no published image matches the
+      # wheel under test. Build that base from the same wheel and point the
+      # worker at it via AAICLICK_BASE_IMAGE below. The version comes from the
+      # installed package, the same source the worker reads; --network=host
+      # reaches the pypiserver on localhost, which pip trusts for plain HTTP.
+      - name: Build base image from the wheel under test
+        run: |
+          VERSION=$(uv run --no-project python -c "import importlib.metadata as m; print(m.version('aaiclick'))")
+          docker build --network=host -f docker/Dockerfile \
+            --build-arg AAICLICK_VERSION="${VERSION}" \
+            --build-arg PIP_INDEX_URL="http://localhost:8080/simple/" \
+            -t aaiclick-e2e-base:local docker/
 
       # --- Common: migrations, test ---------------------------------------
 

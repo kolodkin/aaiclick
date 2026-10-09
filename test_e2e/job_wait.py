@@ -14,6 +14,7 @@ from sqlmodel import col, select
 
 from aaiclick.datetime_utils import utc_now
 from aaiclick.orchestration.env import job_wait_timeout
+from aaiclick.orchestration.execution.mp_worker import mp_worker_main_loop
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import TERMINAL_JOB_STATUSES, Job
 from aaiclick.orchestration.orch_context import get_sql_session
@@ -43,3 +44,19 @@ async def wait_for_job_by_name(job_name: str, timeout: float | None = None) -> J
         for t in await get_tasks_for_job(job.id):
             lines.append(f"  task entrypoint={t.entrypoint!r} status={t.status} attempt={t.attempt} error={t.error!r}")
     raise TimeoutError("\n".join(lines))
+
+
+async def run_worker_until_done(job_name: str) -> Job:
+    """Drive an mp worker loop in the background until the job named
+    ``job_name`` reaches a terminal status, then stop the loop."""
+    worker_task = asyncio.create_task(
+        mp_worker_main_loop(max_tasks=10, install_signal_handlers=False, max_empty_polls=10)
+    )
+    try:
+        return await wait_for_job_by_name(job_name)
+    finally:
+        worker_task.cancel()
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            pass
