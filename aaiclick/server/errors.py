@@ -17,6 +17,7 @@ from aaiclick.internal_api.errors import (
     NotFound,
     Unauthorized,
 )
+from aaiclick.internal_api.sandbox import SandboxUnavailable
 from aaiclick.view_models import Problem, ProblemCode
 
 _PROBLEM_MAP: dict[type[InternalApiError], tuple[str, int, ProblemCode]] = {
@@ -27,6 +28,7 @@ _PROBLEM_MAP: dict[type[InternalApiError], tuple[str, int, ProblemCode]] = {
     Unauthorized: ("Unauthorized", 401, ProblemCode.UNAUTHORIZED),
     MfaRequired: ("MFA Required", 401, ProblemCode.MFA_REQUIRED),
     Forbidden: ("Forbidden", 403, ProblemCode.FORBIDDEN),
+    SandboxUnavailable: ("Sandbox Unavailable", 502, ProblemCode.SANDBOX_UNAVAILABLE),
 }
 
 BEARER_CHALLENGE = {"WWW-Authenticate": "Bearer"}

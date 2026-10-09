@@ -67,6 +67,7 @@ class ProblemCode(str, Enum):
     MFA_REQUIRED = "mfa_required"
     FORBIDDEN = "forbidden"
     EXECUTION_WORKER_SPAWN_FAILED = "execution_worker_spawn_failed"
+    SANDBOX_UNAVAILABLE = "sandbox_unavailable"
 
 
 class Problem(BaseModel):
