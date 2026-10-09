@@ -195,19 +195,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Native per-arch builds (no QEMU). The three images are FROM-chained,
-      # so they build sequentially within each platform leg. --network=host
-      # lets the build reach the pypiserver on localhost; pip trusts
-      # localhost for plain HTTP by default.
-      - name: Build & push per-arch rc images
+      - name: Resolve rc tags
         run: |
           VERSION="${{ inputs.tag }}"
-          PEP440="${VERSION#v}"
-          ARCH_TAG="${VERSION}-rc-${{ matrix.platform }}"
-          docker build --network=host -f docker/Dockerfile \
-            --build-arg AAICLICK_VERSION="${PEP440}" \
-            --build-arg PIP_INDEX_URL="http://localhost:8080/simple/" \
-            -t "${IMAGE_PREFIX}/aaiclick:${ARCH_TAG}" .
+          echo "PEP440=${VERSION#v}" >> "$GITHUB_ENV"
+          echo "ARCH_TAG=${VERSION}-rc-${{ matrix.platform }}" >> "$GITHUB_ENV"
+
+      # Native per-arch builds (no QEMU). The three images are FROM-chained,
+      # so they build sequentially within each platform leg.
+      - name: Build base rc image
+        uses: ./.github/actions/build-base-image
+        with:
+          version: ${{ env.PEP440 }}
+          tag: ${{ env.IMAGE_PREFIX }}/aaiclick:${{ env.ARCH_TAG }}
+
+      - name: Build & push per-arch rc images
+        run: |
           docker build -f docker/docker.Dockerfile \
             --build-arg BASE_REF="${IMAGE_PREFIX}/aaiclick:${ARCH_TAG}" \
             --build-arg TARGETARCH="${{ matrix.platform }}" \
@@ -404,12 +407,16 @@ jobs:
         run: docker compose -f "$RUNNER_TEMP/stack/docker-compose.yaml" down -v
 
   test-package-docker-e2e:
-    needs: build
+    permissions:
+      contents: read
+      packages: read
+    needs: [build, merge-rc-images]
     if: ${{ !inputs.skip-docker-e2e }}
     uses: ./.github/workflows/_docker-e2e-reusable.yaml
     with:
       wheel_source: artifact
       version_pin: ${{ inputs.tag }}
+      base_image: ghcr.io/kolodkin/aaiclick:${{ inputs.tag }}-rc
 
   test-compose-e2e:
     permissions:
