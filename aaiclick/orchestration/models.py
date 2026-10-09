@@ -13,6 +13,7 @@ from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, String, UniqueCon
 from sqlalchemy.orm import Mapped
 from sqlmodel import JSON, Column, Field, Relationship, SQLModel
 
+from ..auth.models import User
 from ..datetime_utils import utc_field, utc_now
 from ..snowflake import get_snowflake_id
 from .runner_config import ENTRY_MODULE, EntryType
@@ -186,8 +187,11 @@ class SandboxFile(SQLModel, table=True):
         sa_column=Column(String, nullable=False, server_default=SANDBOX_PENDING, index=True),
     )
     error: str | None = Field(default=None)
-    # ``None`` in local mode, whose synthetic admin has no users row.
-    submitted_by: int | None = Field(default=None, sa_column=Column(BigInteger, ForeignKey("users.id"), nullable=True))
+    # ``None`` in local mode, whose synthetic admin has no users row. The FK
+    # names the model, not the table, so ``users`` is always in the metadata
+    # a ``create_all`` sees — a process that only imports orchestration (the
+    # web e2e seed, the background worker) would otherwise fail to resolve it.
+    submitted_by: int | None = Field(default=None, sa_column=Column(BigInteger, ForeignKey(User.id), nullable=True))
     created_at: datetime = utc_field(default_factory=utc_now)
     updated_at: datetime = utc_field(default_factory=utc_now)
 

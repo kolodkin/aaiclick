@@ -140,6 +140,10 @@ def base_url(
     # under this directory — a different root is a different database.
     mp = pytest.MonkeyPatch()
     mp.setenv("AAICLICK_LOCAL_ROOT", str(root))
+    # An empty bare repo enables the sandbox page; submissions push into it.
+    sandbox_remote = root / "sandbox-remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(sandbox_remote)], check=True)
+    mp.setenv("AAICLICK_SANDBOX", str(sandbox_remote))
     env = dict(os.environ)
 
     # Viewer fixtures need ClickHouse tables, and chdb's session is a
