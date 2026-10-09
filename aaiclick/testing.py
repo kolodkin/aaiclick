@@ -559,12 +559,13 @@ def publish_user_repo(tmp_path_factory: pytest.TempPathFactory, fixture_dir: Pat
     )
     sha = git(worktree, "rev-parse", "HEAD")
 
-    bare = Path(base) / "sample_job.git"
+    name = f"{fixture_dir.name}.git"
+    bare = Path(base) / name
     git(worktree, "clone", "-q", "--bare", str(worktree), str(bare))
     # The build fetches a raw SHA over the smart transport; upload-pack rejects
     # that unless the serving repo opts in.
     git(bare, "config", "uploadpack.allowAnySHA1InWant", "true")
-    return f"git://127.0.0.1:{port}/sample_job.git", sha, worktree
+    return f"git://127.0.0.1:{port}/{name}", sha, worktree
 
 
 async def set_task_runs(task_id: int, run_ids: list[int], run_statuses: list[TaskStatus] | None = None) -> None:

@@ -146,6 +146,20 @@ jobs:
           VERSION="${{ inputs.version_pin }}"
           uv pip install "aaiclick[distributed]==${VERSION#v}"
 
+      # A git build whose repo has no Dockerfile layers on the aaiclick base
+      # image at the worker's version, and no published image matches the
+      # wheel under test. Build that base from the same wheel and point the
+      # worker at it via AAICLICK_BASE_IMAGE below. The version comes from the
+      # installed package, the same source the worker reads; --network=host
+      # reaches the pypiserver on localhost, which pip trusts for plain HTTP.
+      - name: Build base image from the wheel under test
+        run: |
+          VERSION=$(uv run --no-project python -c "import importlib.metadata as m; print(m.version('aaiclick'))")
+          docker build --network=host -f docker/Dockerfile \
+            --build-arg AAICLICK_VERSION="${VERSION}" \
+            --build-arg PIP_INDEX_URL="http://localhost:8080/simple/" \
+            -t aaiclick-e2e-base:local docker/
+
       # --- Common: migrations, test ---------------------------------------
 
       - name: Run database migrations
@@ -165,6 +179,7 @@ jobs:
           AAICLICK_CH_URL: "clickhouse://default:click123@host.docker.internal:8123/default"
           AAICLICK_RUNNER: "docker"
           AAICLICK_REGISTRY: "host.docker.internal:5000"
+          AAICLICK_BASE_IMAGE: "aaiclick-e2e-base:local"
           AAICLICK_PIP_INDEX_URL: "http://host.docker.internal:8080/simple/"
           # pip refuses to use a plain-HTTP index without --trusted-host;
           # forward the host so the build sees our test pypi.

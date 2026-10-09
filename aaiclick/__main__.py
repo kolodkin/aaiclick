@@ -1209,7 +1209,11 @@ def build_parser() -> argparse.ArgumentParser:
     # docker init
     docker_init_parser = docker_subparsers.add_parser(
         "init",
-        help="Scaffold a starter Dockerfile in the current directory",
+        help=(
+            "Scaffold a starter Dockerfile in the current directory. Without one, "
+            "a git build uses a thin layer on the aaiclick base image; check in a "
+            "Dockerfile to customize."
+        ),
     )
     docker_init_parser.add_argument(
         "--path",

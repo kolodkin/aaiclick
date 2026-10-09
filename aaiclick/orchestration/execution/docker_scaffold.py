@@ -1,12 +1,11 @@
-"""Scaffold a starter Dockerfile for docker-runner jobs.
+"""Dockerfile templates for docker-runner jobs.
 
-The framework deliberately does not bundle a runtime-default Dockerfile —
-image reproducibility requires that the Dockerfile be checked in to the
-user's repo and versioned by the git SHA the build task clones from. This
-module provides a CLI scaffold that drops a sensible starter into the
-user's working directory; from there the user owns it.
-
-Invoked via ``python -m aaiclick docker init``."""
+- ``DOCKERFILE_TEMPLATE`` — the starter ``python -m aaiclick docker init``
+  scaffolds into the user's working directory; from there the user owns it.
+- ``DEFAULT_BUILD_DOCKERFILE_TEMPLATE`` — the thin layer on the aaiclick base
+  image a ``build`` source writes into a checkout that has no ``Dockerfile``
+  (``docker_build.build_image_to_tag``; spec: docs/designs/orchestration.md
+  "Image source"). Check in a Dockerfile to customize."""
 
 from __future__ import annotations
 
@@ -26,6 +25,8 @@ DOCKERFILE_TEMPLATE = """\
 #   PIP_INDEX_URL, PIP_EXTRA_INDEX_URL  (e.g. corporate / test pypi)
 #   PIP_TRUSTED_HOST                    (allow plain HTTP for the index host)
 #   AAICLICK_VERSION                    (matches the host's installed version)
+#   BASE_IMAGE                          (ghcr.io/kolodkin/aaiclick at that version,
+#                                        or AAICLICK_BASE_IMAGE on the worker)
 
 FROM python:3.10-slim
 
@@ -64,6 +65,18 @@ WORKDIR /src
 RUN pip install --no-cache-dir /src
 """
 
+DEFAULT_BUILD_DOCKERFILE_TEMPLATE = """\
+# Default image for a git build whose repo has no Dockerfile: a thin layer on
+# the aaiclick base image. The build task forwards BASE_IMAGE pinned to the
+# worker's aaiclick version (or AAICLICK_BASE_IMAGE).
+# --chown: the base image runs as USER aaiclick; a root-owned /src would break
+# tasks that write relative paths.
+ARG BASE_IMAGE=ghcr.io/kolodkin/aaiclick:latest
+FROM ${BASE_IMAGE}
+COPY --chown=aaiclick:aaiclick . /src
+WORKDIR /src
+"""
+
 
 class DockerfileExists(FileExistsError):
     """Raised when the target path already exists and ``force`` is False."""
@@ -74,9 +87,7 @@ def init_dockerfile(target: Path, *, force: bool = False) -> Path:
 
     Returns the resolved target path. Raises :class:`DockerfileExists`
     when the file already exists and ``force`` is False — silent
-    overwrite would clobber whatever Dockerfile the user already had,
-    which is exactly the kind of "magic" we're trying to avoid by not
-    bundling a runtime default."""
+    overwrite would clobber whatever Dockerfile the user already had."""
     if target.exists() and not force:
         raise DockerfileExists(f"{target} already exists. Pass --force to overwrite.")
     target.write_text(DOCKERFILE_TEMPLATE)

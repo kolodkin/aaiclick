@@ -14,14 +14,17 @@ Cache hierarchy (first hit short-circuits):
 
 from __future__ import annotations
 
+import functools
 import importlib.metadata
 import os
 import tempfile
 from pathlib import Path
 
+from ...ghcr import base_image
 from ..docker_config import add_host_flags, compute_image_tag, get_registry
 from ..runner_config import ImageBuild, ImageSourceT
 from . import cli
+from .docker_scaffold import DEFAULT_BUILD_DOCKERFILE_TEMPLATE
 
 
 def _docker_bin() -> str:
@@ -79,9 +82,11 @@ async def _git_clone_at_sha(remote: str, sha: str, workdir: str) -> None:
     await cli.run("git", "-C", workdir, "checkout", "--quiet", sha)
 
 
+@functools.cache
 def _aaiclick_version() -> str:
     """Best-effort version of the running aaiclick package, for the
-    ``AAICLICK_VERSION`` build-arg."""
+    ``AAICLICK_VERSION`` build-arg and the default Dockerfile's base tag.
+    Cached: the installed version cannot change within a process."""
     try:
         return importlib.metadata.version("aaiclick")
     except importlib.metadata.PackageNotFoundError:
@@ -105,7 +110,9 @@ def _collect_build_args(source: ImageBuild) -> list[str]:
     add("PIP_INDEX_URL", os.environ.get("AAICLICK_PIP_INDEX_URL"))
     add("PIP_EXTRA_INDEX_URL", os.environ.get("AAICLICK_PIP_EXTRA_INDEX_URL"))
     add("PIP_TRUSTED_HOST", os.environ.get("AAICLICK_PIP_TRUSTED_HOST"))
-    add("AAICLICK_VERSION", _aaiclick_version())
+    version = _aaiclick_version()
+    add("AAICLICK_VERSION", version)
+    add("BASE_IMAGE", os.environ.get("AAICLICK_BASE_IMAGE") or base_image(version))
     return args
 
 
@@ -122,6 +129,30 @@ async def _docker_build(context: str, dockerfile: str, image_tag: str, build_arg
         context,
     ]
     await cli.run(*cmd)
+
+
+def _resolve_dockerfile(source: ImageBuild, context_dir: Path) -> Path:
+    """Path of the Dockerfile to build with inside the checkout.
+
+    A checkout without the implicit ``Dockerfile`` gets the default thin layer
+    written in, plus a ``.dockerignore`` (when the repo has none) keeping the
+    clone's ``.git`` out of the context — user Dockerfiles keep it, since a
+    ``pip install`` of a setuptools-scm project reads it. An explicitly named
+    ``dockerfile=`` that is absent is a user error and raises."""
+    dockerfile = context_dir / (source.dockerfile or "Dockerfile")
+    if dockerfile.is_file():
+        return dockerfile
+    if source.dockerfile:
+        raise FileNotFoundError(
+            f"Dockerfile not found at {source.dockerfile} in repo {source.git_remote}@{source.git_sha}. "
+            f"Check the dockerfile= path, or omit it to build with the repo's Dockerfile "
+            f"(or the default aaiclick layer when there is none)."
+        )
+    dockerfile.write_text(DEFAULT_BUILD_DOCKERFILE_TEMPLATE)
+    dockerignore = context_dir / ".dockerignore"
+    if not dockerignore.exists():
+        dockerignore.write_text(".git\n")
+    return dockerfile
 
 
 async def resolve_launch_image(image_source: ImageSourceT | None, *, task_id: int) -> str:
@@ -163,15 +194,7 @@ async def build_image_to_tag(source: ImageBuild, image_tag: str) -> None:
             await _git_clone_at_sha(source.git_remote, source.git_sha, workdir)
 
             context_dir = Path(workdir)
-            dockerfile = context_dir / (source.dockerfile or "Dockerfile")
-            if not dockerfile.is_file():
-                raise FileNotFoundError(
-                    f"Dockerfile not found at "
-                    f"{source.dockerfile or 'Dockerfile'} "
-                    f"in repo {source.git_remote}@{source.git_sha}. "
-                    f"Run `python -m aaiclick docker init` in the user's repo "
-                    f"to scaffold a starter Dockerfile."
-                )
+            dockerfile = _resolve_dockerfile(source, context_dir)
 
             build_args = _collect_build_args(source)
             await _docker_build(str(context_dir), str(dockerfile), image_tag, build_args)
