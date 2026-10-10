@@ -97,8 +97,8 @@ async def _delete_registry_rows(session: AsyncSession, table_names: list[str]) -
 
 
 class SandboxOutcome(NamedTuple):
-    """What submitting one sandbox file produced: the jobs created, in
-    ``job_names`` order, and the first failure (``None`` when all ran)."""
+    """Jobs created for one sandbox file, in ``job_names`` order, and the
+    first failure (``None`` when all ran)."""
 
     job_ids: list[int]
     error: str | None
@@ -554,16 +554,14 @@ class BackgroundWorker:
                 logger.info("Scheduled job '%s' created (job_id=%s)", row.name, job.id)
 
     async def _run_sandbox_files(self) -> None:
-        """Submit every ``@job`` of each pending sandbox file once.
+        """Submit every ``@job`` of each pending sandbox file once, pinned to
+        the row's remote and commit.
 
-        The row carries everything ``run_job`` needs — the sandbox remote and
-        the submission commit — so the build source is pinned to the file as
-        committed. Rows are claimed by flipping ``pending`` to ``running`` in
-        one statement before any job is created, so two background workers
-        never submit the same file twice, and readers never see a final
-        status before its jobs exist. A row left ``running`` past
-        ``SANDBOX_STALE_AFTER`` (its worker died mid-submit) turns ``failed``
-        rather than running again, since some of its jobs may exist.
+        The ``pending`` → ``running`` claim is one statement, so two workers
+        never submit a file twice and no reader sees a final status before
+        its jobs exist. A row still ``running`` after ``SANDBOX_STALE_AFTER``
+        lost its worker; it turns ``failed``, not rerun, since some of its
+        jobs may already exist.
         """
         now = utc_now()
         async with AsyncSession(self._engine) as session:

@@ -108,10 +108,8 @@ class SandboxRepo:
         if not unborn:
             await self._git("checkout", "--quiet", "--force", "-B", branch, "FETCH_HEAD")
         else:
-            # ``symbolic-ref`` points HEAD at the branch whether or not a local
-            # one exists (``checkout --orphan`` refuses an existing name, which
-            # is exactly the state a failed push leaves); the delete then makes
-            # it unborn again so the next commit is a root commit.
+            # Not ``checkout --orphan``: it refuses an existing local branch,
+            # which a failed first push leaves. Re-point HEAD, then unborn it.
             await self._git("symbolic-ref", "HEAD", f"refs/heads/{branch}")
             await self._run("-C", str(self.workdir), "update-ref", "-d", f"refs/heads/{branch}")
             await self._git("reset", "--quiet")
@@ -187,8 +185,7 @@ class SandboxRepo:
 
 
 _repo_override: ContextVar[SandboxRepo | None] = ContextVar("sandbox_repo_override", default=None)
-# One instance per remote for the process lifetime, so the branch lookup runs
-# once and every request shares the clone. Never rebound: entries are added.
+# One instance (and lock) per remote for the process lifetime. Never rebound.
 _REPOS: dict[str, SandboxRepo] = {}
 
 

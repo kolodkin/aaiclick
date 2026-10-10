@@ -21,8 +21,8 @@ AAICLICK_SANDBOX=git@github.com:acme/aaiclick-sandbox.git
 
 - The server clones the remote under `<AAICLICK_LOCAL_ROOT>/sandbox/<hash of
   the remote>` and pushes one commit per submission. An empty repo works.
-- Only the server reads the variable: the workers get the remote and commit
-  from the submission, as for any git-build job.
+- Only the server reads the variable; workers get the remote and commit from
+  the submission.
 - Sandbox jobs are container jobs: distributed backends, a worker with
   `AAICLICK_RUNNER`, and `AAICLICK_REGISTRY` or `AAICLICK_LOCAL_BUILD` — see
   [Container Images](container_images.md). Execution workers must be able to
@@ -61,10 +61,9 @@ def hello_job():
    `@job`, named `sb_<ts>_<name>.<function>` and pinned to that commit. The
    row turns `submitted` with links to the jobs, or `failed` with the message.
 3. The build task clones the commit onto the default Dockerfile (Container
-   Images), so the file imports as `YYYYMMDD.sb_<ts>_<name>`. The digits-only
-   directory is a valid importlib namespace package (the entrypoint is a
-   dotted string, never an `import` statement, so it need not be an
-   identifier); the nightlies run exactly that path.
+   Images), so the file imports as `YYYYMMDD.sb_<ts>_<name>`. A digits-only
+   directory is fine: entrypoints resolve through importlib, not an `import`
+   statement.
 
 Click a submission's name to read its source.
 

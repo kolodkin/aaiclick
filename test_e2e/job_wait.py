@@ -55,10 +55,9 @@ async def run_worker_until_done(job_name: str) -> Job:
 
 
 async def run_worker_until_all_done(*job_names: str, max_tasks: int = 10) -> list[Job]:
-    """Drive one mp worker loop until every named job reaches a terminal
-    status, then stop it. One loop for all of them: a loop stopped after the
-    first job would strand the others' claimed tasks in ``RUNNING``. A worker
-    crash surfaces at once rather than after the job wait times out."""
+    """Drive one mp worker loop until every named job is terminal. One loop
+    for all: stopping after the first would strand the others' claimed tasks
+    in ``RUNNING``. A worker crash surfaces at once, not at the job timeout."""
     worker_task = asyncio.create_task(
         mp_worker_main_loop(max_tasks=max_tasks, install_signal_handlers=False, max_empty_polls=10)
     )
