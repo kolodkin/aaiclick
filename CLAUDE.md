@@ -206,7 +206,9 @@ Use the `generate-migration` skill. Never hand-write migration files.
 
 ## Workflow
 
-1. **Create Specification Document** (`docs/designs/<feature>.md`):
+1. **Create Specification Document** (`docs/superpowers/specs/YYYY-MM-DD-<feature>-design.md`):
+   - Superpowers design specs stay in `docs/superpowers/specs/` (the `superpowers:brainstorming` default) — do NOT move or write them to `docs/designs/`
+   - `docs/designs/` holds long-lived architecture docs for built subsystems, not in-flight specs
    - Describe architecture, data models, and APIs
    - Include code examples showing intended usage
    - Document design decisions and trade-offs
@@ -225,7 +227,7 @@ Use the `generate-migration` skill. Never hand-write migration files.
    - **No status icons**: The implementation reference itself signals a feature is built — do not add ✅ IMPLEMENTED markers. Unimplemented work lives in `docs/designs/future.md` (see Future Plans), not inline ⚠️ NOT YET IMPLEMENTED markers.
    - **Keep unimplemented specs**: Detailed descriptions serve as design docs for future work
 
-4. **Remove superpowers plan and spec once implemented**: Delete the superpowers plan (`docs/superpowers/plans/`) and the feature's spec document after the feature lands, and fix any references pointing at them — the code and its user-guide docs are the record. (Unimplemented specs stay, per step 3.)
+4. **Remove superpowers plan and spec once implemented**: Delete the superpowers plan (`docs/superpowers/plans/`) and spec (`docs/superpowers/specs/`) after the feature lands, and fix any references pointing at them — the code and its user-guide docs are the record. (Unimplemented specs stay, per step 3.)
 
 ## Documentation
 
