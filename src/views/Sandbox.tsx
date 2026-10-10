@@ -6,7 +6,7 @@ import { LiveStatus } from "../components/LiveStatus";
 import { Panel } from "../components/Panel";
 import { relativeTime } from "../lib/format";
 
-export const SANDBOX_EXAMPLE = `from aaiclick.orchestration import TaskResult, job, task
+export const SANDBOX_EXAMPLE = `from aaiclick.orchestration import job, task
 
 
 @task
@@ -16,7 +16,7 @@ async def hello():
 
 @job
 def hello_job():
-    return TaskResult(tasks=[hello()])
+    return hello()
 `;
 
 export function SandboxJobLinks({ file, onPrompt }: { file: SandboxFileView; onPrompt: (v: string) => void }) {

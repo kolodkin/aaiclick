@@ -33,7 +33,7 @@ The `@sandbox` command appears on the home page once enabled.
 # Writing a file
 
 ```python
-from aaiclick.orchestration import TaskResult, job, task
+from aaiclick.orchestration import job, task
 
 
 @task
@@ -43,11 +43,12 @@ async def hello():
 
 @job
 def hello_job():
-    return TaskResult(tasks=[hello()])
+    return hello()
 ```
 
 - Every top-level `@job` function runs once, with no arguments; a file
-  without one is rejected.
+  without one is rejected. A job returns a task, a flat list or tuple of
+  tasks, or a `TaskResult` when it also carries data.
 - Tasks may declare their own `image=` / `git_*` via `create_task`; the job
   itself is always built from the sandbox repo.
 - The server parses the file and never imports it.
@@ -60,7 +61,10 @@ def hello_job():
    `sb_<ts>_<name>.<function>` and pinned to that commit. The row turns
    `submitted` with links to the jobs, or `failed` with the message.
 3. The build task clones the commit onto the default Dockerfile (Container
-   Images), so the file imports as `YYYYMMDD.sb_<ts>_<name>`.
+   Images), so the file imports as `YYYYMMDD.sb_<ts>_<name>`. The digits-only
+   directory is a valid importlib namespace package (the entrypoint is a
+   dotted string, never an `import` statement, so it need not be an
+   identifier); the nightlies run exactly that path.
 
 Click a submission's name to read its source.
 
