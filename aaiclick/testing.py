@@ -25,6 +25,7 @@ from collections.abc import AsyncIterator, Iterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import NamedTuple
 from unittest.mock import patch
 
 import pytest
@@ -519,15 +520,23 @@ async def orch_ctx_no_ch(orch_module_ctx_no_ch):
     yield
 
 
-def publish_user_repo(tmp_path_factory: pytest.TempPathFactory, fixture_dir: Path) -> tuple[str, str, Path]:
+class UserRepo(NamedTuple):
+    """A fixture repo published into the CI git daemon (see ``publish_user_repo``)."""
+
+    remote: str
+    sha: str
+    worktree: Path
+
+
+def publish_user_repo(tmp_path_factory: pytest.TempPathFactory, fixture_dir: Path) -> UserRepo:
     """Publish ``fixture_dir`` as a bare git repo into the CI git daemon.
 
-    Returns ``(remote_url, commit_sha, worktree)``. Skips when the daemon env
+    Skips when the daemon env
     (``AAICLICK_E2E_GIT_DAEMON_BASE`` / ``_PORT``) is unset — these e2es are
     workflow-driven. Shared by the docker and kubernetes runner suites.
 
-    ``worktree`` is the user-repo checkout the host CLI runs from; ``remote_url``
-    is what the build clones at ``commit_sha`` (a bare repo published into the
+    ``worktree`` is the user-repo checkout the host CLI runs from; ``remote``
+    is what the build clones at ``sha`` (a bare repo published into the
     daemon's base-path, with raw-SHA fetch enabled)."""
     base = os.environ.get("AAICLICK_E2E_GIT_DAEMON_BASE")
     port = os.environ.get("AAICLICK_E2E_GIT_DAEMON_PORT")
@@ -565,7 +574,7 @@ def publish_user_repo(tmp_path_factory: pytest.TempPathFactory, fixture_dir: Pat
     # The build fetches a raw SHA over the smart transport; upload-pack rejects
     # that unless the serving repo opts in.
     git(bare, "config", "uploadpack.allowAnySHA1InWant", "true")
-    return f"git://127.0.0.1:{port}/{name}", sha, worktree
+    return UserRepo(remote=f"git://127.0.0.1:{port}/{name}", sha=sha, worktree=worktree)
 
 
 async def set_task_runs(task_id: int, run_ids: list[int], run_statuses: list[TaskStatus] | None = None) -> None:

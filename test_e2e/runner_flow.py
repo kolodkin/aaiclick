@@ -13,10 +13,10 @@ from pathlib import Path
 
 from job_wait import run_worker_until_done
 
-from aaiclick.orchestration.docker_config import compute_image_tag
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import JOB_COMPLETED, TASK_COMPLETED, Task
 from aaiclick.orchestration.runner_config import ImageBuild, parse_image_source
+from aaiclick.testing import UserRepo
 
 # Exits 0 only when ``command_env`` reached the container (``K=v``), so the
 # container runners' env delivery (docker ``--env-file``, kubernetes Secret) is
@@ -44,13 +44,12 @@ def aaiclick_cli(*args: str, cwd: Path) -> subprocess.CompletedProcess:
     return proc
 
 
-async def run_build_job(job_name: str, entrypoint: str, user_repo: tuple[str, str, Path], *run_args: str) -> list[Task]:
+async def run_build_job(job_name: str, entrypoint: str, user_repo: UserRepo, *run_args: str) -> list[Task]:
     """``register-job --build`` → ``run-job --git-sha`` → worker → job and every
-    task ``COMPLETED``. ``user_repo`` is a published fixture ``(remote, sha,
-    worktree)``; ``run_args`` go to ``run-job``. Returns the job's tasks."""
-    remote, sha, worktree = user_repo
-    aaiclick_cli("register-job", entrypoint, "--name", job_name, "--build", "--git-remote", remote, cwd=worktree)
-    aaiclick_cli("run-job", job_name, "--git-sha", sha, *run_args, cwd=worktree)
+    task ``COMPLETED``. ``run_args`` go to ``run-job``. Returns the job's tasks."""
+    cwd = user_repo.worktree
+    aaiclick_cli("register-job", entrypoint, "--name", job_name, "--build", "--git-remote", user_repo.remote, cwd=cwd)
+    aaiclick_cli("run-job", job_name, "--git-sha", user_repo.sha, *run_args, cwd=cwd)
 
     completed = await run_worker_until_done(job_name)
     assert completed.status == JOB_COMPLETED, completed.error
@@ -61,7 +60,7 @@ async def run_build_job(job_name: str, entrypoint: str, user_repo: tuple[str, st
     return tasks
 
 
-async def run_smoke_flow(job_name: str, user_repo: tuple[str, str, Path]) -> None:
+async def run_smoke_flow(job_name: str, user_repo: UserRepo) -> None:
     """Build the ``sample_job`` fixture and run its chain; the result is read back
     through ClickHouse, proving Objects passed between containers."""
     tasks = await run_build_job(job_name, "sample_jobs.entry_task", user_repo)
@@ -71,8 +70,7 @@ async def run_smoke_flow(job_name: str, user_repo: tuple[str, str, Path]) -> Non
     assert entry.image_source is not None
     source = parse_image_source(entry.image_source)
     assert isinstance(source, ImageBuild)
-    assert source.git_sha == user_repo[1]
-    assert compute_image_tag(source.git_sha).endswith(f":{source.git_sha}")
+    assert source.git_sha == user_repo.sha
     entrypoints = {t.entrypoint for t in tasks}
     assert {"sample_jobs.produce", "sample_jobs.double", "sample_jobs.compute_sum"} <= entrypoints, entrypoints
 

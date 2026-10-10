@@ -11,6 +11,7 @@ from .. import docker_config
 from ..runner_config import ImageBuild, ImagePrebuilt
 from . import docker_build
 from .docker_build import resolve_launch_image
+from .docker_scaffold import DEFAULT_BUILD_DOCKERFILE_TEMPLATE
 
 
 async def test_collect_build_args_omits_unset_values(monkeypatch):
@@ -123,6 +124,19 @@ def _stub_build_path(monkeypatch, clone_files: dict[str, str]) -> list[dict[str,
     return built
 
 
+async def test_build_image_to_tag_repo_without_dockerfile_builds_with_default(monkeypatch):
+    """A checkout with no ``Dockerfile`` gets the default written in, plus a
+    ``.dockerignore`` keeping ``.git`` out of the image."""
+    built = _stub_build_path(monkeypatch, {"job.py": "print('hi')\n"})
+    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
+
+    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
+
+    assert built == [
+        {"job.py": "print('hi')\n", "Dockerfile": DEFAULT_BUILD_DOCKERFILE_TEMPLATE, ".dockerignore": ".git\n"}
+    ]
+
+
 async def test_build_image_to_tag_default_keeps_repo_dockerignore(monkeypatch):
     built = _stub_build_path(monkeypatch, {".dockerignore": "data/\n"})
     source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
@@ -130,6 +144,16 @@ async def test_build_image_to_tag_default_keeps_repo_dockerignore(monkeypatch):
     await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
 
     assert built[0][".dockerignore"] == "data/\n"
+
+
+async def test_build_image_to_tag_checked_in_dockerfile_wins_over_default(monkeypatch):
+    """A checked-in Dockerfile builds as is: nothing is written into the checkout."""
+    built = _stub_build_path(monkeypatch, {"Dockerfile": "FROM python:3.12\n"})
+    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
+
+    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
+
+    assert built == [{"Dockerfile": "FROM python:3.12\n"}]
 
 
 @pytest.mark.parametrize(
@@ -171,6 +195,19 @@ async def test_require_docker_raises_clear_error_when_daemon_unreachable(monkeyp
 
     with pytest.raises(RuntimeError, match="Docker daemon is not reachable"):
         await docker_build._require_docker()
+
+
+async def test_build_image_to_tag_preflights_docker(monkeypatch):
+    """build_image_to_tag runs the docker preflight before any build step."""
+    monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
+    require = AsyncMock()
+    monkeypatch.setattr(docker_build, "_require_docker", require)
+    monkeypatch.setattr(docker_build, "_docker_image_exists_locally", AsyncMock(return_value=True))
+    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
+
+    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
+
+    require.assert_awaited_once()
 
 
 async def test_resolve_launch_image_prebuilt_tag_verbatim():

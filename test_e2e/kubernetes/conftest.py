@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from aaiclick.testing import (  # noqa: F401 - re-exported as pytest fixtures
+    UserRepo,
     orch_ctx,
     orch_ctx_no_ch,
     orch_module_ctx,
@@ -34,7 +35,7 @@ _SAMPLE_JOB = Path(__file__).parent.parent / "fixtures" / "sample_job"
 
 
 @pytest.fixture(scope="session")
-def kubernetes_e2e_user_repo(tmp_path_factory: pytest.TempPathFactory) -> tuple[str, str, Path]:
+def kubernetes_e2e_user_repo(tmp_path_factory: pytest.TempPathFactory) -> UserRepo:
     """Publish the shared ``sample_job`` fixture into the CI git daemon.
 
     See ``aaiclick.testing.publish_user_repo`` — the daemon is workflow

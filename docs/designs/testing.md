@@ -120,5 +120,6 @@ full drop + `ch_upgrade` — needed in distributed mode, where
 5. Flows shared by the runner e2e suites → `test_e2e/runner_flow.py`;
    the job waiter → `test_e2e/job_wait.py`.
 6. Test modules under `test_e2e/` need unique basenames: the suites have no
-   `__init__.py`, so pytest's rootdir import mode can't collect two same-named
-   modules in one run.
+   `__init__.py`, so pytest's default `prepend` import mode can't collect two
+   same-named modules in one run. `importlib` mode would allow it but drops the
+   `sys.path` entry the suites' bare `from job_wait import …` relies on.

@@ -1,4 +1,4 @@
-"""Tests for the registry-mode image-build task body."""
+"""Tests for the image-build task body."""
 
 import pytest
 
