@@ -2,7 +2,8 @@ name: Docker Runner E2E (reusable)
 
 # Shared body for the docker-runner end-to-end suite. Both
 # ``test-docker-nightly.yaml`` and ``publish.yaml::test-package-docker-e2e``
-# call this; they differ only in where the wheel under test comes from.
+# call this; they differ in where the wheel under test comes from and in
+# ``base_image`` (the release gate passes its ``-rc`` image).
 #
 # - ``wheel_source: source`` builds the wheel from the current checkout
 #   (used by the nightly schedule).
@@ -20,6 +21,13 @@ on:
         type: string
       version_pin:
         description: "vX.Y.Z to install in artifact mode; empty in source mode means auto-detect"
+        required: false
+        default: ""
+        type: string
+      base_image:
+        description: >-
+          Base for git builds whose repo has no Dockerfile (the release passes
+          its -rc image); empty builds one from the wheel under test
         required: false
         default: ""
         type: string
@@ -76,6 +84,7 @@ jobs:
     env:
       # Test wait timeout, kept under timeout-minutes above.
       AAICLICK_JOB_WAIT_TIMEOUT: "600"
+      AAICLICK_BASE_IMAGE: ${{ inputs.base_image || 'aaiclick-e2e-base:local' }}
 
     steps:
       - name: Checkout code
@@ -146,19 +155,27 @@ jobs:
           VERSION="${{ inputs.version_pin }}"
           uv pip install "aaiclick[distributed]==${VERSION#v}"
 
-      # A git build whose repo has no Dockerfile layers on the aaiclick base
-      # image at the worker's version, and no published image matches the
-      # wheel under test. Build that base from the same wheel and point the
-      # worker at it via AAICLICK_BASE_IMAGE below. The version comes from the
-      # installed package, the same source the worker reads; --network=host
-      # reaches the pypiserver on localhost, which pip trusts for plain HTTP.
-      - name: Build base image from the wheel under test
+      # --- Base image (branches on base_image) -----------------------------
+
+      # The worker's build task pulls the base with the daemon's credentials.
+      - name: Log in to GHCR
+        if: inputs.base_image != ''
+        uses: ./.github/actions/ghcr-login
+
+      # The version comes from the installed package, the worker's own source.
+      - name: Read the installed version
+        id: wheel
+        if: inputs.base_image == ''
         run: |
           VERSION=$(uv run --no-project python -c "import importlib.metadata as m; print(m.version('aaiclick'))")
-          docker build --network=host -f docker/Dockerfile \
-            --build-arg AAICLICK_VERSION="${VERSION}" \
-            --build-arg PIP_INDEX_URL="http://localhost:8080/simple/" \
-            -t aaiclick-e2e-base:local docker/
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Build base image from the wheel under test
+        if: inputs.base_image == ''
+        uses: ./.github/actions/build-base-image
+        with:
+          version: ${{ steps.wheel.outputs.version }}
+          tag: ${{ env.AAICLICK_BASE_IMAGE }}
 
       # --- Common: migrations, test ---------------------------------------
 
@@ -179,7 +196,6 @@ jobs:
           AAICLICK_CH_URL: "clickhouse://default:click123@host.docker.internal:8123/default"
           AAICLICK_RUNNER: "docker"
           AAICLICK_REGISTRY: "host.docker.internal:5000"
-          AAICLICK_BASE_IMAGE: "aaiclick-e2e-base:local"
           AAICLICK_PIP_INDEX_URL: "http://host.docker.internal:8080/simple/"
           # pip refuses to use a plain-HTTP index without --trusted-host;
           # forward the host so the build sees our test pypi.

@@ -156,6 +156,7 @@ jobs:
             runner: ubuntu-24.04-arm
     env:
       IMAGE_PREFIX: ghcr.io/kolodkin
+      ARCH_TAG: ${{ inputs.tag }}-rc-${{ matrix.platform }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -187,35 +188,27 @@ jobs:
             curl -fsSL -F "content=@${f}" -F ":action=file_upload" http://localhost:8080/
           done
 
-      - &ghcr-login
-        name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Log in to GHCR
+        uses: ./.github/actions/ghcr-login
 
       # Native per-arch builds (no QEMU). The three images are FROM-chained,
-      # so they build sequentially within each platform leg. --network=host
-      # lets the build reach the pypiserver on localhost; pip trusts
-      # localhost for plain HTTP by default.
-      - name: Build & push per-arch rc images
+      # so they build sequentially within each platform leg.
+      - name: Build base rc image
+        uses: ./.github/actions/build-base-image
+        with:
+          version: ${{ inputs.tag }}
+          tag: ${{ env.IMAGE_PREFIX }}/aaiclick:${{ env.ARCH_TAG }}
+
+      - name: Build derived rc images & push all three
         run: |
-          VERSION="${{ inputs.tag }}"
-          PEP440="${VERSION#v}"
-          ARCH_TAG="${VERSION}-rc-${{ matrix.platform }}"
-          docker build --network=host -f docker/Dockerfile \
-            --build-arg AAICLICK_VERSION="${PEP440}" \
-            --build-arg PIP_INDEX_URL="http://localhost:8080/simple/" \
-            -t "${IMAGE_PREFIX}/aaiclick:${ARCH_TAG}" .
           docker build -f docker/docker.Dockerfile \
             --build-arg BASE_REF="${IMAGE_PREFIX}/aaiclick:${ARCH_TAG}" \
             --build-arg TARGETARCH="${{ matrix.platform }}" \
-            -t "${IMAGE_PREFIX}/aaiclick-docker:${ARCH_TAG}" .
+            -t "${IMAGE_PREFIX}/aaiclick-docker:${ARCH_TAG}" docker/
           docker build -f docker/kubectl.Dockerfile \
             --build-arg BASE_REF="${IMAGE_PREFIX}/aaiclick-docker:${ARCH_TAG}" \
             --build-arg TARGETARCH="${{ matrix.platform }}" \
-            -t "${IMAGE_PREFIX}/aaiclick-kubectl:${ARCH_TAG}" .
+            -t "${IMAGE_PREFIX}/aaiclick-kubectl:${ARCH_TAG}" docker/
           docker push "${IMAGE_PREFIX}/aaiclick:${ARCH_TAG}"
           docker push "${IMAGE_PREFIX}/aaiclick-docker:${ARCH_TAG}"
           docker push "${IMAGE_PREFIX}/aaiclick-kubectl:${ARCH_TAG}"
@@ -229,7 +222,15 @@ jobs:
       matrix:
         image: &image-matrix [aaiclick, aaiclick-docker, aaiclick-kubectl]
     steps:
-      - *ghcr-login
+      # Inline rather than .github/actions/ghcr-login: this anchor serves
+      # the jobs without a checkout (merge, test-package, promote).
+      - &ghcr-login
+        name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Assemble multi-arch rc manifest
         run: |
@@ -403,13 +404,19 @@ jobs:
         if: always()
         run: docker compose -f "$RUNNER_TEMP/stack/docker-compose.yaml" down -v
 
+  # Waits for the rc images so git builds layer on the digest that gets
+  # promoted; that puts this gate after build-rc-images on the critical path.
   test-package-docker-e2e:
-    needs: build
+    permissions:
+      contents: read
+      packages: read
+    needs: [build, merge-rc-images]
     if: ${{ !inputs.skip-docker-e2e }}
     uses: ./.github/workflows/_docker-e2e-reusable.yaml
     with:
       wheel_source: artifact
       version_pin: ${{ inputs.tag }}
+      base_image: ghcr.io/kolodkin/aaiclick:${{ inputs.tag }}-rc
 
   test-compose-e2e:
     permissions:

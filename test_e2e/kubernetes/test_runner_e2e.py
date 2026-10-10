@@ -12,17 +12,15 @@ passes ``test_e2e/kubernetes/`` with ``-m kubernetes_e2e``."""
 
 from __future__ import annotations
 
-import asyncio
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
-from job_wait import wait_for_job_by_name
+from job_wait import run_worker_until_done
 
 from aaiclick.orchestration.docker_config import compute_image_tag
 from aaiclick.orchestration.execution.kubernetes_worker import _pod_name
-from aaiclick.orchestration.execution.mp_worker import mp_worker_main_loop
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import JOB_COMPLETED, TASK_COMPLETED
 from aaiclick.orchestration.runner_config import ImageBuild, parse_image_source
@@ -68,17 +66,7 @@ async def test_kubernetes_runner_smoke(orch_ctx, kubernetes_e2e_user_repo):
 
     _aaiclick("run-job", job_name, "--git-sha", sha, cwd=worktree)
 
-    worker_task = asyncio.create_task(
-        mp_worker_main_loop(max_tasks=10, install_signal_handlers=False, max_empty_polls=10)
-    )
-    try:
-        completed = await wait_for_job_by_name(job_name)
-    finally:
-        worker_task.cancel()
-        try:
-            await worker_task
-        except asyncio.CancelledError:
-            pass
+    completed = await run_worker_until_done(job_name)
 
     assert completed.status == JOB_COMPLETED, completed.error
 
@@ -132,17 +120,7 @@ async def test_kubernetes_runner_shell_command_env(orch_ctx, tmp_path):
         cwd=tmp_path,
     )
 
-    worker_task = asyncio.create_task(
-        mp_worker_main_loop(max_tasks=10, install_signal_handlers=False, max_empty_polls=10)
-    )
-    try:
-        completed = await wait_for_job_by_name(job_name)
-    finally:
-        worker_task.cancel()
-        try:
-            await worker_task
-        except asyncio.CancelledError:
-            pass
+    completed = await run_worker_until_done(job_name)
 
     assert completed.status == JOB_COMPLETED, completed.error
     tasks = await get_tasks_for_job(completed.id)
