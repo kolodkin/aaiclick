@@ -506,6 +506,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v0/sandbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Sandbox Files */
+        get: operations["list_sandbox_files_api_v0_sandbox_get"];
+        put?: never;
+        /**
+         * Submit Sandbox File
+         * @description Any role may submit — the sandbox is open to every signed-in user.
+         */
+        post: operations["submit_sandbox_file_api_v0_sandbox_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/sandbox/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Sandbox Config */
+        get: operations["sandbox_config_api_v0_sandbox_config_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v0/sandbox/{file_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Sandbox File */
+        get: operations["get_sandbox_file_api_v0_sandbox__file_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v0/tasks/{task_id}": {
         parameters: {
             query?: never;
@@ -1257,7 +1312,7 @@ export interface components {
              * Run Type
              * @enum {string}
              */
-            run_type: "SCHEDULED" | "MANUAL";
+            run_type: "SCHEDULED" | "MANUAL" | "SANDBOX";
             /** Started At */
             started_at?: string | null;
             /**
@@ -1353,7 +1408,7 @@ export interface components {
              * Run Type
              * @enum {string}
              */
-            run_type: "SCHEDULED" | "MANUAL";
+            run_type: "SCHEDULED" | "MANUAL" | "SANDBOX";
             /** Started At */
             started_at?: string | null;
             /**
@@ -1620,6 +1675,15 @@ export interface components {
             /** Total */
             total?: number | null;
         };
+        /** Page[SandboxFileView] */
+        Page_SandboxFileView_: {
+            /** Items */
+            items: components["schemas"]["SandboxFileView"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Total */
+            total?: number | null;
+        };
         /** Page[SavedQuery] */
         Page_SavedQuery_: {
             /** Items */
@@ -1679,7 +1743,7 @@ export interface components {
          * @description Stable machine-readable code attached to every ``Problem`` response.
          * @enum {string}
          */
-        ProblemCode: "not_found" | "conflict" | "invalid" | "unauthorized" | "mfa_required" | "forbidden" | "execution_worker_spawn_failed";
+        ProblemCode: "not_found" | "conflict" | "invalid" | "unauthorized" | "mfa_required" | "forbidden" | "execution_worker_spawn_failed" | "sandbox_unavailable";
         /**
          * PurgeObjectsRequest
          * @description Inputs for ``internal_api.purge_objects``.
@@ -1845,6 +1909,92 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
+        /**
+         * SandboxConfigView
+         * @description Whether the sandbox is enabled; ``remote`` is shown to admins only.
+         */
+        SandboxConfigView: {
+            /** Enabled */
+            enabled: boolean;
+            /** Remote */
+            remote?: string | null;
+        };
+        /**
+         * SandboxFileDetailView
+         * @description ``SandboxFileView`` plus the committed source, for ``GET /sandbox/{id}``.
+         */
+        SandboxFileDetailView: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Error */
+            error?: string | null;
+            /** Git Sha */
+            git_sha: string;
+            /** Id */
+            id: string;
+            /** Job Ids */
+            job_ids?: string[] | null;
+            /** Job Names */
+            job_names: string[];
+            /** Name */
+            name: string;
+            /** Path */
+            path: string;
+            /** Source */
+            source: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "running" | "submitted" | "failed";
+            /** Submitted By */
+            submitted_by: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * SandboxFileView
+         * @description A sandbox submission as listed by ``GET /sandbox``.
+         */
+        SandboxFileView: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Error */
+            error?: string | null;
+            /** Git Sha */
+            git_sha: string;
+            /** Id */
+            id: string;
+            /** Job Ids */
+            job_ids?: string[] | null;
+            /** Job Names */
+            job_names: string[];
+            /** Name */
+            name: string;
+            /** Path */
+            path: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "running" | "submitted" | "failed";
+            /** Submitted By */
+            submitted_by: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
         /** SavedQuery */
         SavedQuery: {
             /** Cell View */
@@ -1949,6 +2099,16 @@ export interface components {
         StartExecutionWorkerRequest: {
             /** Max Tasks */
             max_tasks?: number | null;
+        };
+        /**
+         * SubmitSandboxRequest
+         * @description Inputs for ``internal_api.submit_sandbox_file``: a name and one Python file.
+         */
+        SubmitSandboxRequest: {
+            /** Name */
+            name: string;
+            /** Source */
+            source: string;
         };
         /**
          * TaskAttemptView
@@ -3532,6 +3692,167 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_sandbox_files_api_v0_sandbox_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_SandboxFileView_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_sandbox_file_api_v0_sandbox_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitSandboxRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SandboxFileView"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Invalid Request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Sandbox Unavailable */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    sandbox_config_api_v0_sandbox_config_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SandboxConfigView"];
+                };
+            };
+        };
+    };
+    get_sandbox_file_api_v0_sandbox__file_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SandboxFileDetailView"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Sandbox Unavailable */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
                 };
             };
         };

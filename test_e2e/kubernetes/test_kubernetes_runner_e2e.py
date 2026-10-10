@@ -18,6 +18,7 @@ import subprocess
 
 import pytest
 from runner_flow import run_shell_command_env_flow, run_smoke_flow
+from sandbox_e2e import run_sandbox_submission
 
 from aaiclick.orchestration.execution.kubernetes_worker import _pod_name
 
@@ -39,3 +40,10 @@ async def test_kubernetes_runner_shell_command_env(orch_ctx, tmp_path):
     secret = _pod_name(task.id, task.run_epoch)
     probe = subprocess.run(["kubectl", "get", "secret", secret], capture_output=True, text=True, check=False)
     assert probe.returncode != 0 and "NotFound" in probe.stderr, probe
+
+
+@pytest.mark.kubernetes_e2e
+async def test_kubernetes_runner_sandbox_submission(orch_ctx, sandbox_remote, tmp_path):
+    """A sandbox submission is committed into an empty remote and every ``@job``
+    in it runs on the kubernetes runner, built on the default Dockerfile."""
+    await run_sandbox_submission(sandbox_remote, tmp_path / "clone", max_tasks=20)

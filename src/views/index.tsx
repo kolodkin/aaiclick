@@ -16,3 +16,5 @@ export { Audit } from "./Audit";
 export { Data } from "./Data";
 export { Query } from "./Query";
 export { Dashboard } from "./Dashboard";
+export { Sandbox } from "./Sandbox";
+export { SandboxFile } from "./SandboxFile";

@@ -22,7 +22,7 @@ from .events import router as events_router
 from .mcp import mcp
 from .routers import audit as audit_router
 from .routers import auth as auth_router
-from .routers import execution_workers, jobs, objects, registered_jobs, tasks, viewer
+from .routers import execution_workers, jobs, objects, registered_jobs, sandbox, tasks, viewer
 from .routers import invites as invites_router
 from .routers import users as users_router
 
@@ -84,6 +84,7 @@ app.add_middleware(AuditMiddleware)
 for router in (
     jobs.router,
     registered_jobs.router,
+    sandbox.router,
     tasks.router,
     objects.router,
     events_router,

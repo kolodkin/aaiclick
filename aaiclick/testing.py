@@ -520,6 +520,38 @@ async def orch_ctx_no_ch(orch_module_ctx_no_ch):
     yield
 
 
+class GitDaemon(NamedTuple):
+    """The CI ``git daemon`` the runner e2es publish repos into."""
+
+    base: Path
+    port: str
+
+    def url(self, name: str) -> str:
+        return f"git://127.0.0.1:{self.port}/{name}"
+
+
+def _git_daemon() -> GitDaemon:
+    """The daemon from ``AAICLICK_E2E_GIT_DAEMON_BASE`` / ``_PORT``; skips the
+    test when unset — these e2es are workflow-driven."""
+    base = os.environ.get("AAICLICK_E2E_GIT_DAEMON_BASE")
+    port = os.environ.get("AAICLICK_E2E_GIT_DAEMON_PORT")
+    if not base or not port:
+        pytest.skip("git daemon not configured; this runner e2e is workflow-driven")
+    return GitDaemon(Path(base), port)
+
+
+def init_bare_repo(path: Path, branch: str = "main") -> Path:
+    """An empty bare repo at ``path`` whose default branch is ``branch``."""
+    subprocess.run(["git", "init", "-q", "--bare", "-b", branch, str(path)], check=True)
+    return path
+
+
+def _allow_any_sha(bare: Path) -> None:
+    # The build fetches a raw SHA over the smart transport; upload-pack rejects
+    # that unless the serving repo opts in.
+    subprocess.run(["git", "-C", str(bare), "config", "uploadpack.allowAnySHA1InWant", "true"], check=True)
+
+
 class UserRepo(NamedTuple):
     """A fixture repo published into the CI git daemon (see ``publish_user_repo``)."""
 
@@ -531,18 +563,10 @@ class UserRepo(NamedTuple):
 def publish_user_repo(tmp_path_factory: pytest.TempPathFactory, fixture_dir: Path) -> UserRepo:
     """Publish ``fixture_dir`` as a bare git repo into the CI git daemon.
 
-    Skips when the daemon env
-    (``AAICLICK_E2E_GIT_DAEMON_BASE`` / ``_PORT``) is unset — these e2es are
-    workflow-driven. Shared by the docker and kubernetes runner suites.
-
-    ``worktree`` is the user-repo checkout the host CLI runs from; ``remote``
-    is what the build clones at ``sha`` (a bare repo published into the
-    daemon's base-path, with raw-SHA fetch enabled)."""
-    base = os.environ.get("AAICLICK_E2E_GIT_DAEMON_BASE")
-    port = os.environ.get("AAICLICK_E2E_GIT_DAEMON_PORT")
-    if not base or not port:
-        pytest.skip("git daemon not configured; this runner e2e is workflow-driven")
-
+    Shared by the docker and kubernetes runner suites. ``worktree`` is the
+    user-repo checkout the host CLI runs from; ``remote`` is what the build
+    clones at ``sha``."""
+    daemon = _git_daemon()
     worktree = tmp_path_factory.mktemp("user_repo")
     shutil.copytree(fixture_dir, worktree, dirs_exist_ok=True)
 
@@ -569,12 +593,20 @@ def publish_user_repo(tmp_path_factory: pytest.TempPathFactory, fixture_dir: Pat
     sha = git(worktree, "rev-parse", "HEAD")
 
     name = f"{fixture_dir.name}.git"
-    bare = Path(base) / name
+    bare = daemon.base / name
     git(worktree, "clone", "-q", "--bare", str(worktree), str(bare))
-    # The build fetches a raw SHA over the smart transport; upload-pack rejects
-    # that unless the serving repo opts in.
-    git(bare, "config", "uploadpack.allowAnySHA1InWant", "true")
-    return UserRepo(remote=f"git://127.0.0.1:{port}/{name}", sha=sha, worktree=worktree)
+    _allow_any_sha(bare)
+    return UserRepo(remote=daemon.url(name), sha=sha, worktree=worktree)
+
+
+@pytest.fixture(scope="session")
+def sandbox_remote() -> str:
+    """An empty bare repo in the CI git daemon for the sandbox e2e to push
+    into (the daemon runs with ``receive-pack`` enabled)."""
+    daemon = _git_daemon()
+    bare = init_bare_repo(daemon.base / "sandbox.git")
+    _allow_any_sha(bare)
+    return daemon.url("sandbox.git")
 
 
 async def set_task_runs(task_id: int, run_ids: list[int], run_statuses: list[TaskStatus] | None = None) -> None:

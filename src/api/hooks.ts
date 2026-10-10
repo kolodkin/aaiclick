@@ -30,8 +30,12 @@ import type {
   RegisterJobRequest,
   Role,
   RunJobRequest,
+  SandboxConfigView,
+  SandboxFileDetailView,
+  SandboxFileView,
   SavedQuery,
   SavedQueryBody,
+  SubmitSandboxRequest,
   TaskDetail,
   TaskLogs,
   UserView,
@@ -126,6 +130,41 @@ export function useRegisteredJobs() {
     queryFn: () => fetchJSON<Page<RegisteredJobView>>("/registered-jobs"),
     refetchInterval: false,
   });
+}
+
+export function useSandboxConfig() {
+  return useQuery({
+    queryKey: ["sandbox-config"],
+    queryFn: () => fetchJSON<SandboxConfigView>("/sandbox/config"),
+    refetchInterval: false,
+    staleTime: Infinity,
+  });
+}
+
+// Pending and running are the statuses the background worker still moves on.
+const isUnsettled = (status: SandboxFileView["status"]) => status === "pending" || status === "running";
+
+export function useSandboxFiles() {
+  return useQuery({
+    queryKey: ["sandbox"],
+    queryFn: () => fetchJSON<Page<SandboxFileView>>("/sandbox"),
+    refetchInterval: (q) => (q.state.data?.items.some((f) => isUnsettled(f.status)) ? 5000 : false),
+  });
+}
+
+// The source is pinned to its commit; only the status can change, and only
+// until the background worker settles it.
+export function useSandboxFile(id: string) {
+  return useQuery({
+    queryKey: ["sandbox", id],
+    queryFn: () => fetchJSON<SandboxFileDetailView>(`/sandbox/${encodeURIComponent(id)}`),
+    enabled: id.length > 0,
+    refetchInterval: (q) => (q.state.data && isUnsettled(q.state.data.status) ? 5000 : false),
+  });
+}
+
+export function useSubmitSandbox() {
+  return useInvalidating(["sandbox"], (req: SubmitSandboxRequest) => postJSON<SandboxFileView>("/sandbox", req));
 }
 
 export function useRunJob() {
