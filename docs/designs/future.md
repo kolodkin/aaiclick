@@ -11,11 +11,13 @@ Open for discussion before the sandbox is enabled anywhere shared.
 
 Every `module` and `jvm` task container receives `build_runner_env()`,
 which includes `AAICLICK_SQL_URL` and `AAICLICK_CH_URL`. Any code a task runs
-can therefore read or write every table in both databases. Today only an admin
-can register or run a job, so that matches the admin's own access.
+can therefore read or write every table in both databases. Registering or
+running a regular job is admin-only (`POST /jobs:run`, `register-job`, and the
+matching MCP tools), so that matches the admin's own access.
 
-The sandbox breaks that assumption: any signed-in role, viewers included, can
-submit a file whose jobs run with those credentials. Viewer submission is the
+Sandbox jobs are the one exception: they are the only jobs a viewer, or any
+other non-admin role, can issue. Any signed-in role can submit a file whose
+jobs run with those credentials. Viewer submission is the
 sandbox's design and stays; the fix belongs on the credentials side, since in
 practice a viewer today gets database-level access, more than an admin session
 grants through the API.

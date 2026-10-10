@@ -5,6 +5,9 @@ Any signed-in user pastes one Python file of `@task` / `@job` definitions,
 names it, and every job in it runs once. Each submission is a commit in a git
 repo you own.
 
+Sandbox jobs are the only jobs a non-admin role can issue: registering or
+running a regular job stays admin-only.
+
 # Enabling
 
 Set `AAICLICK_SANDBOX` on the API server to a git remote URL:
