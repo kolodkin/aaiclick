@@ -185,7 +185,7 @@ Python consumer of the jvm return value. The fixture image
 (`test_e2e/fixtures/jvm_task/`) builds the SDK from the checkout, so the shim
 under test is the commit's.
 
-**Implementation**: `test_e2e/docker/test_runner_e2e.py` — see
+**Implementation**: `test_e2e/docker/test_docker_runner_e2e.py` — see
 `test_docker_runner_jvm_task()`; `test_e2e/docker/conftest.py` — see the
 `jvm_task_image` fixture; `test_e2e/fixtures/sample_job/sample_jobs.py` — see
 `jvm_entry_task()`.

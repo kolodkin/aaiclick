@@ -100,6 +100,29 @@ async def test_same_upstream_in_two_kwargs_runs(orch_ctx):
 
 Internal tests are fine only when an end-to-end run can't reach the case: crash recovery, race windows, dead-worker cleanup, retry and backoff timing, or a pure function whose output *is* the contract (a parser, a SQL param set). Say which in the docstring (e.g. "pure function: the returned schema is the contract").
 
+## E2E first — each behavior proven once, at the cheapest level that can
+
+Rule of thumb: keep a unit test if deleting it leaves a behavior unproven; skip it if an e2e already fails when that behavior breaks.
+
+1. **Start from the real path.** One e2e per runner drives the flow the user sees: `register-job` → `run-job` → build → every task `COMPLETED` with correct results. Runner suites share it via `test_e2e/runner_flow.py`.
+2. **Add a unit test only when the e2e can't reach it cheaply**: a pure function with many input shapes (one parametrized test), races and failure paths (two workers claiming one row, a dead worker, retry backoff), environment edges (non-UTC `TZ`, `file://` vs `git://`), and behavior the e2e runs but never asserts.
+3. **Skip when a higher level already proves it**: delegation and routing tests (A calls B with X), factory tests the e2e's submission covers. Router tests assert HTTP plumbing only — status, envelope, error codes, query binding — not business logic.
+4. **Every new test fails before the fix**, for the intended reason. If it passes on the old code, change the setup until it can fail (force `TZ`, use `file://` so `--depth` bites).
+5. **Share helpers instead of copying them.** Check `aaiclick/testing.py`, `test_e2e/job_wait.py` and `test_e2e/runner_flow.py` before writing a fixture, a waiter or a CLI call.
+
+```python
+# BAD — asserts A called B; every runner e2e runs the real build task
+async def test_run_image_build_delegates(monkeypatch):
+    monkeypatch.setattr(image_build_task, "build_image_to_tag", fake_build)
+    await run_image_build(git_remote=remote, git_sha=sha)
+    assert calls[0][1] == f"{registry}/aaiclick-job:{sha}"
+
+# GOOD — runner-specific suite is a marker plus the shared flow
+@pytest.mark.kubernetes_e2e
+async def test_kubernetes_runner_smoke(orch_ctx, kubernetes_e2e_user_repo):
+    await run_smoke_flow("k8s_e2e_smoke", kubernetes_e2e_user_repo)
+```
+
 ## Parametrize input/expected clusters
 
 When several tests drive the same call and differ only in inputs and expected values, fold them into one `@pytest.mark.parametrize`. Consolidate only when **all** of these hold:
@@ -141,8 +164,9 @@ Delete only when redundancy is **mechanically provable** — not because a test 
 
 - **Exact duplicate** — identical statements, constants included. Keep the copy in the module whose docstring claims that contract.
 - **Strict subset** — a sibling asserts everything this test does, plus more. Fold any rationale the removed test documented into the survivor's docstring.
+- **Proven by an e2e** — a `test_e2e/` suite fails on the same break. Name that e2e test in the commit message.
 
-Verify before committing: diff per-file `executed_lines` from `--cov-report=json` before and after, ignoring `test_*.py` entries, and require **zero production lines lost**. A green suite is not evidence on its own — a deleted test cannot fail.
+Verify before committing: diff per-file `executed_lines` from `--cov-report=json` before and after, ignoring `test_*.py` entries, and require **zero production lines lost**. A green suite is not evidence on its own — a deleted test cannot fail. The e2e case *will* lose lines, since `test_e2e/` is outside `testpaths`. For each one, name the e2e assertion that goes red when the line is reverted; none → keep the unit test. Typical misses: a fixture that passes either way, a side effect nobody inspects, an error path CI never takes (no docker daemon).
 
 Looking trivial is not proof. Check first whether the test covers the negative branch of a conditional, or construction behavior that isn't free (positional args on a Pydantic model). Both read like default-value assertions and are neither.
 
