@@ -38,19 +38,19 @@ async def _resolve_dispatch(task: Task) -> JobDispatch:
 
     NULL ``image_source`` ⇒ host subprocess on any worker — the rule that
     host-pins injected build tasks (spec: docs/designs/orchestration.md "Image
-    source"). A container task runs on the worker's ``AAICLICK_RUNNER``; only
-    the kubernetes runner reads the job row, for the Pod ``resources`` snapshot."""
+    source"). A container task runs on the worker's ``AAICLICK_RUNNER``; the
+    job row is read only here, for the ``resources`` snapshot both container
+    runners apply."""
     if task.image_source is None:
         return _subprocess_dispatch(task)
     runner = get_worker_runner()
     require_container_runner(task, runner)
     source = parse_image_source(task.image_source)
-    pod_config = None
-    if runner == RUNNER_KUBERNETES:
-        async with get_sql_session() as session:
-            job = (await session.execute(select(Job).where(Job.id == task.job_id))).scalar_one_or_none()
-        pod_config = resolve_pod_config(resources=job.resources if job is not None else None)
-    return JobDispatch(runner, pod_config, task.entry_type, task.command, task.command_env, source)
+    async with get_sql_session() as session:
+        job = (await session.execute(select(Job).where(Job.id == task.job_id))).scalar_one_or_none()
+    resources = job.resources if job is not None else None
+    pod_config = resolve_pod_config() if runner == RUNNER_KUBERNETES else None
+    return JobDispatch(runner, pod_config, task.entry_type, task.command, task.command_env, source, resources)
 
 
 # Image-based runners need the dispatch snapshot and the host-registered log
@@ -71,7 +71,7 @@ async def build_shell_spec(task: Task, dispatch: JobDispatch) -> ShellSpec:
     if dispatch.runner == RUNNER_DOCKER:
         image_tag = await resolve_launch_image(dispatch.image_source, task_id=task.id)
         await _docker_pull_if_registered(image_tag)
-        return build_shell_run_spec(task, image_tag)
+        return build_shell_run_spec(task, image_tag, dispatch.resources)
     if dispatch.runner == RUNNER_KUBERNETES:
         image_tag = await resolve_launch_image(dispatch.image_source, task_id=task.id)
         return await build_shell_pod_spec(task, dispatch, image_tag)

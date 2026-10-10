@@ -14,6 +14,7 @@ from aaiclick.orchestration.docker_config import (
     image_key,
     resolve_image_source,
     resolve_remote_head,
+    resource_flags,
 )
 from aaiclick.orchestration.models import RegisteredJob
 from aaiclick.orchestration.runner_config import ImageBuild, ImagePrebuilt
@@ -196,3 +197,58 @@ async def test_resolve_remote_head_unreachable_remote(tmp_path):
 def test_compute_image_tag_without_registry(monkeypatch):
     monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
     assert compute_image_tag("b" * 40) == f"aaiclick-job:{'b' * 40}"
+
+
+@pytest.mark.parametrize(
+    "resources, expected",
+    [
+        pytest.param(None, [], id="none"),
+        pytest.param({}, [], id="empty"),
+        pytest.param({"requests": {"cpu": "1"}}, [], id="requests-only"),
+        pytest.param({"limits": {"cpu": "500m"}}, ["--cpus", "0.5"], id="cpu-millis"),
+        pytest.param({"limits": {"cpu": "2"}}, ["--cpus", "2"], id="cpu-whole"),
+        pytest.param({"limits": {"cpu": 1.5}}, ["--cpus", "1.5"], id="cpu-json-number"),
+        pytest.param({"limits": {"memory": "512Mi"}}, ["--memory", str(512 * 1024**2)], id="mem-binary"),
+        pytest.param({"limits": {"memory": "1G"}}, ["--memory", "1000000000"], id="mem-decimal"),
+        pytest.param({"limits": {"memory": "128974848"}}, ["--memory", "128974848"], id="mem-bytes"),
+        pytest.param({"limits": {"memory": "1e9"}}, ["--memory", "1000000000"], id="mem-exponent"),
+        pytest.param({"limits": {"memory": "1.5Gi"}}, ["--memory", str(3 * 512 * 1024**2)], id="mem-fraction"),
+        pytest.param(
+            {"limits": {"cpu": "250m", "memory": "2Gi"}},
+            ["--cpus", "0.25", "--memory", str(2 * 1024**3)],
+            id="both",
+        ),
+    ],
+)
+def test_resource_flags(resources, expected):
+    assert resource_flags(resources) == expected
+
+
+@pytest.mark.parametrize(
+    "resources, match",
+    [
+        pytest.param({"limits": {"cpu": "fast"}}, "limits.cpu", id="cpu-garbage"),
+        pytest.param({"limits": {"cpu": "1Gi"}}, "limits.cpu", id="cpu-memory-suffix"),
+        pytest.param({"limits": {"memory": "1Xi"}}, "limits.memory", id="mem-bad-suffix"),
+        pytest.param({"limits": {"memory": "-1Gi"}}, "limits.memory", id="mem-negative"),
+        pytest.param({"limits": {"memory": ""}}, "limits.memory", id="mem-empty"),
+    ],
+)
+def test_resource_flags_rejects_malformed_quantity(resources, match):
+    with pytest.raises(ValueError, match=match):
+        resource_flags(resources)
+
+
+def test_resource_flags_warns_on_requests(caplog):
+    """Docker has no scheduler, so ``requests`` cannot be honoured; say so
+    rather than silently dropping them."""
+    with caplog.at_level("WARNING", logger="aaiclick.orchestration.docker_config"):
+        flags = resource_flags({"requests": {"cpu": "1"}, "limits": {"cpu": "2"}})
+    assert flags == ["--cpus", "2"]
+    assert "requests" in caplog.text and "docker" in caplog.text
+
+
+def test_resource_flags_limits_only_does_not_warn(caplog):
+    with caplog.at_level("WARNING", logger="aaiclick.orchestration.docker_config"):
+        resource_flags({"limits": {"cpu": "2"}})
+    assert caplog.text == ""

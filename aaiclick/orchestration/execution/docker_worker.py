@@ -16,7 +16,7 @@ import tempfile
 from collections.abc import Iterable
 from typing import NamedTuple
 
-from ..docker_config import add_host_flags, get_registry
+from ..docker_config import add_host_flags, get_registry, resource_flags
 from ..models import Task
 from ..runner_config import ENTRY_JVM
 from . import cli
@@ -76,10 +76,11 @@ def write_command_env_file(command_env: dict[str, str]) -> str:
         return f.name
 
 
-def build_shell_run_spec(task: Task, image_tag: str) -> ShellSpec:
+def build_shell_run_spec(task: Task, image_tag: str, resources: dict | None) -> ShellSpec:
     """Wrap a shell task's argv as a foreground ``docker run``.
 
-    Only ``command_env`` is injected — no IPC mount, no runner env, so no
+    ``resources`` (the job's limits) become ``--cpus`` / ``--memory``
+    (``resource_flags``). Only ``command_env`` is injected — no IPC mount, no runner env, so no
     aaiclick secrets reach a vanilla user image. The values ride in a private
     ``--env-file`` (``ShellSpec.env_file``): on the argv they would show in
     ``ps``, and on the CLI's own env (``_env_flags``) ``PATH`` /
@@ -97,6 +98,7 @@ def build_shell_run_spec(task: Task, image_tag: str) -> ShellSpec:
         "--name",
         name,
         *add_host_flags("AAICLICK_DOCKER_RUN_ADD_HOST"),
+        *resource_flags(resources),
     ]
     env_file = write_command_env_file(task.command_env) if task.command_env else None
     if env_file is not None:
@@ -110,10 +112,12 @@ def _build_docker_run_cmd(
     task: Task,
     image_tag: str,
     env: dict[str, str],
+    resources: dict | None,
 ) -> list[str]:
     """Construct the detached ``docker run`` command line for a module or jvm
     task: inject the full runner env (names only — ``_docker_run_detached``
-    passes the values) and run the in-container bootstrap shim.
+    passes the values), apply the job's ``resources`` limits as ``--cpus`` /
+    ``--memory`` (``resource_flags``), and run the in-container bootstrap shim.
     For ``module`` that is the shared Python entrypoint
     (``python -m ...remote_result --task-id N --run-epoch M``); for ``jvm``
     only the ``--task-id``/``--run-epoch`` arguments are passed — the image's
@@ -135,6 +139,7 @@ def _build_docker_run_cmd(
         "run",
         "--detach",
         *add_host_flags("AAICLICK_DOCKER_RUN_ADD_HOST"),
+        *resource_flags(resources),
         *_env_flags(env),
     ]
     entrypoint = [] if task.entry_type == ENTRY_JVM else REMOTE_ENTRYPOINT
@@ -234,12 +239,13 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", "RunnerResult | None"]):
     """``TaskVehicle`` for the Docker runner (module tasks — shell tasks run
     through the mp task child with a ``build_shell_run_spec`` argv)."""
 
-    def __init__(self, image_tag: str, env: dict[str, str]) -> None:
+    def __init__(self, image_tag: str, env: dict[str, str], resources: dict | None) -> None:
         self._image_tag = image_tag
         self._env = env
+        self._resources = resources
 
     async def launch(self, task: Task, execution_worker_id: int) -> _DockerHandle:
-        cmd = _build_docker_run_cmd(task, self._image_tag, self._env)
+        cmd = _build_docker_run_cmd(task, self._image_tag, self._env, self._resources)
         container_id = await _docker_run_detached(cmd, self._env)
         return _DockerHandle(container_id, task.id, task.run_epoch)
 
@@ -287,7 +293,7 @@ async def _run_task_in_container(
 
     timeout = parse_task_timeout()
 
-    vehicle = _DockerVehicle(image_tag, build_runner_env())
+    vehicle = _DockerVehicle(image_tag, build_runner_env(), dispatch.resources)
     result = await drive_vehicle(
         task,
         execution_worker_id,

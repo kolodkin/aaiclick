@@ -35,6 +35,7 @@ def test_jvm_cmd_relies_on_image_entrypoint():
         _cmdtask(entry_type=ENTRY_JVM, entrypoint="com.example.Pipeline"),
         "ghcr.io/example/pipeline:1.0",
         {"AAICLICK_SQL_URL": "u"},
+        None,
     )
     # The image's own ENTRYPOINT is the aaiclick-task-api shim — the runner
     # appends only the shim arguments after the image tag.
@@ -54,9 +55,11 @@ def test_build_shell_run_spec_wraps_argv():
         command_env={"K": "v", "PATH": "/evil"},
         run_epoch=2,
     )
-    spec = build_shell_run_spec(task, "img:tag")
+    spec = build_shell_run_spec(task, "img:tag", {"limits": {"cpu": "500m", "memory": "256Mi"}})
     assert spec.argv[:2] == ["docker", "run"]
     assert "--rm" in spec.argv
+    assert spec.argv[spec.argv.index("--cpus") + 1] == "0.5"
+    assert spec.argv[spec.argv.index("--memory") + 1] == str(256 * 1024**2)
     assert "--name" in spec.argv and "aaiclick-task-7-2" in spec.argv
     assert spec.argv[-3:] == ["img:tag", "echo", "hi"]
     assert spec.env is None
@@ -73,9 +76,10 @@ def test_build_shell_run_spec_wraps_argv():
 
 def test_build_shell_run_spec_without_command_env_has_no_env_file():
     task = Task(id=7, job_id=1, name="t", entrypoint="", entry_type="shell", command=["true"], run_epoch=0)
-    spec = build_shell_run_spec(task, "img:tag")
+    spec = build_shell_run_spec(task, "img:tag", None)
     assert spec.env_file is None
     assert "--env-file" not in spec.argv
+    assert "--cpus" not in spec.argv and "--memory" not in spec.argv
 
 
 def test_build_shell_run_spec_rejects_newline_in_command_env():
@@ -85,7 +89,7 @@ def test_build_shell_run_spec_rejects_newline_in_command_env():
         id=7, job_id=1, name="t", entrypoint="", entry_type="shell", command=["true"], command_env={"K": "a\nb"}
     )
     with pytest.raises(ValueError, match="newline"):
-        build_shell_run_spec(task, "img:tag")
+        build_shell_run_spec(task, "img:tag", None)
 
 
 def _task(entrypoint="user.module.entry", task_id=42, job_id=1) -> Task:
@@ -102,9 +106,11 @@ def test_build_docker_run_cmd_shape():
         _cmdtask(entry_type=ENTRY_MODULE, entrypoint="user.module.entry"),
         "aaiclick-job:abc",
         {"AAICLICK_SQL_URL": "u"},
+        {"limits": {"cpu": "2", "memory": "1Gi"}},
     )
     joined = " ".join(cmd)
     assert "docker run --detach" in joined
+    assert f"--cpus 2 --memory {1024**3}" in joined
     # --rm is intentionally absent — the host parent calls docker rm itself
     # so docker wait can race-freely report the exit code.
     assert "--rm" not in cmd
@@ -165,15 +171,31 @@ async def test_run_task_in_container_cancellation_flag_overrides_result(monkeypa
 
 _FAKE_DOCKER = """#!/bin/sh
 case "$1" in
-  run) echo fake-cid ;;
+  run) echo "$@" > "$(dirname "$0")/run-argv"; echo fake-cid ;;
   wait) echo 0 ;;
   logs) echo "container says hi"; echo "container warns" 1>&2 ;;
 esac
 """
 
 
-def _docker_dispatch(entry_type: EntryType) -> JobDispatch:
-    return JobDispatch(RUNNER_DOCKER, None, entry_type=entry_type, image_source=ImagePrebuilt(image_tag="img:1"))
+def _docker_dispatch(entry_type: EntryType, resources: dict | None = None) -> JobDispatch:
+    return JobDispatch(
+        RUNNER_DOCKER, None, entry_type=entry_type, image_source=ImagePrebuilt(image_tag="img:1"), resources=resources
+    )
+
+
+async def test_module_container_honours_job_resources(orch_ctx, monkeypatch, tmp_path):
+    """The job's ``resources`` limits reach the real ``docker run`` argv."""
+    await dispatch_with_fake_cli(
+        monkeypatch,
+        tmp_path,
+        "AAICLICK_DOCKER_BIN",
+        _FAKE_DOCKER,
+        _docker_dispatch(ENTRY_MODULE, {"limits": {"cpu": "500m", "memory": "64Mi"}}),
+    )
+    argv = (tmp_path / "run-argv").read_text().split()
+    assert argv[argv.index("--cpus") + 1] == "0.5"
+    assert argv[argv.index("--memory") + 1] == str(64 * 1024**2)
 
 
 async def test_jvm_container_output_reaches_task_logs(orch_ctx, monkeypatch, tmp_path):

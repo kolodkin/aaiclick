@@ -147,8 +147,8 @@ async def register_job(
             back to ``git config remote.origin.url`` at submission time.
         dockerfile: Build modifier — default Dockerfile path relative to
             the repo root. ``None`` falls back to ``"Dockerfile"``.
-        resources: Default Kubernetes requests/limits for every run's Pods
-            (ignored by the docker runner).
+        resources: Default Kubernetes-style requests/limits for every run's
+            containers (``limits`` map to docker ``--cpus`` / ``--memory``).
 
     Returns:
         Created RegisteredJob
@@ -236,7 +236,7 @@ async def upsert_registered_job(
         image: Default prebuilt image tag; mutually exclusive with ``build``.
         git_remote: Build modifier — default git remote URL.
         dockerfile: Build modifier — default Dockerfile path.
-        resources: Default Kubernetes requests/limits for every run's Pods.
+        resources: Default Kubernetes-style requests/limits for every run's containers.
 
     Returns:
         The created or updated RegisteredJob

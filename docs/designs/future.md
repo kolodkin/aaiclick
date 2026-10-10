@@ -44,14 +44,6 @@ job's exported result is opened by the next job on any cluster. Full design:
 
 ---
 
-# Docker Runner Resources
-
-Map a job's `resources` (Kubernetes requests/limits JSON) onto `docker run
---cpus` / `--memory` so the docker runner honours the same per-job field the
-kubernetes runner applies to its Pods. Today the docker runner ignores it.
-
----
-
 # Default Build Image — Dependency Manifests
 
 The default Dockerfile for a git build without one (`docs/user_guide/container_images.md`

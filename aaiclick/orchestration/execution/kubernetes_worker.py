@@ -128,7 +128,7 @@ def _pod_spec_from(task: Task, dispatch: JobDispatch, image_tag: str) -> _PodSpe
         namespace=pod.namespace,
         service_account=pod.service_account,
         image_pull_secret=pod.image_pull_secret,
-        resources=pod.resources,
+        resources=dispatch.resources,
         entry_type=dispatch.entry_type,
         command=dispatch.command,
         command_env=dispatch.command_env,

@@ -395,6 +395,23 @@ pull from a worker's daemon.
 For the released `aaiclick` container images and their Docker/Kubernetes
 runtime requirements, see [Container Images](container_images.md).
 
+## Resources (docker / kubernetes)
+
+`resources` is a per-job Kubernetes-style `{"requests": …, "limits": …}` dict
+(`register-job` default, overridable per `run_job`), with Kubernetes quantities
+(`"500m"`, `"2"`, `"512Mi"`, `"1G"`):
+
+| Runner     | `limits`                                              | `requests`                            |
+|------------|-------------------------------------------------------|---------------------------------------|
+| kubernetes | Pod container `resources`, verbatim                   | Pod container `resources`, verbatim   |
+| docker     | `limits.cpu` → `--cpus`, `limits.memory` → `--memory` | not applied; the worker logs a warning |
+
+```python
+run_job(name, image="python:3.12", resources={"limits": {"cpu": "500m", "memory": "512Mi"}})
+```
+
+A malformed quantity fails the task at dispatch rather than launching it unbounded.
+
 ## Shell tasks
 
 A `shell` task runs a literal argv (`command`, a list) instead of importing a

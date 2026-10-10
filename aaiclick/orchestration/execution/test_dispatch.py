@@ -68,28 +68,24 @@ async def test_resolve_dispatch_without_worker_runner_raises(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "runner, resources",
+    "runner, resources, pod_config",
     [
-        pytest.param(RUNNER_DOCKER, None, id="docker"),
-        pytest.param(RUNNER_KUBERNETES, {"limits": {"cpu": "2"}}, id="kubernetes"),
+        pytest.param(RUNNER_DOCKER, {"limits": {"cpu": "2"}}, None, id="docker"),
+        pytest.param(RUNNER_DOCKER, None, None, id="docker-no-resources"),
+        pytest.param(RUNNER_KUBERNETES, {"limits": {"cpu": "2"}}, KubernetesConfig("ml", None, None), id="kubernetes"),
     ],
 )
-async def test_resolve_dispatch_uses_worker_runner_and_job_resources(monkeypatch, runner, resources):
+async def test_resolve_dispatch_uses_worker_runner_and_job_resources(monkeypatch, runner, resources, pod_config):
+    """Both container runners read the job row for ``resources``; only
+    kubernetes resolves a ``pod_config`` (cluster env)."""
     monkeypatch.setenv(ENV_WORKER_RUNNER, runner)
     monkeypatch.setenv(ENV_NAMESPACE, "ml")
-    if runner == RUNNER_KUBERNETES:
-        job = SimpleNamespace(resources=resources)
-        monkeypatch.setattr(dispatch, "get_sql_session", lambda: _FakeSession(job))
-    else:
-        # The docker runner reads nothing from the job row, so no query at all.
-        monkeypatch.setattr(dispatch, "get_sql_session", lambda: pytest.fail("docker dispatch queried the job row"))
+    monkeypatch.setattr(dispatch, "get_sql_session", lambda: _FakeSession(SimpleNamespace(resources=resources)))
     resolved = await dispatch._resolve_dispatch(_task(image_source=PREBUILT))
     assert resolved.runner == runner
     assert isinstance(resolved.image_source, ImagePrebuilt)
-    if runner == RUNNER_KUBERNETES:
-        assert resolved.pod_config == KubernetesConfig("ml", None, None, resources)
-    else:
-        assert resolved.pod_config is None
+    assert resolved.resources == resources
+    assert resolved.pod_config == pod_config
 
 
 @pytest.mark.parametrize("runner", [RUNNER_DOCKER, RUNNER_KUBERNETES])

@@ -93,7 +93,9 @@ class RunnerResult(NamedTuple):
 class JobDispatch(NamedTuple):
     """A task's runner plus the launch spec its runner needs, resolved once
     per task in ``dispatch._resolve_dispatch``. ``runner`` None ⇒ host
-    subprocess; ``pod_config`` is set only on the kubernetes runner."""
+    subprocess; ``pod_config`` is set only on the kubernetes runner;
+    ``resources`` is the job's requests/limits snapshot (``Job.resources``),
+    read for every container runner."""
 
     runner: WorkerRunner | None
     pod_config: KubernetesConfig | None
@@ -101,6 +103,7 @@ class JobDispatch(NamedTuple):
     command: list[str] | None = None
     command_env: dict[str, str] | None = None
     image_source: ImageSourceT | None = None
+    resources: dict | None = None
 
 
 # A vehicle's opaque handle (``H``) and ``wait`` payload (``P``) are
