@@ -100,6 +100,30 @@ async def test_same_upstream_in_two_kwargs_runs(orch_ctx):
 
 Internal tests are fine only when an end-to-end run can't reach the case: crash recovery, race windows, dead-worker cleanup, retry and backoff timing, or a pure function whose output *is* the contract (a parser, a SQL param set). Say which in the docstring (e.g. "pure function: the returned schema is the contract").
 
+## E2E first — each behavior proven once, at the cheapest level that can
+
+Rule of thumb: if deleting a unit test would leave a behavior unproven by any e2e, keep it; if an e2e already fails when that behavior breaks, the unit test is redundant — don't write it.
+
+1. **Start from the real path.** One e2e per runner drives the whole flow the user sees (`register-job` → `run-job` → worker poll → build → run every task → job `COMPLETED`, task results correct). The docker and kubernetes nightlies share one flow function in `test_e2e/runner_flow.py`; each suite's test is a marker plus one call, and only runner-specific assertions follow it.
+2. **Add a unit test only when the e2e can't exercise it cheaply**: a pure function with many input shapes (one parametrized test, no DB), races and failure paths the e2e can't stage (two workers claiming one row, a dead worker, a stale fence, retry backoff), environment edges (a non-UTC `TZ`, `file://` vs `git://`).
+3. **Skip when a higher level already proves it.** No mocked re-run of a flow the e2e drives (stub the clone and build, then assert the fake was called), no delegation or routing test ("`run_image_build` calls `build_image_to_tag` with the tag"), no factory test the e2e's submission already covers. Router tests assert HTTP plumbing only — status, envelope, 404/409/422 — and leave filters and business logic to `internal_api` tests.
+4. **Every new test fails before the fix**, for the intended reason. If it passes on the old code, change the setup until it can fail (force the `TZ`, use `file://` so `--depth` bites, revert the fixed line and confirm red).
+5. **Share helpers instead of copying them**: `publish_user_repo` (`aaiclick/testing.py`), `run_worker_until_done` (`test_e2e/job_wait.py`), `aaiclick_cli`, `run_smoke_flow` and `run_shell_command_env_flow` (`test_e2e/runner_flow.py`).
+
+```python
+# BAD — stubs clone, build, pull and preflight, then asserts the fake saw a Dockerfile;
+# test_e2e/docker already builds a real repo without one
+async def test_build_without_dockerfile_uses_default(monkeypatch):
+    built = _stub_build_path(monkeypatch, {"job.py": "..."})
+    await build_image_to_tag(source, tag)
+    assert "Dockerfile" in built[0]
+
+# GOOD — runner-specific suite is a marker plus the shared flow
+@pytest.mark.kubernetes_e2e
+async def test_kubernetes_runner_smoke(orch_ctx, kubernetes_e2e_user_repo):
+    await run_smoke_flow("k8s_e2e_smoke", kubernetes_e2e_user_repo)
+```
+
 ## Parametrize input/expected clusters
 
 When several tests drive the same call and differ only in inputs and expected values, fold them into one `@pytest.mark.parametrize`. Consolidate only when **all** of these hold:
@@ -141,8 +165,9 @@ Delete only when redundancy is **mechanically provable** — not because a test 
 
 - **Exact duplicate** — identical statements, constants included. Keep the copy in the module whose docstring claims that contract.
 - **Strict subset** — a sibling asserts everything this test does, plus more. Fold any rationale the removed test documented into the survivor's docstring.
+- **Proven by an e2e** — a workflow-run suite under `test_e2e/` fails on the same break, through the real path rather than mocks (see *E2E first*). Name that e2e test in the commit message.
 
-Verify before committing: diff per-file `executed_lines` from `--cov-report=json` before and after, ignoring `test_*.py` entries, and require **zero production lines lost**. A green suite is not evidence on its own — a deleted test cannot fail.
+Verify before committing: diff per-file `executed_lines` from `--cov-report=json` before and after, ignoring `test_*.py` entries, and require **zero production lines lost**. A green suite is not evidence on its own — a deleted test cannot fail. For the e2e case the default run *will* lose lines, since `test_e2e/` is not in `testpaths`: list them, and confirm each is on the e2e's path by reading the flow (or running the suite). Lines the e2e does not reach keep their unit test.
 
 Looking trivial is not proof. Check first whether the test covers the negative branch of a conditional, or construction behavior that isn't free (positional args on a Pydantic model). Both read like default-value assertions and are neither.
 

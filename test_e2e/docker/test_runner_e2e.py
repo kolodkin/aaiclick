@@ -1,4 +1,4 @@
-"""End-to-end smoke test for the Docker runner.
+"""End-to-end tests for the Docker runner.
 
 Drives the full ``register-job`` → ``run-job`` → build → run → result
 path against a real docker daemon, a real local registry, a real test
@@ -8,6 +8,9 @@ user repo into). Both the registration and the job submission go through
 the ``python -m aaiclick`` CLI as a real user would, run from the
 user-repo working tree so the entrypoint resolves from it — exactly as an
 external user standing in their project.
+
+The flows shared with the kubernetes suite live in ``runner_flow``; the
+tests here add only what is docker-specific.
 
 Marked ``docker_e2e`` so it opts out of the default test run; both the
 nightly workflow and the publish-time release gate pass
@@ -22,87 +25,22 @@ the runner."""
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
-from pathlib import Path
 
 import pytest
 from job_wait import run_worker_until_done
+from runner_flow import aaiclick_cli, run_shell_command_env_flow, run_smoke_flow
 
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
-from aaiclick.orchestration.docker_config import compute_image_tag
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, TASK_COMPLETED
-from aaiclick.orchestration.runner_config import ENTRY_JVM, ImageBuild, ImagePrebuilt, parse_image_source
-
-
-def _aaiclick(*args: str, cwd: Path) -> subprocess.CompletedProcess:
-    """Run a `python -m aaiclick` CLI invocation from ``cwd`` (the user
-    repo, so the entrypoint module is on ``sys.path``). Echoes the captured
-    output (visible under ``pytest -s``) so a silent submit failure is
-    diagnosable, then raises on a non-zero exit."""
-    proc = subprocess.run(
-        [sys.executable, "-m", "aaiclick", *args],
-        check=False,
-        capture_output=True,
-        text=True,
-        cwd=cwd,
-    )
-    print(
-        f"$ aaiclick {' '.join(args)} [exit {proc.returncode}]\n--stdout--\n{proc.stdout}\n--stderr--\n{proc.stderr}",
-        file=sys.stderr,
-    )
-    proc.check_returncode()
-    return proc
+from aaiclick.orchestration.runner_config import ENTRY_JVM, ImagePrebuilt, parse_image_source
 
 
 @pytest.mark.docker_e2e
 async def test_docker_runner_smoke(orch_ctx, docker_e2e_user_repo):
     """Build the fixture image from the standalone user repo, run the
-    entry task in a container, assert it completes."""
-    remote, sha, worktree = docker_e2e_user_repo
-    job_name = "docker_e2e_smoke"
-
-    _aaiclick(
-        "register-job",
-        "sample_jobs.entry_task",
-        "--name",
-        job_name,
-        "--build",
-        "--git-remote",
-        remote,
-        cwd=worktree,
-    )
-
-    _aaiclick("run-job", job_name, "--git-sha", sha, cwd=worktree)
-
-    # Drive the worker loop in the background while we poll for completion.
-    completed = await run_worker_until_done(job_name)
-
-    assert completed.status == JOB_COMPLETED, completed.error
-
-    tasks = await get_tasks_for_job(completed.id)
-    # The image is a task property now: the entry task carries the build source.
-    entry = next(t for t in tasks if t.entrypoint == "sample_jobs.entry_task")
-    assert entry.image_source is not None
-    source = parse_image_source(entry.image_source)
-    assert isinstance(source, ImageBuild)
-    assert source.git_sha == sha
-    assert compute_image_tag(source.git_sha).endswith(f":{sha}")
-    entrypoints = [t.entrypoint for t in tasks]
-    assert "sample_jobs.entry_task" in entrypoints
-    assert "sample_jobs.produce" in entrypoints
-    assert "sample_jobs.double" in entrypoints
-    assert "sample_jobs.compute_sum" in entrypoints
-    non_terminal = [t for t in tasks if t.status != TASK_COMPLETED]
-    assert not non_terminal, [(t.entrypoint, t.status, t.error) for t in non_terminal]
-
-    # The chain is produce([10, 20, 30]) → double → compute_sum, so the
-    # final scalar is (10+20+30) * 2 = 120. Reading it confirms Objects
-    # passed correctly across containers via ClickHouse. Native return
-    # values are wrapped as ``{"native_value": ...}`` in Task.result.
-    summed = next(t for t in tasks if t.entrypoint == "sample_jobs.compute_sum")
-    assert summed.result == {"native_value": {"total": 120}}, summed.result
+    entry task's chain in containers, assert it completes."""
+    await run_smoke_flow("docker_e2e_smoke", docker_e2e_user_repo)
 
 
 @pytest.mark.docker_e2e
@@ -111,7 +49,7 @@ async def test_docker_runner_default_dockerfile(orch_ctx, docker_e2e_bare_repo):
     remote, sha, worktree = docker_e2e_bare_repo
     job_name = "docker_e2e_default_dockerfile"
 
-    _aaiclick(
+    aaiclick_cli(
         "register-job",
         "bare_jobs.entry_task",
         "--name",
@@ -122,7 +60,7 @@ async def test_docker_runner_default_dockerfile(orch_ctx, docker_e2e_bare_repo):
         cwd=worktree,
     )
 
-    _aaiclick("run-job", job_name, "--git-sha", sha, cwd=worktree)
+    aaiclick_cli("run-job", job_name, "--git-sha", sha, cwd=worktree)
 
     completed = await run_worker_until_done(job_name)
 
@@ -145,7 +83,7 @@ async def test_docker_runner_jvm_task(orch_ctx, docker_e2e_user_repo, jvm_task_i
     remote, sha, worktree = docker_e2e_user_repo
     job_name = "docker_e2e_jvm"
 
-    _aaiclick(
+    aaiclick_cli(
         "register-job",
         "sample_jobs.jvm_entry_task",
         "--name",
@@ -156,7 +94,7 @@ async def test_docker_runner_jvm_task(orch_ctx, docker_e2e_user_repo, jvm_task_i
         cwd=worktree,
     )
 
-    _aaiclick(
+    aaiclick_cli(
         "run-job",
         job_name,
         "--git-sha",
@@ -192,53 +130,11 @@ async def test_docker_runner_jvm_task(orch_ctx, docker_e2e_user_repo, jvm_task_i
     assert reported.result == expected, reported.result
 
 
-# Exits 0 only when ``command_env`` reached the container (``K=v``), so the
-# container runners' env delivery (docker ``--env-file``, kubernetes Secret) is
-# proven end to end, not just the exit-code plumbing.
-ASSERT_COMMAND_ENV = """python -c "import os, sys; sys.exit(0 if os.environ.get('K') == 'v' else 3)" """
-
-
 @pytest.mark.docker_e2e
 async def test_docker_runner_shell_prebuilt(orch_ctx, tmp_path):
-    """Run a shell command in a prebuilt image (no git repo, no build).
-
-    The prebuilt ``python:3.12`` image runs a command that exits 0 only if
-    ``command_env`` arrived, so the job completes with no auto-injected build
-    task and the ``--env-file`` delivery is exercised."""
-    job_name = "docker_e2e_shell_prebuilt"
-
-    _aaiclick(
-        "register-job",
-        "shell.placeholder",
-        "--name",
-        job_name,
-        "--image",
-        "python:3.12",
-        cwd=tmp_path,
-    )
-
-    _aaiclick(
-        "run-job",
-        job_name,
-        "--entry-type",
-        "shell",
-        "--command",
-        ASSERT_COMMAND_ENV,
-        "--command-env",
-        "K=v",
-        cwd=tmp_path,
-    )
-
-    completed = await run_worker_until_done(job_name)
-
-    assert completed.status == JOB_COMPLETED, completed.error
-
-    tasks = await get_tasks_for_job(completed.id)
-    entrypoints = [t.entrypoint for t in tasks]
-    # Prebuilt image → no build task is injected; the single shell task ran
-    # the exit-0 command and completed.
-    assert len(tasks) == 1, entrypoints
-    assert tasks[0].status == TASK_COMPLETED, tasks[0].error
+    """A shell command in a prebuilt image: no build task, and the
+    ``--env-file`` delivery of ``command_env`` is exercised."""
+    await run_shell_command_env_flow("docker_e2e_shell_prebuilt", tmp_path)
 
 
 @pytest.mark.docker_e2e
@@ -246,7 +142,7 @@ async def test_docker_runner_shell_nonzero_fails(orch_ctx, tmp_path):
     """A shell command that exits non-zero fails the job."""
     job_name = "docker_e2e_shell_nonzero"
 
-    _aaiclick(
+    aaiclick_cli(
         "register-job",
         "shell.placeholder",
         "--name",
@@ -256,7 +152,7 @@ async def test_docker_runner_shell_nonzero_fails(orch_ctx, tmp_path):
         cwd=tmp_path,
     )
 
-    _aaiclick(
+    aaiclick_cli(
         "run-job",
         job_name,
         "--entry-type",

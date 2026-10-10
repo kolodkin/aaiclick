@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from aaiclick.orchestration.factories import _callable_to_string, create_job
 from aaiclick.orchestration.fixtures.sample_tasks import simple_task
-from aaiclick.orchestration.models import JOB_CANCELLED, JOB_PENDING
+from aaiclick.orchestration.models import JOB_CANCELLED
 from aaiclick.orchestration.view_models import JobDetail, JobStatsView, JobView
 from aaiclick.view_models import Page, Problem, ProblemCode
 
@@ -23,19 +23,6 @@ async def test_list_jobs_returns_page(orch_ctx, app_client):
 async def test_list_jobs_rejects_out_of_range_paging(orch_ctx, app_client):
     assert (await app_client.get(f"{API_PREFIX}/jobs", params={"limit": 0})).status_code == 422
     assert (await app_client.get(f"{API_PREFIX}/jobs", params={"offset": -1})).status_code == 422
-
-
-async def test_list_jobs_filter_by_status(orch_ctx, app_client):
-    await create_job("http_status_job", simple_task)
-
-    response = await app_client.get(
-        f"{API_PREFIX}/jobs",
-        params={"status": JOB_PENDING},
-    )
-
-    assert response.status_code == 200
-    page = Page[JobView].model_validate(response.json())
-    assert any(j.name == "http_status_job" for j in page.items)
 
 
 async def test_get_job_by_int_id(orch_ctx, app_client):

@@ -117,3 +117,6 @@ full drop + `ch_upgrade` — needed in distributed mode, where
 3. mp-worker tests go in a dedicated `_mp.py` module.
 4. Helpers reusable across subpackages → `aaiclick/testing.py`.
    Otherwise → a local helper module next to the tests.
+5. Flows shared by the runner e2e suites → `test_e2e/runner_flow.py`
+   (`aaiclick_cli`, `run_smoke_flow`); the job waiter → `test_e2e/job_wait.py`.
+   A suite's test is a marker plus one call, then runner-specific assertions.
