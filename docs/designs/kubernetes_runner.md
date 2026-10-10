@@ -156,7 +156,8 @@ a nullable JSON column on both `RegisteredJob` (default) and `Job` (per-run
 snapshot: `run_job` kwarg → registration default → `None`), exposed as
 `resources` on the Python API, `RegisterJobRequest` and `RunJobRequest`. It
 rides on `JobDispatch.resources`, not the Pod config, because the docker runner
-applies it too: `limits.cpu` → `--cpus`, `limits.memory` → `--memory`, with
+applies it too: `limits.cpu` → `--cpus`, `limits.memory` → `--memory` (with
+`--memory-swap` equal, so no swap past the limit), with
 Kubernetes quantities converted (`500m` → `0.5`, `512Mi` → bytes). `requests`
 have nothing to schedule against on a single docker host, so that runner
 ignores them and applies `limits` only.

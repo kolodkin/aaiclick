@@ -401,16 +401,18 @@ runtime requirements, see [Container Images](container_images.md).
 (`register-job` default, overridable per `run_job`), with Kubernetes quantities
 (`"500m"`, `"2"`, `"512Mi"`, `"1G"`):
 
-| Runner     | `limits`                                              | `requests`                          |
-|------------|-------------------------------------------------------|-------------------------------------|
-| kubernetes | Pod container `resources`, verbatim                   | Pod container `resources`, verbatim |
-| docker     | `limits.cpu` → `--cpus`, `limits.memory` → `--memory` | ignored                             |
+| Runner     | `limits`                                                         | `requests`                          |
+|------------|------------------------------------------------------------------|-------------------------------------|
+| kubernetes | Pod container `resources`, verbatim                              | Pod container `resources`, verbatim |
+| docker     | `limits.cpu` → `--cpus`, `limits.memory` → `--memory` (swap off) | ignored                             |
 
 ```python
 run_job(name, image="python:3.12", resources={"limits": {"cpu": "500m", "memory": "512Mi"}})
 ```
 
-A malformed `cpu` / `memory` quantity is rejected when the job is registered or run.
+An unknown section or a malformed `cpu` / `memory` quantity is rejected when the
+job is registered or run. On docker a zero limit fails the task, since docker
+reads `0` as unlimited.
 
 ## Shell tasks
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import math
 import os
+from decimal import Decimal
 from typing import Literal, NamedTuple
 
 from .execution import cli
@@ -248,14 +249,24 @@ def add_host_flags(env_var: str) -> list[str]:
 def resource_flags(resources: dict | None) -> list[str]:
     """``docker run`` flags for a job's Kubernetes-style ``resources``:
     ``limits.cpu`` → ``--cpus`` (``"500m"`` → ``0.5``) and ``limits.memory`` →
-    ``--memory`` in bytes. ``requests`` are a scheduling guarantee a single
-    docker host cannot give, so they are ignored. Quantities are validated at
-    submission (``validate_resources``); a malformed one stored earlier still
+    ``--memory`` in bytes, with ``--memory-swap`` pinned to the same value so,
+    as on Kubernetes, the container cannot spill into swap past its limit.
+    ``requests`` are a scheduling guarantee a single docker host cannot give,
+    so they are ignored. Docker reads a zero limit as "unlimited", so zero
     raises ``ValueError`` here rather than launching unbounded."""
     limits = (resources or {}).get("limits") or {}
     flags: list[str] = []
     if (cpu := limits.get("cpu")) is not None:
-        flags.extend(["--cpus", format(parse_quantity("limits.cpu", cpu).normalize(), "f")])
+        cpus = _positive_limit("limits.cpu", cpu)
+        flags.extend(["--cpus", format(cpus.normalize(), "f")])
     if (memory := limits.get("memory")) is not None:
-        flags.extend(["--memory", str(math.ceil(parse_quantity("limits.memory", memory)))])
+        size = str(math.ceil(_positive_limit("limits.memory", memory)))
+        flags.extend(["--memory", size, "--memory-swap", size])
     return flags
+
+
+def _positive_limit(key: str, value: object) -> Decimal:
+    quantity = parse_quantity(key, value)
+    if quantity <= 0:
+        raise ValueError(f"resources.{key} {value!r} must be greater than zero on the docker runner")
+    return quantity

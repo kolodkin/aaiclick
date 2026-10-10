@@ -120,23 +120,39 @@ _QUANTITY_SUFFIXES: dict[str, Decimal] = {
     **{p: Decimal(1000) ** i for i, p in enumerate("kMGTPE", 1)},
     **{p + "i": Decimal(1024) ** i for i, p in enumerate("KMGTPE", 1)},
 }
-_QUANTITY_RE = re.compile(r"^(?P<number>(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)(?P<suffix>[A-Za-z]*)$")
+# A number then either a decimal exponent or an SI suffix, never both.
+_QUANTITY_RE = re.compile(
+    r"^(?P<number>[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:(?P<exponent>[eE][+-]?[0-9]+)|(?P<suffix>[A-Za-z]*))$"
+)
+# Top-level keys of a Kubernetes ResourceRequirements.
+_RESOURCE_SECTIONS = ("requests", "limits", "claims")
 
 
 def parse_quantity(key: str, value: object) -> Decimal:
     """A Kubernetes quantity (``"500m"``, ``"1.5Gi"``, ``2``) in base units."""
-    match = _QUANTITY_RE.match(str(value).strip())
-    if match is None or match["suffix"] not in _QUANTITY_SUFFIXES:
+    match = _QUANTITY_RE.match(str(value))
+    if match is None or (match["exponent"] is None and match["suffix"] not in _QUANTITY_SUFFIXES):
         raise ValueError(f"resources.{key} {value!r} is not a valid Kubernetes quantity")
-    return Decimal(match["number"]) * _QUANTITY_SUFFIXES[match["suffix"]]
+    try:
+        if match["exponent"] is not None:
+            return +Decimal(match["number"] + match["exponent"])
+        return Decimal(match["number"]) * _QUANTITY_SUFFIXES[match["suffix"]]
+    except ArithmeticError as e:
+        raise ValueError(f"resources.{key} {value!r} is out of range") from e
 
 
 def validate_resources(resources: dict | None) -> None:
-    """Reject a malformed ``cpu`` / ``memory`` quantity in ``requests`` or
-    ``limits`` at submission, for every runner. Other keys (GPUs, storage)
-    pass through to Kubernetes unchecked."""
+    """Reject a malformed ``resources`` at submission, for every runner: a
+    non-mapping, an unknown section, or a bad ``cpu`` / ``memory`` quantity.
+    Other keys (GPUs, storage) pass through to Kubernetes unchecked."""
+    if resources is None:
+        return
+    if not isinstance(resources, dict):
+        raise ValueError(f"resources must be a mapping, got {resources!r}")
+    if unknown := sorted(set(resources) - set(_RESOURCE_SECTIONS)):
+        raise ValueError(f"unknown resources section(s) {unknown}; expected {list(_RESOURCE_SECTIONS)}")
     for section in ("requests", "limits"):
-        values = (resources or {}).get(section) or {}
+        values = resources.get(section) or {}
         if not isinstance(values, dict):
             raise ValueError(f"resources.{section} must be a mapping, got {values!r}")
         for key in ("cpu", "memory"):

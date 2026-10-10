@@ -118,7 +118,13 @@ def test_parse_quantity(value, expected):
         pytest.param({"limits": {"cpu": "fast"}}, "limits.cpu", id="garbage"),
         pytest.param({"requests": {"memory": "1Xi"}}, "requests.memory", id="bad-suffix"),
         pytest.param({"limits": {"memory": "-1Gi"}}, "limits.memory", id="negative"),
-        pytest.param({"limits": "2"}, "resources.limits must be a mapping", id="not-a-mapping"),
+        pytest.param({"limits": "2"}, "resources.limits must be a mapping", id="section-not-a-mapping"),
+        pytest.param([{"limits": {}}], "resources must be a mapping", id="not-a-mapping"),
+        pytest.param({"limit": {"cpu": "1"}}, "unknown resources section", id="misspelled-section"),
+        pytest.param({"limits": {"memory": "1e3Ki"}}, "not a valid", id="exponent-and-suffix"),
+        pytest.param({"limits": {"cpu": " 2 "}}, "not a valid", id="whitespace"),
+        pytest.param({"limits": {"memory": "1e1000000"}}, "out of range", id="overflow"),
+        pytest.param({"limits": {"memory": "1e999999999999999999999"}}, "out of range", id="exponent-too-large"),
     ],
 )
 def test_validate_resources_rejects(resources, match):

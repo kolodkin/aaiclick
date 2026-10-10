@@ -206,17 +206,28 @@ def test_compute_image_tag_without_registry(monkeypatch):
         pytest.param({"requests": {"cpu": "1"}}, [], id="requests-ignored"),
         pytest.param({"limits": {"cpu": "500m"}}, ["--cpus", "0.5"], id="cpu-millis"),
         pytest.param({"limits": {"cpu": 2}}, ["--cpus", "2"], id="cpu-json-number"),
-        pytest.param({"limits": {"memory": "512Mi"}}, ["--memory", str(512 * 1024**2)], id="mem-binary"),
-        pytest.param({"limits": {"memory": "1G"}}, ["--memory", "1000000000"], id="mem-decimal"),
-        pytest.param({"limits": {"memory": "1e9"}}, ["--memory", "1000000000"], id="mem-exponent"),
-        pytest.param({"limits": {"memory": "1500m"}}, ["--memory", "2"], id="mem-fraction-rounds-up"),
+        pytest.param(
+            {"limits": {"memory": "512Mi"}},
+            ["--memory", str(512 * 1024**2), "--memory-swap", str(512 * 1024**2)],
+            id="mem-binary-no-swap",
+        ),
+        pytest.param(
+            {"limits": {"memory": "1e9"}}, ["--memory", "1000000000", "--memory-swap", "1000000000"], id="mem-exponent"
+        ),
+        pytest.param({"limits": {"memory": "1500m"}}, ["--memory", "2", "--memory-swap", "2"], id="mem-rounds-up"),
     ],
 )
 def test_resource_flags(resources, expected):
     assert resource_flags(resources) == expected
 
 
-def test_resource_flags_rejects_malformed_quantity():
-    """A row stored before submission-time validation still fails at launch."""
-    with pytest.raises(ValueError, match="limits.memory"):
-        resource_flags({"limits": {"memory": "1Xi"}})
+@pytest.mark.parametrize(
+    "resources, match",
+    [
+        pytest.param({"limits": {"memory": "1Xi"}}, "not a valid", id="malformed"),
+        pytest.param({"limits": {"cpu": "0"}}, "greater than zero", id="zero-is-unlimited-on-docker"),
+    ],
+)
+def test_resource_flags_rejects(resources, match):
+    with pytest.raises(ValueError, match=match):
+        resource_flags(resources)
