@@ -151,21 +151,16 @@ the worker's environment, mirroring `AAICLICK_REGISTRY` and matching Argo's
 | `service_account`   | `AAICLICK_K8S_SERVICE_ACCOUNT`                     |
 | `image_pull_secret` | `AAICLICK_K8S_IMAGE_PULL_SECRET`                   |
 
-`resources` (requests/limits) is the one setting that is genuinely per job. It is
-a nullable JSON column on both `RegisteredJob` (default) and `Job` (per-run
-snapshot: `run_job` kwarg → registration default → `None`), exposed as
-`resources` on the Python API, `RegisterJobRequest` and `RunJobRequest`. It
-rides on `JobDispatch.resources`, not the Pod config, because the docker runner
-applies it too: `limits.cpu` → `--cpus`, `limits.memory` → `--memory` (with
-`--memory-swap` equal, so no swap past the limit), with
-Kubernetes quantities converted (`500m` → `0.5`, `512Mi` → bytes). `requests`
-have nothing to schedule against on a single docker host, so that runner
-ignores them and applies `limits` only.
+`resources` (requests/limits) is the one per-job setting: a nullable JSON column
+on `RegisteredJob` (default) and `Job` (per-run snapshot: `run_job` kwarg →
+registration default → `None`), exposed on the Python API, `RegisterJobRequest`
+and `RunJobRequest`, and validated at submission. It rides on
+`JobDispatch.resources`, not the Pod config, because the docker runner applies
+its `limits` too; with no scheduler, docker ignores `requests` (mapping:
+[Resources](../user_guide/orchestration.md#resources-docker-kubernetes)).
 
 Both are resolved on the **worker at dispatch** and handed to the vehicle as
 `JobDispatch.pod_config` and `JobDispatch.resources`.
-
-`cpu` / `memory` quantities are validated at submission for both runners.
 
 **Implementation**: `aaiclick/orchestration/kubernetes_config.py` — see
 `resolve_pod_config()`; `aaiclick/orchestration/runner_config.py` — see

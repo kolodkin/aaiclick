@@ -38,9 +38,8 @@ async def _resolve_dispatch(task: Task) -> JobDispatch:
 
     NULL ``image_source`` ⇒ host subprocess on any worker — the rule that
     host-pins injected build tasks (spec: docs/designs/orchestration.md "Image
-    source"). A container task runs on the worker's ``AAICLICK_RUNNER``; the
-    job row is read only here, for the ``resources`` snapshot both container
-    runners apply."""
+    source"). A container task runs on the worker's ``AAICLICK_RUNNER`` with
+    the job's ``resources`` snapshot."""
     if task.image_source is None:
         return _subprocess_dispatch(task)
     runner = get_worker_runner()

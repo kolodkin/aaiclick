@@ -247,13 +247,10 @@ def add_host_flags(env_var: str) -> list[str]:
 
 
 def resource_flags(resources: dict | None) -> list[str]:
-    """``docker run`` flags for a job's Kubernetes-style ``resources``:
-    ``limits.cpu`` → ``--cpus`` (``"500m"`` → ``0.5``) and ``limits.memory`` →
-    ``--memory`` in bytes, with ``--memory-swap`` pinned to the same value so,
-    as on Kubernetes, the container cannot spill into swap past its limit.
-    ``requests`` are a scheduling guarantee a single docker host cannot give,
-    so they are ignored. Docker reads a zero limit as "unlimited", so zero
-    raises ``ValueError`` here rather than launching unbounded."""
+    """``docker run`` flags for a job's ``resources`` limits: ``--cpus``, and
+    ``--memory`` with ``--memory-swap`` pinned equal so, as on Kubernetes, no
+    swap past the limit. ``requests`` are ignored: docker has no scheduler.
+    Zero raises ``ValueError``, since docker reads it as unlimited."""
     limits = (resources or {}).get("limits") or {}
     flags: list[str] = []
     if (cpu := limits.get("cpu")) is not None:

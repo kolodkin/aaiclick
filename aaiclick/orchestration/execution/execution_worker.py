@@ -94,8 +94,7 @@ class JobDispatch(NamedTuple):
     """A task's runner plus the launch spec its runner needs, resolved once
     per task in ``dispatch._resolve_dispatch``. ``runner`` None ⇒ host
     subprocess; ``pod_config`` is set only on the kubernetes runner;
-    ``resources`` is the job's requests/limits snapshot (``Job.resources``),
-    read for every container runner."""
+    ``resources`` is the ``Job.resources`` snapshot, for every container runner."""
 
     runner: WorkerRunner | None
     pod_config: KubernetesConfig | None

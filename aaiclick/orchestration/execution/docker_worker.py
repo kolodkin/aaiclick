@@ -79,8 +79,8 @@ def write_command_env_file(command_env: dict[str, str]) -> str:
 def build_shell_run_spec(task: Task, image_tag: str, resources: dict | None) -> ShellSpec:
     """Wrap a shell task's argv as a foreground ``docker run``.
 
-    ``resources`` (the job's limits) become ``--cpus`` / ``--memory``
-    (``resource_flags``). Only ``command_env`` is injected — no IPC mount, no runner env, so no
+    Applies the job's limits (``resource_flags``). Only ``command_env`` is
+    injected — no IPC mount, no runner env, so no
     aaiclick secrets reach a vanilla user image. The values ride in a private
     ``--env-file`` (``ShellSpec.env_file``): on the argv they would show in
     ``ps``, and on the CLI's own env (``_env_flags``) ``PATH`` /
@@ -116,8 +116,8 @@ def _build_docker_run_cmd(
 ) -> list[str]:
     """Construct the detached ``docker run`` command line for a module or jvm
     task: inject the full runner env (names only — ``_docker_run_detached``
-    passes the values), apply the job's ``resources`` limits as ``--cpus`` /
-    ``--memory`` (``resource_flags``), and run the in-container bootstrap shim.
+    passes the values), apply the job's limits (``resource_flags``), and run
+    the in-container bootstrap shim.
     For ``module`` that is the shared Python entrypoint
     (``python -m ...remote_result --task-id N --run-epoch M``); for ``jvm``
     only the ``--task-id``/``--run-epoch`` arguments are passed — the image's
