@@ -141,23 +141,25 @@ export function useSandboxConfig() {
   });
 }
 
-// Polls while a submission is still waiting on the background worker.
+// Pending and running are the statuses the background worker still moves on.
+const isUnsettled = (status: SandboxFileView["status"]) => status === "pending" || status === "running";
+
 export function useSandboxFiles() {
   return useQuery({
     queryKey: ["sandbox"],
     queryFn: () => fetchJSON<Page<SandboxFileView>>("/sandbox"),
-    refetchInterval: (q) => (q.state.data?.items.some((f) => f.status === "pending") ? 5000 : false),
+    refetchInterval: (q) => (q.state.data?.items.some((f) => isUnsettled(f.status)) ? 5000 : false),
   });
 }
 
 // The source is pinned to its commit; only the status can change, and only
-// while the background worker has not picked the file up yet.
+// until the background worker settles it.
 export function useSandboxFile(id: string) {
   return useQuery({
     queryKey: ["sandbox", id],
     queryFn: () => fetchJSON<SandboxFileDetailView>(`/sandbox/${encodeURIComponent(id)}`),
     enabled: id.length > 0,
-    refetchInterval: (q) => (q.state.data?.status === "pending" ? 5000 : false),
+    refetchInterval: (q) => (q.state.data && isUnsettled(q.state.data.status) ? 5000 : false),
   });
 }
 

@@ -52,7 +52,7 @@ def test_submit_shows_row_with_sha(page, base_url: str, shot) -> None:
     row.wait_for()
     assert re.fullmatch(r"[0-9a-f]{7}", row.locator("td.sha").inner_text())
     # Any status: the background worker may already have picked the row up.
-    assert row.locator("td.status").inner_text() in {"pending", "submitted", "failed"}
+    assert row.locator("td.status").inner_text() in {"pending", "running", "submitted", "failed"}
     shot("sandbox-submitted")
 
 

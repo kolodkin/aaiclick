@@ -1,6 +1,7 @@
 import asyncio
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -143,3 +144,16 @@ async def test_read_file_from_a_fresh_clone_over_file_url(tmp_path):
 def test_repo_module_imports_standalone():
     proc = subprocess.run([sys.executable, "-c", "import aaiclick.sandbox.repo"], capture_output=True, text=True)
     assert proc.returncode == 0, proc.stderr
+
+
+def test_submission_path_reads_a_naive_datetime_as_utc(monkeypatch):
+    """``utc_now()`` is naive; the host's zone must not shift the timestamp."""
+    monkeypatch.setenv("TZ", "America/New_York")
+    time.tzset()
+    try:
+        naive = datetime(2026, 10, 9, 12, 0)
+        aware = naive.replace(tzinfo=timezone.utc)
+        assert submission_path("hello", naive) == submission_path("hello", aware)
+    finally:
+        monkeypatch.undo()
+        time.tzset()

@@ -31,3 +31,27 @@ def test_find_job_functions(source, expected):
 def test_find_job_functions_rejects(source, message):
     with pytest.raises(SandboxSourceError, match=message):
         find_job_functions(source)
+
+
+@pytest.mark.parametrize(
+    "source, expected",
+    [
+        ("from aaiclick.orchestration.decorators import job\n@job\ndef a(): ...", ["a"]),
+        ("import aaiclick.orchestration\n@aaiclick.orchestration.job\ndef a(): ...", ["a"]),
+        ("from aaiclick.orchestration import job\n@job\ndef a(): ...\n@job\ndef a(): ...", ["a"]),
+    ],
+)
+def test_find_job_functions_more_forms(source, expected):
+    assert find_job_functions(source) == expected
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from aaiclick import job\n@job\ndef a(): ...",
+        "import aaiclick\n@aaiclick.job\ndef a(): ...",
+    ],
+)
+def test_find_job_functions_rejects_names_aaiclick_does_not_export(source):
+    with pytest.raises(SandboxSourceError, match="no @job function found"):
+        find_job_functions(source)

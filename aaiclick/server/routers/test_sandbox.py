@@ -90,3 +90,16 @@ async def test_submit_rejects(app_client, viewer_headers, sandbox_remote, payloa
     resp = await app_client.post(f"{API_PREFIX}/sandbox", json=payload, headers=viewer_headers)
     assert resp.status_code == 422
     assert detail in resp.text
+
+
+async def test_detail_reads_from_the_rows_remote_after_the_sandbox_moves(orch_ctx, app_client, tmp_path, monkeypatch):
+    """A stored submission stays readable when ``AAICLICK_SANDBOX`` is unset
+    or pointed elsewhere: the source comes from the row's own remote."""
+    monkeypatch.setenv("AAICLICK_LOCAL_ROOT", str(tmp_path / "root"))
+    remote = init_bare_repo(tmp_path / "old.git")
+    with sandbox_repo_override(SandboxRepo(str(remote), tmp_path / "clone")):
+        body = (await app_client.post(f"{API_PREFIX}/sandbox", json={"name": "hello", "source": SOURCE})).json()
+    monkeypatch.delenv("AAICLICK_SANDBOX", raising=False)
+    detail = await app_client.get(f"{API_PREFIX}/sandbox/{body['id']}")
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["source"] == SOURCE

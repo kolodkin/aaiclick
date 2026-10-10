@@ -49,6 +49,7 @@ from ..models import (
     RUN_SCHEDULED,
     SANDBOX_FAILED,
     SANDBOX_PENDING,
+    SANDBOX_RUNNING,
     SANDBOX_SUBMITTED,
     TASK_PENDING_CANCELLED_CLEANUP,
     TASK_PENDING_FAILURE_CLEANUP,
@@ -66,6 +67,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_POLL_INTERVAL = 10.0
 SANDBOX_BATCH = 10
+# A sandbox row claimed this long ago and still ``running`` lost its worker.
+SANDBOX_STALE_AFTER = timedelta(minutes=10)
+SANDBOX_INTERRUPTED = "interrupted before its jobs were created"
 DEFAULT_WORKER_TIMEOUT = 90.0
 
 
@@ -554,37 +558,51 @@ class BackgroundWorker:
 
         The row carries everything ``run_job`` needs — the sandbox remote and
         the submission commit — so the build source is pinned to the file as
-        committed. Each row is claimed with an optimistic ``UPDATE`` on its
-        ``pending`` status before any job is created, so two background
-        workers (or an overlapping manual poll) never submit the same file
-        twice. The first failing call marks the row failed and keeps the job
-        ids created before it.
+        committed. Rows are claimed by flipping ``pending`` to ``running`` in
+        one statement before any job is created, so two background workers
+        never submit the same file twice, and readers never see a final
+        status before its jobs exist. A row left ``running`` past
+        ``SANDBOX_STALE_AFTER`` (its worker died mid-submit) turns ``failed``
+        rather than running again, since some of its jobs may exist.
         """
+        now = utc_now()
         async with AsyncSession(self._engine) as session:
-            rows = (
-                await session.execute(
-                    # SQLAlchemy's select: SQLModel's overloads stop at four columns.
-                    sa_select(
-                        col(SandboxFile.id),
-                        col(SandboxFile.path),
-                        col(SandboxFile.job_names),
-                        col(SandboxFile.git_remote),
-                        col(SandboxFile.git_sha),
+            await session.execute(
+                update(SandboxFile)
+                .where(
+                    col(SandboxFile.status) == SANDBOX_RUNNING,
+                    col(SandboxFile.updated_at) < now - SANDBOX_STALE_AFTER,
+                )
+                .values(status=SANDBOX_FAILED, error=SANDBOX_INTERRUPTED, updated_at=now)
+            )
+            pending_ids = (
+                (
+                    await session.execute(
+                        sa_select(col(SandboxFile.id))
+                        .where(col(SandboxFile.status) == SANDBOX_PENDING)
+                        .order_by(col(SandboxFile.created_at))
+                        .limit(SANDBOX_BATCH)
                     )
-                    .where(col(SandboxFile.status) == SANDBOX_PENDING)
-                    .order_by(col(SandboxFile.created_at))
-                    .limit(SANDBOX_BATCH)
                 )
-            ).all()
+                .scalars()
+                .all()
+            )
             claimed = []
-            for row in rows:
-                lock_result = await session.execute(
-                    update(SandboxFile)
-                    .where(col(SandboxFile.id) == row.id, col(SandboxFile.status) == SANDBOX_PENDING)
-                    .values(status=SANDBOX_SUBMITTED, updated_at=utc_now())
-                )
-                if cast(CursorResult, lock_result).rowcount == 1:
-                    claimed.append(row)
+            if pending_ids:
+                claimed = (
+                    await session.execute(
+                        update(SandboxFile)
+                        .where(col(SandboxFile.id).in_(pending_ids), col(SandboxFile.status) == SANDBOX_PENDING)
+                        .values(status=SANDBOX_RUNNING, updated_at=now)
+                        .returning(
+                            col(SandboxFile.id),
+                            col(SandboxFile.path),
+                            col(SandboxFile.job_names),
+                            col(SandboxFile.git_remote),
+                            col(SandboxFile.git_sha),
+                        )
+                    )
+                ).all()
             await session.commit()
 
         if not claimed:

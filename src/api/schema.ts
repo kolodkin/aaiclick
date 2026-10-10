@@ -1949,7 +1949,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "pending" | "submitted" | "failed";
+            status: "pending" | "running" | "submitted" | "failed";
             /** Submitted By */
             submitted_by: string | null;
             /**
@@ -1986,7 +1986,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "pending" | "submitted" | "failed";
+            status: "pending" | "running" | "submitted" | "failed";
             /** Submitted By */
             submitted_by: string | null;
             /**

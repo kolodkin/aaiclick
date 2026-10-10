@@ -19,8 +19,8 @@ AAICLICK_SANDBOX=git@github.com:acme/aaiclick-sandbox.git
     it. Authenticate with an SSH deploy key or the host's git credential
     helper instead of a token in the URL.
 
-- The server clones the remote under `<AAICLICK_LOCAL_ROOT>/sandbox/repo` and
-  pushes one commit per submission. An empty repo works.
+- The server clones the remote under `<AAICLICK_LOCAL_ROOT>/sandbox/<hash of
+  the remote>` and pushes one commit per submission. An empty repo works.
 - Only the server reads the variable: the workers get the remote and commit
   from the submission, as for any git-build job.
 - Sandbox jobs are container jobs: distributed backends, a worker with
@@ -57,9 +57,9 @@ def hello_job():
 
 1. The file is committed as `YYYYMMDD/sb_<unix ts>_<name>.py`; the row shows
    `pending` with the short SHA.
-2. The background worker submits one job per `@job`, named
-   `sb_<ts>_<name>.<function>` and pinned to that commit. The row turns
-   `submitted` with links to the jobs, or `failed` with the message.
+2. The background worker claims the row (`running`) and submits one job per
+   `@job`, named `sb_<ts>_<name>.<function>` and pinned to that commit. The
+   row turns `submitted` with links to the jobs, or `failed` with the message.
 3. The build task clones the commit onto the default Dockerfile (Container
    Images), so the file imports as `YYYYMMDD.sb_<ts>_<name>`. The digits-only
    directory is a valid importlib namespace package (the entrypoint is a

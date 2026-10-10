@@ -202,15 +202,22 @@ def sandbox_repo_override(repo: SandboxRepo | None) -> Iterator[None]:
         _repo_override.reset(token)
 
 
+def sandbox_repo_for(remote: str) -> SandboxRepo:
+    """The process's clone of ``remote`` — what a stored submission is read
+    from, even after ``AAICLICK_SANDBOX`` moved elsewhere."""
+    override = _repo_override.get()
+    if override is not None and override.remote == remote:
+        return override
+    repo = _REPOS.get(remote)
+    if repo is None:
+        repo = _REPOS[remote] = SandboxRepo(remote)
+    return repo
+
+
 def get_sandbox_repo() -> SandboxRepo | None:
     """The configured sandbox repo, or ``None`` when ``AAICLICK_SANDBOX`` is unset."""
     override = _repo_override.get()
     if override is not None:
         return override
     remote = os.environ.get(ENV_SANDBOX)
-    if not remote:
-        return None
-    repo = _REPOS.get(remote)
-    if repo is None:
-        repo = _REPOS[remote] = SandboxRepo(remote)
-    return repo
+    return sandbox_repo_for(remote) if remote else None

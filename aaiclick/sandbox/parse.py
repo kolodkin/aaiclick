@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import ast
 
-_ORCHESTRATION_MODULES = {"aaiclick", "aaiclick.orchestration"}
+# Modules that export ``job``; ``from aaiclick import orchestration`` binds a
+# module alias, but ``aaiclick`` itself exports no ``job``.
+_JOB_MODULES = {"aaiclick.orchestration", "aaiclick.orchestration.decorators"}
 
 
 class SandboxSourceError(ValueError):
@@ -17,17 +19,12 @@ def _job_bindings(tree: ast.Module) -> tuple[set[str], set[str]]:
     job_names: set[str] = set()
     module_aliases: set[str] = set()
     for node in tree.body:
-        if isinstance(node, ast.ImportFrom) and node.module in _ORCHESTRATION_MODULES:
-            for alias in node.names:
-                local = alias.asname or alias.name
-                if alias.name == "job":
-                    job_names.add(local)
-                elif alias.name == "orchestration":
-                    module_aliases.add(local)
+        if isinstance(node, ast.ImportFrom) and node.module in _JOB_MODULES:
+            job_names.update(alias.asname or alias.name for alias in node.names if alias.name == "job")
+        elif isinstance(node, ast.ImportFrom) and node.module == "aaiclick":
+            module_aliases.update(alias.asname or alias.name for alias in node.names if alias.name == "orchestration")
         elif isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name in _ORCHESTRATION_MODULES:
-                    module_aliases.add(alias.asname or alias.name)
+            module_aliases.update(alias.asname or alias.name for alias in node.names if alias.name in _JOB_MODULES)
     return job_names, module_aliases
 
 
@@ -58,12 +55,15 @@ def find_job_functions(source: str) -> list[str]:
     except SyntaxError as exc:
         raise SandboxSourceError(f"line {exc.lineno}: {exc.msg}") from exc
     job_names, module_aliases = _job_bindings(tree)
-    found = [
-        node.name
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and any(_is_job_decorator(dec, job_names, module_aliases) for dec in node.decorator_list)
-    ]
+    # dict.fromkeys dedupes a redefined job while keeping source order.
+    found = list(
+        dict.fromkeys(
+            node.name
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and any(_is_job_decorator(dec, job_names, module_aliases) for dec in node.decorator_list)
+        )
+    )
     if not found:
         raise SandboxSourceError("no @job function found")
     return found

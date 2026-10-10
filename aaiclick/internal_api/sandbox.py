@@ -16,7 +16,14 @@ from aaiclick.orchestration.orch_context import get_sql_session
 from aaiclick.orchestration.view_models import SandboxFileDetailView, SandboxFileView, sandbox_file_to_view
 from aaiclick.sandbox.parse import SandboxSourceError, find_job_functions
 from aaiclick.sandbox.paths import submission_path
-from aaiclick.sandbox.repo import Author, SandboxGitError, SandboxPushRejected, SandboxRepo, get_sandbox_repo
+from aaiclick.sandbox.repo import (
+    Author,
+    SandboxGitError,
+    SandboxPushRejected,
+    SandboxRepo,
+    get_sandbox_repo,
+    sandbox_repo_for,
+)
 from aaiclick.view_models import Page, SandboxConfigView, SandboxFileFilter, SubmitSandboxRequest
 
 from .errors import Conflict, Invalid, NotFound, SandboxUnavailable
@@ -109,14 +116,15 @@ async def list_sandbox_files(filter: SandboxFileFilter | None = None) -> Page[Sa
 
 
 async def get_sandbox_file(file_id: int) -> SandboxFileDetailView:
-    """One submission plus its committed source."""
+    """One submission plus its committed source, read from the remote the
+    row was committed to — not necessarily today's ``AAICLICK_SANDBOX``."""
     async with get_sql_session() as session:
         row = await session.get(SandboxFile, file_id)
         if row is None:
             raise NotFound(f"sandbox file {file_id} not found")
         (view,) = await _views(session, [row])
     try:
-        source = await _require_repo().read_file(row.path, row.git_sha)
+        source = await sandbox_repo_for(row.git_remote).read_file(row.path, row.git_sha)
     except SandboxGitError as exc:
         raise SandboxUnavailable(str(exc)) from exc
     return SandboxFileDetailView(**view.model_dump(), source=source)

@@ -43,10 +43,12 @@ RunType = Literal["SCHEDULED", "MANUAL", "SANDBOX"]
 
 
 SANDBOX_PENDING = "pending"
+SANDBOX_RUNNING = "running"
 SANDBOX_SUBMITTED = "submitted"
 SANDBOX_FAILED = "failed"
-SandboxStatus = Literal["pending", "submitted", "failed"]
-"""Whether the background worker has turned a sandbox file into jobs yet."""
+SandboxStatus = Literal["pending", "running", "submitted", "failed"]
+"""Where a sandbox file is on its way to jobs: waiting, claimed by a
+background worker that is creating them, done, or failed."""
 
 
 JOB_PENDING = "PENDING"

@@ -2,13 +2,15 @@
 
 import asyncio
 import os
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from aaiclick.orchestration.background.background_worker import BackgroundWorker
-from aaiclick.orchestration.models import SANDBOX_FAILED, SANDBOX_SUBMITTED, SandboxFile
+from aaiclick.datetime_utils import utc_now
+from aaiclick.orchestration.background.background_worker import SANDBOX_STALE_AFTER, BackgroundWorker
+from aaiclick.orchestration.models import SANDBOX_FAILED, SANDBOX_RUNNING, SANDBOX_SUBMITTED, SandboxFile
 from aaiclick.orchestration.orch_context import get_sql_session
 
 RUN_JOB = "aaiclick.orchestration.background.background_worker.run_job"
@@ -92,3 +94,43 @@ async def test_concurrent_steps_submit_each_job_once(orch_ctx):
     reloaded = await _reload(row.id)
     assert sorted(calls) == ["sb_1_demo.first", "sb_1_demo.second"]
     assert reloaded.status == SANDBOX_SUBMITTED and reloaded.job_ids == [1, 2]
+
+
+async def test_row_is_running_while_its_jobs_are_created(orch_ctx):
+    """Readers must never see the final status before the jobs exist."""
+    row = await _insert_row(["first"])
+    seen = []
+
+    async def peeking_run_job(name, entrypoint, **kw):
+        seen.append((await _reload(row.id)).status)
+        return SimpleNamespace(id=1)
+
+    with patch(RUN_JOB, peeking_run_job):
+        await _run_step()
+
+    assert seen == [SANDBOX_RUNNING]
+    assert (await _reload(row.id)).status == SANDBOX_SUBMITTED
+
+
+async def test_stale_running_row_is_failed_not_rerun(orch_ctx):
+    """A row a crashed worker claimed but never finished turns failed."""
+    row = await _insert_row(["first"])
+    async with get_sql_session() as session:
+        stuck = await session.get(SandboxFile, row.id)
+        assert stuck is not None
+        stuck.status = SANDBOX_RUNNING
+        stuck.updated_at = utc_now() - SANDBOX_STALE_AFTER - timedelta(seconds=1)
+        session.add(stuck)
+        await session.commit()
+    calls = []
+
+    async def recording_run_job(name, entrypoint, **kw):
+        calls.append(name)
+        return SimpleNamespace(id=1)
+
+    with patch(RUN_JOB, recording_run_job):
+        await _run_step()
+
+    reloaded = await _reload(row.id)
+    assert calls == []
+    assert reloaded.status == SANDBOX_FAILED and reloaded.error == "interrupted before its jobs were created"

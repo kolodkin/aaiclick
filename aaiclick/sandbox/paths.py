@@ -4,6 +4,7 @@ worker can use it without a cycle through ``sandbox.repo``."""
 
 from __future__ import annotations
 
+import calendar
 from datetime import datetime
 from typing import NamedTuple
 
@@ -14,8 +15,9 @@ class ModuleParts(NamedTuple):
 
 
 def submission_path(name: str, now: datetime) -> str:
-    """``YYYYMMDD/sb_<unix ts>_<name>.py`` for a submission made at ``now``."""
-    return f"{now:%Y%m%d}/sb_{int(now.timestamp())}_{name}.py"
+    """``YYYYMMDD/sb_<unix ts>_<name>.py`` for a submission made at ``now``.
+    A naive ``now`` is UTC (``utc_now()``), whatever the host's zone."""
+    return f"{now:%Y%m%d}/sb_{calendar.timegm(now.utctimetuple())}_{name}.py"
 
 
 def module_parts(path: str) -> ModuleParts:

@@ -22,6 +22,7 @@ def hello_job():
 // Sandbox statuses reuse the job badge colours.
 const BADGE: Record<SandboxFileView["status"], string> = {
   pending: "b-PENDING",
+  running: "b-RUNNING",
   submitted: "b-COMPLETED",
   failed: "b-FAILED",
 };
