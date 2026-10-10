@@ -15,18 +15,16 @@ can therefore read or write every table in both databases. Today only an admin
 can register or run a job, so that matches the admin's own access.
 
 The sandbox breaks that assumption: any signed-in role, viewers included, can
-submit a file whose jobs run with those credentials. In practice a viewer gets
-database-level access, which is more than an admin session grants through the
-API.
+submit a file whose jobs run with those credentials. Viewer submission is the
+sandbox's design and stays; the fix belongs on the credentials side, since in
+practice a viewer today gets database-level access, more than an admin session
+grants through the API.
 
 Options to weigh:
 
-- Gate sandbox submission on a scope (admin, or a new one), trading the
-  "open to everyone" intent for the existing trust model.
 - Give task containers scoped credentials: a per-job or per-run database role
   limited to that job's tables and the result rows it writes.
-- Keep the sandbox open but run its jobs against a separate, disposable
-  database pair.
+- Run sandbox jobs against a separate, disposable database pair.
 
 **Implementation**: `aaiclick/orchestration/execution/runner_env.py` — see
 `build_runner_env()`; `aaiclick/server/routers/sandbox.py` — see
