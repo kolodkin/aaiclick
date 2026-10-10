@@ -1,4 +1,5 @@
-"""Typed, discriminated configs for a task's image source and entry.
+"""Typed, discriminated configs for a task's image source and entry, plus
+the job's ``resources`` quantities.
 
 A task's ``image_source`` JSON is one of ``ImageBuild`` / ``ImagePrebuilt``;
 the ``entry_type`` discriminator selects how the container is invoked. Pure
@@ -8,6 +9,7 @@ data + validation — no env, no I/O — so any layer can import it.
 from __future__ import annotations
 
 import re
+from decimal import Decimal
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter, field_validator
@@ -106,3 +108,37 @@ def validate_task_entry(*, entry_type: EntryType, command: list[str] | None) -> 
             raise ValueError(f"{entry_type} entry_type does not take a command")
     else:
         raise ValueError(f"unknown entry_type {entry_type!r}")
+
+
+# --- resources (lives on Job / RegisteredJob) -----------------------------
+# Kubernetes quantity suffixes: decimal SI (n…E) and binary SI (Ki…Ei).
+_QUANTITY_SUFFIXES: dict[str, Decimal] = {
+    "n": Decimal("1e-9"),
+    "u": Decimal("1e-6"),
+    "m": Decimal("1e-3"),
+    "": Decimal(1),
+    **{p: Decimal(1000) ** i for i, p in enumerate("kMGTPE", 1)},
+    **{p + "i": Decimal(1024) ** i for i, p in enumerate("KMGTPE", 1)},
+}
+_QUANTITY_RE = re.compile(r"^(?P<number>(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)(?P<suffix>[A-Za-z]*)$")
+
+
+def parse_quantity(key: str, value: object) -> Decimal:
+    """A Kubernetes quantity (``"500m"``, ``"1.5Gi"``, ``2``) in base units."""
+    match = _QUANTITY_RE.match(str(value).strip())
+    if match is None or match["suffix"] not in _QUANTITY_SUFFIXES:
+        raise ValueError(f"resources.{key} {value!r} is not a valid Kubernetes quantity")
+    return Decimal(match["number"]) * _QUANTITY_SUFFIXES[match["suffix"]]
+
+
+def validate_resources(resources: dict | None) -> None:
+    """Reject a malformed ``cpu`` / ``memory`` quantity in ``requests`` or
+    ``limits`` at submission, for every runner. Other keys (GPUs, storage)
+    pass through to Kubernetes unchecked."""
+    for section in ("requests", "limits"):
+        values = (resources or {}).get(section) or {}
+        if not isinstance(values, dict):
+            raise ValueError(f"resources.{section} must be a mapping, got {values!r}")
+        for key in ("cpu", "memory"):
+            if (value := values.get(key)) is not None:
+                parse_quantity(f"{section}.{key}", value)

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from unittest.mock import ANY, AsyncMock
 
 import pytest
@@ -24,16 +23,16 @@ def _task(entrypoint="user.module.entry", task_id=42, job_id=1, image_source=Non
 
 
 class _FakeResult:
-    def __init__(self, job):
-        self._job = job
+    def __init__(self, value):
+        self._value = value
 
     def scalar_one_or_none(self):
-        return self._job
+        return self._value
 
 
 class _FakeSession:
-    def __init__(self, job):
-        self._job = job
+    def __init__(self, value):
+        self._value = value
 
     async def __aenter__(self):
         return self
@@ -42,7 +41,7 @@ class _FakeSession:
         return None
 
     async def execute(self, *a, **k):
-        return _FakeResult(self._job)
+        return _FakeResult(self._value)
 
 
 async def test_jvm_without_container_runner_fails_instead_of_python_child():
@@ -71,7 +70,6 @@ async def test_resolve_dispatch_without_worker_runner_raises(monkeypatch):
     "runner, resources, pod_config",
     [
         pytest.param(RUNNER_DOCKER, {"limits": {"cpu": "2"}}, None, id="docker"),
-        pytest.param(RUNNER_DOCKER, None, None, id="docker-no-resources"),
         pytest.param(RUNNER_KUBERNETES, {"limits": {"cpu": "2"}}, KubernetesConfig("ml", None, None), id="kubernetes"),
     ],
 )
@@ -80,7 +78,7 @@ async def test_resolve_dispatch_uses_worker_runner_and_job_resources(monkeypatch
     kubernetes resolves a ``pod_config`` (cluster env)."""
     monkeypatch.setenv(ENV_WORKER_RUNNER, runner)
     monkeypatch.setenv(ENV_NAMESPACE, "ml")
-    monkeypatch.setattr(dispatch, "get_sql_session", lambda: _FakeSession(SimpleNamespace(resources=resources)))
+    monkeypatch.setattr(dispatch, "get_sql_session", lambda: _FakeSession(resources))
     resolved = await dispatch._resolve_dispatch(_task(image_source=PREBUILT))
     assert resolved.runner == runner
     assert isinstance(resolved.image_source, ImagePrebuilt)

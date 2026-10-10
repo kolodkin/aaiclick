@@ -410,7 +410,7 @@ runtime requirements, see [Container Images](container_images.md).
 run_job(name, image="python:3.12", resources={"limits": {"cpu": "500m", "memory": "512Mi"}})
 ```
 
-A malformed quantity fails the task at dispatch rather than launching it unbounded.
+A malformed `cpu` / `memory` quantity is rejected when the job is registered or run.
 
 ## Shell tasks
 

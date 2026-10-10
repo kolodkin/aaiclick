@@ -47,8 +47,7 @@ async def _resolve_dispatch(task: Task) -> JobDispatch:
     require_container_runner(task, runner)
     source = parse_image_source(task.image_source)
     async with get_sql_session() as session:
-        job = (await session.execute(select(Job).where(Job.id == task.job_id))).scalar_one_or_none()
-    resources = job.resources if job is not None else None
+        resources = (await session.execute(select(Job.resources).where(Job.id == task.job_id))).scalar_one_or_none()
     pod_config = resolve_pod_config() if runner == RUNNER_KUBERNETES else None
     return JobDispatch(runner, pod_config, task.entry_type, task.command, task.command_env, source, resources)
 

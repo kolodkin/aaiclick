@@ -164,8 +164,11 @@ ignores them and applies `limits` only.
 Both are resolved on the **worker at dispatch** and handed to the vehicle as
 `JobDispatch.pod_config` and `JobDispatch.resources`.
 
+`cpu` / `memory` quantities are validated at submission for both runners.
+
 **Implementation**: `aaiclick/orchestration/kubernetes_config.py` — see
-`resolve_pod_config()`; `aaiclick/orchestration/docker_config.py` — see
+`resolve_pod_config()`; `aaiclick/orchestration/runner_config.py` — see
+`validate_resources()`; `aaiclick/orchestration/docker_config.py` — see
 `resource_flags()`.
 
 # Selection and dispatch

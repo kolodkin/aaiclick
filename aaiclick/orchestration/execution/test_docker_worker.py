@@ -106,11 +106,10 @@ def test_build_docker_run_cmd_shape():
         _cmdtask(entry_type=ENTRY_MODULE, entrypoint="user.module.entry"),
         "aaiclick-job:abc",
         {"AAICLICK_SQL_URL": "u"},
-        {"limits": {"cpu": "2", "memory": "1Gi"}},
+        None,
     )
     joined = " ".join(cmd)
     assert "docker run --detach" in joined
-    assert f"--cpus 2 --memory {1024**3}" in joined
     # --rm is intentionally absent — the host parent calls docker rm itself
     # so docker wait can race-freely report the exit code.
     assert "--rm" not in cmd

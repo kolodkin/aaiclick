@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import pytest
 from pydantic import ValidationError
 
@@ -6,7 +8,9 @@ from aaiclick.orchestration.runner_config import (
     ImagePrebuilt,
     dump_image_source,
     parse_image_source,
+    parse_quantity,
     validate_image_exclusivity,
+    validate_resources,
     validate_task_entry,
 )
 
@@ -90,3 +94,38 @@ def test_image_source_round_trip(source):
 def test_parse_image_source_rejects_unknown_type():
     with pytest.raises(ValidationError):
         parse_image_source({"type": "carrier-pigeon"})
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        pytest.param("500m", Decimal("0.5"), id="milli"),
+        pytest.param(".5", Decimal("0.5"), id="leading-dot"),
+        pytest.param(2, Decimal(2), id="json-number"),
+        pytest.param("1.5Gi", Decimal(3 * 512 * 1024**2), id="binary-fraction"),
+        pytest.param("1k", Decimal(1000), id="decimal-kilo"),
+        pytest.param("2E", Decimal(2 * 1000**6), id="exa-not-exponent"),
+        pytest.param("1e3", Decimal(1000), id="exponent"),
+    ],
+)
+def test_parse_quantity(value, expected):
+    assert parse_quantity("limits.cpu", value) == expected
+
+
+@pytest.mark.parametrize(
+    "resources, match",
+    [
+        pytest.param({"limits": {"cpu": "fast"}}, "limits.cpu", id="garbage"),
+        pytest.param({"requests": {"memory": "1Xi"}}, "requests.memory", id="bad-suffix"),
+        pytest.param({"limits": {"memory": "-1Gi"}}, "limits.memory", id="negative"),
+        pytest.param({"limits": "2"}, "resources.limits must be a mapping", id="not-a-mapping"),
+    ],
+)
+def test_validate_resources_rejects(resources, match):
+    with pytest.raises(ValueError, match=match):
+        validate_resources(resources)
+
+
+def test_validate_resources_passes_other_keys_through():
+    """GPUs and storage are Kubernetes-only; they are not parsed here."""
+    validate_resources({"limits": {"cpu": "1", "nvidia.com/gpu": 1, "ephemeral-storage": "anything"}})

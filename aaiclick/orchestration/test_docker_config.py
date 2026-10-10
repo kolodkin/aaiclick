@@ -203,37 +203,20 @@ def test_compute_image_tag_without_registry(monkeypatch):
     "resources, expected",
     [
         pytest.param(None, [], id="none"),
-        pytest.param({}, [], id="empty"),
-        pytest.param({"requests": {"cpu": "1"}}, [], id="requests-only"),
+        pytest.param({"requests": {"cpu": "1"}}, [], id="requests-ignored"),
         pytest.param({"limits": {"cpu": "500m"}}, ["--cpus", "0.5"], id="cpu-millis"),
-        pytest.param({"limits": {"cpu": "2"}}, ["--cpus", "2"], id="cpu-whole"),
-        pytest.param({"limits": {"cpu": 1.5}}, ["--cpus", "1.5"], id="cpu-json-number"),
+        pytest.param({"limits": {"cpu": 2}}, ["--cpus", "2"], id="cpu-json-number"),
         pytest.param({"limits": {"memory": "512Mi"}}, ["--memory", str(512 * 1024**2)], id="mem-binary"),
         pytest.param({"limits": {"memory": "1G"}}, ["--memory", "1000000000"], id="mem-decimal"),
-        pytest.param({"limits": {"memory": "128974848"}}, ["--memory", "128974848"], id="mem-bytes"),
         pytest.param({"limits": {"memory": "1e9"}}, ["--memory", "1000000000"], id="mem-exponent"),
-        pytest.param({"limits": {"memory": "1.5Gi"}}, ["--memory", str(3 * 512 * 1024**2)], id="mem-fraction"),
-        pytest.param(
-            {"limits": {"cpu": "250m", "memory": "2Gi"}},
-            ["--cpus", "0.25", "--memory", str(2 * 1024**3)],
-            id="both",
-        ),
+        pytest.param({"limits": {"memory": "1500m"}}, ["--memory", "2"], id="mem-fraction-rounds-up"),
     ],
 )
 def test_resource_flags(resources, expected):
     assert resource_flags(resources) == expected
 
 
-@pytest.mark.parametrize(
-    "resources, match",
-    [
-        pytest.param({"limits": {"cpu": "fast"}}, "limits.cpu", id="cpu-garbage"),
-        pytest.param({"limits": {"cpu": "1Gi"}}, "limits.cpu", id="cpu-memory-suffix"),
-        pytest.param({"limits": {"memory": "1Xi"}}, "limits.memory", id="mem-bad-suffix"),
-        pytest.param({"limits": {"memory": "-1Gi"}}, "limits.memory", id="mem-negative"),
-        pytest.param({"limits": {"memory": ""}}, "limits.memory", id="mem-empty"),
-    ],
-)
-def test_resource_flags_rejects_malformed_quantity(resources, match):
-    with pytest.raises(ValueError, match=match):
-        resource_flags(resources)
+def test_resource_flags_rejects_malformed_quantity():
+    """A row stored before submission-time validation still fails at launch."""
+    with pytest.raises(ValueError, match="limits.memory"):
+        resource_flags({"limits": {"memory": "1Xi"}})

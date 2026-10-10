@@ -8,10 +8,8 @@ used by the build task and host runner.
 from __future__ import annotations
 
 import hashlib
+import math
 import os
-import re
-from collections.abc import Mapping
-from decimal import Decimal
 from typing import Literal, NamedTuple
 
 from .execution import cli
@@ -24,29 +22,12 @@ from .runner_config import (
     ImagePrebuilt,
     ImageSourceT,
     build_requested,
+    parse_quantity,
 )
 
 BUILD_MODE_REGISTRY = "registry"
 BUILD_MODE_LOCAL = "local"
 BuildMode = Literal["registry", "local"]
-
-# Kubernetes quantity suffixes → byte multipliers (binary and decimal SI).
-_MEMORY_SUFFIXES: dict[str, int] = {
-    "": 1,
-    "k": 10**3,
-    "M": 10**6,
-    "G": 10**9,
-    "T": 10**12,
-    "P": 10**15,
-    "E": 10**18,
-    "Ki": 1024,
-    "Mi": 1024**2,
-    "Gi": 1024**3,
-    "Ti": 1024**4,
-    "Pi": 1024**5,
-    "Ei": 1024**6,
-}
-_QUANTITY_RE = re.compile(r"^(?P<number>[0-9]+(?:\.[0-9]*)?(?:[eE][+-]?[0-9]+)?)(?P<suffix>[A-Za-z]*)$")
 
 
 class GitDetectionError(RuntimeError):
@@ -264,32 +245,17 @@ def add_host_flags(env_var: str) -> list[str]:
     return flags
 
 
-def _parse_quantity(key: str, value: object, suffixes: Mapping[str, int | Decimal]) -> Decimal:
-    """Parse a Kubernetes quantity (``"500m"``, ``"1.5Gi"``, ``2``) into its
-    base unit, accepting only the ``suffixes`` the field allows."""
-    match = _QUANTITY_RE.match(str(value).strip())
-    if match is None or match["suffix"] not in suffixes:
-        raise ValueError(f"resources.{key} {value!r} is not a valid Kubernetes quantity")
-    return Decimal(match["number"]) * suffixes[match["suffix"]]
-
-
 def resource_flags(resources: dict | None) -> list[str]:
-    """``docker run`` flags for a job's Kubernetes-style ``resources``.
-
-    Only ``limits`` map onto docker: ``limits.cpu`` → ``--cpus`` (``"500m"`` →
-    ``0.5``) and ``limits.memory`` → ``--memory`` in bytes (binary ``Mi``/``Gi``
-    and decimal ``M``/``G`` suffixes, plain bytes, exponents). ``requests`` are a
-    scheduling guarantee a single docker host cannot give, so they are ignored.
-    A malformed quantity raises ``ValueError`` so the task fails instead of
-    launching unbounded."""
-    if not resources:
-        return []
-    limits = resources.get("limits") or {}
+    """``docker run`` flags for a job's Kubernetes-style ``resources``:
+    ``limits.cpu`` → ``--cpus`` (``"500m"`` → ``0.5``) and ``limits.memory`` →
+    ``--memory`` in bytes. ``requests`` are a scheduling guarantee a single
+    docker host cannot give, so they are ignored. Quantities are validated at
+    submission (``validate_resources``); a malformed one stored earlier still
+    raises ``ValueError`` here rather than launching unbounded."""
+    limits = (resources or {}).get("limits") or {}
     flags: list[str] = []
     if (cpu := limits.get("cpu")) is not None:
-        cpus = _parse_quantity("limits.cpu", cpu, {"": 1, "m": Decimal("0.001")})
-        flags.extend(["--cpus", format(cpus.normalize(), "f")])
+        flags.extend(["--cpus", format(parse_quantity("limits.cpu", cpu).normalize(), "f")])
     if (memory := limits.get("memory")) is not None:
-        size = _parse_quantity("limits.memory", memory, _MEMORY_SUFFIXES)
-        flags.extend(["--memory", str(int(size))])
+        flags.extend(["--memory", str(math.ceil(parse_quantity("limits.memory", memory)))])
     return flags
