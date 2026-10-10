@@ -401,10 +401,10 @@ runtime requirements, see [Container Images](container_images.md).
 (`register-job` default, overridable per `run_job`), with Kubernetes quantities
 (`"500m"`, `"2"`, `"512Mi"`, `"1G"`):
 
-| Runner     | `limits`                                              | `requests`                            |
-|------------|-------------------------------------------------------|---------------------------------------|
-| kubernetes | Pod container `resources`, verbatim                   | Pod container `resources`, verbatim   |
-| docker     | `limits.cpu` → `--cpus`, `limits.memory` → `--memory` | not applied; the worker logs a warning |
+| Runner     | `limits`                                              | `requests`                          |
+|------------|-------------------------------------------------------|-------------------------------------|
+| kubernetes | Pod container `resources`, verbatim                   | Pod container `resources`, verbatim |
+| docker     | `limits.cpu` → `--cpus`, `limits.memory` → `--memory` | ignored                             |
 
 ```python
 run_job(name, image="python:3.12", resources={"limits": {"cpu": "500m", "memory": "512Mi"}})

@@ -158,8 +158,8 @@ snapshot: `run_job` kwarg → registration default → `None`), exposed as
 rides on `JobDispatch.resources`, not the Pod config, because the docker runner
 applies it too: `limits.cpu` → `--cpus`, `limits.memory` → `--memory`, with
 Kubernetes quantities converted (`500m` → `0.5`, `512Mi` → bytes). `requests`
-have nothing to schedule against on a single docker host, so that runner logs a
-warning and applies `limits` only.
+have nothing to schedule against on a single docker host, so that runner
+ignores them and applies `limits` only.
 
 Both are resolved on the **worker at dispatch** and handed to the vehicle as
 `JobDispatch.pod_config` and `JobDispatch.resources`.

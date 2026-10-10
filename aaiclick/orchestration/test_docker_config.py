@@ -237,18 +237,3 @@ def test_resource_flags(resources, expected):
 def test_resource_flags_rejects_malformed_quantity(resources, match):
     with pytest.raises(ValueError, match=match):
         resource_flags(resources)
-
-
-def test_resource_flags_warns_on_requests(caplog):
-    """Docker has no scheduler, so ``requests`` cannot be honoured; say so
-    rather than silently dropping them."""
-    with caplog.at_level("WARNING", logger="aaiclick.orchestration.docker_config"):
-        flags = resource_flags({"requests": {"cpu": "1"}, "limits": {"cpu": "2"}})
-    assert flags == ["--cpus", "2"]
-    assert "requests" in caplog.text and "docker" in caplog.text
-
-
-def test_resource_flags_limits_only_does_not_warn(caplog):
-    with caplog.at_level("WARNING", logger="aaiclick.orchestration.docker_config"):
-        resource_flags({"limits": {"cpu": "2"}})
-    assert caplog.text == ""

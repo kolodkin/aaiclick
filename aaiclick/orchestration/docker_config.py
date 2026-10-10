@@ -8,7 +8,6 @@ used by the build task and host runner.
 from __future__ import annotations
 
 import hashlib
-import logging
 import os
 import re
 from collections.abc import Mapping
@@ -26,8 +25,6 @@ from .runner_config import (
     ImageSourceT,
     build_requested,
 )
-
-logger = logging.getLogger(__name__)
 
 BUILD_MODE_REGISTRY = "registry"
 BUILD_MODE_LOCAL = "local"
@@ -282,18 +279,11 @@ def resource_flags(resources: dict | None) -> list[str]:
     Only ``limits`` map onto docker: ``limits.cpu`` → ``--cpus`` (``"500m"`` →
     ``0.5``) and ``limits.memory`` → ``--memory`` in bytes (binary ``Mi``/``Gi``
     and decimal ``M``/``G`` suffixes, plain bytes, exponents). ``requests`` are a
-    scheduling guarantee a single docker host cannot give, so they are not
-    mapped; a warning says so rather than dropping them silently. A malformed
-    quantity raises ``ValueError`` so the task fails instead of launching
-    unbounded."""
+    scheduling guarantee a single docker host cannot give, so they are ignored.
+    A malformed quantity raises ``ValueError`` so the task fails instead of
+    launching unbounded."""
     if not resources:
         return []
-    if resources.get("requests"):
-        logger.warning(
-            "resources.requests %s are not honoured by the docker runner (no scheduler to reserve against); "
-            "only limits apply",
-            resources["requests"],
-        )
     limits = resources.get("limits") or {}
     flags: list[str] = []
     if (cpu := limits.get("cpu")) is not None:
