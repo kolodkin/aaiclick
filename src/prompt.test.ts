@@ -16,6 +16,11 @@ describe("viewer routes", () => {
     expect(parsePrompt(prompt)).toEqual(route);
   });
 
+  test("sandbox routes", () => {
+    expect(parsePrompt("@sandbox")).toEqual({ kind: "sandbox" });
+    expect(parsePrompt("@sandbox 42")).toEqual({ kind: "sandbox-file", id: "42" });
+  });
+
   test("existing routes still parse", () => {
     expect(parsePrompt("@jobs")).toEqual({ kind: "jobs" });
     expect(parsePrompt("@job x graph")).toEqual({ kind: "job", name: "x", view: "graph" });

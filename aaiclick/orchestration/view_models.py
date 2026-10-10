@@ -27,6 +27,8 @@ from .models import (
     PreservationMode,
     RegisteredJob,
     RunType,
+    SandboxFile,
+    SandboxStatus,
     Task,
     TaskStatus,
 )
@@ -239,6 +241,28 @@ class RegisteredJobView(BaseModel):
     updated_at: datetime
 
 
+class SandboxFileView(BaseModel):
+    """A sandbox submission as listed by ``GET /sandbox``."""
+
+    id: SnowflakeId
+    name: str
+    path: str
+    git_sha: str
+    job_names: list[str]
+    job_ids: list[SnowflakeId] | None = None
+    status: SandboxStatus
+    error: str | None = None
+    submitted_by: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SandboxFileDetailView(SandboxFileView):
+    """``SandboxFileView`` plus the committed source, for ``GET /sandbox/{id}``."""
+
+    source: str
+
+
 def _ms_between(start: datetime | None, end: datetime | None) -> int | None:
     if start is None or end is None:
         return None
@@ -445,6 +469,22 @@ def registered_job_to_view(rj: RegisteredJob) -> RegisteredJobView:
         next_run_at=rj.next_run_at,
         created_at=rj.created_at,
         updated_at=rj.updated_at,
+    )
+
+
+def sandbox_file_to_view(row: SandboxFile, username: str | None) -> SandboxFileView:
+    return SandboxFileView(
+        id=row.id,
+        name=row.name,
+        path=row.path,
+        git_sha=row.git_sha,
+        job_names=row.job_names,
+        job_ids=row.job_ids,
+        status=row.status,
+        error=row.error,
+        submitted_by=username,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
     )
 
 

@@ -28,6 +28,7 @@ from pathlib import Path
 
 import pytest
 from job_wait import run_worker_until_done
+from sandbox_e2e import run_sandbox_submission
 
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.docker_config import compute_image_tag
@@ -278,3 +279,10 @@ async def test_docker_runner_shell_nonzero_fails(orch_ctx, tmp_path):
         await bg_worker.stop()
 
     assert completed.status == JOB_FAILED, completed.status
+
+
+@pytest.mark.docker_e2e
+async def test_docker_runner_sandbox_submission(orch_ctx, sandbox_remote, tmp_path):
+    """A sandbox submission is committed into an empty remote and every ``@job``
+    in it runs on the docker runner, built on the default Dockerfile."""
+    await run_sandbox_submission(sandbox_remote, tmp_path / "clone", max_tasks=10)

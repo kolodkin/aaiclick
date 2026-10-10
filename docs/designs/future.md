@@ -5,6 +5,35 @@ Planned work across aaiclick, ordered by priority.
 
 ---
 
+# Task Code Runs With Database Credentials
+
+Open for discussion before the sandbox is enabled anywhere shared.
+
+Every `module` and `jvm` task container receives `build_runner_env()`,
+which includes `AAICLICK_SQL_URL` and `AAICLICK_CH_URL`. Any code a task runs
+can therefore read or write every table in both databases. Registering or
+running a regular job is admin-only (`POST /jobs:run`, `register-job`, and the
+matching MCP tools), so that matches the admin's own access.
+
+Sandbox jobs are the one exception: they are the only jobs a viewer, or any
+other non-admin role, can issue. Any signed-in role can submit a file whose
+jobs run with those credentials. Viewer submission is the
+sandbox's design and stays; the fix belongs on the credentials side, since in
+practice a viewer today gets database-level access, more than an admin session
+grants through the API.
+
+Options to weigh:
+
+- Give task containers scoped credentials: a per-job or per-run database role
+  limited to that job's tables and the result rows it writes.
+- Run sandbox jobs against a separate, disposable database pair.
+
+**Implementation**: `aaiclick/orchestration/execution/runner_env.py` — see
+`build_runner_env()`; `aaiclick/server/routers/sandbox.py` — see
+`submit_sandbox_file`.
+
+---
+
 # Blob Storage Support
 
 Read-only Objects over files in S3 / GCS / Azure Blob through ClickHouse's
@@ -32,7 +61,7 @@ honour dependency manifests found in the checkout: `requirements.txt`,
 `uv.lock` / `pyproject.toml` (`uv sync` or `pip install .`), and `pom.xml` for
 `jvm` tasks. Each adds a `RUN` layer to the default Dockerfile only when the
 file is present. Until then, a repo with dependencies checks in its own
-Dockerfile.
+Dockerfile — the sandbox repo included (`docs/user_guide/sandbox.md`).
 
 ---
 

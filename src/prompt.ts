@@ -22,6 +22,8 @@ export type Route =
   | { kind: "data"; job: string | null; object: string | null }
   | { kind: "query"; job: string | null; object: string | null }
   | { kind: "dashboard"; name: string | null }
+  | { kind: "sandbox" }
+  | { kind: "sandbox-file"; id: string }
   | { kind: "unknown"; raw: string };
 
 // `[job <ref>] [<object>]` after `@data` / `@query`.
@@ -46,6 +48,8 @@ export function parsePrompt(raw: string): Route {
   if (p === "@users") return { kind: "users" };
   if (p === "@invite") return { kind: "invite" };
   if (p === "@audit") return { kind: "audit" };
+  if (p === "@sandbox") return { kind: "sandbox" };
+  if (p.startsWith("@sandbox ")) return { kind: "sandbox-file", id: p.slice(9).trim() };
   if (p.startsWith("reset ")) return { kind: "reset", token: p.slice(6).trim() };
   if (p === "register") return { kind: "register", name: "" };
   if (p.startsWith("register ")) return { kind: "register", name: p.slice(9).trim() };

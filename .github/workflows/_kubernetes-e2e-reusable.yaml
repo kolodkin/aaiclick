@@ -144,6 +144,21 @@ jobs:
           VERSION="${{ inputs.version_pin }}"
           uv pip install "aaiclick[distributed]==${VERSION#v}"
 
+      # A git build whose repo has no Dockerfile layers on the aaiclick base
+      # image at the worker's version, and no published image matches the
+      # wheel under test. Build that base from the same wheel on the runner's
+      # daemon — the build task runs there — and point the worker at it via
+      # AAICLICK_BASE_IMAGE below (mirrors the docker e2e).
+      - name: Resolve the installed aaiclick version
+        id: wheel
+        run: echo "version=$(uv run --no-project python -c "import importlib.metadata as m; print(m.version('aaiclick'))")" >> "$GITHUB_OUTPUT"
+
+      - name: Build base image from the wheel under test
+        uses: ./.github/actions/build-base-image
+        with:
+          version: ${{ steps.wheel.outputs.version }}
+          tag: aaiclick-e2e-base:local
+
       # --- Common: migrations, test ---------------------------------------
 
       - name: Run database migrations
@@ -155,6 +170,7 @@ jobs:
           # AAICLICK_SQL_URL / AAICLICK_CH_URL come from the "Wire host DSNs" step.
           AAICLICK_RUNNER: "kubernetes"
           AAICLICK_REGISTRY: "localhost:5000"
+          AAICLICK_BASE_IMAGE: "aaiclick-e2e-base:local"
           AAICLICK_PIP_INDEX_URL: "http://host.docker.internal:8080/simple/"
           AAICLICK_PIP_TRUSTED_HOST: "host.docker.internal"
           AAICLICK_DOCKER_BUILD_ADD_HOST: "host.docker.internal:host-gateway"
