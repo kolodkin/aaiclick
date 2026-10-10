@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from job_wait import wait_for_job_by_name
+from job_wait import run_worker_until_done, wait_for_job_by_name
 from sqlmodel import select
 
 from aaiclick.internal_api.sandbox import submit_sandbox_file
@@ -90,17 +90,7 @@ async def test_kubernetes_runner_smoke(orch_ctx, kubernetes_e2e_user_repo):
 
     _aaiclick("run-job", job_name, "--git-sha", sha, cwd=worktree)
 
-    worker_task = asyncio.create_task(
-        mp_worker_main_loop(max_tasks=10, install_signal_handlers=False, max_empty_polls=10)
-    )
-    try:
-        completed = await wait_for_job_by_name(job_name)
-    finally:
-        worker_task.cancel()
-        try:
-            await worker_task
-        except asyncio.CancelledError:
-            pass
+    completed = await run_worker_until_done(job_name)
 
     assert completed.status == JOB_COMPLETED, completed.error
 
@@ -154,17 +144,7 @@ async def test_kubernetes_runner_shell_command_env(orch_ctx, tmp_path):
         cwd=tmp_path,
     )
 
-    worker_task = asyncio.create_task(
-        mp_worker_main_loop(max_tasks=10, install_signal_handlers=False, max_empty_polls=10)
-    )
-    try:
-        completed = await wait_for_job_by_name(job_name)
-    finally:
-        worker_task.cancel()
-        try:
-            await worker_task
-        except asyncio.CancelledError:
-            pass
+    completed = await run_worker_until_done(job_name)
 
     assert completed.status == JOB_COMPLETED, completed.error
     tasks = await get_tasks_for_job(completed.id)

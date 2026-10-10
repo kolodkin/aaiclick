@@ -125,8 +125,8 @@ they cannot build in parallel per-image. They parallelize per-platform instead, 
 the larger win — a QEMU-emulated arm64 leg would otherwise dominate the build time:
 
 - Matrix over `platform: [amd64, arm64]`. Each leg runs a local pypiserver serving the wheel
-  artifact, builds the three images in FROM order natively (`PIP_INDEX_URL` build-arg already
-  exists in `docker/Dockerfile`), and pushes per-arch digests to GHCR.
+  artifact, builds the three images in FROM order natively (the base through
+  `.github/actions/build-base-image`), and pushes per-arch digests to GHCR.
 - A merge job assembles the multi-arch `vX.Y.Z-rc` manifest per image with
   `docker buildx imagetools create` (matrix over the three image names).
 - arm64 leg runs on the `ubuntu-24.04-arm` native runner.
@@ -148,7 +148,7 @@ test-package, test-compose-e2e, test-helm-e2e, test-package-docker-e2e;
 | test-package             | Existing data/orch matrix; infra now comes from the scaffolded compose file (full stack up), waiting for the compose `migrate` service to exit 0, instead of `services:` blocks |
 | test-compose-e2e         | Scaffold via `compose init`, point tags at `-rc`, `docker compose up`, wait for server health, then `docker compose exec` into the server container to register/run a job via the CLI and poll `job list --json` for completion |
 | test-helm-e2e            | kind cluster with the `-rc` images side-loaded (`kind load docker-image`), `k8s init` scaffolded chart, `helm lint` + `helm install`, then a server-health port-forward smoke and a `kubectl exec` job round trip (`register-job` / `run-job` / `job list --json`) |
-| test-package-docker-e2e  | Existing `_docker-e2e-reusable.yaml` release gate, unchanged                 |
+| test-package-docker-e2e  | Existing `_docker-e2e-reusable.yaml` release gate; `base_image` is the `-rc` base, so git builds without a Dockerfile layer on the promoted digest |
 
 ## promote-images
 

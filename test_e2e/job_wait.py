@@ -8,6 +8,7 @@ nothing from the change signals ``cli_wait.wait_for_job`` uses.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from datetime import timedelta
 
 from sqlmodel import col, select
@@ -48,15 +49,19 @@ async def wait_for_job_by_name(job_name: str, timeout: float | None = None) -> J
 
 async def run_worker_until_done(job_name: str) -> Job:
     """Drive an mp worker loop in the background until the job named
-    ``job_name`` reaches a terminal status, then stop the loop."""
+    ``job_name`` reaches a terminal status, then stop the loop. A worker
+    crash surfaces at once rather than after the job wait times out."""
     worker_task = asyncio.create_task(
         mp_worker_main_loop(max_tasks=10, install_signal_handlers=False, max_empty_polls=10)
     )
+    waiter = asyncio.create_task(wait_for_job_by_name(job_name))
     try:
-        return await wait_for_job_by_name(job_name)
+        done, _ = await asyncio.wait({worker_task, waiter}, return_when=asyncio.FIRST_COMPLETED)
+        if waiter not in done:
+            worker_task.result()
+        return await waiter
     finally:
-        worker_task.cancel()
-        try:
-            await worker_task
-        except asyncio.CancelledError:
-            pass
+        for task in (worker_task, waiter):
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task

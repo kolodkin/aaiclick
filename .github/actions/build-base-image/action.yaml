@@ -1,0 +1,28 @@
+name: Build base image
+description: >-
+  Build the aaiclick base image (docker/Dockerfile) from a wheel on the
+  local pypiserver. --network=host reaches the index on localhost, which
+  pip trusts for plain HTTP; docker/ is the context so the workspace is
+  not sent to the daemon.
+
+inputs:
+  version:
+    description: "Version of the wheel to install; a leading v is dropped."
+    required: true
+  tag:
+    description: "Image reference to tag the result with."
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Build base image
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        TAG: ${{ inputs.tag }}
+      run: |
+        docker build --network=host -f docker/Dockerfile \
+          --build-arg AAICLICK_VERSION="${VERSION#v}" \
+          --build-arg PIP_INDEX_URL="http://localhost:8080/simple/" \
+          -t "${TAG}" docker/
