@@ -1,8 +1,8 @@
 """The user-visible runner flows shared by the docker and kubernetes e2e suites.
 
-Each suite's test is a marker plus one call here, so the two nightlies prove
-the same path and differ only in the runner-specific assertions a suite adds
-after the call (a kubernetes Secret being gone, say).
+A suite calls these helpers and adds only its runner-specific assertions
+after them (a kubernetes Secret being gone, a jvm task's image), so both
+nightlies prove the same path.
 """
 
 from __future__ import annotations
@@ -44,77 +44,55 @@ def aaiclick_cli(*args: str, cwd: Path) -> subprocess.CompletedProcess:
     return proc
 
 
-async def run_smoke_flow(job_name: str, user_repo: tuple[str, str, Path]) -> list[Task]:
-    """``register-job --build`` → ``run-job --git-sha`` → worker → every task
-    completed and the chain's result read back through ClickHouse.
-
-    ``user_repo`` is a published ``sample_job`` fixture ``(remote, sha, worktree)``.
-    Returns the job's tasks for any runner-specific assertion."""
+async def run_build_job(job_name: str, entrypoint: str, user_repo: tuple[str, str, Path], *run_args: str) -> list[Task]:
+    """``register-job --build`` → ``run-job --git-sha`` → worker → job and every
+    task ``COMPLETED``. ``user_repo`` is a published fixture ``(remote, sha,
+    worktree)``; ``run_args`` go to ``run-job``. Returns the job's tasks."""
     remote, sha, worktree = user_repo
-
-    aaiclick_cli(
-        "register-job",
-        "sample_jobs.entry_task",
-        "--name",
-        job_name,
-        "--build",
-        "--git-remote",
-        remote,
-        cwd=worktree,
-    )
-    aaiclick_cli("run-job", job_name, "--git-sha", sha, cwd=worktree)
+    aaiclick_cli("register-job", entrypoint, "--name", job_name, "--build", "--git-remote", remote, cwd=worktree)
+    aaiclick_cli("run-job", job_name, "--git-sha", sha, *run_args, cwd=worktree)
 
     completed = await run_worker_until_done(job_name)
     assert completed.status == JOB_COMPLETED, completed.error
 
     tasks = await get_tasks_for_job(completed.id)
+    non_terminal = [t for t in tasks if t.status != TASK_COMPLETED]
+    assert not non_terminal, [(t.entrypoint, t.status, t.error) for t in non_terminal]
+    return tasks
+
+
+async def run_smoke_flow(job_name: str, user_repo: tuple[str, str, Path]) -> None:
+    """Build the ``sample_job`` fixture and run its chain; the result is read back
+    through ClickHouse, proving Objects passed between containers."""
+    tasks = await run_build_job(job_name, "sample_jobs.entry_task", user_repo)
+
     # The image is a task property: the entry task carries the build source.
     entry = next(t for t in tasks if t.entrypoint == "sample_jobs.entry_task")
     assert entry.image_source is not None
     source = parse_image_source(entry.image_source)
     assert isinstance(source, ImageBuild)
-    assert source.git_sha == sha
-    assert compute_image_tag(source.git_sha).endswith(f":{sha}")
+    assert source.git_sha == user_repo[1]
+    assert compute_image_tag(source.git_sha).endswith(f":{source.git_sha}")
     entrypoints = {t.entrypoint for t in tasks}
-    assert {"sample_jobs.entry_task", "sample_jobs.produce", "sample_jobs.double", "sample_jobs.compute_sum"} <= (
-        entrypoints
-    ), entrypoints
-    non_terminal = [t for t in tasks if t.status != TASK_COMPLETED]
-    assert not non_terminal, [(t.entrypoint, t.status, t.error) for t in non_terminal]
+    assert {"sample_jobs.produce", "sample_jobs.double", "sample_jobs.compute_sum"} <= entrypoints, entrypoints
 
-    # produce([10, 20, 30]) → double → compute_sum = (10+20+30) * 2 = 120. Reading
-    # it back confirms Objects passed between containers via ClickHouse. Native
+    # produce([10, 20, 30]) → double → compute_sum = (10+20+30) * 2 = 120. Native
     # return values are wrapped as ``{"native_value": ...}`` in Task.result.
     summed = next(t for t in tasks if t.entrypoint == "sample_jobs.compute_sum")
     assert summed.result == {"native_value": {"total": 120}}, summed.result
-    return tasks
+
+
+def submit_shell_job(job_name: str, command: str, cwd: Path, *run_args: str) -> None:
+    """Register a job on the prebuilt ``python:3.12`` image (no git repo, no
+    build) and submit ``command`` as its shell entry; ``run_args`` go to ``run-job``."""
+    aaiclick_cli("register-job", "shell.placeholder", "--name", job_name, "--image", "python:3.12", cwd=cwd)
+    aaiclick_cli("run-job", job_name, "--entry-type", "shell", "--command", command, *run_args, cwd=cwd)
 
 
 async def run_shell_command_env_flow(job_name: str, cwd: Path) -> Task:
-    """A shell command in a prebuilt image (no git repo, no build) that exits 0
-    only if ``command_env`` arrived: the job completes with no auto-injected
-    build task, so the single task is the shell one. Returned for any
-    runner-specific follow-up assertion."""
-    aaiclick_cli(
-        "register-job",
-        "shell.placeholder",
-        "--name",
-        job_name,
-        "--image",
-        "python:3.12",
-        cwd=cwd,
-    )
-    aaiclick_cli(
-        "run-job",
-        job_name,
-        "--entry-type",
-        "shell",
-        "--command",
-        ASSERT_COMMAND_ENV,
-        "--command-env",
-        "K=v",
-        cwd=cwd,
-    )
+    """A shell command that exits 0 only if ``command_env`` arrived: the job
+    completes with no auto-injected build task. Returns the single shell task."""
+    submit_shell_job(job_name, ASSERT_COMMAND_ENV, cwd, "--command-env", "K=v")
 
     completed = await run_worker_until_done(job_name)
     assert completed.status == JOB_COMPLETED, completed.error

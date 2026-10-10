@@ -9,8 +9,7 @@ the ``python -m aaiclick`` CLI as a real user would, run from the
 user-repo working tree so the entrypoint resolves from it — exactly as an
 external user standing in their project.
 
-The flows shared with the kubernetes suite live in ``runner_flow``; the
-tests here add only what is docker-specific.
+Shared flows live in ``runner_flow``.
 
 Marked ``docker_e2e`` so it opts out of the default test run; both the
 nightly workflow and the publish-time release gate pass
@@ -28,11 +27,10 @@ import json
 
 import pytest
 from job_wait import run_worker_until_done
-from runner_flow import aaiclick_cli, run_shell_command_env_flow, run_smoke_flow
+from runner_flow import run_build_job, run_shell_command_env_flow, run_smoke_flow, submit_shell_job
 
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
-from aaiclick.orchestration.jobs.queries import get_tasks_for_job
-from aaiclick.orchestration.models import JOB_COMPLETED, JOB_FAILED, TASK_COMPLETED
+from aaiclick.orchestration.models import JOB_FAILED
 from aaiclick.orchestration.runner_config import ENTRY_JVM, ImagePrebuilt, parse_image_source
 
 
@@ -46,27 +44,8 @@ async def test_docker_runner_smoke(orch_ctx, docker_e2e_user_repo):
 @pytest.mark.docker_e2e
 async def test_docker_runner_default_dockerfile(orch_ctx, docker_e2e_bare_repo):
     """A user repo with no Dockerfile builds on the default layer over ``AAICLICK_BASE_IMAGE``."""
-    remote, sha, worktree = docker_e2e_bare_repo
-    job_name = "docker_e2e_default_dockerfile"
+    tasks = await run_build_job("docker_e2e_default_dockerfile", "bare_jobs.entry_task", docker_e2e_bare_repo)
 
-    aaiclick_cli(
-        "register-job",
-        "bare_jobs.entry_task",
-        "--name",
-        job_name,
-        "--build",
-        "--git-remote",
-        remote,
-        cwd=worktree,
-    )
-
-    aaiclick_cli("run-job", job_name, "--git-sha", sha, cwd=worktree)
-
-    completed = await run_worker_until_done(job_name)
-
-    assert completed.status == JOB_COMPLETED, completed.error
-
-    tasks = await get_tasks_for_job(completed.id)
     entry = next(t for t in tasks if t.entrypoint == "bare_jobs.entry_task")
     # cwd is the copied repo and the non-root user could write into it.
     assert entry.result == {"native_value": {"cwd": "/src", "user": "aaiclick"}}, (entry.result, entry.error)
@@ -80,37 +59,13 @@ async def test_docker_runner_jvm_task(orch_ctx, docker_e2e_user_repo, jvm_task_i
     into a JVM image, the shim reading an upstream Python result and writing
     its own result row over JDBC against PostgreSQL, and a Python task
     consuming the jvm return value downstream."""
-    remote, sha, worktree = docker_e2e_user_repo
-    job_name = "docker_e2e_jvm"
-
-    aaiclick_cli(
-        "register-job",
+    tasks = await run_build_job(
+        "docker_e2e_jvm",
         "sample_jobs.jvm_entry_task",
-        "--name",
-        job_name,
-        "--build",
-        "--git-remote",
-        remote,
-        cwd=worktree,
-    )
-
-    aaiclick_cli(
-        "run-job",
-        job_name,
-        "--git-sha",
-        sha,
+        docker_e2e_user_repo,
         "--kwargs",
         json.dumps({"jvm_image": jvm_task_image}),
-        cwd=worktree,
     )
-
-    completed = await run_worker_until_done(job_name)
-
-    assert completed.status == JOB_COMPLETED, completed.error
-
-    tasks = await get_tasks_for_job(completed.id)
-    non_terminal = [t for t in tasks if t.status != TASK_COMPLETED]
-    assert not non_terminal, [(t.entrypoint, t.status, t.error) for t in non_terminal]
 
     # The jvm task ran in the prebuilt fixture image, not the job's build image.
     summed = next(t for t in tasks if t.entry_type == ENTRY_JVM)
@@ -141,26 +96,7 @@ async def test_docker_runner_shell_prebuilt(orch_ctx, tmp_path):
 async def test_docker_runner_shell_nonzero_fails(orch_ctx, tmp_path):
     """A shell command that exits non-zero fails the job."""
     job_name = "docker_e2e_shell_nonzero"
-
-    aaiclick_cli(
-        "register-job",
-        "shell.placeholder",
-        "--name",
-        job_name,
-        "--image",
-        "python:3.12",
-        cwd=tmp_path,
-    )
-
-    aaiclick_cli(
-        "run-job",
-        job_name,
-        "--entry-type",
-        "shell",
-        "--command",
-        'python -c "import sys; sys.exit(7)"',
-        cwd=tmp_path,
-    )
+    submit_shell_job(job_name, 'python -c "import sys; sys.exit(7)"', tmp_path)
 
     # A failed task lands in PENDING_FAILURE_CLEANUP; the BackgroundWorker is what
     # transitions it to FAILED and then fails the job (the success path is

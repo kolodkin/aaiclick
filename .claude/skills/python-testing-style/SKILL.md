@@ -104,11 +104,11 @@ Internal tests are fine only when an end-to-end run can't reach the case: crash 
 
 Rule of thumb: if deleting a unit test would leave a behavior unproven by any e2e, keep it; if an e2e already fails when that behavior breaks, the unit test is redundant — don't write it.
 
-1. **Start from the real path.** One e2e per runner drives the whole flow the user sees (`register-job` → `run-job` → worker poll → build → run every task → job `COMPLETED`, task results correct). The docker and kubernetes nightlies share one flow function in `test_e2e/runner_flow.py`; each suite's test is a marker plus one call, and only runner-specific assertions follow it.
+1. **Start from the real path.** One e2e per runner drives the whole flow the user sees (`register-job` → `run-job` → worker poll → build → run every task → job `COMPLETED`, task results correct). The docker and kubernetes nightlies share their flows through `test_e2e/runner_flow.py`.
 2. **Add a unit test only when the e2e can't exercise it cheaply**: a pure function with many input shapes (one parametrized test, no DB), races and failure paths the e2e can't stage (two workers claiming one row, a dead worker, a stale fence, retry backoff), environment edges (a non-UTC `TZ`, `file://` vs `git://`).
 3. **Skip when a higher level already proves it.** No mocked re-run of a flow the e2e drives (stub the clone and build, then assert the fake was called), no delegation or routing test ("`run_image_build` calls `build_image_to_tag` with the tag"), no factory test the e2e's submission already covers. Router tests assert HTTP plumbing only — status, envelope, 404/409/422 — and leave filters and business logic to `internal_api` tests.
 4. **Every new test fails before the fix**, for the intended reason. If it passes on the old code, change the setup until it can fail (force the `TZ`, use `file://` so `--depth` bites, revert the fixed line and confirm red).
-5. **Share helpers instead of copying them**: `publish_user_repo` (`aaiclick/testing.py`), `run_worker_until_done` (`test_e2e/job_wait.py`), `aaiclick_cli`, `run_smoke_flow` and `run_shell_command_env_flow` (`test_e2e/runner_flow.py`).
+5. **Share helpers instead of copying them.** Check `aaiclick/testing.py`, `test_e2e/job_wait.py` and `test_e2e/runner_flow.py` before writing a fixture, a waiter or a CLI call.
 
 ```python
 # BAD — stubs clone, build, pull and preflight, then asserts the fake saw a Dockerfile;

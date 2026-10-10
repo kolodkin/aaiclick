@@ -7,8 +7,7 @@ fixture publishes the user repo into it). Both registration and submission go
 through the ``python -m aaiclick`` CLI from the user-repo working tree, exactly
 as an external user would.
 
-The flows shared with the docker suite live in ``runner_flow``; the tests
-here add only what is kubernetes-specific.
+Shared flows live in ``runner_flow``.
 
 Marked ``kubernetes_e2e`` so it opts out of the default test run; the workflow
 passes ``test_e2e/kubernetes/`` with ``-m kubernetes_e2e``."""
