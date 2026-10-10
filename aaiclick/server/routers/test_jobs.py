@@ -26,6 +26,7 @@ async def test_list_jobs_rejects_out_of_range_paging(orch_ctx, app_client):
 
 
 async def test_list_jobs_filter_by_status(orch_ctx, app_client):
+    """Plumbing: ``?status=`` binds into ``JobListFilter`` via ``Depends()``."""
     await create_job("http_status_job", simple_task)
 
     response = await app_client.get(

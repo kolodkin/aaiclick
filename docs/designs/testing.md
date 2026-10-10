@@ -117,3 +117,8 @@ full drop + `ch_upgrade` — needed in distributed mode, where
 3. mp-worker tests go in a dedicated `_mp.py` module.
 4. Helpers reusable across subpackages → `aaiclick/testing.py`.
    Otherwise → a local helper module next to the tests.
+5. Flows shared by the runner e2e suites → `test_e2e/runner_flow.py`;
+   the job waiter → `test_e2e/job_wait.py`.
+6. Test modules under `test_e2e/` need unique basenames: with no
+   `__init__.py`, the default `prepend` import mode can't collect two of the
+   same name. `importlib` mode would, but breaks the bare `from job_wait import …`.

@@ -24,6 +24,7 @@ from aaiclick.orchestration.docker_config import get_registry
 # functions has the same effect because pytest discovers fixtures by walking
 # the conftest module's namespace.
 from aaiclick.testing import (  # noqa: F401 - re-exported as pytest fixtures
+    UserRepo,
     orch_ctx,
     orch_ctx_no_ch,
     orch_module_ctx,
@@ -50,7 +51,7 @@ _JVM_TASK_IMAGE = "aaiclick-e2e-jvm-task:local"
 
 
 @pytest.fixture(scope="session")
-def docker_e2e_user_repo(tmp_path_factory: pytest.TempPathFactory) -> tuple[str, str, Path]:
+def docker_e2e_user_repo(tmp_path_factory: pytest.TempPathFactory) -> UserRepo:
     """Publish the shared ``sample_job`` fixture into the CI git daemon.
 
     See ``aaiclick.testing.publish_user_repo`` — the daemon is workflow
@@ -59,7 +60,7 @@ def docker_e2e_user_repo(tmp_path_factory: pytest.TempPathFactory) -> tuple[str,
 
 
 @pytest.fixture(scope="session")
-def docker_e2e_bare_repo(tmp_path_factory: pytest.TempPathFactory) -> tuple[str, str, Path]:
+def docker_e2e_bare_repo(tmp_path_factory: pytest.TempPathFactory) -> UserRepo:
     """Publish the ``bare_job`` fixture (a repo with no Dockerfile) into the CI git daemon."""
     return publish_user_repo(tmp_path_factory, _BARE_JOB)
 

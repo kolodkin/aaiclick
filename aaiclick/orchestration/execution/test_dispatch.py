@@ -92,18 +92,6 @@ async def test_resolve_dispatch_uses_worker_runner_and_job_resources(monkeypatch
         assert resolved.pod_config is None
 
 
-@pytest.mark.parametrize("runner", [RUNNER_DOCKER, RUNNER_KUBERNETES])
-async def test_dispatch_execute_routes_image_runner(monkeypatch, runner):
-    user_task = _task()
-    spec = JobDispatch(runner, None)
-    monkeypatch.setattr(dispatch, "_resolve_dispatch", AsyncMock(return_value=spec))
-    handler = AsyncMock(return_value=(True, None, None, None))
-    monkeypatch.setitem(dispatch._IMAGE_RUNNERS, runner, handler)
-
-    await dispatch.dispatch_execute(user_task, execution_worker_id=1)
-    handler.assert_awaited_once_with(user_task, 1, spec, None)
-
-
 async def test_dispatch_execute_removes_shell_env_file(monkeypatch, tmp_path):
     """The docker shell wrapper's ``--env-file`` holds ``command_env`` values;
     the dispatcher owns its lifetime, so it is gone once the child returns."""

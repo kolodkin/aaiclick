@@ -552,12 +552,20 @@ def _allow_any_sha(bare: Path) -> None:
     subprocess.run(["git", "-C", str(bare), "config", "uploadpack.allowAnySHA1InWant", "true"], check=True)
 
 
-def publish_user_repo(tmp_path_factory: pytest.TempPathFactory, fixture_dir: Path) -> tuple[str, str, Path]:
+class UserRepo(NamedTuple):
+    """A fixture repo published into the CI git daemon (see ``publish_user_repo``)."""
+
+    remote: str
+    sha: str
+    worktree: Path
+
+
+def publish_user_repo(tmp_path_factory: pytest.TempPathFactory, fixture_dir: Path) -> UserRepo:
     """Publish ``fixture_dir`` as a bare git repo into the CI git daemon.
 
-    Returns ``(remote_url, commit_sha, worktree)``. Shared by the docker and
-    kubernetes runner suites. ``worktree`` is the user-repo checkout the host
-    CLI runs from; ``remote_url`` is what the build clones at ``commit_sha``."""
+    Shared by the docker and kubernetes runner suites. ``worktree`` is the
+    user-repo checkout the host CLI runs from; ``remote`` is what the build
+    clones at ``sha``."""
     daemon = _git_daemon()
     worktree = tmp_path_factory.mktemp("user_repo")
     shutil.copytree(fixture_dir, worktree, dirs_exist_ok=True)
@@ -588,7 +596,7 @@ def publish_user_repo(tmp_path_factory: pytest.TempPathFactory, fixture_dir: Pat
     bare = daemon.base / name
     git(worktree, "clone", "-q", "--bare", str(worktree), str(bare))
     _allow_any_sha(bare)
-    return daemon.url(name), sha, worktree
+    return UserRepo(remote=daemon.url(name), sha=sha, worktree=worktree)
 
 
 @pytest.fixture(scope="session")
