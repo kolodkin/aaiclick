@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
+from ..testing import init_bare_repo
 from .paths import module_parts, submission_path
 from .repo import Author, SandboxGitError, SandboxPushRejected, SandboxRepo, get_sandbox_repo
 
@@ -28,18 +29,14 @@ def _commit_into(remote: Path, worktree: Path, filename: str, branch: str) -> No
 
 
 def _bare(tmp_path: Path, *, branch: str = "main", seed: bool = False) -> Path:
-    remote = tmp_path / "remote.git"
-    subprocess.run(["git", "init", "-q", "--bare", "-b", branch, str(remote)], check=True)
+    remote = init_bare_repo(tmp_path / "remote.git", branch)
     if seed:
         _commit_into(remote, tmp_path / "seed", "README", branch)
     return remote
 
 
-def _reject_twice():
-    async def fail(branch: str) -> None:
-        raise SandboxGitError("! [rejected] main -> main (non-fast-forward)")
-
-    return fail
+async def _rejected(branch: str) -> None:
+    raise SandboxGitError("! [rejected] main -> main (non-fast-forward)")
 
 
 async def test_first_submission_into_empty_remote_creates_main(tmp_path):
@@ -76,7 +73,7 @@ async def test_rejected_push_retries_once_then_raises(tmp_path):
     ok = await repo.commit_file("20261009/sb_2_b.py", "y\n", author=AUTHOR, message="m")
     assert _git(remote, "rev-parse", "main") == ok.sha
     assert _git(remote, "rev-parse", "main^^") != ok.sha
-    with patch.object(repo, "_push", side_effect=_reject_twice()):
+    with patch.object(repo, "_push", side_effect=_rejected):
         with pytest.raises(SandboxPushRejected):
             await repo.commit_file("20261009/sb_3_c.py", "z\n", author=AUTHOR, message="m")
 
@@ -93,13 +90,13 @@ def test_get_sandbox_repo_is_one_instance_per_remote(tmp_path, monkeypatch):
     assert get_sandbox_repo() is get_sandbox_repo()
 
 
-async def test_two_instances_on_one_workdir_serialize(tmp_path):
-    """Instances sharing a workdir (one per request today) must not run git
-    concurrently in it."""
+async def test_concurrent_submissions_serialize(tmp_path):
+    """Concurrent requests share one instance per remote and must not run git
+    concurrently in its clone."""
     remote = _bare(tmp_path, seed=True)
-    repos = [SandboxRepo(str(remote), tmp_path / "clone") for _ in range(2)]
+    repo = SandboxRepo(str(remote), tmp_path / "clone")
     results = await asyncio.gather(
-        *(repos[i % 2].commit_file(f"20261009/sb_{i}_a.py", f"x = {i}\n", author=AUTHOR, message="m") for i in range(4))
+        *(repo.commit_file(f"20261009/sb_{i}_a.py", f"x = {i}\n", author=AUTHOR, message="m") for i in range(4))
     )
     assert len({r.sha for r in results}) == 4
     assert _git(remote, "rev-list", "--count", "main") == "5"

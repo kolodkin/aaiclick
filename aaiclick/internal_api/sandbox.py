@@ -19,12 +19,8 @@ from aaiclick.sandbox.paths import submission_path
 from aaiclick.sandbox.repo import Author, SandboxGitError, SandboxPushRejected, SandboxRepo, get_sandbox_repo
 from aaiclick.view_models import Page, SandboxConfigView, SandboxFileFilter, SubmitSandboxRequest
 
-from .errors import Conflict, InternalApiError, Invalid, NotFound
+from .errors import Conflict, Invalid, NotFound, SandboxUnavailable
 from .pagination import paginate
-
-
-class SandboxUnavailable(InternalApiError):
-    """The sandbox repo could not be reached or updated (git failure)."""
 
 
 def _require_repo() -> SandboxRepo:
@@ -55,8 +51,10 @@ async def submit_sandbox_file(request: SubmitSandboxRequest, *, user: User | Non
     except SandboxSourceError as exc:
         raise Invalid(str(exc)) from exc
 
-    username = user.username if user is not None else "local"
-    author = Author(username, (user.email if user is not None else None) or f"{username}@sandbox")
+    username = user.username if user is not None else None
+    email = user.email if user is not None else None
+    author_name = username or "local"
+    author = Author(author_name, email or f"{author_name}@sandbox")
     try:
         committed = await repo.commit_file(
             submission_path(request.name, utc_now()),
@@ -82,15 +80,18 @@ async def submit_sandbox_file(request: SubmitSandboxRequest, *, user: User | Non
         session.add(row)
         await session.commit()
         await session.refresh(row)
-    return sandbox_file_to_view(row, user.username if user is not None else None)
+    return sandbox_file_to_view(row, username)
 
 
-async def _usernames(session: AsyncSession, rows: list[SandboxFile]) -> dict[int, str]:
+async def _views(session: AsyncSession, rows: list[SandboxFile]) -> list[SandboxFileView]:
+    """``rows`` as views, each with its submitter's username (``None`` for
+    local mode's synthetic admin)."""
     ids = {r.submitted_by for r in rows if r.submitted_by is not None}
-    if not ids:
-        return {}
-    result = await session.execute(select(User.id, User.username).where(col(User.id).in_(ids)))
-    return {int(user_id): str(username) for user_id, username in result.all()}  # noqa: C416 - typed narrowing
+    names: dict[int, str] = {}
+    if ids:
+        result = await session.execute(select(User.id, User.username).where(col(User.id).in_(ids)))
+        names = {int(user_id): str(name) for user_id, name in result.all()}  # noqa: C416 - typed narrowing
+    return [sandbox_file_to_view(r, names.get(r.submitted_by) if r.submitted_by is not None else None) for r in rows]
 
 
 async def list_sandbox_files(filter: SandboxFileFilter | None = None) -> Page[SandboxFileView]:
@@ -103,23 +104,19 @@ async def list_sandbox_files(filter: SandboxFileFilter | None = None) -> Page[Sa
         offset=filter.offset,
     )
     async with get_sql_session() as session:
-        names = await _usernames(session, page.rows)
-    return Page[SandboxFileView](
-        items=[sandbox_file_to_view(r, names.get(r.submitted_by or -1)) for r in page.rows],
-        total=page.total,
-    )
+        items = await _views(session, page.rows)
+    return Page[SandboxFileView](items=items, total=page.total)
 
 
 async def get_sandbox_file(file_id: int) -> SandboxFileDetailView:
     """One submission plus its committed source."""
     async with get_sql_session() as session:
-        row = (await session.execute(select(SandboxFile).where(SandboxFile.id == file_id))).scalar_one_or_none()
+        row = await session.get(SandboxFile, file_id)
         if row is None:
             raise NotFound(f"sandbox file {file_id} not found")
-        names = await _usernames(session, [row])
+        (view,) = await _views(session, [row])
     try:
         source = await _require_repo().read_file(row.path, row.git_sha)
     except SandboxGitError as exc:
         raise SandboxUnavailable(str(exc)) from exc
-    view = sandbox_file_to_view(row, names.get(row.submitted_by or -1))
     return SandboxFileDetailView(**view.model_dump(), source=source)

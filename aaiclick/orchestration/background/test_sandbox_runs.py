@@ -6,7 +6,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from sqlalchemy.ext.asyncio import create_async_engine
-from sqlmodel import select
 
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.models import SANDBOX_FAILED, SANDBOX_SUBMITTED, SandboxFile
@@ -38,7 +37,9 @@ async def _insert_row(job_names: list[str]) -> SandboxFile:
 
 async def _reload(row_id: int) -> SandboxFile:
     async with get_sql_session() as session:
-        return (await session.execute(select(SandboxFile).where(SandboxFile.id == row_id))).scalar_one()
+        row = await session.get(SandboxFile, row_id)
+    assert row is not None
+    return row
 
 
 async def test_pending_row_runs_every_job(orch_ctx):

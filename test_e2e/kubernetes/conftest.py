@@ -18,8 +18,8 @@ from aaiclick.testing import (  # noqa: F401 - re-exported as pytest fixtures
     orch_ctx_no_ch,
     orch_module_ctx,
     orch_module_ctx_no_ch,
-    publish_empty_repo,
     publish_user_repo,
+    sandbox_remote,
     worker_databases,
 )
 
@@ -41,12 +41,6 @@ def kubernetes_e2e_user_repo(tmp_path_factory: pytest.TempPathFactory) -> tuple[
     See ``aaiclick.testing.publish_user_repo`` — the daemon is workflow
     infrastructure started by ``_kubernetes-e2e-reusable.yaml``."""
     return publish_user_repo(tmp_path_factory, _SAMPLE_JOB)
-
-
-@pytest.fixture(scope="session")
-def sandbox_remote(tmp_path_factory: pytest.TempPathFactory) -> str:
-    """An empty bare repo in the CI git daemon for the sandbox e2e to push into."""
-    return publish_empty_repo(tmp_path_factory, "kubernetes_sandbox")
 
 
 def pytest_configure(config: pytest.Config) -> None:

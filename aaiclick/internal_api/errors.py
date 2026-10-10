@@ -4,7 +4,8 @@ Each surface maps these to its own error shape:
 
 - CLI renderer: non-zero exit code + human message.
 - FastAPI: ``NotFound`` → 404, ``Conflict`` → 409, ``Invalid`` → 422,
-  ``Unauthorized`` → 401, ``Forbidden`` → 403, ``ExecutionWorkerSpawnFailed`` → 503
+  ``Unauthorized`` → 401, ``Forbidden`` → 403, ``ExecutionWorkerSpawnFailed`` → 503,
+  ``SandboxUnavailable`` → 502
   (see ``server/errors.py``).
 - FastMCP: tool error.
 
@@ -39,6 +40,10 @@ class ExecutionWorkerSpawnFailed(Conflict):
 
 class Invalid(InternalApiError):
     """Request or filter validation failed."""
+
+
+class SandboxUnavailable(InternalApiError):
+    """The sandbox git remote could not be reached or updated."""
 
 
 class Unauthorized(InternalApiError):

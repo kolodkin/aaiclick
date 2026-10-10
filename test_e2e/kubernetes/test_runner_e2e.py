@@ -12,27 +12,19 @@ passes ``test_e2e/kubernetes/`` with ``-m kubernetes_e2e``."""
 
 from __future__ import annotations
 
-import asyncio
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
-from job_wait import run_worker_until_done, wait_for_job_by_name
-from sqlmodel import select
+from job_wait import run_worker_until_done
+from sandbox_e2e import run_sandbox_submission
 
-from aaiclick.internal_api.sandbox import submit_sandbox_file
-from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.docker_config import compute_image_tag
 from aaiclick.orchestration.execution.kubernetes_worker import _pod_name
-from aaiclick.orchestration.execution.mp_worker import mp_worker_main_loop
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
-from aaiclick.orchestration.models import JOB_COMPLETED, SANDBOX_SUBMITTED, TASK_COMPLETED, SandboxFile
-from aaiclick.orchestration.orch_context import get_sql_session
+from aaiclick.orchestration.models import JOB_COMPLETED, TASK_COMPLETED
 from aaiclick.orchestration.runner_config import ImageBuild, parse_image_source
-from aaiclick.sandbox.paths import module_parts
-from aaiclick.sandbox.repo import SandboxRepo, sandbox_repo_override
-from aaiclick.view_models import SubmitSandboxRequest
 
 
 def _aaiclick(*args: str, cwd: Path) -> subprocess.CompletedProcess:
@@ -53,21 +45,6 @@ def _aaiclick(*args: str, cwd: Path) -> subprocess.CompletedProcess:
     )
     proc.check_returncode()
     return proc
-
-
-_FIXTURES = Path(__file__).parent.parent / "fixtures"
-
-
-def _remote_head(remote: str) -> str:
-    out = subprocess.run(
-        ["git", "ls-remote", "--", remote, "refs/heads/main"], check=True, capture_output=True, text=True
-    )
-    return out.stdout.split()[0]
-
-
-async def _sandbox_row(file_id: int) -> SandboxFile:
-    async with get_sql_session() as session:
-        return (await session.execute(select(SandboxFile).where(SandboxFile.id == file_id))).scalar_one()
 
 
 @pytest.mark.kubernetes_e2e
@@ -159,46 +136,5 @@ async def test_kubernetes_runner_shell_command_env(orch_ctx, tmp_path):
 @pytest.mark.kubernetes_e2e
 async def test_kubernetes_runner_sandbox_submission(orch_ctx, sandbox_remote, tmp_path):
     """A sandbox submission is committed into an empty remote and every ``@job``
-    in it runs as Pods, built on the default Dockerfile."""
-    source = (_FIXTURES / "sandbox_job" / "sandbox_jobs.py").read_text()
-    repo = SandboxRepo(sandbox_remote, tmp_path / "clone")
-    with sandbox_repo_override(repo):
-        view = await submit_sandbox_file(SubmitSandboxRequest(name="demo", source=source), user=None)
-    assert _remote_head(sandbox_remote) == view.git_sha
-
-    # One poll step, not the worker loop: the loop would race this call for
-    # the same pending row, and every job it created would compete for the
-    # mp worker's task budget below.
-    bg_worker = BackgroundWorker()
-    try:
-        await bg_worker._run_sandbox_files()
-    finally:
-        await bg_worker.stop()
-
-    row = await _sandbox_row(view.id)
-    assert row.status == SANDBOX_SUBMITTED, row.error
-    assert row.job_ids is not None and len(row.job_ids) == 2
-    module_name = module_parts(row.path)[1]
-
-    worker_task = asyncio.create_task(
-        mp_worker_main_loop(max_tasks=20, install_signal_handlers=False, max_empty_polls=10)
-    )
-    try:
-        for job_name in (f"{module_name}.first", f"{module_name}.second"):
-            completed = await wait_for_job_by_name(job_name)
-            assert completed.status == JOB_COMPLETED, completed.error
-            probe = next(t for t in await get_tasks_for_job(completed.id) if t.entrypoint.endswith(".probe"))
-            assert probe.result == {"native_value": {"n": 1}}, (probe.result, probe.error)
-    finally:
-        worker_task.cancel()
-        try:
-            await worker_task
-        except asyncio.CancelledError:
-            pass
-
-    # A second submission stacks on the first in the remote. It stays
-    # pending here: no further poll step runs, so it creates no jobs.
-    with sandbox_repo_override(repo):
-        second = await submit_sandbox_file(SubmitSandboxRequest(name="demo", source=source), user=None)
-    assert second.git_sha != view.git_sha
-    assert _remote_head(sandbox_remote) == second.git_sha
+    in it runs on the kubernetes runner, built on the default Dockerfile."""
+    await run_sandbox_submission(sandbox_remote, tmp_path / "clone", max_tasks=20)

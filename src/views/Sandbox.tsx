@@ -6,7 +6,7 @@ import { LiveStatus } from "../components/LiveStatus";
 import { Panel } from "../components/Panel";
 import { relativeTime } from "../lib/format";
 
-export const SANDBOX_EXAMPLE = `from aaiclick.orchestration import job, task
+const SANDBOX_EXAMPLE = `from aaiclick.orchestration import job, task
 
 
 @task
@@ -19,19 +19,33 @@ def hello_job():
     return hello()
 `;
 
+// Sandbox statuses reuse the job badge colours.
+const BADGE: Record<SandboxFileView["status"], string> = {
+  pending: "b-PENDING",
+  submitted: "b-COMPLETED",
+  failed: "b-FAILED",
+};
+
+export function SandboxStatusBadge({ file }: { file: SandboxFileView }) {
+  return (
+    <span className={`badge ${BADGE[file.status]}`} title={file.error ?? undefined}>
+      {file.status}
+    </span>
+  );
+}
+
+// Job ids, not names: `@job <id>` opens the exact run the worker created.
 export function SandboxJobLinks({ file, onPrompt }: { file: SandboxFileView; onPrompt: (v: string) => void }) {
-  const module = file.path.split("/").pop()?.replace(/\.py$/, "") ?? "";
   return (
     <>
       {file.job_names.map((fn, i) => {
-        const jobName = `${module}.${fn}`;
-        const ran = file.job_ids !== null && file.job_ids !== undefined && i < file.job_ids.length;
-        return ran ? (
-          <span key={fn} className="name-link mono" onClick={() => onPrompt(`@job ${jobName}`)}>
-            {fn}{" "}
-          </span>
-        ) : (
-          <span key={fn} className="mono">
+        const id = file.job_ids?.[i];
+        return (
+          <span
+            key={fn}
+            className={id !== undefined ? "name-link mono" : "mono"}
+            onClick={id !== undefined ? () => onPrompt(`@job ${id}`) : undefined}
+          >
             {fn}{" "}
           </span>
         );
@@ -115,9 +129,7 @@ export function Sandbox({ onPrompt }: { onPrompt: (v: string) => void }) {
                 <td>{f.submitted_by ?? "—"}</td>
                 <td>{relativeTime(f.created_at)}</td>
                 <td className="status">
-                  <span className={`badge chip-${f.status}`} title={f.error ?? undefined}>
-                    {f.status}
-                  </span>
+                  <SandboxStatusBadge file={f} />
                 </td>
                 <td className="sha mono">{f.git_sha.slice(0, 7)}</td>
                 <td>

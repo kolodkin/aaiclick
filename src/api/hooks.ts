@@ -150,11 +150,14 @@ export function useSandboxFiles() {
   });
 }
 
+// The source is pinned to its commit; only the status can change, and only
+// while the background worker has not picked the file up yet.
 export function useSandboxFile(id: string) {
   return useQuery({
     queryKey: ["sandbox", id],
     queryFn: () => fetchJSON<SandboxFileDetailView>(`/sandbox/${encodeURIComponent(id)}`),
     enabled: id.length > 0,
+    refetchInterval: (q) => (q.state.data?.status === "pending" ? 5000 : false),
   });
 }
 

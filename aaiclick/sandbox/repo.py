@@ -8,6 +8,7 @@ so the same credentials (URL-embedded or the host's git config) apply.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -45,24 +46,24 @@ class Committed(NamedTuple):
 
 
 COMMITTER = Author("aaiclick", "sandbox@aaiclick")
-
-# One lock per clone directory, process-wide: every instance on a workdir
-# serializes through it, whether or not the instances are the same object.
-# Never rebound after import, so a module constant is the right home.
-_WORKDIR_LOCKS: dict[Path, asyncio.Lock] = {}
+_MISSING_REF = "couldn't find remote ref"
 
 
-def _workdir_lock(workdir: Path) -> asyncio.Lock:
-    return _WORKDIR_LOCKS.setdefault(workdir.resolve(), asyncio.Lock())
+def default_workdir(remote: str) -> Path:
+    """The clone directory for ``remote``, keyed by it so pointing
+    ``AAICLICK_SANDBOX`` elsewhere never reuses another remote's clone."""
+    return get_root() / "sandbox" / hashlib.sha256(remote.encode()).hexdigest()[:16]
 
 
 class SandboxRepo:
-    """A persistent clone of ``remote`` under ``workdir``."""
+    """A persistent clone of ``remote`` under ``workdir``. Every git call on
+    the clone runs under the instance's lock; ``get_sandbox_repo`` hands out
+    one instance per remote, so that is one lock per clone."""
 
     def __init__(self, remote: str, workdir: Path | None = None):
         self.remote = remote
-        self.workdir = workdir if workdir is not None else get_root() / "sandbox" / "repo"
-        self._lock = _workdir_lock(self.workdir)
+        self.workdir = workdir if workdir is not None else default_workdir(remote)
+        self._lock = asyncio.Lock()
         self._branch: str | None = None
 
     async def _run(self, *args: str) -> tuple[int, str, str]:
@@ -92,17 +93,20 @@ class SandboxRepo:
             self._branch = stdout.strip().removeprefix("origin/") if rc == 0 and stdout.strip() else DEFAULT_BRANCH
         return self._branch
 
-    async def _remote_has_branch(self, branch: str) -> bool:
-        return bool(await self._git("ls-remote", "--heads", "origin", branch))
-
     async def _sync(self, branch: str) -> None:
         """Make the clone match the remote branch head exactly — or an empty
         tree on an unborn branch when the remote has no such branch yet —
         dropping anything a failed or interrupted submission left behind."""
-        if await self._remote_has_branch(branch):
+        try:
             await self._git("fetch", "--quiet", "--depth=1", "origin", branch)
-            await self._git("checkout", "--quiet", "-B", branch, "FETCH_HEAD")
-            await self._git("reset", "--quiet", "--hard", "FETCH_HEAD")
+        except SandboxGitError as exc:
+            if _MISSING_REF not in str(exc):
+                raise
+            unborn = True
+        else:
+            unborn = False
+        if not unborn:
+            await self._git("checkout", "--quiet", "--force", "-B", branch, "FETCH_HEAD")
         else:
             # ``symbolic-ref`` points HEAD at the branch whether or not a local
             # one exists (``checkout --orphan`` refuses an existing name, which

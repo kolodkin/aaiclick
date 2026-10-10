@@ -15,9 +15,9 @@ from aaiclick.internal_api.errors import (
     Invalid,
     MfaRequired,
     NotFound,
+    SandboxUnavailable,
     Unauthorized,
 )
-from aaiclick.internal_api.sandbox import SandboxUnavailable
 from aaiclick.view_models import Problem, ProblemCode
 
 _PROBLEM_MAP: dict[type[InternalApiError], tuple[str, int, ProblemCode]] = {

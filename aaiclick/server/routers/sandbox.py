@@ -3,12 +3,12 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from aaiclick.auth import store
-from aaiclick.auth.models import ROLE_ADMIN, User
+from aaiclick.auth.models import SCOPE_ADMIN, User
 from aaiclick.internal_api import sandbox as sandbox_api
 from aaiclick.orchestration.view_models import SandboxFileDetailView, SandboxFileView
 from aaiclick.view_models import Page, SandboxConfigView, SandboxFileFilter, SubmitSandboxRequest
 
-from ..auth import Principal, require_principal, require_session
+from ..auth import Principal, principal_to_scope, require_principal, require_session
 from ..deps import orch_scope
 from ..errors import problem_responses
 
@@ -27,7 +27,7 @@ async def _current_user(principal: Principal = Depends(require_session)) -> User
 
 @router.get("/config", response_model=SandboxConfigView)
 async def sandbox_config(principal: Principal = Depends(require_principal)) -> SandboxConfigView:
-    return sandbox_api.sandbox_config(admin=principal.role == ROLE_ADMIN)
+    return sandbox_api.sandbox_config(admin=principal_to_scope(principal) == SCOPE_ADMIN)
 
 
 @router.post(

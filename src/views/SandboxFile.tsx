@@ -2,7 +2,7 @@ import { useSandboxFile } from "../api/hooks";
 import { Chips } from "../components/Chips";
 import { Panel } from "../components/Panel";
 import { relativeTime } from "../lib/format";
-import { SandboxJobLinks } from "./Sandbox";
+import { SandboxJobLinks, SandboxStatusBadge } from "./Sandbox";
 
 export function SandboxFile({ id, onPrompt }: { id: string; onPrompt: (v: string) => void }) {
   const file = useSandboxFile(id);
@@ -14,7 +14,7 @@ export function SandboxFile({ id, onPrompt }: { id: string; onPrompt: (v: string
       {file.data && (
         <Panel>
           <h2>
-            {file.data.name} <span className="badge">{file.data.status}</span>
+            {file.data.name} <SandboxStatusBadge file={file.data} />
           </h2>
           <p className="sub mono">
             {file.data.path} @ {file.data.git_sha.slice(0, 7)} · {file.data.submitted_by ?? "—"} ·{" "}

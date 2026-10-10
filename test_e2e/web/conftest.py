@@ -28,7 +28,7 @@ from typing import Any, BinaryIO
 import pytest
 
 from aaiclick.backend import is_local
-from aaiclick.testing import worker_databases
+from aaiclick.testing import init_bare_repo, worker_databases
 
 SEED = Path(__file__).with_name("seed.py")
 SHOTS = Path(__file__).resolve().parents[2] / "test-results" / "shots"
@@ -141,9 +141,7 @@ def base_url(
     mp = pytest.MonkeyPatch()
     mp.setenv("AAICLICK_LOCAL_ROOT", str(root))
     # An empty bare repo enables the sandbox page; submissions push into it.
-    sandbox_remote = root / "sandbox-remote.git"
-    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(sandbox_remote)], check=True)
-    mp.setenv("AAICLICK_SANDBOX", str(sandbox_remote))
+    mp.setenv("AAICLICK_SANDBOX", str(init_bare_repo(root / "sandbox-remote.git")))
     env = dict(os.environ)
 
     # Viewer fixtures need ClickHouse tables, and chdb's session is a

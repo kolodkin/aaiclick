@@ -18,6 +18,7 @@ from .errors import (
     InternalApiError,
     Invalid,
     NotFound,
+    SandboxUnavailable,
     Unauthorized,
 )
 from .execution_workers import list_execution_workers, start_execution_worker, stop_execution_worker

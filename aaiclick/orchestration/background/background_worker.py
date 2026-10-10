@@ -20,17 +20,17 @@ so they take the same ``run_job`` path as a manual submission.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 from datetime import datetime, timedelta
 from typing import NamedTuple, cast
 
 from croniter import croniter
-from sqlalchemy import text
+from sqlalchemy import select as sa_select
+from sqlalchemy import text, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
-from sqlmodel import col, select
+from sqlmodel import col
 
 from aaiclick.async_wait import wait_or_timeout
 from aaiclick.data.data_context.ch_client import ChClient, create_ch_client
@@ -92,15 +92,12 @@ async def _delete_registry_rows(session: AsyncSession, table_names: list[str]) -
     await session.execute(text(f"DELETE FROM table_registry WHERE table_name IN ({ph})"), params)
 
 
-class SandboxClaim(NamedTuple):
-    """A pending sandbox file this worker won the claim on — copied out of the
-    ORM row so it survives the claiming session's commit."""
+class SandboxOutcome(NamedTuple):
+    """What submitting one sandbox file produced: the jobs created, in
+    ``job_names`` order, and the first failure (``None`` when all ran)."""
 
-    id: int
-    path: str
-    job_names: list[str]
-    git_remote: str
-    git_sha: str
+    job_ids: list[int]
+    error: str | None
 
 
 class BackgroundWorker:
@@ -565,73 +562,67 @@ class BackgroundWorker:
         """
         async with AsyncSession(self._engine) as session:
             rows = (
-                (
-                    await session.execute(
-                        select(SandboxFile)
-                        .where(SandboxFile.status == SANDBOX_PENDING)
-                        .order_by(col(SandboxFile.created_at))
-                        .limit(SANDBOX_BATCH)
+                await session.execute(
+                    # SQLAlchemy's select: SQLModel's overloads stop at four columns.
+                    sa_select(
+                        col(SandboxFile.id),
+                        col(SandboxFile.path),
+                        col(SandboxFile.job_names),
+                        col(SandboxFile.git_remote),
+                        col(SandboxFile.git_sha),
                     )
+                    .where(col(SandboxFile.status) == SANDBOX_PENDING)
+                    .order_by(col(SandboxFile.created_at))
+                    .limit(SANDBOX_BATCH)
                 )
-                .scalars()
-                .all()
-            )
-            claimed: list[SandboxClaim] = []
+            ).all()
+            claimed = []
             for row in rows:
                 lock_result = await session.execute(
-                    text(
-                        "UPDATE sandbox_files SET status = :submitted, updated_at = :now "
-                        "WHERE id = :id AND status = :pending"
-                    ),
-                    {"submitted": SANDBOX_SUBMITTED, "now": utc_now(), "id": row.id, "pending": SANDBOX_PENDING},
+                    update(SandboxFile)
+                    .where(col(SandboxFile.id) == row.id, col(SandboxFile.status) == SANDBOX_PENDING)
+                    .values(status=SANDBOX_SUBMITTED, updated_at=utc_now())
                 )
                 if cast(CursorResult, lock_result).rowcount == 1:
-                    claimed.append(
-                        SandboxClaim(
-                            id=row.id,
-                            path=row.path,
-                            job_names=list(row.job_names),
-                            git_remote=row.git_remote,
-                            git_sha=row.git_sha,
-                        )
-                    )
+                    claimed.append(row)
             await session.commit()
 
-        for row in claimed:
-            job_ids, error = await self._submit_sandbox_jobs(row)
-            async with AsyncSession(self._engine) as session:
-                await session.execute(
-                    text(
-                        "UPDATE sandbox_files SET job_ids = :job_ids, error = :error, status = :status, "
-                        "updated_at = :now WHERE id = :id"
-                    ),
-                    {
-                        "job_ids": json.dumps(job_ids),
-                        "error": error,
-                        "status": SANDBOX_FAILED if error is not None else SANDBOX_SUBMITTED,
-                        "now": utc_now(),
-                        "id": row.id,
-                    },
-                )
-                await session.commit()
-
-    async def _submit_sandbox_jobs(self, row: SandboxClaim) -> tuple[list[int], str | None]:
-        """``run_job`` per job name; the ids created so far plus the first error."""
-        date_dir, module_name = module_parts(row.path)
-        job_ids: list[int] = []
+        if not claimed:
+            return
         async with orch_context(with_ch=False):
-            for job_name in row.job_names:
-                try:
-                    job = await run_job(
-                        f"{module_name}.{job_name}",
-                        f"{date_dir}.{module_name}.{job_name}",
-                        git_remote=row.git_remote,
-                        git_sha=row.git_sha,
-                        run_type=RUN_SANDBOX,
+            for row in claimed:
+                outcome = await self._submit_sandbox_jobs(row.path, row.job_names, row.git_remote, row.git_sha)
+                async with AsyncSession(self._engine) as session:
+                    await session.execute(
+                        update(SandboxFile)
+                        .where(col(SandboxFile.id) == row.id)
+                        .values(
+                            job_ids=outcome.job_ids,
+                            error=outcome.error,
+                            status=SANDBOX_FAILED if outcome.error is not None else SANDBOX_SUBMITTED,
+                            updated_at=utc_now(),
+                        )
                     )
-                except Exception as exc:
-                    logger.exception("Sandbox job '%s' of %s could not be created", job_name, row.path)
-                    return job_ids, f"{job_name}: {exc}"
-                job_ids.append(job.id)
-                logger.info("Sandbox job '%s' created (job_id=%s)", job_name, job.id)
-        return job_ids, None
+                    await session.commit()
+
+    async def _submit_sandbox_jobs(
+        self, path: str, job_names: list[str], git_remote: str, git_sha: str
+    ) -> SandboxOutcome:
+        """``run_job`` per job name, inside the caller's ``orch_context``."""
+        parts = module_parts(path)
+        job_ids: list[int] = []
+        for job_name in job_names:
+            try:
+                job = await run_job(
+                    f"{parts.module_name}.{job_name}",
+                    f"{parts.date_dir}.{parts.module_name}.{job_name}",
+                    git_remote=git_remote,
+                    git_sha=git_sha,
+                    run_type=RUN_SANDBOX,
+                )
+            except Exception as exc:
+                logger.exception("Sandbox job '%s' of %s could not be created", job_name, path)
+                return SandboxOutcome(job_ids, f"{job_name}: {exc}")
+            job_ids.append(job.id)
+            logger.info("Sandbox job '%s' created (job_id=%s)", job_name, job.id)
+        return SandboxOutcome(job_ids, None)

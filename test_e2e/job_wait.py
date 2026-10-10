@@ -48,13 +48,21 @@ async def wait_for_job_by_name(job_name: str, timeout: float | None = None) -> J
 
 
 async def run_worker_until_done(job_name: str) -> Job:
-    """Drive an mp worker loop in the background until the job named
-    ``job_name`` reaches a terminal status, then stop the loop. A worker
+    """Drive an mp worker loop until the job named ``job_name`` reaches a
+    terminal status, then stop the loop."""
+    (job,) = await run_worker_until_all_done(job_name)
+    return job
+
+
+async def run_worker_until_all_done(*job_names: str, max_tasks: int = 10) -> list[Job]:
+    """Drive one mp worker loop until every named job reaches a terminal
+    status, then stop it. One loop for all of them: a loop stopped after the
+    first job would strand the others' claimed tasks in ``RUNNING``. A worker
     crash surfaces at once rather than after the job wait times out."""
     worker_task = asyncio.create_task(
-        mp_worker_main_loop(max_tasks=10, install_signal_handlers=False, max_empty_polls=10)
+        mp_worker_main_loop(max_tasks=max_tasks, install_signal_handlers=False, max_empty_polls=10)
     )
-    waiter = asyncio.create_task(wait_for_job_by_name(job_name))
+    waiter = asyncio.create_task(_wait_all(job_names))
     try:
         done, _ = await asyncio.wait({worker_task, waiter}, return_when=asyncio.FIRST_COMPLETED)
         if waiter not in done:
@@ -65,3 +73,7 @@ async def run_worker_until_done(job_name: str) -> Job:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+
+
+async def _wait_all(job_names: tuple[str, ...]) -> list[Job]:
+    return [await wait_for_job_by_name(name) for name in job_names]

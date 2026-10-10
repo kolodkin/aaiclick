@@ -1,8 +1,7 @@
 """Playwright coverage for the sandbox page: submit a file, see its row, and
 the inline error for a bad file. The server fixture points ``AAICLICK_SANDBOX``
-at an empty bare repo, so a submission really commits; in local mode the
-in-server background worker then fails the row (a build source needs the
-distributed backends), which is why the status assertion admits ``failed``.
+at an empty bare repo, so a submission really commits; the background worker
+may already have moved the row on by the time it renders.
 
 Run with::
 
@@ -52,7 +51,8 @@ def test_submit_shows_row_with_sha(page, base_url: str, shot) -> None:
     row = page.locator("tr[data-sandbox-id]").first
     row.wait_for()
     assert re.fullmatch(r"[0-9a-f]{7}", row.locator("td.sha").inner_text())
-    assert row.locator("td.status").inner_text() in {"pending", "failed"}
+    # Any status: the background worker may already have picked the row up.
+    assert row.locator("td.status").inner_text() in {"pending", "submitted", "failed"}
     shot("sandbox-submitted")
 
 

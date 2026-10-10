@@ -1,4 +1,3 @@
-import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -8,6 +7,7 @@ from aaiclick.auth.models import ROLE_VIEWER
 from aaiclick.auth.view_models import CreateUserRequest
 from aaiclick.internal_api import users
 from aaiclick.sandbox.repo import SandboxRepo, sandbox_repo_override
+from aaiclick.testing import init_bare_repo
 
 from ..app import API_PREFIX
 from ..conftest import bearer
@@ -28,10 +28,8 @@ def hello_job():
 
 
 @pytest.fixture
-def sandbox_remote(tmp_path: Path, monkeypatch) -> Iterator[Path]:
-    remote = tmp_path / "remote.git"
-    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
-    monkeypatch.setenv("AAICLICK_SANDBOX", str(remote))
+def sandbox_remote(tmp_path: Path) -> Iterator[Path]:
+    remote = init_bare_repo(tmp_path / "remote.git")
     with sandbox_repo_override(SandboxRepo(str(remote), tmp_path / "clone")):
         yield remote
 
