@@ -8,7 +8,9 @@ used by the build task and host runner.
 from __future__ import annotations
 
 import hashlib
+import math
 import os
+from decimal import Decimal
 from typing import Literal, NamedTuple
 
 from .execution import cli
@@ -21,6 +23,7 @@ from .runner_config import (
     ImagePrebuilt,
     ImageSourceT,
     build_requested,
+    parse_quantity,
 )
 
 BUILD_MODE_REGISTRY = "registry"
@@ -241,3 +244,26 @@ def add_host_flags(env_var: str) -> list[str]:
         if entry:
             flags.extend(["--add-host", entry])
     return flags
+
+
+def resource_flags(resources: dict | None) -> list[str]:
+    """``docker run`` flags for a job's ``resources`` limits: ``--cpus``, and
+    ``--memory`` with ``--memory-swap`` pinned equal so, as on Kubernetes, no
+    swap past the limit. ``requests`` are ignored: docker has no scheduler.
+    Zero raises ``ValueError``, since docker reads it as unlimited."""
+    limits = (resources or {}).get("limits") or {}
+    flags: list[str] = []
+    if (cpu := limits.get("cpu")) is not None:
+        cpus = _positive_limit("limits.cpu", cpu)
+        flags.extend(["--cpus", format(cpus.normalize(), "f")])
+    if (memory := limits.get("memory")) is not None:
+        size = str(math.ceil(_positive_limit("limits.memory", memory)))
+        flags.extend(["--memory", size, "--memory-swap", size])
+    return flags
+
+
+def _positive_limit(key: str, value: object) -> Decimal:
+    quantity = parse_quantity(key, value)
+    if quantity <= 0:
+        raise ValueError(f"resources.{key} {value!r} must be greater than zero on the docker runner")
+    return quantity

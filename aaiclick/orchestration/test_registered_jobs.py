@@ -351,6 +351,11 @@ async def test_run_job_image_and_git_mutually_exclusive():
         await run_job("j", "m.f", image="python:3.12", git_sha="a" * 40)
 
 
+async def test_run_job_rejects_malformed_resources():
+    with pytest.raises(ValueError, match="limits.cpu"):
+        await run_job("j", "m.f", image="python:3.12", resources={"limits": {"cpu": "fast"}})
+
+
 async def test_run_job_image_and_build_mutually_exclusive():
     with pytest.raises(ValueError, match="mutually exclusive"):
         await run_job("j", "m.f", image="python:3.12", build=True)
@@ -365,6 +370,11 @@ async def test_run_job_image_and_build_mutually_exclusive():
         pytest.param({"image": "python:3.12", "build": True}, "mutually exclusive", id="image-and-build"),
         pytest.param(
             {"resources": {"limits": {"cpu": "1"}}}, "resources require an image source", id="resources-on-subprocess"
+        ),
+        pytest.param(
+            {"image": "python:3.12", "resources": {"limits": {"memory": "lots"}}},
+            "limits.memory",
+            id="malformed-quantity",
         ),
     ],
 )

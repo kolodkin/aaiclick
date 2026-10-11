@@ -151,23 +151,21 @@ the worker's environment, mirroring `AAICLICK_REGISTRY` and matching Argo's
 | `service_account`   | `AAICLICK_K8S_SERVICE_ACCOUNT`                     |
 | `image_pull_secret` | `AAICLICK_K8S_IMAGE_PULL_SECRET`                   |
 
-`resources` (requests/limits) is the one setting that is genuinely per job. It is
-a nullable JSON column on both `RegisteredJob` (default) and `Job` (per-run
-snapshot: `run_job` kwarg → registration default → `None`), exposed as
-`resources` on the Python API, `RegisterJobRequest` and `RunJobRequest`. The
-docker runner ignores it (`docs/designs/future.md`).
+`resources` (requests/limits) is the one per-job setting: a nullable JSON column
+on `RegisteredJob` (default) and `Job` (per-run snapshot: `run_job` kwarg →
+registration default → `None`), exposed on the Python API, `RegisterJobRequest`
+and `RunJobRequest`, and validated at submission. It rides on
+`JobDispatch.resources`, not the Pod config, because the docker runner applies
+its `limits` too; with no scheduler, docker ignores `requests` (mapping:
+[Resources](../user_guide/orchestration.md#resources-docker-kubernetes)).
 
-```python
-class KubernetesConfig(NamedTuple):
-    namespace: str
-    service_account: str | None
-    image_pull_secret: str | None
-    resources: dict | None  # {cpu/mem requests+limits}
-```
+Both are resolved on the **worker at dispatch** and handed to the vehicle as
+`JobDispatch.pod_config` and `JobDispatch.resources`.
 
-Resolved on the **worker at dispatch** — `resolve_pod_config(resources=job.resources)`
-reads the three env vars and attaches the job's resources — and handed to the
-vehicle as `JobDispatch.pod_config`.
+**Implementation**: `aaiclick/orchestration/kubernetes_config.py` — see
+`resolve_pod_config()`; `aaiclick/orchestration/runner_config.py` — see
+`validate_resources()`; `aaiclick/orchestration/docker_config.py` — see
+`resource_flags()`.
 
 # Selection and dispatch
 
@@ -176,7 +174,7 @@ from the job: a `NULL` `image_source` is a host subprocess; otherwise
 `get_worker_runner()` names the vehicle, and `None` raises a `DispatchError`
 ("task declares an image_source but this worker has no `AAICLICK_RUNNER`"), which
 the worker loop already turns into a failed task. The job row is read only for
-`resources`.
+`resources`, on both container runners.
 
 In-flight cancellation works from day one: `poll_cancelled` is wired to
 `check_task_cancelled`, so the driver deletes the Pod when a run is aborted,

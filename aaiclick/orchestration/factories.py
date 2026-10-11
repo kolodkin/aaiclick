@@ -319,7 +319,7 @@ async def create_container_job(
     preservation_mode: PreservationMode | None = None,
     registered: RegisteredJob | None = None,
 ) -> Job:
-    """Create a container Job. The job row carries only the Pod ``resources``
+    """Create a container Job. The job row carries only the ``resources``
     snapshot; ``image_source`` is stamped onto the entry task, and for a build
     source a build task is injected with a ``build >> entry`` edge (spec:
     docs/designs/orchestration.md "Image source")."""

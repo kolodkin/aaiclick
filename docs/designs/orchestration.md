@@ -147,7 +147,7 @@ They compose freely: a `shell` task runs the same way — "run this argv, succes
 
 ## Image source
 
-The image is a **task** property: every container task carries a nullable `tasks.image_source` JSON (`build` or `prebuilt`), and **`NULL` means the task runs as a host subprocess** on any worker. The job row carries no runner state — only the optional Pod `resources` snapshot (`docs/designs/kubernetes_runner.md`).
+The image is a **task** property: every container task carries a nullable `tasks.image_source` JSON (`build` or `prebuilt`), and **`NULL` means the task runs as a host subprocess** on any worker. The job row carries no runner state — only the optional `resources` snapshot (`docs/designs/kubernetes_runner.md` "Configuration").
 
 | Source     | How                                              | When built             |
 |------------|--------------------------------------------------|------------------------|

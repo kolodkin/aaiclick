@@ -98,8 +98,8 @@ class RunJobRequest(BaseModel):
     git_sha: str | None = None
     git_branch: str | None = None
     dockerfile: str | None = None
-    # Kubernetes requests/limits for this run's Pods; None inherits the
-    # RegisteredJob default.
+    # Kubernetes-style requests/limits for this run's containers; None
+    # inherits the RegisteredJob default.
     resources: dict[str, Any] | None = None
 
 

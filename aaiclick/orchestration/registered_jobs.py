@@ -20,6 +20,7 @@ from .runner_config import (
     ENTRY_MODULE,
     EntryType,
     validate_image_exclusivity,
+    validate_resources,
     validate_task_entry,
 )
 
@@ -68,8 +69,10 @@ def _validate_registration_fields(
     resources: dict[str, Any] | None,
 ) -> None:
     """Refuse to store defaults no run would read: build modifiers without
-    ``build``, ``resources`` without an image source, or both sides at once."""
+    ``build``, ``resources`` without an image source or with a malformed
+    quantity, or both sides at once."""
     validate_image_exclusivity(image, git_remote, dockerfile, build=build)
+    validate_resources(resources)
     modifiers = [name for name, value in (("git_remote", git_remote), ("dockerfile", dockerfile)) if value is not None]
     if modifiers and not build:
         # A registration default that is not a build must not become one
@@ -147,8 +150,8 @@ async def register_job(
             back to ``git config remote.origin.url`` at submission time.
         dockerfile: Build modifier — default Dockerfile path relative to
             the repo root. ``None`` falls back to ``"Dockerfile"``.
-        resources: Default Kubernetes requests/limits for every run's Pods
-            (ignored by the docker runner).
+        resources: Default Kubernetes-style requests/limits for every run's
+            containers (``limits`` map to docker ``--cpus`` / ``--memory``).
 
     Returns:
         Created RegisteredJob
@@ -236,7 +239,7 @@ async def upsert_registered_job(
         image: Default prebuilt image tag; mutually exclusive with ``build``.
         git_remote: Build modifier — default git remote URL.
         dockerfile: Build modifier — default Dockerfile path.
-        resources: Default Kubernetes requests/limits for every run's Pods.
+        resources: Default Kubernetes-style requests/limits for every run's containers.
 
     Returns:
         The created or updated RegisteredJob
@@ -433,14 +436,16 @@ async def run_job(
         git_branch: Captured as build-arg metadata; ``None`` means the
             remote's default branch.
         dockerfile: Override the registered job's dockerfile path.
-        resources: Kubernetes requests/limits for this run's Pods; ``None``
-            inherits the registration default. Rejected on a subprocess run.
+        resources: Kubernetes-style requests/limits for this run's containers;
+            ``None`` inherits the registration default. Rejected on a
+            subprocess run.
 
     Returns:
         Created Job
     """
     validate_task_entry(entry_type=entry_type, command=command)
     validate_image_exclusivity(image, git_remote, git_sha, git_branch, dockerfile, build=build)
+    validate_resources(resources)
 
     registered = await get_registered_job(name)
 

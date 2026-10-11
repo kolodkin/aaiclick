@@ -195,10 +195,11 @@ def _shell_task_and_dispatch(command_env):
     )
     dispatch = JobDispatch(
         RUNNER_KUBERNETES,
-        KubernetesConfig("jobs", "sa", None, None),
+        KubernetesConfig("jobs", "sa", None),
         "shell",
         ["echo", "hi"],
         command_env,
+        resources={"limits": {"cpu": "1"}},
     )
     return task, dispatch
 
@@ -231,6 +232,7 @@ async def test_build_shell_pod_spec_wraps_argv(monkeypatch):
     overrides = json.loads(overrides_arg.removeprefix("--overrides="))
     container = overrides["spec"]["containers"][0]
     assert container["command"] == ["echo", "hi"]
+    assert container["resources"] == {"limits": {"cpu": "1"}}
     assert overrides["spec"]["serviceAccountName"] == "sa"
     assert ["-n", "jobs"] == spec.argv[spec.argv.index("-n") : spec.argv.index("-n") + 2]
     assert spec.env is None
@@ -332,7 +334,7 @@ async def test_jvm_pod_output_reaches_task_logs(orch_ctx, monkeypatch, tmp_path)
     follows ``kubectl logs`` into task_logs (Kubernetes merges the streams)."""
     spec = JobDispatch(
         RUNNER_KUBERNETES,
-        KubernetesConfig("default", None, None, None),
+        KubernetesConfig("default", None, None),
         entry_type=ENTRY_JVM,
         image_source=ImagePrebuilt(image_tag="img:1"),
     )

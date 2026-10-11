@@ -14,6 +14,7 @@ from aaiclick.orchestration.docker_config import (
     image_key,
     resolve_image_source,
     resolve_remote_head,
+    resource_flags,
 )
 from aaiclick.orchestration.models import RegisteredJob
 from aaiclick.orchestration.runner_config import ImageBuild, ImagePrebuilt
@@ -196,3 +197,37 @@ async def test_resolve_remote_head_unreachable_remote(tmp_path):
 def test_compute_image_tag_without_registry(monkeypatch):
     monkeypatch.delenv("AAICLICK_REGISTRY", raising=False)
     assert compute_image_tag("b" * 40) == f"aaiclick-job:{'b' * 40}"
+
+
+@pytest.mark.parametrize(
+    "resources, expected",
+    [
+        pytest.param(None, [], id="none"),
+        pytest.param({"requests": {"cpu": "1"}}, [], id="requests-ignored"),
+        pytest.param({"limits": {"cpu": "500m"}}, ["--cpus", "0.5"], id="cpu-millis"),
+        pytest.param({"limits": {"cpu": 2}}, ["--cpus", "2"], id="cpu-json-number"),
+        pytest.param(
+            {"limits": {"memory": "512Mi"}},
+            ["--memory", str(512 * 1024**2), "--memory-swap", str(512 * 1024**2)],
+            id="mem-binary-no-swap",
+        ),
+        pytest.param(
+            {"limits": {"memory": "1e9"}}, ["--memory", "1000000000", "--memory-swap", "1000000000"], id="mem-exponent"
+        ),
+        pytest.param({"limits": {"memory": "1500m"}}, ["--memory", "2", "--memory-swap", "2"], id="mem-rounds-up"),
+    ],
+)
+def test_resource_flags(resources, expected):
+    assert resource_flags(resources) == expected
+
+
+@pytest.mark.parametrize(
+    "resources, match",
+    [
+        pytest.param({"limits": {"memory": "1Xi"}}, "not a valid", id="malformed"),
+        pytest.param({"limits": {"cpu": "0"}}, "greater than zero", id="zero-is-unlimited-on-docker"),
+    ],
+)
+def test_resource_flags_rejects(resources, match):
+    with pytest.raises(ValueError, match=match):
+        resource_flags(resources)
