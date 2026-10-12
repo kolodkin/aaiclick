@@ -36,7 +36,7 @@ Rules:
   `pyproject.toml`. Exactly one install step runs.
 - A `pyproject.toml` without a `[project]` table (tool config only) adds
   nothing; the checkout stays on the thin layer. The worker checks table
-  presence with `tomllib` and never parses dependencies itself.
+  presence with a line-anchored regex (`tomllib` is 3.11+, the project floor is 3.10) and never parses dependencies itself.
 - `dynamic = ["dependencies"]` is left to `uv`, which builds metadata from the
   copied manifest and fails the build with its own message if it cannot.
 - Dependencies are installed; the project is never `pip install .`-ed.
