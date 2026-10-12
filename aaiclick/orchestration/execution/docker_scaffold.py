@@ -67,19 +67,6 @@ WORKDIR /src
 RUN pip install --no-cache-dir /src
 """
 
-DEFAULT_BUILD_DOCKERFILE_TEMPLATE = """\
-# Default image for a git build whose repo has no Dockerfile: a thin layer on
-# the aaiclick base image. The build task forwards BASE_IMAGE pinned to the
-# worker's aaiclick version (or AAICLICK_BASE_IMAGE).
-# --chown: the base image runs as USER aaiclick; a root-owned /src would break
-# tasks that write relative paths.
-ARG BASE_IMAGE=ghcr.io/kolodkin/aaiclick:latest
-FROM ${BASE_IMAGE}
-COPY --chown=aaiclick:aaiclick . /src
-WORKDIR /src
-"""
-
-
 MANIFEST_NONE = "none"
 MANIFEST_UV_LOCK = "uv_lock"
 MANIFEST_REQUIREMENTS = "requirements"
@@ -124,6 +111,92 @@ def detect_manifest(context_dir: Path) -> ManifestKind:
             )
         return MANIFEST_POM
     return python
+
+
+_PYTHON_HEAD = """\
+# Default image for a git build whose repo has no Dockerfile: a thin layer on
+# the aaiclick base image. The build task forwards BASE_IMAGE pinned to the
+# worker's aaiclick version (or AAICLICK_BASE_IMAGE).
+# --chown: the base image runs as USER aaiclick; a root-owned /src would break
+# tasks that write relative paths.
+ARG BASE_IMAGE=ghcr.io/kolodkin/aaiclick:latest
+FROM ${BASE_IMAGE}
+ARG PIP_INDEX_URL
+ARG PIP_EXTRA_INDEX_URL
+ARG PIP_TRUSTED_HOST
+"""
+
+_PYTHON_TAIL = """\
+COPY --chown=aaiclick:aaiclick . /src
+WORKDIR /src
+"""
+
+# Same index handling as the starter template, so the worker's forwarded
+# PIP_* build args reach the user's packages too.
+_PIP_INSTALL = (
+    "pip install --no-cache-dir \\\n"
+    '      --index-url "${PIP_INDEX_URL:-https://pypi.org/simple/}" \\\n'
+    '      --extra-index-url "${PIP_EXTRA_INDEX_URL:-https://pypi.org/simple/}" \\\n'
+    "      ${PIP_TRUSTED_HOST:+--trusted-host ${PIP_TRUSTED_HOST}}"
+)
+_DEPS_DIR = "/tmp/aaiclick-deps"
+_REQS = f"{_DEPS_DIR}/requirements.txt"
+
+# Resolve with uv, install with pip: one install path, one index configuration.
+_UV_EXPORT = f"uv export --frozen --no-dev --no-emit-project --no-hashes --directory {_DEPS_DIR} -o {_REQS}"
+_UV_COMPILE = f"uv pip compile --directory {_DEPS_DIR} pyproject.toml -o {_REQS}"
+
+_PYTHON_INSTALL_BLOCKS: dict[ManifestKind, str] = {
+    MANIFEST_REQUIREMENTS: f"""\
+USER root
+COPY requirements.txt {_DEPS_DIR}/
+RUN {_PIP_INSTALL} -r {_REQS}
+USER aaiclick
+""",
+    MANIFEST_UV_LOCK: f"""\
+USER root
+COPY pyproject.toml uv.lock {_DEPS_DIR}/
+RUN {_PIP_INSTALL} uv \\
+ && {_UV_EXPORT} \\
+ && {_PIP_INSTALL} -r {_REQS}
+USER aaiclick
+""",
+    MANIFEST_PYPROJECT: f"""\
+USER root
+COPY pyproject.toml {_DEPS_DIR}/
+RUN {_PIP_INSTALL} uv \\
+ && {_UV_COMPILE} \\
+ && {_PIP_INSTALL} -r {_REQS}
+USER aaiclick
+""",
+}
+
+# The shape docs/designs/java-sdk.md prescribes for a user image: the SDK shim
+# (declared in the user's pom as aaiclick-task-api) as ENTRYPOINT, so the
+# runner's ``--task-id N --run-epoch M`` arguments reach it.
+_JVM_TEMPLATE = """\
+# Default image for a git build whose repo has a pom.xml and no Dockerfile.
+FROM maven:3.9-eclipse-temurin-21 AS build
+WORKDIR /build
+COPY . /build
+RUN mvn -B -q -DskipTests package dependency:copy-dependencies \\
+      -DincludeScope=runtime -DoutputDirectory=target/libs
+
+FROM eclipse-temurin:21-jre
+COPY --from=build /build/target/*.jar /app/
+COPY --from=build /build/target/libs /app/libs
+ENTRYPOINT ["java", "-cp", "/app/*:/app/libs/*", "io.github.kolodkin.aaiclick.task.AaiTaskShim"]
+"""
+
+
+def render_default_dockerfile(kind: ManifestKind) -> str:
+    """The default Dockerfile for a checkout without one, per its manifest kind."""
+    if kind == MANIFEST_POM:
+        return _JVM_TEMPLATE
+    return _PYTHON_HEAD + _PYTHON_INSTALL_BLOCKS.get(kind, "") + _PYTHON_TAIL
+
+
+DEFAULT_BUILD_DOCKERFILE_TEMPLATE = render_default_dockerfile(MANIFEST_NONE)
 
 
 class DockerfileExists(FileExistsError):

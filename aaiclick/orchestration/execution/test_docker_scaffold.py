@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from .docker_scaffold import (
+    DEFAULT_BUILD_DOCKERFILE_TEMPLATE,
     DOCKERFILE_TEMPLATE,
     MANIFEST_NONE,
     MANIFEST_POM,
@@ -17,6 +18,7 @@ from .docker_scaffold import (
     DockerfileExists,
     detect_manifest,
     init_dockerfile,
+    render_default_dockerfile,
 )
 
 
@@ -124,3 +126,68 @@ def test_detect_manifest_pom_with_python_manifest_is_ambiguous(tmp_path, python_
     (tmp_path / python_manifest).write_text(_PROJECT if python_manifest == "pyproject.toml" else "")
     with pytest.raises(AmbiguousManifests, match="pom.xml alongside"):
         detect_manifest(tmp_path)
+
+
+_PYTHON_TAIL = "COPY --chown=aaiclick:aaiclick . /src\nWORKDIR /src\n"
+_PIP_INDEX = '--index-url "${PIP_INDEX_URL:-https://pypi.org/simple/}"'
+
+
+def test_render_default_dockerfile_none_is_the_thin_layer():
+    assert render_default_dockerfile(MANIFEST_NONE) == DEFAULT_BUILD_DOCKERFILE_TEMPLATE
+    assert "USER root" not in DEFAULT_BUILD_DOCKERFILE_TEMPLATE
+    assert DEFAULT_BUILD_DOCKERFILE_TEMPLATE.endswith(_PYTHON_TAIL)
+
+
+@pytest.mark.parametrize(
+    "kind, copy_line, resolve_fragment",
+    [
+        pytest.param(
+            MANIFEST_REQUIREMENTS,
+            "COPY requirements.txt /tmp/aaiclick-deps/",
+            "-r /tmp/aaiclick-deps/requirements.txt",
+            id="requirements",
+        ),
+        pytest.param(
+            MANIFEST_UV_LOCK,
+            "COPY pyproject.toml uv.lock /tmp/aaiclick-deps/",
+            "uv export --frozen --no-dev --no-emit-project --no-hashes",
+            id="uv-lock",
+        ),
+        pytest.param(
+            MANIFEST_PYPROJECT,
+            "COPY pyproject.toml /tmp/aaiclick-deps/",
+            "uv pip compile",
+            id="pyproject",
+        ),
+    ],
+)
+def test_render_default_dockerfile_python_install_block(kind, copy_line, resolve_fragment):
+    text = render_default_dockerfile(kind)
+    head = DEFAULT_BUILD_DOCKERFILE_TEMPLATE.removesuffix(_PYTHON_TAIL)
+    assert text.startswith(head)
+    assert copy_line in text
+    assert resolve_fragment in text
+    # Install runs as root; the runtime user is restored before the tree is copied.
+    assert (
+        text.index("\nUSER root\n") < text.index(copy_line) < text.index("\nUSER aaiclick\n") < text.index(_PYTHON_TAIL)
+    )
+    assert text.count(_PIP_INDEX) == text.count("pip install")
+    assert text.endswith(_PYTHON_TAIL)
+
+
+def test_render_default_dockerfile_requirements_skips_uv():
+    assert " uv " not in render_default_dockerfile(MANIFEST_REQUIREMENTS)
+
+
+def test_render_default_dockerfile_jvm():
+    text = render_default_dockerfile(MANIFEST_POM)
+    assert text.startswith(
+        "# Default image for a git build whose repo has a pom.xml and no Dockerfile.\n"
+        "FROM maven:3.9-eclipse-temurin-21 AS build\n"
+    )
+    assert "mvn -B -q -DskipTests package dependency:copy-dependencies" in text
+    assert "FROM eclipse-temurin:21-jre\n" in text
+    assert text.endswith(
+        'ENTRYPOINT ["java", "-cp", "/app/*:/app/libs/*", "io.github.kolodkin.aaiclick.task.AaiTaskShim"]\n'
+    )
+    assert "BASE_IMAGE" not in text
