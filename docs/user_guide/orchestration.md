@@ -79,15 +79,8 @@ runs `b` after `a`, `[a, b] >> c` fans in, and `a >> [b, c]` fans out. Chains
 read left to right: `first >> group >> last`. `b.depends_on(a)` records the
 same edge as a method call.
 
-??? info "Pyright flags `a >> b` as an unused expression"
-    The operator wires the edge as a side effect, and pyright's
-    `reportUnusedExpression` check is syntactic — it cannot tell a `Task` from
-    an `int`. Either use `b.depends_on(a)`, or silence the rule in files that
-    define jobs:
-
-    ```python
-    # pyright: reportUnusedExpression=false
-    ```
+Pyright flags a bare `a >> b` as an unused expression: use `depends_on()`, or
+put `# pyright: reportUnusedExpression=false` at the top of files that define jobs.
 
 ## Groups
 
