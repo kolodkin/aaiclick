@@ -12,9 +12,24 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+from sqlalchemy import event
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 _sql_engine_var: ContextVar[AsyncEngine | None] = ContextVar("sql_engine", default=None)
+
+
+def _enable_sqlite_foreign_keys(dbapi_connection, _record) -> None:
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
+
+
+def create_sql_engine(url: str) -> AsyncEngine:
+    """Async engine for ``url``; on SQLite, turns on ``PRAGMA foreign_keys`` per connection."""
+    engine = create_async_engine(url, echo=False)
+    if engine.dialect.name == "sqlite":
+        event.listen(engine.sync_engine, "connect", _enable_sqlite_foreign_keys)
+    return engine
 
 
 @asynccontextmanager

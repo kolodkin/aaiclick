@@ -107,6 +107,14 @@ rebuild. Any drift (e.g. `oplog/test_migrate.py` dropping them) triggers a
 full drop + `ch_upgrade` — needed in distributed mode, where
 `init_oplog_tables` never creates them.
 
+# Foreign Keys on SQLite
+
+SQLite leaves `PRAGMA foreign_keys` off per connection, so without help the
+local backend never checks the FKs Postgres enforces. `create_sql_engine()`
+in `aaiclick/orchestration/sql_context.py` turns the pragma on via a
+`connect` listener; ruff bans direct `create_async_engine` calls so every
+engine gets it. `reset_sql_tables` therefore deletes children before parents.
+
 # Adding New Tests
 
 1. Put the test next to the module it tests

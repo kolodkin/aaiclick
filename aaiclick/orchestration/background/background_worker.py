@@ -29,7 +29,7 @@ from croniter import croniter
 from sqlalchemy import select as sa_select
 from sqlalchemy import text, update
 from sqlalchemy.engine import CursorResult
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlmodel import col
 
 from aaiclick.async_wait import wait_or_timeout
@@ -57,6 +57,7 @@ from ..models import (
 )
 from ..orch_context import orch_context
 from ..registered_jobs import run_job
+from ..sql_context import create_sql_engine
 from ..sql_utils import in_clause
 from .handler import BackgroundHandler, CleanupTask, create_background_handler, try_complete_job
 
@@ -128,7 +129,7 @@ class BackgroundWorker:
         self._poll_interval = poll_interval
         self._worker_timeout = worker_timeout
         self._task: asyncio.Task | None = None
-        self._engine: AsyncEngine = create_async_engine(get_db_url(), echo=False)
+        self._engine: AsyncEngine = create_sql_engine(get_db_url())
         self._ch_client: ChClient | None = None
         self._shutdown: asyncio.Event = asyncio.Event()
         self._handler: BackgroundHandler = create_background_handler()
@@ -385,7 +386,7 @@ class BackgroundWorker:
             task_ids = [row[0] for row in result.fetchall()]
 
             if task_ids:
-                # Delete dependencies referencing these tasks
+                # Delete dependencies and remote results referencing these tasks
                 ph, params = in_clause(task_ids, "tid")
                 await session.execute(
                     text(
@@ -395,6 +396,7 @@ class BackgroundWorker:
                     ),
                     params,
                 )
+                await session.execute(text(f"DELETE FROM remote_task_results WHERE task_id IN ({ph})"), params)
 
             # Delete ref tables for tables belonging to this job
             await _delete_table_refs(session, table_names)

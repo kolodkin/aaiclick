@@ -32,23 +32,6 @@ Dockerfile — the sandbox repo included (`docs/user_guide/sandbox.md`).
 
 ---
 
-# Foreign-Key Enforcement in the Local Test Backend
-
-SQLite defaults `PRAGMA foreign_keys` to `0`, and SQLAlchemy does not turn it
-on, so every `REFERENCES` clause in the local test schema is declared and never
-checked. Postgres enforces them always. The local half of the CI matrix is
-therefore unable to catch a referential-integrity bug, and 5 of the 10 pytest
-jobs are local — the scope-ladder branch shipped a test helper that
-inserted a child row for a parent with no row, which 2595 local tests passed
-straight over and only `Internal API dist` rejected.
-
-The fix is a `connect` event listener on the test engine issuing
-`PRAGMA foreign_keys=ON`. The cost is unknown until tried: turning enforcement
-on may surface existing violations in suites that have been quietly relying on
-the laxity, and each one wants fixing rather than suppressing.
-
----
-
 # Coverage Reporting
 
 Coverage is off by default: its CI log table went unread and it slowed every

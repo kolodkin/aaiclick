@@ -14,40 +14,24 @@ from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from aaiclick.orchestration.background.background_worker import RETRY_BASE_DELAY, BackgroundWorker
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 from aaiclick.orchestration.env import get_db_url
+from aaiclick.orchestration.sql_context import create_sql_engine
 
 from ...datetime_utils import utc_now
-from .conftest import get_run_refs, insert_job, insert_pin_ref, insert_run_ref, make_worker
-
-
-async def _insert_task(
-    engine, task_id, job_id, *, status, attempt=0, max_retries=0, run_ids="[]", error=None, execution_worker_id=None
-):
-    async with AsyncSession(engine) as session:
-        await session.execute(
-            text(
-                "INSERT INTO tasks (id, job_id, entrypoint, name, kwargs, status, "
-                "created_at, max_retries, attempt, run_ids, run_statuses, error, execution_worker_id) "
-                "VALUES (:id, :job_id, 'test.func', 'test', '{}', :status, "
-                ":now, :max_retries, :attempt, :run_ids, '[]', :error, :execution_worker_id)"
-            ),
-            {
-                "id": task_id,
-                "job_id": job_id,
-                "status": status,
-                "now": utc_now(),
-                "max_retries": max_retries,
-                "attempt": attempt,
-                "run_ids": run_ids,
-                "error": error,
-                "execution_worker_id": execution_worker_id,
-            },
-        )
-        await session.commit()
+from .conftest import (
+    WORKER_ID,
+    get_run_refs,
+    insert_job,
+    insert_pin_ref,
+    insert_run_ref,
+    insert_task,
+    insert_worker,
+    make_worker,
+)
 
 
 async def _get_task_status(engine, task_id):
@@ -89,7 +73,7 @@ async def run_cleanup_pass(pass_fn: Callable[[BackgroundWorker], Awaitable[None]
     same SQL database, e.g. ``run_cleanup_pass(BackgroundWorker._process_failure_cleanup)``.
     """
     worker = BackgroundWorker(poll_interval=0)
-    worker._engine = create_async_engine(get_db_url(), echo=False)
+    worker._engine = create_sql_engine(get_db_url())
     worker._handler = SqliteBackgroundHandler()
     worker._ch_client = AsyncMock()
     try:
@@ -105,7 +89,8 @@ async def run_failure_cleanup() -> None:
 async def test_failure_cleanup_transitions_to_pending_with_retries(bg_db):
     """PENDING_FAILURE_CLEANUP task with retries → PENDING with incremented attempt."""
     await insert_job(bg_db, 1000)
-    await _insert_task(
+    await insert_worker(bg_db, WORKER_ID)
+    await insert_task(
         bg_db,
         100,
         1000,
@@ -114,7 +99,7 @@ async def test_failure_cleanup_transitions_to_pending_with_retries(bg_db):
         max_retries=3,
         run_ids="[111]",
         error="task failed",
-        execution_worker_id=999,
+        execution_worker_id=WORKER_ID,
     )
     await insert_run_ref(bg_db, "t_intermediate", "111")
 
@@ -133,7 +118,7 @@ async def test_failure_cleanup_transitions_to_pending_with_retries(bg_db):
 async def test_failure_cleanup_transitions_to_failed_no_retries(bg_db):
     """PENDING_FAILURE_CLEANUP task with no retries → FAILED."""
     await insert_job(bg_db, 1000)
-    await _insert_task(
+    await insert_task(
         bg_db,
         100,
         1000,
@@ -158,7 +143,7 @@ async def test_failure_cleanup_transitions_to_failed_no_retries(bg_db):
 async def test_failure_cleanup_cleans_pin_refs(bg_db):
     """PENDING_FAILURE_CLEANUP processing removes pin_refs for the task."""
     await insert_job(bg_db, 1000)
-    await _insert_task(
+    await insert_task(
         bg_db,
         100,
         1000,
@@ -181,8 +166,8 @@ async def test_failure_cleanup_cleans_pin_refs(bg_db):
 async def test_failure_cleanup_completes_job_when_all_failed(bg_db):
     """Job transitions to FAILED when last task transitions from PENDING_FAILURE_CLEANUP to FAILED."""
     await insert_job(bg_db, 1000, status="RUNNING")
-    await _insert_task(bg_db, 100, 1000, status="COMPLETED")
-    await _insert_task(
+    await insert_task(bg_db, 100, 1000, status="COMPLETED")
+    await insert_task(
         bg_db,
         101,
         1000,
@@ -201,7 +186,7 @@ async def test_failure_cleanup_completes_job_when_all_failed(bg_db):
 async def test_failure_cleanup_does_not_complete_job_with_retries(bg_db):
     """Job stays RUNNING when PENDING_FAILURE_CLEANUP task transitions to PENDING (has retries)."""
     await insert_job(bg_db, 1000, status="RUNNING")
-    await _insert_task(
+    await insert_task(
         bg_db,
         100,
         1000,
@@ -220,7 +205,7 @@ async def test_failure_cleanup_does_not_complete_job_with_retries(bg_db):
 async def test_failure_cleanup_retry_backoff(bg_db):
     """Retry backoff doubles each attempt: 1s, 2s, 4s."""
     await insert_job(bg_db, 1000)
-    await _insert_task(
+    await insert_task(
         bg_db,
         100,
         1000,
@@ -267,7 +252,7 @@ async def test_failure_cleanup_bumps_run_epoch(bg_db, max_retries, expected_stat
     write would pass the epoch guard and land on another worker's run.
     """
     await insert_job(bg_db, 1000)
-    await _insert_task(bg_db, 100, 1000, status="PENDING_FAILURE_CLEANUP", max_retries=max_retries, run_ids="[111]")
+    await insert_task(bg_db, 100, 1000, status="PENDING_FAILURE_CLEANUP", max_retries=max_retries, run_ids="[111]")
     assert await _get_run_epoch(bg_db, 100) == 0
 
     await make_worker(bg_db)._process_failure_cleanup()

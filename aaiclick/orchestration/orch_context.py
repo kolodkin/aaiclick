@@ -10,7 +10,6 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import select
 
 from aaiclick.backend import is_postgres
@@ -31,7 +30,7 @@ from .image_injection import inject_build_tasks, stamp_inherited_image, validate
 from .lifecycle.db_lifecycle import DBLifecycleMessage, DBLifecycleOp, OplogPayload, OplogTablePayload
 from .models import Dependency, Group, Job, Task, TasksType
 from .oplog_backfill import migrate_table_registry_to_sql
-from .sql_context import _sql_engine_var, get_sql_session
+from .sql_context import _sql_engine_var, create_sql_engine, get_sql_session
 from .task_registry import _task_registry_var, get_task_registry
 
 logger = logging.getLogger(__name__)
@@ -408,7 +407,7 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
         engine = outer_engine
         handler = _db_handler_var.get()
     else:
-        engine = create_async_engine(get_db_url(), echo=False)
+        engine = create_sql_engine(get_db_url())
         handler = create_db_handler()
 
     sql_token = _sql_engine_var.set(engine)

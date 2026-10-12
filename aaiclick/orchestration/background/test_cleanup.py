@@ -16,6 +16,7 @@ from aaiclick.orchestration.background.handler import BackgroundHandler
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 from aaiclick.testing import create_ch_tables, list_ch_tables
 
+from ...datetime_utils import utc_now
 from .conftest import (
     get_run_refs,
     insert_context_ref,
@@ -23,6 +24,7 @@ from .conftest import (
     insert_pin_ref,
     insert_run_ref,
     insert_table_registry,
+    insert_task,
     make_worker,
     mock_ch,
 )
@@ -193,6 +195,24 @@ async def test_delete_job_data_keeps_job_until_every_table_drops(bg_db):
     assert await _table_names(bg_db, "table_registry") == {"t_stuck"}
     async with AsyncSession(bg_db) as session:
         assert (await session.execute(text("SELECT id FROM jobs WHERE id = 998"))).scalar_one() == 998
+
+
+async def test_delete_job_data_removes_remote_task_results(bg_db):
+    """A task that ran on a remote runner leaves a ``remote_task_results`` row; job expiry must take it too."""
+    await insert_job(bg_db, 998, status="COMPLETED")
+    await insert_task(bg_db, 100, 998, status="COMPLETED")
+    async with AsyncSession(bg_db) as session:
+        await session.execute(
+            text("INSERT INTO remote_task_results (task_id, run_epoch, success, created_at) VALUES (100, 0, 1, :now)"),
+            {"now": utc_now()},
+        )
+        await session.commit()
+
+    await make_worker(bg_db)._delete_job_data(998)
+
+    async with AsyncSession(bg_db) as session:
+        assert (await session.execute(text("SELECT count(*) FROM tasks WHERE job_id = 998"))).scalar_one() == 0
+        assert (await session.execute(text("SELECT count(*) FROM remote_task_results"))).scalar_one() == 0
 
 
 async def test_drop_tables_gives_up_after_consecutive_failures(bg_db):

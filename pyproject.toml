@@ -136,10 +136,12 @@ ignore = [
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "typing.TYPE_CHECKING".msg = "Restructure, or use `from __future__ import annotations` with a module import (see CLAUDE.md)."
+"sqlalchemy.ext.asyncio.create_async_engine".msg = "Use aaiclick.orchestration.sql_context.create_sql_engine (see docs/designs/testing.md)."
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # re-exports (CLAUDE.md forbids __all__ in __init__.py)
 "aaiclick/view_models.py" = ["F401"]  # re-exports the log_models contract surface
+"aaiclick/orchestration/sql_context.py" = ["TID251"]  # the one place create_async_engine is wrapped
 
 [tool.mypy]
 python_version = "3.10"

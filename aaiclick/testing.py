@@ -95,8 +95,10 @@ async def reset_sql_tables() -> None:
             result = await session.execute(
                 text("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
             )
-            tables = [r[0] for r in result.all() if r[0] != "alembic_version"]
-            for name in tables:
+            present = {r[0] for r in result.all()} - {"alembic_version"}
+            # Children before parents — SQLite checks FKs on every DELETE.
+            ordered = [t.name for t in reversed(SQLModel.metadata.sorted_tables) if t.name in present]
+            for name in [*present.difference(ordered), *ordered]:
                 await session.execute(text(f'DELETE FROM "{name}"'))
         else:
             result = await session.execute(
