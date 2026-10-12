@@ -55,6 +55,67 @@ honour dependency manifests found in the checkout: `requirements.txt`,
 file is present. Until then, a repo with dependencies checks in its own
 Dockerfile — the sandbox repo included (`docs/user_guide/sandbox.md`).
 
+**Implementation**: `aaiclick/orchestration/execution/docker_scaffold.py` — see
+`DEFAULT_BUILD_DOCKERFILE_TEMPLATE`; `aaiclick/orchestration/execution/docker_build.py`
+— see `_resolve_dockerfile()`.
+
+---
+
+# Foreign-Key Enforcement in the Local Test Backend
+
+SQLite defaults `PRAGMA foreign_keys` to `0`, and SQLAlchemy does not turn it
+on, so every `REFERENCES` clause in the local test schema is declared and never
+checked. Postgres enforces them always. The local half of the CI matrix is
+therefore unable to catch a referential-integrity bug, and 5 of the 10 pytest
+jobs are local — the scope-ladder branch shipped a test helper that
+inserted a child row for a parent with no row, which 2595 local tests passed
+straight over and only `Internal API dist` rejected.
+
+The fix is a `connect` event listener on the test engine issuing
+`PRAGMA foreign_keys=ON`. The cost is unknown until tried: turning enforcement
+on may surface existing violations in suites that have been quietly relying on
+the laxity, and each one wants fixing rather than suppressing.
+
+---
+
+# Reconsider the `>>` Dependency Syntax
+
+`a >> b` records a dependency as a side effect of `Task.__rshift__`
+(`aaiclick/orchestration/models.py`), so linters read it as a discarded value.
+Pyright's `reportUnusedExpression` is purely syntactic and cannot be scoped to
+`Task`/`Group`, so `pyrightconfig.json` turns it off globally, which also hides
+real unused expressions elsewhere. `b.depends_on(a)` already exists on the same
+class, but the user guide teaches only `>>`. Decide which form to teach before
+growing the API further:
+
+- Keep `>>` / `<<` (Airflow-style) and accept the global ignore
+- Prefer `depends_on()` (or add `chain(a, b, c)`), which linters accept and
+  which reads as an action
+- Whether a `@job` body should need explicit edges at all, given that passing a
+  task as a kwarg already wires the dependency
+
+Restore `reportUnusedExpression` if `>>` goes.
+
+**Implementation**: `aaiclick/orchestration/models.py` — see `depends_on()`,
+`__rshift__()`.
+
+---
+
+# Coverage Reporting
+
+Coverage is off by default: its CI log table went unread and it slowed every
+unit job. `pytest-cov` stays installed for ad hoc `--cov` runs (e.g. the
+`python-testing-style` zero-lines-lost check).
+
+Bring it back as one nightly job that publishes the report where it is read
+(HTML artifact or a coverage service with PR diffs), outside the per-PR jobs.
+
+---
+
+# Changelog
+
+`docs/changelog.md` — version history in Keep a Changelog format. Introduce with v1.0.0 release.
+
 ---
 
 # Deferred
@@ -108,24 +169,6 @@ holding one row per in-flight login, and `pyjwt[crypto]` again for RS256
 only within an issuer, so a bare value lets two providers collide.
 
 **When to revisit**: when a deployment has an IdP to point at.
-
-## Foreign-Key Enforcement in the Local Test Backend
-
-SQLite defaults `PRAGMA foreign_keys` to `0`, and SQLAlchemy does not turn it
-on, so every `REFERENCES` clause in the local test schema is declared and never
-checked. Postgres enforces them always. The local half of the CI matrix is
-therefore structurally unable to catch a referential-integrity bug, and half of
-the 16 jobs are local — the scope-ladder branch shipped a test helper that
-inserted a child row for a parent with no row, which 2595 local tests passed
-straight over and only `Internal API dist` rejected.
-
-The fix is a `connect` event listener on the test engine issuing
-`PRAGMA foreign_keys=ON`. The cost is unknown until tried: turning enforcement
-on may surface existing violations in suites that have been quietly relying on
-the laxity, and each one wants fixing rather than suppressing.
-
-**When to revisit**: next time a foreign-key bug reaches `dist` after passing
-`local`, or alongside any work already touching the shared test fixtures.
 
 ## Viewer Follow-ups
 
@@ -181,36 +224,6 @@ drift (row counts, old vs new). Full design: `docs/designs/lineage.md` (Tier 2).
 **When to revisit**: when Tier 1's static reasoning demonstrably fails on
 real questions — a bug whose explanation lives only in an intermediate table
 that cleanup has already dropped.
-
-## Changelog
-
-`docs/changelog.md` — version history in Keep a Changelog format. Introduce with v1.0.0 release.
-
-## Reconsider the `>>` Dependency Syntax
-
-`a >> b` records a dependency as a side effect of `Task.__rshift__`
-(`aaiclick/orchestration/models.py`), so linters read it as a discarded value.
-Pyright's `reportUnusedExpression` is purely syntactic and cannot be scoped to
-`Task`/`Group`, so `pyrightconfig.json` turns it off globally, which also hides
-real unused expressions elsewhere. Open a design discussion on the dependency API
-before growing it further:
-
-- Keep `>>` / `<<` (Airflow-style) and accept the global ignore
-- Add or prefer an explicit call (`b.depends_on(a)`, `chain(a, b, c)`), which
-  linters accept and which reads as an action
-- Whether a `@job` body should need explicit edges at all, given that passing a
-  task as a kwarg already wires the dependency
-
-Decide on one taught form, then restore `reportUnusedExpression` if `>>` goes.
-
-## Coverage Reporting
-
-Coverage is off by default: its CI log table went unread and it slowed every
-unit job. `pytest-cov` stays installed for ad hoc `--cov` runs (e.g. the
-`python-testing-style` zero-lines-lost check).
-
-Bring it back as one nightly job that publishes the report where it is read
-(HTML artifact or a coverage service with PR diffs), outside the per-PR jobs.
 
 ## ClickHouse ADBC Driver and Arrow-Native Results
 
