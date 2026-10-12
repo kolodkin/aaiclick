@@ -144,19 +144,19 @@ def test_render_default_dockerfile_none_is_the_thin_layer():
         pytest.param(
             MANIFEST_REQUIREMENTS,
             "COPY requirements.txt /tmp/aaiclick-deps/",
-            "-r /tmp/aaiclick-deps/requirements.txt",
+            "/tmp/aaiclick-deps/requirements.txt -o /tmp/aaiclick-deps/final.txt",
             id="requirements",
         ),
         pytest.param(
             MANIFEST_UV_LOCK,
             "COPY pyproject.toml uv.lock /tmp/aaiclick-deps/",
-            "uv export --frozen --no-dev --no-emit-project --no-hashes",
+            "uv export --frozen --no-dev --no-emit-workspace --no-emit-local --no-emit-package aaiclick --no-hashes",
             id="uv-lock",
         ),
         pytest.param(
             MANIFEST_PYPROJECT,
             "COPY pyproject.toml /tmp/aaiclick-deps/",
-            "uv pip compile",
+            "/tmp/aaiclick-deps/pyproject.toml -o /tmp/aaiclick-deps/final.txt",
             id="pyproject",
         ),
     ],
@@ -168,15 +168,21 @@ def test_render_default_dockerfile_python_install_block(kind, copy_line, resolve
     assert copy_line in text
     assert resolve_fragment in text
     # Install runs as root; the runtime user is restored before the tree is copied.
-    assert (
-        text.index("\nUSER root\n") < text.index(copy_line) < text.index("\nUSER aaiclick\n") < text.index(_PYTHON_TAIL)
-    )
+    assert text.index("\nUSER root\n") < text.index(copy_line) < text.index("\nUSER aaiclick\n") < text.index(_PYTHON_TAIL)
     assert text.count(_PIP_INDEX) == text.count("pip install")
     assert text.endswith(_PYTHON_TAIL)
 
 
-def test_render_default_dockerfile_requirements_skips_uv():
-    assert " uv " not in render_default_dockerfile(MANIFEST_REQUIREMENTS)
+@pytest.mark.parametrize("kind", [MANIFEST_REQUIREMENTS, MANIFEST_UV_LOCK, MANIFEST_PYPROJECT])
+def test_render_default_dockerfile_keeps_base_image_packages(kind):
+    """The base image's packages (aaiclick and its dependencies) win over the
+    user's pins: the installed set overrides the resolve and constrains pip."""
+    text = render_default_dockerfile(kind)
+    assert "pip list --format=freeze > /tmp/aaiclick-deps/base.txt" in text
+    assert "uv pip compile --python python --override /tmp/aaiclick-deps/base.txt --no-emit-package aaiclick" in text
+    assert '--default-index "${PIP_INDEX_URL:-https://pypi.org/simple/}"' in text
+    assert "${PIP_TRUSTED_HOST:+--allow-insecure-host ${PIP_TRUSTED_HOST}}" in text
+    assert "-c /tmp/aaiclick-deps/base.txt -r /tmp/aaiclick-deps/final.txt" in text
 
 
 def test_render_default_dockerfile_jvm():

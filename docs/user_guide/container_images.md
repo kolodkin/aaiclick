@@ -59,11 +59,24 @@ The default honours a dependency manifest at the repo root:
 | `pom.xml`, no Python manifest                        | jvm      | `mvn package` in a build stage, SDK shim as `ENTRYPOINT`           |
 | `pom.xml` **and** a Python manifest                  | error    | build fails: check in a `Dockerfile`                               |
 
-Dependencies install with the worker's `PIP_*` index args; the project itself
-is never `pip install .`-ed, and a `.dockerignore` that excludes the manifest
-breaks its `COPY`. The JVM default is single-module,
-JDK/JRE 21, and expects `aaiclick-task-api` declared in the pom
-(`docs/designs/java-sdk.md`). Anything else is a checked-in `Dockerfile`.
+Dependencies resolve with `uv` and install with `pip`, both on the worker's
+`PIP_*` index args. Packages the base image ships — aaiclick and everything it
+depends on — keep the base image's version whatever the manifest pins, so a
+user lock cannot downgrade aaiclick or swap the dependencies it was tested
+with. The project itself is never `pip install .`-ed. Limits:
+
+- A manifest must be self-contained: only it is copied before the install, so
+  `-r`, `-c`, `-e .`, path and workspace dependencies are not available
+  (workspace and path entries are dropped from a `uv.lock` export).
+- A `.dockerignore` that excludes the manifest breaks its `COPY`.
+- Python code next to a `pom.xml` with no Python manifest gets the JVM image.
+  Add a Python manifest or check in a `Dockerfile` for a mixed repo.
+- The image is cached per commit (`aaiclick-job:<sha>`): a commit built before
+  the worker learned manifests keeps its old image until a new commit lands.
+- The JVM default is single-module, JDK/JRE 21, and expects `aaiclick-task-api`
+  declared in the pom (`docs/designs/java-sdk.md`).
+
+Anything else is a checked-in `Dockerfile`.
 
 **Implementation**: `aaiclick/orchestration/execution/docker_scaffold.py` — see
 `detect_manifest()`, `render_default_dockerfile()`.

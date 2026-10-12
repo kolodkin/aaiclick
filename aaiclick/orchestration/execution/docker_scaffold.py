@@ -132,43 +132,53 @@ WORKDIR /src
 """
 
 # Same index handling as the starter template, so the worker's forwarded
-# PIP_* build args reach the user's packages too.
+# PIP_* build args reach the user's packages too — for pip and for uv alike.
 _PIP_INSTALL = (
     "pip install --no-cache-dir \\\n"
     '      --index-url "${PIP_INDEX_URL:-https://pypi.org/simple/}" \\\n'
     '      --extra-index-url "${PIP_EXTRA_INDEX_URL:-https://pypi.org/simple/}" \\\n'
     "      ${PIP_TRUSTED_HOST:+--trusted-host ${PIP_TRUSTED_HOST}}"
 )
+_UV_INDEX = (
+    '--default-index "${PIP_INDEX_URL:-https://pypi.org/simple/}" \\\n'
+    '      --index "${PIP_EXTRA_INDEX_URL:-https://pypi.org/simple/}" \\\n'
+    "      ${PIP_TRUSTED_HOST:+--allow-insecure-host ${PIP_TRUSTED_HOST}}"
+)
 _DEPS_DIR = "/tmp/aaiclick-deps"
-_REQS = f"{_DEPS_DIR}/requirements.txt"
+_BASE = f"{_DEPS_DIR}/base.txt"
+_FINAL = f"{_DEPS_DIR}/final.txt"
 
-# Resolve with uv, install with pip: one install path, one index configuration.
-_UV_EXPORT = f"uv export --frozen --no-dev --no-emit-project --no-hashes --directory {_DEPS_DIR} -o {_REQS}"
-_UV_COMPILE = f"uv pip compile --directory {_DEPS_DIR} pyproject.toml -o {_REQS}"
+# The base image's packages win: ``base.txt`` (what the image already has,
+# aaiclick included) overrides the resolve and constrains pip, so a user lock
+# can neither downgrade aaiclick nor swap the dependencies it was tested with.
+# aaiclick itself never enters the install list — the worker's version may
+# not exist on any index.
+_FREEZE_BASE = f"pip list --format=freeze > {_BASE}"
+_UV_COMPILE = (
+    f"uv pip compile --python python --override {_BASE} --no-emit-package aaiclick \\\n"
+    f"      {_UV_INDEX} \\\n"
+    f"      --no-header --no-annotate {{source}} -o {_FINAL}"
+)
+_UV_EXPORT = (
+    "uv export --frozen --no-dev --no-emit-workspace --no-emit-local --no-emit-package aaiclick --no-hashes \\\n"
+    f"      --directory {_DEPS_DIR} -o {_DEPS_DIR}/exported.txt"
+)
+
+
+def _python_install_block(copy_sources: str, resolve: str | None, compile_source: str) -> str:
+    steps = [f"{_PIP_INSTALL} uv", _FREEZE_BASE]
+    if resolve:
+        steps.append(resolve)
+    steps.append(_UV_COMPILE.replace("{source}", f"{_DEPS_DIR}/{compile_source}"))
+    steps.append(f"{_PIP_INSTALL} -c {_BASE} -r {_FINAL}")
+    run = " \\\n && ".join(steps)
+    return f"USER root\nCOPY {copy_sources} {_DEPS_DIR}/\nRUN {run}\nUSER aaiclick\n"
+
 
 _PYTHON_INSTALL_BLOCKS: dict[ManifestKind, str] = {
-    MANIFEST_REQUIREMENTS: f"""\
-USER root
-COPY requirements.txt {_DEPS_DIR}/
-RUN {_PIP_INSTALL} -r {_REQS}
-USER aaiclick
-""",
-    MANIFEST_UV_LOCK: f"""\
-USER root
-COPY pyproject.toml uv.lock {_DEPS_DIR}/
-RUN {_PIP_INSTALL} uv \\
- && {_UV_EXPORT} \\
- && {_PIP_INSTALL} -r {_REQS}
-USER aaiclick
-""",
-    MANIFEST_PYPROJECT: f"""\
-USER root
-COPY pyproject.toml {_DEPS_DIR}/
-RUN {_PIP_INSTALL} uv \\
- && {_UV_COMPILE} \\
- && {_PIP_INSTALL} -r {_REQS}
-USER aaiclick
-""",
+    MANIFEST_REQUIREMENTS: _python_install_block("requirements.txt", None, "requirements.txt"),
+    MANIFEST_UV_LOCK: _python_install_block("pyproject.toml uv.lock", _UV_EXPORT, "exported.txt"),
+    MANIFEST_PYPROJECT: _python_install_block("pyproject.toml", None, "pyproject.toml"),
 }
 
 # The shape docs/designs/java-sdk.md prescribes for a user image: the SDK shim
