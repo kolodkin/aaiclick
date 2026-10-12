@@ -224,3 +224,26 @@ drift (row counts, old vs new). Full design: `docs/designs/lineage.md` (Tier 2).
 **When to revisit**: when Tier 1's static reasoning demonstrably fails on
 real questions — a bug whose explanation lives only in an intermediate table
 that cleanup has already dropped.
+
+## ClickHouse ADBC Driver and Arrow-Native Results
+
+**Revisit: 2027-02.** Assessed 2026-10 against ClickHouse's
+[ADBC driver](https://clickhouse.com/blog/introducing-the-clickhouse-adbc-driver)
+(Rust, v0.1.0). Not adopted:
+
+- Sync-only API; aaiclick's `ChClient` is async end to end.
+- Speaks ClickHouse HTTP, same as clickhouse-connect — no transport gain.
+- Ships as a native binary via `dbc install clickhouse`, not a wheel, so it
+  cannot ride `pip install aaiclick[distributed]` or the runner images.
+- No `JSON` type, no schema discovery, Arrow↔ClickHouse type gaps.
+- Local mode (chdb) already returns Arrow natively.
+
+Adopt when the driver gains async, publishes to PyPI, and returns `JSON`.
+
+Independent of ADBC, an Arrow-native read path is worth adding: `ChdbClient.query()`
+already fetches an `ArrowTable` and transposes it into row tuples, and
+clickhouse-connect has `query_arrow`. An `Object.to_arrow()` / `to_polars()`
+would skip the Python-list round trip on both backends.
+
+**Implementation**: `aaiclick/data/data_context/chdb_client.py` - see
+`ChdbClient.query()`; `aaiclick/data/data_context/clickhouse_client.py`.
