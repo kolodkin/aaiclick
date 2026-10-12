@@ -49,29 +49,6 @@ the laxity, and each one wants fixing rather than suppressing.
 
 ---
 
-# Reconsider the `>>` Dependency Syntax
-
-`a >> b` records a dependency as a side effect of `Task.__rshift__`
-(`aaiclick/orchestration/models.py`), so linters read it as a discarded value.
-Pyright's `reportUnusedExpression` is purely syntactic and cannot be scoped to
-`Task`/`Group`, so `pyrightconfig.json` turns it off globally, which also hides
-real unused expressions elsewhere. `b.depends_on(a)` already exists on the same
-class, but the user guide teaches only `>>`. Decide which form to teach before
-growing the API further:
-
-- Keep `>>` / `<<` (Airflow-style) and accept the global ignore
-- Prefer `depends_on()` (or add `chain(a, b, c)`), which linters accept and
-  which reads as an action
-- Whether a `@job` body should need explicit edges at all, given that passing a
-  task as a kwarg already wires the dependency
-
-Restore `reportUnusedExpression` if `>>` goes.
-
-**Implementation**: `aaiclick/orchestration/models.py` — see `depends_on()`,
-`__rshift__()`.
-
----
-
 # Coverage Reporting
 
 Coverage is off by default: its CI log table went unread and it slowed every

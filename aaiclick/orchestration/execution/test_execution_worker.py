@@ -1,3 +1,5 @@
+# `a >> b` wires a dependency as a bare statement; pyright flags every such binary operation.
+# pyright: reportUnusedExpression=false
 """Tests for execution_worker management and task claiming."""
 
 import asyncio

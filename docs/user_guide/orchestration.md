@@ -72,6 +72,23 @@ Any other `data` is readable as soon as the parent completes.
     does `return [[a, b], [c, d]]`: nesting means nothing to the graph, so use a
     `Group` when tasks belong together.
 
+## Explicit dependencies
+
+When no data flows between two tasks, order them with `>>` (or `<<`): `a >> b`
+runs `b` after `a`, `[a, b] >> c` fans in, and `a >> [b, c]` fans out. Chains
+read left to right: `first >> group >> last`. `b.depends_on(a)` records the
+same edge as a method call.
+
+??? info "Pyright flags `a >> b` as an unused expression"
+    The operator wires the edge as a side effect, and pyright's
+    `reportUnusedExpression` check is syntactic — it cannot tell a `Task` from
+    an `int`. Either use `b.depends_on(a)`, or silence the rule in files that
+    define jobs:
+
+    ```python
+    # pyright: reportUnusedExpression=false
+    ```
+
 ## Groups
 
 A `Group` bundles tasks that belong together. `group.add_task(t)` makes `t` a

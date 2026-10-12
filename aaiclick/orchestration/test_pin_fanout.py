@@ -1,3 +1,5 @@
+# `a >> b` wires a dependency as a bare statement; pyright flags every such binary operation.
+# pyright: reportUnusedExpression=false
 """Tests for the PIN fan-out in ``OrchLifecycleHandler``.
 
 A producer pins its result table for every downstream consumer. The

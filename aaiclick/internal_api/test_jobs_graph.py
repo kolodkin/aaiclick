@@ -1,3 +1,5 @@
+# `a >> b` wires a dependency as a bare statement; pyright flags every such binary operation.
+# pyright: reportUnusedExpression=false
 """Tests for ``aaiclick.internal_api.jobs.get_job_graph``."""
 
 from __future__ import annotations

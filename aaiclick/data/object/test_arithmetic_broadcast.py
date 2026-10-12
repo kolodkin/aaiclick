@@ -139,7 +139,7 @@ async def test_cross_table_add_without_views_raises(ctx):
     a = await create_object_from_value([1, 2, 3])
     b = await create_object_from_value([10, 20, 30])
     with pytest.raises(TypeError, match="explicit row order"):
-        a + b
+        _ = a + b
 
 
 async def test_cross_table_add_with_one_view_raises(ctx):
@@ -148,7 +148,7 @@ async def test_cross_table_add_with_one_view_raises(ctx):
     b = await create_object_from_value([10, 20, 30])
     a_view = a.view(order_by="value")
     with pytest.raises(TypeError, match="explicit row order"):
-        a_view + b
+        _ = a_view + b
 
 
 async def test_cross_table_add_with_two_views_succeeds(ctx):
