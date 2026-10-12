@@ -9,7 +9,9 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
+from typing import Literal
 
 DOCKERFILE_TEMPLATE = """\
 # Starter Dockerfile for an aaiclick docker-runner job.
@@ -76,6 +78,52 @@ FROM ${BASE_IMAGE}
 COPY --chown=aaiclick:aaiclick . /src
 WORKDIR /src
 """
+
+
+MANIFEST_NONE = "none"
+MANIFEST_UV_LOCK = "uv_lock"
+MANIFEST_REQUIREMENTS = "requirements"
+MANIFEST_PYPROJECT = "pyproject"
+MANIFEST_POM = "pom"
+ManifestKind = Literal["none", "uv_lock", "requirements", "pyproject", "pom"]
+
+# A ``[project]`` table header on its own line; ``[project.scripts]`` alone
+# does not make a tool-config-only pyproject a dependency manifest.
+_PROJECT_TABLE_RE = re.compile(r"^\[project\]\s*$", re.MULTILINE)
+
+
+class AmbiguousManifests(ValueError):
+    """Raised when a checkout root carries both a ``pom.xml`` and a Python manifest."""
+
+
+def _python_manifest(context_dir: Path) -> ManifestKind:
+    """The Python manifest at the root, by precedence; ``MANIFEST_NONE`` when there is none."""
+    if (context_dir / "uv.lock").is_file():
+        return MANIFEST_UV_LOCK
+    if (context_dir / "requirements.txt").is_file():
+        return MANIFEST_REQUIREMENTS
+    pyproject = context_dir / "pyproject.toml"
+    if pyproject.is_file() and _PROJECT_TABLE_RE.search(pyproject.read_text()):
+        return MANIFEST_PYPROJECT
+    return MANIFEST_NONE
+
+
+def detect_manifest(context_dir: Path) -> ManifestKind:
+    """Classify a checkout root by the dependency manifest it carries.
+
+    Python manifests take precedence ``uv.lock`` > ``requirements.txt`` >
+    ``pyproject.toml`` (the latter only with a ``[project]`` table). A
+    ``pom.xml`` selects the JVM template; one next to a Python manifest is
+    ambiguous and raises :class:`AmbiguousManifests`. Subdirectories are
+    ignored."""
+    python = _python_manifest(context_dir)
+    if (context_dir / "pom.xml").is_file():
+        if python != MANIFEST_NONE:
+            raise AmbiguousManifests(
+                f"pom.xml alongside a {python} manifest in the checkout: check in a Dockerfile to choose the image"
+            )
+        return MANIFEST_POM
+    return python
 
 
 class DockerfileExists(FileExistsError):
