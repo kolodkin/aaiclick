@@ -48,6 +48,26 @@ published image; the tag rule drops the `+...` segment so the reference stays
 valid). Check in a `Dockerfile` (`python -m aaiclick docker init` scaffolds one)
 to customize; an explicit `dockerfile=` path that is missing still fails.
 
+The default honours a dependency manifest at the repo root:
+
+| Found at repo root                                   | Template | Install step                                                       |
+|------------------------------------------------------|----------|--------------------------------------------------------------------|
+| none of the below                                    | python   | none — the thin layer above                                        |
+| `uv.lock` (with `pyproject.toml`)                    | python   | `uv export --frozen --no-dev` → `pip install -r`                   |
+| `requirements.txt` (no `uv.lock`)                    | python   | `pip install -r requirements.txt`                                  |
+| `pyproject.toml` with a `[project]` table            | python   | `uv pip compile pyproject.toml` → `pip install -r`                 |
+| `pom.xml`, no Python manifest                        | jvm      | `mvn package` in a build stage, SDK shim as `ENTRYPOINT`           |
+| `pom.xml` **and** a Python manifest                  | error    | build fails: check in a `Dockerfile`                               |
+
+Dependencies install with the worker's `PIP_*` index args; the project itself
+is never `pip install .`-ed, and a `.dockerignore` that excludes the manifest
+breaks its `COPY`. The JVM default is single-module,
+JDK/JRE 21, and expects `aaiclick-task-api` declared in the pom
+(`docs/designs/java-sdk.md`). Anything else is a checked-in `Dockerfile`.
+
+**Implementation**: `aaiclick/orchestration/execution/docker_scaffold.py` — see
+`detect_manifest()`, `render_default_dockerfile()`.
+
 # Kubernetes dispatching worker
 
 Run `aaiclick-kubectl` as a pod with `AAICLICK_RUNNER=kubernetes`: container

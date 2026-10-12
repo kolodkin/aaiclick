@@ -15,23 +15,6 @@ job's exported result is opened by the next job on any cluster. Full design:
 
 ---
 
-# Default Build Image — Dependency Manifests
-
-The default Dockerfile for a git build without one (`docs/user_guide/container_images.md`
-"Runner base") copies the repo onto the aaiclick base image and installs
-nothing, so a job can only use what `aaiclick[all]` ships. Teach the build to
-honour dependency manifests found in the checkout: `requirements.txt`,
-`uv.lock` / `pyproject.toml` (`uv sync` or `pip install .`), and `pom.xml` for
-`jvm` tasks. Each adds a `RUN` layer to the default Dockerfile only when the
-file is present. Until then, a repo with dependencies checks in its own
-Dockerfile — the sandbox repo included (`docs/user_guide/sandbox.md`).
-
-**Implementation**: `aaiclick/orchestration/execution/docker_scaffold.py` — see
-`DEFAULT_BUILD_DOCKERFILE_TEMPLATE`; `aaiclick/orchestration/execution/docker_build.py`
-— see `_resolve_dockerfile()`.
-
----
-
 # Coverage Reporting
 
 Coverage is off by default: its CI log table went unread and it slowed every

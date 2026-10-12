@@ -72,9 +72,9 @@ Click a submission's name to read its source.
 
 # Limits
 
-- The base image ships only `aaiclick[all]`; other imports fail in the
-  container. Check a `Dockerfile` into the sandbox repo for dependencies
-  (manifests are planned: `docs/designs/future.md`).
+- A `requirements.txt` (or `pyproject.toml` / `uv.lock`) checked into the
+  sandbox repo is installed into the default image — see Container Images
+  "Runner base". Without one, only `aaiclick[all]` is importable.
 - A submission runs once; submit again to re-run.
 
 **Implementation**: `aaiclick/sandbox/repo.py` — see `SandboxRepo`;
