@@ -11,7 +11,15 @@ from .. import docker_config
 from ..runner_config import ImageBuild, ImagePrebuilt
 from . import docker_build
 from .docker_build import resolve_launch_image
-from .docker_scaffold import DEFAULT_BUILD_DOCKERFILE_TEMPLATE
+from .docker_scaffold import (
+    DEFAULT_BUILD_DOCKERFILE_TEMPLATE,
+    MANIFEST_POM,
+    MANIFEST_PYPROJECT,
+    MANIFEST_REQUIREMENTS,
+    MANIFEST_UV_LOCK,
+    AmbiguousManifests,
+    render_default_dockerfile,
+)
 
 
 async def test_collect_build_args_omits_unset_values(monkeypatch):
@@ -135,6 +143,44 @@ async def test_build_image_to_tag_repo_without_dockerfile_builds_with_default(mo
     assert built == [
         {"job.py": "print('hi')\n", "Dockerfile": DEFAULT_BUILD_DOCKERFILE_TEMPLATE, ".dockerignore": ".git\n"}
     ]
+
+
+@pytest.mark.parametrize(
+    "clone_files, kind",
+    [
+        pytest.param({"requirements.txt": "six\n"}, MANIFEST_REQUIREMENTS, id="requirements"),
+        pytest.param(
+            {"pyproject.toml": "[project]\nname = 'x'\n", "uv.lock": "version = 1\n"}, MANIFEST_UV_LOCK, id="uv-lock"
+        ),
+        pytest.param({"pyproject.toml": "[project]\nname = 'x'\n"}, MANIFEST_PYPROJECT, id="pyproject"),
+        pytest.param({"pom.xml": "<project/>"}, MANIFEST_POM, id="pom"),
+    ],
+)
+async def test_build_image_to_tag_default_honours_manifest(monkeypatch, clone_files, kind):
+    built = _stub_build_path(monkeypatch, clone_files)
+    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
+
+    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
+
+    assert built[0]["Dockerfile"] == render_default_dockerfile(kind)
+    assert built[0][".dockerignore"] == ".git\n"
+
+
+async def test_build_image_to_tag_ambiguous_manifests_raise(monkeypatch):
+    _stub_build_path(monkeypatch, {"pom.xml": "<project/>", "requirements.txt": ""})
+    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
+
+    with pytest.raises(AmbiguousManifests, match="check in a Dockerfile"):
+        await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
+
+
+async def test_build_image_to_tag_checked_in_dockerfile_wins_over_manifest(monkeypatch):
+    built = _stub_build_path(monkeypatch, {"Dockerfile": "FROM python:3.12\n", "requirements.txt": "six\n"})
+    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
+
+    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
+
+    assert built[0]["Dockerfile"] == "FROM python:3.12\n"
 
 
 async def test_build_image_to_tag_default_keeps_repo_dockerignore(monkeypatch):

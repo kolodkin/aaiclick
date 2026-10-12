@@ -24,7 +24,7 @@ from ...ghcr import base_image
 from ..docker_config import add_host_flags, compute_image_tag, get_registry
 from ..runner_config import ImageBuild, ImageSourceT
 from . import cli
-from .docker_scaffold import DEFAULT_BUILD_DOCKERFILE_TEMPLATE
+from .docker_scaffold import detect_manifest, render_default_dockerfile
 
 
 def _docker_bin() -> str:
@@ -134,11 +134,13 @@ async def _docker_build(context: str, dockerfile: str, image_tag: str, build_arg
 def _resolve_dockerfile(source: ImageBuild, context_dir: Path) -> Path:
     """Path of the Dockerfile to build with inside the checkout.
 
-    A checkout without the implicit ``Dockerfile`` gets the default thin layer
-    written in, plus a ``.dockerignore`` (when the repo has none) keeping the
-    clone's ``.git`` out of the context — user Dockerfiles keep it, since a
-    ``pip install`` of a setuptools-scm project reads it. An explicitly named
-    ``dockerfile=`` that is absent is a user error and raises."""
+    A checkout without the implicit ``Dockerfile`` gets a default written in,
+    rendered for the dependency manifest at its root (``docker_scaffold.detect_manifest``;
+    a ``pom.xml`` next to a Python manifest raises ``AmbiguousManifests``), plus
+    a ``.dockerignore`` (when the repo has none) keeping the clone's ``.git``
+    out of the context — user Dockerfiles keep it, since a ``pip install`` of a
+    setuptools-scm project reads it. An explicitly named ``dockerfile=`` that
+    is absent is a user error and raises."""
     dockerfile = context_dir / (source.dockerfile or "Dockerfile")
     if dockerfile.is_file():
         return dockerfile
@@ -148,7 +150,7 @@ def _resolve_dockerfile(source: ImageBuild, context_dir: Path) -> Path:
             f"Check the dockerfile= path, or omit it to build with the repo's Dockerfile "
             f"(or the default aaiclick layer when there is none)."
         )
-    dockerfile.write_text(DEFAULT_BUILD_DOCKERFILE_TEMPLATE)
+    dockerfile.write_text(render_default_dockerfile(detect_manifest(context_dir)))
     dockerignore = context_dir / ".dockerignore"
     if not dockerignore.exists():
         dockerignore.write_text(".git\n")
