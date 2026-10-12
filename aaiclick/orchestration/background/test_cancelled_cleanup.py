@@ -15,8 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 
-from ...datetime_utils import utc_now
-from .conftest import get_run_refs, insert_job, insert_pin_ref, insert_run_ref, make_worker
+from .conftest import get_run_refs, insert_job, insert_pin_ref, insert_run_ref, insert_worker, make_worker
 from .test_failure_cleanup import (
     _get_job_status,
     _get_pin_refs,
@@ -30,19 +29,6 @@ DEAD_WORKER_ID = 999
 
 async def run_cancelled_cleanup() -> None:
     await run_cleanup_pass(BackgroundWorker._process_cancelled_cleanup)
-
-
-async def _insert_dead_worker(engine, worker_id: int, *, stale_by: timedelta) -> None:
-    async with AsyncSession(engine) as session:
-        await session.execute(
-            text(
-                "INSERT INTO execution_workers (id, hostname, pid, status, created_at, started_at, last_heartbeat, "
-                "tasks_completed, tasks_failed) "
-                "VALUES (:id, 'host', 1, 'ACTIVE', :now, :now, :heartbeat, 0, 0)"
-            ),
-            {"id": worker_id, "now": utc_now(), "heartbeat": utc_now() - stale_by},
-        )
-        await session.commit()
 
 
 async def _get_worker_ownership(engine, task_id):
@@ -75,6 +61,7 @@ async def test_cancelled_cleanup_waits_for_owning_worker(bg_db):
     """A cancelled task still owned by a worker is being stopped: nothing is
     dropped until the worker reports the run back."""
     await insert_job(bg_db, 1000, status="CANCELLED")
+    await insert_worker(bg_db, DEAD_WORKER_ID)
     await _insert_task(
         bg_db, 100, 1000, status="PENDING_CANCELLED_CLEANUP", run_ids="[111]", execution_worker_id=DEAD_WORKER_ID
     )
@@ -107,7 +94,7 @@ async def test_dead_worker_releases_cancelled_task(bg_db):
     """A worker that dies mid-kill never reports back; the dead-worker sweep
     releases its cancelled task so the next cleanup pass can settle it."""
     await insert_job(bg_db, 1000, status="CANCELLED")
-    await _insert_dead_worker(bg_db, DEAD_WORKER_ID, stale_by=timedelta(seconds=120))
+    await insert_worker(bg_db, DEAD_WORKER_ID, stale_by=timedelta(seconds=120))
     await _insert_task(
         bg_db, 100, 1000, status="PENDING_CANCELLED_CLEANUP", run_ids="[111]", execution_worker_id=DEAD_WORKER_ID
     )

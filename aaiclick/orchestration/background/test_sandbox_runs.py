@@ -6,19 +6,18 @@ from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from sqlalchemy.ext.asyncio import create_async_engine
-
 from aaiclick.datetime_utils import utc_now
 from aaiclick.orchestration.background.background_worker import SANDBOX_STALE_AFTER, BackgroundWorker
 from aaiclick.orchestration.models import SANDBOX_FAILED, SANDBOX_RUNNING, SANDBOX_SUBMITTED, SandboxFile
 from aaiclick.orchestration.orch_context import get_sql_session
+from aaiclick.orchestration.sql_context import create_sql_engine
 
 RUN_JOB = "aaiclick.orchestration.background.background_worker.run_job"
 
 
 async def _run_step() -> None:
     worker = BackgroundWorker()
-    worker._engine = create_async_engine(os.environ["AAICLICK_SQL_URL"], echo=False)
+    worker._engine = create_sql_engine(os.environ["AAICLICK_SQL_URL"])
     worker._ch_client = None
     try:
         await worker._run_sandbox_files()

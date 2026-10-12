@@ -14,12 +14,12 @@ from unittest.mock import patch
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from aaiclick.data.data_context.ch_client import _ch_client_var
 from aaiclick.orchestration.execution.db_handler import _db_handler_var
 from aaiclick.orchestration.orch_context import OrchLifecycleHandler, orch_context, task_scope
-from aaiclick.orchestration.sql_context import _sql_engine_var, get_sql_session
+from aaiclick.orchestration.sql_context import _sql_engine_var, create_sql_engine, get_sql_session
 
 # `aaiclick.orchestration.__init__` re-exports the function ``orch_context``
 # from the submodule, so attribute-walk based patch paths
@@ -29,7 +29,7 @@ _orch_module = importlib.import_module("aaiclick.orchestration.orch_context")
 
 
 async def test_nested_orch_context_reuses_outer_engine():
-    with patch.object(_orch_module, "create_async_engine", wraps=create_async_engine) as spy:
+    with patch.object(_orch_module, "create_sql_engine", wraps=create_sql_engine) as spy:
         async with orch_context(with_ch=False):
             outer_engine = _sql_engine_var.get()
             outer_handler = _db_handler_var.get()

@@ -95,8 +95,11 @@ async def reset_sql_tables() -> None:
             result = await session.execute(
                 text("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
             )
-            tables = [r[0] for r in result.all() if r[0] != "alembic_version"]
-            for name in tables:
+            present = {r[0] for r in result.all()} - {"alembic_version"}
+            # Children before parents: SQLite enforces the FKs on every
+            # DELETE, so catalog order would reject ``DELETE FROM jobs``.
+            ordered = [t.name for t in reversed(SQLModel.metadata.sorted_tables) if t.name in present]
+            for name in ordered + sorted(present.difference(ordered)):
                 await session.execute(text(f'DELETE FROM "{name}"'))
         else:
             result = await session.execute(

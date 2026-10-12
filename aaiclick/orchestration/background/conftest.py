@@ -9,16 +9,18 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+from datetime import timedelta
 from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import create_engine, text
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from aaiclick.data.data_context import ChClient
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 from aaiclick.orchestration.models import SQLModel
+from aaiclick.orchestration.sql_context import create_sql_engine
 from aaiclick.snowflake import get_snowflake_id
 
 from ...datetime_utils import utc_now
@@ -32,7 +34,7 @@ async def bg_db():
     sync_engine = create_engine(f"sqlite:///{db_path}")
     SQLModel.metadata.create_all(sync_engine)
     sync_engine.dispose()
-    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+    engine = create_sql_engine(f"sqlite+aiosqlite:///{db_path}")
     yield engine
     await engine.dispose()
     shutil.rmtree(tmpdir, ignore_errors=True)
@@ -61,6 +63,20 @@ async def insert_job(engine, job_id, *, status="RUNNING", preservation_mode="NON
                 "VALUES (:id, 'test_job', :status, 'MANUAL', :mode, :now)"
             ),
             {"id": job_id, "status": status, "mode": preservation_mode, "now": utc_now()},
+        )
+        await session.commit()
+
+
+async def insert_worker(engine, worker_id, *, stale_by=timedelta(0)):
+    """Insert an ACTIVE execution worker whose heartbeat is ``stale_by`` old."""
+    async with AsyncSession(engine) as session:
+        await session.execute(
+            text(
+                "INSERT INTO execution_workers (id, hostname, pid, status, created_at, started_at, last_heartbeat, "
+                "tasks_completed, tasks_failed) "
+                "VALUES (:id, 'host', 1, 'ACTIVE', :now, :now, :heartbeat, 0, 0)"
+            ),
+            {"id": worker_id, "now": utc_now(), "heartbeat": utc_now() - stale_by},
         )
         await session.commit()
 

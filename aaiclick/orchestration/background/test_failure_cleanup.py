@@ -14,14 +14,15 @@ from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from aaiclick.orchestration.background.background_worker import RETRY_BASE_DELAY, BackgroundWorker
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 from aaiclick.orchestration.env import get_db_url
+from aaiclick.orchestration.sql_context import create_sql_engine
 
 from ...datetime_utils import utc_now
-from .conftest import get_run_refs, insert_job, insert_pin_ref, insert_run_ref, make_worker
+from .conftest import get_run_refs, insert_job, insert_pin_ref, insert_run_ref, insert_worker, make_worker
 
 
 async def _insert_task(
@@ -89,7 +90,7 @@ async def run_cleanup_pass(pass_fn: Callable[[BackgroundWorker], Awaitable[None]
     same SQL database, e.g. ``run_cleanup_pass(BackgroundWorker._process_failure_cleanup)``.
     """
     worker = BackgroundWorker(poll_interval=0)
-    worker._engine = create_async_engine(get_db_url(), echo=False)
+    worker._engine = create_sql_engine(get_db_url())
     worker._handler = SqliteBackgroundHandler()
     worker._ch_client = AsyncMock()
     try:
@@ -105,6 +106,7 @@ async def run_failure_cleanup() -> None:
 async def test_failure_cleanup_transitions_to_pending_with_retries(bg_db):
     """PENDING_FAILURE_CLEANUP task with retries → PENDING with incremented attempt."""
     await insert_job(bg_db, 1000)
+    await insert_worker(bg_db, 999)
     await _insert_task(
         bg_db,
         100,
