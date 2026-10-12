@@ -168,7 +168,9 @@ def test_render_default_dockerfile_python_install_block(kind, copy_line, resolve
     assert copy_line in text
     assert resolve_fragment in text
     # Install runs as root; the runtime user is restored before the tree is copied.
-    assert text.index("\nUSER root\n") < text.index(copy_line) < text.index("\nUSER aaiclick\n") < text.index(_PYTHON_TAIL)
+    assert (
+        text.index("\nUSER root\n") < text.index(copy_line) < text.index("\nUSER aaiclick\n") < text.index(_PYTHON_TAIL)
+    )
     assert text.count(_PIP_INDEX) == text.count("pip install")
     assert text.endswith(_PYTHON_TAIL)
 
