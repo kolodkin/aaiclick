@@ -147,9 +147,8 @@ class TaskFactory:
             max_retries=self.max_retries,
         )
 
-        # Set up dependencies: upstream >> task
         for upstream in upstream_tasks:
-            upstream >> task
+            task.depends_on(upstream)
 
         return task
 

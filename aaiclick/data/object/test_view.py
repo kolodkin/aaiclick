@@ -119,7 +119,7 @@ async def test_computed_field_with_other_projection_needs_row_order(ctx):
     v = obj.with_columns({"d": Computed("Int64", "x * 100")})
 
     with pytest.raises(TypeError, match="explicit row order"):
-        v["d"] + obj["y"]
+        _ = v["d"] + obj["y"]
 
 
 async def test_view_rename_preserves_where(ctx):

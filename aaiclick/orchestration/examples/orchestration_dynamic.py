@@ -1,3 +1,5 @@
+# `a >> b` wires a dependency as a bare statement; pyright flags every such binary operation.
+# pyright: reportUnusedExpression=false
 """
 Dynamic task creation example for aaiclick orchestration.
 

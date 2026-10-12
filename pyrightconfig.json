@@ -18,6 +18,5 @@
   "reportMissingImports": "error",
   "reportMissingTypeStubs": false,
   "reportArgumentType": "warning",
-  "reportCallIssue": "warning",
-  "reportUnusedExpression": "none"
+  "reportCallIssue": "warning"
 }

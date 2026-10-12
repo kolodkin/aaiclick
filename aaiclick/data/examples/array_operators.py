@@ -149,7 +149,7 @@ async def example():
     c = await create_object_from_value([10, 20], aai_id=True)
 
     try:
-        a + c
+        _ = a + c
         print("ERROR: Should have raised!")
     except ValueError as e:
         print(f"a + c: {e}")  # Operand length mismatch: left has 3 elements, right has 2 elements

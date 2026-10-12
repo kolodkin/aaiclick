@@ -1,3 +1,5 @@
+# `a >> b` wires a dependency as a bare statement; pyright flags every such binary operation.
+# pyright: reportUnusedExpression=false
 """Tests for dependency operators, asserted on the ``Dependency`` rows ``commit_tasks`` persists."""
 
 import pytest
