@@ -1,3 +1,5 @@
+# `a >> b` wires a dependency as a bare statement; pyright flags every such binary operation.
+# pyright: reportUnusedExpression=false
 """End-to-end test for Object lifecycle with per-consumer pins.
 
 Hooks into SQLAlchemy's engine events to capture all pin/unpin and

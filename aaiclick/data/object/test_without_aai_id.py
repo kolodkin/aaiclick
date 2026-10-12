@@ -34,7 +34,7 @@ async def test_cross_table_op_without_aai_id_raises(ctx):
     a = await create_object_from_value([1, 2, 3])
     b = await create_object_from_value([10, 20, 30])
     with pytest.raises(TypeError, match="order_by"):
-        a + b
+        _ = a + b
 
 
 async def test_cross_table_op_without_aai_id_works_with_explicit_order_by(ctx):
@@ -52,7 +52,7 @@ async def test_partial_aai_id_one_sided_still_requires_order_by(ctx):
     a = await create_object_from_value([1, 2, 3])  # no aai_id
     b = await create_object_from_value([10, 20, 30], aai_id=True)
     with pytest.raises(TypeError, match="order_by"):
-        a + b
+        _ = a + b
     # Workaround: explicit order_by on the no-aai_id side.
     result = a.view(order_by="value") + b
     assert "aai_id" in result.schema.columns

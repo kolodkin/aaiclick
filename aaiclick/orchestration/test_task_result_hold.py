@@ -1,3 +1,5 @@
+# `a >> b` wires a dependency as a bare statement; pyright flags every such binary operation.
+# pyright: reportUnusedExpression=false
 """Execution tests: consumers of task_result(data=..., tasks=[...]) wait for the tasks."""
 
 import pytest

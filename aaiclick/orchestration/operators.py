@@ -140,7 +140,7 @@ async def _expand_map(
         group.add_task(_map_part(cbk=cbk, part=part, out=out, cbk_args=cbk_args, cbk_kwargs=cbk_kwargs))
 
     finalize = _finalize(out=out)
-    group >> finalize
+    finalize.depends_on(group)
     _join_frame([group], finalize)
     return task_result(data=finalize, tasks=[group, finalize])
 
@@ -319,7 +319,7 @@ async def _expand_reduce(
         src_size = ceil(src_size / partition)
 
     finalize = _finalize(out=layer_objs[-1])
-    all_groups[-1] >> finalize
+    finalize.depends_on(all_groups[-1])
     _join_frame(all_groups, finalize)
     return task_result(data=finalize, tasks=[*all_groups, finalize])
 
