@@ -386,7 +386,7 @@ class BackgroundWorker:
             task_ids = [row[0] for row in result.fetchall()]
 
             if task_ids:
-                # Delete dependencies referencing these tasks
+                # Delete dependencies and remote results referencing these tasks
                 ph, params = in_clause(task_ids, "tid")
                 await session.execute(
                     text(
@@ -396,6 +396,7 @@ class BackgroundWorker:
                     ),
                     params,
                 )
+                await session.execute(text(f"DELETE FROM remote_task_results WHERE task_id IN ({ph})"), params)
 
             # Delete ref tables for tables belonging to this job
             await _delete_table_refs(session, table_names)

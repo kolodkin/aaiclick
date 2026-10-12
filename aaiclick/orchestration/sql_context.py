@@ -13,26 +13,21 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar
 
 from sqlalchemy import event
-from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 _sql_engine_var: ContextVar[AsyncEngine | None] = ContextVar("sql_engine", default=None)
 
 
 def _enable_sqlite_foreign_keys(dbapi_connection, _record) -> None:
-    dbapi_connection.execute("PRAGMA foreign_keys=ON")
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 
 
 def create_sql_engine(url: str) -> AsyncEngine:
-    """Build the orchestration async engine for ``url``.
-
-    SQLite leaves ``PRAGMA foreign_keys`` off per connection, so the declared
-    ``REFERENCES`` clauses would never be checked; Postgres always enforces
-    them. A ``connect`` listener turns the pragma on so both backends reject
-    the same orphan rows.
-    """
+    """Async engine for ``url``; on SQLite, turns on ``PRAGMA foreign_keys`` per connection."""
     engine = create_async_engine(url, echo=False)
-    if make_url(url).get_backend_name() == "sqlite":
+    if engine.dialect.name == "sqlite":
         event.listen(engine.sync_engine, "connect", _enable_sqlite_foreign_keys)
     return engine
 

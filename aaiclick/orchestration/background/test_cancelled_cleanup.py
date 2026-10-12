@@ -15,16 +15,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 
-from .conftest import get_run_refs, insert_job, insert_pin_ref, insert_run_ref, insert_worker, make_worker
+from .conftest import (
+    WORKER_ID,
+    get_run_refs,
+    insert_job,
+    insert_pin_ref,
+    insert_run_ref,
+    insert_task,
+    insert_worker,
+    make_worker,
+)
 from .test_failure_cleanup import (
     _get_job_status,
     _get_pin_refs,
     _get_task_status,
-    _insert_task,
     run_cleanup_pass,
 )
-
-DEAD_WORKER_ID = 999
 
 
 async def run_cancelled_cleanup() -> None:
@@ -41,7 +47,7 @@ async def test_cancelled_cleanup_settles_unowned_task(bg_db):
     """An unowned cancelled task loses its last run's run_refs and its pin_refs
     and settles to CANCELLED; the cancelled job stays CANCELLED."""
     await insert_job(bg_db, 1000, status="CANCELLED")
-    await _insert_task(bg_db, 100, 1000, status="PENDING_CANCELLED_CLEANUP", run_ids="[111]")
+    await insert_task(bg_db, 100, 1000, status="PENDING_CANCELLED_CLEANUP", run_ids="[111]")
     await insert_run_ref(bg_db, "t_partial", "111")
     await insert_pin_ref(bg_db, "t_upstream", 100)
     await insert_pin_ref(bg_db, "t_upstream", 200)
@@ -61,9 +67,9 @@ async def test_cancelled_cleanup_waits_for_owning_worker(bg_db):
     """A cancelled task still owned by a worker is being stopped: nothing is
     dropped until the worker reports the run back."""
     await insert_job(bg_db, 1000, status="CANCELLED")
-    await insert_worker(bg_db, DEAD_WORKER_ID)
-    await _insert_task(
-        bg_db, 100, 1000, status="PENDING_CANCELLED_CLEANUP", run_ids="[111]", execution_worker_id=DEAD_WORKER_ID
+    await insert_worker(bg_db, WORKER_ID)
+    await insert_task(
+        bg_db, 100, 1000, status="PENDING_CANCELLED_CLEANUP", run_ids="[111]", execution_worker_id=WORKER_ID
     )
     await insert_run_ref(bg_db, "t_partial", "111")
     await insert_pin_ref(bg_db, "t_upstream", 100)
@@ -80,8 +86,8 @@ async def test_cancelled_cleanup_fails_job_after_sibling_abort(bg_db):
     """A fail-fast sibling settling to CANCELLED is what lets its still-RUNNING
     job roll up to FAILED."""
     await insert_job(bg_db, 1000, status="RUNNING")
-    await _insert_task(bg_db, 100, 1000, status="FAILED")
-    await _insert_task(bg_db, 101, 1000, status="PENDING_CANCELLED_CLEANUP")
+    await insert_task(bg_db, 100, 1000, status="FAILED")
+    await insert_task(bg_db, 101, 1000, status="PENDING_CANCELLED_CLEANUP")
 
     await make_worker(bg_db)._process_cancelled_cleanup()
 
@@ -94,9 +100,9 @@ async def test_dead_worker_releases_cancelled_task(bg_db):
     """A worker that dies mid-kill never reports back; the dead-worker sweep
     releases its cancelled task so the next cleanup pass can settle it."""
     await insert_job(bg_db, 1000, status="CANCELLED")
-    await insert_worker(bg_db, DEAD_WORKER_ID, stale_by=timedelta(seconds=120))
-    await _insert_task(
-        bg_db, 100, 1000, status="PENDING_CANCELLED_CLEANUP", run_ids="[111]", execution_worker_id=DEAD_WORKER_ID
+    await insert_worker(bg_db, WORKER_ID, stale_by=timedelta(seconds=120))
+    await insert_task(
+        bg_db, 100, 1000, status="PENDING_CANCELLED_CLEANUP", run_ids="[111]", execution_worker_id=WORKER_ID
     )
     worker = make_worker(bg_db)
 

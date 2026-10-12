@@ -109,15 +109,11 @@ full drop + `ch_upgrade` — needed in distributed mode, where
 
 # Foreign Keys on SQLite
 
-SQLite leaves `PRAGMA foreign_keys` off per connection, so declared
-`REFERENCES` would never be checked locally while Postgres always enforces
-them. `create_sql_engine()` in `aaiclick/orchestration/sql_context.py`
-attaches a `connect` listener that turns the pragma on, so both backends
-reject the same orphan rows — build every engine through it, never
-`create_async_engine` directly.
-
-`reset_sql_tables` deletes children before parents
-(`reversed(SQLModel.metadata.sorted_tables)`) for the same reason.
+SQLite leaves `PRAGMA foreign_keys` off per connection, so without help the
+local backend never checks the FKs Postgres enforces. `create_sql_engine()`
+in `aaiclick/orchestration/sql_context.py` turns the pragma on via a
+`connect` listener; ruff bans direct `create_async_engine` calls so every
+engine gets it. `reset_sql_tables` therefore deletes children before parents.
 
 # Adding New Tests
 

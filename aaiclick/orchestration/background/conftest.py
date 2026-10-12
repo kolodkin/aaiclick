@@ -67,6 +67,35 @@ async def insert_job(engine, job_id, *, status="RUNNING", preservation_mode="NON
         await session.commit()
 
 
+WORKER_ID = 999
+
+
+async def insert_task(
+    engine, task_id, job_id, *, status, attempt=0, max_retries=0, run_ids="[]", error=None, execution_worker_id=None
+):
+    async with AsyncSession(engine) as session:
+        await session.execute(
+            text(
+                "INSERT INTO tasks (id, job_id, entrypoint, name, kwargs, status, "
+                "created_at, max_retries, attempt, run_ids, run_statuses, error, execution_worker_id) "
+                "VALUES (:id, :job_id, 'test.func', 'test', '{}', :status, "
+                ":now, :max_retries, :attempt, :run_ids, '[]', :error, :execution_worker_id)"
+            ),
+            {
+                "id": task_id,
+                "job_id": job_id,
+                "status": status,
+                "now": utc_now(),
+                "max_retries": max_retries,
+                "attempt": attempt,
+                "run_ids": run_ids,
+                "error": error,
+                "execution_worker_id": execution_worker_id,
+            },
+        )
+        await session.commit()
+
+
 async def insert_worker(engine, worker_id, *, stale_by=timedelta(0)):
     """Insert an ACTIVE execution worker whose heartbeat is ``stale_by`` old."""
     async with AsyncSession(engine) as session:
