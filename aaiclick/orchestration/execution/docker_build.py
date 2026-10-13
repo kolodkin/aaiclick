@@ -149,7 +149,11 @@ def _resolve_dockerfile(source: ImageBuild, context_dir: Path) -> Path:
             f"Check the dockerfile= path, or omit it to build with the repo's Dockerfile "
             f"(or the default aaiclick layer when there is none)."
         )
-    dockerfile.write_text(render_default_dockerfile(detect_manifest(context_dir)))
+    try:
+        kind = detect_manifest(context_dir)
+    except ValueError as e:
+        raise ValueError(f"{e} (repo {source.git_remote}@{source.git_sha})") from e
+    dockerfile.write_text(render_default_dockerfile(kind))
     dockerignore = context_dir / ".dockerignore"
     if not dockerignore.exists():
         dockerignore.write_text(".git\n")

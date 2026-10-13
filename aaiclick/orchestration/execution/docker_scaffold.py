@@ -83,6 +83,13 @@ ManifestKind = Literal["none", "uv_lock", "requirements", "pyproject", "pom"]
 _PROJECT_TABLE_RE = re.compile(r"^\s*\[\s*project\s*\]\s*(#.*)?$", re.MULTILINE)
 
 
+_MANIFEST_FILES: dict[ManifestKind, str] = {
+    MANIFEST_UV_LOCK: "uv.lock",
+    MANIFEST_REQUIREMENTS: "requirements.txt",
+    MANIFEST_PYPROJECT: "pyproject.toml",
+}
+
+
 def _python_manifest(context_dir: Path) -> ManifestKind:
     """The Python manifest at the root, by precedence; ``MANIFEST_NONE`` when there is none."""
     pyproject = context_dir / "pyproject.toml"
@@ -106,7 +113,7 @@ def detect_manifest(context_dir: Path) -> ManifestKind:
     if (context_dir / "pom.xml").is_file():
         if python != MANIFEST_NONE:
             raise ValueError(
-                f"pom.xml alongside a {python} manifest in the checkout: check in a Dockerfile to choose the image"
+                f"pom.xml alongside {_MANIFEST_FILES[python]} at the checkout root: check in a Dockerfile to choose the image"
             )
         return MANIFEST_POM
     return python
@@ -129,6 +136,8 @@ WORKDIR /src
 
 _PYPI = "https://pypi.org/simple/"
 _CTX = "/ctx"
+_UV_DIR = "/tmp/uv"
+_UV = f"{_UV_DIR}/bin/uv"
 _BASE = "/tmp/base.txt"
 _EXPORTED = "/tmp/exported.txt"
 # Pinned so a build is reproducible; bump deliberately.
@@ -149,8 +158,9 @@ _UV_INDEX = (
     '${PIP_TRUSTED_HOST:+--allow-insecure-host "${PIP_TRUSTED_HOST}"}'
 )
 
-# A ``uv.lock`` is honoured as is.
-_UV_EXPORT = f"uv export --frozen --no-dev --no-hashes -o {_EXPORTED}"
+# A ``uv.lock`` is honoured as is; the project and workspace members are not
+# installed editable, since the mounted checkout is gone at runtime.
+_UV_EXPORT = f"{_UV} export --frozen --no-dev --no-hashes --no-emit-project --no-editable -o {_EXPORTED}"
 
 
 def _python_dockerfile(requirements: str, *, export: bool = False) -> str:
@@ -158,20 +168,21 @@ def _python_dockerfile(requirements: str, *, export: bool = False) -> str:
     bind-mounted checkout, or the ``uv.lock`` export when ``export`` is set).
 
     The checkout is mounted, not copied, and is the cwd, so ``-r`` / ``-c``
-    includes and path dependencies resolve and no manifest lands in a layer; the cache mount
-    keeps uv's and pip's downloads across builds on the worker. ``base.txt``
+    includes and path dependencies resolve and no manifest lands in a layer;
+    the cache mount keeps downloads across builds on the worker. ``base.txt``
     — what the base image already has, aaiclick included — overrides every
     requirement, so the base image's packages win: a user lock can neither
     downgrade aaiclick nor swap the dependencies it was tested with, and a
     manifest naming aaiclick resolves to the installed copy without an index
-    lookup. uv is removed again: nothing at runtime uses it."""
+    lookup. uv lives in its own tree outside site-packages and is deleted
+    after use, so it is neither in ``base.txt`` nor in the image."""
     steps = [
         f"cd {_CTX}",
-        f"pip install {_PIP_INDEX} {_UV_PIN}",
+        f"pip install --target {_UV_DIR} {_PIP_INDEX} {_UV_PIN}",
         f"pip list --format=freeze > {_BASE}",
         *([_UV_EXPORT] if export else []),
-        f"uv pip install --system {_UV_INDEX} --overrides {_BASE} -r {requirements}",
-        f"pip uninstall -y uv && rm -f {_BASE} {_EXPORTED}",
+        f"{_UV} pip install --system {_UV_INDEX} --overrides {_BASE} -r {requirements}",
+        f"rm -rf {_UV_DIR} {_BASE} {_EXPORTED}",
     ]
     run = " \\\n && ".join(steps)
     install = f"""\

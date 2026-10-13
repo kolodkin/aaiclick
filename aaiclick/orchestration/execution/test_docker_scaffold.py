@@ -131,12 +131,14 @@ def test_detect_manifest_requirements_directory_is_not_a_manifest(tmp_path):
 def test_detect_manifest_pom_with_python_manifest_is_ambiguous(tmp_path):
     (tmp_path / "pom.xml").write_text("<project/>")
     (tmp_path / "requirements.txt").write_text("")
-    with pytest.raises(ValueError, match="pom.xml alongside"):
+    with pytest.raises(ValueError, match="pom.xml alongside requirements.txt"):
         detect_manifest(tmp_path)
 
 
 def test_render_default_dockerfile_none_is_the_thin_layer():
-    assert render_default_dockerfile(MANIFEST_NONE) == _PYTHON_HEAD + _PYTHON_TAIL
+    text = render_default_dockerfile(MANIFEST_NONE)
+    assert "\nRUN " not in text and "\nUSER " not in text
+    assert text.endswith("FROM ${BASE_IMAGE}\nCOPY --chown=aaiclick:aaiclick . /src\nWORKDIR /src\n")
 
 
 @pytest.mark.parametrize(
@@ -159,12 +161,16 @@ def test_render_default_dockerfile_python_install_block(kind, requirements):
         text.index("\nUSER root\n")
         < text.index("RUN --mount=type=bind,target=/ctx")
         < text.index("cd /ctx")
+        < text.index("pip install --target /tmp/uv ")
         < text.index("pip list --format=freeze > /tmp/base.txt")
+        < text.index("/tmp/uv/bin/uv pip install --system ")
         < text.index(f"--overrides /tmp/base.txt -r {requirements}")
-        < text.index("pip uninstall -y uv")
+        < text.index("rm -rf /tmp/uv /tmp/base.txt")
         < text.index("\nUSER aaiclick\n")
     )
-    assert ("uv export --frozen" in text) == (kind == MANIFEST_UV_LOCK)
+    assert ("uv export --frozen --no-dev --no-hashes --no-emit-project --no-editable" in text) == (
+        kind == MANIFEST_UV_LOCK
+    )
 
 
 def test_render_default_dockerfile_jvm():
