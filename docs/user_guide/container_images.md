@@ -66,12 +66,11 @@ on — keep the base image's version whatever the manifest pins, so a user lock
 cannot downgrade aaiclick or swap the dependencies it was tested with. The
 project itself is never `pip install .`-ed. Limits:
 
-- Anything installed from the checkout must be non-editable: the mount is gone
-  at runtime, so an `-e .` points nowhere. A `uv.lock` export drops the project
-  and installs members non-editable. The mount has no `.git` (the generated
-  `.dockerignore`), so a setuptools-scm project cannot build from it.
-- The install layer uses BuildKit mounts. The shipped worker images carry
-  `buildx`; a custom worker image needs it too.
+- Installs from the checkout must be non-editable: the mount is gone at
+  runtime, so `-e .` points nowhere (a `uv.lock` export already skips the
+  project). The mount has no `.git`, so a setuptools-scm project cannot build.
+- The install layer uses BuildKit mounts; a custom worker image needs `buildx`
+  like the shipped ones.
 - A `.dockerignore` that excludes the manifest hides it from the install.
 - Python code next to a `pom.xml` with no Python manifest gets the JVM image;
   a mixed repo adds a Python manifest.
