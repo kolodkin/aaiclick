@@ -45,7 +45,6 @@ def _worker_databases() -> Iterator[None]:
 _FIXTURES = Path(__file__).parent.parent / "fixtures"
 _SAMPLE_JOB = _FIXTURES / "sample_job"
 _BARE_JOB = _FIXTURES / "bare_job"
-_DEPS_JOB = _FIXTURES / "deps_job"
 _JVM_TASK = _FIXTURES / "jvm_task"
 _JAVA_SDK = Path(__file__).parent.parent.parent / "java"
 _JVM_TASK_IMAGE = "aaiclick-e2e-jvm-task:local"
@@ -62,14 +61,8 @@ def docker_e2e_user_repo(tmp_path_factory: pytest.TempPathFactory) -> UserRepo:
 
 @pytest.fixture(scope="session")
 def docker_e2e_bare_repo(tmp_path_factory: pytest.TempPathFactory) -> UserRepo:
-    """Publish the ``bare_job`` fixture (a repo with no Dockerfile) into the CI git daemon."""
+    """Publish the ``bare_job`` fixture (no Dockerfile, a ``requirements.txt``) into the CI git daemon."""
     return publish_user_repo(tmp_path_factory, _BARE_JOB)
-
-
-@pytest.fixture(scope="session")
-def docker_e2e_deps_repo(tmp_path_factory: pytest.TempPathFactory) -> UserRepo:
-    """Publish the ``deps_job`` fixture (``requirements.txt``, no Dockerfile) into the CI git daemon."""
-    return publish_user_repo(tmp_path_factory, _DEPS_JOB)
 
 
 @pytest.fixture(scope="session")

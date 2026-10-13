@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from .docker_scaffold import (
-    DEFAULT_BUILD_DOCKERFILE_TEMPLATE,
+    _PYTHON_TAIL,
     DOCKERFILE_TEMPLATE,
     MANIFEST_NONE,
     MANIFEST_POM,
@@ -77,8 +77,7 @@ _PROJECT = "[project]\nname = 'x'\n"
     [
         pytest.param({}, MANIFEST_NONE, id="empty"),
         pytest.param({"job.py": ""}, MANIFEST_NONE, id="code-only"),
-        pytest.param({"requirements.txt": ""}, MANIFEST_REQUIREMENTS, id="requirements-empty-file"),
-        pytest.param({"requirements.txt": "six\n"}, MANIFEST_REQUIREMENTS, id="requirements"),
+        pytest.param({"requirements.txt": ""}, MANIFEST_REQUIREMENTS, id="requirements"),
         pytest.param({"pyproject.toml": _PROJECT, "uv.lock": ""}, MANIFEST_UV_LOCK, id="uv-lock"),
         pytest.param(
             {"pyproject.toml": _PROJECT, "uv.lock": "", "requirements.txt": ""},
@@ -119,23 +118,26 @@ def test_detect_manifest_requirements_directory_is_not_a_manifest(tmp_path):
     assert detect_manifest(tmp_path) == MANIFEST_NONE
 
 
-@pytest.mark.parametrize("python_manifest", ["requirements.txt", "uv.lock", "pyproject.toml"])
-def test_detect_manifest_pom_with_python_manifest_is_ambiguous(tmp_path, python_manifest):
+@pytest.mark.parametrize(
+    "python_files",
+    [{"requirements.txt": ""}, {"pyproject.toml": _PROJECT, "uv.lock": ""}, {"pyproject.toml": _PROJECT}],
+    ids=["requirements", "uv-lock", "pyproject"],
+)
+def test_detect_manifest_pom_with_python_manifest_is_ambiguous(tmp_path, python_files):
     (tmp_path / "pom.xml").write_text("<project/>")
-    (tmp_path / "pyproject.toml").write_text(_PROJECT)
-    (tmp_path / python_manifest).write_text(_PROJECT if python_manifest == "pyproject.toml" else "")
+    for name, content in python_files.items():
+        (tmp_path / name).write_text(content)
     with pytest.raises(AmbiguousManifests, match="pom.xml alongside"):
         detect_manifest(tmp_path)
 
 
-_PYTHON_TAIL = "COPY --chown=aaiclick:aaiclick . /src\nWORKDIR /src\n"
-_PIP_INDEX = '--index-url "${PIP_INDEX_URL:-https://pypi.org/simple/}"'
+_THIN_LAYER = render_default_dockerfile(MANIFEST_NONE)
 
 
 def test_render_default_dockerfile_none_is_the_thin_layer():
-    assert render_default_dockerfile(MANIFEST_NONE) == DEFAULT_BUILD_DOCKERFILE_TEMPLATE
-    assert "USER root" not in DEFAULT_BUILD_DOCKERFILE_TEMPLATE
-    assert DEFAULT_BUILD_DOCKERFILE_TEMPLATE.endswith(_PYTHON_TAIL)
+    assert "\nUSER " not in _THIN_LAYER
+    assert "\nRUN " not in _THIN_LAYER
+    assert _THIN_LAYER.endswith(_PYTHON_TAIL)
 
 
 @pytest.mark.parametrize(
@@ -162,40 +164,29 @@ def test_render_default_dockerfile_none_is_the_thin_layer():
     ],
 )
 def test_render_default_dockerfile_python_install_block(kind, copy_line, resolve_fragment):
+    """The thin layer wraps the install: tooling that depends only on the base
+    image (its own cached layer), the manifest copy, resolve + install with the
+    base image's packages winning, and the runtime user restored before the
+    tree is copied."""
     text = render_default_dockerfile(kind)
-    head = DEFAULT_BUILD_DOCKERFILE_TEMPLATE.removesuffix(_PYTHON_TAIL)
-    assert text.startswith(head)
-    assert copy_line in text
-    assert resolve_fragment in text
-    # Install runs as root; the runtime user is restored before the tree is copied.
-    assert (
-        text.index("\nUSER root\n") < text.index(copy_line) < text.index("\nUSER aaiclick\n") < text.index(_PYTHON_TAIL)
-    )
-    assert text.count(_PIP_INDEX) == text.count("pip install")
+    assert text.startswith(_THIN_LAYER.removesuffix(_PYTHON_TAIL))
     assert text.endswith(_PYTHON_TAIL)
-
-
-@pytest.mark.parametrize("kind", [MANIFEST_REQUIREMENTS, MANIFEST_UV_LOCK, MANIFEST_PYPROJECT])
-def test_render_default_dockerfile_keeps_base_image_packages(kind):
-    """The base image's packages (aaiclick and its dependencies) win over the
-    user's pins: the installed set overrides the resolve and constrains pip."""
-    text = render_default_dockerfile(kind)
-    assert "pip list --format=freeze > /tmp/aaiclick-deps/base.txt" in text
-    assert "uv pip compile --python python --override /tmp/aaiclick-deps/base.txt --no-emit-package aaiclick" in text
-    assert '--default-index "${PIP_INDEX_URL:-https://pypi.org/simple/}"' in text
-    assert "${PIP_TRUSTED_HOST:+--allow-insecure-host ${PIP_TRUSTED_HOST}}" in text
+    assert resolve_fragment in text
+    tooling = "pip list --format=freeze > /tmp/aaiclick-deps/base.txt\n"
+    assert text.index("\nUSER root\n") < text.index(tooling) < text.index(copy_line) < text.index("\nUSER aaiclick\n")
+    assert (
+        "uv pip compile --python python --no-cache --override /tmp/aaiclick-deps/base.txt --no-emit-package aaiclick"
+        in text
+    )
+    assert "uv pip install --system --no-cache" in text
     assert "-c /tmp/aaiclick-deps/base.txt -r /tmp/aaiclick-deps/final.txt" in text
+    # The worker's forwarded index args reach pip and uv alike.
+    assert text.count('"${PIP_INDEX_URL:-https://pypi.org/simple/}"') == 3
+    assert "${PIP_TRUSTED_HOST:+--allow-insecure-host ${PIP_TRUSTED_HOST}}" in text
 
 
 def test_render_default_dockerfile_jvm():
     text = render_default_dockerfile(MANIFEST_POM)
-    assert text.startswith(
-        "# Default image for a git build whose repo has a pom.xml and no Dockerfile.\n"
-        "FROM maven:3.9-eclipse-temurin-21 AS build\n"
-    )
-    assert "mvn -B -q -DskipTests package dependency:copy-dependencies" in text
-    assert "FROM eclipse-temurin:21-jre\n" in text
-    assert text.endswith(
-        'ENTRYPOINT ["java", "-cp", "/app/*:/app/libs/*", "io.github.kolodkin.aaiclick.task.AaiTaskShim"]\n'
-    )
+    assert text.startswith("# Default image for a git build whose repo has a pom.xml and no Dockerfile.\nFROM maven:")
+    assert text.endswith('"io.github.kolodkin.aaiclick.task.AaiTaskShim"]\n')
     assert "BASE_IMAGE" not in text

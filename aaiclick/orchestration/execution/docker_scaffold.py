@@ -2,16 +2,18 @@
 
 - ``DOCKERFILE_TEMPLATE`` — the starter ``python -m aaiclick docker init``
   scaffolds into the user's working directory; from there the user owns it.
-- ``DEFAULT_BUILD_DOCKERFILE_TEMPLATE`` — the thin layer on the aaiclick base
-  image a ``build`` source writes into a checkout that has no ``Dockerfile``
-  (``docker_build.build_image_to_tag``; spec: docs/designs/orchestration.md
-  "Image source"). Check in a Dockerfile to customize."""
+- ``render_default_dockerfile(detect_manifest(checkout))`` — what a ``build``
+  source writes into a checkout that has no ``Dockerfile``: a thin layer on
+  the aaiclick base image plus the install step its root manifest calls for
+  (``docker_build._resolve_dockerfile``; user guide:
+  docs/user_guide/container_images.md "Runner base"). Check in a Dockerfile
+  to customize."""
 
 from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Literal
+from typing import Literal, NamedTuple
 
 DOCKERFILE_TEMPLATE = """\
 # Starter Dockerfile for an aaiclick docker-runner job.
@@ -131,55 +133,65 @@ COPY --chown=aaiclick:aaiclick . /src
 WORKDIR /src
 """
 
-# Same index handling as the starter template, so the worker's forwarded
-# PIP_* build args reach the user's packages too — for pip and for uv alike.
-_PIP_INSTALL = (
-    "pip install --no-cache-dir \\\n"
-    '      --index-url "${PIP_INDEX_URL:-https://pypi.org/simple/}" \\\n'
-    '      --extra-index-url "${PIP_EXTRA_INDEX_URL:-https://pypi.org/simple/}" \\\n'
-    "      ${PIP_TRUSTED_HOST:+--trusted-host ${PIP_TRUSTED_HOST}}"
-)
-_UV_INDEX = (
-    '--default-index "${PIP_INDEX_URL:-https://pypi.org/simple/}" \\\n'
-    '      --index "${PIP_EXTRA_INDEX_URL:-https://pypi.org/simple/}" \\\n'
-    "      ${PIP_TRUSTED_HOST:+--allow-insecure-host ${PIP_TRUSTED_HOST}}"
-)
+_PYPI = "https://pypi.org/simple/"
 _DEPS_DIR = "/tmp/aaiclick-deps"
 _BASE = f"{_DEPS_DIR}/base.txt"
+_EXPORTED = f"{_DEPS_DIR}/exported.txt"
 _FINAL = f"{_DEPS_DIR}/final.txt"
 
-# The base image's packages win: ``base.txt`` (what the image already has,
-# aaiclick included) overrides the resolve and constrains pip, so a user lock
-# can neither downgrade aaiclick nor swap the dependencies it was tested with.
-# aaiclick itself never enters the install list — the worker's version may
-# not exist on any index.
-_FREEZE_BASE = f"pip list --format=freeze > {_BASE}"
-_UV_COMPILE = (
-    f"uv pip compile --python python --override {_BASE} --no-emit-package aaiclick \\\n"
-    f"      {_UV_INDEX} \\\n"
-    f"      --no-header --no-annotate {{source}} -o {_FINAL}"
+# The worker forwards PIP_INDEX_URL / PIP_EXTRA_INDEX_URL / PIP_TRUSTED_HOST
+# as build args; pip and uv each get them in their own spelling.
+_PIP_INDEX = (
+    f'--index-url "${{PIP_INDEX_URL:-{_PYPI}}}" --extra-index-url "${{PIP_EXTRA_INDEX_URL:-{_PYPI}}}" '
+    "${PIP_TRUSTED_HOST:+--trusted-host ${PIP_TRUSTED_HOST}}"
 )
+_UV_INDEX = (
+    f'--default-index "${{PIP_INDEX_URL:-{_PYPI}}}" --index "${{PIP_EXTRA_INDEX_URL:-{_PYPI}}}" '
+    "${PIP_TRUSTED_HOST:+--allow-insecure-host ${PIP_TRUSTED_HOST}}"
+)
+
+# Depends only on BASE_IMAGE, so docker caches this layer across every job
+# on the worker. ``base.txt`` is what the image already has, aaiclick included.
+_PYTHON_TOOLING = f"""\
+USER root
+RUN mkdir -p {_DEPS_DIR} \\
+ && pip install --no-cache-dir {_PIP_INDEX} uv \\
+ && pip list --format=freeze > {_BASE}
+"""
+
+# A ``uv.lock`` is honoured as is; workspace and path entries cannot resolve
+# from the copied manifests, and aaiclick comes from the base image.
 _UV_EXPORT = (
-    "uv export --frozen --no-dev --no-emit-workspace --no-emit-local --no-emit-package aaiclick --no-hashes \\\n"
-    f"      --directory {_DEPS_DIR} -o {_DEPS_DIR}/exported.txt"
+    "uv export --frozen --no-dev --no-emit-workspace --no-emit-local --no-emit-package aaiclick --no-hashes "
+    f"--no-cache --directory {_DEPS_DIR} -o {_EXPORTED}"
 )
 
 
-def _python_install_block(copy_sources: str, resolve: str | None, compile_source: str) -> str:
-    steps = [f"{_PIP_INSTALL} uv", _FREEZE_BASE]
-    if resolve:
-        steps.append(resolve)
-    steps.append(_UV_COMPILE.replace("{source}", f"{_DEPS_DIR}/{compile_source}"))
-    steps.append(f"{_PIP_INSTALL} -c {_BASE} -r {_FINAL}")
+class _PythonManifest(NamedTuple):
+    copy_sources: str
+    compile_input: str
+    resolve: str | None = None
+
+
+def _python_dockerfile(manifest: _PythonManifest | None) -> str:
+    """Thin layer plus, for a manifest, its install block.
+
+    The base image's packages win: ``base.txt`` overrides the resolve and
+    constrains the install, so a user lock can neither downgrade aaiclick nor
+    swap the dependencies it was tested with. aaiclick itself never enters the
+    install list — the worker's version may not exist on any index."""
+    if manifest is None:
+        return _PYTHON_HEAD + _PYTHON_TAIL
+    steps = [
+        *([manifest.resolve] if manifest.resolve else []),
+        f"uv pip compile --python python --no-cache --override {_BASE} --no-emit-package aaiclick {_UV_INDEX} "
+        f"--no-header --no-annotate {manifest.compile_input} -o {_FINAL}",
+        f"uv pip install --system --no-cache {_UV_INDEX} -c {_BASE} -r {_FINAL}",
+    ]
     run = " \\\n && ".join(steps)
-    return f"USER root\nCOPY {copy_sources} {_DEPS_DIR}/\nRUN {run}\nUSER aaiclick\n"
+    install = f"COPY {manifest.copy_sources} {_DEPS_DIR}/\nRUN {run}\nUSER aaiclick\n"
+    return _PYTHON_HEAD + _PYTHON_TOOLING + install + _PYTHON_TAIL
 
-
-_PYTHON_INSTALL_BLOCKS: dict[ManifestKind, str] = {
-    MANIFEST_REQUIREMENTS: _python_install_block("requirements.txt", None, "requirements.txt"),
-    MANIFEST_UV_LOCK: _python_install_block("pyproject.toml uv.lock", _UV_EXPORT, "exported.txt"),
-    MANIFEST_PYPROJECT: _python_install_block("pyproject.toml", None, "pyproject.toml"),
-}
 
 # The shape docs/designs/java-sdk.md prescribes for a user image: the SDK shim
 # (declared in the user's pom as aaiclick-task-api) as ENTRYPOINT, so the
@@ -199,14 +211,18 @@ ENTRYPOINT ["java", "-cp", "/app/*:/app/libs/*", "io.github.kolodkin.aaiclick.ta
 """
 
 
+_DEFAULT_DOCKERFILES: dict[ManifestKind, str] = {
+    MANIFEST_NONE: _python_dockerfile(None),
+    MANIFEST_REQUIREMENTS: _python_dockerfile(_PythonManifest("requirements.txt", f"{_DEPS_DIR}/requirements.txt")),
+    MANIFEST_UV_LOCK: _python_dockerfile(_PythonManifest("pyproject.toml uv.lock", _EXPORTED, resolve=_UV_EXPORT)),
+    MANIFEST_PYPROJECT: _python_dockerfile(_PythonManifest("pyproject.toml", f"{_DEPS_DIR}/pyproject.toml")),
+    MANIFEST_POM: _JVM_TEMPLATE,
+}
+
+
 def render_default_dockerfile(kind: ManifestKind) -> str:
     """The default Dockerfile for a checkout without one, per its manifest kind."""
-    if kind == MANIFEST_POM:
-        return _JVM_TEMPLATE
-    return _PYTHON_HEAD + _PYTHON_INSTALL_BLOCKS.get(kind, "") + _PYTHON_TAIL
-
-
-DEFAULT_BUILD_DOCKERFILE_TEMPLATE = render_default_dockerfile(MANIFEST_NONE)
+    return _DEFAULT_DOCKERFILES[kind]
 
 
 class DockerfileExists(FileExistsError):
