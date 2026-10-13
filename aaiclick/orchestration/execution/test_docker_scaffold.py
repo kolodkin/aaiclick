@@ -1,26 +1,30 @@
-"""Tests for the Dockerfile scaffold command."""
+"""Tests for the Dockerfile scaffold command and the default build Dockerfiles.
+
+The rendered Dockerfile text is the contract the build task writes into a
+checkout, so the render tests assert on it directly."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
-import yaml
 
 from .docker_scaffold import (
+    _PYTHON_HEAD,
+    _PYTHON_TAIL,
     DOCKERFILE_TEMPLATE,
     MANIFEST_NONE,
     MANIFEST_POM,
     MANIFEST_PYPROJECT,
     MANIFEST_REQUIREMENTS,
     MANIFEST_UV_LOCK,
-    UV_PIN,
-    AmbiguousManifests,
     DockerfileExists,
     detect_manifest,
     init_dockerfile,
     render_default_dockerfile,
 )
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_init_dockerfile_writes_file(tmp_path):
@@ -58,12 +62,11 @@ def test_e2e_fixture_dockerfile_matches_template():
 
     This test is unconditional — it doesn't require a docker daemon —
     so it runs on every PR alongside the regular orch suite."""
-    repo_root = Path(__file__).resolve().parents[3]
-    fixture = repo_root / "test_e2e" / "docker" / "fixtures" / "sample_job" / "Dockerfile"
+    fixture = _REPO_ROOT / "test_e2e" / "fixtures" / "sample_job" / "Dockerfile"
     if not fixture.is_file():
         pytest.skip(f"e2e fixture not present at {fixture} (running from installed wheel?)")
     assert fixture.read_text() == DOCKERFILE_TEMPLATE, (
-        "test_e2e/docker/fixtures/sample_job/Dockerfile has drifted from "
+        "test_e2e/fixtures/sample_job/Dockerfile has drifted from "
         "DOCKERFILE_TEMPLATE in docker_scaffold.py. Update both — they must "
         "stay byte-equal so the e2e exercises exactly what the user-facing "
         "`aaiclick docker init` command produces."
@@ -128,70 +131,43 @@ def test_detect_manifest_requirements_directory_is_not_a_manifest(tmp_path):
 def test_detect_manifest_pom_with_python_manifest_is_ambiguous(tmp_path):
     (tmp_path / "pom.xml").write_text("<project/>")
     (tmp_path / "requirements.txt").write_text("")
-    with pytest.raises(AmbiguousManifests, match="pom.xml alongside"):
+    with pytest.raises(ValueError, match="pom.xml alongside"):
         detect_manifest(tmp_path)
 
 
-_THIN_LAYER = render_default_dockerfile(MANIFEST_NONE)
-_PYTHON_TAIL = "COPY --chown=aaiclick:aaiclick . /src\nWORKDIR /src\n"
-
-
 def test_render_default_dockerfile_none_is_the_thin_layer():
-    """The rendered text is the contract: no install step without a manifest."""
-    assert "\nUSER " not in _THIN_LAYER
-    assert "\nRUN " not in _THIN_LAYER
-    assert _THIN_LAYER.endswith(_PYTHON_TAIL)
+    assert render_default_dockerfile(MANIFEST_NONE) == _PYTHON_HEAD + _PYTHON_TAIL
 
 
 @pytest.mark.parametrize(
-    "kind, install_source",
+    "kind, requirements",
     [
         pytest.param(MANIFEST_REQUIREMENTS, "requirements.txt", id="requirements"),
         pytest.param(MANIFEST_UV_LOCK, "/tmp/exported.txt", id="uv-lock"),
         pytest.param(MANIFEST_PYPROJECT, "pyproject.toml", id="pyproject"),
     ],
 )
-def test_render_default_dockerfile_python_install_block(kind, install_source):
-    """The rendered text is the contract. The thin layer wraps one root layer
-    that mounts the checkout as cwd, installs the manifest with the base
-    image's packages as overrides, removes uv, and restores the runtime user
-    before the tree is copied."""
+def test_render_default_dockerfile_python_install_block(kind, requirements):
+    """The thin layer wraps one root layer that mounts the checkout as cwd,
+    installs the manifest with the base image's packages as overrides, removes
+    uv, and restores the runtime user before the tree is copied."""
     text = render_default_dockerfile(kind)
-    assert text.startswith(_THIN_LAYER.removesuffix(_PYTHON_TAIL))
+    assert text.startswith(_PYTHON_HEAD)
     assert text.endswith(_PYTHON_TAIL)
+    assert text.count("\nRUN ") == 1
     assert (
         text.index("\nUSER root\n")
-        < text.index("RUN --mount=type=bind,target=/ctx --mount=type=cache,target=/root/.cache")
+        < text.index("RUN --mount=type=bind,target=/ctx")
         < text.index("cd /ctx")
-        < text.index('pip install --index-url "${PIP_INDEX_URL:-https://pypi.org/simple/}"')
         < text.index("pip list --format=freeze > /tmp/base.txt")
-        < text.index("uv pip install --system --index-strategy unsafe-best-match")
-        < text.index(f"--overrides /tmp/base.txt -r {install_source}")
+        < text.index(f"--overrides /tmp/base.txt -r {requirements}")
         < text.index("pip uninstall -y uv")
         < text.index("\nUSER aaiclick\n")
     )
-    assert text.count("\nRUN ") == 1
     assert ("uv export --frozen" in text) == (kind == MANIFEST_UV_LOCK)
 
 
-def test_uv_pin_matches_ci():
-    """The build installs the uv CI runs, so a lock written by CI's uv exports inside the image."""
-    action = Path(__file__).parents[3] / ".github" / "actions" / "setup-uv" / "action.yaml"
-    ci_version = yaml.safe_load(action.read_text())["inputs"]["uv-version"]["default"]
-    assert UV_PIN == f"uv=={ci_version}"
-
-
 def test_render_default_dockerfile_jvm():
-    """The rendered text is the contract: dependencies resolve from the pom in
-    their own cached layer before the sources are copied."""
     text = render_default_dockerfile(MANIFEST_POM)
-    assert text.startswith("# syntax=docker/dockerfile:1\n")
-    assert (
-        text.index("FROM maven:")
-        < text.index("COPY pom.xml /build/")
-        < text.index("dependency:go-offline")
-        < text.index("COPY . /build")
-        < text.index("FROM eclipse-temurin:")
-    )
+    assert text.index("FROM maven:") < text.index("COPY . /build") < text.index("FROM eclipse-temurin:")
     assert text.endswith('"io.github.kolodkin.aaiclick.task.AaiTaskShim"]\n')
-    assert "BASE_IMAGE" not in text

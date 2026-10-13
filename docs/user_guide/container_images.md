@@ -56,7 +56,7 @@ The default honours a dependency manifest at the repo root:
 | `uv.lock` with `pyproject.toml`                      | python   | `uv export --frozen --no-dev` → `uv pip install`                    |
 | `requirements.txt` (otherwise)                       | python   | `uv pip install -r requirements.txt`                                |
 | `pyproject.toml` with a `[project]` table            | python   | `uv pip install -r pyproject.toml`                                  |
-| `pom.xml`, no Python manifest                        | jvm      | `mvn dependency:go-offline`, `mvn package`, SDK shim as `ENTRYPOINT` |
+| `pom.xml`, no Python manifest                        | jvm      | `mvn package`, SDK shim as `ENTRYPOINT`                             |
 | `pom.xml` **and** a Python manifest                  | error    | build fails: check in a `Dockerfile`                                |
 
 `uv` runs on the worker's `PIP_*` index args with the checkout mounted as its

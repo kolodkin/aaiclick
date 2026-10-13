@@ -83,10 +83,6 @@ ManifestKind = Literal["none", "uv_lock", "requirements", "pyproject", "pom"]
 _PROJECT_TABLE_RE = re.compile(r"^\s*\[\s*project\s*\]\s*(#.*)?$", re.MULTILINE)
 
 
-class AmbiguousManifests(ValueError):
-    """Raised when a checkout root carries both a ``pom.xml`` and a Python manifest."""
-
-
 def _python_manifest(context_dir: Path) -> ManifestKind:
     """The Python manifest at the root, by precedence; ``MANIFEST_NONE`` when there is none."""
     pyproject = context_dir / "pyproject.toml"
@@ -105,12 +101,11 @@ def detect_manifest(context_dir: Path) -> ManifestKind:
     Python manifests take precedence ``uv.lock`` (with its ``pyproject.toml``)
     > ``requirements.txt`` > ``pyproject.toml`` (only with a ``[project]`` table). A
     ``pom.xml`` selects the JVM template; one next to a Python manifest is
-    ambiguous and raises :class:`AmbiguousManifests`. Subdirectories are
-    ignored."""
+    ambiguous and raises ``ValueError``. Subdirectories are ignored."""
     python = _python_manifest(context_dir)
     if (context_dir / "pom.xml").is_file():
         if python != MANIFEST_NONE:
-            raise AmbiguousManifests(
+            raise ValueError(
                 f"pom.xml alongside a {python} manifest in the checkout: check in a Dockerfile to choose the image"
             )
         return MANIFEST_POM
@@ -118,7 +113,6 @@ def detect_manifest(context_dir: Path) -> ManifestKind:
 
 
 _PYTHON_HEAD = f"""\
-# syntax=docker/dockerfile:1
 # Default image for a git build whose repo has no Dockerfile: a thin layer on
 # the aaiclick base image. The build task forwards BASE_IMAGE pinned to the
 # worker's aaiclick version (or AAICLICK_BASE_IMAGE).
@@ -137,8 +131,8 @@ _PYPI = "https://pypi.org/simple/"
 _CTX = "/ctx"
 _BASE = "/tmp/base.txt"
 _EXPORTED = "/tmp/exported.txt"
-# Same version CI runs (.github/actions/setup-uv); test_uv_pin_matches_ci keeps them equal.
-UV_PIN = "uv==0.12.7"
+# Pinned so a build is reproducible; bump deliberately.
+_UV_PIN = "uv==0.12.7"
 
 # The worker forwards PIP_INDEX_URL / PIP_EXTRA_INDEX_URL / PIP_TRUSTED_HOST
 # as build args; pip and uv each get them in their own spelling. uv ranks
@@ -155,14 +149,13 @@ _UV_INDEX = (
     '${PIP_TRUSTED_HOST:+--allow-insecure-host "${PIP_TRUSTED_HOST}"}'
 )
 
-# A ``uv.lock`` is honoured as is; the checkout is bind-mounted, so workspace
-# members and path sources resolve.
+# A ``uv.lock`` is honoured as is.
 _UV_EXPORT = f"uv export --frozen --no-dev --no-hashes -o {_EXPORTED}"
 
 
-def _python_dockerfile(source: str, *, export: bool = False) -> str:
-    """Thin layer plus one install layer for the manifest at ``source`` in the
-    bind-mounted checkout (``export``: a ``uv.lock`` to flatten first).
+def _python_dockerfile(requirements: str, *, export: bool = False) -> str:
+    """Thin layer plus one install layer for ``requirements`` (a path in the
+    bind-mounted checkout, or the ``uv.lock`` export when ``export`` is set).
 
     The checkout is mounted, not copied, and is the cwd, so ``-r`` / ``-c``
     includes and path dependencies resolve and no manifest lands in a layer; the cache mount
@@ -174,10 +167,10 @@ def _python_dockerfile(source: str, *, export: bool = False) -> str:
     lookup. uv is removed again: nothing at runtime uses it."""
     steps = [
         f"cd {_CTX}",
-        f"pip install {_PIP_INDEX} {UV_PIN}",
+        f"pip install {_PIP_INDEX} {_UV_PIN}",
         f"pip list --format=freeze > {_BASE}",
         *([_UV_EXPORT] if export else []),
-        f"uv pip install --system {_UV_INDEX} --overrides {_BASE} -r {_EXPORTED if export else source}",
+        f"uv pip install --system {_UV_INDEX} --overrides {_BASE} -r {requirements}",
         f"pip uninstall -y uv && rm -f {_BASE} {_EXPORTED}",
     ]
     run = " \\\n && ".join(steps)
@@ -195,16 +188,12 @@ USER aaiclick
 
 # The shape docs/designs/java-sdk.md prescribes for a user image: the SDK shim
 # (declared in the user's pom as aaiclick-task-api) as ENTRYPOINT, so the
-# runner's ``--task-id N --run-epoch M`` arguments reach it. Dependencies
-# resolve from the pom alone, in a layer the sources do not invalidate; the
-# BuildKit cache mount keeps ~/.m2 across builds without landing in a layer.
+# runner's ``--task-id N --run-epoch M`` arguments reach it. The BuildKit
+# cache mount keeps ~/.m2 across builds without landing in a layer.
 _JVM_TEMPLATE = """\
-# syntax=docker/dockerfile:1
 # Default image for a git build whose repo has a pom.xml and no Dockerfile.
 FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /build
-COPY pom.xml /build/
-RUN --mount=type=cache,target=/root/.m2 mvn -B -q dependency:go-offline
 COPY . /build
 RUN --mount=type=cache,target=/root/.m2 mvn -B -q -Dmaven.test.skip=true package dependency:copy-dependencies \\
       -DincludeScope=runtime -DoutputDirectory=target/libs
@@ -218,7 +207,7 @@ ENTRYPOINT ["java", "-cp", "/app/*:/app/libs/*", "io.github.kolodkin.aaiclick.ta
 _DEFAULT_DOCKERFILES: dict[ManifestKind, str] = {
     MANIFEST_NONE: _PYTHON_HEAD + _PYTHON_TAIL,
     MANIFEST_REQUIREMENTS: _python_dockerfile("requirements.txt"),
-    MANIFEST_UV_LOCK: _python_dockerfile("uv.lock", export=True),
+    MANIFEST_UV_LOCK: _python_dockerfile(_EXPORTED, export=True),
     MANIFEST_PYPROJECT: _python_dockerfile("pyproject.toml"),
     MANIFEST_POM: _JVM_TEMPLATE,
 }
