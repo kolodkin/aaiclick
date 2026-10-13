@@ -124,27 +124,22 @@ def _stub_build_path(monkeypatch, clone_files: dict[str, str]) -> list[dict[str,
     return built
 
 
-async def test_build_image_to_tag_repo_without_dockerfile_builds_with_default(monkeypatch):
-    """A checkout with no ``Dockerfile`` gets the default written in, plus a
-    ``.dockerignore`` keeping ``.git`` out of the image."""
-    built = _stub_build_path(monkeypatch, {"job.py": "print('hi')\n"})
+@pytest.mark.parametrize(
+    "clone_files, kind",
+    [
+        pytest.param({"job.py": "print('hi')\n"}, MANIFEST_NONE, id="thin-layer"),
+        pytest.param({"requirements.txt": "six\n"}, MANIFEST_REQUIREMENTS, id="manifest"),
+    ],
+)
+async def test_build_image_to_tag_repo_without_dockerfile_builds_with_default(monkeypatch, clone_files, kind):
+    """A checkout with no ``Dockerfile`` gets the default for its root manifest
+    written in, plus a ``.dockerignore`` keeping ``.git`` out of the image."""
+    built = _stub_build_path(monkeypatch, clone_files)
     source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
 
     await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
 
-    assert built == [
-        {"job.py": "print('hi')\n", "Dockerfile": render_default_dockerfile(MANIFEST_NONE), ".dockerignore": ".git\n"}
-    ]
-
-
-async def test_build_image_to_tag_default_honours_manifest(monkeypatch):
-    """The default written in is rendered for the manifest at the checkout root."""
-    built = _stub_build_path(monkeypatch, {"requirements.txt": "six\n"})
-    source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
-
-    await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
-
-    assert built[0]["Dockerfile"] == render_default_dockerfile(MANIFEST_REQUIREMENTS)
+    assert built == [{**clone_files, "Dockerfile": render_default_dockerfile(kind), ".dockerignore": ".git\n"}]
 
 
 async def test_build_image_to_tag_default_keeps_repo_dockerignore(monkeypatch):

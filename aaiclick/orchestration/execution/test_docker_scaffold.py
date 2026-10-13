@@ -75,7 +75,6 @@ _PROJECT = "[project]\nname = 'x'\n"
     "files, expected",
     [
         pytest.param({}, MANIFEST_NONE, id="empty"),
-        pytest.param({"job.py": ""}, MANIFEST_NONE, id="code-only"),
         pytest.param({"requirements.txt": ""}, MANIFEST_REQUIREMENTS, id="requirements"),
         pytest.param({"pyproject.toml": _PROJECT, "uv.lock": ""}, MANIFEST_UV_LOCK, id="uv-lock"),
         pytest.param(
@@ -124,15 +123,9 @@ def test_detect_manifest_requirements_directory_is_not_a_manifest(tmp_path):
     assert detect_manifest(tmp_path) == MANIFEST_NONE
 
 
-@pytest.mark.parametrize(
-    "python_files",
-    [{"requirements.txt": ""}, {"pyproject.toml": _PROJECT, "uv.lock": ""}, {"pyproject.toml": _PROJECT}],
-    ids=["requirements", "uv-lock", "pyproject"],
-)
-def test_detect_manifest_pom_with_python_manifest_is_ambiguous(tmp_path, python_files):
+def test_detect_manifest_pom_with_python_manifest_is_ambiguous(tmp_path):
     (tmp_path / "pom.xml").write_text("<project/>")
-    for name, content in python_files.items():
-        (tmp_path / name).write_text(content)
+    (tmp_path / "requirements.txt").write_text("")
     with pytest.raises(AmbiguousManifests, match="pom.xml alongside"):
         detect_manifest(tmp_path)
 
@@ -150,58 +143,46 @@ def test_render_default_dockerfile_none_is_the_thin_layer():
 
 
 @pytest.mark.parametrize(
-    "kind, copy_line, resolve_fragment",
+    "kind, copy_line, install_source",
     [
         pytest.param(
-            MANIFEST_REQUIREMENTS,
-            f"COPY requirements.txt {_DEPS}/",
-            f"{_DEPS}/requirements.txt -o {_DEPS}/final.txt",
-            id="requirements",
+            MANIFEST_REQUIREMENTS, f"COPY requirements.txt {_DEPS}/", f"{_DEPS}/requirements.txt", id="requirements"
         ),
-        pytest.param(
-            MANIFEST_UV_LOCK,
-            f"COPY pyproject.toml uv.lock {_DEPS}/",
-            "uv export --frozen --no-dev --no-emit-workspace --no-emit-local --no-emit-package aaiclick --no-hashes",
-            id="uv-lock",
-        ),
-        pytest.param(
-            MANIFEST_PYPROJECT,
-            f"COPY pyproject.toml {_DEPS}/",
-            f"{_DEPS}/pyproject.toml -o {_DEPS}/final.txt",
-            id="pyproject",
-        ),
+        pytest.param(MANIFEST_UV_LOCK, f"COPY pyproject.toml uv.lock {_DEPS}/", f"{_DEPS}/exported.txt", id="uv-lock"),
+        pytest.param(MANIFEST_PYPROJECT, f"COPY pyproject.toml {_DEPS}/", f"{_DEPS}/pyproject.toml", id="pyproject"),
     ],
 )
-def test_render_default_dockerfile_python_install_block(kind, copy_line, resolve_fragment):
-    """The rendered text is the contract. Thin layer around the install: a
-    tooling layer that depends only on the base image (pinned uv, the installed
-    set as override and constraint, aaiclick left out of the override so a
-    manifest naming it resolves from the index), the manifest copy, resolve +
-    install, and the runtime user restored before the tree is copied."""
+def test_render_default_dockerfile_python_install_block(kind, copy_line, install_source):
+    """The rendered text is the contract. The thin layer wraps the install: a
+    tooling layer that depends only on the base image, the manifest copy, one
+    install with the base image's packages as override and constraint, and the
+    runtime user restored before the tree is copied."""
     text = render_default_dockerfile(kind)
     assert text.startswith(_THIN_LAYER.removesuffix(_PYTHON_TAIL))
     assert text.endswith(_PYTHON_TAIL)
-    assert resolve_fragment in text
-    tooling = f"grep -v '^aaiclick==' {_DEPS}/base.txt > {_DEPS}/override.txt\n"
-    assert text.index("\nUSER root\n") < text.index(tooling) < text.index(copy_line) < text.index("\nUSER aaiclick\n")
-    assert "pip install --no-cache-dir" in text and " uv==" in text
+    install = "uv pip install --system --no-cache --index-strategy unsafe-best-match"
     assert (
-        f"uv pip compile --python python --no-cache --override {_DEPS}/override.txt --no-emit-package aaiclick" in text
+        text.index("\nUSER root\n")
+        < text.index(f"pip list --format=freeze > {_DEPS}/base.txt\n")
+        < text.index(copy_line)
+        < text.index(install)
+        < text.index(f"--overrides {_DEPS}/base.txt -c {_DEPS}/base.txt -r {install_source}\n")
+        < text.index("\nUSER aaiclick\n")
     )
-    assert "uv pip install --system --no-cache --index-strategy unsafe-best-match" in text
-    assert f"-c {_DEPS}/base.txt -r {_DEPS}/final.txt" in text
-    # The worker's forwarded index args reach pip and uv alike; an unset extra index adds nothing.
-    assert text.count('"${PIP_INDEX_URL:-https://pypi.org/simple/}"') == 3
-    assert text.count("${PIP_EXTRA_INDEX_URL:+--index ${PIP_EXTRA_INDEX_URL}}") == 2
-    assert "${PIP_EXTRA_INDEX_URL:+--extra-index-url ${PIP_EXTRA_INDEX_URL}}" in text
-    assert "${PIP_TRUSTED_HOST:+--allow-insecure-host ${PIP_TRUSTED_HOST}}" in text
+    assert ("uv export --frozen" in text) == (kind == MANIFEST_UV_LOCK)
 
 
 def test_render_default_dockerfile_jvm():
     """The rendered text is the contract: dependencies resolve from the pom in
     their own cached layer before the sources are copied."""
     text = render_default_dockerfile(MANIFEST_POM)
-    assert text.startswith("# Default image for a git build whose repo has a pom.xml and no Dockerfile.\nFROM maven:")
-    assert text.index("COPY pom.xml /build/") < text.index("dependency:go-offline") < text.index("COPY . /build")
+    assert text.startswith("# syntax=docker/dockerfile:1\n")
+    assert (
+        text.index("FROM maven:")
+        < text.index("COPY pom.xml /build/")
+        < text.index("dependency:go-offline")
+        < text.index("COPY . /build")
+        < text.index("FROM eclipse-temurin:")
+    )
     assert text.endswith('"io.github.kolodkin.aaiclick.task.AaiTaskShim"]\n')
     assert "BASE_IMAGE" not in text

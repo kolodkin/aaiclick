@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Literal, NamedTuple
+from typing import Literal
+
+from ...ghcr import BASE_IMAGE_REPO
 
 DOCKERFILE_TEMPLATE = """\
 # Starter Dockerfile for an aaiclick docker-runner job.
@@ -115,19 +117,16 @@ def detect_manifest(context_dir: Path) -> ManifestKind:
     return python
 
 
-_PYTHON_HEAD = """\
+_PYTHON_HEAD = f"""\
 # Default image for a git build whose repo has no Dockerfile: a thin layer on
 # the aaiclick base image. The build task forwards BASE_IMAGE pinned to the
 # worker's aaiclick version (or AAICLICK_BASE_IMAGE).
-# --chown: the base image runs as USER aaiclick; a root-owned /src would break
-# tasks that write relative paths.
-ARG BASE_IMAGE=ghcr.io/kolodkin/aaiclick:latest
-FROM ${BASE_IMAGE}
-ARG PIP_INDEX_URL
-ARG PIP_EXTRA_INDEX_URL
-ARG PIP_TRUSTED_HOST
+ARG BASE_IMAGE={BASE_IMAGE_REPO}:latest
+FROM ${{BASE_IMAGE}}
 """
 
+# --chown: the base image runs as USER aaiclick; a root-owned /src would break
+# tasks that write relative paths.
 _PYTHON_TAIL = """\
 COPY --chown=aaiclick:aaiclick . /src
 WORKDIR /src
@@ -136,11 +135,9 @@ WORKDIR /src
 _PYPI = "https://pypi.org/simple/"
 _DEPS_DIR = "/tmp/aaiclick-deps"
 _BASE = f"{_DEPS_DIR}/base.txt"
-_OVERRIDE = f"{_DEPS_DIR}/override.txt"
 _EXPORTED = f"{_DEPS_DIR}/exported.txt"
-_FINAL = f"{_DEPS_DIR}/final.txt"
-# Pinned: the flags below are this version's. Bump deliberately.
-_UV_PIN = "uv==0.11.32"
+# Same version CI runs (.github/actions/setup-uv); bump both together.
+_UV_PIN = "uv==0.12.7"
 
 # The worker forwards PIP_INDEX_URL / PIP_EXTRA_INDEX_URL / PIP_TRUSTED_HOST
 # as build args; pip and uv each get them in their own spelling. uv ranks
@@ -158,62 +155,57 @@ _UV_INDEX = (
 )
 
 # Depends only on BASE_IMAGE, so docker caches this layer across every job on
-# the worker. ``base.txt`` is what the image already has; ``override.txt`` is
-# the same minus aaiclick, whose installed (worker) version may not exist on
-# any index — a manifest naming aaiclick resolves it from the index instead
-# and the install then skips it as already satisfied.
+# the worker. ``base.txt`` is what the image already has, aaiclick included;
+# it is both override and constraint for the install below, so the base
+# image's packages win: a user lock can neither downgrade aaiclick nor swap
+# the dependencies it was tested with, and a manifest naming aaiclick
+# resolves to the installed copy without an index lookup.
 _PYTHON_TOOLING = f"""\
+ARG PIP_INDEX_URL
+ARG PIP_EXTRA_INDEX_URL
+ARG PIP_TRUSTED_HOST
 USER root
 RUN mkdir -p {_DEPS_DIR} \\
  && pip install --no-cache-dir {_PIP_INDEX} {_UV_PIN} \\
- && pip list --format=freeze > {_BASE} \\
- && grep -v '^aaiclick==' {_BASE} > {_OVERRIDE}
+ && pip list --format=freeze > {_BASE}
 """
 
 # A ``uv.lock`` is honoured as is; workspace and path entries cannot resolve
-# from the copied manifests, and aaiclick comes from the base image.
+# from the copied manifests.
 _UV_EXPORT = (
-    "uv export --frozen --no-dev --no-emit-workspace --no-emit-local --no-emit-package aaiclick --no-hashes "
-    f"--no-cache --directory {_DEPS_DIR} -o {_EXPORTED}"
+    "uv export --frozen --no-dev --no-emit-workspace --no-emit-local --no-hashes --no-cache "
+    f"--directory {_DEPS_DIR} -o {_EXPORTED}"
 )
 
 
-class _PythonManifest(NamedTuple):
-    copy_sources: str
-    compile_input: str
-    resolve: str | None = None
-
-
-def _python_dockerfile(manifest: _PythonManifest | None) -> str:
-    """Thin layer plus, for a manifest, its install block.
-
-    The base image's packages win: the installed set overrides the resolve
-    and constrains the install, so a user lock can neither downgrade aaiclick
-    nor swap the dependencies it was tested with."""
-    if manifest is None:
-        return _PYTHON_HEAD + _PYTHON_TAIL
-    steps = [
-        *([manifest.resolve] if manifest.resolve else []),
-        f"uv pip compile --python python --no-cache --override {_OVERRIDE} --no-emit-package aaiclick {_UV_INDEX} "
-        f"--no-header --no-annotate {manifest.compile_input} -o {_FINAL}",
-        f"uv pip install --system --no-cache {_UV_INDEX} -c {_BASE} -r {_FINAL}",
-    ]
-    run = " \\\n && ".join(steps)
-    install = f"COPY {manifest.copy_sources} {_DEPS_DIR}/\nRUN {run}\nUSER aaiclick\n"
-    return _PYTHON_HEAD + _PYTHON_TOOLING + install + _PYTHON_TAIL
+def _python_dockerfile(manifest_files: str, *, export: bool = False) -> str:
+    """Thin layer plus the install block for the root ``manifest_files``
+    (``export``: a ``uv.lock`` to flatten first). See ``_PYTHON_TOOLING``."""
+    source = _EXPORTED if export else f"{_DEPS_DIR}/{manifest_files}"
+    install = f"uv pip install --system --no-cache {_UV_INDEX} --overrides {_BASE} -c {_BASE} -r {source}"
+    run = f"{_UV_EXPORT} \\\n && {install}" if export else install
+    return (
+        _PYTHON_HEAD
+        + _PYTHON_TOOLING
+        + f"COPY {manifest_files} {_DEPS_DIR}/\nRUN {run}\nUSER aaiclick\n"
+        + _PYTHON_TAIL
+    )
 
 
 # The shape docs/designs/java-sdk.md prescribes for a user image: the SDK shim
 # (declared in the user's pom as aaiclick-task-api) as ENTRYPOINT, so the
-# runner's ``--task-id N --run-epoch M`` arguments reach it.
+# runner's ``--task-id N --run-epoch M`` arguments reach it. Dependencies
+# resolve from the pom alone, in a layer the sources do not invalidate; the
+# BuildKit cache mount keeps ~/.m2 across builds without landing in a layer.
 _JVM_TEMPLATE = """\
+# syntax=docker/dockerfile:1
 # Default image for a git build whose repo has a pom.xml and no Dockerfile.
 FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /build
 COPY pom.xml /build/
-RUN mvn -B -q dependency:go-offline
+RUN --mount=type=cache,target=/root/.m2 mvn -B -q dependency:go-offline
 COPY . /build
-RUN mvn -B -q -DskipTests package dependency:copy-dependencies \\
+RUN --mount=type=cache,target=/root/.m2 mvn -B -q -Dmaven.test.skip=true package dependency:copy-dependencies \\
       -DincludeScope=runtime -DoutputDirectory=target/libs
 
 FROM eclipse-temurin:21-jre
@@ -222,12 +214,11 @@ COPY --from=build /build/target/libs /app/libs
 ENTRYPOINT ["java", "-cp", "/app/*:/app/libs/*", "io.github.kolodkin.aaiclick.task.AaiTaskShim"]
 """
 
-
 _DEFAULT_DOCKERFILES: dict[ManifestKind, str] = {
-    MANIFEST_NONE: _python_dockerfile(None),
-    MANIFEST_REQUIREMENTS: _python_dockerfile(_PythonManifest("requirements.txt", f"{_DEPS_DIR}/requirements.txt")),
-    MANIFEST_UV_LOCK: _python_dockerfile(_PythonManifest("pyproject.toml uv.lock", _EXPORTED, resolve=_UV_EXPORT)),
-    MANIFEST_PYPROJECT: _python_dockerfile(_PythonManifest("pyproject.toml", f"{_DEPS_DIR}/pyproject.toml")),
+    MANIFEST_NONE: _PYTHON_HEAD + _PYTHON_TAIL,
+    MANIFEST_REQUIREMENTS: _python_dockerfile("requirements.txt"),
+    MANIFEST_UV_LOCK: _python_dockerfile("pyproject.toml uv.lock", export=True),
+    MANIFEST_PYPROJECT: _python_dockerfile("pyproject.toml"),
     MANIFEST_POM: _JVM_TEMPLATE,
 }
 

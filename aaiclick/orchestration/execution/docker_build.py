@@ -135,10 +135,9 @@ def _resolve_dockerfile(source: ImageBuild, context_dir: Path) -> Path:
     """Path of the Dockerfile to build with inside the checkout.
 
     A checkout without the implicit ``Dockerfile`` gets a default written in,
-    rendered for the dependency manifest at its root (``docker_scaffold.detect_manifest``;
-    a ``pom.xml`` next to a Python manifest raises ``AmbiguousManifests``), plus
-    a ``.dockerignore`` (when the repo has none) keeping the clone's ``.git``
-    out of the context — user Dockerfiles keep it, since a ``pip install`` of a
+    rendered for its root manifest (``docker_scaffold.detect_manifest``), plus a
+    ``.dockerignore`` (when the repo has none) keeping the clone's ``.git`` out
+    of the context — user Dockerfiles keep it, since a ``pip install`` of a
     setuptools-scm project reads it. An explicitly named ``dockerfile=`` that
     is absent is a user error and raises."""
     dockerfile = context_dir / (source.dockerfile or "Dockerfile")

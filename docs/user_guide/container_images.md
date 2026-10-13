@@ -53,16 +53,15 @@ The default honours a dependency manifest at the repo root:
 | Found at repo root                                   | Template | Install step                                                        |
 |------------------------------------------------------|----------|---------------------------------------------------------------------|
 | none of the below                                    | python   | none — the thin layer above                                         |
-| `uv.lock` with `pyproject.toml`                      | python   | `uv export --frozen --no-dev` → compile → install                   |
-| `requirements.txt` (no `uv.lock`)                    | python   | compile → install                                                   |
-| `pyproject.toml` with a `[project]` table            | python   | compile → install                                                   |
+| `uv.lock` with `pyproject.toml`                      | python   | `uv export --frozen --no-dev` → `uv pip install`                    |
+| `requirements.txt` (no `uv.lock`)                    | python   | `uv pip install -r requirements.txt`                                |
+| `pyproject.toml` with a `[project]` table            | python   | `uv pip install -r pyproject.toml`                                  |
 | `pom.xml`, no Python manifest                        | jvm      | `mvn dependency:go-offline`, `mvn package`, SDK shim as `ENTRYPOINT` |
 | `pom.xml` **and** a Python manifest                  | error    | build fails: check in a `Dockerfile`                                |
 
-"Compile → install" is `uv pip compile` then `uv pip install --system`, both
-on the worker's `PIP_*` index args. Packages the base image ships — aaiclick
-and everything it depends on — keep the base image's version whatever the
-manifest pins, so a user lock cannot downgrade aaiclick or swap the
+`uv` runs on the worker's `PIP_*` index args. Packages the base image ships —
+aaiclick and everything it depends on — keep the base image's version whatever
+the manifest pins, so a user lock cannot downgrade aaiclick or swap the
 dependencies it was tested with. The project itself is never `pip install .`-ed.
 Limits:
 
