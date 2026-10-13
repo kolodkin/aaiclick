@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 from .docker_scaffold import (
     DOCKERFILE_TEMPLATE,
@@ -13,6 +14,7 @@ from .docker_scaffold import (
     MANIFEST_PYPROJECT,
     MANIFEST_REQUIREMENTS,
     MANIFEST_UV_LOCK,
+    UV_PIN,
     AmbiguousManifests,
     DockerfileExists,
     detect_manifest,
@@ -132,7 +134,6 @@ def test_detect_manifest_pom_with_python_manifest_is_ambiguous(tmp_path):
 
 _THIN_LAYER = render_default_dockerfile(MANIFEST_NONE)
 _PYTHON_TAIL = "COPY --chown=aaiclick:aaiclick . /src\nWORKDIR /src\n"
-_DEPS = "/tmp/aaiclick-deps"
 
 
 def test_render_default_dockerfile_none_is_the_thin_layer():
@@ -143,33 +144,41 @@ def test_render_default_dockerfile_none_is_the_thin_layer():
 
 
 @pytest.mark.parametrize(
-    "kind, copy_line, install_source",
+    "kind, install_source",
     [
-        pytest.param(
-            MANIFEST_REQUIREMENTS, f"COPY requirements.txt {_DEPS}/", f"{_DEPS}/requirements.txt", id="requirements"
-        ),
-        pytest.param(MANIFEST_UV_LOCK, f"COPY pyproject.toml uv.lock {_DEPS}/", f"{_DEPS}/exported.txt", id="uv-lock"),
-        pytest.param(MANIFEST_PYPROJECT, f"COPY pyproject.toml {_DEPS}/", f"{_DEPS}/pyproject.toml", id="pyproject"),
+        pytest.param(MANIFEST_REQUIREMENTS, "requirements.txt", id="requirements"),
+        pytest.param(MANIFEST_UV_LOCK, "/tmp/exported.txt", id="uv-lock"),
+        pytest.param(MANIFEST_PYPROJECT, "pyproject.toml", id="pyproject"),
     ],
 )
-def test_render_default_dockerfile_python_install_block(kind, copy_line, install_source):
-    """The rendered text is the contract. The thin layer wraps the install: a
-    tooling layer that depends only on the base image, the manifest copy, one
-    install with the base image's packages as override and constraint, and the
-    runtime user restored before the tree is copied."""
+def test_render_default_dockerfile_python_install_block(kind, install_source):
+    """The rendered text is the contract. The thin layer wraps one root layer
+    that mounts the checkout as cwd, installs the manifest with the base
+    image's packages as overrides, removes uv, and restores the runtime user
+    before the tree is copied."""
     text = render_default_dockerfile(kind)
     assert text.startswith(_THIN_LAYER.removesuffix(_PYTHON_TAIL))
     assert text.endswith(_PYTHON_TAIL)
-    install = "uv pip install --system --no-cache --index-strategy unsafe-best-match"
     assert (
         text.index("\nUSER root\n")
-        < text.index(f"pip list --format=freeze > {_DEPS}/base.txt\n")
-        < text.index(copy_line)
-        < text.index(install)
-        < text.index(f"--overrides {_DEPS}/base.txt -c {_DEPS}/base.txt -r {install_source}\n")
+        < text.index("RUN --mount=type=bind,target=/ctx --mount=type=cache,target=/root/.cache")
+        < text.index("cd /ctx")
+        < text.index('pip install --index-url "${PIP_INDEX_URL:-https://pypi.org/simple/}"')
+        < text.index("pip list --format=freeze > /tmp/base.txt")
+        < text.index("uv pip install --system --index-strategy unsafe-best-match")
+        < text.index(f"--overrides /tmp/base.txt -r {install_source}")
+        < text.index("pip uninstall -y uv")
         < text.index("\nUSER aaiclick\n")
     )
+    assert text.count("\nRUN ") == 1
     assert ("uv export --frozen" in text) == (kind == MANIFEST_UV_LOCK)
+
+
+def test_uv_pin_matches_ci():
+    """The build installs the uv CI runs, so a lock written by CI's uv exports inside the image."""
+    action = Path(__file__).parents[3] / ".github" / "actions" / "setup-uv" / "action.yaml"
+    ci_version = yaml.safe_load(action.read_text())["inputs"]["uv-version"]["default"]
+    assert UV_PIN == f"uv=={ci_version}"
 
 
 def test_render_default_dockerfile_jvm():

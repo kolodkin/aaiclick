@@ -118,6 +118,7 @@ def detect_manifest(context_dir: Path) -> ManifestKind:
 
 
 _PYTHON_HEAD = f"""\
+# syntax=docker/dockerfile:1
 # Default image for a git build whose repo has no Dockerfile: a thin layer on
 # the aaiclick base image. The build task forwards BASE_IMAGE pinned to the
 # worker's aaiclick version (or AAICLICK_BASE_IMAGE).
@@ -133,11 +134,11 @@ WORKDIR /src
 """
 
 _PYPI = "https://pypi.org/simple/"
-_DEPS_DIR = "/tmp/aaiclick-deps"
-_BASE = f"{_DEPS_DIR}/base.txt"
-_EXPORTED = f"{_DEPS_DIR}/exported.txt"
-# Same version CI runs (.github/actions/setup-uv); bump both together.
-_UV_PIN = "uv==0.12.7"
+_CTX = "/ctx"
+_BASE = "/tmp/base.txt"
+_EXPORTED = "/tmp/exported.txt"
+# Same version CI runs (.github/actions/setup-uv); test_uv_pin_matches_ci keeps them equal.
+UV_PIN = "uv==0.12.7"
 
 # The worker forwards PIP_INDEX_URL / PIP_EXTRA_INDEX_URL / PIP_TRUSTED_HOST
 # as build args; pip and uv each get them in their own spelling. uv ranks
@@ -145,51 +146,51 @@ _UV_PIN = "uv==0.12.7"
 # has a name, so it also gets pip's merge-all strategy.
 _PIP_INDEX = (
     f'--index-url "${{PIP_INDEX_URL:-{_PYPI}}}" '
-    "${PIP_EXTRA_INDEX_URL:+--extra-index-url ${PIP_EXTRA_INDEX_URL}} "
-    "${PIP_TRUSTED_HOST:+--trusted-host ${PIP_TRUSTED_HOST}}"
+    '${PIP_EXTRA_INDEX_URL:+--extra-index-url "${PIP_EXTRA_INDEX_URL}"} '
+    '${PIP_TRUSTED_HOST:+--trusted-host "${PIP_TRUSTED_HOST}"}'
 )
 _UV_INDEX = (
     f'--index-strategy unsafe-best-match --default-index "${{PIP_INDEX_URL:-{_PYPI}}}" '
-    "${PIP_EXTRA_INDEX_URL:+--index ${PIP_EXTRA_INDEX_URL}} "
-    "${PIP_TRUSTED_HOST:+--allow-insecure-host ${PIP_TRUSTED_HOST}}"
+    '${PIP_EXTRA_INDEX_URL:+--index "${PIP_EXTRA_INDEX_URL}"} '
+    '${PIP_TRUSTED_HOST:+--allow-insecure-host "${PIP_TRUSTED_HOST}"}'
 )
 
-# Depends only on BASE_IMAGE, so docker caches this layer across every job on
-# the worker. ``base.txt`` is what the image already has, aaiclick included;
-# it is both override and constraint for the install below, so the base
-# image's packages win: a user lock can neither downgrade aaiclick nor swap
-# the dependencies it was tested with, and a manifest naming aaiclick
-# resolves to the installed copy without an index lookup.
-_PYTHON_TOOLING = f"""\
+# A ``uv.lock`` is honoured as is; the checkout is bind-mounted, so workspace
+# members and path sources resolve.
+_UV_EXPORT = f"uv export --frozen --no-dev --no-hashes -o {_EXPORTED}"
+
+
+def _python_dockerfile(source: str, *, export: bool = False) -> str:
+    """Thin layer plus one install layer for the manifest at ``source`` in the
+    bind-mounted checkout (``export``: a ``uv.lock`` to flatten first).
+
+    The checkout is mounted, not copied, and is the cwd, so ``-r`` / ``-c``
+    includes and path dependencies resolve and no manifest lands in a layer; the cache mount
+    keeps uv's and pip's downloads across builds on the worker. ``base.txt``
+    — what the base image already has, aaiclick included — overrides every
+    requirement, so the base image's packages win: a user lock can neither
+    downgrade aaiclick nor swap the dependencies it was tested with, and a
+    manifest naming aaiclick resolves to the installed copy without an index
+    lookup. uv is removed again: nothing at runtime uses it."""
+    steps = [
+        f"cd {_CTX}",
+        f"pip install {_PIP_INDEX} {UV_PIN}",
+        f"pip list --format=freeze > {_BASE}",
+        *([_UV_EXPORT] if export else []),
+        f"uv pip install --system {_UV_INDEX} --overrides {_BASE} -r {_EXPORTED if export else source}",
+        f"pip uninstall -y uv && rm -f {_BASE} {_EXPORTED}",
+    ]
+    run = " \\\n && ".join(steps)
+    install = f"""\
 ARG PIP_INDEX_URL
 ARG PIP_EXTRA_INDEX_URL
 ARG PIP_TRUSTED_HOST
 USER root
-RUN mkdir -p {_DEPS_DIR} \\
- && pip install --no-cache-dir {_PIP_INDEX} {_UV_PIN} \\
- && pip list --format=freeze > {_BASE}
+RUN --mount=type=bind,target={_CTX} --mount=type=cache,target=/root/.cache \\
+    {run}
+USER aaiclick
 """
-
-# A ``uv.lock`` is honoured as is; workspace and path entries cannot resolve
-# from the copied manifests.
-_UV_EXPORT = (
-    "uv export --frozen --no-dev --no-emit-workspace --no-emit-local --no-hashes --no-cache "
-    f"--directory {_DEPS_DIR} -o {_EXPORTED}"
-)
-
-
-def _python_dockerfile(manifest_files: str, *, export: bool = False) -> str:
-    """Thin layer plus the install block for the root ``manifest_files``
-    (``export``: a ``uv.lock`` to flatten first). See ``_PYTHON_TOOLING``."""
-    source = _EXPORTED if export else f"{_DEPS_DIR}/{manifest_files}"
-    install = f"uv pip install --system --no-cache {_UV_INDEX} --overrides {_BASE} -c {_BASE} -r {source}"
-    run = f"{_UV_EXPORT} \\\n && {install}" if export else install
-    return (
-        _PYTHON_HEAD
-        + _PYTHON_TOOLING
-        + f"COPY {manifest_files} {_DEPS_DIR}/\nRUN {run}\nUSER aaiclick\n"
-        + _PYTHON_TAIL
-    )
+    return _PYTHON_HEAD + install + _PYTHON_TAIL
 
 
 # The shape docs/designs/java-sdk.md prescribes for a user image: the SDK shim
@@ -217,7 +218,7 @@ ENTRYPOINT ["java", "-cp", "/app/*:/app/libs/*", "io.github.kolodkin.aaiclick.ta
 _DEFAULT_DOCKERFILES: dict[ManifestKind, str] = {
     MANIFEST_NONE: _PYTHON_HEAD + _PYTHON_TAIL,
     MANIFEST_REQUIREMENTS: _python_dockerfile("requirements.txt"),
-    MANIFEST_UV_LOCK: _python_dockerfile("pyproject.toml uv.lock", export=True),
+    MANIFEST_UV_LOCK: _python_dockerfile("uv.lock", export=True),
     MANIFEST_PYPROJECT: _python_dockerfile("pyproject.toml"),
     MANIFEST_POM: _JVM_TEMPLATE,
 }

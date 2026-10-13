@@ -54,27 +54,27 @@ The default honours a dependency manifest at the repo root:
 |------------------------------------------------------|----------|---------------------------------------------------------------------|
 | none of the below                                    | python   | none — the thin layer above                                         |
 | `uv.lock` with `pyproject.toml`                      | python   | `uv export --frozen --no-dev` → `uv pip install`                    |
-| `requirements.txt` (no `uv.lock`)                    | python   | `uv pip install -r requirements.txt`                                |
+| `requirements.txt` (otherwise)                       | python   | `uv pip install -r requirements.txt`                                |
 | `pyproject.toml` with a `[project]` table            | python   | `uv pip install -r pyproject.toml`                                  |
 | `pom.xml`, no Python manifest                        | jvm      | `mvn dependency:go-offline`, `mvn package`, SDK shim as `ENTRYPOINT` |
 | `pom.xml` **and** a Python manifest                  | error    | build fails: check in a `Dockerfile`                                |
 
-`uv` runs on the worker's `PIP_*` index args. Packages the base image ships —
-aaiclick and everything it depends on — keep the base image's version whatever
-the manifest pins, so a user lock cannot downgrade aaiclick or swap the
-dependencies it was tested with. The project itself is never `pip install .`-ed.
-Limits:
+`uv` runs on the worker's `PIP_*` index args with the checkout mounted as its
+working directory, so `-r` / `-c` includes, path and workspace dependencies
+resolve. Packages the base image ships — aaiclick and everything it depends
+on — keep the base image's version whatever the manifest pins, so a user lock
+cannot downgrade aaiclick or swap the dependencies it was tested with. The
+project itself is never `pip install .`-ed. Limits:
 
-- Only the manifest is copied before the install, so `-r`, `-c`, `-e .`, path
-  and workspace dependencies (`[tool.uv.workspace]`, path `[tool.uv.sources]`)
-  are unavailable.
-- A `.dockerignore` that excludes the manifest breaks its `COPY`.
+- The checkout is mounted without `.git` (the generated `.dockerignore`), so an
+  `-e .` of a setuptools-scm project cannot build.
+- A `.dockerignore` that excludes the manifest hides it from the install.
 - Python code next to a `pom.xml` with no Python manifest gets the JVM image;
   a mixed repo adds a Python manifest.
 - The image is cached per commit (`aaiclick-job:<sha>`): a commit built before
   the worker learned manifests keeps its old image until a new commit lands.
-- The JVM default is single-module, JDK/JRE 21, and expects `aaiclick-task-api`
-  declared in the pom (`docs/designs/java-sdk.md`).
+- The JVM default is single-module, JDK/JRE 21 from Docker Hub, and expects
+  `aaiclick-task-api` declared in the pom (`docs/designs/java-sdk.md`).
 
 Beyond these, check in a `Dockerfile`.
 
