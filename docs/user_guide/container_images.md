@@ -66,19 +66,18 @@ manifest pins, so a user lock cannot downgrade aaiclick or swap the
 dependencies it was tested with. The project itself is never `pip install .`-ed.
 Limits:
 
-- A manifest must be self-contained: only it is copied before the install, so
-  `-r`, `-c`, `-e .`, path and workspace dependencies are not available. A
-  `pyproject.toml` with `[tool.uv.workspace]` or path `[tool.uv.sources]`
-  needs a checked-in `Dockerfile`.
+- Only the manifest is copied before the install, so `-r`, `-c`, `-e .`, path
+  and workspace dependencies (`[tool.uv.workspace]`, path `[tool.uv.sources]`)
+  are unavailable.
 - A `.dockerignore` that excludes the manifest breaks its `COPY`.
-- Python code next to a `pom.xml` with no Python manifest gets the JVM image.
-  Add a Python manifest or check in a `Dockerfile` for a mixed repo.
+- Python code next to a `pom.xml` with no Python manifest gets the JVM image;
+  a mixed repo adds a Python manifest.
 - The image is cached per commit (`aaiclick-job:<sha>`): a commit built before
   the worker learned manifests keeps its old image until a new commit lands.
 - The JVM default is single-module, JDK/JRE 21, and expects `aaiclick-task-api`
   declared in the pom (`docs/designs/java-sdk.md`).
 
-Anything else is a checked-in `Dockerfile`.
+Beyond these, check in a `Dockerfile`.
 
 **Implementation**: `aaiclick/orchestration/execution/docker_scaffold.py` — see
 `detect_manifest()`, `render_default_dockerfile()`.
