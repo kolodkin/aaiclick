@@ -11,6 +11,8 @@
 #   PIP_INDEX_URL, PIP_EXTRA_INDEX_URL  (e.g. corporate / test pypi)
 #   PIP_TRUSTED_HOST                    (allow plain HTTP for the index host)
 #   AAICLICK_VERSION                    (matches the host's installed version)
+#   BASE_IMAGE                          (ghcr.io/kolodkin/aaiclick at that version,
+#                                        or AAICLICK_BASE_IMAGE on the worker)
 
 FROM python:3.10-slim
 

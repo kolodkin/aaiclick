@@ -48,6 +48,42 @@ published image; the tag rule drops the `+...` segment so the reference stays
 valid). Check in a `Dockerfile` (`python -m aaiclick docker init` scaffolds one)
 to customize; an explicit `dockerfile=` path that is missing still fails.
 
+The default honours a dependency manifest at the repo root:
+
+| Found at repo root                                   | Template | Install step                                                        |
+|------------------------------------------------------|----------|---------------------------------------------------------------------|
+| none of the below                                    | python   | none — the thin layer above                                         |
+| `uv.lock` with `pyproject.toml`                      | python   | `uv export --frozen --no-dev` → `uv pip install`                    |
+| `requirements.txt` (otherwise)                       | python   | `uv pip install -r requirements.txt`                                |
+| `pyproject.toml` with a `[project]` table            | python   | `uv pip install -r pyproject.toml`                                  |
+| `pom.xml`, no Python manifest                        | jvm      | `mvn package`, SDK shim as `ENTRYPOINT`                             |
+| `pom.xml` **and** a Python manifest                  | error    | build fails: check in a `Dockerfile`                                |
+
+`uv` runs on the worker's `PIP_*` index args with the checkout mounted as its
+working directory, so `-r` / `-c` includes, path and workspace dependencies
+resolve. Packages the base image ships — aaiclick and everything it depends
+on — keep the base image's version whatever the manifest pins, so a user lock
+cannot downgrade aaiclick or swap the dependencies it was tested with. The
+project itself is never `pip install .`-ed. Limits:
+
+- Installs from the checkout must be non-editable: the mount is gone at
+  runtime, so `-e .` points nowhere (a `uv.lock` export already skips the
+  project). The mount has no `.git`, so a setuptools-scm project cannot build.
+- The install layer uses BuildKit mounts; a custom worker image needs `buildx`
+  like the shipped ones.
+- A `.dockerignore` that excludes the manifest hides it from the install.
+- Python code next to a `pom.xml` with no Python manifest gets the JVM image;
+  a mixed repo adds a Python manifest.
+- The image is cached per commit (`aaiclick-job:<sha>`): a commit built before
+  the worker learned manifests keeps its old image until a new commit lands.
+- The JVM default is single-module, JDK/JRE 21 from Docker Hub, and expects
+  `aaiclick-task-api` declared in the pom (`docs/designs/java-sdk.md`).
+
+Beyond these, check in a `Dockerfile`.
+
+**Implementation**: `aaiclick/orchestration/execution/docker_scaffold.py` — see
+`detect_manifest()`, `render_default_dockerfile()`.
+
 # Kubernetes dispatching worker
 
 Run `aaiclick-kubectl` as a pod with `AAICLICK_RUNNER=kubernetes`: container

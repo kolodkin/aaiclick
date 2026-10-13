@@ -11,7 +11,7 @@ from .. import docker_config
 from ..runner_config import ImageBuild, ImagePrebuilt
 from . import docker_build
 from .docker_build import resolve_launch_image
-from .docker_scaffold import DEFAULT_BUILD_DOCKERFILE_TEMPLATE
+from .docker_scaffold import MANIFEST_NONE, MANIFEST_REQUIREMENTS, render_default_dockerfile
 
 
 async def test_collect_build_args_omits_unset_values(monkeypatch):
@@ -124,17 +124,22 @@ def _stub_build_path(monkeypatch, clone_files: dict[str, str]) -> list[dict[str,
     return built
 
 
-async def test_build_image_to_tag_repo_without_dockerfile_builds_with_default(monkeypatch):
-    """A checkout with no ``Dockerfile`` gets the default written in, plus a
-    ``.dockerignore`` keeping ``.git`` out of the image."""
-    built = _stub_build_path(monkeypatch, {"job.py": "print('hi')\n"})
+@pytest.mark.parametrize(
+    "clone_files, kind",
+    [
+        pytest.param({"job.py": "print('hi')\n"}, MANIFEST_NONE, id="thin-layer"),
+        pytest.param({"requirements.txt": "six\n"}, MANIFEST_REQUIREMENTS, id="manifest"),
+    ],
+)
+async def test_build_image_to_tag_repo_without_dockerfile_builds_with_default(monkeypatch, clone_files, kind):
+    """A checkout with no ``Dockerfile`` gets the default for its root manifest
+    written in, plus a ``.dockerignore`` keeping ``.git`` out of the image."""
+    built = _stub_build_path(monkeypatch, clone_files)
     source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
 
     await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
 
-    assert built == [
-        {"job.py": "print('hi')\n", "Dockerfile": DEFAULT_BUILD_DOCKERFILE_TEMPLATE, ".dockerignore": ".git\n"}
-    ]
+    assert built == [{**clone_files, "Dockerfile": render_default_dockerfile(kind), ".dockerignore": ".git\n"}]
 
 
 async def test_build_image_to_tag_default_keeps_repo_dockerignore(monkeypatch):
@@ -148,12 +153,12 @@ async def test_build_image_to_tag_default_keeps_repo_dockerignore(monkeypatch):
 
 async def test_build_image_to_tag_checked_in_dockerfile_wins_over_default(monkeypatch):
     """A checked-in Dockerfile builds as is: nothing is written into the checkout."""
-    built = _stub_build_path(monkeypatch, {"Dockerfile": "FROM python:3.12\n"})
+    built = _stub_build_path(monkeypatch, {"Dockerfile": "FROM python:3.12\n", "requirements.txt": "six\n"})
     source = ImageBuild(git_remote="https://example.com/repo.git", git_sha="a" * 40)
 
     await docker_build.build_image_to_tag(source, docker_config.compute_image_tag("a" * 40))
 
-    assert built == [{"Dockerfile": "FROM python:3.12\n"}]
+    assert built == [{"Dockerfile": "FROM python:3.12\n", "requirements.txt": "six\n"}]
 
 
 @pytest.mark.parametrize(

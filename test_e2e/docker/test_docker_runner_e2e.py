@@ -44,12 +44,16 @@ async def test_docker_runner_smoke(orch_ctx, docker_e2e_user_repo):
 
 @pytest.mark.docker_e2e
 async def test_docker_runner_default_dockerfile(orch_ctx, docker_e2e_bare_repo):
-    """A user repo with no Dockerfile builds on the default layer over ``AAICLICK_BASE_IMAGE``."""
+    """A user repo with no Dockerfile builds on the default layer over
+    ``AAICLICK_BASE_IMAGE``, with its ``requirements.txt`` installed."""
     tasks = await run_build_job("docker_e2e_default_dockerfile", "bare_jobs.entry_task", docker_e2e_bare_repo)
 
     entry = next(t for t in tasks if t.entrypoint == "bare_jobs.entry_task")
-    # cwd is the copied repo and the non-root user could write into it.
-    assert entry.result == {"native_value": {"cwd": "/src", "user": "aaiclick"}}, (entry.result, entry.error)
+    # cwd is the copied repo, the non-root user could write into it, and the manifest's package is importable.
+    assert entry.result == {"native_value": {"cwd": "/src", "user": "aaiclick", "tabulate": "0.9.0"}}, (
+        entry.result,
+        entry.error,
+    )
 
 
 @pytest.mark.docker_e2e
