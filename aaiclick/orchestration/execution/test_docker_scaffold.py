@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from .docker_scaffold import (
-    _PYTHON_TAIL,
     DOCKERFILE_TEMPLATE,
     MANIFEST_NONE,
     MANIFEST_POM,
@@ -91,6 +90,13 @@ _PROJECT = "[project]\nname = 'x'\n"
         ),
         pytest.param({"pyproject.toml": _PROJECT}, MANIFEST_PYPROJECT, id="pyproject"),
         pytest.param(
+            {"pyproject.toml": "[project]  # metadata\nname = 'x'\n"}, MANIFEST_PYPROJECT, id="pyproject-header-comment"
+        ),
+        pytest.param({"uv.lock": ""}, MANIFEST_NONE, id="uv-lock-without-pyproject"),
+        pytest.param(
+            {"uv.lock": "", "requirements.txt": ""}, MANIFEST_REQUIREMENTS, id="uv-lock-without-pyproject-falls-through"
+        ),
+        pytest.param(
             {"pyproject.toml": "[tool.ruff]\nline-length = 120\n"}, MANIFEST_NONE, id="pyproject-tool-config-only"
         ),
         pytest.param(
@@ -132,9 +138,12 @@ def test_detect_manifest_pom_with_python_manifest_is_ambiguous(tmp_path, python_
 
 
 _THIN_LAYER = render_default_dockerfile(MANIFEST_NONE)
+_PYTHON_TAIL = "COPY --chown=aaiclick:aaiclick . /src\nWORKDIR /src\n"
+_DEPS = "/tmp/aaiclick-deps"
 
 
 def test_render_default_dockerfile_none_is_the_thin_layer():
+    """The rendered text is the contract: no install step without a manifest."""
     assert "\nUSER " not in _THIN_LAYER
     assert "\nRUN " not in _THIN_LAYER
     assert _THIN_LAYER.endswith(_PYTHON_TAIL)
@@ -145,48 +154,54 @@ def test_render_default_dockerfile_none_is_the_thin_layer():
     [
         pytest.param(
             MANIFEST_REQUIREMENTS,
-            "COPY requirements.txt /tmp/aaiclick-deps/",
-            "/tmp/aaiclick-deps/requirements.txt -o /tmp/aaiclick-deps/final.txt",
+            f"COPY requirements.txt {_DEPS}/",
+            f"{_DEPS}/requirements.txt -o {_DEPS}/final.txt",
             id="requirements",
         ),
         pytest.param(
             MANIFEST_UV_LOCK,
-            "COPY pyproject.toml uv.lock /tmp/aaiclick-deps/",
+            f"COPY pyproject.toml uv.lock {_DEPS}/",
             "uv export --frozen --no-dev --no-emit-workspace --no-emit-local --no-emit-package aaiclick --no-hashes",
             id="uv-lock",
         ),
         pytest.param(
             MANIFEST_PYPROJECT,
-            "COPY pyproject.toml /tmp/aaiclick-deps/",
-            "/tmp/aaiclick-deps/pyproject.toml -o /tmp/aaiclick-deps/final.txt",
+            f"COPY pyproject.toml {_DEPS}/",
+            f"{_DEPS}/pyproject.toml -o {_DEPS}/final.txt",
             id="pyproject",
         ),
     ],
 )
 def test_render_default_dockerfile_python_install_block(kind, copy_line, resolve_fragment):
-    """The thin layer wraps the install: tooling that depends only on the base
-    image (its own cached layer), the manifest copy, resolve + install with the
-    base image's packages winning, and the runtime user restored before the
-    tree is copied."""
+    """The rendered text is the contract. Thin layer around the install: a
+    tooling layer that depends only on the base image (pinned uv, the installed
+    set as override and constraint, aaiclick left out of the override so a
+    manifest naming it resolves from the index), the manifest copy, resolve +
+    install, and the runtime user restored before the tree is copied."""
     text = render_default_dockerfile(kind)
     assert text.startswith(_THIN_LAYER.removesuffix(_PYTHON_TAIL))
     assert text.endswith(_PYTHON_TAIL)
     assert resolve_fragment in text
-    tooling = "pip list --format=freeze > /tmp/aaiclick-deps/base.txt\n"
+    tooling = f"grep -v '^aaiclick==' {_DEPS}/base.txt > {_DEPS}/override.txt\n"
     assert text.index("\nUSER root\n") < text.index(tooling) < text.index(copy_line) < text.index("\nUSER aaiclick\n")
+    assert "pip install --no-cache-dir" in text and " uv==" in text
     assert (
-        "uv pip compile --python python --no-cache --override /tmp/aaiclick-deps/base.txt --no-emit-package aaiclick"
-        in text
+        f"uv pip compile --python python --no-cache --override {_DEPS}/override.txt --no-emit-package aaiclick" in text
     )
-    assert "uv pip install --system --no-cache" in text
-    assert "-c /tmp/aaiclick-deps/base.txt -r /tmp/aaiclick-deps/final.txt" in text
-    # The worker's forwarded index args reach pip and uv alike.
+    assert "uv pip install --system --no-cache --index-strategy unsafe-best-match" in text
+    assert f"-c {_DEPS}/base.txt -r {_DEPS}/final.txt" in text
+    # The worker's forwarded index args reach pip and uv alike; an unset extra index adds nothing.
     assert text.count('"${PIP_INDEX_URL:-https://pypi.org/simple/}"') == 3
+    assert text.count("${PIP_EXTRA_INDEX_URL:+--index ${PIP_EXTRA_INDEX_URL}}") == 2
+    assert "${PIP_EXTRA_INDEX_URL:+--extra-index-url ${PIP_EXTRA_INDEX_URL}}" in text
     assert "${PIP_TRUSTED_HOST:+--allow-insecure-host ${PIP_TRUSTED_HOST}}" in text
 
 
 def test_render_default_dockerfile_jvm():
+    """The rendered text is the contract: dependencies resolve from the pom in
+    their own cached layer before the sources are copied."""
     text = render_default_dockerfile(MANIFEST_POM)
     assert text.startswith("# Default image for a git build whose repo has a pom.xml and no Dockerfile.\nFROM maven:")
+    assert text.index("COPY pom.xml /build/") < text.index("dependency:go-offline") < text.index("COPY . /build")
     assert text.endswith('"io.github.kolodkin.aaiclick.task.AaiTaskShim"]\n')
     assert "BASE_IMAGE" not in text

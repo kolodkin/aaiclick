@@ -76,9 +76,9 @@ MANIFEST_PYPROJECT = "pyproject"
 MANIFEST_POM = "pom"
 ManifestKind = Literal["none", "uv_lock", "requirements", "pyproject", "pom"]
 
-# A ``[project]`` table header on its own line; ``[project.scripts]`` alone
-# does not make a tool-config-only pyproject a dependency manifest.
-_PROJECT_TABLE_RE = re.compile(r"^\[project\]\s*$", re.MULTILINE)
+# A ``[project]`` table header line (comment allowed); ``[project.scripts]``
+# alone does not make a tool-config-only pyproject a dependency manifest.
+_PROJECT_TABLE_RE = re.compile(r"^\s*\[\s*project\s*\]\s*(#.*)?$", re.MULTILINE)
 
 
 class AmbiguousManifests(ValueError):
@@ -87,11 +87,11 @@ class AmbiguousManifests(ValueError):
 
 def _python_manifest(context_dir: Path) -> ManifestKind:
     """The Python manifest at the root, by precedence; ``MANIFEST_NONE`` when there is none."""
-    if (context_dir / "uv.lock").is_file():
+    pyproject = context_dir / "pyproject.toml"
+    if (context_dir / "uv.lock").is_file() and pyproject.is_file():
         return MANIFEST_UV_LOCK
     if (context_dir / "requirements.txt").is_file():
         return MANIFEST_REQUIREMENTS
-    pyproject = context_dir / "pyproject.toml"
     if pyproject.is_file() and _PROJECT_TABLE_RE.search(pyproject.read_text()):
         return MANIFEST_PYPROJECT
     return MANIFEST_NONE
@@ -100,8 +100,8 @@ def _python_manifest(context_dir: Path) -> ManifestKind:
 def detect_manifest(context_dir: Path) -> ManifestKind:
     """Classify a checkout root by the dependency manifest it carries.
 
-    Python manifests take precedence ``uv.lock`` > ``requirements.txt`` >
-    ``pyproject.toml`` (the latter only with a ``[project]`` table). A
+    Python manifests take precedence ``uv.lock`` (with its ``pyproject.toml``)
+    > ``requirements.txt`` > ``pyproject.toml`` (only with a ``[project]`` table). A
     ``pom.xml`` selects the JVM template; one next to a Python manifest is
     ambiguous and raises :class:`AmbiguousManifests`. Subdirectories are
     ignored."""
@@ -136,27 +136,38 @@ WORKDIR /src
 _PYPI = "https://pypi.org/simple/"
 _DEPS_DIR = "/tmp/aaiclick-deps"
 _BASE = f"{_DEPS_DIR}/base.txt"
+_OVERRIDE = f"{_DEPS_DIR}/override.txt"
 _EXPORTED = f"{_DEPS_DIR}/exported.txt"
 _FINAL = f"{_DEPS_DIR}/final.txt"
+# Pinned: the flags below are this version's. Bump deliberately.
+_UV_PIN = "uv==0.11.32"
 
 # The worker forwards PIP_INDEX_URL / PIP_EXTRA_INDEX_URL / PIP_TRUSTED_HOST
-# as build args; pip and uv each get them in their own spelling.
+# as build args; pip and uv each get them in their own spelling. uv ranks
+# ``--index`` above ``--default-index`` and stops at the first index that
+# has a name, so it also gets pip's merge-all strategy.
 _PIP_INDEX = (
-    f'--index-url "${{PIP_INDEX_URL:-{_PYPI}}}" --extra-index-url "${{PIP_EXTRA_INDEX_URL:-{_PYPI}}}" '
+    f'--index-url "${{PIP_INDEX_URL:-{_PYPI}}}" '
+    "${PIP_EXTRA_INDEX_URL:+--extra-index-url ${PIP_EXTRA_INDEX_URL}} "
     "${PIP_TRUSTED_HOST:+--trusted-host ${PIP_TRUSTED_HOST}}"
 )
 _UV_INDEX = (
-    f'--default-index "${{PIP_INDEX_URL:-{_PYPI}}}" --index "${{PIP_EXTRA_INDEX_URL:-{_PYPI}}}" '
+    f'--index-strategy unsafe-best-match --default-index "${{PIP_INDEX_URL:-{_PYPI}}}" '
+    "${PIP_EXTRA_INDEX_URL:+--index ${PIP_EXTRA_INDEX_URL}} "
     "${PIP_TRUSTED_HOST:+--allow-insecure-host ${PIP_TRUSTED_HOST}}"
 )
 
-# Depends only on BASE_IMAGE, so docker caches this layer across every job
-# on the worker. ``base.txt`` is what the image already has, aaiclick included.
+# Depends only on BASE_IMAGE, so docker caches this layer across every job on
+# the worker. ``base.txt`` is what the image already has; ``override.txt`` is
+# the same minus aaiclick, whose installed (worker) version may not exist on
+# any index — a manifest naming aaiclick resolves it from the index instead
+# and the install then skips it as already satisfied.
 _PYTHON_TOOLING = f"""\
 USER root
 RUN mkdir -p {_DEPS_DIR} \\
- && pip install --no-cache-dir {_PIP_INDEX} uv \\
- && pip list --format=freeze > {_BASE}
+ && pip install --no-cache-dir {_PIP_INDEX} {_UV_PIN} \\
+ && pip list --format=freeze > {_BASE} \\
+ && grep -v '^aaiclick==' {_BASE} > {_OVERRIDE}
 """
 
 # A ``uv.lock`` is honoured as is; workspace and path entries cannot resolve
@@ -176,15 +187,14 @@ class _PythonManifest(NamedTuple):
 def _python_dockerfile(manifest: _PythonManifest | None) -> str:
     """Thin layer plus, for a manifest, its install block.
 
-    The base image's packages win: ``base.txt`` overrides the resolve and
-    constrains the install, so a user lock can neither downgrade aaiclick nor
-    swap the dependencies it was tested with. aaiclick itself never enters the
-    install list — the worker's version may not exist on any index."""
+    The base image's packages win: the installed set overrides the resolve
+    and constrains the install, so a user lock can neither downgrade aaiclick
+    nor swap the dependencies it was tested with."""
     if manifest is None:
         return _PYTHON_HEAD + _PYTHON_TAIL
     steps = [
         *([manifest.resolve] if manifest.resolve else []),
-        f"uv pip compile --python python --no-cache --override {_BASE} --no-emit-package aaiclick {_UV_INDEX} "
+        f"uv pip compile --python python --no-cache --override {_OVERRIDE} --no-emit-package aaiclick {_UV_INDEX} "
         f"--no-header --no-annotate {manifest.compile_input} -o {_FINAL}",
         f"uv pip install --system --no-cache {_UV_INDEX} -c {_BASE} -r {_FINAL}",
     ]
@@ -200,6 +210,8 @@ _JVM_TEMPLATE = """\
 # Default image for a git build whose repo has a pom.xml and no Dockerfile.
 FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /build
+COPY pom.xml /build/
+RUN mvn -B -q dependency:go-offline
 COPY . /build
 RUN mvn -B -q -DskipTests package dependency:copy-dependencies \\
       -DincludeScope=runtime -DoutputDirectory=target/libs

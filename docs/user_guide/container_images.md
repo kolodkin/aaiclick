@@ -50,24 +50,26 @@ to customize; an explicit `dockerfile=` path that is missing still fails.
 
 The default honours a dependency manifest at the repo root:
 
-| Found at repo root                                   | Template | Install step                                                       |
-|------------------------------------------------------|----------|--------------------------------------------------------------------|
-| none of the below                                    | python   | none — the thin layer above                                        |
-| `uv.lock` (with `pyproject.toml`)                    | python   | `uv export --frozen --no-dev` → `pip install -r`                   |
-| `requirements.txt` (no `uv.lock`)                    | python   | `pip install -r requirements.txt`                                  |
-| `pyproject.toml` with a `[project]` table            | python   | `uv pip compile pyproject.toml` → `pip install -r`                 |
-| `pom.xml`, no Python manifest                        | jvm      | `mvn package` in a build stage, SDK shim as `ENTRYPOINT`           |
-| `pom.xml` **and** a Python manifest                  | error    | build fails: check in a `Dockerfile`                               |
+| Found at repo root                                   | Template | Install step                                                        |
+|------------------------------------------------------|----------|---------------------------------------------------------------------|
+| none of the below                                    | python   | none — the thin layer above                                         |
+| `uv.lock` with `pyproject.toml`                      | python   | `uv export --frozen --no-dev` → compile → install                   |
+| `requirements.txt` (no `uv.lock`)                    | python   | compile → install                                                   |
+| `pyproject.toml` with a `[project]` table            | python   | compile → install                                                   |
+| `pom.xml`, no Python manifest                        | jvm      | `mvn dependency:go-offline`, `mvn package`, SDK shim as `ENTRYPOINT` |
+| `pom.xml` **and** a Python manifest                  | error    | build fails: check in a `Dockerfile`                                |
 
-Dependencies resolve with `uv` and install with `pip`, both on the worker's
-`PIP_*` index args. Packages the base image ships — aaiclick and everything it
-depends on — keep the base image's version whatever the manifest pins, so a
-user lock cannot downgrade aaiclick or swap the dependencies it was tested
-with. The project itself is never `pip install .`-ed. Limits:
+"Compile → install" is `uv pip compile` then `uv pip install --system`, both
+on the worker's `PIP_*` index args. Packages the base image ships — aaiclick
+and everything it depends on — keep the base image's version whatever the
+manifest pins, so a user lock cannot downgrade aaiclick or swap the
+dependencies it was tested with. The project itself is never `pip install .`-ed.
+Limits:
 
 - A manifest must be self-contained: only it is copied before the install, so
-  `-r`, `-c`, `-e .`, path and workspace dependencies are not available
-  (workspace and path entries are dropped from a `uv.lock` export).
+  `-r`, `-c`, `-e .`, path and workspace dependencies are not available. A
+  `pyproject.toml` with `[tool.uv.workspace]` or path `[tool.uv.sources]`
+  needs a checked-in `Dockerfile`.
 - A `.dockerignore` that excludes the manifest breaks its `COPY`.
 - Python code next to a `pom.xml` with no Python manifest gets the JVM image.
   Add a Python manifest or check in a `Dockerfile` for a mixed repo.
