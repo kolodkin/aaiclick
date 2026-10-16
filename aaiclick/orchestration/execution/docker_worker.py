@@ -31,14 +31,16 @@ from .execution_worker import (
     POLL_INTERVAL,
     JobDispatch,
     RunnerResult,
+    ShellVehicle,
     TaskVehicle,
+    drive_shell_vehicle,
     drive_vehicle,
     execution_worker_heartbeat,
     parse_task_timeout,
 )
 from .io_plane import CONTAINER_IO_DIR, IO_DIR_ENV, OUT_JSON, read_out_json, write_in_json
 from .remote_result import REMOTE_ENTRYPOINT, collect_remote_result, read_task_run_result
-from .runner import finish_shell_result, resolve_plain_kwargs, serialize_task_result
+from .runner import resolve_plain_kwargs
 from .runner_env import build_runner_env
 
 # How long to give `docker wait` to return after we've issued `docker kill`
@@ -278,16 +280,13 @@ class _ShellHandle(NamedTuple):
     env_file: str | None
 
 
-class _DockerShellVehicle(TaskVehicle["_ShellHandle", "Any"]):
-    """``TaskVehicle`` for shell and jvm tasks on the Docker runner — the
-    file data plane. ``wait``'s payload is the parsed ``out.json`` (``None``
-    when the task wrote none); ``collect`` keeps it on ``out_value`` for the
-    ExecuteFn, since a ``RunnerResult`` carries only serialized refs."""
+class _DockerShellVehicle(ShellVehicle["_ShellHandle"]):
+    """Shell and jvm tasks on the Docker runner: ``docker create`` → ``cp``
+    in.json in → ``start`` → wait → ``cp`` out.json out → ``rm``."""
 
     def __init__(self, image_tag: str, dispatch: JobDispatch) -> None:
         self._image_tag = image_tag
         self._dispatch = dispatch
-        self.out_value: Any = None
 
     async def launch(self, task: Task, execution_worker_id: int) -> _ShellHandle:
         name = _shell_container_name(task)
@@ -335,23 +334,8 @@ class _DockerShellVehicle(TaskVehicle["_ShellHandle", "Any"]):
         except ValueError as e:
             return exit_code, str(e), None
 
-    async def poll_cancelled(self, task: Task) -> bool:
-        return await check_task_cancelled(task.id)
-
     async def terminate(self, handle: _ShellHandle) -> None:
         await _docker_kill(handle.name)
-
-    def collect(
-        self, handle: _ShellHandle, exit_code: int, error: str | None, was_cancelled: bool, payload: Any
-    ) -> RunnerResult:
-        if was_cancelled:
-            return RunnerResult(False, None, "cancelled")
-        if error is not None:
-            return RunnerResult(False, None, error)
-        if exit_code != 0:
-            return RunnerResult(False, None, f"exit {exit_code}")
-        self.out_value = payload
-        return RunnerResult(True, None, None)
 
     async def output_argv(self, handle: _ShellHandle) -> list[str]:
         return [_docker_bin(), "logs", "--follow", handle.name]
@@ -366,28 +350,13 @@ class _DockerShellVehicle(TaskVehicle["_ShellHandle", "Any"]):
 async def _run_shell_in_container(
     task: Task, execution_worker_id: int, dispatch: JobDispatch, log_run_id: int | None
 ) -> tuple[bool, dict | None, str | None]:
-    """ExecuteFn for shell and jvm tasks on the Docker runner: drive a
-    ``_DockerShellVehicle``, then interpret ``out.json`` host-side
-    (``finish_shell_result`` registers any returned tasks)."""
+    """ExecuteFn for shell and jvm tasks on the Docker runner."""
     image_tag = await resolve_launch_image(dispatch.image_source, task_id=task.id)
     await _docker_pull_if_registered(image_tag)
     vehicle = _DockerShellVehicle(image_tag, dispatch)
-    result = await drive_vehicle(
-        task,
-        execution_worker_id,
-        vehicle,
-        timeout=parse_task_timeout(),
-        poll_interval=POLL_INTERVAL,
-        heartbeat_fn=execution_worker_heartbeat,
-        log_run_id=log_run_id,
+    return await drive_shell_vehicle(
+        task, execution_worker_id, vehicle, timeout=parse_task_timeout(), log_run_id=log_run_id
     )
-    if not result.success:
-        return False, None, result.error
-    try:
-        data = await finish_shell_result(task, vehicle.out_value)
-    except Exception as e:
-        return False, None, f"{type(e).__name__}: {e}"
-    return True, serialize_task_result(data, task.job_id), None
 
 
 async def _run_task_in_container(

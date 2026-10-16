@@ -86,7 +86,7 @@ from ..runner_config import ENTRY_JVM, ENTRY_MODULE, ENTRY_SHELL, EntryType, val
 from .claiming import update_job_status, update_task_status
 from .cli import overlay_env
 from .db_handler import DEPENDENCY_WHERE
-from .execution_worker_context import set_current_task_info
+from .execution_worker_context import current_task_info, set_current_task_info
 from .io_plane import IO_DIR_ENV, read_out_json, write_in_json
 from .runner_env import ENV_WORKER_RUNNER, WorkerRunner
 
@@ -422,33 +422,12 @@ async def start_shell_process(
 
 
 class ShellSpec(NamedTuple):
-    """A shell task's fully-resolved launch command.
-
-    Built host-side (``dispatch.build_shell_spec``) so runner-specific
-    wrapping (``docker run`` / ``kubectl run``) stays out of the executing
-    process. ``cleanup_argv`` is run after the process ends however it ends —
-    killing the wrapper CLI alone would leave its container/pod running.
-    ``env_file`` is a private (0600) host file the argv reads ``command_env``
-    from, keeping the values out of ``ps``; the dispatcher removes it once
-    the task child returns."""
+    """A subprocess shell task's launch command: its argv plus the
+    ``command_env`` overlay. Container shell tasks never reach the task child
+    — their launch is a host-side vehicle."""
 
     argv: list[str]
     env: dict[str, str] | None
-    cleanup_argv: list[str] | None = None
-    env_file: str | None = None
-
-
-async def _run_cleanup_argv(cleanup_argv: list[str]) -> None:
-    """Best-effort teardown command (``docker kill`` / ``kubectl delete``).
-
-    Failure is expected on the happy path (the ``--rm`` container is already
-    gone) — output and exit code are deliberately ignored."""
-    proc = await asyncio.create_subprocess_exec(
-        *cleanup_argv,
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL,
-    )
-    await proc.wait()
 
 
 async def _pump_stream(stream: asyncio.StreamReader, sink: ChLogSink, source: LogStream) -> None:
@@ -509,19 +488,14 @@ async def finish_shell_result(task: Task, out_value: Any) -> Any:
     task/group dicts it returned, unwrap a top-level ``native`` — and return
     the data portion for :func:`serialize_task_result`.
 
-    Sets the current task info first so children built here inherit the
-    task's image (``stamp_inherited_image``).
+    Runs under the task's info so children built here inherit its image
+    (``stamp_inherited_image``), restored afterwards: on the container
+    runners this is the worker loop's own context.
     """
-    set_current_task_info(
-        task_id=task.id,
-        job_id=task.job_id,
-        image_source=task.image_source,
-        group_id=task.group_id,
-        entry_type=task.entry_type,
-    )
     if ref_kind(out_value) == NATIVE:
         out_value = out_value[VALUE]
-    return await register_returned_tasks(out_value, task.id, task.job_id)
+    with current_task_info(task.id, task.job_id, task.image_source, task.group_id, task.entry_type):
+        return await register_returned_tasks(out_value, task.id, task.job_id)
 
 
 async def execute_shell_task(task: Task, spec: ShellSpec | None = None) -> Any:
@@ -546,11 +520,7 @@ async def execute_shell_task(task: Task, spec: ShellSpec | None = None) -> Any:
         write_in_json(io_dir, await resolve_plain_kwargs(task.kwargs))
         run_id = await register_run(task.id)
         proc = await start_shell_process(spec.argv, {**(spec.env or {}), IO_DIR_ENV: str(io_dir)})
-        try:
-            await pump_process_output(proc, task.id, task.job_id, run_id, record_exit=True)
-        finally:
-            if spec.cleanup_argv:
-                await _run_cleanup_argv(spec.cleanup_argv)
+        await pump_process_output(proc, task.id, task.job_id, run_id, record_exit=True)
         if proc.returncode != 0:
             raise RuntimeError(f"exit {proc.returncode}")
         return await finish_shell_result(task, read_out_json(io_dir))
@@ -826,10 +796,10 @@ def _wire_dag_dicts(specs: list[dict], nodes: list[Task | Group], handles: Handl
         if isinstance(node, Group):
             for member_spec, member in zip(spec.get(TASKS, []), node.get_tasks(), strict=True):
                 walk(member_spec, member)
-            return
-        node.kwargs = _swap_handles(node.kwargs, handles)
-        for kind, handle in _handle_refs(spec.get("kwargs")):
-            node.depends_on(_handle_node(handles, handle, kind))
+        else:
+            node.kwargs = _swap_handles(node.kwargs, handles)
+            for kind, handle in _handle_refs(spec.get("kwargs")):
+                node.depends_on(_handle_node(handles, handle, kind))
         for handle in spec.get(DEPENDS_ON, []):
             if handle not in handles:
                 raise ValueError(f"unknown handle {handle!r} in returned tasks")
@@ -912,7 +882,7 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
 
     kind = ref_kind(result) if isinstance(result, dict) else None
     if kind == TASK_RESULT or _is_dag_dict(result) or (isinstance(result, list) and any(map(_is_dag_dict, result))):
-        specs = result[TASKS] if kind == TASK_RESULT else result if isinstance(result, list) else [result]
+        specs = result.get(TASKS, []) if kind == TASK_RESULT else result if isinstance(result, list) else [result]
         if not all(map(_is_dag_dict, specs)):
             raise TypeError("a returned task list may hold only task/group dicts")
         nodes, handles = _build_dag_from_dicts(specs)

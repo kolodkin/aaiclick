@@ -212,6 +212,7 @@ def test_shell_pod_manifest_has_io_helpers_and_shared_volume(monkeypatch):
     assert task["image"] == "img" and task["command"] == ["sh", "-c", "x"]
     assert task["env"] == [{"name": "AAICLICK_IO_DIR", "value": "/aaiclick"}]
     assert task["envFrom"] == [{"secretRef": {"name": "p"}}]
+    assert "/aaiclick/in.ready" in spec["initContainers"][0]["command"][-1]
     assert task["resources"] == {"limits": {"cpu": "1"}}
     every = (*spec["initContainers"], *spec["containers"])
     assert all(c["volumeMounts"] == [{"name": "aaiclick-io", "mountPath": "/aaiclick"}] for c in every)
@@ -260,9 +261,10 @@ _FAKE_KUBECTL_SHELL = """#!/bin/sh
 d="$(dirname "$0")"
 case "$1" in
   get) if [ -n "$FAKE_CP_FAIL" ]; then phase=Pending; task='{"waiting": {}}'; else phase=Running; task='{"terminated": {"exitCode": 0}}'; fi
+       if [ -n "$FAKE_POD_PHASE" ]; then phase="$FAKE_POD_PHASE"; task='{"waiting": {}}'; fi
        printf '{"status": {"phase": "%s", "initContainerStatuses": [{"name": "io-in", "state": {"running": {}}}], "containerStatuses": [{"name": "task", "state": %s}, {"name": "io", "state": {"running": {}}}]}}' "$phase" "$task" ;;
   cp) if [ -n "$FAKE_CP_FAIL" ]; then echo "pods/exec forbidden" >&2; exit 1; fi
-      cp "$2" "$d/in-copy.json"; echo "$@" > "$d/cp-argv" ;;
+      cp "$2" "$d/copied-$(basename "$2")"; echo "$@" >> "$d/cp-argv" ;;
   exec) echo "$@" > "$d/exec-argv"
         case "$FAKE_OUT_MODE" in
           missing) exit 3 ;;
@@ -292,9 +294,12 @@ async def test_shell_pod_round_trips_in_and_out_json(orch_ctx, monkeypatch, tmp_
     stored = await dispatch_with_fake_cli(monkeypatch, tmp_path, "AAICLICK_KUBECTL_BIN", _FAKE_KUBECTL_SHELL, spec)
 
     assert stored.result == native_ref({"k": "v"}), stored.error
-    assert (tmp_path / "in-copy.json").read_text() == "{}"
-    cp_argv = (tmp_path / "cp-argv").read_text().split()
-    assert cp_argv[2].endswith(":/aaiclick/in.json") and cp_argv[-2:] == ["-c", "io-in"]
+    assert (tmp_path / "copied-in.json").read_text() == "{}"
+    # in.json lands first, then the marker io-in waits for — kubectl cp
+    # extracts in place, so the marker is what proves the file is whole.
+    cps = (tmp_path / "cp-argv").read_text().splitlines()
+    assert [c.split()[2].rsplit(":", 1)[1] for c in cps] == ["/aaiclick/in.json", "/aaiclick/in.ready"]
+    assert all(c.split()[-2:] == ["-c", "io-in"] for c in cps)
     exec_argv = (tmp_path / "exec-argv").read_text()
     assert "-c io -- sh -c" in exec_argv and "/aaiclick/out.json" in exec_argv
     assert (tmp_path / "calls").read_text().split() == ["create", "apply", "delete"]
@@ -326,6 +331,18 @@ async def test_shell_pod_out_json_read_failures(orch_ctx, monkeypatch, tmp_path,
     assert (stored.status, stored.result) == (status, None)
     if error:
         assert error in (stored.error or "")
+
+
+async def test_shell_pod_terminal_phase_without_task_exit_fails(orch_ctx, monkeypatch, tmp_path):
+    """A Pod that reaches Failed while the task container never ran (helper
+    image pull failure, activeDeadlineSeconds, eviction) ends the wait with
+    an error instead of parking the worker."""
+    monkeypatch.setenv("FAKE_POD_PHASE", "Failed")
+    stored = await dispatch_with_fake_cli(
+        monkeypatch, tmp_path, "AAICLICK_KUBECTL_BIN", _FAKE_KUBECTL_SHELL, _shell_spec()
+    )
+    assert stored.status == TASK_PENDING_FAILURE_CLEANUP
+    assert "Failed before the task container terminated" in (stored.error or "")
 
 
 async def test_shell_pod_copy_in_failure_fails_the_task(orch_ctx, monkeypatch, tmp_path):

@@ -8,6 +8,8 @@ job they belong to when creating child tasks.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 
@@ -44,6 +46,22 @@ def set_current_task_info(
     _current_task_info.set(
         TaskInfo(task_id=task_id, job_id=job_id, image_source=image_source, group_id=group_id, entry_type=entry_type)
     )
+
+
+@contextmanager
+def current_task_info(
+    task_id: int, job_id: int, image_source: dict | None, group_id: int | None, entry_type: EntryType
+) -> Iterator[None]:
+    """Set the task info for the block and restore the previous value after —
+    for host-side code that acts for a task inside the worker loop's own
+    context, where a bare set would outlive the task."""
+    token = _current_task_info.set(
+        TaskInfo(task_id=task_id, job_id=job_id, image_source=image_source, group_id=group_id, entry_type=entry_type)
+    )
+    try:
+        yield
+    finally:
+        _current_task_info.reset(token)
 
 
 def get_current_task_info() -> TaskInfo:

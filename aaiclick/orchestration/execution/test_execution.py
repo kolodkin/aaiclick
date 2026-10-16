@@ -26,11 +26,13 @@ from aaiclick.orchestration.examples.orchestration_dynamic import (
 from aaiclick.orchestration.execution.claiming import update_task_status
 from aaiclick.orchestration.execution.db_handler import DEPENDENCY_WHERE
 from aaiclick.orchestration.execution.debug import ajob_test
+from aaiclick.orchestration.execution.execution_worker_context import get_current_task_info
 from aaiclick.orchestration.execution.runner import (
     _pump_stream,
     deserialize_task_params,
     execute_shell_task,
     execute_task,
+    finish_shell_result,
     import_callback,
     register_returned_tasks,
     register_run,
@@ -45,7 +47,9 @@ from aaiclick.orchestration.fixtures.dict_return_pipelines import (
     spawn_duplicate_handle,
     spawn_group,
     spawn_group_data,
+    spawn_group_depends_on,
     spawn_native_data,
+    spawn_result_without_tasks,
     spawn_unknown_handle,
     spawn_wrong_handle_kind,
 )
@@ -772,6 +776,36 @@ async def test_run_job_tasks_dict_return_wires_data_flow_edges(orch_ctx):
     async with get_sql_session() as session:
         rows = (await session.execute(select(Dependency.previous_id).where(Dependency.next_id == fin.id))).all()
     assert {r[0] for r in rows} >= {d.id for d in doubles}
+
+
+async def test_run_job_tasks_dict_return_group_depends_on_is_an_edge(orch_ctx):
+    job = await create_job("dict_group_edge", create_task(spawn_group_depends_on, name="dict_group_edge"))
+    await run_job_tasks(job)
+    assert job.status == JOB_COMPLETED, job.error
+    tasks = await get_tasks_for_job(job.id)
+    prep = next(t for t in tasks if t.kwargs == {"x": 1})
+    member = next(t for t in tasks if t.kwargs == {"x": 2})
+    async with get_sql_session() as session:
+        rows = (await session.execute(select(Dependency.next_id).where(Dependency.previous_id == prep.id))).all()
+    assert member.group_id in {r[0] for r in rows}
+
+
+async def test_run_job_tasks_dict_result_without_tasks(orch_ctx):
+    job = await create_job("dict_no_tasks", create_task(spawn_result_without_tasks, name="dict_no_tasks"))
+    await run_job_tasks(job)
+    assert job.status == JOB_COMPLETED, job.error
+    async with data_context():
+        assert await get_job_result(job) == 5
+
+
+async def test_finish_shell_result_restores_task_context(orch_ctx):
+    """The host interprets out.json in the worker loop's own context, so the
+    task info must not outlive the call (it would stamp the task's image onto
+    unrelated tasks committed later)."""
+    task = create_task(None, entry_type="shell", command=["true"])
+    assert await finish_shell_result(task, None) is None
+    with pytest.raises(RuntimeError, match="No task is currently executing"):
+        get_current_task_info()
 
 
 async def test_run_job_tasks_dict_return_native_data(orch_ctx):

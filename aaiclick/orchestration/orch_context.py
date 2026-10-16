@@ -8,6 +8,7 @@ import weakref
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from typing import NamedTuple
 
 from sqlalchemy import text
 from sqlmodel import select
@@ -556,14 +557,20 @@ def _collect_from_registry(items: list[Task | Group]) -> list[Task | Group]:
     return result
 
 
-def _current_parent() -> tuple[dict | None, EntryType]:
-    """The committing task's own image_source and entry type; no image outside
-    task execution."""
+class _Parent(NamedTuple):
+    """The committing task's own image_source and entry type."""
+
+    image_source: dict | None
+    entry_type: EntryType
+
+
+def _current_parent() -> _Parent:
+    """No image outside task execution."""
     try:
         info = get_current_task_info()
     except RuntimeError:
-        return None, ENTRY_MODULE
-    return info.image_source, info.entry_type
+        return _Parent(None, ENTRY_MODULE)
+    return _Parent(info.image_source, info.entry_type)
 
 
 async def commit_tasks(
@@ -599,7 +606,8 @@ async def commit_tasks(
     all_items = _collect_from_registry(items_list)
     tasks_only = [item for item in all_items if isinstance(item, Task)]
 
-    stamp_inherited_image(tasks_only, *_current_parent())
+    parent = _current_parent()
+    stamp_inherited_image(tasks_only, parent.image_source, parent.entry_type)
     validate_plain_data_plane_tasks(tasks_only)
 
     async with get_sql_session() as session:

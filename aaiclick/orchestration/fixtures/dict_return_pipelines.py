@@ -95,3 +95,24 @@ async def spawn_group_data() -> dict:
 async def spawn_wrong_handle_kind() -> list[dict]:
     """A task handle where a group handle is expected."""
     return [_task_dict("w1", "double", {"x": 1}), _task_dict("fin", "total", {"parts": group_results_ref("w1")})]
+
+
+@task
+async def spawn_group_depends_on() -> list[dict]:
+    """A group dict's ``depends_on`` is an edge like a task's."""
+    return [
+        _task_dict("prep", "double", {"x": 1}),
+        {
+            "_aaiclick_type": "group",
+            "id": "g",
+            "name": "g",
+            "depends_on": ["prep"],
+            "tasks": [_task_dict("w1", "double", {"x": 2})],
+        },
+    ]
+
+
+@task
+async def spawn_result_without_tasks() -> dict:
+    """``tasks`` is optional: a task_result may carry data alone."""
+    return {"_aaiclick_type": "task_result", "data": native_ref(5)}

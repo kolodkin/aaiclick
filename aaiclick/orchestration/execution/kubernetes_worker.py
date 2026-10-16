@@ -33,18 +33,23 @@ from .execution_worker import (
     POLL_INTERVAL,
     JobDispatch,
     RunnerResult,
+    ShellVehicle,
     TaskVehicle,
+    drive_shell_vehicle,
     drive_vehicle,
     execution_worker_heartbeat,
     parse_task_timeout,
 )
 from .io_plane import CONTAINER_IO_DIR, IN_JSON, IO_DIR_ENV, OUT_JSON, parse_out_json, write_in_json
 from .remote_result import REMOTE_ENTRYPOINT, collect_remote_result, read_task_run_result
-from .runner import finish_shell_result, resolve_plain_kwargs, serialize_task_result
+from .runner import resolve_plain_kwargs
 from .runner_env import build_runner_env
 
 IO_IMAGE_ENV = "AAICLICK_K8S_IO_IMAGE"
 DEFAULT_IO_IMAGE = "busybox:1.36"
+# Written after in.json: ``kubectl cp`` extracts in place, so the marker is
+# what tells ``io-in`` the file is whole.
+_IN_READY = "in.ready"
 # A shell Pod never ends on its own (the ``io`` sidecar sleeps), so one a
 # crashed worker orphans is bounded by ``activeDeadlineSeconds``: the task
 # timeout plus slack when one is set, else this.
@@ -283,7 +288,7 @@ def build_shell_pod_manifest(
     io_in = {
         "name": _IO_IN_CONTAINER,
         "image": io_image(),
-        "command": ["sh", "-c", f"until [ -f {CONTAINER_IO_DIR}/{IN_JSON} ]; do sleep 0.2; done"],
+        "command": ["sh", "-c", f"until [ -f {CONTAINER_IO_DIR}/{_IN_READY} ]; do sleep 0.2; done"],
         "volumeMounts": mount,
     }
     io = {"name": _IO_CONTAINER, "image": io_image(), "command": ["sleep", "infinity"], "volumeMounts": mount}
@@ -347,16 +352,13 @@ async def _kubectl_delete_shell(handle: _ShellPodHandle) -> None:
     await cli.run(_kubectl_bin(), "delete", *resources, "-n", handle.namespace, "--ignore-not-found", check=False)
 
 
-class _KubernetesShellVehicle(TaskVehicle["_ShellPodHandle", "Any"]):
-    """``TaskVehicle`` for shell and jvm tasks on the Kubernetes runner — the
-    file data plane (see the module docstring). ``wait``'s payload is the
-    parsed ``out.json``; ``collect`` keeps it on ``out_value`` for the
-    ExecuteFn, since a ``RunnerResult`` carries only serialized refs."""
+class _KubernetesShellVehicle(ShellVehicle["_ShellPodHandle"]):
+    """Shell and jvm tasks on the Kubernetes runner — the file data plane
+    through the ``io-in`` / ``io`` helpers (see the module docstring)."""
 
     def __init__(self, spec: _PodSpec, timeout: float | None) -> None:
         self._spec = spec
         self._deadline = int(timeout + ORPHAN_POD_SLACK) if timeout is not None else ORPHAN_POD_DEADLINE
-        self.out_value: Any = None
 
     async def launch(self, task: Task, execution_worker_id: int) -> _ShellPodHandle:
         name = _pod_name(task.id, task.run_epoch)
@@ -364,6 +366,7 @@ class _KubernetesShellVehicle(TaskVehicle["_ShellPodHandle", "Any"]):
         handle = _ShellPodHandle(name, self._spec.namespace, task.id, task.job_id, task.run_epoch, io_dir)
         try:
             write_in_json(io_dir, await resolve_plain_kwargs(task.kwargs))
+            (io_dir / _IN_READY).touch()
             if self._spec.command_env:
                 await _kubectl_create_from_file(
                     _build_command_env_secret(name, self._spec.namespace, self._spec.command_env)
@@ -394,20 +397,24 @@ class _KubernetesShellVehicle(TaskVehicle["_ShellPodHandle", "Any"]):
         return handle
 
     async def _copy_in(self, handle: _ShellPodHandle) -> None:
-        rc, _, err = await cli.run(
-            _kubectl_bin(),
-            "cp",
-            str(handle.io_dir / IN_JSON),
-            f"{handle.namespace}/{handle.name}:{CONTAINER_IO_DIR}/{IN_JSON}",
-            "-c",
-            _IO_IN_CONTAINER,
-            check=False,
-            stream=False,
-        )
-        handle.in_copied = rc == 0
-        if rc != 0:  # retried on the next poll, up to COPY_IN_ATTEMPTS
-            handle.copy_failures += 1
-            handle.copy_error = err.strip()
+        """``kubectl cp`` in.json, then the ready marker. A failure is retried
+        on the next poll, up to ``COPY_IN_ATTEMPTS``."""
+        for name in (IN_JSON, _IN_READY):
+            rc, _, err = await cli.run(
+                _kubectl_bin(),
+                "cp",
+                str(handle.io_dir / name),
+                f"{handle.namespace}/{handle.name}:{CONTAINER_IO_DIR}/{name}",
+                "-c",
+                _IO_IN_CONTAINER,
+                check=False,
+                stream=False,
+            )
+            if rc != 0:
+                handle.copy_failures += 1
+                handle.copy_error = err.strip()
+                return
+        handle.in_copied = True
 
     async def wait(self, handle: _ShellPodHandle, timeout: float | None) -> tuple[int, str | None, Any]:
         """Poll the Pod: copy ``in.json`` once ``io-in`` runs, then wait for
@@ -426,10 +433,16 @@ class _KubernetesShellVehicle(TaskVehicle["_ShellPodHandle", "Any"]):
                     handle.mark_started(pod.get("status", {}).get("phase", ""))
                     return -1, f"kubectl cp of in.json failed {handle.copy_failures} times: {handle.copy_error}", None
             state, exit_code = _container_state(pod, _TASK_CONTAINER)
+            phase = pod.get("status", {}).get("phase", "")
             if state in ("running", "terminated"):
-                handle.mark_started(pod.get("status", {}).get("phase", "Running"))
+                handle.mark_started(phase or "Running")
             if state == "terminated":
                 break
+            if phase in ("Succeeded", "Failed"):
+                # Helper image pull failure, activeDeadlineSeconds, eviction:
+                # the task container never ran and never will.
+                handle.mark_started(phase)
+                return -1, f"Pod {handle.name} {phase} before the task container terminated", None
             if timeout is not None and elapsed >= timeout:
                 handle.mark_started(pod.get("status", {}).get("phase", ""))
                 return -1, f"Task timed out after {timeout}s", None
@@ -462,24 +475,9 @@ class _KubernetesShellVehicle(TaskVehicle["_ShellPodHandle", "Any"]):
         except ValueError as e:
             return exit_code, str(e), None
 
-    async def poll_cancelled(self, task: Task) -> bool:
-        return await check_task_cancelled(task.id)
-
     async def terminate(self, handle: _ShellPodHandle) -> None:
         await _kubectl_delete_shell(handle)
         handle.deleted = True
-
-    def collect(
-        self, handle: _ShellPodHandle, exit_code: int, error: str | None, was_cancelled: bool, payload: Any
-    ) -> RunnerResult:
-        if was_cancelled:
-            return RunnerResult(False, None, "cancelled")
-        if error is not None:
-            return RunnerResult(False, None, error)
-        if exit_code != 0:
-            return RunnerResult(False, None, f"exit {exit_code}")
-        self.out_value = payload
-        return RunnerResult(True, None, None)
 
     async def output_argv(self, handle: _ShellPodHandle) -> list[str] | None:
         await handle.started.wait()
@@ -496,28 +494,11 @@ class _KubernetesShellVehicle(TaskVehicle["_ShellPodHandle", "Any"]):
 async def _run_shell_in_pod(
     task: Task, execution_worker_id: int, dispatch: JobDispatch, log_run_id: int | None
 ) -> tuple[bool, dict | None, str | None]:
-    """ExecuteFn for shell and jvm tasks on the Kubernetes runner: drive a
-    ``_KubernetesShellVehicle``, then interpret ``out.json`` host-side
-    (``finish_shell_result`` registers any returned tasks)."""
+    """ExecuteFn for shell and jvm tasks on the Kubernetes runner."""
     image_tag = await resolve_launch_image(dispatch.image_source, task_id=task.id)
     timeout = parse_task_timeout()
     vehicle = _KubernetesShellVehicle(_pod_spec_from(task, dispatch, image_tag), timeout)
-    result = await drive_vehicle(
-        task,
-        execution_worker_id,
-        vehicle,
-        timeout=timeout,
-        poll_interval=POLL_INTERVAL,
-        heartbeat_fn=execution_worker_heartbeat,
-        log_run_id=log_run_id,
-    )
-    if not result.success:
-        return False, None, result.error
-    try:
-        data = await finish_shell_result(task, vehicle.out_value)
-    except Exception as e:
-        return False, None, f"{type(e).__name__}: {e}"
-    return True, serialize_task_result(data, task.job_id), None
+    return await drive_shell_vehicle(task, execution_worker_id, vehicle, timeout=timeout, log_run_id=log_run_id)
 
 
 class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):

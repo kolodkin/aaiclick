@@ -38,6 +38,7 @@ from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_MODULE, EntryType, ImageSourceT
 from .claiming import (
     check_run_aborted,
+    check_task_cancelled,
     claim_next_task,
     complete_task_and_roll_up,
     end_current_run,
@@ -48,6 +49,7 @@ from .runner import (
     OUTPUT_FOLLOWER_DRAIN_TIMEOUT,
     OUTPUT_FOLLOWER_ERROR_GRACE,
     execute_task,
+    finish_shell_result,
     follow_vehicle_output,
     get_run_count,
     register_run,
@@ -154,6 +156,53 @@ class TaskVehicle(Protocol[H, P]):
         (``docker logs -f``), or None when there is nothing to follow.
         Only called when ``drive_vehicle`` gets a ``log_run_id``."""
         ...
+
+
+class ShellVehicle(TaskVehicle[H, Any]):
+    """The shared half of a shell/jvm ``TaskVehicle`` on the file data plane:
+    ``wait``'s payload is the parsed ``out.json`` (``None`` when the task wrote
+    none), kept on ``out_value`` by ``collect`` for :func:`drive_shell_vehicle`,
+    since a ``RunnerResult`` carries only serialized refs. Runners implement
+    ``launch`` / ``wait`` / ``terminate`` / ``cleanup`` / ``output_argv``."""
+
+    out_value: Any = None
+
+    async def poll_cancelled(self, task: Task) -> bool:
+        return await check_task_cancelled(task.id)
+
+    def collect(self, handle: H, exit_code: int, error: str | None, was_cancelled: bool, payload: Any) -> RunnerResult:
+        if was_cancelled:
+            return RunnerResult(False, None, "cancelled")
+        if error is not None:
+            return RunnerResult(False, None, error)
+        if exit_code != 0:
+            return RunnerResult(False, None, f"exit {exit_code}")
+        self.out_value = payload
+        return RunnerResult(True, None, None)
+
+
+async def drive_shell_vehicle(
+    task: Task, execution_worker_id: int, vehicle: ShellVehicle[H], *, timeout: float | None, log_run_id: int | None
+) -> tuple[bool, dict | None, str | None]:
+    """ExecuteFn body shared by the container shell runners: drive the vehicle,
+    then interpret ``out.json`` host-side (``finish_shell_result`` registers
+    any returned tasks) and serialize the data for the task row."""
+    result = await drive_vehicle(
+        task,
+        execution_worker_id,
+        vehicle,
+        timeout=timeout,
+        poll_interval=POLL_INTERVAL,
+        heartbeat_fn=execution_worker_heartbeat,
+        log_run_id=log_run_id,
+    )
+    if not result.success:
+        return False, None, result.error
+    try:
+        data = await finish_shell_result(task, vehicle.out_value)
+    except Exception as e:
+        return False, None, f"{type(e).__name__}: {e}"
+    return True, serialize_task_result(data, task.job_id), None
 
 
 async def _heartbeat_while_waiting(
