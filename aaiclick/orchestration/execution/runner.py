@@ -757,10 +757,10 @@ _HANDLE_KEYS = {UPSTREAM: TASK_ID, GROUP_RESULTS: GROUP_ID}
 def _handle_ref(value: Any) -> tuple[str, str] | None:
     """``(kind, handle)`` when ``value`` is an upstream/group ref naming a handle."""
     kind = ref_kind(value)
-    key = _HANDLE_KEYS.get(kind)
-    if key is not None and isinstance(value.get(key), str):
-        return kind, value[key]
-    return None
+    if kind is None or kind not in _HANDLE_KEYS:
+        return None
+    handle = value.get(_HANDLE_KEYS[kind])
+    return (kind, handle) if isinstance(handle, str) else None
 
 
 def _handle_node(handles: Handles, handle: str, kind: str) -> Task | Group:
@@ -855,6 +855,15 @@ def _dict_result_data(data: Any, handles: Handles) -> Any:
     return data
 
 
+def _register_dict_dag(specs: list, data: Any) -> tuple[list[Task | Group], Any]:
+    """Build the nodes of a dict-form DAG and resolve its ``data``."""
+    if not all(map(_is_dag_dict, specs)):
+        raise TypeError("a returned task list may hold only task/group dicts")
+    nodes, handles = _build_dag_from_dicts(specs)
+    _wire_dag_dicts(specs, nodes, handles)
+    return _tasks_from(nodes), _dict_result_data(data, handles)
+
+
 async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int) -> Any:
     """Register dynamic child tasks returned from a task function.
 
@@ -889,15 +898,10 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
     if result is None:
         return None
 
-    kind = ref_kind(result)
-    if kind == TASK_RESULT or _is_dag_dict(result) or (isinstance(result, list) and any(map(_is_dag_dict, result))):
-        specs = result.get(TASKS, []) if kind == TASK_RESULT else result if isinstance(result, list) else [result]
-        if not all(map(_is_dag_dict, specs)):
-            raise TypeError("a returned task list may hold only task/group dicts")
-        nodes, handles = _build_dag_from_dicts(specs)
-        _wire_dag_dicts(specs, nodes, handles)
-        task_items = _tasks_from(nodes)
-        data_result = _dict_result_data(result.get(DATA), handles) if kind == TASK_RESULT else None
+    if isinstance(result, dict) and ref_kind(result) == TASK_RESULT:
+        task_items, data_result = _register_dict_dag(result.get(TASKS, []), result.get(DATA))
+    elif _is_dag_dict(result) or (isinstance(result, list) and any(map(_is_dag_dict, result))):
+        task_items, data_result = _register_dict_dag(result if isinstance(result, list) else [result], None)
     elif isinstance(result, TaskResult):
         task_items = _tasks_from(result.tasks)
         data_result = result.data
