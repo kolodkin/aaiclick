@@ -306,7 +306,7 @@ shim reads `in.json` / writes `out.json`. Consequences:
   in their existing CI jobs).
 - `docs/designs/orchestration.md`, `docs/designs/java-sdk.md` — vocabulary and
   data-plane sections; `docs/designs/future.md` — Object support for
-  non-Python tasks, JVM shim on the file plane.
+  non-Python tasks (unsupported).
 
 # Left to the builder
 
