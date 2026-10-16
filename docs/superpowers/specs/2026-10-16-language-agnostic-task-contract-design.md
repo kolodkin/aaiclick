@@ -8,6 +8,11 @@ tasks by describing them as JSON. Today only Python can return a `Task`; the
 JVM shim can return plain values but needs JDBC to do it; shell tasks have no
 data plane at all.
 
+Python stays on its own path: a Python task needs ClickHouse for the data
+plane, oplog, pins and `task_logs` regardless, so a file channel beside it
+would be a second channel next to one it must keep. Python *is* the library;
+the shared vocabulary is the uniformity that pays.
+
 # Intent
 
 Make the task contract definable in JSON alone, so the Python objects
@@ -34,13 +39,17 @@ rather than the contract itself. Two pieces:
 # Non-goals
 
 - `Object`/`View` in non-Python tasks. The refs stay in the vocabulary (Python
-  needs them) but shell and jvm tasks still reject them at commit. Tracked in
-  `docs/designs/future.md` until other languages can read ClickHouse.
+  needs them) but shell and jvm tasks still reject them at commit. An Object is
+  a ClickHouse table name, and ClickHouse speaks HTTP, so a shim could read one
+  without a library — what is missing is a language runner that owns the
+  lifecycle (refcounts, pins, ephemeral-table ownership, oplog) and the trust
+  decision of handing ClickHouse credentials to a user image. Tracked in
+  `docs/designs/future.md`, with read-only Object inputs (host pins on the
+  task's behalf, opt-in `AAICLICK_CH_URL`) as the first cut.
+- Python module tasks on the file plane (see *Intent*).
 - Backward compatibility with rows already stored under the old keys. The
   project is pre-release: old `kwargs`/`result` JSON becomes unreadable, no
   dual-read, no migration (the columns are untyped JSON, so no schema change).
-- Replacing the JVM shim's JDBC result path with `out.json`. It keeps working
-  as is with the renamed keys; moving it to the file plane is a follow-up.
 - Sockets or any host-reachable network channel (needs a route from pod to
   worker that nothing in the cluster has today, and a client in every shim).
 
@@ -77,9 +86,10 @@ not passed through. Untagged JSON values are plain data, as today.
 
 ## Task spec
 
-A `task` dict carries exactly `create_task()`'s parameters, so the host builds
-it with `create_task(**fields)` and gets the same boundary validation
-(`Literal` entry types, image exclusivity) a Python caller gets:
+A `task` dict carries `create_task()`'s parameters (plus `id` and
+`depends_on`), so the host builds it through `create_task` and gets the same
+boundary validation (`Literal` entry types, image exclusivity) a Python caller
+gets:
 
 | Field                                           | Notes                                                           |
 |-------------------------------------------------|-----------------------------------------------------------------|
@@ -136,11 +146,15 @@ It runs where the DB is reachable:
 | Task kind                     | Who calls `register_returned_tasks`                   |
 |-------------------------------|-------------------------------------------------------|
 | Python module (any runner)    | the task process, inside `task_scope` — unchanged     |
-| Shell (any runner)            | the host, after reading `out.json`                    |
-| JVM                           | the host, on the `result_ref` read from the result row |
+| Shell and jvm (any runner)    | the host, after reading `out.json`                    |
 
 `serialize_task_result()` emits the renamed shapes. A `Task` in `data` still
 becomes an `upstream` ref with its int ID.
+
+Building a `Task` from a dict: `create_task()` keeps its signature. The host
+maps `entrypoint` → `callback`, pops `id` and `depends_on`, calls
+`create_task(**rest)`, then applies `depends_on` through `Task.depends_on`
+(my call — the public API does not change for a wire-format detail).
 
 # Shell data plane
 
@@ -170,10 +184,10 @@ fs.writeFileSync(`${dir}/out.json`, JSON.stringify({_aaiclick_type: "native", va
 
 ## Resolving kwargs on the host
 
-A shell task's kwargs may carry only plain values, `native` wrappers and
-`upstream` refs — the rule `validate_jvm_tasks()` enforces today, now applied
-to `shell` and `jvm` alike by one validator (`validate_plain_data_plane_tasks`
-or similar; builder's name). `object`/`view`/`callable`/`group_results`/
+A shell or jvm task's kwargs may carry only plain values, `native` wrappers
+and `upstream` refs — the rule `validate_jvm_tasks()` enforces today, now
+applied to both by one validator (`validate_plain_data_plane_tasks` or
+similar; builder's name). `object`/`view`/`callable`/`group_results`/
 `pydantic` at any depth are rejected at commit. An `upstream` ref whose
 producer stored a non-plain result (an `object` ref from a Python task) fails
 the consumer at launch with a clear error — it cannot be known at commit.
@@ -184,31 +198,67 @@ the consumer at launch with a clear error — it cannot be known at commit.
 |-----------------|----------------------------------------------------------------|-----------------------------------------------------------|
 | host subprocess | temp dir, `AAICLICK_IO_DIR` set in the child's env             | read from the temp dir; dir removed after                 |
 | docker          | `docker create` → `docker cp` → `docker start --attach`        | `docker cp` from the stopped container, then `docker rm`  |
-| kubernetes      | per-attempt Secret mounted at `/aaiclick/in.json` (`subPath`)  | `kubectl exec -c io -- cat /aaiclick/out.json`, see below |
+| kubernetes      | `kubectl cp` into the `emptyDir` while an init container waits | `kubectl exec -c io -- cat /aaiclick/out.json`, see below |
+
+**Where it runs** (my call): container shell and jvm tasks move to the host
+vehicle path (`drive_vehicle`, as module containers use today) — the
+sequences above are multi-step and cannot be one `ShellSpec`. Timeout,
+cancellation, run registration (`register_host_log_run`) and log following
+(`follow_vehicle_output`) come from the existing vehicle code. Only the host
+subprocess runner keeps running shell tasks in the mp task child through
+`execute_shell_task`. Whichever process resolves kwargs and registers children
+must set `set_current_task_info` first, or `stamp_inherited_image` gives the
+children no image.
 
 **Docker**: `build_shell_run_spec` moves from a single foreground
 `docker run --rm` to create/cp/start/cp/rm, because `--rm` leaves nothing to
 copy from. `docker cp` rather than a bind mount so a remote `DOCKER_HOST`
-keeps working. The `command_env` env-file and `cleanup_argv` kill path are
-unchanged; `docker rm` joins cleanup.
+keeps working. The `command_env` env-file is unchanged; `docker rm` joins
+cleanup.
 
-**Kubernetes**: there is no shared filesystem after a container exits, so the
-shell Pod gains a sidecar:
+**Kubernetes**: there is no shared filesystem with the host, in either
+direction, so the shell Pod gains two helper containers from one image:
 
-- Container `task` runs the user's argv as today; container `io` runs
-  `sleep infinity`. Both mount one `emptyDir` at `/aaiclick`.
+- Init container `io-in` loops until `/aaiclick/in.json` exists; the host
+  `kubectl cp`s the file in once the Pod is scheduled, the init container
+  exits, and `task` starts. A Secret or ConfigMap would be simpler but caps
+  the file at 1 MiB, and `in.json` holds *resolved* upstream results — that
+  cap would be a result cap by another name (anti-goal).
+- Container `task` runs the user's argv as today; sidecar `io` runs
+  `sleep infinity`. All three mount one `emptyDir` at `/aaiclick`.
 - The host waits on the **`task` container's** terminated state
   (`containerStatuses[?(@.name=="task")].state.terminated`), not the Pod
   phase, since the Pod never ends on its own. Logs are followed with
   `kubectl logs -f -c task` through the existing `follow_vehicle_output`.
 - After `task` terminates: `kubectl exec -c io -- cat /aaiclick/out.json`
-  (missing file → no result), then delete the Pod and its Secret as today.
-  Cancellation and the reaper already delete the Pod explicitly.
+  (missing file → no result), then delete the Pod and its `command_env`
+  Secret as today. Cancellation and the reaper already delete the Pod
+  explicitly.
 - This replaces `kubectl run --attach --rm` for shell tasks with the
   manifest-based create/poll/delete path module Pods already use
   (`_build_pod_manifest`, `_pod_status`).
-- The `io` image is `busybox`, overridable with `AAICLICK_K8S_IO_IMAGE` for
-  air-gapped clusters; it requests no resources.
+- The helper image is `busybox`, overridable with `AAICLICK_K8S_IO_IMAGE`
+  for air-gapped clusters; the helpers request no resources.
+
+# JVM on the file plane
+
+The `jvm` entry type keeps its name, validation and CLI surface, but its
+transport becomes the shell file plane: the image's `ENTRYPOINT` is the
+`aaiclick-task-api` shim, the host passes the class name as argv, and the
+shim reads `in.json` / writes `out.json`. Consequences:
+
+- The shim drops SQL entirely: `TaskStore`, `Db`, `SqlConfig`,
+  `NamedParamSql`, the JDBC URL translation and `KwargsResolver`'s upstream
+  resolution go. What remains is Jackson-bind `in.json` to the `@AaiTask`
+  method, invoke, Jackson-serialize to `out.json`.
+- A return value that is a `Map` carrying `_aaiclick_type` is written
+  unwrapped and interpreted by the host like any `out.json`; anything else is
+  data. The Java-side API stays raw `Map`/`JsonNode` with the reserved key —
+  typed helper classes are a follow-up.
+- jvm containers no longer receive the runner env: no DB credentials reach
+  the user image, the same trust model as a vanilla shell image.
+- `remote_task_results` becomes module-only. `validate_jvm_tasks` merges into
+  the plain-data-plane validator above.
 
 # Decisions and trade-offs
 
@@ -231,6 +281,9 @@ shell Pod gains a sidecar:
   returns today.
 - **No old-key dual-read**: pre-release; a dual-read would double every
   consumer for rows nobody keeps.
+- **JVM moves to the file plane now, Python does not**: for the shim the
+  file plane deletes most of its code and its only DB dependency; for Python
+  it would add a channel beside one it must keep anyway.
 
 # Touch points
 
@@ -245,10 +298,15 @@ shell Pod gains a sidecar:
   host-side `register_returned_tasks` call for shell and jvm results.
 - `aaiclick/orchestration/execution/execution_worker.py` —
   `_handle_task_result` path for jvm `result_ref` dicts.
-- `java/aaiclick-task-api` — `KwargsResolver`, `TaskStore`: renamed keys.
-- Tests asserting the old literals; a shell-task end-to-end test with a
-  script that reads `in.json` and writes a `task_result` with handles, on
-  the subprocess runner (docker/k8s runners in their existing CI jobs).
+- `java/aaiclick-task-api` — shim rewritten around `in.json`/`out.json`;
+  SQL classes removed; Java tests follow.
+- Old-key consumers beyond the above: `test_e2e/runner_flow.py`,
+  `test_e2e/sandbox_e2e.py`, `test_e2e/docker/test_docker_runner_e2e.py`,
+  and the unit tests asserting the old literals (`test_refs.py`,
+  `test_execution.py`, `test_kubernetes_worker.py`).
+- A shell-task end-to-end test with a script that reads `in.json` and writes
+  a `task_result` with handles, on the subprocess runner (docker/k8s runners
+  in their existing CI jobs).
 - `docs/designs/orchestration.md`, `docs/designs/java-sdk.md` — vocabulary and
   data-plane sections; `docs/designs/future.md` — Object support for
   non-Python tasks, JVM shim on the file plane.
@@ -257,9 +315,7 @@ shell Pod gains a sidecar:
 
 - Exact name and placement of the merged plain-data-plane validator.
 - How the host-side `register_returned_tasks` call threads through the
-  vehicle/`_handle_task_result` split for jvm results (must stay inside the
-  reaper invariant: the host writes terminal status, nothing else does).
-- Secret vs ConfigMap for `in.json` on Kubernetes (Secret matches the
-  `command_env` pattern; 1 MiB cap is far above today's kwargs).
+  vehicle/`_handle_task_result` split (must stay inside the reaper invariant:
+  the host writes terminal status, nothing else does).
 - Temp-dir lifetime on the subprocess runner (remove after the result is read;
   keep on failure only if that helps debugging — builder's call).
