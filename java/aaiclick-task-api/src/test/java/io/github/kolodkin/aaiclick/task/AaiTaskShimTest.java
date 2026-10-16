@@ -38,17 +38,16 @@ class AaiTaskShimTest {
     }
 
     @Test
-    void successWritesNativeOutJson() throws Exception {
+    void successWritesTheReturnValueAsOutJson() throws Exception {
         writeIn("{\"date\": \"2026-08-20\", \"window\": 7}");
 
         assertEquals(0, runShim(SAMPLE + "#aggregate"));
 
-        assertEquals(MAPPER.readTree(
-            "{\"_aaiclick_type\": \"native\", \"value\": {\"date\": \"2026-08-20\", \"window\": 14}}"), readOut());
+        assertEquals(MAPPER.readTree("{\"date\": \"2026-08-20\", \"window\": 14}"), readOut());
     }
 
     @Test
-    void taggedMapIsWrittenUnwrapped() throws Exception {
+    void taggedMapIsWrittenAsIs() throws Exception {
         writeIn("{\"n\": 2}");
 
         assertEquals(0, runShim(SAMPLE + "#spawn"));
@@ -75,30 +74,12 @@ class AaiTaskShimTest {
     }
 
     @Test
-    void nativeWrappedKwargIsUnwrapped() throws Exception {
-        writeIn("{\"values\": {\"_aaiclick_type\": \"native\", \"value\": [1.0, 2.5, 3]}}");
-
-        assertEquals(0, runShim(SAMPLE + "#sum"));
-
-        assertEquals(MAPPER.readTree("{\"_aaiclick_type\": \"native\", \"value\": 6.5}"), readOut());
-    }
-
-    @Test
     void kwargNamedLikeTheTagStaysAParameter() throws Exception {
         writeIn("{\"_aaiclick_type\": \"kept\"}");
 
         assertEquals(0, runShim(SAMPLE + "#tagNamed"));
 
-        assertEquals(MAPPER.readTree("{\"_aaiclick_type\": \"native\", \"value\": \"kept\"}"), readOut());
-    }
-
-    @Test
-    void objectRefKwargFailsTheTask() throws Exception {
-        writeIn("{\"values\": {\"_aaiclick_type\": \"object\", \"table\": \"t_1\"}}");
-
-        assertEquals(1, runShim(SAMPLE + "#sum"));
-
-        assertFalse(Files.exists(io.resolve("out.json")));
+        assertEquals(MAPPER.readTree("\"kept\""), readOut());
     }
 
     @Test

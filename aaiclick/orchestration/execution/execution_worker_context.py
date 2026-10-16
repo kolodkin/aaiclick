@@ -49,15 +49,11 @@ def set_current_task_info(
 
 
 @contextmanager
-def current_task_info(
-    task_id: int, job_id: int, image_source: dict | None, group_id: int | None, entry_type: EntryType
-) -> Iterator[None]:
+def current_task_info(info: TaskInfo) -> Iterator[None]:
     """Set the task info for the block and restore the previous value after —
     for host-side code that acts for a task inside the worker loop's own
     context, where a bare set would outlive the task."""
-    token = _current_task_info.set(
-        TaskInfo(task_id=task_id, job_id=job_id, image_source=image_source, group_id=group_id, entry_type=entry_type)
-    )
+    token = _current_task_info.set(info)
     try:
         yield
     finally:

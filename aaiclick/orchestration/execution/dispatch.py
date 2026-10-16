@@ -27,8 +27,14 @@ from .runner_env import RUNNER_DOCKER, RUNNER_KUBERNETES, WorkerRunner, get_work
 ExecuteResult = tuple[bool, dict | None, str | None]
 
 
+def _launch_command(task: Task) -> list[str] | None:
+    """A jvm task's argv is its class name: the image's ENTRYPOINT is the
+    aaiclick-task-api shim (spec: docs/designs/java-sdk.md)."""
+    return [task.entrypoint] if task.entry_type == ENTRY_JVM else task.command
+
+
 def _subprocess_dispatch(task: Task) -> JobDispatch:
-    return JobDispatch(None, None, task.entry_type, task.command, task.command_env, None)
+    return JobDispatch(None, None, task.entry_type, _launch_command(task), task.command_env, None)
 
 
 async def _resolve_dispatch(task: Task) -> JobDispatch:
@@ -46,7 +52,7 @@ async def _resolve_dispatch(task: Task) -> JobDispatch:
     async with get_sql_session() as session:
         resources = (await session.execute(select(Job.resources).where(Job.id == task.job_id))).scalar_one_or_none()
     pod_config = resolve_pod_config() if runner == RUNNER_KUBERNETES else None
-    return JobDispatch(runner, pod_config, task.entry_type, task.command, task.command_env, source, resources)
+    return JobDispatch(runner, pod_config, task.entry_type, _launch_command(task), task.command_env, source, resources)
 
 
 # Image-based runners need the dispatch snapshot and the host-registered log
@@ -70,11 +76,7 @@ async def dispatch_execute(task: Task, execution_worker_id: int) -> ExecuteResul
     """ExecuteFn that picks the runner per task."""
     dispatch = await _resolve_dispatch(task)
     if dispatch.entry_type in (ENTRY_SHELL, ENTRY_JVM):
-        if dispatch.entry_type == ENTRY_JVM:
-            # The image's ENTRYPOINT is the aaiclick-task-api shim; the class
-            # name is its one argument (spec: docs/designs/java-sdk.md).
-            dispatch = dispatch._replace(command=[task.entrypoint])
-        shell_handler = _SHELL_RUNNERS.get(dispatch.runner) if dispatch.runner is not None else None
+        shell_handler = _SHELL_RUNNERS.get(dispatch.runner)
         if shell_handler is not None:
             log_run_id = await register_host_log_run(task, dispatch.entry_type)
             return await shell_handler(task, execution_worker_id, dispatch, log_run_id)
@@ -84,7 +86,7 @@ async def dispatch_execute(task: Task, execution_worker_id: int) -> ExecuteResul
             return False, None, "jvm task requires a docker/kubernetes runner with an image_source"
         spec = ShellSpec(dispatch.command or [], dispatch.command_env)
         return await _run_task_in_child(task, execution_worker_id, shell_spec=spec)
-    handler = _IMAGE_RUNNERS.get(dispatch.runner) if dispatch.runner is not None else None
+    handler = _IMAGE_RUNNERS.get(dispatch.runner)
     if handler is not None:
         log_run_id = await register_host_log_run(task, dispatch.entry_type)
         return await handler(task, execution_worker_id, dispatch, log_run_id)

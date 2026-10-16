@@ -227,8 +227,10 @@ known at commit.
 | docker          | `docker create` → `docker cp` → `docker start`                | `docker cp` from the stopped container, `docker rm` |
 | kubernetes      | `kubectl cp` into an `emptyDir` while init container `io-in` waits for it | `kubectl exec -c io -- cat` through a `sleep` sidecar, then delete |
 
-In containers `AAICLICK_IO_DIR` is `/aaiclick`. A Pod has no filesystem the
-host can reach, hence the two helper containers (one image, `busybox:1.36`,
+In containers `AAICLICK_IO_DIR` is `/aaiclick`, and the argv follows the
+image's `ENTRYPOINT` on both runners (`docker create <image> <argv>`, Pod
+`args`). A Pod has no filesystem the host can reach, hence the two helper
+containers (one image, `busybox:1.36`,
 override with `AAICLICK_K8S_IO_IMAGE` on air-gapped clusters; no resources
 requested); the host waits on the `task` container's state, since the Pod
 never ends on its own. `command_env` values never sit on an argv (visible in

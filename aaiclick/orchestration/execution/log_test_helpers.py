@@ -52,6 +52,16 @@ def read_logs_via_child(task_id: int, run_id: int) -> list[str]:
     return texts
 
 
+# A shell command on the file data plane: reads ``n`` from in.json and writes
+# its double to out.json as a native ref.
+IO_DOUBLE_COMMAND = [
+    "python",
+    "-c",
+    "import json,os; d=os.environ['AAICLICK_IO_DIR']; k=json.load(open(f'{d}/in.json')); "
+    "json.dump({'_aaiclick_type':'native','value':k['n']*2}, open(f'{d}/out.json','w'))",
+]
+
+
 async def dispatch_with_fake_cli(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

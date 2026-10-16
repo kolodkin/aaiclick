@@ -230,11 +230,11 @@ d="$(dirname "$0")"
 case "$1" in
   create) echo "$@" > "$d/create-argv"; echo fake-cid ;;
   cp) case "$2" in
-        *:/aaiclick/out.json)
+        *:/aaiclick/.)
           case "$FAKE_OUT_MODE" in
-            missing) echo "Error response from daemon: Could not find the file /aaiclick/out.json in container x" >&2; exit 1 ;;
+            missing) : ;;
             broken) echo "error during connect: EOF" >&2; exit 1 ;;
-            *) printf '%s' "$FAKE_OUT_JSON" > "$3" ;;
+            *) printf '%s' "$FAKE_OUT_JSON" > "$3/out.json" ;;
           esac ;;
         *) cp -r "$2" "$d/in-copy"; stat -c %a "$2" > "$d/in-mode" ;;
       esac ;;
@@ -276,7 +276,7 @@ async def test_shell_container_round_trips_in_and_out_json(orch_ctx, monkeypatch
 @pytest.mark.parametrize(
     "mode, status, error",
     [
-        # Only "could not find the file" is "no result"; any other cp failure fails the task.
+        # An absent out.json is "no result"; a failed copy-back fails the task.
         pytest.param("missing", TASK_COMPLETED, None, id="missing-out-json"),
         pytest.param("broken", TASK_PENDING_FAILURE_CLEANUP, "error during connect", id="daemon-failure"),
     ],
@@ -298,11 +298,15 @@ async def test_jvm_container_output_reaches_task_logs(orch_ctx, monkeypatch, tmp
     argument on the ``docker create`` argv."""
     monkeypatch.setenv("FAKE_OUT_JSON", "null")
     stored = await dispatch_with_fake_cli(
-        monkeypatch, tmp_path, "AAICLICK_DOCKER_BIN", _FAKE_DOCKER_SHELL, _docker_dispatch(ENTRY_JVM)
+        monkeypatch,
+        tmp_path,
+        "AAICLICK_DOCKER_BIN",
+        _FAKE_DOCKER_SHELL,
+        _docker_dispatch(ENTRY_JVM)._replace(command=["com.example.Pipeline"]),
     )
 
     assert len(stored.run_ids) == 1
     lines = await read_task_logs(stored.id, stored.run_ids[0])
     assert [(line.stream, line.text) for line in lines] == [("stdout", "container says hi")]
     argv = (tmp_path / "create-argv").read_text().split()
-    assert argv[-1] == "aaiclick.orchestration.fixtures.sample_tasks.simple_task"
+    assert argv[-1] == "com.example.Pipeline"

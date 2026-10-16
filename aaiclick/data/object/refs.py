@@ -84,12 +84,12 @@ JOB_ID = "job_id"
 
 VALUE = "value"
 PYDANTIC_CLASS = "type"
-PYDANTIC_DATA = "data"
+DATA = "data"
+PYDANTIC_DATA = DATA
 
 HANDLE = "id"
 DEPENDS_ON = "depends_on"
 TASKS = "tasks"
-DATA = "data"
 
 
 # --- _aaiclick_type values ---------------------------------------------
@@ -233,11 +233,6 @@ def pydantic_ref(model: BaseModel) -> dict[str, Any]:
 def is_upstream_ref(value: Any) -> bool:
     """True iff ``value`` is an upstream task reference dict."""
     return isinstance(value, dict) and value.get(AAICLICK_TYPE) == UPSTREAM
-
-
-def is_native_ref(value: Any) -> bool:
-    """True iff ``value`` is a ``native`` wrapper."""
-    return isinstance(value, dict) and value.get(AAICLICK_TYPE) == NATIVE
 
 
 def ref_kind(value: Any) -> RefKind | None:

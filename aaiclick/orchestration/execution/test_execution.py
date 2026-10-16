@@ -27,6 +27,7 @@ from aaiclick.orchestration.execution.claiming import update_task_status
 from aaiclick.orchestration.execution.db_handler import DEPENDENCY_WHERE
 from aaiclick.orchestration.execution.debug import ajob_test
 from aaiclick.orchestration.execution.execution_worker_context import get_current_task_info
+from aaiclick.orchestration.execution.log_test_helpers import IO_DOUBLE_COMMAND
 from aaiclick.orchestration.execution.runner import (
     _pump_stream,
     deserialize_task_params,
@@ -656,13 +657,13 @@ async def test_run_job_tasks_shell_command_env(orch_ctx):
 
 # Shell data plane: in.json / out.json under AAICLICK_IO_DIR
 
-_IO_PRELUDE = "import json,os,sys; d=os.environ['AAICLICK_IO_DIR']; k=json.load(open(f'{d}/in.json')); "
-WRITE_DOUBLE = [
+WRITE_DOUBLE = IO_DOUBLE_COMMAND
+WRITE_SUM = [
     "python",
     "-c",
-    _IO_PRELUDE + "json.dump(native_ref := {'_aaiclick_type':'native','value':k['n']*2}, open(f'{d}/out.json','w'))",
+    "import json,os; d=os.environ['AAICLICK_IO_DIR']; k=json.load(open(f'{d}/in.json')); "
+    "json.dump(sum(k['parts']), open(f'{d}/out.json','w'))",
 ]
-WRITE_SUM = ["python", "-c", _IO_PRELUDE + "json.dump(sum(k['parts']), open(f'{d}/out.json','w'))"]
 
 
 def _shell_job_coro(name: str, command: list[str], kwargs: dict | None = None):
@@ -822,7 +823,7 @@ async def test_run_job_tasks_dict_return_native_data(orch_ctx):
         pytest.param(spawn_duplicate_handle, "duplicate handle 'w1'", id="duplicate"),
         pytest.param(spawn_unknown_handle, "unknown handle 'nope'", id="unknown"),
         pytest.param(spawn_bad_entry_type, "unknown entry_type 'banana'", id="bad-entry-type"),
-        pytest.param(spawn_group_data, "data may name a task handle, not a group", id="group-data"),
+        pytest.param(spawn_group_data, "data may be a plain value or a task handle", id="group-data"),
         pytest.param(spawn_wrong_handle_kind, "handle 'w1' names a task, not a group", id="wrong-kind"),
     ],
 )

@@ -38,9 +38,9 @@ from .execution_worker import (
     execution_worker_heartbeat,
     parse_task_timeout,
 )
-from .io_plane import CONTAINER_IO_DIR, IO_DIR_ENV, OUT_JSON, read_out_json, write_in_json
+from .io_plane import CONTAINER_IO_DIR, IO_DIR_ENV, OUT_JSON, read_out_json
 from .remote_result import REMOTE_ENTRYPOINT, collect_remote_result, read_task_run_result
-from .runner import resolve_plain_kwargs
+from .runner import stage_in_json
 from .runner_env import build_runner_env
 
 # How long to give `docker wait` to return after we've issued `docker kill`
@@ -270,10 +270,6 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", "RunnerResult | None"]):
         await _docker_rm(handle.container_id)
 
 
-# ``docker cp`` wording for a source path that does not exist, across daemon versions.
-_MISSING_FILE_MARKERS = frozenset({"Could not find the file", "No such container:path"})
-
-
 class _ShellHandle(NamedTuple):
     name: str
     io_dir: Path
@@ -290,22 +286,19 @@ class _DockerShellVehicle(ShellVehicle["_ShellHandle"]):
 
     async def launch(self, task: Task, execution_worker_id: int) -> _ShellHandle:
         name = _shell_container_name(task)
-        io_dir = Path(tempfile.mkdtemp(prefix="aaiclick-io-"))
+        io_dir = await stage_in_json(task)
+        # ``docker cp`` keeps the mode and makes root the owner, so the copied
+        # dir is world-writable for images running as another user.
+        io_dir.chmod(0o777)
         env_file = write_command_env_file(self._dispatch.command_env) if self._dispatch.command_env else None
         handle = _ShellHandle(name, io_dir, env_file)
         try:
-            # ``docker cp`` keeps the mode and makes root the owner, so the
-            # copied dir is world-writable for images running as another user.
-            staging = io_dir / "io"
-            staging.mkdir()
-            staging.chmod(0o777)
-            write_in_json(staging, await resolve_plain_kwargs(task.kwargs))
             cmd = build_docker_create_cmd(
                 name, self._image_tag, self._dispatch.command or [], self._dispatch.resources, env_file
             )
             await cli.run(*cmd, stream=False)
             # ``<dir>/.`` copies the contents, creating the target dir when the image lacks it.
-            await cli.run(_docker_bin(), "cp", f"{staging}/.", f"{name}:{CONTAINER_IO_DIR}", stream=False)
+            await cli.run(_docker_bin(), "cp", f"{io_dir}/.", f"{name}:{CONTAINER_IO_DIR}", stream=False)
             await cli.run(_docker_bin(), "start", name, stream=False)
         except BaseException:
             await self.cleanup(handle)
@@ -316,18 +309,12 @@ class _DockerShellVehicle(ShellVehicle["_ShellHandle"]):
         exit_code, error = await _wait_for_container(handle.name, timeout)
         if error is not None or exit_code != 0:
             return exit_code, error, None
+        # Copy the whole IO dir back: a missing out.json is then simply absent
+        # on the host, with no daemon error text to interpret.
         rc, out, err = await cli.run(
-            _docker_bin(),
-            "cp",
-            f"{handle.name}:{CONTAINER_IO_DIR}/{OUT_JSON}",
-            str(handle.io_dir / OUT_JSON),
-            check=False,
-            stream=False,
+            _docker_bin(), "cp", f"{handle.name}:{CONTAINER_IO_DIR}/.", str(handle.io_dir), check=False, stream=False
         )
         if rc != 0:
-            # Only a missing out.json is "no result"; a daemon failure must not pass as one.
-            if any(marker in err for marker in _MISSING_FILE_MARKERS):
-                return exit_code, None, None
             return exit_code, f"reading {OUT_JSON} failed: {err.strip() or out.strip()}", None
         try:
             return exit_code, None, read_out_json(handle.io_dir)

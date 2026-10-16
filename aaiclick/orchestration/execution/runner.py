@@ -52,7 +52,6 @@ from aaiclick.data.object.refs import (
     VIEW,
     ObjectRef,
     ViewRef,
-    is_upstream_ref,
     native_ref,
     pydantic_ref,
     ref_kind,
@@ -86,7 +85,7 @@ from ..runner_config import ENTRY_JVM, ENTRY_MODULE, ENTRY_SHELL, EntryType, val
 from .claiming import update_job_status, update_task_status
 from .cli import overlay_env
 from .db_handler import DEPENDENCY_WHERE
-from .execution_worker_context import current_task_info, set_current_task_info
+from .execution_worker_context import TaskInfo, current_task_info, set_current_task_info
 from .io_plane import IO_DIR_ENV, read_out_json, write_in_json
 from .runner_env import ENV_WORKER_RUNNER, WorkerRunner
 
@@ -294,6 +293,14 @@ async def _resolve_plain_value(name: str, value: Any, session: AsyncSession) -> 
     return value
 
 
+async def stage_in_json(task: Task) -> Path:
+    """A fresh per-attempt IO dir holding the task's resolved ``in.json``; the
+    caller removes it once the task is done."""
+    io_dir = Path(tempfile.mkdtemp(prefix="aaiclick-io-"))
+    write_in_json(io_dir, await resolve_plain_kwargs(task.kwargs))
+    return io_dir
+
+
 async def resolve_plain_kwargs(kwargs: dict) -> dict:
     """Resolve a shell/jvm task's kwargs into the plain JSON ``in.json`` carries.
 
@@ -494,7 +501,8 @@ async def finish_shell_result(task: Task, out_value: Any) -> Any:
     """
     if ref_kind(out_value) == NATIVE:
         out_value = out_value[VALUE]
-    with current_task_info(task.id, task.job_id, task.image_source, task.group_id, task.entry_type):
+    info = TaskInfo(task.id, task.job_id, task.image_source, task.group_id, task.entry_type)
+    with current_task_info(info):
         return await register_returned_tasks(out_value, task.id, task.job_id)
 
 
@@ -515,9 +523,8 @@ async def execute_shell_task(task: Task, spec: ShellSpec | None = None) -> Any:
     """
     if spec is None:
         spec = ShellSpec(task.command or [], task.command_env)
-    io_dir = Path(tempfile.mkdtemp(prefix="aaiclick-io-"))
+    io_dir = await stage_in_json(task)
     try:
-        write_in_json(io_dir, await resolve_plain_kwargs(task.kwargs))
         run_id = await register_run(task.id)
         proc = await start_shell_process(spec.argv, {**(spec.env or {}), IO_DIR_ENV: str(io_dir)})
         await pump_process_output(proc, task.id, task.job_id, run_id, record_exit=True)
@@ -744,6 +751,18 @@ def _build_dag_from_dicts(items: list[dict]) -> tuple[list[Task | Group], Handle
     return [build(spec) for spec in items], handles
 
 
+_HANDLE_KEYS = {UPSTREAM: TASK_ID, GROUP_RESULTS: GROUP_ID}
+
+
+def _handle_ref(value: Any) -> tuple[str, str] | None:
+    """``(kind, handle)`` when ``value`` is an upstream/group ref naming a handle."""
+    kind = ref_kind(value)
+    key = _HANDLE_KEYS.get(kind)
+    if key is not None and isinstance(value.get(key), str):
+        return kind, value[key]
+    return None
+
+
 def _handle_node(handles: Handles, handle: str, kind: str) -> Task | Group:
     """The node a handle names, checked against the ref kind using it."""
     if handle not in handles:
@@ -756,35 +775,24 @@ def _handle_node(handles: Handles, handle: str, kind: str) -> Task | Group:
     return node
 
 
-def _handle_refs(value: Any) -> list[tuple[str, str]]:
-    """Every ``(kind, handle)`` string reference inside ``value``."""
-    if isinstance(value, list):
-        return [r for v in value for r in _handle_refs(v)]
-    if not isinstance(value, dict):
-        return []
-    kind = ref_kind(value)
-    key = TASK_ID if kind == UPSTREAM else GROUP_ID if kind == GROUP_RESULTS else None
-    if key is not None:
-        return [(kind, value[key])] if isinstance(value.get(key), str) else []
-    return [r for v in value.values() for r in _handle_refs(v)]
-
-
-def _swap_handles(value: Any, handles: Handles) -> Any:
+def _swap_handles(value: Any, handles: Handles, resolved: list[Task | Group]) -> Any:
     """Replace string handles inside ``upstream`` / ``group_results`` refs with
-    the ids minted for them; recurses through lists and dicts.
+    the ids minted for them, appending each node to ``resolved``; recurses
+    through lists and dicts.
 
     Raises:
         ValueError: on an undeclared handle or one of the wrong kind.
     """
     if isinstance(value, list):
-        return [_swap_handles(v, handles) for v in value]
+        return [_swap_handles(v, handles, resolved) for v in value]
     if not isinstance(value, dict):
         return value
-    kind = ref_kind(value)
-    key = TASK_ID if kind == UPSTREAM else GROUP_ID if kind == GROUP_RESULTS else None
-    if key is not None and isinstance(value.get(key), str):
-        return {**value, key: _handle_node(handles, value[key], kind).id}
-    return {k: _swap_handles(v, handles) for k, v in value.items()}
+    if (ref := _handle_ref(value)) is not None:
+        kind, handle = ref
+        node = _handle_node(handles, handle, kind)
+        resolved.append(node)
+        return {**value, _HANDLE_KEYS[kind]: node.id}
+    return {k: _swap_handles(v, handles, resolved) for k, v in value.items()}
 
 
 def _wire_dag_dicts(specs: list[dict], nodes: list[Task | Group], handles: Handles) -> None:
@@ -797,9 +805,10 @@ def _wire_dag_dicts(specs: list[dict], nodes: list[Task | Group], handles: Handl
             for member_spec, member in zip(spec.get(TASKS, []), node.get_tasks(), strict=True):
                 walk(member_spec, member)
         else:
-            node.kwargs = _swap_handles(node.kwargs, handles)
-            for kind, handle in _handle_refs(spec.get("kwargs")):
-                node.depends_on(_handle_node(handles, handle, kind))
+            consumed: list[Task | Group] = []
+            node.kwargs = _swap_handles(node.kwargs, handles, consumed)
+            for upstream in consumed:
+                node.depends_on(upstream)
         for handle in spec.get(DEPENDS_ON, []):
             if handle not in handles:
                 raise ValueError(f"unknown handle {handle!r} in returned tasks")
@@ -833,15 +842,15 @@ def _dict_result_data(data: Any, handles: Handles) -> Any:
     """The ``data`` of a ``task_result`` dict: a plain value (a ``native``
     wrapper unwraps, like out.json's top level) or a task handle, handed on as
     the Task itself — as Python's ``task_result(data=child)`` — so the
-    parent's consumers are held. Any other handle is an error: it would be
-    stored as a dangling ref."""
+    parent's consumers are held. Any other handle would be stored as a
+    dangling ref, so it is an error."""
     if ref_kind(data) == NATIVE:
         data = data[VALUE]
-    if is_upstream_ref(data) and isinstance(data.get(TASK_ID), str):
-        return _handle_node(handles, data[TASK_ID], UPSTREAM)
-    if ref_kind(data) == GROUP_RESULTS and isinstance(data.get(GROUP_ID), str):
-        raise ValueError("data may name a task handle, not a group")
-    if _handle_refs(data):
+    if (ref := _handle_ref(data)) is not None and ref[0] == UPSTREAM:
+        return _handle_node(handles, ref[1], UPSTREAM)
+    resolved: list[Task | Group] = []
+    _swap_handles(data, handles, resolved)
+    if resolved:
         raise ValueError("data may be a plain value or a task handle")
     return data
 
@@ -880,7 +889,7 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
     if result is None:
         return None
 
-    kind = ref_kind(result) if isinstance(result, dict) else None
+    kind = ref_kind(result)
     if kind == TASK_RESULT or _is_dag_dict(result) or (isinstance(result, list) and any(map(_is_dag_dict, result))):
         specs = result.get(TASKS, []) if kind == TASK_RESULT else result if isinstance(result, list) else [result]
         if not all(map(_is_dag_dict, specs)):

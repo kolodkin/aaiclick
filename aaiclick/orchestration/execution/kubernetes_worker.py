@@ -25,7 +25,6 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 from ..models import Task
-from ..runner_config import ENTRY_JVM, EntryType
 from . import cli
 from .claiming import check_task_cancelled
 from .docker_build import resolve_launch_image
@@ -40,9 +39,9 @@ from .execution_worker import (
     execution_worker_heartbeat,
     parse_task_timeout,
 )
-from .io_plane import CONTAINER_IO_DIR, IN_JSON, IO_DIR_ENV, OUT_JSON, parse_out_json, write_in_json
+from .io_plane import CONTAINER_IO_DIR, IN_JSON, IO_DIR_ENV, OUT_JSON, parse_out_json
 from .remote_result import REMOTE_ENTRYPOINT, collect_remote_result, read_task_run_result
-from .runner import resolve_plain_kwargs
+from .runner import stage_in_json
 from .runner_env import build_runner_env
 
 IO_IMAGE_ENV = "AAICLICK_K8S_IO_IMAGE"
@@ -226,14 +225,14 @@ def _build_command_env_secret(name: str, namespace: str, command_env: dict[str, 
     }
 
 
-async def _kubectl_create_from_file(manifest: dict) -> None:
-    """``kubectl create -f`` a manifest through a private (0600) temp file —
+async def _kubectl_create_from_file(manifest: dict, verb: str = "create") -> None:
+    """``kubectl <verb> -f`` a manifest through a private (0600) temp file —
     never the argv — removed once kubectl returns."""
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
         json.dump(manifest, f)
         manifest_path = f.name
     try:
-        await cli.run(_kubectl_bin(), "create", "-f", manifest_path)
+        await cli.run(_kubectl_bin(), verb, "-f", manifest_path)
     finally:
         os.unlink(manifest_path)
 
@@ -254,7 +253,6 @@ def build_shell_pod_manifest(
     name: str,
     namespace: str,
     image_tag: str,
-    entry_type: EntryType,
     command: list[str],
     service_account: str | None,
     image_pull_secret: str | None,
@@ -266,9 +264,10 @@ def build_shell_pod_manifest(
 
     ``task`` runs the user's argv with only ``command_env`` (from the
     per-attempt Secret, ``envFrom``) and ``AAICLICK_IO_DIR`` — never the
-    runner env, so no aaiclick secrets reach a vanilla image. A jvm argv (the
-    class name) goes through ``args``: ``command`` would override the image's
-    ENTRYPOINT, which is the shim. Init container ``io-in`` holds the Pod
+    runner env, so no aaiclick secrets reach a vanilla image. The argv goes
+    through ``args`` so it follows the image's ENTRYPOINT — as ``docker create
+    <image> <argv>`` does, and what the jvm shim ENTRYPOINT relies on. Init
+    container ``io-in`` holds the Pod
     until the host has copied ``in.json`` in; sidecar ``io`` keeps the Pod
     alive so ``out.json`` can be read after ``task`` exits, bounded by
     ``activeDeadlineSeconds``. All three share one ``emptyDir``; the helpers
@@ -277,7 +276,7 @@ def build_shell_pod_manifest(
     task: dict = {
         "name": _TASK_CONTAINER,
         "image": image_tag,
-        "args" if entry_type == ENTRY_JVM else "command": command,
+        "args": command,
         "env": [{"name": IO_DIR_ENV, "value": CONTAINER_IO_DIR}],
         "volumeMounts": mount,
     }
@@ -315,7 +314,6 @@ class _ShellPodHandle(_PodHandle):
         self.in_copied = False
         self.copy_failures = 0
         self.copy_error = ""
-        self.secret = False
 
 
 def _container_state(pod: dict, container: str, *, init: bool = False) -> tuple[str, int]:
@@ -348,7 +346,8 @@ async def _pod_json(handle: _PodHandle) -> dict | None:
 
 
 async def _kubectl_delete_shell(handle: _ShellPodHandle) -> None:
-    resources = [f"pod/{handle.name}", *([f"secret/{handle.name}"] if handle.secret else [])]
+    """Delete the Pod and its per-attempt Secret (absent without ``command_env``)."""
+    resources = [f"pod/{handle.name}", f"secret/{handle.name}"]
     await cli.run(_kubectl_bin(), "delete", *resources, "-n", handle.namespace, "--ignore-not-found", check=False)
 
 
@@ -362,35 +361,26 @@ class _KubernetesShellVehicle(ShellVehicle["_ShellPodHandle"]):
 
     async def launch(self, task: Task, execution_worker_id: int) -> _ShellPodHandle:
         name = _pod_name(task.id, task.run_epoch)
-        io_dir = Path(tempfile.mkdtemp(prefix="aaiclick-io-"))
+        io_dir = await stage_in_json(task)
         handle = _ShellPodHandle(name, self._spec.namespace, task.id, task.job_id, task.run_epoch, io_dir)
         try:
-            write_in_json(io_dir, await resolve_plain_kwargs(task.kwargs))
             (io_dir / _IN_READY).touch()
             if self._spec.command_env:
                 await _kubectl_create_from_file(
                     _build_command_env_secret(name, self._spec.namespace, self._spec.command_env)
                 )
-                handle.secret = True
             manifest = build_shell_pod_manifest(
                 name=name,
                 namespace=self._spec.namespace,
                 image_tag=self._spec.image_tag,
-                entry_type=self._spec.entry_type,
                 command=self._spec.command or [],
                 service_account=self._spec.service_account,
                 image_pull_secret=self._spec.image_pull_secret,
                 resources=self._spec.resources,
-                command_env_secret=name if handle.secret else None,
+                command_env_secret=name if self._spec.command_env else None,
                 active_deadline=self._deadline,
             )
-            with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
-                json.dump(manifest, f)
-                manifest_path = f.name
-            try:
-                await cli.run(_kubectl_bin(), "apply", "-f", manifest_path)
-            finally:
-                os.unlink(manifest_path)
+            await _kubectl_create_from_file(manifest, "apply")
         except BaseException:
             await self.cleanup(handle)
             raise
@@ -522,13 +512,7 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
             image_pull_secret=self._spec.image_pull_secret,
             resources=self._spec.resources,
         )
-        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
-            json.dump(manifest, f)
-            manifest_path = f.name
-        try:
-            await cli.run(_kubectl_bin(), "apply", "-f", manifest_path)
-        finally:
-            os.unlink(manifest_path)
+        await _kubectl_create_from_file(manifest, "apply")
         return _PodHandle(name, self._spec.namespace, task.id, task.job_id, task.run_epoch)
 
     async def wait(self, handle: _PodHandle, timeout: float | None) -> tuple[int, str | None, RunnerResult | None]:

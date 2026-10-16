@@ -60,28 +60,25 @@ public final class AaiTaskShim {
         }
     }
 
-    /** Read, unwrap, bind, invoke, write. A ``Map`` carrying ``_aaiclick_type``
-     * is written as is (the JSON form of a returned task DAG); any other
-     * non-null value is wrapped as ``{"_aaiclick_type": "native", "value": …}``;
-     * ``void`` / ``null`` writes nothing. */
+    /** Read, bind, invoke, write. ``in.json`` is plain JSON (the host has
+     * resolved every ref); the return value is written as is — the host
+     * treats untagged JSON as data and a ``_aaiclick_type``-tagged map as a
+     * returned task DAG. ``void`` / ``null`` writes nothing. */
     private static void executeTask(String entrypoint, Path io) throws Exception {
         ObjectMapper mapper = new ObjectMapper();
-        JsonNode rawKwargs = mapper.readTree(Files.readString(io.resolve(IN_JSON)));
-        if (!rawKwargs.isObject()) {
+        JsonNode kwargs = mapper.readTree(Files.readString(io.resolve(IN_JSON)));
+        if (!kwargs.isObject()) {
             throw new IllegalStateException(IN_JSON + " is not a JSON object");
         }
-        ObjectNode kwargs = KwargsResolver.unwrapKwargs((ObjectNode) rawKwargs, mapper);
 
         Method method = TaskRegistry.resolve(entrypoint);
-        Object[] bound = KwargsBinder.bind(method, kwargs, mapper);
+        Object[] bound = KwargsBinder.bind(method, (ObjectNode) kwargs, mapper);
         Object result = method.invoke(null, bound);
 
         if (result == null || method.getReturnType() == void.class) {
             return;
         }
-        JsonNode tree = mapper.valueToTree(result);
-        JsonNode out = tree.isObject() && tree.has(KwargsResolver.AAICLICK_TYPE) ? tree : KwargsResolver.nativeRef(tree, mapper);
-        Files.writeString(io.resolve(OUT_JSON), mapper.writeValueAsString(out));
+        Files.writeString(io.resolve(OUT_JSON), mapper.writeValueAsString(mapper.valueToTree(result)));
     }
 
     private static String format(Throwable t) {

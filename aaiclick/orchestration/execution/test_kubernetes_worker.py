@@ -192,7 +192,6 @@ def test_shell_pod_manifest_has_io_helpers_and_shared_volume(monkeypatch):
         name="p",
         namespace="ns",
         image_tag="img",
-        entry_type="shell",
         command=["sh", "-c", "x"],
         service_account="sa",
         image_pull_secret=None,
@@ -209,7 +208,7 @@ def test_shell_pod_manifest_has_io_helpers_and_shared_volume(monkeypatch):
     assert {c["image"] for c in helpers} == {"registry.local/busybox:1"}
     assert all("resources" not in c for c in helpers)
     task = spec["containers"][0]
-    assert task["image"] == "img" and task["command"] == ["sh", "-c", "x"]
+    assert task["image"] == "img" and task["args"] == ["sh", "-c", "x"] and "command" not in task
     assert task["env"] == [{"name": "AAICLICK_IO_DIR", "value": "/aaiclick"}]
     assert task["envFrom"] == [{"secretRef": {"name": "p"}}]
     assert "/aaiclick/in.ready" in spec["initContainers"][0]["command"][-1]
@@ -224,7 +223,6 @@ def test_shell_pod_manifest_without_command_env_has_no_env_from():
         name="p",
         namespace="ns",
         image_tag="img",
-        entry_type="shell",
         command=["true"],
         service_account=None,
         image_pull_secret=None,
@@ -234,25 +232,6 @@ def test_shell_pod_manifest_without_command_env_has_no_env_from():
     )
     assert "envFrom" not in m["spec"]["containers"][0]
     assert "serviceAccountName" not in m["spec"]
-
-
-def test_jvm_pod_manifest_passes_class_name_as_args():
-    """``command`` would override the image ENTRYPOINT (the shim); the class
-    name must go through ``args``."""
-    m = build_shell_pod_manifest(
-        name="p",
-        namespace="ns",
-        image_tag="img",
-        entry_type="jvm",
-        command=["com.example.Pipeline"],
-        service_account=None,
-        image_pull_secret=None,
-        resources=None,
-        command_env_secret=None,
-        active_deadline=kw.ORPHAN_POD_DEADLINE,
-    )
-    task = m["spec"]["containers"][0]
-    assert task["args"] == ["com.example.Pipeline"] and "command" not in task
 
 
 # One ``get`` answer serves the whole shell lifecycle: the init container is
@@ -367,6 +346,7 @@ async def test_jvm_pod_output_reaches_task_logs(orch_ctx, monkeypatch, tmp_path)
         RUNNER_KUBERNETES,
         KubernetesConfig("default", None, None),
         entry_type=ENTRY_JVM,
+        command=["com.example.Pipeline"],
         image_source=ImagePrebuilt(image_tag="img:1"),
     )
     stored = await dispatch_with_fake_cli(monkeypatch, tmp_path, "AAICLICK_KUBECTL_BIN", _FAKE_KUBECTL_SHELL, spec)
@@ -376,4 +356,4 @@ async def test_jvm_pod_output_reaches_task_logs(orch_ctx, monkeypatch, tmp_path)
     assert [(line.stream, line.text) for line in lines] == [("stdout", "pod says hi")]
     applied = json.loads((tmp_path / "applied.json").read_text())
     task = applied["spec"]["containers"][0]
-    assert task["args"] == ["aaiclick.orchestration.fixtures.sample_tasks.simple_task"] and "command" not in task
+    assert task["args"] == ["com.example.Pipeline"] and "command" not in task

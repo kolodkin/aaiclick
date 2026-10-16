@@ -77,24 +77,20 @@ submission surface (`aaiclick/orchestration/registered_jobs.py` — see
 
 1. Take the class name from argv (`com.example.Pipeline`, or
    `com.example.Pipeline#method`) and the directory from `AAICLICK_IO_DIR`.
-2. Read `in.json`: a JSON object of kwargs the host has already resolved.
-   Unwrap each value independently (never the map itself, so a parameter
-   named `_aaiclick_type` stays a parameter): recurse into objects/arrays; a
-   `{"_aaiclick_type": "native", "value": v}` dict unwraps to `v`; any other
-   `_aaiclick_type` fails the task with a clear error — the JVM data plane is
-   plain values only.
+2. Read `in.json`: a JSON object of kwargs the host has already resolved to
+   plain values (every `upstream` ref replaced, every `native` wrapper
+   unwrapped), so a parameter named `_aaiclick_type` is just a parameter.
 3. Jackson-bind the kwargs to the `@AaiTask` method's parameters by name
    (requires `-parameters` compilation; the shim reports a clear error when
    parameter names were compiled away). Missing or extra keys are errors,
    mirroring Python's `TypeError` on bad kwargs; so is `null` for a
    primitive at any depth. The class loads through the thread context
    classloader (Spring Boot, layered fat jars).
-4. Invoke the method and write `out.json`: a `Map` / `JsonNode` whose top
-   level carries `_aaiclick_type` is written as is (the JSON form of a
-   returned task DAG, see `docs/designs/orchestration.md` "Task Parameter
-   Serialization"); any other non-null value is written as
-   `{"_aaiclick_type": "native", "value": <json>}`; `void` / `null` writes
-   nothing. On any exception: `Type: message` on stderr, exit code 1.
+4. Invoke the method and write its return value to `out.json` as is: the
+   host treats untagged JSON as data and a `Map` / `JsonNode` carrying
+   `_aaiclick_type` as a returned task DAG (`docs/designs/orchestration.md`
+   "Task Parameter Serialization"). `void` / `null` writes nothing. On any
+   exception: `Type: message` on stderr, exit code 1.
 
 The shim never writes task status — the host worker owns that (reaper
 invariant, see the `docker_worker` module docstring); it reads `out.json`
@@ -112,7 +108,6 @@ namespace.
 | `AaiTask`        | Runtime method annotation marking a task entrypoint                      |
 | `AaiTaskShim`    | The bootstrap `main()` — steps 1–4 above                                 |
 | `TaskRegistry`   | Class name → annotated `Method` (`Class#method` disambiguation)          |
-| `KwargsResolver` | Unwraps `native` wrappers in `in.json`; rejects any other ref            |
 | `KwargsBinder`   | JSON kwargs → typed method arguments via Jackson                         |
 
 User code:
