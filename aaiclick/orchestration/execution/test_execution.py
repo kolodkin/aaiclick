@@ -646,6 +646,93 @@ async def test_run_job_tasks_shell_command_env(orch_ctx):
     assert job.status == JOB_COMPLETED
 
 
+# Shell data plane: in.json / out.json under AAICLICK_IO_DIR
+
+_IO_PRELUDE = "import json,os,sys; d=os.environ['AAICLICK_IO_DIR']; k=json.load(open(f'{d}/in.json')); "
+WRITE_DOUBLE = [
+    "python",
+    "-c",
+    _IO_PRELUDE + "json.dump(native_ref := {'_aaiclick_type':'native','value':k['n']*2}, open(f'{d}/out.json','w'))",
+]
+WRITE_SUM = ["python", "-c", _IO_PRELUDE + "json.dump(sum(k['parts']), open(f'{d}/out.json','w'))"]
+
+
+def _shell_job_coro(name: str, command: list[str], kwargs: dict | None = None):
+    return create_job(name, create_task(None, kwargs, name=name, entry_type="shell", command=command))
+
+
+async def test_shell_task_reads_in_json_and_writes_out_json(orch_ctx):
+    job = await _shell_job_coro("shell_io", WRITE_DOUBLE, {"n": 21})
+    await run_job_tasks(job)
+    assert job.status == JOB_COMPLETED, job.error
+    async with data_context():
+        assert await get_job_result(job) == 42
+
+
+async def test_shell_task_without_out_json_has_no_result(orch_ctx):
+    job = await _shell_job_coro("shell_no_out", ["true"])
+    await run_job_tasks(job)
+    assert job.status == JOB_COMPLETED, job.error
+    assert (await get_tasks_for_job(job.id))[0].result is None
+
+
+async def test_shell_task_out_json_spawns_children(orch_ctx):
+    """A shell entry task returns a task_result dict: two shell workers and a
+    finalize summing them; the entry's result is the finalize's (2 + 4 = 6)."""
+    spawn = {
+        "_aaiclick_type": "task_result",
+        "data": {"_aaiclick_type": "upstream", "task_id": "fin"},
+        "tasks": [
+            {"_aaiclick_type": "task", "id": "w1", "entry_type": "shell", "command": WRITE_DOUBLE, "kwargs": {"n": 1}},
+            {"_aaiclick_type": "task", "id": "w2", "entry_type": "shell", "command": WRITE_DOUBLE, "kwargs": {"n": 2}},
+            {
+                "_aaiclick_type": "task",
+                "id": "fin",
+                "entry_type": "shell",
+                "command": WRITE_SUM,
+                "kwargs": {
+                    "parts": [
+                        {"_aaiclick_type": "upstream", "task_id": "w1"},
+                        {"_aaiclick_type": "upstream", "task_id": "w2"},
+                    ]
+                },
+            },
+        ],
+    }
+    write_spawn = [
+        "python",
+        "-c",
+        f"import json,os; json.dump({spawn!r}, open(os.environ['AAICLICK_IO_DIR']+'/out.json','w'))",
+    ]
+    job = await _shell_job_coro("shell_spawn", write_spawn)
+    await run_job_tasks(job)
+    assert job.status == JOB_COMPLETED, job.error
+    assert len(await get_tasks_for_job(job.id)) == 4
+    async with data_context():
+        assert await get_job_result(job) == 6
+
+
+async def test_shell_task_nonzero_exit_ignores_out_json(orch_ctx):
+    spawn = {"_aaiclick_type": "task", "entry_type": "shell", "command": ["true"]}
+    cmd = [
+        "python",
+        "-c",
+        f"import json,os,sys; json.dump({spawn!r}, open(os.environ['AAICLICK_IO_DIR']+'/out.json','w')); sys.exit(3)",
+    ]
+    job = await _shell_job_coro("shell_exit_after_out", cmd)
+    await run_job_tasks(job)
+    assert job.status == JOB_FAILED
+    assert len(await get_tasks_for_job(job.id)) == 1
+
+
+async def test_shell_task_invalid_out_json_fails_task(orch_ctx):
+    cmd = ["sh", "-c", "echo 'not json' > \"$AAICLICK_IO_DIR/out.json\""]
+    job = await _shell_job_coro("shell_bad_out", cmd)
+    await run_job_tasks(job)
+    assert job.status == JOB_FAILED
+    assert "out.json is not valid JSON" in (job.error or "")
+
+
 # Dict-returned DAGs (the JSON form of task_result / task / group)
 
 

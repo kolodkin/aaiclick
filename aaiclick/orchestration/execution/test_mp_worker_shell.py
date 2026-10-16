@@ -1,5 +1,6 @@
 """Tests for shell tasks on the subprocess runner's task child."""
 
+from aaiclick.data.object.refs import native_ref
 from aaiclick.orchestration.execution.log_test_helpers import read_logs_via_child
 from aaiclick.orchestration.execution.mp_worker import _run_task_in_child
 from aaiclick.orchestration.execution.runner import ShellSpec
@@ -52,3 +53,20 @@ async def test_shell_in_child_streams_logs_to_clickhouse(orch_ctx_no_ch):
     assert refreshed is not None
     assert len(refreshed.run_ids) == 1
     assert read_logs_via_child(task.id, refreshed.run_ids[-1]) == ["first line", "second line"]
+
+
+async def test_mp_shell_task_result_reaches_result_ref(orch_ctx_no_ch):
+    """The child reads in.json, writes out.json, and the result rides back as
+    a serialized native ref."""
+    cmd = [
+        "python",
+        "-c",
+        "import json,os; d=os.environ['AAICLICK_IO_DIR']; k=json.load(open(f'{d}/in.json')); "
+        "json.dump({'_aaiclick_type':'native','value':k['n']*2}, open(f'{d}/out.json','w'))",
+    ]
+    job = await create_job("shell_host_job", simple_task)
+    task = create_task(None, {"n": 21}, entry_type="shell", command=cmd)
+    await commit_tasks(task, job.id)
+    success, result_ref, error = await _run_task_in_child(task, 1, shell_spec=ShellSpec(cmd, None))
+    assert (success, error) == (True, None)
+    assert result_ref == native_ref(42)

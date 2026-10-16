@@ -93,8 +93,10 @@ async def _child_run_task(
             )
             monitor = asyncio.create_task(_cancellation_monitor(task.id, exec_task, task.run_epoch))
             try:
-                await exec_task
-                result_queue.put(RunnerResult(success=True, result_ref=None, error=None))
+                data_result = await exec_task
+                result_queue.put(
+                    RunnerResult(success=True, result_ref=serialize_task_result(data_result, job_id), error=None)
+                )
             except asyncio.CancelledError:
                 result_queue.put(RunnerResult(success=False, result_ref=None, error="cancelled"))
             except asyncio.TimeoutError:

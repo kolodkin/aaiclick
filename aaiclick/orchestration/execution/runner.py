@@ -8,8 +8,11 @@ import importlib
 import inspect
 import logging
 import math
+import shutil
+import tempfile
 from collections.abc import Callable
 from contextlib import suppress
+from pathlib import Path
 from typing import Any, NamedTuple
 
 from pydantic import BaseModel
@@ -84,6 +87,7 @@ from .claiming import update_job_status, update_task_status
 from .cli import overlay_env
 from .db_handler import DEPENDENCY_WHERE
 from .execution_worker_context import set_current_task_info
+from .io_plane import IO_DIR_ENV, read_out_json, write_in_json
 from .runner_env import ENV_WORKER_RUNNER, WorkerRunner
 
 logger = logging.getLogger(__name__)
@@ -494,30 +498,52 @@ async def pump_process_output(
                 sink.write(STDERR_STREAM, f"error: exit {proc.returncode}\n")
 
 
-async def execute_shell_task(task: Task, spec: ShellSpec | None = None) -> None:
+async def finish_shell_result(task: Task, out_value: Any) -> Any:
+    """Interpret what a shell/jvm task wrote to ``out.json`` — register any
+    task/group dicts it returned, unwrap a top-level ``native`` — and return
+    the data portion for :func:`serialize_task_result`.
+
+    Sets the current task info first so children built here inherit the
+    task's image (``stamp_inherited_image``).
+    """
+    set_current_task_info(task_id=task.id, job_id=task.job_id, image_source=task.image_source, group_id=task.group_id)
+    if ref_kind(out_value) == NATIVE:
+        out_value = out_value[VALUE]
+    return await register_returned_tasks(out_value, task.id, task.job_id)
+
+
+async def execute_shell_task(task: Task, spec: ShellSpec | None = None) -> Any:
     """Run a shell task's argv, streaming its output to CH ``task_logs``.
 
-    One code path for every shell runner: the in-process worker and
+    One code path for every in-process shell run: the in-process worker and
     ``job_test`` call it directly (``spec=None`` → the task's own argv), and
-    the mp worker's task child calls it with a dispatch-built ``ShellSpec``
-    (host argv, or ``docker run`` / ``kubectl run`` wrapped). Output is
-    drained to ``task_logs`` every ``LOG_FLUSH_INTERVAL`` seconds and finally
-    at exit, so long-running commands are tailed live.
+    the mp worker's task child calls it with the dispatch-built ``ShellSpec``.
+    Output is drained to ``task_logs`` every ``LOG_FLUSH_INTERVAL`` seconds
+    and finally at exit, so long-running commands are tailed live.
 
-    Returns None (shell tasks have no result). Raises ``RuntimeError`` on
-    nonzero exit, matching the ``"exit <code>"`` error the workers report.
+    The task's kwargs are resolved into ``in.json`` under a per-attempt temp
+    dir named by ``AAICLICK_IO_DIR``; whatever the process wrote to
+    ``out.json`` is the result (see :func:`finish_shell_result`). Raises
+    ``RuntimeError`` on nonzero exit, matching the ``"exit <code>"`` error the
+    workers report — ``out.json`` is ignored then.
     """
     if spec is None:
         spec = ShellSpec(task.command or [], task.command_env)
-    run_id = await register_run(task.id)
-    proc = await start_shell_process(spec.argv, spec.env)
+    io_dir = Path(tempfile.mkdtemp(prefix="aaiclick-io-"))
     try:
-        await pump_process_output(proc, task.id, task.job_id, run_id, record_exit=True)
+        write_in_json(io_dir, await resolve_plain_kwargs(task.kwargs))
+        run_id = await register_run(task.id)
+        proc = await start_shell_process(spec.argv, {**(spec.env or {}), IO_DIR_ENV: str(io_dir)})
+        try:
+            await pump_process_output(proc, task.id, task.job_id, run_id, record_exit=True)
+        finally:
+            if spec.cleanup_argv:
+                await _run_cleanup_argv(spec.cleanup_argv)
+        if proc.returncode != 0:
+            raise RuntimeError(f"exit {proc.returncode}")
+        return await finish_shell_result(task, read_out_json(io_dir))
     finally:
-        if spec.cleanup_argv:
-            await _run_cleanup_argv(spec.cleanup_argv)
-    if proc.returncode != 0:
-        raise RuntimeError(f"exit {proc.returncode}")
+        shutil.rmtree(io_dir, ignore_errors=True)
 
 
 async def get_run_count(task_id: int) -> int:
