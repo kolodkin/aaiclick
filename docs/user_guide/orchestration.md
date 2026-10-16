@@ -427,8 +427,10 @@ reads `0` as unlimited.
 ## Shell tasks
 
 A `shell` task runs a literal argv (`command`, a list) instead of importing a
-Python entrypoint. Success is **exit code 0**; there is no `result.data()`.
-stdout/stderr lands in the normal per-task log, so logs surface uniformly.
+Python entrypoint. Success is **exit code 0**. stdout/stderr lands in the
+normal per-task log, so logs surface uniformly. The command reads its kwargs
+from `$AAICLICK_IO_DIR/in.json` and may write a result — or child tasks — to
+`out.json`: see [Task Interface](task_interface.md).
 
 ```python
 run_job(name, entry_type="shell", command=["python", "main.py"], command_env={"K": "v"})

@@ -38,8 +38,9 @@ Items deferred until preconditions are met.
 
 ## Objects in Non-Python Tasks
 
-Unsupported. Shell and jvm tasks speak the file data plane (plain values and
-resolved upstream refs); `object` / `view` refs are rejected at commit. An
+Unsupported. Shell and jvm tasks speak the Task Interface's file data plane
+(`task_interface.md`: plain values and resolved upstream refs); `object` /
+`view` refs are rejected at commit. An
 Object needs a per-language task runner that owns the ClickHouse dependency
 and the lifecycle (refcounts, pins, ephemeral-table ownership, oplog).
 

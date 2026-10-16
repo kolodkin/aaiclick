@@ -194,56 +194,12 @@ into the ClickHouse `task_logs` table (separate pipes, so lines keep their
 source stream) every `LOG_FLUSH_INTERVAL` (2 s) under a registered `run_id`,
 so logs are tailable live on every runner.
 
-**Data plane — `AAICLICK_IO_DIR`.** Inputs and result travel as two JSON
-files, so a process in any language takes part in a job with nothing but a
-JSON parser:
-
-- `$AAICLICK_IO_DIR/in.json` holds the kwargs as a plain JSON object. The
-  host resolves them before launch: every `upstream` ref is replaced by the
-  producer's value, every `native` wrapper unwrapped.
-- `$AAICLICK_IO_DIR/out.json`, if the process writes it, is the result: any
-  JSON value. A top-level `native` wrapper unwraps; a `task_result` / `task` /
-  `group` dict (see *Task Parameter Serialization*) registers child tasks
-  exactly as a Python return would. No file → no result. Nonzero exit → the
-  file is ignored and the task fails.
-
-```js
-// Node, no dependencies
-const fs = require("fs");
-const dir = process.env.AAICLICK_IO_DIR;
-const {n} = JSON.parse(fs.readFileSync(`${dir}/in.json`));
-fs.writeFileSync(`${dir}/out.json`, JSON.stringify({_aaiclick_type: "native", value: n * 2}));
-```
-
-Kwargs may carry only plain values, `native` wrappers and `upstream` refs;
-`object` / `view` / `callable` / `group_results` / `pydantic` refs are rejected
-at commit (`validate_plain_data_plane_tasks`, shared with `jvm`). An upstream
-producer that stored an Object fails the consumer at launch — it cannot be
-known at commit.
-
-| Runner          | `in.json` in                                                  | `out.json` out                                   |
-|-----------------|---------------------------------------------------------------|--------------------------------------------------|
-| host subprocess | per-attempt temp dir, `AAICLICK_IO_DIR` in the child's env    | read from the temp dir, removed after            |
-| docker          | `docker create` → `docker cp` → `docker start`                | `docker cp` from the stopped container, `docker rm` |
-| kubernetes      | `kubectl cp` into an `emptyDir` while init container `io-in` waits for it | `kubectl exec -c io -- cat` through a `sleep` sidecar, then delete |
-
-In containers `AAICLICK_IO_DIR` is `/aaiclick`, and the argv follows the
-image's `ENTRYPOINT` on both runners (`docker create <image> <argv>`, Pod
-`args`). A Pod has no filesystem the host can reach, hence the two helper
-containers (one image, `busybox:1.36`,
-override with `AAICLICK_K8S_IO_IMAGE` on air-gapped clusters; no resources
-requested); the host waits on the `task` container's state, since the Pod
-never ends on its own. `command_env` values never sit on an argv (visible in
-`ps`): docker reads them from a private `--env-file`, kubernetes from a
-per-attempt Secret deleted with the Pod.
-
-In an isolated environment (container/Pod) a shell task receives **only** `command_env` plus `AAICLICK_IO_DIR` — *not* the aaiclick runner env — so no DB credentials leak into an arbitrary image. The subprocess runner has no isolation boundary, so the command inherits the worker's process env with `command_env` overlaid.
-
-| Task                          | Env injected                                  |
-|-------------------------------|-----------------------------------------------|
-| `module` (any runner)         | `build_runner_env()` — DB URLs + framework knobs |
-| `shell` / `jvm` + container   | `command_env` + `AAICLICK_IO_DIR` (on top of the image's env) |
-| `shell` + subprocess          | worker process env + `command_env` + `AAICLICK_IO_DIR` |
+Inputs and result travel as `in.json` / `out.json` under `AAICLICK_IO_DIR` —
+the Task Interface, which also lets a shell task spawn children: see
+`docs/designs/task_interface.md` for the vocabulary, the file data plane and
+its transport on each runner (host subprocess, docker, kubernetes), and the
+env a container receives (`command_env` + `AAICLICK_IO_DIR` only, never the
+runner env).
 
 Submit via:
 
@@ -256,16 +212,6 @@ python -m aaiclick run-job <name> --entry-type shell --command 'python main.py' 
 ```
 
 REST/MCP submission uses the same fields on `RunJobRequest`.
-
-Where it runs: in-process (the local-mode server's worker, `job_test` /
-`ajob_test`) the command runs in the worker's own event loop; on the mp
-worker a subprocess shell task runs in the spawned task child module tasks
-use (it enforces the timeout and polls cancellation itself; the parent's kill
-is a `CHILD_TIMEOUT_GRACE` backstop). Container shell tasks run host-side on
-a `TaskVehicle`, like module containers — their launch is a multi-step
-sequence, not one argv — and the host interprets `out.json` after exit.
-
-**Implementation**: `aaiclick/orchestration/execution/io_plane.py`; `aaiclick/orchestration/execution/runner.py` — see `execute_shell_task()`, `resolve_plain_kwargs()`, `finish_shell_result()`; `aaiclick/orchestration/execution/dispatch.py` — see `dispatch_execute()`; `aaiclick/orchestration/execution/docker_worker.py` — see `_DockerShellVehicle`; `aaiclick/orchestration/execution/kubernetes_worker.py` — see `build_shell_pod_manifest()`, `_KubernetesShellVehicle`; `aaiclick/orchestration/execution/mp_worker.py` — see `_child_run_task()`
 
 ## Execution layers
 
@@ -327,48 +273,12 @@ Three `TaskStatus` values are set by the background sweep, not the worker:
 
 ## Task Parameter Serialization
 
-Task kwargs and results are JSON. Plain values are data; a dict carrying the
-reserved key `_aaiclick_type` is one of the shapes below (an unknown value is
-an error, never data). One discriminator, so a shim in any language reads
-and writes the same vocabulary — `aaiclick/data/object/refs.py` is the single
-source of truth.
-
-| `_aaiclick_type` | Fields                                                    | Python binding                        |
-|------------------|-----------------------------------------------------------|---------------------------------------|
-| `upstream`       | `task_id` (int = committed task; string = local handle)   | a `Task` passed as a kwarg            |
-| `group_results`  | `group_id` (int or handle)                                | a `Group` passed as a kwarg           |
-| `callable`       | `entrypoint`                                              | a `@task` function passed as a value  |
-| `object`         | `table`, `persistent`, `job_id`                           | `Object`                              |
-| `view`           | `table`, `view_schema` (the serialized `ViewSchema`)      | `View`                                |
-| `native`         | `value`                                                   | any JSON-serializable value           |
-| `pydantic`       | `type` (dotted class path), `data`                        | a `BaseModel` instance                |
-| `task`           | `create_task()`'s parameters + `id` (handle), `depends_on` | `Task` (uncommitted)                 |
-| `group`          | `id` (handle), `name`, `tasks: [task…]`                   | `Group`                               |
-| `task_result`    | `data`, `tasks: [task | group …]`                         | `task_result(data=…, tasks=[…])`      |
-
-The last three are the JSON form of a task function's return, so a shell or
-jvm task spawns children by writing them to `out.json`. A foreign process
-cannot mint snowflake ids, so siblings in one return value refer to each
-other through string **handles** on `id`, swapped for real ids at
-registration. Handles are scoped to that return value: an unknown or
-duplicate handle fails the parent. `data` pointing at a handle holds the
-parent's consumers until that child completes, like `task_result(data=child)`.
-
-```json
-{"_aaiclick_type": "task_result",
- "data": {"_aaiclick_type": "upstream", "task_id": "fin"},
- "tasks": [
-   {"_aaiclick_type": "task", "id": "w1", "entry_type": "shell", "command": ["node", "w.js"], "kwargs": {"n": 1}},
-   {"_aaiclick_type": "task", "id": "w2", "entry_type": "shell", "command": ["node", "w.js"], "kwargs": {"n": 2}},
-   {"_aaiclick_type": "task", "id": "fin", "entry_type": "shell", "command": ["node", "fin.js"],
-    "kwargs": {"parts": [{"_aaiclick_type": "upstream", "task_id": "w1"},
-                         {"_aaiclick_type": "upstream", "task_id": "w2"}]}}
- ]}
-```
-
-`job_id` on an `object` ref marks the producing task's job — the background worker skips tables with a non-NULL `job_id` pin until the job completes. The table's `Schema` is read back from `table_registry.schema_doc` via `read_table_schema()` — see `aaiclick/data/data_context/lifecycle.py`.
-
-**Return values**: `None` → `null`; Object/View → serialized ref + `job_id`; a `BaseModel` → `pydantic`; any other value → `native`. See `aaiclick/orchestration/execution/runner.py` — `serialize_task_result()`, `register_returned_tasks()`.
+Task kwargs and results are JSON: plain values are data, and a dict carrying
+the reserved key `_aaiclick_type` is a ref (`upstream`, `object`, `native`,
+…) or a returned task DAG (`task`, `group`, `task_result`). The vocabulary,
+handles and return-value rules are the Task Interface —
+`docs/designs/task_interface.md`; `aaiclick/data/object/refs.py` is the
+single source of truth.
 
 # Task Execution
 

@@ -3,9 +3,10 @@ Java Task SDK — Shim Jar (`jvm` Entry Type)
 
 Java payloads run through the shell/container path, claimed by Python workers
 — no second worker implementation. A `.jar` already runs on every runner as
-`entry_type="shell"` on a prebuilt JVM image, with the shell data plane
-(`in.json` / `out.json` under `AAICLICK_IO_DIR`, `docs/designs/orchestration.md`
-"Shell entry type"). The `aaiclick-task-api` shim jar makes that plane typed:
+`entry_type="shell"` on a prebuilt JVM image, with the Task Interface
+(`in.json` / `out.json` under `AAICLICK_IO_DIR`,
+`docs/designs/task_interface.md`). The `aaiclick-task-api` shim jar makes
+that plane typed:
 the image embeds the SDK, the runner invokes the shim with the class name,
 and the shim binds `in.json` to the `@AaiTask` method and writes its return
 value to `out.json`. No database, no runner env.
@@ -88,8 +89,7 @@ submission surface (`aaiclick/orchestration/registered_jobs.py` — see
    classloader (Spring Boot, layered fat jars).
 4. Invoke the method and write its return value to `out.json` as is: the
    host treats untagged JSON as data and a `Map` / `JsonNode` carrying
-   `_aaiclick_type` as a returned task DAG (`docs/designs/orchestration.md`
-   "Task Parameter Serialization"). `void` / `null` writes nothing. On any
+   `_aaiclick_type` as a returned task DAG (`docs/designs/task_interface.md`). `void` / `null` writes nothing. On any
    exception: `Type: message` on stderr, exit code 1.
 
 The shim never writes task status — the host worker owns that (reaper

@@ -75,8 +75,7 @@ inside the Pod (`capture_task_output`), so `get_task_logs` reads them on the hos
 with no node coordination. Shell Pods have no aaiclick harness, so the host
 follows `kubectl logs -f -c task` into `task_logs`, with `command_env` in a
 per-attempt Secret and `in.json` / `out.json` moved through the `io-in` /
-`io` helper containers — the shared shell design in `orchestration.md` "Shell
-entry type".
+`io` helper containers — the Task Interface, `task_interface.md`.
 
 # The vehicle
 
