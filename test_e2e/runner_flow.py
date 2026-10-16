@@ -21,8 +21,13 @@ from aaiclick.testing import UserRepo
 
 # Exits 0 only when ``command_env`` reached the container (``K=v``), so the
 # container runners' env delivery (docker ``--env-file``, kubernetes Secret) is
-# proven end to end, not just the exit-code plumbing.
-ASSERT_COMMAND_ENV = """python -c "import os, sys; sys.exit(0 if os.environ.get('K') == 'v' else 3)" """
+# proven end to end, not just the exit-code plumbing — and writes the value it
+# saw to ``out.json``, so the file data plane's return leg is proven too.
+ASSERT_COMMAND_ENV = (
+    """python -c "import json, os, sys; d = os.environ['AAICLICK_IO_DIR']; """
+    """json.dump({'_aaiclick_type': 'native', 'value': {'k': os.environ.get('K')}}, open(f'{d}/out.json', 'w')); """
+    """sys.exit(0 if os.environ.get('K') == 'v' else 3)" """
+)
 
 
 def aaiclick_cli(*args: str, cwd: Path) -> subprocess.CompletedProcess:
@@ -99,4 +104,5 @@ async def run_shell_command_env_flow(job_name: str, cwd: Path) -> Task:
     tasks = await get_tasks_for_job(completed.id)
     assert len(tasks) == 1, [t.entrypoint for t in tasks]
     assert tasks[0].status == TASK_COMPLETED, tasks[0].error
+    assert tasks[0].result == native_ref({"k": "v"}), tasks[0].result
     return tasks[0]

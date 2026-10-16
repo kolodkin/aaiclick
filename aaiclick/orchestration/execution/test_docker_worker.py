@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
+import tempfile
 from unittest.mock import AsyncMock
 
 import pytest
+
+from aaiclick.data.object.refs import native_ref
 
 from ..logging import read_task_logs
 from ..models import Task
 from ..runner_config import ENTRY_JVM, ENTRY_MODULE, EntryType, ImagePrebuilt
 from . import docker_worker, execution_worker
-from .docker_worker import _build_docker_run_cmd, build_shell_run_spec
+from .docker_worker import _build_docker_run_cmd, build_docker_create_cmd, write_command_env_file
 from .execution_worker import JobDispatch, RunnerResult
 from .log_test_helpers import dispatch_with_fake_cli
 from .runner_env import RUNNER_DOCKER
@@ -44,52 +46,29 @@ def test_jvm_cmd_relies_on_image_entrypoint():
     assert "-e AAICLICK_SQL_URL" in " ".join(cmd)
 
 
-def test_build_shell_run_spec_wraps_argv():
-    task = Task(
-        id=7,
-        job_id=1,
-        name="t",
-        entrypoint="",
-        entry_type="shell",
-        command=["echo", "hi"],
-        command_env={"K": "v", "PATH": "/evil"},
-        run_epoch=2,
+def test_build_docker_create_cmd_sets_io_dir_and_env_file():
+    cmd = build_docker_create_cmd(
+        "aaiclick-task-7-2", "img:tag", ["echo", "hi"], {"limits": {"cpu": "500m", "memory": "256Mi"}}, "/tmp/x.env"
     )
-    spec = build_shell_run_spec(task, "img:tag", {"limits": {"cpu": "500m", "memory": "256Mi"}})
-    assert spec.argv[:2] == ["docker", "run"]
-    assert "--rm" in spec.argv
-    assert spec.argv[spec.argv.index("--cpus") + 1] == "0.5"
-    assert spec.argv[spec.argv.index("--memory") + 1] == str(256 * 1024**2)
-    assert "--name" in spec.argv and "aaiclick-task-7-2" in spec.argv
-    assert spec.argv[-3:] == ["img:tag", "echo", "hi"]
-    assert spec.env is None
-    assert spec.cleanup_argv == ["docker", "kill", "aaiclick-task-7-2"]
-    # command_env values ride in a private env file, never on the argv (ps).
-    assert "-e" not in spec.argv
-    assert spec.env_file is not None
-    assert spec.argv[spec.argv.index("--env-file") + 1] == spec.env_file
-    env_path = Path(spec.env_file)
-    assert env_path.stat().st_mode & 0o777 == 0o600
-    assert env_path.read_text() == "K=v\nPATH=/evil\n"
-    env_path.unlink()
+    assert cmd[:4] == ["docker", "create", "--name", "aaiclick-task-7-2"]
+    assert cmd[cmd.index("--cpus") + 1] == "0.5"
+    assert cmd[cmd.index("--memory") + 1] == str(256 * 1024**2)
+    assert cmd[cmd.index("--env-file") + 1] == "/tmp/x.env"
+    assert cmd[cmd.index("-e") + 1] == "AAICLICK_IO_DIR=/aaiclick"
+    assert cmd[-3:] == ["img:tag", "echo", "hi"]
 
 
-def test_build_shell_run_spec_without_command_env_has_no_env_file():
-    task = Task(id=7, job_id=1, name="t", entrypoint="", entry_type="shell", command=["true"], run_epoch=0)
-    spec = build_shell_run_spec(task, "img:tag", None)
-    assert spec.env_file is None
-    assert "--env-file" not in spec.argv
-    assert "--cpus" not in spec.argv and "--memory" not in spec.argv
+def test_build_docker_create_cmd_without_env_file():
+    cmd = build_docker_create_cmd("n", "img:tag", ["true"], None, None)
+    assert "--env-file" not in cmd
+    assert "--cpus" not in cmd and "--memory" not in cmd
 
 
-def test_build_shell_run_spec_rejects_newline_in_command_env():
+def test_write_command_env_file_rejects_newline():
     """docker's env-file format is one ``KEY=VALUE`` per line, so a value with a
     newline cannot be carried; fail loudly rather than inject a mangled env."""
-    task = Task(
-        id=7, job_id=1, name="t", entrypoint="", entry_type="shell", command=["true"], command_env={"K": "a\nb"}
-    )
     with pytest.raises(ValueError, match="newline"):
-        build_shell_run_spec(task, "img:tag", None)
+        write_command_env_file({"K": "a\nb"})
 
 
 def _task(entrypoint="user.module.entry", task_id=42, job_id=1) -> Task:
@@ -272,3 +251,45 @@ async def test_bootstrap_failure_is_only_printed_when_task_logs_go_to_console(or
 
     assert stored.run_ids == []
     assert f"[task {stored.id}] container says hi" in capsys.readouterr().out
+
+
+# The shell vehicle: create → cp in.json → start → wait → cp out.json → rm.
+_FAKE_DOCKER_SHELL = """#!/bin/sh
+d="$(dirname "$0")"
+case "$1" in
+  create) echo "$@" > "$d/create-argv"; echo fake-cid ;;
+  cp) case "$2" in
+        *:/aaiclick/out.json) printf '%s' "$FAKE_OUT_JSON" > "$3" ;;
+        *) cp -r "$2" "$d/in-copy" ;;
+      esac ;;
+  start) : ;;
+  wait) echo 0 ;;
+  logs) echo "container says hi" ;;
+  rm|kill) : ;;
+esac
+"""
+
+
+async def test_shell_container_round_trips_in_and_out_json(orch_ctx, monkeypatch, tmp_path):
+    """The host writes the resolved kwargs into the container, reads back what
+    the command wrote to ``out.json`` and stores it as the task result; the
+    env file and the host-side IO dir are gone afterwards."""
+    monkeypatch.setenv("FAKE_OUT_JSON", '{"_aaiclick_type": "native", "value": {"k": "v"}}')
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    spec = JobDispatch(
+        RUNNER_DOCKER,
+        None,
+        entry_type="shell",
+        command=["sh", "-c", "x"],
+        command_env={"K": "v"},
+        image_source=ImagePrebuilt(image_tag="img:1"),
+    )
+    stored = await dispatch_with_fake_cli(monkeypatch, tmp_path, "AAICLICK_DOCKER_BIN", _FAKE_DOCKER_SHELL, spec)
+    print("DBG", stored.status, stored.error, sorted(p.name for p in tmp_path.iterdir()))
+
+    assert stored.result == native_ref({"k": "v"}), stored.error
+    argv = (tmp_path / "create-argv").read_text().split()
+    assert argv[argv.index("-e") + 1] == "AAICLICK_IO_DIR=/aaiclick"
+    assert argv[-3:] == ["sh", "-c", "x"]
+    assert (tmp_path / "in-copy" / "in.json").read_text() == "{}"
+    assert not list(tmp_path.glob("aaiclick-io-*")) and not list(tmp_path.glob("aaiclick-task-*.env"))

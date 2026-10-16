@@ -22,7 +22,7 @@ from ..jobs import get_task
 from ..jobs.queries import get_tasks_for_job
 from ..logging import read_task_logs
 from ..models import Task
-from . import dispatch, docker_worker, kubernetes_worker
+from . import dispatch, docker_worker, execution_worker, kubernetes_worker
 from .execution_worker import JobDispatch, RunnerResult
 from .runner import register_run
 
@@ -86,7 +86,10 @@ async def dispatch_with_fake_cli(
     job = await create_job("fake_cli_job", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
     task = (await get_tasks_for_job(job.id))[0]
     task.entry_type = spec.entry_type
-    await dispatch.dispatch_execute(task, execution_worker_id=1)
+    success, result_ref, error = await dispatch.dispatch_execute(task, execution_worker_id=1)
+    # Persist the outcome the way the worker loop does, so ``stored`` carries
+    # status, result and error, not only the logs.
+    await execution_worker._handle_task_result(task, 1, success, result_ref, error)
     stored = await get_task(task.id)
     assert stored is not None
     return stored
