@@ -13,6 +13,7 @@ from pathlib import Path
 
 from job_wait import run_worker_until_done
 
+from aaiclick.data.object.refs import native_ref
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import JOB_COMPLETED, TASK_COMPLETED, Task
 from aaiclick.orchestration.runner_config import ImageBuild, parse_image_source
@@ -75,9 +76,9 @@ async def run_smoke_flow(job_name: str, user_repo: UserRepo) -> None:
     assert {"sample_jobs.produce", "sample_jobs.double", "sample_jobs.compute_sum"} <= entrypoints, entrypoints
 
     # produce([10, 20, 30]) → double → compute_sum = (10+20+30) * 2 = 120. Native
-    # return values are wrapped as ``{"native_value": ...}`` in Task.result.
+    # return values are wrapped as ``native`` refs in Task.result.
     summed = next(t for t in tasks if t.entrypoint == "sample_jobs.compute_sum")
-    assert summed.result == {"native_value": {"total": 120}}, summed.result
+    assert summed.result == native_ref({"total": 120}), summed.result
 
 
 def submit_shell_job(job_name: str, command: str, cwd: Path, *run_args: str) -> None:

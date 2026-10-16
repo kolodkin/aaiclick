@@ -12,6 +12,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from aaiclick.data.object.refs import native_ref
+
 from ..kubernetes_config import KubernetesConfig
 from ..logging import read_task_logs
 from ..models import Task
@@ -114,9 +116,9 @@ def test_collect_synthesizes_failure_when_row_missing():
 
 
 def test_collect_returns_row():
-    payload = kw.RunnerResult(True, {"native_value": 5}, None)
+    payload = kw.RunnerResult(True, native_ref(5), None)
     out = _collect(_handle(), 0, None, was_cancelled=False, payload=payload)
-    assert out.success is True and out.result_ref == {"native_value": 5}
+    assert out.success is True and out.result_ref == native_ref(5)
 
 
 def test_shell_pod_runs_argv_only_command_env():

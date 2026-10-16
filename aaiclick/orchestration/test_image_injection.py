@@ -3,7 +3,8 @@
 import pytest
 from sqlmodel import select
 
-from aaiclick.data.object.refs import callable_ref, group_results_ref, native_value_ref, upstream_ref
+from aaiclick.data.models import ViewSchema
+from aaiclick.data.object.refs import callable_ref, group_results_ref, native_ref, pydantic_ref, upstream_ref
 
 from .execution.execution_worker_context import set_current_task_info
 from .execution.image_build_task import IMAGE_BUILD_ENTRYPOINT
@@ -16,7 +17,7 @@ from .runner_config import ImageBuild, ImagePrebuilt, dump_image_source
 BUILD_A = dump_image_source(ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40))
 BUILD_B = dump_image_source(ImageBuild(git_remote="https://example.com/r.git", git_sha="b" * 40))
 PREBUILT = dump_image_source(ImagePrebuilt(image_tag="ghcr.io/example/pipeline:1.0"))
-OBJECT_REF = {"object_type": "object", "table": "t_1", "persistent": False}
+OBJECT_REF = {"_aaiclick_type": "object", "table": "t_1"}
 
 
 def test_stamp_inherited_image_fills_only_undeclared():
@@ -48,9 +49,9 @@ def _jvm_task(kwargs: dict | None = None, image_source: dict | None = PREBUILT) 
         pytest.param({"date": "2026-08-20", "window": 7}, id="plain"),
         pytest.param({"rows": [upstream_ref(5)]}, id="nested-upstream-ref"),
         # The kwargs map is never a ref, so a parameter may carry a ref key's name.
-        pytest.param({"object_type": "csv", "ref_type": "x"}, id="ref-key-as-param-name"),
-        # native_value is opaque to the shim, like to Python's deserializer.
-        pytest.param({"cfg": native_value_ref(OBJECT_REF)}, id="native-value-wrapper"),
+        pytest.param({"_aaiclick_type": "csv", "value": "x"}, id="ref-key-as-param-name"),
+        # native is opaque to the shim, like to Python's deserializer.
+        pytest.param({"cfg": native_ref(OBJECT_REF)}, id="native-wrapper"),
     ],
 )
 def test_validate_jvm_accepts(kwargs):
@@ -66,9 +67,11 @@ def test_validate_jvm_accepts(kwargs):
         ),
         pytest.param({"fn": callable_ref("m.f")}, PREBUILT, "callable ref in kwarg 'fn'", id="callable-ref"),
         pytest.param({"parts": group_results_ref(9)}, PREBUILT, "group_results ref", id="group-ref"),
-        pytest.param({"m": {"pydantic_type": "m.M", "pydantic_data": {}}}, PREBUILT, "pydantic ref", id="pydantic-ref"),
-        # Python reads an unknown ref_type as a plain dict; the shim rejects it.
-        pytest.param({"cfg": {"ref_type": "x"}}, PREBUILT, "x ref", id="unknown-nested-ref-type"),
+        pytest.param(
+            {"m": pydantic_ref(ViewSchema(fieldtype="a", columns={}))}, PREBUILT, "pydantic ref", id="pydantic-ref"
+        ),
+        # ``_aaiclick_type`` is reserved: an unknown value is an error, not plain data.
+        pytest.param({"cfg": {"_aaiclick_type": "x"}}, PREBUILT, "Unknown _aaiclick_type", id="unknown-nested-type"),
     ],
 )
 def test_validate_jvm_rejects(kwargs, image_source, match):

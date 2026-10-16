@@ -349,17 +349,17 @@ async def test_deserialize_task_params_native_python(orch_ctx):
 
 
 async def test_deserialize_task_params_rejects_unknown_type(orch_ctx):
-    """Test that unknown object_type is rejected."""
-    kwargs = {"x": {"object_type": "unknown", "value": 5}}
+    """``_aaiclick_type`` is reserved: an unknown value is an error, not plain data."""
+    kwargs = {"x": {"_aaiclick_type": "banana", "value": 5}}
 
-    with pytest.raises(ValueError, match="Unknown object_type"):
+    with pytest.raises(ValueError, match="Unknown _aaiclick_type"):
         await deserialize_task_params(kwargs)
 
 
 async def test_deserialize_task_params_object(orch_ctx):
     """Test deserializing an Object parameter."""
     await seed_registry_row("t123")
-    kwargs = {"data": {"object_type": "object", "table": "t123"}}
+    kwargs = {"data": {"_aaiclick_type": "object", "table": "t123"}}
 
     result = await deserialize_task_params(kwargs)
     assert "data" in result
@@ -718,7 +718,7 @@ async def test_register_returned_tasks_pins_child_input_tables(orch_ctx):
                     view_schema=ViewSchema(fieldtype=FIELDTYPE_ARRAY, columns=_VALUE_COLUMNS, limit=2, offset=0),
                 ).to_dict()
             ],
-            "keep": {"object_type": "object", "table": "p_keep", "persistent": True},
+            "keep": {"_aaiclick_type": "object", "table": "p_keep", "persistent": True},
         },
     )
 

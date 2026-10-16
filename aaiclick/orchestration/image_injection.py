@@ -20,7 +20,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aaiclick.data.object.refs import NATIVE_VALUE, REF_TYPE, UPSTREAM, ref_kind
+from aaiclick.data.object.refs import NATIVE, UPSTREAM, ref_kind
 
 from ..datetime_utils import utc_now
 from ..snowflake import get_snowflake_id
@@ -47,8 +47,8 @@ def stamp_inherited_image(tasks: list[Task], parent_image_source: dict | None) -
             task.image_source = parent_image_source
 
 
-_JVM_REF_KINDS = (UPSTREAM, NATIVE_VALUE)
-"""Ref kinds the shim's ``KwargsResolver`` resolves; ``native_value`` is opaque."""
+_JVM_REF_KINDS = (UPSTREAM, NATIVE)
+"""Ref kinds the shim's ``KwargsResolver`` resolves; ``native`` is opaque."""
 
 
 def _unsupported_jvm_ref(value: Any) -> str | None:
@@ -58,9 +58,6 @@ def _unsupported_jvm_ref(value: Any) -> str | None:
     if kind is not None:
         return None if kind in _JVM_REF_KINDS else f"{kind} ref"
     if isinstance(value, dict):
-        # Python treats an unrecognized ref_type as a plain dict; the shim rejects it.
-        if REF_TYPE in value:
-            return f"{value[REF_TYPE]} ref"
         value = list(value.values())
     if not isinstance(value, list):
         return None

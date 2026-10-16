@@ -27,19 +27,20 @@ from aaiclick.data.object import LazyOperator, Object, View
 from aaiclick.data.object.refs import (
     CALLABLE,
     GROUP_RESULTS,
-    NATIVE_VALUE,
+    NATIVE,
     OBJECT,
-    OBJECT_TYPE,
     PERSISTENT,
     PYDANTIC,
+    PYDANTIC_CLASS,
     PYDANTIC_DATA,
-    PYDANTIC_TYPE,
     TASK_ID,
     UPSTREAM,
+    VALUE,
     VIEW,
     ObjectRef,
     ViewRef,
-    native_value_ref,
+    native_ref,
+    pydantic_ref,
     ref_kind,
     upstream_ref,
 )
@@ -133,7 +134,7 @@ async def _resolve_upstream_ref(ref: dict, session: AsyncSession) -> Any:
     """Resolve an upstream task reference to its result.
 
     Args:
-        ref: Dict with ref_type="upstream" and task_id
+        ref: An ``upstream`` ref dict with ``task_id``
         session: Database session for querying task result
 
     Returns:
@@ -202,11 +203,11 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
             deserialized.append(await _deserialize_value(task_result, session))
         return deserialized
 
-    if kind == NATIVE_VALUE:
-        return value[NATIVE_VALUE]
+    if kind == NATIVE:
+        return value[VALUE]
 
     if kind == PYDANTIC:
-        cls = _import_class(value[PYDANTIC_TYPE])
+        cls = _import_class(value[PYDANTIC_CLASS])
         return cls.model_validate(value[PYDANTIC_DATA])
 
     if kind == OBJECT:
@@ -253,7 +254,7 @@ async def deserialize_task_params(serialized_params: dict) -> dict:
         dict: Deserialized kwargs ready for function call
 
     Raises:
-        ValueError: Unknown object_type or upstream task not completed
+        ValueError: Unknown ``_aaiclick_type`` or upstream task not completed
     """
     if not serialized_params:
         return {}
@@ -597,12 +598,9 @@ def serialize_task_result(result: Any, job_id: int) -> dict | None:
         return ref
 
     if isinstance(result, BaseModel):
-        return {
-            PYDANTIC_TYPE: f"{type(result).__module__}.{type(result).__qualname__}",
-            PYDANTIC_DATA: result.model_dump(),
-        }
+        return pydantic_ref(result)
 
-    return native_value_ref(_sanitize_for_json(result))
+    return native_ref(_sanitize_for_json(result))
 
 
 def _contains_dag_node(item: Any) -> bool:
@@ -737,7 +735,7 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
 def _referenced_tables(value: Any) -> set[str]:
     """Ephemeral table names referenced by Object/View refs anywhere inside ``value``."""
     if isinstance(value, dict):
-        if value.get(OBJECT_TYPE) in (OBJECT, VIEW):
+        if ref_kind(value) in (OBJECT, VIEW):
             return set() if value.get(PERSISTENT) else {value["table"]}
         return set().union(*(_referenced_tables(v) for v in value.values()))
     if isinstance(value, (list, tuple)):

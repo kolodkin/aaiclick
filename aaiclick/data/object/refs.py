@@ -1,151 +1,149 @@
 """
 aaiclick.data.object.refs - Task kwarg/result reference schema.
 
-Single source of truth for the shapes used to serialize ``Task`` kwargs
-and results. ``Object._serialize_ref()`` produces these shapes,
-``orchestration.execution.runner`` consumes them, and
-``orchestration.replay`` rewrites them during Phase 3b task-graph
-replay.
+Single source of truth for the tagged-dict vocabulary used to serialize
+``Task`` kwargs and results. ``Object._serialize_ref()`` produces these
+shapes and ``orchestration.execution.runner`` consumes them — and so can a
+shim in any language: every tagged dict carries one discriminator key,
+``_aaiclick_type``.
 
 The canonical producer API is a family of Pydantic ``BaseModel`` classes
 — ``UpstreamRef``, ``GroupResultsRef``, ``CallableRef``, ``ObjectRef``,
 ``ViewRef``. Construct a model, call ``.to_dict()`` to get the exact
 on-wire shape that JSON columns (``tasks.kwargs`` / ``tasks.result``)
-store. That gives producers field-level validation (e.g. ``table`` must
-be ``str``, ``task_id`` must be ``int``) that plain dict literals miss.
+store. Consumers classify the raw dict with ``ref_kind()``.
 
-Consumers still work with the raw dict shape, classified by
-``ref_kind()`` (the runner's deserializer and the jvm commit validator
-both dispatch on it). The string constants below are the
-authoritative key/value names — both producers (via the models' field
-names / ``Literal`` tags) and consumers (via ``value.get(REF_TYPE)``
-lookups) reference them.
+``_aaiclick_type`` is reserved: a dict carrying an unknown value is an
+error, never plain data. Untagged JSON values are plain data.
 
 Reference shapes
 ----------------
 
-**Upstream task result** — injected when one ``Task`` is passed as a
-kwarg to another::
+**Upstream task result** — ``task_id`` is an int for a committed task, or
+a string *handle* naming a sibling ``task`` dict in the same return value::
 
-    {"ref_type": "upstream", "task_id": <int>}
+    {"_aaiclick_type": "upstream", "task_id": <int | handle>}
 
-**Group result aggregation** — collects results of all tasks in a
-Group (e.g. output of ``reduce``)::
+**Group result aggregation** — results of all tasks in a Group::
 
-    {"ref_type": "group_results", "group_id": <int>}
+    {"_aaiclick_type": "group_results", "group_id": <int | handle>}
 
-**Callable reference** — the @task wrapper itself being passed as a
-value (e.g. a map callback)::
+**Callable reference** — a ``@task`` wrapper passed as a value::
 
-    {"ref_type": "callable", "entrypoint": "mod.fn"}
+    {"_aaiclick_type": "callable", "entrypoint": "mod.fn"}
 
 **Persistent / ephemeral Object** — a materialized ClickHouse table.
 ``persistent`` is omitted (and defaults False) for ephemeral tables::
 
-    {"object_type": "object", "table": "p_foo", "persistent": true}
-    {"object_type": "object", "table": "t_12345"}
+    {"_aaiclick_type": "object", "table": "p_foo", "persistent": true}
+    {"_aaiclick_type": "object", "table": "t_12345"}
 
-**View** — a view over an Object. ``view_schema`` is the View's serialized
-``ViewSchema`` (``View.schema``), carrying every view modifier; the
-runner rebuilds the View from it with ``View.from_schema``::
+**View** — a view over an Object; ``view_schema`` is the serialized
+``ViewSchema``::
 
-    {"object_type": "view", "table": "...", "view_schema": {"where": ..., "limit": ..., ...}}
+    {"_aaiclick_type": "view", "table": "...", "view_schema": {...}}
 
-**Native Python values** — anything JSON-serializable that isn't one of
-the above::
+**Native values** — anything JSON-serializable::
 
-    {"native_value": <value>}
+    {"_aaiclick_type": "native", "value": <value>}
 
 **Pydantic models** — serialized with the model's dotted class path::
 
-    {"pydantic_type": "mod.Model", "data": {...}}
+    {"_aaiclick_type": "pydantic", "type": "mod.Model", "data": {...}}
 
-Native and pydantic shapes have no Pydantic model here because they're
-terminal leaves — there's nothing the producer needs to validate beyond
-"this value is JSON-serializable".
+**Returned tasks** — the JSON form of what a task function may return.
+A ``task`` carries ``create_task()``'s parameters plus an optional ``id``
+handle and ``depends_on`` (a list of handles); a ``group`` holds its
+member tasks inline; ``task_result`` separates data from tasks::
+
+    {"_aaiclick_type": "task", "id": "w1", "name": "worker", "entry_type": "shell",
+     "command": ["node", "worker.js"], "kwargs": {"n": 1}}
+    {"_aaiclick_type": "group", "id": "g", "name": "parts", "tasks": [...]}
+    {"_aaiclick_type": "task_result",
+     "data": {"_aaiclick_type": "upstream", "task_id": "fin"}, "tasks": [...]}
 """
 
 from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, model_serializer
+from pydantic import BaseModel, ConfigDict, Field, model_serializer
 
 from aaiclick.data.models import ViewSchema
 
 # --- Key names ---------------------------------------------------------
 
-REF_TYPE = "ref_type"
+AAICLICK_TYPE = "_aaiclick_type"
 TASK_ID = "task_id"
 GROUP_ID = "group_id"
 ENTRYPOINT = "entrypoint"
 
-OBJECT_TYPE = "object_type"
 TABLE = "table"
 PERSISTENT = "persistent"
 JOB_ID = "job_id"
 
-NATIVE_VALUE = "native_value"
-PYDANTIC_TYPE = "pydantic_type"
+VALUE = "value"
+PYDANTIC_CLASS = "type"
 PYDANTIC_DATA = "data"
 
+HANDLE = "id"
+DEPENDS_ON = "depends_on"
+TASKS = "tasks"
+DATA = "data"
 
-# --- ref_type values ---------------------------------------------------
+
+# --- _aaiclick_type values ---------------------------------------------
 
 UPSTREAM = "upstream"
 GROUP_RESULTS = "group_results"
 CALLABLE = "callable"
-
-
-# --- object_type values ------------------------------------------------
-
 OBJECT = "object"
 VIEW = "view"
-
-
-# --- Ref kinds (``ref_kind``) -------------------------------------------
-
+NATIVE = "native"
 PYDANTIC = "pydantic"
-RefKind = Literal["upstream", "group_results", "callable", "native_value", "pydantic", "object", "view"]
+TASK = "task"
+GROUP = "group"
+TASK_RESULT = "task_result"
+
+RefKind = Literal[
+    "upstream", "group_results", "callable", "object", "view", "native", "pydantic", "task", "group", "task_result"
+]
+REF_KINDS: list[RefKind] = [UPSTREAM, GROUP_RESULTS, CALLABLE, OBJECT, VIEW, NATIVE, PYDANTIC, TASK, GROUP, TASK_RESULT]
 
 
 # --- Pydantic models ---------------------------------------------------
 
 
 class _FrozenRef(BaseModel):
-    """Shared config: refs are immutable value objects."""
+    """Shared config: refs are immutable value objects. The discriminator
+    rides on the ``_aaiclick_type`` alias (a leading underscore is private to
+    Pydantic as a field name)."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, populate_by_name=True)
+
+    def to_dict(self) -> dict[str, Any]:
+        return self.model_dump(by_alias=True)
 
 
 class UpstreamRef(_FrozenRef):
     """Reference to an upstream task's result."""
 
-    ref_type: Literal["upstream"] = UPSTREAM
-    task_id: int
-
-    def to_dict(self) -> dict[str, Any]:
-        return self.model_dump()
+    aaiclick_type: Literal["upstream"] = Field(default=UPSTREAM, alias=AAICLICK_TYPE)
+    task_id: int | str
 
 
 class GroupResultsRef(_FrozenRef):
     """Reference to the aggregated results of a Group's tasks."""
 
-    ref_type: Literal["group_results"] = GROUP_RESULTS
-    group_id: int
-
-    def to_dict(self) -> dict[str, Any]:
-        return self.model_dump()
+    aaiclick_type: Literal["group_results"] = Field(default=GROUP_RESULTS, alias=AAICLICK_TYPE)
+    group_id: int | str
 
 
 class CallableRef(_FrozenRef):
     """Reference to a callable entrypoint (module.function)."""
 
-    ref_type: Literal["callable"] = CALLABLE
+    aaiclick_type: Literal["callable"] = Field(default=CALLABLE, alias=AAICLICK_TYPE)
     entrypoint: str
-
-    def to_dict(self) -> dict[str, Any]:
-        return self.model_dump()
 
 
 def _drop_optional_metadata(wire: dict[str, Any]) -> dict[str, Any]:
@@ -169,7 +167,7 @@ class ObjectRef(_FrozenRef):
     ``False`` so the on-disk shape stays minimal for ephemeral tables.
     """
 
-    object_type: Literal["object"] = OBJECT
+    aaiclick_type: Literal["object"] = Field(default=OBJECT, alias=AAICLICK_TYPE)
     table: str
     persistent: bool | None = None
     job_id: int | None = None
@@ -177,9 +175,6 @@ class ObjectRef(_FrozenRef):
     @model_serializer(mode="wrap")
     def _to_wire(self, handler) -> dict[str, Any]:
         return _drop_optional_metadata(handler(self))
-
-    def to_dict(self) -> dict[str, Any]:
-        return self.model_dump()
 
 
 class ViewRef(_FrozenRef):
@@ -189,7 +184,7 @@ class ViewRef(_FrozenRef):
     ref consumers find the source table without parsing it.
     """
 
-    object_type: Literal["view"] = VIEW
+    aaiclick_type: Literal["view"] = Field(default=VIEW, alias=AAICLICK_TYPE)
     table: str
     view_schema: ViewSchema
     persistent: bool | None = None
@@ -199,19 +194,16 @@ class ViewRef(_FrozenRef):
     def _to_wire(self, handler) -> dict[str, Any]:
         return _drop_optional_metadata(handler(self))
 
-    def to_dict(self) -> dict[str, Any]:
-        return self.model_dump()
-
 
 # --- Constructors (thin wrappers around the models) -------------------
 
 
-def upstream_ref(task_id: int) -> dict[str, Any]:
+def upstream_ref(task_id: int | str) -> dict[str, Any]:
     """Build an upstream task reference dict."""
     return UpstreamRef(task_id=task_id).to_dict()
 
 
-def group_results_ref(group_id: int) -> dict[str, Any]:
+def group_results_ref(group_id: int | str) -> dict[str, Any]:
     """Build a group-results reference dict."""
     return GroupResultsRef(group_id=group_id).to_dict()
 
@@ -221,9 +213,18 @@ def callable_ref(entrypoint: str) -> dict[str, Any]:
     return CallableRef(entrypoint=entrypoint).to_dict()
 
 
-def native_value_ref(value: Any) -> dict[str, Any]:
+def native_ref(value: Any) -> dict[str, Any]:
     """Wrap a native JSON-serializable Python value."""
-    return {NATIVE_VALUE: value}
+    return {AAICLICK_TYPE: NATIVE, VALUE: value}
+
+
+def pydantic_ref(model: BaseModel) -> dict[str, Any]:
+    """Serialize a Pydantic model with its dotted class path."""
+    return {
+        AAICLICK_TYPE: PYDANTIC,
+        PYDANTIC_CLASS: f"{type(model).__module__}.{type(model).__qualname__}",
+        PYDANTIC_DATA: model.model_dump(),
+    }
 
 
 # --- Predicates --------------------------------------------------------
@@ -231,43 +232,33 @@ def native_value_ref(value: Any) -> dict[str, Any]:
 
 def is_upstream_ref(value: Any) -> bool:
     """True iff ``value`` is an upstream task reference dict."""
-    return isinstance(value, dict) and value.get(REF_TYPE) == UPSTREAM
+    return isinstance(value, dict) and value.get(AAICLICK_TYPE) == UPSTREAM
 
 
-def is_native_value_ref(value: Any) -> bool:
-    """True iff ``value`` is a ``native_value`` wrapper (the key alone)."""
-    return isinstance(value, dict) and NATIVE_VALUE in value and len(value) == 1
+def is_native_ref(value: Any) -> bool:
+    """True iff ``value`` is a ``native`` wrapper."""
+    return isinstance(value, dict) and value.get(AAICLICK_TYPE) == NATIVE
 
 
 def ref_kind(value: Any) -> RefKind | None:
     """Classify one serialized kwarg/result value; None for a plain value.
 
-    Single source of truth for which shape wins when keys overlap, shared by
-    the runner's deserializer and the jvm commit validator. A dict with an
-    unrecognized ``ref_type`` is plain. Raises ``ValueError`` on an unknown
-    ``object_type``."""
-    if not isinstance(value, dict):
+    Single source of truth shared by the runner's deserializer, the
+    returned-task registrar and the plain-data-plane validator. Raises
+    ``ValueError`` on an unknown ``_aaiclick_type`` — the key is reserved."""
+    if not isinstance(value, dict) or AAICLICK_TYPE not in value:
         return None
-    ref_type = value.get(REF_TYPE)
-    if ref_type in (UPSTREAM, CALLABLE, GROUP_RESULTS):
-        return ref_type
-    if is_native_value_ref(value):
-        return NATIVE_VALUE
-    if PYDANTIC_TYPE in value:
-        return PYDANTIC
-    if OBJECT_TYPE in value:
-        obj_type = value[OBJECT_TYPE]
-        if obj_type in (OBJECT, VIEW):
-            return obj_type
-        raise ValueError(f"Unknown object_type: {obj_type}")
-    return None
+    kind = value[AAICLICK_TYPE]
+    if kind not in REF_KINDS:
+        raise ValueError(f"Unknown {AAICLICK_TYPE}: {kind!r}")
+    return kind
 
 
 def is_persistent_object_ref(value: Any) -> bool:
     """True iff ``value`` is a serialized persistent Object reference."""
     return (
         isinstance(value, dict)
-        and value.get(OBJECT_TYPE) == OBJECT
+        and value.get(AAICLICK_TYPE) == OBJECT
         and value.get(PERSISTENT) is True
         and isinstance(value.get(TABLE), str)
     )

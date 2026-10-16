@@ -30,6 +30,7 @@ from job_wait import run_worker_until_done
 from runner_flow import run_build_job, run_shell_command_env_flow, run_smoke_flow, submit_shell_job
 from sandbox_e2e import run_sandbox_submission
 
+from aaiclick.data.object.refs import native_ref
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.models import JOB_FAILED
 from aaiclick.orchestration.runner_config import ENTRY_JVM, ImagePrebuilt, parse_image_source
@@ -50,7 +51,7 @@ async def test_docker_runner_default_dockerfile(orch_ctx, docker_e2e_bare_repo):
 
     entry = next(t for t in tasks if t.entrypoint == "bare_jobs.entry_task")
     # cwd is the copied repo, the non-root user could write into it, and the manifest's package is importable.
-    assert entry.result == {"native_value": {"cwd": "/src", "user": "aaiclick", "tabulate": "0.9.0"}}, (
+    assert entry.result == native_ref({"cwd": "/src", "user": "aaiclick", "tabulate": "0.9.0"}), (
         entry.result,
         entry.error,
     )
@@ -81,8 +82,8 @@ async def test_docker_runner_jvm_task(orch_ctx, docker_e2e_user_repo, jvm_task_i
     assert source.image_tag == jvm_task_image
 
     # The shim resolved produce_values' [10, 20, 30] through the upstream
-    # ref and wrote its map back in the shared ``native_value`` shape.
-    expected = {"native_value": {"total": 60.0, "count": 3}}
+    # ref and wrote its map back in the shared ``native`` shape.
+    expected = native_ref({"total": 60.0, "count": 3})
     assert summed.result == expected, summed.result
 
     # And the Python consumer read that jvm result as a plain dict.
