@@ -9,7 +9,7 @@ entry type, and the `log_path` plumbing disappears end to end.
 `capture_task_output`, `stream_to_task_logs`;
 `aaiclick/orchestration/execution/runner.py` — see `register_run`,
 `execute_shell_task`, `ShellSpec`;
-`aaiclick/orchestration/execution/dispatch.py` — see `build_shell_spec`.
+`aaiclick/orchestration/execution/dispatch.py` — see `dispatch_execute`.
 
 # Motivation
 
@@ -39,8 +39,8 @@ works for them unchanged.
 | Runner            | Capture (streamed → CH)                                        |
 |-------------------|----------------------------------------------------------------|
 | Host shell        | child stdout piped into the capture sink, drained every 2 s    |
-| Docker `shell`    | foreground `docker run --rm` stdout, same streaming pipe       |
-| Kubernetes shell  | `kubectl run --attach` stdout, same streaming pipe             |
+| Docker `shell`    | host follows `docker logs -f`, same streaming pipe             |
+| Kubernetes shell  | host follows `kubectl logs -f -c task`, same streaming pipe    |
 | Kubernetes module | pod streams to CH itself via `capture_task_output`             |
 
 Captured text is converted to `LogLine`s tagged with their source stream
