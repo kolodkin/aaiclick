@@ -9,7 +9,9 @@ and hands back its result). The Python objects (`Task`, `Group`,
 `TaskResult`, `Object`) and the Java shim are bindings of the contract, not
 the contract.
 
-User guide: `docs/user_guide/task_interface.md`.
+What a task author sees — the files, the spawn example, the `task` fields,
+the limits — is in `docs/user_guide/task_interface.md`; this document holds
+the vocabulary, the runner mechanics and the decisions.
 
 # Vocabulary
 
@@ -45,61 +47,41 @@ constants, Pydantic models, `ref_kind()`);
 
 ## Returned tasks and handles
 
-`task`, `group` and `task_result` are the JSON form of what a task function
-may return, so any task spawns children by returning them — a Python task as
-a dict, a shell or jvm task by writing them to `out.json`. A `task` dict
-carries `create_task()`'s parameters (`name`, `entry_type`, `entrypoint` or
-`command`, `command_env`, `kwargs`, `max_retries`, `image` or the `git_*`
-build fields) and passes the same entry validation a Python caller gets.
+`task`, `group` and `task_result` are the JSON form of a task function's
+return (example and `task` fields: user guide, "Spawning tasks"). A `task`
+dict is built through `create_task()`, so it gets the same entry validation
+a Python caller does. Rules the host enforces at registration:
 
-A foreign process cannot mint snowflake ids, so siblings in one return value
-refer to each other through string **handles** on `id`: a string `task_id` /
-`group_id` inside an `upstream` / `group_results` ref names a sibling, an int
-names a committed task. The host swaps handles for the ids it mints at
-registration, and every handle a task consumes becomes a dependency edge —
-as a `Task` kwarg does in Python — alongside `depends_on`. Handles are scoped
-to that one return value; an unknown or duplicate handle, or one of the wrong
-kind (a task where a group is expected), fails the parent. `data` may be a
-plain value (a `native` wrapper unwraps, like `out.json`'s top level) or a
-task handle, handed on as the Task itself so the parent's consumers wait for
-it — Python's `task_result(data=child)`.
-
-```json
-{"_aaiclick_type": "task_result",
- "data": {"_aaiclick_type": "upstream", "task_id": "fin"},
- "tasks": [
-   {"_aaiclick_type": "task", "id": "w1", "entry_type": "shell", "command": ["node", "w.js"], "kwargs": {"n": 1}},
-   {"_aaiclick_type": "task", "id": "w2", "entry_type": "shell", "command": ["node", "w.js"], "kwargs": {"n": 2}},
-   {"_aaiclick_type": "task", "id": "fin", "entry_type": "shell", "command": ["node", "fin.js"],
-    "kwargs": {"parts": [{"_aaiclick_type": "upstream", "task_id": "w1"},
-                         {"_aaiclick_type": "upstream", "task_id": "w2"}]}}
- ]}
-```
+- A string `task_id` / `group_id` is a handle naming a sibling in the same
+  return value; an int names a committed task. Handles are swapped for the
+  ids the host mints, and every handle a task consumes becomes a dependency
+  edge — as a `Task` kwarg does in Python — alongside `depends_on`.
+- An unknown or duplicate handle, or one of the wrong kind (a task where a
+  group is expected), fails the parent.
+- `data` is a plain value (a `native` wrapper unwraps) or a task handle,
+  handed on as the Task itself so the parent's consumers wait for it —
+  Python's `task_result(data=child)`. Any other handle in `data` is an error.
 
 **Implementation**: `aaiclick/orchestration/execution/runner.py` — see
 `register_returned_tasks()`, `_build_dag_from_dicts()`, `_wire_dag_dicts()`.
 
 # File data plane
 
-A shell or jvm task takes its inputs and returns its result through two JSON
-files in the directory named by `AAICLICK_IO_DIR`:
+A shell or jvm task reads `in.json` and may write `out.json` under
+`AAICLICK_IO_DIR` (contract: user guide, "The contract"). Host side:
 
-- `in.json` — the kwargs as a plain JSON object. The host resolves them before
-  launch: every `upstream` ref is replaced by the producer's value, every
-  `native` wrapper unwrapped. The process reads a plain object; nothing is
-  left to resolve.
-- `out.json` — the result, if the process writes it: any JSON value. Untagged
-  JSON is data; a top-level `native` wrapper unwraps; a `task_result` /
-  `task` / `group` dict registers children exactly as a Python return would.
-  No file → no result. Nonzero exit → the file is ignored and the task fails.
-- Stdout and stderr are logs (`task_logs`), untouched.
-
-Kwargs may carry only plain values, `native` wrappers and `upstream` refs —
-`object` / `view` / `callable` / `group_results` / `pydantic` refs are
-rejected at commit by `validate_plain_data_plane_tasks` (shell and jvm
-alike). An upstream producer that stored an Object fails the consumer at
-launch, since that is only knowable once the producer ran. Objects in
-non-Python tasks are unsupported (`future.md`).
+- Before launch, `resolve_plain_kwargs` turns the kwargs into plain JSON —
+  every `upstream` ref replaced by the producer's stored value, every
+  `native` wrapper unwrapped. Kwargs may carry nothing else: `object` /
+  `view` / `callable` / `group_results` / `pydantic` refs are rejected at
+  commit by `validate_plain_data_plane_tasks` (shell and jvm alike); a
+  producer that stored an Object fails the consumer at launch, since that is
+  only knowable once it ran. Objects in non-Python tasks are unsupported
+  (`future.md`).
+- After an exit 0, `finish_shell_result` interprets `out.json`: a top-level
+  `native` unwraps, a returned DAG is registered under the task's info (so
+  children inherit its image), and the data is serialized like a Python
+  return. Any other exit ignores the file.
 
 ## Transport per runner
 
@@ -130,13 +112,9 @@ error. `kubectl cp` / `exec` need `pods/exec` in the worker's Role; a copy
 that keeps failing fails the task with kubectl's reason after
 `COPY_IN_ATTEMPTS`. `command_env` values never sit on an argv (visible in
 `ps`): docker reads them from a private `--env-file`, kubernetes from a
-per-attempt Secret deleted with the Pod.
-
-In an isolated environment a shell or jvm task receives **only**
-`command_env` plus `AAICLICK_IO_DIR` — never the aaiclick runner env — so
-no DB credentials reach an arbitrary image. The subprocess runner has no
-isolation boundary, so the command inherits the worker's process env with
-`command_env` overlaid.
+per-attempt Secret deleted with the Pod. Neither runner injects the aaiclick
+runner env; the subprocess runner has no isolation boundary, so there the
+command inherits the worker's env with `command_env` overlaid.
 
 ## Where it runs
 
@@ -146,8 +124,7 @@ worker a subprocess shell task runs in the spawned task child module tasks
 use (it enforces the timeout and polls cancellation itself; the parent's
 kill is a `CHILD_TIMEOUT_GRACE` backstop). Container shell and jvm tasks run
 host-side on a `ShellVehicle`, like module containers — their launch is a
-multi-step sequence, not one argv — and the host interprets `out.json` after
-exit under the task's info, so children it returned inherit its image.
+multi-step sequence, not one argv.
 
 **Implementation**: `aaiclick/orchestration/execution/io_plane.py`;
 `aaiclick/orchestration/execution/runner.py` — see `execute_shell_task()`,
