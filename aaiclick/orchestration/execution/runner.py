@@ -25,20 +25,31 @@ from aaiclick.data.data_context.lifecycle import read_table_schema
 from aaiclick.data.models import Schema
 from aaiclick.data.object import LazyOperator, Object, View
 from aaiclick.data.object.refs import (
+    AAICLICK_TYPE,
     CALLABLE,
+    DATA,
+    DEPENDS_ON,
+    ENTRYPOINT,
+    GROUP,
+    GROUP_ID,
     GROUP_RESULTS,
+    HANDLE,
     NATIVE,
     OBJECT,
     PERSISTENT,
     PYDANTIC,
     PYDANTIC_CLASS,
     PYDANTIC_DATA,
+    TASK,
     TASK_ID,
+    TASK_RESULT,
+    TASKS,
     UPSTREAM,
     VALUE,
     VIEW,
     ObjectRef,
     ViewRef,
+    is_upstream_ref,
     native_ref,
     pydantic_ref,
     ref_kind,
@@ -50,6 +61,7 @@ from aaiclick.snowflake import get_snowflake_id
 from ...datetime_utils import utc_now
 from ..decorators import JobFactory, TaskFactory
 from ..dependency_graph import successor_edges
+from ..factories import create_task
 from ..logging import ChLogSink, capture_task_output, stream_to_task_logs
 from ..models import (
     DEPENDENCY_TASK,
@@ -647,6 +659,92 @@ def _tasks_from(items: Any) -> list[Task | Group]:
     return tasks
 
 
+def _is_dag_dict(value: Any) -> bool:
+    """True for a ``task`` / ``group`` dict — the JSON form of a DAG node."""
+    return ref_kind(value) in (TASK, GROUP)
+
+
+def _build_dag_from_dicts(items: list[dict]) -> tuple[list[Task | Group], dict[str, int]]:
+    """Build ``Task``/``Group`` objects from their JSON form, minting ids.
+
+    Returns the nodes in order plus the handle → id map for the handles the
+    dicts declared. Handles are scoped to this one return value.
+
+    Raises:
+        ValueError: on a duplicate handle.
+    """
+    handles: dict[str, int] = {}
+    nodes: list[Task | Group] = []
+
+    def claim(handle: str | None, node_id: int) -> None:
+        if handle is None:
+            return
+        if handle in handles:
+            raise ValueError(f"duplicate handle {handle!r} in returned tasks")
+        handles[handle] = node_id
+
+    def build(spec: dict) -> Task | Group:
+        fields = {k: v for k, v in spec.items() if k != AAICLICK_TYPE}
+        handle = fields.pop(HANDLE, None)
+        if spec[AAICLICK_TYPE] == GROUP:
+            group = Group(id=get_snowflake_id(), name=fields.get("name", "group"))
+            claim(handle, group.id)
+            for member in fields.get(TASKS, []):
+                if ref_kind(member) != TASK:
+                    raise TypeError("a group dict may hold only task dicts")
+                group.add_task(build(member))
+            return group
+        fields.pop(DEPENDS_ON, None)  # applied after every handle is known
+        task = create_task(fields.pop(ENTRYPOINT, None), **fields)
+        claim(handle, task.id)
+        return task
+
+    nodes = [build(spec) for spec in items]
+    return nodes, handles
+
+
+def _swap_handles(value: Any, handles: dict[str, int]) -> Any:
+    """Replace string handles inside ``upstream`` / ``group_results`` refs with
+    the ids minted for them; recurses through lists and dicts.
+
+    Raises:
+        ValueError: on a handle this return value did not declare.
+    """
+    if isinstance(value, list):
+        return [_swap_handles(v, handles) for v in value]
+    if not isinstance(value, dict):
+        return value
+    kind = ref_kind(value)
+    key = TASK_ID if kind == UPSTREAM else GROUP_ID if kind == GROUP_RESULTS else None
+    if key is not None and isinstance(value.get(key), str):
+        if value[key] not in handles:
+            raise ValueError(f"unknown handle {value[key]!r} in returned tasks")
+        return {**value, key: handles[value[key]]}
+    return {k: _swap_handles(v, handles) for k, v in value.items()}
+
+
+def _wire_dag_dicts(specs: list[dict], nodes: list[Task | Group], handles: dict[str, int]) -> None:
+    """Second pass over the dict DAG: swap handles in kwargs and apply
+    ``depends_on``, now that every handle has an id."""
+    by_id = {node.id: node for node in nodes}
+    for group in [n for n in nodes if isinstance(n, Group)]:
+        by_id.update({t.id: t for t in group.get_tasks()})
+
+    def walk(spec: dict, node: Task | Group) -> None:
+        if isinstance(node, Group):
+            for member_spec, member in zip(spec.get(TASKS, []), node.get_tasks(), strict=True):
+                walk(member_spec, member)
+            return
+        node.kwargs = _swap_handles(node.kwargs, handles)
+        for handle in spec.get(DEPENDS_ON, []):
+            if handle not in handles:
+                raise ValueError(f"unknown handle {handle!r} in returned tasks")
+            node.depends_on(by_id[handles[handle]])
+
+    for spec, node in zip(specs, nodes, strict=True):
+        walk(spec, node)
+
+
 async def _hold_dependencies(data_task: Task, parent_task_id: int) -> list[Dependency]:
     """Copy every edge leaving the parent (or its group) onto ``data_task``.
 
@@ -701,6 +799,19 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
     if result is None:
         return None
 
+    kind = ref_kind(result) if isinstance(result, dict) else None
+    if kind == TASK_RESULT or _is_dag_dict(result) or (isinstance(result, list) and any(map(_is_dag_dict, result))):
+        specs = result[TASKS] if kind == TASK_RESULT else result if isinstance(result, list) else [result]
+        if not all(map(_is_dag_dict, specs)):
+            raise TypeError("a returned task list may hold only task/group dicts")
+        nodes, handles = _build_dag_from_dicts(specs)
+        _wire_dag_dicts(specs, nodes, handles)
+        task_items = _tasks_from(nodes)
+        data_result = _swap_handles(result.get(DATA), handles) if kind == TASK_RESULT else None
+        if is_upstream_ref(data_result) and result[DATA][TASK_ID] in handles:
+            # ``data`` names a child: hand the Task itself on, as Python's
+            # ``task_result(data=child)`` does, so its consumers are held.
+            data_result = next(t for t in task_items if t.id == data_result[TASK_ID])
     elif isinstance(result, TaskResult):
         task_items = _tasks_from(result.tasks)
         data_result = result.data

@@ -38,6 +38,12 @@ from aaiclick.orchestration.execution.runner import (
     serialize_task_result,
 )
 from aaiclick.orchestration.factories import create_job, create_task
+from aaiclick.orchestration.fixtures.dict_return_pipelines import (
+    spawn_dicts,
+    spawn_duplicate_handle,
+    spawn_group,
+    spawn_unknown_handle,
+)
 from aaiclick.orchestration.jobs import get_job_result, get_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.logging import ChLogSink, read_task_logs
@@ -614,6 +620,41 @@ async def test_run_job_tasks_shell_command_env(orch_ctx):
     await run_job_tasks(job)
 
     assert job.status == JOB_COMPLETED
+
+
+# Dict-returned DAGs (the JSON form of task_result / task / group)
+
+
+async def test_run_job_tasks_dict_return_spawns_children(orch_ctx):
+    """A task returning ``task`` dicts with handles spawns the children and
+    its result is the finalize child's: double(1) + double(2) = 6."""
+    job = await create_job("dict_return", create_task(spawn_dicts, {"n": 1}, name="dict_return"))
+    await run_job_tasks(job)
+    assert job.status == JOB_COMPLETED, job.error
+    async with data_context():
+        assert await get_job_result(job) == 6
+
+
+async def test_run_job_tasks_dict_return_group_results(orch_ctx):
+    job = await create_job("dict_return_group", create_task(spawn_group, {"n": 1}, name="dict_return_group"))
+    await run_job_tasks(job)
+    assert job.status == JOB_COMPLETED, job.error
+    async with data_context():
+        assert await get_job_result(job) == 6
+
+
+@pytest.mark.parametrize(
+    "entry, match",
+    [
+        pytest.param(spawn_duplicate_handle, "duplicate handle 'w1'", id="duplicate"),
+        pytest.param(spawn_unknown_handle, "unknown handle 'nope'", id="unknown"),
+    ],
+)
+async def test_run_job_tasks_dict_return_bad_handles_fail_parent(orch_ctx, entry, match):
+    job = await create_job("bad_handles", create_task(entry))
+    await run_job_tasks(job)
+    assert job.status == JOB_FAILED
+    assert match in (job.error or "")
 
 
 # job_test() tests
