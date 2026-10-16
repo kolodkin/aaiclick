@@ -4,7 +4,7 @@
 Module-level so a worker can import every child by entrypoint.
 """
 
-from aaiclick.data.object.refs import group_results_ref, upstream_ref
+from aaiclick.data.object.refs import group_results_ref, native_ref, upstream_ref
 from aaiclick.orchestration.decorators import task
 
 _MODULE = "aaiclick.orchestration.fixtures.dict_return_pipelines"
@@ -68,3 +68,30 @@ async def spawn_unknown_handle() -> dict:
         "data": None,
         "tasks": [_task_dict("fin", "total", {"parts": [upstream_ref("nope")]})],
     }
+
+
+@task
+async def spawn_bad_entry_type() -> dict:
+    return {"_aaiclick_type": "task", "entry_type": "banana", "entrypoint": f"{_MODULE}.double", "kwargs": {"x": 1}}
+
+
+@task
+async def spawn_native_data() -> dict:
+    """``data`` is a plain value next to a child, unwrapped like out.json's top level."""
+    return {"_aaiclick_type": "task_result", "data": native_ref(5), "tasks": [_task_dict("w1", "double", {"x": 1})]}
+
+
+@task
+async def spawn_group_data() -> dict:
+    """``data`` may name a child task, never a group."""
+    return {
+        "_aaiclick_type": "task_result",
+        "data": group_results_ref("g"),
+        "tasks": [{"_aaiclick_type": "group", "id": "g", "name": "g", "tasks": [_task_dict("w1", "double", {"x": 1})]}],
+    }
+
+
+@task
+async def spawn_wrong_handle_kind() -> list[dict]:
+    """A task handle where a group handle is expected."""
+    return [_task_dict("w1", "double", {"x": 1}), _task_dict("fin", "total", {"parts": group_results_ref("w1")})]

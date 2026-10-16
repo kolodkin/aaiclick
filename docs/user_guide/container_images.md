@@ -102,8 +102,10 @@ sibling `ca.crt`. No kubeconfig mount is needed; the worker calls plain
     `kubectl` connects fine via in-cluster config, but the API rejects it until
     the pod's ServiceAccount is bound to a Role granting exactly what the vehicle
     does: `pods` (`create`, `get`, `list`, `watch`, `delete`), `pods/log`
-    (`get`) and `secrets` (`create`, `delete` — a shell task's `command_env`
-    rides in a per-attempt Secret) in the target namespace.
+    (`get`), `pods/exec` (`create`, `get` — a shell task's `in.json` /
+    `out.json` move through `kubectl cp` / `exec`) and `secrets` (`create`,
+    `delete` — its `command_env` rides in a per-attempt Secret) in the target
+    namespace.
 
 ```yaml
 apiVersion: v1
@@ -120,6 +122,9 @@ rules:
   - apiGroups: [""]
     resources: [pods/log]
     verbs: [get]
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create, get]
   - apiGroups: [""]
     resources: [secrets]
     verbs: [create, delete]

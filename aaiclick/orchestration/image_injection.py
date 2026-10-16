@@ -27,23 +27,33 @@ from ..snowflake import get_snowflake_id
 from .docker_config import image_key
 from .execution.image_build_task import IMAGE_BUILD_ENTRYPOINT, build_task_name
 from .models import TASK_PENDING, Job, Task
-from .runner_config import ENTRY_JVM, ENTRY_SHELL, ImageBuild, parse_image_source
+from .runner_config import ENTRY_JVM, ENTRY_SHELL, EntryType, ImageBuild, parse_image_source
 
 BUILD_TASK_MAX_RETRIES = 2
 
 
-def stamp_inherited_image(tasks: list[Task], parent_image_source: dict | None) -> None:
-    """Fill ``image_source`` on tasks that didn't declare their own.
+def _inherits(child: Task, parent_entry_type: EntryType) -> bool:
+    """Whether a child with no image of its own can run in its parent's image.
+    A shell argv runs anywhere; a module child needs a Python image (module or
+    shell parents); a jvm child needs the shim's image (a jvm parent)."""
+    if child.entry_type == ENTRY_SHELL:
+        return True
+    if child.entry_type == ENTRY_JVM:
+        return parent_entry_type == ENTRY_JVM
+    return parent_entry_type != ENTRY_JVM
+
+
+def stamp_inherited_image(tasks: list[Task], parent_image_source: dict | None, parent_entry_type: EntryType) -> None:
+    """Fill ``image_source`` on tasks that didn't declare their own and can run
+    in the committing task's image (``_inherits``).
 
     ``parent_image_source`` is the committing task's own stamped value (or
     None outside task execution / for a NULL-image parent, in which case
-    undeclared children stay NULL ⇒ host subprocess). jvm tasks never
-    inherit: the committing task is a Python one, and its image has no JVM
-    entrypoint."""
+    undeclared children stay NULL ⇒ host subprocess)."""
     if parent_image_source is None:
         return
     for task in tasks:
-        if task.image_source is None and task.entry_type != ENTRY_JVM:
+        if task.image_source is None and _inherits(task, parent_entry_type):
             task.image_source = parent_image_source
 
 

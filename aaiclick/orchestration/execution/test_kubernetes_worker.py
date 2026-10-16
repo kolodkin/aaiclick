@@ -6,6 +6,7 @@ single-session constraint in ``docs/designs/testing.md``."""
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock
 
 import pytest
@@ -14,7 +15,7 @@ from aaiclick.data.object.refs import native_ref
 
 from ..kubernetes_config import KubernetesConfig
 from ..logging import read_task_logs
-from ..models import Task
+from ..models import TASK_COMPLETED, TASK_PENDING_FAILURE_CLEANUP, Task
 from ..runner_config import ENTRY_JVM, ImagePrebuilt
 from . import kubernetes_worker as kw
 from .execution_worker import JobDispatch
@@ -191,14 +192,17 @@ def test_shell_pod_manifest_has_io_helpers_and_shared_volume(monkeypatch):
         name="p",
         namespace="ns",
         image_tag="img",
+        entry_type="shell",
         command=["sh", "-c", "x"],
         service_account="sa",
         image_pull_secret=None,
         resources={"limits": {"cpu": "1"}},
         command_env_secret="p",
+        active_deadline=90,
     )
     spec = m["spec"]
     assert spec["restartPolicy"] == "Never" and spec["serviceAccountName"] == "sa"
+    assert spec["activeDeadlineSeconds"] == 90
     assert [c["name"] for c in spec["containers"]] == ["task", "io"]
     assert [c["name"] for c in spec["initContainers"]] == ["io-in"]
     helpers = (*spec["initContainers"], spec["containers"][1])
@@ -219,14 +223,35 @@ def test_shell_pod_manifest_without_command_env_has_no_env_from():
         name="p",
         namespace="ns",
         image_tag="img",
+        entry_type="shell",
         command=["true"],
         service_account=None,
         image_pull_secret=None,
         resources=None,
         command_env_secret=None,
+        active_deadline=kw.ORPHAN_POD_DEADLINE,
     )
     assert "envFrom" not in m["spec"]["containers"][0]
     assert "serviceAccountName" not in m["spec"]
+
+
+def test_jvm_pod_manifest_passes_class_name_as_args():
+    """``command`` would override the image ENTRYPOINT (the shim); the class
+    name must go through ``args``."""
+    m = build_shell_pod_manifest(
+        name="p",
+        namespace="ns",
+        image_tag="img",
+        entry_type="jvm",
+        command=["com.example.Pipeline"],
+        service_account=None,
+        image_pull_secret=None,
+        resources=None,
+        command_env_secret=None,
+        active_deadline=kw.ORPHAN_POD_DEADLINE,
+    )
+    task = m["spec"]["containers"][0]
+    assert task["args"] == ["com.example.Pipeline"] and "command" not in task
 
 
 # One ``get`` answer serves the whole shell lifecycle: the init container is
@@ -234,11 +259,19 @@ def test_shell_pod_manifest_without_command_env_has_no_env_from():
 _FAKE_KUBECTL_SHELL = """#!/bin/sh
 d="$(dirname "$0")"
 case "$1" in
-  get) printf '%s' '{"status": {"phase": "Running", "initContainerStatuses": [{"name": "io-in", "state": {"running": {}}}], "containerStatuses": [{"name": "task", "state": {"terminated": {"exitCode": 0}}}, {"name": "io", "state": {"running": {}}}]}}' ;;
-  cp) cp "$2" "$d/in-copy.json"; echo "$@" > "$d/cp-argv" ;;
-  exec) echo "$@" > "$d/exec-argv"; printf '%s' "$FAKE_OUT_JSON" ;;
+  get) if [ -n "$FAKE_CP_FAIL" ]; then phase=Pending; task='{"waiting": {}}'; else phase=Running; task='{"terminated": {"exitCode": 0}}'; fi
+       printf '{"status": {"phase": "%s", "initContainerStatuses": [{"name": "io-in", "state": {"running": {}}}], "containerStatuses": [{"name": "task", "state": %s}, {"name": "io", "state": {"running": {}}}]}}' "$phase" "$task" ;;
+  cp) if [ -n "$FAKE_CP_FAIL" ]; then echo "pods/exec forbidden" >&2; exit 1; fi
+      cp "$2" "$d/in-copy.json"; echo "$@" > "$d/cp-argv" ;;
+  exec) echo "$@" > "$d/exec-argv"
+        case "$FAKE_OUT_MODE" in
+          missing) exit 3 ;;
+          broken) echo "unable to upgrade connection" >&2; exit 1 ;;
+          *) printf '%s' "$FAKE_OUT_JSON" ;;
+        esac ;;
   logs) echo "pod says hi" ;;
-  apply|create|delete) echo "$1" >> "$d/calls" ;;
+  apply) cp "$3" "$d/applied.json"; echo "$1" >> "$d/calls" ;;
+  create|delete) echo "$1" >> "$d/calls" ;;
 esac
 """
 
@@ -262,9 +295,50 @@ async def test_shell_pod_round_trips_in_and_out_json(orch_ctx, monkeypatch, tmp_
     assert (tmp_path / "in-copy.json").read_text() == "{}"
     cp_argv = (tmp_path / "cp-argv").read_text().split()
     assert cp_argv[2].endswith(":/aaiclick/in.json") and cp_argv[-2:] == ["-c", "io-in"]
-    exec_argv = (tmp_path / "exec-argv").read_text().split()
-    assert exec_argv[-5:] == ["-c", "io", "--", "cat", "/aaiclick/out.json"]
+    exec_argv = (tmp_path / "exec-argv").read_text()
+    assert "-c io -- sh -c" in exec_argv and "/aaiclick/out.json" in exec_argv
     assert (tmp_path / "calls").read_text().split() == ["create", "apply", "delete"]
+
+
+def _shell_spec() -> JobDispatch:
+    return JobDispatch(
+        RUNNER_KUBERNETES,
+        KubernetesConfig("jobs", None, None),
+        entry_type="shell",
+        command=["sh", "-c", "x"],
+        image_source=ImagePrebuilt(image_tag="img:1"),
+    )
+
+
+@pytest.mark.parametrize(
+    "mode, status, error",
+    [
+        # Only "no such file" is "no result"; any other read failure fails the task.
+        pytest.param("missing", TASK_COMPLETED, None, id="missing-out-json"),
+        pytest.param("broken", TASK_PENDING_FAILURE_CLEANUP, "unable to upgrade connection", id="exec-failure"),
+    ],
+)
+async def test_shell_pod_out_json_read_failures(orch_ctx, monkeypatch, tmp_path, mode, status, error):
+    monkeypatch.setenv("FAKE_OUT_MODE", mode)
+    stored = await dispatch_with_fake_cli(
+        monkeypatch, tmp_path, "AAICLICK_KUBECTL_BIN", _FAKE_KUBECTL_SHELL, _shell_spec()
+    )
+    assert (stored.status, stored.result) == (status, None)
+    if error:
+        assert error in (stored.error or "")
+
+
+async def test_shell_pod_copy_in_failure_fails_the_task(orch_ctx, monkeypatch, tmp_path):
+    """``kubectl cp`` needs ``pods/exec``; a cluster without it must fail the
+    task with kubectl's reason, not park the Pod in Init forever."""
+    monkeypatch.setenv("FAKE_CP_FAIL", "1")
+    monkeypatch.setattr(kw, "COPY_IN_ATTEMPTS", 2)
+    monkeypatch.setattr(kw, "POLL_INTERVAL", 0.01)
+    stored = await dispatch_with_fake_cli(
+        monkeypatch, tmp_path, "AAICLICK_KUBECTL_BIN", _FAKE_KUBECTL_SHELL, _shell_spec()
+    )
+    assert stored.status == TASK_PENDING_FAILURE_CLEANUP
+    assert "pods/exec forbidden" in (stored.error or "")
 
 
 async def test_jvm_pod_output_reaches_task_logs(orch_ctx, monkeypatch, tmp_path):
@@ -283,3 +357,6 @@ async def test_jvm_pod_output_reaches_task_logs(orch_ctx, monkeypatch, tmp_path)
     assert len(stored.run_ids) == 1
     lines = await read_task_logs(stored.id, stored.run_ids[0])
     assert [(line.stream, line.text) for line in lines] == [("stdout", "pod says hi")]
+    applied = json.loads((tmp_path / "applied.json").read_text())
+    task = applied["spec"]["containers"][0]
+    assert task["args"] == ["aaiclick.orchestration.fixtures.sample_tasks.simple_task"] and "command" not in task

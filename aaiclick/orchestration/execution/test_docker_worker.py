@@ -11,7 +11,7 @@ import pytest
 from aaiclick.data.object.refs import native_ref
 
 from ..logging import read_task_logs
-from ..models import Task
+from ..models import TASK_COMPLETED, TASK_PENDING_FAILURE_CLEANUP, Task
 from ..runner_config import ENTRY_JVM, ENTRY_MODULE, EntryType, ImagePrebuilt
 from . import docker_worker, execution_worker
 from .docker_worker import build_docker_create_cmd, write_command_env_file
@@ -230,8 +230,13 @@ d="$(dirname "$0")"
 case "$1" in
   create) echo "$@" > "$d/create-argv"; echo fake-cid ;;
   cp) case "$2" in
-        *:/aaiclick/out.json) printf '%s' "$FAKE_OUT_JSON" > "$3" ;;
-        *) cp -r "$2" "$d/in-copy" ;;
+        *:/aaiclick/out.json)
+          case "$FAKE_OUT_MODE" in
+            missing) echo "Error response from daemon: Could not find the file /aaiclick/out.json in container x" >&2; exit 1 ;;
+            broken) echo "error during connect: EOF" >&2; exit 1 ;;
+            *) printf '%s' "$FAKE_OUT_JSON" > "$3" ;;
+          esac ;;
+        *) cp -r "$2" "$d/in-copy"; stat -c %a "$2" > "$d/in-mode" ;;
       esac ;;
   start) : ;;
   wait) echo 0 ;;
@@ -256,14 +261,35 @@ async def test_shell_container_round_trips_in_and_out_json(orch_ctx, monkeypatch
         image_source=ImagePrebuilt(image_tag="img:1"),
     )
     stored = await dispatch_with_fake_cli(monkeypatch, tmp_path, "AAICLICK_DOCKER_BIN", _FAKE_DOCKER_SHELL, spec)
-    print("DBG", stored.status, stored.error, sorted(p.name for p in tmp_path.iterdir()))
 
     assert stored.result == native_ref({"k": "v"}), stored.error
     argv = (tmp_path / "create-argv").read_text().split()
     assert argv[argv.index("-e") + 1] == "AAICLICK_IO_DIR=/aaiclick"
     assert argv[-3:] == ["sh", "-c", "x"]
     assert (tmp_path / "in-copy" / "in.json").read_text() == "{}"
+    # docker cp keeps the mode and makes root the owner: a non-root image
+    # (the scaffolded one runs as USER aaiclick) must still write out.json.
+    assert (tmp_path / "in-mode").read_text().strip() == "777"
     assert not list(tmp_path.glob("aaiclick-io-*")) and not list(tmp_path.glob("aaiclick-task-*.env"))
+
+
+@pytest.mark.parametrize(
+    "mode, status, error",
+    [
+        # Only "could not find the file" is "no result"; any other cp failure fails the task.
+        pytest.param("missing", TASK_COMPLETED, None, id="missing-out-json"),
+        pytest.param("broken", TASK_PENDING_FAILURE_CLEANUP, "error during connect", id="daemon-failure"),
+    ],
+)
+async def test_shell_container_out_json_read_failures(orch_ctx, monkeypatch, tmp_path, mode, status, error):
+    monkeypatch.setenv("FAKE_OUT_MODE", mode)
+    spec = JobDispatch(
+        RUNNER_DOCKER, None, entry_type="shell", command=["true"], image_source=ImagePrebuilt(image_tag="img:1")
+    )
+    stored = await dispatch_with_fake_cli(monkeypatch, tmp_path, "AAICLICK_DOCKER_BIN", _FAKE_DOCKER_SHELL, spec)
+    assert (stored.status, stored.result) == (status, None)
+    if error:
+        assert error in (stored.error or "")
 
 
 async def test_jvm_container_output_reaches_task_logs(orch_ctx, monkeypatch, tmp_path):

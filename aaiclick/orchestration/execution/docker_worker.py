@@ -268,6 +268,10 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", "RunnerResult | None"]):
         await _docker_rm(handle.container_id)
 
 
+# ``docker cp`` wording for a source path that does not exist, across daemon versions.
+_MISSING_FILE_MARKERS = frozenset({"Could not find the file", "No such container:path"})
+
+
 class _ShellHandle(NamedTuple):
     name: str
     io_dir: Path
@@ -291,13 +295,18 @@ class _DockerShellVehicle(TaskVehicle["_ShellHandle", "Any"]):
         env_file = write_command_env_file(self._dispatch.command_env) if self._dispatch.command_env else None
         handle = _ShellHandle(name, io_dir, env_file)
         try:
-            write_in_json(io_dir, await resolve_plain_kwargs(task.kwargs))
+            # ``docker cp`` keeps the mode and makes root the owner, so the
+            # copied dir is world-writable for images running as another user.
+            staging = io_dir / "io"
+            staging.mkdir()
+            staging.chmod(0o777)
+            write_in_json(staging, await resolve_plain_kwargs(task.kwargs))
             cmd = build_docker_create_cmd(
                 name, self._image_tag, self._dispatch.command or [], self._dispatch.resources, env_file
             )
             await cli.run(*cmd, stream=False)
             # ``<dir>/.`` copies the contents, creating the target dir when the image lacks it.
-            await cli.run(_docker_bin(), "cp", f"{io_dir}/.", f"{name}:{CONTAINER_IO_DIR}", stream=False)
+            await cli.run(_docker_bin(), "cp", f"{staging}/.", f"{name}:{CONTAINER_IO_DIR}", stream=False)
             await cli.run(_docker_bin(), "start", name, stream=False)
         except BaseException:
             await self.cleanup(handle)
@@ -308,8 +317,7 @@ class _DockerShellVehicle(TaskVehicle["_ShellHandle", "Any"]):
         exit_code, error = await _wait_for_container(handle.name, timeout)
         if error is not None or exit_code != 0:
             return exit_code, error, None
-        # A missing out.json makes ``docker cp`` fail: no result, not an error.
-        rc, _, _ = await cli.run(
+        rc, out, err = await cli.run(
             _docker_bin(),
             "cp",
             f"{handle.name}:{CONTAINER_IO_DIR}/{OUT_JSON}",
@@ -318,7 +326,10 @@ class _DockerShellVehicle(TaskVehicle["_ShellHandle", "Any"]):
             stream=False,
         )
         if rc != 0:
-            return exit_code, None, None
+            # Only a missing out.json is "no result"; a daemon failure must not pass as one.
+            if any(marker in err for marker in _MISSING_FILE_MARKERS):
+                return exit_code, None, None
+            return exit_code, f"reading {OUT_JSON} failed: {err.strip() or out.strip()}", None
         try:
             return exit_code, None, read_out_json(handle.io_dir)
         except ValueError as e:

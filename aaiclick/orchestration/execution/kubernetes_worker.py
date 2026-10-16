@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 from ..models import Task
+from ..runner_config import ENTRY_JVM, EntryType
 from . import cli
 from .claiming import check_task_cancelled
 from .docker_build import resolve_launch_image
@@ -44,6 +45,17 @@ from .runner_env import build_runner_env
 
 IO_IMAGE_ENV = "AAICLICK_K8S_IO_IMAGE"
 DEFAULT_IO_IMAGE = "busybox:1.36"
+# A shell Pod never ends on its own (the ``io`` sidecar sleeps), so one a
+# crashed worker orphans is bounded by ``activeDeadlineSeconds``: the task
+# timeout plus slack when one is set, else this.
+ORPHAN_POD_DEADLINE = 7 * 24 * 3600
+ORPHAN_POD_SLACK = 60
+# ``kubectl cp`` needs ``pods/exec``; a cluster without it must fail the task
+# with kubectl's reason rather than park the Pod in Init forever.
+COPY_IN_ATTEMPTS = 30
+# Exit code the out.json read uses for "no such file", distinct from any
+# failure of ``kubectl exec`` itself.
+_NO_OUT_JSON_RC = 3
 _IO_VOLUME = "aaiclick-io"
 _IO_IN_CONTAINER = "io-in"
 _IO_CONTAINER = "io"
@@ -237,25 +249,30 @@ def build_shell_pod_manifest(
     name: str,
     namespace: str,
     image_tag: str,
+    entry_type: EntryType,
     command: list[str],
     service_account: str | None,
     image_pull_secret: str | None,
     resources: dict | None,
     command_env_secret: str | None,
+    active_deadline: int,
 ) -> dict:
     """Manifest of a shell/jvm Pod on the file data plane.
 
     ``task`` runs the user's argv with only ``command_env`` (from the
     per-attempt Secret, ``envFrom``) and ``AAICLICK_IO_DIR`` — never the
-    runner env, so no aaiclick secrets reach a vanilla image. Init container
-    ``io-in`` holds the Pod until the host has copied ``in.json`` in; sidecar
-    ``io`` keeps the Pod alive so ``out.json`` can be read after ``task``
-    exits. All three share one ``emptyDir``; the helpers request no resources."""
+    runner env, so no aaiclick secrets reach a vanilla image. A jvm argv (the
+    class name) goes through ``args``: ``command`` would override the image's
+    ENTRYPOINT, which is the shim. Init container ``io-in`` holds the Pod
+    until the host has copied ``in.json`` in; sidecar ``io`` keeps the Pod
+    alive so ``out.json`` can be read after ``task`` exits, bounded by
+    ``activeDeadlineSeconds``. All three share one ``emptyDir``; the helpers
+    request no resources."""
     mount = [{"name": _IO_VOLUME, "mountPath": CONTAINER_IO_DIR}]
     task: dict = {
         "name": _TASK_CONTAINER,
         "image": image_tag,
-        "command": command,
+        "args" if entry_type == ENTRY_JVM else "command": command,
         "env": [{"name": IO_DIR_ENV, "value": CONTAINER_IO_DIR}],
         "volumeMounts": mount,
     }
@@ -279,6 +296,7 @@ def build_shell_pod_manifest(
     )
     manifest["spec"]["initContainers"] = [io_in]
     manifest["spec"]["volumes"] = [{"name": _IO_VOLUME, "emptyDir": {}}]
+    manifest["spec"]["activeDeadlineSeconds"] = active_deadline
     return manifest
 
 
@@ -290,6 +308,8 @@ class _ShellPodHandle(_PodHandle):
         super().__init__(name, namespace, task_id, job_id, run_epoch)
         self.io_dir = io_dir
         self.in_copied = False
+        self.copy_failures = 0
+        self.copy_error = ""
         self.secret = False
 
 
@@ -333,8 +353,9 @@ class _KubernetesShellVehicle(TaskVehicle["_ShellPodHandle", "Any"]):
     parsed ``out.json``; ``collect`` keeps it on ``out_value`` for the
     ExecuteFn, since a ``RunnerResult`` carries only serialized refs."""
 
-    def __init__(self, spec: _PodSpec) -> None:
+    def __init__(self, spec: _PodSpec, timeout: float | None) -> None:
         self._spec = spec
+        self._deadline = int(timeout + ORPHAN_POD_SLACK) if timeout is not None else ORPHAN_POD_DEADLINE
         self.out_value: Any = None
 
     async def launch(self, task: Task, execution_worker_id: int) -> _ShellPodHandle:
@@ -352,11 +373,13 @@ class _KubernetesShellVehicle(TaskVehicle["_ShellPodHandle", "Any"]):
                 name=name,
                 namespace=self._spec.namespace,
                 image_tag=self._spec.image_tag,
+                entry_type=self._spec.entry_type,
                 command=self._spec.command or [],
                 service_account=self._spec.service_account,
                 image_pull_secret=self._spec.image_pull_secret,
                 resources=self._spec.resources,
                 command_env_secret=name if handle.secret else None,
+                active_deadline=self._deadline,
             )
             with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
                 json.dump(manifest, f)
@@ -371,7 +394,7 @@ class _KubernetesShellVehicle(TaskVehicle["_ShellPodHandle", "Any"]):
         return handle
 
     async def _copy_in(self, handle: _ShellPodHandle) -> None:
-        rc, _, _ = await cli.run(
+        rc, _, err = await cli.run(
             _kubectl_bin(),
             "cp",
             str(handle.io_dir / IN_JSON),
@@ -381,7 +404,10 @@ class _KubernetesShellVehicle(TaskVehicle["_ShellPodHandle", "Any"]):
             check=False,
             stream=False,
         )
-        handle.in_copied = rc == 0  # a failed copy is retried on the next poll
+        handle.in_copied = rc == 0
+        if rc != 0:  # retried on the next poll, up to COPY_IN_ATTEMPTS
+            handle.copy_failures += 1
+            handle.copy_error = err.strip()
 
     async def wait(self, handle: _ShellPodHandle, timeout: float | None) -> tuple[int, str | None, Any]:
         """Poll the Pod: copy ``in.json`` once ``io-in`` runs, then wait for
@@ -396,6 +422,9 @@ class _KubernetesShellVehicle(TaskVehicle["_ShellPodHandle", "Any"]):
                 return -1, f"Pod {handle.name} disappeared", None
             if not handle.in_copied and _container_state(pod, _IO_IN_CONTAINER, init=True)[0] == "running":
                 await self._copy_in(handle)
+                if handle.copy_failures >= COPY_IN_ATTEMPTS:
+                    handle.mark_started(pod.get("status", {}).get("phase", ""))
+                    return -1, f"kubectl cp of in.json failed {handle.copy_failures} times: {handle.copy_error}", None
             state, exit_code = _container_state(pod, _TASK_CONTAINER)
             if state in ("running", "terminated"):
                 handle.mark_started(pod.get("status", {}).get("phase", "Running"))
@@ -408,7 +437,8 @@ class _KubernetesShellVehicle(TaskVehicle["_ShellPodHandle", "Any"]):
             elapsed += POLL_INTERVAL
         if exit_code != 0:
             return exit_code, None, None
-        rc, out, _ = await cli.run(
+        out_path = f"{CONTAINER_IO_DIR}/{OUT_JSON}"
+        rc, out, err = await cli.run(
             _kubectl_bin(),
             "exec",
             handle.name,
@@ -417,13 +447,16 @@ class _KubernetesShellVehicle(TaskVehicle["_ShellPodHandle", "Any"]):
             "-c",
             _IO_CONTAINER,
             "--",
-            "cat",
-            f"{CONTAINER_IO_DIR}/{OUT_JSON}",
+            "sh",
+            "-c",
+            f"if [ -f {out_path} ]; then cat {out_path}; else exit {_NO_OUT_JSON_RC}; fi",
             check=False,
             stream=False,
         )
-        if rc != 0:
+        if rc == _NO_OUT_JSON_RC:
             return exit_code, None, None  # no out.json: no result
+        if rc != 0:
+            return exit_code, f"reading {OUT_JSON} failed: {err.strip() or out.strip()}", None
         try:
             return exit_code, None, parse_out_json(out)
         except ValueError as e:
@@ -467,12 +500,13 @@ async def _run_shell_in_pod(
     ``_KubernetesShellVehicle``, then interpret ``out.json`` host-side
     (``finish_shell_result`` registers any returned tasks)."""
     image_tag = await resolve_launch_image(dispatch.image_source, task_id=task.id)
-    vehicle = _KubernetesShellVehicle(_pod_spec_from(task, dispatch, image_tag))
+    timeout = parse_task_timeout()
+    vehicle = _KubernetesShellVehicle(_pod_spec_from(task, dispatch, image_tag), timeout)
     result = await drive_vehicle(
         task,
         execution_worker_id,
         vehicle,
-        timeout=parse_task_timeout(),
+        timeout=timeout,
         poll_interval=POLL_INTERVAL,
         heartbeat_fn=execution_worker_heartbeat,
         log_run_id=log_run_id,

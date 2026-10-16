@@ -24,16 +24,31 @@ def test_stamp_inherited_image_fills_only_undeclared():
     declared = create_task("m.f1")
     declared.image_source = BUILD_B
     inherited = create_task("m.f2")
-    jvm = create_task("com.example.Pipeline", entry_type="jvm")
-    stamp_inherited_image([declared, inherited, jvm], BUILD_A)
+    stamp_inherited_image([declared, inherited], BUILD_A, "module")
     assert declared.image_source == BUILD_B
     assert inherited.image_source == BUILD_A
-    assert jvm.image_source is None
+
+
+@pytest.mark.parametrize(
+    "parent_entry_type, child, inherits",
+    [
+        # A Python image has no JVM entrypoint; a JVM image has no Python.
+        pytest.param("module", create_task("com.example.Pipeline", entry_type="jvm"), False, id="jvm-of-module"),
+        pytest.param("jvm", create_task("m.f"), False, id="module-of-jvm"),
+        pytest.param("jvm", create_task("com.example.Worker", entry_type="jvm"), True, id="jvm-of-jvm"),
+        # A shell argv runs in whatever image the parent had.
+        pytest.param("jvm", create_task(None, entry_type="shell", command=["true"]), True, id="shell-of-jvm"),
+        pytest.param("shell", create_task("m.f"), True, id="module-of-shell"),
+    ],
+)
+def test_stamp_inherited_image_by_entry_type(parent_entry_type, child, inherits):
+    stamp_inherited_image([child], BUILD_A, parent_entry_type)
+    assert (child.image_source == BUILD_A) is inherits
 
 
 def test_stamp_inherited_image_none_parent_is_noop():
     t = create_task("m.f")
-    stamp_inherited_image([t], None)
+    stamp_inherited_image([t], None, "module")
     assert t.image_source is None
 
 

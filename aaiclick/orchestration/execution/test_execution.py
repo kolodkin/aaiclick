@@ -40,10 +40,14 @@ from aaiclick.orchestration.execution.runner import (
 )
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.fixtures.dict_return_pipelines import (
+    spawn_bad_entry_type,
     spawn_dicts,
     spawn_duplicate_handle,
     spawn_group,
+    spawn_group_data,
+    spawn_native_data,
     spawn_unknown_handle,
+    spawn_wrong_handle_kind,
 )
 from aaiclick.orchestration.jobs import get_job_result, get_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
@@ -754,14 +758,41 @@ async def test_run_job_tasks_dict_return_group_results(orch_ctx):
         assert await get_job_result(job) == 6
 
 
+async def test_run_job_tasks_dict_return_wires_data_flow_edges(orch_ctx):
+    """A handle in a child's kwargs is a dependency edge, as a Task kwarg is in
+    Python — otherwise a second worker claims ``fin`` before ``w1``/``w2``
+    complete (an internal check: ``run_job_tasks`` runs children in id order
+    and cannot show the race)."""
+    job = await create_job("dict_return_edges", create_task(spawn_dicts, {"n": 1}, name="dict_return_edges"))
+    await run_job_tasks(job)
+    tasks = await get_tasks_for_job(job.id)
+    doubles = [t for t in tasks if t.entrypoint.endswith(".double")]
+    fin = next(t for t in tasks if t.entrypoint.endswith(".total"))
+    assert len(doubles) == 2
+    async with get_sql_session() as session:
+        rows = (await session.execute(select(Dependency.previous_id).where(Dependency.next_id == fin.id))).all()
+    assert {r[0] for r in rows} >= {d.id for d in doubles}
+
+
+async def test_run_job_tasks_dict_return_native_data(orch_ctx):
+    job = await create_job("dict_native_data", create_task(spawn_native_data, name="dict_native_data"))
+    await run_job_tasks(job)
+    assert job.status == JOB_COMPLETED, job.error
+    async with data_context():
+        assert await get_job_result(job) == 5
+
+
 @pytest.mark.parametrize(
     "entry, match",
     [
         pytest.param(spawn_duplicate_handle, "duplicate handle 'w1'", id="duplicate"),
         pytest.param(spawn_unknown_handle, "unknown handle 'nope'", id="unknown"),
+        pytest.param(spawn_bad_entry_type, "unknown entry_type 'banana'", id="bad-entry-type"),
+        pytest.param(spawn_group_data, "data may name a task handle, not a group", id="group-data"),
+        pytest.param(spawn_wrong_handle_kind, "handle 'w1' names a task, not a group", id="wrong-kind"),
     ],
 )
-async def test_run_job_tasks_dict_return_bad_handles_fail_parent(orch_ctx, entry, match):
+async def test_run_job_tasks_dict_return_bad_dicts_fail_parent(orch_ctx, entry, match):
     job = await create_job("bad_handles", create_task(entry))
     await run_job_tasks(job)
     assert job.status == JOB_FAILED

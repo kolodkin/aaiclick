@@ -30,6 +30,7 @@ from .image_injection import inject_build_tasks, stamp_inherited_image, validate
 from .lifecycle.db_lifecycle import DBLifecycleMessage, DBLifecycleOp, OplogPayload, OplogTablePayload
 from .models import Dependency, Group, Job, Task, TasksType
 from .oplog_backfill import migrate_table_registry_to_sql
+from .runner_config import ENTRY_MODULE, EntryType
 from .sql_context import _sql_engine_var, create_sql_engine, get_sql_session
 from .task_registry import _task_registry_var, get_task_registry
 
@@ -555,12 +556,14 @@ def _collect_from_registry(items: list[Task | Group]) -> list[Task | Group]:
     return result
 
 
-def _current_parent_image_source() -> dict | None:
-    """The committing task's own image_source, or None outside task execution."""
+def _current_parent() -> tuple[dict | None, EntryType]:
+    """The committing task's own image_source and entry type; no image outside
+    task execution."""
     try:
-        return get_current_task_info().image_source
+        info = get_current_task_info()
     except RuntimeError:
-        return None
+        return None, ENTRY_MODULE
+    return info.image_source, info.entry_type
 
 
 async def commit_tasks(
@@ -596,7 +599,7 @@ async def commit_tasks(
     all_items = _collect_from_registry(items_list)
     tasks_only = [item for item in all_items if isinstance(item, Task)]
 
-    stamp_inherited_image(tasks_only, _current_parent_image_source())
+    stamp_inherited_image(tasks_only, *_current_parent())
     validate_plain_data_plane_tasks(tasks_only)
 
     async with get_sql_session() as session:
