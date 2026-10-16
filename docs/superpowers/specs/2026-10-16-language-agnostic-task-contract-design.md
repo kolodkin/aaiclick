@@ -39,13 +39,10 @@ rather than the contract itself. Two pieces:
 # Non-goals
 
 - `Object`/`View` in non-Python tasks. The refs stay in the vocabulary (Python
-  needs them) but shell and jvm tasks still reject them at commit. An Object is
-  a ClickHouse table name, and ClickHouse speaks HTTP, so a shim could read one
-  without a library — what is missing is a language runner that owns the
-  lifecycle (refcounts, pins, ephemeral-table ownership, oplog) and the trust
-  decision of handing ClickHouse credentials to a user image. Tracked in
-  `docs/designs/future.md`, with read-only Object inputs (host pins on the
-  task's behalf, opt-in `AAICLICK_CH_URL`) as the first cut.
+  needs them) but shell and jvm tasks still reject them at commit. Objects
+  need a per-language task runner that owns the ClickHouse dependency and the
+  lifecycle (refcounts, pins, ephemeral-table ownership, oplog). Listed in
+  `docs/designs/future.md` as unsupported, nothing more.
 - Python module tasks on the file plane (see *Intent*).
 - Backward compatibility with rows already stored under the old keys. The
   project is pre-release: old `kwargs`/`result` JSON becomes unreadable, no
