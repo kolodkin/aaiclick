@@ -232,8 +232,8 @@ class _DockerHandle(NamedTuple):
 
 
 class _DockerVehicle(TaskVehicle["_DockerHandle", "RunnerResult | None"]):
-    """``TaskVehicle`` for the Docker runner (module tasks — shell tasks run
-    through the mp task child with a ``build_shell_run_spec`` argv)."""
+    """``TaskVehicle`` for module tasks on the Docker runner (shell and jvm
+    tasks use :class:`_DockerShellVehicle`)."""
 
     def __init__(self, image_tag: str, env: dict[str, str], resources: dict | None) -> None:
         self._image_tag = image_tag

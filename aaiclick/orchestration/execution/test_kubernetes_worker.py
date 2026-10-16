@@ -6,8 +6,6 @@ single-session constraint in ``docs/designs/testing.md``."""
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -20,7 +18,7 @@ from ..models import Task
 from ..runner_config import ENTRY_JVM, ImagePrebuilt
 from . import kubernetes_worker as kw
 from .execution_worker import JobDispatch
-from .kubernetes_worker import build_shell_pod_spec
+from .kubernetes_worker import build_shell_pod_manifest
 from .log_test_helpers import dispatch_with_fake_cli
 from .runner_env import RUNNER_KUBERNETES
 
@@ -121,27 +119,6 @@ def test_collect_returns_row():
     assert out.success is True and out.result_ref == native_ref(5)
 
 
-def test_shell_pod_runs_argv_only_command_env():
-    m = kw._build_pod_manifest(
-        name="p",
-        namespace="default",
-        image_tag="python:3.12",
-        task_id=1,
-        run_epoch=0,
-        env={"AAICLICK_SQL_URL": "secret"},
-        service_account=None,
-        image_pull_secret=None,
-        resources=None,
-        entry_type="shell",
-        command=["python", "main.py"],
-        command_env_secret="aaiclick-task-1-0",
-    )
-    c = m["spec"]["containers"][0]
-    assert c["command"] == ["python", "main.py"]
-    assert "env" not in c  # runner env (AAICLICK_SQL_URL) excluded for shell
-    assert c["envFrom"] == [{"secretRef": {"name": "aaiclick-task-1-0"}}]
-
-
 def test_module_pod_uses_shim_and_runner_env():
     m = kw._build_pod_manifest(
         name="p",
@@ -182,96 +159,6 @@ def test_jvm_pod_sets_args_only_with_runner_env():
     assert "command" not in c
     assert c["args"] == ["--task-id", "7", "--run-epoch", "2"]
     assert {e["name"] for e in c["env"]} == {"AAICLICK_SQL_URL"}
-
-
-def _shell_task_and_dispatch(command_env):
-    task = Task(
-        id=9,
-        job_id=1,
-        name="t",
-        entrypoint="",
-        entry_type="shell",
-        command=["echo", "hi"],
-        command_env=command_env,
-        run_epoch=1,
-    )
-    dispatch = JobDispatch(
-        RUNNER_KUBERNETES,
-        KubernetesConfig("jobs", "sa", None),
-        "shell",
-        ["echo", "hi"],
-        command_env,
-        resources={"limits": {"cpu": "1"}},
-    )
-    return task, dispatch
-
-
-def _capture_kubectl_create(monkeypatch) -> list[dict]:
-    """Stub ``cli.run`` to record the manifest ``kubectl create -f`` is given
-    (read at call time — the file is removed once kubectl returns)."""
-    manifests: list[dict] = []
-
-    async def fake_run(*cmd, **kwargs):
-        assert cmd[:3] == ("kubectl", "create", "-f")
-        assert Path(cmd[3]).stat().st_mode & 0o777 == 0o600
-        manifests.append(json.loads(Path(cmd[3]).read_text()))
-        return 0, "", ""
-
-    monkeypatch.setattr(kw.cli, "run", fake_run)
-    return manifests
-
-
-async def test_build_shell_pod_spec_wraps_argv(monkeypatch):
-    manifests = _capture_kubectl_create(monkeypatch)
-    task, dispatch = _shell_task_and_dispatch({"K": "v", "PATH": "/evil"})
-
-    spec = await build_shell_pod_spec(task, dispatch, "img:tag")
-
-    assert spec.argv[:3] == ["kubectl", "run", "aaiclick-task-9-1"]
-    assert {"--attach", "--rm", "--quiet", "--restart=Never"} <= set(spec.argv)
-    assert "--image=img:tag" in spec.argv
-    overrides_arg = next(a for a in spec.argv if a.startswith("--overrides="))
-    overrides = json.loads(overrides_arg.removeprefix("--overrides="))
-    container = overrides["spec"]["containers"][0]
-    assert container["command"] == ["echo", "hi"]
-    assert container["resources"] == {"limits": {"cpu": "1"}}
-    assert overrides["spec"]["serviceAccountName"] == "sa"
-    assert ["-n", "jobs"] == spec.argv[spec.argv.index("-n") : spec.argv.index("-n") + 2]
-    assert spec.env is None
-    assert spec.env_file is None
-    # command_env values live in a per-attempt Secret, never on the argv (ps).
-    assert "/evil" not in " ".join(spec.argv)
-    assert container["envFrom"] == [{"secretRef": {"name": "aaiclick-task-9-1"}}]
-    assert manifests == [
-        {
-            "apiVersion": "v1",
-            "kind": "Secret",
-            "metadata": {"name": "aaiclick-task-9-1", "namespace": "jobs"},
-            "type": "Opaque",
-            "stringData": {"K": "v", "PATH": "/evil"},
-        }
-    ]
-    assert spec.cleanup_argv == [
-        "kubectl",
-        "delete",
-        "pod/aaiclick-task-9-1",
-        "secret/aaiclick-task-9-1",
-        "-n",
-        "jobs",
-        "--ignore-not-found",
-    ]
-
-
-async def test_build_shell_pod_spec_without_command_env_creates_no_secret(monkeypatch):
-    manifests = _capture_kubectl_create(monkeypatch)
-    task, dispatch = _shell_task_and_dispatch(None)
-
-    spec = await build_shell_pod_spec(task, dispatch, "img:tag")
-
-    assert manifests == []
-    overrides = json.loads(next(a for a in spec.argv if a.startswith("--overrides=")).removeprefix("--overrides="))
-    assert "envFrom" not in overrides["spec"]["containers"][0]
-    assert spec.cleanup_argv == ["kubectl", "delete", "pod/aaiclick-task-9-1", "-n", "jobs", "--ignore-not-found"]
 
 
 async def test_module_pod_wait_reads_result_row(monkeypatch):
@@ -351,3 +238,85 @@ def test_pod_spec_requires_pod_config():
     task = Task(id=1, job_id=1, entrypoint="m.f", name="t", run_epoch=1)
     with pytest.raises(RuntimeError, match="pod_config"):
         kw._pod_spec_from(task, JobDispatch(RUNNER_KUBERNETES, None), "img:1")
+
+
+def test_shell_pod_manifest_has_io_helpers_and_shared_volume(monkeypatch):
+    monkeypatch.setenv("AAICLICK_K8S_IO_IMAGE", "registry.local/busybox:1")
+    m = build_shell_pod_manifest(
+        name="p",
+        namespace="ns",
+        image_tag="img",
+        command=["sh", "-c", "x"],
+        service_account="sa",
+        image_pull_secret=None,
+        resources={"limits": {"cpu": "1"}},
+        command_env_secret="p",
+    )
+    spec = m["spec"]
+    assert spec["restartPolicy"] == "Never" and spec["serviceAccountName"] == "sa"
+    assert [c["name"] for c in spec["containers"]] == ["task", "io"]
+    assert [c["name"] for c in spec["initContainers"]] == ["io-in"]
+    helpers = (*spec["initContainers"], spec["containers"][1])
+    assert {c["image"] for c in helpers} == {"registry.local/busybox:1"}
+    assert all("resources" not in c for c in helpers)
+    task = spec["containers"][0]
+    assert task["image"] == "img" and task["command"] == ["sh", "-c", "x"]
+    assert task["env"] == [{"name": "AAICLICK_IO_DIR", "value": "/aaiclick"}]
+    assert task["envFrom"] == [{"secretRef": {"name": "p"}}]
+    assert task["resources"] == {"limits": {"cpu": "1"}}
+    every = (*spec["initContainers"], *spec["containers"])
+    assert all(c["volumeMounts"] == [{"name": "aaiclick-io", "mountPath": "/aaiclick"}] for c in every)
+    assert spec["volumes"] == [{"name": "aaiclick-io", "emptyDir": {}}]
+
+
+def test_shell_pod_manifest_without_command_env_has_no_env_from():
+    m = build_shell_pod_manifest(
+        name="p",
+        namespace="ns",
+        image_tag="img",
+        command=["true"],
+        service_account=None,
+        image_pull_secret=None,
+        resources=None,
+        command_env_secret=None,
+    )
+    assert "envFrom" not in m["spec"]["containers"][0]
+    assert "serviceAccountName" not in m["spec"]
+
+
+# One ``get`` answer serves the whole shell lifecycle: the init container is
+# up (so in.json gets copied in) and the task container has already exited 0.
+_FAKE_KUBECTL_SHELL = """#!/bin/sh
+d="$(dirname "$0")"
+case "$1" in
+  get) printf '%s' '{"status": {"phase": "Running", "initContainerStatuses": [{"name": "io-in", "state": {"running": {}}}], "containerStatuses": [{"name": "task", "state": {"terminated": {"exitCode": 0}}}, {"name": "io", "state": {"running": {}}}]}}' ;;
+  cp) cp "$2" "$d/in-copy.json"; echo "$@" > "$d/cp-argv" ;;
+  exec) echo "$@" > "$d/exec-argv"; printf '%s' "$FAKE_OUT_JSON" ;;
+  logs) echo "pod says hi" ;;
+  apply|create|delete) echo "$1" >> "$d/calls" ;;
+esac
+"""
+
+
+async def test_shell_pod_round_trips_in_and_out_json(orch_ctx, monkeypatch, tmp_path):
+    """The host copies the resolved kwargs into the waiting init container,
+    reads ``out.json`` back through the ``io`` sidecar, stores the result and
+    deletes the Pod."""
+    monkeypatch.setenv("FAKE_OUT_JSON", '{"_aaiclick_type": "native", "value": {"k": "v"}}')
+    spec = JobDispatch(
+        RUNNER_KUBERNETES,
+        KubernetesConfig("jobs", None, None),
+        entry_type="shell",
+        command=["sh", "-c", "x"],
+        command_env={"K": "v"},
+        image_source=ImagePrebuilt(image_tag="img:1"),
+    )
+    stored = await dispatch_with_fake_cli(monkeypatch, tmp_path, "AAICLICK_KUBECTL_BIN", _FAKE_KUBECTL_SHELL, spec)
+
+    assert stored.result == native_ref({"k": "v"}), stored.error
+    assert (tmp_path / "in-copy.json").read_text() == "{}"
+    cp_argv = (tmp_path / "cp-argv").read_text().split()
+    assert cp_argv[2].endswith(":/aaiclick/in.json") and cp_argv[-2:] == ["-c", "io-in"]
+    exec_argv = (tmp_path / "exec-argv").read_text().split()
+    assert exec_argv[-5:] == ["-c", "io", "--", "cat", "/aaiclick/out.json"]
+    assert (tmp_path / "calls").read_text().split() == ["create", "apply", "delete"]

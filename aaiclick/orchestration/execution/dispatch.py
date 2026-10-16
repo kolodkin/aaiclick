@@ -17,10 +17,9 @@ from ..kubernetes_config import resolve_pod_config
 from ..models import Job, Task
 from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_JVM, ENTRY_SHELL, parse_image_source
-from .docker_build import resolve_launch_image
 from .docker_worker import _run_shell_in_container, _run_task_in_container
 from .execution_worker import JobDispatch
-from .kubernetes_worker import _run_task_in_pod, build_shell_pod_spec
+from .kubernetes_worker import _run_shell_in_pod, _run_task_in_pod
 from .mp_worker import _run_task_in_child
 from .runner import ShellSpec, register_host_log_run, require_container_runner
 from .runner_env import RUNNER_DOCKER, RUNNER_KUBERNETES, WorkerRunner, get_worker_runner
@@ -61,18 +60,10 @@ _IMAGE_RUNNERS: dict[WorkerRunner, Callable[[Task, int, JobDispatch, int | None]
 
 _SHELL_RUNNERS: dict[WorkerRunner, Callable[[Task, int, JobDispatch, int | None], Awaitable[ExecuteResult]]] = {
     RUNNER_DOCKER: _run_shell_in_container,
+    RUNNER_KUBERNETES: _run_shell_in_pod,
 }
 """Shell/jvm tasks on the file data plane run host-side: the launch is a
 multi-step create/cp/start sequence, not one argv for the mp child."""
-
-
-async def build_shell_spec(task: Task, dispatch: JobDispatch) -> ShellSpec:
-    """Resolve a shell task's launch command for the subprocess runner (the
-    kubernetes wrapper is replaced in the next task)."""
-    if dispatch.runner == RUNNER_KUBERNETES:
-        image_tag = await resolve_launch_image(dispatch.image_source, task_id=task.id)
-        return await build_shell_pod_spec(task, dispatch, image_tag)
-    return ShellSpec(dispatch.command or [], dispatch.command_env)
 
 
 async def dispatch_execute(task: Task, execution_worker_id: int) -> ExecuteResult:
@@ -83,7 +74,8 @@ async def dispatch_execute(task: Task, execution_worker_id: int) -> ExecuteResul
         if shell_handler is not None:
             log_run_id = await register_host_log_run(task, ENTRY_SHELL)
             return await shell_handler(task, execution_worker_id, dispatch, log_run_id)
-        return await _run_task_in_child(task, execution_worker_id, shell_spec=await build_shell_spec(task, dispatch))
+        spec = ShellSpec(dispatch.command or [], dispatch.command_env)
+        return await _run_task_in_child(task, execution_worker_id, shell_spec=spec)
     handler = _IMAGE_RUNNERS.get(dispatch.runner) if dispatch.runner is not None else None
     if dispatch.entry_type == ENTRY_JVM and handler is None:
         # Commit-point validation (validate_plain_data_plane_tasks) blocks this; the guard
