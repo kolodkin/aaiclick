@@ -31,17 +31,14 @@ permissions:
 jobs:
   # Gate the release on the Java SDK's own suite at the release version, so
   # a broken jar blocks the irreversible PyPI upload rather than failing in
-  # publish-java after it. Mirrors test.yaml's java-sdk job, schema fixture
-  # included, plus -Drevision so the flattened POM is the one that ships.
+  # publish-java after it. Mirrors test.yaml's java-sdk job, plus -Drevision
+  # so the flattened POM is the one that ships.
   verify-java:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
-
-      - name: Setup uv
-        uses: ./.github/actions/setup-uv
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -50,13 +47,7 @@ jobs:
           java-version: "21"
           cache: maven
 
-      - name: Generate SQLite schema fixture
-        id: schema-fixture
-        uses: ./.github/actions/schema-fixture
-
       - name: Run Maven verify at the release version
-        env:
-          AAICLICK_TEST_SQLITE_DB: ${{ steps.schema-fixture.outputs.path }}
         run: |
           VERSION="${{ inputs.tag }}"
           mvn -B -f java/pom.xml -Drevision="${VERSION#v}" verify

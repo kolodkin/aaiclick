@@ -24,7 +24,6 @@ from typing import Any, NamedTuple
 
 from ..docker_config import add_host_flags, get_registry, resource_flags
 from ..models import Task
-from ..runner_config import ENTRY_JVM
 from . import cli
 from .claiming import check_task_cancelled
 from .docker_build import resolve_launch_image
@@ -110,15 +109,11 @@ def _build_docker_run_cmd(
     env: dict[str, str],
     resources: dict | None,
 ) -> list[str]:
-    """Construct the detached ``docker run`` command line for a module or jvm
-    task: inject the full runner env (names only — ``_docker_run_detached``
-    passes the values), apply the job's limits (``resource_flags``), and run
-    the in-container bootstrap shim.
-    For ``module`` that is the shared Python entrypoint
-    (``python -m ...remote_result --task-id N --run-epoch M``); for ``jvm``
-    only the ``--task-id``/``--run-epoch`` arguments are passed — the image's
-    own ``ENTRYPOINT`` is the aaiclick-task-api shim (spec:
-    docs/designs/java-sdk.md).
+    """Construct the detached ``docker run`` command line for a module task:
+    inject the full runner env (names only — ``_docker_run_detached`` passes
+    the values), apply the job's limits (``resource_flags``), and run the
+    in-container bootstrap shim (``python -m ...remote_result --task-id N
+    --run-epoch M``).
 
     The framework deliberately does **not** pass ``--network`` — the
     operator is responsible for ensuring AAICLICK_SQL_URL and
@@ -138,11 +133,10 @@ def _build_docker_run_cmd(
         *resource_flags(resources),
         *_env_flags(env),
     ]
-    entrypoint = [] if task.entry_type == ENTRY_JVM else REMOTE_ENTRYPOINT
     cmd.extend(
         [
             image_tag,
-            *entrypoint,
+            *REMOTE_ENTRYPOINT,
             "--task-id",
             str(task.id),
             "--run-epoch",

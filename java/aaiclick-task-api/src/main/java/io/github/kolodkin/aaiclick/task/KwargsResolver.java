@@ -1,55 +1,49 @@
 package io.github.kolodkin.aaiclick.task;
 
-import java.sql.SQLException;
 import java.util.Map;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.NullNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /**
- * Mirror of the Python kwargs deserializer (``_deserialize_value``) for the
- * value shapes a jvm task supports: plain JSON values, ``native_value``
- * wrappers, and upstream task refs resolving to plain values. Object/View
- * refs, pydantic refs, callables, and group results fail with a clear error —
- * the JVM data plane is plain values only.
+ * Unwraps the tagged dicts ``in.json`` may carry. The host has already
+ * resolved upstream refs into plain values, so the only tag left to honour is
+ * ``native``; any other ``_aaiclick_type`` is a ref the JVM data plane cannot
+ * carry (an Object, a callable) and fails with a clear error.
  */
-public class KwargsResolver {
+public final class KwargsResolver {
 
-    static final String REF_TYPE = "ref_type";
-    static final String UPSTREAM = "upstream";
-    static final String TASK_ID = "task_id";
-    static final String NATIVE_VALUE = "native_value";
-    static final String OBJECT_TYPE = "object_type";
-    static final String PYDANTIC_TYPE = "pydantic_type";
+    static final String AAICLICK_TYPE = "_aaiclick_type";
+    static final String NATIVE = "native";
+    static final String VALUE = "value";
 
-    private final TaskStore store;
-    private final ObjectMapper mapper;
-
-    public KwargsResolver(TaskStore store, ObjectMapper mapper) {
-        this.store = store;
-        this.mapper = mapper;
+    private KwargsResolver() {
     }
 
-    /** Resolves each top-level kwarg independently, like the Python
-     * ``{k: _deserialize_value(v) ...}`` — the map itself is never a ref, so a
-     * parameter named ``native_value`` or ``ref_type`` stays a parameter. */
-    public ObjectNode resolveKwargs(ObjectNode kwargs) {
+    /** Unwraps each top-level kwarg independently — the map itself is never a
+     * ref, so a parameter named ``_aaiclick_type`` stays a parameter. */
+    public static ObjectNode unwrapKwargs(ObjectNode kwargs, ObjectMapper mapper) {
         ObjectNode out = mapper.createObjectNode();
         for (Map.Entry<String, JsonNode> field : kwargs.properties()) {
-            out.set(field.getKey(), resolve(field.getValue()));
+            out.set(field.getKey(), unwrap(field.getValue(), mapper));
         }
         return out;
     }
 
-    private JsonNode resolve(JsonNode node) {
+    static JsonNode nativeRef(JsonNode value, ObjectMapper mapper) {
+        ObjectNode ref = mapper.createObjectNode();
+        ref.put(AAICLICK_TYPE, NATIVE);
+        ref.set(VALUE, value);
+        return ref;
+    }
+
+    private static JsonNode unwrap(JsonNode node, ObjectMapper mapper) {
         if (node.isArray()) {
             ArrayNode out = mapper.createArrayNode();
             for (JsonNode item : node) {
-                out.add(resolve(item));
+                out.add(unwrap(item, mapper));
             }
             return out;
         }
@@ -57,43 +51,14 @@ public class KwargsResolver {
             return node;
         }
         ObjectNode obj = (ObjectNode) node;
-        if (obj.has(REF_TYPE)) {
-            return resolveRef(obj);
+        if (!obj.has(AAICLICK_TYPE)) {
+            return unwrapKwargs(obj, mapper);
         }
-        if (obj.has(NATIVE_VALUE) && obj.size() == 1) {
-            return obj.get(NATIVE_VALUE);
+        String kind = obj.path(AAICLICK_TYPE).asText();
+        if (NATIVE.equals(kind)) {
+            return obj.get(VALUE);
         }
-        if (obj.has(OBJECT_TYPE)) {
-            throw new IllegalStateException(
-                "Object/View refs are not supported in jvm task kwargs (plain values only)");
-        }
-        if (obj.has(PYDANTIC_TYPE)) {
-            throw new IllegalStateException(
-                "Pydantic refs are not supported in jvm task kwargs (plain values only)");
-        }
-        return resolveKwargs(obj);
-    }
-
-    private JsonNode resolveRef(ObjectNode obj) {
-        String refType = obj.path(REF_TYPE).asText();
-        if (!UPSTREAM.equals(refType)) {
-            throw new IllegalStateException(
-                "jvm tasks support only upstream refs in kwargs, got ref_type=" + refType);
-        }
-        long upstreamId = obj.path(TASK_ID).asLong();
-        String resultJson;
-        try {
-            resultJson = store.loadCompletedResult(upstreamId);
-        } catch (SQLException e) {
-            throw new IllegalStateException("Failed to load upstream task " + upstreamId + " result", e);
-        }
-        if (resultJson == null) {
-            return NullNode.getInstance();
-        }
-        try {
-            return resolve(mapper.readTree(resultJson));
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException("Upstream task " + upstreamId + " result is not valid JSON", e);
-        }
+        throw new IllegalStateException(
+            "jvm task kwargs carry plain values only, got a " + kind + " ref (" + AAICLICK_TYPE + ")");
     }
 }

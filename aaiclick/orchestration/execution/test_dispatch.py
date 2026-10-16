@@ -102,3 +102,21 @@ async def test_dispatch_shell_on_docker_uses_the_shell_vehicle(monkeypatch):
 
     vehicle.assert_awaited_once_with(ANY, 1, ANY, 99)
     child.assert_not_awaited()
+
+
+async def test_dispatch_jvm_uses_shell_vehicle_with_class_argv(monkeypatch):
+    """A jvm task is a shell task whose argv is the class name: the image's
+    ENTRYPOINT (the aaiclick-task-api shim) receives it."""
+    resolved = JobDispatch(RUNNER_DOCKER, None, "jvm", image_source=PREBUILT)
+    monkeypatch.setattr(dispatch, "_resolve_dispatch", AsyncMock(return_value=resolved))
+    monkeypatch.setattr(dispatch, "register_host_log_run", AsyncMock(return_value=99))
+    vehicle = AsyncMock(return_value=(True, None, None))
+    monkeypatch.setitem(dispatch._SHELL_RUNNERS, RUNNER_DOCKER, vehicle)
+
+    assert await dispatch.dispatch_execute(_task(entrypoint="com.example.Pipeline"), execution_worker_id=1) == (
+        True,
+        None,
+        None,
+    )
+
+    vehicle.assert_awaited_once_with(ANY, 1, resolved._replace(command=["com.example.Pipeline"]), 99)

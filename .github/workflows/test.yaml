@@ -29,16 +29,13 @@ jobs:
         run: uv run mkdocs build --strict
 
   java-sdk:
-    # aaiclick-task-api Maven suite — infra-free (per-test SQLite files over
-    # JDBC) against the schema fixture (.github/actions/schema-fixture).
+    # aaiclick-task-api Maven suite — infra-free (per-test temp dirs on the
+    # file data plane).
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
-
-      - name: Setup uv
-        uses: ./.github/actions/setup-uv
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -47,13 +44,7 @@ jobs:
           java-version: "21"
           cache: maven
 
-      - name: Generate SQLite schema fixture
-        id: schema-fixture
-        uses: ./.github/actions/schema-fixture
-
       - name: Run Maven verify
-        env:
-          AAICLICK_TEST_SQLITE_DB: ${{ steps.schema-fixture.outputs.path }}
         run: mvn -B -f java/pom.xml verify
 
   tests:

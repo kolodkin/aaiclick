@@ -2,7 +2,8 @@ package io.github.kolodkin.aaiclick.task;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.sql.Connection;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Map;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -10,13 +11,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /**
- * Container-side bootstrap for ``jvm`` entry-type tasks — the JVM mirror of
- * the Python ``remote_result`` shim. The runner invokes the image's
- * ``ENTRYPOINT`` (this class) with ``--task-id N --run-epoch M``; the shim
- * loads the task row, resolves and binds kwargs to the {@link AaiTask}
- * method, invokes it, and writes the ``remote_task_results`` row the host
- * worker reads back. Exit code 0 on success, 1 on failure — the row, not the
- * exit code, carries the error detail.
+ * Container-side bootstrap for ``jvm`` entry-type tasks on the aaiclick file
+ * data plane. The runner invokes the image's ``ENTRYPOINT`` (this class) with
+ * the task's class name as its only argument; the shim reads the kwargs from
+ * ``$AAICLICK_IO_DIR/in.json``, binds them to the {@link AaiTask} method,
+ * invokes it, and writes the return value to ``$AAICLICK_IO_DIR/out.json``.
+ * No database: the host resolves kwargs before launch and interprets the
+ * result after exit. Exit code 0 on success, 1 on failure (the cause goes to
+ * stderr, which the host streams into the task's logs).
  *
  * <pre>
  * ENTRYPOINT ["java", "-cp", "/app/app.jar:/app/libs/*",
@@ -24,6 +26,10 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
  * </pre>
  */
 public final class AaiTaskShim {
+
+    static final String IO_DIR_ENV = "AAICLICK_IO_DIR";
+    static final String IN_JSON = "in.json";
+    static final String OUT_JSON = "out.json";
 
     private AaiTaskShim() {
     }
@@ -33,69 +39,49 @@ public final class AaiTaskShim {
     }
 
     static int run(String[] args, Map<String, String> env) {
-        long taskId = requireLongArg(args, "--task-id");
-        long runEpoch = requireLongArg(args, "--run-epoch");
         try {
-            SqlConfig cfg = SqlConfig.fromEnv(env);
-            try (Connection conn = new Db(cfg).connect()) {
-                TaskStore store = new TaskStore(conn, cfg.dialect());
-                boolean success = false;
-                String resultRef = null;
-                String error = null;
-                try {
-                    resultRef = executeTask(store, taskId);
-                    success = true;
-                } catch (InvocationTargetException e) {
-                    // The task method itself threw — report its cause.
-                    Throwable cause = e.getCause() != null ? e.getCause() : e;
-                    error = format(cause);
-                } catch (Throwable t) {
-                    error = format(t);
-                }
-                store.writeResult(taskId, runEpoch, success, resultRef, error);
-                return success ? 0 : 1;
+            if (args.length != 1) {
+                throw new IllegalArgumentException("usage: <task class>[#method] (got " + args.length + " arguments)");
             }
-        } catch (Exception e) {
-            // No result row could be written — the host worker synthesizes
-            // "exited with code N but wrote no result row".
-            System.err.println("aaiclick task shim failed before writing a result row: " + format(e));
+            String dir = env.get(IO_DIR_ENV);
+            if (dir == null) {
+                throw new IllegalStateException(IO_DIR_ENV + " is not set");
+            }
+            executeTask(args[0], Path.of(dir));
+            return 0;
+        } catch (InvocationTargetException e) {
+            // The task method itself threw — report its cause.
+            Throwable cause = e.getCause() != null ? e.getCause() : e;
+            System.err.println("aaiclick task failed: " + format(cause));
+            return 1;
+        } catch (Throwable t) {
+            System.err.println("aaiclick task failed: " + format(t));
             return 1;
         }
     }
 
-    /** Load, resolve, bind, invoke; returns the serialized result_ref JSON
-     * (``{"native_value": ...}``) or null for a void/null result. */
-    private static String executeTask(TaskStore store, long taskId) throws Exception {
+    /** Read, unwrap, bind, invoke, write. A ``Map`` carrying ``_aaiclick_type``
+     * is written as is (the JSON form of a returned task DAG); any other
+     * non-null value is wrapped as ``{"_aaiclick_type": "native", "value": …}``;
+     * ``void`` / ``null`` writes nothing. */
+    private static void executeTask(String entrypoint, Path io) throws Exception {
         ObjectMapper mapper = new ObjectMapper();
-        TaskRow row = store.loadTask(taskId);
-
-        JsonNode rawKwargs = row.kwargsJson() == null || row.kwargsJson().isEmpty()
-            ? mapper.createObjectNode()
-            : mapper.readTree(row.kwargsJson());
+        JsonNode rawKwargs = mapper.readTree(Files.readString(io.resolve(IN_JSON)));
         if (!rawKwargs.isObject()) {
-            throw new IllegalStateException("Task " + taskId + " kwargs is not a JSON object");
+            throw new IllegalStateException(IN_JSON + " is not a JSON object");
         }
-        ObjectNode resolved = new KwargsResolver(store, mapper).resolveKwargs((ObjectNode) rawKwargs);
+        ObjectNode kwargs = KwargsResolver.unwrapKwargs((ObjectNode) rawKwargs, mapper);
 
-        Method method = TaskRegistry.resolve(row.entrypoint());
-        Object[] bound = KwargsBinder.bind(method, resolved, mapper);
+        Method method = TaskRegistry.resolve(entrypoint);
+        Object[] bound = KwargsBinder.bind(method, kwargs, mapper);
         Object result = method.invoke(null, bound);
 
         if (result == null || method.getReturnType() == void.class) {
-            return null;
+            return;
         }
-        ObjectNode ref = mapper.createObjectNode();
-        ref.set(KwargsResolver.NATIVE_VALUE, mapper.valueToTree(result));
-        return mapper.writeValueAsString(ref);
-    }
-
-    private static long requireLongArg(String[] args, String flag) {
-        for (int i = 0; i < args.length - 1; i++) {
-            if (flag.equals(args[i])) {
-                return Long.parseLong(args[i + 1]);
-            }
-        }
-        throw new IllegalArgumentException("Missing required argument: " + flag + " <value>");
+        JsonNode tree = mapper.valueToTree(result);
+        JsonNode out = tree.isObject() && tree.has(KwargsResolver.AAICLICK_TYPE) ? tree : KwargsResolver.nativeRef(tree, mapper);
+        Files.writeString(io.resolve(OUT_JSON), mapper.writeValueAsString(out));
     }
 
     private static String format(Throwable t) {

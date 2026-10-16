@@ -25,7 +25,6 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 from ..models import Task
-from ..runner_config import ENTRY_JVM
 from . import cli
 from .claiming import check_task_cancelled
 from .docker_build import resolve_launch_image
@@ -76,33 +75,19 @@ def _build_pod_manifest(
     service_account: str | None,
     image_pull_secret: str | None,
     resources: dict | None,
-    entry_type: str,
-    command: list[str] | None,
-    command_env_secret: str | None,
 ) -> dict:
     """Build the bare-Pod manifest (``restartPolicy: Never`` — aaiclick owns
     retries). Optional cluster fields are omitted when unset so the cluster
     defaults apply.
 
-    For ``module`` tasks the Pod runs the aaiclick shim with the full runner
-    ``env``. For ``jvm`` tasks only ``args`` are set — the image's own
-    ``ENTRYPOINT`` is the aaiclick-task-api shim (spec: docs/designs/java-sdk.md)
-    — with the full runner ``env`` (same trust model as module images). Shell
-    Pods are built by :func:`build_shell_pod_manifest`."""
-    if entry_type == ENTRY_JVM:
-        container: dict = {
-            "name": "task",
-            "image": image_tag,
-            "args": ["--task-id", str(task_id), "--run-epoch", str(run_epoch)],
-            "env": [{"name": k, "value": v} for k, v in env.items()],
-        }
-    else:
-        container = {
-            "name": "task",
-            "image": image_tag,
-            "command": [*REMOTE_ENTRYPOINT, "--task-id", str(task_id), "--run-epoch", str(run_epoch)],
-            "env": [{"name": k, "value": v} for k, v in env.items()],
-        }
+    Module Pods run the aaiclick shim with the full runner ``env``; shell and
+    jvm Pods are built by :func:`build_shell_pod_manifest`."""
+    container: dict = {
+        "name": "task",
+        "image": image_tag,
+        "command": [*REMOTE_ENTRYPOINT, "--task-id", str(task_id), "--run-epoch", str(run_epoch)],
+        "env": [{"name": k, "value": v} for k, v in env.items()],
+    }
     if resources:
         container["resources"] = resources
     return _pod_scaffold(
@@ -521,9 +506,6 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
             service_account=self._spec.service_account,
             image_pull_secret=self._spec.image_pull_secret,
             resources=self._spec.resources,
-            entry_type=self._spec.entry_type,
-            command=self._spec.command,
-            command_env_secret=None,
         )
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
             json.dump(manifest, f)

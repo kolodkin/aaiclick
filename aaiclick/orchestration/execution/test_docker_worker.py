@@ -14,7 +14,7 @@ from ..logging import read_task_logs
 from ..models import Task
 from ..runner_config import ENTRY_JVM, ENTRY_MODULE, EntryType, ImagePrebuilt
 from . import docker_worker, execution_worker
-from .docker_worker import _build_docker_run_cmd, build_docker_create_cmd, write_command_env_file
+from .docker_worker import build_docker_create_cmd, write_command_env_file
 from .execution_worker import JobDispatch, RunnerResult
 from .log_test_helpers import dispatch_with_fake_cli
 from .runner_env import RUNNER_DOCKER
@@ -30,20 +30,6 @@ def _cmdtask(**kw):
         command=kw.get("command"),
         command_env=kw.get("command_env"),
     )
-
-
-def test_jvm_cmd_relies_on_image_entrypoint():
-    cmd = _build_docker_run_cmd(
-        _cmdtask(entry_type=ENTRY_JVM, entrypoint="com.example.Pipeline"),
-        "ghcr.io/example/pipeline:1.0",
-        {"AAICLICK_SQL_URL": "u"},
-        None,
-    )
-    # The image's own ENTRYPOINT is the aaiclick-task-api shim — the runner
-    # appends only the shim arguments after the image tag.
-    image_idx = cmd.index("ghcr.io/example/pipeline:1.0")
-    assert cmd[image_idx + 1 :] == ["--task-id", "1", "--run-epoch", "0"]
-    assert "-e AAICLICK_SQL_URL" in " ".join(cmd)
 
 
 def test_build_docker_create_cmd_sets_io_dir_and_env_file():
@@ -176,21 +162,6 @@ async def test_module_container_honours_job_resources(orch_ctx, monkeypatch, tmp
     assert argv[argv.index("--memory") + 1] == str(64 * 1024**2)
 
 
-async def test_jvm_container_output_reaches_task_logs(orch_ctx, monkeypatch, tmp_path):
-    """The jvm shim writes no logs itself: the host registers the attempt and
-    follows ``docker logs`` into task_logs, keeping each line's stream."""
-    stored = await dispatch_with_fake_cli(
-        monkeypatch, tmp_path, "AAICLICK_DOCKER_BIN", _FAKE_DOCKER, _docker_dispatch(ENTRY_JVM)
-    )
-
-    assert len(stored.run_ids) == 1
-    lines = await read_task_logs(stored.id, stored.run_ids[0])
-    assert {(line.stream, line.text) for line in lines} == {
-        ("stdout", "container says hi"),
-        ("stderr", "container warns"),
-    }
-
-
 async def test_module_container_that_registered_its_run_is_left_alone(orch_ctx, monkeypatch, tmp_path):
     """A module image registers its own run and captures its own output, so the
     host adds no run and writes nothing — that would log every line twice."""
@@ -293,3 +264,19 @@ async def test_shell_container_round_trips_in_and_out_json(orch_ctx, monkeypatch
     assert argv[-3:] == ["sh", "-c", "x"]
     assert (tmp_path / "in-copy" / "in.json").read_text() == "{}"
     assert not list(tmp_path.glob("aaiclick-io-*")) and not list(tmp_path.glob("aaiclick-task-*.env"))
+
+
+async def test_jvm_container_output_reaches_task_logs(orch_ctx, monkeypatch, tmp_path):
+    """The jvm shim writes no logs itself: the host registers the attempt and
+    follows ``docker logs`` into task_logs. The class name is the shim's one
+    argument on the ``docker create`` argv."""
+    monkeypatch.setenv("FAKE_OUT_JSON", "null")
+    stored = await dispatch_with_fake_cli(
+        monkeypatch, tmp_path, "AAICLICK_DOCKER_BIN", _FAKE_DOCKER_SHELL, _docker_dispatch(ENTRY_JVM)
+    )
+
+    assert len(stored.run_ids) == 1
+    lines = await read_task_logs(stored.id, stored.run_ids[0])
+    assert [(line.stream, line.text) for line in lines] == [("stdout", "container says hi")]
+    argv = (tmp_path / "create-argv").read_text().split()
+    assert argv[-1] == "aaiclick.orchestration.fixtures.sample_tasks.simple_task"

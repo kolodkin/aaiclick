@@ -199,8 +199,8 @@ USER aaiclick
 
 # The shape docs/designs/java-sdk.md prescribes for a user image: the SDK shim
 # (declared in the user's pom as aaiclick-task-api) as ENTRYPOINT, so the
-# runner's ``--task-id N --run-epoch M`` arguments reach it. The BuildKit
-# cache mount keeps ~/.m2 across builds without landing in a layer.
+# runner's class-name argument reaches it. The BuildKit cache mount keeps
+# ~/.m2 across builds without landing in a layer.
 _JVM_TEMPLATE = """\
 # Default image for a git build whose repo has a pom.xml and no Dockerfile.
 FROM maven:3.9-eclipse-temurin-21 AS build

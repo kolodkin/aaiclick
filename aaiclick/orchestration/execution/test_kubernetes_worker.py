@@ -34,9 +34,6 @@ def test_build_pod_manifest_shape():
         service_account="sa",
         image_pull_secret="regcred",
         resources={"limits": {"cpu": "1"}},
-        entry_type="module",
-        command=None,
-        command_env_secret=None,
     )
     assert m["kind"] == "Pod"
     assert m["metadata"] == {"name": "aaiclick-task-7-2", "namespace": "ml"}
@@ -62,9 +59,6 @@ def test_build_pod_manifest_omits_optional_fields():
         service_account=None,
         image_pull_secret=None,
         resources=None,
-        entry_type="module",
-        command=None,
-        command_env_secret=None,
     )
     spec = m["spec"]
     assert "serviceAccountName" not in spec
@@ -130,34 +124,9 @@ def test_module_pod_uses_shim_and_runner_env():
         service_account=None,
         image_pull_secret=None,
         resources=None,
-        entry_type="module",
-        command=None,
-        command_env_secret=None,
     )
     c = m["spec"]["containers"][0]
     assert "--task-id" in c["command"] and "7" in c["command"]
-    assert {e["name"] for e in c["env"]} == {"AAICLICK_SQL_URL"}
-
-
-def test_jvm_pod_sets_args_only_with_runner_env():
-    m = kw._build_pod_manifest(
-        name="p",
-        namespace="default",
-        image_tag="ghcr.io/example/pipeline:1.0",
-        task_id=7,
-        run_epoch=2,
-        env={"AAICLICK_SQL_URL": "u"},
-        service_account=None,
-        image_pull_secret=None,
-        resources=None,
-        entry_type="jvm",
-        command=None,
-        command_env_secret=None,
-    )
-    c = m["spec"]["containers"][0]
-    # The image's own ENTRYPOINT is the aaiclick-task-api shim — only args are set.
-    assert "command" not in c
-    assert c["args"] == ["--task-id", "7", "--run-epoch", "2"]
     assert {e["name"] for e in c["env"]} == {"AAICLICK_SQL_URL"}
 
 
@@ -208,30 +177,6 @@ async def test_wait_retries_transient_kubectl_failure(monkeypatch):
     exit_code, error, _ = await _vehicle("module").wait(_handle(), None)
 
     assert (exit_code, error) == (0, None)
-
-
-_FAKE_KUBECTL = """#!/bin/sh
-case "$1" in
-  get) printf 'Succeeded 0' ;;
-  logs) echo "jvm says hi"; echo "jvm warns" ;;
-esac
-"""
-
-
-async def test_jvm_pod_output_reaches_task_logs(orch_ctx, monkeypatch, tmp_path):
-    """The jvm shim writes no logs itself: the host registers the attempt and
-    follows ``kubectl logs`` into task_logs (Kubernetes merges the streams)."""
-    spec = JobDispatch(
-        RUNNER_KUBERNETES,
-        KubernetesConfig("default", None, None),
-        entry_type=ENTRY_JVM,
-        image_source=ImagePrebuilt(image_tag="img:1"),
-    )
-    stored = await dispatch_with_fake_cli(monkeypatch, tmp_path, "AAICLICK_KUBECTL_BIN", _FAKE_KUBECTL, spec)
-
-    assert len(stored.run_ids) == 1
-    lines = await read_task_logs(stored.id, stored.run_ids[0])
-    assert [(line.stream, line.text) for line in lines] == [("stdout", "jvm says hi"), ("stdout", "jvm warns")]
 
 
 def test_pod_spec_requires_pod_config():
@@ -320,3 +265,21 @@ async def test_shell_pod_round_trips_in_and_out_json(orch_ctx, monkeypatch, tmp_
     exec_argv = (tmp_path / "exec-argv").read_text().split()
     assert exec_argv[-5:] == ["-c", "io", "--", "cat", "/aaiclick/out.json"]
     assert (tmp_path / "calls").read_text().split() == ["create", "apply", "delete"]
+
+
+async def test_jvm_pod_output_reaches_task_logs(orch_ctx, monkeypatch, tmp_path):
+    """The jvm shim writes no logs itself: the host registers the attempt and
+    follows ``kubectl logs -c task`` into task_logs (Kubernetes merges the
+    streams). The class name is the shim's one argument."""
+    monkeypatch.setenv("FAKE_OUT_JSON", "null")
+    spec = JobDispatch(
+        RUNNER_KUBERNETES,
+        KubernetesConfig("default", None, None),
+        entry_type=ENTRY_JVM,
+        image_source=ImagePrebuilt(image_tag="img:1"),
+    )
+    stored = await dispatch_with_fake_cli(monkeypatch, tmp_path, "AAICLICK_KUBECTL_BIN", _FAKE_KUBECTL_SHELL, spec)
+
+    assert len(stored.run_ids) == 1
+    lines = await read_task_logs(stored.id, stored.run_ids[0])
+    assert [(line.stream, line.text) for line in lines] == [("stdout", "pod says hi")]

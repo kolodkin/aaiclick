@@ -61,10 +61,10 @@ async def test_docker_runner_default_dockerfile(orch_ctx, docker_e2e_bare_repo):
 async def test_docker_runner_jvm_task(orch_ctx, docker_e2e_user_repo, jvm_task_image):
     """Run a ``jvm`` task between two Python tasks, each in its own container.
 
-    Covers what the SDK's SQLite unit suite cannot: the runner env handoff
-    into a JVM image, the shim reading an upstream Python result and writing
-    its own result row over JDBC against PostgreSQL, and a Python task
-    consuming the jvm return value downstream."""
+    Covers what the SDK's unit suite cannot: the real ``docker create``/``cp``
+    handoff of ``in.json`` into a JVM image, the host resolving an upstream
+    Python result into it, ``out.json`` read back, and a Python task consuming
+    the jvm return value downstream."""
     tasks = await run_build_job(
         "docker_e2e_jvm",
         "sample_jobs.jvm_entry_task",
@@ -81,8 +81,8 @@ async def test_docker_runner_jvm_task(orch_ctx, docker_e2e_user_repo, jvm_task_i
     assert isinstance(source, ImagePrebuilt)
     assert source.image_tag == jvm_task_image
 
-    # The shim resolved produce_values' [10, 20, 30] through the upstream
-    # ref and wrote its map back in the shared ``native`` shape.
+    # The host resolved produce_values' [10, 20, 30] into in.json; the shim
+    # wrote its map to out.json in the shared ``native`` shape.
     expected = native_ref({"total": 60.0, "count": 3})
     assert summed.result == expected, summed.result
 

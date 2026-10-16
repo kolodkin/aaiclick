@@ -69,18 +69,22 @@ multi-step create/cp/start sequence, not one argv for the mp child."""
 async def dispatch_execute(task: Task, execution_worker_id: int) -> ExecuteResult:
     """ExecuteFn that picks the runner per task."""
     dispatch = await _resolve_dispatch(task)
-    if dispatch.entry_type == ENTRY_SHELL:
+    if dispatch.entry_type in (ENTRY_SHELL, ENTRY_JVM):
+        if dispatch.entry_type == ENTRY_JVM:
+            # The image's ENTRYPOINT is the aaiclick-task-api shim; the class
+            # name is its one argument (spec: docs/designs/java-sdk.md).
+            dispatch = dispatch._replace(command=[task.entrypoint])
         shell_handler = _SHELL_RUNNERS.get(dispatch.runner) if dispatch.runner is not None else None
         if shell_handler is not None:
-            log_run_id = await register_host_log_run(task, ENTRY_SHELL)
+            log_run_id = await register_host_log_run(task, dispatch.entry_type)
             return await shell_handler(task, execution_worker_id, dispatch, log_run_id)
+        if dispatch.entry_type == ENTRY_JVM:
+            # Commit-point validation (validate_plain_data_plane_tasks) blocks
+            # this; the guard keeps a stray row from running as a host subprocess.
+            return False, None, "jvm task requires a docker/kubernetes runner with an image_source"
         spec = ShellSpec(dispatch.command or [], dispatch.command_env)
         return await _run_task_in_child(task, execution_worker_id, shell_spec=spec)
     handler = _IMAGE_RUNNERS.get(dispatch.runner) if dispatch.runner is not None else None
-    if dispatch.entry_type == ENTRY_JVM and handler is None:
-        # Commit-point validation (validate_plain_data_plane_tasks) blocks this; the guard
-        # keeps a stray row from being executed as a Python module task.
-        return False, None, "jvm task requires a docker/kubernetes runner with an image_source"
     if handler is not None:
         log_run_id = await register_host_log_run(task, dispatch.entry_type)
         return await handler(task, execution_worker_id, dispatch, log_run_id)
