@@ -15,7 +15,7 @@ from aaiclick import create_object_from_value
 from aaiclick.data.data_context import data_context
 from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, ColumnInfo, Computed, ViewSchema
 from aaiclick.data.object import Object, View
-from aaiclick.data.object.refs import ViewRef
+from aaiclick.data.object.refs import ViewRef, native_ref, upstream_ref
 from aaiclick.internal_api.tasks import get_task_logs
 from aaiclick.log_models import STDOUT_STREAM
 from aaiclick.orchestration.decorators import job, task
@@ -34,6 +34,7 @@ from aaiclick.orchestration.execution.runner import (
     import_callback,
     register_returned_tasks,
     register_run,
+    resolve_plain_kwargs,
     run_job_tasks,
     serialize_task_result,
 )
@@ -352,6 +353,29 @@ async def test_deserialize_task_params_native_python(orch_ctx):
     assert result["y"] == 10
     assert result["name"] == "test"
     assert result["items"] == [1, 2, 3]
+
+
+async def _completed_task(result: dict | None) -> Task:
+    """Commit a task whose stored result is ``result``, for upstream refs."""
+    job = await create_job("upstream_src", create_task("m.src"))
+    src = create_task("m.src2")
+    await commit_tasks([src], job.id)
+    await update_task_status(src.id, TASK_COMPLETED, result=result)
+    return src
+
+
+async def test_resolve_plain_kwargs_unwraps_upstream_and_native(orch_ctx):
+    src = await _completed_task(native_ref({"a": 1}))
+    resolved = await resolve_plain_kwargs({"x": upstream_ref(src.id), "y": native_ref(2), "z": [3, {"w": 4}]})
+    assert resolved == {"x": {"a": 1}, "y": 2, "z": [3, {"w": 4}]}
+
+
+async def test_resolve_plain_kwargs_rejects_object_result(orch_ctx):
+    """A producer that stored an Object cannot feed a shell task; this is only
+    knowable at launch, after the producer ran."""
+    src = await _completed_task({"_aaiclick_type": "object", "table": "t_1"})
+    with pytest.raises(ValueError, match="kwarg 'd' resolves to a object ref"):
+        await resolve_plain_kwargs({"d": upstream_ref(src.id)})
 
 
 async def test_deserialize_task_params_rejects_unknown_type(orch_ctx):

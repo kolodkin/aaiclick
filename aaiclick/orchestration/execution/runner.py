@@ -275,6 +275,36 @@ async def deserialize_task_params(serialized_params: dict) -> dict:
         return {k: await _deserialize_value(v, session) for k, v in serialized_params.items()}
 
 
+async def _resolve_plain_value(name: str, value: Any, session: AsyncSession) -> Any:
+    if isinstance(value, list):
+        return [await _resolve_plain_value(name, v, session) for v in value]
+    kind = ref_kind(value)
+    if kind == UPSTREAM:
+        return await _resolve_plain_value(name, await _resolve_upstream_ref(value, session), session)
+    if kind == NATIVE:
+        return value[VALUE]
+    if kind is not None:
+        raise ValueError(f"kwarg {name!r} resolves to a {kind} ref, which a shell task cannot receive")
+    if isinstance(value, dict):
+        return {k: await _resolve_plain_value(name, v, session) for k, v in value.items()}
+    return value
+
+
+async def resolve_plain_kwargs(kwargs: dict) -> dict:
+    """Resolve a shell/jvm task's kwargs into the plain JSON ``in.json`` carries.
+
+    ``upstream`` refs become the producer's stored value (recursively) and
+    ``native`` wrappers unwrap; a value of any other kind — an ``object`` a
+    Python producer stored, say — raises ``ValueError`` naming the kwarg. The
+    commit-point validator rejects such refs written into kwargs directly;
+    this catches the ones that only appear once a producer has run.
+    """
+    if not kwargs:
+        return {}
+    async with get_sql_session() as session:
+        return {k: await _resolve_plain_value(k, v, session) for k, v in kwargs.items()}
+
+
 async def register_run(task_id: int) -> int:
     """Mint a per-attempt snowflake run_id and record the attempt on the Task.
 

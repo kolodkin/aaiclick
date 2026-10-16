@@ -9,7 +9,7 @@ from aaiclick.data.object.refs import callable_ref, group_results_ref, native_re
 from .execution.execution_worker_context import set_current_task_info
 from .execution.image_build_task import IMAGE_BUILD_ENTRYPOINT
 from .factories import create_job, create_task
-from .image_injection import stamp_inherited_image, validate_jvm_tasks
+from .image_injection import stamp_inherited_image, validate_plain_data_plane_tasks
 from .models import Dependency, Task
 from .orch_context import commit_tasks, get_sql_session
 from .runner_config import ImageBuild, ImagePrebuilt, dump_image_source
@@ -54,8 +54,8 @@ def _jvm_task(kwargs: dict | None = None, image_source: dict | None = PREBUILT) 
         pytest.param({"cfg": native_ref(OBJECT_REF)}, id="native-wrapper"),
     ],
 )
-def test_validate_jvm_accepts(kwargs):
-    validate_jvm_tasks([_jvm_task(kwargs)])
+def test_validate_plain_data_plane_accepts(kwargs):
+    validate_plain_data_plane_tasks([_jvm_task(kwargs)])
 
 
 @pytest.mark.parametrize(
@@ -74,21 +74,28 @@ def test_validate_jvm_accepts(kwargs):
         pytest.param({"cfg": {"_aaiclick_type": "x"}}, PREBUILT, "Unknown _aaiclick_type", id="unknown-nested-type"),
     ],
 )
-def test_validate_jvm_rejects(kwargs, image_source, match):
+def test_validate_plain_data_plane_rejects(kwargs, image_source, match):
     with pytest.raises(ValueError, match=match):
-        validate_jvm_tasks([_jvm_task(kwargs, image_source)])
+        validate_plain_data_plane_tasks([_jvm_task(kwargs, image_source)])
 
 
-def test_validate_jvm_requires_entrypoint():
+def test_validate_plain_data_plane_rejects_shell_object_ref():
+    """Shell tasks share the jvm data plane: no Object refs, no image needed."""
+    t = create_task(None, {"data": OBJECT_REF}, entry_type="shell", command=["true"])
+    with pytest.raises(ValueError, match="shell task 'true' receives a object ref in kwarg 'data'"):
+        validate_plain_data_plane_tasks([t])
+
+
+def test_validate_plain_data_plane_jvm_requires_entrypoint():
     t = _jvm_task()
     t.entrypoint = ""
     with pytest.raises(ValueError, match="class name"):
-        validate_jvm_tasks([t])
+        validate_plain_data_plane_tasks([t])
 
 
-def test_validate_jvm_ignores_non_jvm_tasks():
+def test_validate_plain_data_plane_ignores_module_tasks():
     t = create_task("m.f", {"obj": OBJECT_REF})
-    validate_jvm_tasks([t])
+    validate_plain_data_plane_tasks([t])
 
 
 async def _build_tasks_and_edges(job_id: int) -> tuple[list[Task], set[tuple[int, int]]]:

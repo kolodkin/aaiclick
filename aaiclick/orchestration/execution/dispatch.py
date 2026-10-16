@@ -90,7 +90,7 @@ async def dispatch_execute(task: Task, execution_worker_id: int) -> ExecuteResul
                 Path(spec.env_file).unlink(missing_ok=True)
     handler = _IMAGE_RUNNERS.get(dispatch.runner) if dispatch.runner is not None else None
     if dispatch.entry_type == ENTRY_JVM and handler is None:
-        # Commit-point validation (validate_jvm_tasks) blocks this; the guard
+        # Commit-point validation (validate_plain_data_plane_tasks) blocks this; the guard
         # keeps a stray row from being executed as a Python module task.
         return False, None, "jvm task requires a docker/kubernetes runner with an image_source"
     if handler is not None:
