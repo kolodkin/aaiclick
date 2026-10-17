@@ -108,8 +108,16 @@ Inside a container the process sees only `command_env` and
 
 The `aaiclick-task-api` shim speaks this interface for you: it binds
 `in.json` to an `@AaiTask` method's parameters by name and writes the return
-value to `out.json`. Return a `Map` carrying `_aaiclick_type` to spawn
-tasks. See [Container Images](container_images.md) for the image layout.
+value to `out.json` via Jackson. To spawn tasks, return a `TaskResult`
+built from `Task`, `Group`, `task.ref()` and `group.results()`:
+
+```java
+Task w1 = Task.shell("w1", "node", "worker.js").kwarg("n", 1);
+Task fin = Task.jvm("fin", "com.example.Sum").kwarg("parts", List.of(w1.ref()));
+return TaskResult.of(fin.ref(), w1, fin);
+```
+
+See [Container Images](container_images.md) for the image layout.
 
 # Kubernetes requirements
 

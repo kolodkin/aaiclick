@@ -144,7 +144,7 @@ multi-step sequence, not one argv.
 | Binding | Inputs                                     | Result                                             |
 |---------|--------------------------------------------|----------------------------------------------------|
 | Python  | kwargs deserialized in-process (all refs)  | the return value, serialized in-process            |
-| jvm     | `in.json` bound to the `@AaiTask` method   | the return value written to `out.json` as is       |
+| jvm     | `in.json` bound to the `@AaiTask` method   | the return value serialized by Jackson to `out.json` |
 | shell   | `in.json`                                  | `out.json`                                         |
 
 A `jvm` task is a shell task whose argv is the class name; the shim is the

@@ -56,6 +56,30 @@ class AaiTaskShimTest {
     }
 
     @Test
+    void typedTaskResultWritesTheTaskInterfaceVocabulary() throws Exception {
+        writeIn("{\"image\": \"jvm:1\"}");
+
+        assertEquals(0, runShim(SAMPLE + "#fanOut"));
+
+        assertEquals(MAPPER.readTree("""
+            {"_aaiclick_type": "task_result",
+             "data": {"_aaiclick_type": "upstream", "task_id": "fin"},
+             "tasks": [
+               {"_aaiclick_type": "task", "id": "w1", "entry_type": "shell", "command": ["node", "worker.js"], "kwargs": {"n": 1}},
+               {"_aaiclick_type": "task", "id": "w2", "entry_type": "shell", "command": ["node", "worker.js"], "kwargs": {"n": 2},
+                "max_retries": 1},
+               {"_aaiclick_type": "task", "id": "fin", "entry_type": "jvm", "entrypoint": "com.example.Sum", "image": "jvm:1",
+                "kwargs": {"parts": [{"_aaiclick_type": "upstream", "task_id": "w1"},
+                                     {"_aaiclick_type": "upstream", "task_id": "w2"}]}},
+               {"_aaiclick_type": "group", "id": "g",
+                "tasks": [{"_aaiclick_type": "task", "entry_type": "module", "entrypoint": "pkg.mod.step", "kwargs": {}}]},
+               {"_aaiclick_type": "task", "id": "report", "entry_type": "jvm", "entrypoint": "com.example.Report",
+                "kwargs": {"steps": {"_aaiclick_type": "group_results", "group_id": "g"}}, "depends_on": ["fin"]}
+             ]}
+            """), readOut());
+    }
+
+    @Test
     void voidResultWritesNoOutJson() throws Exception {
         writeIn("{\"ignored\": \"x\"}");
 

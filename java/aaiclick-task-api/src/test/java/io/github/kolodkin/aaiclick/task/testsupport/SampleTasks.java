@@ -5,6 +5,9 @@ import java.util.List;
 import java.util.Map;
 
 import io.github.kolodkin.aaiclick.task.AaiTask;
+import io.github.kolodkin.aaiclick.task.Group;
+import io.github.kolodkin.aaiclick.task.Task;
+import io.github.kolodkin.aaiclick.task.TaskResult;
 
 /** Annotated fixture methods for the registry, binder, and shim tests. */
 public final class SampleTasks {
@@ -40,6 +43,17 @@ public final class SampleTasks {
     @AaiTask
     public static Map<String, Object> spawn(int n) {
         return Map.of("_aaiclick_type", "task_result", "data", n, "tasks", List.of());
+    }
+
+    /** The same DAG shape built from the typed classes: two workers, a sum, a group. */
+    @AaiTask
+    public static TaskResult fanOut(String image) {
+        Task w1 = Task.shell("w1", "node", "worker.js").kwarg("n", 1);
+        Task w2 = Task.shell("w2", "node", "worker.js").kwarg("n", 2).maxRetries(1);
+        Task fin = Task.jvm("fin", "com.example.Sum").kwarg("parts", List.of(w1.ref(), w2.ref())).image(image);
+        Group g = Group.of("g", Task.module(null, "pkg.mod.step"));
+        Task report = Task.jvm("report", "com.example.Report").kwarg("steps", g.results()).dependsOn(fin);
+        return TaskResult.of(fin.ref(), w1, w2, fin, g, report);
     }
 
     @AaiTask
