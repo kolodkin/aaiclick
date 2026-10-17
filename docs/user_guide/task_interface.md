@@ -3,7 +3,8 @@ Task Interface
 
 Write a task in any language: a process that reads its inputs from one JSON
 file, writes its result to another, and can spawn more tasks by describing
-them as JSON. No aaiclick library, no database access.
+them as JSON. No aaiclick library, no database access. The
+[Task API](task_api.md) packages sit on top of this contract.
 
 Design: [task_interface.md](https://github.com/kolodkin/aaiclick/blob/main/docs/designs/task_interface.md).
 
@@ -104,20 +105,9 @@ returned an `Object` fails at launch.
 Inside a container the process sees only `command_env` and
 `AAICLICK_IO_DIR` — never aaiclick's own database credentials.
 
-# Java
+# Python and Java
 
-The `aaiclick-task-api` shim speaks this interface for you: it binds
-`in.json` to an `@AaiTask` method's parameters by name and writes the return
-value to `out.json` via Jackson. To spawn tasks, return a `TaskResult`
-built from `Task`, `Group`, `task.ref()` and `group.results()`:
-
-```java
-Task w1 = Task.shell("w1", "node", "worker.js").kwarg("n", 1);
-Task fin = Task.jvm("fin", "com.example.Sum").kwarg("parts", List.of(w1.ref()));
-return TaskResult.of(fin.ref(), w1, fin);
-```
-
-See [Container Images](container_images.md) for the image layout.
+Typed packages that write these files for you: [Task API](task_api.md).
 
 # Kubernetes requirements
 
