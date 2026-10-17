@@ -83,7 +83,7 @@ children. Children reference each other by `id`.
    {"_aaiclick_type": "task", "id": "w2", "entry_type": "shell", "command": ["node", "worker.js"], "kwargs": {"n": 2}},
    {"_aaiclick_type": "task", "id": "fin", "entry_type": "shell", "command": ["node", "sum.js"],
     "kwargs": {"values": [{"_aaiclick_type": "upstream", "task_id": "w1"},
-                         {"_aaiclick_type": "upstream", "task_id": "w2"}]}}
+                          {"_aaiclick_type": "upstream", "task_id": "w2"}]}}
  ]}
 ```
 
