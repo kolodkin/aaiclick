@@ -84,11 +84,11 @@ Host side of the `in.json` / `out.json` exchange under `AAICLICK_IO_DIR`:
 
 **Implementation**: `aaiclick/orchestration/execution/io_plane.py`
 
-In-process paths (local-mode worker, `job_test` / `ajob_test`) run the
-command in the worker's event loop. The mp worker runs a subprocess shell
-task in the spawned task child (it enforces timeout and cancellation; the
-parent's kill is a `CHILD_TIMEOUT_GRACE` backstop). Container shell and jvm
-tasks run host-side on a `ShellVehicle`, as their launch is multi-step.
+| Worker                                      | Runs the command                                                 |
+|---------------------------------------------|------------------------------------------------------------------|
+| In-process (local mode, `job_test`)         | in the worker's event loop                                       |
+| mp worker                                   | in the spawned task child, which owns timeout and cancellation   |
+| Container runners (docker, kubernetes)      | host-side on a `ShellVehicle` (multi-step launch)                |
 
 A `jvm` task is a shell task whose argv is a class name; the shim is the SDK
 jar in the user's image (`docs/designs/java-sdk.md`).
