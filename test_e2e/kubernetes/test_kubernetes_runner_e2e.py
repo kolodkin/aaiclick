@@ -17,7 +17,7 @@ from __future__ import annotations
 import subprocess
 
 import pytest
-from runner_flow import run_shell_command_env_flow, run_smoke_flow
+from runner_flow import run_jvm_fanout_flow, run_jvm_flow, run_shell_command_env_flow, run_smoke_flow
 from sandbox_e2e import run_sandbox_submission
 
 from aaiclick.orchestration.execution.kubernetes_worker import _pod_name
@@ -28,6 +28,18 @@ async def test_kubernetes_runner_smoke(orch_ctx, kubernetes_e2e_user_repo):
     """Build the fixture image, run the entry task's chain as Pods, assert it
     completes and the Objects flowed through ClickHouse across Pods."""
     await run_smoke_flow("k8s_e2e_smoke", kubernetes_e2e_user_repo)
+
+
+@pytest.mark.kubernetes_e2e
+async def test_kubernetes_runner_jvm_task(orch_ctx, kubernetes_e2e_user_repo, jvm_task_image):
+    """A ``jvm`` task between two Python tasks, each in its own Pod."""
+    await run_jvm_flow("kubernetes_e2e_jvm", kubernetes_e2e_user_repo, jvm_task_image)
+
+
+@pytest.mark.kubernetes_e2e
+async def test_kubernetes_runner_jvm_fanout(orch_ctx, kubernetes_e2e_user_repo, jvm_task_image):
+    """A jvm task returning a typed ``TaskResult`` of jvm children."""
+    await run_jvm_fanout_flow("kubernetes_e2e_jvm_fanout", kubernetes_e2e_user_repo, jvm_task_image)
 
 
 @pytest.mark.kubernetes_e2e

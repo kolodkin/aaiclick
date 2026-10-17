@@ -23,17 +23,21 @@ the runner."""
 
 from __future__ import annotations
 
-import json
-
 import pytest
 from job_wait import run_worker_until_done
-from runner_flow import run_build_job, run_shell_command_env_flow, run_smoke_flow, submit_shell_job
+from runner_flow import (
+    run_build_job,
+    run_jvm_fanout_flow,
+    run_jvm_flow,
+    run_shell_command_env_flow,
+    run_smoke_flow,
+    submit_shell_job,
+)
 from sandbox_e2e import run_sandbox_submission
 
 from aaiclick.data.object.refs import native_ref
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.models import JOB_FAILED
-from aaiclick.orchestration.runner_config import ENTRY_JVM, ImagePrebuilt, parse_image_source
 
 
 @pytest.mark.docker_e2e
@@ -59,36 +63,14 @@ async def test_docker_runner_default_dockerfile(orch_ctx, docker_e2e_bare_repo):
 
 @pytest.mark.docker_e2e
 async def test_docker_runner_jvm_task(orch_ctx, docker_e2e_user_repo, jvm_task_image):
-    """Run a ``jvm`` task between two Python tasks, each in its own container.
+    """A ``jvm`` task between two Python tasks, each in its own container."""
+    await run_jvm_flow("docker_e2e_jvm", docker_e2e_user_repo, jvm_task_image)
 
-    Covers what the SDK's unit suite cannot: the real ``docker create``/``cp``
-    handoff of ``in.json`` into a JVM image, the host resolving an upstream
-    Python result into it, ``out.json`` read back, and a Python task consuming
-    the jvm return value downstream."""
-    tasks = await run_build_job(
-        "docker_e2e_jvm",
-        "sample_jobs.jvm_entry_task",
-        docker_e2e_user_repo,
-        "--kwargs",
-        json.dumps({"jvm_image": jvm_task_image}),
-    )
 
-    # The jvm task ran in the prebuilt fixture image, not the job's build image.
-    summed = next(t for t in tasks if t.entry_type == ENTRY_JVM)
-    assert summed.entrypoint == "io.github.kolodkin.aaiclick.e2e.SumTask"
-    assert summed.image_source is not None
-    source = parse_image_source(summed.image_source)
-    assert isinstance(source, ImagePrebuilt)
-    assert source.image_tag == jvm_task_image
-
-    # The host resolved produce_values' [10, 20, 30] into in.json; the shim
-    # wrote its map to out.json in the shared ``native`` shape.
-    expected = native_ref({"total": 60.0, "count": 3})
-    assert summed.result == expected, summed.result
-
-    # And the Python consumer read that jvm result as a plain dict.
-    reported = next(t for t in tasks if t.entrypoint == "sample_jobs.report")
-    assert reported.result == expected, reported.result
+@pytest.mark.docker_e2e
+async def test_docker_runner_jvm_fanout(orch_ctx, docker_e2e_user_repo, jvm_task_image):
+    """A jvm task returning a typed ``TaskResult`` of jvm children."""
+    await run_jvm_fanout_flow("docker_e2e_jvm_fanout", docker_e2e_user_repo, jvm_task_image)
 
 
 @pytest.mark.docker_e2e

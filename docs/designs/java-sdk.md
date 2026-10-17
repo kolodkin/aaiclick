@@ -98,6 +98,7 @@ namespace.
 | `AaiTaskShim`    | The bootstrap `main()` — steps 1–4 above                                 |
 | `TaskRegistry`   | Class name → annotated `Method` (`Class#method` disambiguation)          |
 | `KwargsBinder`   | JSON kwargs → typed method arguments via Jackson                         |
+| `TaskResult`, `Task`, `Group`, `Upstream`, `GroupResults` | Typed return DAG; Jackson writes the Task Interface vocabulary |
 
 User code:
 

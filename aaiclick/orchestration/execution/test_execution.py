@@ -809,6 +809,16 @@ async def test_finish_shell_result_restores_task_context(orch_ctx):
         get_current_task_info()
 
 
+async def test_finish_shell_result_children_of_claimed_task(orch_ctx):
+    """The container worker builds the claimed task with ``Task(**row)``, which
+    puts it in the loop's task registry; committing its returned children must
+    not insert the already-stored parent again."""
+    job = await _shell_job_coro("shell_spawn_claimed", ["true"])
+    parent = Task(**(await get_tasks_for_job(job.id))[0].model_dump())
+    await finish_shell_result(parent, {"_aaiclick_type": "task", "entry_type": "shell", "command": ["true"]})
+    assert len(await get_tasks_for_job(job.id)) == 2
+
+
 async def test_run_job_tasks_dict_return_native_data(orch_ctx):
     job = await create_job("dict_native_data", create_task(spawn_native_data, name="dict_native_data"))
     await run_job_tasks(job)

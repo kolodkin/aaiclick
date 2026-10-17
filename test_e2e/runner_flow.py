@@ -7,6 +7,7 @@ nightlies prove the same path.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -16,7 +17,7 @@ from job_wait import run_worker_until_done
 from aaiclick.data.object.refs import native_ref
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import JOB_COMPLETED, TASK_COMPLETED, Task
-from aaiclick.orchestration.runner_config import ImageBuild, parse_image_source
+from aaiclick.orchestration.runner_config import ENTRY_JVM, ImageBuild, ImagePrebuilt, parse_image_source
 from aaiclick.testing import UserRepo
 
 # Exits 0 only when ``command_env`` reached the container (``K=v``), so the
@@ -106,3 +107,69 @@ async def run_shell_command_env_flow(job_name: str, cwd: Path) -> Task:
     assert tasks[0].status == TASK_COMPLETED, tasks[0].error
     assert tasks[0].result == native_ref({"k": "v"}), tasks[0].result
     return tasks[0]
+
+
+async def run_jvm_flow(job_name: str, user_repo: UserRepo, jvm_image: str) -> None:
+    """``produce_values`` → ``SumTask`` (jvm, prebuilt ``jvm_image``) → ``report``.
+
+    Covers what the SDK's unit suite cannot: the runner's ``in.json`` handoff
+    into a JVM image, the host resolving an upstream Python result into it,
+    ``out.json`` read back, and a Python task consuming the jvm return value."""
+    tasks = await run_build_job(
+        job_name,
+        "sample_jobs.jvm_entry_task",
+        user_repo,
+        "--kwargs",
+        json.dumps({"jvm_image": jvm_image}),
+    )
+
+    # The jvm task ran in the prebuilt fixture image, not the job's build image.
+    summed = next(t for t in tasks if t.entry_type == ENTRY_JVM)
+    assert summed.entrypoint == "io.github.kolodkin.aaiclick.e2e.SumTask"
+    assert summed.image_source is not None
+    source = parse_image_source(summed.image_source)
+    assert isinstance(source, ImagePrebuilt)
+    assert source.image_tag == jvm_image
+
+    # The host resolved produce_values' [10, 20, 30] into in.json; the shim
+    # wrote its map to out.json in the shared ``native`` shape.
+    expected = native_ref({"total": 60.0, "count": 3})
+    assert summed.result == expected, summed.result
+
+    # And the Python consumer read that jvm result as a plain dict.
+    reported = next(t for t in tasks if t.entrypoint == "sample_jobs.report")
+    assert reported.result == expected, reported.result
+
+
+async def run_jvm_fanout_flow(job_name: str, user_repo: UserRepo, jvm_image: str) -> None:
+    """A jvm task returns a ``TaskResult`` built with the SDK's typed classes;
+    the host registers its jvm children, swaps their ids for database ids,
+    and hands the child ``data`` names to the downstream Python consumer."""
+    tasks = await run_build_job(
+        job_name,
+        "sample_jobs.jvm_fanout_entry_task",
+        user_repo,
+        "--kwargs",
+        json.dumps({"jvm_image": jvm_image}),
+    )
+
+    children = [t for t in tasks if t.entry_type == ENTRY_JVM and not t.entrypoint.endswith("#fanOut")]
+    assert sorted(t.entrypoint for t in children) == [
+        "io.github.kolodkin.aaiclick.e2e.FanOutTask#combine",
+        "io.github.kolodkin.aaiclick.e2e.SumTask",
+        "io.github.kolodkin.aaiclick.e2e.SumTask",
+    ]
+    # No image on the children: each inherited the jvm parent's prebuilt image.
+    for child in children:
+        assert child.image_source is not None
+        source = parse_image_source(child.image_source)
+        assert isinstance(source, ImagePrebuilt)
+        assert source.image_tag == jvm_image
+
+    expected = native_ref({"total": 60.0, "count": 3})
+    combine = next(t for t in children if t.entrypoint.endswith("#combine"))
+    assert combine.result == expected, combine.result
+
+    # TaskResult data = fin.ref(): the consumer waited for combine and got its value.
+    reported = next(t for t in tasks if t.entrypoint == "sample_jobs.report")
+    assert reported.result == expected, reported.result

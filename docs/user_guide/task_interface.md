@@ -3,7 +3,8 @@ Task Interface
 
 Write a task in any language: a process that reads its inputs from one JSON
 file, writes its result to another, and can spawn more tasks by describing
-them as JSON. No aaiclick library, no database access.
+them as JSON. No aaiclick library, no database access. The
+[Task API](task_api.md) packages sit on top of this contract.
 
 Design: [task_interface.md](https://github.com/kolodkin/aaiclick/blob/main/docs/designs/task_interface.md).
 
@@ -47,12 +48,33 @@ async def report(value: int):   # 42
     ...
 ```
 
+# Vocabulary
+
+Kwargs and results are JSON. Plain values are data; a dict carrying the
+reserved key `_aaiclick_type` is one of these shapes:
+
+| `_aaiclick_type` | Fields                                                | Meaning                                         |
+|------------------|-------------------------------------------------------|-------------------------------------------------|
+| `upstream`       | `task_id` (int = database id; string = sibling `id`)  | Another task's result                           |
+| `group_results`  | `group_id` (int = database id; string = sibling `id`) | A group's results — Python tasks only           |
+| `native`         | `value`                                               | A plain value, wrapped; same as writing it bare |
+| `task`           | See [Task fields](#task-fields)                       | A child task to spawn                           |
+| `group`          | `id`, `name`, `tasks: [task…]`                        | A set of child tasks                            |
+| `task_result`    | `data`, `tasks: [task \| group …]`                    | A result plus children to spawn                 |
+| `callable`       | `entrypoint`                                          | A Python function — Python tasks only           |
+| `object`         | `table`, `persistent`, `job_id`                       | A ClickHouse table — Python tasks only          |
+| `view`           | `table`, `view_schema`                                | A filtered `object` — Python tasks only         |
+| `pydantic`       | `type` (dotted class path), `data`                    | A Pydantic model — Python tasks only            |
+
+!!! warning "`_aaiclick_type` is reserved"
+    A dict with that key is interpreted, never passed through as data, and an
+    unknown value fails the task.
+
 # Spawning tasks
 
-To fan out, write a `task_result` to `out.json`: `tasks` are the children,
-`data` is your result. Children refer to each other through string handles
-on `id`, used inside `upstream` refs; the orchestrator assigns the real ids
-and wires the dependencies.
+Write a `task_result` to `out.json`: `data` is your result, `tasks` the
+children. Children reference each other by `id`, which the framework
+replaces with a database id.
 
 ```json
 {"_aaiclick_type": "task_result",
@@ -61,55 +83,44 @@ and wires the dependencies.
    {"_aaiclick_type": "task", "id": "w1", "entry_type": "shell", "command": ["node", "worker.js"], "kwargs": {"n": 1}},
    {"_aaiclick_type": "task", "id": "w2", "entry_type": "shell", "command": ["node", "worker.js"], "kwargs": {"n": 2}},
    {"_aaiclick_type": "task", "id": "fin", "entry_type": "shell", "command": ["node", "sum.js"],
-    "kwargs": {"parts": [{"_aaiclick_type": "upstream", "task_id": "w1"},
-                         {"_aaiclick_type": "upstream", "task_id": "w2"}]}}
+    "kwargs": {"values": [{"_aaiclick_type": "upstream", "task_id": "w1"},
+                          {"_aaiclick_type": "upstream", "task_id": "w2"}]}}
  ]}
 ```
 
-Here `fin` runs after both workers and reads `{"parts": [2, 4]}` from its
+Here `fin` runs after both workers and reads `{"values": [2, 4]}` from its
 `in.json`; `data` names `fin`, so whoever consumes this task's result waits
 for `fin` and gets its value (`6`).
 
-A `task` takes the same fields as `create_task()` in Python:
-
-| Field                                     | Meaning                                                   |
-|-------------------------------------------|-----------------------------------------------------------|
-| `id`                                      | Handle other children refer to (optional)                 |
-| `entry_type`                              | `"shell"`, `"module"` (Python) or `"jvm"`                 |
-| `command` / `entrypoint`                  | Argv for shell; dotted path or Java class name otherwise  |
-| `kwargs`                                  | JSON object; values may be `upstream` refs to handles     |
-| `command_env`, `max_retries`, `name`      | As in Python                                              |
-| `image` or `git_remote` / `git_sha` / …   | Image source; omitted → the child runs in your image      |
-| `depends_on`                              | Handles to run after, without data flow                   |
-
 A `group` dict (`{"_aaiclick_type": "group", "id": "g", "tasks": [...]}`)
 groups children; a `group_results` ref (`{"_aaiclick_type": "group_results",
-"group_id": "g"}`) in a kwarg delivers the list of their results. Returning
+"group_id": "g"}`) in a Python task's kwarg delivers the list of their results. Returning
 a single `task`, or a list of them, works too when there is no data.
 
-!!! warning "`_aaiclick_type` is reserved"
-    A dict with that key is interpreted, never passed through as data, and an
-    unknown value fails the task. Plain JSON (`42`, `[1, 2]`, `{"k": "v"}`)
-    is always data; wrapping it as `{"_aaiclick_type": "native", "value": …}`
-    is accepted and means the same thing.
+# Task fields
+
+| Field                                   | Meaning                                                     |
+|-----------------------------------------|-------------------------------------------------------------|
+| `id`                                    | Name siblings refer to (optional)                           |
+| `entry_type`                            | `"shell"`, `"module"` (Python) or `"jvm"`                   |
+| `command` / `entrypoint`                | Argv for shell; dotted path or Java class name otherwise    |
+| `kwargs`                                | JSON object; values may be `upstream` refs to sibling `id`s |
+| `command_env`, `max_retries`, `name`    | Env vars for the process, retries on failure, display name  |
+| `image` or `git_remote` / `git_sha` / … | Image source; omitted → the child runs in your image        |
+| `depends_on`                            | Sibling `id`s to run after, without data flow               |
 
 # What a task can and cannot receive
 
-Kwargs on the file plane carry plain values and the results of upstream
-tasks. ClickHouse `Object`s and Python callables cannot cross into a
-non-Python process: a job that passes one to a shell or jvm task is rejected
-when the task is committed, and a shell task whose upstream Python producer
-returned an `Object` fails at launch.
+Only plain values and upstream results. An `Object` or Python callable in a
+shell or jvm task's kwargs is rejected at commit, or at launch when an
+upstream returned one.
 
 Inside a container the process sees only `command_env` and
 `AAICLICK_IO_DIR` — never aaiclick's own database credentials.
 
-# Java
+# Python and Java
 
-The `aaiclick-task-api` shim speaks this interface for you: it binds
-`in.json` to an `@AaiTask` method's parameters by name and writes the return
-value to `out.json`. Return a `Map` carrying `_aaiclick_type` to spawn
-tasks. See [Container Images](container_images.md) for the image layout.
+Typed packages that write these files for you: [Task API](task_api.md).
 
 # Kubernetes requirements
 
