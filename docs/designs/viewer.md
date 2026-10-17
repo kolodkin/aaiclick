@@ -82,11 +82,11 @@ The viewer builds on three additions to `aaiclick/data` and
 
 - `list_objects(ObjectFilter(job=…))` and `get_object(name, job=…)`
   (`aaiclick/internal_api/objects.py`); `open_object(job_id=)` and
-  `list_job_tables` (`aaiclick/data/data_context/data_context.py`) for callers
+  `list_job_tables` (`aaiclick/data/object_context/object_context.py`) for callers
   outside a task.
 - `Object.select_sql()` (`aaiclick/data/object/object.py`): the SELECT an
   object reads itself with; `View` and `LazyOperator` inherit it.
-- `query_bytes(sql, fmt, settings)` (`aaiclick/data/data_context/ch_client.py`,
+- `query_bytes(sql, fmt, settings)` (`aaiclick/data/object_context/ch_client.py`,
   over the clients' shared `raw_query`, with `query_text` decoding it):
   ClickHouse's own output for a named format. `JSONCompact` with `JSON_COMPACT_SETTINGS` (the `output_format_json_*`
   quoting QueryView's driver sends) means the kernel renders `{meta, data}`
@@ -95,7 +95,7 @@ The viewer builds on three additions to `aaiclick/data` and
 ## Internal API
 
 `aaiclick/internal_api/viewer.py`; every function runs under
-`orch_context(with_ch=True)`, like `objects.py`.
+`orch_context()`, like `objects.py`.
 
 | Function                                    | Returns                                | Notes                                                                                   |
 |---------------------------------------------|----------------------------------------|-----------------------------------------------------------------------------------------|
@@ -126,13 +126,13 @@ and `where` with the rules above.
 ## Surfaces
 
 - **REST** `aaiclick/server/routers/viewer.py`, prefix `/viewer`, the objects
-  router's dependencies (`orch_scope_with_ch`): `POST /query` (raw
+  router's dependencies (`orch_scope`): `POST /query` (raw
   ClickHouse text, no parse / re-serialise on the server),
   `GET|PUT|DELETE /queries[/{name}]`, `GET|PUT|DELETE /dashboards[/{name}]`,
   `POST /dashboards/{name}:run`. Any user may read and run; members and admins save;
   nothing here drops data.
 - **MCP** `aaiclick/server/mcp.py` (viewer section): one tool per verb, each
-  opening `orch_context(with_ch=True)`. The lineage-scoped `query_table`
+  opening `orch_context()`. The lineage-scoped `query_table`
   stays as is.
 - **CLI** `data query <object> [--scope job:<ref>] [--where EXPR] [--fields
   a,b] [--order-by col:desc]`, `view queries list|save|delete`, `view

@@ -20,7 +20,7 @@ the propagated side's original order.
 import pytest
 
 from aaiclick import FIELDTYPE_ARRAY, create_object_from_value
-from aaiclick.data.data_context import get_ch_client
+from aaiclick.data.object_context import get_ch_client
 
 
 async def test_aai_id_true_adds_aai_id_column(ctx):

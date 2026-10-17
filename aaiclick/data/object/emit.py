@@ -11,9 +11,9 @@ from __future__ import annotations
 
 from aaiclick.oplog.oplog_api import oplog_record_sample
 
-from ..data_context import create_object
-from ..data_context.ch_client import execute_for_stats
 from ..models import Schema
+from ..object_context import create_object
+from ..object_context.ch_client import execute_for_stats
 from ..scope import NamedScope
 
 

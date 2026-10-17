@@ -1,7 +1,7 @@
 """
 aaiclick.data.chdb_client - chdb adapter matching clickhouse-connect AsyncClient interface.
 
-See docs/user_guide/data_context.md — "Deployment Modes".
+See docs/user_guide/object_context.md — "Deployment Modes".
 
 Provides ChdbClient that wraps chdb.session.Session to duck-type the subset of
 clickhouse-connect's AsyncClient used by aaiclick (command, query, insert).
@@ -105,7 +105,7 @@ class ChdbClient:
 
     Wraps a single chdb Session instance. All methods are sync internally
     but exposed as async to match the AsyncClient interface used by
-    data_context.py and operators.py.
+    object_context.py and operators.py.
 
     Args:
         session: A chdb Session instance (disk-backed or ephemeral).
@@ -265,7 +265,7 @@ def get_chdb_data_path() -> str:
 
 # Process-wide singleton chdb session, keyed by data path.
 # All ChdbClient instances in a process share this session
-# so that tables created in one data_context are visible to all others.
+# so that tables created in one object_context are visible to all others.
 # chdb's Session cannot be safely closed and reopened in-process — we hold and
 # reuse one Session per process for its entire lifetime and only close via the
 # atexit hook below.
@@ -292,7 +292,7 @@ atexit.register(_close_sessions)
 def get_shared_session(path: str | None = None) -> Session:
     """Return (or create) the shared chdb Session for a given data path.
 
-    Using a singleton ensures all data_context instances in the same process
+    Using a singleton ensures all object_context instances in the same process
     share one chdb session and can see each other's tables.
 
     Pass ``:memory:`` for an in-memory session (no disk persistence).

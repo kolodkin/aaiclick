@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from aaiclick.data.data_context import (
+from aaiclick.data.object_context import (
     create_object_from_value,
     list_persistent_objects,
 )

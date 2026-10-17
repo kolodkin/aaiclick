@@ -12,7 +12,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from aaiclick.data.data_context.ch_client import _ch_client_var, create_ch_client, get_ch_client
+from aaiclick.data.object_context.ch_client import _ch_client_var, create_ch_client, get_ch_client
 from aaiclick.data.scope import GLOBAL_PREFIX
 from aaiclick.data.sql_utils import quote_sql_literal
 
@@ -141,9 +141,9 @@ async def lineage_context() -> AsyncIterator[None]:
     """Async context manager for lineage queries.
 
     Sets up a ClickHouse client for querying the operation log.
-    Intended to be used after data_context exits:
+    Intended to be used after object_context exits:
 
-        async with data_context(oplog=True):
+        async with object_context(oplog=True):
             ...
 
         async with lineage_context():

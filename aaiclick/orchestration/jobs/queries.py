@@ -147,7 +147,7 @@ async def get_job_result(job: Job) -> Any:
 
     The job's entry task must have stored a result via
     ``TaskResult(data=..., tasks=[...])``. Must be called
-    within an active ``data_context()``.
+    within an active ``object_context()``.
 
     Args:
         job: Completed job whose result to retrieve

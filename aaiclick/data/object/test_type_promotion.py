@@ -2,13 +2,13 @@
 
 import pytest
 
-from aaiclick.data.data_context import data_context, get_ch_client
 from aaiclick.data.object.schema_compute import _determine_agg_result_type, _result_value_type
+from aaiclick.data.object_context import get_ch_client, object_context
 
 
 @pytest.fixture
 async def ctx():
-    async with data_context():
+    async with object_context():
         yield
 
 

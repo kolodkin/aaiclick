@@ -14,7 +14,7 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
-from aaiclick.data.data_context import create_object_from_value
+from aaiclick.data.object_context import create_object_from_value
 from aaiclick.data.view_models import ObjectDetail, ObjectView
 from aaiclick.oplog.lineage import GraphNode, OplogGraph
 from aaiclick.oplog.query_sandbox import QueryResult, TableSchema

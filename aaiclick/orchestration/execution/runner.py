@@ -23,11 +23,6 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
-from aaiclick.data.data_context import (
-    get_data_lifecycle,
-    register_object,
-)
-from aaiclick.data.data_context.lifecycle import read_table_schema
 from aaiclick.data.models import Schema
 from aaiclick.data.object import LazyOperator, Object, View
 from aaiclick.data.object.refs import (
@@ -60,6 +55,11 @@ from aaiclick.data.object.refs import (
     ref_kind,
     upstream_ref,
 )
+from aaiclick.data.object_context import (
+    get_data_lifecycle,
+    register_object,
+)
+from aaiclick.data.object_context.lifecycle import read_table_schema
 from aaiclick.log_models import STDERR_STREAM, STDOUT_STREAM, LogStream
 from aaiclick.snowflake import get_snowflake_id
 
@@ -89,7 +89,7 @@ from ..task_registry import fresh_task_registry
 from .claiming import update_job_status, update_task_status
 from .cli import overlay_env
 from .db_handler import DEPENDENCY_WHERE
-from .execution_worker_context import TaskInfo, current_task_info, set_current_task_info
+from .execution_worker_context import TaskInfo, current_task_info
 from .io_plane import IO_DIR_ENV, read_out_json, write_in_json
 from .runner_env import ENV_WORKER_RUNNER, WorkerRunner
 
@@ -262,7 +262,7 @@ async def deserialize_task_params(serialized_params: dict) -> dict:
 
     Supports:
     - Upstream references: Resolved to completed task results
-    - Object/View references: Reconstructed and registered with DataContext
+    - Object/View references: Reconstructed and registered with ObjectContext
     - Native Python values: Passed through unchanged
     - Nested structures: Lists and dicts are recursively processed
 
@@ -367,50 +367,43 @@ async def execute_task(task: Task, shell_spec: ShellSpec | None = None) -> Any:
 
     run_id = await register_run(task.id)
 
-    set_current_task_info(
-        task_id=task.id,
-        job_id=task.job_id,
-        image_source=task.image_source,
-        group_id=task.group_id,
-        entry_type=task.entry_type,
-    )
-
-    async with capture_task_output(task.id, task.job_id, run_id):
-        # Inside capture so an import failure's traceback lands in this run's log.
-        func = import_callback(task.entrypoint)
-        async with task_scope(
-            task_id=task.id,
-            job_id=task.job_id,
-            run_id=run_id,
-        ):
-            kwargs = await deserialize_task_params(task.kwargs)
-            lifecycle = get_data_lifecycle()
-            if lifecycle is not None:
-                lifecycle.release_pins()  # FIFO: after every INCREF from deserialization
-            if inspect.iscoroutinefunction(func):
-                result = await func(**kwargs)
-            else:
-                result = func(**kwargs)
-
-            # A task may return a LazyOperator (e.g. ``return a + b`` without an
-            # explicit await). Materialize before serialization — orch's
-            # ``_serialize_ref`` is sync and needs a real ``.table``.
-            result = await _materialize_lazies(result)
-
-            # Pin result table for all downstream consumer tasks.
-            # At this point we know the table_name (from the Object) but
-            # not which tasks will consume it — that's only known via the
-            # dependencies table. The PIN handler fans out: queries
-            # downstream task_ids and inserts one pin_ref per consumer.
-            pin_target = result.data if isinstance(result, TaskResult) else result
-            if isinstance(pin_target, (Object, View)) and not pin_target.persistent:
+    with current_task_info(TaskInfo.from_task(task)):
+        async with capture_task_output(task.id, task.job_id, run_id):
+            # Inside capture so an import failure's traceback lands in this run's log.
+            func = import_callback(task.entrypoint)
+            async with task_scope(
+                task_id=task.id,
+                job_id=task.job_id,
+                run_id=run_id,
+            ):
+                kwargs = await deserialize_task_params(task.kwargs)
                 lifecycle = get_data_lifecycle()
                 if lifecycle is not None:
-                    lifecycle.pin(pin_target.table)
+                    lifecycle.release_pins()  # FIFO: after every INCREF from deserialization
+                if inspect.iscoroutinefunction(func):
+                    result = await func(**kwargs)
+                else:
+                    result = func(**kwargs)
 
-            # Register returned tasks INSIDE task_scope so the registry
-            # (ContextVar) that was populated during func() is still active.
-            data_result = await register_returned_tasks(result, task.id, task.job_id)
+                # A task may return a LazyOperator (e.g. ``return a + b`` without an
+                # explicit await). Materialize before serialization — orch's
+                # ``_serialize_ref`` is sync and needs a real ``.table``.
+                result = await _materialize_lazies(result)
+
+                # Pin result table for all downstream consumer tasks.
+                # At this point we know the table_name (from the Object) but
+                # not which tasks will consume it — that's only known via the
+                # dependencies table. The PIN handler fans out: queries
+                # downstream task_ids and inserts one pin_ref per consumer.
+                pin_target = result.data if isinstance(result, TaskResult) else result
+                if isinstance(pin_target, (Object, View)) and not pin_target.persistent:
+                    lifecycle = get_data_lifecycle()
+                    if lifecycle is not None:
+                        lifecycle.pin(pin_target.table)
+
+                # Register returned tasks INSIDE task_scope so the registry
+                # (ContextVar) that was populated during func() is still active.
+                data_result = await register_returned_tasks(result, task.id, task.job_id)
 
     return data_result
 
@@ -507,8 +500,7 @@ async def finish_shell_result(task: Task, out_value: Any) -> Any:
     """
     if ref_kind(out_value) == NATIVE:
         out_value = out_value[VALUE]
-    info = TaskInfo(task.id, task.job_id, task.image_source, task.group_id, task.entry_type)
-    with current_task_info(info), fresh_task_registry():
+    with current_task_info(TaskInfo.from_task(task)), fresh_task_registry():
         return await register_returned_tasks(out_value, task.id, task.job_id)
 
 

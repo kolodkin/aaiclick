@@ -10,7 +10,7 @@ import asyncio
 from datetime import datetime, timezone
 
 from aaiclick import create_object_from_value, literal
-from aaiclick.data.data_context import data_context
+from aaiclick.data.object_context import object_context
 from aaiclick.example_runner import section
 
 
@@ -131,7 +131,7 @@ async def example():
 
 
 async def amain():
-    async with data_context():
+    async with object_context():
         await example()
 
 

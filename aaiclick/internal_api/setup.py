@@ -2,7 +2,7 @@
 
 Unlike other ``internal_api`` modules these functions operate on
 infrastructure (filesystem, embedded databases, external services) and do
-not require an active ``orch_context()`` or ``data_context()``. They are
+not require an active ``orch_context()`` or ``object_context()``. They are
 safe to call before any orchestration state exists.
 
 Every function returns a pydantic view model; the CLI renderer handles
@@ -32,7 +32,7 @@ from aaiclick.backend import (
     is_sqlite,
     redact_url,
 )
-from aaiclick.data.data_context.chdb_client import get_chdb_data_path, get_shared_session
+from aaiclick.data.object_context.chdb_client import get_chdb_data_path, get_shared_session
 from aaiclick.oplog.migrate import ch_status_standalone, ch_upgrade_standalone
 from aaiclick.orchestration.env import get_db_url
 from aaiclick.orchestration.migrate import get_alembic_config

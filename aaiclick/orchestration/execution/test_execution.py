@@ -12,10 +12,10 @@ from sqlalchemy import select, text
 from sqlmodel import col
 
 from aaiclick import create_object_from_value
-from aaiclick.data.data_context import data_context
 from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, ColumnInfo, Computed, ViewSchema
 from aaiclick.data.object import Object, View
 from aaiclick.data.object.refs import ViewRef, native_ref, upstream_ref
+from aaiclick.data.object_context import object_context
 from aaiclick.internal_api.tasks import get_task_logs
 from aaiclick.log_models import STDOUT_STREAM
 from aaiclick.orchestration.decorators import job, task
@@ -440,7 +440,7 @@ async def test_task_object_result_round_trips(orch_ctx):
     await ajob_test(job)
 
     assert job.status == JOB_COMPLETED, job.error
-    async with data_context():
+    async with object_context():
         result = await get_job_result(job)
         assert await result.data() == [10, 20, 30]
 
@@ -466,7 +466,7 @@ async def test_view_modifiers_survive_task_boundary(orch_ctx, modifier, expected
     await ajob_test(job)
 
     assert job.status == JOB_COMPLETED, job.error
-    async with data_context():
+    async with object_context():
         assert await get_job_result(job) == expected
 
 
@@ -485,7 +485,7 @@ async def test_task_lazy_result_is_materialized(orch_ctx, pipeline):
     await ajob_test(job)
 
     assert job.status == JOB_COMPLETED, job.error
-    async with data_context():
+    async with object_context():
         result = await get_job_result(job)
         assert await result.data() == [11, 22, 33]
 
@@ -503,7 +503,7 @@ async def test_task_native_result_round_trips(orch_ctx, value):
     await ajob_test(job)
 
     assert job.status == JOB_COMPLETED, job.error
-    async with data_context():
+    async with object_context():
         assert await get_job_result(job) == value
 
 
@@ -513,7 +513,7 @@ async def test_task_pydantic_result_passes_between_tasks(orch_ctx):
     await ajob_test(job)
 
     assert job.status == JOB_COMPLETED, job.error
-    async with data_context():
+    async with object_context():
         assert await get_job_result(job) == _SampleModel(name="hello", count=8, ratio=None)
 
 
@@ -525,11 +525,14 @@ async def test_task_pydantic_result_passes_between_tasks(orch_ctx):
     ],
 )
 async def test_execute_task_no_parameters(orch_ctx, entrypoint):
-    """Test executing a task function with no parameters."""
+    """Test executing a task function with no parameters; the task info is
+    scoped to the run and does not outlive it."""
     task = create_task(entrypoint)
     task.job_id = 1  # Set a dummy job_id
 
     await execute_task(task)  # Should not raise
+    with pytest.raises(RuntimeError, match="No task is currently executing"):
+        get_current_task_info()
 
 
 # run_job_tasks tests
@@ -674,7 +677,7 @@ async def test_shell_task_reads_in_json_and_writes_out_json(orch_ctx):
     job = await _shell_job_coro("shell_io", WRITE_DOUBLE, {"n": 21})
     await run_job_tasks(job)
     assert job.status == JOB_COMPLETED, job.error
-    async with data_context():
+    async with object_context():
         assert await get_job_result(job) == 42
 
 
@@ -717,7 +720,7 @@ async def test_shell_task_out_json_spawns_children(orch_ctx):
     await run_job_tasks(job)
     assert job.status == JOB_COMPLETED, job.error
     assert len(await get_tasks_for_job(job.id)) == 4
-    async with data_context():
+    async with object_context():
         assert await get_job_result(job) == 6
 
 
@@ -751,7 +754,7 @@ async def test_run_job_tasks_dict_return_spawns_children(orch_ctx):
     job = await create_job("dict_return", create_task(spawn_dicts, {"n": 1}, name="dict_return"))
     await run_job_tasks(job)
     assert job.status == JOB_COMPLETED, job.error
-    async with data_context():
+    async with object_context():
         assert await get_job_result(job) == 6
 
 
@@ -759,7 +762,7 @@ async def test_run_job_tasks_dict_return_group_results(orch_ctx):
     job = await create_job("dict_return_group", create_task(spawn_group, {"n": 1}, name="dict_return_group"))
     await run_job_tasks(job)
     assert job.status == JOB_COMPLETED, job.error
-    async with data_context():
+    async with object_context():
         assert await get_job_result(job) == 6
 
 
@@ -795,7 +798,7 @@ async def test_run_job_tasks_dict_result_without_tasks(orch_ctx):
     job = await create_job("dict_no_tasks", create_task(spawn_result_without_tasks, name="dict_no_tasks"))
     await run_job_tasks(job)
     assert job.status == JOB_COMPLETED, job.error
-    async with data_context():
+    async with object_context():
         assert await get_job_result(job) == 5
 
 
@@ -823,7 +826,7 @@ async def test_run_job_tasks_dict_return_native_data(orch_ctx):
     job = await create_job("dict_native_data", create_task(spawn_native_data, name="dict_native_data"))
     await run_job_tasks(job)
     assert job.status == JOB_COMPLETED, job.error
-    async with data_context():
+    async with object_context():
         assert await get_job_result(job) == 5
 
 
@@ -1120,7 +1123,7 @@ async def test_object_fieldtype_preserved_between_tasks(orch_ctx, value, expecte
     await ajob_test(job)
 
     assert job.status == JOB_COMPLETED, job.error
-    async with data_context():
+    async with object_context():
         assert await get_job_result(job) == expected
 
 
@@ -1134,7 +1137,7 @@ async def test_dict_object_explode_works_after_handoff(orch_ctx):
     await ajob_test(job)
 
     assert job.status == JOB_COMPLETED, job.error
-    async with data_context():
+    async with object_context():
         assert await get_job_result(job) == ["Action", "Comedy", "Drama"]
 
 

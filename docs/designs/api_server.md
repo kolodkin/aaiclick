@@ -197,7 +197,7 @@ Rules:
 - **Input**: primitives or `*Request` / `*Filter` view models.
 - **Output**: a view model (`JobView`, `Page[JobView]`, `JobDetail`, ...).
 - **Contexts arrive via ContextVars, not parameters**: every function runs
-  inside an active `orch_context()` (orchestration) or `data_context()`
+  inside an active `orch_context()` (orchestration) or `object_context()`
   (data) and reads SQL/CH resources through the getters
   (`get_sql_session()`, `get_ch_client()`). This matches the rest of the
   codebase — decorators, execution, CRUD helpers — so callers do not have
@@ -257,7 +257,7 @@ exposes them and the calling agent composes them itself — see
 
 ```python
 async def cmd_job_list(args):
-    async with orch_context(with_ch=False):
+    async with orch_context():
         page = await internal_api.list_jobs(_filter_from_args(args))
     if args.json:
         print(page.model_dump_json())
@@ -295,7 +295,7 @@ Individual routers declare paths **relative** to the prefix — `/jobs`,
 bumped to `/api/v1` with a single-line edit.
 
 Each router is a thin wrapper that runs inside an `orch_context()` (or
-`data_context()` for data routes) scoped to the request:
+`object_context()` for data routes) scoped to the request:
 
 ```python
 # aaiclick/server/routers/jobs.py
@@ -308,7 +308,7 @@ async def list_jobs(filter: JobListFilter = Depends(), _=Depends(orch_scope)):
 
 The resulting route is `GET /api/v0/jobs`.
 
-`orch_scope` is a FastAPI dependency that enters `orch_context(with_ch=False)`
+`orch_scope` is a FastAPI dependency that enters `orch_context()`
 on request start and exits on response — the contextvar getters inside
 `internal_api` see the session/client for the duration of the call.
 
@@ -418,7 +418,7 @@ instance. Each tool is a direct wrapper that opens the surrounding context:
 ```python
 @mcp.tool
 async def run_job(request: RunJobRequest) -> JobView:
-    async with orch_context(with_ch=True):
+    async with orch_context():
         return await internal_api.run_job(request)
 ```
 

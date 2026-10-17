@@ -1,7 +1,7 @@
 """
 aaiclick.data.clickhouse_client - clickhouse-connect async client factory.
 
-See docs/user_guide/data_context.md — "Deployment Modes".
+See docs/user_guide/object_context.md — "Deployment Modes".
 
 Creates an AsyncClient for distributed ClickHouse servers using
 clickhouse-connect's native aiohttp async client (>=1.0.0). Connection

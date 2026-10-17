@@ -11,19 +11,19 @@ without a time filter).
 
 Default-scope behaviour (``name`` set, no ``scope``) → ``"temp_named"`` is
 covered alongside the unnamed-temp default in
-``aaiclick/data/data_context/test_persistent.py``.
+``aaiclick/data/object_context/test_persistent.py``.
 """
 
 import pytest
 
 from aaiclick import create_object_from_value
-from aaiclick.data.data_context import (
+from aaiclick.data.object_context import (
     delete_persistent_object,
     delete_persistent_objects,
     get_data_lifecycle,
     open_object,
 )
-from aaiclick.data.data_context.data_context import MAX_PERSISTENT_NAME_LEN
+from aaiclick.data.object_context.object_context import MAX_PERSISTENT_NAME_LEN
 
 
 async def test_scope_default_is_temp_named_when_name_set(orch_ctx):

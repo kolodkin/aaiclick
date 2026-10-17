@@ -13,8 +13,8 @@ from unittest.mock import AsyncMock
 from sqlalchemy import event, text
 from sqlmodel import select
 
-from aaiclick.data.data_context import create_object_from_value
 from aaiclick.data.object import Object
+from aaiclick.data.object_context import create_object_from_value
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 from aaiclick.orchestration.decorators import job, task

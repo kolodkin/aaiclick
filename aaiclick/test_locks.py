@@ -12,9 +12,9 @@ from aaiclick.locks import _advisory_id_cache, load_advisory_id, table_insert_lo
 from aaiclick.orchestration import sql_context
 from aaiclick.orchestration.sql_context import get_sql_session
 
-# Module-object import bypasses aaiclick.data.data_context.__init__'s
-# re-export of data_context() (the function), which shadows the module name.
-_data_context_mod = importlib.import_module("aaiclick.data.data_context.data_context")
+# Module-object import bypasses aaiclick.data.object_context.__init__'s
+# re-export of object_context() (the function), which shadows the module name.
+_object_context_mod = importlib.import_module("aaiclick.data.object_context.object_context")
 
 
 async def test_load_advisory_id_no_orch_context_returns_none():
@@ -197,7 +197,7 @@ async def test_concat_objects_db_acquires_lock(orch_ctx, monkeypatch):
 
 async def test_create_object_from_value_named_acquires_lock(orch_ctx, monkeypatch):
     """Persistent destination (name=...) locks; unnamed destination does not."""
-    calls = _install_lock_spy(monkeypatch, _data_context_mod)
+    calls = _install_lock_spy(monkeypatch, _object_context_mod)
 
     await create_object_from_value([1, 2, 3], name="lock_named_target")
     assert len(calls) == 1 and calls[0] is not None

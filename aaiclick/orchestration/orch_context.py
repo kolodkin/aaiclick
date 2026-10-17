@@ -17,10 +17,10 @@ from sqlalchemy import text
 from sqlmodel import select
 
 from aaiclick.backend import is_postgres
-from aaiclick.data.data_context.ch_client import _ch_client_var, create_ch_client, get_ch_client
-from aaiclick.data.data_context.data_context import _engine_var, _objects_var, decref
-from aaiclick.data.data_context.lifecycle import LifecycleHandler, _lifecycle_var
 from aaiclick.data.models import ENGINE_DEFAULT
+from aaiclick.data.object_context.ch_client import LazyChClient, _ch_client_var, get_ch_client
+from aaiclick.data.object_context.lifecycle import LifecycleHandler, _lifecycle_var
+from aaiclick.data.object_context.object_context import _engine_var, _objects_var, decref
 from aaiclick.locks import lookup_advisory_id
 from aaiclick.oplog.models import get_column_types, init_oplog_tables
 
@@ -366,19 +366,17 @@ class OrchLifecycleHandler(LifecycleHandler):
 
 
 @asynccontextmanager
-async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
+async def orch_context() -> AsyncIterator[None]:
     """Async context manager for all orchestration operations.
 
-    Creates shared resources on enter:
-    - SQLAlchemy AsyncEngine for orchestration SQL (set in _sql_engine_var)
-    - DbHandler for database operations (set in _db_handler_var)
-    - ChClient for ClickHouse operations (set in _ch_client_var, if with_ch=True)
-
     Sets ContextVars for the duration:
-    - _sql_engine_var: SQL engine (accessed via get_sql_session())
-    - _db_handler_var: DB handler (accessed via get_db_handler())
-    - _ch_client_var: shared ClickHouse client (accessed via get_ch_client())
+    - _sql_engine_var: SQLAlchemy AsyncEngine (via get_sql_session())
+    - _db_handler_var: DbHandler (via get_db_handler())
+    - _ch_client_var: LazyChClient (via get_ch_client())
     - _engine_var: ENGINE_DEFAULT for data operations
+
+    ClickHouse opens on the first query, so SQL-only callers never take the
+    chdb file lock a running worker process may need.
 
     When nested inside an outer ``orch_context``, the inner call reuses the
     outer engine, handler, and ChClient — SQLAlchemy engines are designed
@@ -387,13 +385,6 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
     Only the outermost context constructs and disposes those resources.
     Per-call state (``_task_registry_var``) stays fresh so unsubmitted
     tasks don't leak across nested contexts.
-
-    Args:
-        with_ch: Whether to open a ClickHouse client. Set to False for read-only
-            SQL-only operations (e.g. job status queries) to avoid acquiring the
-            chdb file lock, which would conflict with a running worker process.
-            If an outer context already opened one, the flag is moot — the
-            existing client is reused.
 
     Per-task state (lifecycle handler, objects, oplog) is managed by task_scope().
     """
@@ -415,31 +406,17 @@ async def orch_context(with_ch: bool = True) -> AsyncIterator[None]:
         engine = create_sql_engine(get_db_url())
         handler = create_db_handler()
 
+    # chdb's Session is a per-process singleton (docs/designs/testing.md — "chdb Session Constraint"):
+    # a nested context reuses the outer client instead of opening another.
+    ch_client_owned = LazyChClient() if _ch_client_var.get() is None else None
+
     sql_token = _sql_engine_var.set(engine)
     db_token = _db_handler_var.set(handler)
     eng_token = _engine_var.set(ENGINE_DEFAULT)
     registry_token = _task_registry_var.set({})
+    ch_token = _ch_client_var.set(ch_client_owned) if ch_client_owned is not None else None
 
-    ch_token = None
-    ch_client_owned = None
-    # Everything past the ContextVar sets is inside the try so a failing
-    # ``create_ch_client`` (chdb lock held by another process) still resets
-    # the vars and disposes the engine instead of leaking a half-built context.
     try:
-        if with_ch:
-            # chdb's Session is a true per-process singleton (see
-            # ``docs/designs/technical_debt.md``): we open it once and reuse it for the
-            # lifetime of the process. Reusing an outer context's client when
-            # nested keeps that invariant for callers that enter ``orch_context``
-            # multiple times (e.g. ``ajob_test``).
-            existing = _ch_client_var.get()
-            if existing is not None:
-                ch_client = existing
-            else:
-                ch_client = await create_ch_client()
-                ch_client_owned = ch_client
-            ch_token = _ch_client_var.set(ch_client)
-
         yield
     finally:
         _sql_engine_var.reset(sql_token)

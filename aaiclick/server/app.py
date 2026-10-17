@@ -40,7 +40,7 @@ async def _seed_admin() -> None:
     seed = config.admin_seed()
     if seed is None or not config.auth_enabled():
         return
-    async with orch_context(with_ch=False):
+    async with orch_context():
         if not await store.has_users():
             await store.create_user(
                 username=seed.username,

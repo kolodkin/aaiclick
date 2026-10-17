@@ -20,9 +20,9 @@ from aaiclick import (
     open_object,
 )
 from aaiclick.data import Computed
-from aaiclick.data.data_context import get_ch_client
-from aaiclick.data.data_context.lifecycle import get_data_lifecycle
 from aaiclick.data.models import ViewSchema
+from aaiclick.data.object_context import get_ch_client
+from aaiclick.data.object_context.lifecycle import get_data_lifecycle
 
 # =============================================================================
 # Basic Schema Tests

@@ -324,7 +324,7 @@ and defaults; manual `run_job()` calls can override them per run.
 
 `preservation_mode` controls whether a job's intermediate tables are kept
 after the run — see
-[DataContext — Preservation Modes](data_context.md#preservation-modes) for the
+[ObjectContext — Preservation Modes](object_context.md#preservation-modes) for the
 two modes' semantics. The effective mode resolves through a precedence chain:
 
 | Level | Source                                       | Wins when                            |

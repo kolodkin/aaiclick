@@ -35,9 +35,9 @@ from collections.abc import Callable
 from math import ceil, log
 from typing import Any
 
-from aaiclick.data.data_context import create_object
 from aaiclick.data.models import ORIENT_RECORDS
 from aaiclick.data.object import Object, View
+from aaiclick.data.object_context import create_object
 from aaiclick.snowflake import get_snowflake_id
 
 from .decorators import TaskFactory, task

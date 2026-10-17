@@ -7,19 +7,16 @@ from aaiclick.log_models import MAX_TASK_LOG_LINES
 from aaiclick.orchestration.view_models import ClearTaskView, TaskDetail, TaskLogsView
 
 from ..auth import require_admin
-from ..deps import orch_scope, orch_scope_with_ch
+from ..deps import orch_scope
 from ..errors import problem_responses
 
-# Mixed scopes (like jobs.py): the logs endpoint reads the ClickHouse
-# ``task_logs`` stream so it needs the CH-enabled scope; the others are SQL-only.
-router = APIRouter(prefix="/tasks", tags=["tasks"])
+router = APIRouter(prefix="/tasks", tags=["tasks"], dependencies=[Depends(orch_scope)])
 
 
 @router.get(
     "/{task_id}",
     response_model=TaskDetail,
     responses=problem_responses(404),
-    dependencies=[Depends(orch_scope)],
 )
 async def get_task(task_id: int) -> TaskDetail:
     return await tasks_api.get_task(task_id)
@@ -29,7 +26,6 @@ async def get_task(task_id: int) -> TaskDetail:
     "/{task_id}/logs",
     response_model=TaskLogsView,
     responses=problem_responses(404),
-    dependencies=[Depends(orch_scope_with_ch)],
 )
 async def get_task_logs(
     task_id: int,
@@ -45,7 +41,7 @@ async def get_task_logs(
     "/{task_id}/clear",
     response_model=ClearTaskView,
     responses=problem_responses(403, 404),
-    dependencies=[Depends(orch_scope), Depends(require_admin)],
+    dependencies=[Depends(require_admin)],
 )
 async def clear_task(task_id: int) -> ClearTaskView:
     return await tasks_api.clear_task(task_id)

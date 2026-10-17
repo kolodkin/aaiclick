@@ -1,4 +1,4 @@
-"""Tests for the data_context manager: DDL/registry persistence,
+"""Tests for the object_context manager: DDL/registry persistence,
 automatic Object cleanup, and stale-object guarantees after context exit.
 """
 
@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 
 from aaiclick import Object, create_object, create_object_from_value
-from aaiclick.data.data_context import delete_object, get_ch_client
+from aaiclick.data.object_context import delete_object, get_ch_client
 
 # DDL and registry persistence
 

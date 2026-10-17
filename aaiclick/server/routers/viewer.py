@@ -17,10 +17,10 @@ from aaiclick.viewer.view_models import (
 )
 
 from ..auth import require_write
-from ..deps import orch_scope_with_ch
+from ..deps import orch_scope
 from ..errors import problem_responses
 
-router = APIRouter(prefix="/viewer", tags=["viewer"], dependencies=[Depends(orch_scope_with_ch)])
+router = APIRouter(prefix="/viewer", tags=["viewer"], dependencies=[Depends(orch_scope)])
 
 
 class SavedQueryBody(SavedQueryIn):

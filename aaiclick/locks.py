@@ -77,7 +77,7 @@ async def load_advisory_id(table_name: str) -> int | None:
         return cached
 
     # Lazy import — aaiclick.orchestration.sql_context pulls in the
-    # orchestration package, which transitively imports data_context. Top-
+    # orchestration package, which transitively imports object_context. Top-
     # level import here would create a cycle.
     from .orchestration.sql_context import _sql_engine_var, get_sql_session  # noqa: PLC0415
 

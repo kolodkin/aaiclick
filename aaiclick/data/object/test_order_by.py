@@ -6,8 +6,8 @@ import pytest
 
 from aaiclick import create_object_from_value
 from aaiclick.data import ENGINE_MERGE_TREE, ColumnInfo, Object, Schema
-from aaiclick.data.data_context import data_context, get_ch_client
 from aaiclick.data.models import build_order_by_clause
+from aaiclick.data.object_context import get_ch_client, object_context
 
 
 @pytest.mark.parametrize(
@@ -55,7 +55,7 @@ async def test_order_by_warns_on_memory(ctx):
 
 async def test_order_by_mergetree():
     """order_by with MergeTree engine sets correct sorting_key."""
-    async with data_context(engine=ENGINE_MERGE_TREE):
+    async with object_context(engine=ENGINE_MERGE_TREE):
         ch = get_ch_client()
         obj = await create_object_from_value(
             {"date": ["2024-01-03", "2024-01-01", "2024-01-02"], "val": [30, 10, 20]},
@@ -92,7 +92,7 @@ async def test_order_by_mergetree():
     ],
 )
 async def test_mergetree_sorting_key(value, kwargs, expected):
-    async with data_context(engine=ENGINE_MERGE_TREE):
+    async with object_context(engine=ENGINE_MERGE_TREE):
         ch = get_ch_client()
         obj = await create_object_from_value(value, **kwargs)
 

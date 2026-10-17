@@ -42,11 +42,11 @@ from .data import (
     create_object,
     create_object_from_url,
     create_object_from_value,
-    data_context,
     delete_persistent_object,
     delete_persistent_objects,
     list_persistent_objects,
     literal,
+    object_context,
     open_object,
     split_by_char,
 )

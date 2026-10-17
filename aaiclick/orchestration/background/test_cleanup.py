@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aaiclick.data.data_context import ChClient, get_ch_client
+from aaiclick.data.object_context import ChClient, get_ch_client
 from aaiclick.orchestration.background.handler import BackgroundHandler
 from aaiclick.orchestration.background.sqlite_handler import SqliteBackgroundHandler
 from aaiclick.testing import create_ch_tables, list_ch_tables

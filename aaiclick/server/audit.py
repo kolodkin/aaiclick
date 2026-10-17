@@ -78,7 +78,7 @@ class AuditMiddleware:
                 status = message["status"]
             await send(message)
 
-        async with orch_context(with_ch=False):
+        async with orch_context():
             try:
                 await self.app(scope, receive, send_wrapper)
             finally:

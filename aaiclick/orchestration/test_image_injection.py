@@ -6,7 +6,7 @@ from sqlmodel import select
 from aaiclick.data.models import ViewSchema
 from aaiclick.data.object.refs import callable_ref, group_results_ref, native_ref, pydantic_ref, upstream_ref
 
-from .execution.execution_worker_context import set_current_task_info
+from .execution.execution_worker_context import TaskInfo, current_task_info
 from .execution.image_build_task import IMAGE_BUILD_ENTRYPOINT
 from .factories import create_job, create_task
 from .image_injection import stamp_inherited_image, validate_plain_data_plane_tasks
@@ -167,9 +167,9 @@ async def test_commit_tasks_stamps_and_injects_for_docker_job(orch_ctx_no_ch, mo
         await session.commit()
         entry_id = entry.id
 
-    set_current_task_info(task_id=entry_id, job_id=job_id, image_source=BUILD_A)
-    child = create_task("m.child")
-    await commit_tasks(child, job_id)
+    with current_task_info(TaskInfo(task_id=entry_id, job_id=job_id, image_source=BUILD_A)):
+        child = create_task("m.child")
+        await commit_tasks(child, job_id)
 
     async with get_sql_session() as session:
         rows = (await session.execute(select(Task).where(Task.job_id == job_id))).scalars().all()
@@ -188,6 +188,6 @@ async def test_commit_tasks_stamps_and_injects_for_docker_job(orch_ctx_no_ch, mo
 async def test_commit_tasks_rejects_jvm_task_without_own_image(orch_ctx_no_ch):
     """The committing task's image is not a substitute for a jvm task's own."""
     job = await create_job("j", "m.entry")
-    set_current_task_info(task_id=1, job_id=job.id, image_source=BUILD_A)
-    with pytest.raises(ValueError, match="no image_source"):
-        await commit_tasks(create_task("com.example.Pipeline", entry_type="jvm"), job.id)
+    with current_task_info(TaskInfo(task_id=1, job_id=job.id, image_source=BUILD_A)):
+        with pytest.raises(ValueError, match="no image_source"):
+            await commit_tasks(create_task("com.example.Pipeline", entry_type="jvm"), job.id)

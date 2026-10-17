@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from aaiclick.data.data_context import create_object_from_value
+from aaiclick.data.object_context import create_object_from_value
 from aaiclick.internal_api import lineage as lineage_api
 from aaiclick.internal_api import objects
 from aaiclick.internal_api.errors import Invalid, NotFound

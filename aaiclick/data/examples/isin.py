@@ -12,7 +12,7 @@ This example demonstrates the isin() operator and with_isin() computed column:
 import asyncio
 
 from aaiclick import ORIENT_RECORDS, create_object_from_value
-from aaiclick.data.data_context import data_context
+from aaiclick.data.object_context import object_context
 from aaiclick.example_runner import section
 
 
@@ -86,7 +86,7 @@ async def example():
 
 
 async def amain():
-    async with data_context():
+    async with object_context():
         await example()
 
 

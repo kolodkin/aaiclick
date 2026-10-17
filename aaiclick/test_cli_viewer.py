@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from aaiclick.data.data_context import create_object_from_value
+from aaiclick.data.object_context import create_object_from_value
 from aaiclick.testing import run_cli
 
 pytestmark = pytest.mark.usefixtures("orch_ctx")

@@ -9,8 +9,8 @@ Flattens to columns: a (Int64), x.y.z (Int64)
 import pytest
 
 from aaiclick import create_object_from_value
-from aaiclick.data.data_context import create_object
 from aaiclick.data.models import FIELDTYPE_DICT, ORIENT_DICT, ORIENT_RECORDS, ColumnInfo, Schema
+from aaiclick.data.object_context import create_object
 
 # =============================================================================
 # Schema — dot notation column names

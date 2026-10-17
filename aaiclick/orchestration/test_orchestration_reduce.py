@@ -2,8 +2,8 @@
 
 import pytest
 
-from aaiclick.data.data_context import create_object_from_value, data_context
 from aaiclick.data.object import Object, View
+from aaiclick.data.object_context import create_object_from_value, object_context
 from aaiclick.orchestration import get_job_result, task_result
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution.debug import ajob_test
@@ -106,7 +106,7 @@ async def test_reduce(orch_ctx, pipeline, pipeline_kwargs, expected):
     j = await ajob_test(pipeline, **pipeline_kwargs)
 
     assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
-    async with data_context():
+    async with object_context():
         result_obj = await get_job_result(j)
         assert (await result_obj.data())[0] == expected
 

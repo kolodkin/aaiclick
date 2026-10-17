@@ -14,7 +14,7 @@ consumers wait for the partition tasks.
 import asyncio
 
 from aaiclick import Object, create_object_from_value
-from aaiclick.data.data_context import data_context
+from aaiclick.data.object_context import object_context
 from aaiclick.orchestration import (
     JOB_COMPLETED,
     ajob_test,
@@ -81,7 +81,7 @@ async def amain():
     print("aaiclick Parallel Operators Example")
     print("=" * 50)
 
-    async with data_context():
+    async with object_context():
         print("\nmap(): callback per row, returns collected into the output")
         print("-" * 50)
         job1 = await ajob_test(map_job)

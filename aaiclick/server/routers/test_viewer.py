@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from aaiclick.auth.view_models import CreateUserRequest
-from aaiclick.data.data_context import create_object_from_value
+from aaiclick.data.object_context import create_object_from_value
 from aaiclick.internal_api import users
 from aaiclick.view_models import Page, Problem, ProblemCode
 from aaiclick.viewer.view_models import Dashboard, DashboardResults, SavedQuery

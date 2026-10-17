@@ -6,7 +6,7 @@ Python values; the data is stored column-wise and the `Object` references it —
 nothing is held in Python memory.
 
 This tutorial runs on the default local backend (embedded chdb + SQLite) — no
-servers to start. Every snippet below runs inside a `data_context()`, which owns
+servers to start. Every snippet below runs inside a `object_context()`, which owns
 the lifecycle of the tables you create. Decorate an async function to wrap its
 whole body in one:
 
@@ -14,10 +14,10 @@ whole body in one:
 import asyncio
 
 from aaiclick import create_object_from_value
-from aaiclick.data.data_context import data_context
+from aaiclick.data.object_context import object_context
 
 
-@data_context()
+@object_context()
 async def main():
     ...  # create and use Objects here
 
@@ -63,5 +63,5 @@ and bitwise operators.
 # See Also
 
 - [Object API](../user_guide/object.md) — the full surface of `Object`
-- [DataContext](../user_guide/data_context.md) — lifecycle, scopes, and staleness
+- [ObjectContext](../user_guide/object_context.md) — lifecycle, scopes, and staleness
 - [Examples: Basic Operators](../examples/basic_operators.md) — the complete runnable script

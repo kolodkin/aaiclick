@@ -1,21 +1,21 @@
-# DataContext Documentation
+# ObjectContext Documentation
 
 ## Overview
 
-The `DataContext` manages ClickHouse client lifecycle, Object tracking, and table lifecycle — the entry point for all data operations. Objects become stale when the context exits.
+The `ObjectContext` manages ClickHouse client lifecycle, Object tracking, and table lifecycle — the entry point for all data operations. Objects become stale when the context exits.
 
 ```python
-async with data_context():
+async with object_context():
     obj = await create_object_from_value([1, 2, 3])
     print(await obj.sum().data())  # 6
 # obj is now stale — using it raises RuntimeError
 ```
 
-To wrap an entire async function, use `data_context()` as a decorator (the
-parentheses are required — `data_context` is a factory):
+To wrap an entire async function, use `object_context()` as a decorator (the
+parentheses are required — `object_context` is a factory):
 
 ```python
-@data_context()
+@object_context()
 async def main():
     obj = await create_object_from_value([1, 2, 3])
     print(await obj.sum().data())  # 6
@@ -23,18 +23,18 @@ async def main():
 
 ## Managed Resources
 
-`data_context()` owns and sets five per-resource ContextVars for the duration of the block.
-Each resource lives in its own module so it can be accessed without importing `data_context`:
+`object_context()` owns and sets five per-resource ContextVars for the duration of the block.
+Each resource lives in its own module so it can be accessed without importing `object_context`:
 
 | Resource             | Type                          | ContextVar          | Module               | Accessor              |
 |----------------------|-------------------------------|---------------------|----------------------|-----------------------|
 | ClickHouse client    | `ChClient`                    | `_ch_client_var`    | `ch_client.py`       | `get_ch_client()`     |
 | Table lifecycle      | `LifecycleHandler \| None`    | `_lifecycle_var`    | `lifecycle.py`       | `get_data_lifecycle()`|
-| Table engine         | `EngineType`                  | `_engine_var`       | `data_context.py`    | `get_engine()`        |
-| Object registry      | `dict[int, weakref.ref]`      | `_objects_var`      | `data_context.py`    | internal              |
+| Table engine         | `EngineType`                  | `_engine_var`       | `object_context.py`  | `get_engine()`        |
+| Object registry      | `dict[int, weakref.ref]`      | `_objects_var`      | `object_context.py`  | internal              |
 | Oplog collector      | `OplogCollector \| None`      | `_oplog_collector`  | `oplog/collector.py` | `get_oplog_collector()`|
 
-Each ContextVar is reset (via token) on context exit, so nested `data_context()` calls are safe.
+Each ContextVar is reset (via token) on context exit, so nested `object_context()` calls are safe.
 
 ## Deployment Modes
 
@@ -68,7 +68,7 @@ See [Orchestration — Deployment Modes](orchestration.md#deployment-modes) for 
 
 Objects become **stale** when the context exits — all async methods check via `self.checkstale()`.
 
-!!! warning "Create and consume Objects within the same `data_context()` block"
+!!! warning "Create and consume Objects within the same `object_context()` block"
     Using a stale Object raises `RuntimeError`. Persistent objects
     (created with `name=`) survive — reopen via `open_object()`.
 
@@ -78,8 +78,8 @@ Every Object belongs to one of four scopes, identified by the table-name prefix:
 
 | Scope        | Prefix                  | Lifetime                                          | Created by                                                  |
 |--------------|-------------------------|---------------------------------------------------|-------------------------------------------------------------|
-| `temp`       | `t_<id>`                | Dropped at `data_context()` / `task_scope` exit   | Unnamed objects                                             |
-| `temp_named` | `t_<name>_<id>`         | Dropped at `data_context()` / `task_scope` exit   | `create_object_from_value(..., name="x")` (default)         |
+| `temp`       | `t_<id>`                | Dropped at `object_context()` / `task_scope` exit | Unnamed objects                                             |
+| `temp_named` | `t_<name>_<id>`         | Dropped at `object_context()` / `task_scope` exit | `create_object_from_value(..., name="x")` (default)         |
 | `job`        | `j_<job_id>_<name>`     | Dropped when the owning job's TTL expires         | `create_object_from_value(..., name="x", scope="job")`      |
 | `global`     | `p_<name>`              | Forever; only `delete_persistent_object()` drops  | `create_object_from_value(..., name="x", scope="global")`   |
 
@@ -88,8 +88,8 @@ Every Object belongs to one of four scopes, identified by the table-name prefix:
 Persistent scopes (`"job"`, `"global"`) require an active `orch_context()` because they write a `table_registry` row that only the orch lifecycle handler maintains.
 
 ```python
-# Bare data_context — name= produces a temp_named table.
-async with data_context():
+# Bare object_context — name= produces a temp_named table.
+async with object_context():
     staging = await create_object_from_value([1, 2, 3], name="staging")
     assert staging.table.startswith("t_staging_")
     assert staging.scope == "temp_named"

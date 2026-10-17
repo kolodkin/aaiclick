@@ -177,11 +177,11 @@ async def seed_graph_job(
             other than the all-statuses default (e.g. an all-green graph).
         job_status: Status written to the job row.
 
-    ``with_ch=False`` is required: the e2e server subprocess holds the chdb
-    file lock, and opening a second ClickHouse client here would deadlock.
+    Must never query ClickHouse: the e2e server subprocess holds the chdb
+    file lock, and opening a second client here would deadlock.
     """
     merged = {**DEFAULT_STATES, **(states or {})}
-    async with orch_context(with_ch=False):
+    async with orch_context():
         return await _build(job_name, merged, job_status)
 
 
@@ -189,13 +189,13 @@ async def seed_viewer_objects() -> None:
     """A persistent ``orders`` object and a dashboard over it, for the viewer e2e.
 
     Persistent scopes need the orch lifecycle handler plus a task scope (as the
-    ``orch_ctx`` test fixture provides). ``with_ch=True`` opens chdb, whose
+    ``orch_ctx`` test fixture provides). It opens chdb, whose
     session is a per-process singleton that holds the data-directory lock for
     the life of the process — so this runs in its own short-lived process
     (``python seed.py viewer``) that exits before the e2e server starts.
     """
     seed_id = get_snowflake_id()
-    async with orch_context(with_ch=True), task_scope(task_id=seed_id, job_id=seed_id, run_id=seed_id):
+    async with orch_context(), task_scope(task_id=seed_id, job_id=seed_id, run_id=seed_id):
         # The local database survives between runs: drop a previous seed so the
         # row count the tests assert on stays exact.
         await objects_api.delete_object("orders")

@@ -14,7 +14,7 @@ All resource cleanup is job-driven: every CH table, sample, and oplog entry
 traces to a job_id via table_registry (SQL). Resources without a job_id
 (orphans) are cleaned up after the same TTL.
 
-Runs on its own DB engine and CH client, outside DataContext and OrchContext;
+Runs on its own DB engine and CH client, outside ObjectContext and OrchContext;
 only scheduled-run and sandbox-run creation enter a short-lived ``orch_context``
 so they take the same ``run_job`` path as a manual submission.
 """
@@ -35,7 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlmodel import col
 
 from aaiclick.async_wait import wait_or_timeout
-from aaiclick.data.data_context.ch_client import ChClient, create_ch_client
+from aaiclick.data.object_context.ch_client import ChClient, create_ch_client
 from aaiclick.oplog.cleanup import drop_tables
 
 from ...datetime_utils import utc_now
@@ -548,7 +548,7 @@ class BackgroundWorker:
 
         if not won:
             return
-        async with orch_context(with_ch=False):
+        async with orch_context():
             for row in won:
                 try:
                     job = await run_job(row.name, row.entrypoint, run_type=RUN_SCHEDULED)
@@ -609,7 +609,7 @@ class BackgroundWorker:
 
         if not claimed:
             return
-        async with orch_context(with_ch=False):
+        async with orch_context():
             for row in claimed:
                 outcome = await self._submit_sandbox_jobs(row.path, row.job_names, row.git_remote, row.git_sha)
                 async with AsyncSession(self._engine) as session:

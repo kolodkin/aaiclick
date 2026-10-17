@@ -1,11 +1,11 @@
 """
-aaiclick.data - Data context and object management for ClickHouse operations.
+aaiclick.data - Object context and object management for ClickHouse operations.
 
 This module provides the core data management capabilities for aaiclick,
 including context management, object creation, and database operations.
 """
 
-# Load the object package before data_context: data_context builds ``Object``
+# Load the object package before object_context: object_context builds ``Object``
 # through a module-level ``from .. import object`` that only resolves once
 # ``aaiclick.data.object`` has started importing.
 from .object import (
@@ -20,27 +20,6 @@ from .object import (
 )
 
 # isort: split
-from .data_context import (
-    ChClient,
-    LifecycleHandler,
-    LocalLifecycleHandler,
-    ObjectNotFoundError,
-    create_object,
-    create_object_from_value,
-    data_context,
-    decref,
-    delete_object,
-    delete_persistent_object,
-    delete_persistent_objects,
-    get_ch_client,
-    get_data_lifecycle,
-    get_engine,
-    incref,
-    list_job_tables,
-    list_persistent_objects,
-    open_object,
-    register_object,
-)
 from .models import (
     DATE_TYPES,
     ENGINE_AGGREGATING_MERGE_TREE,
@@ -80,5 +59,26 @@ from .models import (
     ValueType,
     ViewSchema,
     parse_ch_type,
+)
+from .object_context import (
+    ChClient,
+    LifecycleHandler,
+    LocalLifecycleHandler,
+    ObjectNotFoundError,
+    create_object,
+    create_object_from_value,
+    decref,
+    delete_object,
+    delete_persistent_object,
+    delete_persistent_objects,
+    get_ch_client,
+    get_data_lifecycle,
+    get_engine,
+    incref,
+    list_job_tables,
+    list_persistent_objects,
+    object_context,
+    open_object,
+    register_object,
 )
 from .scope import NamedScope, ObjectScope

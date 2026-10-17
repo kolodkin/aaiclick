@@ -256,9 +256,9 @@ async def mp_worker_main_loop(
 ) -> int:
     """Main worker loop that spawns a multiprocessing.Process per task.
 
-    Must be called inside an active orch_context(with_ch=False) — the main
-    process only needs SQLite for claiming and status updates.  chdb is
-    initialized inside each child process. Heartbeats continue while the
+    Must be called inside an active orch_context() and never query
+    ClickHouse — the main process only needs SQL for claiming and status
+    updates. chdb is opened inside each child process. Heartbeats continue while the
     child is running.
 
     Task timeout is read from AAICLICK_TASK_TIMEOUT env var (seconds).

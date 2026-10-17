@@ -1,7 +1,6 @@
 """Tests for configurable table engine support."""
 
 from aaiclick import create_object, create_object_from_value
-from aaiclick.data.data_context import data_context, get_ch_client
 from aaiclick.data.models import (
     AAI_ID_INFO,
     ENGINE_AGGREGATING_MERGE_TREE,
@@ -10,11 +9,12 @@ from aaiclick.data.models import (
     ColumnInfo,
     Schema,
 )
+from aaiclick.data.object_context import get_ch_client, object_context
 
 
 async def test_context_with_memory_engine():
-    """Test non-default engine (Memory) set on data_context."""
-    async with data_context(engine=ENGINE_MEMORY):
+    """Test non-default engine (Memory) set on object_context."""
+    async with object_context(engine=ENGINE_MEMORY):
         ch_client = get_ch_client()
         obj_a = await create_object_from_value([1, 2, 3], aai_id=True)
         obj_b = await create_object_from_value([4, 5, 6], aai_id=True)
@@ -39,7 +39,7 @@ async def test_context_with_memory_engine():
 
 async def test_create_object_with_engine_override():
     """Test engine override passed directly to create_object."""
-    async with data_context():  # Default Memory
+    async with object_context():  # Default Memory
         ch_client = get_ch_client()
         # Override to MergeTree
         schema = Schema(fieldtype="a", columns={"value": ColumnInfo("Int64")})
@@ -61,7 +61,7 @@ async def test_create_object_with_engine_override():
 
 async def test_mixed_engine_scenario():
     """Test mix of context engine and per-object override."""
-    async with data_context(engine=ENGINE_MEMORY):
+    async with object_context(engine=ENGINE_MEMORY):
         ch_client = get_ch_client()
         # Create with context default (Memory)
         obj_a = await create_object_from_value([10, 20, 30], aai_id=True)
@@ -104,7 +104,7 @@ async def test_mixed_engine_scenario():
 
 async def test_schema_engine():
     """Test engine set on Schema instead of create_object param."""
-    async with data_context():
+    async with object_context():
         ch_client = get_ch_client()
         schema = Schema(
             fieldtype="a",
@@ -121,7 +121,7 @@ async def test_schema_engine():
 
 async def test_schema_engine_param_precedence():
     """Test that engine param takes precedence over schema.engine."""
-    async with data_context():
+    async with object_context():
         ch_client = get_ch_client()
         schema = Schema(
             fieldtype="a",
@@ -138,7 +138,7 @@ async def test_schema_engine_param_precedence():
 
 async def test_aggregating_merge_tree_engine():
     """Test AggregatingMergeTree with custom ORDER BY."""
-    async with data_context(engine=ENGINE_MERGE_TREE):
+    async with object_context(engine=ENGINE_MERGE_TREE):
         ch_client = get_ch_client()
         schema = Schema(
             fieldtype="a",
@@ -161,7 +161,7 @@ async def test_aggregating_merge_tree_engine():
 
 async def test_schema_order_by_merge_tree():
     """Test custom ORDER BY on MergeTree."""
-    async with data_context(engine=ENGINE_MERGE_TREE):
+    async with object_context(engine=ENGINE_MERGE_TREE):
         ch_client = get_ch_client()
         schema = Schema(
             fieldtype="a",

@@ -15,7 +15,7 @@ map() and reduce().
 
 import asyncio
 
-from aaiclick.data.data_context import data_context
+from aaiclick.data.object_context import object_context
 from aaiclick.orchestration import JOB_COMPLETED, ajob_test, job, task, tasks_list
 
 
@@ -109,7 +109,7 @@ async def amain():
     print("aaiclick Dynamic Orchestration Example")
     print("=" * 50)
 
-    async with data_context():
+    async with object_context():
         print("\nTask returning child tasks (implicit + explicit deps)")
         print("-" * 50)
 

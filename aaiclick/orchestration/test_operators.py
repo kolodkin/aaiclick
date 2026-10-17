@@ -5,7 +5,7 @@ from collections import Counter
 import pytest
 from sqlmodel import select
 
-from aaiclick.data.data_context import data_context
+from aaiclick.data.object_context import object_context
 from aaiclick.orchestration import foreach, get_job_result, job, task, task_result
 from aaiclick.orchestration.examples.orchestration_operators import create_values
 from aaiclick.orchestration.execution.debug import ajob_test
@@ -74,7 +74,7 @@ async def test_operator_call_is_one_group_frame(orch_ctx, pipeline, groups, memb
     j = await ajob_test(pipeline)
 
     assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
-    async with data_context():
+    async with object_context():
         assert await get_job_result(j) == expected
 
     async with get_sql_session() as session:

@@ -333,7 +333,7 @@ Scheduled runs inherit the registered job's level-2 defaults automatically. Manu
 
 ## run_job
 
-`run_job(name, entrypoint, kwargs, preservation_mode)` — links to the existing `RegisteredJob` if one matches `name` (and merges `kwargs` over its `default_kwargs`); otherwise runs standalone with `registered_job_id=None`. Resolves preservation config via the precedence chain above and creates a Job with `run_type=MANUAL` plus the entry point Task. See [DataContext — Preservation Modes](../user_guide/data_context.md#preservation-modes) for the two modes' semantics.
+`run_job(name, entrypoint, kwargs, preservation_mode)` — links to the existing `RegisteredJob` if one matches `name` (and merges `kwargs` over its `default_kwargs`); otherwise runs standalone with `registered_job_id=None`. Resolves preservation config via the precedence chain above and creates a Job with `run_type=MANUAL` plus the entry point Task. See [ObjectContext — Preservation Modes](../user_guide/object_context.md#preservation-modes) for the two modes' semantics.
 
 ## Cron Scheduling
 
@@ -553,11 +553,11 @@ Periodic sweeper: lists `t*` tables in ClickHouse, extracts timestamp from snowf
 
 ## Local Mode
 
-`LocalLifecycleHandler` wraps `TableWorker` — immediate DROP on refcount 0, no PostgreSQL. See [DataContext](../user_guide/data_context.md).
+`LocalLifecycleHandler` wraps `TableWorker` — immediate DROP on refcount 0, no PostgreSQL. See [ObjectContext](../user_guide/object_context.md).
 
 # Operation Provenance (Oplog)
 
-All Object operations within a task are automatically logged when `data_context(oplog=...)` is active. See `docs/user_guide/oplog.md` for the full specification.
+All Object operations within a task are automatically logged when `object_context(oplog=...)` is active. See `docs/user_guide/oplog.md` for the full specification.
 
 # Configuration
 

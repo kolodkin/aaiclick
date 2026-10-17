@@ -49,11 +49,9 @@ edit to `_PROBLEM_MAP` in `errors.py`.
 
 # Scope dependencies on routers
 
-Single-scope routers declare the scope once at the `APIRouter(...)`
-level via `dependencies=[Depends(orch_scope)]`; individual endpoints
-drop the `_scope` parameter. Only `jobs.py` keeps per-endpoint
-dependencies because it mixes `orch_scope` (reads) and
-`orch_scope_with_ch` (`run_job`).
+Routers declare the scope once at the `APIRouter(...)` level via
+`dependencies=[Depends(orch_scope)]`; individual endpoints drop the
+`_scope` parameter.
 
 # Test scope
 

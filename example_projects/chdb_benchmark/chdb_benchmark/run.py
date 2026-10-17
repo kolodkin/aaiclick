@@ -1,7 +1,7 @@
 """Benchmark runner — generates data, measures chdb vs aaiclick, prints report.
 
 Each benchmark operation runs inside its own fresh context (chdb Session or
-aaiclick DataContext). This isolates memory measurements per operation and
+aaiclick ObjectContext). This isolates memory measurements per operation and
 removes the need for manual result-table cleanup between benchmarks.
 
 Memory is tracked via process RSS (/proc/self/statm) rather than

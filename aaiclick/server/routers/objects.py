@@ -13,10 +13,10 @@ from aaiclick.view_models import (
 )
 
 from ..auth import require_admin
-from ..deps import orch_scope_with_ch
+from ..deps import orch_scope
 from ..errors import problem_responses
 
-router = APIRouter(prefix="/objects", tags=["objects"], dependencies=[Depends(orch_scope_with_ch)])
+router = APIRouter(prefix="/objects", tags=["objects"], dependencies=[Depends(orch_scope)])
 
 
 @router.get("", response_model=Page[ObjectView], responses=problem_responses(422))

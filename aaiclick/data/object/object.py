@@ -20,14 +20,6 @@ from typing_extensions import Self
 from aaiclick.oplog.oplog_api import oplog_record_sample
 from aaiclick.snowflake import get_snowflake_id
 
-from ..data_context import (
-    create_object_from_value,
-    decref,
-    get_ch_client,
-    incref,
-    register_object,
-)
-from ..data_context.ch_client import ChClient, execute_for_stats, export_query_to_file
 from ..formats import format_for_extension
 from ..models import (
     AAI_ID_COLUMN,
@@ -62,6 +54,14 @@ from ..models import (
     select_fields,
     select_fieldtype,
 )
+from ..object_context import (
+    create_object_from_value,
+    decref,
+    get_ch_client,
+    incref,
+    register_object,
+)
+from ..object_context.ch_client import ChClient, execute_for_stats, export_query_to_file
 from ..scope import NamedScope, ObjectScope, is_persistent_table, scope_of
 from ..sql_utils import quote_identifier, quote_sql_literal
 from . import data_extraction, ingest, operators

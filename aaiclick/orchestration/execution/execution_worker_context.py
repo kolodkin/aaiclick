@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 
+from ..models import Task
 from ..runner_config import ENTRY_MODULE, EntryType
 
 
@@ -31,21 +32,18 @@ class TaskInfo:
     # image has no Python, a Python image no JVM).
     entry_type: EntryType = ENTRY_MODULE
 
+    @classmethod
+    def from_task(cls, task: Task) -> TaskInfo:
+        return cls(
+            task_id=task.id,
+            job_id=task.job_id,
+            image_source=task.image_source,
+            group_id=task.group_id,
+            entry_type=task.entry_type,
+        )
+
 
 _current_task_info: ContextVar[TaskInfo] = ContextVar("current_task_info")
-
-
-def set_current_task_info(
-    task_id: int,
-    job_id: int,
-    image_source: dict | None = None,
-    group_id: int | None = None,
-    entry_type: EntryType = ENTRY_MODULE,
-) -> None:
-    """Set the current task info for the executing context."""
-    _current_task_info.set(
-        TaskInfo(task_id=task_id, job_id=job_id, image_source=image_source, group_id=group_id, entry_type=entry_type)
-    )
 
 
 @contextmanager

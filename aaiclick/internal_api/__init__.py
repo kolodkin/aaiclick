@@ -1,7 +1,7 @@
 """Shared business logic for aaiclick's CLI, REST, and MCP surfaces.
 
 Every command is implemented exactly once here. Functions run inside an
-active ``orch_context()`` (orchestration) or ``data_context()`` (data) and
+active ``orch_context()`` (orchestration) or ``object_context()`` (data) and
 read SQL/CH resources through the contextvar getters — same pattern as the
 rest of the codebase. Inputs are primitives or ``*Request`` / ``*Filter``
 view models; outputs are pydantic view models. The three surfaces

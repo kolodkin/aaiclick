@@ -11,7 +11,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 from aaiclick.backend import is_local
-from aaiclick.data.data_context import ChClient
+from aaiclick.data.object_context import ChClient
 
 from .migrate import ch_pending, ch_upgrade
 

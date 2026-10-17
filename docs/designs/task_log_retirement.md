@@ -46,8 +46,8 @@ running `seq` offset.
 
 ## Flushing from the worker parent
 
-The worker parent runs `orch_context(with_ch=False)` — it must not hold the
-chdb session while children need it. Shell tasks therefore execute inside the
+The worker parent runs `orch_context()` and never queries ClickHouse, so it
+never opens the chdb session its children need. Shell tasks therefore execute inside the
 same spawned task child module tasks use (`_child_run_task`), which opens its
 own `orch_context` and streams inline. One code path for local (chdb) and
 distributed (remote CH) modes. A run killed mid-flight keeps everything

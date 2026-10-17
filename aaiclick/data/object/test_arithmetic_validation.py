@@ -10,7 +10,7 @@ length-mismatch errors they trigger.
 import pytest
 
 from aaiclick import create_object_from_value
-from aaiclick.data.data_context import get_ch_client
+from aaiclick.data.object_context import get_ch_client
 from aaiclick.testing import list_ch_tables
 
 

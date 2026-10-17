@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from aaiclick.data.data_context.ch_client import get_ch_client
+from aaiclick.data.object_context.ch_client import get_ch_client
 from aaiclick.oplog import models as oplog_models
 from aaiclick.oplog.migrate import (
     MigrationFile,

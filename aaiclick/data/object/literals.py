@@ -8,8 +8,8 @@ the one ``create_object_from_value`` would infer, and the sync preview reads
 the same ``operand_type``, so result schemas match exactly.
 """
 
-from ..data_context.data_context import _infer_clickhouse_type
 from ..models import FIELDTYPE_ARRAY, FIELDTYPE_SCALAR, QueryInfo, ValueScalarType
+from ..object_context.object_context import _infer_clickhouse_type
 from ..sql_utils import sql_literal
 
 # Lists longer than this materialize as a table instead: the inlined SQL text

@@ -1,7 +1,7 @@
 """
 Basic operators example for aaiclick.
 
-This example demonstrates how to use data_context() with create_object_from_value
+This example demonstrates how to use object_context() with create_object_from_value
 for automatic schema inference and basic arithmetic operators on Objects.
 """
 
@@ -9,7 +9,7 @@ import asyncio
 from datetime import datetime, timezone
 
 from aaiclick import ORIENT_RECORDS, create_object_from_value
-from aaiclick.data.data_context import data_context
+from aaiclick.data.object_context import object_context
 from aaiclick.example_runner import section
 
 
@@ -215,9 +215,9 @@ async def example():
     section("Cleanup: All context-created objects will be cleaned up automatically")
 
 
-@data_context()
+@object_context()
 async def amain():
-    """Main entry point that runs the example inside a data_context()."""
+    """Main entry point that runs the example inside a object_context()."""
     await example()
 
 

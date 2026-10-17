@@ -97,8 +97,6 @@ from typing import NamedTuple, cast
 from aaiclick.oplog.oplog_api import oplog_record_sample
 from aaiclick.snowflake import get_snowflake_id
 
-from ..data_context import create_object
-from ..data_context.ch_client import execute_for_stats
 from ..models import (
     AAI_ID_COLUMN,
     FIELDTYPE_ARRAY,
@@ -112,6 +110,8 @@ from ..models import (
     Schema,
     parse_ch_type,
 )
+from ..object_context import create_object
+from ..object_context.ch_client import execute_for_stats
 from ..scope import NamedScope
 from ..sql_utils import quote_identifier, quote_sql_literal
 from .emit import emit_result
