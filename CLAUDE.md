@@ -221,8 +221,8 @@ Use the `generate-migration` skill. Never hand-write migration files.
    - **Always execute plans inline** (`superpowers:executing-plans` in the current session). Do not offer the subagent-driven option or ask which execution mode to use.
 
 3. **Update Documentation to Reference Implementation**:
-   - **Add implementation references**: Point to actual code files and line numbers
-   - **Example**: `**Implementation**: aaiclick/orchestration/factories.py:30-107`
+   - **Link code to docs, not docs to code**: implementing modules cite the design doc in their docstrings (`spec: docs/designs/<doc>.md "<Section>"`)
+   - **Implementation references in docs only when critical**: add one only when the code holds critical design information the doc does not. Example: `**Implementation**: aaiclick/orchestration/factories.py:30-107`
    - **Remove duplication**: Once code exists, reference it instead of duplicating
    - **No status icons**: The implementation reference itself signals a feature is built — do not add ✅ IMPLEMENTED markers. Unimplemented work lives in `docs/designs/future.md` (see Future Plans), not inline ⚠️ NOT YET IMPLEMENTED markers.
    - **Keep unimplemented specs**: Detailed descriptions serve as design docs for future work
