@@ -73,7 +73,7 @@ class AaiTaskShimTest {
                                      {"_aaiclick_type": "upstream", "task_id": "w2"}]}},
                {"_aaiclick_type": "group", "id": "g",
                 "tasks": [{"_aaiclick_type": "task", "entry_type": "module", "entrypoint": "pkg.mod.step", "kwargs": {}}]},
-               {"_aaiclick_type": "task", "id": "report", "entry_type": "jvm", "entrypoint": "com.example.Report",
+               {"_aaiclick_type": "task", "id": "report", "entry_type": "module", "entrypoint": "pkg.mod.report",
                 "kwargs": {"steps": {"_aaiclick_type": "group_results", "group_id": "g"}}, "depends_on": ["fin"]}
              ]}
             """), readOut());

@@ -133,7 +133,7 @@ public final class Task implements DagNode {
 
     /** An {@link Upstream} ref to this task, for a sibling's kwargs or {@link TaskResult} data. */
     public Upstream ref() {
-        return Upstream.of(handle());
+        return new Upstream(handle());
     }
 
     private String handle() {

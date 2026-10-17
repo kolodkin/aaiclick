@@ -34,10 +34,11 @@ public final class Group implements DagNode {
         return this;
     }
 
+    /** Only a {@link Task#module} sibling may take this: shell and jvm kwargs carry plain values and upstream refs only. */
     public GroupResults results() {
         if (id == null) {
             throw new IllegalStateException("a group referenced by a sibling needs an id");
         }
-        return GroupResults.of(id);
+        return new GroupResults(id);
     }
 }

@@ -11,8 +11,8 @@ The `aaiclick-task-api` jar, layered on the
 | `task_result`    | `TaskResult.of(data, …)`, `.spawn(…)`    |
 | `task`           | `Task.shell` / `.jvm` / `.module(id, …)` |
 | `group`          | `Group.of(id, …)`                        |
-| `upstream`       | `task.ref()`, `Upstream.of(id)`          |
-| `group_results`  | `group.results()`, `GroupResults.of(id)` |
+| `upstream`       | `task.ref()`                             |
+| `group_results`  | `group.results()` — module children only |
 | `native`         | any value, written untagged              |
 | `callable`       | —                                        |
 | `object`         | —                                        |

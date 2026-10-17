@@ -56,7 +56,7 @@ reserved key `_aaiclick_type` is one of these shapes:
 | `_aaiclick_type` | Fields                                                | Meaning                                         |
 |------------------|-------------------------------------------------------|-------------------------------------------------|
 | `upstream`       | `task_id` (int = database id; string = sibling `id`)  | Another task's result                           |
-| `group_results`  | `group_id` (int = database id; string = sibling `id`) | The list of a group's results                   |
+| `group_results`  | `group_id` (int = database id; string = sibling `id`) | A group's results — Python tasks only           |
 | `native`         | `value`                                               | A plain value, wrapped; same as writing it bare |
 | `task`           | See [Task fields](#task-fields)                       | A child task to spawn                           |
 | `group`          | `id`, `name`, `tasks: [task…]`                        | A set of child tasks                            |
@@ -94,7 +94,7 @@ for `fin` and gets its value (`6`).
 
 A `group` dict (`{"_aaiclick_type": "group", "id": "g", "tasks": [...]}`)
 groups children; a `group_results` ref (`{"_aaiclick_type": "group_results",
-"group_id": "g"}`) in a kwarg delivers the list of their results. Returning
+"group_id": "g"}`) in a Python task's kwarg delivers the list of their results. Returning
 a single `task`, or a list of them, works too when there is no data.
 
 # Task fields
