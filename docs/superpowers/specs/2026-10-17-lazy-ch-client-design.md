@@ -7,6 +7,7 @@ Three changes from the "decouple Objects from task runs" evaluation. Bare script
 
 - `orch_context()` opens ClickHouse only when something queries it. The `with_ch` flag goes away.
 - The executing task's `TaskInfo` is set for the task's lifetime and restored afterwards, never left behind by a bare `ContextVar.set()`.
+- `data_context` becomes `object_context` everywhere.
 
 # Lazy ClickHouse client
 
@@ -95,7 +96,7 @@ A breaking rename with no alias: the context exists to scope Object lifecycles, 
 | `mkdocs.yml` nav "DataContext"          | "ObjectContext"                           |
 | "DataContext" in prose (16 hits)        | "ObjectContext"                           |
 
-About 290 whole-word hits across 121 files: imports, call sites, examples, docstrings, error messages (`get_ch_client`, `scope.py`), and the root `CLAUDE.md` / `README.md`. Section links quoting `docs/user_guide/data_context.md — "..."` are updated with the file.
+About 290 whole-word hits across 121 files: imports, call sites, examples, docstrings, error messages (`get_ch_client`, `scope.py`), and the root `README.md`. Section links quoting `docs/user_guide/data_context.md — "..."` are updated with the file.
 
 # Tests
 
