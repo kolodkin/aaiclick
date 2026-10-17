@@ -6,7 +6,7 @@ principal) and startup logs a ``WARNING``. In distributed mode an
 ``aaic_`` API token; ``HTTPBearer`` (with ``auto_error=False``) extracts it and
 registers the OpenAPI scheme. The ``/mcp`` mount keeps an ASGI middleware
 because ``Depends`` does not propagate into mounted sub-apps. See
-``docs/designs/auth.md``.
+``docs/designs/auth.md`` — "Roles", "API Tokens", "MCP Surface".
 
 The scope rules are plain functions (``principal_to_scope``, ``check_scope``)
 so the FastAPI dependencies here and the FastMCP middleware in ``mcp_rbac.py``

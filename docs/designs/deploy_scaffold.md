@@ -53,12 +53,7 @@ python -m aaiclick k8s init [--path ./aaiclick-chart] [--image-tag vX.Y.Z] [--fo
 - Existing files are never silently overwritten — same `--force` semantics and error style as
   `init_dockerfile()` (`ComposeFileExists` / `HelmChartExists` mirroring `DockerfileExists`).
 
-**Implementation**: aaiclick/deploy/compose_scaffold.py — see init_compose(); aaiclick/deploy/k8s_scaffold.py —
-see init_helm(); CLI wiring in aaiclick/__main__.py — see _run_compose_init() / _run_k8s_init().
-
 # Compose template (docker-runner setup)
-
-**Implementation**: aaiclick/deploy/templates/compose/docker-compose.yaml.
 
 Full stack — `docker compose up` yields a complete working docker-runner deployment:
 
@@ -84,14 +79,11 @@ Full stack — `docker compose up` yields a complete working docker-runner deplo
 - Distributed URLs enforce auth, so the server carries starter `AAICLICK_JWT_SECRET` /
   `AAICLICK_ADMIN_PASSWORD` values — without them it refuses to start or cannot be logged in to.
 - Every shipped credential reads `change-me-...`, and the server warns at startup for each one
-  still unreplaced. **Implementation**: `aaiclick/deploy/placeholders.py` — see
-  `warn_if_placeholder_credentials()`; the user-facing list is `docs/user_guide/deployment.md`.
+  still unreplaced; the user-facing list is `docs/user_guide/deployment.md`.
 - No profiles: `docker compose up` always brings up the whole stack. CI jobs that only need
   the infra services still run the full stack — simpler than maintaining profile splits.
 
 # Helm chart template (kubernetes setup)
-
-**Implementation**: aaiclick/deploy/templates/helm/aaiclick/.
 
 A user-facing chart — distinct from `test_e2e/kubernetes/chart`, which is CI-only dependency
 infra and stays as it is.
@@ -111,8 +103,6 @@ giving the same migrate → server → worker ordering as the compose stack.
 namespace-scoped RBAC toggles, resources.
 
 # Release pipeline restructure
-
-**Implementation**: .github/workflows/publish.yaml.
 
 ```
 build ──► build-rc-images ──► merge-rc-images ──► gates (parallel) ──► publish (PyPI) ──► promote-images
@@ -138,10 +128,6 @@ The wheel baked into the rc images is the same artifact file later uploaded to P
 All gates depend only on `build` + `merge-rc-images` (or `build` alone for the local-only
 gate), so they run concurrently.
 
-**Implementation**: .github/workflows/publish.yaml — see jobs test-package-local,
-test-package, test-compose-e2e, test-helm-e2e, test-package-docker-e2e;
-.github/workflows/_compose-e2e-reusable.yaml; .github/workflows/_helm-e2e-reusable.yaml.
-
 | Gate                     | Shape                                                                        |
 |--------------------------|-------------------------------------------------------------------------------|
 | test-package-local       | Unchanged (chdb + SQLite, no infra)                                          |
@@ -159,9 +145,6 @@ published digests. A final step deletes the `-rc` tags on success; failed releas
 behind for debugging.
 
 # Testing
-
-**Implementation**: aaiclick/deploy/test_compose_scaffold.py; aaiclick/deploy/test_k8s_scaffold.py;
-test_e2e/compose/ (marker `compose_e2e`, `AAICLICK_E2E_COMPOSE_DIR`).
 
 - Unit tests adjacent to each scaffold module, mirroring `test_docker_scaffold.py`: file
   written, `--force` semantics, version/tag rendering, output parses as YAML with the expected

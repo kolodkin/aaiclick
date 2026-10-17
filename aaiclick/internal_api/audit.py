@@ -1,4 +1,5 @@
-"""Internal API over the audit log (admin-only at the HTTP layer)."""
+"""Internal API over the audit log (admin-only at the HTTP layer).
+See docs/designs/auth.md — "Audit Log"."""
 
 from __future__ import annotations
 

@@ -330,9 +330,6 @@ subject to breaking change" to downstream UIs / SDK generators; we graduate to
 
 ## Spawning workers — `POST /api/v0/execution-workers`
 
-**Implementation**: `internal_api.execution_workers.start_execution_worker`,
-`aaiclick/server/routers/execution_workers.py`.
-
 The CLI's `execution-worker start` is a blocking process loop that runs until
 SIGTERM — it does not fit the request/response pattern. The REST
 endpoint spawns a **detached subprocess** and returns `202 Accepted`
@@ -407,8 +404,7 @@ A `text/event-stream` of `changed` events (no payload) fed by Postgres
 `LISTEN`/`NOTIFY` in distributed mode and an in-process bus in local mode.
 Requires a principal like every other resource route; the signal itself
 carries nothing per-user. Design and client behaviour:
-`docs/designs/frontend.md` — Live updates. **Implementation**:
-`aaiclick/server/events.py` — see `stream_events`, `live_events`.
+`docs/designs/frontend.md` — Live updates.
 
 # MCP Surface
 
@@ -501,10 +497,7 @@ documented in `docs/designs/auth.md` — Configuration:
 
 # Authentication
 
-**Design**: `docs/designs/auth.md`. **Implementation**: `aaiclick/server/auth.py`
-(principal resolution + RBAC), `aaiclick/auth/` (models, security, store),
-`aaiclick/internal_api/auth.py` (login / refresh / logout, MFA, password
-reset), wired in `aaiclick/server/app.py`.
+**Design**: `docs/designs/auth.md`.
 
 Username/password users with one role each (`viewer` / `member` / `admin`),
 authenticated by a short-lived access JWT +

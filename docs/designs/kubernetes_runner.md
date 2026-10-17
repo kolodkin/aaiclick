@@ -8,12 +8,6 @@ shared `remote_task_results` transport.
 
 It is a third `TaskVehicle` driven by the shared `drive_vehicle` lifecycle.
 
-**Implementation**: `aaiclick/orchestration/execution/kubernetes_worker.py` — see
-`_KubernetesVehicle` and `_run_task_in_pod`; the container-side entrypoint and
-result transport live in `aaiclick/orchestration/execution/remote_result.py` —
-see `remote_entry_main`; driven by the shared `drive_vehicle` lifecycle in
-`aaiclick/orchestration/execution/execution_worker.py`.
-
 Both `docker` and `kubectl` are driven through one subprocess helper,
 `execution/cli.py` (`run(...)` captures; `run(..., stream=True)` tees live output,
 which is what `kubectl logs -f` needs).
@@ -161,11 +155,6 @@ its `limits` too; with no scheduler, docker ignores `requests` (mapping:
 
 Both are resolved on the **worker at dispatch** and handed to the vehicle as
 `JobDispatch.pod_config` and `JobDispatch.resources`.
-
-**Implementation**: `aaiclick/orchestration/kubernetes_config.py` — see
-`resolve_pod_config()`; `aaiclick/orchestration/runner_config.py` — see
-`validate_resources()`; `aaiclick/orchestration/docker_config.py` — see
-`resource_flags()`.
 
 # Selection and dispatch
 

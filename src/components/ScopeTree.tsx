@@ -1,3 +1,4 @@
+// See docs/designs/ui.md — "Data (`@data [job <ref>] [<object>]`)".
 import { useState } from "react";
 import { useJobs } from "../api/hooks";
 import { PERSISTENT, scopeKey } from "../lib/viewer";

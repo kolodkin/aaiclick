@@ -142,6 +142,7 @@ AAI_ID_INFO = ColumnInfo(
 
 class FieldSpec(NamedTuple):
     """Field specification for overriding inferred column properties.
+    See docs/user_guide/data_context.md — "Field Specifications".
 
     Used with ``create_object_from_value(fields=...)`` to control nullable
     and low_cardinality flags without manually specifying the full schema.

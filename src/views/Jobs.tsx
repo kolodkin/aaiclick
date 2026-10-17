@@ -1,3 +1,4 @@
+// See docs/designs/ui.md — "Jobs List (`@jobs`)".
 import { useJobs } from "../api/hooks";
 import { Chips } from "../components/Chips";
 import { LiveStatus } from "../components/LiveStatus";

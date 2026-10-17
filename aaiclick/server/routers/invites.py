@@ -1,4 +1,4 @@
-"""Invite routes.
+"""Invite routes. See docs/designs/auth.md — "Invites".
 
 Its own router rather than a path under ``/users``: that router is admin-only
 at the router level and takes ``orch_scope``; an invite only needs a session,

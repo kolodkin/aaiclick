@@ -1,4 +1,7 @@
-"""SQLite-specific SQL operations: sequential SELECT + UPDATE, no row locking."""
+"""SQLite-specific SQL operations: sequential SELECT + UPDATE, no row locking.
+
+See docs/designs/orchestration.md — "Task Claiming".
+"""
 
 from __future__ import annotations
 

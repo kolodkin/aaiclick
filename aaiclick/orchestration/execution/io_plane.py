@@ -5,6 +5,8 @@ docs/designs/orchestration.md "Shell entry type").
 may write ``out.json`` to. No library, no DB: a shim in any language is a
 JSON parser and two file calls. The host resolves kwargs into ``in.json``
 before launch and interprets ``out.json`` after exit.
+
+See docs/designs/task_interface.md — "Where it runs".
 """
 
 from __future__ import annotations

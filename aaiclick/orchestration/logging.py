@@ -7,6 +7,8 @@ Task stdout/stderr is captured to ClickHouse ``task_logs`` and/or the console
 host (``execution.runner``'s ``execute_shell_task`` / ``follow_vehicle_output``).
 All runs surface their logs through one cross-host read path
 (:func:`read_task_logs`) no matter which host wrote them.
+
+See docs/designs/task_log_retirement.md.
 """
 
 import asyncio

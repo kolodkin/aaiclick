@@ -1,5 +1,6 @@
 """
 aaiclick.oplog.query_sandbox - Read-only, graph-scoped SQL for lineage triage.
+See docs/user_guide/lineage.md — "Tools".
 
 The MCP ``query_table`` tool runs every ``SELECT`` through this sandbox.
 A query is accepted only when it is a single read-only statement and every

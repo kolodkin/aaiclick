@@ -1,6 +1,8 @@
 """
 aaiclick.orchestration.models - Data models for orchestration backend.
 
+See docs/designs/orchestration.md — "DB Models", "Registered Jobs".
+
 This module defines SQLModel models for jobs, tasks, execution workers, groups, and dependencies.
 All IDs are snowflake IDs (64-bit integers) generated using aaiclick.snowflake.
 """
@@ -122,6 +124,7 @@ PRESERVATION_NONE = "NONE"
 PRESERVATION_FULL = "FULL"
 PreservationMode = Literal["NONE", "FULL"]
 """Which tables survive after a job completes.
+See docs/user_guide/data_context.md — "Preservation Modes".
 
 - ``NONE``: persistent tables only (default) — intermediate tables are
   dropped as soon as their refs fall to zero.

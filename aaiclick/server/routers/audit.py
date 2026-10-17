@@ -1,4 +1,4 @@
-"""Audit-log routes (admin-only)."""
+"""Audit-log routes (admin-only). See docs/designs/auth.md — "Audit Log"."""
 
 from __future__ import annotations
 

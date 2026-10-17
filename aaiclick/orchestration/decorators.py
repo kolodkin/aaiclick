@@ -1,5 +1,7 @@
 """Decorators for defining tasks and jobs in aaiclick orchestration.
 
+See docs/designs/orchestration.md — "Decorators".
+
 Provides a dynamic task execution API where:
 - @task decorates functions to create TaskFactory instances
 - Calling a TaskFactory with Task arguments creates dependencies automatically

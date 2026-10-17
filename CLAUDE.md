@@ -220,17 +220,10 @@ Use the `generate-migration` skill. Never hand-write migration files.
    - Commit working code frequently
    - **Always execute plans inline** (`superpowers:executing-plans` in the current session). Do not offer the subagent-driven option or ask which execution mode to use.
 
-3. **Update Documentation to Reference Implementation**:
-   - **Add implementation references**: Point to actual code files and line numbers
-   - **Example**: `**Implementation**: aaiclick/orchestration/factories.py:30-107`
-   - **Remove duplication**: Once code exists, reference it instead of duplicating
-   - **No status icons**: The implementation reference itself signals a feature is built — do not add ✅ IMPLEMENTED markers. Unimplemented work lives in `docs/designs/future.md` (see Future Plans), not inline ⚠️ NOT YET IMPLEMENTED markers.
-   - **Keep unimplemented specs**: Detailed descriptions serve as design docs for future work
+3. **Update docs**: follow the `markdown-style` skill. Unimplemented specs stay as design docs.
 
 4. **Remove superpowers plan and spec once implemented**: Delete the superpowers plan (`docs/superpowers/plans/`) and spec (`docs/superpowers/specs/`) after the feature lands, and fix any references pointing at them — the code and its user-guide docs are the record. (Unimplemented specs stay, per step 3.)
 
 ## Documentation
 
-- Use the `shortify` skill after writing or editing docs in subdirectories.
-- Use the `markdown-style` skill for heading style, table formatting, admonitions, and implementation references.
-- Skip root-level `.md` files (`CLAUDE.md`, `README.md`, `CHANGELOG.md`).
+Docs in subdirectories follow the `markdown-style` skill, which extends `shortify`. Root-level `.md` files are exempt.

@@ -7,7 +7,10 @@ write by replacing the image-tag token with the installed aaiclick version,
 so the scaffold pins to the GHCR images matching the wheel the user
 installed.
 
-Invoked via ``python -m aaiclick compose init``."""
+Invoked via ``python -m aaiclick compose init``.
+
+See docs/designs/deploy_scaffold.md — "Scaffold package and CLI", "Compose template (docker-runner setup)".
+"""
 
 from __future__ import annotations
 

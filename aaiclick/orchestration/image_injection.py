@@ -11,6 +11,9 @@ decision (``docker_config.get_build_mode``), so submission needs no build env.
 
 Deliberately imports neither ``factories`` nor ``orch_context`` (both reach
 this module), building ``Task`` rows directly instead.
+
+See docs/designs/java-sdk.md — "Validation".
+See docs/designs/task_interface.md — "Where it runs".
 """
 
 from __future__ import annotations

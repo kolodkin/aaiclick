@@ -119,12 +119,6 @@ change over `/api/v0/events` (see Live updates), and fall back to a 2 s
 | `useSavedQueries` / `useSaveQuery` / `useDeleteSavedQuery` | `/api/v0/viewer/queries[/{name}]`                    | `aaiclick/server/routers/viewer.py`          |
 | `useDashboards` / `useDashboard` / `useRunDashboard`       | `/api/v0/viewer/dashboards[/{name}[:run]]`           | `aaiclick/server/routers/viewer.py`          |
 
-**Implementation**: `aaiclick/server/routers/tasks.py` — see `get_task_logs`;
-`aaiclick/internal_api/tasks.py` — see `get_task_logs` (reads the CH
-`task_logs` stream, `available=False` when the task has no captured run);
-`aaiclick/orchestration/view_models.py` — see `TaskLogsView`, `JobView`
-(`total_tasks` / `completed_tasks` populated by `list_jobs`).
-
 ## API types
 
 Two files, created two different ways:
@@ -366,17 +360,6 @@ yet reachable from the UI — see `future.md`.
 | Formatting           | Prettier            | `npm run format:check` — CI gate; `npm run format` rewrites               |
 | Unit tests           | vitest              | `npm test` — kernel tests, `src/prompt.test.ts`, `src/lib/viewer.test.ts` |
 | End-to-end (browser) | Playwright (Python) | `test_e2e/web/test_smoke.py`, pytest                                      |
-
-**Implementation**: `test_e2e/web/test_smoke.py` — golden-path smoke
-(home load, `@jobs` view, URL sync, job graph render) and the live-update
-tests; `test_e2e/web/conftest.py` — `base_url` starts the server on a free
-port under a per-session `AAICLICK_LOCAL_ROOT`, plus the execution and
-background workers as separate processes in distributed mode (local mode
-runs them inside the server); Playwright fixtures (`browser`, `page`,
-`shot`). Playwright is an optional dep in the `dev` extra — tests skip
-cleanly without it. Under xdist (`-n auto` in CI) each worker runs its own
-server and workers on its own databases (`base_url` enters
-`worker_databases()`).
 
 **One test body, both modes.** Tests create jobs in-process through the
 orchestration API (`helpers.submit_job`, the same pattern as `seed.py`),

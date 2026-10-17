@@ -7,6 +7,8 @@ by Postgres ``LISTEN`` in distributed mode (:func:`live_events` runs the
 backend's transport feed with the app). Each stream forwards at most one frame per
 :data:`MIN_FRAME_INTERVAL`; a burst of commits collapses into a single
 refetch round, and an idle UI costs nothing.
+
+See docs/designs/api_server.md — "Live updates — `GET /api/v0/events`".
 """
 
 from __future__ import annotations

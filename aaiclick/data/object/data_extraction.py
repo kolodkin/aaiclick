@@ -66,6 +66,7 @@ def _undot_record(flat: dict) -> dict:
 
 def _unflatten_record(flat_record: dict) -> dict:
     """Reconstruct nested dict structure from flat dot-star notation columns.
+    See docs/user_guide/object.md — "Nested Data Flattening".
 
     Converts parallel arrays back into list-of-dicts (reverse of flattening).
     After the dot-star pass, plain-dot keys (``x.y.z`` and star-group prefixes

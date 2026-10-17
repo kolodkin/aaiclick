@@ -2,6 +2,8 @@
 
 Each function runs inside an active ``orch_context()`` and reads the SQL
 session via the contextvar getter. Returns pydantic view models.
+
+See docs/designs/api_server.md — "Spawning workers — `POST /api/v0/execution-workers`".
 """
 
 from __future__ import annotations

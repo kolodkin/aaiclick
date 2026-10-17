@@ -1,5 +1,7 @@
 """Local-mode worker startup/shutdown helper.
 
+See docs/designs/orchestration.md — "Topology".
+
 Used by the FastAPI lifespan in ``aaiclick.server.app`` to start the
 ``BackgroundWorker`` and the execution ``execution_worker_main_loop`` for the
 duration of a single local-mode (chdb + sqlite) server process.

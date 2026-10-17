@@ -76,9 +76,3 @@ Click a submission's name to read its source.
   sandbox repo is installed into the default image — see Container Images
   "Runner base". Without one, only `aaiclick[all]` is importable.
 - A submission runs once; submit again to re-run.
-
-**Implementation**: `aaiclick/sandbox/repo.py` — see `SandboxRepo`;
-`aaiclick/sandbox/parse.py` — see `find_job_functions`;
-`aaiclick/internal_api/sandbox.py` — see `submit_sandbox_file`;
-`aaiclick/orchestration/background/background_worker.py` — see
-`BackgroundWorker._run_sandbox_files`.

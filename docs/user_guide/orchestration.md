@@ -235,8 +235,6 @@ python -m aaiclick job wait crawl
     format: crawl. Expected 'module.function'`. `--progress` surfaces that in
     the same command instead of leaving a failed job to discover later.
 
-**Implementation**: `aaiclick/cli_wait.py` — see `wait_for_job()`.
-
 ## Register a job
 
 The catalog of known jobs, separate from individual runs. Each entry stores an

@@ -61,6 +61,8 @@ member tasks inline; ``task_result`` separates data from tasks::
     {"_aaiclick_type": "group", "id": "g", "name": "parts", "tasks": [...]}
     {"_aaiclick_type": "task_result",
      "data": {"_aaiclick_type": "upstream", "task_id": "fin"}, "tasks": [...]}
+
+See docs/designs/task_interface.md — "Vocabulary".
 """
 
 from __future__ import annotations

@@ -1,5 +1,7 @@
 """Docker runner — host-side ExecuteFns driving containers.
 
+See docs/designs/orchestration.md — "Execution layers".
+
 ``_run_task_in_container`` runs in the host worker process; it pulls the
 image (when a registry is configured), spawns ``docker run``, sends
 heartbeats and watches for cancellation while the container runs, then
@@ -10,6 +12,9 @@ runner's Pods use.
 ``_run_shell_in_container`` is the shell/jvm counterpart on the file data
 plane (``io_plane``): ``docker create`` → ``docker cp`` the host-resolved
 ``in.json`` in → ``docker start`` → wait → ``docker cp`` ``out.json`` out.
+
+See docs/designs/java-sdk.md — "Architecture".
+See docs/designs/task_interface.md — "Where it runs".
 """
 
 from __future__ import annotations

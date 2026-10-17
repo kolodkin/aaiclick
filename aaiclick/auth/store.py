@@ -1,6 +1,7 @@
 """Raw DB access for users, refresh tokens, API tokens, and password-reset
 tokens. Domain errors only; the internal_api layer maps these to
-InternalApiError / Problem responses."""
+InternalApiError / Problem responses.
+See docs/designs/auth.md — "Multi-Factor Auth"."""
 
 from __future__ import annotations
 

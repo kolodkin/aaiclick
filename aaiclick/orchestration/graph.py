@@ -10,6 +10,8 @@ enforces (``dependency_graph.py``). The layout engine cannot attach an edge to a
 container, so each such edge is also expanded onto the group's direct member
 tasks for positioning only. Groups reach the client as container nodes with a
 status rolled up from every task beneath them.
+
+See docs/designs/ui.md — "Job Detail (`@job <name>`)".
 """
 
 from __future__ import annotations

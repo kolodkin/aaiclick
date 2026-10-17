@@ -120,6 +120,7 @@ class TableRunRef(SQLModel, table=True):
 
 class TableRegistry(SQLModel, table=True):
     """Ownership metadata for every ClickHouse data table aaiclick creates.
+    See docs/user_guide/oplog.md — "table_registry (SQL)".
 
     One row per table, keyed by ``table_name`` (strict 1:1). Written once
     when the table is created; deleted by the background worker when the

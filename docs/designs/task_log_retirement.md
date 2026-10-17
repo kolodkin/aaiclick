@@ -5,12 +5,6 @@ Design for retiring file-based task logs. After this change, ClickHouse
 `task_logs` is the only place task stdout/stderr lives, for every runner and
 entry type, and the `log_path` plumbing disappears end to end.
 
-**Implementation**: `aaiclick/orchestration/logging.py` — see
-`capture_task_output`, `stream_to_task_logs`;
-`aaiclick/orchestration/execution/runner.py` — see `register_run`,
-`execute_shell_task`, `ShellSpec`;
-`aaiclick/orchestration/execution/dispatch.py` — see `dispatch_execute`.
-
 # Motivation
 
 Module (Python) tasks already stream logs to CH via `capture_task_output`; their

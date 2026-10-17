@@ -10,6 +10,8 @@ into a ``RunnerResult`` via :func:`collect_remote_result`.
 Reaper invariant: the entrypoint never writes terminal task status. It
 writes only its own ``remote_task_results`` row; the host worker writes
 the terminal ``Task`` status via ``_handle_task_result``.
+
+See docs/designs/kubernetes_runner.md.
 """
 
 from __future__ import annotations

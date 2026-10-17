@@ -1,4 +1,5 @@
-"""Internal API for user administration (admin-only at the HTTP layer)."""
+"""Internal API for user administration (admin-only at the HTTP layer).
+See docs/designs/auth.md — "Multi-Factor Auth"."""
 
 from __future__ import annotations
 

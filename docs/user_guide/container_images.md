@@ -81,9 +81,6 @@ project itself is never `pip install .`-ed. Limits:
 
 Beyond these, check in a `Dockerfile`.
 
-**Implementation**: `aaiclick/orchestration/execution/docker_scaffold.py` — see
-`detect_manifest()`, `render_default_dockerfile()`.
-
 # Kubernetes dispatching worker
 
 Run `aaiclick-kubectl` as a pod with `AAICLICK_RUNNER=kubernetes`: container

@@ -15,7 +15,10 @@ The ``base_url`` and ``page`` fixtures are provided by
 against the default chdb + SQLite backend on a free port.
 
 This suite is excluded from the default ``pytest`` testpaths and only
-runs when the path is passed explicitly or in a dedicated CI workflow."""
+runs when the path is passed explicitly or in a dedicated CI workflow.
+
+See docs/designs/frontend.md — "Testing".
+"""
 
 from __future__ import annotations
 

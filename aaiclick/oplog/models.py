@@ -2,6 +2,7 @@
 aaiclick.oplog.models - startup entry point for the internal ClickHouse
 schema (``operation_log``, ``task_logs``), driven by the migration runner
 in ``aaiclick.oplog.migrate``. DDL lives in ``aaiclick/oplog/migrations/``.
+See docs/user_guide/oplog.md — "operation_log (ClickHouse)".
 """
 
 from __future__ import annotations

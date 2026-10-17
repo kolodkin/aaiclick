@@ -1,3 +1,5 @@
+"""See docs/designs/ui.md — "Jobs List (`@jobs`)", "Job Detail (`@job <name>`)"."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends

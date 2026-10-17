@@ -1,3 +1,4 @@
+// See docs/designs/ui.md — "Home (empty prompt)".
 import { useSandboxConfig } from "../api/hooks";
 import { useAuth } from "../components/Auth";
 

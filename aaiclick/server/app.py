@@ -1,3 +1,5 @@
+"""See docs/designs/ui.md."""
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator

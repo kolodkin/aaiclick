@@ -1,5 +1,6 @@
 """
 aaiclick.data.data_context.arrow_ingest - Arrow-based ingest schema evaluation.
+See docs/user_guide/object.md — "Nested Data Flattening".
 
 ``pa.array(records)`` infers one unified nested type across ALL records in
 C++ (no first-record sampling; ``pa.Table.from_pylist`` must NOT be used -

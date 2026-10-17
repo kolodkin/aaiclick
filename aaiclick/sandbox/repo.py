@@ -1,5 +1,5 @@
 """The API server's clone of the sandbox repo: commit a submission, push it,
-read a committed file back.
+read a committed file back. See docs/user_guide/sandbox.md — "Limits".
 
 Every git call goes through ``execution.cli.run`` like the build task's clone,
 so the same credentials (URL-embedded or the host's git config) apply.

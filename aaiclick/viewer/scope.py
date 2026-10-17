@@ -1,4 +1,7 @@
-"""Scope keys: the string form of "which objects" a viewer request means."""
+"""Scope keys: the string form of "which objects" a viewer request means.
+
+See docs/designs/viewer.md — "Scope Model".
+"""
 
 from __future__ import annotations
 

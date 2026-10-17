@@ -1,5 +1,7 @@
 """Background worker for cleanup and job scheduling.
 
+See docs/designs/orchestration.md — "BackgroundWorker", "Status Enums".
+
 BackgroundWorker polls the database for:
 1. Failed and cancelled tasks awaiting cleanup — drops their refs, settles them
 2. Tables with no run refs — drops them in ClickHouse (samples registered with job)
@@ -258,6 +260,7 @@ class BackgroundWorker:
 
     async def _cleanup_unreferenced_tables(self) -> None:
         """Drop CH tables with no pin refs and no run refs.
+        See docs/user_guide/oplog.md — "Table Lifecycle & Cleanup".
 
         Each consumer task has its own pin_ref row (created by producer
         fan-out, released once the consumer has deserialized its inputs).
@@ -299,6 +302,7 @@ class BackgroundWorker:
 
     async def _cleanup_expired_jobs(self) -> None:
         """Delete all data for expired jobs and orphaned resources.
+        See docs/user_guide/oplog.md — "Table Lifecycle & Cleanup".
 
         Job-driven cleanup: every resource traces to a job_id.
         1. Find completed/failed/cancelled jobs older than AAICLICK_JOB_TTL_DAYS
@@ -495,6 +499,8 @@ class BackgroundWorker:
     async def _check_schedules(self) -> None:
         """Create Job runs for registered jobs whose next_run_at is due.
 
+        See docs/designs/orchestration.md — "Cron Scheduling".
+
         Optimistic locking on next_run_at prevents duplicate runs across
         background workers. The lock commits before any job is created, so a
         second worker sees the advanced ``next_run_at`` at once and creation
@@ -557,7 +563,7 @@ class BackgroundWorker:
 
     async def _run_sandbox_files(self) -> None:
         """Submit every ``@job`` of each pending sandbox file once, pinned to
-        the row's remote and commit.
+        the row's remote and commit. See docs/user_guide/sandbox.md — "Limits".
 
         The ``pending`` → ``running`` claim is one statement, so two workers
         never submit a file twice and no reader sees a final status before

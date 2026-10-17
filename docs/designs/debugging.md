@@ -32,5 +32,3 @@ Only activates when the `ContextVar` is empty and the backend is chdb (local mod
 The CLI turns an unexpected exception into one `error: <Type>: <message>`
 line on stderr and exit code 1. Set `AAICLICK_DEBUG=1` to get the full
 traceback instead — include it in bug reports.
-
-**Implementation**: `aaiclick/__main__.py` (`main`)

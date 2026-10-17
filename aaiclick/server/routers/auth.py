@@ -1,4 +1,5 @@
-"""Auth routes: login, refresh, logout, me, and the caller's API tokens."""
+"""Auth routes: login, refresh, logout, me, and the caller's API tokens.
+See docs/designs/auth.md — "API Tokens"."""
 
 from __future__ import annotations
 

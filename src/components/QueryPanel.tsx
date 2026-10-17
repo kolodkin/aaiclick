@@ -1,3 +1,4 @@
+// See docs/designs/ui.md — "Query (`@query [job <ref>] [<object>]`)".
 import { useEffect, useMemo, useState } from "react";
 import {
   applyParams,
