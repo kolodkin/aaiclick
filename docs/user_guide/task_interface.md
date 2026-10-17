@@ -58,7 +58,7 @@ reserved key `_aaiclick_type` is one of these shapes:
 | `upstream`       | `task_id` (int = database id; string = sibling `id`)  | Another task's result                           |
 | `group_results`  | `group_id` (int = database id; string = sibling `id`) | The list of a group's results                   |
 | `native`         | `value`                                               | A plain value, wrapped; same as writing it bare |
-| `task`           | See [Spawning tasks](#spawning-tasks)                 | A child task to spawn                           |
+| `task`           | See [Task fields](#task-fields)                       | A child task to spawn                           |
 | `group`          | `id`, `name`, `tasks: [task…]`                        | A set of child tasks                            |
 | `task_result`    | `data`, `tasks: [task \| group …]`                    | A result plus children to spawn                 |
 | `callable`       | `entrypoint`                                          | A Python function — Python tasks only           |
@@ -92,7 +92,12 @@ Here `fin` runs after both workers and reads `{"values": [2, 4]}` from its
 `in.json`; `data` names `fin`, so whoever consumes this task's result waits
 for `fin` and gets its value (`6`).
 
-`task` fields:
+A `group` dict (`{"_aaiclick_type": "group", "id": "g", "tasks": [...]}`)
+groups children; a `group_results` ref (`{"_aaiclick_type": "group_results",
+"group_id": "g"}`) in a kwarg delivers the list of their results. Returning
+a single `task`, or a list of them, works too when there is no data.
+
+# Task fields
 
 | Field                                   | Meaning                                                     |
 |-----------------------------------------|-------------------------------------------------------------|
@@ -103,11 +108,6 @@ for `fin` and gets its value (`6`).
 | `command_env`, `max_retries`, `name`    | Env vars for the process, retries on failure, display name  |
 | `image` or `git_remote` / `git_sha` / … | Image source; omitted → the child runs in your image        |
 | `depends_on`                            | Sibling `id`s to run after, without data flow               |
-
-A `group` dict (`{"_aaiclick_type": "group", "id": "g", "tasks": [...]}`)
-groups children; a `group_results` ref (`{"_aaiclick_type": "group_results",
-"group_id": "g"}`) in a kwarg delivers the list of their results. Returning
-a single `task`, or a list of them, works too when there is no data.
 
 # What a task can and cannot receive
 

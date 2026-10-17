@@ -35,7 +35,7 @@ constants, Pydantic models, `ref_kind()`);
 ## Returned tasks and handles
 
 `task`, `group` and `task_result` are the JSON form of a task function's
-return (example and `task` fields: user guide, "Spawning tasks"). A `task`
+return (example: user guide, "Spawning tasks"; fields: "Task fields"). A `task`
 dict is built through `create_task()`, so it gets the same entry validation
 a Python caller does. Rules the host enforces at registration:
 
