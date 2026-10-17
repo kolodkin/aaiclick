@@ -68,25 +68,17 @@ Host side of the `in.json` / `out.json` exchange under `AAICLICK_IO_DIR`:
 | docker          | `docker create` → `docker cp` → `docker start`                                     | `docker cp` of the IO dir back, then `docker rm`      |
 | kubernetes      | `kubectl cp` into an `emptyDir`; init container `io-in` waits for an `in.ready` marker | `kubectl exec -c io -- cat` via a `sleep` sidecar, then delete |
 
-- In containers `AAICLICK_IO_DIR` is `/aaiclick`, and the argv follows the
-  image's `ENTRYPOINT` (`docker create <image> <argv>`, Pod `args`) — how the
-  jvm shim receives its class name.
-- The host temp dir is world-writable so a non-root image can write
-  `out.json`. `docker cp` copies the whole IO dir, so a missing `out.json`
-  needs no daemon error parsing.
-- Kubernetes helpers share one image (`busybox:1.36`, override via
-  `AAICLICK_K8S_IO_IMAGE`; no resource requests). `io-in` holds the Pod until
-  the `in.ready` marker lands (`kubectl cp` extracts in place, so the marker
-  proves the file is whole); `io` keeps the Pod alive to read `out.json`.
-- The host waits on the `task` container, since the Pod never ends on its
-  own. `activeDeadlineSeconds` (timeout plus slack, else seven days) bounds an
-  orphaned Pod; a Pod reaching `Failed` / `Succeeded` before the task ran is
-  an error. A copy failing `COPY_IN_ATTEMPTS` times fails the task with
-  kubectl's reason. Needs `pods/exec` in the worker's Role.
-- `command_env` never sits on an argv: docker uses a private `--env-file`,
-  kubernetes a per-attempt Secret deleted with the Pod. Neither injects the
-  aaiclick runner env; the subprocess runner inherits the worker's env with
-  `command_env` overlaid.
+- **Containers**: `AAICLICK_IO_DIR` is `/aaiclick`; the argv follows the
+  image's `ENTRYPOINT`, which is how the jvm shim gets its class name.
+- **Docker**: the host IO dir is world-writable (non-root images can write
+  `out.json`); copying the whole dir back makes a missing `out.json` plain.
+- **Kubernetes**: helpers use `busybox:1.36` (`AAICLICK_K8S_IO_IMAGE`).
+  `io-in` waits for the `in.ready` marker, proving `in.json` is whole; `io`
+  keeps the Pod alive to read `out.json`. The host watches the `task`
+  container; `activeDeadlineSeconds` bounds orphaned Pods. Needs `pods/exec`.
+- **Env**: `command_env` never goes on an argv (docker `--env-file`,
+  kubernetes per-attempt Secret). Containers get no aaiclick env; the
+  subprocess runner inherits the worker's.
 
 ## Where it runs
 
