@@ -1,3 +1,4 @@
+// See docs/designs/auth.md — "Password Reset".
 import { useState } from "react";
 import { Panel } from "../components/Panel";
 import { redeemPasswordReset } from "../lib/auth";

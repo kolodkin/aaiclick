@@ -1,5 +1,7 @@
 """Orchestration domain view models plus SQLModel → view adapters.
 
+See docs/designs/ui.md — "Jobs List (`@jobs`)", "Job Detail (`@job <name>`)".
+
 View models are plain pydantic — no SQLModel imports. The ``to_view`` /
 ``to_detail`` adapters pull SQLModel in and are the only path that knows about
 the DB schema, keeping imports one-directional (SQLModel → pydantic).

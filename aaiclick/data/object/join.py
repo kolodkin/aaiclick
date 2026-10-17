@@ -1,6 +1,8 @@
 """
 aaiclick.data.object.join - Object.join() implementation.
 
+See docs/user_guide/object.md — "join()".
+
 Database-level helpers for joining two Objects on one or more key columns.
 Mirrors the shape of ``concat_objects_db`` in ``aaiclick/data/object/ingest.py``:
 

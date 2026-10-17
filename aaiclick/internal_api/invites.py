@@ -1,6 +1,8 @@
 """Inviting a user: create the account without a password, grant the role,
 and mint the one-time link that sets the password.
 
+See docs/designs/auth.md — "Invites".
+
 Its own module rather than a function on ``users``: ``password_reset`` already
 imports ``users``, so composing the two there would close an import cycle.
 """

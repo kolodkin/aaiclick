@@ -1,3 +1,4 @@
+// See docs/designs/auth.md — "Multi-Factor Auth".
 import { useState } from "react";
 import { useChangePassword, useMfaDisable, useMfaEnable, useMfaSetup } from "../api/hooks";
 import type { MfaSetupView } from "../api/types";

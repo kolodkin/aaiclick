@@ -1,5 +1,8 @@
 """Multiprocessing worker — runs each task in a dedicated child process.
 
+See docs/designs/orchestration.md — "Execution layers".
+See docs/designs/task_interface.md — "Where it runs".
+
 Architecture:
 - Main process: claims tasks from SQLite, manages status, waits for child
 - Child process: sets up its own orch_context (chdb + SQLite), executes task

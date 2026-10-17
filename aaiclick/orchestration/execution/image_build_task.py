@@ -1,5 +1,7 @@
 """Image-build task body.
 
+See docs/designs/orchestration.md — "Image source".
+
 An ordinary module task injected at commit points (see
 ``orchestration.image_injection``) for every distinct build-source image in a
 job with a build image source. It runs on the dispatching worker host

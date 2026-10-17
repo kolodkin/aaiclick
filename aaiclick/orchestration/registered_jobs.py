@@ -1,4 +1,7 @@
-"""CRUD operations for registered jobs."""
+"""CRUD operations for registered jobs.
+
+See docs/designs/orchestration.md — "Registered Jobs".
+"""
 
 from __future__ import annotations
 

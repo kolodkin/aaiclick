@@ -1,3 +1,5 @@
+"""See docs/designs/orchestration.md — "Job Management"."""
+
 from .queries import (
     count_jobs,
     get_job,

@@ -1,5 +1,7 @@
 """Per-task runner dispatch.
 
+See docs/designs/orchestration.md — "Execution layers".
+
 Neutral home for the routing that maps a task to its execution vehicle, so no
 single runner module owns the cross-cutting dispatcher. ``_execution_worker_loop`` plugs
 ``dispatch_execute`` in as its ``ExecuteFn``; a job whose tasks span runners

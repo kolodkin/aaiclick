@@ -166,6 +166,3 @@ Independent of ADBC, an Arrow-native read path is worth adding: `ChdbClient.quer
 already fetches an `ArrowTable` and transposes it into row tuples, and
 clickhouse-connect has `query_arrow`. An `Object.to_arrow()` / `to_polars()`
 would skip the Python-list round trip on both backends.
-
-**Implementation**: `aaiclick/data/data_context/chdb_client.py` - see
-`ChdbClient.query()`; `aaiclick/data/data_context/clickhouse_client.py`.

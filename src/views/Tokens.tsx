@@ -1,3 +1,4 @@
+// See docs/designs/auth.md — "API Tokens".
 import { useState } from "react";
 import { useApiTokens, useCreateApiToken, useRevokeApiToken } from "../api/hooks";
 import type { ApiTokenCreated } from "../api/types";

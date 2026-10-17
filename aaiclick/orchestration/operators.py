@@ -1,5 +1,7 @@
 """Dynamic task creation operators for orchestration backend.
 
+See docs/designs/orchestration.md — "Orchestration Operators".
+
 Provides map() for parallel data processing, foreach() for its side-effect-only
 flavor, and reduce() for layered parallel reduction, inspired by Apache Spark's
 partition-based parallelism.

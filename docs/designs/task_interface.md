@@ -11,13 +11,14 @@ document covers mechanics and decisions.
 
 # Vocabulary
 
+**Implementation**: `aaiclick/data/object/refs.py`
+
 Shapes and fields: [user guide, Vocabulary](../user_guide/task_interface.md#vocabulary).
 
 - `job_id` on an `object` ref pins the table: the background worker skips it
   until the job completes. Its schema is read back from the table registry.
 - Python return values: `None` → `null`; Object/View → ref + `job_id`;
   `BaseModel` → `pydantic`; anything else → `native`.
-
 
 ## Returned tasks and handles
 
@@ -89,6 +90,8 @@ Host side of the `in.json` / `out.json` exchange under `AAICLICK_IO_DIR`:
 
 ## Where it runs
 
+**Implementation**: `aaiclick/orchestration/execution/io_plane.py`
+
 In-process paths (local-mode worker, `job_test` / `ajob_test`) run the
 command in the worker's event loop. The mp worker runs a subprocess shell
 task in the spawned task child (it enforces timeout and cancellation; the
@@ -97,7 +100,6 @@ tasks run host-side on a `ShellVehicle`, as their launch is multi-step.
 
 A `jvm` task is a shell task whose argv is a class name; the shim is the SDK
 jar in the user's image (`docs/designs/java-sdk.md`).
-
 
 # Decisions
 

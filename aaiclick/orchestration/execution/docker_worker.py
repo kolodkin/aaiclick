@@ -1,5 +1,7 @@
 """Docker runner — host-side ExecuteFns driving containers.
 
+See docs/designs/orchestration.md — "Execution layers".
+
 ``_run_task_in_container`` runs in the host worker process; it pulls the
 image (when a registry is configured), spawns ``docker run``, sends
 heartbeats and watches for cancellation while the container runs, then
@@ -278,8 +280,7 @@ class _ShellHandle(NamedTuple):
 
 class _DockerShellVehicle(ShellVehicle["_ShellHandle"]):
     """Shell and jvm tasks on the Docker runner: ``docker create`` → ``cp``
-    in.json in → ``start`` → wait → ``cp`` out.json out → ``rm`` (spec:
-    docs/designs/task_interface.md "Transport per runner")."""
+    in.json in → ``start`` → wait → ``cp`` out.json out → ``rm``."""
 
     def __init__(self, image_tag: str, dispatch: JobDispatch) -> None:
         self._image_tag = image_tag

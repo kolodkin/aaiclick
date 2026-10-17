@@ -1,5 +1,8 @@
 """Kubernetes runner — host-side ExecuteFns driving Pods.
 
+See docs/designs/kubernetes_runner.md.
+See docs/designs/orchestration.md — "Execution layers".
+
 Mirrors ``docker_worker``: ``_run_task_in_pod`` drives a ``KubernetesVehicle``
 via the shared ``drive_vehicle``. The Pod runs the shared container entrypoint
 (``remote_result``), which writes a ``RemoteTaskResult`` row the host reads
@@ -353,8 +356,7 @@ async def _kubectl_delete_shell(handle: _ShellPodHandle) -> None:
 
 class _KubernetesShellVehicle(ShellVehicle["_ShellPodHandle"]):
     """Shell and jvm tasks on the Kubernetes runner — the file data plane
-    through the ``io-in`` / ``io`` helpers (spec:
-    docs/designs/task_interface.md "Transport per runner")."""
+    through the ``io-in`` / ``io`` helpers (see the module docstring)."""
 
     def __init__(self, spec: _PodSpec, timeout: float | None) -> None:
         self._spec = spec

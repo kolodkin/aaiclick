@@ -1,5 +1,7 @@
 """Pure graph flattening for the job graph view.
 
+See docs/designs/ui.md — "Job Detail (`@job <name>`)".
+
 Imports no SQLModel: callers pass plain ids, so these functions stay
 unit-testable without a database and the ``view_models`` → ``orchestration``
 import boundary stays one-directional.

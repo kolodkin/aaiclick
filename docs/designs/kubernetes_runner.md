@@ -1,18 +1,14 @@
 Kubernetes Runner
 ---
 
+**Implementation**: `aaiclick/orchestration/execution/kubernetes_worker.py`
+
 The Kubernetes runner executes each task in a fresh Pod built from the user's
 repo at a specific git SHA — the same model as the [Docker runner](orchestration.md),
 swapping `docker run` for a Pod. Both runners hand results back through the
 shared `remote_task_results` transport.
 
 It is a third `TaskVehicle` driven by the shared `drive_vehicle` lifecycle.
-
-**Implementation**: `aaiclick/orchestration/execution/kubernetes_worker.py` — see
-`_KubernetesVehicle` and `_run_task_in_pod`; the container-side entrypoint and
-result transport live in `aaiclick/orchestration/execution/remote_result.py` —
-see `remote_entry_main`; driven by the shared `drive_vehicle` lifecycle in
-`aaiclick/orchestration/execution/execution_worker.py`.
 
 Both `docker` and `kubectl` are driven through one subprocess helper,
 `execution/cli.py` (`run(...)` captures; `run(..., stream=True)` tees live output,
@@ -138,6 +134,8 @@ none).
 
 # Configuration
 
+**Implementation**: `aaiclick/orchestration/kubernetes_config.py`
+
 The runner itself is the worker's: `AAICLICK_RUNNER=kubernetes` on the worker
 Deployment (`orchestration.md` "Worker runner"). Cluster settings follow it —
 they describe the cluster the worker is in, are the same for every job, and are
@@ -161,11 +159,6 @@ its `limits` too; with no scheduler, docker ignores `requests` (mapping:
 
 Both are resolved on the **worker at dispatch** and handed to the vehicle as
 `JobDispatch.pod_config` and `JobDispatch.resources`.
-
-**Implementation**: `aaiclick/orchestration/kubernetes_config.py` — see
-`resolve_pod_config()`; `aaiclick/orchestration/runner_config.py` — see
-`validate_resources()`; `aaiclick/orchestration/docker_config.py` — see
-`resource_flags()`.
 
 # Selection and dispatch
 

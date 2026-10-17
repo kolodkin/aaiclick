@@ -1,3 +1,4 @@
+// See docs/designs/ui.md — "Data (`@data [job <ref>] [<object>]`)".
 import { columnNames, columnTypes, renderCell, ResultsTable } from "@qv/core";
 import { useObjectRows, useObjects } from "../api/hooks";
 import type { ObjectView } from "../api/types";

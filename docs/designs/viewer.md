@@ -42,6 +42,8 @@ adapter, `src/lib/viewer.ts`, converts aaiclick's wire `OrderBy` pair
 
 # Scope Model
 
+**Implementation**: `aaiclick/viewer/scope.py`
+
 Objects are shown under a scope key — a string, so it fits the prompt, the
 URL, saved queries, and CLI flags:
 
@@ -54,10 +56,6 @@ A job scope resolves through `resolve_job` like `get_job` does: an id names
 one run, a name the latest run with that name. Saved queries and dashboards
 store the key as given, so `job:nightly_etl` follows each new run while
 `job:123` stays pinned. Temp and oplog tables never appear.
-
-**Implementation**: `aaiclick/viewer/scope.py` — see `parse_scope`;
-`aaiclick/internal_api/objects.py` — see `open_scoped` (also behind
-`get_object(name, job)` and `list_objects(ObjectFilter(job=…))`).
 
 Every surface identifies an object as `(scope, name)`; `make_scoped_table_name`
 maps the pair to `p_<name>` or `j_<job_id>_<name>`.
@@ -143,7 +141,7 @@ and `where` with the rules above.
 
 # Frontend
 
-Modes, prompts, and per-view implementation references: `docs/designs/ui.md`.
+Modes and prompts per view: `docs/designs/ui.md`.
 Hooks: `src/api/hooks.ts` (`useObjects`, `useObject`, `useQueryObject`,
 `useObjectRows`, `useSavedQueries`, `useSaveQuery`, `useDeleteSavedQuery`,
 `useDashboards`, `useDashboard`, `useRunDashboard`); routes:

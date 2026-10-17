@@ -1,4 +1,7 @@
-"""Find the ``@job`` functions a sandbox file declares without importing it."""
+"""Find the ``@job`` functions a sandbox file declares without importing it.
+
+See docs/user_guide/sandbox.md — "Limits".
+"""
 
 from __future__ import annotations
 

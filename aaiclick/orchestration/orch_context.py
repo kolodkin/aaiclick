@@ -1,4 +1,7 @@
-"""Orchestration context manager and per-task scope."""
+"""Orchestration context manager and per-task scope.
+
+See docs/designs/orchestration.md — "OrchLifecycleHandler".
+"""
 
 from __future__ import annotations
 

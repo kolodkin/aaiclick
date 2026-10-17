@@ -1,6 +1,8 @@
 """Typed, discriminated configs for a task's image source and entry, plus
 the job's ``resources`` quantities.
 
+See docs/designs/orchestration.md — "Runners & Entry Types".
+
 A task's ``image_source`` JSON is one of ``ImageBuild`` / ``ImagePrebuilt``;
 the ``entry_type`` discriminator selects how the container is invoked. Pure
 data + validation — no env, no I/O — so any layer can import it.

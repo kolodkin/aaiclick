@@ -1,3 +1,4 @@
+# See docs/designs/deploy_scaffold.md — "Release pipeline restructure", "Gates — all parallel, all required".
 name: Release
 
 # Repeated steps (GHCR login, artifact downloads, uv install) and matrices

@@ -163,8 +163,6 @@ LazyOperator(op="sum", lhs=LazyOperator(op="abs", lhs=obj, rhs=None), rhs=None)
 
 `asyncio.gather(lazy.data(), lazy.data())` races: both tasks see `_materialized is None` and both materialize. The result is two tables (the second wins the cache slot; the first is orphaned and dropped via refcount cleanup). To share a result across tasks, `await` once and share the returned `Object`.
 
-**Implementation:** `LazyOperator`, `_plan_operator`, `_plan_aggregation`, `_plan_unary_transform` and the `_UNARY_MATERIALIZERS` / `_BINARY_MATERIALIZERS` dispatch tables in `aaiclick/data/object/object.py`; shared schema-computation helpers in `aaiclick/data/object/schema_compute.py` (`_compute_operator_schema`, `_preview_agg_schema`, `_preview_unary_schema`, …); materialization in `aaiclick/data/object/operators.py` (`_apply_operator_db`, `_apply_aggregation`, `unary_transform`, …); Python operands inlined as literals by `aaiclick/data/object/literals.py`.
-
 ??? note "Arithmetic Operators"
 
     | Python Operator | Description    | ClickHouse Equivalent | Forward Method  | Reverse Method    |
@@ -277,8 +275,6 @@ A Python list is inlined as literals (`arrayJoin([...])`) rather than loaded int
 **Tests**: `aaiclick/data/object/test_isin.py`. For runnable examples, see `examples/isin.py`.
 
 ## Unary Transform Operators
-
-**Implementation**: `aaiclick/data/object/object.py` (methods) delegates to `aaiclick/data/object/operators.py` — see `unary_transform()`
 
 Apply a ClickHouse function element-wise to the value column, returning a new Object. Object-level equivalents of [Domain Helpers](#domain-helpers) which operate on Views.
 
@@ -473,8 +469,6 @@ Ops over the same rows (`a + a`, `v['x'] + v['y']`), scalar broadcast (`a + 10`)
 ## join()
 
 Joins two Objects on one or more key columns into a new dict Object.
-
-**Implementation**: `aaiclick/data/object/join.py` — see `resolve_join_keys`, `build_join_schema`, and `join_objects_db`.
 
 ```python
 async def join(
@@ -677,8 +671,6 @@ await obj.export("/tmp/data.json.xz")
   would write to the *server's* `user_files_path`, not the client.
 
 # Nested Data Flattening
-
-**Implementation**: `aaiclick/data/data_context/arrow_ingest.py` — see `infer_struct_array()`, `struct_type_to_columns()`, `struct_array_to_columns()`; reconstruction in `aaiclick/data/object/data_extraction.py` — see `_unflatten_record()`.
 
 Nested dicts and lists-of-dicts flatten to standalone columns — better
 compression, skipping indexes, and `LowCardinality` than ClickHouse

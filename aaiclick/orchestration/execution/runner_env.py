@@ -1,8 +1,11 @@
 """Environment forwarded into a remote task executor (Docker container / k8s Pod).
 
+See docs/designs/orchestration.md — "Worker runner".
+
 Shared by the docker and kubernetes runners so neither owns the other's env
 logic. ``build_runner_env`` collects the always-passed framework vars plus any
-operator-listed extras."""
+operator-listed extras.
+"""
 
 from __future__ import annotations
 

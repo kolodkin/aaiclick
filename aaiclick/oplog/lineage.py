@@ -1,5 +1,7 @@
 """
 aaiclick.oplog.lineage - Oplog graph traversal (backward and forward lineage).
+
+See docs/designs/lineage.md — "Tool Result Types".
 """
 
 from __future__ import annotations

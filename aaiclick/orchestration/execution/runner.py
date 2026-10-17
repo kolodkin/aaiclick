@@ -1,6 +1,6 @@
 """Task execution utilities for orchestration backend.
 
-Shell/jvm data plane and returned-DAG registration: docs/designs/task_interface.md.
+See docs/designs/task_interface.md — "Vocabulary", "Returned tasks and handles", "Where it runs".
 """
 
 from __future__ import annotations

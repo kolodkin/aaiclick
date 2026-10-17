@@ -1,3 +1,4 @@
+// See docs/designs/ui.md — "Job Detail (`@job <name>`)".
 import { useJob } from "../api/hooks";
 import { AdminButton } from "../components/AdminButton";
 import { Chips } from "../components/Chips";

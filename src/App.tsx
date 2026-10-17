@@ -1,3 +1,4 @@
+// See docs/designs/ui.md.
 import { useCallback, useEffect, useState } from "react";
 import { LiveUpdates } from "./api/events";
 import { useAuth } from "./components/Auth";
