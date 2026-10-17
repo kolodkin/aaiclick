@@ -2,8 +2,6 @@
 
 ## Overview
 
-**Implementation**: `aaiclick/data/data_context.py` — see `data_context()`, `create_object()`, `create_object_from_value()`
-
 The `DataContext` manages ClickHouse client lifecycle, Object tracking, and table lifecycle — the entry point for all data operations. Objects become stale when the context exits.
 
 ```python
@@ -61,8 +59,6 @@ Each ContextVar is reset (via token) on context exit, so nested `data_context()`
     ```
 
     Percent-encode reserved characters in the user or password (`@` → `%40`, `:` → `%3A`) in either URL.
-
-**Implementation**: `aaiclick/data/chdb_client.py` (local), `aaiclick/data/clickhouse_client.py` (distributed), `aaiclick/backend.py` (URL helpers)
 
 Ingest inserts are arrow-native: `create_object_from_value()` builds a `pa.Table` and calls `ChClient.insert_arrow()` — chdb inserts it via pyarrow's `Python()` table function, clickhouse-connect via its native `insert_arrow`. Type mapping: `ch_type_to_pa()` in `arrow_types.py`.
 
@@ -151,8 +147,6 @@ aaiclick stores per-table fieldtype + column metadata as a serialised `Schema` (
 
 ## Field Specifications
 
-**Implementation**: `aaiclick/data/models.py` — see `FieldSpec`, `aaiclick/data/data_context.py` — see `_apply_field_specs()`
-
 The `fields` parameter on `create_object_from_value()` overrides inferred column properties without requiring a full `Schema`. Pass a dict mapping column names to `FieldSpec` instances:
 
 ```python
@@ -210,8 +204,6 @@ Tables are reference-counted and dropped when unreferenced. On context exit, liv
 See the [orchestration design reference](https://github.com/kolodkin/aaiclick/blob/main/docs/designs/orchestration.md) — "Distributed Object Lifecycle" for the full design.
 
 ## Preservation Modes
-
-**Implementation**: `aaiclick/orchestration/models.py` — see `PreservationMode`
 
 Each `Job` carries a `preservation_mode` that controls which tables survive cleanup after the job completes. Task execution is identical in both modes — only the cleanup step differs.
 

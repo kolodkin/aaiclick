@@ -1,3 +1,5 @@
+"""See docs/designs/orchestration.md — "Task Execution"."""
+
 from .claiming import cancel_job, check_task_cancelled, claim_next_task, update_job_status, update_task_status
 from .db_handler import DbHandler, _db_handler_var, create_db_handler, get_db_handler
 from .debug import ajob_test, job_test

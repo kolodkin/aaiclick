@@ -1,3 +1,4 @@
+// See docs/designs/auth.md — "Invites".
 import { useState } from "react";
 import { useInviteUser } from "../api/hooks";
 import type { PasswordResetLinkView, Role } from "../api/types";

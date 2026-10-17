@@ -1,4 +1,7 @@
-"""Kubernetes Pod configuration, resolved on the worker at dispatch."""
+"""Kubernetes Pod configuration, resolved on the worker at dispatch.
+
+See docs/designs/kubernetes_runner.md — "Configuration".
+"""
 
 from __future__ import annotations
 

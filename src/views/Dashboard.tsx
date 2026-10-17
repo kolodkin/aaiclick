@@ -1,3 +1,4 @@
+// See docs/designs/ui.md — "Dashboard (`@dashboard [name]`)".
 import { DashboardFrame } from "@qv/core";
 import { useDashboard, useDashboards, useRunDashboard } from "../api/hooks";
 import { Chips } from "../components/Chips";

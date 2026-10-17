@@ -15,6 +15,8 @@ the vocabulary, the runner mechanics and the decisions.
 
 # Vocabulary
 
+**Implementation**: `aaiclick/data/object/refs.py`
+
 Task kwargs and results are JSON. Plain values are data; a dict carrying the
 reserved key `_aaiclick_type` is one of the shapes below, and an unknown
 value is an error, never data.
@@ -40,11 +42,6 @@ table's `Schema` is read back from `table_registry.schema_doc` via
 **Return values**: `None` → `null`; Object/View → serialized ref + `job_id`;
 a `BaseModel` → `pydantic`; any other value → `native`.
 
-**Implementation**: `aaiclick/data/object/refs.py` (single source of truth:
-constants, Pydantic models, `ref_kind()`);
-`aaiclick/orchestration/execution/runner.py` — see `serialize_task_result()`,
-`_deserialize_value()`.
-
 ## Returned tasks and handles
 
 `task`, `group` and `task_result` are the JSON form of a task function's
@@ -61,9 +58,6 @@ a Python caller does. Rules the host enforces at registration:
 - `data` is a plain value (a `native` wrapper unwraps) or a task handle,
   handed on as the Task itself so the parent's consumers wait for it —
   Python's `task_result(data=child)`. Any other handle in `data` is an error.
-
-**Implementation**: `aaiclick/orchestration/execution/runner.py` — see
-`register_returned_tasks()`, `_build_dag_from_dicts()`, `_wire_dag_dicts()`.
 
 # File data plane
 
@@ -118,6 +112,8 @@ command inherits the worker's env with `command_env` overlaid.
 
 ## Where it runs
 
+**Implementation**: `aaiclick/orchestration/execution/io_plane.py`
+
 On the in-process paths (the local-mode server's worker, `job_test` /
 `ajob_test`) the command runs in the worker's own event loop; on the mp
 worker a subprocess shell task runs in the spawned task child module tasks
@@ -125,19 +121,6 @@ use (it enforces the timeout and polls cancellation itself; the parent's
 kill is a `CHILD_TIMEOUT_GRACE` backstop). Container shell and jvm tasks run
 host-side on a `ShellVehicle`, like module containers — their launch is a
 multi-step sequence, not one argv.
-
-**Implementation**: `aaiclick/orchestration/execution/io_plane.py`;
-`aaiclick/orchestration/execution/runner.py` — see `execute_shell_task()`,
-`stage_in_json()`, `resolve_plain_kwargs()`, `finish_shell_result()`;
-`aaiclick/orchestration/execution/execution_worker.py` — see
-`ShellVehicle`, `drive_shell_vehicle()`;
-`aaiclick/orchestration/execution/dispatch.py` — see `dispatch_execute()`;
-`aaiclick/orchestration/execution/docker_worker.py` — see
-`_DockerShellVehicle`; `aaiclick/orchestration/execution/kubernetes_worker.py`
-— see `build_shell_pod_manifest()`, `_KubernetesShellVehicle`;
-`aaiclick/orchestration/execution/mp_worker.py` — see `_child_run_task()`;
-`aaiclick/orchestration/image_injection.py` — see
-`validate_plain_data_plane_tasks()`, `stamp_inherited_image()`.
 
 # Bindings
 

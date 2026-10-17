@@ -1,3 +1,4 @@
+// See docs/designs/ui.md — "Task Detail (`@task <id>`)".
 import { useTask } from "../api/hooks";
 import { Chips } from "../components/Chips";
 import { LiveStatus } from "../components/LiveStatus";

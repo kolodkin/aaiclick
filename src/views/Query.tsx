@@ -1,3 +1,4 @@
+// See docs/designs/ui.md — "Query (`@query [job <ref>] [<object>]`)".
 import { useMemo } from "react";
 import { useObject, useObjects } from "../api/hooks";
 import { Chips } from "../components/Chips";

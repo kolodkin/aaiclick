@@ -1,5 +1,7 @@
 """Scaffold a starter docker-compose stack for docker-runner deployments.
 
+See docs/designs/deploy_scaffold.md — "Scaffold package and CLI", "Compose template (docker-runner setup)".
+
 Mirrors ``docker_scaffold.py``: the framework writes a sensible starter into
 the user's directory and the user owns it from there. The template ships as
 package data (``templates/compose/docker-compose.yaml``) and is rendered on
@@ -7,7 +9,8 @@ write by replacing the image-tag token with the installed aaiclick version,
 so the scaffold pins to the GHCR images matching the wheel the user
 installed.
 
-Invoked via ``python -m aaiclick compose init``."""
+Invoked via ``python -m aaiclick compose init``.
+"""
 
 from __future__ import annotations
 

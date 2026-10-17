@@ -1,4 +1,7 @@
-"""PostgreSQL-specific SQL operations: writable CTEs, FOR UPDATE SKIP LOCKED."""
+"""PostgreSQL-specific SQL operations: writable CTEs, FOR UPDATE SKIP LOCKED.
+
+See docs/designs/orchestration.md — "Task Claiming".
+"""
 
 from __future__ import annotations
 

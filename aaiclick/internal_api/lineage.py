@@ -1,5 +1,7 @@
 """Internal API for lineage queries — the primitives an MCP client composes.
 
+See docs/designs/lineage.md — "Tier 1 -- Static Reasoning".
+
 Walk the graph, see which tables are still live, look at schemas, sample
 data. The calling agent (Claude Code, Codex, any MCP client) forms and
 verifies hypotheses itself. These run inside an active

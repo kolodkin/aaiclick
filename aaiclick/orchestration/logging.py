@@ -1,5 +1,7 @@
 """Task logging utilities for orchestration backend.
 
+See docs/designs/task_log_retirement.md.
+
 Task stdout/stderr is captured to ClickHouse ``task_logs`` and/or the console
 (:func:`task_logs_destination`), streamed to ClickHouse every
 ``LOG_FLUSH_INTERVAL`` seconds through :func:`stream_to_task_logs`. Module tasks feed it from inside the task process

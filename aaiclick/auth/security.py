@@ -1,5 +1,7 @@
 """Pure auth crypto: password hashing, token secrets, and access-JWT codec.
 
+See docs/designs/auth.md — "Multi-Factor Auth".
+
 No DB, no contextvars, no env reads — callers pass secrets/TTLs explicitly.
 """
 

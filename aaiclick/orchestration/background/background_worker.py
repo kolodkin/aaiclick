@@ -1,5 +1,7 @@
 """Background worker for cleanup and job scheduling.
 
+See docs/designs/orchestration.md — "BackgroundWorker", "Cron Scheduling".
+
 BackgroundWorker polls the database for:
 1. Failed and cancelled tasks awaiting cleanup — drops their refs, settles them
 2. Tables with no run refs — drops them in ClickHouse (samples registered with job)

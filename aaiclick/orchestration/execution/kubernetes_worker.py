@@ -1,5 +1,8 @@
 """Kubernetes runner — host-side ExecuteFns driving Pods.
 
+See docs/designs/kubernetes_runner.md.
+See docs/designs/orchestration.md — "Execution layers".
+
 Mirrors ``docker_worker``: ``_run_task_in_pod`` drives a ``KubernetesVehicle``
 via the shared ``drive_vehicle``. The Pod runs the shared container entrypoint
 (``remote_result``), which writes a ``RemoteTaskResult`` row the host reads

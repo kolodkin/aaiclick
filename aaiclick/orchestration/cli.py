@@ -1,5 +1,7 @@
 """CLI helper functions for orchestration commands.
 
+See docs/designs/orchestration.md — "CLI".
+
 Encapsulates the async startup logic used by ``__main__.py`` so the CLI
 entry point stays thin. Execution worker list / stop, job, and registered-job
 commands live in ``aaiclick.internal_api``. This module holds the

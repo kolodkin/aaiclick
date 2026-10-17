@@ -9,15 +9,11 @@ The `aaiclick/oplog/` module captures operation provenance inside ClickHouse wit
 
 ## operation_log (ClickHouse)
 
-**Implementation**: `aaiclick/oplog/migrations/` (DDL: `0001_baseline.sql`, `0002_utc_timestamps.sql`, `0003_drop_task_logs_level.sql`), `aaiclick/oplog/models.py` — see `init_oplog_tables()`
-
 Append-only audit log. Fields: `id` (Snowflake), `result_table`, `operation`, `kwargs` (Map), `sql_template`, `task_id`, `job_id`, `run_id`, `created_at` (`DateTime64(3, 'UTC')`, like `task_logs.created_at` and `schema_migrations.applied_at`). ORDER BY `(result_table, created_at)`. Cleaned up by `BackgroundWorker._cleanup_expired_jobs()` when the owning job expires (see `AAICLICK_JOB_TTL_DAYS`).
 
 All inputs named via `kwargs` (e.g. `{"left": ..., "right": ...}` for binary ops).
 
 ## table_registry (SQL)
-
-**Implementation**: `aaiclick/orchestration/lifecycle/db_lifecycle.py` — see `TableRegistry`
 
 Ownership metadata for every ClickHouse data table: `table_name` (PK) → `(job_id, task_id, run_id, created_at)`. Written once at creation by the lifecycle handler's queued `OPLOG_TABLE` op; deleted by `BackgroundWorker._cleanup_unreferenced_tables()` when the table is dropped, and by `_cleanup_expired_jobs()` / `_cleanup_orphaned_resources()` for TTL'd rows.
 
@@ -31,15 +27,11 @@ Previously lived in ClickHouse as an append-only MergeTree table. Moved to SQL b
 
 # OplogCollector
 
-**Implementation**: `aaiclick/oplog/collector.py` — see `OplogCollector`, `get_oplog_collector()`
-
 Buffer-based event sink. Collects `OperationEvent` objects in memory; batch-inserts to `operation_log` (CH) and `table_registry` (SQL) on `flush()`. Accessed via ContextVar `_oplog_collector`.
 
 ---
 
 # Instrumentation Points
-
-**Implementation**: `aaiclick/data/object/operators.py`, `aaiclick/data/object/ingest.py`, `aaiclick/data/object/object.py`, `aaiclick/data/data_context/data_context.py`
 
 Each instrumentation is a 2-line addition: get collector from ContextVar, call `record()` if not None.
 
@@ -59,15 +51,11 @@ Each instrumentation is a 2-line addition: get collector from ContextVar, call `
 
 # Graph Queries
 
-**Implementation**: `aaiclick/oplog/lineage.py` — see `backward_oplog()`, `forward_oplog()`, `oplog_subgraph()`, `OplogGraph.graph_nodes()`
-
 Graph traversal over `operation_log`. `backward_oplog()` traces upstream lineage via recursive CTE; the MCP server exposes the graph to agents — see [Lineage via MCP](lineage.md).
 
 ---
 
 # Table Lifecycle & Cleanup
-
-**Implementation**: `aaiclick/oplog/cleanup.py` — see `drop_tables()`, `aaiclick/orchestration/background/background_worker.py` — see `BackgroundWorker._cleanup_unreferenced_tables()` and `BackgroundWorker._cleanup_expired_jobs()`
 
 All cleanup is job-driven. The per-job `preservation_mode` gates what cleanup does:
 

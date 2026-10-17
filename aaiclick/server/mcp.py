@@ -1,5 +1,8 @@
 """FastMCP tool surface over ``aaiclick.internal_api``.
 
+See docs/designs/auth.md — "MCP Surface".
+See docs/designs/lineage.md — "Tier 1 -- Static Reasoning".
+
 Every ``internal_api`` function is exposed as an MCP tool (most also have
 a CLI verb; the lineage primitives do not). Each tool is a thin wrapper that opens the context its underlying
 ``internal_api`` function needs (``orch_context(with_ch=...)``) — the same

@@ -29,14 +29,9 @@ never touches `run_ids` or `task_logs`, so the host registers each attempt
 (`register_host_log_run`) and follows the container's output into
 `task_logs`.
 
-**Implementation**: `aaiclick/orchestration/execution/dispatch.py` — see
-`dispatch_execute()`; `aaiclick/orchestration/execution/runner.py` — see
-`register_host_log_run()`, `follow_vehicle_output()`;
-`aaiclick/orchestration/execution/docker_worker.py` — see
-`_DockerShellVehicle`; `aaiclick/orchestration/execution/kubernetes_worker.py`
-— see `_KubernetesShellVehicle`.
-
 ## `jvm` entry type
+
+**Implementation**: `aaiclick/orchestration/runner_config.py`
 
 - `EntryType` Literal gains `"jvm"` (plain String column — code change only,
   no migration). `tasks.entrypoint` holds the Java class name
@@ -47,9 +42,6 @@ never touches `run_ids` or `task_logs`, so the host registers each attempt
 - CLI (`--entry-type jvm`), `run_job()`, and `RunJobRequest` accept the new
   choice; the entrypoint/class name rides in the existing `name` /
   `entrypoint` fields.
-
-**Implementation**: `aaiclick/orchestration/runner_config.py` — see
-`EntryType`, `validate_task_entry()`.
 
 ## Validation
 
@@ -70,9 +62,6 @@ submission surface (`aaiclick/orchestration/registered_jobs.py` — see
 - Results are never auto-converted to Objects: the shim writes `native`
   values (or a returned task DAG), which downstream Python tasks consume as
   native values.
-
-**Implementation**: `aaiclick/orchestration/image_injection.py` — see
-`validate_plain_data_plane_tasks()`.
 
 # Data-plane contract (what the shim does)
 
@@ -159,12 +148,9 @@ upstream Python result into it, `out.json` read back, and a Python consumer
 of the jvm return value. The fixture image (`test_e2e/fixtures/jvm_task/`)
 builds the SDK from the checkout, so the shim under test is the commit's.
 
-**Implementation**: `test_e2e/docker/test_docker_runner_e2e.py` — see
-`test_docker_runner_jvm_task()`; `test_e2e/docker/conftest.py` — see the
-`jvm_task_image` fixture; `test_e2e/fixtures/sample_job/sample_jobs.py` — see
-`jvm_entry_task()`.
-
 # Publishing
+
+**Implementation**: `.github/workflows/publish.yaml`
 
 `aaiclick-task-api` publishes to Maven Central via the Central Publisher
 Portal on the **same tag** as the Python package — lockstep versioning; the
@@ -183,7 +169,3 @@ compatibility contract is a release's file data plane and task semantics.
 - The Java leg runs after the PyPI upload, so the release is gated on
   `mvn verify` at the release version first: a broken jar blocks the
   irreversible upload instead of orphaning a tagged Python release.
-
-**Implementation**: `.github/workflows/publish.yaml` — see the `verify-java`
-and `publish-java` jobs; `.github/workflows/test.yaml` — see the `java-sdk`
-job.

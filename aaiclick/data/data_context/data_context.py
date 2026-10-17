@@ -1,6 +1,8 @@
 """
 aaiclick.data.data_context - Function-based context management for ClickHouse client and Object lifecycle.
 
+See docs/user_guide/data_context.md — "Overview", "Field Specifications".
+
 This module provides a context manager that manages the lifecycle of Objects created
 within its scope, automatically cleaning up tables when the context exits.
 """

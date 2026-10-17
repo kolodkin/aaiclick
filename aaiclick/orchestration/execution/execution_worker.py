@@ -1,4 +1,7 @@
-"""ExecutionWorker management for orchestration backend."""
+"""ExecutionWorker management for orchestration backend.
+
+See docs/designs/orchestration.md — "ExecutionWorker Main Loop".
+"""
 
 from __future__ import annotations
 

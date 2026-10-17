@@ -269,8 +269,7 @@ non-safe route without a guard fails
 
 # Roles
 
-**Implementation**: `aaiclick/auth/models.py` — see `Role`, `ROLE_SCOPES`;
-`aaiclick/server/auth.py` — see `principal_to_scope`, `_SYNTHETIC_ADMIN`.
+**Implementation**: `aaiclick/auth/models.py`
 
 | Role     | Scope   | Holds                                                          |
 |----------|---------|----------------------------------------------------------------|
@@ -293,8 +292,8 @@ A user created without an explicit role is a `viewer`.
 
 # API Tokens
 
+**Implementation**: `aaiclick/internal_api/api_tokens.py`
 
-**Implementation**: `aaiclick/auth/models.py` — see `ApiToken`, `ScopeLevel`, `scope_admits`; `aaiclick/internal_api/api_tokens.py` — see `_mint_ceiling`, `create_token`; `aaiclick/server/auth.py` — see `principal_from_credential`, `principal_to_scope`, `check_scope`, `require_session`; `aaiclick/server/routers/auth.py` — see `create_token`; `src/views/Tokens.tsx`.
 Long-lived credentials for unattended clients (CI, SDK scripts, MCP agents)
 that should hold neither a password nor a refresh token.
 
@@ -346,8 +345,8 @@ levels the signed-in user may mint.
 
 # MCP Surface
 
+**Implementation**: `aaiclick/server/mcp_rbac.py`
 
-**Implementation**: `aaiclick/server/mcp_rbac.py` — see `required_level`, `authorize_tool`, `McpRbacMiddleware`; `aaiclick/server/auth.py` — see `PrincipalAuthMiddleware`; tool tags in `aaiclick/server/mcp.py`.
 The `/mcp` mount takes **API tokens only** once auth is enabled — a session JWT
 there is `401`. The surface is for unattended clients, an API token is their
 credential, and the restriction is what gives every MCP principal a real level
@@ -418,8 +417,6 @@ The header shows the signed-in username with a sign-out control.
 
 # Multi-Factor Auth
 
-
-**Implementation**: `aaiclick/auth/security.py` — see `totp_code`, `verify_totp`, `totp_uri`; `aaiclick/auth/store.py` — see `claim_totp_step`; `aaiclick/internal_api/auth.py` — see `login`, `mfa_setup`, `mfa_enable`, `mfa_disable`; `aaiclick/internal_api/users.py` — see `reset_mfa`; `aaiclick/internal_api/errors.py` — see `MfaRequired`; `src/views/Account.tsx` — see `MfaPanel`.
 TOTP (RFC 6238: SHA-1, 30 s step, 6 digits, ±1 step drift), implemented on the
 standard library in `aaiclick/auth/security.py` — no new dependency. Any
 authenticator app works from the `otpauth://` URI or the base32 secret.
@@ -443,7 +440,7 @@ the recovery path, matching the CLI-first admin model.
 
 # Password Reset
 
-**Implementation**: `aaiclick/internal_api/password_reset.py` — see `create`, `redeem`; `src/views/ResetPassword.tsx`.
+**Implementation**: `aaiclick/internal_api/password_reset.py`
 
 A reset token is a one-time secret bound to a user with a short TTL
 (`AAICLICK_PASSWORD_RESET_TTL`, default 3600 s). Consuming it sets the password
@@ -470,9 +467,7 @@ tells the user to ask an administrator.
 
 ## Invites
 
-**Implementation**: `aaiclick/internal_api/invites.py` — see `invite`,
-`_check_ceiling`; `aaiclick/server/routers/invites.py`;
-`src/views/Invite.tsx`.
+**Implementation**: `aaiclick/internal_api/invites.py`
 
 Onboarding is a reset link by another name: create the user with no password,
 grant their role, and mint their link — `POST /invites` →
@@ -500,8 +495,7 @@ The SPA offers `@invite` to admins.
 
 # Audit Log
 
-
-**Implementation**: `aaiclick/audit/` (model, store, view models); `aaiclick/server/audit.py` — see `auditable_path`, `should_audit`, `AuditMiddleware`; `aaiclick/internal_api/audit.py`; `aaiclick/server/routers/audit.py`; `src/views/Audit.tsx`.
+**Implementation**: `aaiclick/audit/`
 
 Who called what, when — one row per HTTP request under `/api/v0/` or `/mcp`,
 written by an ASGI middleware after the response is produced. `/health`,

@@ -1,6 +1,8 @@
 """
 aaiclick.backend - Backend detection from connection URLs.
 
+See docs/designs/orchestration.md — "Deployment Modes", "Configuration".
+
 Two independent connection strings control what aaiclick connects to:
 
 - AAICLICK_SQL_URL: SQLAlchemy async URL for orchestration state

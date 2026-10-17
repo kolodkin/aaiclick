@@ -44,8 +44,7 @@ Inputs the agent starts with:
   question
 - **Natural-language question** from the user
 
-Agent tools — **Implementation**: `aaiclick/server/mcp.py` over
-`aaiclick/internal_api/lineage.py`.
+Agent tools:
 
 - `oplog_subgraph` — the graph; each node carries the rendered SQL of the
   operation that produced it (`sql_template`)
@@ -144,9 +143,6 @@ parses the SQL (`EXPLAIN AST`) and the check reads table position off the
 parse tree, so it is positive: anything in table position that is not a
 table of the graph is rejected, table functions included.
 
-**Implementation**: `aaiclick/oplog/query_sandbox.py` — see `validate_scope()`
-and `sandboxed_select()`
-
 Every tool takes `target_table` (plus `direction` / `max_depth`) and
 resolves the scope server-side from its lineage graph:
 
@@ -204,8 +200,6 @@ Because the scope comes from `target_table`, a caller cannot widen it —
 see `_lineage_graph()` in `aaiclick/internal_api/lineage.py`.
 
 ## Tool Result Types
-
-**Implementation**: `aaiclick/oplog/lineage.py` (`GraphNode`), `aaiclick/oplog/query_sandbox.py` (`QueryResult`, `TableSchema`, `SandboxError`)
 
 Pydantic models, so they serialize through MCP unchanged. A refused query
 raises `SandboxError` with a `kind` (`not_select`, `out_of_scope`,

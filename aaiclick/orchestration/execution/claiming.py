@@ -1,4 +1,7 @@
-"""Atomic task claiming and cancellation for distributed workers."""
+"""Atomic task claiming and cancellation for distributed workers.
+
+See docs/designs/orchestration.md — "Status Enums", "Task Claiming".
+"""
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession

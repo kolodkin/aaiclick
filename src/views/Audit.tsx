@@ -1,3 +1,4 @@
+// See docs/designs/auth.md — "Audit Log".
 import { useDeferredValue, useState } from "react";
 import { useAudit } from "../api/hooks";
 import { useAuth } from "../components/Auth";

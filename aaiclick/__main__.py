@@ -1,5 +1,7 @@
 """CLI entry point for aaiclick package.
 
+See docs/designs/orchestration.md — "CLI".
+
 Usage:
     python -m aaiclick setup                    # Initialize local dev environment
     python -m aaiclick setup --force            # Recreate a local.db left behind by an older version

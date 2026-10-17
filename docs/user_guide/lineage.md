@@ -30,8 +30,6 @@ after the run. Re-run the job with `preservation_mode="FULL"` (`run_job`,
 an admin tool — the read-scoped token below cannot call it) and query the
 new run's tables.
 
-**Implementation**: `aaiclick/server/mcp.py` (tools), `aaiclick/internal_api/lineage.py` (scope lookup), `aaiclick/oplog/query_sandbox.py` (sandbox).
-
 # Connect an agent
 
 Start the server, then register `http://127.0.0.1:5255/mcp` with the agent.

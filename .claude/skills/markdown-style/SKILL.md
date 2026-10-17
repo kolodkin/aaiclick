@@ -1,25 +1,40 @@
 ---
 name: markdown-style
-description: Project markdown style rules — heading style, table formatting, admonitions, implementation references. TRIGGER when writing or editing `.md` files in subdirectories (`docs/`, `aaiclick/**`). Skip root-level `.md` files (`CLAUDE.md`, `README.md`, `CHANGELOG.md`).
+description: Project markdown rules on top of shortify — heading style, table formatting, admonitions, code ↔ doc links. TRIGGER when writing or editing `.md` files in subdirectories (`docs/`, `aaiclick/**`), or a module docstring that links to docs. Skip root-level `.md` files (`CLAUDE.md`, `README.md`, `CHANGELOG.md`).
 ---
 
 # markdown-style
 
-Apply when writing or editing `.md` files in subdirectories. Skip root-level `.md` files — they have their own conventions.
+Project-specific rules on top of the `shortify` skill. Run `shortify` for the generic pass (redundancy, wordiness, heading depth, short examples); this skill adds only what is particular to aaiclick.
 
 **Quality reference**: [FastAPI docs](https://fastapi.tiangolo.com/) — progressive disclosure, concise admonitions, copy-paste-ready examples with output shown inline.
 
-## Implementation references — name, not line number
+## Code ↔ doc links — module level only
 
-Line numbers go stale. Refer to classes, methods, or functions by name.
+Replaces the first bullet of shortify step 4; the rest of that step applies. Links name modules or packages, never functions, classes or line numbers, and only where a module is the clear home of a section.
+
+- **Code** (default direction): the module docstring names its home section, in a block right after the summary line. One doc per module, two at most. Thin wrappers (HTTP routers, tests, small helpers) get none. Target a design doc; use a user guide only when no design doc covers the module.
+- **Design docs** (`docs/designs/`): optionally one `**Implementation**: \`path\`` line right under a heading, naming one module or package. Skip it when the section's prose already names the path.
+- **User guides** (`docs/user_guide/`): no `**Implementation**:` lines. Code paths appear only inside prose that needs them: an example file to open, a migration to read.
+
+```python
+"""Decorators for defining tasks and jobs.
+
+See docs/designs/orchestration.md — "Decorators".
+
+Longer description...
+"""
+```
 
 ```markdown
-# BAD - line numbers become stale
-**Implementation**: `aaiclick/orchestration/context.py:129-175`
+# BAD — symbols, private helpers, file lists
+**Implementation**: `aaiclick/auth/models.py` — see `ApiToken`; `aaiclick/internal_api/api_tokens.py` — see `_mint_ceiling`
 
-# GOOD - method names are stable
-**Implementation**: `aaiclick/orchestration/context.py` - see `OrchContext.apply()` method
+# GOOD
+**Implementation**: `aaiclick/internal_api/api_tokens.py`
 ```
+
+Section names are quoted verbatim, so grep `docs/<file>.md — "Old Heading"` when renaming a heading. Doc → doc pointers (`**Design**: docs/designs/auth.md`) are fine. No ✅ / ⚠️ status markers.
 
 ## Heading style — setext title, ATX sections
 
@@ -41,9 +56,7 @@ Document Title
 ```
 
 - Document title: setext underline with `---`
-- Top-level sections: `#`
-- Subsections: `##`
-- Avoid `###` and deeper — restructure instead.
+- Top-level sections: `#`, subsections: `##` (depth limit per shortify)
 
 ## Tables — align columns with padding
 

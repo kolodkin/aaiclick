@@ -1,4 +1,7 @@
-"""Task execution utilities for orchestration backend."""
+"""Task execution utilities for orchestration backend.
+
+See docs/designs/task_interface.md — "Vocabulary", "Returned tasks and handles", "Where it runs".
+"""
 
 from __future__ import annotations
 

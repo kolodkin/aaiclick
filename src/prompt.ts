@@ -1,3 +1,4 @@
+// See docs/designs/ui.md.
 // Named JobViewMode, not JobView — `src/api/types.ts` already exports JobView
 // as the server model.
 export type JobViewMode = "table" | "graph";
