@@ -15,8 +15,9 @@ document holds the runner mechanics and the decisions.
 
 # Vocabulary
 
-The tagged dicts and their fields: user guide, "Vocabulary". Language
-bindings: user guide, `task_api_python.md` / `task_api_java.md`.
+The tagged dicts and their fields: [Vocabulary](../user_guide/task_interface.md#vocabulary).
+Language bindings: [Python](../user_guide/task_api_python.md),
+[Java](../user_guide/task_api_java.md).
 
 `job_id` on an `object` ref marks the producing task's job — the background
 worker skips tables with a non-NULL `job_id` pin until the job completes. The
