@@ -58,8 +58,7 @@ async def test_get_task_logs(orch_ctx, app_client):
 
 async def test_get_task_logs_reads_clickhouse_through_scope(orch_ctx, app_client):
     """A task with captured logs returns them — exercising the CH-backed read
-    path through the endpoint's ``orch_scope_with_ch`` dependency (a SQL-only
-    scope would raise 'no active data context' here)."""
+    path through the router's ``orch_scope`` dependency."""
     job = await create_job("logs_ch_route", simple_task)
     task = (await get_tasks_for_job(job.id))[0]
     await flush_task_logs(task.id, job.id, 123, [LogLine(stream=STDOUT_STREAM, text="hello from clickhouse")])

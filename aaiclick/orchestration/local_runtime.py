@@ -58,7 +58,7 @@ async def local_runtime() -> AsyncIterator[None]:
     background = BackgroundWorker()
     await background.start()
     try:
-        async with orch_context(with_ch=True):
+        async with orch_context():
             # uvicorn (or the outer process) owns SIGTERM/SIGINT — the worker must not steal them.
             worker_task = asyncio.create_task(execution_worker_main_loop(install_signal_handlers=False))
             try:

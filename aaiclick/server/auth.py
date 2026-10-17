@@ -78,7 +78,7 @@ def _principal_from_token(token: str) -> Principal:
 async def _principal_from_api_token(token: str) -> Principal:
     """Look an ``aaic_`` token up by hash and build a Principal from its owner's
     *current* role, so revocation and demotion bind instantly."""
-    async with orch_context(with_ch=False):
+    async with orch_context():
         resolved = await store.resolve_api_token(security.sha256_hex(token))
     if resolved is None:
         raise Unauthorized("invalid api token")

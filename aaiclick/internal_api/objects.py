@@ -2,7 +2,7 @@
 
 See docs/designs/viewer.md — "Scope Model".
 
-Each function runs inside an active ``orch_context(with_ch=True)`` and reads
+Each function runs inside an active ``orch_context()`` and reads
 the ClickHouse client via the contextvar getter. Registry-backed paths
 (``get_object`` -> ``open_object``) additionally need the SQL session that
 only orch provides. Returns pydantic view models.

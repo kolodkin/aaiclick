@@ -9,7 +9,7 @@ from sqlmodel import select
 from aaiclick.__main__ import (
     _parse_command_env,
     _parse_set_kwargs,
-    _run_data_api,
+    _run_internal_api,
     build_parser,
     main,
 )
@@ -186,7 +186,7 @@ def test_user_role_parsers():
         parser.parse_args(["user", "set-role", "7", "superadmin"])
 
 
-async def test_run_data_api_provides_a_sql_session():
+async def test_run_internal_api_provides_a_sql_session():
     """``aaiclick data`` commands need an orch context, not a bare data context.
 
     Deliberately takes no ``orch_ctx`` fixture: an ambient orch context leaves
@@ -197,7 +197,7 @@ async def test_run_data_api_provides_a_sql_session():
         async with get_sql_session():
             return True
 
-    assert await _run_data_api(_uses_sql_session())
+    assert await _run_internal_api(_uses_sql_session())
 
 
 @pytest.mark.parametrize(

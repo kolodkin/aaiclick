@@ -195,7 +195,7 @@ def test_get_snowflake_ids_max_size():
 def test_chdb_mode_does_not_touch_shared_session():
     """In chdb mode, ID generation must not import or open the shared chdb Session.
 
-    The orch_context(with_ch=False) contract requires that callers can mint
+    SQL-only callers of orch_context() must be able to mint
     IDs without acquiring the chdb file lock — tests, CLI, MCP server, and
     multiprocessing workers all rely on this. Generating an ID via the
     shared chdb Session would silently break that contract.

@@ -7,8 +7,8 @@ from an in-memory buffer until empty, then refilled.
 
 In chdb mode, IDs are minted in pure Python from a process-wide
 (timestamp, sequence) pair. This deliberately avoids touching the shared
-chdb Session: callers running under ``orch_context(with_ch=False)`` must be
-able to mint IDs without acquiring the chdb file lock.
+chdb Session: SQL-only callers (e.g. the mp-worker parent) must be able
+to mint IDs without acquiring the chdb file lock.
 
 In distributed mode, IDs are fetched from ClickHouse via clickhouse-connect
 (``generateSnowflakeID()``).
@@ -54,9 +54,8 @@ _in_memory_sequence = -1
 def _generate_in_memory(count: int) -> list[int]:
     """Mint ``count`` Snowflake IDs in pure Python.
 
-    Used in chdb mode to avoid the shared chdb Session — mint ID flows
-    must work even when ``orch_context(with_ch=False)`` has suppressed
-    the ClickHouse client.
+    Used in chdb mode to avoid the shared chdb Session — minting an ID
+    must not open ClickHouse in a process that otherwise never queries it.
     """
     # Module global: one process-wide ID sequence shared by every context.
     global _in_memory_last_ms, _in_memory_sequence  # noqa: PLW0603

@@ -125,26 +125,14 @@ def _render(args: argparse.Namespace, view, text_renderer) -> None:
         text_renderer(view)
 
 
-async def _run_internal_api(coro, *, with_ch: bool = False):
-    """Run ``coro`` inside ``orch_context``.
-
-    Args:
-        coro: The ``internal_api`` coroutine to await.
-        with_ch: Attach a ClickHouse client — required by the ``data``
-            subcommands, unnecessary for the orchestration ones.
-    """
+async def _run_internal_api(coro):
+    """Run ``coro`` inside ``orch_context``."""
     # We own `coro`, so close it however we leave: a missing extra or a locked
     # chdb raises before it is ever awaited, and an unclosed coroutine trails a
     # "was never awaited" RuntimeWarning over the error.
     with closing(coro):
-        async with orch_context(with_ch=with_ch):
+        async with orch_context():
             return await coro
-
-
-async def _run_data_api(coro):
-    """Run a ``data`` subcommand with ClickHouse attached — ``open_object``
-    needs the SQL ``table_registry`` session only an orch context provides."""
-    return await _run_internal_api(coro, with_ch=True)
 
 
 async def _run_job_list(args: argparse.Namespace) -> None:
@@ -331,17 +319,17 @@ def _parse_datetime(value: str) -> datetime:
 
 async def _run_data_list(args: argparse.Namespace) -> None:
     filter = ObjectFilter(prefix=args.prefix, job=args.job, limit=args.limit)
-    page = await _run_data_api(internal_api.list_objects(filter))
+    page = await _run_internal_api(internal_api.list_objects(filter))
     _render(args, page, cli_renderers.render_objects_page)
 
 
 async def _run_data_get(args: argparse.Namespace) -> None:
-    detail = await _run_data_api(internal_api.get_object(args.name, args.job))
+    detail = await _run_internal_api(internal_api.get_object(args.name, args.job))
     _render(args, detail, cli_renderers.render_object_detail)
 
 
 async def _run_data_delete(args: argparse.Namespace) -> None:
-    view = await _run_data_api(internal_api.delete_object(args.name))
+    view = await _run_internal_api(internal_api.delete_object(args.name))
     _render(args, view, cli_renderers.render_deleted)
 
 
@@ -350,7 +338,7 @@ async def _run_data_purge(args: argparse.Namespace) -> None:
         after=_parse_datetime(args.after) if args.after else None,
         before=_parse_datetime(args.before) if args.before else None,
     )
-    result = await _run_data_api(internal_api.purge_objects(request))
+    result = await _run_internal_api(internal_api.purge_objects(request))
     _render(args, result, cli_renderers.render_objects_purged)
 
 
@@ -380,12 +368,14 @@ async def _run_data_query(args: argparse.Namespace) -> None:
         offset=args.offset,
         fmt="csv" if args.csv else "json",
     )
-    result = await _run_data_api(internal_api.query_object(request))
+    result = await _run_internal_api(internal_api.query_object(request))
     _render(args, result, cli_renderers.render_query_result)
 
 
 async def _run_view_queries_list(args: argparse.Namespace) -> None:
-    page = await _run_data_api(internal_api.list_saved_queries(SavedQueryFilter(scope=args.scope, object=args.object)))
+    page = await _run_internal_api(
+        internal_api.list_saved_queries(SavedQueryFilter(scope=args.scope, object=args.object))
+    )
     _render(args, page, cli_renderers.render_saved_queries_page)
 
 
@@ -400,35 +390,37 @@ async def _run_view_queries_save(args: argparse.Namespace) -> None:
         order_by=_parse_order_by(args.order_by),
         cell_view=cell_view,
     )
-    _render(args, await _run_data_api(internal_api.save_query(query)), cli_renderers.render_saved_query)
+    _render(args, await _run_internal_api(internal_api.save_query(query)), cli_renderers.render_saved_query)
 
 
 async def _run_view_queries_delete(args: argparse.Namespace) -> None:
-    deleted = await _run_data_api(internal_api.delete_saved_query(args.name))
+    deleted = await _run_internal_api(internal_api.delete_saved_query(args.name))
     _render(args, deleted, lambda v: cli_renderers.render_deleted(v, "saved query"))
 
 
 async def _run_view_dashboards_list(args: argparse.Namespace) -> None:
-    _render(args, await _run_data_api(internal_api.list_dashboards()), cli_renderers.render_dashboards_page)
+    _render(args, await _run_internal_api(internal_api.list_dashboards()), cli_renderers.render_dashboards_page)
 
 
 async def _run_view_dashboards_get(args: argparse.Namespace) -> None:
-    _render(args, await _run_data_api(internal_api.get_dashboard(args.name)), cli_renderers.render_dashboard)
+    _render(args, await _run_internal_api(internal_api.get_dashboard(args.name)), cli_renderers.render_dashboard)
 
 
 async def _run_view_dashboards_save(args: argparse.Namespace) -> None:
     doc = json.loads(Path(args.file).read_text())  # {"scope"?, "html", "queries": {panel: {...}}}
     dashboard = DashboardIn(name=args.name, **doc)
-    _render(args, await _run_data_api(internal_api.save_dashboard(dashboard)), cli_renderers.render_dashboard)
+    _render(args, await _run_internal_api(internal_api.save_dashboard(dashboard)), cli_renderers.render_dashboard)
 
 
 async def _run_view_dashboards_delete(args: argparse.Namespace) -> None:
-    deleted = await _run_data_api(internal_api.delete_dashboard(args.name))
+    deleted = await _run_internal_api(internal_api.delete_dashboard(args.name))
     _render(args, deleted, lambda v: cli_renderers.render_deleted(v, "dashboard"))
 
 
 async def _run_view_dashboards_run(args: argparse.Namespace) -> None:
-    _render(args, await _run_data_api(internal_api.run_dashboard(args.name)), cli_renderers.render_dashboard_results)
+    _render(
+        args, await _run_internal_api(internal_api.run_dashboard(args.name)), cli_renderers.render_dashboard_results
+    )
 
 
 async def _run_execution_worker_list(args: argparse.Namespace) -> None:

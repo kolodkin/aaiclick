@@ -45,7 +45,7 @@ async def start_execution_worker(max_tasks: int | None = None) -> None:
             "'execution-worker start' requires distributed backends (ClickHouse server + PostgreSQL). "
             "Use 'local start' for local mode (chdb + SQLite)."
         )
-    async with orch_context(with_ch=False):
+    async with orch_context():
         await mp_worker_main_loop(max_tasks=max_tasks)
 
 

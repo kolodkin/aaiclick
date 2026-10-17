@@ -548,7 +548,7 @@ class BackgroundWorker:
 
         if not won:
             return
-        async with orch_context(with_ch=False):
+        async with orch_context():
             for row in won:
                 try:
                     job = await run_job(row.name, row.entrypoint, run_type=RUN_SCHEDULED)
@@ -609,7 +609,7 @@ class BackgroundWorker:
 
         if not claimed:
             return
-        async with orch_context(with_ch=False):
+        async with orch_context():
             for row in claimed:
                 outcome = await self._submit_sandbox_jobs(row.path, row.job_names, row.git_remote, row.git_sha)
                 async with AsyncSession(self._engine) as session:

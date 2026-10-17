@@ -177,9 +177,7 @@ async def drop_all_ch_tables() -> None:
 async def per_test_reset(*, reset_ch: bool = True, reset_sql: bool = True) -> None:
     """Wipe CH and/or SQL state between tests sharing a module orch scope.
 
-    Must be called while the enclosing orch context is active. When
-    ``reset_ch`` is true, requires ``with_ch=True`` in the enclosing
-    ``orch_context``.
+    Must be called while the enclosing orch context is active.
     """
     if reset_ch:
         await drop_all_ch_tables()
@@ -461,7 +459,7 @@ _CH_UPGRADE_SCRIPT = "from aaiclick.oplog.migrate import ch_upgrade_standalone; 
 
 @pytest.fixture(scope="module")
 async def orch_module_ctx_no_ch():
-    """Module-scoped ``orch_context(with_ch=False)`` — entered once per module.
+    """Module-scoped ``orch_context()`` — entered once per module.
 
     Used by test modules whose tests spawn multiprocessing workers: the
     parent never opens chdb, so the child can acquire the chdb file lock.
@@ -482,7 +480,7 @@ async def orch_module_ctx_no_ch():
         os.environ["AAICLICK_CH_URL"] = f"chdb://{tmp_dir}"
         subprocess.run([sys.executable, "-c", _CH_UPGRADE_SCRIPT], check=True)
     try:
-        async with module_orch_scope(orch_context(with_ch=False)):
+        async with module_orch_scope(orch_context()):
             yield
     finally:
         if is_chdb():

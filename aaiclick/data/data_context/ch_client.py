@@ -7,6 +7,7 @@ and lazy-imports the appropriate concrete client based on AAICLICK_CH_URL.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from collections.abc import Sequence
 from contextvars import ContextVar
@@ -210,3 +211,68 @@ async def create_ch_client() -> ChClient:
     from .clickhouse_client import create_clickhouse_client  # noqa: PLC0415
 
     return cast(ChClient, await create_clickhouse_client())
+
+
+class LazyChClient:
+    """ChClient that creates the real client on its first call.
+
+    Arguments past the first are passed by keyword: chdb and clickhouse-connect
+    order ``settings`` / ``parameters`` differently.
+
+    ``orch_context`` sets one at entry, so SQL-only callers never open
+    ClickHouse (and never take the chdb file lock). Child tasks inherit the
+    same instance, so the first query anywhere fills it for all.
+    """
+
+    def __init__(self) -> None:
+        self._client: ChClient | None = None
+        self._lock = asyncio.Lock()
+
+    async def _get(self) -> ChClient:
+        async with self._lock:
+            if self._client is None:
+                self._client = await create_ch_client()
+            return self._client
+
+    async def command(self, query: str, settings: dict | None = None, parameters: dict | None = None) -> object:
+        return await (await self._get()).command(query, settings=settings, parameters=parameters)
+
+    async def query(self, query: str, settings: dict | None = None, parameters: dict | None = None) -> QueryResult:
+        return await (await self._get()).query(query, settings=settings, parameters=parameters)
+
+    async def insert(
+        self,
+        table: str,
+        data: Sequence[Sequence],
+        column_names: Sequence[str] | None = None,
+        column_oriented: bool = False,
+        column_type_names: Sequence[str] | None = None,
+    ) -> None:
+        await (await self._get()).insert(
+            table,
+            data,
+            column_names=column_names,
+            column_oriented=column_oriented,
+            column_type_names=column_type_names,
+        )
+
+    async def raw_query(
+        self,
+        query: str,
+        parameters: dict | None = None,
+        settings: dict | None = None,
+        fmt: str | None = None,
+    ) -> bytes:
+        return await (await self._get()).raw_query(query, parameters=parameters, settings=settings, fmt=fmt)
+
+    async def insert_arrow(self, table: str, arrow_table: pa.Table) -> None:
+        await (await self._get()).insert_arrow(table, arrow_table)
+
+    async def raw_stream(self, query: str, fmt: str) -> object:
+        """clickhouse-connect only — used by ``export_query_to_file``."""
+        return await (await self._get()).raw_stream(query=query, fmt=fmt)  # type: ignore[attr-defined]
+
+    async def close(self) -> None:
+        if self._client is not None:
+            await self._client.close()
+            self._client = None

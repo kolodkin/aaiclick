@@ -1,6 +1,6 @@
 """Internal API for the viewer: object-scoped queries, saved queries, dashboards.
 
-Every function runs inside ``orch_context(with_ch=True)``. Queries never see
+Every function runs inside ``orch_context()``. Queries never see
 a table name: ``open_scoped`` resolves ``(scope, object)`` and the Object API
 builds the SELECT (see docs/designs/viewer.md).
 """
