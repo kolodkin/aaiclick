@@ -82,12 +82,12 @@ children. Children reference each other by `id`.
    {"_aaiclick_type": "task", "id": "w1", "entry_type": "shell", "command": ["node", "worker.js"], "kwargs": {"n": 1}},
    {"_aaiclick_type": "task", "id": "w2", "entry_type": "shell", "command": ["node", "worker.js"], "kwargs": {"n": 2}},
    {"_aaiclick_type": "task", "id": "fin", "entry_type": "shell", "command": ["node", "sum.js"],
-    "kwargs": {"parts": [{"_aaiclick_type": "upstream", "task_id": "w1"},
+    "kwargs": {"values": [{"_aaiclick_type": "upstream", "task_id": "w1"},
                          {"_aaiclick_type": "upstream", "task_id": "w2"}]}}
  ]}
 ```
 
-Here `fin` runs after both workers and reads `{"parts": [2, 4]}` from its
+Here `fin` runs after both workers and reads `{"values": [2, 4]}` from its
 `in.json`; `data` names `fin`, so whoever consumes this task's result waits
 for `fin` and gets its value (`6`).
 

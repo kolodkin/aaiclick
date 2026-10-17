@@ -50,7 +50,7 @@ public final class SampleTasks {
     public static TaskResult fanOut(String image) {
         Task w1 = Task.shell("w1", "node", "worker.js").kwarg("n", 1);
         Task w2 = Task.shell("w2", "node", "worker.js").kwarg("n", 2).maxRetries(1);
-        Task fin = Task.jvm("fin", "com.example.Sum").kwarg("parts", List.of(w1.ref(), w2.ref())).image(image);
+        Task fin = Task.jvm("fin", "com.example.Sum").kwarg("values", List.of(w1.ref(), w2.ref())).image(image);
         Group g = Group.of("g", Task.module(null, "pkg.mod.step"));
         Task report = Task.jvm("report", "com.example.Report").kwarg("steps", g.results()).dependsOn(fin);
         return TaskResult.of(fin.ref(), w1, w2, fin, g, report);
