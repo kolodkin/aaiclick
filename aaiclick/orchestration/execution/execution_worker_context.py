@@ -35,19 +35,6 @@ class TaskInfo:
 _current_task_info: ContextVar[TaskInfo] = ContextVar("current_task_info")
 
 
-def set_current_task_info(
-    task_id: int,
-    job_id: int,
-    image_source: dict | None = None,
-    group_id: int | None = None,
-    entry_type: EntryType = ENTRY_MODULE,
-) -> None:
-    """Set the current task info for the executing context."""
-    _current_task_info.set(
-        TaskInfo(task_id=task_id, job_id=job_id, image_source=image_source, group_id=group_id, entry_type=entry_type)
-    )
-
-
 @contextmanager
 def current_task_info(info: TaskInfo) -> Iterator[None]:
     """Set the task info for the block and restore the previous value after —

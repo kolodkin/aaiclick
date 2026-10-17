@@ -525,11 +525,14 @@ async def test_task_pydantic_result_passes_between_tasks(orch_ctx):
     ],
 )
 async def test_execute_task_no_parameters(orch_ctx, entrypoint):
-    """Test executing a task function with no parameters."""
+    """Test executing a task function with no parameters; the task info is
+    scoped to the run and does not outlive it."""
     task = create_task(entrypoint)
     task.job_id = 1  # Set a dummy job_id
 
     await execute_task(task)  # Should not raise
+    with pytest.raises(RuntimeError, match="No task is currently executing"):
+        get_current_task_info()
 
 
 # run_job_tasks tests

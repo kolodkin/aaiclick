@@ -10,7 +10,7 @@ from .execution_worker import (
     register_execution_worker,
     request_execution_worker_stop,
 )
-from .execution_worker_context import TaskInfo, get_current_task_info, set_current_task_info
+from .execution_worker_context import TaskInfo, current_task_info, get_current_task_info
 from .mp_worker import mp_worker_main_loop
 from .runner import (
     deserialize_task_params,
