@@ -73,7 +73,8 @@ reserved key `_aaiclick_type` is one of these shapes:
 # Spawning tasks
 
 Write a `task_result` to `out.json`: `data` is your result, `tasks` the
-children. Children reference each other by `id`.
+children. Children reference each other by `id`; the orchestrator replaces
+each `id` with a database id.
 
 ```json
 {"_aaiclick_type": "task_result",
