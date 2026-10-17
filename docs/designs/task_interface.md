@@ -90,8 +90,8 @@ Host side of the `in.json` / `out.json` exchange under `AAICLICK_IO_DIR`:
 | mp worker                                   | in the spawned task child, which owns timeout and cancellation   |
 | Container runners (docker, kubernetes)      | host-side on a `ShellVehicle` (multi-step launch)                |
 
-A `jvm` task is a shell task whose argv is a class name; the shim is the SDK
-jar in the user's image (`docs/designs/java-sdk.md`).
+What each runner launches for `module` / `shell` / `jvm`:
+[orchestration.md, Execution layers](orchestration.md#execution-layers).
 
 # Decisions
 
