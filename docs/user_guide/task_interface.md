@@ -72,10 +72,8 @@ reserved key `_aaiclick_type` is one of these shapes:
 
 # Spawning tasks
 
-To fan out, write a `task_result` to `out.json`: `tasks` are the children,
-`data` is your result. Children refer to each other through string handles
-on `id`, used inside `upstream` refs; the orchestrator assigns the real ids
-and wires the dependencies.
+Write a `task_result` to `out.json`: `data` is your result, `tasks` the
+children. Children reference each other by `id`.
 
 ```json
 {"_aaiclick_type": "task_result",
