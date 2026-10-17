@@ -111,11 +111,9 @@ a single `task`, or a list of them, works too when there is no data.
 
 # What a task can and cannot receive
 
-Kwargs on the file plane carry plain values and the results of upstream
-tasks. ClickHouse `Object`s and Python callables cannot cross into a
-non-Python process: a job that passes one to a shell or jvm task is rejected
-when the task is committed, and a shell task whose upstream Python producer
-returned an `Object` fails at launch.
+Only plain values and upstream results. An `Object` or Python callable in a
+shell or jvm task's kwargs is rejected at commit, or at launch when an
+upstream returned one.
 
 Inside a container the process sees only `command_env` and
 `AAICLICK_IO_DIR` — never aaiclick's own database credentials.
