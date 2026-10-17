@@ -1,5 +1,5 @@
 """
-aaiclick.data.data_context.arrow_ingest - Arrow-based ingest schema evaluation.
+aaiclick.data.object_context.arrow_ingest - Arrow-based ingest schema evaluation.
 
 See docs/user_guide/object.md — "Nested Data Flattening".
 

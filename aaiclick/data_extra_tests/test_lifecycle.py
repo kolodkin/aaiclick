@@ -1,9 +1,9 @@
-"""Lifecycle tests that need explicit ``data_context()`` enter/exit.
+"""Lifecycle tests that need explicit ``object_context()`` enter/exit.
 
-The default ``ctx`` / ``orch_ctx`` fixtures keep the data context active
+The default ``ctx`` / ``orch_ctx`` fixtures keep the object context active
 for the whole test body, so assertions like ``assert obj.stale`` after
 context exit can't run inline. These tests open their own
-``async with data_context():`` blocks so we can verify both in-context
+``async with object_context():`` blocks so we can verify both in-context
 state (``not obj.stale``) and post-exit state (``obj.stale``).
 
 Lives in its own module (no ``orch_ctx`` alongside) so the module-scoped
@@ -21,18 +21,18 @@ from aaiclick import (
     create_object,
     create_object_from_value,
 )
-from aaiclick.data.data_context import (
-    data_context,
+from aaiclick.data.object_context import (
     delete_object,
     get_ch_client,
     get_data_lifecycle,
+    object_context,
 )
-from aaiclick.data.data_context.lifecycle import LocalLifecycleHandler
+from aaiclick.data.object_context.lifecycle import LocalLifecycleHandler
 
 
 async def test_context_multiple_objects():
-    """Every Object is live inside ``data_context()`` and stale after exit."""
-    async with data_context():
+    """Every Object is live inside ``object_context()`` and stale after exit."""
+    async with object_context():
         obj1 = await create_object_from_value([1, 2, 3])
         obj2 = await create_object_from_value([4, 5, 6])
         obj3 = await create_object_from_value(42)
@@ -55,7 +55,7 @@ async def test_context_with_operations():
     Both operands carry ``aai_id`` so the cross-table contract is
     satisfied via the auto ``order_by="aai_id"`` fallback.
     """
-    async with data_context():
+    async with object_context():
         a = await create_object_from_value([1, 2, 3], aai_id=True)
         b = await create_object_from_value([4, 5, 6], aai_id=True)
 
@@ -72,7 +72,7 @@ async def test_context_with_operations():
 
 async def test_context_create_object_with_schema():
     """Object created via explicit Schema is stale-marked on context exit."""
-    async with data_context():
+    async with object_context():
         schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={"value": ColumnInfo("Float64")})
         obj = await create_object(schema)
         ch = get_ch_client()
@@ -87,7 +87,7 @@ async def test_context_create_object_with_schema():
 
 async def test_context_factory_methods():
     """Both factory paths register Objects for stale-on-exit cleanup."""
-    async with data_context():
+    async with object_context():
         obj1 = await create_object_from_value([1, 2, 3])
         schema = Schema(fieldtype=FIELDTYPE_SCALAR, columns={"value": ColumnInfo("Int64")})
         obj2 = await create_object(schema)
@@ -100,7 +100,7 @@ async def test_context_factory_methods():
 
 async def test_context_dict_values():
     """Dict-of-scalars and dict-of-arrays both stale-mark on exit."""
-    async with data_context():
+    async with object_context():
         obj1 = await create_object_from_value({"name": "Alice", "age": 30})
         assert await obj1.data() == {"name": "Alice", "age": 30}
 
@@ -115,7 +115,7 @@ async def test_context_dict_values():
 
 async def test_context_concat_operation():
     """``concat`` results inherit the lifecycle and stale-mark on exit."""
-    async with data_context():
+    async with object_context():
         obj1 = await create_object_from_value([1, 2, 3])
         obj2 = await create_object_from_value([4, 5, 6])
         result = await obj1.concat(obj2)
@@ -129,7 +129,7 @@ async def test_context_concat_operation():
 
 async def test_context_stale_error_messages():
     """``data()`` on a stale Object raises with the table name in the message."""
-    async with data_context():
+    async with object_context():
         obj = await create_object_from_value([1, 2, 3])
         table_name = obj.table
 
@@ -140,16 +140,16 @@ async def test_context_stale_error_messages():
 
 async def test_delete_object_marks_stale_inline():
     """``delete_object`` flips the flag immediately, no context-exit needed."""
-    async with data_context():
+    async with object_context():
         obj = await create_object_from_value([1, 2, 3])
         assert not obj.stale
         await delete_object(obj)
         assert obj.stale
 
 
-async def test_data_context_always_creates_local_lifecycle():
-    """``data_context()`` (vs ``orch_context()``) creates a LocalLifecycleHandler."""
-    async with data_context():
+async def test_object_context_always_creates_local_lifecycle():
+    """``object_context()`` (vs ``orch_context()``) creates a LocalLifecycleHandler."""
+    async with object_context():
         assert isinstance(get_data_lifecycle(), LocalLifecycleHandler)
         obj = await create_object_from_value([1, 2, 3])
         assert await obj.data() == [1, 2, 3]

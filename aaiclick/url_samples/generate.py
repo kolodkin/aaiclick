@@ -23,7 +23,7 @@ import pyarrow as pa
 import pyarrow.orc as orc
 import pyarrow.parquet as pq
 
-from aaiclick.data.data_context.chdb_client import get_shared_session
+from aaiclick.data.object_context.chdb_client import get_shared_session
 from aaiclick.data.sql_utils import quote_sql_literal
 
 NUM_ROWS = 200

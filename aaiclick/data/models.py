@@ -129,7 +129,7 @@ class ColumnInfo(BaseModel):
 
 
 # Source-of-truth ColumnInfo for the optional aai_id row-id column.
-# ``data_context.create_object_from_value(aai_id=True)`` injects this
+# ``object_context.create_object_from_value(aai_id=True)`` injects this
 # directly; binary operators propagate it onto result tables via
 # ``info.model_copy(update={"default": None})`` (no DEFAULT — values come
 # from INSERT, not generated per-row).

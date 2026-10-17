@@ -35,8 +35,8 @@ from sqlmodel import select
 
 from aaiclick.__main__ import main
 from aaiclick.backend import is_chdb, is_local, parse_ch_url
-from aaiclick.data.data_context import ChClient, get_ch_client
 from aaiclick.data.models import FIELDTYPE_ARRAY, ColumnInfo, Schema
+from aaiclick.data.object_context import ChClient, get_ch_client
 from aaiclick.oplog.migrate import ch_applied_versions, ch_upgrade, ch_upgrade_standalone
 from aaiclick.oplog.models import clear_schema_cache
 from aaiclick.orchestration.migrate import get_alembic_config

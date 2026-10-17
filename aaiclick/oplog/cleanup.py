@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 
-from aaiclick.data.data_context.ch_client import ChClient
+from aaiclick.data.object_context.ch_client import ChClient
 
 logger = logging.getLogger(__name__)
 

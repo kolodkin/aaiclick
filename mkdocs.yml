@@ -70,7 +70,7 @@ nav:
     - Orchestration: tutorial/orchestration.md
   - User Guide:
     - Object API: user_guide/object.md
-    - DataContext: user_guide/data_context.md
+    - ObjectContext: user_guide/object_context.md
     - Orchestration: user_guide/orchestration.md
     - Task API: user_guide/task_api.md
     - Task API (Python): user_guide/task_api_python.md

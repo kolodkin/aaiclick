@@ -17,10 +17,10 @@ from sqlalchemy import text
 from sqlmodel import select
 
 from aaiclick.backend import is_postgres
-from aaiclick.data.data_context.ch_client import LazyChClient, _ch_client_var, get_ch_client
-from aaiclick.data.data_context.data_context import _engine_var, _objects_var, decref
-from aaiclick.data.data_context.lifecycle import LifecycleHandler, _lifecycle_var
 from aaiclick.data.models import ENGINE_DEFAULT
+from aaiclick.data.object_context.ch_client import LazyChClient, _ch_client_var, get_ch_client
+from aaiclick.data.object_context.lifecycle import LifecycleHandler, _lifecycle_var
+from aaiclick.data.object_context.object_context import _engine_var, _objects_var, decref
 from aaiclick.locks import lookup_advisory_id
 from aaiclick.oplog.models import get_column_types, init_oplog_tables
 

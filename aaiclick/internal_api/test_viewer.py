@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from aaiclick.data.data_context import create_object_from_value
+from aaiclick.data.object_context import create_object_from_value
 from aaiclick.internal_api import errors, viewer
 from aaiclick.orchestration.factories import create_job
 from aaiclick.orchestration.orch_context import task_scope

@@ -18,7 +18,7 @@ from aaiclick import (
     create_object,
     create_object_from_value,
 )
-from aaiclick.data.data_context import get_ch_client
+from aaiclick.data.object_context import get_ch_client
 
 DT_2024 = datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc)
 DT_2025 = datetime(2025, 6, 20, 14, 45, 30, tzinfo=timezone.utc)

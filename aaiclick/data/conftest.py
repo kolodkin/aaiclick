@@ -10,8 +10,8 @@ read path) and an ``OrchLifecycleHandler`` that writes
 
 import pytest
 
-from aaiclick.data.data_context.data_context import _engine_var
 from aaiclick.data.models import ENGINE_MEMORY
+from aaiclick.data.object_context.object_context import _engine_var
 from aaiclick.orchestration.orch_context import orch_context, task_scope
 from aaiclick.snowflake import get_snowflake_id
 from aaiclick.testing import reset_test_state

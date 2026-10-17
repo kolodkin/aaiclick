@@ -17,7 +17,6 @@ from CISA KEV, Shodan CVEDB, and other sources into one unified table.
 import asyncio
 
 from aaiclick import create_object, create_object_from_value
-from aaiclick.data.data_context import data_context, get_ch_client
 from aaiclick.data.models import (
     ENGINE_AGGREGATING_MERGE_TREE,
     FIELDTYPE_ARRAY,
@@ -25,6 +24,7 @@ from aaiclick.data.models import (
     Computed,
     Schema,
 )
+from aaiclick.data.object_context import get_ch_client, object_context
 from aaiclick.example_runner import section
 
 
@@ -152,7 +152,7 @@ async def example():
 
 async def amain():
     """Run as standalone."""
-    async with data_context():
+    async with object_context():
         await example()
 
 

@@ -52,15 +52,15 @@ if __name__ == "__main__":
 
 # Data Operation Only Mode
 
-Use `data_context()` directly for interactive work without orchestration.
+Use `object_context()` directly for interactive work without orchestration.
 Decorate an async function to wrap its whole body in a context:
 
 ```python
 import asyncio
 from aaiclick import create_object_from_value
-from aaiclick.data.data_context import data_context
+from aaiclick.data.object_context import object_context
 
-@data_context()
+@object_context()
 async def main():
     prices = await create_object_from_value([10.0, 20.0, 30.0])
 
@@ -71,7 +71,7 @@ async def main():
 asyncio.run(main())
 ```
 
-`data_context()` also works as an `async with` block when you only need part of
+`object_context()` also works as an `async with` block when you only need part of
 a function inside the context.
 
 # Quick Start

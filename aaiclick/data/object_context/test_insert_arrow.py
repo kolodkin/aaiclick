@@ -3,7 +3,7 @@
 import pyarrow as pa
 
 from aaiclick import create_object_from_value
-from aaiclick.data.data_context import get_ch_client
+from aaiclick.data.object_context import get_ch_client
 
 
 async def test_insert_arrow_round_trip(ctx):

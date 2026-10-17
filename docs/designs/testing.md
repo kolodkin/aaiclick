@@ -14,7 +14,7 @@ Subpackage conftests only hold subpackage-local fixtures.
 
 | Conftest                                         | Content                                          |
 |--------------------------------------------------|--------------------------------------------------|
-| `aaiclick/data/conftest.py`                      | `ctx` (function-scoped `data_context`)           |
+| `aaiclick/data/conftest.py`                      | `ctx` (function-scoped `object_context`)         |
 | `aaiclick/orchestration/conftest.py`             | `fast_poll`                                      |
 | `aaiclick/orchestration/background/conftest.py`  | `bg_db` (temp SQLite engine)                     |
 
@@ -40,7 +40,7 @@ context manager:
 
 | Fixture           | Depends on               | Resets                               |
 |-------------------|--------------------------|--------------------------------------|
-| `ctx`             | fresh `data_context()`   | CH tables                            |
+| `ctx`             | fresh `object_context()` | CH tables                            |
 | `orch_ctx`        | `orch_module_ctx`        | CH tables + SQL rows                 |
 | `orch_ctx_no_ch`  | `orch_module_ctx_no_ch`  | SQL rows only (no CH in parent)      |
 
@@ -60,9 +60,9 @@ intermittently trips a glibc pthread_mutex assertion inside
 Two independent mitigations compose to get a stable suite:
 
 1. **Nested `orch_context()` reuses the outer `ch_client`.** Inner
-   `orch_context` / inline `data_context()` calls don't create their own
+   `orch_context` / inline `object_context()` calls don't create their own
    chdb session; they reuse the existing one cached in
-   `aaiclick/data/data_context/chdb_client.py::_sessions`. See the
+   `aaiclick/data/object_context/chdb_client.py::_sessions`. See the
    `existing = _ch_client_var.get()` branch in
    `aaiclick/orchestration/orch_context.py`.
 
@@ -75,7 +75,7 @@ Two independent mitigations compose to get a stable suite:
 Production aligned with this constraint: `orch_context.py` never
 closes the Session mid-process. It lives for the whole process and is
 closed exactly once at exit — see `_close_sessions()` in
-`aaiclick/data/data_context/chdb_client.py` for why bare process exit
+`aaiclick/data/object_context/chdb_client.py` for why bare process exit
 isn't safe (engine threads racing C++ static destructors — an
 intermittent shutdown SIGSEGV after a green run).
 
@@ -119,7 +119,7 @@ engine gets it. `reset_sql_tables` therefore deletes children before parents.
 
 1. Put the test next to the module it tests
    (`aaiclick/data/test_context.py` tests
-   `aaiclick/data/data_context.py`).
+   `aaiclick/data/object_context.py`).
 2. Declare fixtures by parameter name (`orch_ctx`, `ctx`, `fast_poll`).
    Autouse worker-isolation fixtures fire implicitly.
 3. mp-worker tests go in a dedicated `_mp.py` module.

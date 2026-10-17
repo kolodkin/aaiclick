@@ -10,7 +10,7 @@ them, expanding group targets to their member tasks.
 
 from sqlalchemy import text
 
-from aaiclick.data.data_context.lifecycle import get_data_lifecycle
+from aaiclick.data.object_context.lifecycle import get_data_lifecycle
 from aaiclick.orchestration.factories import create_job, create_task
 from aaiclick.orchestration.models import Group
 from aaiclick.orchestration.orch_context import commit_tasks, get_sql_session, task_scope

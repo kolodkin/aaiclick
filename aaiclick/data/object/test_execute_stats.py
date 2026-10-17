@@ -12,7 +12,7 @@ matrix in ``docs/user_guide/object.md``).
 """
 
 from aaiclick import QueryStats, create_object_from_value
-from aaiclick.data.data_context import get_ch_client
+from aaiclick.data.object_context import get_ch_client
 from aaiclick.testing import list_ch_tables
 
 

@@ -11,7 +11,7 @@ This example demonstrates how to use dict selectors and metadata:
 import asyncio
 
 from aaiclick import create_object_from_value
-from aaiclick.data.data_context import data_context
+from aaiclick.data.object_context import object_context
 from aaiclick.example_runner import section
 
 
@@ -126,8 +126,8 @@ async def example():
 
 
 async def amain():
-    """Main entry point that creates data_context() and calls example."""
-    async with data_context():
+    """Main entry point that creates object_context() and calls example."""
+    async with object_context():
         await example()
 
 

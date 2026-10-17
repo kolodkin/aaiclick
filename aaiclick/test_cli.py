@@ -187,7 +187,7 @@ def test_user_role_parsers():
 
 
 async def test_run_internal_api_provides_a_sql_session():
-    """``aaiclick data`` commands need an orch context, not a bare data context.
+    """``aaiclick data`` commands need an orch context, not a bare object context.
 
     Deliberately takes no ``orch_ctx`` fixture: an ambient orch context leaves
     the SQL engine contextvar set and hides the defect.

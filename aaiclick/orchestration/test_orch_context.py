@@ -16,7 +16,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from aaiclick.data.data_context.ch_client import _ch_client_var, create_ch_client, get_ch_client
+from aaiclick.data.object_context.ch_client import _ch_client_var, create_ch_client, get_ch_client
 from aaiclick.orchestration.execution.db_handler import _db_handler_var
 from aaiclick.orchestration.orch_context import OrchLifecycleHandler, orch_context, task_scope
 from aaiclick.orchestration.sql_context import _sql_engine_var, create_sql_engine, get_sql_session
@@ -26,7 +26,7 @@ from aaiclick.orchestration.sql_context import _sql_engine_var, create_sql_engin
 # (``"aaiclick.orchestration.orch_context.X"``) hit the function not the
 # module. Resolve via ``importlib`` to get the module object directly.
 _orch_module = importlib.import_module("aaiclick.orchestration.orch_context")
-_ch_module = importlib.import_module("aaiclick.data.data_context.ch_client")
+_ch_module = importlib.import_module("aaiclick.data.object_context.ch_client")
 
 
 async def test_nested_orch_context_reuses_outer_engine():

@@ -102,7 +102,7 @@ _debug_ch_client: ChClient | None = None
 
 
 def get_ch_client() -> ChClient:
-    """Return the ClickHouse client for the active data context."""
+    """Return the ClickHouse client for the active object context."""
     client = _ch_client_var.get()
     if client is None and _DEBUGGER_ENABLED and is_chdb():
         # Module global: the debugger fallback keeps one chdb session per process.
@@ -115,7 +115,7 @@ def get_ch_client() -> ChClient:
         client = _debug_ch_client
     if client is None:
         raise RuntimeError(
-            "No active data or orch context — use 'async with data_context()' or 'async with orch_context()'"
+            "No active data or orch context — use 'async with object_context()' or 'async with orch_context()'"
         )
     return client
 

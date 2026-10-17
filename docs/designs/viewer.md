@@ -82,11 +82,11 @@ The viewer builds on three additions to `aaiclick/data` and
 
 - `list_objects(ObjectFilter(job=…))` and `get_object(name, job=…)`
   (`aaiclick/internal_api/objects.py`); `open_object(job_id=)` and
-  `list_job_tables` (`aaiclick/data/data_context/data_context.py`) for callers
+  `list_job_tables` (`aaiclick/data/object_context/object_context.py`) for callers
   outside a task.
 - `Object.select_sql()` (`aaiclick/data/object/object.py`): the SELECT an
   object reads itself with; `View` and `LazyOperator` inherit it.
-- `query_bytes(sql, fmt, settings)` (`aaiclick/data/data_context/ch_client.py`,
+- `query_bytes(sql, fmt, settings)` (`aaiclick/data/object_context/ch_client.py`,
   over the clients' shared `raw_query`, with `query_text` decoding it):
   ClickHouse's own output for a named format. `JSONCompact` with `JSON_COMPACT_SETTINGS` (the `output_format_json_*`
   quoting QueryView's driver sends) means the kernel renders `{meta, data}`

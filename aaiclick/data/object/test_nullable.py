@@ -12,8 +12,8 @@ from aaiclick import (
     create_object,
     create_object_from_value,
 )
-from aaiclick.data.data_context import get_ch_client
 from aaiclick.data.models import parse_ch_type
+from aaiclick.data.object_context import get_ch_client
 
 # --- ColumnInfo and parse_ch_type utility tests ---
 

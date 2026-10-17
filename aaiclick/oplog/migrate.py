@@ -15,8 +15,8 @@ import re
 from pathlib import Path
 from typing import NamedTuple
 
-from aaiclick.data.data_context import ChClient
-from aaiclick.data.data_context.ch_client import create_ch_client
+from aaiclick.data.object_context import ChClient
+from aaiclick.data.object_context.ch_client import create_ch_client
 
 logger = logging.getLogger(__name__)
 

@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
-from ..data_context import create_object, get_ch_client
 from ..formats import INPUT_FORMATS, JSON_BLOB_FORMATS
 from ..models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, FLOAT_TYPES, INT_TYPES, ColumnInfo, Schema, parse_ch_type
+from ..object_context import create_object, get_ch_client
 from ..sql_utils import quote_identifier, quote_sql_literal
 from . import object as object_module
 from ._url_retry import DEFAULT_BACKOFF_FACTOR, DEFAULT_RETRIES, with_url_retry
@@ -189,7 +189,7 @@ async def create_object_from_url(
 
     Raises:
         ValueError: If parameters are invalid or incompatible
-        RuntimeError: If no active DataContext
+        RuntimeError: If no active ObjectContext
     """
     _validate_url(url)
     _validate_url_format(format)

@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from aaiclick.data.data_context import create_object_from_value, data_context
 from aaiclick.data.object import Object, View
+from aaiclick.data.object_context import create_object_from_value, object_context
 from aaiclick.orchestration import get_job_result, task_result
 from aaiclick.orchestration.decorators import job, task
 from aaiclick.orchestration.execution.debug import ajob_test
@@ -210,7 +210,7 @@ async def test_foreach_execution(orch_ctx, pipeline, pipeline_kwargs, expected):
         j = await ajob_test(pipeline, output_file=str(Path(tmpdir) / "output.txt"), **pipeline_kwargs)
 
         assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
-        async with data_context():
+        async with object_context():
             assert await get_job_result(j) == {"done": None, "rows": expected}
 
 
@@ -234,7 +234,7 @@ async def test_map_output(orch_ctx, pipeline, expected):
     j = await ajob_test(pipeline)
 
     assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
-    async with data_context():
+    async with object_context():
         assert await get_job_result(j) == expected
 
 
@@ -251,5 +251,5 @@ async def test_map_over_view_sees_only_its_rows(orch_ctx, where, offset, limit, 
     j = await ajob_test(map_view_pipeline, where=where, offset=offset, limit=limit)
 
     assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
-    async with data_context():
+    async with object_context():
         assert await get_job_result(j) == expected

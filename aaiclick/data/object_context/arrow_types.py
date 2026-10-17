@@ -1,5 +1,5 @@
 """
-aaiclick.data.data_context.arrow_types - ClickHouse type-string → pyarrow mapping.
+aaiclick.data.object_context.arrow_types - ClickHouse type-string → pyarrow mapping.
 
 Backend-neutral type infrastructure shared by the ingest layer
 (``arrow_ingest``) and the chdb backend adapter (``chdb_client``).

@@ -197,7 +197,7 @@ Rules:
 - **Input**: primitives or `*Request` / `*Filter` view models.
 - **Output**: a view model (`JobView`, `Page[JobView]`, `JobDetail`, ...).
 - **Contexts arrive via ContextVars, not parameters**: every function runs
-  inside an active `orch_context()` (orchestration) or `data_context()`
+  inside an active `orch_context()` (orchestration) or `object_context()`
   (data) and reads SQL/CH resources through the getters
   (`get_sql_session()`, `get_ch_client()`). This matches the rest of the
   codebase — decorators, execution, CRUD helpers — so callers do not have
@@ -295,7 +295,7 @@ Individual routers declare paths **relative** to the prefix — `/jobs`,
 bumped to `/api/v1` with a single-line edit.
 
 Each router is a thin wrapper that runs inside an `orch_context()` (or
-`data_context()` for data routes) scoped to the request:
+`object_context()` for data routes) scoped to the request:
 
 ```python
 # aaiclick/server/routers/jobs.py

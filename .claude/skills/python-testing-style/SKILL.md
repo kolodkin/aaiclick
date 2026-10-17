@@ -9,7 +9,7 @@ Project conventions for pytest tests in aaiclick.
 
 ## File location — alongside the module under test
 
-- `aaiclick/data/test_context.py` tests `aaiclick/data/data_context.py`
+- `aaiclick/data/test_context.py` tests `aaiclick/data/object_context.py`
 - `aaiclick/orchestration/test_orchestration_factories.py` tests `aaiclick/orchestration/factories.py`
 - Shared fixtures live in `aaiclick/conftest.py`.
 - **Exception**: end-to-end suites that exercise the deployed package live in `./test_e2e/<suite>/` (e.g. `test_e2e/docker/`). They are not picked up by the default `pytest` invocation and only run via dedicated workflows.
@@ -78,7 +78,7 @@ Pick the highest public entry point that exercises the behavior:
 | Area | Entry point | Assert on |
 |------|-------------|-----------|
 | Orchestration | a real `@job` / `@task` pipeline run with `ajob_test` | job status, `get_job_result`, persisted rows |
-| Object API | `create_object_from_value` inside `data_context()` + the operator | `await obj.data()`, schema |
+| Object API | `create_object_from_value` inside `object_context()` + the operator | `await obj.data()`, schema |
 | Server / API | an HTTP request against the app, or an `internal_api` call on a real DB | status code, response body |
 | CLI | the CLI entry point | output, exit code |
 
@@ -94,7 +94,7 @@ def test_same_upstream_twice():
 async def test_same_upstream_in_two_kwargs_runs(orch_ctx):
     j = await ajob_test(same_upstream_twice_pipeline, value=21)
     assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
-    async with data_context():
+    async with object_context():
         assert await get_job_result(j) == 42
 ```
 

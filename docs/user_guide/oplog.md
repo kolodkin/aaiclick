@@ -35,15 +35,15 @@ Buffer-based event sink. Collects `OperationEvent` objects in memory; batch-inse
 
 Each instrumentation is a 2-line addition: get collector from ContextVar, call `record()` if not None.
 
-| Location                                  | Operation              | `kwargs`                                                      |
-|-------------------------------------------|------------------------|---------------------------------------------------------------|
-| `data_context.create_object()`            | (none — registry only) | —                                                             |
-| `data_context.create_object_from_value()` | `"create_from_value"`  | `{}`                                                          |
-| `operators._apply_operator_db()`          | `"add"`, `"sub"`, etc. | `{"left": left.table, "right": right.table}`                  |
-| `operators._apply_aggregation()`          | `"sum"`, `"mean"`, etc.| `{"source": source.table}`                                    |
-| `ingest.concat_objects_db()`              | `"concat"`             | `{"source_0": s0.table, "source_1": s1.table, ...}`          |
-| `ingest.insert_objects_db()`              | `"insert"`             | `{"source": src.table, "target": tgt.table}`                  |
-| `object.Object.copy()`                    | `"copy"`               | `{"source": self.table}`                                      |
+| Location                                    | Operation              | `kwargs`                                                      |
+|---------------------------------------------|------------------------|---------------------------------------------------------------|
+| `object_context.create_object()`            | (none — registry only) | —                                                             |
+| `object_context.create_object_from_value()` | `"create_from_value"`  | `{}`                                                          |
+| `operators._apply_operator_db()`            | `"add"`, `"sub"`, etc. | `{"left": left.table, "right": right.table}`                  |
+| `operators._apply_aggregation()`            | `"sum"`, `"mean"`, etc.| `{"source": source.table}`                                    |
+| `ingest.concat_objects_db()`                | `"concat"`             | `{"source_0": s0.table, "source_1": s1.table, ...}`          |
+| `ingest.insert_objects_db()`                | `"insert"`             | `{"source": src.table, "target": tgt.table}`                  |
+| `object.Object.copy()`                      | `"copy"`               | `{"source": self.table}`                                      |
 
 `create_object()` only calls `record_table()` (populates `table_registry`), not `record()`, to avoid double-counting — higher-level functions record the operation that produced the table.
 

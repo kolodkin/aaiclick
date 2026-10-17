@@ -12,7 +12,7 @@ import logging
 
 from sqlalchemy import text
 
-from aaiclick.data.data_context import ChClient
+from aaiclick.data.object_context import ChClient
 
 from .sql_context import get_sql_session
 

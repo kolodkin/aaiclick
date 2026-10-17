@@ -5,14 +5,14 @@ from datetime import datetime, timezone
 import pyarrow as pa
 import pytest
 
-from aaiclick.data.data_context.arrow_ingest import (
+from aaiclick.data.models import ColumnInfo
+from aaiclick.data.object_context.arrow_ingest import (
     arrow_table_for_insert,
     infer_struct_array,
     leaf_column_info,
     struct_array_to_columns,
     struct_type_to_columns,
 )
-from aaiclick.data.models import ColumnInfo
 
 
 def test_schema_nested_dict():

@@ -7,8 +7,8 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import text
 
-from aaiclick.data.data_context import create_object_from_value
-from aaiclick.data.data_context.ch_client import get_ch_client
+from aaiclick.data.object_context import create_object_from_value
+from aaiclick.data.object_context.ch_client import get_ch_client
 from aaiclick.oplog.oplog_api import oplog_record, oplog_record_sample
 from aaiclick.orchestration.orch_context import task_scope
 from aaiclick.orchestration.sql_context import get_sql_session

@@ -204,7 +204,7 @@ def test_chdb_mode_does_not_touch_shared_session():
         pytest.skip("only relevant for chdb backend")
 
     # Drop any cached chdb client module so we can detect a fresh import.
-    sys.modules.pop("aaiclick.data.data_context.chdb_client", None)
+    sys.modules.pop("aaiclick.data.object_context.chdb_client", None)
 
     gen = SnowflakeGenerator(buffer_size=4)
     ids = gen.generate_bulk(10)
@@ -212,4 +212,4 @@ def test_chdb_mode_does_not_touch_shared_session():
     assert len(ids) == 10
     assert len(set(ids)) == 10
     assert ids == sorted(ids)
-    assert "aaiclick.data.data_context.chdb_client" not in sys.modules
+    assert "aaiclick.data.object_context.chdb_client" not in sys.modules

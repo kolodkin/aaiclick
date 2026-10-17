@@ -23,11 +23,6 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
-from aaiclick.data.data_context import (
-    get_data_lifecycle,
-    register_object,
-)
-from aaiclick.data.data_context.lifecycle import read_table_schema
 from aaiclick.data.models import Schema
 from aaiclick.data.object import LazyOperator, Object, View
 from aaiclick.data.object.refs import (
@@ -60,6 +55,11 @@ from aaiclick.data.object.refs import (
     ref_kind,
     upstream_ref,
 )
+from aaiclick.data.object_context import (
+    get_data_lifecycle,
+    register_object,
+)
+from aaiclick.data.object_context.lifecycle import read_table_schema
 from aaiclick.log_models import STDERR_STREAM, STDOUT_STREAM, LogStream
 from aaiclick.snowflake import get_snowflake_id
 
@@ -262,7 +262,7 @@ async def deserialize_task_params(serialized_params: dict) -> dict:
 
     Supports:
     - Upstream references: Resolved to completed task results
-    - Object/View references: Reconstructed and registered with DataContext
+    - Object/View references: Reconstructed and registered with ObjectContext
     - Native Python values: Passed through unchanged
     - Nested structures: Lists and dicts are recursively processed
 

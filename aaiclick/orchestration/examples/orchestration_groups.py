@@ -12,7 +12,7 @@ Demonstrates Groups — tasks that belong together:
 
 import asyncio
 
-from aaiclick.data.data_context import data_context
+from aaiclick.data.object_context import object_context
 from aaiclick.orchestration import JOB_COMPLETED, Group, ajob_test, job, task
 
 
@@ -77,7 +77,7 @@ async def amain():
     print("aaiclick Group Orchestration Example")
     print("=" * 50)
 
-    async with data_context():
+    async with object_context():
         print("\nGroup as a kwarg (fan-in of member results)")
         print("-" * 50)
         job1 = await ajob_test(fan_in_job)

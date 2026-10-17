@@ -21,8 +21,8 @@ from typing import Any, Literal, NamedTuple
 
 from pydantic import BaseModel, Field
 
-from aaiclick.data.data_context import get_ch_client
-from aaiclick.data.data_context.ch_client import DEFAULT_MAX_EXECUTION_TIME, query_text
+from aaiclick.data.object_context import get_ch_client
+from aaiclick.data.object_context.ch_client import DEFAULT_MAX_EXECUTION_TIME, query_text
 from aaiclick.data.sql_utils import (
     FORBIDDEN_KEYWORDS_RE,
     normalize_sql_for_scan,

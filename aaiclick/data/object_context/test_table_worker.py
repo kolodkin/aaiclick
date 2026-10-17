@@ -5,8 +5,8 @@ Tests for AsyncTableWorker async task lifecycle management.
 import asyncio
 from unittest.mock import AsyncMock
 
-from aaiclick.data.data_context import get_ch_client
-from aaiclick.data.data_context.table_worker import AsyncTableWorker
+from aaiclick.data.object_context import get_ch_client
+from aaiclick.data.object_context.table_worker import AsyncTableWorker
 from aaiclick.testing import create_ch_tables, list_ch_tables
 
 

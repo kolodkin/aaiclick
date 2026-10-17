@@ -28,7 +28,7 @@ Use the `python-testing-style` skill for test layout, async test rules, Object A
   - Organize in three groups separated by blank lines:
     1. Standard library: `import asyncio`, `import json`
     2. External packages: `import pytest`, `import numpy`
-    3. Current package: `from aaiclick import DataContext`
+    3. Current package: `from aaiclick import ObjectContext`
   - **Never** import inside functions, methods, loops, conditionals, or test functions
   - **Circular dependencies — prefer restructuring over inline imports**. When two modules pull each other in at import time, try these in order:
     1. **Move the shared code to a common/neutral module** that neither of the cyclic modules has to import from the other. This is the preferred fix — it surfaces the right module boundary.

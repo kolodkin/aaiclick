@@ -11,7 +11,7 @@ The `Object` class (`aaiclick/data/object/object.py`) wraps a ClickHouse table. 
 - Support for scalars, arrays, and dictionaries
 - Element-wise operations on arrays
 
-See [DataContext](data_context.md) for lifecycle, schemas, and deployment modes.
+See [ObjectContext](object_context.md) for lifecycle, schemas, and deployment modes.
 
 # API Quick Reference
 
@@ -351,7 +351,7 @@ Inserts data from one or more sources into an existing Object. Target must be ar
 
 ## insert_from_url()
 
-Insert data from a URL into an existing Object. For `create_object_from_url()`, see [DataContext](data_context.md).
+Insert data from a URL into an existing Object. For `create_object_from_url()`, see [ObjectContext](object_context.md).
 
 ### Supported URL input formats
 
@@ -708,7 +708,7 @@ dict-shaped read — explicit `Schema` columns, imports, and Views with
 dotted column names reconstruct the same way; a plain column colliding
 with a dotted prefix (`x` next to `x.y`) raises rather than dropping data.
 
-**Tests**: `aaiclick/data/object/test_nested_dicts.py`, `aaiclick/data/object/test_nested_arrays.py`, `aaiclick/data/data_context/test_arrow_ingest.py`.
+**Tests**: `aaiclick/data/object/test_nested_dicts.py`, `aaiclick/data/object/test_nested_arrays.py`, `aaiclick/data/object_context/test_arrow_ingest.py`.
 
 # Views
 
@@ -877,7 +877,7 @@ await sorted_copy.data()  # returns rows sorted by amount DESC
 
 The result carries the `INSERT … SELECT` stats — `result = await obj.copy()` then `(await result.stats()).read_rows` tells you how much it scanned. See [stats()](#stats).
 
-`Schema` = "what a table is" and `ViewSchema` = "how to read it", and the registry can never see the latter. `create_object()` rejects a View's `.schema`; materialize a View with `copy()`. See [Schema Storage](data_context.md#schema-storage).
+`Schema` = "what a table is" and `ViewSchema` = "how to read it", and the registry can never see the latter. `create_object()` rejects a View's `.schema`; materialize a View with `copy()`. See [Schema Storage](object_context.md#schema-storage).
 
 !!! warning "`copy()` is not serialized across workers"
     Unlike `insert()` and `concat()`, `copy()` does not take a per-table

@@ -16,7 +16,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from aaiclick.data.data_context import (
+from aaiclick.data.object import Object
+from aaiclick.data.object.adapters import object_to_detail
+from aaiclick.data.object_context import (
     InvalidObjectNameError,
     ObjectNotFoundError,
     delete_persistent_object,
@@ -26,8 +28,6 @@ from aaiclick.data.data_context import (
     list_persistent_tables,
     open_object,
 )
-from aaiclick.data.object import Object
-from aaiclick.data.object.adapters import object_to_detail
 from aaiclick.data.scope import SCOPE_GLOBAL, SCOPE_JOB, ObjectScope, name_from_table
 from aaiclick.data.view_models import (
     ObjectDetail,

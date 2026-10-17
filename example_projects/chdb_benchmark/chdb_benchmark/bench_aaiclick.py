@@ -9,7 +9,7 @@ only orchestrates query generation.
 import aaiclick
 from aaiclick import ColumnInfo, Schema, create_object
 from aaiclick.data import Agg
-from aaiclick.data.data_context import data_context
+from aaiclick.data.object_context import object_context
 
 from .config import FILTER_THRESHOLD
 
@@ -30,8 +30,8 @@ _SCHEMA = Schema(
 
 
 def context():
-    """Open a fresh DataContext. Called once per benchmark operation."""
-    return data_context()
+    """Open a fresh ObjectContext. Called once per benchmark operation."""
+    return object_context()
 
 
 async def convert(data):

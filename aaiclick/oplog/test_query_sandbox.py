@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from aaiclick.data.data_context import get_ch_client
+from aaiclick.data.object_context import get_ch_client
 from aaiclick.data.scope import (
     SCOPE_GLOBAL,
     SCOPE_JOB,

@@ -1,7 +1,6 @@
 """Consolidated AggregatingMergeTree table — merges KEV and Shodan sources."""
 
 from aaiclick import literal
-from aaiclick.data.data_context import create_object
 from aaiclick.data.models import (
     ENGINE_AGGREGATING_MERGE_TREE,
     FIELDTYPE_ARRAY,
@@ -11,6 +10,7 @@ from aaiclick.data.models import (
     Schema,
 )
 from aaiclick.data.object import Object
+from aaiclick.data.object_context import create_object
 from aaiclick.orchestration import task
 
 _HAS_KEV = "has(sources, 'kev')"

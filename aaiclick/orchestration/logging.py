@@ -22,8 +22,8 @@ from typing import Literal, cast, get_args
 
 from aaiclick.async_wait import wait_or_timeout
 from aaiclick.backend import is_chdb, is_local
-from aaiclick.data.data_context import ChClient, get_ch_client
-from aaiclick.data.data_context.ch_client import create_ch_client
+from aaiclick.data.object_context import ChClient, get_ch_client
+from aaiclick.data.object_context.ch_client import create_ch_client
 from aaiclick.log_models import MAX_TASK_LOG_LINES, STDERR_STREAM, STDOUT_STREAM, LogLine, LogStream
 from aaiclick.oplog.models import get_column_types, init_oplog_tables
 

@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-from aaiclick.data.data_context import create_object_from_value
-from aaiclick.data.data_context.ch_client import JSON_COMPACT_SETTINGS, query_text
+from aaiclick.data.object_context import create_object_from_value
+from aaiclick.data.object_context.ch_client import JSON_COMPACT_SETTINGS, query_text
 
 
 async def test_query_text_json_compact_quotes_64bit_and_keeps_structure(ctx):

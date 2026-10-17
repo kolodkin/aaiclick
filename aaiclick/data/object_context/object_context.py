@@ -1,7 +1,7 @@
 """
-aaiclick.data.data_context - Function-based context management for ClickHouse client and Object lifecycle.
+aaiclick.data.object_context - Function-based context management for ClickHouse client and Object lifecycle.
 
-See docs/user_guide/data_context.md — "Overview", "Field Specifications".
+See docs/user_guide/object_context.md — "Overview", "Field Specifications".
 
 This module provides a context manager that manages the lifecycle of Objects created
 within its scope, automatically cleaning up tables when the context exits.
@@ -67,7 +67,7 @@ from .arrow_ingest import (
 from .ch_client import _ch_client_var, create_ch_client, get_ch_client
 from .lifecycle import LocalLifecycleHandler, _lifecycle_var, get_data_lifecycle, read_table_schema, register_table
 
-# Per-resource ContextVars — each set by data_context() on entry, reset on exit.
+# Per-resource ContextVars — each set by object_context() on entry, reset on exit.
 # Resources owned by their respective modules:
 #   ChClient        → ch_client.py  (_ch_client_var / get_ch_client)
 #   LifecycleHandler→ lifecycle.py  (_lifecycle_var  / get_data_lifecycle)
@@ -77,7 +77,7 @@ _objects_var: ContextVar[dict[int, weakref.ref]] = ContextVar("objects")
 
 
 def get_engine() -> EngineType:
-    """Return the table engine for the active data context."""
+    """Return the table engine for the active object context."""
     return _engine_var.get()
 
 
@@ -97,7 +97,7 @@ def incref(table_name: str) -> None:
 
     Called automatically when a new Object is derived from an existing one
     (e.g. via operators or copy). Only needed when managing Object lifecycles
-    manually outside of `data_context()`.
+    manually outside of `object_context()`.
 
     Args:
         table_name: ClickHouse table name to retain.
@@ -111,8 +111,8 @@ def decref(table_name: str) -> None:
     """Decrement the reference count for a table, dropping it when it reaches zero.
 
     Called automatically when a derived Object is garbage collected or the
-    enclosing `data_context()` exits. Only needed when managing Object
-    lifecycles manually outside of `data_context()`.
+    enclosing `object_context()` exits. Only needed when managing Object
+    lifecycles manually outside of `object_context()`.
 
     Args:
         table_name: ClickHouse table name to release.
@@ -162,7 +162,7 @@ async def delete_object(obj: object_module.Object) -> None:
 
 
 @asynccontextmanager
-async def data_context(
+async def object_context(
     engine: EngineType | None = None,
 ) -> AsyncIterator[None]:
     """Async context manager for standalone data operations.
@@ -170,11 +170,11 @@ async def data_context(
     Sets per-resource ContextVars for the duration of the block:
     - ChClient (ch_client.py)
     - LocalLifecycleHandler (lifecycle.py)
-    - EngineType and object registry (data_context.py)
+    - EngineType and object registry (object_context.py)
 
     Always creates and owns a LocalLifecycleHandler. For orchestration job
     execution use orch_context() + task_scope() instead. ``scope="job"`` and
-    ``open_object()`` require an orch_context — ``data_context()`` does not
+    ``open_object()`` require an orch_context — ``object_context()`` does not
     provide the SQL session that ``table_registry`` reads/writes need.
     ``scope="global"`` and ``scope="temp_named"`` work in either mode.
 
@@ -270,7 +270,7 @@ def _resolve_scope(name: str | None, scope: NamedScope | None) -> NamedScope | N
       (``t_<name>_<snowflake_id>``). Works in or out of orch.
     - ``scope="job"`` / ``scope="global"``: persistent — require an active
       orch_context() (the SQL ``table_registry`` row is written only by the
-      orch lifecycle handler). Bare ``data_context()`` is rejected.
+      orch lifecycle handler). Bare ``object_context()`` is rejected.
     - ``scope="job"``: additionally requires an active orch job_id (raises
       ValueError otherwise — see scope.py).
     """
@@ -286,7 +286,7 @@ def _resolve_scope(name: str | None, scope: NamedScope | None) -> NamedScope | N
         if lifecycle is None or isinstance(lifecycle, LocalLifecycleHandler):
             raise RuntimeError(
                 f"scope={effective!r} requires an active orch_context() — bare "
-                "data_context() only supports temp / temp_named objects. "
+                "object_context() only supports temp / temp_named objects. "
                 "Wrap your code in 'async with orch_context(): async with task_scope(...):' "
                 "or omit scope= to get a 'temp_named' table."
             )
@@ -542,7 +542,7 @@ async def create_object_from_value(
               ``"temp_named"`` → ``t_<name>_<snowflake>`` (default; dies with
               the context). ``"job"`` → ``j_<job_id>_<name>`` (lives only as
               long as the active orch job; raises when called from pure
-              ``data_context()``). ``"global"`` → ``p_<name>`` (user-managed,
+              ``object_context()``). ``"global"`` → ``p_<name>`` (user-managed,
               removed only by ``delete_persistent_object()``).
         aai_id: When ``True``, add an ``aai_id`` column (``UInt64`` with
               ``DEFAULT generateSnowflakeID()``). Each row gets a unique,

@@ -5,7 +5,7 @@
 import pytest
 from sqlmodel import select
 
-from ..data.data_context import data_context
+from ..data.object_context import object_context
 from ..snowflake import get_snowflake_id
 from . import get_job_result, task_result
 from .decorators import job, task
@@ -141,7 +141,7 @@ async def test_same_upstream_in_several_kwargs_runs(orch_ctx):
     j = await ajob_test(same_upstream_twice_pipeline, value=21)
 
     assert j.status == JOB_COMPLETED, f"Job failed: {j.error}"
-    async with data_context():
+    async with object_context():
         assert await get_job_result(j) == 63
 
 

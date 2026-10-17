@@ -65,7 +65,7 @@ def flaky_task(counter_file: str):
 
     Uses a file-based counter to track attempts across retries.
     The counter file persists between task invocations since each
-    retry runs in a fresh data_context.
+    retry runs in a fresh object_context.
 
     Args:
         counter_file: Path to a file used as an attempt counter

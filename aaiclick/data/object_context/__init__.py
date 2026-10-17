@@ -1,16 +1,16 @@
 """
-aaiclick.data.data_context - Context management, client, and lifecycle subpackage.
+aaiclick.data.object_context - Context management, client, and lifecycle subpackage.
 """
 
 from .ch_client import ChClient, get_ch_client
-from .data_context import (
+from .lifecycle import LifecycleHandler, LocalLifecycleHandler, get_data_lifecycle
+from .object_context import (
     InvalidObjectNameError,
     ObjectNotFoundError,
     _engine_var,
     _objects_var,
     create_object,
     create_object_from_value,
-    data_context,
     decref,
     delete_object,
     delete_persistent_object,
@@ -20,7 +20,7 @@ from .data_context import (
     list_job_tables,
     list_persistent_objects,
     list_persistent_tables,
+    object_context,
     open_object,
     register_object,
 )
-from .lifecycle import LifecycleHandler, LocalLifecycleHandler, get_data_lifecycle

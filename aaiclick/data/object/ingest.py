@@ -10,8 +10,6 @@ from __future__ import annotations
 from aaiclick.locks import load_advisory_id, table_insert_lock
 from aaiclick.oplog.oplog_api import oplog_record_sample
 
-from ..data_context import create_object
-from ..data_context.ch_client import execute_for_stats
 from ..models import (
     FIELDTYPE_ARRAY,
     FIELDTYPE_DICT,
@@ -24,6 +22,8 @@ from ..models import (
     Schema,
     parse_ch_type,
 )
+from ..object_context import create_object
+from ..object_context.ch_client import execute_for_stats
 from ..scope import NamedScope
 from ..sql_utils import quote_identifier
 from .emit import emit_result

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from aaiclick.data.data_context import create_object_from_value
+from aaiclick.data.object_context import create_object_from_value
 from aaiclick.oplog.lineage import (
     OplogGraph,
     OplogNode,

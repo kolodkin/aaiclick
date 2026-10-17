@@ -14,15 +14,15 @@ from typing import TypeVar
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
-from aaiclick.data.data_context.ch_client import (
+from aaiclick.data.models import AAI_ID_COLUMN
+from aaiclick.data.object import Object
+from aaiclick.data.object_context.ch_client import (
     CSV_WITH_NAMES,
     DEFAULT_MAX_EXECUTION_TIME,
     JSON_COMPACT,
     JSON_COMPACT_SETTINGS,
     query_bytes,
 )
-from aaiclick.data.models import AAI_ID_COLUMN
-from aaiclick.data.object import Object
 from aaiclick.data.sql_utils import quote_identifier, validate_where_expression
 from aaiclick.data.view_models import ColumnSchema
 from aaiclick.datetime_utils import utc_now

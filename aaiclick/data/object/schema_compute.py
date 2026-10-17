@@ -1,7 +1,7 @@
 """Sync schema-computation helpers for binary operator results.
 
 Neutral module: imports only from ``..models`` and
-``..data_context.data_context``. Both ``object.py`` (for ``LazyOperator``
+``..object_context.object_context``. Both ``object.py`` (for ``LazyOperator``
 planning) and ``operators.py`` (for materialize-time) depend on these
 helpers — keeping them here avoids a circular import between the two.
 """

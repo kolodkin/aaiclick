@@ -4,7 +4,7 @@ aaiclick.oplog.oplog_api - Oplog recording via the lifecycle handler.
 See docs/user_guide/oplog.md — "OplogCollector".
 
 Module-level functions delegate to the active LifecycleHandler.
-In local mode (data_context), the handler's oplog methods are no-ops.
+In local mode (object_context), the handler's oplog methods are no-ops.
 In orchestration mode (task_scope), OrchLifecycleHandler enqueues
 messages on the same FIFO queue as incref/decref.
 """
@@ -15,7 +15,7 @@ from __future__ import annotations
 def _get_lifecycle():
     """Lazy import to avoid circular dependency."""
     # Circular dep: the data package imports oplog_api at import time.
-    from aaiclick.data.data_context.lifecycle import get_data_lifecycle  # noqa: PLC0415
+    from aaiclick.data.object_context.lifecycle import get_data_lifecycle  # noqa: PLC0415
 
     return get_data_lifecycle()
 

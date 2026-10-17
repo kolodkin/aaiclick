@@ -5,8 +5,8 @@ Tests for Object.rename() and tolerant insert with extra source columns.
 import pytest
 
 from aaiclick import create_object_from_value
-from aaiclick.data.data_context import create_object
 from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, ColumnInfo, Computed, Schema
+from aaiclick.data.object_context import create_object
 
 
 async def test_rename_basic(ctx):

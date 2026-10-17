@@ -119,7 +119,7 @@ to an existing key is an error unless the caller passes `overwrite=True`
 
 Append is a directory of files: export to a new key under a prefix each
 run, read the prefix with a glob. Changes: the bucket branch in
-`export_query_to_file` (`aaiclick/data/data_context/ch_client.py`) and the
+`export_query_to_file` (`aaiclick/data/object_context/ch_client.py`) and the
 `export` docstring.
 
 # Why No Writable Located Object
