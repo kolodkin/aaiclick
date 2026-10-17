@@ -1,7 +1,7 @@
 Lazy ClickHouse Client and Scoped Task Info
 ---
 
-Two internal cleanups from the "decouple Objects from task runs" evaluation. Bare scripts using Objects with no context are out of scope: `data_context()` stays the owner for standalone code.
+Three changes from the "decouple Objects from task runs" evaluation. Bare scripts using Objects with no context are out of scope: `object_context()` (today `data_context()`, renamed below) stays the owner for standalone code.
 
 # Goals
 
@@ -81,6 +81,21 @@ Decision: accept it. The mp-worker test modules (`orch_module_ctx_no_ch`) run re
 - `execute_task` wraps its body in the existing `current_task_info(TaskInfo(...))` context manager, which resets on exit.
 - `set_current_task_info` is deleted. Its two test callers (`test_image_injection.py`) switch to `with current_task_info(TaskInfo(...)):`, and it is dropped from `execution/__init__.py`.
 - `task_scope` is unchanged. Setting `TaskInfo` there would make the synthetic `task_scope` in the `orch_ctx` fixture look like an executing task, which breaks tests asserting that no task is active (`test_finish_shell_result_restores_task_context`).
+
+# Rename `data_context` → `object_context`
+
+A breaking rename with no alias: the context exists to scope Object lifecycles, and the new name says so. It is mechanical (`git mv` plus a whole-word replace) and lands as its own commit so the diff stays reviewable.
+
+| Old                                     | New                                       |
+|-----------------------------------------|-------------------------------------------|
+| `data_context()`                        | `object_context()`                        |
+| package `aaiclick/data/data_context/`   | `aaiclick/data/object_context/`           |
+| module `data_context/data_context.py`   | `object_context/object_context.py`        |
+| `docs/user_guide/data_context.md`       | `docs/user_guide/object_context.md`       |
+| `mkdocs.yml` nav "DataContext"          | "ObjectContext"                           |
+| "DataContext" in prose (16 hits)        | "ObjectContext"                           |
+
+About 290 whole-word hits across 121 files: imports, call sites, examples, docstrings, error messages (`get_ch_client`, `scope.py`), and the root `CLAUDE.md` / `README.md`. Section links quoting `docs/user_guide/data_context.md — "..."` are updated with the file.
 
 # Tests
 
