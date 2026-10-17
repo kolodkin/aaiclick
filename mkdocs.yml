@@ -73,6 +73,8 @@ nav:
     - DataContext: user_guide/data_context.md
     - Orchestration: user_guide/orchestration.md
     - Task API: user_guide/task_api.md
+    - Task API (Python): user_guide/task_api_python.md
+    - Task API (Java): user_guide/task_api_java.md
     - Task Interface: user_guide/task_interface.md
     - Container Images: user_guide/container_images.md
     - Deployment: user_guide/deployment.md
