@@ -1,42 +1,40 @@
 Java Task SDK — Shim Jar (`jvm` Entry Type)
 ---
 
-Java payloads run through the existing shell/container path, claimed by Python
-workers — no second worker implementation. A `.jar` already runs on every
-runner via `entry_type="shell"` plus a prebuilt JVM image; what shell tasks
-lack is the data plane: typed kwargs, a return value, downstream consumption.
-The `aaiclick-task-api` shim jar closes that gap: the user's image embeds the
-SDK, the runner invokes the shim, and the shim speaks the same SQL result
-contract as the Python container bootstrap (`remote_result`).
+Java payloads run through the shell/container path, claimed by Python workers
+— no second worker implementation. A `.jar` already runs on every runner as
+`entry_type="shell"` on a prebuilt JVM image, with the Task Interface
+(`in.json` / `out.json` under `AAICLICK_IO_DIR`,
+`docs/designs/task_interface.md`). The `aaiclick-task-api` shim jar makes
+that plane typed:
+the image embeds the SDK, the runner invokes the shim with the class name,
+and the shim binds `in.json` to the `@AaiTask` method and writes its return
+value to `out.json`. No database, no runner env.
 
 # Architecture
 
 `jvm` is the third row of the entry-type/layers table in
 `docs/designs/orchestration.md` ("Execution layers"): the layer-2 runner
-invocation is the image's own `ENTRYPOINT` (the SDK shim) plus
-`--task-id N --run-epoch M`, and layer-3 is the shim reflecting and invoking
+invocation is the image's own `ENTRYPOINT` (the SDK shim) plus the class
+name as its one argument, and layer-3 is the shim reflecting and invoking
 the `@AaiTask` method.
 
-A `jvm` task is dispatched exactly like a `module` container task: the Python
-worker claims it, launches a detached container / Pod with the **full runner
-env** (same trust model as module images — an image that embeds the SDK is
-framework-trusted, unlike a vanilla `shell` image), waits, and reads the
-`remote_task_results` row back. The only difference is the container command:
-the runner passes just `--task-id N --run-epoch M` as *arguments*, so the
-image's `ENTRYPOINT` — which the user points at the SDK bootstrap — receives
-them. The runner cannot know a JVM classpath; the image owns it. The shim
-never touches `run_ids` or `task_logs`, so the host registers each jvm
-attempt (`register_host_log_run`) and follows the container's output into
-`task_logs`. Docker passes the runner env as `-e KEY` names with values in
-the CLI's own environment, keeping DB URLs out of `ps`.
+A `jvm` task is dispatched exactly like a container `shell` task: the worker
+resolves its kwargs into `in.json`, launches the container / Pod on the shell
+vehicle with **only** `command_env` and `AAICLICK_IO_DIR` (no DB credentials
+reach the image), waits, and reads `out.json` back. The one difference is the
+argv: the class name, which the image's `ENTRYPOINT` — the SDK bootstrap —
+receives; the runner cannot know a JVM classpath, the image owns it. The shim
+never touches `run_ids` or `task_logs`, so the host registers each attempt
+(`register_host_log_run`) and follows the container's output into
+`task_logs`.
 
 **Implementation**: `aaiclick/orchestration/execution/dispatch.py` — see
 `dispatch_execute()`; `aaiclick/orchestration/execution/runner.py` — see
 `register_host_log_run()`, `follow_vehicle_output()`;
-`aaiclick/orchestration/execution/docker_worker.py` —
-see `_build_docker_run_cmd()`, `_env_flags()`;
-`aaiclick/orchestration/execution/kubernetes_worker.py` — see
-`_build_pod_manifest()`.
+`aaiclick/orchestration/execution/docker_worker.py` — see
+`_DockerShellVehicle`; `aaiclick/orchestration/execution/kubernetes_worker.py`
+— see `_KubernetesShellVehicle`.
 
 ## `jvm` entry type
 
@@ -44,8 +42,8 @@ see `_build_docker_run_cmd()`, `_env_flags()`;
   no migration). `tasks.entrypoint` holds the Java class name
   (`com.example.Pipeline`), optionally `com.example.Pipeline#method` when the
   class annotates more than one method.
-- `command` is rejected (like `module`); `command_env` is not injected
-  (`jvm` containers get the runner env, mirroring `module`).
+- `command` is rejected (like `module`); the runner passes the class name as
+  the argv. `command_env` is injected as for `shell`.
 - CLI (`--entry-type jvm`), `run_job()`, and `RunJobRequest` accept the new
   choice; the entrypoint/class name rides in the existing `name` /
   `entrypoint` fields.
@@ -60,75 +58,57 @@ Enforced at commit points alongside `validate_image_sources()`
 submission surface (`aaiclick/orchestration/registered_jobs.py` — see
 `run_job()`):
 
-- A `jvm` task's kwargs may carry only plain values, `native_value`
-  wrappers, and upstream refs — the shim has no ClickHouse data plane.
-  Object/View, pydantic, callable, and group refs at any depth are rejected at
-  commit (each kwarg checked on its own, as the shim resolves them).
+- A `jvm` task's kwargs may carry only plain values, `native` wrappers, and
+  upstream refs — the file data plane, shared with `shell`. Object/View,
+  pydantic, callable, and group refs at any depth are rejected at commit
+  (each kwarg checked on its own, as the host resolves them).
 - A `jvm` task requires its own `image_source` on a docker/kubernetes job —
   there is no host-subprocess JVM contract, so a `jvm` task that would fall
   back to the subprocess runner is rejected. It never inherits the committing
   task's Python image, which has no JVM entrypoint.
 - A `jvm` task's entrypoint (class name) must be non-empty.
-- Results are never auto-converted to Objects: the shim writes plain values
-  only (`{"native_value": ...}`), which downstream Python tasks consume as
+- Results are never auto-converted to Objects: the shim writes `native`
+  values (or a returned task DAG), which downstream Python tasks consume as
   native values.
 
 **Implementation**: `aaiclick/orchestration/image_injection.py` — see
-`validate_jvm_tasks()`.
+`validate_plain_data_plane_tasks()`.
 
 # Data-plane contract (what the shim does)
 
-Mirror of the Python layer-2 bootstrap
-(`aaiclick/orchestration/execution/remote_result.py` — see
-`remote_entry_main()`):
-
-1. Parse `--task-id N --run-epoch M` from argv; read `AAICLICK_SQL_URL` from
-   the env and translate it to JDBC (`postgresql+asyncpg://…` →
-   `jdbc:postgresql://…`; `sqlite+aiosqlite:///…` → `jdbc:sqlite:…` for
-   tests).
-2. Load the task row (`entrypoint`, `kwargs`) by id.
-3. Resolve each kwarg value (never the kwargs map itself, so a parameter
-   named `native_value` stays a parameter): recurse into JSON objects/arrays; an
-   `{"ref_type": "upstream", "task_id": K}` dict resolves to task K's
-   `result` column (task must be `COMPLETED`); `{"native_value": v}` unwraps
-   to `v`; a dict carrying `object_type` (Object/View ref) or any other
-   `ref_type` fails the task with a clear error — the JVM data plane is plain
-   values only.
-4. Jackson-bind the resolved kwargs to the `@AaiTask` method's parameters by
-   name (requires `-parameters` compilation; the shim reports a clear error
-   when parameter names were compiled away). Missing or extra keys are
-   errors, mirroring Python's `TypeError` on bad kwargs; so is `null` for a
+1. Take the class name from argv (`com.example.Pipeline`, or
+   `com.example.Pipeline#method`) and the directory from `AAICLICK_IO_DIR`.
+2. Read `in.json`: a JSON object of kwargs the host has already resolved to
+   plain values (every `upstream` ref replaced, every `native` wrapper
+   unwrapped), so a parameter named `_aaiclick_type` is just a parameter.
+3. Jackson-bind the kwargs to the `@AaiTask` method's parameters by name
+   (requires `-parameters` compilation; the shim reports a clear error when
+   parameter names were compiled away). Missing or extra keys are errors,
+   mirroring Python's `TypeError` on bad kwargs; so is `null` for a
    primitive at any depth. The class loads through the thread context
    classloader (Spring Boot, layered fat jars).
-5. Invoke the method; serialize the return value with Jackson and write the
-   `remote_task_results` row keyed `(task_id, run_epoch)`:
-   `success=true, result_ref={"native_value": <json>}` (`null` return / `void`
-   → SQL NULL `result_ref`). On any exception:
-   `success=false, error="ExceptionType: message"`, exit code 1.
+4. Invoke the method and write its return value to `out.json` as is: the
+   host treats untagged JSON as data and a `Map` / `JsonNode` carrying
+   `_aaiclick_type` as a returned task DAG (`docs/designs/task_interface.md`). `void` / `null` writes nothing. On any
+   exception: `Type: message` on stderr, exit code 1.
 
-The shim never writes terminal `Task` status — the host worker owns that
-(reaper invariant, see the `docker_worker` module docstring). A stale attempt
-writes under a stale `(task_id, run_epoch)` key and is ignored.
+The shim never writes task status — the host worker owns that (reaper
+invariant, see the `docker_worker` module docstring); it reads `out.json`
+only after an exit code 0.
 
 # Java module
 
 `java/` is a Maven monorepo: `java/pom.xml` (parent `aaiclick-parent`) with
-one module, `aaiclick-task-api`. Salvaged from the removed
-`java/aaiclick-worker` (git history): `NamedParamSql` (named-parameter SQL),
-`Db` (JDBC factory), the URL-translation logic from `WorkerConfig`. Packages
+one module, `aaiclick-task-api`, whose only dependency is Jackson. Packages
 live under `io.github.kolodkin.aaiclick.task` to match the Maven Central
 namespace.
 
-| Class          | Role                                                                     |
-|----------------|--------------------------------------------------------------------------|
-| `AaiTask`      | Runtime method annotation marking a task entrypoint                      |
-| `AaiTaskShim`  | The bootstrap `main()` — steps 1–5 above                                 |
-| `TaskRegistry` | `entrypoint` string → annotated `Method` (`Class#method` disambiguation) |
-| `KwargsBinder` | JSON kwargs → typed method arguments via Jackson                         |
-| `TaskStore`    | Task-row load, upstream-ref resolution, result-row upsert                |
-| `SqlConfig`    | `AAICLICK_SQL_URL` → JDBC url + credentials                              |
-| `Db`           | JDBC connection factory                                                  |
-| `NamedParamSql`| `:named` SQL → positional `PreparedStatement` SQL                        |
+| Class            | Role                                                                     |
+|------------------|--------------------------------------------------------------------------|
+| `AaiTask`        | Runtime method annotation marking a task entrypoint                      |
+| `AaiTaskShim`    | The bootstrap `main()` — steps 1–4 above                                 |
+| `TaskRegistry`   | Class name → annotated `Method` (`Class#method` disambiguation)          |
+| `KwargsBinder`   | JSON kwargs → typed method arguments via Jackson                         |
 
 User code:
 
@@ -169,21 +149,15 @@ await internal_api.run_job(RunJobRequest(
 
 # Testing
 
-The SDK's only backend is SQL over JDBC, so the suite is infra-free: tests run
-against per-test SQLite files (`sqlite-jdbc`, test scope) with a DDL fixture
-covering the `tasks` / `remote_task_results` subset the shim touches. The CI
-job additionally generates the SQLite schema from the Python SQLModel metadata
-and points the Java suite at it (`AAICLICK_TEST_SQLITE_DB`), guarding
-cross-language schema drift. Production containers use the
-PostgreSQL driver (a runtime dependency of the SDK); URL translation is
-unit-tested for both schemes.
+The shim's only I/O is two files, so the suite is infra-free: each test gets
+a temp dir, writes `in.json`, runs `AaiTaskShim.run` and reads `out.json`.
 
 The docker-runner e2e covers what the unit suite cannot: a `jvm` task between
-two Python tasks, each in its own container, against PostgreSQL — the runner
-env handoff, an upstream ref resolved over JDBC, the result-row write, and a
-Python consumer of the jvm return value. The fixture image
-(`test_e2e/fixtures/jvm_task/`) builds the SDK from the checkout, so the shim
-under test is the commit's.
+two Python tasks, each in its own container — the real `docker create` /
+`docker cp` handoff of `in.json` into a JVM image, the host resolving an
+upstream Python result into it, `out.json` read back, and a Python consumer
+of the jvm return value. The fixture image (`test_e2e/fixtures/jvm_task/`)
+builds the SDK from the checkout, so the shim under test is the commit's.
 
 **Implementation**: `test_e2e/docker/test_docker_runner_e2e.py` — see
 `test_docker_runner_jvm_task()`; `test_e2e/docker/conftest.py` — see the
@@ -194,7 +168,7 @@ under test is the commit's.
 
 `aaiclick-task-api` publishes to Maven Central via the Central Publisher
 Portal on the **same tag** as the Python package — lockstep versioning; the
-compatibility contract is a release's PostgreSQL schema and task semantics.
+compatibility contract is a release's file data plane and task semantics.
 
 - Namespace `io.github.kolodkin` auto-verifies against the GitHub account.
 - The parent POM uses the CI-friendly `${revision}` version

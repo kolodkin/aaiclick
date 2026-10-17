@@ -8,6 +8,7 @@ import weakref
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from typing import NamedTuple
 
 from sqlalchemy import text
 from sqlmodel import select
@@ -26,10 +27,11 @@ from .env import get_db_url
 from .events import register_session_hooks
 from .execution.db_handler import _db_handler_var, create_db_handler, get_db_handler  # noqa: F401
 from .execution.execution_worker_context import get_current_task_info
-from .image_injection import inject_build_tasks, stamp_inherited_image, validate_jvm_tasks
+from .image_injection import inject_build_tasks, stamp_inherited_image, validate_plain_data_plane_tasks
 from .lifecycle.db_lifecycle import DBLifecycleMessage, DBLifecycleOp, OplogPayload, OplogTablePayload
 from .models import Dependency, Group, Job, Task, TasksType
 from .oplog_backfill import migrate_table_registry_to_sql
+from .runner_config import ENTRY_MODULE, EntryType
 from .sql_context import _sql_engine_var, create_sql_engine, get_sql_session
 from .task_registry import _task_registry_var, get_task_registry
 
@@ -555,12 +557,20 @@ def _collect_from_registry(items: list[Task | Group]) -> list[Task | Group]:
     return result
 
 
-def _current_parent_image_source() -> dict | None:
-    """The committing task's own image_source, or None outside task execution."""
+class _Parent(NamedTuple):
+    """The committing task's own image_source and entry type."""
+
+    image_source: dict | None
+    entry_type: EntryType
+
+
+def _current_parent() -> _Parent:
+    """No image outside task execution."""
     try:
-        return get_current_task_info().image_source
+        info = get_current_task_info()
     except RuntimeError:
-        return None
+        return _Parent(None, ENTRY_MODULE)
+    return _Parent(info.image_source, info.entry_type)
 
 
 async def commit_tasks(
@@ -596,8 +606,9 @@ async def commit_tasks(
     all_items = _collect_from_registry(items_list)
     tasks_only = [item for item in all_items if isinstance(item, Task)]
 
-    stamp_inherited_image(tasks_only, _current_parent_image_source())
-    validate_jvm_tasks(tasks_only)
+    parent = _current_parent()
+    stamp_inherited_image(tasks_only, parent.image_source, parent.entry_type)
+    validate_plain_data_plane_tasks(tasks_only)
 
     async with get_sql_session() as session:
         injected: list[Task] = []

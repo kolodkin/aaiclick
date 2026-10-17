@@ -6,7 +6,7 @@ from typing import Any
 
 from sqlmodel import col, func, select
 
-from aaiclick.data.object.refs import JOB_ID, OBJECT_TYPE
+from aaiclick.data.object.refs import JOB_ID, OBJECT, VIEW, ref_kind
 
 from ..execution.runner import _deserialize_value
 from ..models import Job, JobStatus, Task
@@ -171,7 +171,7 @@ async def get_job_result(job: Job) -> Any:
     if result is None:
         raise ValueError(f"Job {job.id} (name='{job.name}') has no result")
 
-    if isinstance(result, dict) and result.get(OBJECT_TYPE):
+    if ref_kind(result) in (OBJECT, VIEW):
         result[JOB_ID] = task_job_id
 
     async with get_sql_session() as session:

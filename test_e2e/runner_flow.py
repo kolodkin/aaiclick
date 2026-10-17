@@ -13,6 +13,7 @@ from pathlib import Path
 
 from job_wait import run_worker_until_done
 
+from aaiclick.data.object.refs import native_ref
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.models import JOB_COMPLETED, TASK_COMPLETED, Task
 from aaiclick.orchestration.runner_config import ImageBuild, parse_image_source
@@ -20,8 +21,13 @@ from aaiclick.testing import UserRepo
 
 # Exits 0 only when ``command_env`` reached the container (``K=v``), so the
 # container runners' env delivery (docker ``--env-file``, kubernetes Secret) is
-# proven end to end, not just the exit-code plumbing.
-ASSERT_COMMAND_ENV = """python -c "import os, sys; sys.exit(0 if os.environ.get('K') == 'v' else 3)" """
+# proven end to end, not just the exit-code plumbing — and writes the value it
+# saw to ``out.json``, so the file data plane's return leg is proven too.
+ASSERT_COMMAND_ENV = (
+    """python -c "import json, os, sys; d = os.environ['AAICLICK_IO_DIR']; """
+    """json.dump({'_aaiclick_type': 'native', 'value': {'k': os.environ.get('K')}}, open(f'{d}/out.json', 'w')); """
+    """sys.exit(0 if os.environ.get('K') == 'v' else 3)" """
+)
 
 
 def aaiclick_cli(*args: str, cwd: Path) -> subprocess.CompletedProcess:
@@ -75,9 +81,9 @@ async def run_smoke_flow(job_name: str, user_repo: UserRepo) -> None:
     assert {"sample_jobs.produce", "sample_jobs.double", "sample_jobs.compute_sum"} <= entrypoints, entrypoints
 
     # produce([10, 20, 30]) → double → compute_sum = (10+20+30) * 2 = 120. Native
-    # return values are wrapped as ``{"native_value": ...}`` in Task.result.
+    # return values are wrapped as ``native`` refs in Task.result.
     summed = next(t for t in tasks if t.entrypoint == "sample_jobs.compute_sum")
-    assert summed.result == {"native_value": {"total": 120}}, summed.result
+    assert summed.result == native_ref({"total": 120}), summed.result
 
 
 def submit_shell_job(job_name: str, command: str, cwd: Path, *run_args: str) -> None:
@@ -98,4 +104,5 @@ async def run_shell_command_env_flow(job_name: str, cwd: Path) -> Task:
     tasks = await get_tasks_for_job(completed.id)
     assert len(tasks) == 1, [t.entrypoint for t in tasks]
     assert tasks[0].status == TASK_COMPLETED, tasks[0].error
+    assert tasks[0].result == native_ref({"k": "v"}), tasks[0].result
     return tasks[0]

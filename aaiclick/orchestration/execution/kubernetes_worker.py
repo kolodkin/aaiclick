@@ -1,9 +1,17 @@
-"""Kubernetes runner — host-side ExecuteFn driving Pods.
+"""Kubernetes runner — host-side ExecuteFns driving Pods.
 
 Mirrors ``docker_worker``: ``_run_task_in_pod`` drives a ``KubernetesVehicle``
 via the shared ``drive_vehicle``. The Pod runs the shared container entrypoint
 (``remote_result``), which writes a ``RemoteTaskResult`` row the host reads
 back after the Pod exits.
+
+``_run_shell_in_pod`` is the shell/jvm counterpart on the file data plane
+(``io_plane``). A Pod has no filesystem the host can reach, in either
+direction, so the shell Pod carries two helper containers sharing an
+``emptyDir`` with the task: init container ``io-in`` waits for ``in.json``
+(``kubectl cp`` puts it there), and sidecar ``io`` outlives the task so
+``kubectl exec`` can read ``out.json`` back. The host waits on the *task*
+container's state, since the Pod never ends on its own.
 """
 
 from __future__ import annotations
@@ -11,11 +19,12 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 import tempfile
-from typing import NamedTuple
+from pathlib import Path
+from typing import Any, NamedTuple
 
 from ..models import Task
-from ..runner_config import ENTRY_JVM, ENTRY_SHELL
 from . import cli
 from .claiming import check_task_cancelled
 from .docker_build import resolve_launch_image
@@ -23,14 +32,43 @@ from .execution_worker import (
     POLL_INTERVAL,
     JobDispatch,
     RunnerResult,
+    ShellVehicle,
     TaskVehicle,
+    drive_shell_vehicle,
     drive_vehicle,
     execution_worker_heartbeat,
     parse_task_timeout,
 )
+from .io_plane import CONTAINER_IO_DIR, IN_JSON, IO_DIR_ENV, OUT_JSON, parse_out_json
 from .remote_result import REMOTE_ENTRYPOINT, collect_remote_result, read_task_run_result
-from .runner import ShellSpec
+from .runner import stage_in_json
 from .runner_env import build_runner_env
+
+IO_IMAGE_ENV = "AAICLICK_K8S_IO_IMAGE"
+DEFAULT_IO_IMAGE = "busybox:1.36"
+# Written after in.json: ``kubectl cp`` extracts in place, so the marker is
+# what tells ``io-in`` the file is whole.
+_IN_READY = "in.ready"
+# A shell Pod never ends on its own (the ``io`` sidecar sleeps), so one a
+# crashed worker orphans is bounded by ``activeDeadlineSeconds``: the task
+# timeout plus slack when one is set, else this.
+ORPHAN_POD_DEADLINE = 7 * 24 * 3600
+ORPHAN_POD_SLACK = 60
+# ``kubectl cp`` needs ``pods/exec``; a cluster without it must fail the task
+# with kubectl's reason rather than park the Pod in Init forever.
+COPY_IN_ATTEMPTS = 30
+# Exit code the out.json read uses for "no such file", distinct from any
+# failure of ``kubectl exec`` itself.
+_NO_OUT_JSON_RC = 3
+_IO_VOLUME = "aaiclick-io"
+_IO_IN_CONTAINER = "io-in"
+_IO_CONTAINER = "io"
+_TASK_CONTAINER = "task"
+
+
+def io_image() -> str:
+    """The helper image for shell Pods; overridable for air-gapped clusters."""
+    return os.environ.get(IO_IMAGE_ENV, DEFAULT_IO_IMAGE)
 
 
 def _kubectl_bin() -> str:
@@ -53,54 +91,28 @@ def _build_pod_manifest(
     service_account: str | None,
     image_pull_secret: str | None,
     resources: dict | None,
-    entry_type: str,
-    command: list[str] | None,
-    command_env_secret: str | None,
 ) -> dict:
     """Build the bare-Pod manifest (``restartPolicy: Never`` — aaiclick owns
     retries). Optional cluster fields are omitted when unset so the cluster
     defaults apply.
 
-    For ``shell`` tasks the container runs the task's argv directly with only
-    ``command_env`` injected, read from the per-attempt Secret
-    ``command_env_secret`` (``envFrom``) — the runner ``env`` (DB creds) is
-    deliberately NOT read, so no aaiclick secrets reach a vanilla user image.
-    For ``module``
-    tasks the Pod runs the aaiclick shim with the full runner ``env``. For
-    ``jvm`` tasks only ``args`` are set — the image's own ``ENTRYPOINT`` is
-    the aaiclick-task-api shim (spec: docs/designs/java-sdk.md) — with the
-    full runner ``env`` (same trust model as module images)."""
-    if entry_type == ENTRY_SHELL:
-        container: dict = {"name": "task", "image": image_tag, "command": command}
-        if command_env_secret:
-            container["envFrom"] = [{"secretRef": {"name": command_env_secret}}]
-    elif entry_type == ENTRY_JVM:
-        container = {
-            "name": "task",
-            "image": image_tag,
-            "args": ["--task-id", str(task_id), "--run-epoch", str(run_epoch)],
-            "env": [{"name": k, "value": v} for k, v in env.items()],
-        }
-    else:
-        container = {
-            "name": "task",
-            "image": image_tag,
-            "command": [*REMOTE_ENTRYPOINT, "--task-id", str(task_id), "--run-epoch", str(run_epoch)],
-            "env": [{"name": k, "value": v} for k, v in env.items()],
-        }
+    Module Pods run the aaiclick shim with the full runner ``env``; shell and
+    jvm Pods are built by :func:`build_shell_pod_manifest`."""
+    container: dict = {
+        "name": "task",
+        "image": image_tag,
+        "command": [*REMOTE_ENTRYPOINT, "--task-id", str(task_id), "--run-epoch", str(run_epoch)],
+        "env": [{"name": k, "value": v} for k, v in env.items()],
+    }
     if resources:
         container["resources"] = resources
-    spec: dict = {"restartPolicy": "Never", "containers": [container]}
-    if service_account:
-        spec["serviceAccountName"] = service_account
-    if image_pull_secret:
-        spec["imagePullSecrets"] = [{"name": image_pull_secret}]
-    return {
-        "apiVersion": "v1",
-        "kind": "Pod",
-        "metadata": {"name": name, "namespace": namespace},
-        "spec": spec,
-    }
+    return _pod_scaffold(
+        name=name,
+        namespace=namespace,
+        service_account=service_account,
+        image_pull_secret=image_pull_secret,
+        containers=[container],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -213,76 +225,275 @@ def _build_command_env_secret(name: str, namespace: str, command_env: dict[str, 
     }
 
 
-async def _kubectl_create_from_file(manifest: dict) -> None:
-    """``kubectl create -f`` a manifest through a private (0600) temp file —
+async def _kubectl_create_from_file(manifest: dict, verb: str = "create") -> None:
+    """``kubectl <verb> -f`` a manifest through a private (0600) temp file —
     never the argv — removed once kubectl returns."""
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
         json.dump(manifest, f)
         manifest_path = f.name
     try:
-        await cli.run(_kubectl_bin(), "create", "-f", manifest_path)
+        await cli.run(_kubectl_bin(), verb, "-f", manifest_path)
     finally:
         os.unlink(manifest_path)
 
 
-async def build_shell_pod_spec(task: Task, dispatch: JobDispatch, image_tag: str) -> ShellSpec:
-    """Wrap a shell task's argv as a foreground ``kubectl run --attach --rm``.
+def _pod_scaffold(
+    *, name: str, namespace: str, service_account: str | None, image_pull_secret: str | None, containers: list[dict]
+) -> dict:
+    spec: dict = {"restartPolicy": "Never", "containers": containers}
+    if service_account:
+        spec["serviceAccountName"] = service_account
+    if image_pull_secret:
+        spec["imagePullSecrets"] = [{"name": image_pull_secret}]
+    return {"apiVersion": "v1", "kind": "Pod", "metadata": {"name": name, "namespace": namespace}, "spec": spec}
 
-    The container spec (command, resources, serviceAccount, imagePullSecrets)
-    rides in ``--overrides`` built from the same manifest as module Pods, so
-    shell Pods keep their cluster config; ``--attach`` propagates the
-    container's exit code and streams its output on the kubectl process's
-    stdout. ``--quiet`` keeps kubectl's own chatter out of the captured log.
 
-    ``command_env`` is created here as a per-attempt Secret the Pod reads via
-    ``envFrom`` — inline on ``--overrides`` the values would show in ``ps``.
-    ``cleanup_argv`` deletes the Pod and that Secret together."""
-    pod = _pod_spec_from(task, dispatch, image_tag)
-    name = _pod_name(task.id, task.run_epoch)
-    resources = [f"pod/{name}"]
-    command_env_secret = None
-    if pod.command_env:
-        command_env_secret = name
-        resources.append(f"secret/{name}")
-        await _kubectl_create_from_file(_build_command_env_secret(name, pod.namespace, pod.command_env))
-    manifest = _build_pod_manifest(
+def build_shell_pod_manifest(
+    *,
+    name: str,
+    namespace: str,
+    image_tag: str,
+    command: list[str],
+    service_account: str | None,
+    image_pull_secret: str | None,
+    resources: dict | None,
+    command_env_secret: str | None,
+    active_deadline: int,
+) -> dict:
+    """Manifest of a shell/jvm Pod on the file data plane.
+
+    ``task`` runs the user's argv with only ``command_env`` (from the
+    per-attempt Secret, ``envFrom``) and ``AAICLICK_IO_DIR`` — never the
+    runner env, so no aaiclick secrets reach a vanilla image. The argv goes
+    through ``args`` so it follows the image's ENTRYPOINT — as ``docker create
+    <image> <argv>`` does, and what the jvm shim ENTRYPOINT relies on. Init
+    container ``io-in`` holds the Pod
+    until the host has copied ``in.json`` in; sidecar ``io`` keeps the Pod
+    alive so ``out.json`` can be read after ``task`` exits, bounded by
+    ``activeDeadlineSeconds``. All three share one ``emptyDir``; the helpers
+    request no resources."""
+    mount = [{"name": _IO_VOLUME, "mountPath": CONTAINER_IO_DIR}]
+    task: dict = {
+        "name": _TASK_CONTAINER,
+        "image": image_tag,
+        "args": command,
+        "env": [{"name": IO_DIR_ENV, "value": CONTAINER_IO_DIR}],
+        "volumeMounts": mount,
+    }
+    if command_env_secret:
+        task["envFrom"] = [{"secretRef": {"name": command_env_secret}}]
+    if resources:
+        task["resources"] = resources
+    io_in = {
+        "name": _IO_IN_CONTAINER,
+        "image": io_image(),
+        "command": ["sh", "-c", f"until [ -f {CONTAINER_IO_DIR}/{_IN_READY} ]; do sleep 0.2; done"],
+        "volumeMounts": mount,
+    }
+    io = {"name": _IO_CONTAINER, "image": io_image(), "command": ["sleep", "infinity"], "volumeMounts": mount}
+    manifest = _pod_scaffold(
         name=name,
-        namespace=pod.namespace,
-        image_tag=image_tag,
-        task_id=task.id,
-        run_epoch=task.run_epoch,
-        env={},
-        service_account=pod.service_account,
-        image_pull_secret=pod.image_pull_secret,
-        resources=pod.resources,
-        entry_type=ENTRY_SHELL,
-        command=pod.command,
-        command_env_secret=command_env_secret,
+        namespace=namespace,
+        service_account=service_account,
+        image_pull_secret=image_pull_secret,
+        containers=[task, io],
     )
-    overrides = {"apiVersion": "v1", "spec": manifest["spec"]}
-    argv = [
-        _kubectl_bin(),
-        "run",
-        name,
-        "-n",
-        pod.namespace,
-        "--attach",
-        "--rm",
-        "--quiet",
-        "--restart=Never",
-        f"--image={image_tag}",
-        f"--overrides={json.dumps(overrides)}",
-    ]
-    return ShellSpec(
-        argv,
-        None,
-        cleanup_argv=[_kubectl_bin(), "delete", *resources, "-n", pod.namespace, "--ignore-not-found"],
+    manifest["spec"]["initContainers"] = [io_in]
+    manifest["spec"]["volumes"] = [{"name": _IO_VOLUME, "emptyDir": {}}]
+    manifest["spec"]["activeDeadlineSeconds"] = active_deadline
+    return manifest
+
+
+class _ShellPodHandle(_PodHandle):
+    """A shell Pod's handle: the host-side IO dir and whether ``in.json`` has
+    reached the Pod yet, plus the per-attempt Secret to delete with it."""
+
+    def __init__(self, name: str, namespace: str, task_id: int, job_id: int, run_epoch: int, io_dir: Path) -> None:
+        super().__init__(name, namespace, task_id, job_id, run_epoch)
+        self.io_dir = io_dir
+        self.in_copied = False
+        self.copy_failures = 0
+        self.copy_error = ""
+
+
+def _container_state(pod: dict, container: str, *, init: bool = False) -> tuple[str, int]:
+    """``(state, exit_code)`` of one container from a Pod's JSON status:
+    ``"running"`` / ``"terminated"`` / ``"waiting"`` / ``""`` (not reported),
+    exit code ``-1`` until terminated."""
+    key = "initContainerStatuses" if init else "containerStatuses"
+    for status in pod.get("status", {}).get(key, []):
+        if status.get("name") != container:
+            continue
+        state = status.get("state", {})
+        if "terminated" in state:
+            return "terminated", int(state["terminated"].get("exitCode", -1))
+        return next((k for k in ("running", "waiting") if k in state), ""), -1
+    return "", -1
+
+
+async def _pod_json(handle: _PodHandle) -> dict | None:
+    """One ``kubectl get -o json``; ``None`` when the Pod is gone, ``{}`` when
+    ``kubectl`` could not answer (the caller retries)."""
+    rc, out, err = await cli.run(
+        _kubectl_bin(), "get", "pod", handle.name, "-n", handle.namespace, "-o", "json", check=False, stream=False
     )
+    if rc != 0:
+        return None if "NotFound" in err else {}
+    try:
+        return json.loads(out)
+    except json.JSONDecodeError:
+        return {}
+
+
+async def _kubectl_delete_shell(handle: _ShellPodHandle) -> None:
+    """Delete the Pod and its per-attempt Secret (absent without ``command_env``)."""
+    resources = [f"pod/{handle.name}", f"secret/{handle.name}"]
+    await cli.run(_kubectl_bin(), "delete", *resources, "-n", handle.namespace, "--ignore-not-found", check=False)
+
+
+class _KubernetesShellVehicle(ShellVehicle["_ShellPodHandle"]):
+    """Shell and jvm tasks on the Kubernetes runner — the file data plane
+    through the ``io-in`` / ``io`` helpers (see the module docstring)."""
+
+    def __init__(self, spec: _PodSpec, timeout: float | None) -> None:
+        self._spec = spec
+        self._deadline = int(timeout + ORPHAN_POD_SLACK) if timeout is not None else ORPHAN_POD_DEADLINE
+
+    async def launch(self, task: Task, execution_worker_id: int) -> _ShellPodHandle:
+        name = _pod_name(task.id, task.run_epoch)
+        io_dir = await stage_in_json(task)
+        handle = _ShellPodHandle(name, self._spec.namespace, task.id, task.job_id, task.run_epoch, io_dir)
+        try:
+            (io_dir / _IN_READY).touch()
+            if self._spec.command_env:
+                await _kubectl_create_from_file(
+                    _build_command_env_secret(name, self._spec.namespace, self._spec.command_env)
+                )
+            manifest = build_shell_pod_manifest(
+                name=name,
+                namespace=self._spec.namespace,
+                image_tag=self._spec.image_tag,
+                command=self._spec.command or [],
+                service_account=self._spec.service_account,
+                image_pull_secret=self._spec.image_pull_secret,
+                resources=self._spec.resources,
+                command_env_secret=name if self._spec.command_env else None,
+                active_deadline=self._deadline,
+            )
+            await _kubectl_create_from_file(manifest, "apply")
+        except BaseException:
+            await self.cleanup(handle)
+            raise
+        return handle
+
+    async def _copy_in(self, handle: _ShellPodHandle) -> None:
+        """``kubectl cp`` in.json, then the ready marker. A failure is retried
+        on the next poll, up to ``COPY_IN_ATTEMPTS``."""
+        for name in (IN_JSON, _IN_READY):
+            rc, _, err = await cli.run(
+                _kubectl_bin(),
+                "cp",
+                str(handle.io_dir / name),
+                f"{handle.namespace}/{handle.name}:{CONTAINER_IO_DIR}/{name}",
+                "-c",
+                _IO_IN_CONTAINER,
+                check=False,
+                stream=False,
+            )
+            if rc != 0:
+                handle.copy_failures += 1
+                handle.copy_error = err.strip()
+                return
+        handle.in_copied = True
+
+    async def wait(self, handle: _ShellPodHandle, timeout: float | None) -> tuple[int, str | None, Any]:
+        """Poll the Pod: copy ``in.json`` once ``io-in`` runs, then wait for
+        the ``task`` container to terminate. Both legs count against
+        ``timeout``; a Pod that vanishes (``terminate`` on cancellation,
+        eviction) ends the wait."""
+        elapsed = 0.0
+        while True:
+            pod = await _pod_json(handle)
+            if pod is None:
+                handle.mark_started(POD_NOT_FOUND)
+                return -1, f"Pod {handle.name} disappeared", None
+            if not handle.in_copied and _container_state(pod, _IO_IN_CONTAINER, init=True)[0] == "running":
+                await self._copy_in(handle)
+                if handle.copy_failures >= COPY_IN_ATTEMPTS:
+                    handle.mark_started(pod.get("status", {}).get("phase", ""))
+                    return -1, f"kubectl cp of in.json failed {handle.copy_failures} times: {handle.copy_error}", None
+            state, exit_code = _container_state(pod, _TASK_CONTAINER)
+            phase = pod.get("status", {}).get("phase", "")
+            if state in ("running", "terminated"):
+                handle.mark_started(phase or "Running")
+            if state == "terminated":
+                break
+            if phase in ("Succeeded", "Failed"):
+                # Helper image pull failure, activeDeadlineSeconds, eviction:
+                # the task container never ran and never will.
+                handle.mark_started(phase)
+                return -1, f"Pod {handle.name} {phase} before the task container terminated", None
+            if timeout is not None and elapsed >= timeout:
+                handle.mark_started(pod.get("status", {}).get("phase", ""))
+                return -1, f"Task timed out after {timeout}s", None
+            await asyncio.sleep(POLL_INTERVAL)
+            elapsed += POLL_INTERVAL
+        if exit_code != 0:
+            return exit_code, None, None
+        out_path = f"{CONTAINER_IO_DIR}/{OUT_JSON}"
+        rc, out, err = await cli.run(
+            _kubectl_bin(),
+            "exec",
+            handle.name,
+            "-n",
+            handle.namespace,
+            "-c",
+            _IO_CONTAINER,
+            "--",
+            "sh",
+            "-c",
+            f"if [ -f {out_path} ]; then cat {out_path}; else exit {_NO_OUT_JSON_RC}; fi",
+            check=False,
+            stream=False,
+        )
+        if rc == _NO_OUT_JSON_RC:
+            return exit_code, None, None  # no out.json: no result
+        if rc != 0:
+            return exit_code, f"reading {OUT_JSON} failed: {err.strip() or out.strip()}", None
+        try:
+            return exit_code, None, parse_out_json(out)
+        except ValueError as e:
+            return exit_code, str(e), None
+
+    async def terminate(self, handle: _ShellPodHandle) -> None:
+        await _kubectl_delete_shell(handle)
+        handle.deleted = True
+
+    async def output_argv(self, handle: _ShellPodHandle) -> list[str] | None:
+        await handle.started.wait()
+        if handle.deleted or handle.phase in (*_NOT_STARTED_PHASES, POD_NOT_FOUND):
+            return None
+        return [_kubectl_bin(), "logs", "--follow", handle.name, "-n", handle.namespace, "-c", _TASK_CONTAINER]
+
+    async def cleanup(self, handle: _ShellPodHandle) -> None:
+        if not handle.deleted:
+            await _kubectl_delete_shell(handle)
+        shutil.rmtree(handle.io_dir, ignore_errors=True)
+
+
+async def _run_shell_in_pod(
+    task: Task, execution_worker_id: int, dispatch: JobDispatch, log_run_id: int | None
+) -> tuple[bool, dict | None, str | None]:
+    """ExecuteFn for shell and jvm tasks on the Kubernetes runner."""
+    image_tag = await resolve_launch_image(dispatch.image_source, task_id=task.id)
+    timeout = parse_task_timeout()
+    vehicle = _KubernetesShellVehicle(_pod_spec_from(task, dispatch, image_tag), timeout)
+    return await drive_shell_vehicle(task, execution_worker_id, vehicle, timeout=timeout, log_run_id=log_run_id)
 
 
 class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
-    """``TaskVehicle`` for the Kubernetes runner (module tasks — shell tasks
-    run through the mp task child with a ``build_shell_pod_spec`` argv)."""
+    """``TaskVehicle`` for module tasks on the Kubernetes runner (shell and
+    jvm tasks use :class:`_KubernetesShellVehicle`)."""
 
     def __init__(self, spec: _PodSpec) -> None:
         self._spec = spec
@@ -300,17 +511,8 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
             service_account=self._spec.service_account,
             image_pull_secret=self._spec.image_pull_secret,
             resources=self._spec.resources,
-            entry_type=self._spec.entry_type,
-            command=self._spec.command,
-            command_env_secret=None,
         )
-        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
-            json.dump(manifest, f)
-            manifest_path = f.name
-        try:
-            await cli.run(_kubectl_bin(), "apply", "-f", manifest_path)
-        finally:
-            os.unlink(manifest_path)
+        await _kubectl_create_from_file(manifest, "apply")
         return _PodHandle(name, self._spec.namespace, task.id, task.job_id, task.run_epoch)
 
     async def wait(self, handle: _PodHandle, timeout: float | None) -> tuple[int, str | None, RunnerResult | None]:

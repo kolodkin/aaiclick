@@ -72,10 +72,10 @@ today.
 
 Module Pods stream stdout/stderr into the ClickHouse `task_logs` table from
 inside the Pod (`capture_task_output`), so `get_task_logs` reads them on the host
-with no node coordination. Shell Pods have no aaiclick harness, so the worker
-runs them as a foreground `kubectl run --attach --rm` and streams the wrapper's
-stdout, with `command_env` in a per-attempt Secret — the shared shell design in
-`orchestration.md` "Shell entry type".
+with no node coordination. Shell Pods have no aaiclick harness, so the host
+follows `kubectl logs -f -c task` into `task_logs`, with `command_env` in a
+per-attempt Secret and `in.json` / `out.json` moved through the `io-in` /
+`io` helper containers — the Task Interface, `task_interface.md`.
 
 # The vehicle
 

@@ -11,7 +11,7 @@ from ..models import Task
 from ..runner_config import ImageBuild, ImagePrebuilt, dump_image_source
 from . import dispatch
 from .execution_worker import JobDispatch
-from .runner import DispatchError, ShellSpec
+from .runner import DispatchError
 from .runner_env import ENV_WORKER_RUNNER, RUNNER_DOCKER, RUNNER_KUBERNETES
 
 BUILD_A = dump_image_source(ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40))
@@ -86,20 +86,42 @@ async def test_resolve_dispatch_uses_worker_runner_and_job_resources(monkeypatch
     assert resolved.pod_config == pod_config
 
 
-async def test_dispatch_execute_removes_shell_env_file(monkeypatch, tmp_path):
-    """The docker shell wrapper's ``--env-file`` holds ``command_env`` values;
-    the dispatcher owns its lifetime, so it is gone once the child returns."""
-    env_file = tmp_path / "task.env"
-    env_file.write_text("K=v\n")
-    spec = ShellSpec(["docker", "run", "--env-file", str(env_file), "img", "true"], None, env_file=str(env_file))
+async def test_dispatch_shell_on_docker_uses_the_shell_vehicle(monkeypatch):
+    """Container shell tasks run host-side (the file plane is multi-step), under
+    a host-registered log run; only the subprocess runner uses the mp child."""
     monkeypatch.setattr(
         dispatch, "_resolve_dispatch", AsyncMock(return_value=JobDispatch(RUNNER_DOCKER, None, "shell"))
     )
-    monkeypatch.setattr(dispatch, "build_shell_spec", AsyncMock(return_value=spec))
-    child = AsyncMock(return_value=(True, None, None))
+    monkeypatch.setattr(dispatch, "register_host_log_run", AsyncMock(return_value=99))
+    vehicle = AsyncMock(return_value=(True, None, None))
+    monkeypatch.setitem(dispatch._SHELL_RUNNERS, RUNNER_DOCKER, vehicle)
+    child = AsyncMock()
     monkeypatch.setattr(dispatch, "_run_task_in_child", child)
 
     assert await dispatch.dispatch_execute(_task(), execution_worker_id=1) == (True, None, None)
 
-    child.assert_awaited_once_with(ANY, 1, shell_spec=spec)
-    assert not env_file.exists()
+    vehicle.assert_awaited_once_with(ANY, 1, ANY, 99)
+    child.assert_not_awaited()
+
+
+async def test_resolve_dispatch_jvm_command_is_the_class_name(monkeypatch):
+    """A jvm task is a shell task whose argv is the class name: the image's
+    ENTRYPOINT (the aaiclick-task-api shim) receives it."""
+    monkeypatch.setenv(ENV_WORKER_RUNNER, RUNNER_DOCKER)
+    monkeypatch.setattr(dispatch, "get_sql_session", lambda: _FakeSession(None))
+    task = _task(entrypoint="com.example.Pipeline", image_source=PREBUILT)
+    task.entry_type = "jvm"
+    resolved = await dispatch._resolve_dispatch(task)
+    assert (resolved.entry_type, resolved.command) == ("jvm", ["com.example.Pipeline"])
+
+
+async def test_dispatch_jvm_uses_shell_vehicle(monkeypatch):
+    resolved = JobDispatch(RUNNER_DOCKER, None, "jvm", ["com.example.Pipeline"], image_source=PREBUILT)
+    monkeypatch.setattr(dispatch, "_resolve_dispatch", AsyncMock(return_value=resolved))
+    monkeypatch.setattr(dispatch, "register_host_log_run", AsyncMock(return_value=99))
+    vehicle = AsyncMock(return_value=(True, None, None))
+    monkeypatch.setitem(dispatch._SHELL_RUNNERS, RUNNER_DOCKER, vehicle)
+
+    assert await dispatch.dispatch_execute(_task(), execution_worker_id=1) == (True, None, None)
+
+    vehicle.assert_awaited_once_with(ANY, 1, resolved, 99)

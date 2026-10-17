@@ -8,6 +8,7 @@ from pathlib import Path
 
 from job_wait import run_worker_until_all_done
 
+from aaiclick.data.object.refs import native_ref
 from aaiclick.internal_api.sandbox import submit_sandbox_file
 from aaiclick.orchestration.background.background_worker import BackgroundWorker
 from aaiclick.orchestration.docker_config import resolve_remote_head
@@ -53,7 +54,7 @@ async def run_sandbox_submission(remote: str, clone_dir: Path, *, max_tasks: int
     for completed in jobs:
         assert completed.status == JOB_COMPLETED, completed.error
         probe = next(t for t in await get_tasks_for_job(completed.id) if t.entrypoint.endswith(".probe"))
-        assert probe.result == {"native_value": {"n": 1}}, (probe.result, probe.error)
+        assert probe.result == native_ref({"n": 1}), (probe.result, probe.error)
 
     # A second submission stacks on the first in the remote. It stays pending:
     # no further poll step runs, so it creates no jobs.

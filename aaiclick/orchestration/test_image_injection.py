@@ -3,12 +3,13 @@
 import pytest
 from sqlmodel import select
 
-from aaiclick.data.object.refs import callable_ref, group_results_ref, native_value_ref, upstream_ref
+from aaiclick.data.models import ViewSchema
+from aaiclick.data.object.refs import callable_ref, group_results_ref, native_ref, pydantic_ref, upstream_ref
 
 from .execution.execution_worker_context import set_current_task_info
 from .execution.image_build_task import IMAGE_BUILD_ENTRYPOINT
 from .factories import create_job, create_task
-from .image_injection import stamp_inherited_image, validate_jvm_tasks
+from .image_injection import stamp_inherited_image, validate_plain_data_plane_tasks
 from .models import Dependency, Task
 from .orch_context import commit_tasks, get_sql_session
 from .runner_config import ImageBuild, ImagePrebuilt, dump_image_source
@@ -16,23 +17,38 @@ from .runner_config import ImageBuild, ImagePrebuilt, dump_image_source
 BUILD_A = dump_image_source(ImageBuild(git_remote="https://example.com/r.git", git_sha="a" * 40))
 BUILD_B = dump_image_source(ImageBuild(git_remote="https://example.com/r.git", git_sha="b" * 40))
 PREBUILT = dump_image_source(ImagePrebuilt(image_tag="ghcr.io/example/pipeline:1.0"))
-OBJECT_REF = {"object_type": "object", "table": "t_1", "persistent": False}
+OBJECT_REF = {"_aaiclick_type": "object", "table": "t_1"}
 
 
 def test_stamp_inherited_image_fills_only_undeclared():
     declared = create_task("m.f1")
     declared.image_source = BUILD_B
     inherited = create_task("m.f2")
-    jvm = create_task("com.example.Pipeline", entry_type="jvm")
-    stamp_inherited_image([declared, inherited, jvm], BUILD_A)
+    stamp_inherited_image([declared, inherited], BUILD_A, "module")
     assert declared.image_source == BUILD_B
     assert inherited.image_source == BUILD_A
-    assert jvm.image_source is None
+
+
+@pytest.mark.parametrize(
+    "parent_entry_type, child, inherits",
+    [
+        # A Python image has no JVM entrypoint; a JVM image has no Python.
+        pytest.param("module", create_task("com.example.Pipeline", entry_type="jvm"), False, id="jvm-of-module"),
+        pytest.param("jvm", create_task("m.f"), False, id="module-of-jvm"),
+        pytest.param("jvm", create_task("com.example.Worker", entry_type="jvm"), True, id="jvm-of-jvm"),
+        # A shell argv runs in whatever image the parent had.
+        pytest.param("jvm", create_task(None, entry_type="shell", command=["true"]), True, id="shell-of-jvm"),
+        pytest.param("shell", create_task("m.f"), True, id="module-of-shell"),
+    ],
+)
+def test_stamp_inherited_image_by_entry_type(parent_entry_type, child, inherits):
+    stamp_inherited_image([child], BUILD_A, parent_entry_type)
+    assert (child.image_source == BUILD_A) is inherits
 
 
 def test_stamp_inherited_image_none_parent_is_noop():
     t = create_task("m.f")
-    stamp_inherited_image([t], None)
+    stamp_inherited_image([t], None, "module")
     assert t.image_source is None
 
 
@@ -48,13 +64,13 @@ def _jvm_task(kwargs: dict | None = None, image_source: dict | None = PREBUILT) 
         pytest.param({"date": "2026-08-20", "window": 7}, id="plain"),
         pytest.param({"rows": [upstream_ref(5)]}, id="nested-upstream-ref"),
         # The kwargs map is never a ref, so a parameter may carry a ref key's name.
-        pytest.param({"object_type": "csv", "ref_type": "x"}, id="ref-key-as-param-name"),
-        # native_value is opaque to the shim, like to Python's deserializer.
-        pytest.param({"cfg": native_value_ref(OBJECT_REF)}, id="native-value-wrapper"),
+        pytest.param({"_aaiclick_type": "csv", "value": "x"}, id="ref-key-as-param-name"),
+        # native is opaque to the shim, like to Python's deserializer.
+        pytest.param({"cfg": native_ref(OBJECT_REF)}, id="native-wrapper"),
     ],
 )
-def test_validate_jvm_accepts(kwargs):
-    validate_jvm_tasks([_jvm_task(kwargs)])
+def test_validate_plain_data_plane_accepts(kwargs):
+    validate_plain_data_plane_tasks([_jvm_task(kwargs)])
 
 
 @pytest.mark.parametrize(
@@ -66,26 +82,35 @@ def test_validate_jvm_accepts(kwargs):
         ),
         pytest.param({"fn": callable_ref("m.f")}, PREBUILT, "callable ref in kwarg 'fn'", id="callable-ref"),
         pytest.param({"parts": group_results_ref(9)}, PREBUILT, "group_results ref", id="group-ref"),
-        pytest.param({"m": {"pydantic_type": "m.M", "pydantic_data": {}}}, PREBUILT, "pydantic ref", id="pydantic-ref"),
-        # Python reads an unknown ref_type as a plain dict; the shim rejects it.
-        pytest.param({"cfg": {"ref_type": "x"}}, PREBUILT, "x ref", id="unknown-nested-ref-type"),
+        pytest.param(
+            {"m": pydantic_ref(ViewSchema(fieldtype="a", columns={}))}, PREBUILT, "pydantic ref", id="pydantic-ref"
+        ),
+        # ``_aaiclick_type`` is reserved: an unknown value is an error, not plain data.
+        pytest.param({"cfg": {"_aaiclick_type": "x"}}, PREBUILT, "Unknown _aaiclick_type", id="unknown-nested-type"),
     ],
 )
-def test_validate_jvm_rejects(kwargs, image_source, match):
+def test_validate_plain_data_plane_rejects(kwargs, image_source, match):
     with pytest.raises(ValueError, match=match):
-        validate_jvm_tasks([_jvm_task(kwargs, image_source)])
+        validate_plain_data_plane_tasks([_jvm_task(kwargs, image_source)])
 
 
-def test_validate_jvm_requires_entrypoint():
+def test_validate_plain_data_plane_rejects_shell_object_ref():
+    """Shell tasks share the jvm data plane: no Object refs, no image needed."""
+    t = create_task(None, {"data": OBJECT_REF}, entry_type="shell", command=["true"])
+    with pytest.raises(ValueError, match="shell task 'true' receives a object ref in kwarg 'data'"):
+        validate_plain_data_plane_tasks([t])
+
+
+def test_validate_plain_data_plane_jvm_requires_entrypoint():
     t = _jvm_task()
     t.entrypoint = ""
     with pytest.raises(ValueError, match="class name"):
-        validate_jvm_tasks([t])
+        validate_plain_data_plane_tasks([t])
 
 
-def test_validate_jvm_ignores_non_jvm_tasks():
+def test_validate_plain_data_plane_ignores_module_tasks():
     t = create_task("m.f", {"obj": OBJECT_REF})
-    validate_jvm_tasks([t])
+    validate_plain_data_plane_tasks([t])
 
 
 async def _build_tasks_and_edges(job_id: int) -> tuple[list[Task], set[tuple[int, int]]]:

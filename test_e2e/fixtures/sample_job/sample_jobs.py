@@ -66,8 +66,8 @@ async def entry_task():
 
 @task
 async def produce_values() -> list[int]:
-    """Seed for the jvm chain: a plain list, since the JVM data plane is
-    native values only (no Object refs)."""
+    """Seed for the jvm chain: a plain list, since the shell/jvm data plane
+    carries plain values only (no Object refs)."""
     return [10, 20, 30]
 
 

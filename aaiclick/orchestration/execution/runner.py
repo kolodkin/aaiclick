@@ -8,8 +8,11 @@ import importlib
 import inspect
 import logging
 import math
+import shutil
+import tempfile
 from collections.abc import Callable
 from contextlib import suppress
+from pathlib import Path
 from typing import Any, NamedTuple
 
 from pydantic import BaseModel
@@ -25,21 +28,32 @@ from aaiclick.data.data_context.lifecycle import read_table_schema
 from aaiclick.data.models import Schema
 from aaiclick.data.object import LazyOperator, Object, View
 from aaiclick.data.object.refs import (
+    AAICLICK_TYPE,
     CALLABLE,
+    DATA,
+    DEPENDS_ON,
+    ENTRYPOINT,
+    GROUP,
+    GROUP_ID,
     GROUP_RESULTS,
-    NATIVE_VALUE,
+    HANDLE,
+    NATIVE,
     OBJECT,
-    OBJECT_TYPE,
     PERSISTENT,
     PYDANTIC,
+    PYDANTIC_CLASS,
     PYDANTIC_DATA,
-    PYDANTIC_TYPE,
+    TASK,
     TASK_ID,
+    TASK_RESULT,
+    TASKS,
     UPSTREAM,
+    VALUE,
     VIEW,
     ObjectRef,
     ViewRef,
-    native_value_ref,
+    native_ref,
+    pydantic_ref,
     ref_kind,
     upstream_ref,
 )
@@ -49,6 +63,7 @@ from aaiclick.snowflake import get_snowflake_id
 from ...datetime_utils import utc_now
 from ..decorators import JobFactory, TaskFactory
 from ..dependency_graph import successor_edges
+from ..factories import create_task
 from ..logging import ChLogSink, capture_task_output, stream_to_task_logs
 from ..models import (
     DEPENDENCY_TASK,
@@ -66,11 +81,12 @@ from ..models import (
 )
 from ..orch_context import commit_tasks, get_sql_session, task_scope
 from ..result import TaskResult
-from ..runner_config import ENTRY_JVM, ENTRY_MODULE, ENTRY_SHELL, EntryType
+from ..runner_config import ENTRY_JVM, ENTRY_MODULE, ENTRY_SHELL, EntryType, validate_task_entry
 from .claiming import update_job_status, update_task_status
 from .cli import overlay_env
 from .db_handler import DEPENDENCY_WHERE
-from .execution_worker_context import set_current_task_info
+from .execution_worker_context import TaskInfo, current_task_info, set_current_task_info
+from .io_plane import IO_DIR_ENV, read_out_json, write_in_json
 from .runner_env import ENV_WORKER_RUNNER, WorkerRunner
 
 logger = logging.getLogger(__name__)
@@ -133,7 +149,7 @@ async def _resolve_upstream_ref(ref: dict, session: AsyncSession) -> Any:
     """Resolve an upstream task reference to its result.
 
     Args:
-        ref: Dict with ref_type="upstream" and task_id
+        ref: An ``upstream`` ref dict with ``task_id``
         session: Database session for querying task result
 
     Returns:
@@ -202,11 +218,11 @@ async def _deserialize_value(value: Any, session: AsyncSession) -> Any:
             deserialized.append(await _deserialize_value(task_result, session))
         return deserialized
 
-    if kind == NATIVE_VALUE:
-        return value[NATIVE_VALUE]
+    if kind == NATIVE:
+        return value[VALUE]
 
     if kind == PYDANTIC:
-        cls = _import_class(value[PYDANTIC_TYPE])
+        cls = _import_class(value[PYDANTIC_CLASS])
         return cls.model_validate(value[PYDANTIC_DATA])
 
     if kind == OBJECT:
@@ -253,13 +269,51 @@ async def deserialize_task_params(serialized_params: dict) -> dict:
         dict: Deserialized kwargs ready for function call
 
     Raises:
-        ValueError: Unknown object_type or upstream task not completed
+        ValueError: Unknown ``_aaiclick_type`` or upstream task not completed
     """
     if not serialized_params:
         return {}
 
     async with get_sql_session() as session:
         return {k: await _deserialize_value(v, session) for k, v in serialized_params.items()}
+
+
+async def _resolve_plain_value(name: str, value: Any, session: AsyncSession) -> Any:
+    if isinstance(value, list):
+        return [await _resolve_plain_value(name, v, session) for v in value]
+    kind = ref_kind(value)
+    if kind == UPSTREAM:
+        return await _resolve_plain_value(name, await _resolve_upstream_ref(value, session), session)
+    if kind == NATIVE:
+        return value[VALUE]
+    if kind is not None:
+        raise ValueError(f"kwarg {name!r} resolves to a {kind} ref, which a shell task cannot receive")
+    if isinstance(value, dict):
+        return {k: await _resolve_plain_value(name, v, session) for k, v in value.items()}
+    return value
+
+
+async def stage_in_json(task: Task) -> Path:
+    """A fresh per-attempt IO dir holding the task's resolved ``in.json``; the
+    caller removes it once the task is done."""
+    io_dir = Path(tempfile.mkdtemp(prefix="aaiclick-io-"))
+    write_in_json(io_dir, await resolve_plain_kwargs(task.kwargs))
+    return io_dir
+
+
+async def resolve_plain_kwargs(kwargs: dict) -> dict:
+    """Resolve a shell/jvm task's kwargs into the plain JSON ``in.json`` carries.
+
+    ``upstream`` refs become the producer's stored value (recursively) and
+    ``native`` wrappers unwrap; a value of any other kind — an ``object`` a
+    Python producer stored, say — raises ``ValueError`` naming the kwarg. The
+    commit-point validator rejects such refs written into kwargs directly;
+    this catches the ones that only appear once a producer has run.
+    """
+    if not kwargs:
+        return {}
+    async with get_sql_session() as session:
+        return {k: await _resolve_plain_value(k, v, session) for k, v in kwargs.items()}
 
 
 async def register_run(task_id: int) -> int:
@@ -309,7 +363,13 @@ async def execute_task(task: Task, shell_spec: ShellSpec | None = None) -> Any:
 
     run_id = await register_run(task.id)
 
-    set_current_task_info(task_id=task.id, job_id=task.job_id, image_source=task.image_source, group_id=task.group_id)
+    set_current_task_info(
+        task_id=task.id,
+        job_id=task.job_id,
+        image_source=task.image_source,
+        group_id=task.group_id,
+        entry_type=task.entry_type,
+    )
 
     async with capture_task_output(task.id, task.job_id, run_id):
         # Inside capture so an import failure's traceback lands in this run's log.
@@ -369,33 +429,12 @@ async def start_shell_process(
 
 
 class ShellSpec(NamedTuple):
-    """A shell task's fully-resolved launch command.
-
-    Built host-side (``dispatch.build_shell_spec``) so runner-specific
-    wrapping (``docker run`` / ``kubectl run``) stays out of the executing
-    process. ``cleanup_argv`` is run after the process ends however it ends —
-    killing the wrapper CLI alone would leave its container/pod running.
-    ``env_file`` is a private (0600) host file the argv reads ``command_env``
-    from, keeping the values out of ``ps``; the dispatcher removes it once
-    the task child returns."""
+    """A subprocess shell task's launch command: its argv plus the
+    ``command_env`` overlay. Container shell tasks never reach the task child
+    — their launch is a host-side vehicle."""
 
     argv: list[str]
     env: dict[str, str] | None
-    cleanup_argv: list[str] | None = None
-    env_file: str | None = None
-
-
-async def _run_cleanup_argv(cleanup_argv: list[str]) -> None:
-    """Best-effort teardown command (``docker kill`` / ``kubectl delete``).
-
-    Failure is expected on the happy path (the ``--rm`` container is already
-    gone) — output and exit code are deliberately ignored."""
-    proc = await asyncio.create_subprocess_exec(
-        *cleanup_argv,
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL,
-    )
-    await proc.wait()
 
 
 async def _pump_stream(stream: asyncio.StreamReader, sink: ChLogSink, source: LogStream) -> None:
@@ -451,30 +490,49 @@ async def pump_process_output(
                 sink.write(STDERR_STREAM, f"error: exit {proc.returncode}\n")
 
 
-async def execute_shell_task(task: Task, spec: ShellSpec | None = None) -> None:
+async def finish_shell_result(task: Task, out_value: Any) -> Any:
+    """Interpret what a shell/jvm task wrote to ``out.json`` — register any
+    task/group dicts it returned, unwrap a top-level ``native`` — and return
+    the data portion for :func:`serialize_task_result`.
+
+    Runs under the task's info so children built here inherit its image
+    (``stamp_inherited_image``), restored afterwards: on the container
+    runners this is the worker loop's own context.
+    """
+    if ref_kind(out_value) == NATIVE:
+        out_value = out_value[VALUE]
+    info = TaskInfo(task.id, task.job_id, task.image_source, task.group_id, task.entry_type)
+    with current_task_info(info):
+        return await register_returned_tasks(out_value, task.id, task.job_id)
+
+
+async def execute_shell_task(task: Task, spec: ShellSpec | None = None) -> Any:
     """Run a shell task's argv, streaming its output to CH ``task_logs``.
 
-    One code path for every shell runner: the in-process worker and
+    One code path for every in-process shell run: the in-process worker and
     ``job_test`` call it directly (``spec=None`` → the task's own argv), and
-    the mp worker's task child calls it with a dispatch-built ``ShellSpec``
-    (host argv, or ``docker run`` / ``kubectl run`` wrapped). Output is
-    drained to ``task_logs`` every ``LOG_FLUSH_INTERVAL`` seconds and finally
-    at exit, so long-running commands are tailed live.
+    the mp worker's task child calls it with the dispatch-built ``ShellSpec``.
+    Output is drained to ``task_logs`` every ``LOG_FLUSH_INTERVAL`` seconds
+    and finally at exit, so long-running commands are tailed live.
 
-    Returns None (shell tasks have no result). Raises ``RuntimeError`` on
-    nonzero exit, matching the ``"exit <code>"`` error the workers report.
+    The task's kwargs are resolved into ``in.json`` under a per-attempt temp
+    dir named by ``AAICLICK_IO_DIR``; whatever the process wrote to
+    ``out.json`` is the result (see :func:`finish_shell_result`). Raises
+    ``RuntimeError`` on nonzero exit, matching the ``"exit <code>"`` error the
+    workers report — ``out.json`` is ignored then.
     """
     if spec is None:
         spec = ShellSpec(task.command or [], task.command_env)
-    run_id = await register_run(task.id)
-    proc = await start_shell_process(spec.argv, spec.env)
+    io_dir = await stage_in_json(task)
     try:
+        run_id = await register_run(task.id)
+        proc = await start_shell_process(spec.argv, {**(spec.env or {}), IO_DIR_ENV: str(io_dir)})
         await pump_process_output(proc, task.id, task.job_id, run_id, record_exit=True)
+        if proc.returncode != 0:
+            raise RuntimeError(f"exit {proc.returncode}")
+        return await finish_shell_result(task, read_out_json(io_dir))
     finally:
-        if spec.cleanup_argv:
-            await _run_cleanup_argv(spec.cleanup_argv)
-    if proc.returncode != 0:
-        raise RuntimeError(f"exit {proc.returncode}")
+        shutil.rmtree(io_dir, ignore_errors=True)
 
 
 async def get_run_count(task_id: int) -> int:
@@ -597,12 +655,9 @@ def serialize_task_result(result: Any, job_id: int) -> dict | None:
         return ref
 
     if isinstance(result, BaseModel):
-        return {
-            PYDANTIC_TYPE: f"{type(result).__module__}.{type(result).__qualname__}",
-            PYDANTIC_DATA: result.model_dump(),
-        }
+        return pydantic_ref(result)
 
-    return native_value_ref(_sanitize_for_json(result))
+    return native_ref(_sanitize_for_json(result))
 
 
 def _contains_dag_node(item: Any) -> bool:
@@ -649,6 +704,120 @@ def _tasks_from(items: Any) -> list[Task | Group]:
     return tasks
 
 
+def _is_dag_dict(value: Any) -> bool:
+    """True for a ``task`` / ``group`` dict — the JSON form of a DAG node."""
+    return ref_kind(value) in (TASK, GROUP)
+
+
+Handles = dict[str, "Task | Group"]
+
+
+def _build_dag_from_dicts(items: list[dict]) -> tuple[list[Task | Group], Handles]:
+    """Build ``Task``/``Group`` objects from their JSON form, minting ids.
+
+    Returns the nodes in order plus the handle → node map for the handles the
+    dicts declared. Handles are scoped to this one return value. Each task
+    dict passes the same entry validation a Python caller gets.
+
+    Raises:
+        ValueError: on a duplicate handle or an invalid entry.
+    """
+    handles: Handles = {}
+
+    def claim(handle: str | None, node: Task | Group) -> None:
+        if handle is None:
+            return
+        if handle in handles:
+            raise ValueError(f"duplicate handle {handle!r} in returned tasks")
+        handles[handle] = node
+
+    def build(spec: dict) -> Task | Group:
+        fields = {k: v for k, v in spec.items() if k != AAICLICK_TYPE}
+        handle = fields.pop(HANDLE, None)
+        if spec[AAICLICK_TYPE] == GROUP:
+            group = Group(id=get_snowflake_id(), name=fields.get("name", "group"))
+            claim(handle, group)
+            for member in fields.get(TASKS, []):
+                if ref_kind(member) != TASK:
+                    raise TypeError("a group dict may hold only task dicts")
+                group.add_task(build(member))
+            return group
+        fields.pop(DEPENDS_ON, None)  # applied after every handle is known
+        validate_task_entry(entry_type=fields.get("entry_type", ENTRY_MODULE), command=fields.get("command"))
+        task = create_task(fields.pop(ENTRYPOINT, None), **fields)
+        claim(handle, task)
+        return task
+
+    return [build(spec) for spec in items], handles
+
+
+_HANDLE_KEYS = {UPSTREAM: TASK_ID, GROUP_RESULTS: GROUP_ID}
+
+
+def _handle_ref(value: Any) -> tuple[str, str] | None:
+    """``(kind, handle)`` when ``value`` is an upstream/group ref naming a handle."""
+    kind = ref_kind(value)
+    if kind is None or kind not in _HANDLE_KEYS:
+        return None
+    handle = value.get(_HANDLE_KEYS[kind])
+    return (kind, handle) if isinstance(handle, str) else None
+
+
+def _handle_node(handles: Handles, handle: str, kind: str) -> Task | Group:
+    """The node a handle names, checked against the ref kind using it."""
+    if handle not in handles:
+        raise ValueError(f"unknown handle {handle!r} in returned tasks")
+    node = handles[handle]
+    want_group = kind == GROUP_RESULTS
+    if isinstance(node, Group) != want_group:
+        names, expects = ("group", "task") if isinstance(node, Group) else ("task", "group")
+        raise ValueError(f"handle {handle!r} names a {names}, not a {expects}")
+    return node
+
+
+def _swap_handles(value: Any, handles: Handles, resolved: list[Task | Group]) -> Any:
+    """Replace string handles inside ``upstream`` / ``group_results`` refs with
+    the ids minted for them, appending each node to ``resolved``; recurses
+    through lists and dicts.
+
+    Raises:
+        ValueError: on an undeclared handle or one of the wrong kind.
+    """
+    if isinstance(value, list):
+        return [_swap_handles(v, handles, resolved) for v in value]
+    if not isinstance(value, dict):
+        return value
+    if (ref := _handle_ref(value)) is not None:
+        kind, handle = ref
+        node = _handle_node(handles, handle, kind)
+        resolved.append(node)
+        return {**value, _HANDLE_KEYS[kind]: node.id}
+    return {k: _swap_handles(v, handles, resolved) for k, v in value.items()}
+
+
+def _wire_dag_dicts(specs: list[dict], nodes: list[Task | Group], handles: Handles) -> None:
+    """Second pass over the dict DAG, now that every handle has an id: swap
+    handles in kwargs, and add an edge for each handle a task consumes (as a
+    Task kwarg does in Python) plus its ``depends_on``."""
+
+    def walk(spec: dict, node: Task | Group) -> None:
+        if isinstance(node, Group):
+            for member_spec, member in zip(spec.get(TASKS, []), node.get_tasks(), strict=True):
+                walk(member_spec, member)
+        else:
+            consumed: list[Task | Group] = []
+            node.kwargs = _swap_handles(node.kwargs, handles, consumed)
+            for upstream in consumed:
+                node.depends_on(upstream)
+        for handle in spec.get(DEPENDS_ON, []):
+            if handle not in handles:
+                raise ValueError(f"unknown handle {handle!r} in returned tasks")
+            node.depends_on(handles[handle])
+
+    for spec, node in zip(specs, nodes, strict=True):
+        walk(spec, node)
+
+
 async def _hold_dependencies(data_task: Task, parent_task_id: int) -> list[Dependency]:
     """Copy every edge leaving the parent (or its group) onto ``data_task``.
 
@@ -667,6 +836,32 @@ async def _hold_dependencies(data_task: Task, parent_task_id: int) -> list[Depen
         )
         for target in sorted(targets)
     ]
+
+
+def _dict_result_data(data: Any, handles: Handles) -> Any:
+    """The ``data`` of a ``task_result`` dict: a plain value (a ``native``
+    wrapper unwraps, like out.json's top level) or a task handle, handed on as
+    the Task itself — as Python's ``task_result(data=child)`` — so the
+    parent's consumers are held. Any other handle would be stored as a
+    dangling ref, so it is an error."""
+    if ref_kind(data) == NATIVE:
+        data = data[VALUE]
+    if (ref := _handle_ref(data)) is not None and ref[0] == UPSTREAM:
+        return _handle_node(handles, ref[1], UPSTREAM)
+    resolved: list[Task | Group] = []
+    _swap_handles(data, handles, resolved)
+    if resolved:
+        raise ValueError("data may be a plain value or a task handle")
+    return data
+
+
+def _register_dict_dag(specs: list, data: Any) -> tuple[list[Task | Group], Any]:
+    """Build the nodes of a dict-form DAG and resolve its ``data``."""
+    if not all(map(_is_dag_dict, specs)):
+        raise TypeError("a returned task list may hold only task/group dicts")
+    nodes, handles = _build_dag_from_dicts(specs)
+    _wire_dag_dicts(specs, nodes, handles)
+    return _tasks_from(nodes), _dict_result_data(data, handles)
 
 
 async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int) -> Any:
@@ -703,6 +898,10 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
     if result is None:
         return None
 
+    if isinstance(result, dict) and ref_kind(result) == TASK_RESULT:
+        task_items, data_result = _register_dict_dag(result.get(TASKS, []), result.get(DATA))
+    elif _is_dag_dict(result) or (isinstance(result, list) and any(map(_is_dag_dict, result))):
+        task_items, data_result = _register_dict_dag(result if isinstance(result, list) else [result], None)
     elif isinstance(result, TaskResult):
         task_items = _tasks_from(result.tasks)
         data_result = result.data
@@ -737,7 +936,7 @@ async def register_returned_tasks(result: Any, parent_task_id: int, job_id: int)
 def _referenced_tables(value: Any) -> set[str]:
     """Ephemeral table names referenced by Object/View refs anywhere inside ``value``."""
     if isinstance(value, dict):
-        if value.get(OBJECT_TYPE) in (OBJECT, VIEW):
+        if ref_kind(value) in (OBJECT, VIEW):
             return set() if value.get(PERSISTENT) else {value["table"]}
         return set().union(*(_referenced_tables(v) for v in value.values()))
     if isinstance(value, (list, tuple)):

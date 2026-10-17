@@ -36,6 +36,14 @@ Bring it back as one nightly job that publishes the report where it is read
 
 Items deferred until preconditions are met.
 
+## Objects in Non-Python Tasks
+
+Unsupported. Shell and jvm tasks speak the Task Interface's file data plane
+(`task_interface.md`: plain values and resolved upstream refs); `object` /
+`view` refs are rejected at commit. An
+Object needs a per-language task runner that owns the ClickHouse dependency
+and the lifecycle (refcounts, pins, ephemeral-table ownership, oplog).
+
 ## Tenants — Kubernetes Control Plane
 
 Multi-tenancy as a fleet layer rather than a filtered column: a control

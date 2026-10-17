@@ -32,8 +32,14 @@ public final class SampleTasks {
     }
 
     @AaiTask
-    public static String wrapperNamed(String native_value) {
-        return native_value;
+    public static String tagNamed(String _aaiclick_type) {
+        return _aaiclick_type;
+    }
+
+    /** The JSON form of a dynamic DAG: written to out.json as is. */
+    @AaiTask
+    public static Map<String, Object> spawn(int n) {
+        return Map.of("_aaiclick_type", "task_result", "data", n, "tasks", List.of());
     }
 
     @AaiTask

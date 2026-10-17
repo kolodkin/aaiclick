@@ -8,7 +8,7 @@ from aaiclick.snowflake import get_snowflake_id
 
 from ..datetime_utils import utc_now
 from .env import get_default_preservation_mode
-from .image_injection import inject_build_tasks, validate_jvm_tasks
+from .image_injection import inject_build_tasks, validate_plain_data_plane_tasks
 from .models import JOB_PENDING, RUN_MANUAL, TASK_PENDING, Job, PreservationMode, RegisteredJob, RunType, Task
 from .orch_context import commit_tasks, get_sql_session
 from .runner_config import (
@@ -342,7 +342,7 @@ async def create_container_job(
     )
     entry_task.job_id = job.id
     entry_task.image_source = dump_image_source(image_source)
-    validate_jvm_tasks([entry_task])
+    validate_plain_data_plane_tasks([entry_task])
 
     # Not routed through commit_tasks: submission must succeed even when the
     # submitting machine lacks AAICLICK_REGISTRY (commit_tasks validates

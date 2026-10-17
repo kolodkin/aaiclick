@@ -15,7 +15,7 @@ from aaiclick import create_object_from_value
 from aaiclick.data.data_context import data_context
 from aaiclick.data.models import FIELDTYPE_ARRAY, FIELDTYPE_DICT, ColumnInfo, Computed, ViewSchema
 from aaiclick.data.object import Object, View
-from aaiclick.data.object.refs import ViewRef
+from aaiclick.data.object.refs import ViewRef, native_ref, upstream_ref
 from aaiclick.internal_api.tasks import get_task_logs
 from aaiclick.log_models import STDOUT_STREAM
 from aaiclick.orchestration.decorators import job, task
@@ -26,18 +26,34 @@ from aaiclick.orchestration.examples.orchestration_dynamic import (
 from aaiclick.orchestration.execution.claiming import update_task_status
 from aaiclick.orchestration.execution.db_handler import DEPENDENCY_WHERE
 from aaiclick.orchestration.execution.debug import ajob_test
+from aaiclick.orchestration.execution.execution_worker_context import get_current_task_info
+from aaiclick.orchestration.execution.log_test_helpers import IO_DOUBLE_COMMAND
 from aaiclick.orchestration.execution.runner import (
     _pump_stream,
     deserialize_task_params,
     execute_shell_task,
     execute_task,
+    finish_shell_result,
     import_callback,
     register_returned_tasks,
     register_run,
+    resolve_plain_kwargs,
     run_job_tasks,
     serialize_task_result,
 )
 from aaiclick.orchestration.factories import create_job, create_task
+from aaiclick.orchestration.fixtures.dict_return_pipelines import (
+    spawn_bad_entry_type,
+    spawn_dicts,
+    spawn_duplicate_handle,
+    spawn_group,
+    spawn_group_data,
+    spawn_group_depends_on,
+    spawn_native_data,
+    spawn_result_without_tasks,
+    spawn_unknown_handle,
+    spawn_wrong_handle_kind,
+)
 from aaiclick.orchestration.jobs import get_job_result, get_task
 from aaiclick.orchestration.jobs.queries import get_tasks_for_job
 from aaiclick.orchestration.logging import ChLogSink, read_task_logs
@@ -348,18 +364,41 @@ async def test_deserialize_task_params_native_python(orch_ctx):
     assert result["items"] == [1, 2, 3]
 
 
-async def test_deserialize_task_params_rejects_unknown_type(orch_ctx):
-    """Test that unknown object_type is rejected."""
-    kwargs = {"x": {"object_type": "unknown", "value": 5}}
+async def _completed_task(result: dict | None) -> Task:
+    """Commit a task whose stored result is ``result``, for upstream refs."""
+    job = await create_job("upstream_src", create_task("m.src"))
+    src = create_task("m.src2")
+    await commit_tasks([src], job.id)
+    await update_task_status(src.id, TASK_COMPLETED, result=result)
+    return src
 
-    with pytest.raises(ValueError, match="Unknown object_type"):
+
+async def test_resolve_plain_kwargs_unwraps_upstream_and_native(orch_ctx):
+    src = await _completed_task(native_ref({"a": 1}))
+    resolved = await resolve_plain_kwargs({"x": upstream_ref(src.id), "y": native_ref(2), "z": [3, {"w": 4}]})
+    assert resolved == {"x": {"a": 1}, "y": 2, "z": [3, {"w": 4}]}
+
+
+async def test_resolve_plain_kwargs_rejects_object_result(orch_ctx):
+    """A producer that stored an Object cannot feed a shell task; this is only
+    knowable at launch, after the producer ran."""
+    src = await _completed_task({"_aaiclick_type": "object", "table": "t_1"})
+    with pytest.raises(ValueError, match="kwarg 'd' resolves to a object ref"):
+        await resolve_plain_kwargs({"d": upstream_ref(src.id)})
+
+
+async def test_deserialize_task_params_rejects_unknown_type(orch_ctx):
+    """``_aaiclick_type`` is reserved: an unknown value is an error, not plain data."""
+    kwargs = {"x": {"_aaiclick_type": "banana", "value": 5}}
+
+    with pytest.raises(ValueError, match="Unknown _aaiclick_type"):
         await deserialize_task_params(kwargs)
 
 
 async def test_deserialize_task_params_object(orch_ctx):
     """Test deserializing an Object parameter."""
     await seed_registry_row("t123")
-    kwargs = {"data": {"object_type": "object", "table": "t123"}}
+    kwargs = {"data": {"_aaiclick_type": "object", "table": "t123"}}
 
     result = await deserialize_task_params(kwargs)
     assert "data" in result
@@ -616,6 +655,185 @@ async def test_run_job_tasks_shell_command_env(orch_ctx):
     assert job.status == JOB_COMPLETED
 
 
+# Shell data plane: in.json / out.json under AAICLICK_IO_DIR
+
+WRITE_DOUBLE = IO_DOUBLE_COMMAND
+WRITE_SUM = [
+    "python",
+    "-c",
+    "import json,os; d=os.environ['AAICLICK_IO_DIR']; k=json.load(open(f'{d}/in.json')); "
+    "json.dump(sum(k['parts']), open(f'{d}/out.json','w'))",
+]
+
+
+def _shell_job_coro(name: str, command: list[str], kwargs: dict | None = None):
+    return create_job(name, create_task(None, kwargs, name=name, entry_type="shell", command=command))
+
+
+async def test_shell_task_reads_in_json_and_writes_out_json(orch_ctx):
+    job = await _shell_job_coro("shell_io", WRITE_DOUBLE, {"n": 21})
+    await run_job_tasks(job)
+    assert job.status == JOB_COMPLETED, job.error
+    async with data_context():
+        assert await get_job_result(job) == 42
+
+
+async def test_shell_task_without_out_json_has_no_result(orch_ctx):
+    job = await _shell_job_coro("shell_no_out", ["true"])
+    await run_job_tasks(job)
+    assert job.status == JOB_COMPLETED, job.error
+    assert (await get_tasks_for_job(job.id))[0].result is None
+
+
+async def test_shell_task_out_json_spawns_children(orch_ctx):
+    """A shell entry task returns a task_result dict: two shell workers and a
+    finalize summing them; the entry's result is the finalize's (2 + 4 = 6)."""
+    spawn = {
+        "_aaiclick_type": "task_result",
+        "data": {"_aaiclick_type": "upstream", "task_id": "fin"},
+        "tasks": [
+            {"_aaiclick_type": "task", "id": "w1", "entry_type": "shell", "command": WRITE_DOUBLE, "kwargs": {"n": 1}},
+            {"_aaiclick_type": "task", "id": "w2", "entry_type": "shell", "command": WRITE_DOUBLE, "kwargs": {"n": 2}},
+            {
+                "_aaiclick_type": "task",
+                "id": "fin",
+                "entry_type": "shell",
+                "command": WRITE_SUM,
+                "kwargs": {
+                    "parts": [
+                        {"_aaiclick_type": "upstream", "task_id": "w1"},
+                        {"_aaiclick_type": "upstream", "task_id": "w2"},
+                    ]
+                },
+            },
+        ],
+    }
+    write_spawn = [
+        "python",
+        "-c",
+        f"import json,os; json.dump({spawn!r}, open(os.environ['AAICLICK_IO_DIR']+'/out.json','w'))",
+    ]
+    job = await _shell_job_coro("shell_spawn", write_spawn)
+    await run_job_tasks(job)
+    assert job.status == JOB_COMPLETED, job.error
+    assert len(await get_tasks_for_job(job.id)) == 4
+    async with data_context():
+        assert await get_job_result(job) == 6
+
+
+async def test_shell_task_nonzero_exit_ignores_out_json(orch_ctx):
+    spawn = {"_aaiclick_type": "task", "entry_type": "shell", "command": ["true"]}
+    cmd = [
+        "python",
+        "-c",
+        f"import json,os,sys; json.dump({spawn!r}, open(os.environ['AAICLICK_IO_DIR']+'/out.json','w')); sys.exit(3)",
+    ]
+    job = await _shell_job_coro("shell_exit_after_out", cmd)
+    await run_job_tasks(job)
+    assert job.status == JOB_FAILED
+    assert len(await get_tasks_for_job(job.id)) == 1
+
+
+async def test_shell_task_invalid_out_json_fails_task(orch_ctx):
+    cmd = ["sh", "-c", "echo 'not json' > \"$AAICLICK_IO_DIR/out.json\""]
+    job = await _shell_job_coro("shell_bad_out", cmd)
+    await run_job_tasks(job)
+    assert job.status == JOB_FAILED
+    assert "out.json is not valid JSON" in (job.error or "")
+
+
+# Dict-returned DAGs (the JSON form of task_result / task / group)
+
+
+async def test_run_job_tasks_dict_return_spawns_children(orch_ctx):
+    """A task returning ``task`` dicts with handles spawns the children and
+    its result is the finalize child's: double(1) + double(2) = 6."""
+    job = await create_job("dict_return", create_task(spawn_dicts, {"n": 1}, name="dict_return"))
+    await run_job_tasks(job)
+    assert job.status == JOB_COMPLETED, job.error
+    async with data_context():
+        assert await get_job_result(job) == 6
+
+
+async def test_run_job_tasks_dict_return_group_results(orch_ctx):
+    job = await create_job("dict_return_group", create_task(spawn_group, {"n": 1}, name="dict_return_group"))
+    await run_job_tasks(job)
+    assert job.status == JOB_COMPLETED, job.error
+    async with data_context():
+        assert await get_job_result(job) == 6
+
+
+async def test_run_job_tasks_dict_return_wires_data_flow_edges(orch_ctx):
+    """A handle in a child's kwargs is a dependency edge, as a Task kwarg is in
+    Python — otherwise a second worker claims ``fin`` before ``w1``/``w2``
+    complete (an internal check: ``run_job_tasks`` runs children in id order
+    and cannot show the race)."""
+    job = await create_job("dict_return_edges", create_task(spawn_dicts, {"n": 1}, name="dict_return_edges"))
+    await run_job_tasks(job)
+    tasks = await get_tasks_for_job(job.id)
+    doubles = [t for t in tasks if t.entrypoint.endswith(".double")]
+    fin = next(t for t in tasks if t.entrypoint.endswith(".total"))
+    assert len(doubles) == 2
+    async with get_sql_session() as session:
+        rows = (await session.execute(select(Dependency.previous_id).where(Dependency.next_id == fin.id))).all()
+    assert {r[0] for r in rows} >= {d.id for d in doubles}
+
+
+async def test_run_job_tasks_dict_return_group_depends_on_is_an_edge(orch_ctx):
+    job = await create_job("dict_group_edge", create_task(spawn_group_depends_on, name="dict_group_edge"))
+    await run_job_tasks(job)
+    assert job.status == JOB_COMPLETED, job.error
+    tasks = await get_tasks_for_job(job.id)
+    prep = next(t for t in tasks if t.kwargs == {"x": 1})
+    member = next(t for t in tasks if t.kwargs == {"x": 2})
+    async with get_sql_session() as session:
+        rows = (await session.execute(select(Dependency.next_id).where(Dependency.previous_id == prep.id))).all()
+    assert member.group_id in {r[0] for r in rows}
+
+
+async def test_run_job_tasks_dict_result_without_tasks(orch_ctx):
+    job = await create_job("dict_no_tasks", create_task(spawn_result_without_tasks, name="dict_no_tasks"))
+    await run_job_tasks(job)
+    assert job.status == JOB_COMPLETED, job.error
+    async with data_context():
+        assert await get_job_result(job) == 5
+
+
+async def test_finish_shell_result_restores_task_context(orch_ctx):
+    """The host interprets out.json in the worker loop's own context, so the
+    task info must not outlive the call (it would stamp the task's image onto
+    unrelated tasks committed later)."""
+    task = create_task(None, entry_type="shell", command=["true"])
+    assert await finish_shell_result(task, None) is None
+    with pytest.raises(RuntimeError, match="No task is currently executing"):
+        get_current_task_info()
+
+
+async def test_run_job_tasks_dict_return_native_data(orch_ctx):
+    job = await create_job("dict_native_data", create_task(spawn_native_data, name="dict_native_data"))
+    await run_job_tasks(job)
+    assert job.status == JOB_COMPLETED, job.error
+    async with data_context():
+        assert await get_job_result(job) == 5
+
+
+@pytest.mark.parametrize(
+    "entry, match",
+    [
+        pytest.param(spawn_duplicate_handle, "duplicate handle 'w1'", id="duplicate"),
+        pytest.param(spawn_unknown_handle, "unknown handle 'nope'", id="unknown"),
+        pytest.param(spawn_bad_entry_type, "unknown entry_type 'banana'", id="bad-entry-type"),
+        pytest.param(spawn_group_data, "data may be a plain value or a task handle", id="group-data"),
+        pytest.param(spawn_wrong_handle_kind, "handle 'w1' names a task, not a group", id="wrong-kind"),
+    ],
+)
+async def test_run_job_tasks_dict_return_bad_dicts_fail_parent(orch_ctx, entry, match):
+    job = await create_job("bad_handles", create_task(entry))
+    await run_job_tasks(job)
+    assert job.status == JOB_FAILED
+    assert match in (job.error or "")
+
+
 # job_test() tests
 
 
@@ -718,7 +936,7 @@ async def test_register_returned_tasks_pins_child_input_tables(orch_ctx):
                     view_schema=ViewSchema(fieldtype=FIELDTYPE_ARRAY, columns=_VALUE_COLUMNS, limit=2, offset=0),
                 ).to_dict()
             ],
-            "keep": {"object_type": "object", "table": "p_keep", "persistent": True},
+            "keep": {"_aaiclick_type": "object", "table": "p_keep", "persistent": True},
         },
     )
 

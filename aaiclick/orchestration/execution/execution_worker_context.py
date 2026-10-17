@@ -8,8 +8,12 @@ job they belong to when creating child tasks.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+
+from ..runner_config import ENTRY_MODULE, EntryType
 
 
 @dataclass
@@ -23,16 +27,37 @@ class TaskInfo:
     image_source: dict | None = None
     # The executing task's group: map()/reduce() expanders nest their parts in it.
     group_id: int | None = None
+    # The executing task's entry type: image inheritance depends on it (a JVM
+    # image has no Python, a Python image no JVM).
+    entry_type: EntryType = ENTRY_MODULE
 
 
 _current_task_info: ContextVar[TaskInfo] = ContextVar("current_task_info")
 
 
 def set_current_task_info(
-    task_id: int, job_id: int, image_source: dict | None = None, group_id: int | None = None
+    task_id: int,
+    job_id: int,
+    image_source: dict | None = None,
+    group_id: int | None = None,
+    entry_type: EntryType = ENTRY_MODULE,
 ) -> None:
     """Set the current task info for the executing context."""
-    _current_task_info.set(TaskInfo(task_id=task_id, job_id=job_id, image_source=image_source, group_id=group_id))
+    _current_task_info.set(
+        TaskInfo(task_id=task_id, job_id=job_id, image_source=image_source, group_id=group_id, entry_type=entry_type)
+    )
+
+
+@contextmanager
+def current_task_info(info: TaskInfo) -> Iterator[None]:
+    """Set the task info for the block and restore the previous value after —
+    for host-side code that acts for a task inside the worker loop's own
+    context, where a bare set would outlive the task."""
+    token = _current_task_info.set(info)
+    try:
+        yield
+    finally:
+        _current_task_info.reset(token)
 
 
 def get_current_task_info() -> TaskInfo:

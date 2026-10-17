@@ -5,8 +5,8 @@
 #   app/  this directory — the user's @AaiTask project
 #
 # The runtime stage is the shape docs/designs/java-sdk.md prescribes for a
-# user image: the shim as ENTRYPOINT, so the runner's ``--task-id N
-# --run-epoch M`` arguments reach it.
+# user image: the shim as ENTRYPOINT, so the runner's class-name argument
+# reaches it.
 
 FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /build

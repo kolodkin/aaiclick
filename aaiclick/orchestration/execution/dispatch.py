@@ -10,7 +10,6 @@ affinity rules.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from pathlib import Path
 
 from sqlmodel import select
 
@@ -18,10 +17,9 @@ from ..kubernetes_config import resolve_pod_config
 from ..models import Job, Task
 from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_JVM, ENTRY_SHELL, parse_image_source
-from .docker_build import resolve_launch_image
-from .docker_worker import _docker_pull_if_registered, _run_task_in_container, build_shell_run_spec
+from .docker_worker import _run_shell_in_container, _run_task_in_container
 from .execution_worker import JobDispatch
-from .kubernetes_worker import _run_task_in_pod, build_shell_pod_spec
+from .kubernetes_worker import _run_shell_in_pod, _run_task_in_pod
 from .mp_worker import _run_task_in_child
 from .runner import ShellSpec, register_host_log_run, require_container_runner
 from .runner_env import RUNNER_DOCKER, RUNNER_KUBERNETES, WorkerRunner, get_worker_runner
@@ -29,8 +27,14 @@ from .runner_env import RUNNER_DOCKER, RUNNER_KUBERNETES, WorkerRunner, get_work
 ExecuteResult = tuple[bool, dict | None, str | None]
 
 
+def _launch_command(task: Task) -> list[str] | None:
+    """A jvm task's argv is its class name: the image's ENTRYPOINT is the
+    aaiclick-task-api shim (spec: docs/designs/java-sdk.md)."""
+    return [task.entrypoint] if task.entry_type == ENTRY_JVM else task.command
+
+
 def _subprocess_dispatch(task: Task) -> JobDispatch:
-    return JobDispatch(None, None, task.entry_type, task.command, task.command_env, None)
+    return JobDispatch(None, None, task.entry_type, _launch_command(task), task.command_env, None)
 
 
 async def _resolve_dispatch(task: Task) -> JobDispatch:
@@ -48,7 +52,7 @@ async def _resolve_dispatch(task: Task) -> JobDispatch:
     async with get_sql_session() as session:
         resources = (await session.execute(select(Job.resources).where(Job.id == task.job_id))).scalar_one_or_none()
     pod_config = resolve_pod_config() if runner == RUNNER_KUBERNETES else None
-    return JobDispatch(runner, pod_config, task.entry_type, task.command, task.command_env, source, resources)
+    return JobDispatch(runner, pod_config, task.entry_type, _launch_command(task), task.command_env, source, resources)
 
 
 # Image-based runners need the dispatch snapshot and the host-registered log
@@ -60,39 +64,29 @@ _IMAGE_RUNNERS: dict[WorkerRunner, Callable[[Task, int, JobDispatch, int | None]
 }
 
 
-async def build_shell_spec(task: Task, dispatch: JobDispatch) -> ShellSpec:
-    """Resolve a shell task's launch command for its runner mode.
-
-    Subprocess mode runs the argv directly; container modes wrap it as a
-    foreground ``docker run`` / ``kubectl run`` so the wrapper's exit code
-    and merged stdout are the task's."""
-    if dispatch.runner == RUNNER_DOCKER:
-        image_tag = await resolve_launch_image(dispatch.image_source, task_id=task.id)
-        await _docker_pull_if_registered(image_tag)
-        return build_shell_run_spec(task, image_tag, dispatch.resources)
-    if dispatch.runner == RUNNER_KUBERNETES:
-        image_tag = await resolve_launch_image(dispatch.image_source, task_id=task.id)
-        return await build_shell_pod_spec(task, dispatch, image_tag)
-    return ShellSpec(dispatch.command or [], dispatch.command_env)
+_SHELL_RUNNERS: dict[WorkerRunner, Callable[[Task, int, JobDispatch, int | None], Awaitable[ExecuteResult]]] = {
+    RUNNER_DOCKER: _run_shell_in_container,
+    RUNNER_KUBERNETES: _run_shell_in_pod,
+}
+"""Shell/jvm tasks on the file data plane run host-side: the launch is a
+multi-step create/cp/start sequence, not one argv for the mp child."""
 
 
 async def dispatch_execute(task: Task, execution_worker_id: int) -> ExecuteResult:
     """ExecuteFn that picks the runner per task."""
     dispatch = await _resolve_dispatch(task)
-    if dispatch.entry_type == ENTRY_SHELL:
-        spec = await build_shell_spec(task, dispatch)
-        try:
-            return await _run_task_in_child(task, execution_worker_id, shell_spec=spec)
-        finally:
-            # The child may be killed before its own cleanup runs, so the
-            # env file (command_env values) is removed here, in the parent.
-            if spec.env_file is not None:
-                Path(spec.env_file).unlink(missing_ok=True)
-    handler = _IMAGE_RUNNERS.get(dispatch.runner) if dispatch.runner is not None else None
-    if dispatch.entry_type == ENTRY_JVM and handler is None:
-        # Commit-point validation (validate_jvm_tasks) blocks this; the guard
-        # keeps a stray row from being executed as a Python module task.
-        return False, None, "jvm task requires a docker/kubernetes runner with an image_source"
+    if dispatch.entry_type in (ENTRY_SHELL, ENTRY_JVM):
+        shell_handler = _SHELL_RUNNERS.get(dispatch.runner)
+        if shell_handler is not None:
+            log_run_id = await register_host_log_run(task, dispatch.entry_type)
+            return await shell_handler(task, execution_worker_id, dispatch, log_run_id)
+        if dispatch.entry_type == ENTRY_JVM:
+            # Commit-point validation (validate_plain_data_plane_tasks) blocks
+            # this; the guard keeps a stray row from running as a host subprocess.
+            return False, None, "jvm task requires a docker/kubernetes runner with an image_source"
+        spec = ShellSpec(dispatch.command or [], dispatch.command_env)
+        return await _run_task_in_child(task, execution_worker_id, shell_spec=spec)
+    handler = _IMAGE_RUNNERS.get(dispatch.runner)
     if handler is not None:
         log_run_id = await register_host_log_run(task, dispatch.entry_type)
         return await handler(task, execution_worker_id, dispatch, log_run_id)

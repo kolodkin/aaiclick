@@ -72,6 +72,7 @@ nav:
     - Object API: user_guide/object.md
     - DataContext: user_guide/data_context.md
     - Orchestration: user_guide/orchestration.md
+    - Task Interface: user_guide/task_interface.md
     - Container Images: user_guide/container_images.md
     - Deployment: user_guide/deployment.md
     - Sandbox: user_guide/sandbox.md
