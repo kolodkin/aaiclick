@@ -111,7 +111,11 @@ async def test_docker_runner_jvm_fanout(orch_ctx, docker_e2e_user_repo, jvm_task
         "io.github.kolodkin.aaiclick.e2e.SumTask",
     ]
     # No image on the children: each inherited the jvm parent's prebuilt image.
-    assert all(parse_image_source(t.image_source).image_tag == jvm_task_image for t in children)
+    for child in children:
+        assert child.image_source is not None
+        source = parse_image_source(child.image_source)
+        assert isinstance(source, ImagePrebuilt)
+        assert source.image_tag == jvm_task_image
 
     expected = native_ref({"total": 60.0, "count": 3})
     combine = next(t for t in children if t.entrypoint.endswith("#combine"))
