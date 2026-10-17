@@ -127,8 +127,8 @@ def _render(args: argparse.Namespace, view, text_renderer) -> None:
 
 async def _run_internal_api(coro):
     """Run ``coro`` inside ``orch_context``."""
-    # We own `coro`, so close it however we leave: a missing extra or a locked
-    # chdb raises before it is ever awaited, and an unclosed coroutine trails a
+    # We own `coro`, so close it however we leave: a missing extra raises
+    # before it is ever awaited, and an unclosed coroutine trails a
     # "was never awaited" RuntimeWarning over the error.
     with closing(coro):
         async with orch_context():

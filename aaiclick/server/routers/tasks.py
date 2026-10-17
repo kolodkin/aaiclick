@@ -10,8 +10,6 @@ from ..auth import require_admin
 from ..deps import orch_scope
 from ..errors import problem_responses
 
-# Mixed scopes (like jobs.py): the logs endpoint reads the ClickHouse
-# ``task_logs`` stream so it needs the CH-enabled scope; the others are SQL-only.
 router = APIRouter(prefix="/tasks", tags=["tasks"], dependencies=[Depends(orch_scope)])
 
 

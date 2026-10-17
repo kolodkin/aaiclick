@@ -250,8 +250,8 @@ async def _ensure_task_logs_table(task_id: int, run_id: int) -> None:
     ``task_scope`` (an import error, a shell or jvm task on a fresh DB) has not
     run its ``init_oplog_tables`` yet.
 
-    Distributed mode never writes the schema (the operator migrates), and the
-    host worker there holds no CH client, so it is skipped."""
+    Distributed mode never writes the schema (the operator migrates), so it
+    is skipped."""
     if not is_local():
         return
     try:

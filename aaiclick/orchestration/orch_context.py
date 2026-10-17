@@ -369,19 +369,14 @@ class OrchLifecycleHandler(LifecycleHandler):
 async def orch_context() -> AsyncIterator[None]:
     """Async context manager for all orchestration operations.
 
-    Creates shared resources on enter:
-    - SQLAlchemy AsyncEngine for orchestration SQL (set in _sql_engine_var)
-    - DbHandler for database operations (set in _db_handler_var)
-    - LazyChClient for ClickHouse operations (set in _ch_client_var)
-
     Sets ContextVars for the duration:
-    - _sql_engine_var: SQL engine (accessed via get_sql_session())
-    - _db_handler_var: DB handler (accessed via get_db_handler())
-    - _ch_client_var: shared ClickHouse client (accessed via get_ch_client())
+    - _sql_engine_var: SQLAlchemy AsyncEngine (via get_sql_session())
+    - _db_handler_var: DbHandler (via get_db_handler())
+    - _ch_client_var: LazyChClient (via get_ch_client())
     - _engine_var: ENGINE_DEFAULT for data operations
 
     ClickHouse opens on the first query, so SQL-only callers never take the
-    chdb file lock — which a running worker process may need.
+    chdb file lock a running worker process may need.
 
     When nested inside an outer ``orch_context``, the inner call reuses the
     outer engine, handler, and ChClient — SQLAlchemy engines are designed

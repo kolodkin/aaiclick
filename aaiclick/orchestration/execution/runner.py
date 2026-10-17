@@ -367,8 +367,7 @@ async def execute_task(task: Task, shell_spec: ShellSpec | None = None) -> Any:
 
     run_id = await register_run(task.id)
 
-    info = TaskInfo(task.id, task.job_id, task.image_source, task.group_id, task.entry_type)
-    with current_task_info(info):
+    with current_task_info(TaskInfo.from_task(task)):
         async with capture_task_output(task.id, task.job_id, run_id):
             # Inside capture so an import failure's traceback lands in this run's log.
             func = import_callback(task.entrypoint)
@@ -501,8 +500,7 @@ async def finish_shell_result(task: Task, out_value: Any) -> Any:
     """
     if ref_kind(out_value) == NATIVE:
         out_value = out_value[VALUE]
-    info = TaskInfo(task.id, task.job_id, task.image_source, task.group_id, task.entry_type)
-    with current_task_info(info), fresh_task_registry():
+    with current_task_info(TaskInfo.from_task(task)), fresh_task_registry():
         return await register_returned_tasks(out_value, task.id, task.job_id)
 
 

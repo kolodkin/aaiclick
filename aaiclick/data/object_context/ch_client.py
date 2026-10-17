@@ -216,12 +216,10 @@ async def create_ch_client() -> ChClient:
 class LazyChClient:
     """ChClient that creates the real client on its first call.
 
-    Arguments past the first are passed by keyword: chdb and clickhouse-connect
-    order ``settings`` / ``parameters`` differently.
-
     ``orch_context`` sets one at entry, so SQL-only callers never open
-    ClickHouse (and never take the chdb file lock). Child tasks inherit the
-    same instance, so the first query anywhere fills it for all.
+    ClickHouse or take the chdb file lock. Child tasks share the instance.
+    Arguments past the first go by keyword: chdb and clickhouse-connect order
+    ``settings`` / ``parameters`` differently.
     """
 
     def __init__(self) -> None:
@@ -229,6 +227,8 @@ class LazyChClient:
         self._lock = asyncio.Lock()
 
     async def _get(self) -> ChClient:
+        if self._client is not None:
+            return self._client
         async with self._lock:
             if self._client is None:
                 self._client = await create_ch_client()
@@ -273,6 +273,6 @@ class LazyChClient:
         return await (await self._get()).raw_stream(query=query, fmt=fmt)  # type: ignore[attr-defined]
 
     async def close(self) -> None:
+        # Keep the closed client: a call after close must fail, not reconnect.
         if self._client is not None:
             await self._client.close()
-            self._client = None

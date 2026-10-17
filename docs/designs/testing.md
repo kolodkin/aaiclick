@@ -62,9 +62,9 @@ Two independent mitigations compose to get a stable suite:
 1. **Nested `orch_context()` reuses the outer `ch_client`.** Inner
    `orch_context` / inline `object_context()` calls don't create their own
    chdb session; they reuse the existing one cached in
-   `aaiclick/data/object_context/chdb_client.py::_sessions`. See the
-   `existing = _ch_client_var.get()` branch in
-   `aaiclick/orchestration/orch_context.py`.
+   `aaiclick/data/object_context/chdb_client.py::_sessions`. Only the
+   outermost `orch_context` installs a `LazyChClient`, which opens chdb on
+   its first query.
 
 2. **Module-scoped orch fixtures.** `orch_ctx` / `orch_ctx_no_ch` sit on
    top of `orch_module_ctx*`, not per-test `orch_context()`. Requires
