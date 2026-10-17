@@ -53,18 +53,18 @@ async def report(value: int):   # 42
 Kwargs and results are JSON. Plain values are data; a dict carrying the
 reserved key `_aaiclick_type` is one of these shapes:
 
-| `_aaiclick_type` | Fields                                                  | Meaning                                         |
-|------------------|---------------------------------------------------------|-------------------------------------------------|
-| `upstream`       | `task_id` (int = committed task; string = local handle) | Another task's result                           |
-| `group_results`  | `group_id` (int or handle)                              | The list of a group's results                   |
-| `native`         | `value`                                                 | A plain value, wrapped; same as writing it bare |
-| `task`           | See [Spawning tasks](#spawning-tasks)                   | A child task to spawn                           |
-| `group`          | `id`, `name`, `tasks: [task…]`                          | Child tasks under one handle                    |
-| `task_result`    | `data`, `tasks: [task \| group …]`                      | A result plus children to spawn                 |
-| `callable`       | `entrypoint`                                            | A Python function — Python tasks only           |
-| `object`         | `table`, `persistent`, `job_id`                         | A ClickHouse table — Python tasks only          |
-| `view`           | `table`, `view_schema`                                  | A filtered `object` — Python tasks only         |
-| `pydantic`       | `type` (dotted class path), `data`                      | A Pydantic model — Python tasks only            |
+| `_aaiclick_type` | Fields                                                | Meaning                                         |
+|------------------|-------------------------------------------------------|-------------------------------------------------|
+| `upstream`       | `task_id` (int = database id; string = sibling `id`)  | Another task's result                           |
+| `group_results`  | `group_id` (int = database id; string = sibling `id`) | The list of a group's results                   |
+| `native`         | `value`                                               | A plain value, wrapped; same as writing it bare |
+| `task`           | See [Spawning tasks](#spawning-tasks)                 | A child task to spawn                           |
+| `group`          | `id`, `name`, `tasks: [task…]`                        | A set of child tasks                            |
+| `task_result`    | `data`, `tasks: [task \| group …]`                    | A result plus children to spawn                 |
+| `callable`       | `entrypoint`                                          | A Python function — Python tasks only           |
+| `object`         | `table`, `persistent`, `job_id`                       | A ClickHouse table — Python tasks only          |
+| `view`           | `table`, `view_schema`                                | A filtered `object` — Python tasks only         |
+| `pydantic`       | `type` (dotted class path), `data`                    | A Pydantic model — Python tasks only            |
 
 !!! warning "`_aaiclick_type` is reserved"
     A dict with that key is interpreted, never passed through as data, and an
@@ -73,8 +73,8 @@ reserved key `_aaiclick_type` is one of these shapes:
 # Spawning tasks
 
 Write a `task_result` to `out.json`: `data` is your result, `tasks` the
-children. Children reference each other by `id`; the orchestrator replaces
-each `id` with a database id.
+children. Children reference each other by `id`, which the framework
+replaces with a database id.
 
 ```json
 {"_aaiclick_type": "task_result",
@@ -94,15 +94,15 @@ for `fin` and gets its value (`6`).
 
 `task` fields:
 
-| Field                                   | Meaning                                                    |
-|-----------------------------------------|------------------------------------------------------------|
-| `id`                                    | Handle other children refer to (optional)                  |
-| `entry_type`                            | `"shell"`, `"module"` (Python) or `"jvm"`                  |
-| `command` / `entrypoint`                | Argv for shell; dotted path or Java class name otherwise   |
-| `kwargs`                                | JSON object; values may be `upstream` refs to handles      |
-| `command_env`, `max_retries`, `name`    | Env vars for the process, retries on failure, display name |
-| `image` or `git_remote` / `git_sha` / … | Image source; omitted → the child runs in your image       |
-| `depends_on`                            | Handles to run after, without data flow                    |
+| Field                                   | Meaning                                                     |
+|-----------------------------------------|-------------------------------------------------------------|
+| `id`                                    | Name siblings refer to (optional)                           |
+| `entry_type`                            | `"shell"`, `"module"` (Python) or `"jvm"`                   |
+| `command` / `entrypoint`                | Argv for shell; dotted path or Java class name otherwise    |
+| `kwargs`                                | JSON object; values may be `upstream` refs to sibling `id`s |
+| `command_env`, `max_retries`, `name`    | Env vars for the process, retries on failure, display name  |
+| `image` or `git_remote` / `git_sha` / … | Image source; omitted → the child runs in your image        |
+| `depends_on`                            | Sibling `id`s to run after, without data flow               |
 
 A `group` dict (`{"_aaiclick_type": "group", "id": "g", "tasks": [...]}`)
 groups children; a `group_results` ref (`{"_aaiclick_type": "group_results",
