@@ -60,8 +60,8 @@ def open_page(page, url: str) -> None:
 # server process locally, separate processes in distributed mode) then picks
 # the job up, so status transitions arrive on their own.
 #
-# ``with_ch=False`` is required: in local mode the server subprocess holds the
-# chdb file lock, and a second ClickHouse client here would deadlock.
+# These helpers must never query ClickHouse: in local mode the server
+# subprocess holds the chdb file lock, and a second client here would deadlock.
 
 
 def run_in_process(coro_fn: Callable[[], Awaitable[T]]) -> T:
@@ -88,7 +88,7 @@ def submit_job(name: str, entrypoint: str, kwargs: dict | None = None, max_retri
     """Create a job in-process and return its id as a string."""
 
     async def go() -> int:
-        async with orch_context(with_ch=False):
+        async with orch_context():
             job = await create_job(name, create_task(entrypoint, kwargs, max_retries=max_retries))
             return job.id
 
@@ -99,7 +99,7 @@ def job_tasks(job_id: str) -> list[TaskRow]:
     """The job's tasks, in creation order."""
 
     async def go() -> list[TaskRow]:
-        async with orch_context(with_ch=False):
+        async with orch_context():
             return [TaskRow(str(t.id), t.name, t.status) for t in await get_tasks_for_job(int(job_id))]
 
     return run_in_process(go)
@@ -109,7 +109,7 @@ def wait_for_task(job_id: str, status: str | None = None, timeout: float = 30.0)
     """The job's first task once it exists — and has reached ``status``, if given."""
 
     async def go() -> TaskRow:
-        async with orch_context(with_ch=False):
+        async with orch_context():
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
                 tasks = await get_tasks_for_job(int(job_id))
@@ -130,7 +130,7 @@ def wait_for_job_completed(job_id: str, timeout: float = 120.0) -> None:
     """
 
     async def go() -> JobStatsView:
-        async with orch_context(with_ch=False):
+        async with orch_context():
             return await cli_wait.wait_for_job(int(job_id), timeout=timeout)
 
     stats = run_in_process(go)
@@ -145,7 +145,7 @@ def job_result(job_id: str):
     """The completed job's native result, as ``get_job_result`` resolves it."""
 
     async def go():
-        async with orch_context(with_ch=False):
+        async with orch_context():
             job = await get_job(int(job_id))
             assert job is not None
             return await get_job_result(job)
@@ -157,7 +157,7 @@ def job_graph(job_id: str) -> dict:
     """The job's graph as ``GET /jobs/{id}/graph`` would return it, read in-process."""
 
     async def go() -> dict:
-        async with orch_context(with_ch=False):
+        async with orch_context():
             return (await get_job_graph(int(job_id))).model_dump(mode="json")
 
     return run_in_process(go)
