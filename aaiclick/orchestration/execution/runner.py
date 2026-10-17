@@ -85,6 +85,7 @@ from ..models import (
 from ..orch_context import commit_tasks, get_sql_session, task_scope
 from ..result import TaskResult
 from ..runner_config import ENTRY_JVM, ENTRY_MODULE, ENTRY_SHELL, EntryType, validate_task_entry
+from ..task_registry import fresh_task_registry
 from .claiming import update_job_status, update_task_status
 from .cli import overlay_env
 from .db_handler import DEPENDENCY_WHERE
@@ -500,12 +501,14 @@ async def finish_shell_result(task: Task, out_value: Any) -> Any:
 
     Runs under the task's info so children built here inherit its image
     (``stamp_inherited_image``), restored afterwards: on the container
-    runners this is the worker loop's own context.
+    runners this is the worker loop's own context. A fresh task registry
+    keeps the commit to the returned nodes: the loop's registry holds the
+    claimed task itself, which would otherwise be inserted again.
     """
     if ref_kind(out_value) == NATIVE:
         out_value = out_value[VALUE]
     info = TaskInfo(task.id, task.job_id, task.image_source, task.group_id, task.entry_type)
-    with current_task_info(info):
+    with current_task_info(info), fresh_task_registry():
         return await register_returned_tasks(out_value, task.id, task.job_id)
 
 
