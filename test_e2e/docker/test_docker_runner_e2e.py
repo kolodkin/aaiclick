@@ -92,6 +92,37 @@ async def test_docker_runner_jvm_task(orch_ctx, docker_e2e_user_repo, jvm_task_i
 
 
 @pytest.mark.docker_e2e
+async def test_docker_runner_jvm_fanout(orch_ctx, docker_e2e_user_repo, jvm_task_image):
+    """A jvm task returns a ``TaskResult`` built with the SDK's typed classes;
+    the host registers its jvm children, swaps their ids for database ids,
+    and hands the child ``data`` names to the downstream Python consumer."""
+    tasks = await run_build_job(
+        "docker_e2e_jvm_fanout",
+        "sample_jobs.jvm_fanout_entry_task",
+        docker_e2e_user_repo,
+        "--kwargs",
+        json.dumps({"jvm_image": jvm_task_image}),
+    )
+
+    children = [t for t in tasks if t.entry_type == ENTRY_JVM and not t.entrypoint.endswith("#fanOut")]
+    assert sorted(t.entrypoint for t in children) == [
+        "io.github.kolodkin.aaiclick.e2e.FanOutTask#combine",
+        "io.github.kolodkin.aaiclick.e2e.SumTask",
+        "io.github.kolodkin.aaiclick.e2e.SumTask",
+    ]
+    # No image on the children: each inherited the jvm parent's prebuilt image.
+    assert all(parse_image_source(t.image_source).image_tag == jvm_task_image for t in children)
+
+    expected = native_ref({"total": 60.0, "count": 3})
+    combine = next(t for t in children if t.entrypoint.endswith("#combine"))
+    assert combine.result == expected, combine.result
+
+    # TaskResult data = fin.ref(): the consumer waited for combine and got its value.
+    reported = next(t for t in tasks if t.entrypoint == "sample_jobs.report")
+    assert reported.result == expected, reported.result
+
+
+@pytest.mark.docker_e2e
 async def test_docker_runner_shell_prebuilt(orch_ctx, tmp_path):
     """A shell command in a prebuilt image: no build task, and the
     ``--env-file`` delivery of ``command_env`` is exercised."""

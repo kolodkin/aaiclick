@@ -22,6 +22,7 @@ from aaiclick.orchestration.factories import create_task
 
 # Class name of the @AaiTask method in the ``jvm_task`` fixture image.
 JVM_SUM_TASK = "io.github.kolodkin.aaiclick.e2e.SumTask"
+JVM_FAN_OUT_TASK = "io.github.kolodkin.aaiclick.e2e.FanOutTask#fanOut"
 
 
 @task
@@ -90,3 +91,15 @@ async def jvm_entry_task(jvm_image: str):
     values >> summed
     reported = report(summary=summed)
     return tasks_list(values, summed, reported)
+
+
+@task
+async def jvm_fanout_entry_task(jvm_image: str):
+    """Entry point for the jvm fan-out e2e: produce_values → FanOutTask (jvm,
+    returns a typed TaskResult of jvm children) → report, which receives the
+    value of the child the TaskResult's data names."""
+    values = produce_values()
+    fanned = create_task(JVM_FAN_OUT_TASK, {"values": upstream_ref(values.id)}, entry_type="jvm", image=jvm_image)
+    values >> fanned
+    reported = report(summary=fanned)
+    return tasks_list(values, fanned, reported)
