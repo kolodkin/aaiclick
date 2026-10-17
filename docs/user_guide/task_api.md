@@ -14,17 +14,25 @@ for you.
 
 # Types
 
-| Concept               | JSON (`_aaiclick_type`) | Python                            | Java                            |
-|-----------------------|-------------------------|-----------------------------------|---------------------------------|
-| Result + children     | `task_result`           | `task_result(data=…, tasks=[…])`  | `TaskResult.of(…)`, `.spawn(…)` |
-| Child task            | `task`                  | `@task` call, `create_task(…)`    | `Task.shell/jvm/module(…)`      |
-| Group of tasks        | `group`                 | `Group(name=…)`                   | `Group.of(id, …)`               |
-| A sibling's result    | `upstream`              | pass the `Task` as a kwarg        | `task.ref()`                    |
-| A group's results     | `group_results`         | pass the `Group` as a kwarg       | `group.results()`               |
-| Entry in `tasks`      | `task` \| `group`       | `Task \| Group`                   | `DagNode` (`Task` or `Group`)   |
+Each row is one [vocabulary](task_interface.md#vocabulary) shape:
 
-Java needs an explicit `ref()` because a handle is a string `id` you name;
-Python passes the object and the serializer writes the ref.
+| `_aaiclick_type` | Python                            | Java                            |
+|------------------|-----------------------------------|---------------------------------|
+| `task_result`    | `task_result(data=…, tasks=[…])`  | `TaskResult.of(…)`, `.spawn(…)` |
+| `task`           | `@task` call, `create_task(…)`    | `Task.shell/jvm/module(…)`      |
+| `group`          | `Group(name=…)`                   | `Group.of(id, …)`               |
+| `upstream`       | pass the `Task` as a kwarg        | `task.ref()`, `Upstream.of(id)` |
+| `group_results`  | pass the `Group` as a kwarg       | `group.results()`               |
+| `native`         | any JSON-serializable value       | any value, written untagged     |
+| `callable`       | a `@task` function as a value     | —                               |
+| `object`         | `Object`                          | —                               |
+| `view`           | `View`                            | —                               |
+| `pydantic`       | a `BaseModel` instance            | —                               |
+
+A `tasks` entry is a `Task | Group` in Python and a `DagNode` (sealed:
+`Task` or `Group`) in Java. Java needs an explicit `ref()` because a handle
+is a string `id` you name; Python passes the object and the serializer
+writes the ref.
 
 # Spawning tasks
 

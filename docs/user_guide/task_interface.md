@@ -48,6 +48,28 @@ async def report(value: int):   # 42
     ...
 ```
 
+# Vocabulary
+
+Kwargs and results are JSON. Plain values are data; a dict carrying the
+reserved key `_aaiclick_type` is one of these shapes:
+
+| `_aaiclick_type` | Fields                                                  | Meaning                                         |
+|------------------|---------------------------------------------------------|-------------------------------------------------|
+| `upstream`       | `task_id` (int = committed task; string = local handle) | Another task's result                           |
+| `group_results`  | `group_id` (int or handle)                              | The list of a group's results                   |
+| `native`         | `value`                                                 | A plain value, wrapped; same as writing it bare |
+| `task`           | `create_task()`'s parameters + `id`, `depends_on`       | A child task to spawn                           |
+| `group`          | `id`, `name`, `tasks: [task…]`                          | Child tasks under one handle                    |
+| `task_result`    | `data`, `tasks: [task \| group …]`                      | A result plus children to spawn                 |
+| `callable`       | `entrypoint`                                            | A Python function — Python tasks only           |
+| `object`         | `table`, `persistent`, `job_id`                         | A ClickHouse table — Python tasks only          |
+| `view`           | `table`, `view_schema`                                  | A filtered `object` — Python tasks only         |
+| `pydantic`       | `type` (dotted class path), `data`                      | A Pydantic model — Python tasks only            |
+
+!!! warning "`_aaiclick_type` is reserved"
+    A dict with that key is interpreted, never passed through as data, and an
+    unknown value fails the task.
+
 # Spawning tasks
 
 To fan out, write a `task_result` to `out.json`: `tasks` are the children,
@@ -87,12 +109,6 @@ A `group` dict (`{"_aaiclick_type": "group", "id": "g", "tasks": [...]}`)
 groups children; a `group_results` ref (`{"_aaiclick_type": "group_results",
 "group_id": "g"}`) in a kwarg delivers the list of their results. Returning
 a single `task`, or a list of them, works too when there is no data.
-
-!!! warning "`_aaiclick_type` is reserved"
-    A dict with that key is interpreted, never passed through as data, and an
-    unknown value fails the task. Plain JSON (`42`, `[1, 2]`, `{"k": "v"}`)
-    is always data; wrapping it as `{"_aaiclick_type": "native", "value": …}`
-    is accepted and means the same thing.
 
 # What a task can and cannot receive
 

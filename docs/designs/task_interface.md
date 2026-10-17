@@ -9,28 +9,14 @@ and hands back its result). The Python objects (`Task`, `Group`,
 `TaskResult`, `Object`) and the Java shim are bindings of the contract, not
 the contract.
 
-What a task author sees — the files, the spawn example, the `task` fields,
-the limits — is in `docs/user_guide/task_interface.md`; this document holds
-the vocabulary, the runner mechanics and the decisions.
+What a task author sees — the files, the vocabulary, the spawn example, the
+`task` fields, the limits — is in `docs/user_guide/task_interface.md`; this
+document holds the runner mechanics and the decisions.
 
 # Vocabulary
 
-Task kwargs and results are JSON. Plain values are data; a dict carrying the
-reserved key `_aaiclick_type` is one of the shapes below, and an unknown
-value is an error, never data.
-
-| `_aaiclick_type` | Fields                                                     | Python binding                       | Java binding                    |
-|------------------|------------------------------------------------------------|--------------------------------------|---------------------------------|
-| `upstream`       | `task_id` (int = committed task; string = local handle)    | a `Task` passed as a kwarg           | `task.ref()`, `Upstream.of(id)` |
-| `group_results`  | `group_id` (int or handle)                                 | a `Group` passed as a kwarg          | `group.results()`               |
-| `callable`       | `entrypoint`                                               | a `@task` function passed as a value | —                               |
-| `object`         | `table`, `persistent`, `job_id`                            | `Object`                             | —                               |
-| `view`           | `table`, `view_schema` (the serialized `ViewSchema`)       | `View`                               | —                               |
-| `native`         | `value`                                                    | any JSON-serializable value          | any value, written untagged     |
-| `pydantic`       | `type` (dotted class path), `data`                         | a `BaseModel` instance               | —                               |
-| `task`           | `create_task()`'s parameters + `id` (handle), `depends_on` | `Task` (uncommitted)                 | `Task.shell/jvm/module(…)`      |
-| `group`          | `id` (handle), `name`, `tasks: [task…]`                    | `Group`                              | `Group.of(…)`                   |
-| `task_result`    | `data`, `tasks: [task \| group …]`                         | `task_result(data=…, tasks=[…])`     | `TaskResult.of(…)`, `.spawn(…)` |
+The tagged dicts and their fields: user guide, "Vocabulary". Language
+bindings: user guide, `task_api.md`.
 
 `job_id` on an `object` ref marks the producing task's job — the background
 worker skips tables with a non-NULL `job_id` pin until the job completes. The
@@ -39,9 +25,6 @@ table's `Schema` is read back from `table_registry.schema_doc` via
 
 **Return values**: `None` → `null`; Object/View → serialized ref + `job_id`;
 a `BaseModel` → `pydantic`; any other value → `native`.
-
-A `—` kind cannot cross the file plane. Java types `tasks` entries as the
-sealed `DagNode` (`Task` or `Group`).
 
 **Implementation**: `aaiclick/data/object/refs.py` (single source of truth:
 constants, Pydantic models, `ref_kind()`);
