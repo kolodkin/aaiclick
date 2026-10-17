@@ -1,5 +1,7 @@
 """Internal API for persistent data-object commands.
 
+See docs/designs/viewer.md — "Scope Model".
+
 Each function runs inside an active ``orch_context(with_ch=True)`` and reads
 the ClickHouse client via the contextvar getter. Registry-backed paths
 (``get_object`` -> ``open_object``) additionally need the SQL session that
@@ -8,8 +10,6 @@ only orch provides. Returns pydantic view models.
 ``list_objects`` covers the ``global`` tier (``p_*`` tables) and, given
 ``ObjectFilter.job``, one job's ``j_<id>_*`` tables. The other operations
 target the ``global`` tier only.
-
-See docs/designs/viewer.md — "Scope Model".
 """
 
 from __future__ import annotations

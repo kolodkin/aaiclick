@@ -1,5 +1,7 @@
 """Task logging utilities for orchestration backend.
 
+See docs/designs/task_log_retirement.md.
+
 Task stdout/stderr is captured to ClickHouse ``task_logs`` and/or the console
 (:func:`task_logs_destination`), streamed to ClickHouse every
 ``LOG_FLUSH_INTERVAL`` seconds through :func:`stream_to_task_logs`. Module tasks feed it from inside the task process
@@ -7,8 +9,6 @@ Task stdout/stderr is captured to ClickHouse ``task_logs`` and/or the console
 host (``execution.runner``'s ``execute_shell_task`` / ``follow_vehicle_output``).
 All runs surface their logs through one cross-host read path
 (:func:`read_task_logs`) no matter which host wrote them.
-
-See docs/designs/task_log_retirement.md.
 """
 
 import asyncio

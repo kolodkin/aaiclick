@@ -12,9 +12,6 @@ runner's Pods use.
 ``_run_shell_in_container`` is the shell/jvm counterpart on the file data
 plane (``io_plane``): ``docker create`` → ``docker cp`` the host-resolved
 ``in.json`` in → ``docker start`` → wait → ``docker cp`` ``out.json`` out.
-
-See docs/designs/java-sdk.md — "Architecture".
-See docs/designs/task_interface.md — "Where it runs".
 """
 
 from __future__ import annotations

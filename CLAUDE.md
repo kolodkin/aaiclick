@@ -220,9 +220,9 @@ Use the `generate-migration` skill. Never hand-write migration files.
    - Commit working code frequently
    - **Always execute plans inline** (`superpowers:executing-plans` in the current session). Do not offer the subagent-driven option or ask which execution mode to use.
 
-3. **Update docs**: follow the `markdown-style` skill. Unimplemented specs stay as design docs.
+3. **Update docs**: follow the `markdown-style` skill.
 
-4. **Remove superpowers plan and spec once implemented**: Delete the superpowers plan (`docs/superpowers/plans/`) and spec (`docs/superpowers/specs/`) after the feature lands, and fix any references pointing at them — the code and its user-guide docs are the record. (Unimplemented specs stay, per step 3.)
+4. **Remove superpowers plan and spec once implemented**: Delete the superpowers plan (`docs/superpowers/plans/`) and spec (`docs/superpowers/specs/`) after the feature lands, and fix any references pointing at them — the code and its user-guide docs are the record. Unimplemented specs stay as design docs.
 
 ## Documentation
 

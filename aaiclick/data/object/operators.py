@@ -1,8 +1,6 @@
 """
 aaiclick.data.operators - Operator implementations for Object class.
 
-See docs/user_guide/oplog.md — "Instrumentation Points".
-
 This module contains database-level functions that implement all operators.
 Each operator function takes table names and ch_client instead of Object instances.
 

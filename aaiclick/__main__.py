@@ -34,9 +34,6 @@ Usage:
     python -m aaiclick docker init              # Scaffold a starter Dockerfile
     python -m aaiclick compose init             # Scaffold a docker-runner compose stack
     python -m aaiclick k8s init                 # Scaffold a helm chart
-
-See docs/designs/deploy_scaffold.md — "Scaffold package and CLI".
-See docs/designs/debugging.md — "AAICLICK_DEBUG".
 """
 
 import argparse

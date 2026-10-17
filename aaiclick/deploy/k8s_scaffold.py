@@ -1,13 +1,13 @@
 """Scaffold a starter helm chart for kubernetes deployments.
 
+See docs/designs/deploy_scaffold.md — "Scaffold package and CLI", "Helm chart template (kubernetes setup)".
+
 Mirrors ``compose_scaffold.py``: the chart ships as package data
 (``templates/helm/aaiclick``) and every file is rendered on write by
 replacing the image-tag token, so ``Chart.yaml``'s ``appVersion`` and the
 ``values.yaml`` image tags pin to the installed aaiclick version.
 
 Invoked via ``python -m aaiclick k8s init``.
-
-See docs/designs/deploy_scaffold.md — "Scaffold package and CLI", "Helm chart template (kubernetes setup)".
 """
 
 from __future__ import annotations

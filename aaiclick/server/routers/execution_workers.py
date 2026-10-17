@@ -1,5 +1,3 @@
-"""See docs/designs/api_server.md — "Spawning workers — `POST /api/v0/execution-workers`"."""
-
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request, Response

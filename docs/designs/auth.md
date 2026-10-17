@@ -417,8 +417,6 @@ The header shows the signed-in username with a sign-out control.
 
 # Multi-Factor Auth
 
-**Implementation**: `aaiclick/auth/security.py`
-
 TOTP (RFC 6238: SHA-1, 30 s step, 6 digits, ±1 step drift), implemented on the
 standard library in `aaiclick/auth/security.py` — no new dependency. Any
 authenticator app works from the `otpauth://` URI or the base32 secret.

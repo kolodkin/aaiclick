@@ -1,8 +1,6 @@
 """Task execution utilities for orchestration backend.
 
-See docs/designs/java-sdk.md — "Architecture".
 See docs/designs/task_interface.md — "Vocabulary", "Returned tasks and handles", "Where it runs".
-See docs/designs/task_log_retirement.md.
 """
 
 from __future__ import annotations

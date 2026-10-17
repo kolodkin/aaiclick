@@ -1,6 +1,5 @@
 """FastMCP tool surface over ``aaiclick.internal_api``.
 
-See docs/user_guide/lineage.md — "Tools".
 See docs/designs/auth.md — "MCP Surface".
 See docs/designs/lineage.md — "Tier 1 -- Static Reasoning".
 

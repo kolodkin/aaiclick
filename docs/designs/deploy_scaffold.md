@@ -21,8 +21,6 @@ setup needs no scaffold: it is `pip install` + `python -m aaiclick setup`.
 
 # Scaffold package and CLI
 
-**Implementation**: `aaiclick/deploy/`
-
 New package `aaiclick/deploy/` with templates as package data. `docker_scaffold.py` keeps a
 single Dockerfile as a Python string; a helm chart is many files, so these templates live as
 real files shipped in the wheel and are copied out with `importlib.resources`.

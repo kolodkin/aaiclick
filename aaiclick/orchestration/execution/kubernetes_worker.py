@@ -1,5 +1,6 @@
 """Kubernetes runner — host-side ExecuteFns driving Pods.
 
+See docs/designs/kubernetes_runner.md.
 See docs/designs/orchestration.md — "Execution layers".
 
 Mirrors ``docker_worker``: ``_run_task_in_pod`` drives a ``KubernetesVehicle``
@@ -14,10 +15,6 @@ direction, so the shell Pod carries two helper containers sharing an
 (``kubectl cp`` puts it there), and sidecar ``io`` outlives the task so
 ``kubectl exec`` can read ``out.json`` back. The host waits on the *task*
 container's state, since the Pod never ends on its own.
-
-See docs/designs/kubernetes_runner.md.
-See docs/designs/java-sdk.md — "Architecture".
-See docs/designs/task_interface.md — "Where it runs".
 """
 
 from __future__ import annotations

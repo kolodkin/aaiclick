@@ -1,8 +1,6 @@
 """
 aaiclick.data.ingest - Database-level functions for ingesting and concatenating data.
 
-See docs/user_guide/oplog.md — "Instrumentation Points".
-
 This module provides database-level functions for copying, concatenating, and
 inserting data. Functions take table names and ch_client instead of Object instances.
 """

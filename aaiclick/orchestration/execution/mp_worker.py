@@ -1,6 +1,7 @@
 """Multiprocessing worker — runs each task in a dedicated child process.
 
 See docs/designs/orchestration.md — "Execution layers".
+See docs/designs/task_interface.md — "Where it runs".
 
 Architecture:
 - Main process: claims tasks from SQLite, manages status, waits for child
@@ -9,8 +10,6 @@ Architecture:
 
 SQLite is accessed from both processes (concurrent access safe with WAL mode).
 chdb runs exclusively in the child process.
-
-See docs/designs/task_interface.md — "Where it runs".
 """
 
 from __future__ import annotations

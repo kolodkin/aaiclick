@@ -1,4 +1,5 @@
 """Internal API for the sandbox: submit a file, list and read submissions.
+
 See docs/user_guide/sandbox.md — "Limits".
 
 Each function runs inside an active ``orch_context()`` and reads the SQL

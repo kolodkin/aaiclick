@@ -2,7 +2,8 @@
 server router supplies the JWT secret from aaiclick.auth.config. Password
 reset lives in ``internal_api.password_reset``.
 
-See docs/designs/auth.md — "Multi-Factor Auth"."""
+See docs/designs/auth.md — "Multi-Factor Auth".
+"""
 
 from __future__ import annotations
 

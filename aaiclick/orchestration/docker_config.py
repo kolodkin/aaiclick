@@ -5,8 +5,6 @@ See docs/designs/orchestration.md — "Runners & Entry Types", "Image source".
 Resolves a run's image source (run kwarg → RegisteredJob default → git
 auto-detect) for stamping onto the entry task, and houses small primitives
 used by the build task and host runner.
-
-See docs/designs/kubernetes_runner.md — "Configuration".
 """
 
 from __future__ import annotations

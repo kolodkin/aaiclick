@@ -1,7 +1,8 @@
 """Internal API for the password-reset lifecycle: an admin (or the CLI)
 mints a one-time link, the user redeems it without a session.
 
-See docs/designs/auth.md — "Password Reset"."""
+See docs/designs/auth.md — "Password Reset".
+"""
 
 from __future__ import annotations
 

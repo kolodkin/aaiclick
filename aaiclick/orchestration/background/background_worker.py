@@ -1,7 +1,6 @@
 """Background worker for cleanup and job scheduling.
 
 See docs/designs/orchestration.md — "BackgroundWorker", "Cron Scheduling".
-See docs/user_guide/oplog.md — "Table Lifecycle & Cleanup".
 
 BackgroundWorker polls the database for:
 1. Failed and cancelled tasks awaiting cleanup — drops their refs, settles them

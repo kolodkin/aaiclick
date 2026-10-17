@@ -1,7 +1,6 @@
 """
 aaiclick.backend - Backend detection from connection URLs.
 
-See docs/user_guide/data_context.md — "Deployment Modes".
 See docs/designs/orchestration.md — "Deployment Modes", "Configuration".
 
 Two independent connection strings control what aaiclick connects to:

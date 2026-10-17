@@ -1,8 +1,3 @@
-"""
-See docs/designs/ui.md — "Task Detail (`@task <id>`)".
-See docs/designs/frontend.md — "Data layer".
-"""
-
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query

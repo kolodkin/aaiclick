@@ -1,4 +1,5 @@
 """Blocking wait loop shared by ``run-job --progress`` and ``job wait``.
+
 See docs/user_guide/orchestration.md — "Wait for completion".
 
 Watches :func:`internal_api.job_stats` until the job reaches a terminal status,

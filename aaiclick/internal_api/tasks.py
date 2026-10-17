@@ -1,10 +1,9 @@
 """Internal API for task commands.
 
+See docs/designs/ui.md — "Task Detail (`@task <id>`)".
+
 Each function runs inside an active ``orch_context()`` and reads the SQL
 session via the contextvar getter. Returns pydantic view models.
-
-See docs/designs/ui.md — "Task Detail (`@task <id>`)".
-See docs/designs/frontend.md — "Data layer".
 """
 
 from __future__ import annotations
