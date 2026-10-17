@@ -1,53 +1,41 @@
 Task Interface — The JSON Contract Between a Task and the Orchestrator
 ---
 
-What a task process and the orchestrator say to each other, in JSON alone,
-so a process in any language takes part in a job with nothing but a JSON
-parser. Two halves: a **vocabulary** of tagged dicts (refs, data, returned
-tasks) and a **file data plane** (how a non-Python process gets its inputs
-and hands back its result). The Python objects (`Task`, `Group`,
-`TaskResult`, `Object`) and the Java shim are bindings of the contract, not
-the contract.
-
-What a task author sees — the files, the vocabulary, the spawn example, the
-`task` fields, the limits — is in `docs/user_guide/task_interface.md`; this
-document holds the runner mechanics and the decisions.
+The JSON-only contract that lets a process in any language take part in a
+job: a **vocabulary** of tagged dicts and a **file data plane** for inputs
+and results. Python and Java are bindings of it
+([Python](../user_guide/task_api_python.md), [Java](../user_guide/task_api_java.md)).
+The user-facing contract — files, vocabulary, spawn example, `task` fields,
+limits — is in the [user guide](../user_guide/task_interface.md); this
+document covers mechanics and decisions.
 
 # Vocabulary
 
-The tagged dicts and their fields: [Vocabulary](../user_guide/task_interface.md#vocabulary).
-Language bindings: [Python](../user_guide/task_api_python.md),
-[Java](../user_guide/task_api_java.md).
+Shapes and fields: [user guide, Vocabulary](../user_guide/task_interface.md#vocabulary).
 
-`job_id` on an `object` ref marks the producing task's job — the background
-worker skips tables with a non-NULL `job_id` pin until the job completes. The
-table's `Schema` is read back from `table_registry.schema_doc` via
-`read_table_schema()` — see `aaiclick/data/data_context/lifecycle.py`.
+- `job_id` on an `object` ref pins the table: the background worker skips it
+  until the job completes. Its `Schema` is read back via `read_table_schema()`
+  (`aaiclick/data/data_context/lifecycle.py`).
+- Python return values: `None` → `null`; Object/View → ref + `job_id`;
+  `BaseModel` → `pydantic`; anything else → `native`.
 
-**Return values**: `None` → `null`; Object/View → serialized ref + `job_id`;
-a `BaseModel` → `pydantic`; any other value → `native`.
-
-**Implementation**: `aaiclick/data/object/refs.py` (single source of truth:
-constants, Pydantic models, `ref_kind()`);
-`aaiclick/orchestration/execution/runner.py` — see `serialize_task_result()`,
-`_deserialize_value()`.
+**Implementation**: `aaiclick/data/object/refs.py` (constants, models,
+`ref_kind()`); `aaiclick/orchestration/execution/runner.py` — see
+`serialize_task_result()`, `_deserialize_value()`.
 
 ## Returned tasks and handles
 
-`task`, `group` and `task_result` are the JSON form of a task function's
-return (example: user guide, "Spawning tasks"; fields: "Task fields"). A `task`
-dict is built through `create_task()`, so it gets the same entry validation
-a Python caller does. Rules the host enforces at registration:
+A `task` dict is built through `create_task()`, so it gets Python's entry
+validation. Rules enforced at registration:
 
 - A string `task_id` / `group_id` is a handle naming a sibling in the same
-  return value; an int names a committed task. Handles are swapped for the
-  ids the host mints, and every handle a task consumes becomes a dependency
-  edge — as a `Task` kwarg does in Python — alongside `depends_on`.
-- An unknown or duplicate handle, or one of the wrong kind (a task where a
-  group is expected), fails the parent.
-- `data` is a plain value (a `native` wrapper unwraps) or a task handle,
-  handed on as the Task itself so the parent's consumers wait for it —
-  Python's `task_result(data=child)`. Any other handle in `data` is an error.
+  return value; an int names a committed task. Handles become minted ids, and
+  each consumed handle becomes a dependency edge, alongside `depends_on`.
+- An unknown, duplicate or wrong-kind handle (a task where a group is
+  expected) fails the parent.
+- `data` is a plain value (`native` unwraps) or a task handle — the parent's
+  consumers then wait for that task, like `task_result(data=child)`. Any
+  other handle in `data` is an error.
 
 Lifecycle of the user guide's fan-out (`w1`, `w2` → `fin`; ids illustrative):
 
@@ -58,72 +46,63 @@ Lifecycle of the user guide's fan-out (`w1`, `w2` → `fin`; ids illustrative):
 | Host swaps handles, commits | `_wire_dag_dicts`       | `[{…, "task_id": 7301}, {…, "task_id": 7302}]` + edges to 7303 |
 | `fin` launches              | `resolve_plain_kwargs`  | `in.json`: `{"values": [2, 4]}`                                |
 
-Handles live only in the one `out.json`; the parent's result points at
-7303, so its consumers wait for `fin`.
+Handles live only in that `out.json`; the parent's result points at 7303.
 
 **Implementation**: `aaiclick/orchestration/execution/runner.py` — see
 `register_returned_tasks()`, `_build_dag_from_dicts()`, `_wire_dag_dicts()`.
 
 # File data plane
 
-A shell or jvm task reads `in.json` and may write `out.json` under
-`AAICLICK_IO_DIR` (contract: user guide, "The contract"). Host side:
+Host side of the `in.json` / `out.json` exchange under `AAICLICK_IO_DIR`:
 
-- Before launch, `resolve_plain_kwargs` turns the kwargs into plain JSON —
-  every `upstream` ref replaced by the producer's stored value, every
-  `native` wrapper unwrapped. Kwargs may carry nothing else: `object` /
-  `view` / `callable` / `group_results` / `pydantic` refs are rejected at
-  commit by `validate_plain_data_plane_tasks` (shell and jvm alike); a
-  producer that stored an Object fails the consumer at launch, since that is
-  only knowable once it ran. Objects in non-Python tasks are unsupported
-  (`future.md`).
-- After an exit 0, `finish_shell_result` interprets `out.json`: a top-level
-  `native` unwraps, a returned DAG is registered under the task's info (so
-  children inherit its image), and the data is serialized like a Python
-  return. Any other exit ignores the file.
+- **Before launch**: `resolve_plain_kwargs` replaces each `upstream` ref with
+  the producer's stored value and unwraps `native`. Any other ref is rejected
+  at commit by `validate_plain_data_plane_tasks`; a producer that stored an
+  Object fails the consumer at launch, the first point it is knowable.
+  Objects in non-Python tasks: `future.md`.
+- **After exit 0**: `finish_shell_result` reads `out.json` — a top-level
+  `native` unwraps, a returned DAG registers under the task's info (children
+  inherit its image), data is serialized like a Python return. Any other exit
+  ignores the file.
 
 ## Transport per runner
 
-| Runner          | `in.json` in                                                  | `out.json` out                                   |
-|-----------------|---------------------------------------------------------------|--------------------------------------------------|
-| host subprocess | per-attempt temp dir, `AAICLICK_IO_DIR` in the child's env    | read from the temp dir, removed after            |
-| docker          | `docker create` → `docker cp` → `docker start`                | `docker cp` of the IO dir back, then `docker rm` |
-| kubernetes      | `kubectl cp` into an `emptyDir` while init container `io-in` waits for an `in.ready` marker | `kubectl exec -c io -- cat` through a `sleep` sidecar, then delete |
+| Runner          | `in.json` in                                                                       | `out.json` out                                        |
+|-----------------|------------------------------------------------------------------------------------|-------------------------------------------------------|
+| host subprocess | per-attempt temp dir, `AAICLICK_IO_DIR` in the child's env                         | read from the temp dir, removed after                 |
+| docker          | `docker create` → `docker cp` → `docker start`                                     | `docker cp` of the IO dir back, then `docker rm`      |
+| kubernetes      | `kubectl cp` into an `emptyDir`; init container `io-in` waits for an `in.ready` marker | `kubectl exec -c io -- cat` via a `sleep` sidecar, then delete |
 
-In containers `AAICLICK_IO_DIR` is `/aaiclick`, and the argv follows the
-image's `ENTRYPOINT` on both runners (`docker create <image> <argv>`, Pod
-`args`) — which is how the jvm shim, the image's `ENTRYPOINT`, receives its
-class name. The host-side temp dir is world-writable so an image running as
-a non-root user can write `out.json`; `docker cp` copies the whole IO dir
-back, so an absent `out.json` needs no daemon error text to interpret.
-
-A Pod has no filesystem the host can reach in either direction, hence two
-helper containers from one image (`busybox:1.36`, override with
-`AAICLICK_K8S_IO_IMAGE` on air-gapped clusters; no resources requested):
-`io-in` holds the Pod until `in.json` and its `in.ready` marker have landed
-(`kubectl cp` extracts in place, so the marker is what proves the file is
-whole), `io` keeps the Pod alive so `out.json` can be read after `task`
-exits. The host waits on the `task` container's state, since the Pod never
-ends on its own; `activeDeadlineSeconds` (the task timeout plus slack, else
-seven days) bounds a Pod a crashed worker orphans, and a Pod that reaches
-`Failed` / `Succeeded` before the task container ran ends the wait with an
-error. `kubectl cp` / `exec` need `pods/exec` in the worker's Role; a copy
-that keeps failing fails the task with kubectl's reason after
-`COPY_IN_ATTEMPTS`. `command_env` values never sit on an argv (visible in
-`ps`): docker reads them from a private `--env-file`, kubernetes from a
-per-attempt Secret deleted with the Pod. Neither runner injects the aaiclick
-runner env; the subprocess runner has no isolation boundary, so there the
-command inherits the worker's env with `command_env` overlaid.
+- In containers `AAICLICK_IO_DIR` is `/aaiclick`, and the argv follows the
+  image's `ENTRYPOINT` (`docker create <image> <argv>`, Pod `args`) — how the
+  jvm shim receives its class name.
+- The host temp dir is world-writable so a non-root image can write
+  `out.json`. `docker cp` copies the whole IO dir, so a missing `out.json`
+  needs no daemon error parsing.
+- Kubernetes helpers share one image (`busybox:1.36`, override via
+  `AAICLICK_K8S_IO_IMAGE`; no resource requests). `io-in` holds the Pod until
+  the `in.ready` marker lands (`kubectl cp` extracts in place, so the marker
+  proves the file is whole); `io` keeps the Pod alive to read `out.json`.
+- The host waits on the `task` container, since the Pod never ends on its
+  own. `activeDeadlineSeconds` (timeout plus slack, else seven days) bounds an
+  orphaned Pod; a Pod reaching `Failed` / `Succeeded` before the task ran is
+  an error. A copy failing `COPY_IN_ATTEMPTS` times fails the task with
+  kubectl's reason. Needs `pods/exec` in the worker's Role.
+- `command_env` never sits on an argv: docker uses a private `--env-file`,
+  kubernetes a per-attempt Secret deleted with the Pod. Neither injects the
+  aaiclick runner env; the subprocess runner inherits the worker's env with
+  `command_env` overlaid.
 
 ## Where it runs
 
-On the in-process paths (the local-mode server's worker, `job_test` /
-`ajob_test`) the command runs in the worker's own event loop; on the mp
-worker a subprocess shell task runs in the spawned task child module tasks
-use (it enforces the timeout and polls cancellation itself; the parent's
-kill is a `CHILD_TIMEOUT_GRACE` backstop). Container shell and jvm tasks run
-host-side on a `ShellVehicle`, like module containers — their launch is a
-multi-step sequence, not one argv.
+In-process paths (local-mode worker, `job_test` / `ajob_test`) run the
+command in the worker's event loop. The mp worker runs a subprocess shell
+task in the spawned task child (it enforces timeout and cancellation; the
+parent's kill is a `CHILD_TIMEOUT_GRACE` backstop). Container shell and jvm
+tasks run host-side on a `ShellVehicle`, as their launch is multi-step.
+
+A `jvm` task is a shell task whose argv is a class name; the shim is the SDK
+jar in the user's image (`docs/designs/java-sdk.md`).
 
 **Implementation**: `aaiclick/orchestration/execution/io_plane.py`;
 `aaiclick/orchestration/execution/runner.py` — see `execute_shell_task()`,
@@ -138,33 +117,20 @@ multi-step sequence, not one argv.
 `aaiclick/orchestration/image_injection.py` — see
 `validate_plain_data_plane_tasks()`, `stamp_inherited_image()`.
 
-# Bindings
-
-| Binding | Inputs                                     | Result                                             |
-|---------|--------------------------------------------|----------------------------------------------------|
-| Python  | kwargs deserialized in-process (all refs)  | the return value, serialized in-process            |
-| jvm     | `in.json` bound to the `@AaiTask` method   | the return value serialized by Jackson to `out.json` |
-| shell   | `in.json`                                  | `out.json`                                         |
-
-A `jvm` task is a shell task whose argv is the class name; the shim is the
-SDK jar in the user's image (`docs/designs/java-sdk.md`).
-
 # Decisions
 
-- **Files, not stdout**: stdout is the log channel on every runner; a result
-  parsed out of it is fragile (a library warning after the result, a
-  buffered logger at exit). A file is unambiguous and one write call.
-- **Files, not Kubernetes termination messages**: no sidecar but a 4 KB cap,
-  which a returned child-task list exceeds.
-- **Files, not sockets**: a Unix socket needs the shared filesystem files
-  need; TCP needs the worker reachable from the cluster plus a client with
-  framing and retry in every shim — the library the interface avoids.
-- **`kubectl cp`, not a Secret, for `in.json`**: `in.json` holds resolved
-  upstream results, so a 1 MiB object cap would be a result cap.
-- **Handles on the existing `task_id` field**, not a new ref type: one rule
-  (`str` → sibling, `int` → committed), nothing extra to learn.
-- **`task` fields = `create_task` parameters**: the JSON form never gains an
-  option Python lacks, and validation lives in one place.
+- **Files, not stdout**: stdout is the log channel; a result parsed from it
+  breaks on a late library warning or buffered logger.
+- **Files, not Kubernetes termination messages**: 4 KB cap, which a returned
+  child-task list exceeds.
+- **Files, not sockets**: a Unix socket needs the same shared filesystem;
+  TCP needs the worker reachable plus a framing/retry client in every shim.
+- **`kubectl cp`, not a Secret, for `in.json`**: a 1 MiB Secret cap would cap
+  upstream results.
+- **Handles on the existing `task_id` field**, not a new ref type: `str` →
+  sibling, `int` → committed.
+- **`task` fields = `create_task` parameters**: JSON never gains an option
+  Python lacks; validation lives in one place.
 - **Untagged `out.json` is data**: a shim returning a number writes `42`.
-- **One discriminator, no old-key dual-read**: pre-release; rows written
-  before the rename are unreadable rather than doubling every consumer.
+- **One discriminator, no old-key dual-read**: pre-release; older rows are
+  unreadable rather than doubling every consumer.
