@@ -1,5 +1,5 @@
 """The file data plane shell and jvm tasks speak (spec:
-docs/designs/orchestration.md "Shell entry type").
+docs/designs/task_interface.md "File data plane").
 
 ``AAICLICK_IO_DIR`` names a directory the process reads ``in.json`` from and
 may write ``out.json`` to. No library, no DB: a shim in any language is a

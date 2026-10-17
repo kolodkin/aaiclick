@@ -1,4 +1,7 @@
-"""Task execution utilities for orchestration backend."""
+"""Task execution utilities for orchestration backend.
+
+Shell/jvm data plane and returned-DAG registration: docs/designs/task_interface.md.
+"""
 
 from __future__ import annotations
 

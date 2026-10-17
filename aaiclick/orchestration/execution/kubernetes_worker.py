@@ -353,7 +353,8 @@ async def _kubectl_delete_shell(handle: _ShellPodHandle) -> None:
 
 class _KubernetesShellVehicle(ShellVehicle["_ShellPodHandle"]):
     """Shell and jvm tasks on the Kubernetes runner — the file data plane
-    through the ``io-in`` / ``io`` helpers (see the module docstring)."""
+    through the ``io-in`` / ``io`` helpers (spec:
+    docs/designs/task_interface.md "Transport per runner")."""
 
     def __init__(self, spec: _PodSpec, timeout: float | None) -> None:
         self._spec = spec

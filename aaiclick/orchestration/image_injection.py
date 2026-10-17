@@ -79,7 +79,7 @@ def validate_plain_data_plane_tasks(tasks: list[Task]) -> None:
     """Enforce the shell/jvm commit-point rules; raises ``ValueError``.
 
     Both entry types read their kwargs from ``in.json`` (spec:
-    docs/designs/orchestration.md "Shell entry type"), which carries plain
+    docs/designs/task_interface.md "File data plane"), which carries plain
     values and resolved upstream refs only, so any other ref fails here, not
     at launch. A jvm task additionally needs a class name and its own image:
     there is no host-subprocess JVM contract."""

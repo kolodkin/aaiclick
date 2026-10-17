@@ -278,7 +278,8 @@ class _ShellHandle(NamedTuple):
 
 class _DockerShellVehicle(ShellVehicle["_ShellHandle"]):
     """Shell and jvm tasks on the Docker runner: ``docker create`` → ``cp``
-    in.json in → ``start`` → wait → ``cp`` out.json out → ``rm``."""
+    in.json in → ``start`` → wait → ``cp`` out.json out → ``rm`` (spec:
+    docs/designs/task_interface.md "Transport per runner")."""
 
     def __init__(self, image_tag: str, dispatch: JobDispatch) -> None:
         self._image_tag = image_tag

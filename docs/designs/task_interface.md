@@ -14,14 +14,10 @@ document covers mechanics and decisions.
 Shapes and fields: [user guide, Vocabulary](../user_guide/task_interface.md#vocabulary).
 
 - `job_id` on an `object` ref pins the table: the background worker skips it
-  until the job completes. Its `Schema` is read back via `read_table_schema()`
-  (`aaiclick/data/data_context/lifecycle.py`).
+  until the job completes. Its schema is read back from the table registry.
 - Python return values: `None` → `null`; Object/View → ref + `job_id`;
   `BaseModel` → `pydantic`; anything else → `native`.
 
-**Implementation**: `aaiclick/data/object/refs.py` (constants, models,
-`ref_kind()`); `aaiclick/orchestration/execution/runner.py` — see
-`serialize_task_result()`, `_deserialize_value()`.
 
 ## Returned tasks and handles
 
@@ -39,28 +35,26 @@ validation. Rules enforced at registration:
 
 Lifecycle of the user guide's fan-out (`w1`, `w2` → `fin`; ids illustrative):
 
-| Step                        | Where                   | `fin`'s `values` kwarg                                         |
-|-----------------------------|-------------------------|----------------------------------------------------------------|
-| Parent writes `out.json`    | parent process          | `[{"_aaiclick_type": "upstream", "task_id": "w1"}, …"w2"]`     |
-| Host mints ids after exit 0 | `_build_dag_from_dicts` | `w1` → 7301, `w2` → 7302, `fin` → 7303                         |
-| Host swaps handles, commits | `_wire_dag_dicts`       | `[{…, "task_id": 7301}, {…, "task_id": 7302}]` + edges to 7303 |
-| `fin` launches              | `resolve_plain_kwargs`  | `in.json`: `{"values": [2, 4]}`                                |
+| Step                        | `fin`'s `values` kwarg                                         |
+|-----------------------------|----------------------------------------------------------------|
+| Parent writes `out.json`    | `[{"_aaiclick_type": "upstream", "task_id": "w1"}, …"w2"]`     |
+| Host mints ids after exit 0 | `w1` → 7301, `w2` → 7302, `fin` → 7303                         |
+| Host swaps handles, commits | `[{…, "task_id": 7301}, {…, "task_id": 7302}]` + edges to 7303 |
+| `fin` launches              | `in.json`: `{"values": [2, 4]}`                                |
 
 Handles live only in that `out.json`; the parent's result points at 7303.
 
-**Implementation**: `aaiclick/orchestration/execution/runner.py` — see
-`register_returned_tasks()`, `_build_dag_from_dicts()`, `_wire_dag_dicts()`.
 
 # File data plane
 
 Host side of the `in.json` / `out.json` exchange under `AAICLICK_IO_DIR`:
 
-- **Before launch**: `resolve_plain_kwargs` replaces each `upstream` ref with
+- **Before launch**: the host replaces each `upstream` ref with
   the producer's stored value and unwraps `native`. Any other ref is rejected
-  at commit by `validate_plain_data_plane_tasks`; a producer that stored an
+  at commit; a producer that stored an
   Object fails the consumer at launch, the first point it is knowable.
   Objects in non-Python tasks: `future.md`.
-- **After exit 0**: `finish_shell_result` reads `out.json` — a top-level
+- **After exit 0**: the host reads `out.json` — a top-level
   `native` unwraps, a returned DAG registers under the task's info (children
   inherit its image), data is serialized like a Python return. Any other exit
   ignores the file.
@@ -104,18 +98,6 @@ tasks run host-side on a `ShellVehicle`, as their launch is multi-step.
 A `jvm` task is a shell task whose argv is a class name; the shim is the SDK
 jar in the user's image (`docs/designs/java-sdk.md`).
 
-**Implementation**: `aaiclick/orchestration/execution/io_plane.py`;
-`aaiclick/orchestration/execution/runner.py` — see `execute_shell_task()`,
-`stage_in_json()`, `resolve_plain_kwargs()`, `finish_shell_result()`;
-`aaiclick/orchestration/execution/execution_worker.py` — see
-`ShellVehicle`, `drive_shell_vehicle()`;
-`aaiclick/orchestration/execution/dispatch.py` — see `dispatch_execute()`;
-`aaiclick/orchestration/execution/docker_worker.py` — see
-`_DockerShellVehicle`; `aaiclick/orchestration/execution/kubernetes_worker.py`
-— see `build_shell_pod_manifest()`, `_KubernetesShellVehicle`;
-`aaiclick/orchestration/execution/mp_worker.py` — see `_child_run_task()`;
-`aaiclick/orchestration/image_injection.py` — see
-`validate_plain_data_plane_tasks()`, `stamp_inherited_image()`.
 
 # Decisions
 
