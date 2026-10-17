@@ -49,6 +49,18 @@ a Python caller does. Rules the host enforces at registration:
   handed on as the Task itself so the parent's consumers wait for it —
   Python's `task_result(data=child)`. Any other handle in `data` is an error.
 
+Lifecycle of the user guide's fan-out (`w1`, `w2` → `fin`; ids illustrative):
+
+| Step                        | Where                   | `fin`'s `values` kwarg                                         |
+|-----------------------------|-------------------------|----------------------------------------------------------------|
+| Parent writes `out.json`    | parent process          | `[{"_aaiclick_type": "upstream", "task_id": "w1"}, …"w2"]`     |
+| Host mints ids after exit 0 | `_build_dag_from_dicts` | `w1` → 7301, `w2` → 7302, `fin` → 7303                         |
+| Host swaps handles, commits | `_wire_dag_dicts`       | `[{…, "task_id": 7301}, {…, "task_id": 7302}]` + edges to 7303 |
+| `fin` launches              | `resolve_plain_kwargs`  | `in.json`: `{"values": [2, 4]}`                                |
+
+Handles live only in the one `out.json`; the parent's result points at
+7303, so its consumers wait for `fin`.
+
 **Implementation**: `aaiclick/orchestration/execution/runner.py` — see
 `register_returned_tasks()`, `_build_dag_from_dicts()`, `_wire_dag_dicts()`.
 
