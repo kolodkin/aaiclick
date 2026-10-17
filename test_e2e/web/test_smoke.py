@@ -357,9 +357,10 @@ def _submit_slow_job() -> tuple[str, TaskRow]:
     The task runs for a few seconds, so the caller has a window in which the
     UI is showing a non-terminal state that must then change on its own. Long
     enough that page load plus the first assertions land well inside its
-    lifetime; the tests wait for the real end, not this number.
+    lifetime, and spans several 2 s log flushes so a running poll sees one.
+    The tests wait for the real end, not this number.
     """
-    job_id = submit_job("slow_task", SLOW_TASK, {"seconds": 4})
+    job_id = submit_job("slow_task", SLOW_TASK, {"seconds": 8})
     return job_id, wait_for_task(job_id)
 
 
@@ -431,10 +432,14 @@ def test_task_view_separates_streamed_status_from_polled_logs(page, base_url: st
     shot("sse-task-running")
 
     seen = len(requests)
+    # Wait, don't sample at COMPLETED: the terminal refetch may still be in
+    # flight. A still-live logs badge proves a running poll brought the lines.
+    page.wait_for_function(f"document.querySelectorAll('.log-line').length > {lines_before}", timeout=30000)
+    logs_badge = page.locator(".logs-toolbar [data-testid='live-status']")
+    assert logs_badge.count() == 1, "log lines did not accumulate while the task ran"
     page.get_by_text("COMPLETED", exact=True).first.wait_for(timeout=30000)
     log_polls = [u for u in requests[seen:] if u.endswith("/logs")]
     assert log_polls, "logs never refetched, so no new lines could have appeared"
-    assert page.locator(".log-line").count() > lines_before, "log lines did not accumulate while the task ran"
     # Going terminal stops the timer, so the lines written since the last poll
     # need one final fetch. Nothing else would collect them — this key is not
     # in LIVE_KEYS, so no `changed` frame touches it — and the panel would sit
