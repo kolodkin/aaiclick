@@ -5,7 +5,7 @@
 aaiclick is a data orchestration framework built to make distributed computing easy. Platform advantages:
 
 1. **Dynamic Task Allocation** — Tasks spawn tasks, so the pipeline shapes itself to the data while it runs. A task is simply a Python function callback, or a [container](docs/user_guide/container_images.md) pinned by image tag or git SHA; both mix in one pipeline.
-2. **Multiple Languages** — Write tasks in [Python](docs/user_guide/task_api_python.md) or [Java](docs/user_guide/task_api_java.md); any other language speaks the JSON [Task Interface](docs/user_guide/task_interface.md) directly.
+2. **Multiple Languages** — Write tasks as plain functions in [Python](docs/user_guide/task_api_python.md) or [Java](docs/user_guide/task_api_java.md) — or bring any language you like through the simple JSON [Task Interface](docs/user_guide/task_interface.md).
 3. **Pandas-like Objects on ClickHouse** — A familiar [Object](docs/user_guide/object.md) interface where data lives and computes in ClickHouse, with [lifecycle management](docs/user_guide/data_context.md) that cleans up tables for you.
 4. **Agent Friendly (MCP)** — Every operation is recorded. Your coding agent (Claude Code, Codex, any MCP client) answers "how did this value get here?" straight from the [lineage](docs/user_guide/lineage.md).
 5. **Data Visualization Included** — A built-in [web UI](docs/designs/ui.md) to browse objects, run queries, watch job graphs, and view agent-authored dashboards over your data.
