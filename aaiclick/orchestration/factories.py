@@ -173,6 +173,9 @@ def create_task(
     ``aaiclick-task-api`` shim inside the task's container image (spec:
     docs/designs/java-sdk.md).
 
+    The parameters mirror the Task Interface's ``task`` fields
+    (docs/user_guide/task_interface.md, "Spawning tasks").
+
     A task may declare its own container image;
     tasks that declare none inherit the committing task's image at
     ``commit_tasks`` (dynamic children follow their parent).

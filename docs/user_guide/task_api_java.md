@@ -42,7 +42,7 @@ public static TaskResult fanOut() {
 (compile with `-parameters`). The return value is written to `out.json`
 via Jackson; `void` / `null` → no result.
 
-`Task` setters mirror `create_task()`: `kwarg`, `kwargs`, `name`,
+`Task` setters mirror the [`task` fields](task_interface.md#spawning-tasks): `kwarg`, `kwargs`, `name`,
 `maxRetries`, `env`, `image`, `git(remote, sha, branch, dockerfile)`,
 `dependsOn(tasks…)`.
 

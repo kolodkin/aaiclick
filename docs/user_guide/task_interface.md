@@ -58,7 +58,7 @@ reserved key `_aaiclick_type` is one of these shapes:
 | `upstream`       | `task_id` (int = committed task; string = local handle) | Another task's result                           |
 | `group_results`  | `group_id` (int or handle)                              | The list of a group's results                   |
 | `native`         | `value`                                                 | A plain value, wrapped; same as writing it bare |
-| `task`           | `create_task()`'s parameters + `id`, `depends_on`       | A child task to spawn                           |
+| `task`           | See [Spawning tasks](#spawning-tasks)                   | A child task to spawn                           |
 | `group`          | `id`, `name`, `tasks: [task…]`                          | Child tasks under one handle                    |
 | `task_result`    | `data`, `tasks: [task \| group …]`                      | A result plus children to spawn                 |
 | `callable`       | `entrypoint`                                            | A Python function — Python tasks only           |
@@ -91,17 +91,17 @@ Here `fin` runs after both workers and reads `{"parts": [2, 4]}` from its
 `in.json`; `data` names `fin`, so whoever consumes this task's result waits
 for `fin` and gets its value (`6`).
 
-A `task` takes the same fields as `create_task()` in Python:
+`task` fields:
 
-| Field                                     | Meaning                                                   |
-|-------------------------------------------|-----------------------------------------------------------|
-| `id`                                      | Handle other children refer to (optional)                 |
-| `entry_type`                              | `"shell"`, `"module"` (Python) or `"jvm"`                 |
-| `command` / `entrypoint`                  | Argv for shell; dotted path or Java class name otherwise  |
-| `kwargs`                                  | JSON object; values may be `upstream` refs to handles     |
-| `command_env`, `max_retries`, `name`      | As in Python                                              |
-| `image` or `git_remote` / `git_sha` / …   | Image source; omitted → the child runs in your image      |
-| `depends_on`                              | Handles to run after, without data flow                   |
+| Field                                   | Meaning                                                    |
+|-----------------------------------------|------------------------------------------------------------|
+| `id`                                    | Handle other children refer to (optional)                  |
+| `entry_type`                            | `"shell"`, `"module"` (Python) or `"jvm"`                  |
+| `command` / `entrypoint`                | Argv for shell; dotted path or Java class name otherwise   |
+| `kwargs`                                | JSON object; values may be `upstream` refs to handles      |
+| `command_env`, `max_retries`, `name`    | Env vars for the process, retries on failure, display name |
+| `image` or `git_remote` / `git_sha` / … | Image source; omitted → the child runs in your image       |
+| `depends_on`                            | Handles to run after, without data flow                    |
 
 A `group` dict (`{"_aaiclick_type": "group", "id": "g", "tasks": [...]}`)
 groups children; a `group_results` ref (`{"_aaiclick_type": "group_results",
