@@ -27,6 +27,7 @@ from ..models import (
     Task,
 )
 from ..orch_context import commit_tasks, get_sql_session
+from ..task_registry import get_task_registry
 from . import execution_worker
 from .claiming import claim_next_task, update_task_status
 from .execution_worker import (
@@ -251,6 +252,20 @@ async def test_claim_next_task_basic(orch_ctx):
         db_job = result.scalar_one()
         assert db_job.status == JOB_RUNNING
         assert db_job.started_at is not None
+
+
+async def test_claim_next_task_does_not_register_claimed_task(orch_ctx):
+    """A claimed (persisted) task never enters the active registry, or a long-lived worker leaks it."""
+    execution_worker = await register_execution_worker()
+    await create_job("test_claim_registry_job", "aaiclick.orchestration.fixtures.sample_tasks.simple_task")
+    registry = get_task_registry()
+    assert registry is not None
+    registry.clear()
+
+    task = await claim_next_task(execution_worker.id)
+
+    assert task is not None
+    assert task.id not in registry
 
 
 @pytest.mark.skipif(

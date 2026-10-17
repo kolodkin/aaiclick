@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
@@ -26,8 +26,10 @@ class PgDbHandler(DbHandler):
 
     @staticmethod
     async def claim_next_task(session: AsyncSession, execution_worker_id: int, now: datetime) -> Task | None:
+        # ORM-load the RETURNING row: Task(**row) would run model_post_init and
+        # park the persisted task in the worker's long-lived task registry.
         result = await session.execute(
-            text(CLAIM_NEXT_TASK_SQL),
+            select(Task).from_statement(text(CLAIM_NEXT_TASK_SQL)),
             {
                 "execution_worker_id": execution_worker_id,
                 "now": now,
@@ -38,12 +40,7 @@ class PgDbHandler(DbHandler):
             },
         )
 
-        row = result.mappings().fetchone()
-        if row is None:
-            return None
-
-        task_data = dict(row)
-        return Task(**task_data)
+        return result.scalars().first()
 
     @staticmethod
     def lock_query(query: Select) -> Select:

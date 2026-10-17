@@ -67,8 +67,8 @@ WITH claimed_task AS (
         FOR UPDATE OF t SKIP LOCKED
     )
     -- RETURNING * (not a hand-maintained column list): every tasks column
-    -- must reach Python's Task(**row) or it silently falls back to a model
-    -- default. Dropping entry_type/command made shell tasks run as module
+    -- must reach Python's ORM-loaded Task or the field is left unloaded.
+    -- Dropping entry_type/command made shell tasks run as module
     -- tasks; dropping run_epoch broke the fencing guard.
     RETURNING *
 ),

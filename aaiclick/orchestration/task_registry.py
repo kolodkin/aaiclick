@@ -9,8 +9,10 @@ A plain dict (not WeakValueDictionary) is used intentionally: task objects
 created inside a @task function are locals that go out of scope when the
 function returns, before commit_tasks can walk the registry. A plain dict
 holds strong references so tasks survive until after commit_tasks runs.
-The dict is short-lived (scoped to task_scope / orch_context) so there
-is no memory leak concern.
+Only in-memory tasks awaiting commit belong here. orch_context's registry
+lives as long as the worker loop, so tasks loaded from the DB (e.g. claimed
+tasks) must be ORM-loaded, which skips model_post_init, never built with
+Task(**row) — otherwise every claimed task leaks into it.
 """
 
 from contextvars import ContextVar

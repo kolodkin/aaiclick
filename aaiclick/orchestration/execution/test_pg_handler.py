@@ -1,9 +1,9 @@
 """Regression guard for the Postgres claim query's column completeness.
 
-``PgDbHandler.claim_next_task`` reconstructs a ``Task`` from the shared claim
+``PgDbHandler.claim_next_task`` ORM-loads a ``Task`` from the shared claim
 SQL's row (``sql/claim_next_task.sql``).
-Every ``tasks`` column must reach ``Task(**row)``, or the field silently
-falls back to its model default: dropping ``entry_type``/``command`` made
+Every ``tasks`` column must reach the loaded ``Task``, or the field is left
+unloaded: dropping ``entry_type``/``command`` made
 shell tasks run as module tasks; dropping ``run_epoch`` broke the fencing
 guard for cleared/retried runs. Runs in every mode — it inspects the SQL
 text, not a live database.
@@ -16,10 +16,10 @@ from aaiclick.orchestration.execution.sql_loader import load_sql
 
 
 def test_pg_claim_returns_all_columns_not_a_hand_listed_subset():
-    # The claim must forward every tasks column to Task(**row); a hand-listed
+    # The claim must forward every tasks column to the loaded Task; a hand-listed
     # subset rots as columns are added.
     assert "RETURNING *" in CLAIM_NEXT_TASK_SQL, (
-        "shared claim SQL must use 'RETURNING *' so no tasks column is dropped from Task(**row)"
+        "shared claim SQL must use 'RETURNING *' so no tasks column is dropped from the loaded Task"
     )
 
 
