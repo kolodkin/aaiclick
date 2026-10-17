@@ -1,7 +1,4 @@
-"""Tests for the docker-compose scaffold command.
-
-See docs/designs/deploy_scaffold.md — "Testing".
-"""
+"""Tests for the docker-compose scaffold command."""
 
 from __future__ import annotations
 

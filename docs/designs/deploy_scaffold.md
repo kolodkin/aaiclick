@@ -21,6 +21,8 @@ setup needs no scaffold: it is `pip install` + `python -m aaiclick setup`.
 
 # Scaffold package and CLI
 
+**Implementation**: `aaiclick/deploy/`
+
 New package `aaiclick/deploy/` with templates as package data. `docker_scaffold.py` keeps a
 single Dockerfile as a Python string; a helm chart is many files, so these templates live as
 real files shipped in the wheel and are copied out with `importlib.resources`.
@@ -55,6 +57,8 @@ python -m aaiclick k8s init [--path ./aaiclick-chart] [--image-tag vX.Y.Z] [--fo
 
 # Compose template (docker-runner setup)
 
+**Implementation**: `aaiclick/deploy/templates/compose/`
+
 Full stack — `docker compose up` yields a complete working docker-runner deployment:
 
 | Service    | Image                             | Role                                                 |
@@ -85,6 +89,8 @@ Full stack — `docker compose up` yields a complete working docker-runner deplo
 
 # Helm chart template (kubernetes setup)
 
+**Implementation**: `aaiclick/deploy/templates/helm/aaiclick/`
+
 A user-facing chart — distinct from `test_e2e/kubernetes/chart`, which is CI-only dependency
 infra and stays as it is.
 
@@ -103,6 +109,8 @@ giving the same migrate → server → worker ordering as the compose stack.
 namespace-scoped RBAC toggles, resources.
 
 # Release pipeline restructure
+
+**Implementation**: `.github/workflows/publish.yaml`
 
 ```
 build ──► build-rc-images ──► merge-rc-images ──► gates (parallel) ──► publish (PyPI) ──► promote-images

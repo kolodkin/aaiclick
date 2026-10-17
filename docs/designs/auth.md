@@ -269,6 +269,8 @@ non-safe route without a guard fails
 
 # Roles
 
+**Implementation**: `aaiclick/auth/models.py`
+
 | Role     | Scope   | Holds                                                          |
 |----------|---------|----------------------------------------------------------------|
 | `viewer` | `read`  | Every read                                                     |
@@ -289,6 +291,8 @@ seeded during server startup when the `users` table is empty, or from the CLI.
 A user created without an explicit role is a `viewer`.
 
 # API Tokens
+
+**Implementation**: `aaiclick/internal_api/api_tokens.py`
 
 Long-lived credentials for unattended clients (CI, SDK scripts, MCP agents)
 that should hold neither a password nor a refresh token.
@@ -340,6 +344,8 @@ CLI (in-process, admin-equivalent): `aaiclick token create <username>
 levels the signed-in user may mint.
 
 # MCP Surface
+
+**Implementation**: `aaiclick/server/mcp_rbac.py`
 
 The `/mcp` mount takes **API tokens only** once auth is enabled — a session JWT
 there is `401`. The surface is for unattended clients, an API token is their
@@ -411,6 +417,8 @@ The header shows the signed-in username with a sign-out control.
 
 # Multi-Factor Auth
 
+**Implementation**: `aaiclick/auth/security.py`
+
 TOTP (RFC 6238: SHA-1, 30 s step, 6 digits, ±1 step drift), implemented on the
 standard library in `aaiclick/auth/security.py` — no new dependency. Any
 authenticator app works from the `otpauth://` URI or the base32 secret.
@@ -433,6 +441,8 @@ with the second factor. There are no recovery codes: the admin reset is
 the recovery path, matching the CLI-first admin model.
 
 # Password Reset
+
+**Implementation**: `aaiclick/internal_api/password_reset.py`
 
 A reset token is a one-time secret bound to a user with a short TTL
 (`AAICLICK_PASSWORD_RESET_TTL`, default 3600 s). Consuming it sets the password
@@ -459,6 +469,8 @@ tells the user to ask an administrator.
 
 ## Invites
 
+**Implementation**: `aaiclick/internal_api/invites.py`
+
 Onboarding is a reset link by another name: create the user with no password,
 grant their role, and mint their link — `POST /invites` →
 `InviteView {user, link}` does all three in one call. The account grants
@@ -484,6 +496,8 @@ The SPA offers `@invite` to admins.
     guard at the router level, while an invite only needs a session.
 
 # Audit Log
+
+**Implementation**: `aaiclick/audit/`
 
 Who called what, when — one row per HTTP request under `/api/v0/` or `/mcp`,
 written by an ASGI middleware after the response is produced. `/health`,

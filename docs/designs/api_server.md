@@ -330,6 +330,8 @@ subject to breaking change" to downstream UIs / SDK generators; we graduate to
 
 ## Spawning workers — `POST /api/v0/execution-workers`
 
+**Implementation**: `aaiclick/server/routers/execution_workers.py`
+
 The CLI's `execution-worker start` is a blocking process loop that runs until
 SIGTERM — it does not fit the request/response pattern. The REST
 endpoint spawns a **detached subprocess** and returns `202 Accepted`
@@ -399,6 +401,8 @@ workers.
 raises it until scopes land.
 
 ## Live updates — `GET /api/v0/events`
+
+**Implementation**: `aaiclick/server/events.py`
 
 A `text/event-stream` of `changed` events (no payload) fed by Postgres
 `LISTEN`/`NOTIFY` in distributed mode and an in-process bus in local mode.

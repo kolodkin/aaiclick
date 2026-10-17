@@ -42,6 +42,8 @@ adapter, `src/lib/viewer.ts`, converts aaiclick's wire `OrderBy` pair
 
 # Scope Model
 
+**Implementation**: `aaiclick/viewer/scope.py`
+
 Objects are shown under a scope key — a string, so it fits the prompt, the
 URL, saved queries, and CLI flags:
 

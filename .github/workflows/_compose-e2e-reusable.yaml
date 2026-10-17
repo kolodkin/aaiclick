@@ -1,4 +1,3 @@
-# See docs/designs/deploy_scaffold.md — "Gates — all parallel, all required".
 name: Compose Stack E2E (reusable)
 
 # Release gate for the scaffolded docker-compose stack: installs the wheel

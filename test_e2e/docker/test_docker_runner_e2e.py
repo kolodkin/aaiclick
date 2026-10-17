@@ -19,10 +19,7 @@ The "user repo" is decoupled from the aaiclick checkout: aaiclick-under-
 test arrives via the test pypi wheel, so the served repo only carries the
 user's project. Like the registry and pypiserver, the git daemon is a
 fixed-port loopback service stood up by the workflow, so nothing leaves
-the runner.
-
-See docs/designs/java-sdk.md — "Testing".
-"""
+the runner."""
 
 from __future__ import annotations
 

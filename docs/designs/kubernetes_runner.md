@@ -1,6 +1,8 @@
 Kubernetes Runner
 ---
 
+**Implementation**: `aaiclick/orchestration/execution/kubernetes_worker.py`
+
 The Kubernetes runner executes each task in a fresh Pod built from the user's
 repo at a specific git SHA — the same model as the [Docker runner](orchestration.md),
 swapping `docker run` for a Pod. Both runners hand results back through the
@@ -131,6 +133,8 @@ and a missing registry fails in the build task (prebuilt-only clusters need
 none).
 
 # Configuration
+
+**Implementation**: `aaiclick/orchestration/kubernetes_config.py`
 
 The runner itself is the worker's: `AAICLICK_RUNNER=kubernetes` on the worker
 Deployment (`orchestration.md` "Worker runner"). Cluster settings follow it —

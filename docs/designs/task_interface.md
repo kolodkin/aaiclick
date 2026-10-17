@@ -15,6 +15,8 @@ the vocabulary, the runner mechanics and the decisions.
 
 # Vocabulary
 
+**Implementation**: `aaiclick/data/object/refs.py`
+
 Task kwargs and results are JSON. Plain values are data; a dict carrying the
 reserved key `_aaiclick_type` is one of the shapes below, and an unknown
 value is an error, never data.
@@ -109,6 +111,8 @@ runner env; the subprocess runner has no isolation boundary, so there the
 command inherits the worker's env with `command_env` overlaid.
 
 ## Where it runs
+
+**Implementation**: `aaiclick/orchestration/execution/io_plane.py`
 
 On the in-process paths (the local-mode server's worker, `job_test` /
 `ajob_test`) the command runs in the worker's own event loop; on the mp

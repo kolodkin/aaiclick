@@ -1,5 +1,6 @@
 """
 aaiclick.data.object - Core Object class for the aaiclick framework.
+
 See docs/user_guide/oplog.md — "Instrumentation Points".
 
 This module provides the Object class that represents data in ClickHouse tables

@@ -1,4 +1,3 @@
-// See docs/designs/ui.md — "Job Detail (`@job <name>`)".
 import { useMemo, useState } from "react";
 import { Background, Controls, MarkerType, ReactFlow, type Edge } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";

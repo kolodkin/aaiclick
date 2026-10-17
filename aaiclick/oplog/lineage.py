@@ -1,7 +1,7 @@
 """
 aaiclick.oplog.lineage - Oplog graph traversal (backward and forward lineage).
-See docs/user_guide/oplog.md — "Graph Queries".
 
+See docs/user_guide/oplog.md — "Graph Queries".
 See docs/designs/lineage.md — "Tool Result Types".
 """
 

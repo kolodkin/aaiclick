@@ -11,31 +11,33 @@ Apply when writing or editing `.md` files in subdirectories. Skip root-level `.m
 
 **Quality reference**: [FastAPI docs](https://fastapi.tiangolo.com/) — progressive disclosure, concise admonitions, copy-paste-ready examples with output shown inline.
 
-## Code ↔ doc links — code points at docs
+## Code ↔ doc links — module level only
 
-Overrides shortify's "Reference Code, Don't Duplicate" step. The default pointer lives in code: the implementing module's docstring names the doc section (or the class/function docstring, when one module serves several sections).
+Overrides shortify's "Reference Code, Don't Duplicate" step. Links name modules or packages, never functions, classes, private helpers or line numbers, and only where a module is the clear home of a section — not for small details.
 
+- **Design docs** (`docs/designs/`): optionally one `**Implementation**:` line right under a section heading, naming one module or package path.
 - **User guides** (`docs/user_guide/`): no `**Implementation**:` lines. Code paths appear only inside prose that needs them: an example file to open, a migration to read.
-- **Design docs** (`docs/designs/`): an `**Implementation**:` line is optional. Keep one only when it orients the reader. It names one high-level module or package, or a meaningful public function or class, never private helpers (`_mint_ceiling`) or an exhaustive file list.
-- Once code exists, the doc keeps intent and decisions and drops what the code already shows.
+- **Code**: the module docstring names the doc section the module implements. No back-links on function or class docstrings, tests, or small helper modules.
 
 ```markdown
-# BAD — exhaustive, private helpers, goes stale
+# BAD — symbols, private helpers, file lists
 **Implementation**: `aaiclick/auth/models.py` — see `ApiToken`, `ScopeLevel`; `aaiclick/internal_api/api_tokens.py` — see `_mint_ceiling`; `src/views/Tokens.tsx`.
 
-# GOOD — design doc, one high-level pointer (or none)
-**Implementation**: `aaiclick/internal_api/api_tokens.py` — see `create_token`
+# GOOD — design doc, one module
+# API Tokens
+
+**Implementation**: `aaiclick/internal_api/api_tokens.py`
 ```
 
 ```python
-# GOOD — the module says which design section it implements
+# GOOD — module docstring points at the section it implements
 """Decorators for defining tasks and jobs.
 
 See docs/designs/orchestration.md — "Decorators".
 """
 ```
 
-Doc → doc pointers (`**Design**: docs/designs/auth.md`) are fine. Never cite line numbers. No status icons: the code's back-link signals a feature is built, and unimplemented work lives in `docs/designs/future.md`, not inline ⚠️ markers.
+Once code exists, the doc keeps intent and decisions and drops what the code already shows. Doc → doc pointers (`**Design**: docs/designs/auth.md`) are fine. No status icons: unimplemented work lives in `docs/designs/future.md`, not inline ⚠️ markers.
 
 ## Heading style — setext title, ATX sections
 

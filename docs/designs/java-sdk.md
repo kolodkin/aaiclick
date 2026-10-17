@@ -31,6 +31,8 @@ never touches `run_ids` or `task_logs`, so the host registers each attempt
 
 ## `jvm` entry type
 
+**Implementation**: `aaiclick/orchestration/runner_config.py`
+
 - `EntryType` Literal gains `"jvm"` (plain String column — code change only,
   no migration). `tasks.entrypoint` holds the Java class name
   (`com.example.Pipeline`), optionally `com.example.Pipeline#method` when the
@@ -147,6 +149,8 @@ of the jvm return value. The fixture image (`test_e2e/fixtures/jvm_task/`)
 builds the SDK from the checkout, so the shim under test is the commit's.
 
 # Publishing
+
+**Implementation**: `.github/workflows/publish.yaml`
 
 `aaiclick-task-api` publishes to Maven Central via the Central Publisher
 Portal on the **same tag** as the Python package — lockstep versioning; the

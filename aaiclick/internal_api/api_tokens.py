@@ -1,5 +1,6 @@
 """Internal API for user-minted API tokens. Callers own the tokens they
 manage — the HTTP layer passes the principal's ``user_id``.
+
 See docs/designs/auth.md — "API Tokens"."""
 
 from __future__ import annotations

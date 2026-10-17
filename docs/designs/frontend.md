@@ -354,6 +354,8 @@ yet reachable from the UI — see `future.md`.
 
 # Testing
 
+**Implementation**: `test_e2e/web/`
+
 | Layer                | Tool                | Where                                                                     |
 |----------------------|---------------------|---------------------------------------------------------------------------|
 | Static type check    | `tsc --noEmit`      | `npm run check` — CI gate for every frontend task                         |

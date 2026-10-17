@@ -1,5 +1,4 @@
 """Inline SQL literals for the Python operands of a ``LazyOperator``.
-See docs/user_guide/object.md — "Lazy Operator Results".
 
 ``obj + 3`` and ``obj.isin([1, 2])`` carry a Python value as an operand. Rather
 than loading it into a one-row / N-row ClickHouse table, the operand becomes a

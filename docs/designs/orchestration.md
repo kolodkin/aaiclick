@@ -30,6 +30,8 @@ See `aaiclick/orchestration/examples/orchestration_basic.py` for a full example.
 
 # Decorators
 
+**Implementation**: `aaiclick/orchestration/decorators.py`
+
 Airflow-style TaskFlow API. Passing a Task result as an argument creates an upstream dependency automatically.
 
 ## @task
@@ -43,6 +45,8 @@ Wraps a workflow function into a `JobFactory`. Auto-manages `orch_context()` and
 **Job testing**: `job_test(job)` and `ajob_test(job)` execute synchronously; either takes a `Job` or a `@job` factory plus its kwargs (`aaiclick/orchestration/execution/debug.py`).
 
 # Topology
+
+**Implementation**: `aaiclick/orchestration/local_runtime.py`
 
 Two storage services, three process roles:
 
@@ -60,6 +64,8 @@ data and logs via ClickHouse. Local mode collapses the three process roles into
 one process — hence exactly one execution worker — on embedded chdb + SQLite.
 
 # Deployment Modes
+
+**Implementation**: `aaiclick/backend.py`
 
 Two deployment modes, controlled by two independent environment variables:
 
@@ -99,6 +105,8 @@ one chain: local databases are recreated, so there is nothing to backfill.
 
 ## Worker runner
 
+**Implementation**: `aaiclick/orchestration/execution/runner_env.py`
+
 An execution worker launches container tasks through one **runner**, fixed by
 the worker's deployment and read once from `AAICLICK_RUNNER`. It is not a job
 property: the compose scaffold ships the `aaiclick-docker` worker with the host
@@ -124,6 +132,8 @@ resolved image source under `is_local()`.
 
 # Runners & Entry Types
 
+**Implementation**: `aaiclick/orchestration/runner_config.py`
+
 Three orthogonal dials control how a task runs:
 
 - **image source** (per *task*, chosen by the user) — `NULL` (host subprocess), `prebuilt` (a named image), or `build` (an image built from the repo).
@@ -133,6 +143,8 @@ Three orthogonal dials control how a task runs:
 They compose freely: a `shell` task runs the same way — "run this argv, success = exit 0" — whether the environment is a host subprocess, a container, or a Pod. `jvm` tasks are container-only (an image on either runner).
 
 ## Image source
+
+**Implementation**: `aaiclick/orchestration/image_injection.py`
 
 The image is a **task** property: every container task carries a nullable `tasks.image_source` JSON (`build` or `prebuilt`), and **`NULL` means the task runs as a host subprocess** on any worker. The job row carries no runner state — only the optional `resources` snapshot (`docs/designs/kubernetes_runner.md` "Configuration").
 
@@ -200,6 +212,8 @@ REST/MCP submission uses the same fields on `RunJobRequest`.
 
 ## Execution layers
 
+**Implementation**: `aaiclick/orchestration/execution/dispatch.py`
+
 The runner's *invocation* sits at a different layer than the task it runs, and the `module` path blurs the two. The same three layers exist for every runner, host → execution environment:
 
 1. **Host worker** — the runner's ExecuteFn (`_run_task_in_child` / `_run_task_in_container` / `_run_task_in_pod`, and `_run_shell_in_container` / `_run_shell_in_pod` for shell and jvm): claim, heartbeat, cancellation poll, wait, result read.
@@ -217,6 +231,8 @@ The runner's *invocation* sits at a different layer than the task it runs, and t
 So for a `module` task the user's entrypoint runs *inside* the shim; for a `shell` task the user's argv *replaces* the shim, bypassing both the bootstrap and `execute_task`, in whatever environment the runner provides. A `jvm` task is a shell task whose argv is a class name: the shim is the SDK jar embedded in the user's image (`docs/designs/java-sdk.md`), and it speaks the shell file data plane.
 
 # DB Models
+
+**Implementation**: `aaiclick/orchestration/models.py`
 
 All entities use **Snowflake IDs** via ClickHouse [`generateSnowflakeID()`](https://clickhouse.com/docs/sql-reference/functions/uuid-functions#generateSnowflakeID) — distributed, time-ordered, no DB round-trip. Stored as `BIGINT`.
 
@@ -261,15 +277,23 @@ single source of truth.
 
 # Task Execution
 
+**Implementation**: `aaiclick/orchestration/execution/`
+
 ## ExecutionWorker Main Loop
+
+**Implementation**: `aaiclick/orchestration/execution/execution_worker.py`
 
 Polls for tasks, executes, updates status. Handles registration, heartbeats (30s), graceful shutdown, and per-task lifecycle creation.
 
 ## Task Claiming
 
+**Implementation**: `aaiclick/orchestration/execution/claiming.py`
+
 Finds the oldest pending task with all dependencies satisfied and atomically claims it. Transitions job PENDING→RUNNING on first claim. PostgreSQL uses `FOR UPDATE SKIP LOCKED`; SQLite uses sequential SELECT + UPDATE.
 
 # Job Management
+
+**Implementation**: `aaiclick/orchestration/jobs/`
 
 - `queries.py` — `get_job()`, `list_jobs(status, name_like, limit, offset)`, `count_jobs()`, `get_tasks_for_job()`
 - `view_models.py` (package root) — `compute_job_stats_view()` for execution stats
@@ -279,6 +303,8 @@ Finds the oldest pending task with all dependencies satisfied and atomically cla
 Workers detect cancellation by polling task status. **Known limitation**: CPU-bound tasks won't interrupt until they yield.
 
 # Registered Jobs
+
+**Implementation**: `aaiclick/orchestration/registered_jobs.py`
 
 Catalog of known jobs, separate from individual runs. Each entry stores entrypoint, optional cron schedule, default kwargs, preservation-mode defaults, and enabled flag.
 
@@ -314,6 +340,8 @@ Scheduled runs inherit the registered job's level-2 defaults automatically. Manu
 `BackgroundWorker` polls enabled jobs where `next_run_at <= NOW()` (~10s). Optimistic locking on `next_run_at` prevents duplicates; once the lock commits, each run is created through `run_job(run_type="SCHEDULED")`, so registration config (preservation mode, runner, image source) applies as for a manual run. Cron parsed by `croniter`; `next_run_at` recomputed on registration, enable, and after each run.
 
 # CLI
+
+**Implementation**: `aaiclick/orchestration/cli.py`
 
 ## Local Mode (chdb + SQLite)
 
@@ -354,6 +382,8 @@ python -m aaiclick registered-job list        # List registered jobs
 ```
 
 # Orchestration Operators
+
+**Implementation**: `aaiclick/orchestration/operators.py`
 
 | Operator                                              | Description                                                                                        |
 |-------------------------------------------------------|----------------------------------------------------------------------------------------------------|
@@ -409,6 +439,8 @@ into a group of their own, the frame is never committed and the parts nest
 under the user's group.
 
 # Distributed Object Lifecycle
+
+**Implementation**: `aaiclick/orchestration/lifecycle/`
 
 In distributed mode, Object table lifecycle is managed through three PostgreSQL tables:
 
@@ -467,11 +499,15 @@ them like any consumer.
 
 ## OrchLifecycleHandler
 
+**Implementation**: `aaiclick/orchestration/orch_context.py`
+
 Uses `task_id` as `context_id` for context_refs. Pin fans out to consumers one dependency hop away through all four edge shapes (`successor_task_ids` in `dependency_graph.py`). A consumer releases all of its pin_ref rows once its inputs are deserialized, including pins for tables it never reads (ordering edges).
 
 **PostgreSQL tables**: `TableContextRef` — composite PK `(table_name, context_id)`; `TableRunRef` — composite PK `(table_name, run_id)`; `TablePinRef` — composite PK `(table_name, task_id)`.
 
 ## BackgroundWorker
+
+**Implementation**: `aaiclick/orchestration/background/background_worker.py`
 
 Five operations per poll:
 

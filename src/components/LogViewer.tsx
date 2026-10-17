@@ -1,4 +1,3 @@
-// See docs/designs/ui.md — "Task Detail (`@task <id>`)".
 import { memo, useState } from "react";
 import type { LogLine, TaskAttempt } from "../api/types";
 import { useTaskLogs, type LogTask } from "../api/hooks";

@@ -1,7 +1,4 @@
-"""Tests for the helm chart scaffold command.
-
-See docs/designs/deploy_scaffold.md — "Testing".
-"""
+"""Tests for the helm chart scaffold command."""
 
 from __future__ import annotations
 

@@ -1,5 +1,4 @@
 """Sync schema-computation helpers for binary operator results.
-See docs/user_guide/object.md — "Lazy Operator Results".
 
 Neutral module: imports only from ``..models`` and
 ``..data_context.data_context``. Both ``object.py`` (for ``LazyOperator``

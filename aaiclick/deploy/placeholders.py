@@ -7,8 +7,6 @@ templates and this check: a value still carrying it was never replaced, so the
 server says so on every startup.
 
 The user-facing replacement list lives in ``docs/user_guide/deployment.md``.
-
-See docs/designs/deploy_scaffold.md — "Compose template (docker-runner setup)".
 """
 
 from __future__ import annotations

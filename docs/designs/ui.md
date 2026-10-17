@@ -1,6 +1,8 @@
 UI Specification
 ---
 
+**Implementation**: `src/App.tsx`
+
 Single-screen, prompt-driven dashboard for aaiclick operators. SPA served by
 the FastAPI backend; views refresh when an SSE `changed` signal invalidates the
 query cache, falling back to 2 s polling only while that stream is down. Tech
@@ -45,11 +47,15 @@ Clicking interactive elements updates the prompt, which drives what is displayed
 
 ## Home (empty prompt)
 
+**Implementation**: `src/views/Home.tsx`
+
 **Prompt**: _(empty)_
 
 Displays a help/command reference showing available commands and their descriptions.
 
 ## Jobs List (`@jobs`)
+
+**Implementation**: `src/views/Jobs.tsx`
 
 **Prompt**: `@jobs`
 
@@ -74,6 +80,8 @@ Table of jobs sorted by `created_at` descending. Auto-refreshes on the SSE `chan
 | `CANCELLED` | yellow |
 
 ## Job Detail (`@job <name>`)
+
+**Implementation**: `src/views/JobDetail.tsx`
 
 **Prompt**: `@job <name>`
 
@@ -118,6 +126,8 @@ Task statuses use the same color scheme as job statuses, plus:
 
 ## Task Detail (`@task <id>`)
 
+**Implementation**: `src/views/TaskDetail.tsx`
+
 **Prompt**: `@task <id>`
 
 **Top section**: status bar with task metadata — name, status badge, entrypoint, job name, worker ID, attempt info, timestamps, error (if any).
@@ -125,6 +135,8 @@ Task statuses use the same color scheme as job statuses, plus:
 **Main section**: log viewer filling the remaining screen with vertical scroll. Logs refresh on the same `changed` signal as every other view. Lines come from the ClickHouse `task_logs` stream for one run of the task, so they resolve regardless of which host ran the task. A retried task gets an Airflow-style "Task tries" row: one button per run, colored by how it ended; the latest is selected and polled. A failed run's log ends with its traceback on stderr (shell: `error: exit N`); the header shows only the latest error and clears on success. Returns `available=false` when the task has not run yet or the selected run captured no output. Lines are colored by keyword (`src/lib/logTone.ts`), stderr lines carry a marker bar, and an opt-in "Show timestamps" toggle reveals each line's `created_at`.
 
 ## Data (`@data [job <ref>] [<object>]`)
+
+**Implementation**: `src/views/Data.tsx`
 
 **Prompt**: `@data`, `@data job <ref>`, `@data [job <ref>] <object>`
 
@@ -136,6 +148,8 @@ views, straight from `POST /viewer/query` (see `docs/designs/viewer.md`).
 
 ## Query (`@query [job <ref>] [<object>]`)
 
+**Implementation**: `src/views/Query.tsx`
+
 **Prompt**: `@query`, `@query job <ref>`, `@query [job <ref>] <object>`
 
 The scope tree plus an object picker; with an object chosen, the query
@@ -145,6 +159,8 @@ the cell-view YAML modal, a saved-query dropdown (Save / Delete), and CSV
 download. Saved queries persist through `PUT /viewer/queries/{name}`.
 
 ## Dashboard (`@dashboard [name]`)
+
+**Implementation**: `src/views/Dashboard.tsx`
 
 **Prompt**: `@dashboard`, `@dashboard <name>`
 

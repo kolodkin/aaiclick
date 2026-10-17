@@ -1,7 +1,6 @@
 """ExecutionWorker management for orchestration backend.
 
 See docs/designs/orchestration.md — "ExecutionWorker Main Loop".
-
 See docs/designs/kubernetes_runner.md.
 See docs/designs/task_interface.md — "Where it runs".
 """

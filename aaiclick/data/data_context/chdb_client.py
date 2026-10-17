@@ -1,5 +1,6 @@
 """
 aaiclick.data.chdb_client - chdb adapter matching clickhouse-connect AsyncClient interface.
+
 See docs/user_guide/data_context.md — "Deployment Modes".
 
 Provides ChdbClient that wraps chdb.session.Session to duck-type the subset of

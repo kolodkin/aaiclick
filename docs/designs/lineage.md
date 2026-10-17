@@ -133,6 +133,8 @@ Precedence:
 
 # Agent Tools
 
+**Implementation**: `aaiclick/oplog/query_sandbox.py`
+
 The sandbox and graph classification live in `aaiclick/oplog/query_sandbox.py`
 and `aaiclick/oplog/lineage.py` (`OplogGraph.node_kinds`); `request_full_replay`
 is tracked in `docs/designs/future.md`.

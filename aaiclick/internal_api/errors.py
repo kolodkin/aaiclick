@@ -58,5 +58,4 @@ class Forbidden(InternalApiError):
 class MfaRequired(Unauthorized):
     """Password accepted but the account has MFA enabled and no (valid) TOTP
     code was supplied. An ``Unauthorized`` subclass with its own
-    ``ProblemCode`` so a client can prompt for the code and retry.
-    See docs/designs/auth.md — "Multi-Factor Auth"."""
+    ``ProblemCode`` so a client can prompt for the code and retry."""

@@ -1,6 +1,8 @@
 Task Log Retirement — ClickHouse as the Sole Log Store
 ---
 
+**Implementation**: `aaiclick/orchestration/logging.py`
+
 Design for retiring file-based task logs. After this change, ClickHouse
 `task_logs` is the only place task stdout/stderr lives, for every runner and
 entry type, and the `log_path` plumbing disappears end to end.

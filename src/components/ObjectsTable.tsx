@@ -1,4 +1,3 @@
-// See docs/designs/ui.md — "Data (`@data [job <ref>] [<object>]`)".
 import type { ObjectView } from "../api/types";
 import { relativeTime } from "../lib/format";
 import { dataPrompt, formatBytes, queryPrompt } from "../lib/viewer";

@@ -1,4 +1,7 @@
-"""Orchestration context manager and per-task scope."""
+"""Orchestration context manager and per-task scope.
+
+See docs/designs/orchestration.md — "OrchLifecycleHandler".
+"""
 
 from __future__ import annotations
 
@@ -51,8 +54,6 @@ _OPLOG_COLS = [
 
 class OrchLifecycleHandler(LifecycleHandler):
     """Distributed lifecycle handler using shared resources from orch_context.
-
-    See docs/designs/orchestration.md — "OrchLifecycleHandler".
 
     Uses get_sql_session() for DB ops and get_ch_client() for CH ops —
     no private engine or client needed.
