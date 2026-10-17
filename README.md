@@ -2,13 +2,12 @@
 
 # aaiclick
 
-aaiclick is a data orchestration framework built to make distributed computing easy, with five principles in mind:
+aaiclick is a data orchestration framework built to make distributed computing easy. Platform advantages:
 
-1. **Simplicity** — Plain Python, no SQL. Decorate functions into tasks and jobs, run with zero setup on your laptop, scale out unchanged.
-2. **Dynamic Graphs** — Tasks spawn tasks. The pipeline shapes itself to the data while it runs instead of being declared up front.
-3. **Performance** — Data lives and computes in ClickHouse. Python only orchestrates; nothing is shuffled through Python memory.
-4. **Containerized Runs** — Pin a container image, by tag or git SHA, per job or per task. Host and container tasks mix in one pipeline.
-5. **Lineage over MCP** — Every operation is recorded. Your coding agent (Claude Code, Codex, any MCP client) answers "how did this value get here?" straight from the lineage.
+1. **Dynamic Task Allocation** — Tasks spawn tasks. The pipeline shapes itself to the data while it runs instead of being declared up front.
+2. **Multiple Languages** — Write tasks in [Python](docs/user_guide/task_api_python.md) or [Java](docs/user_guide/task_api_java.md); any other language speaks the JSON [Task Interface](docs/user_guide/task_interface.md) directly.
+3. **Pandas-like Objects on ClickHouse** — A familiar [Object](docs/user_guide/object.md) interface where data lives and computes in ClickHouse, with [lifecycle management](docs/user_guide/data_context.md) that cleans up tables for you.
+4. **Agent Friendly (MCP)** — Every operation is recorded. Your coding agent (Claude Code, Codex, any MCP client) answers "how did this value get here?" straight from the [lineage](docs/user_guide/lineage.md).
 
 **Early stage — looking for early adopters to join the ride and provide feedback.**
 
