@@ -8,14 +8,17 @@ each spawned child). Shares ``_cancel_all_pending_tasks`` and
 
 from sqlmodel import select
 
-from ..background.test_failure_cleanup import run_failure_cleanup  # noqa: E402  (test-sibling import)
+from ..background.background_worker import BackgroundWorker
+from ..background.test_failure_cleanup import run_cleanup_pass, run_failure_cleanup  # noqa: E402  (test-sibling import)
 from ..factories import create_job, create_task
+from ..fixtures.retry_pipelines import retry_pipeline
 from ..models import (
     JOB_COMPLETED,
     JOB_FAILED,
     TASK_COMPLETED,
     TASK_FAILED,
     TASK_PENDING_FAILURE_CLEANUP,
+    TERMINAL_JOB_STATUSES,
     Job,
     Task,
 )
@@ -117,3 +120,29 @@ async def test_worker_retry_succeeds_on_third_attempt(orch_ctx_no_ch, tmp_path, 
         result = await session.execute(select(Job).where(Job.id == job.id))
         j = result.scalar_one()
         assert j.status == JOB_COMPLETED
+
+
+async def _job_status(job_id: int) -> str:
+    async with get_sql_session() as session:
+        return (await session.execute(select(Job.status).where(Job.id == job_id))).scalar_one()
+
+
+async def test_retry_still_reads_its_input_table(orch_ctx_no_ch, tmp_path, fast_poll):
+    """A consumer that fails once still finds its upstream Object on the retry.
+
+    Each cycle runs the unreferenced-table sweep: a failed attempt's pins are
+    all that keep the producer's table alive until the retry.
+    """
+    await _cancel_all_pending_tasks()
+    job = await retry_pipeline(marker_file=str(tmp_path / "failed_once"))
+
+    for _ in range(20):
+        if await _job_status(job.id) in TERMINAL_JOB_STATUSES:
+            break
+        await mp_worker_main_loop(max_tasks=1, install_signal_handlers=False, max_empty_polls=1)
+        await run_failure_cleanup()
+        await run_cleanup_pass(BackgroundWorker._cleanup_unreferenced_tables)
+
+    async with get_sql_session() as session:
+        j = (await session.execute(select(Job).where(Job.id == job.id))).scalar_one()
+    assert j.status == JOB_COMPLETED, j.error
