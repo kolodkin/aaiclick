@@ -9,7 +9,6 @@ Remove an entry once its fix lands.
 
 | #  | Finding                                              | Severity | Area          |
 |----|------------------------------------------------------|----------|---------------|
-| 6  | `clear_task` loses its input tables                  | High     | Orchestration |
 | 10 | Failed `create_job` leaves a job with no tasks       | Medium   | Orchestration |
 | 11 | IN-lists over 32,767 parameters                      | Medium   | Orchestration |
 | 15 | Dead-worker sweep races with heartbeat               | Medium   | Orchestration |
@@ -20,14 +19,6 @@ Remove an entry once its fix lands.
 | 20 | Dead code and redundant writes                       | Low      | Lean          |
 
 # Orchestration
-
-## 6. `clear_task` loses its input tables
-
-- **Where:**
-  - `aaiclick/orchestration/execution/claiming.py`, function `clear_task`
-  - `aaiclick/orchestration/execution/runner.py`
-- **Issue:** A task releases its pins once it succeeds. When `clear_task` resets it, no pin or run ref holds its upstream tables, so the cleanup pass may already have dropped them and the re-run fails with `LookupError`.
-- **Fix:** In `clear_task`, re-pin the upstream result tables for each cleared task, and refuse the clear when one is already gone.
 
 ## 10. Failed `create_job` leaves a job with no tasks
 

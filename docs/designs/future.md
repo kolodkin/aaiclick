@@ -8,7 +8,7 @@ Planned work across aaiclick, ordered by priority.
 # Close the 2026-10-18 Code Review
 
 Fix the open findings in `docs/designs/code_review.md`, starting with the
-orchestration failures (6–8) that break retries and the background worker.
+orchestration ones (10, 11, 15).
 Remove each entry from the review doc as its fix lands, and delete the doc
 once it is empty.
 
@@ -52,6 +52,19 @@ Unsupported. Shell and jvm tasks speak the Task Interface's file data plane
 `view` refs are rejected at commit. An
 Object needs a per-language task runner that owns the ClickHouse dependency
 and the lifecycle (refcounts, pins, ephemeral-table ownership, oplog).
+
+## Protect Upstream Outputs on Re-run
+
+`clear_task` re-runs a task against upstream outputs that may be gone: a
+consumer releases its pins once it succeeds, so the cleanup pass can drop
+those tables. The re-run then fails with `LookupError`.
+
+Re-pinning only on clear is not enough. Deleting an upstream output and
+changing it (re-running the producer) are the same hazard, so protect both
+or neither.
+
+**When to revisit**: when re-running a single task of a finished job,
+without re-running its upstream, becomes a supported workflow.
 
 ## Tenants — Kubernetes Control Plane
 
