@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+from datetime import timedelta
 
 from aaiclick.auth import config, security, store
 from aaiclick.auth.models import User
@@ -22,9 +23,14 @@ from aaiclick.auth.view_models import (
     RefreshRequest,
     TokenPair,
 )
+from aaiclick.datetime_utils import utc_now
 
 from . import users
 from .errors import Conflict, Invalid, MfaRequired, Unauthorized
+
+MAX_FAILED_LOGINS = 5
+"""Consecutive failed passwords or codes before login locks."""
+LOGIN_LOCKOUT = timedelta(minutes=15)
 
 
 async def _mint_pair(*, user: User, secret: str) -> TokenPair:
@@ -67,16 +73,29 @@ async def _accepts_totp(user: User, secret: str, code: str) -> bool:
     return step is not None and await store.claim_totp_step(user.id, step)
 
 
+async def _login_failed(user: User, message: str) -> Unauthorized:
+    await store.record_failed_login(user.id, limit=MAX_FAILED_LOGINS, lockout=LOGIN_LOCKOUT)
+    return Unauthorized(message)
+
+
 async def login(request: LoginRequest, *, secret: str) -> TokenPair:
+    """Sign in. Failed passwords and codes count per user; ``MAX_FAILED_LOGINS``
+    in a row lock login for ``LOGIN_LOCKOUT`` so neither can be brute-forced."""
     user = await store.get_user_by_username(request.username)
+    if user is not None and user.locked_until is not None and user.locked_until > utc_now():
+        raise Unauthorized("too many failed attempts — try again later")
     authenticated = await _authenticates(user, request.password)
-    if user is None or not authenticated:
+    if user is None:
         raise Unauthorized("invalid username or password")
+    if not authenticated:
+        raise await _login_failed(user, "invalid username or password")
     if user.mfa_enabled and user.totp_secret is not None:
         if request.totp_code is None:
             raise MfaRequired("multi-factor code required")
         if not await _accepts_totp(user, user.totp_secret, request.totp_code):
-            raise Unauthorized("invalid multi-factor code")
+            raise await _login_failed(user, "invalid multi-factor code")
+    if user.failed_logins:
+        await store.clear_failed_logins(user.id)
     return await _mint_pair(user=user, secret=secret)
 
 

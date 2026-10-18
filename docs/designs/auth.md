@@ -74,6 +74,8 @@ one-line code change rather than a hand-written constraint migration.
 | `totp_secret`   | `String \| None`                | Base32 TOTP seed; set by MFA setup, live once `mfa_enabled` |
 | `mfa_enabled`   | `Boolean`, default `false`      | Login demands a TOTP code |
 | `totp_last_step`| `BigInteger \| None`            | Time step of the last accepted code; refuses replays |
+| `failed_logins` | `Integer`, default `0`          | Consecutive failed passwords or codes; reset on success |
+| `locked_until`  | `datetime \| None`              | Login refused until then |
 | `created_at`    | `datetime` (`utc_now`)          |                        |
 
 `password_hash` is nullable: a user created without one can never pass the
@@ -186,6 +188,10 @@ Passwords are hashed with `bcrypt`. Access JWTs are signed HS256 with
   `totp_code`; a correct password without one answers `401`
   `code="mfa_required"` so the client can prompt for the code and retry — see
   [Multi-Factor Auth](#multi-factor-auth).
+- Five failed passwords or codes in a row lock login for 15 minutes (`401`,
+  "too many failed attempts"); each failure past the limit re-locks, and a
+  successful login resets the count. Without it a password, or the three TOTP
+  codes live at any moment, could be brute-forced.
 - Access JWT claims: `sub=<user_id>`, `role`, `exp`, `type="access"`.
 - Refresh token: a random opaque secret; only its `sha256` is stored in
   `refresh_tokens`.

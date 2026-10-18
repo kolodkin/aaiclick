@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any, NamedTuple, Protocol, TypeVar, cast
 
-from sqlalchemy import ColumnElement, CursorResult, Update, or_, update
+from sqlalchemy import ColumnElement, CursorResult, Update, case, or_, update
 from sqlmodel import SQLModel, col, select
 
 from ..datetime_utils import utc_now
@@ -144,6 +144,27 @@ async def claim_totp_step(user_id: int, step: int) -> bool:
         update(User).where(col(User.id) == user_id, or_(last.is_(None), last < step)).values(totp_last_step=step)
     )
     return hit > 0
+
+
+async def record_failed_login(user_id: int, *, limit: int, lockout: timedelta) -> None:
+    """Count a failed password or code; reaching ``limit`` locks login for ``lockout``.
+
+    One UPDATE, so concurrent guesses each count. Past the limit every further
+    failure re-locks, so a locked-out guesser gets one try per window.
+    """
+    failures = col(User.failed_logins) + 1
+    await _update_rows(
+        update(User)
+        .where(col(User.id) == user_id)
+        .values(
+            failed_logins=failures,
+            locked_until=case((failures >= limit, utc_now() + lockout), else_=col(User.locked_until)),
+        )
+    )
+
+
+async def clear_failed_logins(user_id: int) -> None:
+    await _update_rows(update(User).where(col(User.id) == user_id).values(failed_logins=0, locked_until=None))
 
 
 async def _update_user(user_id: int, **fields) -> User:

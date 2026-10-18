@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import ClassVar, Literal
 
-from sqlalchemy import BigInteger, Boolean, Column, ForeignKey, String
+from sqlalchemy import BigInteger, Boolean, Column, ForeignKey, Integer, String
 from sqlmodel import Field, SQLModel
 
 from ..datetime_utils import utc_field, utc_now
@@ -62,6 +62,10 @@ class User(SQLModel, table=True):
     totp_last_step: int | None = Field(sa_column=Column(BigInteger, nullable=True), default=None)
     """Time step of the last code accepted — a code at or before it is a replay."""
     mfa_enabled: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="0"), default=False)
+    failed_logins: int = Field(sa_column=Column(Integer, nullable=False, server_default="0"), default=0)
+    """Consecutive failed passwords or codes since the last successful login."""
+    locked_until: datetime | None = utc_field(default=None)
+    """Login is refused until then; set when ``failed_logins`` reaches the limit."""
     created_at: datetime = utc_field(default_factory=utc_now)
 
 

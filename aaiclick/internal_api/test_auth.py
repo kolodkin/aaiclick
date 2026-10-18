@@ -43,6 +43,26 @@ async def test_login_bad_password_raises(orch_ctx):
         await auth.login(LoginRequest(username="alice", password="nope"), secret=SECRET)
 
 
+async def test_repeated_bad_passwords_lock_login(orch_ctx):
+    """Without a limit a password is a brute-force target."""
+    await _make_user()
+    for _ in range(auth.MAX_FAILED_LOGINS):
+        with pytest.raises(Unauthorized, match="invalid username or password"):
+            await auth.login(LoginRequest(username="alice", password="nope"), secret=SECRET)
+
+    with pytest.raises(Unauthorized, match="too many failed attempts"):
+        await auth.login(LoginRequest(username="alice", password="pw"), secret=SECRET)
+
+
+async def test_a_successful_login_resets_the_failure_count(orch_ctx):
+    await _make_user()
+    for _ in range(2):
+        for _ in range(auth.MAX_FAILED_LOGINS - 1):
+            with pytest.raises(Unauthorized):
+                await auth.login(LoginRequest(username="alice", password="nope"), secret=SECRET)
+        await auth.login(LoginRequest(username="alice", password="pw"), secret=SECRET)
+
+
 async def test_login_unknown_user_raises(orch_ctx):
     with pytest.raises(Unauthorized):
         await auth.login(LoginRequest(username="ghost", password="pw"), secret=SECRET)
