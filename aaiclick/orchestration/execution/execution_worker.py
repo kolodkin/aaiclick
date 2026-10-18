@@ -41,7 +41,6 @@ from ..orch_context import get_sql_session
 from ..runner_config import ENTRY_MODULE, EntryType, ImageSourceT
 from .claiming import (
     check_run_aborted,
-    check_task_cancelled,
     claim_next_task,
     complete_task_and_roll_up,
     end_current_run,
@@ -139,7 +138,8 @@ class TaskVehicle(Protocol[H, P]):
         ...
 
     async def poll_cancelled(self, task: Task) -> bool:
-        """Return True if the run was aborted and the vehicle should die."""
+        """Return True if the run was aborted (cancelled, or cleared to a new
+        ``run_epoch``) and the vehicle should die."""
         ...
 
     async def terminate(self, handle: H) -> None:
@@ -171,7 +171,7 @@ class ShellVehicle(TaskVehicle[H, Any]):
     out_value: Any = None
 
     async def poll_cancelled(self, task: Task) -> bool:
-        return await check_task_cancelled(task.id)
+        return await check_run_aborted(task.id, task.run_epoch)
 
     def collect(self, handle: H, exit_code: int, error: str | None, was_cancelled: bool, payload: Any) -> RunnerResult:
         if was_cancelled:

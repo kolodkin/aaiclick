@@ -29,7 +29,7 @@ from typing import Any, NamedTuple
 
 from ..models import Task
 from . import cli
-from .claiming import check_task_cancelled
+from .claiming import check_run_aborted
 from .docker_build import resolve_launch_image
 from .execution_worker import (
     POLL_INTERVAL,
@@ -545,7 +545,7 @@ class _KubernetesVehicle(TaskVehicle["_PodHandle", "RunnerResult | None"]):
         return exit_code, error, result_row
 
     async def poll_cancelled(self, task: Task) -> bool:
-        return await check_task_cancelled(task.id)
+        return await check_run_aborted(task.id, task.run_epoch)
 
     async def terminate(self, handle: _PodHandle) -> None:
         await _kubectl_delete(handle.name, handle.namespace)

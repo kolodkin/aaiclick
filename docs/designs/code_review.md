@@ -9,12 +9,9 @@ Remove an entry once its fix lands.
 
 | #  | Finding                                              | Severity | Area          |
 |----|------------------------------------------------------|----------|---------------|
-| 6  | Retries and `clear_task` lose their input tables     | High     | Orchestration |
-| 7  | One exception stops the background worker            | High     | Orchestration |
-| 8  | mp / Docker / Kubernetes runs ignore clear or cancel | High     | Orchestration |
+| 6  | `clear_task` loses its input tables                  | High     | Orchestration |
 | 10 | Failed `create_job` leaves a job with no tasks       | Medium   | Orchestration |
 | 11 | IN-lists over 32,767 parameters                      | Medium   | Orchestration |
-| 14 | mp parent can drop a finished result                 | Medium   | Orchestration |
 | 15 | Dead-worker sweep races with heartbeat               | Medium   | Orchestration |
 | 16 | `concat` scrambles row order within a source         | Medium   | Data          |
 | 17 | `join` does not quote identifiers                    | Low      | Data          |
@@ -24,34 +21,13 @@ Remove an entry once its fix lands.
 
 # Orchestration
 
-## 6. Retries and `clear_task` lose their input tables
+## 6. `clear_task` loses its input tables
 
 - **Where:**
+  - `aaiclick/orchestration/execution/claiming.py`, function `clear_task`
   - `aaiclick/orchestration/execution/runner.py`
-  - `aaiclick/orchestration/background/background_worker.py`
-- **Issue:** `release_pins()` runs before the task function runs. If the attempt fails, no pin or run ref holds its input. The cleanup pass in the same cycle drops the table, and every retry then fails with `LookupError`. `clear_task` hits the same problem.
-- **Fix:**
-  - Release pins only after the function returns successfully.
-  - Clean pins only when the task settles to FAILED, not when a retry is scheduled.
-
-## 7. One exception stops the background worker
-
-- **Where:** `aaiclick/orchestration/background/background_worker.py`, functions `_cleanup_loop` and `_do_cleanup`
-- **Issue:** The loop has no `try`. A Postgres restart ends the loop while the process stays up. Retries, dead-worker detection, cleanup, schedules and TTL all stop, and jobs hang in RUNNING.
-- **Fix:** Wrap each pass in `try/except Exception: logger.exception(...)`.
-
-## 8. mp / Docker / Kubernetes runs ignore clear or cancel
-
-- **Where:**
-  - `aaiclick/orchestration/execution/mp_worker.py`
-  - `aaiclick/orchestration/execution/docker_worker.py`
-  - `aaiclick/orchestration/execution/kubernetes_worker.py`
-- **Issue:** The runners check for cancellation differently:
-  - `_MpVehicle.poll_cancelled` always returns `False`.
-  - Docker and Kubernetes check status only, not `run_epoch`.
-
-  When a task is cleared and claimed again, the old run keeps going. Both runs commit dynamic children.
-- **Fix:** Have every `poll_cancelled` return `check_run_aborted(task.id, task.run_epoch)`.
+- **Issue:** A task releases its pins once it succeeds. When `clear_task` resets it, no pin or run ref holds its upstream tables, so the cleanup pass may already have dropped them and the re-run fails with `LookupError`.
+- **Fix:** In `clear_task`, re-pin the upstream result tables for each cleared task, and refuse the clear when one is already gone.
 
 ## 10. Failed `create_job` leaves a job with no tasks
 
@@ -70,12 +46,6 @@ Remove an entry once its fix lands.
 - **Fix:**
   - Use subqueries (`IN (SELECT id FROM tasks WHERE job_id = :job_id)`).
   - Add a `LIMIT` to the unreferenced-tables SELECT.
-
-## 14. mp parent can drop a finished result
-
-- **Where:** `aaiclick/orchestration/execution/mp_worker.py`
-- **Issue:** The child can put its result and exit between `result_queue.get(timeout=0.5)` raising `Empty` and the `is_alive()` check. The parent then reports a crash, and the work runs again.
-- **Fix:** When the child is dead, read the queue once more before reporting a crash.
 
 ## 15. Dead-worker sweep races with heartbeat
 

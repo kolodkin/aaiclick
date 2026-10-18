@@ -1,7 +1,7 @@
 """Tests for PENDING_FAILURE_CLEANUP background processing.
 
 Verifies that the background worker correctly:
-1. Cleans run_refs and pin_refs for failed tasks
+1. Cleans run_refs for failed tasks, pin_refs once retries are exhausted
 2. Transitions PENDING_FAILURE_CLEANUP → PENDING (retries remaining) or FAILED (exhausted)
 3. Checks job completion after marking tasks FAILED
 """
@@ -140,8 +140,15 @@ async def test_failure_cleanup_transitions_to_failed_no_retries(bg_db):
     assert await get_run_refs(bg_db, "t_table") == set()
 
 
-async def test_failure_cleanup_cleans_pin_refs(bg_db):
-    """PENDING_FAILURE_CLEANUP processing removes pin_refs for the task."""
+@pytest.mark.parametrize(
+    "max_retries, expected_pins",
+    [
+        pytest.param(1, {"t_upstream_data", "t_other_data"}, id="retry-keeps-inputs"),
+        pytest.param(0, set(), id="exhausted-releases"),
+    ],
+)
+async def test_failure_cleanup_pin_refs(bg_db, max_retries, expected_pins):
+    """A retry keeps the task's pin_refs (its inputs); settling to FAILED drops them."""
     await insert_job(bg_db, 1000)
     await insert_task(
         bg_db,
@@ -149,7 +156,7 @@ async def test_failure_cleanup_cleans_pin_refs(bg_db):
         1000,
         status="PENDING_FAILURE_CLEANUP",
         attempt=0,
-        max_retries=1,
+        max_retries=max_retries,
         run_ids="[111]",
         error="task failed",
     )
@@ -159,7 +166,7 @@ async def test_failure_cleanup_cleans_pin_refs(bg_db):
 
     await make_worker(bg_db)._process_failure_cleanup()
 
-    assert await _get_pin_refs(bg_db, 100) == set()
+    assert await _get_pin_refs(bg_db, 100) == expected_pins
     assert await _get_pin_refs(bg_db, 200) == {"t_upstream_data"}
 
 

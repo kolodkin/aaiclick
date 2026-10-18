@@ -480,16 +480,15 @@ Task A executes, returns Object(table=T)
   │   → inserts pin_ref(T, B.task_id), pin_ref(T, C.task_id)
   └── task_scope exit: decref all → run_refs removed, pin_refs protect T
 
-Task B starts, deserializes its inputs
+Task B deserializes its inputs and runs
   ├── incref → run_ref(T, B.run_id)     ← FIFO queue
-  └── release_pins → delete pin_ref(*, B.task_id)  ← FIFO: after every incref
+  └── on success: release_pins → delete pin_ref(*, B.task_id)  ← FIFO: after every incref
 
-Task C starts, deserializes its inputs
-  ├── incref → run_ref(T, C.run_id)
-  └── release_pins → delete pin_ref(*, C.task_id)
+Task C fails
+  └── pins kept: pin_ref(T, C.task_id) holds T for the retry;
+      the failure pass drops it only once C settles to FAILED
 
-All consumers started → 0 pin_refs, run_refs protect during execution
-All consumers finished → 0 pin_refs, 0 run_refs → eligible for cleanup
+All consumers succeeded or settled → 0 pin_refs, 0 run_refs → eligible for cleanup
 
 Dynamic children (map / reduce parts) exist only after their parent has
 pinned, so `register_returned_tasks` pins each child on every ephemeral
@@ -501,7 +500,7 @@ them like any consumer.
 
 **Implementation**: `aaiclick/orchestration/orch_context.py`
 
-Uses `task_id` as `context_id` for context_refs. Pin fans out to consumers one dependency hop away through all four edge shapes (`successor_task_ids` in `dependency_graph.py`). A consumer releases all of its pin_ref rows once its inputs are deserialized, including pins for tables it never reads (ordering edges).
+Uses `task_id` as `context_id` for context_refs. Pin fans out to consumers one dependency hop away through all four edge shapes (`successor_task_ids` in `dependency_graph.py`). A consumer releases all of its pin_ref rows once its function returns successfully, including pins for tables it never reads (ordering edges).
 
 **PostgreSQL tables**: `TableContextRef` — composite PK `(table_name, context_id)`; `TableRunRef` — composite PK `(table_name, run_id)`; `TablePinRef` — composite PK `(table_name, task_id)`.
 
@@ -538,7 +537,7 @@ Task A returns View(table=T)
 Task B deserializes View
   ├── fresh source = Object(table=T); source._register() → INCREF(T)
   ├── view = View(source=source)   [_source_obj keeps source alive]
-  └── release_pins()               [FIFO: after INCREF commits]
+  └── release_pins() on success     [FIFO: after INCREF commits]
 ```
 
 The deserialized source Object holds its own `_owns_lifecycle_ref = True` and issues a normal `decref` at `task_scope` exit.

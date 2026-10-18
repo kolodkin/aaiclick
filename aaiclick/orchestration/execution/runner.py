@@ -377,13 +377,14 @@ async def execute_task(task: Task, shell_spec: ShellSpec | None = None) -> Any:
                 run_id=run_id,
             ):
                 kwargs = await deserialize_task_params(task.kwargs)
-                lifecycle = get_data_lifecycle()
-                if lifecycle is not None:
-                    lifecycle.release_pins()  # FIFO: after every INCREF from deserialization
                 if inspect.iscoroutinefunction(func):
                     result = await func(**kwargs)
                 else:
                     result = func(**kwargs)
+                lifecycle = get_data_lifecycle()
+                if lifecycle is not None:
+                    # Only on success: a failed attempt's pins hold its inputs for the retry.
+                    lifecycle.release_pins()
 
                 # A task may return a LazyOperator (e.g. ``return a + b`` without an
                 # explicit await). Materialize before serialization — orch's

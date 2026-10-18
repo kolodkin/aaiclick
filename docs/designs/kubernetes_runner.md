@@ -83,7 +83,7 @@ cancelled-overrides-result are all generic).
 |------------------|-----------------------------------------------------------------------------------|
 | `launch`         | `kubectl create` a per-attempt Secret holding the runner env (DB URLs), then `kubectl apply` a bare-Pod manifest reading it via `envFrom` (image_tag, `--task-id` / `--run-epoch`); handle = pod name + namespace + host log path |
 | `wait`           | Poll Pod phase to terminal/timeout, fetch `kubectl logs` to the host file, read the `remote_task_results` row and stash it on the handle; return `(exit_code, error)` |
-| `poll_cancelled` | `check_task_cancelled(task.id)` — reused unchanged from the Docker runner          |
+| `poll_cancelled` | `check_run_aborted(task.id, task.run_epoch)` — reused unchanged from the Docker runner |
 | `terminate`      | `kubectl delete` the Pod and its Secret (cancellation / timeout path)             |
 | `collect`        | Return the stashed result row; synthesize failure if absent; cancellation overrides |
 | `cleanup`        | `kubectl delete` the Pod and its Secret (idempotent); always runs, after logs are captured |
@@ -170,7 +170,7 @@ the worker loop already turns into a failed task. The job row is read only for
 `resources`, on both container runners.
 
 In-flight cancellation works from day one: `poll_cancelled` is wired to
-`check_task_cancelled`, so the driver deletes the Pod when a run is aborted,
+`check_run_aborted`, so the driver deletes the Pod when a run is cancelled or cleared,
 identical to the Docker `docker kill` path.
 
 # End-to-end test

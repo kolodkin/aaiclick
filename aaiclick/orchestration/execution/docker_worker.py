@@ -27,7 +27,7 @@ from typing import Any, NamedTuple
 from ..docker_config import add_host_flags, get_registry, resource_flags
 from ..models import Task
 from . import cli
-from .claiming import check_task_cancelled
+from .claiming import check_run_aborted
 from .docker_build import resolve_launch_image
 from .execution_worker import (
     POLL_INTERVAL,
@@ -249,7 +249,7 @@ class _DockerVehicle(TaskVehicle["_DockerHandle", "RunnerResult | None"]):
         return exit_code, error, result_row
 
     async def poll_cancelled(self, task: Task) -> bool:
-        return await check_task_cancelled(task.id)
+        return await check_run_aborted(task.id, task.run_epoch)
 
     async def terminate(self, handle: _DockerHandle) -> None:
         await _docker_kill(handle.container_id)
