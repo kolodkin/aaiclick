@@ -81,12 +81,12 @@ cancelled-overrides-result are all generic).
 
 | Method           | Kubernetes behaviour                                                              |
 |------------------|-----------------------------------------------------------------------------------|
-| `launch`         | `kubectl apply` a bare-Pod manifest (image_tag, env, `--task-id` / `--run-epoch`); handle = pod name + namespace + host log path |
+| `launch`         | `kubectl create` a per-attempt Secret holding the runner env (DB URLs), then `kubectl apply` a bare-Pod manifest reading it via `envFrom` (image_tag, `--task-id` / `--run-epoch`); handle = pod name + namespace + host log path |
 | `wait`           | Poll Pod phase to terminal/timeout, fetch `kubectl logs` to the host file, read the `remote_task_results` row and stash it on the handle; return `(exit_code, error)` |
 | `poll_cancelled` | `check_task_cancelled(task.id)` — reused unchanged from the Docker runner          |
-| `terminate`      | `kubectl delete pod` (cancellation / timeout path)                                |
+| `terminate`      | `kubectl delete` the Pod and its Secret (cancellation / timeout path)             |
 | `collect`        | Return the stashed result row; synthesize failure if absent; cancellation overrides |
-| `cleanup`        | `kubectl delete pod` (idempotent); always runs, after logs are captured           |
+| `cleanup`        | `kubectl delete` the Pod and its Secret (idempotent); always runs, after logs are captured |
 
 The Pod runs the shared container entrypoint (`remote_result.remote_entry_main`,
 also used by Docker containers): boot `orch_context`, run the task through the
