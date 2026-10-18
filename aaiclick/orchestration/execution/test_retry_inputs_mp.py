@@ -2,9 +2,7 @@
 asserts one feature of that run.
 
 Between attempts the run sweeps unreferenced tables, so only the failed
-attempt's pins keep the producer's table alive for the retry. Own module:
-the run lives in a module fixture on ``orch_module_ctx_no_ch``, which a
-per-test reset would wipe.
+attempt's pins keep the producer's table alive for the retry.
 """
 
 import pytest
@@ -27,7 +25,7 @@ async def _job(job_id: int) -> Job:
 
 
 @pytest.fixture(scope="module")
-async def retried_run(orch_module_ctx_no_ch, tmp_path_factory) -> tuple[Job, Task]:
+async def retried_run(orch_shared_ctx_no_ch, tmp_path_factory) -> tuple[Job, Task]:
     """The finished job and its consumer task."""
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr("aaiclick.orchestration.background.background_worker.RETRY_BASE_DELAY", 0.01)
