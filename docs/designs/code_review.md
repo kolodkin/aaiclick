@@ -1,10 +1,8 @@
 Code Review — 2026-10-18
 ---
 
-A whole-repo audit of correctness, multi-worker safety and dead code. The security findings are fixed. It assumes a distributed deployment: several execution workers, one background worker, and a shared server whose users have mixed roles (viewer, member, admin).
-
-Every finding comes from reading the code; none was reproduced at runtime.
-
+Open findings from a whole-repo audit (security findings are fixed), assuming a distributed
+deployment with several workers. All come from reading the code, none reproduced at runtime.
 Remove an entry once its fix lands.
 
 # Summary

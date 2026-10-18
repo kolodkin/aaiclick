@@ -72,9 +72,9 @@ free-text input: `validate_where_expression` (`aaiclick/data/sql_utils.py`,
 shared with the lineage agent's SQL guards) rejects comments, unbalanced
 parentheses, statement separators, DDL/DML keywords, and `SELECT` / `FROM` /
 `JOIN` / `UNION` / `WITH`, so it cannot leave its `WHERE (...)`. The built
-SELECT then goes through the lineage sandbox's parse-tree scope check against
-the object's one table, which catches `x IN other_table` and table functions,
-and runs with `readonly=2`. Columns come from the
+SELECT then passes the lineage sandbox's scope check against the object's own
+table (catching `x IN other_table` and table functions) and runs with
+`readonly=2`. Columns come from the
 object's registered schema, so there is no `DESCRIBE` step. Free-form SQL
 across objects is in `future.md`.
 

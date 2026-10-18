@@ -30,7 +30,7 @@ fails loudly instead of running with public secrets.
 | ClickHouse password  | `clickhouse.CLICKHOUSE_PASSWORD` + every `AAICLICK_CH_URL` | `devDependencies.clickhouse.password` + `env.chUrl`  |
 
 Database passwords appear twice — on the database service and in every URL that
-dials it. To set your own, change both sides together or the stack stops connecting. In the URL,
+dials it. To set your own, change both sides together. In the URL,
 percent-encode `@`, `:` and `/` (`p@ss` → `p%40ss`); the service side takes the
 password as is.
 

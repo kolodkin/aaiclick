@@ -178,6 +178,5 @@ behind for debugging.
 - **Generated credentials over helm `required`**: `init` writes a random value for every
   credential, so a first install works unmodified with nothing public. `required` would fail
   every install and e2e gate instead. A placeholder that reaches the server (a template copied
-  by hand) refuses startup rather than warning, since a log line nobody reads leaves a public
-  secret in use. Same pattern as the Postgres and MySQL images, which refuse to start without
-  a password.
+  by hand) refuses startup rather than warning: a log line nobody reads leaves a public secret
+  in use.

@@ -46,9 +46,8 @@ Password-reset variables are listed in their own section.
     In distributed mode with `AAICLICK_JWT_SECRET` unset, or still the scaffold's
     `change-me-...` placeholder, the server refuses to start. In local mode auth
     is disabled, every request is allowed, and the server logs a single startup
-    `WARNING`. `local start` binds loopback only, and the server answers only
-    requests whose `Host` is `127.0.0.1`, `localhost` or `[::1]`, so a web page
-    cannot reach it by rebinding its own domain to `127.0.0.1`.
+    `WARNING`. `local start` binds loopback only, and the server answers only a
+    loopback `Host` header, so DNS rebinding cannot reach it from a web page.
 
 # Data Model
 
@@ -189,9 +188,8 @@ Passwords are hashed with `bcrypt`. Access JWTs are signed HS256 with
   `code="mfa_required"` so the client can prompt for the code and retry — see
   [Multi-Factor Auth](#multi-factor-auth).
 - Five failed passwords or codes in a row lock login for 15 minutes (`401`,
-  "too many failed attempts"); each failure past the limit re-locks, and a
-  successful login resets the count. Without it a password, or the three TOTP
-  codes live at any moment, could be brute-forced.
+  "too many failed attempts"), so neither can be brute-forced; a success resets
+  the count.
 - Access JWT claims: `sub=<user_id>`, `role`, `exp`, `type="access"`.
 - Refresh token: a random opaque secret; only its `sha256` is stored in
   `refresh_tokens`.
